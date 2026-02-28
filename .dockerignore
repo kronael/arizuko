@@ -1,0 +1,12 @@
+cfg/
+tmp/
+.ship/
+.git
+openclaw/.git
+openclaw/node_modules
+openclaw/dist
+openclaw/apps
+openclaw/docs
+openclaw/test
+openclaw/Swabble
+openclaw/ui/node_modules

@@ -1,60 +1,43 @@
-# NanoClaw
+# kanipi
 
-Personal Claude assistant. See [README.md](README.md) for philosophy and setup. See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for architecture decisions.
+Nanoclaw fork with telegram support. Telegram-only gateway,
+systemd-managed instances, MCP sidecar extensibility.
 
-## Quick Context
+## Layout
 
-Single Node.js process that connects to WhatsApp, routes messages to Claude Agent SDK running in containers (Linux VMs). Each group has isolated filesystem and memory.
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `src/index.ts` | Orchestrator: state, message loop, agent invocation |
-| `src/channels/whatsapp.ts` | WhatsApp connection, auth, send/receive |
-| `src/ipc.ts` | IPC watcher and task processing |
-| `src/router.ts` | Message formatting and outbound routing |
-| `src/config.ts` | Trigger pattern, paths, intervals |
-| `src/container-runner.ts` | Spawns agent containers with mounts |
-| `src/task-scheduler.ts` | Runs scheduled tasks |
-| `src/db.ts` | SQLite operations |
-| `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
-| `container/skills/agent-browser.md` | Browser automation tool (available to all agents via Bash) |
-
-## Skills
-
-| Skill | When to Use |
-|-------|-------------|
-| `/setup` | First-time installation, authentication, service configuration |
-| `/customize` | Adding channels, integrations, changing behavior |
-| `/debug` | Container issues, logs, troubleshooting |
-| `/update` | Pull upstream NanoClaw changes, merge with customizations, run migrations |
-| `/qodo-pr-resolver` | Fetch and fix Qodo PR review issues interactively or in batch |
-| `/get-qodo-rules` | Load org- and repo-level coding rules from Qodo before code tasks |
-
-## Development
-
-Run commands directly—don't tell the user to run them.
-
-```bash
-npm run dev          # Run with hot reload
-npm run build        # Compile TypeScript
-./container/build.sh # Rebuild agent container
+```
+template/             seed for new instances
+  workspace/
+    skills/           curated skills (ship, reload, info)
+    mcporter.json     MCP sidecar configs
+container/            agent container build
+  Dockerfile          agent image
+  build.sh            agent image builder
+  agent-runner        agent entrypoint
+  skills/             agent-side skills
+sidecar/              adjacent MCP servers
+kanipi                container entrypoint
+Dockerfile            nanoclaw gateway build
+Makefile              build
 ```
 
-Service management:
-```bash
-# macOS (launchd)
-launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
-launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
-launchctl kickstart -k gui/$(id -u)/com.nanoclaw  # restart
+## Data Dir
 
-# Linux (systemd)
-systemctl --user start nanoclaw
-systemctl --user stop nanoclaw
-systemctl --user restart nanoclaw
-```
+`/srv/data/kanipi_<name>/` per instance:
+- `.env` - config (nanoclaw reads from cwd)
+- `.claude/skills/` - seeded from template
+- `groups/main/logs/` - conversation logs
+- `store/` - persistent state
+- `data/` - instance data
 
-## Container Build Cache
+## Entrypoint
 
-The container buildkit caches the build context aggressively. `--no-cache` alone does NOT invalidate COPY steps — the builder's volume retains stale files. To force a truly clean rebuild, prune the builder then re-run `./container/build.sh`.
+Two modes:
+- `kanipi create <name>` - seed data dir, .env, systemd
+- `kanipi <instance>` - cd to home, exec nanoclaw
+
+## Extensibility
+
+MCP sidecars in `sidecar/` registered via mcporter.
+Write a binary, expose as MCP server, agent calls tools
+natively.
