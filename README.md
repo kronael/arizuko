@@ -12,11 +12,27 @@ make agent-image    # build agent docker image
 ./kanipi create foo # seed instance at /srv/data/kanipi_foo/
 ```
 
-Edit `/srv/data/kanipi_foo/.env` with channel tokens, then start:
+Edit `/srv/data/kanipi_foo/.env` with channel tokens, then
+register the main group and start:
 
 ```bash
-./kanipi foo
+./kanipi group add foo tg:-123456789  # register main group
+./kanipi foo                          # start gateway
 ```
+
+## Group Management
+
+Groups must be registered before the bot processes messages.
+
+```bash
+kanipi group list <instance>              # registered + discovered
+kanipi group add <instance> <jid> [folder]  # register group
+kanipi group rm <instance> <jid>          # unregister (not main)
+```
+
+First group added defaults to folder `main` with direct mode
+(no trigger required). Subsequent groups require a folder name
+and use trigger mode (`@assistant_name` to activate).
 
 ## Architecture
 

@@ -66,7 +66,7 @@ template/             seed for new instances
   web/                vite web app template
   workspace/skills/   curated skills (ship, reload, info, web)
 sidecar/              MCP server binaries
-kanipi                bash entrypoint (create/run/vite)
+kanipi                bash entrypoint (create/run/group/vite)
 ```
 
 ## Data Dir
@@ -91,5 +91,11 @@ auth dir existence (whatsapp).
 ## Entrypoint
 
 `kanipi create <name>` — seed data dir, .env, systemd unit.
+`kanipi group list|add|rm <instance>` — manage registered groups.
 `kanipi <instance>` — cd to home, run gateway + vite
 (restart loop). VITE_PORT/WEB_HOST configured in .env.
+
+Group commands use `node -e` with better-sqlite3 against
+`/srv/data/kanipi_$instance/store/db.sqlite`. First group
+defaults to folder=main, requires_trigger=0. Subsequent
+groups require folder arg and use trigger mode.
