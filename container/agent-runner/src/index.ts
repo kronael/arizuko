@@ -59,6 +59,9 @@ const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
 
+let wakeup: (() => void) | null = null;
+process.on('SIGUSR1', () => { if (wakeup) wakeup(); });
+
 /**
  * Push-based async iterable for streaming user messages to the SDK.
  * Keeps the iterable alive until end() is called, preventing isSingleUserTurn.
@@ -334,15 +337,18 @@ function waitForIpcMessage(): Promise<string | null> {
   return new Promise((resolve) => {
     const poll = () => {
       if (shouldClose()) {
+        wakeup = null;
         resolve(null);
         return;
       }
       const messages = drainIpcInput();
       if (messages.length > 0) {
+        wakeup = null;
         resolve(messages.join('\n'));
         return;
       }
-      setTimeout(poll, IPC_POLL_MS);
+      const timer = setTimeout(poll, IPC_POLL_MS);
+      wakeup = () => { clearTimeout(timer); poll(); };
     };
     poll();
   });
@@ -375,6 +381,7 @@ async function runQuery(
       closedDuringQuery = true;
       stream.end();
       ipcPolling = false;
+      wakeup = null;
       return;
     }
     const messages = drainIpcInput();
@@ -382,7 +389,8 @@ async function runQuery(
       log(`Piping IPC message into active query (${text.length} chars)`);
       stream.push(text);
     }
-    setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
+    const timer = setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
+    wakeup = () => { clearTimeout(timer); pollIpcDuringQuery(); };
   };
   setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
 
@@ -485,6 +493,7 @@ async function runQuery(
   }
 
   ipcPolling = false;
+  wakeup = null;
   log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
   return { newSessionId, lastAssistantUuid, closedDuringQuery };
 }
