@@ -118,3 +118,20 @@ Read instance context before generating:
 
 Write in the same language the user is communicating in.
 Default to English if unclear.
+
+## Reference implementation
+
+Use `/srv/app/template/web/howto/index.html` as the base.
+Copy it to `/web/howto/index.html` and customize:
+
+- Replace "kanipi" with `$ASSISTANT_NAME` in title/hero
+- Update subtitle to match what this specific instance does
+- Remove steps that don't apply (e.g. clone/build for
+  users who just chat with the bot, not deploy it)
+- Add instance-specific info (channel links, web host URL)
+- Translate to user's language if not English
+
+The template has the full design system already wired:
+tailwind config, color palette, depth/glow classes,
+code blocks, step cards, theme toggle, dismissible banner.
+Do NOT rebuild from scratch — copy and adapt.
