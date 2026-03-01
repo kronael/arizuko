@@ -108,9 +108,11 @@ Then `systemctl enable --now kanipi_foo`.
 ## Development
 
 ```bash
-npm run build       # tsc compile (src/ -> dist/)
+make build          # tsc compile (src/ -> dist/)
+make lint           # typecheck without emitting
+make test           # runs lint
 npm run dev         # tsx dev mode
-npx tsc --noEmit    # typecheck
+npx vitest run      # run tests (requires docker for some)
 ```
 
 Pre-commit hooks: prettier (single quotes), typecheck, hygiene.

@@ -31,7 +31,7 @@ TypeScript (ESM, NodeNext). Gateway polls channels for
 messages, routes to containerized Claude agents via docker.
 
 **Flow**: Channel → DB (store message) → message loop polls
-→ GroupQueue → runContainerAgent (docker exec) → stream
+→ GroupQueue → runContainerAgent (docker run) → stream
 output back to channel.
 
 Key modules:
