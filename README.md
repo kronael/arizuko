@@ -62,6 +62,44 @@ All via `.env` (seeded from `template/env.example`):
 Channels enabled by token presence (telegram/discord) or
 auth dir existence (whatsapp).
 
+## Deployment
+
+Run directly with docker:
+
+```bash
+docker run -d --name kanipi_foo \
+    --network=host \
+    -v /srv/data/kanipi_foo:/srv/app/home \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    kanipi foo
+```
+
+Or with systemd — create `/etc/systemd/system/kanipi_foo.service`:
+
+```ini
+[Unit]
+Description=kanipi foo
+After=docker.service
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=1
+ExecStartPre=-/usr/bin/docker stop %n
+ExecStartPre=-/usr/bin/docker rm -f %n
+ExecStop=/usr/bin/docker rm -f %n
+ExecStart=/usr/bin/docker run -i --rm --name %n \
+    --network=host \
+    -v /srv/data/kanipi_foo:/srv/app/home \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    kanipi foo
+
+[Install]
+WantedBy=default.target
+```
+
+Then `systemctl enable --now kanipi_foo`.
+
 ## Development
 
 ```bash
