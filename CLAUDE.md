@@ -31,6 +31,7 @@ messages, routes to containerized Claude agents via docker.
 output back to channel.
 
 Key modules:
+
 - `index.ts` — main loop, channel init, message routing
 - `config.ts` — all config from `.env` + env vars
 - `db.ts` — SQLite (better-sqlite3) for messages, state, tasks
@@ -64,6 +65,7 @@ kanipi                bash entrypoint (create/run)
 ## Data Dir
 
 `/srv/data/kanipi_<name>/` per instance:
+
 - `.env` — config (gateway reads from cwd)
 - `state/` — persistent state, SQLite DB, whatsapp auth
 - `groups/main/logs/` — conversation logs

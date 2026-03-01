@@ -49,34 +49,35 @@ Channel (WhatsApp / Telegram / Discord / Slack)
 ```
 
 Three orthogonal components, separated not tangled:
+
 - **wire** routes messages to agents. Does not execute agents.
 - **tap** intercepts tool calls with middleware. Does not route messages.
 - **box** isolates the agent. Does not intercept tools or route messages.
 
 ## Source Map
 
-| File | LOC | Role |
-|------|-----|------|
-| `index.ts` | 479 | Main orchestrator. Polls SQLite, deduplicates, routes to queue |
-| `container-runner.ts` | 447 | Spawns Docker containers. Builds mounts. Passes secrets via stdin |
-| `mount-security.ts` | 419 | Mount validation. 17-pattern blocklist. Path traversal prevention |
-| `db.ts` | 414 | SQLite: messages, groups, tasks, state |
-| `group-queue.ts` | 299 | Concurrency control (max N containers). Exponential backoff |
-| `channels/whatsapp.ts` | 298 | WhatsApp via baileys |
-| `ipc.ts` | 270 | Filesystem IPC. 1s polling. Message/task routing |
-| `task-scheduler.ts` | 256 | Cron/interval/one-shot. 60s poll |
-| `config.ts` | 199 | YAML config with ${ENV} interpolation. Singleton |
-| `channels/telegram.ts` | 152 | Telegram bot API long-polling |
-| `types.ts` | 151 | All interfaces |
-| `tap.ts` | 141 | Tool middleware pipeline. Glob matching. Credential injection |
-| `container-runtime.ts` | 87 | Docker abstraction. Health checks. Orphan cleanup |
-| `wire.ts` | 87 | 4-tier binding cascade: peer > account > channel > default |
-| `channels/index.ts` | 49 | Channel registry and dispatch |
-| `group-folder.ts` | 44 | Folder name validation and path resolution |
-| `env.ts` | 42 | Environment detection |
-| `router.ts` | 38 | XML message formatting, injection escaping |
-| `credentials.ts` | 28 | Credential store. Env-sourced. Lookup by name |
-| `logger.ts` | 16 | Pino logger |
+| File                   | LOC | Role                                                              |
+| ---------------------- | --- | ----------------------------------------------------------------- |
+| `index.ts`             | 479 | Main orchestrator. Polls SQLite, deduplicates, routes to queue    |
+| `container-runner.ts`  | 447 | Spawns Docker containers. Builds mounts. Passes secrets via stdin |
+| `mount-security.ts`    | 419 | Mount validation. 17-pattern blocklist. Path traversal prevention |
+| `db.ts`                | 414 | SQLite: messages, groups, tasks, state                            |
+| `group-queue.ts`       | 299 | Concurrency control (max N containers). Exponential backoff       |
+| `channels/whatsapp.ts` | 298 | WhatsApp via baileys                                              |
+| `ipc.ts`               | 270 | Filesystem IPC. 1s polling. Message/task routing                  |
+| `task-scheduler.ts`    | 256 | Cron/interval/one-shot. 60s poll                                  |
+| `config.ts`            | 199 | YAML config with ${ENV} interpolation. Singleton                  |
+| `channels/telegram.ts` | 152 | Telegram bot API long-polling                                     |
+| `types.ts`             | 151 | All interfaces                                                    |
+| `tap.ts`               | 141 | Tool middleware pipeline. Glob matching. Credential injection     |
+| `container-runtime.ts` | 87  | Docker abstraction. Health checks. Orphan cleanup                 |
+| `wire.ts`              | 87  | 4-tier binding cascade: peer > account > channel > default        |
+| `channels/index.ts`    | 49  | Channel registry and dispatch                                     |
+| `group-folder.ts`      | 44  | Folder name validation and path resolution                        |
+| `env.ts`               | 42  | Environment detection                                             |
+| `router.ts`            | 38  | XML message formatting, injection escaping                        |
+| `credentials.ts`       | 28  | Credential store. Env-sourced. Lookup by name                     |
+| `logger.ts`            | 16  | Pino logger                                                       |
 
 ## Config Format
 
@@ -84,12 +85,12 @@ Single `config.yaml` with `${VAR}` env interpolation:
 
 ```yaml
 assistant:
-  name: "Arizuka"
-  trigger: "@Arizuka"
-  defaultAgent: "main"
+  name: 'Arizuka'
+  trigger: '@Arizuka'
+  defaultAgent: 'main'
 
 container:
-  image: "arizuka-agent:latest"
+  image: 'arizuka-agent:latest'
   timeout: 1800000
   maxConcurrent: 5
   idleTimeout: 1800000
@@ -99,13 +100,13 @@ channels:
     enabled: false
   telegram:
     enabled: false
-    token: "${TELEGRAM_BOT_TOKEN}"
+    token: '${TELEGRAM_BOT_TOKEN}'
 
 autoRegister: true
 
 agents:
   main:
-    personality: "You are a helpful assistant."
+    personality: 'You are a helpful assistant.'
     # network: true
     # image: "custom:latest"
     # timeout: 3600000
@@ -115,22 +116,22 @@ agents:
     #     readonly: true
 
 bindings:
-  - match: { channel: "telegram", peer: "tg:-1001234567" }
-    agent: "research"
-  - match: { channel: "telegram" }
-    agent: "main"
+  - match: { channel: 'telegram', peer: 'tg:-1001234567' }
+    agent: 'research'
+  - match: { channel: 'telegram' }
+    agent: 'main'
 
 routes:
-  - match: { tool: "web_search" }
+  - match: { tool: 'web_search' }
     middleware:
-      - type: "inject-header"
-        header: "Authorization"
-        credential: "serpapi-key"
+      - type: 'inject-header'
+        header: 'Authorization'
+        credential: 'serpapi-key'
 
 credentials:
   serpapi-key:
-    source: "env"
-    envVar: "SERPAPI_API_KEY"
+    source: 'env'
+    envVar: 'SERPAPI_API_KEY'
 ```
 
 ## Wire (Message Routing)
@@ -145,6 +146,7 @@ credentials:
 Session key: `agent:{agentId}:{channel}:{peerId}`
 
 Interface:
+
 ```typescript
 interface RouteInput {
   channel: string;
@@ -170,6 +172,7 @@ Pipeline intercepts tool calls before execution. Glob matching on tool
 names. Per-agent scoping optional.
 
 Middleware types:
+
 - **inject-credential** -- adds credential as env var or HTTP header
 - **inject-header** -- shorthand for header injection
 - **reject** -- blocks the tool call with reason
@@ -198,12 +201,12 @@ Docker container per agent invocation. Mounts explicitly controlled.
 
 ### Mount structure (main agent)
 
-| Mount | Mode | Purpose |
-|-------|------|---------|
-| Project root -> `/workspace/project` | ro | Agent can't modify its own code |
-| Group folder -> `/workspace/group` | rw | Agent's persistent workspace |
-| Session dir -> `/home/node/.claude` | rw | Claude session persistence |
-| IPC dir -> `/workspace/ipc` | rw | Agent <-> host communication |
+| Mount                                | Mode | Purpose                         |
+| ------------------------------------ | ---- | ------------------------------- |
+| Project root -> `/workspace/project` | ro   | Agent can't modify its own code |
+| Group folder -> `/workspace/group`   | rw   | Agent's persistent workspace    |
+| Session dir -> `/home/node/.claude`  | rw   | Claude session persistence      |
+| IPC dir -> `/workspace/ipc`          | rw   | Agent <-> host communication    |
 
 ### Mount security
 
@@ -298,14 +301,15 @@ Three modes: `cron`, `interval`, `once`. 60s poll cycle. Context modes:
 
 ## Channels
 
-| Channel | Status | Implementation |
-|---------|--------|---------------|
-| WhatsApp | Built | baileys (`@whiskeysockets/baileys`) |
-| Telegram | Built | Bot API long-polling |
-| Discord | Phase 2 | Channel interface ready |
-| Web | Phase 2 | Channel interface ready |
+| Channel  | Status  | Implementation                      |
+| -------- | ------- | ----------------------------------- |
+| WhatsApp | Built   | baileys (`@whiskeysockets/baileys`) |
+| Telegram | Built   | Bot API long-polling                |
+| Discord  | Phase 2 | Channel interface ready             |
+| Web      | Phase 2 | Channel interface ready             |
 
 Channel interface:
+
 ```typescript
 interface Channel {
   name: string;
@@ -326,12 +330,12 @@ Each agent inherits container defaults, can override:
 
 ```typescript
 interface AgentConfig {
-  personality?: string;     // CLAUDE.md content
-  image?: string;           // container image override
+  personality?: string; // CLAUDE.md content
+  image?: string; // container image override
   mounts?: AdditionalMount[]; // extra host dirs
-  network?: boolean;        // network access (default: true)
-  timeout?: number;         // per-agent timeout
-  maxConcurrent?: number;   // per-agent concurrency limit
+  network?: boolean; // network access (default: true)
+  timeout?: number; // per-agent timeout
+  maxConcurrent?: number; // per-agent concurrency limit
 }
 ```
 
@@ -342,10 +346,12 @@ Zero SDK imports on host side. Every file (`index.ts`,
 `task-scheduler.ts`, `db.ts`) has zero `@anthropic-ai` imports.
 
 SDK lives entirely in two container-side files:
+
 - `container/agent-runner/src/index.ts` (agent entry point)
 - `ipc-mcp-stdio.ts` (MCP tool proxy)
 
 Host startup:
+
 1. `loadConfig()` -> `initDatabase()` -> `connectChannels()` -> `startSchedulerLoop(60s)` -> `startIpcWatcher()` -> `startMessageLoop(2s)`
 2. Message -> `resolveRoute()` -> `queue.enqueue()` -> `runContainerAgent()` -> `docker run -i --rm`
 3. Container: compile TS, read stdin JSON, run agent, write stdout JSON
@@ -353,6 +359,7 @@ Host startup:
 ## What This Is Not
 
 This is not a framework, not a platform, not a marketplace. It is:
+
 - A host process that routes messages to containers
 - A middleware pipeline that intercepts tool calls
 - A container runner that isolates agents
