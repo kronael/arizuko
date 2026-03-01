@@ -12,10 +12,10 @@ test: lint
 image:
 	docker build -t $(image) .
 
-agent-image:
+image-agent:
 	./container/build.sh $(agent_image)
 
 clean:
 	rm -rf tmp/ dist/
 
-.PHONY: build lint test image agent-image clean
+.PHONY: build lint test image image-agent clean
