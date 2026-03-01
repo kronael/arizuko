@@ -96,6 +96,7 @@ auth dir existence (whatsapp).
 (restart loop). VITE_PORT/WEB_HOST configured in .env.
 
 Group commands use `node -e` with better-sqlite3 against
-`/srv/data/kanipi_$instance/store/db.sqlite`. First group
-defaults to folder=main, requires_trigger=0. Subsequent
-groups require folder arg and use trigger mode.
+`/srv/data/kanipi_$instance/store/db.sqlite`. `group add`
+creates the DB + schema if missing (solves bootstrap).
+First group defaults to folder=main, requires_trigger=0.
+Subsequent groups require folder arg and use trigger mode.

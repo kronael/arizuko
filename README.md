@@ -12,8 +12,8 @@ make agent-image    # build agent docker image
 ./kanipi create foo # seed instance at /srv/data/kanipi_foo/
 ```
 
-Edit `/srv/data/kanipi_foo/.env` with channel tokens, then
-register the main group and start:
+Edit `/srv/data/kanipi_foo/.env` with channel tokens,
+register the main group, and start:
 
 ```bash
 ./kanipi group add foo tg:-123456789  # register main group
@@ -70,9 +70,10 @@ auth dir existence (whatsapp: `store/auth/creds.json`).
 Run directly with docker:
 
 ```bash
-docker run -d --name kanipi_foo \
+docker run -d -i --name kanipi_foo \
     --network=host \
     -v /srv/data/kanipi_foo:/srv/app/home \
+    -v /srv/run/kanipi_foo:/srv/run/kanipi_foo \
     -v /var/run/docker.sock:/var/run/docker.sock \
     kanipi foo
 ```
@@ -94,6 +95,7 @@ ExecStop=/usr/bin/docker rm -f %n
 ExecStart=/usr/bin/docker run -i --rm --name %n \
     --network=host \
     -v /srv/data/kanipi_foo:/srv/app/home \
+    -v /srv/run/kanipi_foo:/srv/run/kanipi_foo \
     -v /var/run/docker.sock:/var/run/docker.sock \
     kanipi foo
 
