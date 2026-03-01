@@ -11,11 +11,11 @@ systemd-managed instances, MCP sidecar extensibility.
 ## Build & Test
 
 ```bash
+make build          # tsc compile (src/ → dist/)
+make lint           # typecheck without emitting
 make image          # gateway docker image
 make agent-image    # agent docker image
-npm run build       # tsc compile (src/ → dist/)
 npm run dev         # tsx dev mode
-npx tsc --noEmit    # typecheck without emitting
 ```
 
 No test runner configured — tests are `*.test.ts` files
