@@ -1,6 +1,14 @@
 image := kanipi
 agent_image := kanipi-agent
 
+build:
+	npx tsc
+
+lint:
+	npx tsc --noEmit
+
+test: lint
+
 image:
 	docker build -t $(image) .
 
@@ -10,4 +18,4 @@ agent-image:
 clean:
 	rm -rf tmp/ dist/
 
-.PHONY: image agent-image clean
+.PHONY: build lint test image agent-image clean
