@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>kanipi - getting started</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: ['selector', '[data-theme="dark"]'],
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+          },
+          colors: {
+            leather:  { 50:'#faf6f1', 100:'#f3ece2', 200:'#e6d7c5', 300:'#d4bb9e', 400:'#c09a74', 500:'#a87d55', 600:'#8b6914', 700:'#7a5230', 800:'#5c4a3a', 900:'#2e1f13' },
+            hay:      { 400:'#e0bc5a', 500:'#d4a843', 600:'#b89030' },
+            field:    { 400:'#7abd82', 500:'#5a8f5c', 600:'#4a7c59' },
+            copper:   { 400:'#d9944a', 500:'#b87333', 600:'#9a5e28' },
+            sky:      { 400:'#8ecae6', 500:'#6a9ec0', 600:'#4e82a4' },
+            rosette:  { 400:'#e06080', 500:'#c0485e', 600:'#a03048' },
+            stable:   { 50:'#faf6f1', 100:'#f3ece2', 800:'#1e1810', 900:'#141009', 950:'#120e08' },
+          },
+        },
+      },
+    }
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    ::selection { background: rgba(139,105,20,0.14); }
+    [data-theme="dark"] ::selection { background: rgba(212,168,67,0.18); }
+
+    body {
+      background-image: radial-gradient(circle, rgba(60,40,20,0.045) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+    [data-theme="dark"] body {
+      background-image: radial-gradient(circle, rgba(232,221,208,0.03) 1px, transparent 1px);
+    }
+
+    .depth-sm { box-shadow: 0 1px 3px rgba(46,31,19,0.04), 0 2px 8px rgba(46,31,19,0.03); }
+    .depth-md { box-shadow: 0 2px 4px rgba(46,31,19,0.05), 0 6px 20px rgba(46,31,19,0.05), 0 10px 36px rgba(46,31,19,0.025); }
+    .depth-lg { box-shadow: 0 4px 8px rgba(46,31,19,0.05), 0 10px 28px rgba(46,31,19,0.07), 0 20px 52px rgba(46,31,19,0.04); }
+    [data-theme="dark"] .depth-sm { box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
+    [data-theme="dark"] .depth-md { box-shadow: 0 2px 8px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.18); }
+    [data-theme="dark"] .depth-lg { box-shadow: 0 4px 12px rgba(0,0,0,0.35), 0 14px 40px rgba(0,0,0,0.22); }
+
+    .glow { box-shadow: 0 0 0 1px rgba(139,105,20,0.12), 0 2px 8px rgba(139,105,20,0.06); }
+    .glow:hover { box-shadow: 0 0 0 1px rgba(139,105,20,0.25), 0 4px 16px rgba(139,105,20,0.1); }
+    [data-theme="dark"] .glow { box-shadow: 0 0 0 1px rgba(212,168,67,0.15), 0 2px 10px rgba(212,168,67,0.06); }
+    [data-theme="dark"] .glow:hover { box-shadow: 0 0 0 1px rgba(212,168,67,0.35), 0 4px 18px rgba(212,168,67,0.12); }
+
+    .step-card {
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .step-card:hover { transform: translateY(-2px); }
+
+    .color-strip { height: 3px; border-radius: 3px 3px 0 0; }
+
+    .code-block { background: #2e1f13; color: #e8ddd0; border-radius: 10px; overflow: hidden; }
+    [data-theme="dark"] .code-block { background: #120e08; }
+    .code-block .code-header {
+      background: rgba(255,255,255,0.04);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 0.5rem 1rem;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .code-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .code-block pre { padding: 1rem 1.2rem; font-size: 0.82rem; line-height: 1.7; overflow-x: auto; margin: 0; }
+    .c-kw { color: #d4a843; }
+    .c-str { color: #6db87a; }
+    .c-num { color: #8ecae6; }
+    .c-dim { color: #6d5e50; }
+    .c-prompt { color: #7a6a5a; }
+
+    .feat-card {
+      transition: all 0.2s ease;
+    }
+    .feat-card:hover { transform: translateY(-3px); }
+
+    .toc-item { transition: all 0.15s ease; border-left: 2px solid transparent; }
+    .toc-item:hover { border-left-color: #8b6914; padding-left: 1rem; }
+    [data-theme="dark"] .toc-item:hover { border-left-color: #d4a843; }
+
+    .tag {
+      font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase;
+      font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="font-sans bg-stable-50 dark:bg-stable-900 text-leather-800 dark:text-leather-300 min-h-screen scroll-smooth">
+
+  <button class="theme-toggle" style="
+    position:fixed;top:1.2em;right:1.2em;z-index:1000;
+    width:2.5em;height:2.5em;border-radius:50%;cursor:pointer;
+    font-size:1em;display:flex;align-items:center;justify-content:center;
+    background:var(--card,#fff);border:1px solid rgba(60,40,20,0.08);
+  "></button>
+
+  <div class="max-w-2xl mx-auto px-5 sm:px-8 py-10">
+
+    <!-- INFO BANNER -->
+    <div id="info-banner" class="bg-white dark:bg-stable-800 depth-sm rounded-xl p-4 mb-6 border border-leather-200/40 dark:border-leather-900/30 flex items-start gap-3" style="display:none">
+      <span class="w-1.5 h-1.5 rounded-full bg-sky-500 mt-2 shrink-0"></span>
+      <p class="text-sm text-leather-500 dark:text-leather-400 flex-1">This is the getting started guide. Once set up, your agent can deploy apps here and replace this page.</p>
+      <button onclick="document.getElementById('info-banner').remove();localStorage.setItem('kanipi-howto-dismissed','1')" class="text-leather-300 dark:text-leather-800 hover:text-leather-500 dark:hover:text-leather-400 text-lg leading-none shrink-0 cursor-pointer" style="background:none;border:none">&times;</button>
+    </div>
+    <script>if(!localStorage.getItem('kanipi-howto-dismissed')){document.getElementById('info-banner').style.display='flex'}</script>
+
+    <!-- HERO -->
+    <header class="text-center pt-8 pb-14 mb-10 border-b border-leather-200 dark:border-leather-900/50">
+      <div class="inline-flex items-center gap-2 mb-5 px-3 py-1.5 bg-white dark:bg-stable-800 depth-sm rounded-full border border-leather-200/50 dark:border-leather-900/30">
+        <span class="w-2 h-2 rounded-full bg-field-500 dark:bg-field-400" style="animation:pulse 2s infinite"></span>
+        <span class="text-xs font-semibold text-leather-400 tracking-wide uppercase">howto</span>
+      </div>
+      <h1 class="text-5xl sm:text-7xl font-black text-leather-900 dark:text-leather-100 mb-5 leading-[1.05] tracking-tight">
+        kanipi
+      </h1>
+      <p class="text-lg sm:text-xl text-leather-400 max-w-sm mx-auto leading-relaxed font-medium">
+        Claude AI agent across telegram, whatsapp, and discord.<br>
+        From your phone.
+      </p>
+    </header>
+
+    <!-- INTRO -->
+    <div class="bg-white dark:bg-stable-800 depth-md rounded-2xl p-6 sm:p-8 mb-10 border border-leather-200/40 dark:border-leather-900/30 relative overflow-hidden">
+      <div class="absolute top-0 left-0 right-0 h-1" style="background: linear-gradient(90deg, #8b6914, #5a8f5c, #b87333, #6a9ec0)"></div>
+      <p class="text-leather-600 dark:text-leather-300 text-base sm:text-lg leading-relaxed font-medium">
+        A multitenant Claude agent gateway. Send it a message on Telegram, Discord, or WhatsApp &mdash;
+        it reads and edits files, runs commands, searches the web, and deploys web apps via Vite.
+        Each conversation gets its own container.
+      </p>
+    </div>
+
+    <!-- TOC -->
+    <div class="bg-white dark:bg-stable-800 depth-sm rounded-2xl p-6 mb-12 border border-leather-200/40 dark:border-leather-900/30">
+      <div class="text-xs font-bold text-leather-400 dark:text-leather-800 tracking-widest uppercase mb-4">Contents</div>
+      <div class="space-y-0.5">
+        <a href="#s1" class="toc-item block py-1.5 pl-3 text-sm text-leather-500 dark:text-leather-400 font-medium no-underline"><span class="text-hay-600 dark:text-hay-400 font-mono mr-2">01</span> Prerequisites</a>
+        <a href="#s2" class="toc-item block py-1.5 pl-3 text-sm text-leather-500 dark:text-leather-400 font-medium no-underline"><span class="text-hay-600 dark:text-hay-400 font-mono mr-2">02</span> Clone and build</a>
+        <a href="#s3" class="toc-item block py-1.5 pl-3 text-sm text-leather-500 dark:text-leather-400 font-medium no-underline"><span class="text-hay-600 dark:text-hay-400 font-mono mr-2">03</span> Create instance</a>
+        <a href="#s4" class="toc-item block py-1.5 pl-3 text-sm text-leather-500 dark:text-leather-400 font-medium no-underline"><span class="text-hay-600 dark:text-hay-400 font-mono mr-2">04</span> Configure</a>
+        <a href="#s5" class="toc-item block py-1.5 pl-3 text-sm text-leather-500 dark:text-leather-400 font-medium no-underline"><span class="text-hay-600 dark:text-hay-400 font-mono mr-2">05</span> Start</a>
+        <a href="#s6" class="toc-item block py-1.5 pl-3 text-sm text-leather-500 dark:text-leather-400 font-medium no-underline"><span class="text-hay-600 dark:text-hay-400 font-mono mr-2">06</span> Usage</a>
+      </div>
+    </div>
+
+    <!-- SECTION LABEL -->
+    <div class="flex items-center gap-3 mb-8">
+      <div class="w-5 h-1 bg-hay-500 rounded-full"></div>
+      <span class="text-xs font-bold text-leather-400 tracking-[0.2em] uppercase">Setup</span>
+      <div class="flex-1 h-px bg-leather-200/60 dark:bg-leather-900/40"></div>
+    </div>
+
+    <!-- STEPS -->
+    <div class="space-y-6 mb-16">
+
+      <!-- 01 -->
+      <div id="s1" class="step-card bg-white dark:bg-stable-800 depth-md rounded-2xl overflow-hidden border border-leather-200/40 dark:border-leather-900/30">
+        <div class="color-strip" style="background: linear-gradient(90deg, #8b6914, #d4a843)"></div>
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="w-8 h-8 rounded-lg bg-hay-500/10 text-hay-600 dark:text-hay-400 flex items-center justify-center text-xs font-bold font-mono">01</span>
+            <h3 class="text-leather-900 dark:text-leather-100 font-bold text-base">Prerequisites</h3>
+          </div>
+          <div class="space-y-2.5 ml-11">
+            <div class="flex items-start gap-2.5"><span class="w-1.5 h-1.5 rounded-full bg-hay-500 mt-2 shrink-0"></span><span class="text-sm text-leather-600 dark:text-leather-300">Docker on your server</span></div>
+            <div class="flex items-start gap-2.5"><span class="w-1.5 h-1.5 rounded-full bg-hay-500 mt-2 shrink-0"></span><span class="text-sm text-leather-600 dark:text-leather-300">A messaging account &mdash; Telegram, Discord, or WhatsApp</span></div>
+            <div class="flex items-start gap-2.5"><span class="w-1.5 h-1.5 rounded-full bg-hay-500 mt-2 shrink-0"></span><span class="text-sm text-leather-600 dark:text-leather-300">Claude OAuth token from <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-copper-500 border border-leather-200/40 dark:border-leather-900/30">claude.ai</code></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 02 -->
+      <div id="s2" class="step-card bg-white dark:bg-stable-800 depth-md rounded-2xl overflow-hidden border border-leather-200/40 dark:border-leather-900/30">
+        <div class="color-strip" style="background: linear-gradient(90deg, #5a8f5c, #7abd82)"></div>
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="w-8 h-8 rounded-lg bg-field-500/10 text-field-600 dark:text-field-400 flex items-center justify-center text-xs font-bold font-mono">02</span>
+            <h3 class="text-leather-900 dark:text-leather-100 font-bold text-base">Clone and build</h3>
+          </div>
+          <div class="ml-11">
+            <div class="code-block depth-lg">
+              <div class="code-header"><span class="code-dot" style="background:#c0485e"></span><span class="code-dot" style="background:#d4a843"></span><span class="code-dot" style="background:#5a8f5c"></span><span class="text-xs ml-2" style="color:#6d5e50">terminal</span></div>
+              <pre class="font-mono"><code><span class="c-prompt">$</span> git clone https://github.com/REDACTED/kanipi
+<span class="c-prompt">$</span> <span class="c-kw">cd</span> kanipi
+<span class="c-prompt">$</span> make image <span class="c-dim">&amp;&amp;</span> make agent-image</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 03 -->
+      <div id="s3" class="step-card bg-white dark:bg-stable-800 depth-md rounded-2xl overflow-hidden border border-leather-200/40 dark:border-leather-900/30">
+        <div class="color-strip" style="background: linear-gradient(90deg, #b87333, #d9944a)"></div>
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="w-8 h-8 rounded-lg bg-copper-500/10 text-copper-600 dark:text-copper-400 flex items-center justify-center text-xs font-bold font-mono">03</span>
+            <h3 class="text-leather-900 dark:text-leather-100 font-bold text-base">Create instance</h3>
+          </div>
+          <div class="ml-11">
+            <div class="code-block depth-lg mb-4">
+              <div class="code-header"><span class="code-dot" style="background:#c0485e"></span><span class="code-dot" style="background:#d4a843"></span><span class="code-dot" style="background:#5a8f5c"></span><span class="text-xs ml-2" style="color:#6d5e50">terminal</span></div>
+              <pre class="font-mono"><code><span class="c-prompt">$</span> ./kanipi create mybot</code></pre>
+            </div>
+            <p class="text-xs text-leather-400 font-semibold uppercase tracking-wider mb-2">Creates:</p>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-sm text-leather-600 dark:text-leather-300"><span class="w-1 h-1 rounded-full bg-copper-500"></span><code class="font-mono text-xs text-copper-600 dark:text-copper-400">/srv/data/kanipi_mybot/.env</code><span class="text-leather-300 dark:text-leather-800">&mdash;</span> configuration</div>
+              <div class="flex items-center gap-2 text-sm text-leather-600 dark:text-leather-300"><span class="w-1 h-1 rounded-full bg-copper-500"></span><code class="font-mono text-xs text-copper-600 dark:text-copper-400">/srv/data/kanipi_mybot/store/</code><span class="text-leather-300 dark:text-leather-800">&mdash;</span> SQLite DB, auth state</div>
+              <div class="flex items-center gap-2 text-sm text-leather-600 dark:text-leather-300"><span class="w-1 h-1 rounded-full bg-copper-500"></span><code class="font-mono text-xs text-copper-600 dark:text-copper-400">/srv/data/kanipi_mybot/groups/</code><span class="text-leather-300 dark:text-leather-800">&mdash;</span> per-group folders</div>
+              <div class="flex items-center gap-2 text-sm text-leather-600 dark:text-leather-300"><span class="w-1 h-1 rounded-full bg-copper-500"></span><code class="font-mono text-xs text-copper-600 dark:text-copper-400">/srv/data/kanipi_mybot/data/</code><span class="text-leather-300 dark:text-leather-800">&mdash;</span> IPC, sessions</div>
+              <div class="flex items-center gap-2 text-sm text-leather-600 dark:text-leather-300"><span class="w-1 h-1 rounded-full bg-copper-500"></span><code class="font-mono text-xs text-copper-600 dark:text-copper-400">/srv/data/kanipi_mybot/web/</code><span class="text-leather-300 dark:text-leather-800">&mdash;</span> Vite web app</div>
+              <div class="flex items-center gap-2 text-sm text-leather-600 dark:text-leather-300"><span class="w-1 h-1 rounded-full bg-copper-500"></span>systemd service unit</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 04 -->
+      <div id="s4" class="step-card bg-white dark:bg-stable-800 depth-md rounded-2xl overflow-hidden border border-leather-200/40 dark:border-leather-900/30">
+        <div class="color-strip" style="background: linear-gradient(90deg, #6a9ec0, #8ecae6)"></div>
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center text-xs font-bold font-mono">04</span>
+            <h3 class="text-leather-900 dark:text-leather-100 font-bold text-base">Configure</h3>
+          </div>
+          <div class="ml-11">
+            <p class="text-sm text-leather-500 dark:text-leather-400 mb-3">Edit <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-sky-600 dark:text-sky-400 border border-leather-200/40 dark:border-leather-900/30">/srv/data/kanipi_mybot/.env</code>:</p>
+            <div class="code-block depth-lg mb-4">
+              <div class="code-header"><span class="code-dot" style="background:#c0485e"></span><span class="code-dot" style="background:#d4a843"></span><span class="code-dot" style="background:#5a8f5c"></span><span class="text-xs ml-2" style="color:#6d5e50">.env</span></div>
+              <pre class="font-mono"><code><span class="c-kw">ASSISTANT_NAME</span>=<span class="c-str">"mybot"</span>
+<span class="c-kw">CLAUDE_CODE_OAUTH_TOKEN</span>=<span class="c-str">"sk-ant-oat-..."</span>
+
+<span class="c-dim"># enable channels by adding their token</span>
+<span class="c-kw">TELEGRAM_BOT_TOKEN</span>=<span class="c-str">"123456:ABC-xyz..."</span>
+<span class="c-kw">DISCORD_BOT_TOKEN</span>=<span class="c-str">"MTIz..."</span>
+
+<span class="c-kw">VITE_PORT</span>=<span class="c-num">5173</span></code></pre>
+            </div>
+            <p class="text-xs text-leather-400 font-semibold uppercase tracking-wider mb-2">Channel activation:</p>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-sm text-leather-600 dark:text-leather-300"><span class="w-1 h-1 rounded-full bg-sky-500"></span><strong class="text-leather-900 dark:text-leather-100">Telegram</strong> &mdash; set <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded border border-leather-200/40 dark:border-leather-900/30">TELEGRAM_BOT_TOKEN</code></div>
+              <div class="flex items-center gap-2 text-sm text-leather-600 dark:text-leather-300"><span class="w-1 h-1 rounded-full bg-sky-500"></span><strong class="text-leather-900 dark:text-leather-100">Discord</strong> &mdash; set <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded border border-leather-200/40 dark:border-leather-900/30">DISCORD_BOT_TOKEN</code></div>
+              <div class="flex items-center gap-2 text-sm text-leather-600 dark:text-leather-300"><span class="w-1 h-1 rounded-full bg-sky-500"></span><strong class="text-leather-900 dark:text-leather-100">WhatsApp</strong> &mdash; auto-enabled when auth credentials exist in <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded border border-leather-200/40 dark:border-leather-900/30">store/auth/</code></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 05 -->
+      <div id="s5" class="step-card bg-white dark:bg-stable-800 depth-md rounded-2xl overflow-hidden border border-leather-200/40 dark:border-leather-900/30">
+        <div class="color-strip" style="background: linear-gradient(90deg, #c0485e, #e06080)"></div>
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="w-8 h-8 rounded-lg bg-rosette-500/10 text-rosette-600 dark:text-rosette-400 flex items-center justify-center text-xs font-bold font-mono">05</span>
+            <h3 class="text-leather-900 dark:text-leather-100 font-bold text-base">Start</h3>
+          </div>
+          <div class="ml-11">
+            <div class="code-block depth-lg mb-4">
+              <div class="code-header"><span class="code-dot" style="background:#c0485e"></span><span class="code-dot" style="background:#d4a843"></span><span class="code-dot" style="background:#5a8f5c"></span><span class="text-xs ml-2" style="color:#6d5e50">terminal</span></div>
+              <pre class="font-mono"><code><span class="c-prompt">$</span> sudo systemctl start kanipi_mybot</code></pre>
+            </div>
+            <p class="text-xs text-leather-400 font-semibold uppercase tracking-wider mb-3">Or manually with docker:</p>
+            <div class="code-block depth-lg">
+              <div class="code-header"><span class="code-dot" style="background:#c0485e"></span><span class="code-dot" style="background:#d4a843"></span><span class="code-dot" style="background:#5a8f5c"></span><span class="text-xs ml-2" style="color:#6d5e50">docker</span></div>
+              <pre class="font-mono"><code><span class="c-prompt">$</span> docker run -i --rm --network=host \
+    -v /srv/data/kanipi_mybot:/srv/app/home \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    kanipi \
+    ./kanipi mybot</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06 -->
+      <div id="s6" class="step-card bg-white dark:bg-stable-800 depth-md rounded-2xl overflow-hidden border border-leather-200/40 dark:border-leather-900/30">
+        <div class="color-strip" style="background: linear-gradient(90deg, #d4a843, #5a8f5c, #b87333, #6a9ec0)"></div>
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="w-8 h-8 rounded-lg bg-field-500/10 text-field-600 dark:text-field-400 flex items-center justify-center text-xs font-bold font-mono">06</span>
+            <h3 class="text-leather-900 dark:text-leather-100 font-bold text-base">Usage</h3>
+          </div>
+          <div class="space-y-2.5 ml-11">
+            <div class="flex items-start gap-2.5"><span class="w-1.5 h-1.5 rounded-full bg-field-500 mt-2 shrink-0"></span><span class="text-sm text-leather-600 dark:text-leather-300">Mention the bot or send it a direct message &mdash; it responds as Claude</span></div>
+            <div class="flex items-start gap-2.5"><span class="w-1.5 h-1.5 rounded-full bg-field-500 mt-2 shrink-0"></span><span class="text-sm text-leather-600 dark:text-leather-300">It can build and deploy web apps to <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-copper-500 border border-leather-200/40 dark:border-leather-900/30">/web/</code>, served by Vite</span></div>
+            <div class="flex items-start gap-2.5"><span class="w-1.5 h-1.5 rounded-full bg-field-500 mt-2 shrink-0"></span><span class="text-sm text-leather-600 dark:text-leather-300">Each conversation spawns its own Docker container with full shell access</span></div>
+            <div class="flex items-start gap-2.5"><span class="w-1.5 h-1.5 rounded-full bg-field-500 mt-2 shrink-0"></span><span class="text-sm text-leather-600 dark:text-leather-300">Containers idle-timeout automatically when inactive</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- FEATURES -->
+    <div class="flex items-center gap-3 mb-8">
+      <div class="w-5 h-1 bg-field-500 rounded-full"></div>
+      <span class="text-xs font-bold text-leather-400 tracking-[0.2em] uppercase">Features</span>
+      <div class="flex-1 h-px bg-leather-200/60 dark:bg-leather-900/40"></div>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-16">
+      <div class="feat-card bg-white dark:bg-stable-800 depth-sm rounded-xl p-5 text-center border border-leather-200/40 dark:border-leather-900/30">
+        <div class="w-11 h-11 rounded-xl bg-hay-500/10 flex items-center justify-center mx-auto mb-3">
+          <span class="text-hay-600 dark:text-hay-400 font-mono font-bold text-sm">#</span>
+        </div>
+        <div class="text-leather-900 dark:text-leather-100 text-sm font-bold mb-1">Multi-channel</div>
+        <div class="text-leather-400 text-xs">Telegram, Discord, WhatsApp</div>
+      </div>
+      <div class="feat-card bg-white dark:bg-stable-800 depth-sm rounded-xl p-5 text-center border border-leather-200/40 dark:border-leather-900/30">
+        <div class="w-11 h-11 rounded-xl bg-field-500/10 flex items-center justify-center mx-auto mb-3">
+          <span class="text-field-600 dark:text-field-400 font-mono font-bold text-sm">[ ]</span>
+        </div>
+        <div class="text-leather-900 dark:text-leather-100 text-sm font-bold mb-1">Container isolation</div>
+        <div class="text-leather-400 text-xs">Per-conversation sandboxing</div>
+      </div>
+      <div class="feat-card bg-white dark:bg-stable-800 depth-sm rounded-xl p-5 text-center border border-leather-200/40 dark:border-leather-900/30">
+        <div class="w-11 h-11 rounded-xl bg-copper-500/10 flex items-center justify-center mx-auto mb-3">
+          <span class="text-copper-600 dark:text-copper-400 font-mono font-bold text-sm">&lt;/&gt;</span>
+        </div>
+        <div class="text-leather-900 dark:text-leather-100 text-sm font-bold mb-1">Web deploy</div>
+        <div class="text-leather-400 text-xs">Vite apps from chat</div>
+      </div>
+      <div class="feat-card bg-white dark:bg-stable-800 depth-sm rounded-xl p-5 text-center border border-leather-200/40 dark:border-leather-900/30">
+        <div class="w-11 h-11 rounded-xl bg-sky-500/10 flex items-center justify-center mx-auto mb-3">
+          <span class="text-sky-600 dark:text-sky-400 font-mono font-bold text-sm">MCP</span>
+        </div>
+        <div class="text-leather-900 dark:text-leather-100 text-sm font-bold mb-1">MCP sidecars</div>
+        <div class="text-leather-400 text-xs">Extensible tool servers</div>
+      </div>
+      <div class="feat-card bg-white dark:bg-stable-800 depth-sm rounded-xl p-5 text-center border border-leather-200/40 dark:border-leather-900/30">
+        <div class="w-11 h-11 rounded-xl bg-rosette-500/10 flex items-center justify-center mx-auto mb-3">
+          <span class="text-rosette-600 dark:text-rosette-400 font-mono font-bold text-sm">cron</span>
+        </div>
+        <div class="text-leather-900 dark:text-leather-100 text-sm font-bold mb-1">Scheduled tasks</div>
+        <div class="text-leather-400 text-xs">Cron-based automation</div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="border-t border-leather-200/60 dark:border-leather-900/40 pt-8 pb-10 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <a href="/" class="glow text-sm text-leather-500 dark:text-leather-400 font-medium px-5 py-2.5 rounded-xl bg-white dark:bg-stable-800 border border-leather-200/40 dark:border-leather-900/30 no-underline transition-all duration-200 hover:text-hay-600 dark:hover:text-hay-400">
+        &larr; back to hub
+      </a>
+      <span class="text-xs text-leather-400">
+        powered by <a href="https://github.com/REDACTED/kanipi" class="text-leather-500 dark:text-leather-400 hover:text-hay-600 dark:hover:text-hay-400 transition-colors font-semibold">kanipi</a>
+      </span>
+    </footer>
+
+  </div>
+
+  <script src="/assets/hub.js"></script>
+</body>
+</html>
