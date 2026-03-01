@@ -1,6 +1,6 @@
 cfg/
 tmp/
-state/
+store/
 groups/
 data/
 .ship/
