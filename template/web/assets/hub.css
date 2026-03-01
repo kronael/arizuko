@@ -1,0 +1,110 @@
+:root {
+  --bg: #0a0a0a;
+  --fg: #e0e0e0;
+  --accent: #4ade80;
+  --accent2: #a78bfa;
+  --accent3: #58a6ff;
+  --dim: #666;
+  --border: #222;
+  --card: #111;
+  --code-bg: #1a1a1a;
+}
+
+[data-theme="light"] {
+  --bg: #fafafa;
+  --fg: #1a1a1a;
+  --accent: #16a34a;
+  --accent2: #7c3aed;
+  --accent3: #0969da;
+  --dim: #888;
+  --border: #ddd;
+  --card: #fff;
+  --code-bg: #f0f0f0;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+.hub-container {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 2em 1.5em;
+}
+
+h1 { font-size: 1.8em; color: var(--accent); margin-bottom: 0.2em; }
+h2 {
+  font-size: 1.25em;
+  margin: 1.5em 0 0.8em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+  color: var(--accent3);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.dim { color: var(--dim); font-size: 0.85em; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.8em;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.1em;
+}
+.card-title {
+  color: var(--accent3);
+  font-weight: bold;
+  font-size: 0.95em;
+}
+.card-meta { color: var(--dim); font-size: 0.8em; }
+
+code {
+  background: var(--code-bg);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+pre {
+  background: var(--code-bg);
+  padding: 1em;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.theme-toggle {
+  position: fixed;
+  top: 1em;
+  right: 1em;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 2.2em;
+  height: 2.2em;
+  cursor: pointer;
+  font-size: 1em;
+  transition: transform 0.3s;
+}
+.theme-toggle:hover { transform: rotate(20deg); }
+
+@media (max-width: 768px) {
+  body { font-size: 13px; }
+  .hub-container { padding: 1.5em 1em; }
+}
+@media (max-width: 480px) {
+  body { font-size: 12px; }
+  .hub-container { padding: 1em 0.8em; }
+}
