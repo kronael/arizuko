@@ -42,7 +42,7 @@ Key modules:
 - `container-runtime.ts` — docker lifecycle, orphan cleanup
 - `group-queue.ts` — per-group message queueing, stdin piping
 - `router.ts` — message formatting, channel→JID resolution
-- `ipc.ts` — container↔gateway communication (file-based)
+- `ipc.ts` — container↔gateway communication (file-based, fs.watch-driven)
 - `task-scheduler.ts` — cron-based scheduled tasks
 - `channels/` — telegram (grammy), whatsapp (baileys), discord (discord.js)
 
@@ -52,7 +52,9 @@ the TS gateway). No `web-server.ts` — web is external.
 **Container model**: each agent runs in a docker container.
 Gateway mounts group folder + state into container. Agent
 reads prompt from stdin, writes results to stdout as JSON.
-`container/agent-runner/` is the in-container entrypoint.
+`container/agent-runner/` is the in-container entrypoint. IPC is
+signal-driven: gateway writes a file then sends SIGUSR1 to the
+container; agent wakes immediately on signal, falls back to 500ms poll.
 
 **Docker-in-docker path translation**: when the gateway itself
 runs in docker, `process.cwd()` paths are container-internal.
