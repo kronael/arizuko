@@ -18,8 +18,9 @@ make agent-image    # agent docker image
 npm run dev         # tsx dev mode
 ```
 
-No test runner configured — tests are `*.test.ts` files
-next to source. Run individually with `npx tsx src/foo.test.ts`.
+Tests use vitest (not in package.json, run via npx). Run all:
+`npx vitest run`. Run one file: `npx vitest run src/foo.test.ts`.
+Many tests require docker — they'll fail without it.
 
 Pre-commit hooks (prettier, typecheck, hygiene) configured
 via `.pre-commit-config.yaml`. Prettier uses single quotes.
@@ -44,6 +45,7 @@ Key modules:
 - `router.ts` — message formatting, channel→JID resolution
 - `ipc.ts` — container↔gateway communication (file-based, fs.watch-driven)
 - `task-scheduler.ts` — cron-based scheduled tasks
+- `mount-security.ts` — validates additional mounts against `~/.config/nanoclaw/mount-allowlist.json` (stored outside project to prevent agent tampering)
 - `channels/` — telegram (grammy), whatsapp (baileys), discord (discord.js)
 
 **Web**: vite dev server managed by bash entrypoint (not
@@ -98,6 +100,9 @@ All config via `.env` in data dir or env vars. Key values:
 
 `CONTAINER_IMAGE` is read from both `.env` and env vars (env var
 wins). Most other container settings are env-var only.
+
+`env.ts` handles raw `.env` file loading; `config.ts` exports
+typed constants derived from env. Always import from `config.ts`.
 
 Channels enabled by token presence (telegram/discord) or
 auth dir existence (whatsapp).
