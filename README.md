@@ -25,29 +25,14 @@ register the main group and start:
 Groups must be registered before the bot processes messages.
 
 ```bash
-kanipi group list <instance>              # registered + discovered
-kanipi group add <instance> <jid> [folder]  # register group
-kanipi group rm <instance> <jid>          # unregister (not main)
+kanipi group list <instance>               # registered + discovered
+kanipi group add <instance> <jid> [folder] # register group
+kanipi group rm <instance> <jid>           # unregister (not main)
 ```
 
 First group added defaults to folder `main` with direct mode
 (no trigger required). Subsequent groups require a folder name
 and use trigger mode (`@assistant_name` to activate).
-
-## Architecture
-
-Gateway polls channels for messages, routes to containerized
-Claude agents via docker. Each agent runs in an ephemeral
-container with group folder + state mounted.
-
-```
-Channel -> DB (store message) -> message loop
-  -> GroupQueue -> runContainerAgent (docker exec)
-  -> stream output back to channel
-```
-
-Vite dev server runs alongside the gateway for serving web
-apps built by agents. Managed in the bash entrypoint, not Node.
 
 ## Instance Layout
 
@@ -65,18 +50,20 @@ web/              vite web app (MPA)
 
 All via `.env` (seeded from `template/env.example`):
 
-| Key                     | Purpose                    |
-| ----------------------- | -------------------------- |
-| ASSISTANT_NAME          | instance name              |
-| TELEGRAM_BOT_TOKEN      | enables telegram channel   |
-| DISCORD_BOT_TOKEN       | enables discord channel    |
-| CONTAINER_IMAGE         | agent docker image         |
-| CLAUDE_CODE_OAUTH_TOKEN | passed to agent containers |
-| VITE_PORT               | enables vite web serving   |
-| WEB_HOST                | vite host binding          |
+| Key                       | Purpose                      |
+| ------------------------- | ---------------------------- |
+| ASSISTANT_NAME            | instance name                |
+| TELEGRAM_BOT_TOKEN        | enables telegram channel     |
+| DISCORD_BOT_TOKEN         | enables discord channel      |
+| CONTAINER_IMAGE           | agent docker image           |
+| CLAUDE_CODE_OAUTH_TOKEN   | passed to agent containers   |
+| IDLE_TIMEOUT              | container idle shutdown (ms) |
+| MAX_CONCURRENT_CONTAINERS | concurrent agent limit       |
+| VITE_PORT                 | enables vite web serving     |
+| WEB_HOST                  | vite host binding            |
 
 Channels enabled by token presence (telegram/discord) or
-auth dir existence (whatsapp).
+auth dir existence (whatsapp: `store/auth/creds.json`).
 
 ## Deployment
 
