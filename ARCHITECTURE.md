@@ -127,11 +127,6 @@ Validates additional volume mounts requested by agents against
 an allowlist at `~/.config/nanoclaw/mount-allowlist.json`.
 Allowlist stored outside project root to prevent tampering.
 
-### ipc-auth.ts, whatsapp-auth.ts
-
-IPC authentication helpers and WhatsApp session credential
-management.
-
 ## Container Model
 
 Each agent invocation runs in a fresh docker container:
@@ -176,7 +171,7 @@ container/        agent container build
   skills/         agent-side skills
 template/         seed for new instances
   web/            vite web app template
-  workspace/skills/ curated agent skills
+  workspace/      mcporter config seed
 sidecar/          MCP server binaries
 specs/            versioned API/behavior specs
 kanipi            bash entrypoint (create/run/group)
