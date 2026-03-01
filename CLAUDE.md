@@ -46,6 +46,9 @@ Key modules:
 - `task-scheduler.ts` — cron-based scheduled tasks
 - `channels/` — telegram (grammy), whatsapp (baileys), discord (discord.js)
 
+**Web**: vite dev server managed by bash entrypoint (not
+the TS gateway). No `web-server.ts` — web is external.
+
 **Container model**: each agent runs in a docker container.
 Gateway mounts group folder + state into container. Agent
 reads prompt from stdin, writes results to stdout as JSON.
