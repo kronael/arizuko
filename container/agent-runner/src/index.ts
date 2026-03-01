@@ -347,8 +347,9 @@ function waitForIpcMessage(): Promise<string | null> {
         resolve(messages.join('\n'));
         return;
       }
-      const timer = setTimeout(poll, IPC_POLL_MS);
+      let timer: ReturnType<typeof setTimeout>;
       wakeup = () => { clearTimeout(timer); poll(); };
+      timer = setTimeout(poll, IPC_POLL_MS);
     };
     poll();
   });
@@ -389,8 +390,11 @@ async function runQuery(
       log(`Piping IPC message into active query (${text.length} chars)`);
       stream.push(text);
     }
-    const timer = setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
+    // Set wakeup before setTimeout so SIGUSR1 arriving in between
+    // still cancels the right timer (no missed-signal double-poll).
+    let timer: ReturnType<typeof setTimeout>;
     wakeup = () => { clearTimeout(timer); pollIpcDuringQuery(); };
+    timer = setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
   setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
 
