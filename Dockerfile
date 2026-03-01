@@ -35,5 +35,3 @@ COPY kanipi ./kanipi
 RUN chmod +x ./kanipi
 
 RUN useradd -m -u 1000 node 2>/dev/null || true
-
-ENTRYPOINT ["./kanipi"]
