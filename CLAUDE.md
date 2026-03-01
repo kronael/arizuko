@@ -74,7 +74,6 @@ container/            agent container build
   skills/             agent-side skills
 template/             seed for new instances
   web/                vite web app template
-  workspace/skills/   curated skills (ship, reload, info, web)
 sidecar/              MCP server binaries
 kanipi                bash entrypoint (create/run/group/vite)
 ```
