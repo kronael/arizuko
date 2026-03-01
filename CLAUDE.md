@@ -21,6 +21,9 @@ npx tsc --noEmit    # typecheck without emitting
 No test runner configured — tests are `*.test.ts` files
 next to source. Run individually with `npx tsx src/foo.test.ts`.
 
+Pre-commit hooks (prettier, typecheck, hygiene) configured
+via `.pre-commit-config.yaml`. Prettier uses single quotes.
+
 ## Architecture
 
 TypeScript (ESM, NodeNext). Gateway polls channels for
@@ -33,7 +36,7 @@ output back to channel.
 Key modules:
 
 - `index.ts` — main loop, channel init, message routing
-- `config.ts` — all config from `.env` + env vars
+- `config.ts` — config from `.env` + env vars (no web config)
 - `db.ts` — SQLite (better-sqlite3) for messages, state, tasks
 - `container-runner.ts` — spawns agent containers, streams I/O
 - `container-runtime.ts` — docker lifecycle, orphan cleanup
@@ -57,9 +60,10 @@ container/            agent container build
   build.sh            agent image builder
   skills/             agent-side skills
 template/             seed for new instances
-  workspace/skills/   curated skills (ship, reload, info)
+  web/                vite web app template
+  workspace/skills/   curated skills (ship, reload, info, web)
 sidecar/              MCP server binaries
-kanipi                bash entrypoint (create/run)
+kanipi                bash entrypoint (create/run/vite)
 ```
 
 ## Data Dir
@@ -67,9 +71,10 @@ kanipi                bash entrypoint (create/run)
 `/srv/data/kanipi_<name>/` per instance:
 
 - `.env` — config (gateway reads from cwd)
-- `state/` — persistent state, SQLite DB, whatsapp auth
+- `store/` — SQLite DB, whatsapp auth
 - `groups/main/logs/` — conversation logs
-- `data/` — instance data
+- `web/` — vite web app (seeded from template/web/)
+- `data/` — IPC, sessions
 
 ## Config
 
@@ -83,4 +88,5 @@ auth dir existence (whatsapp).
 ## Entrypoint
 
 `kanipi create <name>` — seed data dir, .env, systemd unit.
-`kanipi <instance>` — cd to home, exec node dist/index.js.
+`kanipi <instance>` — cd to home, run gateway + vite
+(restart loop). VITE_PORT/WEB_HOST configured in .env.
