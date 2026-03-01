@@ -54,6 +54,16 @@ Gateway mounts group folder + state into container. Agent
 reads prompt from stdin, writes results to stdout as JSON.
 `container/agent-runner/` is the in-container entrypoint.
 
+**Docker-in-docker path translation**: when the gateway itself
+runs in docker, `process.cwd()` paths are container-internal.
+`config.ts:detectHostPath()` reads `/proc/self/mountinfo` to
+find the host-side path of `PROJECT_ROOT` so child containers
+receive correct host mount paths. `HOST_PROJECT_ROOT_PATH` is
+the translated value (falls back to `process.cwd()` on bare metal).
+`container-runner.ts:hostPath()` applies the same translation for
+session dirs; `chownRecursive()` ensures they are writable by
+node uid 1000 inside agent containers.
+
 ## Layout
 
 ```
@@ -84,6 +94,9 @@ kanipi                bash entrypoint (create/run/group/vite)
 All config via `.env` in data dir or env vars. Key values:
 `ASSISTANT_NAME`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`,
 `CONTAINER_IMAGE`, `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`.
+
+`CONTAINER_IMAGE` is read from both `.env` and env vars (env var
+wins). Most other container settings are env-var only.
 
 Channels enabled by token presence (telegram/discord) or
 auth dir existence (whatsapp).
