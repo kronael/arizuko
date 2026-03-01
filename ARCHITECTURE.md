@@ -62,7 +62,10 @@ provides `sendMessage(jid, text)` for outbound delivery.
 `mdToHtml()` (bold, italic, inline code, pre blocks) and sets
 `parse_mode: HTML` on all `sendMessage` calls. Typing indicator
 is refreshed every 4s via `setInterval` (Telegram expires it
-after ~5s).
+after ~5s). Stopped when the agent emits `status=success` in
+its JSON output — not when the container exits. Container may
+remain alive (idle_timeout) but the typing indicator clears
+immediately on response completion.
 
 ### container-runner.ts
 
