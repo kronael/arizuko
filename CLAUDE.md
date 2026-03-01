@@ -1,7 +1,7 @@
 # kanipi
 
-Nanoclaw fork with telegram support. Telegram-only gateway,
-systemd-managed instances, MCP sidecar extensibility.
+Nanoclaw fork with multi-channel support (telegram, whatsapp,
+discord). systemd-managed instances, MCP sidecar extensibility.
 
 ## Layout
 

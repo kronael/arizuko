@@ -1,5 +1,8 @@
 cfg/
 tmp/
+state/
+groups/
+data/
 .ship/
 node_modules/
 dist/
