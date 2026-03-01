@@ -21,7 +21,8 @@ DISCORD_BOT_TOKEN=MTIz...     # discord active
 
 ## Channel interface
 
-From types.ts:
+From types.ts — Channel defines the runtime interface,
+ChannelOpts is the shared constructor argument:
 
 ```typescript
 interface Channel {
@@ -32,6 +33,12 @@ interface Channel {
   ownsJid(jid: string): boolean
   disconnect(): Promise<void>
   setTyping?(jid: string, on: boolean): Promise<void>
+}
+
+interface ChannelOpts {
+  onMessage: OnInboundMessage
+  onChatMetadata: OnChatMetadata
+  registeredGroups: () => Record<string, RegisteredGroup>
 }
 ```
 
