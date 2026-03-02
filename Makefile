@@ -8,7 +8,7 @@ lint:
 
 image:
 	docker build -t kanipi .
-	./container/build.sh kanipi-agent
+	docker build -t kanipi-agent ./container
 
 clean:
 	rm -rf tmp/ dist/
