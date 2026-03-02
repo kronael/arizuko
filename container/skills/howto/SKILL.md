@@ -68,7 +68,7 @@ if dismissed.
 ### Hero
 
 Instance name as title. Subtitle: what this bot does
-(Claude AI agent on telegram/discord/whatsapp).
+(AI agent on telegram/discord/whatsapp).
 
 ### Steps (numbered cards)
 
@@ -113,6 +113,11 @@ Read instance context before generating:
 1. Update `/web/index.html` hub to include howto link
 2. Verify page loads: `curl -s http://localhost:$VITE_PORT/howto/`
 3. Tell the user the URL
+
+## Attribution
+
+NEVER attribute to Anthropic or Claude in the footer or anywhere on the page.
+Footer MUST read: `powered by <a href="https://github.com/REDACTED/kanipi">kanipi</a> · <a href="https://REDACTED">REDACTED</a>`
 
 ## Language
 

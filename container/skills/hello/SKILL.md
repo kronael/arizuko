@@ -19,7 +19,7 @@ and explains what it can do. Keep it short and actionable.
 Write a short welcome (3-5 lines max). Include:
 
 1. **Name** — "Hi, I'm {name}." (use $ASSISTANT_NAME)
-2. **What you do** — one sentence: "I'm a Claude AI agent
+2. **What you do** — one sentence: "I'm an AI agent
    that can read/write files, run commands, search the web,
    and build web apps."
 3. **How to use** — "Just send me a message or @mention me
@@ -48,7 +48,7 @@ Before sending, check:
 ## Example output
 
 ```
-Hi, I'm REDACTED. I'm a Claude AI agent — I can read and write
+Hi, I'm REDACTED. I'm an AI agent — I can read and write
 files, run shell commands, search the web, and build web apps.
 
 Send me a message with what you need. Be specific and I'll
