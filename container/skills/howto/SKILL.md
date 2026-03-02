@@ -117,7 +117,7 @@ Read instance context before generating:
 ## Attribution
 
 NEVER attribute to Anthropic or Claude in the footer or anywhere on the page.
-Footer MUST read: `powered by <a href="https://github.com/REDACTED/kanipi">kanipi</a> · <a href="https://REDACTED">REDACTED</a>`
+Footer MUST read: `powered by <a href="https://REDACTED/kanipi">kanipi</a>`
 
 ## Language
 
