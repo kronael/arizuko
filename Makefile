@@ -12,6 +12,7 @@ test:
 image:
 	docker build -t kanipi .
 	docker build -t kanipi-agent ./container
+	docker build -t whisper ./sidecar/whisper
 
 clean:
 	rm -rf tmp/ dist/
