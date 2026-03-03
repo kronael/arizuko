@@ -9,6 +9,15 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- `self` skill: agent introspection — layout, skills, channels, migration version
+- `migrate` skill: main-group skill sync + migration runner across all groups
+- Migration system: `container/skills/self/migrations/` with versioned migration files
+- Migration 001: move web/ root files to web/pub/ per new layout convention
+- `web/SKILL.md`: added YAML frontmatter
+- `info/SKILL.md`: reports migration version, warns if migrations pending
+
 ---
 
 ## [v0.1.2] — 2026-03-01

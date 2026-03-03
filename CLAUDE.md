@@ -119,3 +119,13 @@ Group commands use `node -e` with better-sqlite3 against
 creates the DB + schema if missing (solves bootstrap).
 First group defaults to folder=main, requires_trigger=0.
 Subsequent groups require folder arg and use trigger mode.
+
+## Shipping changes (agent skills / web convention)
+
+When making notable kanipi changes:
+
+1. Add entry to `CHANGELOG.md`
+2. Add migration file `container/skills/self/migrations/NNN-desc.md`
+3. Update `container/skills/self/MIGRATION_VERSION` to match highest N
+4. Update "Latest migration version" in `container/skills/self/SKILL.md`
+5. Rebuild agent image

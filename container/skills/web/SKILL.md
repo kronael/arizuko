@@ -1,3 +1,8 @@
+---
+name: web
+description: Deploy web apps by writing files to /web/<app>/. Use when asked to build, create, or deploy a web app or page.
+---
+
 # Web
 
 Deploy web apps by writing files to /web/<app_name>/.
