@@ -144,6 +144,7 @@
         <a href="#s4" class="toc-item block py-1.5 pl-3 text-sm text-leather-500 dark:text-leather-400 font-medium no-underline"><span class="text-hay-600 dark:text-hay-400 font-mono mr-2">04</span> Configure</a>
         <a href="#s5" class="toc-item block py-1.5 pl-3 text-sm text-leather-500 dark:text-leather-400 font-medium no-underline"><span class="text-hay-600 dark:text-hay-400 font-mono mr-2">05</span> Start</a>
         <a href="#s6" class="toc-item block py-1.5 pl-3 text-sm text-leather-500 dark:text-leather-400 font-medium no-underline"><span class="text-hay-600 dark:text-hay-400 font-mono mr-2">06</span> Usage</a>
+        <a href="#s7" class="toc-item block py-1.5 pl-3 text-sm text-leather-500 dark:text-leather-400 font-medium no-underline"><span class="text-hay-600 dark:text-hay-400 font-mono mr-2">07</span> Agent capabilities</a>
       </div>
     </div>
 
@@ -292,6 +293,58 @@
         </div>
       </div>
 
+      <!-- 07 -->
+      <div id="s7" class="step-card bg-white dark:bg-stable-800 depth-md rounded-2xl overflow-hidden border border-leather-200/40 dark:border-leather-900/30">
+        <div class="color-strip" style="background: linear-gradient(90deg, #6a9ec0, #7abd82, #d4a843)"></div>
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center text-xs font-bold font-mono">07</span>
+            <h3 class="text-leather-900 dark:text-leather-100 font-bold text-base">Agent capabilities</h3>
+          </div>
+          <div class="space-y-6 ml-11">
+
+            <!-- Steering -->
+            <div>
+              <p class="text-xs font-bold text-leather-400 dark:text-leather-800 tracking-widest uppercase mb-2">Steering a running agent</p>
+              <p class="text-sm text-leather-600 dark:text-leather-300 mb-2">Send a follow-up message while an agent is still processing. The gateway pipes it into the active container — no new container is spawned. The agent sees it as a new user turn and can change course.</p>
+              <p class="text-sm text-leather-500 dark:text-leather-400">Messages sent while no container is running queue normally and start a fresh container.</p>
+            </div>
+
+            <!-- Subagents -->
+            <div>
+              <p class="text-xs font-bold text-leather-400 dark:text-leather-800 tracking-widest uppercase mb-2">Subagents (Agent Teams)</p>
+              <p class="text-sm text-leather-600 dark:text-leather-300 mb-2">The agent can spawn subagents via the <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-copper-500 border border-leather-200/40 dark:border-leather-900/30">Task</code> tool. Subagents run <strong class="text-leather-800 dark:text-leather-200">inside the same container</strong> — shared filesystem, shared mounts, same MCP server. They are not independent docker containers and cannot be addressed separately.</p>
+              <p class="text-sm text-leather-500 dark:text-leather-400">Subagents can call <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-copper-500 border border-leather-200/40 dark:border-leather-900/30">send_message</code> to push updates to the chat, and can read/write the same <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-copper-500 border border-leather-200/40 dark:border-leather-900/30">/workspace/group/</code> folder.</p>
+            </div>
+
+            <!-- Progress messages -->
+            <div>
+              <p class="text-xs font-bold text-leather-400 dark:text-leather-800 tracking-widest uppercase mb-2">Progress messages</p>
+              <p class="text-sm text-leather-600 dark:text-leather-300 mb-3">The agent can send messages mid-task via the <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-copper-500 border border-leather-200/40 dark:border-leather-900/30">mcp__nanoclaw__send_message</code> tool. The final result is sent automatically — <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-copper-500 border border-leather-200/40 dark:border-leather-900/30">send_message</code> is for intermediate updates only.</p>
+              <div class="code-block depth-lg">
+                <div class="code-header"><span class="code-dot" style="background:#c0485e"></span><span class="code-dot" style="background:#d4a843"></span><span class="code-dot" style="background:#5a8f5c"></span><span class="text-xs ml-2" style="color:#6d5e50">CLAUDE.md hint</span></div>
+                <pre class="font-mono"><code><span class="c-dim"># in the agent's CLAUDE.md or system prompt:</span>
+For tasks expected to take &gt;30s, call send_message
+with a brief progress update every ~60s.</code></pre>
+              </div>
+            </div>
+
+            <!-- Scheduled tasks -->
+            <div>
+              <p class="text-xs font-bold text-leather-400 dark:text-leather-800 tracking-widest uppercase mb-2">Scheduled tasks</p>
+              <p class="text-sm text-leather-600 dark:text-leather-300 mb-2">Agents schedule work via <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-copper-500 border border-leather-200/40 dark:border-leather-900/30">mcp__nanoclaw__schedule_task</code>. Each run spawns a <strong class="text-leather-800 dark:text-leather-200">fresh independent container</strong> — unlike subagents, these are fully isolated.</p>
+              <div class="space-y-2 mb-3">
+                <div class="flex items-start gap-2"><code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-hay-600 dark:text-hay-400 border border-leather-200/40 dark:border-leather-900/30 shrink-0">cron</code><span class="text-sm text-leather-500 dark:text-leather-400">Recurring on a schedule — <code class="font-mono text-xs">0 9 * * *</code> for daily 9am</span></div>
+                <div class="flex items-start gap-2"><code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-hay-600 dark:text-hay-400 border border-leather-200/40 dark:border-leather-900/30 shrink-0">interval</code><span class="text-sm text-leather-500 dark:text-leather-400">Recurring every N milliseconds</span></div>
+                <div class="flex items-start gap-2"><code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-hay-600 dark:text-hay-400 border border-leather-200/40 dark:border-leather-900/30 shrink-0">once</code><span class="text-sm text-leather-500 dark:text-leather-400">Single run at a specific local timestamp. After running, status becomes <code class="font-mono text-xs">completed</code> and the task never runs again. Use <code class="font-mono text-xs">cancel_task</code> to delete it.</span></div>
+              </div>
+              <p class="text-sm text-leather-500 dark:text-leather-400">Tasks run in <strong class="text-leather-700 dark:text-leather-300">group</strong> context (with conversation history) or <strong class="text-leather-700 dark:text-leather-300">isolated</strong> context (fresh session — include all needed context in the prompt).</p>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- FEATURES -->
@@ -335,7 +388,21 @@
           <span class="text-rosette-600 dark:text-rosette-400 font-mono font-bold text-sm">cron</span>
         </div>
         <div class="text-leather-900 dark:text-leather-100 text-sm font-bold mb-1">Scheduled tasks</div>
-        <div class="text-leather-400 text-xs">Cron-based automation</div>
+        <div class="text-leather-400 text-xs">Cron, interval, or once</div>
+      </div>
+      <div class="feat-card bg-white dark:bg-stable-800 depth-sm rounded-xl p-5 text-center border border-leather-200/40 dark:border-leather-900/30">
+        <div class="w-11 h-11 rounded-xl bg-field-500/10 flex items-center justify-center mx-auto mb-3">
+          <span class="text-field-600 dark:text-field-400 font-mono font-bold text-sm">&gt;_</span>
+        </div>
+        <div class="text-leather-900 dark:text-leather-100 text-sm font-bold mb-1">Subagents</div>
+        <div class="text-leather-400 text-xs">Parallel work via Task tool</div>
+      </div>
+      <div class="feat-card bg-white dark:bg-stable-800 depth-sm rounded-xl p-5 text-center border border-leather-200/40 dark:border-leather-900/30">
+        <div class="w-11 h-11 rounded-xl bg-hay-500/10 flex items-center justify-center mx-auto mb-3">
+          <span class="text-hay-600 dark:text-hay-400 font-mono font-bold text-sm">···</span>
+        </div>
+        <div class="text-leather-900 dark:text-leather-100 text-sm font-bold mb-1">Progress updates</div>
+        <div class="text-leather-400 text-xs">Mid-task messages via IPC</div>
       </div>
     </div>
 
