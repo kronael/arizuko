@@ -403,9 +403,13 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
 
-  // Identity preamble — always injected so the agent knows its name and platform
+  // Soul — loaded from /app/SOUL.md (ships in container image).
+  // {NAME} is replaced with the actual assistant name at runtime.
   const name = containerInput.assistantName || 'assistant';
-  const identityPreamble = `Your name is ${name}. You are a kanipi agent.\n`;
+  const soulPath = '/app/SOUL.md';
+  const identityPreamble = fs.existsSync(soulPath)
+    ? fs.readFileSync(soulPath, 'utf-8').replace(/\{NAME\}/g, name)
+    : `Your name is ${name}. You are a kanipi agent.\n`;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
