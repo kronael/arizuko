@@ -1,55 +1,60 @@
 ---
 name: self
-description: Introspect this agent instance — version, layout, skills, channels, pending migrations. Use when asked "who are you", "introspect", "what version", "status", or "what's installed".
+description: Introspect this agent — workspace layout, skills, channels,
+  migration version. Use for "who are you", "introspect", "status", "what version".
 ---
 
 # Self
 
-Introspect this agent instance.
+## Workspace layout
 
-## All groups: introspect
+| Path                      | Contents                                                | Access                   |
+| ------------------------- | ------------------------------------------------------- | ------------------------ |
+| `/workspace/self`         | kanipi source (canonical skills, changelog, migrations) | read-only, all groups    |
+| `/workspace/group`        | this group's working directory                          | read-write               |
+| `/workspace/global`       | shared global memory                                    | read-only, non-main only |
+| `/workspace/web`          | vite web app directory                                  | read-write               |
+| `/workspace/ipc`          | gateway↔agent IPC (messages/, tasks/, input/)           | read-write               |
+| `/workspace/extra/<name>` | operator-configured extra mounts                        | varies                   |
+| `~/.claude`               | agent memory: skills, CLAUDE.md, sessions               | read-write               |
+
+## Skill seeding
+
+On first container spawn, gateway copies:
+
+- `/workspace/self/container/skills/*` → `~/.claude/skills/` (one-time, agent can modify)
+- `/workspace/self/container/CLAUDE.md` → `~/.claude/CLAUDE.md` (one-time)
+
+Canonical latest skills always at `/workspace/self/container/skills/`.
+
+## Sync / migrate
+
+`/migrate` skill reads from `/workspace/self/container/skills/`, compares each
+skill's SKILL.md to `~/.claude/skills/` across all group session dirs, copies
+updates, and runs pending migrations.
+
+## Main group detection
 
 ```bash
-# Layout convention
-cat /web/.layout 2>/dev/null || echo legacy
+test ! -d /workspace/global && echo main || echo non-main
+```
 
-# Skills installed
+## Introspect (all groups)
+
+```bash
+cat /workspace/web/.layout 2>/dev/null || echo legacy
 ls ~/.claude/skills/
-
-# Channels enabled (check env)
 env | grep -E '(TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN)' | sed 's/=.*/=<set>/'
-
-# Web apps deployed
-ls /web/
-
-# Migration version
+ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0
 ```
 
-Latest migration version: **1**
-
-If `MIGRATION_VERSION` < 1: migrations are pending. Tell the user.
+Latest migration version: **1**. If version < 1: migrations pending.
 
 ## Main group only
 
-Main group has `/workspace/project/` mounted (no `/workspace/global/`).
-Check: `test ! -d /workspace/global && echo main`
-
 ```bash
-# Source layout
-ls /workspace/project/
-
-# Changelog
-cat /workspace/project/CHANGELOG.md
-
-# Recent git log
-git -C /workspace/project log --oneline -10
-
-# Pending migrations
-current=$(cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0)
-latest=$(ls ~/.claude/skills/self/migrations/*.md 2>/dev/null \
-  | grep -oP '^\d+' | sort -n | tail -1 || echo 0)
-echo "migration: $current / $latest"
+ls /workspace/self/
+cat /workspace/self/CHANGELOG.md
+git -C /workspace/self log --oneline -10
 ```
-
-If migrations pending or skills stale: suggest running `/migrate`.

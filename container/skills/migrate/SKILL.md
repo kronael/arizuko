@@ -16,9 +16,9 @@ test -d /workspace/global && echo "ERROR: migrate is main-group only" && exit 1
 Copy updated skills from source to all group session dirs.
 
 ```bash
-src=/workspace/project/container/skills
+src=/workspace/self/container/skills
 
-for session in /workspace/project/data/sessions/*/; do
+for session in /workspace/self/data/sessions/*/; do
   skills_dir="$session/.claude/skills"
   test -d "$skills_dir" || continue
   group=$(basename "$session")
@@ -41,9 +41,9 @@ done
 For each group session, check MIGRATION_VERSION and run missing migrations.
 
 ```bash
-src=/workspace/project/container/skills/self/migrations
+src=/workspace/self/container/skills/self/migrations
 
-for session in /workspace/project/data/sessions/*/; do
+for session in /workspace/self/data/sessions/*/; do
   skills_dir="$session/.claude/skills/self"
   test -d "$skills_dir" || continue
   group=$(basename "$session")

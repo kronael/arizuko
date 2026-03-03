@@ -1,16 +1,16 @@
 ---
 name: web
-description: Deploy web apps by writing files to /web/<app>/. Use when asked to build, create, or deploy a web app or page.
+description: Deploy web apps by writing files to /workspace/web/<app>/. Use when asked to build, create, or deploy a web app or page.
 ---
 
 # Web
 
-Deploy web apps by writing files to /web/<app_name>/.
+Deploy web apps by writing files to /workspace/web/<app_name>/.
 Any directory with index.html is served by vite MPA.
 
 ## Creating an app
 
-1. Write files to `/web/myapp/` (index.html required)
+1. Write files to `/workspace/web/myapp/` (index.html required)
 2. App is live at `https://$WEB_HOST/myapp/` (if WEB_HOST set)
 3. Vite handles TypeScript, CSS, hot reload natively
 
@@ -18,7 +18,7 @@ Any directory with index.html is served by vite MPA.
 
 - Vite MPA (no build step needed)
 - Vanilla HTML + CSS + JS/TS
-- Shared assets in `/web/pub/assets/` (hub.css, hub.js)
+- Shared assets in `/workspace/web/pub/assets/` (hub.css, hub.js)
 
 ## Styling
 
@@ -29,7 +29,7 @@ For richer apps: Tailwind CSS via CDN, Alpine.js via CDN.
 
 ## Hub page
 
-Root `/web/pub/index.html` lists all deployed apps.
+Root `/workspace/web/pub/index.html` lists all deployed apps.
 Update it when adding/removing apps.
 Never list placeholders or examples.
 

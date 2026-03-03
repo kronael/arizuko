@@ -9,7 +9,7 @@ Migration files are named `NNN-description.md` and run in numeric order.
 3. Run all migrations with number > current version, in order
 4. After each: `echo "N" > ~/.claude/skills/self/MIGRATION_VERSION`
 5. Main group also syncs updated MIGRATION_VERSION to all other
-   groups' skill dirs at `/workspace/project/data/sessions/*/`
+   groups' skill dirs at `/workspace/self/data/sessions/*/`
 
 ## Adding a migration
 

@@ -1,11 +1,11 @@
 ---
 name: howto
-description: Generate a getting-started howto page for this kanipi instance. Deploys to /web/pub/howto/. Use when asked to create onboarding, setup guide, or howto page.
+description: Generate a getting-started howto page for this kanipi instance. Deploys to /workspace/web/pub/howto/. Use when asked to create onboarding, setup guide, or howto page.
 ---
 
 # Howto
 
-Generate a getting-started page at `/web/pub/howto/index.html`
+Generate a getting-started page at `/workspace/web/pub/howto/index.html`
 that guides new users through connecting to this instance.
 
 ## When to use
@@ -105,12 +105,12 @@ Read instance context before generating:
 1. Check `$ASSISTANT_NAME` or hostname for the bot name
 2. Check which channels are configured (presence of
    TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN in env)
-3. Check if web apps already exist (`ls /web/`)
+3. Check if web apps already exist (`ls /workspace/web/`)
 4. Tailor the content to what's actually available
 
 ## After deploying
 
-1. Update `/web/pub/index.html` hub to include howto link
+1. Update `/workspace/web/pub/index.html` hub to include howto link
 2. Verify page loads: `curl -s http://localhost:$VITE_PORT/pub/howto/`
 3. Tell the user the URL
 
@@ -126,8 +126,8 @@ Default to English if unclear.
 
 ## Reference implementation
 
-Use `/srv/app/template/web/pub/howto/index.html` as the base.
-Copy it to `/web/pub/howto/index.html` and customize:
+Use `/srv/app/template/workspace/web/pub/howto/index.html` as the base.
+Copy it to `/workspace/web/pub/howto/index.html` and customize:
 
 - Replace "kanipi" with `$ASSISTANT_NAME` in title/hero
 - Update subtitle to match what this specific instance does

@@ -39,7 +39,6 @@ Task: "Research <topic>. Do 5 iterative deepening loops:
 While research agents run in background:
 
 - Check existing site patterns (look at sibling pages)
-- Create the app directory: `/srv/data/takopi/web/<name>/`
 - Scaffold `index.html` with the page structure
 
 ### 4. Distill Agent
@@ -64,12 +63,12 @@ Single-page HTML with all research organized into sections:
 
 ### 6. Deploy
 
-Drop `index.html` into `/srv/data/takopi/web/<name>/`.
-Available at `https://takopi.REDACTED/<name>/`.
+Drop `index.html` into `/workspace/web/<name>/`.
+Available at `https://$WEB_HOST/<name>/`.
 
 ## Page Design
 
-- Dark monospace theme (consistent with takopi.REDACTED)
+- Dark monospace theme
 - Sticky nav with section links
 - Cards for topic deep-dives
 - Tables for structured data (companies, papers)
@@ -85,7 +84,7 @@ Available at `https://takopi.REDACTED/<name>/`.
 - NEVER put the full research text on the page (summarize)
 - NEVER skip the iterative deepening (shallow research is useless)
 - ALWAYS update tasks.md as work progresses
-- ALWAYS check existing takopi pages for style consistency
+- ALWAYS check existing web pages for style consistency
 
 ## Research Agent Prompt Template
 
