@@ -48,6 +48,9 @@ COPY character.json /app/character.json
 # Build TypeScript
 RUN npm run build
 
+# Install REDACTED/tools: development wisdom + language skills at user scope
+COPY tools-template/ /home/node/.claude/
+
 # Create workspace directories
 RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks /workspace/ipc/input
 
@@ -57,7 +60,7 @@ RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/
 RUN printf '#!/bin/bash\nset -e\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\nln -s /app/node_modules /tmp/dist/node_modules\nchmod -R a-w /tmp/dist\ncat > /tmp/input.json\nnode /tmp/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set ownership to node user (non-root) for writable directories
-RUN chown -R node:node /workspace && chmod 777 /home/node
+RUN chown -R node:node /workspace /home/node/.claude && chmod 777 /home/node
 
 # Switch to non-root user (required for --dangerously-skip-permissions)
 USER node
