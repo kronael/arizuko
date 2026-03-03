@@ -22,6 +22,15 @@ function trailingSlash(): Plugin {
 export default defineConfig({
   appType: 'mpa',
   plugins: [trailingSlash()],
+  build: {
+    rollupOptions: {
+      input: {
+        pub: 'pub/index.html',
+        howto: 'pub/howto/index.html',
+        priv: 'priv/index.html',
+      },
+    },
+  },
   server: {
     host: '0.0.0.0',
     port: 5173,
