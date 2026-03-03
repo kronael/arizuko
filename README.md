@@ -16,8 +16,8 @@ Edit `/srv/data/kanipi_foo/.env` with channel tokens,
 register the main group, and start:
 
 ```bash
-./kanipi group add foo tg:-123456789  # register main group
-./kanipi foo                          # start gateway
+./kanipi config foo group add tg:-123456789  # register main group
+./kanipi foo                                 # start gateway
 ```
 
 ## Group Management
@@ -25,9 +25,9 @@ register the main group, and start:
 Groups must be registered before the bot processes messages.
 
 ```bash
-kanipi group list <instance>               # registered + discovered
-kanipi group add <instance> <jid> [folder] # register group
-kanipi group rm <instance> <jid>           # unregister (not main)
+kanipi config <instance> group list               # registered + discovered
+kanipi config <instance> group add <jid> [folder] # register group
+kanipi config <instance> group rm  <jid>          # unregister (not main)
 ```
 
 First group added defaults to folder `main` with direct mode
@@ -39,12 +39,19 @@ and use trigger mode (`@assistant_name` to activate).
 `/srv/data/kanipi_<name>/`:
 
 ```
-.env              config (tokens, ports)
-store/            SQLite DB, whatsapp auth
-groups/main/logs/ conversation logs
-data/             IPC, sessions
-web/              vite web app (MPA)
+.env                    config (tokens, ports)
+store/                  SQLite DB, whatsapp auth
+groups/main/logs/       conversation logs
+data/sessions/          per-session state dirs
+data/ipc/               agent IPC files
+web/pub/                public web files (no auth)
+web/priv/               private web files (auth required)
 ```
+
+The `/pub/` URL prefix is the auth boundary: files under `web/pub/`
+are served without authentication, `web/priv/` requires auth.
+Agent skills are seeded from `container/skills/` to
+`~/.claude/skills/` inside each container on first spawn.
 
 ## Config
 

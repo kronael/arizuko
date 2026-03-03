@@ -136,15 +136,44 @@ Each agent invocation runs in a fresh docker container:
 
 ```
 docker run
-  -v groups/<folder>:/workspace     # group files (rw)
-  -v data/sessions/<id>:/session    # session state (rw)
-  -v web/:/web                      # web output (rw)
-  -v <additional>                   # allowlisted mounts (ro)
+  -v groups/<folder>:/workspace/group   # group files (rw)
+  -v kanipi/:/workspace/self            # kanipi source, all groups (ro)
+  -v global/:/workspace/global          # cross-group shared state (ro)
+  -v web/:/workspace/web                # web output (rw)
+  -v data/sessions/<id>:/workspace/ipc  # IPC directory (rw)
+  -v <additional>:/workspace/extra/...  # allowlisted mounts (ro)
 ```
 
+Full workspace namespace: `self`, `group`, `global`, `web`, `ipc`,
+`extra`. `/workspace/self` exposes the kanipi source and all group
+folders (read-only) — replaces the old `/workspace/project` which
+only mounted the main group.
+
 The container entrypoint (`container/agent-runner/`) reads the
-prompt from stdin and writes JSON output to stdout. Agent skills
-are mounted from `container/skills/`.
+prompt from stdin and writes JSON output to stdout.
+
+**Skills seeding**: on first spawn for a group, `container/skills/`
+is seeded to `~/.claude/skills/` inside the container. Includes
+kanipi-specific skills plus development skills bundled from
+REDACTED/tools (bash, go, python, typescript, etc.). A `CLAUDE.md`
+is also seeded alongside.
+
+**character.json**: agent identity is defined in
+`container/character.json` (ElizaOS-style: bio, topics, adjectives,
+style, messageExamples). Fields are randomized per query at runtime
+to vary personality. Per-instance overrides via
+`/workspace/global/character.json` are merged at load time.
+Replaces the old `SOUL.md` approach.
+
+**Migration system**: `container/skills/self/MIGRATION_VERSION`
+tracks the applied version number. `container/skills/self/migrations/`
+contains numbered migration files (`NNN-desc.md`). The `/migrate`
+skill syncs all groups from the canonical source when the version
+changes.
+
+**Signal-driven IPC**: gateway writes IPC file then sends SIGUSR1
+to the container; agent wakes immediately on signal rather than
+waiting for the 500ms poll interval.
 
 ## State
 
@@ -177,5 +206,5 @@ template/         seed for new instances
   workspace/      mcporter config seed
 sidecar/          MCP server binaries
 specs/            versioned API/behavior specs
-kanipi            bash entrypoint (create/run/group)
+kanipi            bash entrypoint (create/run/group/vite)
 ```
