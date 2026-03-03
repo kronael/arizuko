@@ -1,11 +1,11 @@
 ---
 name: howto
-description: Generate a getting-started howto page for this kanipi instance. Deploys to /web/howto/. Use when asked to create onboarding, setup guide, or howto page.
+description: Generate a getting-started howto page for this kanipi instance. Deploys to /web/pub/howto/. Use when asked to create onboarding, setup guide, or howto page.
 ---
 
 # Howto
 
-Generate a getting-started page at `/web/howto/index.html`
+Generate a getting-started page at `/web/pub/howto/index.html`
 that guides new users through connecting to this instance.
 
 ## When to use
@@ -110,8 +110,8 @@ Read instance context before generating:
 
 ## After deploying
 
-1. Update `/web/index.html` hub to include howto link
-2. Verify page loads: `curl -s http://localhost:$VITE_PORT/howto/`
+1. Update `/web/pub/index.html` hub to include howto link
+2. Verify page loads: `curl -s http://localhost:$VITE_PORT/pub/howto/`
 3. Tell the user the URL
 
 ## Attribution
@@ -126,8 +126,8 @@ Default to English if unclear.
 
 ## Reference implementation
 
-Use `/srv/app/template/web/howto/index.html` as the base.
-Copy it to `/web/howto/index.html` and customize:
+Use `/srv/app/template/web/pub/howto/index.html` as the base.
+Copy it to `/web/pub/howto/index.html` and customize:
 
 - Replace "kanipi" with `$ASSISTANT_NAME` in title/hero
 - Update subtitle to match what this specific instance does

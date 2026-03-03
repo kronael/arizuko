@@ -13,7 +13,7 @@ Any directory with index.html is served by vite MPA.
 
 - Vite MPA (no build step needed)
 - Vanilla HTML + CSS + JS/TS
-- Shared assets in `/web/assets/` (hub.css, hub.js)
+- Shared assets in `/web/pub/assets/` (hub.css, hub.js)
 
 ## Styling
 
@@ -24,7 +24,7 @@ For richer apps: Tailwind CSS via CDN, Alpine.js via CDN.
 
 ## Hub page
 
-Root `/web/index.html` lists all deployed apps.
+Root `/web/pub/index.html` lists all deployed apps.
 Update it when adding/removing apps.
 Never list placeholders or examples.
 

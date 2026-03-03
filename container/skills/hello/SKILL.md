@@ -27,8 +27,8 @@ Write a short welcome (3-5 lines max). Include:
 5. **Web apps** — if VITE_PORT is set: "I can also deploy
    web apps — ask me to build something and I'll put it
    on {WEB_HOST or 'the web hub'}."
-6. **Howto link** — if /web/howto/ exists: "Getting started
-   guide: {WEB_HOST}/howto/"
+6. **Howto link** — if /web/pub/howto/ exists: "Getting started
+   guide: {WEB_HOST}/pub/howto/"
 
 ## Tone
 
@@ -42,7 +42,7 @@ Write a short welcome (3-5 lines max). Include:
 Before sending, check:
 
 - `echo $ASSISTANT_NAME` for bot name
-- `ls /web/howto/` to decide whether to link howto
+- `ls /web/pub/howto/` to decide whether to link howto
 - The user's message language to reply in the same language
 
 ## Example output
@@ -54,5 +54,5 @@ run shell commands, search the web, and build web apps.
 Send me a message with what you need. Be specific and I'll
 get to work. I can also deploy web apps for you — just ask.
 
-Getting started: https://REDACTED/howto/
+Getting started: https://REDACTED/pub/howto/
 ```
