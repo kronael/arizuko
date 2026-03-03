@@ -55,6 +55,97 @@ interface SDKUserMessage {
   session_id: string;
 }
 
+interface Character {
+  name?: string;
+  system?: string;
+  bio?: string[];
+  topics?: string[];
+  adjectives?: string[];
+  style?: { all?: string[]; chat?: string[] };
+  messageExamples?: Array<Array<{ name: string; content: string }>>;
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function assembleCharacter(char: Character, name: string): string {
+  const sections: string[] = [];
+
+  if (char.bio?.length) {
+    const bio = shuffle(char.bio).slice(0, 10).join(' ');
+    sections.push(`# About ${name}\n\n${bio}`);
+  }
+
+  if (char.system) {
+    sections.push(char.system.replace(/\{NAME\}/g, name));
+  }
+
+  if (char.topics?.length) {
+    const pick = char.topics[Math.floor(Math.random() * char.topics.length)];
+    sections.push(`${name} is currently thinking about ${pick}.`);
+  }
+
+  if (char.adjectives?.length) {
+    const adj = char.adjectives[Math.floor(Math.random() * char.adjectives.length)];
+    sections.push(`${name} is ${adj}.`);
+  }
+
+  const styleLines = [...(char.style?.all ?? []), ...(char.style?.chat ?? [])];
+  if (styleLines.length) {
+    sections.push(`# Style\n\n${styleLines.map(s => `- ${s}`).join('\n')}`);
+  }
+
+  if (char.messageExamples?.length) {
+    const examples = shuffle(char.messageExamples).slice(0, 5);
+    const block = examples
+      .map(ex =>
+        ex
+          .map(m => `${m.name.replace(/\{NAME\}/g, name)}: ${m.content.replace(/\{NAME\}/g, name)}`)
+          .join('\n'),
+      )
+      .join('\n\n');
+    sections.push(`# Example Conversations\n\n${block}`);
+  }
+
+  return sections.filter(Boolean).join('\n\n');
+}
+
+function loadCharacter(name: string): string {
+  const paths = [
+    '/workspace/global/character.json',
+    '/app/character.json',
+  ];
+  let merged: Character = {};
+  for (const p of paths.reverse()) {
+    if (!fs.existsSync(p)) continue;
+    try {
+      const c: Character = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      // arrays concatenate; scalars: later source wins
+      merged = {
+        ...merged,
+        ...c,
+        bio: [...(merged.bio ?? []), ...(c.bio ?? [])],
+        topics: [...(merged.topics ?? []), ...(c.topics ?? [])],
+        adjectives: [...(merged.adjectives ?? []), ...(c.adjectives ?? [])],
+        messageExamples: [...(merged.messageExamples ?? []), ...(c.messageExamples ?? [])],
+        style: {
+          all: [...(merged.style?.all ?? []), ...(c.style?.all ?? [])],
+          chat: [...(merged.style?.chat ?? []), ...(c.style?.chat ?? [])],
+        },
+      };
+    } catch {
+      // malformed json — skip
+    }
+  }
+  return assembleCharacter(merged, name);
+}
+
 const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
@@ -403,13 +494,11 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
 
-  // Soul — loaded from /app/SOUL.md (ships in container image).
-  // {NAME} is replaced with the actual assistant name at runtime.
+  // Character — assembled from /app/character.json (default) merged with
+  // /workspace/global/character.json (instance override). ElizaOS-style:
+  // bio/topics/adjectives randomized per query, system injected verbatim.
   const name = containerInput.assistantName || 'assistant';
-  const soulPath = '/app/SOUL.md';
-  const identityPreamble = fs.existsSync(soulPath)
-    ? fs.readFileSync(soulPath, 'utf-8').replace(/\{NAME\}/g, name)
-    : `Your name is ${name}. You are a Kanipi agent.\n`;
+  const identityPreamble = loadCharacter(name);
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';

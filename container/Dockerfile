@@ -41,9 +41,9 @@ COPY agent-runner/package*.json ./
 # Install dependencies
 RUN npm install
 
-# Copy source code and soul
+# Copy source code and default character
 COPY agent-runner/ ./
-COPY SOUL.md /app/SOUL.md
+COPY character.json /app/character.json
 
 # Build TypeScript
 RUN npm run build
