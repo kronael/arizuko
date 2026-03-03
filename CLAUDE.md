@@ -110,7 +110,7 @@ auth dir existence (whatsapp).
 ## Entrypoint
 
 `kanipi create <name>` — seed data dir, .env, systemd unit.
-`kanipi group list|add|rm <instance>` — manage registered groups.
+`kanipi config <instance> group list|add|rm` — manage registered groups.
 `kanipi <instance>` — cd to home, run gateway + vite
 (restart loop). VITE_PORT/WEB_HOST configured in .env.
 

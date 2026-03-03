@@ -284,11 +284,22 @@
             <span class="w-8 h-8 rounded-lg bg-field-500/10 text-field-600 dark:text-field-400 flex items-center justify-center text-xs font-bold font-mono">06</span>
             <h3 class="text-leather-900 dark:text-leather-100 font-bold text-base">Usage</h3>
           </div>
-          <div class="space-y-2.5 ml-11">
+          <div class="space-y-2.5 ml-11 mb-6">
             <div class="flex items-start gap-2.5"><span class="w-1.5 h-1.5 rounded-full bg-field-500 mt-2 shrink-0"></span><span class="text-sm text-leather-600 dark:text-leather-300">Mention the bot or send it a direct message &mdash; it responds as Claude</span></div>
             <div class="flex items-start gap-2.5"><span class="w-1.5 h-1.5 rounded-full bg-field-500 mt-2 shrink-0"></span><span class="text-sm text-leather-600 dark:text-leather-300">It can build and deploy web apps to <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded text-copper-500 border border-leather-200/40 dark:border-leather-900/30">/web/</code>, served by Vite</span></div>
             <div class="flex items-start gap-2.5"><span class="w-1.5 h-1.5 rounded-full bg-field-500 mt-2 shrink-0"></span><span class="text-sm text-leather-600 dark:text-leather-300">Each conversation spawns its own Docker container with full shell access</span></div>
             <div class="flex items-start gap-2.5"><span class="w-1.5 h-1.5 rounded-full bg-field-500 mt-2 shrink-0"></span><span class="text-sm text-leather-600 dark:text-leather-300">Containers idle-timeout automatically when inactive</span></div>
+          </div>
+          <div class="ml-11">
+            <p class="text-xs font-bold text-leather-400 dark:text-leather-800 tracking-widest uppercase mb-2">Registering groups</p>
+            <p class="text-sm text-leather-500 dark:text-leather-400 mb-3">Start the bot, add it to a chat, then register the group. List available (unregistered) chats the bot has seen:</p>
+            <div class="code-block depth-lg mb-3">
+              <div class="code-header"><span class="code-dot" style="background:#c0485e"></span><span class="code-dot" style="background:#d4a843"></span><span class="code-dot" style="background:#5a8f5c"></span><span class="text-xs ml-2" style="color:#6d5e50">terminal</span></div>
+              <pre class="font-mono"><code><span class="c-prompt">$</span> ./kanipi config mybot group list
+<span class="c-prompt">$</span> ./kanipi config mybot group add <span class="c-str">tg:-1234567890</span>
+<span class="c-prompt">$</span> ./kanipi config mybot group rm  <span class="c-str">tg:-1234567890</span></code></pre>
+            </div>
+            <p class="text-sm text-leather-500 dark:text-leather-400">The first group registered becomes <code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded border border-leather-200/40 dark:border-leather-900/30">folder=main</code> with no trigger required. Subsequent groups require a trigger (<code class="font-mono text-xs bg-leather-100 dark:bg-stable-900 px-1.5 py-0.5 rounded border border-leather-200/40 dark:border-leather-900/30">@botname</code>) and a folder name as the third argument.</p>
           </div>
         </div>
       </div>
