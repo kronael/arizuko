@@ -403,6 +403,10 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
 
+  // Identity preamble — always injected so the agent knows its name and platform
+  const name = containerInput.assistantName || 'assistant';
+  const identityPreamble = `Your name is ${name}. You are a kanipi agent.\n`;
+
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
   let globalClaudeMd: string | undefined;
@@ -433,9 +437,11 @@ async function runQuery(
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
-      systemPrompt: globalClaudeMd
-        ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd }
-        : undefined,
+      systemPrompt: {
+        type: 'preset' as const,
+        preset: 'claude_code' as const,
+        append: identityPreamble + (globalClaudeMd ? '\n' + globalClaudeMd : ''),
+      },
       allowedTools: [
         'Bash',
         'Read', 'Write', 'Edit', 'Glob', 'Grep',
