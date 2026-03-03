@@ -409,7 +409,7 @@ async function runQuery(
   const soulPath = '/app/SOUL.md';
   const identityPreamble = fs.existsSync(soulPath)
     ? fs.readFileSync(soulPath, 'utf-8').replace(/\{NAME\}/g, name)
-    : `Your name is ${name}. You are a kanipi agent.\n`;
+    : `Your name is ${name}. You are a Kanipi agent.\n`;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
