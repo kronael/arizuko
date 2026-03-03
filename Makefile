@@ -1,10 +1,13 @@
-.PHONY: build lint image clean
+.PHONY: build lint test image clean
 
 build:
-	npx tsc
+	bunx tsc
 
 lint:
-	npx tsc --noEmit
+	bunx tsc --noEmit
+
+test:
+	bunx vitest run
 
 image:
 	docker build -t kanipi .
