@@ -533,6 +533,10 @@ async function runQuery(
     const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
     log(`[msg #${messageCount}] type=${msgType}`);
 
+    if (messageCount > 0 && messageCount % 200 === 0) {
+      writeOutput({ status: 'success', result: `still working… (${messageCount} messages processed)`, newSessionId });
+    }
+
     if (message.type === 'assistant' && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
     }
