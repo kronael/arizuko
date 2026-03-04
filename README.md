@@ -35,6 +35,27 @@ First group added defaults to folder `main` with direct mode
 (no trigger required). Subsequent groups require a folder name
 and use trigger mode (`@assistant_name` to activate).
 
+## Web Channel (slink)
+
+Groups with a slink token accept messages via HTTP:
+
+```bash
+POST /pub/s/<token>
+Content-Type: application/json
+
+{"text": "hello", "media_url": "https://example.com/file.mp3"}
+```
+
+Optional `Authorization: Bearer <jwt>` header. When `AUTH_SECRET` is set,
+JWTs are verified (HMAC-SHA256). Authenticated requests get a higher rate
+limit (`SLINK_AUTH_RPM`, default 60/min vs `SLINK_ANON_RPM` default 10/min).
+
+`/pub/REDACTED.js` is a client-side script for embedding in public web pages
+(reads `data-token` from script tag). The authenticated `/_REDACTED/REDACTED.js`
+is injected into all proxied HTML pages and adds a `POST /_REDACTED/message`
+handler plus a SSE stream at `/_REDACTED/stream?group=<name>` for receiving
+agent responses in-page.
+
 ## Instance Layout
 
 `/srv/data/kanipi_<name>/`:
@@ -58,17 +79,20 @@ Agent skills are seeded from `container/skills/` to
 
 All via `.env` (seeded from `template/env.example`):
 
-| Key                       | Purpose                      |
-| ------------------------- | ---------------------------- |
-| ASSISTANT_NAME            | instance name                |
-| TELEGRAM_BOT_TOKEN        | enables telegram channel     |
-| DISCORD_BOT_TOKEN         | enables discord channel      |
-| CONTAINER_IMAGE           | agent docker image           |
-| CLAUDE_CODE_OAUTH_TOKEN   | passed to agent containers   |
-| IDLE_TIMEOUT              | container idle shutdown (ms) |
-| MAX_CONCURRENT_CONTAINERS | concurrent agent limit       |
-| VITE_PORT                 | enables vite web serving     |
-| WEB_HOST                  | vite host binding            |
+| Key                       | Purpose                                  |
+| ------------------------- | ---------------------------------------- |
+| ASSISTANT_NAME            | instance name                            |
+| TELEGRAM_BOT_TOKEN        | enables telegram channel                 |
+| DISCORD_BOT_TOKEN         | enables discord channel                  |
+| CONTAINER_IMAGE           | agent docker image                       |
+| CLAUDE_CODE_OAUTH_TOKEN   | passed to agent containers               |
+| IDLE_TIMEOUT              | container idle shutdown (ms)             |
+| MAX_CONCURRENT_CONTAINERS | concurrent agent limit                   |
+| VITE_PORT                 | enables vite web serving                 |
+| WEB_HOST                  | vite host binding                        |
+| REDACTED_USERS               | basic auth users (alice:pw,bob:pw2)      |
+| AUTH_SECRET               | HMAC secret for JWT verification (slink) |
+| WHISPER_BASE_URL          | whisper sidecar URL for transcription    |
 
 Channels enabled by token presence (telegram/discord) or
 auth dir existence (whatsapp: `store/auth/creds.json`).

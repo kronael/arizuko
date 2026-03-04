@@ -9,14 +9,68 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-### Added
+---
 
-- `self` skill: agent introspection — layout, skills, channels, migration version
-- `migrate` skill: main-group skill sync + migration runner across all groups
-- Migration system: `container/skills/self/migrations/` with versioned migration files
-- Migration 001: move web/ root files to web/pub/ per new layout convention
-- `web/SKILL.md`: added YAML frontmatter
-- `info/SKILL.md`: reports migration version, warns if migrations pending
+## [v0.2.0] — 2026-03-04
+
+### Slink web channel
+
+- Added `POST /pub/s/:token` endpoint — web channel for groups registered as `web:<name>`
+- Served `REDACTED.js` client widget at `/pub/REDACTED.js`
+- Verified JWT signatures (HS256) for authenticated senders
+- Added anon/auth rate limiting via `SLINK_ANON_RPM` / `SLINK_AUTH_RPM` config
+- Supported `media_url` attachments with MIME type guessing
+- Added SSE stream at `/_REDACTED/stream` for agent-to-browser push
+- Added `slink_token` column on `registered_groups`; added `generateSlinkToken` helper
+- Fixed expired JWT treated as anon (now returns 401)
+- Fixed slink deduplication and SSE error logging
+
+### Auth layer
+
+- Added auth DB schema: `users`, `sessions`, `oauth_accounts` tables
+- Added auth query functions: `createUser`, `getUserByProvider`, `createSession`, etc.
+- Added `AUTH_SECRET` config constant for JWT signing
+- Added web UI auth spec at `specs/v1/auth.md`
+
+### Whisper sidecar
+
+- Added self-contained `kanipi-whisper` docker image, deployed via Ansible
+- Added `whisperTranscribe` helper with 30s abort timeout
+- Updated voice and video handlers to use shared whisper endpoint
+
+### Mime pipeline
+
+- Added attachment enrichment before agent dispatch
+- Added handler registry: voice, video, image handlers
+- Dispatched handlers in parallel with `allSettled` (partial failure safe)
+- Added MIME type detection, file save, and annotation lines
+
+### Workspace and agent identity
+
+- Mounted `/workspace/self` read-only to expose full kanipi source to agent
+- Replaced `SOUL.md` with ElizaOS-style `character.json`
+- Added per-query field randomisation and global override merge in `character.json`
+- Split `web/pub/` as unauthenticated boundary; `/pub/` prefix is public
+
+### Skills and migrations
+
+- Added `self` skill: agent introspection — layout, skills, channels, migration version
+- Added `migrate` skill: main-group skill sync + migration runner across all groups
+- Added migration system: `container/skills/self/migrations/` with versioned files
+- Added migration 001: move `web/` root files to `web/pub/` per new layout convention
+- Added YAML frontmatter to `web/SKILL.md`
+- Updated `info/SKILL.md` to report migration version and warn if migrations pending
+
+### Build
+
+- Added `container/Makefile` for `kanipi-agent` image builds
+- Added `sidecar/whisper/Makefile` for `kanipi-whisper` image builds
+- Root `make image` now builds only the gateway (`kanipi`)
+
+### Testing
+
+- Added testability seams: `_initTestDatabase`, `setDatabase`, `_overrideConfig`
+- Reached 306 tests across 22 files
 
 ---
 
