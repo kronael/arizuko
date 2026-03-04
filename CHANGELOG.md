@@ -9,6 +9,12 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Gateway
+
+- Session error eviction: on agent error output, session ID is not persisted;
+  on error status, the session pointer is removed from DB (JSONL kept on disk)
+  so the next retry starts a fresh session rather than re-entering a corrupted one
+
 ---
 
 ## [v0.2.1] — 2026-03-04

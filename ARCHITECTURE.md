@@ -232,7 +232,9 @@ tell the user to say "continue" to pick up where it left off.
 
 - Registered groups → SQLite (`registered_groups` table, includes `slink_token`)
 - Message history → SQLite (`messages` table)
-- Sessions → SQLite (`sessions` table) + filesystem
+- Sessions → SQLite (`sessions` table) + filesystem. On agent error, the DB
+  pointer is evicted so the next run starts a fresh session; JSONL remains on
+  disk for history.
 - Scheduled tasks → SQLite (`tasks` table)
 - Web auth users → SQLite (`auth_users` table)
 - Web auth sessions → SQLite (`auth_sessions` table)
