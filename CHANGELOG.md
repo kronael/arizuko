@@ -9,6 +9,22 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### CLI
+
+- `kanipi user list|add|rm|passwd <instance>` commands for local user management;
+  passwords hashed with argon2
+
+### Auth
+
+- `POST /auth/refresh`: token rotation — issues new access + refresh token pair,
+  invalidates old refresh token
+- OAuth providers (Google, GitHub) moved out of scope to `specs/v3/auth-oauth.md`
+
+### Specs
+
+- `specs/v1/auth.md`: updated to reflect actual v1 implementation (local
+  users, session tokens, refresh rotation); OAuth section removed
+
 ---
 
 ## [v0.2.3] — 2026-03-04
