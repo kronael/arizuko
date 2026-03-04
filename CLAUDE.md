@@ -130,3 +130,15 @@ When making notable kanipi changes:
 3. Update `container/skills/self/MIGRATION_VERSION` to match highest N
 4. Update "Latest migration version" in `container/skills/self/SKILL.md`
 5. Rebuild agent image
+
+## Tagging a new version
+
+After all changes are committed:
+
+1. Update `package.json` version
+2. Update `CHANGELOG.md` — move [Unreleased] to `[vX.Y.Z] — YYYY-MM-DD`
+3. Update `README.md` and `ARCHITECTURE.md` if needed
+4. `git tag vX.Y.Z`
+5. Tag docker images: `docker tag kanipi:latest kanipi:vX.Y.Z` and same for `kanipi-agent`
+6. Per-instance gateway tags: `docker tag kanipi:vX.Y.Z kanipi-<name>:latest` for instances being upgraded
+7. Add `.diary/YYYYMMDD.md` entry documenting what was deployed and which instances
