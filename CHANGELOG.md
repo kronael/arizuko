@@ -11,6 +11,18 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.2.1] — 2026-03-04
+
+### Agent runner
+
+- Progress updates: every 100 SDK messages, emits last assistant text snippet
+  to the channel so users see activity on long runs
+- `error_max_turns` recovery: resumes the session with `maxTurns=3` and asks
+  Claude to summarise what was accomplished and what remains, then prompts the
+  user to say "continue"
+
+---
+
 ## [v0.2.0] — 2026-03-04
 
 ### Slink web channel

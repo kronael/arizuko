@@ -218,6 +218,16 @@ changes.
 to the container; agent wakes immediately on signal rather than
 waiting for the 500ms poll interval.
 
+**Progress updates**: every 100 SDK messages, the agent runner emits
+a `status=success` output with the last assistant text snippet. The
+gateway forwards this to the channel, giving users visibility on long
+runs without waiting for the container to exit.
+
+**`error_max_turns` recovery**: when the SDK signals `error_max_turns`,
+the agent runner resumes the session immediately with `maxTurns=3` and
+prompts Claude to summarise what was accomplished and what remains, then
+tell the user to say "continue" to pick up where it left off.
+
 ## State
 
 - Registered groups → SQLite (`registered_groups` table, includes `slink_token`)

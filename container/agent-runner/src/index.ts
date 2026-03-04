@@ -536,16 +536,14 @@ async function runQuery(
     log(`[msg #${messageCount}] type=${msgType}`);
 
     if (message.type === 'assistant') {
-      const parts = (message as { message?: { content?: { type: string; text?: string }[] } }).message?.content;
-      if (parts) {
-        const text = parts.filter((c) => c.type === 'text').map((c) => c.text || '').join('').trim();
-        if (text) lastAssistantText = text;
-      }
-      if ('uuid' in message) lastAssistantUuid = (message as { uuid: string }).uuid;
+      const m = message as { message?: { content?: { type: string; text?: string }[] }; uuid?: string };
+      const text = m.message?.content?.filter(c => c.type === 'text').map(c => c.text || '').join('').trim();
+      if (text) lastAssistantText = text;
+      if (m.uuid) lastAssistantUuid = m.uuid;
     }
 
     if (messageCount > 0 && messageCount % 100 === 0) {
-      const snippet = lastAssistantText ? lastAssistantText.slice(0, 280) : `${messageCount} messages processed`;
+      const snippet = lastAssistantText?.slice(0, 280) ?? `${messageCount} messages processed`;
       writeOutput({ status: 'success', result: `⏳ still working… ${snippet}`, newSessionId });
     }
 
@@ -588,7 +586,7 @@ async function runQuery(
       },
     })) {
       if (msg.type === 'result') {
-        const txt = 'result' in msg ? (msg as { result?: string }).result : null;
+        const txt = (msg as { result?: string }).result ?? null;
         writeOutput({ status: 'success', result: txt ?? '⚠️ ran out of turns — say "continue" to resume.', newSessionId });
       }
     }
