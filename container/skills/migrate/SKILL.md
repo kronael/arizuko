@@ -5,10 +5,10 @@ description: Sync skills and run pending migrations across all groups. Main grou
 
 # Migrate
 
-Main group only. Refuse if `/workspace/global` exists.
+Main group only. Refuse if `NANOCLAW_IS_MAIN` is not `1`.
 
 ```bash
-if test -d /workspace/global; then echo "ERROR: migrate is main-group only"; exit 1; fi
+if [ "$NANOCLAW_IS_MAIN" != "1" ]; then echo "ERROR: migrate is main-group only"; exit 1; fi
 echo "main group confirmed"
 ```
 

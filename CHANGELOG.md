@@ -9,6 +9,10 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+---
+
+## [v0.2.2] — 2026-03-04
+
 ### Gateway
 
 - Outbound file sending: `send_file` MCP tool lets agents send files to users
@@ -17,6 +21,14 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - Session error eviction: on agent error output, session ID is not persisted;
   on error status, the session pointer is removed from DB (JSONL kept on disk)
   so the next retry starts a fresh session rather than re-entering a corrupted one
+- Inject `NANOCLAW_IS_MAIN` into agent `settings.json` on every spawn (was
+  never set, so agents always saw it as empty)
+
+### Agent skills
+
+- `migrate` skill: replace `/workspace/global` dir-existence check with
+  `NANOCLAW_IS_MAIN != 1` check — the dir always exists due to Dockerfile
+  mkdir, making the old check unreliable for main-group detection
 
 ---
 
