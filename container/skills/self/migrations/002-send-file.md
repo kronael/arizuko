@@ -7,8 +7,7 @@ available in all groups.
 
 - New `send_file` tool in the MCP server — sends a file from the workspace
   to the user as a document attachment via Telegram.
-- Store files under `/workspace/group/{folder}/media/YYYYMMDD/` before
-  calling `send_file`.
+- Call `send_file` with the absolute path of any file under `/workspace`.
 
 ## No agent-side action required
 

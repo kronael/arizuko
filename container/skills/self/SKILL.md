@@ -69,9 +69,9 @@ Latest migration version: **4**. If version < 4: migrations pending.
 
 ### send_file usage
 
-Store files under `/workspace/group/{folder}/media/YYYYMMDD/` then call
-`send_file` with the absolute path. The gateway resolves the container path to
-the host and delivers it as a document attachment.
+Call `send_file` with the absolute path of any file under `/workspace`.
+The gateway resolves the container path to the host and delivers it as a
+document attachment.
 
 ## Main group only
 

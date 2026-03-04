@@ -65,9 +65,8 @@ objects leak. Minimize state, make it explicit.
 ALWAYS use the `send_file` MCP tool when delivering files to the user —
 NEVER describe or inline file contents in your text response.
 
-Store files under `/workspace/group/main/media/YYYYMMDD/` before calling
-`send_file` with the absolute path. Your final text reply should confirm
-what was sent, not repeat the content.
+Call `send_file` with the absolute path of any file in `/workspace`.
+Your final text reply should confirm what was sent, not repeat the content.
 
 ## User Interface
 
