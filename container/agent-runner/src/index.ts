@@ -455,6 +455,7 @@ async function runQuery(
 
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
+  let lastAssistantText: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
 
@@ -533,12 +534,18 @@ async function runQuery(
     const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
     log(`[msg #${messageCount}] type=${msgType}`);
 
-    if (messageCount > 0 && messageCount % 200 === 0) {
-      writeOutput({ status: 'success', result: `still working… (${messageCount} messages processed)`, newSessionId });
+    if (message.type === 'assistant') {
+      const parts = (message as { message?: { content?: { type: string; text?: string }[] } }).message?.content;
+      if (parts) {
+        const text = parts.filter((c) => c.type === 'text').map((c) => c.text || '').join('').trim();
+        if (text) lastAssistantText = text;
+      }
+      if ('uuid' in message) lastAssistantUuid = (message as { uuid: string }).uuid;
     }
 
-    if (message.type === 'assistant' && 'uuid' in message) {
-      lastAssistantUuid = (message as { uuid: string }).uuid;
+    if (messageCount > 0 && messageCount % 200 === 0) {
+      const snippet = lastAssistantText ? lastAssistantText.slice(0, 280) : `${messageCount} messages processed`;
+      writeOutput({ status: 'success', result: `⏳ still working… ${snippet}`, newSessionId });
     }
 
     if (message.type === 'system' && message.subtype === 'init') {
