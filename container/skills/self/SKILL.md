@@ -43,6 +43,8 @@ updates, and runs pending migrations.
 ## Introspect (all groups)
 
 ```bash
+echo "name: $NANOCLAW_ASSISTANT_NAME"
+echo "web:  ${WEB_HOST:-(not set)}"
 cat /workspace/web/.layout 2>/dev/null || echo legacy
 ls ~/.claude/skills/
 env | grep -E '(TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN)' | sed 's/=.*/=<set>/'
