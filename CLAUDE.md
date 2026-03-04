@@ -19,8 +19,8 @@ make -C sidecar/whisper image  # whisper sidecar image
 npm run dev         # tsx dev mode
 ```
 
-Tests use vitest (not in package.json, run via npx). Run all:
-`npx vitest run`. Run one file: `npx vitest run src/foo.test.ts`.
+Tests use vitest (devDependency). Run all:
+`vitest run`. Run one file: `vitest run src/foo.test.ts`.
 Many tests require docker — they'll fail without it.
 
 Pre-commit hooks (prettier, typecheck, hygiene) configured
