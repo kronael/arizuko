@@ -458,6 +458,7 @@ async function runQuery(
   let lastAssistantText: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  let maxTurnsHit = false;
 
   // Character — assembled from /app/character.json (default) merged with
   // /workspace/global/character.json (instance override). ElizaOS-style:
@@ -544,7 +545,7 @@ async function runQuery(
       if ('uuid' in message) lastAssistantUuid = (message as { uuid: string }).uuid;
     }
 
-    if (messageCount > 0 && messageCount % 200 === 0) {
+    if (messageCount > 0 && messageCount % 100 === 0) {
       const snippet = lastAssistantText ? lastAssistantText.slice(0, 280) : `${messageCount} messages processed`;
       writeOutput({ status: 'success', result: `⏳ still working… ${snippet}`, newSessionId });
     }
@@ -563,17 +564,37 @@ async function runQuery(
       resultCount++;
       const textResult = 'result' in message ? (message as { result?: string }).result : null;
       log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
-      writeOutput({
-        status: 'success',
-        result: textResult || null,
-        newSessionId
-      });
+      if (message.subtype === 'error_max_turns') {
+        maxTurnsHit = true;
+      } else {
+        writeOutput({ status: 'success', result: textResult || null, newSessionId });
+      }
     }
   }
 
   ipcPolling = false;
   wakeup = null;
   log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
+
+  if (maxTurnsHit && newSessionId) {
+    log('Max turns hit — requesting summary');
+    for await (const msg of query({
+      prompt: 'You hit the turn limit mid-task. Briefly summarise: what you were doing, what is done, what remains. Be concise.',
+      options: {
+        cwd: '/workspace/group',
+        maxTurns: 3,
+        resume: newSessionId,
+        permissionMode: 'bypassPermissions' as const,
+        allowDangerouslySkipPermissions: true,
+      },
+    })) {
+      if (msg.type === 'result') {
+        const txt = 'result' in msg ? (msg as { result?: string }).result : null;
+        writeOutput({ status: 'success', result: txt ? `⚠️ hit turn limit. ${txt}` : '⚠️ hit turn limit.', newSessionId });
+      }
+    }
+  }
+
   return { newSessionId, lastAssistantUuid, closedDuringQuery };
 }
 
