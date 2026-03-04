@@ -126,7 +126,7 @@ Default to English if unclear.
 
 ## Reference implementation
 
-Use `/srv/app/template/workspace/web/pub/howto/index.html` as the base.
+Use `/workspace/self/template/web/pub/howto/index.html` as the base.
 Copy it to `/workspace/web/pub/howto/index.html` and customize:
 
 - Replace "kanipi" with `$ASSISTANT_NAME` in title/hero
