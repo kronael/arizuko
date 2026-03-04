@@ -9,21 +9,25 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+---
+
+## [v0.2.4] — 2026-03-04
+
 ### CLI
 
-- `kanipi user list|add|rm|passwd <instance>` commands for local user management;
-  passwords hashed with argon2
+- `kanipi config <instance> user list|add|rm|passwd` for local user management;
+  passwords hashed with argon2; values passed via env vars to prevent shell injection
 
 ### Auth
 
 - `POST /auth/refresh`: token rotation — issues new access + refresh token pair,
   invalidates old refresh token
-- OAuth providers (Google, GitHub) moved out of scope to `specs/v3/auth-oauth.md`
+- `POST /auth/refresh` JWT now carries correct user name (was using sub string)
+- OAuth providers deferred to `specs/v3/auth-oauth.md`
 
 ### Specs
 
-- `specs/v1/auth.md`: updated to reflect actual v1 implementation (local
-  users, session tokens, refresh rotation); OAuth section removed
+- `specs/v1/auth.md`: updated to reflect v1 implementation
 
 ---
 
