@@ -61,6 +61,18 @@ agent-browser scroll down 500     # Scroll page
 agent-browser upload @e1 file.pdf # Upload files
 ```
 
+### Clicking by coordinates (canvas, maps, custom renderers)
+
+**Always use `mouse` for coordinate-based clicks** — JS `MouseEvent` has
+`isTrusted=false` and is blocked by security-conscious apps. `mouse` sends
+real CDP input events with `isTrusted=true`.
+
+```bash
+agent-browser mouse move 930 120   # Move to coordinates
+agent-browser mouse down           # Press left button
+agent-browser mouse up             # Release — completes the click
+```
+
 ### Get information
 
 ```bash
