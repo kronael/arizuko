@@ -34,11 +34,16 @@ Handles group registration and discovery across channels.
 ### config.ts
 
 All config from `.env` in the working directory + env vars.
-Exports typed constants. Channel enablement logic lives here:
+Exports typed constants (most as `let` bindings to allow test overrides).
+Channel enablement logic lives here:
 
 - `TELEGRAM_BOT_TOKEN` present → telegram enabled
 - `DISCORD_BOT_TOKEN` present → discord enabled
 - `whatsappEnabled()` → checks `store/auth/creds.json` exists
+
+`_overrideConfig(partial)` and `_resetConfig()` are test-only helpers
+(gated behind `NODE_ENV=test`) that mutate the live exported bindings
+and restore them from env, respectively.
 
 ### db.ts
 
@@ -121,6 +126,9 @@ Sentinel markers (`---NANOCLAW_OUTPUT_START---` /
 agent log noise.
 
 Output shape: `{ status, result, newSessionId, error }`.
+
+`_spawnProcess` is an exported `let` binding (default: `spawn`) that
+tests replace to mock docker without a running daemon.
 
 Also writes `groups.json` and `tasks.json` snapshots into the
 group IPC directory before each agent run. Runs `chownRecursive`

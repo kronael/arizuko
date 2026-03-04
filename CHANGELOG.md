@@ -11,6 +11,31 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.2.6] — 2026-03-04
+
+### Testing
+
+- `vitest` added as devDependency; `make test` and npm scripts use bare
+  `vitest run` (no npx/bunx wrapper)
+- `src/config.test.ts`: live-binding assertions for config overrides;
+  `_resetConfig()` restores defaults from env in `afterEach`
+- `container-runner.ts`: `export let _spawnProcess = spawn` seam allows
+  mocking docker without a running daemon
+- Fixed container-runner test mocks: missing `HOST_APP_DIR`/`WEB_HOST`
+  constants; `readFileSync` mock returning `''` now returns `'{}'`
+- `specs/v1/testing.md`: all testability gaps marked shipped
+
+### Config
+
+- 7 constants changed `const` → `let` in `config.ts`: `SLINK_ANON_RPM`,
+  `SLINK_AUTH_RPM`, `WHISPER_BASE_URL`, `VOICE_TRANSCRIPTION_ENABLED`,
+  `VIDEO_TRANSCRIPTION_ENABLED`, `MEDIA_ENABLED`, `MEDIA_MAX_FILE_BYTES`
+- `_overrideConfig` mutates live bindings directly (was partial)
+- `_resetConfig()` added to restore defaults from env; both gated behind
+  `NODE_ENV=test`
+
+---
+
 ## [v0.2.5] — 2026-03-04
 
 ### Gateway
