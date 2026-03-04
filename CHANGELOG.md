@@ -9,6 +9,10 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+---
+
+## [v0.2.3] — 2026-03-04
+
 ### Gateway
 
 - Email channel: IMAP IDLE loop with SMTP reply threading, routes to main
@@ -18,6 +22,13 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - `src/mime.ts`: shared `mimeFromFile()` helper using file-type (magic bytes)
 - `email_threads` table in DB: `getEmailThread`, `getEmailThreadByMsgId`,
   `storeEmailThread` for SMTP reply threading
+- Explicit `DATA_DIR`/`HOST_DATA_DIR`/`HOST_APP_DIR` env vars replace brittle
+  `/proc/self/mountinfo` host-path detection; gateway cwd stays at `/srv/app`
+
+### Agent skills
+
+- Migration 004: enforce `send_file` for file delivery (CLAUDE.md rule);
+  `send_file` accepts any `/workspace` path, not restricted to `media/`
 
 ---
 
