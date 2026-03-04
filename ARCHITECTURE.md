@@ -205,7 +205,7 @@ template/         seed for new instances
   web/            vite web app template
   workspace/      mcporter config seed
 sidecar/          MCP server binaries
-  whisper/        whisper sidecar (make image → whisper)
+  whisper/        whisper sidecar (make image → kanipi-whisper)
 specs/            versioned API/behavior specs
 kanipi            bash entrypoint (create/run/group/vite)
 ```
