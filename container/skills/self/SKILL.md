@@ -36,7 +36,7 @@ updates, and runs pending migrations.
 ## Main group detection
 
 ```bash
-test ! -d /workspace/global && echo main || echo non-main
+[ "$NANOCLAW_IS_MAIN" = "1" ] && echo main || echo non-main
 ```
 
 ## Introspect (all groups)
