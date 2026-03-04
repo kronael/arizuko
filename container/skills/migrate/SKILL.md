@@ -5,10 +5,10 @@ description: Sync skills and run pending migrations across all groups. Main grou
 
 # Migrate
 
-Main group only. Refuse if `NANOCLAW_IS_MAIN` is not `1`.
+Main group only. Refuse if `/workspace/global` exists.
 
 ```bash
-if [ "$NANOCLAW_IS_MAIN" != "1" ]; then echo "ERROR: migrate is main-group only"; exit 1; fi
+if test -d /workspace/global; then echo "ERROR: migrate is main-group only"; exit 1; fi
 echo "main group confirmed"
 ```
 
@@ -17,7 +17,7 @@ echo "main group confirmed"
 Copy updated skills from source to all group session dirs.
 
 ```bash
-src=~/.claude/skills
+src=/workspace/self/container/skills
 
 for session in /workspace/self/data/sessions/*/; do
   skills_dir="$session/.claude/skills"
@@ -42,7 +42,7 @@ done
 For each group session, check MIGRATION_VERSION and run missing migrations.
 
 ```bash
-src=~/.claude/skills/self/migrations
+src=/workspace/self/container/skills/self/migrations
 
 for session in /workspace/self/data/sessions/*/; do
   skills_dir="$session/.claude/skills/self"
