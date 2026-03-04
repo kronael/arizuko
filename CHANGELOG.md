@@ -11,6 +11,9 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Gateway
 
+- Outbound file sending: `send_file` MCP tool lets agents send files to users
+  as document attachments (Telegram); IPC `type:'file'` handler with
+  path-safety check against GROUPS_DIR
 - Session error eviction: on agent error output, session ID is not persisted;
   on error status, the session pointer is removed from DB (JSONL kept on disk)
   so the next retry starts a fresh session rather than re-entering a corrupted one

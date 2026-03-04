@@ -52,7 +52,26 @@ ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0
 ```
 
-Latest migration version: **1**. If version < 1: migrations pending.
+Latest migration version: **2**. If version < 2: migrations pending.
+
+## MCP tools
+
+| Tool             | Description                                                 |
+| ---------------- | ----------------------------------------------------------- |
+| `send_message`   | Send intermediate status update to user while still running |
+| `send_file`      | Send a file from workspace to user as document attachment   |
+| `schedule_task`  | Schedule recurring or one-time agent task                   |
+| `list_tasks`     | List scheduled tasks                                        |
+| `pause_task`     | Pause a scheduled task                                      |
+| `resume_task`    | Resume a paused task                                        |
+| `cancel_task`    | Cancel a scheduled task                                     |
+| `register_group` | Register new WhatsApp group (main only)                     |
+
+### send_file usage
+
+Store files under `/workspace/group/{folder}/media/YYYYMMDD/` then call
+`send_file` with the absolute path. The gateway resolves the container path to
+the host and delivers it as a document attachment.
 
 ## Main group only
 
