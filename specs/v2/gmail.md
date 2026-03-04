@@ -1,4 +1,4 @@
-# Gmail channel (v2)
+# Gmail channel (v2) — speculative
 
 Gmail-specific upgrade over the generic email channel (v1).
 Requires Google Cloud project + Gmail API enabled.

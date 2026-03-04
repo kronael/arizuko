@@ -1,4 +1,4 @@
-# Arizuka Spec
+# Arizuka Spec — speculative
 
 NanoClaw fork. Wire (routing) + tap (tool middleware) + bus (IPC/MCP).
 3,916 LOC TypeScript. 20 source files. Compiles clean.

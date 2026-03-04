@@ -1,4 +1,4 @@
-# DB bootstrap spec (v2)
+# DB bootstrap spec (v2) — open
 
 ## Problem
 

@@ -1,4 +1,4 @@
-# kanipi channel strategy
+# kanipi channel strategy — shipped
 
 ## Principle
 

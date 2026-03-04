@@ -1,4 +1,4 @@
-# Cross-channel identity (v2)
+# Cross-channel identity (v2) — open
 
 Link a single user across multiple channels and auth providers.
 

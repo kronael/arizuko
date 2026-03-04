@@ -1,4 +1,4 @@
-# File Handling
+# File Handling — partial
 
 Inbound: user uploads files to agent workspace.
 Outbound: agent writes files, gateway sends them back.

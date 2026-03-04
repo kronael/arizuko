@@ -1,4 +1,4 @@
-# Twitter/X channel (v2)
+# Twitter/X channel (v2) — speculative
 
 Inbound/outbound via `agent-twitter-client` (elizaOS).
 No paid API — reverse-engineered client, cookie-based auth.

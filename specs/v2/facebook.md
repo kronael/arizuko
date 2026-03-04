@@ -1,4 +1,4 @@
-# Facebook Messenger channel (v2)
+# Facebook Messenger channel (v2) — speculative
 
 Inbound/outbound via fca-unofficial — no Graph API, no app review.
 Same approach as Baileys for WhatsApp: unofficial, cookie-based auth.

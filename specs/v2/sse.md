@@ -1,4 +1,4 @@
-# SSE Stream — v2
+# SSE Stream — v2 — open
 
 ## Current behaviour (v0.2.0)
 
