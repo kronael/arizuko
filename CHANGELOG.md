@@ -9,6 +9,16 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Gateway
+
+- Email channel: IMAP IDLE loop with SMTP reply threading, routes to main
+  group; enabled by `EMAIL_IMAP_HOST` config
+- `send_file` Discord support: `sendDocument` via `AttachmentBuilder`
+- `send_file` WhatsApp support: `sendDocument` via baileys document message
+- `src/mime.ts`: shared `mimeFromFile()` helper using file-type (magic bytes)
+- `email_threads` table in DB: `getEmailThread`, `getEmailThreadByMsgId`,
+  `storeEmailThread` for SMTP reply threading
+
 ---
 
 ## [v0.2.2] — 2026-03-04

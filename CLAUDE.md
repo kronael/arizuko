@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What is kanipi
 
 Nanoclaw fork — multitenant Claude agent gateway with
-multi-channel support (telegram, whatsapp, discord).
+multi-channel support (telegram, whatsapp, discord, email).
 systemd-managed instances, MCP sidecar extensibility.
 
 ## Build & Test
@@ -47,7 +47,9 @@ Key modules:
 - `ipc.ts` — container↔gateway communication (file-based, fs.watch-driven)
 - `task-scheduler.ts` — cron-based scheduled tasks
 - `mount-security.ts` — validates additional mounts against `~/.config/nanoclaw/mount-allowlist.json` (stored outside project to prevent agent tampering)
-- `channels/` — telegram (grammy), whatsapp (baileys), discord (discord.js)
+- `mime.ts` — shared `mimeFromFile()` via file-type (magic bytes detection)
+- `channels/` — telegram (grammy), whatsapp (baileys), discord (discord.js),
+  email (IMAP IDLE + SMTP threading)
 
 **Web**: vite dev server managed by bash entrypoint (not
 the TS gateway). No `web-server.ts` — web is external.
@@ -97,6 +99,7 @@ kanipi                bash entrypoint (create/run/group/vite)
 
 All config via `.env` in data dir or env vars. Key values:
 `ASSISTANT_NAME`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`,
+`EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`,
 `CONTAINER_IMAGE`, `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`.
 
 `CONTAINER_IMAGE` is read from both `.env` and env vars (env var
@@ -105,8 +108,8 @@ wins). Most other container settings are env-var only.
 `env.ts` handles raw `.env` file loading; `config.ts` exports
 typed constants derived from env. Always import from `config.ts`.
 
-Channels enabled by token presence (telegram/discord) or
-auth dir existence (whatsapp).
+Channels enabled by token presence (telegram/discord), auth dir existence
+(whatsapp), or `EMAIL_IMAP_HOST` presence (email).
 
 ## Entrypoint
 
