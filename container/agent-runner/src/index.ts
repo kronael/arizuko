@@ -493,7 +493,6 @@ async function runQuery(
     prompt: stream,
     options: {
       cwd: '/workspace/group',
-      maxTurns: 300,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
@@ -577,9 +576,9 @@ async function runQuery(
   log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
 
   if (maxTurnsHit && newSessionId) {
-    log('Max turns hit — requesting summary');
+    log('Max turns hit — requesting summary + resumption nudge');
     for await (const msg of query({
-      prompt: 'You hit the turn limit mid-task. Briefly summarise: what you were doing, what is done, what remains. Be concise.',
+      prompt: 'You ran out of turns mid-task. Summarise concisely: what you accomplished, what is still pending. Then tell the user they can say "continue" to resume where you left off.',
       options: {
         cwd: '/workspace/group',
         maxTurns: 3,
@@ -590,7 +589,7 @@ async function runQuery(
     })) {
       if (msg.type === 'result') {
         const txt = 'result' in msg ? (msg as { result?: string }).result : null;
-        writeOutput({ status: 'success', result: txt ? `⚠️ hit turn limit. ${txt}` : '⚠️ hit turn limit.', newSessionId });
+        writeOutput({ status: 'success', result: txt ?? '⚠️ ran out of turns — say "continue" to resume.', newSessionId });
       }
     }
   }
