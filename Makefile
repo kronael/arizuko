@@ -7,7 +7,7 @@ lint:
 	bunx tsc --noEmit
 
 test:
-	bunx vitest run
+	vitest run
 
 image:
 	docker build -t kanipi .
