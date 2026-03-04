@@ -7,9 +7,10 @@ instances and MCP sidecar extensibility.
 ## Quick Start
 
 ```bash
-make image          # build gateway docker image
-make agent-image    # build agent docker image
-./kanipi create foo # seed instance at /srv/data/kanipi_foo/
+make image                     # build gateway docker image
+make -C container image        # build agent docker image
+make -C sidecar/whisper image  # build whisper sidecar image
+./kanipi create foo            # seed instance at /srv/data/kanipi_foo/
 ```
 
 Edit `/srv/data/kanipi_foo/.env` with channel tokens,

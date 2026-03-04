@@ -198,13 +198,14 @@ waiting for the 500ms poll interval.
 ```
 src/              gateway source (TypeScript)
   channels/       telegram, whatsapp, discord
-container/        agent container build
+container/        agent container build (make image → kanipi-agent)
   agent-runner/   in-container entrypoint
   skills/         agent-side skills
 template/         seed for new instances
   web/            vite web app template
   workspace/      mcporter config seed
 sidecar/          MCP server binaries
+  whisper/        whisper sidecar (make image → whisper)
 specs/            versioned API/behavior specs
 kanipi            bash entrypoint (create/run/group/vite)
 ```
