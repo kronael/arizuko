@@ -492,6 +492,7 @@ async function runQuery(
     prompt: stream,
     options: {
       cwd: '/workspace/group',
+      maxTurns: 300,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
