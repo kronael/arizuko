@@ -61,8 +61,32 @@ This bridges `local:<uuid>` (web password login) to `tg:123456`
 
 ## Scope
 
-- Identity resolution is advisory — agents can query it but v2 does
-  not enforce it anywhere automatically.
+- Identity resolution is advisory — agents can query it but v2 does not
+  enforce it anywhere automatically.
 - No identity merging UI in v2 (CLI only via `kanipi identity list/link/unlink`).
 - Conflict resolution (two identities claim the same sub): last-write wins,
   log warning.
+
+## Current state (2026-03-04)
+
+Auth (`src/auth.ts`) is shipped: local accounts, argon2id, JWT, refresh cookie.
+`auth_users.sub` is `local:<uuid>` — already a valid claim sub in this model.
+
+**What exists:**
+
+- `auth_users` + `auth_sessions` tables in `db.ts`
+- `messages.sender` stores raw channel sender per message
+
+**What is missing:**
+
+- `identities` + `identity_claims` tables
+- Sub namespace prefix on `messages.sender`: Telegram stores bare `"123456"`,
+  not `"tg:123456"`; Discord stores bare snowflake. Needs prefix at store time,
+  or `identity_claims` must carry a `channel` discriminator column.
+- `GET /auth/link-code` endpoint
+- Link-code detection in channel message handlers
+- `kanipi identity` CLI subcommands
+
+**Minimal path:** in-group claim flow (link-code) is the smallest useful
+increment — no OAuth, bridges web login to any channel sender. Prerequisite:
+normalize `messages.sender` to include channel prefix.
