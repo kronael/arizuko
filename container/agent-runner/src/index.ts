@@ -1,19 +1,3 @@
-/**
- * NanoClaw Agent Runner
- * Runs inside a container, receives config via stdin, outputs result to stdout
- *
- * Input protocol:
- *   Stdin: Full ContainerInput JSON (read until EOF, like before)
- *   IPC:   Follow-up messages written as JSON files to /workspace/ipc/input/
- *          Files: {type:"message", text:"..."}.json — polled and consumed
- *          Sentinel: /workspace/ipc/input/_close — signals session end
- *
- * Stdout protocol:
- *   Each result is wrapped in OUTPUT_START_MARKER / OUTPUT_END_MARKER pairs.
- *   Multiple results may be emitted (one per agent teams result).
- *   Final marker after loop ends signals completion.
- */
-
 import fs from 'fs';
 import path from 'path';
 import { query, HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
@@ -117,12 +101,10 @@ function assembleCharacter(char: Character, name: string): string {
 }
 
 function loadCharacter(name: string): string {
-  const paths = [
-    '/workspace/global/character.json',
-    '/app/character.json',
-  ];
+  // /app is base; /workspace/global overrides (arrays concat, scalars: later wins)
+  const paths = ['/app/character.json', '/workspace/global/character.json'];
   let merged: Character = {};
-  for (const p of paths.reverse()) {
+  for (const p of paths) {
     if (!fs.existsSync(p)) continue;
     try {
       const c: Character = JSON.parse(fs.readFileSync(p, 'utf-8'));
@@ -216,10 +198,7 @@ function getSessionSummary(sessionId: string, transcriptPath: string): string | 
   const projectDir = path.dirname(transcriptPath);
   const indexPath = path.join(projectDir, 'sessions-index.json');
 
-  if (!fs.existsSync(indexPath)) {
-    log(`Sessions index not found at ${indexPath}`);
-    return null;
-  }
+  if (!fs.existsSync(indexPath)) return null;
 
   try {
     const index: SessionsIndex = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
@@ -234,9 +213,6 @@ function getSessionSummary(sessionId: string, transcriptPath: string): string | 
   return null;
 }
 
-/**
- * Archive the full transcript to conversations/ before compaction.
- */
 function createPreCompactHook(assistantName?: string): HookCallback {
   return async (input, _toolUseId, _context) => {
     const preCompact = input as PreCompactHookInput;
@@ -312,8 +288,7 @@ function sanitizeFilename(summary: string): string {
 }
 
 function generateFallbackName(): string {
-  const time = new Date();
-  return `conversation-${time.getHours().toString().padStart(2, '0')}${time.getMinutes().toString().padStart(2, '0')}`;
+  return `conversation-${new Date().toTimeString().slice(0, 5).replace(':', '')}`;
 }
 
 interface ParsedMessage {
@@ -377,9 +352,6 @@ function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | nu
   return lines.join('\n');
 }
 
-/**
- * Check for _close sentinel.
- */
 function shouldClose(): boolean {
   if (fs.existsSync(IPC_INPUT_CLOSE_SENTINEL)) {
     try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
@@ -388,10 +360,6 @@ function shouldClose(): boolean {
   return false;
 }
 
-/**
- * Drain all pending IPC input messages.
- * Returns messages found, or empty array.
- */
 function drainIpcInput(): string[] {
   try {
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
@@ -420,10 +388,6 @@ function drainIpcInput(): string[] {
   }
 }
 
-/**
- * Wait for a new IPC message or _close sentinel.
- * Returns the messages as a single string, or null if _close.
- */
 function waitForIpcMessage(): Promise<string | null> {
   return new Promise((resolve) => {
     const poll = () => {
