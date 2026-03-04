@@ -11,6 +11,33 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.2.5] — 2026-03-04
+
+### Gateway
+
+- Fix `hostPath()` to replace `PROJECT_ROOT` instead of `APP_DIR`, fixing
+  wrong host mount paths for IPC/session dirs when running inside Docker
+- Fix `ipc.ts` file sending: use `HOST_GROUPS_DIR` (host path) instead of
+  `GROUPS_DIR` (container-internal path), fixing ENOENT on `sendDocument`
+
+### Skills
+
+- Auto-migration nudge: gateway prepends annotation to agent prompt when
+  group skills are behind `MIGRATION_VERSION`
+- `MIGRATION_VERSION` bumped to 4
+
+### Specs
+
+- All `specs/v1/` marked with shipped/partial/open status
+- `specs/v1/sync.md` rewritten as solved
+
+### Cleanup
+
+- Delete stale `template/workspace/mcporter.json` artifact
+- Fix stale template path in `container/skills/howto/SKILL.md`
+
+---
+
 ## [v0.2.4] — 2026-03-04
 
 ### CLI
