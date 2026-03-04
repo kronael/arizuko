@@ -13,8 +13,9 @@ systemd-managed instances, MCP sidecar extensibility.
 ```bash
 make build          # tsc compile (src/ → dist/)
 make lint           # typecheck without emitting
-make image          # gateway docker image
-make agent-image    # agent docker image
+make image                     # gateway docker image
+make -C container image        # agent docker image
+make -C sidecar/whisper image  # whisper sidecar image
 npm run dev         # tsx dev mode
 ```
 
