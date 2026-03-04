@@ -60,6 +60,15 @@ objects leak. Minimize state, make it explicit.
 - `./log` for debug logs
 - `./dist` or `./target` for build artifacts
 
+## Delivering files to users
+
+ALWAYS use the `send_file` MCP tool when delivering files to the user —
+NEVER describe or inline file contents in your text response.
+
+Store files under `/workspace/group/main/media/YYYYMMDD/` before calling
+`send_file` with the absolute path. Your final text reply should confirm
+what was sent, not repeat the content.
+
 ## User Interface
 
 - Lowercase logging, capitalize error names only
