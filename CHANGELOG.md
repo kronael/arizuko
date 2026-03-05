@@ -11,6 +11,40 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.2.7] — 2026-03-05
+
+### Fixes
+
+- **Voice transcription in active sessions**: second voice message in a
+  running container session was missing transcription. Root cause: message
+  objects fetched before `waitForEnrichments`, then used stale after wait.
+  Both dispatch paths (new container + stdin pipe) now re-fetch from DB
+  after enrichment completes, so voice/video content is always included.
+- IPC drain race: concurrent `drainGroupMessages` calls for same group
+  caused duplicate file sends. Fixed with per-group boolean lock.
+
+### Features
+
+- Whisper large-v3 model for better multilingual accuracy.
+- Per-group language configuration via `.whisper-language` file.
+- Parallel transcription passes: auto-detect + each configured language.
+  Output labeled `[voice/auto→{detected}]` or `[voice/{forced}]`.
+- Sidecar returns detected language in response; whisper.ts returns
+  `WhisperResult { text, language }`.
+- Whisper timeout increased to 60s for large-v3 multi-pass.
+
+### Testing
+
+- `src/mime-enricher.test.ts`: 7 tests covering enrichment pipeline,
+  race condition (fast-settling enrichment before wait), error swallowing.
+- `src/mime-handlers/voice.test.ts`: updated for multi-pass labels and
+  `WhisperResult` return type.
+- `src/mime-handlers/whisper.test.ts`: updated for `WhisperResult`,
+  60s abort timeout.
+- `specs/v2/autotesting.md`: test strategy for all subsystems.
+
+---
+
 ## [v0.2.6] — 2026-03-04
 
 ### Testing
