@@ -1,74 +1,74 @@
-# Memory: Facts — open
+# Memory: Facts / Long-term — open (v2)
 
-Structured, queryable facts about users, entities, and context.
+Concept-centric persistent knowledge. Automatic, always on.
+Depends on atlas system. Not planned for v1.
 
-## Current state
+## What it is
 
-Nothing exists. Facts are either:
+Long-term memory organised by concept/entity rather than by time.
+Where episodes ask "what happened on week 9?", facts ask "what do we
+know about Alice?" or "what is the current state of the auth system?".
 
-- In CLAUDE.md (unstructured, agent-managed, freeform text)
-- Implicitly in conversation history (buried, not queryable)
-- Nowhere (lost after context window)
-
-## Problem
-
-CLAUDE.md is a good scratchpad but a bad fact store. The agent can't
-efficiently answer "what is Alice's timezone?" without reading the whole
-file. Facts get stale, duplicated, or lost in prose.
-
-## Proposed
-
-A structured fact store per group, readable and writable by the agent
-via MCP tools.
-
-### Storage
-
-SQLite table in the group's local DB (or a separate
-`/workspace/group/facts.db`):
-
-```sql
-CREATE TABLE facts (
-  id         INTEGER PRIMARY KEY,
-  subject    TEXT NOT NULL,   -- "alice", "this group", "deployment"
-  predicate  TEXT NOT NULL,   -- "timezone", "prefers", "host"
-  object     TEXT NOT NULL,   -- "UTC+2", "bullet points", "REDACTED"
-  confidence TEXT,            -- "stated", "inferred"
-  source     TEXT,            -- "alice said 2026-03-05"
-  updated_at TEXT NOT NULL
-);
-CREATE UNIQUE INDEX ON facts(subject, predicate);
-```
-
-Subject/predicate/object — simple triple store. Last-write wins per
-`(subject, predicate)`.
-
-### MCP tools
+Facts are distilled from episodes by the agent, not extracted mechanically.
+The agent decides what is worth promoting to a concept file.
 
 ```
-remember_fact(subject, predicate, object, source?)
-forget_fact(subject, predicate)
-recall_facts(subject?)   → returns all facts for subject
+groups/<folder>/facts/
+  alice.md          ← everything known about Alice
+  REDACTED.md         ← server config, deployment history
+  auth-system.md    ← design decisions, open questions
+  ...
 ```
 
-Agent calls these explicitly when it learns something worth keeping.
-No automatic extraction — agent decides what is a fact.
+Each file is a living document — agent appends and revises as new
+information arrives via episodes.
 
-### Scope
+## Push (auto-injected)
 
-- Per-group facts live in group workspace
-- Global facts (about the instance, about the operator) live in
-  `/workspace/global/facts.db` (read-only for non-main groups)
+On session reset, the gateway could inject a list of fact file names
+(not content) so the agent knows what concept knowledge exists. Not yet
+designed.
 
-## Relationship to CLAUDE.md
+## Pull (on demand)
 
-Facts DB is for structured, queryable data. CLAUDE.md remains for
-behavioural context, style notes, and prose that doesn't fit triples.
-The agent should use facts DB for "what is X" and CLAUDE.md for
-"how should I behave".
+Agent reads fact files directly via file tools. MCP tools (from atlas
+system) provide structured query:
+
+```
+recall(subject)         → returns facts/subject.md
+search_facts(query)     → full-text or semantic search across facts/
+```
+
+## Relationship to other layers
+
+- **Input**: fed by episodes (`specs/v2/memory-episodic.md`), also by
+  direct agent observation during conversation
+- **Atlas system**: the facts MCP tools and storage backend will be
+  defined by the atlas system — this spec defers to that design
+- **Identities**: user identity claims (from `specs/v1/auth.md` and
+  `specs/v2/identities.md`) are a natural source of facts
+  (e.g. Alice's timezone, preferred language)
+
+## Prior art
+
+- **Muaddib**: chronicles retain "tone of voice", "emotional charge",
+  short quotes — narrative rather than structured facts. Privacy concern:
+  unencrypted, shared across all channel users.
+- **mem0 / Cognee / Recall**: external services for persistent memory
+  with vector search and knowledge graphs. We prefer local-first.
+- **brainpro**: `MEMORY.md` is the closest equivalent — freeform prose,
+  not concept-indexed. We want concept-centric files instead.
 
 ## Open
 
-- Implement `facts.db` schema and MCP tools
-- Decide: group-local SQLite vs flat JSON vs CLAUDE.md sections
-- Auto-populate from identity claims when identities spec ships
-  (e.g. `remember_fact("alice", "telegram_id", "tg:123456")`)
+- Design atlas system before implementing
+- Define fact file format — freeform markdown vs structured YAML
+- Aggregation trigger: when does the agent extract facts from episodes?
+  (scheduled task, or agent-initiated during conversation?)
+- Scope: per-group facts vs instance-wide facts (global facts.db in
+  `/workspace/global/` for non-main groups, read-only)
+- Privacy: fact files are shared across all users in a group — needs
+  explicit scoping for per-user facts
+- Whether `facts/` and `episodes/` should be in the same directory
+  or kept separate
+- Vector search vs full-text vs filename-only for `search_facts`
