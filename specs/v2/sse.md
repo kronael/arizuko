@@ -50,6 +50,33 @@ Move `/_REDACTED/stream` out of `PUBLIC_PREFIXES` or add JWT check:
 - Authenticated groups (`AUTH_SECRET` set): require valid JWT on the stream
   request (`?token=<jwt>` or `Authorization` header)
 
+## MCP transport context
+
+The current slink pattern (POST for client→server, SSE for server→client) is
+structurally identical to the MCP SSE transport defined in spec v2024-11-05.
+That transport was deprecated in v2025-03-26 in favour of **Streamable HTTP**:
+a single endpoint that handles both directions, with the server optionally
+responding via an SSE stream when it wants to push multiple events.
+
+Reference: modelcontextprotocol.io/specification/2025-03-26/basic/transports
+
+### Slink as MCP server (open, v2+)
+
+If the gateway exposed a Streamable HTTP MCP endpoint per group, any MCP
+client (Claude Desktop, another agent, a browser widget) could connect
+natively without a custom protocol. The agent would appear as an MCP server;
+callers would send tool calls and receive streaming results.
+
+Trade-offs:
+
+- No custom REDACTED.js needed for MCP-capable clients
+- Agent-to-agent calls work out of the box
+- Rate limiting / auth moves to the MCP layer
+- Browser widget still needs a thin adapter (MCP client in JS)
+- Fire-and-forget POST pattern is lost (MCP is request/response)
+
+Not planned for v1. Document here as design direction.
+
 ## Not in scope
 
 - Presence (who is online)
