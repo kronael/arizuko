@@ -25,9 +25,9 @@ async def inference(
         kwargs = {}
         if language:
             kwargs["language"] = language
-        segments, _ = _model.transcribe(tmp_path, **kwargs)
+        segments, info = _model.transcribe(tmp_path, **kwargs)
         text = " ".join(s.text.strip() for s in segments)
     finally:
         os.unlink(tmp_path)
 
-    return {"text": text}
+    return {"text": text, "language": info.language}
