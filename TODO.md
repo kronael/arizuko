@@ -2,7 +2,7 @@
 
 ## memory
 
-- `/new` keyword detection in gateway message loop (see specs/v1/commands.md)
+- collapse `sessions` table into `registered_groups.session_id` column (see specs/v1/db-bootstrap.md)
 
 - rename product: cheerleader → evangelist, evangelist → support
 - v3: HTTP request scrubbing (strip secrets from outbound agent HTTP calls)
