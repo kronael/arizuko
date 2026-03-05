@@ -9,6 +9,13 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Features
+
+- SKILL.md documents all system message origins and the rule to never quote
+  them back verbatim.
+- agent-runner CLAUDE.md documents session layout (`.jl` files, session IDs).
+- Migration 007: system messages and session layout docs.
+
 ---
 
 ## [v0.2.8] — 2026-03-05

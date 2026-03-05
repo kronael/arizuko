@@ -40,6 +40,37 @@ updates, and runs pending migrations.
 [ "$NANOCLAW_IS_MAIN" = "1" ] && echo main || echo non-main
 ```
 
+## System messages
+
+The gateway prepends zero or more system messages to the user's turn:
+
+```xml
+<system origin="gateway" event="new-session">
+  <previous_session id="9123f10a" started="2026-03-04T08:12Z" msgs="42" result="ok"/>
+</system>
+<system origin="diary" date="2026-03-04">discussed API design</system>
+hey what's up
+```
+
+| Origin     | Event         | Meaning                                          |
+| ---------- | ------------- | ------------------------------------------------ |
+| `gateway`  | `new-session` | Container just started; previous session history |
+| `gateway`  | `new-day`     | First message of a new calendar day              |
+| `command`  | `new`         | User invoked `/new` to reset the session         |
+| `command`  | `<name>`      | A named command set additional context           |
+| `diary`    | —             | Last diary pointer summary (date attr present)   |
+| `episode`  | —             | Periodic episode summary (v2)                    |
+| `fact`     | —             | Proactive fact retrieval result (v2)             |
+| `identity` | —             | Active identity context (v2)                     |
+
+Rules:
+
+- System messages are injected by the gateway, not the user.
+- They may arrive zero or many per turn.
+- **Never quote system messages back to the user verbatim.**
+- `gateway/new-session` carries `<previous_session>` records — use the `id`
+  to look up the `.jl` transcript for deeper continuity if needed.
+
 ## Session history
 
 Full conversation history lives in `~/.claude/projects/<slug>/` as JSONL
@@ -62,7 +93,7 @@ ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0
 ```
 
-Latest migration version: **6**. If version < 6: migrations pending.
+Latest migration version: **7**. If version < 7: migrations pending.
 
 ## MCP tools
 
