@@ -489,83 +489,95 @@ async function runQuery(
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
 
-  for await (const message of query({
-    prompt: stream,
-    options: {
-      cwd: '/workspace/group',
-      additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
-      resume: sessionId,
-      resumeSessionAt: resumeAt,
-      systemPrompt: {
-        type: 'preset' as const,
-        preset: 'claude_code' as const,
-        append: identityPreamble + (globalClaudeMd ? '\n' + globalClaudeMd : ''),
-      },
-      allowedTools: [
-        'Bash',
-        'Read', 'Write', 'Edit', 'Glob', 'Grep',
-        'WebSearch', 'WebFetch',
-        'Task', 'TaskOutput', 'TaskStop',
-        'TodoWrite', 'ToolSearch', 'Skill',
-        'NotebookEdit',
-        'mcp__nanoclaw__*'
-      ],
-      env: sdkEnv,
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
-      settingSources: ['project', 'user'],
-      mcpServers: {
-        nanoclaw: {
-          command: 'node',
-          args: [mcpServerPath],
-          env: {
-            NANOCLAW_CHAT_JID: containerInput.chatJid,
-            NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
-            NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+  try {
+    for await (const message of query({
+      prompt: stream,
+      options: {
+        cwd: '/workspace/group',
+        additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
+        resume: sessionId,
+        resumeSessionAt: resumeAt,
+        systemPrompt: {
+          type: 'preset' as const,
+          preset: 'claude_code' as const,
+          append: identityPreamble + (globalClaudeMd ? '\n' + globalClaudeMd : ''),
+        },
+        allowedTools: [
+          'Bash',
+          'Read', 'Write', 'Edit', 'Glob', 'Grep',
+          'WebSearch', 'WebFetch',
+          'Task', 'TaskOutput', 'TaskStop',
+          'TodoWrite', 'ToolSearch', 'Skill',
+          'NotebookEdit',
+          'mcp__nanoclaw__*'
+        ],
+        env: sdkEnv,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        settingSources: ['project', 'user'],
+        mcpServers: {
+          nanoclaw: {
+            command: 'node',
+            args: [mcpServerPath],
+            env: {
+              NANOCLAW_CHAT_JID: containerInput.chatJid,
+              NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
+              NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+            },
           },
         },
-      },
-      hooks: {
-        PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
-        PreToolUse: [{ matcher: 'Bash', hooks: [createSanitizeBashHook()] }],
-      },
-    }
-  })) {
-    messageCount++;
-    const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
-    log(`[msg #${messageCount}] type=${msgType}`);
-
-    if (message.type === 'assistant') {
-      const m = message as { message?: { content?: { type: string; text?: string }[] }; uuid?: string };
-      const text = m.message?.content?.filter(c => c.type === 'text').map(c => c.text || '').join('').trim();
-      if (text) lastAssistantText = text;
-      if (m.uuid) lastAssistantUuid = m.uuid;
-    }
-
-    if (messageCount > 0 && messageCount % 100 === 0) {
-      const snippet = lastAssistantText?.slice(0, 280) ?? `${messageCount} messages processed`;
-      writeOutput({ status: 'success', result: `⏳ still working… ${snippet}`, newSessionId });
-    }
-
-    if (message.type === 'system' && message.subtype === 'init') {
-      newSessionId = message.session_id;
-      log(`Session initialized: ${newSessionId}`);
-    }
-
-    if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
-      const tn = message as { task_id: string; status: string; summary: string };
-      log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
-    }
-
-    if (message.type === 'result') {
-      resultCount++;
-      const textResult = 'result' in message ? (message as { result?: string }).result : null;
-      log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
-      if (message.subtype === 'error_max_turns') {
-        maxTurnsHit = true;
-      } else {
-        writeOutput({ status: 'success', result: textResult || null, newSessionId });
+        hooks: {
+          PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
+          PreToolUse: [{ matcher: 'Bash', hooks: [createSanitizeBashHook()] }],
+        },
       }
+    })) {
+      messageCount++;
+      const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
+      log(`[msg #${messageCount}] type=${msgType}`);
+
+      if (message.type === 'assistant') {
+        const m = message as { message?: { content?: { type: string; text?: string }[] }; uuid?: string };
+        const text = m.message?.content?.filter(c => c.type === 'text').map(c => c.text || '').join('').trim();
+        if (text) lastAssistantText = text;
+        if (m.uuid) lastAssistantUuid = m.uuid;
+      }
+
+      if (messageCount > 0 && messageCount % 100 === 0) {
+        const snippet = lastAssistantText?.slice(0, 280) ?? `${messageCount} messages processed`;
+        writeOutput({ status: 'success', result: `⏳ still working… ${snippet}`, newSessionId });
+      }
+
+      if (message.type === 'system' && message.subtype === 'init') {
+        newSessionId = message.session_id;
+        log(`Session initialized: ${newSessionId}`);
+      }
+
+      if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
+        const tn = message as { task_id: string; status: string; summary: string };
+        log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
+      }
+
+      if (message.type === 'result') {
+        resultCount++;
+        const textResult = 'result' in message ? (message as { result?: string }).result : null;
+        log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+        if (message.subtype === 'error_max_turns') {
+          maxTurnsHit = true;
+        } else {
+          writeOutput({ status: 'success', result: textResult || null, newSessionId });
+        }
+      }
+    }
+  } catch (err) {
+    // SDK sometimes throws after already delivering a result (e.g. process
+    // exited with code 1 after a stale-session resume that recovered).
+    // If we already got a result, the success output is already written —
+    // swallow the throw and return normally with the captured newSessionId.
+    if (resultCount > 0) {
+      log(`SDK threw after result (ignored): ${err instanceof Error ? err.message : String(err)}`);
+    } else {
+      throw err;
     }
   }
 
