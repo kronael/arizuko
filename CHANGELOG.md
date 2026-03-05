@@ -11,6 +11,21 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.2.8] — 2026-03-05
+
+### Features
+
+- Agent self-skill documents session history access (`~/.claude/projects/`)
+  and `.whisper-language` group configuration file.
+- Migration 005: whisper language config docs. Migration 006: session history.
+
+### Fixes
+
+- System message format corrected in specs/SKILL.md (origin+event, no colon).
+- Voice transcription label now `[voice/auto→en: ...]` (was `[voice: ...]`).
+
+---
+
 ## [v0.2.7] — 2026-03-05
 
 ### Fixes
