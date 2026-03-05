@@ -3,6 +3,7 @@
 ## memory
 
 - collapse `sessions` table into `registered_groups.session_id` column (see specs/v1/db-bootstrap.md)
+- test SDK resume failure: send bad session ID to container, observe whether SDK throws / errors / silently starts fresh — record result in specs/v1/memory-session.md open item 1
 
 - rename product: cheerleader → evangelist, evangelist → support
 - v3: HTTP request scrubbing (strip secrets from outbound agent HTTP calls)

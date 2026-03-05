@@ -70,6 +70,32 @@ One agent invocation per aggregation step. Sequential (one agent per group).
 - **brainpro**: `memory/YYYY-MM-DD.md` daily notes, today + yesterday
   auto-loaded. No explicit weekly/monthly hierarchy.
 
+## Episode notes (REDACTED, Mar 2026)
+
+The REDACTED instance ran a single session for 4+ days with no compaction and
+no episodic summaries. Every container restart replayed 45+ messages from
+raw JSONL. The startup cost grows linearly with session length; after 1000+
+messages this becomes expensive.
+
+**Why episodic memory matters here:**
+
+- Without episodic summaries, the only context available after a crash is
+  the full message history. For a 4-day project session, that's
+  potentially thousands of messages to replay.
+- The episodic layer (day → week aggregation) provides a compressed
+  fallback: if the session is cold and no diary entry exists, a week summary
+  gives the agent enough context to resume without replaying raw history.
+- REDACTED's user (Czech entrepreneur, multi-day horse trail planning projects)
+  is exactly the episodic-memory use case: not a chat bot, but a project
+  assistant where session context spans weeks.
+
+**Implication for episodic design:**
+
+- Daily aggregation must be robust even when diary entries are sparse or
+  absent (missed flush days). The aggregator should handle gaps gracefully.
+- The week episode should be sufficient for a cold-start resume — design
+  its content accordingly (decisions, active projects, open blockers).
+
 ## Open
 
 - Define episode file format (YAML frontmatter + body, like diary?)
