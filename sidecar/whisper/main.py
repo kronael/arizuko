@@ -12,13 +12,20 @@ _model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE)
 
 
 @app.post("/inference")
-async def inference(file: UploadFile = File(...), model: str = Form(default=None)):
+async def inference(
+    file: UploadFile = File(...),
+    model: str = Form(default=None),
+    language: str = Form(default=None),
+):
     with tempfile.NamedTemporaryFile(suffix=file.filename, delete=False) as tmp:
         tmp.write(await file.read())
         tmp_path = tmp.name
 
     try:
-        segments, _ = _model.transcribe(tmp_path)
+        kwargs = {}
+        if language:
+            kwargs["language"] = language
+        segments, _ = _model.transcribe(tmp_path, **kwargs)
         text = " ".join(s.text.strip() for s in segments)
     finally:
         os.unlink(tmp_path)
