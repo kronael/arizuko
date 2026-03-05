@@ -73,6 +73,23 @@ Call `send_file` with the absolute path of any file under `/workspace`.
 The gateway resolves the container path to the host and delivers it as a
 document attachment.
 
+## Group configuration files
+
+Files you can create/edit in `/workspace/group/` to configure gateway behaviour:
+
+| File                | Effect                                                        |
+| ------------------- | ------------------------------------------------------------- |
+| `.whisper-language` | One ISO-639-1 code per line (e.g. `cs`, `ru`). Gateway runs   |
+|                     | one forced transcription pass per language in addition to the |
+|                     | auto-detect pass. Output labelled `[voice/cs: ...]` etc.      |
+|                     | Leave absent or empty for auto-detect only.                   |
+
+Example — transcribe in Czech and Russian as well as auto-detect:
+
+```bash
+printf 'cs\nru\n' > /workspace/group/.whisper-language
+```
+
 ## Main group only
 
 ```bash
