@@ -69,13 +69,54 @@ search_facts(query)   → full-text search across facts/
 
 ## Prior art
 
-**Martian-Engineering agent-memory** (closest match):
+**Martian-Engineering agent-memory** (closest structural match):
 
-- `memory/entities/<entity>/` — atomic facts as JSON, entity `summary.md`
-- `memory/YYYY-MM-DD.md` — daily notes (our diary)
-- `MEMORY.md` — tacit/behavioural knowledge
-- Automated extraction every 30 min, contradiction detection,
-  weekly synthesis, exponential time decay (30-day half-life)
+Bash-based, no external deps (bash + jq + uuidgen). Three layers:
+
+- `memory/entities/<entity>/items.json` — atomic facts as JSON, never
+  deleted; contradicted facts marked `historical` with supersession links
+- `memory/entities/<entity>/summary.md` — weekly-updated entity snapshot
+- `memory/YYYY-MM-DD.md` — daily notes (maps to our diary)
+- `MEMORY.md` — tacit/operational patterns (maps to our managed memory)
+- `memory/index.json` — entity index for fast lookup
+
+Extraction pipeline (`add-fact-validated.sh`):
+
+- Dedup: Jaccard similarity >70% rejected
+- Contradiction: "Alice works at X" supersedes prior "Alice works at Y"
+- Rejects transient states ("is tired") and vague language
+
+Time decay (retrieval scoring): `e^(-λ × days_old)`, λ = ln(2)/30
+→ 30-day half-life: fact aged 30 days scores 0.5, 90 days scores 0.125
+
+Retrieval cascade: entity index → summary (top 5) → facts (top 10
+active) → daily notes fallback (last 7 days)
+
+Weekly synthesis: rewrites summaries, resolves contradictions, prunes
+facts >6 months old (content truncated, not deleted), updates MEMORY.md
+if new patterns emerge.
+
+Reference: [github.com/Martian-Engineering/agent-memory](https://github.com/Martian-Engineering/agent-memory)
+
+**eliza-atlas / eliza-plugin-evangelist** (our reference implementation):
+
+The facts system in eliza-atlas is the closest to what we want to build.
+Key design:
+
+- `facts/<topic>.md` — markdown with YAML frontmatter per topic
+- Frontmatter: `path`, `topic`, `verified_at`, `confidence` (high/medium/low),
+  `findings_count`
+- Facts are paragraphs (10–2000 chars) separated by blank lines
+- Vector embeddings stored in PostgreSQL for semantic search
+- Three-tier similarity ranking: primary ≥90%, context 70–90%, weak 40–70%
+- Two-phase verification via Claude (disproval phase + assessment phase)
+- Research triggered when fact match similarity < 90% (knowledge gap)
+- Claude Code (Opus) spawned as subprocess to research and produce factsets
+
+Provider injects matching facts as XML block into LLM prompt automatically.
+No MCP — uses ElizaOS provider/action architecture instead.
+
+Reference: `/home/onvos/app/eliza-plugin-evangelist/src/services/factsService.ts`
 
 **ATLAS agent** (syahiidkamil):
 

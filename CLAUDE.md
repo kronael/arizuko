@@ -124,6 +124,16 @@ creates the DB + schema if missing (solves bootstrap).
 First group defaults to folder=main, requires_trigger=0.
 Subsequent groups require folder arg and use trigger mode.
 
+## Related projects
+
+- `/home/onvos/app/eliza-atlas` — ElizaOS fork with deep facts/memory system;
+  the evangelist plugin (`/home/onvos/app/eliza-plugin-evangelist`) implements
+  YAML-based facts repository, vector search, and Claude Code-powered research.
+  This is the reference implementation for kanipi's v2 facts/long-term memory.
+  Key files: `src/services/factsService.ts`, `src/services/researchService.ts`
+- `/home/onvos/app/refs/brainpro` — brainpro agent (Rust/gateway); reference
+  for `memory/YYYY-MM-DD.md` daily notes pattern and session map design
+
 ## Design Philosophy
 
 Kanipi aims to be minimal and orthogonal — components should be independently
