@@ -40,6 +40,16 @@ updates, and runs pending migrations.
 [ "$NANOCLAW_IS_MAIN" = "1" ] && echo main || echo non-main
 ```
 
+## Session history
+
+Full conversation history lives in `~/.claude/projects/<slug>/` as JSONL
+files (`<uuid>.jl`, one per session). Use the Read or Glob tool to find
+and inspect them — useful when a user asks what was discussed in a past
+session or you need to recover context after a reset.
+
+On session reset the gateway injects your previous session ID via a
+`<system origin="gateway:session-reset">` message.
+
 ## Introspect (all groups)
 
 ```bash
@@ -52,7 +62,7 @@ ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0
 ```
 
-Latest migration version: **5**. If version < 5: migrations pending.
+Latest migration version: **6**. If version < 6: migrations pending.
 
 ## MCP tools
 
