@@ -48,7 +48,7 @@ and inspect them — useful when a user asks what was discussed in a past
 session or you need to recover context after a reset.
 
 On session reset the gateway injects your previous session ID via a
-`<system origin="gateway:session-reset">` message.
+`<system origin="gateway" event="new-session">` message.
 
 ## Introspect (all groups)
 
