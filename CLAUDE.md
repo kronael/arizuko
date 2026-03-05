@@ -124,6 +124,17 @@ creates the DB + schema if missing (solves bootstrap).
 First group defaults to folder=main, requires_trigger=0.
 Subsequent groups require folder arg and use trigger mode.
 
+## Design Philosophy
+
+Kanipi aims to be minimal and orthogonal — components should be independently
+useful and have the narrowest possible responsibility. Like Postfix or GNU Hurd:
+each subsystem (channels, memory, IPC, task scheduler) operates on a clean
+interface, knows nothing of the others, and could in principle run with its own
+privileges or as its own process. Complexity is a liability. If two things can
+be separated without losing capability, separate them. Avoid shared state between
+subsystems. Plugins should extend individual subsystems through their own hooks,
+not through a god-object that owns everything.
+
 ## Shipping changes (agent skills / web convention)
 
 When making notable kanipi changes:
