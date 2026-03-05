@@ -1,26 +1,31 @@
-# Experiment 2 — Auto-compact session ID behavior
+# Experiment 2 — Auto-compact session ID behavior — DONE
 
-**Question:** When Claude Code auto-compacts (~95% context), does it create a
-new `.jl` file with a new UUID, or continue writing to the same one?
+**Question:** When Claude Code auto-compacts, does it create a new `.jl` file
+with a new UUID, or continue writing to the same one?
 
-## Setup
+## Result
 
-1. Use REDACTED or a test group with a very long session (or fill context with
-   large messages artificially)
-2. Watch `data/sessions/main/.claude/projects/<slug>/` for new `.jl` files
-3. Compare `newSessionId` returned before and after compaction fires
+Observed directly on this conversation session (`9123f10a`) after it was
+auto-compacted mid-session:
 
-## Instrumentation
+- Same `.jl` file continued growing (4051 lines, 9MB after compaction)
+- Session ID `9123f10a` unchanged in all `last-prompt` and `queue-operation`
+  entries before and after compaction
+- No new `.jl` file created
+- `sessions-index.json` did NOT appear after auto-compaction
 
-- Log `newSessionId` on every container exit in `container-runner.ts`
-- Watch `.claude/projects/` with `inotifywait` during a long session
-- After compaction fires, check if `sessions-index.json` appears or updates
+## Finding
 
-## Success criteria
+**Auto-compact keeps the same session ID and same `.jl` file.**
 
-Know whether `newSessionId` must always be stored (changes on compact) or
-only on first run (stays the same).
+The current kanipi code already handles this correctly — `newSessionId`
+returned by the runner after a compacted session is the same ID as before.
+No fix needed.
 
-## Records to update
+`sessions-index.json` appears to require manual `/compact`, not auto-compact.
+Mark as unverified until confirmed.
 
-`specs/v1/memory-session.md` open item 2.
+## Records updated
+
+`specs/v1/memory-session.md` open item 2 — resolved, no code change needed.
+Delete this file when memory-session.md is updated.
