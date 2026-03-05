@@ -97,6 +97,11 @@ All via `.env` (seeded from `template/env.example`):
 Channels enabled by token presence (telegram/discord) or
 auth dir existence (whatsapp: `store/auth/creds.json`).
 
+Per-group whisper language hints: create `.whisper-language` in the group
+folder with one BCP-47 language code per line (e.g. `cs`, `de`). The whisper
+handler runs one additional forced-decode pass per language and labels each
+result separately alongside the auto-detected pass.
+
 ## Deployment
 
 Run directly with docker:

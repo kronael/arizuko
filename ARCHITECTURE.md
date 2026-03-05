@@ -99,7 +99,7 @@ HTTP server sitting in front of Vite. Handles:
 Auth boundary: `/pub/` and `/_REDACTED/` prefixes bypass basic auth.
 All other paths require `REDACTED_USERS` credentials (if configured).
 
-### mime.ts + mime-handlers/
+### mime.ts + mime-enricher.ts + mime-handlers/
 
 Attachment pipeline. `mime.ts` defines shared types (`RawAttachment`,
 `Attachment`, `AttachmentHandler`) and the `processAttachments` function:
@@ -109,11 +109,19 @@ Attachment pipeline. `mime.ts` defines shared types (`RawAttachment`,
 3. Run matching `AttachmentHandler` to produce annotation lines
 4. Return lines for inclusion in the agent prompt
 
+`mime-enricher.ts` runs enrichment at storage time, decoupled from dispatch.
+`enqueueEnrichment(messageId)` triggers async processing; `waitForEnrichments()`
+blocks until all pending jobs complete. Messages are re-fetched from DB after
+the wait so transcriptions are present when the agent prompt is assembled.
+
 Handlers in `mime-handlers/`:
 
-- `voice.ts` — handles voice messages; calls whisper for transcription
+- `voice.ts` — multi-pass whisper transcription: auto-detect pass + one forced
+  pass per language in `.whisper-language` (group config file). Labels output
+  as `[voice/auto→en: ...]` and `[voice/cs: ...]`.
 - `video.ts` — handles video attachments; calls whisper for audio track
-- `whisper.ts` — shared whisper HTTP client (`POST /inference` to sidecar)
+- `whisper.ts` — shared whisper HTTP client (`POST /inference` to sidecar);
+  returns `WhisperResult {text, language}`; 60s timeout for large-v3 model.
 
 ### container-runner.ts
 
@@ -167,7 +175,8 @@ tags from agent output before sending to channel users.
 File-based IPC between gateway and agent containers. Agents
 write commands to a watched IPC directory; the watcher reads
 and executes: send messages, register groups, create/update
-tasks, sync group metadata.
+tasks, sync group metadata. File sends are serialized per group
+via a drain lock to prevent duplicate delivery.
 
 ### task-scheduler.ts
 
