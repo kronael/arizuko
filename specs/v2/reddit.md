@@ -1,4 +1,4 @@
-# Reddit channel (v1) — speculative
+# Reddit channel (v2) — speculative
 
 Reddit DMs (private messages) as inbound/outbound channel.
 Subreddit comment monitoring as optional source (v2).
