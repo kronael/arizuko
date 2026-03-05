@@ -1,5 +1,9 @@
 # TODO
 
+## memory
+
+- `/new` keyword detection in gateway message loop (see specs/v1/commands.md)
+
 - rename product: cheerleader → evangelist, evangelist → support
 - v3: HTTP request scrubbing (strip secrets from outbound agent HTTP calls)
 
