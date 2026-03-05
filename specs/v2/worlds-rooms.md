@@ -470,14 +470,32 @@ interface RoomSender {
 
 This is a quality-of-life improvement, not a correctness fix. Low priority.
 
-### 6.6 What to skip from ElizaOS
+### 6.6 What ElizaOS adds over muaddib — and what to take
 
-ElizaOS's World/Entity/Memory hierarchy is designed for multi-agent setups with
-shared semantic memory and vector search. kanipi is single-agent-per-group with
-conversation history only. Adopting the full ontology would be over-engineering.
+muaddib gives us: arc identity, thread-scoped sessions, per-arc JSONL history,
+context reducer. That covers 80% of what kanipi needs.
 
-The useful subset is: explicit server context in the room ID (6.1) and scoped
-history per room (6.3).
+ElizaOS adds three things on top:
+
+**1. Entity tracking** — users are first-class records (`Entity`) with names,
+platform IDs, and per-source metadata. muaddib tracks sender only as a string
+in the session key. ElizaOS can answer "who is this user across platforms" and
+merge cross-channel identity. kanipi currently stores `sender` as a string too.
+**Take**: add a `senders` or `entities` table keyed by JID+platform when
+cross-channel identity becomes a product need. Not now.
+
+**2. World-scoped memory queries** — memories can be queried across all rooms
+in a world (`worldId`), not just per-room. This enables "what happened in this
+Discord server today" queries across all its channels. muaddib has no equivalent.
+**Take**: the arc `serverTag` prefix already encodes the server — a world-scoped
+query is just `WHERE jid LIKE 'dc:MyServer#%'`. No new abstraction needed;
+the arc format (6.1) gives us this for free.
+
+**3. Vector embeddings on every memory** — `Memory.embedding` enables semantic
+similarity search across history. muaddib uses recency only (JSONL walk).
+This is what powers eliza-atlas facts retrieval.
+**Take**: this belongs in the v2 facts layer (`specs/v2/memory-facts.md`),
+not in the room/session model. Do not add embeddings to the messages table.
 
 ---
 
