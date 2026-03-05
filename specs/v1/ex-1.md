@@ -1,57 +1,35 @@
-# Experiment 1 — SDK stale session ID behavior
+# Experiment 1 — SDK stale session ID behavior — DONE
 
-**Question:** When the agent container receives a session ID the SDK doesn't
-recognize, does it throw, silently start fresh, or return an error?
+## Result
 
-## Plan
+Ran on REDACTED with `kanipi-agent:latest`, bad session
+`00000000-0000-0000-0000-000000000000`:
 
-Run the container by hand with a fabricated bad session ID on stdin. No code
-changes needed.
-
-```bash
-# 1. Find a real session folder to mount (any kanipi instance data dir)
-GROUPS_DIR=/srv/data/REDACTED/groups
-SESSION_DIR=/srv/data/REDACTED/data/sessions/main
-
-# 2. Fabricate a bad session ID (valid UUID format, no matching .jl file)
-BAD_SESSION="00000000-0000-0000-0000-000000000000"
-
-# 3. Build the stdin payload — same format as container-runner.ts ContainerInput
-PAYLOAD=$(cat <<EOF
-{
-  "prompt": "say hello",
-  "sessionId": "$BAD_SESSION",
-  "groupFolder": "main",
-  "chatJid": "tg:-1",
-  "sender": "test",
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-EOF
-)
-
-# 4. Run the container exactly as the gateway would
-echo "$PAYLOAD" | docker run -i --rm \
-  -v "$GROUPS_DIR/main:/workspace/group/main" \
-  -v "$SESSION_DIR/.claude:/home/node/.claude" \
-  kanipi-agent:latest
+```
+[agent-runner] Starting query (session: 00000000-..., resumeAt: latest)...
+[agent-runner] [msg #1] type=result subtype=error_during_execution
+{"status":"success","result":null}
+[agent-runner] Session initialized: fa649547-7d60-4ee9-b579-f09be6a7d0fe
+[agent-runner] Result #2: subtype=success text=Not logged in · Please run /login
+{"status":"success","result":"Not logged in · Please run /login","newSessionId":"fa649547-..."}
+[agent-runner] Agent error: Claude Code process exited with code 1
+{"status":"error","result":null,"newSessionId":"00000000-...","error":"Claude Code process exited with code 1"}
+exit: 1
 ```
 
-## What to observe
+## Findings
 
-- Does it exit with non-zero? Check `$?`
-- Does stdout contain `{ status: 'error', ... }` or `{ status: 'success', newSessionId: ... }`?
-- Is `newSessionId` in the output a fresh UUID (silent new session) or absent (error)?
-- Check `$SESSION_DIR/.claude/debug/` for any SDK error log after the run
-- Check if a new `.jl` file appears under `$SESSION_DIR/.claude/projects/`
+1. SDK silently recovers: `error_during_execution` on bad resume → new session
+   started automatically (`fa649547...`)
+2. Agent-runner exits with code 1 and emits `status: error` with the
+   **original bad ID** as `newSessionId` — the new session UUID is lost
+3. Gateway currently does not handle `status: error` — stored session ID
+   stays stale forever
 
-## Expected outcomes
+## Fix needed
 
-| Outcome                          | Meaning                     | Gateway action needed                                 |
-| -------------------------------- | --------------------------- | ----------------------------------------------------- |
-| `status: success`, new UUID      | SDK silently starts fresh   | Always store `newSessionId` — no detection needed     |
-| `status: error`                  | SDK throws on bad resume    | Catch error, clear stored ID, retry without sessionId |
-| `status: success`, same bad UUID | SDK ignores resume silently | Need to detect stale ID another way                   |
+In `container-runner.ts`: on `status: error`, clear stored session ID.
+Optionally capture `newSessionId` from the error output if it differs from
+what was passed in. See `specs/v1/memory-session.md` open item 1.
 
-## Records to update
-
-`specs/v1/memory-session.md` open item 1. Delete this file when done.
+Delete this file once the fix is shipped.
