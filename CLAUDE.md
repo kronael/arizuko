@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Conventions
+
+- JSONL files use `.jl` extension (not `.jsonl`)
+
 ## What is kanipi
 
 Nanoclaw fork — multitenant Claude agent gateway with
