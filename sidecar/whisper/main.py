@@ -1,5 +1,6 @@
 import os
 import tempfile
+from dataclasses import dataclass
 from fastapi import FastAPI, UploadFile, File, Form
 from faster_whisper import WhisperModel
 
@@ -11,23 +12,26 @@ app = FastAPI()
 _model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE)
 
 
-@app.post("/inference")
+@dataclass
+class TranscribeResult:
+    text: str
+    language: str
+
+
+@app.post("/inference", response_model=None)
 async def inference(
     file: UploadFile = File(...),
-    model: str = Form(default=None),
     language: str = Form(default=None),
-):
+) -> TranscribeResult:
     with tempfile.NamedTemporaryFile(suffix=file.filename, delete=False) as tmp:
         tmp.write(await file.read())
         tmp_path = tmp.name
 
     try:
-        kwargs = {}
-        if language:
-            kwargs["language"] = language
-        segments, info = _model.transcribe(tmp_path, **kwargs)
+        kw = {"language": language} if language else {}
+        segments, info = _model.transcribe(tmp_path, **kw)
         text = " ".join(s.text.strip() for s in segments)
     finally:
         os.unlink(tmp_path)
 
-    return {"text": text, "language": info.language}
+    return TranscribeResult(text=text, language=info.language)
