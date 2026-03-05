@@ -1,7 +1,11 @@
 # Memory: Episodes — open (v2)
 
-Hierarchical time-based aggregation of diary entries. Automatic, always on.
+Mechanically produced summaries of past sessions. Automatic, always on.
 Feeds long-term/facts memory. Not planned for v1.
+
+The agent is passive — a scheduled process takes raw transcripts or diary
+entries and produces episode summaries without agent involvement. Contrast
+with diary (v1) which is agent-written and subjective.
 
 ## What it is
 
