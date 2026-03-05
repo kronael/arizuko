@@ -26,10 +26,21 @@ exit: 1
 3. Gateway currently does not handle `status: error` — stored session ID
    stays stale forever
 
-## Fix needed
+## Fix shipped
 
-In `container-runner.ts`: on `status: error`, clear stored session ID.
-Optionally capture `newSessionId` from the error output if it differs from
-what was passed in. See `specs/v1/memory-session.md` open item 1.
+`container/agent-runner/src/index.ts` — `runQuery` now catches the SDK
+throw internally. If `resultCount > 0`, swallows the error and returns
+normally with the captured `newSessionId`. The `main()` catch block no
+longer sees it and does not write a spurious `status: error`.
 
-Delete this file once the fix is shipped.
+## E2e test needed
+
+Run the same `docker run` command from the plan section above after
+rebuilding the agent image. Expected new behavior:
+
+- Only one output block, `status: success`, with the new session UUID
+- No `status: error` output
+- Exit code 0
+
+Add this to the smoke test suite (`make smoke`) so stale-session recovery
+is verified on every agent image build.
