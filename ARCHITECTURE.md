@@ -11,7 +11,7 @@ TypeScript (ESM, NodeNext), SQLite (better-sqlite3), Docker.
 ## Message Flow
 
 ```
-Channel (telegram/whatsapp/discord)
+Channel (telegram/whatsapp/discord/email)
   -> DB (store message + chat metadata)
   -> message loop (poll getNewMessages)
   -> trigger check (direct mode or @name mention)
@@ -33,17 +33,11 @@ Handles group registration and discovery across channels.
 
 ### config.ts
 
-All config from `.env` in the working directory + env vars.
-Exports typed constants (most as `let` bindings to allow test overrides).
-Channel enablement logic lives here:
-
-- `TELEGRAM_BOT_TOKEN` present → telegram enabled
-- `DISCORD_BOT_TOKEN` present → discord enabled
-- `whatsappEnabled()` → checks `store/auth/creds.json` exists
-
-`_overrideConfig(partial)` and `_resetConfig()` are test-only helpers
-(gated behind `NODE_ENV=test`) that mutate the live exported bindings
-and restore them from env, respectively.
+All config from `.env` + env vars. Exports typed constants.
+Channel enablement by token presence (telegram/discord),
+auth dir (whatsapp), or `EMAIL_IMAP_HOST` (email).
+Test helpers `_overrideConfig`/`_resetConfig` gated behind
+`NODE_ENV=test`.
 
 ### db.ts
 
@@ -55,22 +49,14 @@ synchronous (better-sqlite3). Key functions: `storeMessage`,
 Tables: `messages`, `registered_groups`, `sessions`,
 `system_messages`, `tasks`, `auth_users`, `auth_sessions`.
 
-`system_messages` stores pending system events (new-session,
-new-day) per group. `enqueueSystemMessage` inserts;
-`flushSystemMessages` reads and deletes all pending messages,
-returning XML for prepending to agent stdin.
+`system_messages` stores pending events per group; flushed as
+XML before agent stdin.
 
 ### slink.ts
 
-Web channel handler for public HTTP endpoints. Handles `POST /pub/s/:token`
-requests: rate limiting (per slink token for anon, per JWT sub for
-authenticated), JWT verification (HMAC-SHA256 when `AUTH_SECRET` is set),
-`media_url` attachment handling. Returns a `SlinkResponse` without knowing
-about HTTP — the HTTP wiring lives in `web-proxy.ts`.
-
-Rate buckets are in-memory maps, reset per process. Anon: 10 rpm (per
-token), auth: 60 rpm (per sub). Both configurable via `SLINK_ANON_RPM` /
-`SLINK_AUTH_RPM`.
+Web channel for `POST /pub/s/:token`. Rate limiting (anon/auth),
+JWT verification (HMAC-SHA256), `media_url` attachments. Returns
+`SlinkResponse` — HTTP wiring in `web-proxy.ts`.
 
 ### commands/
 
@@ -88,18 +74,15 @@ One file per channel. Each implements `Channel` interface:
 - `telegram.ts` — grammy bot, polls via webhook or long-poll
 - `whatsapp.ts` — baileys client, event-driven
 - `discord.ts` — discord.js client, event-driven
+- `email.ts` — IMAP IDLE + SMTP reply threading
 
 Each channel stores incoming messages via `storeMessage` and
 provides `sendMessage(jid, text)` for outbound delivery.
 
 `telegram.ts` converts agent markdown to Telegram HTML via
-`mdToHtml()` (bold, italic, inline code, pre blocks) and sets
-`parse_mode: HTML` on all `sendMessage` calls. Typing indicator
-is refreshed every 4s via `setInterval` (Telegram expires it
-after ~5s). Stopped when the agent emits `status=success` in
-its JSON output — not when the container exits. Container may
-remain alive (idle_timeout) but the typing indicator clears
-immediately on response completion.
+`mdToHtml()`. Typing indicator refreshes every 4s (Telegram
+expires at ~5s), stops on `status=success` output — not on
+container exit.
 
 ### web-proxy.ts
 
@@ -118,27 +101,16 @@ All other paths require `REDACTED_USERS` credentials (if configured).
 
 ### mime.ts + mime-enricher.ts + mime-handlers/
 
-Attachment pipeline. `mime.ts` defines shared types (`RawAttachment`,
-`Attachment`, `AttachmentHandler`) and the `processAttachments` function:
+Attachment pipeline. `mime.ts` downloads attachments in parallel,
+saves to session dir, runs matching handlers, returns annotation
+lines for the agent prompt. `mime-enricher.ts` runs enrichment at
+storage time (decoupled from dispatch); `waitForEnrichments()`
+blocks until all pending jobs complete so transcriptions are
+present when the prompt is assembled.
 
-1. Download all attachments in parallel (channel-specific downloaders)
-2. Save each to a per-message directory in the session dir
-3. Run matching `AttachmentHandler` to produce annotation lines
-4. Return lines for inclusion in the agent prompt
-
-`mime-enricher.ts` runs enrichment at storage time, decoupled from dispatch.
-`enqueueEnrichment(messageId)` triggers async processing; `waitForEnrichments()`
-blocks until all pending jobs complete. Messages are re-fetched from DB after
-the wait so transcriptions are present when the agent prompt is assembled.
-
-Handlers in `mime-handlers/`:
-
-- `voice.ts` — multi-pass whisper transcription: auto-detect pass + one forced
-  pass per language in `.whisper-language` (group config file). Labels output
-  as `[voice/auto→en: ...]` and `[voice/cs: ...]`.
-- `video.ts` — handles video attachments; calls whisper for audio track
-- `whisper.ts` — shared whisper HTTP client (`POST /inference` to sidecar);
-  returns `WhisperResult {text, language}`; 60s timeout for large-v3 model.
+Handlers: `voice.ts` (multi-pass whisper transcription per
+`.whisper-language`), `video.ts` (audio track extraction),
+`whisper.ts` (shared HTTP client to sidecar, 60s timeout).
 
 ### container-runner.ts
 
@@ -213,6 +185,11 @@ File-based IPC between gateway and agent containers. Two modes:
 
 File sends serialized per group via drain lock.
 
+### ipc-compat.ts
+
+Backwards compatibility shim. Exports `processTaskIpc` (moved from
+`ipc.ts`) for legacy fire-and-forget task IPC during rollout.
+
 ### task-scheduler.ts
 
 Cron-based scheduled task runner. Reads tasks from DB, fires
@@ -245,9 +222,14 @@ folders (read-only) — replaces the old `/workspace/project` which
 only mounted the main group.
 
 The container entrypoint (`container/agent-runner/`) reads the
-prompt from stdin and writes JSON output to stdout. System messages
-(new-session, new-day) are flushed from DB and prepended as XML
-to the stdin payload before user messages.
+prompt from stdin and writes JSON output to stdout. The agent-side
+MCP server (`ipc-mcp-stdio.ts`) exposes gateway actions as tools
+via request-response IPC (writes to `requests/`, polls `replies/`).
+Agent-written `mcpServers` entries in `settings.json` are merged
+with the built-in server at spawn time.
+
+System messages (new-session, new-day) are flushed from DB and
+prepended as XML to the stdin payload before user messages.
 
 **reset_session IPC**: agents can request a session reset via IPC
 (`type:'reset_session'`). The gateway evicts the current session
@@ -276,15 +258,11 @@ changes.
 to the container; agent wakes immediately on signal rather than
 waiting for the 500ms poll interval.
 
-**Progress updates**: every 100 SDK messages, the agent runner emits
-a `status=success` output with the last assistant text snippet. The
-gateway forwards this to the channel, giving users visibility on long
-runs without waiting for the container to exit.
+**Progress updates**: every 100 SDK messages, the agent runner
+emits partial output to the channel.
 
-**`error_max_turns` recovery**: when the SDK signals `error_max_turns`,
-the agent runner resumes the session immediately with `maxTurns=3` and
-prompts Claude to summarise what was accomplished and what remains, then
-tell the user to say "continue" to pick up where it left off.
+**`error_max_turns` recovery**: resumes with `maxTurns=3`, asks
+Claude to summarise progress, prompts user to say "continue".
 
 ## State
 
@@ -306,6 +284,7 @@ tell the user to say "continue" to pick up where it left off.
 | Telegram | grammy        | message channel                                    |
 | WhatsApp | baileys       | message channel                                    |
 | Discord  | discord.js    | message channel                                    |
+| Email    | IMAP/SMTP     | message channel (IDLE + reply threading)           |
 | Docker   | child_process | agent container runtime                            |
 | Claude   | claude-code   | agent (runs in container)                          |
 | Whisper  | fetch (HTTP)  | voice/video transcription (kanipi-whisper sidecar) |
@@ -314,7 +293,8 @@ tell the user to say "continue" to pick up where it left off.
 
 ```
 src/              gateway source (TypeScript)
-  channels/       telegram, whatsapp, discord
+  actions/        action handlers by domain (messaging, tasks, groups, session)
+  channels/       telegram, whatsapp, discord, email
   commands/       slash command handlers (/new, /ping, /chatid)
 container/        agent container build (make image → kanipi-agent)
   agent-runner/   in-container entrypoint

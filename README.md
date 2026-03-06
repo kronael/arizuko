@@ -1,8 +1,8 @@
 # kanipi
 
 Multitenant Claude agent gateway with multi-channel support
-(telegram, whatsapp, discord). Nanoclaw fork with systemd-managed
-instances and MCP sidecar extensibility.
+(telegram, whatsapp, discord, email). Nanoclaw fork with
+systemd-managed instances and MCP sidecar extensibility.
 
 ## Quick Start
 
@@ -111,8 +111,9 @@ All via `.env` (seeded from `template/env.example`):
 | AUTH_SECRET               | HMAC secret for JWT verification (slink) |
 | WHISPER_BASE_URL          | whisper sidecar URL for transcription    |
 
-Channels enabled by token presence (telegram/discord) or
-auth dir existence (whatsapp: `store/auth/creds.json`).
+Channels enabled by token presence (telegram/discord),
+auth dir existence (whatsapp: `store/auth/creds.json`),
+or `EMAIL_IMAP_HOST` presence (email).
 
 Per-group whisper language hints: create `.whisper-language` in the group
 folder with one BCP-47 language code per line (e.g. `cs`, `de`). The whisper
@@ -165,7 +166,6 @@ Then `systemctl enable --now kanipi_foo`.
 make build          # tsc compile (src/ -> dist/)
 make lint           # typecheck without emitting
 make test           # unit tests (vitest run src/)
-make lint           # typecheck without emitting
 npm run dev         # tsx dev mode
 vitest run          # run all tests (some require docker)
 ```
