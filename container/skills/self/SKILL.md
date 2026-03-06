@@ -8,16 +8,16 @@ description: Introspect this agent — workspace layout, skills, channels,
 
 ## Workspace layout
 
-| Path                       | Contents                                                | Access                   |
-| -------------------------- | ------------------------------------------------------- | ------------------------ |
-| `/workspace/self`          | kanipi source (canonical skills, changelog, migrations) | read-only, all groups    |
-| `/workspace/group`         | this group's working directory                          | read-write               |
-| `/workspace/global`        | shared global memory                                    | read-only, non-main only |
-| `/workspace/web`           | vite web app directory                                  | read-write               |
-| `/workspace/ipc`           | gateway↔agent IPC (messages/, tasks/, input/)           | read-write               |
-| `/workspace/data/sessions` | all group session dirs (for migrate)                    | read-write, main only    |
-| `/workspace/extra/<name>`  | operator-configured extra mounts                        | varies                   |
-| `~/.claude`                | agent memory: skills, CLAUDE.md, sessions               | read-write               |
+| Path                       | Contents                                                | Access                                      |
+| -------------------------- | ------------------------------------------------------- | ------------------------------------------- |
+| `/workspace/self`          | kanipi source (canonical skills, changelog, migrations) | read-only, all groups                       |
+| `/workspace/group`         | this group's working directory                          | read-write                                  |
+| `/workspace/share`         | shared global memory                                    | read-only for non-root, read-write for root |
+| `/workspace/web`           | vite web app directory                                  | read-write                                  |
+| `/workspace/ipc`           | gateway↔agent IPC (messages/, tasks/, input/)           | read-write                                  |
+| `/workspace/data/sessions` | all group session dirs (for migrate)                    | read-write, main only                       |
+| `/workspace/extra/<name>`  | operator-configured extra mounts                        | varies                                      |
+| `~/.claude`                | agent memory: skills, CLAUDE.md, sessions               | read-write                                  |
 
 ## Skill seeding
 
@@ -34,10 +34,10 @@ Canonical latest skills always at `/workspace/self/container/skills/`.
 skill's SKILL.md to `~/.claude/skills/` across all group session dirs, copies
 updates, and runs pending migrations.
 
-## Main group detection
+## Root group detection
 
 ```bash
-[ "$NANOCLAW_IS_MAIN" = "1" ] && echo main || echo non-main
+[ "$NANOCLAW_IS_ROOT" = "1" ] && echo root || echo non-root
 ```
 
 ## System messages
@@ -93,7 +93,7 @@ ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0
 ```
 
-Latest migration version: **7**. If version < 7: migrations pending.
+Latest migration version: **9**. If version < 9: migrations pending.
 
 ## MCP tools
 
@@ -131,7 +131,46 @@ Example — transcribe in Czech and Russian as well as auto-detect:
 printf 'cs\nru\n' > /workspace/group/.whisper-language
 ```
 
-## Main group only
+## Self-extension
+
+You can extend your own capabilities across sessions:
+
+| What         | How                                           | When active  |
+| ------------ | --------------------------------------------- | ------------ |
+| Skills       | Create `~/.claude/skills/<name>/SKILL.md`     | Next session |
+| Instructions | Edit `~/.claude/CLAUDE.md`                    | Next session |
+| Memory       | Write to `~/.claude/projects/*/memory/`       | Next session |
+| MCP servers  | Add to `~/.claude/settings.json` `mcpServers` | Next session |
+
+### Registering MCP servers
+
+Write a server script to your workspace and register it in settings:
+
+```bash
+# write your MCP server to workspace
+cat > /workspace/group/tools/myserver.js << 'EOF'
+// ... your MCP server implementation ...
+EOF
+
+# register in settings (preserves existing entries)
+node -e "
+const f = '/home/node/.claude/settings.json';
+const s = JSON.parse(require('fs').readFileSync(f, 'utf-8'));
+s.mcpServers = s.mcpServers || {};
+s.mcpServers.mytools = { command: 'node', args: ['/workspace/group/tools/myserver.js'] };
+require('fs').writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
+"
+```
+
+On next session spawn, the new MCP tools will be available as
+`mcp__mytools__*`. The built-in `nanoclaw` server cannot be overridden.
+
+### Known limitation
+
+SDK hooks (PreCompact, PreToolUse) cannot be added by the agent.
+These are hardcoded in the agent-runner.
+
+## Root group only
 
 ```bash
 ls /workspace/self/
