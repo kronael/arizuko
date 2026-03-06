@@ -52,6 +52,14 @@ metadata, sessions, and scheduled tasks. All access is
 synchronous (better-sqlite3). Key functions: `storeMessage`,
 `getNewMessages`, `getAllRegisteredGroups`, `setSession`.
 
+Tables: `messages`, `registered_groups`, `sessions`,
+`system_messages`, `tasks`, `auth_users`, `auth_sessions`.
+
+`system_messages` stores pending system events (new-session,
+new-day) per group. `enqueueSystemMessage` inserts;
+`flushSystemMessages` reads and deletes all pending messages,
+returning XML for prepending to agent stdin.
+
 ### slink.ts
 
 Web channel handler for public HTTP endpoints. Handles `POST /pub/s/:token`
@@ -63,6 +71,15 @@ about HTTP — the HTTP wiring lives in `web-proxy.ts`.
 Rate buckets are in-memory maps, reset per process. Anon: 10 rpm (per
 token), auth: 60 rpm (per sub). Both configurable via `SLINK_ANON_RPM` /
 `SLINK_AUTH_RPM`.
+
+### commands/
+
+Pluggable command registry. Each command implements `CommandHandler`
+(name, description, handle). Commands are registered at startup and
+intercepted before messages reach the agent queue. `writeCommandsXml`
+serializes the registry to each group's IPC directory so agents can
+discover available commands. Built-in: `/new` (clear session), `/ping`,
+`/chatid`.
 
 ### channels/
 
@@ -210,7 +227,13 @@ folders (read-only) — replaces the old `/workspace/project` which
 only mounted the main group.
 
 The container entrypoint (`container/agent-runner/`) reads the
-prompt from stdin and writes JSON output to stdout.
+prompt from stdin and writes JSON output to stdout. System messages
+(new-session, new-day) are flushed from DB and prepended as XML
+to the stdin payload before user messages.
+
+**reset_session IPC**: agents can request a session reset via IPC
+(`type:'reset_session'`). The gateway evicts the current session
+and the next invocation starts fresh.
 
 **Skills seeding**: on first spawn for a group, `container/skills/`
 is seeded to `~/.claude/skills/` inside the container. Includes
@@ -252,6 +275,7 @@ tell the user to say "continue" to pick up where it left off.
 - Sessions → SQLite (`sessions` table) + filesystem. On agent error, the DB
   pointer is evicted so the next run starts a fresh session; JSONL remains on
   disk for history.
+- System messages → SQLite (`system_messages` table), flushed per invocation
 - Scheduled tasks → SQLite (`tasks` table)
 - Web auth users → SQLite (`auth_users` table)
 - Web auth sessions → SQLite (`auth_sessions` table)
@@ -273,6 +297,7 @@ tell the user to say "continue" to pick up where it left off.
 ```
 src/              gateway source (TypeScript)
   channels/       telegram, whatsapp, discord
+  commands/       slash command handlers (/new, /ping, /chatid)
 container/        agent container build (make image → kanipi-agent)
   agent-runner/   in-container entrypoint
   skills/         agent-side skills

@@ -56,6 +56,23 @@ is injected into all proxied HTML pages and adds a `POST /_REDACTED/message`
 handler plus a SSE stream at `/_REDACTED/stream?group=<name>` for receiving
 agent responses in-page.
 
+## System Messages and Sessions
+
+The gateway injects system messages (new-session, new-day) as XML
+prepended to agent stdin. Messages are enqueued in the `system_messages`
+DB table and flushed on the next agent invocation for the group.
+
+Every container spawn/exit is recorded in the `sessions` table. On agent
+error, the user receives a retry prompt and the session cursor rolls back
+so the next run starts fresh.
+
+## Commands
+
+Slash commands (`/new`, `/ping`, `/chatid`) are handled by a pluggable
+registry in `src/commands/`. Commands are intercepted before the message
+reaches the agent. The registry is exported as `commands.xml` into each
+group's IPC directory so agents can discover available commands.
+
 ## Instance Layout
 
 `/srv/data/kanipi_<name>/`:
