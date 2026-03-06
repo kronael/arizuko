@@ -1,4 +1,4 @@
-.PHONY: build lint test image clean
+.PHONY: build lint test smoke image clean
 
 build:
 	bunx tsc
@@ -7,6 +7,9 @@ lint:
 	bunx tsc --noEmit
 
 test:
+	vitest run src
+
+smoke:
 	vitest run
 
 image:
