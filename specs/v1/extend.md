@@ -1,154 +1,117 @@
 # Extensibility
 
-How external code registers with kanipi's subsystems. The goal:
-extension directories that the core discovers and loads, packaged
-away from core source. Agent self-modification via the same mechanism.
+How kanipi gets extended — by agents, by developers, by operators.
+Two separate surfaces: agent-side (Claude Code SDK) and gateway-side
+(compiled TypeScript).
 
-## Extension points
+## Agent self-extension
 
-All kanipi subsystems that accept external contributions:
+The agent runs Claude Code inside a container. It can extend itself
+using SDK-native mechanisms. All persist across sessions via the
+writable `.claude/` directory.
 
-| Registry              | Current pattern          | Extension model        |
-| --------------------- | ------------------------ | ---------------------- |
-| actions (IPC/MCP/cmd) | hardcoded dispatch       | action registry (v1)   |
-| channels              | compiled-in, conditional | drop-in (v2)           |
-| mime handlers         | hardcoded array          | drop-in (v2)           |
-| volume mounts         | hardcoded push list      | mount providers (v2)   |
-| agent hooks           | hardcoded SDK object     | hook providers (v2)    |
-| inbound stages        | sequential inline        | stage registry (v2)    |
-| system msg producers  | scattered enqueue calls  | producer registry (v2) |
+| Mechanism    | Path                                 | Effect                             |
+| ------------ | ------------------------------------ | ---------------------------------- |
+| Skills       | `.claude/skills/<name>/SKILL.md`     | New capabilities, loaded by SDK    |
+| Instructions | `.claude/CLAUDE.md`                  | Changes own behavior/personality   |
+| Memory       | `.claude/projects/*/memory/`         | Persists knowledge across sessions |
+| MCP servers  | `.claude/settings.json` `mcpServers` | New tools available to agent       |
+| Settings     | `.claude/settings.json`              | SDK configuration                  |
 
-### Shipped (v1)
+The agent can create skills, edit its own instructions, write memory
+files, and potentially register new MCP servers — all without gateway
+involvement. Changes take effect on next session spawn.
 
-**Actions** — `specs/v1/actions.md`. Typed registry with Zod schemas.
-MCP tools auto-generated. Commands call actions directly. IPC dispatch
-looks up actions by `type`. Adding an action = one file, no wiring.
+### What the agent cannot extend
 
-**Commands** — `src/commands/index.ts`. `registerCommand()` array.
-Already a proper registry. Commands become thin action wrappers
-when actions ship.
+- **Gateway actions** — IPC dispatch, MCP tool definitions. These
+  run on the gateway, not in the container.
+- **Channels** — messaging platform connectors. Gateway-side code.
+- **MIME handlers** — media processing. Gateway-side code.
+- **Volume mounts** — container filesystem. Set by gateway before spawn.
+- **Inbound pipeline** — message processing steps. Gateway-side code.
 
-**Groups** — DB-backed. `register_group` IPC action adds groups at
-runtime. Agent can register new groups via MCP.
+These require developer code changes (see below).
 
-### Open questions (v1 → v2)
+### Skill seeding
 
-**Channels**: currently `channels.push(new TelegramChannel(...))` in
-`index.ts`. Adding a channel = new source file + conditional init.
-Extension model: `channels/` scanned at startup, each exports a
-factory. Env presence check stays per-channel. Needs: factory
-interface, hot-reload on reconnect? Dynamic import?
+Gateway seeds skills from `container/skills/` into `.claude/skills/`
+on first spawn per group. The `/migrate` skill propagates updates
+across groups. See `specs/v1/skills.md`.
 
-**MIME handlers**: currently `[voiceHandler, videoHandler]` passed
-to `processAttachments()`. Extension model: `mime-handlers/` scanned,
-each exports an `AttachmentHandler`. Discovery at startup, no runtime
-registration needed.
+### MCP server self-registration (open)
 
-**Volume mounts**: currently `buildVolumeMounts()` with hardcoded
-push calls. Extension model: mount providers declare what they need:
+The agent could add MCP servers to its own `.claude/settings.json`.
+The SDK reads `settingSources: ['project', 'user']` — project-level
+settings should be picked up. Needs verification:
 
-```typescript
-interface MountProvider {
-  name: string;
-  mounts(group: RegisteredGroup): VolumeMount[];
-}
-```
+- Does the SDK merge `mcpServers` from settings with those passed
+  to `query()`?
+- If so, the agent can install an MCP server binary to its workspace
+  and register it via settings. No gateway changes needed.
+- Security: agent can only run binaries inside its container. The
+  MCP server runs with the same sandboxing as the agent itself.
 
-Providers registered at startup. `buildVolumeMounts` iterates them.
-Core mounts (group, ipc, self) are built-in providers.
+## Gateway registries
 
-**Agent hooks**: SDK already has the registry (`hooks: { PreCompact:
-[...], PreToolUse: [...] }`). Extension = adding entries. Agent-runner
-could scan a hooks directory and load hook factories. Low priority —
-only two hooks exist and adding a third is one line.
+Architectural reference for developers extending kanipi's core.
 
-**Inbound stages**: `processGroupMessages()` is 10 sequential steps.
-Extension model: stage registry with ordered stages:
+| Registry      | Location                              | How to extend                                    |
+| ------------- | ------------------------------------- | ------------------------------------------------ |
+| Actions       | `src/actions/` (planned)              | Add action file, auto-registers                  |
+| Commands      | `src/commands/`                       | `registerCommand()` at startup                   |
+| Channels      | `src/channels/`                       | New file + conditional init in `index.ts`        |
+| MIME handlers | `src/mime-handlers/`                  | New handler + add to array in `mime-enricher.ts` |
+| Agent hooks   | `container/agent-runner/src/index.ts` | Add to `hooks:` object                           |
 
-```typescript
-interface InboundStage {
-  name: string;
-  order: number;
-  run(ctx: InboundContext): Promise<void>;
-}
-```
+### Actions (v1 — specced)
 
-Stages mutate a shared context (system messages, prompt parts,
-enrichments). Current inline steps become built-in stages. New stages
-register at startup. Sequential execution, sorted by order.
+Typed registry with Zod schemas. MCP tools auto-generated. Commands
+call actions directly. IPC dispatch looks up by `type`. Adding an
+action = one file. See `specs/v1/actions.md`.
 
-**System message producers**: any subsystem can call
-`enqueueSystemMessage()`. No registry needed — the queue is the
-shared interface. New producers just call the function.
+### Commands (shipped)
 
-## Extension directory convention
+`CommandHandler[]` with `registerCommand()`. One file per command in
+`src/commands/`. Already a proper registry.
 
-Extensions live outside core source:
+### Channels (shipped, compiled-in)
 
-```
-extensions/
-  <name>/
-    manifest.json
-    *.ts
-```
+One class per channel in `src/channels/`. Each implements `Channel`
+interface. Loaded conditionally by token presence. Adding a channel:
+new file, implement interface, push to `channels[]` in `index.ts`.
+See `specs/v1/channels.md`.
 
-Manifest declares what the extension provides:
+### MIME handlers (shipped, compiled-in)
 
-```json
-{
-  "name": "image-ocr",
-  "version": "1.0.0",
-  "provides": {
-    "mime-handler": { "entry": "handler.ts" },
-    "mount": { "path": "/workspace/ocr-models", "readonly": true },
-    "action": { "entry": "action.ts" }
-  }
-}
-```
+`AttachmentHandler` interface. One file per handler in
+`src/mime-handlers/`. Currently two: voice (whisper), video (ffmpeg +
+whisper). Adding a handler: new file, implement interface, add to
+handler array in `mime-enricher.ts`. See `specs/v1/mime.md`.
 
-Gateway scans `extensions/` at startup. Each `provides` key maps to
-a registry. The extension's entry file exports the expected interface
-(AttachmentHandler, MountProvider, Action, etc).
+### Inbound pipeline (hardcoded, no registry)
 
-Disabled by renaming the directory (`image-ocr` → `_image-ocr`) or
-adding `"enabled": false` to manifest.
+`processGroupMessages()` in `index.ts`. Sequential steps with data
+dependencies. Adding a step = editing the function inline. Not worth
+abstracting for v1 — 10 steps, clear flow. See `specs/v1/router.md`.
 
-## Agent self-modification
+### Volume mounts (hardcoded, no registry)
 
-The agent can create extensions in its writable workspace:
+`buildVolumeMounts()` in `container-runner.ts`. Adding a mount =
+adding a push call. 10 mounts with clear conditionals. Not worth
+abstracting. See `specs/v1/router.md`.
 
-1. Agent writes files to `/workspace/group/extensions/<name>/`
-2. Agent emits `plugin-propose` IPC (see `specs/v1/plugins.md`)
-3. Operator approves
-4. Gateway copies to `extensions/` directory
-5. Next gateway restart picks it up
+## Design principles
 
-For agent-side extensions (hooks, skills), no approval needed — the
-agent's `.claude/` directory is persistent and writable. Changes take
-effect on next session spawn.
-
-## Trust boundaries
-
-| Extension type | Who writes | Who approves   | When loaded     |
-| -------------- | ---------- | -------------- | --------------- |
-| skills         | agent      | nobody (agent) | next spawn      |
-| agent hooks    | agent      | nobody (agent) | next spawn      |
-| actions        | operator   | operator       | gateway restart |
-| channels       | operator   | operator       | gateway restart |
-| mime handlers  | operator   | operator       | gateway restart |
-| mounts         | agent      | operator       | next spawn      |
-| inbound stages | operator   | operator       | gateway restart |
-
-Agent-side extensions (skills, hooks) are sandboxed inside the
-container — they can only affect the agent's own behavior. Gateway-side
-extensions (actions, channels, handlers, stages) require operator
-involvement because they run with gateway privileges.
-
-## Implementation order
-
-1. **Actions registry** — v1, specced in actions.md
-2. **Extension directory scanning** — v2, enables all other registries
-3. **Mount providers** — v2, after extension scanning
-4. **MIME handler discovery** — v2, after extension scanning
-5. **Inbound stage registry** — v2, when plugin-contributed stages needed
-6. **Channel drop-in** — v2/v3, most complex (lifecycle, reconnection)
+- **Lean on the SDK** — don't build extension mechanisms that Claude
+  Code already provides. Skills, memory, settings are the agent's
+  primary self-extension tools.
+- **Keep hardcoded what only developers touch** — inbound pipeline,
+  volume mounts, agent hooks. These change rarely and have data
+  dependencies that make abstraction harmful.
+- **Registries where external code lives** — actions, commands,
+  channels, MIME handlers. These have clear interfaces and grow
+  independently. Each in its own directory.
+- **No custom framework** — no manifest files, no directory scanning,
+  no runtime plugin loading. Each registry has its own simple pattern.
+  Boring code.
