@@ -9,12 +9,36 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+---
+
+## [v0.3.0] — 2026-03-06
+
 ### Features
 
-- SKILL.md documents all system message origins and the rule to never quote
-  them back verbatim.
-- agent-runner CLAUDE.md documents session layout (`.jl` files, session IDs).
-- Migration 007: system messages and session layout docs.
+- **System messages**: `system_messages` and `sessions` DB tables. Gateway
+  enqueues context annotations (new-session history, new-day marker, command
+  context) and flushes them as XML before user messages in agent stdin.
+- **Session recording**: every container spawn/exit recorded in `sessions`
+  table with timing, message count, result, and error. New-session injection
+  includes last 10 previous sessions as `<previous_session>` XML elements.
+- **Command registry** (`src/commands/`): pluggable handlers replace
+  hardcoded telegram commands. `/new` (session reset with continuity),
+  `/ping`, `/chatid` shipped. Commands intercepted in message loop before
+  agent routing.
+- **`reset_session` IPC**: agent can clear its own session via IPC message.
+- **Error notification**: on agent error, user receives retry prompt and
+  message cursor rolls back. If output was already sent, cursor is preserved
+  to prevent duplicate delivery.
+- **Agent SKILL.md**: documents system message origins, session history
+  access (`~/.claude/projects/`), group configuration files, whisper
+  language config. Migrations 005-007.
+- **agent-runner CLAUDE.md**: session layout documentation for in-container
+  agent.
+
+### Fixes
+
+- System message format corrected (origin+event attributes, no colon).
+- Voice transcription label now `[voice/auto→en: ...]` (was `[voice: ...]`).
 
 ---
 
