@@ -5,6 +5,7 @@ build:
 
 lint:
 	bunx tsc --noEmit
+	cd container/agent-runner && npm install --silent && npx tsc --noEmit
 
 test:
 	bunx vitest run src tests/e2e
