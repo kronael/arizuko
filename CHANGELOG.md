@@ -7,7 +7,20 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
-## [Unreleased]
+## [v0.6.3] — 2026-03-06
+
+### Features
+
+- Media-aware file sending: telegram routes photos/videos/audio/animations
+  to native API methods (inline display); whatsapp routes by MIME type
+- Diary spec: Stop hook nudge after 100 turns, task tracking in entries,
+  terse summary format
+
+### Fixes
+
+- Replace agent error retry loop with circuit breaker (manual retry only,
+  warns after 3 consecutive failures per group)
+- Telegram: removed dead `method` variable in sendDocument
 
 ---
 
