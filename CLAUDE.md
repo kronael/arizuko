@@ -161,6 +161,43 @@ Prioritize extensibility and reusability over speed. Don't optimize
 for performance unless measured. Agent self-extension (skills, MCP
 servers, CLAUDE.md, memory) is the primary extension mechanism.
 
+## Operational check (post-deploy)
+
+After deploying a new version, run this check sequence:
+
+```bash
+# 1. Service health — should be active (running), no restart loops
+sudo systemctl status kanipi_<instance>
+
+# 2. Startup sequence — expect these lines in order:
+#    "Database initialized", "State loaded", "<channel> connected",
+#    "IPC watcher started", "Scheduler loop started", "NanoClaw running"
+sudo journalctl -u kanipi_<instance> --since "5 minutes ago" --no-pager | head -30
+
+# 3. Errors/warnings — should return nothing
+sudo journalctl -u kanipi_<instance> --since "5 minutes ago" --no-pager \
+  | grep -iE 'error|warn|fatal|crash|unhandled|reject'
+
+# 4. Container orphans — nanoclaw-* containers >1h old are suspect
+sudo docker ps --filter "name=nanoclaw-" --format "{{.Names}} {{.Status}}"
+
+# 5. IPC file accumulation — request files should drain, not pile up
+find /srv/data/kanipi_<instance>/data/ipc/*/requests/ -name '*.json' 2>/dev/null | wc -l
+```
+
+Red flags in journalctl:
+
+- `"Error in message loop"` — unhandled error, likely repeating
+- `"Container timeout with no output"` — agent hung
+- `"Max retries exceeded, dropping messages"` — persistent failure
+- `"Failed to parse container output"` — agent output malformed
+- No log activity for >30s — message loop stalled
+
+When investigating issues, correlate journalctl timestamps with
+source code error paths. Key error emitters: `index.ts` (message
+loop), `group-queue.ts` (retry/concurrency), `container-runner.ts`
+(spawn/timeout), `ipc.ts` (drain errors).
+
 ## Shipping changes (agent skills / web convention)
 
 When making notable kanipi changes:
