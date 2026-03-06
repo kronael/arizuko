@@ -28,4 +28,10 @@ repos:
         language: system
         pass_filenames: false
         files: \.ts$
-        exclude: ^\.refs/
+        exclude: ^(\.refs/|container/)
+      - id: typecheck-agent
+        name: typecheck-agent
+        entry: bash -c 'cd container/agent-runner && npm install --silent && npx tsc --noEmit'
+        language: system
+        pass_filenames: false
+        files: ^container/agent-runner/.*\.ts$
