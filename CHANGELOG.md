@@ -11,6 +11,21 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.6.1] — 2026-03-06
+
+### Fixes
+
+- Container stop: `exec()` → `execFileSync`/`spawn` (no shell anywhere)
+- Command handlers: `await` instead of fire-and-forget (race condition)
+- Cursor rollback: restore cursor on agent error when no output was sent
+  (previousCursor was saved but never used — messages in DB but invisible)
+- Routing schema: `.max(200)` on pattern/sender Zod fields (was only
+  enforced at runtime, silent failure)
+- Sidecar socket cleanup: catch only ENOENT (was `catch {}`)
+- Agent container: use `bunx tsc` for build, validate-only compile step
+
+---
+
 ## [v0.6.0] — 2026-03-06
 
 ### Fixes
