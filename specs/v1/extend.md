@@ -1,56 +1,9 @@
 # Extensibility
 
-How kanipi gets extended — by agents, by developers, by operators.
-Two separate surfaces: agent-side (Claude Code SDK) and gateway-side
-(compiled TypeScript).
+How kanipi gets extended. Two surfaces:
 
-## Agent self-extension
-
-The agent runs Claude Code inside a container. It can extend itself
-using SDK-native mechanisms. All persist across sessions via the
-writable `.claude/` directory.
-
-| Mechanism    | Path                                 | Effect                             |
-| ------------ | ------------------------------------ | ---------------------------------- |
-| Skills       | `.claude/skills/<name>/SKILL.md`     | New capabilities, loaded by SDK    |
-| Instructions | `.claude/CLAUDE.md`                  | Changes own behavior/personality   |
-| Memory       | `.claude/projects/*/memory/`         | Persists knowledge across sessions |
-| MCP servers  | `.claude/settings.json` `mcpServers` | New tools available to agent       |
-| Settings     | `.claude/settings.json`              | SDK configuration                  |
-
-The agent can create skills, edit its own instructions, write memory
-files, and potentially register new MCP servers — all without gateway
-involvement. Changes take effect on next session spawn.
-
-### What the agent cannot extend
-
-- **Gateway actions** — IPC dispatch, MCP tool definitions. These
-  run on the gateway, not in the container.
-- **Channels** — messaging platform connectors. Gateway-side code.
-- **MIME handlers** — media processing. Gateway-side code.
-- **Volume mounts** — container filesystem. Set by gateway before spawn.
-- **Inbound pipeline** — message processing steps. Gateway-side code.
-
-These require developer code changes (see below).
-
-### Skill seeding
-
-Gateway seeds skills from `container/skills/` into `.claude/skills/`
-on first spawn per group. The `/migrate` skill propagates updates
-across groups. See `specs/v1/skills.md`.
-
-### MCP server self-registration (open)
-
-The agent could add MCP servers to its own `.claude/settings.json`.
-The SDK reads `settingSources: ['project', 'user']` — project-level
-settings should be picked up. Needs verification:
-
-- Does the SDK merge `mcpServers` from settings with those passed
-  to `query()`?
-- If so, the agent can install an MCP server binary to its workspace
-  and register it via settings. No gateway changes needed.
-- Security: agent can only run binaries inside its container. The
-  MCP server runs with the same sandboxing as the agent itself.
+- **Agent-side** — Claude Code SDK mechanisms. See `extend-agent.md`.
+- **Gateway-side** — compiled TypeScript registries (this doc).
 
 ## Gateway registries
 
@@ -93,7 +46,7 @@ handler array in `mime-enricher.ts`. See `specs/v1/mime.md`.
 
 `processGroupMessages()` in `index.ts`. Sequential steps with data
 dependencies. Adding a step = editing the function inline. Not worth
-abstracting for v1 — 10 steps, clear flow. See `specs/v1/router.md`.
+abstracting — 10 steps, clear flow. See `specs/v1/router.md`.
 
 ### Volume mounts (hardcoded, no registry)
 
@@ -104,14 +57,10 @@ abstracting. See `specs/v1/router.md`.
 ## Design principles
 
 - **Lean on the SDK** — don't build extension mechanisms that Claude
-  Code already provides. Skills, memory, settings are the agent's
-  primary self-extension tools.
+  Code already provides.
 - **Keep hardcoded what only developers touch** — inbound pipeline,
-  volume mounts, agent hooks. These change rarely and have data
-  dependencies that make abstraction harmful.
+  volume mounts, agent hooks.
 - **Registries where external code lives** — actions, commands,
-  channels, MIME handlers. These have clear interfaces and grow
-  independently. Each in its own directory.
+  channels, MIME handlers. Clear interfaces, own directories.
 - **No custom framework** — no manifest files, no directory scanning,
-  no runtime plugin loading. Each registry has its own simple pattern.
-  Boring code.
+  no runtime plugin loading. Boring code.
