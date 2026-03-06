@@ -62,9 +62,10 @@ The gateway injects system messages (new-session, new-day) as XML
 prepended to agent stdin. Messages are enqueued in the `system_messages`
 DB table and flushed on the next agent invocation for the group.
 
-Every container spawn/exit is recorded in the `sessions` table. On agent
-error, the user receives a retry prompt and the session cursor rolls back
-so the next run starts fresh.
+Every container spawn/exit is recorded in the `session_history` table. On
+agent error, the user receives a retry prompt and the session cursor rolls
+back so the next run starts fresh. New-session injection includes the last
+2 previous sessions as `<previous_session>` XML elements.
 
 ## Commands
 
@@ -72,6 +73,37 @@ Slash commands (`/new`, `/ping`, `/chatid`) are handled by a pluggable
 registry in `src/commands/`. Commands are intercepted before the message
 reaches the agent. The registry is exported as `commands.xml` into each
 group's IPC directory so agents can discover available commands.
+
+## Routing
+
+Groups support hierarchical parent-child delegation. A parent group
+can delegate messages to child groups based on routing rules:
+
+| Rule type | Match criteria                              |
+| --------- | ------------------------------------------- |
+| command   | message starts with trigger string          |
+| pattern   | message matches regex (max 200 char)        |
+| keyword   | message contains keyword (case-insensitive) |
+| sender    | sender name matches regex                   |
+| default   | fallback when no other rule matches         |
+
+Rules are evaluated in tier order (command, pattern, keyword, sender,
+default); first match within each tier wins. Delegation is authorized
+only for direct parent-to-child relationships within the same world
+(same root folder segment), capped at depth 3.
+
+Set via `set_routing_rules` action; delegate via `delegate_group` action.
+
+## MCP Sidecars
+
+Per-group MCP servers run as sidecar containers alongside the agent.
+Configure via `SIDECAR_<NAME>_IMAGE` env vars (e.g. `SIDECAR_WHISPER_IMAGE`).
+
+Per-group sidecar config is stored in `container_config.sidecars` on
+`registered_groups`. Sidecars communicate via Unix sockets at
+`/workspace/ipc/sidecars/<name>.sock`. The gateway starts sidecars
+before the agent, probes readiness, and merges them into the agent's
+`settings.json` as MCP servers.
 
 ## Instance Layout
 
@@ -96,20 +128,27 @@ Agent skills are seeded from `container/skills/` to
 
 All via `.env` (seeded from `template/env.example`):
 
-| Key                       | Purpose                                  |
-| ------------------------- | ---------------------------------------- |
-| ASSISTANT_NAME            | instance name                            |
-| TELEGRAM_BOT_TOKEN        | enables telegram channel                 |
-| DISCORD_BOT_TOKEN         | enables discord channel                  |
-| CONTAINER_IMAGE           | agent docker image                       |
-| CLAUDE_CODE_OAUTH_TOKEN   | passed to agent containers               |
-| IDLE_TIMEOUT              | container idle shutdown (ms)             |
-| MAX_CONCURRENT_CONTAINERS | concurrent agent limit                   |
-| VITE_PORT                 | enables vite web serving                 |
-| WEB_HOST                  | vite host binding                        |
-| REDACTED_USERS               | basic auth users (alice:pw,bob:pw2)      |
-| AUTH_SECRET               | HMAC secret for JWT verification (slink) |
-| WHISPER_BASE_URL          | whisper sidecar URL for transcription    |
+| Key                       | Purpose                                       |
+| ------------------------- | --------------------------------------------- |
+| ASSISTANT_NAME            | instance name                                 |
+| TELEGRAM_BOT_TOKEN        | enables telegram channel                      |
+| DISCORD_BOT_TOKEN         | enables discord channel                       |
+| CONTAINER_IMAGE           | agent docker image                            |
+| CLAUDE_CODE_OAUTH_TOKEN   | passed to agent containers                    |
+| IDLE_TIMEOUT              | container idle shutdown (ms)                  |
+| MAX_CONCURRENT_CONTAINERS | concurrent agent limit                        |
+| VITE_PORT                 | enables vite web serving                      |
+| WEB_HOST                  | vite host binding                             |
+| REDACTED_USERS               | basic auth users (alice:pw,bob:pw2)           |
+| AUTH_SECRET               | HMAC secret for JWT verification (slink)      |
+| WHISPER_BASE_URL          | whisper sidecar URL for transcription         |
+| EMAIL_IMAP_HOST           | enables email channel (IMAP IDLE)             |
+| EMAIL_SMTP_HOST           | SMTP for reply threading (defaults from IMAP) |
+| EMAIL_ACCOUNT             | email account address                         |
+| EMAIL_PASSWORD            | email account password                        |
+| MEDIA_ENABLED             | enable attachment pipeline (default false)    |
+| SIDECAR\_\*\_IMAGE        | per-name sidecar docker image                 |
+| TIMEZONE                  | cron timezone (validated, fallback UTC)       |
 
 Channels enabled by token presence (telegram/discord),
 auth dir existence (whatsapp: `store/auth/creds.json`),
@@ -165,9 +204,8 @@ Then `systemctl enable --now kanipi_foo`.
 ```bash
 make build          # tsc compile (src/ -> dist/)
 make lint           # typecheck without emitting
-make test           # unit tests (vitest run src/)
+make test           # all tests (vitest run src/ + tests/e2e/)
 npm run dev         # tsx dev mode
-vitest run          # run all tests (some require docker)
 ```
 
 Pre-commit hooks: prettier (single quotes), typecheck, hygiene.

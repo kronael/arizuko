@@ -9,6 +9,35 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixes
+
+- IPC: catch only ENOENT on file cleanup (was swallowing all errors)
+- IPC: validate envelope id/type fields, reject malformed requests
+- IPC: delete failed files instead of accumulating in errors/ dir
+- Routing: cap regex pattern length at 200 chars (ReDoS mitigation)
+- Config: validate TIMEZONE via Intl.DateTimeFormat, fallback to UTC
+- Sidecar: use spawn() instead of exec() for lifecycle (shell injection fix)
+
+---
+
+## [v0.6.0] — 2026-03-06
+
+### Features
+
+- **Hierarchical group routing**: parent groups delegate to children via
+  routing rules (command, pattern, keyword, sender, default). Authorization
+  enforces same-world, direct parent-child only. Max delegation depth 3.
+- **Sidecar isolation**: per-group MCP sidecars via `SIDECAR_<NAME>_IMAGE`
+  env vars. Socket transport at `/workspace/ipc/sidecars/<name>.sock`.
+  Gateway manages lifecycle (start, probe, reconcile settings, stop).
+- **Action input validation**: Zod schemas on all actions; malformed
+  IPC requests rejected with typed error replies.
+- **New actions**: `delegate_group`, `set_routing_rules`
+- **Session history**: `session_history` table replaces `sessions`;
+  new-session injection includes last 2 previous sessions
+
+---
+
 ## [v0.5.0] — 2026-03-06
 
 ### Features
@@ -62,7 +91,7 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   context) and flushes them as XML before user messages in agent stdin.
 - **Session recording**: every container spawn/exit recorded in `sessions`
   table with timing, message count, result, and error. New-session injection
-  includes last 10 previous sessions as `<previous_session>` XML elements.
+  includes last 2 previous sessions as `<previous_session>` XML elements.
 - **Command registry** (`src/commands/`): pluggable handlers replace
   hardcoded telegram commands. `/new` (session reset with continuity),
   `/ping`, `/chatid` shipped. Commands intercepted in message loop before

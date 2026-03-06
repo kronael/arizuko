@@ -15,7 +15,9 @@ Channel (telegram/whatsapp/discord/email)
   -> DB (store message + chat metadata)
   -> message loop (poll getNewMessages)
   -> trigger check (direct mode or @name mention)
+  -> routing rules (resolveRoutingTarget: delegate to child group if matched)
   -> GroupQueue (per-group serialization)
+  -> startSidecars (per-group MCP servers)
   -> runContainerAgent (docker run)
   -> stream output back to channel
 ```
@@ -46,8 +48,12 @@ metadata, sessions, and scheduled tasks. All access is
 synchronous (better-sqlite3). Key functions: `storeMessage`,
 `getNewMessages`, `getAllRegisteredGroups`, `setSession`.
 
-Tables: `messages`, `registered_groups`, `sessions`,
-`system_messages`, `tasks`, `auth_users`, `auth_sessions`.
+Tables: `messages`, `registered_groups`, `session_history`,
+`system_messages`, `scheduled_tasks`, `task_run_logs`,
+`email_threads`, `auth_users`, `auth_sessions`.
+
+`registered_groups` includes `parent`, `routing_rules`, and
+`slink_token` columns for hierarchical routing and web channel.
 
 `system_messages` stores pending events per group; flushed as
 XML before agent stdin.
@@ -130,8 +136,7 @@ tests replace to mock docker without a running daemon.
 Also writes `groups.json`, `tasks.json`, and `action_manifest.json`
 snapshots into the group IPC directory before each agent run. Runs `chownRecursive`
 on `WEB_DIR` before mounting so the agent (uid 1000) can write
-web files. Agent-teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`)
-are disabled in the `settings.json` seed.
+web files.
 
 ### container-runtime.ts
 
@@ -159,6 +164,11 @@ Message formatting and outbound routing. Formats batched
 messages as XML for agent prompt input. Strips `<internal>`
 tags from agent output before sending to channel users.
 
+`isAuthorizedRoutingTarget(source, target)` validates that target
+is a direct child of source within the same world (root segment).
+`resolveRoutingTarget(msg, rules)` evaluates routing rules against
+a message (tier order: command, pattern, keyword, sender, default).
+
 ### action-registry.ts + actions/
 
 Unified action system. Each action has name, Zod schema, handler,
@@ -167,7 +177,7 @@ truth — IPC dispatch, MCP tools, and commands all reference it.
 
 Actions: `send_message`, `send_file`, `schedule_task`, `pause_task`,
 `resume_task`, `cancel_task`, `refresh_groups`, `register_group`,
-`reset_session`.
+`reset_session`, `delegate_group`, `set_routing_rules`.
 
 `getManifest()` serializes all MCP-exposed actions as JSON Schema
 for agent-side tool discovery.
@@ -187,8 +197,15 @@ File sends serialized per group via drain lock.
 
 ### ipc-compat.ts
 
-Backwards compatibility shim. Exports `processTaskIpc` (moved from
-`ipc.ts`) for legacy fire-and-forget task IPC during rollout.
+Backwards compatibility shim. Exports `processTaskIpc` for legacy
+fire-and-forget task IPC during rollout.
+
+### auth.ts
+
+Authentication utilities. JWT minting/verification (HMAC-SHA256),
+cookie parsing, session management. Used by `web-proxy.ts` for
+auth endpoints (`/auth/login`, `/auth/refresh`) and by slink for
+JWT-authenticated requests.
 
 ### task-scheduler.ts
 
@@ -254,6 +271,14 @@ contains numbered migration files (`NNN-desc.md`). The `/migrate`
 skill syncs all groups from the canonical source when the version
 changes.
 
+**Sidecar lifecycle**: per-group MCP sidecars are started before the
+agent (`startSidecars`), probed for readiness, and their socket paths
+merged into the agent's `settings.json` (`reconcileSidecarSettings`).
+Sidecar images are discovered from `SIDECAR_<NAME>_IMAGE` env vars.
+Sockets live at `/workspace/ipc/sidecars/<name>.sock`. Stopped after
+agent exit (`stopSidecars`). Stale sidecar entries in `settings.json`
+are purged on remove/disable.
+
 **Signal-driven IPC**: gateway writes IPC file then sends SIGUSR1
 to the container; agent wakes immediately on signal rather than
 waiting for the 500ms poll interval.
@@ -266,13 +291,14 @@ Claude to summarise progress, prompts user to say "continue".
 
 ## State
 
-- Registered groups → SQLite (`registered_groups` table, includes `slink_token`)
+- Registered groups → SQLite (`registered_groups` table; includes `parent`, `routing_rules`, `slink_token`)
 - Message history → SQLite (`messages` table)
-- Sessions → SQLite (`sessions` table) + filesystem. On agent error, the DB
+- Sessions → SQLite (`session_history` table) + filesystem. On agent error, the DB
   pointer is evicted so the next run starts a fresh session; JSONL remains on
   disk for history.
 - System messages → SQLite (`system_messages` table), flushed per invocation
-- Scheduled tasks → SQLite (`tasks` table)
+- Scheduled tasks → SQLite (`scheduled_tasks` table), run logs in `task_run_logs`
+- Email threads → SQLite (`email_threads` table) for SMTP reply threading
 - Web auth users → SQLite (`auth_users` table)
 - Web auth sessions → SQLite (`auth_sessions` table)
 - WhatsApp auth → `store/auth/` (baileys format)
