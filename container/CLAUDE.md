@@ -60,6 +60,13 @@ objects leak. Minimize state, make it explicit.
 - `./log` for debug logs
 - `./dist` or `./target` for build artifacts
 
+## Web apps
+
+Web apps you create are served at `https://$WEB_HOST/<app-name>/`.
+ALWAYS read `$WEB_HOST` from env — NEVER guess or hardcode the URL.
+If `$WEB_HOST` is empty, say "web host not configured" instead of
+inventing a URL.
+
 ## Delivering files to users
 
 ALWAYS use the `send_file` MCP tool when delivering files to the user —
