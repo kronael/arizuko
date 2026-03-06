@@ -1,6 +1,6 @@
 # Agent Runner
 
-In-container entrypoint for kanipi agent containers.
+In-container entrypoint for arizuko agent containers.
 
 ## Session layout
 

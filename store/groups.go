@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/onvos/kanipi/core"
+	"github.com/onvos/arizuko/core"
 )
 
 func (s *Store) PutChat(jid, name, ch string, group bool) error {

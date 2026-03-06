@@ -3,7 +3,7 @@ package store
 import (
 	"time"
 
-	"github.com/onvos/kanipi/core"
+	"github.com/onvos/arizuko/core"
 )
 
 type TaskPatch struct {

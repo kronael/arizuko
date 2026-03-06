@@ -5,13 +5,13 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/onvos/kanipi/core"
-	"github.com/onvos/kanipi/store"
+	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/store"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: kanipi <run|create|group> ...")
+		fmt.Println("usage: arizuko <run|create|group> ...")
 		os.Exit(1)
 	}
 
@@ -55,7 +55,7 @@ func cmdRun() {
 
 func cmdCreate(args []string) {
 	if len(args) < 1 {
-		fmt.Println("usage: kanipi create <name>")
+		fmt.Println("usage: arizuko create <name>")
 		os.Exit(1)
 	}
 	name := args[0]
@@ -65,7 +65,7 @@ func cmdCreate(args []string) {
 
 func cmdGroup(args []string) {
 	if len(args) < 1 {
-		fmt.Println("usage: kanipi group <list|add|rm> ...")
+		fmt.Println("usage: arizuko group <list|add|rm> ...")
 		os.Exit(1)
 	}
 	// TODO: group management

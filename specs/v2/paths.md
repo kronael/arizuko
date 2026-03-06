@@ -46,7 +46,7 @@ This pattern is safer.
 
 ### Missing HOST_DATA_DIR export
 
-`HOST_DATA_DIR` is set by the `kanipi` script and available as
+`HOST_DATA_DIR` is set by the `arizuko` script and available as
 `HOST_PROJECT_ROOT_PATH` in config. But there's no `HOST_DATA_DIR` export,
 so callers must compute `path.join(HOST_PROJECT_ROOT_PATH, 'data', ...)`.
 

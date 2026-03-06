@@ -3,7 +3,7 @@ package store
 import (
 	"time"
 
-	"github.com/onvos/kanipi/core"
+	"github.com/onvos/arizuko/core"
 )
 
 func (s *Store) PutMessage(m core.Message) error {

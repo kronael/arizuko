@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/kanipi/core"
+	"github.com/onvos/arizuko/core"
 )
 
 func TestOpenMemAndMigrate(t *testing.T) {

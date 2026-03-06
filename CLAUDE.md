@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - JSON for IPC, MCP, tool parameters, structured output
 - See `specs/xml-vs-json-llm.md` for research
 
-## What is kanipi
+## What is arizuko
 
 Nanoclaw fork — multitenant Claude agent gateway with
 multi-channel support (telegram, whatsapp, discord, email).
@@ -58,7 +58,7 @@ Key modules:
 - `actions/` — action handlers by domain (messaging, tasks, groups, session)
 - `ipc.ts` — container↔gateway IPC (request-response + legacy fire-and-forget)
 - `task-scheduler.ts` — cron-based scheduled tasks
-- `mount-security.ts` — validates additional mounts against `~/.config/nanoclaw/mount-allowlist.json` (stored outside project to prevent agent tampering)
+- `mount-security.ts` — validates additional mounts against `~/.config/arizuko/mount-allowlist.json` (stored outside project to prevent agent tampering)
 - `mime.ts` — shared `mimeFromFile()` via file-type (magic bytes detection)
 - `channels/` — telegram (grammy), whatsapp (baileys), discord (discord.js),
   email (IMAP IDLE + SMTP threading)
@@ -94,12 +94,12 @@ container/            agent container build
 template/             seed for new instances
   web/                vite web app template
 sidecar/              MCP server binaries
-kanipi                bash entrypoint (create/run/group/vite)
+arizuko               bash entrypoint (create/run/group/vite)
 ```
 
 ## Data Dir
 
-`/srv/data/kanipi_<name>/` per instance:
+`/srv/data/arizuko_<name>/` per instance:
 
 - `.env` — config (gateway reads from cwd)
 - `store/` — SQLite DB, whatsapp auth
@@ -125,13 +125,13 @@ Channels enabled by token presence (telegram/discord), auth dir existence
 
 ## Entrypoint
 
-`kanipi create <name>` — seed data dir, .env, systemd unit.
-`kanipi config <instance> group list|add|rm` — manage registered groups.
-`kanipi <instance>` — cd to home, run gateway + vite
+`arizuko create <name>` — seed data dir, .env, systemd unit.
+`arizuko config <instance> group list|add|rm` — manage registered groups.
+`arizuko <instance>` — cd to home, run gateway + vite
 (restart loop). VITE_PORT/WEB_HOST configured in .env.
 
 Group commands use `node -e` with better-sqlite3 against
-`/srv/data/kanipi_$instance/store/messages.db`. `group add`
+`/srv/data/arizuko_$instance/store/messages.db`. `group add`
 creates the DB + schema if missing (solves bootstrap).
 First group defaults to folder=main, requires_trigger=0.
 Subsequent groups require folder arg and use trigger mode.
@@ -141,14 +141,14 @@ Subsequent groups require folder arg and use trigger mode.
 - `/home/onvos/app/eliza-atlas` — ElizaOS fork with deep facts/memory system;
   the evangelist plugin (`/home/onvos/app/eliza-plugin-evangelist`) implements
   YAML-based facts repository, vector search, and Claude Code-powered research.
-  This is the reference implementation for kanipi's v2 facts/long-term memory.
+  This is the reference implementation for arizuko's v2 facts/long-term memory.
   Key files: `src/services/factsService.ts`, `src/services/researchService.ts`
 - `/home/onvos/app/refs/brainpro` — brainpro agent (Rust/gateway); reference
   for `memory/YYYY-MM-DD.md` daily notes pattern and session map design
 
 ## Design Philosophy
 
-Kanipi aims to be minimal and orthogonal — components should be independently
+Arizuko aims to be minimal and orthogonal — components should be independently
 useful and have the narrowest possible responsibility. Like Postfix or GNU Hurd:
 each subsystem (channels, memory, IPC, task scheduler) operates on a clean
 interface, knows nothing of the others, and could in principle run with its own
@@ -167,22 +167,22 @@ After deploying a new version, run this check sequence:
 
 ```bash
 # 1. Service health — should be active (running), no restart loops
-sudo systemctl status kanipi_<instance>
+sudo systemctl status arizuko_<instance>
 
 # 2. Startup sequence — expect these lines in order:
 #    "Database initialized", "State loaded", "<channel> connected",
 #    "IPC watcher started", "Scheduler loop started", "NanoClaw running"
-sudo journalctl -u kanipi_<instance> --since "5 minutes ago" --no-pager | head -30
+sudo journalctl -u arizuko_<instance> --since "5 minutes ago" --no-pager | head -30
 
 # 3. Errors/warnings — should return nothing
-sudo journalctl -u kanipi_<instance> --since "5 minutes ago" --no-pager \
+sudo journalctl -u arizuko_<instance> --since "5 minutes ago" --no-pager \
   | grep -iE 'error|warn|fatal|crash|unhandled|reject'
 
-# 4. Container orphans — nanoclaw-* containers >1h old are suspect
-sudo docker ps --filter "name=nanoclaw-" --format "{{.Names}} {{.Status}}"
+# 4. Container orphans — arizuko-* containers >1h old are suspect
+sudo docker ps --filter "name=arizuko-" --format "{{.Names}} {{.Status}}"
 
 # 5. IPC file accumulation — request files should drain, not pile up
-find /srv/data/kanipi_<instance>/data/ipc/*/requests/ -name '*.json' 2>/dev/null | wc -l
+find /srv/data/arizuko_<instance>/data/ipc/*/requests/ -name '*.json' 2>/dev/null | wc -l
 ```
 
 Red flags in journalctl:
@@ -200,7 +200,7 @@ loop), `group-queue.ts` (retry/concurrency), `container-runner.ts`
 
 ## Shipping changes (agent skills / web convention)
 
-When making notable kanipi changes:
+When making notable arizuko changes:
 
 1. Add entry to `CHANGELOG.md`
 2. Add migration file `container/skills/self/migrations/NNN-desc.md`
@@ -216,6 +216,6 @@ After all changes are committed:
 2. Update `CHANGELOG.md` — move [Unreleased] to `[vX.Y.Z] — YYYY-MM-DD`
 3. Update `README.md` and `ARCHITECTURE.md` if needed
 4. `git tag vX.Y.Z`
-5. Tag docker images: `docker tag kanipi:latest kanipi:vX.Y.Z` and same for `kanipi-agent`
-6. Per-instance gateway tags: `docker tag kanipi:vX.Y.Z kanipi-<name>:latest` for instances being upgraded
+5. Tag docker images: `docker tag arizuko:latest arizuko:vX.Y.Z` and same for `arizuko-agent`
+6. Per-instance gateway tags: `docker tag arizuko:vX.Y.Z arizuko-<name>:latest` for instances being upgraded
 7. Add `.diary/YYYYMMDD.md` entry documenting what was deployed and which instances

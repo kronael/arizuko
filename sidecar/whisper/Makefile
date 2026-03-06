@@ -1,4 +1,4 @@
 .PHONY: image
 
 image:
-	docker build -t kanipi-whisper .
+	docker build -t arizuko-whisper .

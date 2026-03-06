@@ -2,7 +2,7 @@
 
 ## Overview
 
-Kanipi is a multitenant Claude agent gateway. It polls messaging
+Arizuko is a multitenant Claude agent gateway. It polls messaging
 channels for new messages, routes them to containerized Claude
 agents via docker, and streams responses back to users.
 
@@ -23,7 +23,7 @@ Channel (telegram/whatsapp/discord/email)
 ```
 
 Vite dev server runs alongside the gateway for web apps built
-by agents. Managed by the bash entrypoint (`kanipi`), not Node.
+by agents. Managed by the bash entrypoint (`arizuko`), not Node.
 
 ## Components
 
@@ -216,7 +216,7 @@ expression evaluation.
 ### mount-security.ts
 
 Validates additional volume mounts requested by agents against
-an allowlist at `~/.config/nanoclaw/mount-allowlist.json`.
+an allowlist at `~/.config/arizuko/mount-allowlist.json`.
 Allowlist stored outside project root to prevent tampering.
 
 ## Container Model
@@ -226,7 +226,7 @@ Each agent invocation runs in a fresh docker container:
 ```
 docker run
   -v groups/<folder>:/workspace/group   # group files (rw)
-  -v kanipi/:/workspace/self            # kanipi source, all groups (ro)
+  -v arizuko/:/workspace/self            # arizuko source, all groups (ro)
   -v share/:/workspace/share             # cross-group shared state (ro/rw)
   -v web/:/workspace/web                # web output (rw)
   -v data/sessions/<id>:/workspace/ipc  # IPC directory (rw)
@@ -234,7 +234,7 @@ docker run
 ```
 
 Full workspace namespace: `self`, `group`, `share`, `web`, `ipc`,
-`extra`. `/workspace/self` exposes the kanipi source and all group
+`extra`. `/workspace/self` exposes the arizuko source and all group
 folders (read-only) — replaces the old `/workspace/project` which
 only mounted the main group.
 
@@ -254,7 +254,7 @@ and the next invocation starts fresh.
 
 **Skills seeding**: on first spawn for a group, `container/skills/`
 is seeded to `~/.claude/skills/` inside the container. Includes
-kanipi-specific skills plus development skills bundled from
+arizuko-specific skills plus development skills bundled from
 REDACTED/tools (bash, go, python, typescript, etc.). A `CLAUDE.md`
 is also seeded alongside.
 
@@ -305,15 +305,15 @@ Claude to summarise progress, prompts user to say "continue".
 
 ## External Systems
 
-| System   | Library       | Role                                               |
-| -------- | ------------- | -------------------------------------------------- |
-| Telegram | grammy        | message channel                                    |
-| WhatsApp | baileys       | message channel                                    |
-| Discord  | discord.js    | message channel                                    |
-| Email    | IMAP/SMTP     | message channel (IDLE + reply threading)           |
-| Docker   | child_process | agent container runtime                            |
-| Claude   | claude-code   | agent (runs in container)                          |
-| Whisper  | fetch (HTTP)  | voice/video transcription (kanipi-whisper sidecar) |
+| System   | Library       | Role                                                |
+| -------- | ------------- | --------------------------------------------------- |
+| Telegram | grammy        | message channel                                     |
+| WhatsApp | baileys       | message channel                                     |
+| Discord  | discord.js    | message channel                                     |
+| Email    | IMAP/SMTP     | message channel (IDLE + reply threading)            |
+| Docker   | child_process | agent container runtime                             |
+| Claude   | claude-code   | agent (runs in container)                           |
+| Whisper  | fetch (HTTP)  | voice/video transcription (arizuko-whisper sidecar) |
 
 ## Repository Layout
 
@@ -322,14 +322,14 @@ src/              gateway source (TypeScript)
   actions/        action handlers by domain (messaging, tasks, groups, session)
   channels/       telegram, whatsapp, discord, email
   commands/       slash command handlers (/new, /ping, /chatid)
-container/        agent container build (make image → kanipi-agent)
+container/        agent container build (make image → arizuko-agent)
   agent-runner/   in-container entrypoint
   skills/         agent-side skills
 template/         seed for new instances
   web/            vite web app template
   workspace/      mcporter config seed
 sidecar/          MCP server binaries
-  whisper/        whisper sidecar (make image → kanipi-whisper)
+  whisper/        whisper sidecar (make image → arizuko-whisper)
 specs/            versioned API/behavior specs
-kanipi            bash entrypoint (create/run/group/vite)
+arizuko           bash entrypoint (create/run/group/vite)
 ```

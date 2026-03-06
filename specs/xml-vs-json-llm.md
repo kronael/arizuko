@@ -264,9 +264,9 @@ empirically.
 
 ---
 
-## 10. Synthesis for kanipi / agent contexts
+## 10. Synthesis for arizuko / agent contexts
 
-For kanipi's use cases specifically:
+For arizuko's use cases specifically:
 
 **IPC messages between gateway and containers**: JSON (already correct — aligns
 with MCP, simpler to parse in TypeScript).

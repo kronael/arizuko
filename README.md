@@ -1,4 +1,4 @@
-# kanipi
+# arizuko
 
 Multitenant Claude agent gateway with multi-channel support
 (telegram, whatsapp, discord, email). Nanoclaw fork with
@@ -10,15 +10,15 @@ systemd-managed instances and MCP sidecar extensibility.
 make image                     # build gateway docker image
 make -C container image        # build agent docker image
 make -C sidecar/whisper image  # build whisper sidecar image
-./kanipi create foo            # seed instance at /srv/data/kanipi_foo/
+./arizuko create foo            # seed instance at /srv/data/arizuko_foo/
 ```
 
-Edit `/srv/data/kanipi_foo/.env` with channel tokens,
+Edit `/srv/data/arizuko_foo/.env` with channel tokens,
 register the main group, and start:
 
 ```bash
-./kanipi config foo group add tg:-123456789  # register main group
-./kanipi foo                                 # start gateway
+./arizuko config foo group add tg:-123456789  # register main group
+./arizuko foo                                 # start gateway
 ```
 
 ## Group Management
@@ -26,9 +26,9 @@ register the main group, and start:
 Groups must be registered before the bot processes messages.
 
 ```bash
-kanipi config <instance> group list               # registered + discovered
-kanipi config <instance> group add <jid> [folder] # register group
-kanipi config <instance> group rm  <jid>          # unregister (not main)
+arizuko config <instance> group list               # registered + discovered
+arizuko config <instance> group add <jid> [folder] # register group
+arizuko config <instance> group rm  <jid>          # unregister (not main)
 ```
 
 First group added defaults to folder `main` with direct mode
@@ -107,7 +107,7 @@ before the agent, probes readiness, and merges them into the agent's
 
 ## Instance Layout
 
-`/srv/data/kanipi_<name>/`:
+`/srv/data/arizuko_<name>/`:
 
 ```
 .env                    config (tokens, ports)
@@ -164,19 +164,19 @@ result separately alongside the auto-detected pass.
 Run directly with docker:
 
 ```bash
-docker run -d -i --name kanipi_foo \
+docker run -d -i --name arizuko_foo \
     --network=host \
-    -v /srv/data/kanipi_foo:/srv/app/home \
-    -v /srv/run/kanipi_foo:/srv/run/kanipi_foo \
+    -v /srv/data/arizuko_foo:/srv/app/home \
+    -v /srv/run/arizuko_foo:/srv/run/arizuko_foo \
     -v /var/run/docker.sock:/var/run/docker.sock \
-    kanipi foo
+    arizuko foo
 ```
 
-Or with systemd — create `/etc/systemd/system/kanipi_foo.service`:
+Or with systemd — create `/etc/systemd/system/arizuko_foo.service`:
 
 ```ini
 [Unit]
-Description=kanipi foo
+Description=arizuko foo
 After=docker.service
 Requires=docker.service
 
@@ -188,16 +188,16 @@ ExecStartPre=-/usr/bin/docker rm -f %n
 ExecStop=/usr/bin/docker rm -f %n
 ExecStart=/usr/bin/docker run -i --rm --name %n \
     --network=host \
-    -v /srv/data/kanipi_foo:/srv/app/home \
-    -v /srv/run/kanipi_foo:/srv/run/kanipi_foo \
+    -v /srv/data/arizuko_foo:/srv/app/home \
+    -v /srv/run/arizuko_foo:/srv/run/arizuko_foo \
     -v /var/run/docker.sock:/var/run/docker.sock \
-    kanipi foo
+    arizuko foo
 
 [Install]
 WantedBy=default.target
 ```
 
-Then `systemctl enable --now kanipi_foo`.
+Then `systemctl enable --now arizuko_foo`.
 
 ## Development
 

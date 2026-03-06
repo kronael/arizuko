@@ -18,7 +18,7 @@ auto-compacted mid-session:
 
 **Auto-compact keeps the same session ID and same `.jl` file.**
 
-The current kanipi code already handles this correctly — `newSessionId`
+The current arizuko code already handles this correctly — `newSessionId`
 returned by the runner after a compacted session is the same ID as before.
 No fix needed.
 

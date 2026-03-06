@@ -1,5 +1,5 @@
 build:
-	go build -o kanipi cmd/kanipi/main.go
+	go build -o arizuko cmd/arizuko/main.go
 
 lint:
 	go vet ./...
@@ -8,11 +8,11 @@ test:
 	go test ./... -count=1
 
 clean:
-	rm -f kanipi
+	rm -f arizuko
 	rm -rf tmp/
 
 image:
-	docker build -t kanipi .
+	docker build -t arizuko .
 
 agent:
 	make -C container image

@@ -1,6 +1,6 @@
 # Worlds, Rooms, and Threading — Research
 
-Sources: brainpro (jgarzik), muaddib (pasky), ElizaOS, kanipi current model.
+Sources: brainpro (jgarzik), muaddib (pasky), ElizaOS, arizuko current model.
 
 ---
 
@@ -328,9 +328,9 @@ memory spaces.
 
 ---
 
-## 4. kanipi current model
+## 4. arizuko current model
 
-kanipi uses a flat JID-centric model:
+arizuko uses a flat JID-centric model:
 
 ```sql
 -- chats table
@@ -375,7 +375,7 @@ private groups = new Map<string, GroupState>();
 
 ## 5. Comparison
 
-| Concept                | brainpro                          | muaddib                                  | ElizaOS                       | kanipi                         |
+| Concept                | brainpro                          | muaddib                                  | ElizaOS                       | arizuko                        |
 | ---------------------- | --------------------------------- | ---------------------------------------- | ----------------------------- | ------------------------------ |
 | Room ID                | `channel:chat_id` (implicit)      | `arc` = `serverTag#channelName`          | UUID derived from platform ID | `chat_jid` (platform-prefixed) |
 | World/Server           | none                              | implicit in `serverTag` prefix           | explicit `World` entity       | none                           |
@@ -389,7 +389,7 @@ private groups = new Map<string, GroupState>();
 
 ---
 
-## 6. What kanipi should adopt
+## 6. What arizuko should adopt
 
 ### 6.1 Arc-style room ID (adopt from muaddib)
 
@@ -407,7 +407,7 @@ Examples:
 - `email:inbox#thread-id` (email thread)
 
 Benefits: the server/workspace is explicit, enabling future World-level queries.
-kanipi's current `tg:-100123456` already embeds platform; this adds server context.
+arizuko's current `tg:-100123456` already embeds platform; this adds server context.
 
 The `chat_jid` column can remain as the arc value — it just needs a richer format.
 
@@ -451,7 +451,7 @@ isolation should be per-sender, not per-room. muaddib's approach:
 session key = arc + "\0" + nick.toLowerCase()
 ```
 
-kanipi equivalent: the container name (or IPC session) should encode both `chat_jid`
+arizuko equivalent: the container name (or IPC session) should encode both `chat_jid`
 and `sender` when `requires_trigger = 1`. When `requires_trigger = 0` (dedicated
 room), the existing one-session-per-JID model is correct.
 
@@ -473,14 +473,14 @@ This is a quality-of-life improvement, not a correctness fix. Low priority.
 ### 6.6 What ElizaOS adds over muaddib — and what to take
 
 muaddib gives us: arc identity, thread-scoped sessions, per-arc JSONL history,
-context reducer. That covers 80% of what kanipi needs.
+context reducer. That covers 80% of what arizuko needs.
 
 ElizaOS adds three things on top:
 
 **1. Entity tracking** — users are first-class records (`Entity`) with names,
 platform IDs, and per-source metadata. muaddib tracks sender only as a string
 in the session key. ElizaOS can answer "who is this user across platforms" and
-merge cross-channel identity. kanipi currently stores `sender` as a string too.
+merge cross-channel identity. arizuko currently stores `sender` as a string too.
 **Take**: add a `senders` or `entities` table keyed by JID+platform when
 cross-channel identity becomes a product need. Not now.
 
@@ -501,9 +501,9 @@ not in the room/session model. Do not add embeddings to the messages table.
 
 ## 7. Open questions
 
-1. **Discord threads**: kanipi has Discord support. Should Discord thread IDs
+1. **Discord threads**: arizuko has Discord support. Should Discord thread IDs
    trigger sender-scoped sessions the same way muaddib does, or should each
-   thread become its own registered JID? The latter fits kanipi's current model
+   thread become its own registered JID? The latter fits arizuko's current model
    better.
 
 2. **Email threading**: email already has natural thread IDs (In-Reply-To headers).
@@ -515,7 +515,7 @@ not in the room/session model. Do not add embeddings to the messages table.
    a container. Is per-sender isolation needed, or is the group-level lock sufficient?
    This is a product question, not a technical one.
 
-4. **Context window management**: kanipi currently passes all recent messages to
+4. **Context window management**: arizuko currently passes all recent messages to
    the container agent. There is no cap. For high-volume rooms this will eventually
    hit token limits. muaddib's `historySize` config + LLM reducer is the right
    pattern. A simpler first step: add `history_size` to `registered_groups` and

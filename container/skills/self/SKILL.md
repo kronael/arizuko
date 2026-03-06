@@ -8,16 +8,16 @@ description: Introspect this agent — workspace layout, skills, channels,
 
 ## Workspace layout
 
-| Path                       | Contents                                                | Access                                      |
-| -------------------------- | ------------------------------------------------------- | ------------------------------------------- |
-| `/workspace/self`          | kanipi source (canonical skills, changelog, migrations) | read-only, all groups                       |
-| `/workspace/group`         | this group's working directory                          | read-write                                  |
-| `/workspace/share`         | shared global memory                                    | read-only for non-root, read-write for root |
-| `/workspace/web`           | vite web app directory                                  | read-write                                  |
-| `/workspace/ipc`           | gateway↔agent IPC (messages/, tasks/, input/)           | read-write                                  |
-| `/workspace/data/sessions` | all group session dirs (for migrate)                    | read-write, main only                       |
-| `/workspace/extra/<name>`  | operator-configured extra mounts                        | varies                                      |
-| `~/.claude`                | agent memory: skills, CLAUDE.md, sessions               | read-write                                  |
+| Path                       | Contents                                                 | Access                                      |
+| -------------------------- | -------------------------------------------------------- | ------------------------------------------- |
+| `/workspace/self`          | arizuko source (canonical skills, changelog, migrations) | read-only, all groups                       |
+| `/workspace/group`         | this group's working directory                           | read-write                                  |
+| `/workspace/share`         | shared global memory                                     | read-only for non-root, read-write for root |
+| `/workspace/web`           | vite web app directory                                   | read-write                                  |
+| `/workspace/ipc`           | gateway↔agent IPC (messages/, tasks/, input/)            | read-write                                  |
+| `/workspace/data/sessions` | all group session dirs (for migrate)                     | read-write, main only                       |
+| `/workspace/extra/<name>`  | operator-configured extra mounts                         | varies                                      |
+| `~/.claude`                | agent memory: skills, CLAUDE.md, sessions                | read-write                                  |
 
 ## Skill seeding
 

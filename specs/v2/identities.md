@@ -63,7 +63,7 @@ This bridges `local:<uuid>` (web password login) to `tg:123456`
 
 - Identity resolution is advisory — agents can query it but v2 does not
   enforce it anywhere automatically.
-- No identity merging UI in v2 (CLI only via `kanipi identity list/link/unlink`).
+- No identity merging UI in v2 (CLI only via `arizuko identity list/link/unlink`).
 - Conflict resolution (two identities claim the same sub): last-write wins,
   log warning.
 
@@ -85,7 +85,7 @@ Auth (`src/auth.ts`) is shipped: local accounts, argon2id, JWT, refresh cookie.
   or `identity_claims` must carry a `channel` discriminator column.
 - `GET /auth/link-code` endpoint
 - Link-code detection in channel message handlers
-- `kanipi identity` CLI subcommands
+- `arizuko identity` CLI subcommands
 
 **Minimal path:** in-group claim flow (link-code) is the smallest useful
 increment — no OAuth, bridges web login to any channel sender. Prerequisite:

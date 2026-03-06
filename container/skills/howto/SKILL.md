@@ -1,6 +1,6 @@
 ---
 name: howto
-description: Generate a getting-started howto page for this kanipi instance. Deploys to /workspace/web/pub/howto/. Use when asked to create onboarding, setup guide, or howto page.
+description: Generate a getting-started howto page for this arizuko instance. Deploys to /workspace/web/pub/howto/. Use when asked to create onboarding, setup guide, or howto page.
 ---
 
 # Howto
@@ -117,7 +117,7 @@ Read instance context before generating:
 ## Attribution
 
 NEVER attribute to Anthropic or Claude in the footer or anywhere on the page.
-Footer MUST read: `powered by <a href="https://REDACTED/kanipi">kanipi</a>`
+Footer MUST read: `powered by <a href="https://REDACTED/arizuko">arizuko</a>`
 
 ## Language
 
@@ -129,7 +129,7 @@ Default to English if unclear.
 Use `/workspace/self/template/web/pub/howto/index.html` as the base.
 Copy it to `/workspace/web/pub/howto/index.html` and customize:
 
-- Replace "kanipi" with `$ASSISTANT_NAME` in title/hero
+- Replace "arizuko" with `$ASSISTANT_NAME` in title/hero
 - Update subtitle to match what this specific instance does
 - Remove steps that don't apply (e.g. clone/build for
   users who just chat with the bot, not deploy it)

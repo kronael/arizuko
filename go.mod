@@ -1,4 +1,4 @@
-module github.com/onvos/kanipi
+module github.com/onvos/arizuko
 
 go 1.25.5
 

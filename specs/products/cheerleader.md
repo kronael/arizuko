@@ -20,14 +20,14 @@ messages, respond inconsistently, or burn out on repetitive tasks.
 ## Architecture
 
 ```
-channels → gateway → cheerleader-agent (kanipi main group)
+channels → gateway → cheerleader-agent (arizuko main group)
                          ↓ drafts
                     web dashboard (vite)
                          ↓ approved
                     gateway → channel reply
 ```
 
-The cheerleader runs as a kanipi agent in the main group. It receives
+The cheerleader runs as a arizuko agent in the main group. It receives
 copies of all inbound messages (or a curated subset via trigger rules),
 drafts responses, and writes them to a review queue in the SQLite DB.
 

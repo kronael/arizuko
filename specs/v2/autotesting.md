@@ -2,7 +2,7 @@
 
 ## Problem
 
-Kanipi has multiple subsystems that interact at runtime: channel adapters,
+Arizuko has multiple subsystems that interact at runtime: channel adapters,
 enrichment pipeline, IPC, container runner, message loop dispatch. When a
 bug manifests in production (e.g. voice transcription missing for second
 message), there is no automated test to catch the regression or verify the

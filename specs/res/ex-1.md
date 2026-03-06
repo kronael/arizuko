@@ -2,7 +2,7 @@
 
 ## Result
 
-Ran on REDACTED with `kanipi-agent:latest`, bad session
+Ran on REDACTED with `arizuko-agent:latest`, bad session
 `00000000-0000-0000-0000-000000000000`:
 
 ```

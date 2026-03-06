@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/kanipi/core"
+	"github.com/onvos/arizuko/core"
 )
 
 // --- Session tracking ---

@@ -1,6 +1,6 @@
 # Sidecars
 
-Adjacent MCP servers that extend kanipi operations.
+Adjacent MCP servers that extend arizuko operations.
 
 ## Adding a sidecar
 

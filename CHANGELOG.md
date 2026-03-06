@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to kanipi are documented here.
+All notable changes to arizuko are documented here.
 
-kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
+arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 (upstream at v1.1.3).
 
 ---
@@ -259,7 +259,7 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### CLI
 
-- `kanipi config <instance> user list|add|rm|passwd` for local user management;
+- `arizuko config <instance> user list|add|rm|passwd` for local user management;
   passwords hashed with argon2; values passed via env vars to prevent shell injection
 
 ### Auth
@@ -352,7 +352,7 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Whisper sidecar
 
-- Added self-contained `kanipi-whisper` docker image, deployed via Ansible
+- Added self-contained `arizuko-whisper` docker image, deployed via Ansible
 - Added `whisperTranscribe` helper with 30s abort timeout
 - Updated voice and video handlers to use shared whisper endpoint
 
@@ -365,7 +365,7 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Workspace and agent identity
 
-- Mounted `/workspace/self` read-only to expose full kanipi source to agent
+- Mounted `/workspace/self` read-only to expose full arizuko source to agent
 - Replaced `SOUL.md` with ElizaOS-style `character.json`
 - Added per-query field randomisation and global override merge in `character.json`
 - Split `web/pub/` as unauthenticated boundary; `/pub/` prefix is public
@@ -381,9 +381,9 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Build
 
-- Added `container/Makefile` for `kanipi-agent` image builds
-- Added `sidecar/whisper/Makefile` for `kanipi-whisper` image builds
-- Root `make image` now builds only the gateway (`kanipi`)
+- Added `container/Makefile` for `arizuko-agent` image builds
+- Added `sidecar/whisper/Makefile` for `arizuko-whisper` image builds
+- Root `make image` now builds only the gateway (`arizuko`)
 
 ### Testing
 
@@ -416,8 +416,8 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - Skills consolidated into `container/skills/`; seeded once per group on
   first container run
 - Vite web server integrated into gateway startup via IPC restart
-- Web app template seeded from `template/web/` on `kanipi create`
-- Group management CLI (`kanipi group list|add|rm <instance>`)
+- Web app template seeded from `template/web/` on `arizuko create`
+- Group management CLI (`arizuko group list|add|rm <instance>`)
 - `hello` and `howto` skills bundled in agent image
 - Pre-commit hooks: prettier, typecheck, hygiene (`.pre-commit-config.yaml`)
 - Makefile targets: `build`, `lint`, `test`
@@ -444,16 +444,16 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [v0.1.0] — 2026-03-01
 
-Initial kanipi release — nanoclaw fork with Telegram support and
+Initial arizuko release — nanoclaw fork with Telegram support and
 multitenant instance model.
 
 ### Added
 
 - Fork of nanoclaw at upstream v1.1.3
 - Telegram channel (`channels/telegram.ts` via grammy)
-- `kanipi` bash entrypoint: `create`, `group`, and instance-run commands
-- Per-instance data layout: `/srv/data/kanipi_<name>/`
-- systemd unit file templating via `kanipi create <name>`
+- `arizuko` bash entrypoint: `create`, `group`, and instance-run commands
+- Per-instance data layout: `/srv/data/arizuko_<name>/`
+- systemd unit file templating via `arizuko create <name>`
 - `container/agent-runner/` in-container Claude Code entrypoint
 - Docker-in-docker host path translation (`detectHostPath()` via
   `/proc/self/mountinfo`)

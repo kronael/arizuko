@@ -23,14 +23,14 @@ trust) are missed because no one is watching.
 ```
 external communities (Reddit API, Discord webhooks, RSS)
          ↓ scheduled poll (cron task)
-evangelist-agent (kanipi isolated context)
+evangelist-agent (arizuko isolated context)
          ↓ drafts + relevance scores
 web dashboard (shared with cheerleader review queue)
          ↓ approved
 external API post (Reddit comment, Discord reply, etc.)
 ```
 
-Runs as a scheduled kanipi task (cron, not reactive). Agent polls
+Runs as a scheduled arizuko task (cron, not reactive). Agent polls
 sources, scores relevance, drafts responses, writes to review queue.
 Approved drafts are posted by the agent via tool calls with stored
 OAuth credentials.

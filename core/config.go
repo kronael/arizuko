@@ -68,7 +68,7 @@ func LoadConfig() (*Config, error) {
 		Name:          name,
 		TelegramToken: envOr("TELEGRAM_BOT_TOKEN", ""),
 		DiscordToken:  envOr("DISCORD_BOT_TOKEN", ""),
-		Image:         envOr("CONTAINER_IMAGE", "kanipi-agent:latest"),
+		Image:         envOr("CONTAINER_IMAGE", "arizuko-agent:latest"),
 		Timeout:       envDur("CONTAINER_TIMEOUT", 30*time.Minute),
 		IdleTimeout:   envDur("IDLE_TIMEOUT", 30*time.Minute),
 		MaxContainers: envInt("MAX_CONCURRENT_CONTAINERS", 5),

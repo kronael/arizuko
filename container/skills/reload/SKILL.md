@@ -1,11 +1,11 @@
 ---
 name: reload
-description: Restart the kanipi container or reload config. Use when asked to restart, reload, or refresh the instance.
+description: Restart the arizuko container or reload config. Use when asked to restart, reload, or refresh the instance.
 ---
 
 # Reload
 
-Restart the current kanipi instance by signaling the gateway process.
+Restart the current arizuko instance by signaling the gateway process.
 
 ## Usage
 

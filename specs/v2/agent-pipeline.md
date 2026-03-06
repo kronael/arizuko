@@ -295,4 +295,4 @@ separate persona group via slink for final delivery.
 
 - `specs/v1/slink.md` — slink endpoint and token model
 - `specs/v3/agent-messaging.md` — JWT auth for agent-to-agent POSTs (required)
-- `specs/v2/agent-teams-ipc.md` — why Claude agent teams don't work in kanipi
+- `specs/v2/agent-teams-ipc.md` — why Claude agent teams don't work in arizuko
