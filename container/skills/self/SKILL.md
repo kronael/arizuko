@@ -93,20 +93,23 @@ ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0
 ```
 
-Latest migration version: **10**. If version < 10: migrations pending.
+Latest migration version: **11**. If version < 11: migrations pending.
 
 ## MCP tools
 
-| Tool             | Description                                                 |
-| ---------------- | ----------------------------------------------------------- |
-| `send_message`   | Send intermediate status update to user while still running |
-| `send_file`      | Send a file from workspace to user as document attachment   |
-| `schedule_task`  | Schedule recurring or one-time agent task                   |
-| `list_tasks`     | List scheduled tasks                                        |
-| `pause_task`     | Pause a scheduled task                                      |
-| `resume_task`    | Resume a paused task                                        |
-| `cancel_task`    | Cancel a scheduled task                                     |
-| `register_group` | Register new WhatsApp group (main only)                     |
+| Tool                | Description                                                 |
+| ------------------- | ----------------------------------------------------------- |
+| `send_message`      | Send intermediate status update to user while still running |
+| `send_file`         | Send a file from workspace to user as document attachment   |
+| `schedule_task`     | Schedule recurring or one-time agent task                   |
+| `pause_task`        | Pause a scheduled task                                      |
+| `resume_task`       | Resume a paused task                                        |
+| `cancel_task`       | Cancel and delete a scheduled task                          |
+| `register_group`    | Register new WhatsApp group (root only)                     |
+| `refresh_groups`    | Sync group metadata from channel (root only)                |
+| `delegate_group`    | Forward a message to a child group for processing           |
+| `set_routing_rules` | Set automatic routing rules for child groups                |
+| `reset_session`     | Clear this group's session and start fresh                  |
 
 ### send_file usage
 

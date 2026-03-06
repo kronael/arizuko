@@ -9,6 +9,10 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+---
+
+## [v0.6.0] — 2026-03-06
+
 ### Fixes
 
 - IPC: catch only ENOENT on file cleanup (was swallowing all errors)
@@ -17,10 +21,6 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - Routing: cap regex pattern length at 200 chars (ReDoS mitigation)
 - Config: validate TIMEZONE via Intl.DateTimeFormat, fallback to UTC
 - Sidecar: use spawn() instead of exec() for lifecycle (shell injection fix)
-
----
-
-## [v0.6.0] — 2026-03-06
 
 ### Features
 
