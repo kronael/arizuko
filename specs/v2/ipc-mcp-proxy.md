@@ -64,11 +64,19 @@ MCP servers via settings.json. These are local to the container. The
 gateway MCP proxy is separate — it's the agent's interface TO the
 gateway, not the agent extending itself.
 
-Both coexist:
+Three MCP layers coexist:
 
-- Gateway MCP server → actions (send_message, schedule_task, etc.)
-- Agent MCP servers → agent's own tools (media processing, custom scripts)
-- nanoclaw → may become unnecessary if gateway MCP server replaces it
+- **Gateway MCP server** → actions (send_message, schedule_task, etc.)
+  These are gateway-internal, always tied to gateway components
+  (channels, DB, scheduler). No external action extensions needed.
+- **Sidecar MCP servers** → gateway-side extensions (whisper, etc.)
+  The proxy can multiplex these — agent calls `mcp__whisper__transcribe`,
+  proxy routes to the sidecar process. Agent doesn't know or care
+  whether it's gateway-native or a sidecar.
+- **Agent MCP servers** → agent's own tools (media processing, custom
+  scripts). Local to the container, registered via settings.json.
+
+nanoclaw → may become unnecessary if gateway MCP server replaces it.
 
 ## Migration path
 
