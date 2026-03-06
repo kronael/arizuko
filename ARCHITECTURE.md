@@ -155,8 +155,8 @@ Output shape: `{ status, result, newSessionId, error }`.
 `_spawnProcess` is an exported `let` binding (default: `spawn`) that
 tests replace to mock docker without a running daemon.
 
-Also writes `groups.json` and `tasks.json` snapshots into the
-group IPC directory before each agent run. Runs `chownRecursive`
+Also writes `groups.json`, `tasks.json`, and `action_manifest.json`
+snapshots into the group IPC directory before each agent run. Runs `chownRecursive`
 on `WEB_DIR` before mounting so the agent (uid 1000) can write
 web files. Agent-teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`)
 are disabled in the `settings.json` seed.
@@ -187,13 +187,31 @@ Message formatting and outbound routing. Formats batched
 messages as XML for agent prompt input. Strips `<internal>`
 tags from agent output before sending to channel users.
 
+### action-registry.ts + actions/
+
+Unified action system. Each action has name, Zod schema, handler,
+and optional command/MCP flags. Registry is the single source of
+truth — IPC dispatch, MCP tools, and commands all reference it.
+
+Actions: `send_message`, `send_file`, `schedule_task`, `pause_task`,
+`resume_task`, `cancel_task`, `refresh_groups`, `register_group`,
+`reset_session`.
+
+`getManifest()` serializes all MCP-exposed actions as JSON Schema
+for agent-side tool discovery.
+
 ### ipc.ts
 
-File-based IPC between gateway and agent containers. Agents
-write commands to a watched IPC directory; the watcher reads
-and executes: send messages, register groups, create/update
-tasks, sync group metadata. File sends are serialized per group
-via a drain lock to prevent duplicate delivery.
+File-based IPC between gateway and agent containers. Two modes:
+
+1. **Request-response** (new): agent writes to `requests/`,
+   gateway dispatches through action registry, writes reply to
+   `replies/`. Enables typed responses and tool discovery.
+2. **Fire-and-forget** (legacy): agent writes to `messages/`
+   or `tasks/`, gateway drains and executes. Kept for backwards
+   compat during rollout.
+
+File sends serialized per group via drain lock.
 
 ### task-scheduler.ts
 

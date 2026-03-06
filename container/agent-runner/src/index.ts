@@ -131,6 +131,28 @@ function loadCharacter(name: string): string {
   return assembleCharacter(merged, name);
 }
 
+type McpServerConfig = {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+};
+
+function loadAgentMcpServers(): Record<string, McpServerConfig> {
+  const settingsPath = '/home/node/.claude/settings.json';
+  try {
+    if (!fs.existsSync(settingsPath)) return {};
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    const servers = settings.mcpServers as
+      Record<string, McpServerConfig> | undefined;
+    if (!servers || typeof servers !== 'object') return {};
+    // Never override the built-in nanoclaw server
+    delete servers.nanoclaw;
+    return servers;
+  } catch {
+    return {};
+  }
+}
+
 const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
@@ -512,13 +534,17 @@ async function runQuery(
           'Task', 'TaskOutput', 'TaskStop',
           'TodoWrite', 'ToolSearch', 'Skill',
           'NotebookEdit',
-          'mcp__nanoclaw__*'
+          'mcp__nanoclaw__*',
+          ...Object.keys(loadAgentMcpServers()).map(
+            (n) => `mcp__${n}__*`,
+          ),
         ],
         env: sdkEnv,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user'],
         mcpServers: {
+          ...loadAgentMcpServers(),
           nanoclaw: {
             command: 'node',
             args: [mcpServerPath],

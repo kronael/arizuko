@@ -9,6 +9,31 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.5.0] — 2026-03-06
+
+### Features
+
+- **Action registry**: unified action system — all IPC handlers, MCP
+  tools, and commands reference a single `Action` interface with typed
+  Zod schemas and authorization. `src/action-registry.ts` + `src/actions/`
+- **Request-response IPC**: agents write to `requests/`, poll `replies/`.
+  Gateway dispatches through action registry and writes typed replies.
+  Fire-and-forget IPC retained for backwards compat during rollout.
+- **Tool discovery**: gateway writes `action_manifest.json` at spawn
+  time. Agent MCP server reads manifest for dynamic tool registration.
+- **Agent MCP self-registration**: agent-written `mcpServers` in
+  `settings.json` are merged with built-in `nanoclaw` server.
+  Dynamic `allowedTools` includes `mcp__<name>__*` wildcards.
+- **Message threading types**: `SendOpts { replyTo }` on Channel
+  interface, `replyTo` field on `NewMessage`
+
+### Breaking
+
+- `processTaskIpc` moved from `ipc.ts` to `ipc-compat.ts`
+- IPC handlers refactored into `src/actions/` modules
+
+---
+
 ## [v0.4.0] — 2026-03-06
 
 ### Breaking

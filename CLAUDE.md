@@ -54,7 +54,9 @@ Key modules:
 - `container-runtime.ts` — docker lifecycle, orphan cleanup
 - `group-queue.ts` — per-group message queueing, stdin piping
 - `router.ts` — message formatting, channel→JID resolution
-- `ipc.ts` — container↔gateway communication (file-based, fs.watch-driven)
+- `action-registry.ts` — unified action system (Zod schemas, authorization)
+- `actions/` — action handlers by domain (messaging, tasks, groups, session)
+- `ipc.ts` — container↔gateway IPC (request-response + legacy fire-and-forget)
 - `task-scheduler.ts` — cron-based scheduled tasks
 - `mount-security.ts` — validates additional mounts against `~/.config/nanoclaw/mount-allowlist.json` (stored outside project to prevent agent tampering)
 - `mime.ts` — shared `mimeFromFile()` via file-type (magic bytes detection)
