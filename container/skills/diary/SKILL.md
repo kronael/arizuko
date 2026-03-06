@@ -42,9 +42,11 @@ ENOENT on sendDocument.
 
 ## Summary
 
-YAML block scalar. First line: project and who you work with.
-Then up to 5 bullet points: key tasks and their status. These
-are the long-running, important things — not every action.
+YAML block scalar. Keep it short. First line: project and who
+you work with. Then up to 5 bullet points of clearly important
+tasks only — if you're unsure whether something belongs, leave
+it out. Not every action, not every task. Only what matters
+for picking up context cold.
 
 Update the summary every time you write an entry.
 
