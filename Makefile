@@ -2,11 +2,11 @@
 
 build:
 	bunx tsc
-	cd container/agent-runner && npm install --silent && npx tsc
+	cd container/agent-runner && npm install --silent && bunx tsc
 
 lint:
 	bunx tsc --noEmit
-	cd container/agent-runner && npm install --silent && npx tsc --noEmit
+	cd container/agent-runner && npm install --silent && bunx tsc --noEmit
 
 test:
 	bunx vitest run src tests/e2e
