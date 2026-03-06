@@ -11,6 +11,8 @@ interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   secrets?: Record<string, string>;
+  messageCount?: number;
+  delegateDepth?: number;
 }
 
 interface ContainerOutput {
