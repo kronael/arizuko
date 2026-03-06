@@ -215,13 +215,13 @@ Each agent invocation runs in a fresh docker container:
 docker run
   -v groups/<folder>:/workspace/group   # group files (rw)
   -v kanipi/:/workspace/self            # kanipi source, all groups (ro)
-  -v global/:/workspace/global          # cross-group shared state (ro)
+  -v share/:/workspace/share             # cross-group shared state (ro/rw)
   -v web/:/workspace/web                # web output (rw)
   -v data/sessions/<id>:/workspace/ipc  # IPC directory (rw)
   -v <additional>:/workspace/extra/...  # allowlisted mounts (ro)
 ```
 
-Full workspace namespace: `self`, `group`, `global`, `web`, `ipc`,
+Full workspace namespace: `self`, `group`, `share`, `web`, `ipc`,
 `extra`. `/workspace/self` exposes the kanipi source and all group
 folders (read-only) — replaces the old `/workspace/project` which
 only mounted the main group.
@@ -245,7 +245,7 @@ is also seeded alongside.
 `container/character.json` (ElizaOS-style: bio, topics, adjectives,
 style, messageExamples). Fields are randomized per query at runtime
 to vary personality. Per-instance overrides via
-`/workspace/global/character.json` are merged at load time.
+`/workspace/share/character.json` are merged at load time.
 Replaces the old `SOUL.md` approach.
 
 **Migration system**: `container/skills/self/MIGRATION_VERSION`

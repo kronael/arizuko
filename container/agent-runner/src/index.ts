@@ -8,7 +8,6 @@ interface ContainerInput {
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
-  isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
   secrets?: Record<string, string>;
@@ -47,6 +46,10 @@ interface Character {
   adjectives?: string[];
   style?: { all?: string[]; chat?: string[] };
   messageExamples?: Array<Array<{ name: string; content: string }>>;
+}
+
+function isRoot(folder: string): boolean {
+  return !folder.includes('/');
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -101,8 +104,8 @@ function assembleCharacter(char: Character, name: string): string {
 }
 
 function loadCharacter(name: string): string {
-  // /app is base; /workspace/global overrides (arrays concat, scalars: later wins)
-  const paths = ['/app/character.json', '/workspace/global/character.json'];
+  // /app is base; /workspace/share overrides (arrays concat, scalars: later wins)
+  const paths = ['/app/character.json', '/workspace/share/character.json'];
   let merged: Character = {};
   for (const p of paths) {
     if (!fs.existsSync(p)) continue;
@@ -461,15 +464,15 @@ async function runQuery(
   let maxTurnsHit = false;
 
   // Character — assembled from /app/character.json (default) merged with
-  // /workspace/global/character.json (instance override). ElizaOS-style:
+  // /workspace/share/character.json (instance override). ElizaOS-style:
   // bio/topics/adjectives randomized per query, system injected verbatim.
   const name = containerInput.assistantName || 'assistant';
   const identityPreamble = loadCharacter(name);
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
-  const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
+  const globalClaudeMdPath = '/workspace/share/CLAUDE.md';
   let globalClaudeMd: string | undefined;
-  if (!containerInput.isMain && fs.existsSync(globalClaudeMdPath)) {
+  if (!isRoot(containerInput.groupFolder) && fs.existsSync(globalClaudeMdPath)) {
     globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
   }
 
@@ -522,7 +525,7 @@ async function runQuery(
             env: {
               NANOCLAW_CHAT_JID: containerInput.chatJid,
               NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
-              NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+              NANOCLAW_IS_ROOT: isRoot(containerInput.groupFolder) ? '1' : '0',
             },
           },
         },

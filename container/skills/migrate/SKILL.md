@@ -1,15 +1,15 @@
 ---
 name: migrate
-description: Sync skills and run pending migrations across all groups. Main group only. Use when asked to "migrate", "sync skills", "update skills", or "run migrations".
+description: Sync skills and run pending migrations across all groups. Root group only. Use when asked to "migrate", "sync skills", "update skills", or "run migrations".
 ---
 
 # Migrate
 
-Main group only. Refuse if `NANOCLAW_IS_MAIN` is not `1`.
+Root group only. Refuse if `NANOCLAW_IS_ROOT` is not `1`.
 
 ```bash
-if [ "$NANOCLAW_IS_MAIN" != "1" ]; then echo "ERROR: migrate is main-group only"; exit 1; fi
-echo "main group confirmed"
+if [ "$NANOCLAW_IS_ROOT" != "1" ]; then echo "ERROR: migrate is root-group only"; exit 1; fi
+echo "root group confirmed"
 ```
 
 ## a) Skill sync
