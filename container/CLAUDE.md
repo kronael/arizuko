@@ -60,12 +60,13 @@ objects leak. Minimize state, make it explicit.
 - `./log` for debug logs
 - `./dist` or `./target` for build artifacts
 
-## Web apps
+## Environment
 
-Web apps you create are served at `https://$WEB_HOST/<app-name>/`.
-ALWAYS read `$WEB_HOST` from env — NEVER guess or hardcode the URL.
-If `$WEB_HOST` is empty, say "web host not configured" instead of
-inventing a URL.
+- Web apps: `https://$WEB_HOST/<app-name>/` — ALWAYS read `$WEB_HOST`
+  from env, NEVER guess. If empty, say "web host not configured".
+- Gateway commands (handled before reaching you — don't reimplement):
+  `/new [message]` — fresh session, `/ping` — status check,
+  `/chatid` — show chat JID. When asked for help, mention these.
 
 ## Delivering files to users
 
