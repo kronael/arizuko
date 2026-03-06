@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - JSONL files use `.jl` extension (not `.jsonl`)
 
+## Format Conventions
+
+- XML tags for prompt structure (context sections, examples)
+- JSON for IPC, MCP, tool parameters, structured output
+- See `specs/xml-vs-json-llm.md` for research
+
 ## What is kanipi
 
 Nanoclaw fork — multitenant Claude agent gateway with
@@ -148,6 +154,10 @@ privileges or as its own process. Complexity is a liability. If two things can
 be separated without losing capability, separate them. Avoid shared state between
 subsystems. Plugins should extend individual subsystems through their own hooks,
 not through a god-object that owns everything.
+
+Prioritize extensibility and reusability over speed. Don't optimize
+for performance unless measured. Agent self-extension (skills, MCP
+servers, CLAUDE.md, memory) is the primary extension mechanism.
 
 ## Shipping changes (agent skills / web convention)
 

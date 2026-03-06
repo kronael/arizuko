@@ -37,7 +37,7 @@ can be passed explicitly.
 
 ## Relationship to IPC
 
-`get_history` was originally specced as an IPC call (`specs/v1/systems.md`).
+`get_history` was originally specced as an IPC call (removed `systems.md`).
 MCP is the cleaner interface — agent calls a tool, gateway queries DB,
 returns results. No custom IPC protocol needed.
 
