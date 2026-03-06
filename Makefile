@@ -2,6 +2,7 @@
 
 build:
 	bunx tsc
+	cd container/agent-runner && npm install --silent && npx tsc
 
 lint:
 	bunx tsc --noEmit
@@ -17,4 +18,4 @@ image:
 	docker build -t kanipi .
 
 clean:
-	rm -rf tmp/ dist/
+	rm -rf tmp/ dist/ container/agent-runner/dist/
