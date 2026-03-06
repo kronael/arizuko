@@ -11,6 +11,19 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.6.2] — 2026-03-06
+
+### Features
+
+- Telegram: images (PNG/JPG/GIF/WEBP) sent via `sendPhoto` for inline
+  display instead of `sendDocument` (file attachment)
+
+### Fixes
+
+- Agent CLAUDE.md: `send_file` no longer prompts follow-up text description
+
+---
+
 ## [v0.6.1] — 2026-03-06
 
 ### Fixes
