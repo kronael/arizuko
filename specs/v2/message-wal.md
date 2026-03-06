@@ -7,7 +7,7 @@ Reliable message delivery with cursor rollback for piped messages.
 Two message delivery paths exist:
 
 1. **New container** — `processGroupMessages()` advances cursor,
-   spawns container, rolls back on error. Reliable.
+   spawns container, rolls back on error (v0.6.0+). Reliable.
 2. **Piping to active container** — `startMessageLoop()` writes
    IPC file to `input/`, advances cursor immediately. No rollback.
 
