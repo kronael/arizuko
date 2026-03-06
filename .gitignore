@@ -1,6 +1,7 @@
 cfg/
 tmp/
-store/
+store/messages.db*
+store/auth/
 groups/
 data/
 .ship/
@@ -22,3 +23,5 @@ config
 hooks
 objects
 refs
+old/
+/kanipi

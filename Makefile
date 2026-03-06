@@ -1,21 +1,20 @@
-.PHONY: build lint test smoke image clean
-
 build:
-	bunx tsc
-	cd container/agent-runner && npm install --silent && bunx tsc
+	go build -o kanipi cmd/kanipi/main.go
 
 lint:
-	bunx tsc --noEmit
-	cd container/agent-runner && npm install --silent && bunx tsc --noEmit
+	go vet ./...
 
 test:
-	bunx vitest run src tests/e2e
+	go test ./... -count=1
 
-smoke:
-	bunx vitest run
+clean:
+	rm -f kanipi
+	rm -rf tmp/
 
 image:
 	docker build -t kanipi .
 
-clean:
-	rm -rf tmp/ dist/ container/agent-runner/dist/
+agent:
+	make -C container image
+
+.PHONY: build lint test clean image agent
