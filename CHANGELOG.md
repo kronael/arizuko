@@ -9,6 +9,23 @@ kanipi is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.4.0] — 2026-03-06
+
+### Breaking
+
+- `NANOCLAW_IS_MAIN` env var → `NANOCLAW_IS_ROOT`
+- `/workspace/global` mount → `/workspace/share`
+- `isMain` removed from `ContainerInput` interface
+
+### Changes
+
+- `isMain` → `isRoot(folder)` — structural check (`!folder.includes('/')`)
+  replaces hardcoded `MAIN_GROUP_FOLDER = 'main'` comparison
+- `groups/global/` → `groups/<world>/share/` — shared state lives inside
+  world root, always mounted (rw for root, ro for children)
+- Folder validation allows `/` separator for future hierarchy
+- Reserved folder `global` → `share`
+
 ---
 
 ## [v0.3.0] — 2026-03-06
