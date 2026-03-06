@@ -7,10 +7,10 @@ lint:
 	bunx tsc --noEmit
 
 test:
-	vitest run src
+	bunx vitest run src tests/e2e
 
 smoke:
-	vitest run
+	bunx vitest run
 
 image:
 	docker build -t kanipi .
