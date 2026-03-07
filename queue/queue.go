@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/onvos/arizuko/runtime"
 )
 
 const circuitBreakerThreshold = 3
@@ -399,6 +401,29 @@ func signalContainer(name string) {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	_ = cmd.Run()
+}
+
+// ActiveCount returns the number of currently running containers.
+func (q *GroupQueue) ActiveCount() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.activeCount
+}
+
+// StopProcess stops the container running for the given JID.
+// Returns true if a container was found and stopped.
+func (q *GroupQueue) StopProcess(jid string) bool {
+	q.mu.Lock()
+	s := q.groups[jid]
+	if s == nil || !s.active || s.containerName == "" {
+		q.mu.Unlock()
+		return false
+	}
+	name := s.containerName
+	q.mu.Unlock()
+
+	cmd := exec.Command(runtime.Bin, runtime.StopContainerArgs(name)...)
+	return cmd.Run() == nil
 }
 
 func base36(n int) string {

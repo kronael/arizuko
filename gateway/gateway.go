@@ -306,8 +306,13 @@ func (g *Gateway) pollOnce() {
 			continue
 		}
 
-		// Check routing rules on last message
+		// Handle gateway commands
 		last := chatMsgs[len(chatMsgs)-1]
+		if g.handleCommand(last, group) {
+			continue
+		}
+
+		// Check routing rules on last message
 		if target := router.ResolveRoutingTarget(last, group.Rules); target != "" {
 			if router.IsAuthorizedRoutingTarget(group.Folder, target) {
 				prompt := last.Content
@@ -353,8 +358,14 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return false, nil
 	}
 
-	// Check routing on last message
+	// Handle gateway commands
 	last := msgs[len(msgs)-1]
+	if g.handleCommand(last, group) {
+		g.advanceAgentCursor(chatJid, msgs)
+		return true, nil
+	}
+
+	// Check routing on last message
 	if target := router.ResolveRoutingTarget(last, group.Rules); target != "" {
 		if router.IsAuthorizedRoutingTarget(group.Folder, target) {
 			g.delegateToChild(target, last.Content, chatJid, 0)

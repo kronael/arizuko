@@ -129,6 +129,14 @@ func Run(cfg *RunnerConfig, in Input) Output {
 			"\n\n" + in.Prompt
 	}
 
+	// Start sidecars
+	var sidecarNames []string
+	if len(in.Config.Sidecars) > 0 {
+		ipcDir, _ := folders.IpcPath(in.Folder)
+		sidecarNames = StartSidecars(
+			cfg, in.Folder, in.Config.Sidecars, ipcDir)
+	}
+
 	containerName := in.Name
 	if containerName == "" {
 		safe := safeNameRe.ReplaceAllString(in.Folder, "-")
@@ -300,6 +308,12 @@ func Run(cfg *RunnerConfig, in Input) Output {
 
 	exitErr := cmd.Wait()
 	timer.Stop()
+
+	// Stop sidecars
+	if len(sidecarNames) > 0 {
+		StopSidecars(sidecarNames)
+	}
+
 	elapsed := time.Since(start)
 
 	code := 0
@@ -631,6 +645,47 @@ func seedSettings(
 		env["SLINK_TOKEN"] = in.SlinkToken
 	}
 	settings["env"] = env
+
+	// Wire sidecar MCP servers
+	if len(in.Config.Sidecars) > 0 {
+		servers, _ := settings["mcpServers"].(map[string]any)
+		if servers == nil {
+			servers = map[string]any{}
+		}
+		managed, _ := settings["_managedSidecars"].([]any)
+		var allowed []any
+		if a, ok := settings["allowedTools"].([]any); ok {
+			allowed = a
+		}
+
+		for name, spec := range in.Config.Sidecars {
+			servers[name] = map[string]any{
+				"command": "socat",
+				"args": []string{
+					"UNIX-CONNECT:/workspace/ipc/sidecars/" +
+						name + ".sock",
+					"STDIO",
+				},
+			}
+			managed = append(managed, name)
+
+			for _, tool := range spec.Tools {
+				if tool == "*" {
+					allowed = append(allowed,
+						"mcp__"+name+"__*")
+				} else {
+					allowed = append(allowed,
+						"mcp__"+name+"__"+tool)
+				}
+			}
+		}
+
+		settings["mcpServers"] = servers
+		settings["_managedSidecars"] = managed
+		if len(allowed) > 0 {
+			settings["allowedTools"] = allowed
+		}
+	}
 
 	data, _ := json.MarshalIndent(settings, "", "  ")
 	os.WriteFile(fp, append(data, '\n'), 0o644)
