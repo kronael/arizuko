@@ -86,7 +86,8 @@ func (g *Gateway) Run(ctx context.Context) error {
 			return m
 		},
 	})
-	w.Start()
+	// w.Start() moved after channel connect — draining old IPC
+	// requests before channels are ready causes nil pointer panics
 
 	sched := scheduler.New(scheduler.Deps{
 		Store: g.store,
@@ -131,6 +132,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 	}
 	slog.Info("all channels connected")
 
+	w.Start()
 	g.recoverPendingMessages()
 
 	if g.cfg.WebPort > 0 {
