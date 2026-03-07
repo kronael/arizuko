@@ -85,6 +85,17 @@ func (g *Gateway) Run(ctx context.Context) error {
 			}
 			return m
 		},
+		InjectMessage:    g.injectMessage,
+		RegisterGroup:    g.registerGroupIPC,
+		GetGroups:        g.getGroups,
+		DelegateToChild:  g.delegateToChild,
+		DelegateToParent: g.delegateToParent,
+		CreateTask:       g.store.CreateTask,
+		GetTask:          g.store.GetTask,
+		UpdateTaskStatus: func(id, status string) error {
+			return g.store.UpdateTask(id, store.TaskPatch{Status: &status})
+		},
+		DeleteTask: g.store.DeleteTask,
 	})
 	// w.Start() moved after channel connect — draining old IPC
 	// requests before channels are ready causes nil pointer panics
@@ -490,6 +501,87 @@ func (g *Gateway) clearSession(folder string) {
 	g.store.DeleteSession(folder)
 }
 
+func (g *Gateway) injectMessage(jid, content, sender, senderName string) (string, error) {
+	id := fmt.Sprintf("inject-%d", time.Now().UnixNano())
+	msg := core.Message{
+		ID:        id,
+		ChatJID:   jid,
+		Sender:    sender,
+		Name:      senderName,
+		Content:   content,
+		Timestamp: time.Now(),
+		FromMe:    false,
+		BotMsg:    false,
+	}
+	if err := g.store.PutMessage(msg); err != nil {
+		return "", err
+	}
+	g.store.ClearChatErrored(jid)
+	return id, nil
+}
+
+func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
+	g.mu.Lock()
+	g.groups[jid] = group
+	g.mu.Unlock()
+	return g.store.PutGroup(jid, group)
+}
+
+func (g *Gateway) getGroups() map[string]core.Group {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	cp := make(map[string]core.Group, len(g.groups))
+	for k, v := range g.groups {
+		cp[k] = v
+	}
+	return cp
+}
+
+func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth int) error {
+	if depth > 3 {
+		return fmt.Errorf("delegation depth exceeded")
+	}
+
+	g.mu.RLock()
+	var parentJid string
+	var parent core.Group
+	var found bool
+	for jid, gr := range g.groups {
+		if gr.Folder == parentFolder {
+			parentJid = jid
+			parent = gr
+			found = true
+			break
+		}
+	}
+	g.mu.RUnlock()
+
+	if !found {
+		return fmt.Errorf("parent group not found: %s", parentFolder)
+	}
+
+	g.queue.EnqueueTask(parentJid, fmt.Sprintf("escalate-%s-%d",
+		parentFolder, time.Now().UnixMilli()),
+		func() error {
+			out := g.runAgent(parent, prompt, originJid, 0,
+				func(text, status string) {
+					if text != "" {
+						clean := router.FormatOutbound(text)
+						if clean != "" {
+							g.sendMessage(originJid, clean)
+						}
+					}
+				},
+			)
+			if out.Error != "" {
+				return fmt.Errorf("escalate agent: %s", out.Error)
+			}
+			return nil
+		},
+	)
+	return nil
+}
+
 func (g *Gateway) checkTrigger(group core.Group, msgs []core.Message) bool {
 	if !group.NeedTrig {
 		return true
@@ -533,11 +625,9 @@ func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
 
 func (g *Gateway) delegateToChild(
 	childFolder, prompt, originJid string, depth int,
-) {
+) error {
 	if depth > 3 {
-		slog.Warn("delegation depth exceeded",
-			"folder", childFolder, "depth", depth)
-		return
+		return fmt.Errorf("delegation depth exceeded")
 	}
 
 	g.mu.RLock()
@@ -555,8 +645,7 @@ func (g *Gateway) delegateToChild(
 	g.mu.RUnlock()
 
 	if !found {
-		slog.Warn("delegate target not found", "folder", childFolder)
-		return
+		return fmt.Errorf("delegate target not found: %s", childFolder)
 	}
 
 	g.queue.EnqueueTask(childJid, fmt.Sprintf("delegate-%s-%d",
@@ -578,6 +667,7 @@ func (g *Gateway) delegateToChild(
 			return nil
 		},
 	)
+	return nil
 }
 
 func (g *Gateway) recoverPendingMessages() {

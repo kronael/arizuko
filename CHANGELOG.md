@@ -7,6 +7,39 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+### Features
+
+- **inject_message IPC action**: agents can insert messages into DB without
+  channel delivery; tier 0/1 only
+- **Permission tiers**: folder-depth-based authorization (0=root, 1=world,
+  2=agent, 3=worker); enforced on all IPC actions
+- **register_group action**: agents can register child groups via IPC
+- **escalate_group action**: delegate prompt to parent group agent
+- **delegate_group action**: delegate prompt to child group agent
+- **set_routing_rules action**: update routing rules for a group
+- **Task actions**: schedule_task, pause_task, resume_task, cancel_task
+  via IPC with tier-based authorization
+
+### Gateway
+
+- `injectMessage()`: stores injected messages in DB
+- `registerGroupIPC()`: persists agent-registered groups
+- `getGroups()`: returns groups map for IPC authorization
+- `delegateToParent()`: escalation handler
+- `delegateToChild()`: now returns error for IPC integration
+
+### Tests
+
+- TestInjectMessage, TestInjectMessageUnauthorized
+- TestPermissionTiers, TestWorldOf, TestIsDirectChild
+- TestRegisterGroupFromWorld, TestRegisterGroupUnauthorized
+- TestScheduleTask, TestPauseResumeTask, TestCancelTask
+- TestTaskActionUnauthorizedTier
+
+---
+
 ## [v0.0.1] — 2026-03-07
 
 Go rewrite. All core gateway functionality ported from TypeScript.
