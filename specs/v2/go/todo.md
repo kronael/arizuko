@@ -15,11 +15,11 @@
 | runtime/     | ~63   | done   | docker lifecycle, orphan cleanup |
 | scheduler/   | ~195  | done   | cron via robfig/cron, tasks      |
 | diary/       | ~100  | done   | YAML frontmatter diary reader    |
-| container/   | ~830  | done   | docker run, mounts, gateway-caps |
-| gateway/     | ~660  | done   | orchestration, error tracking    |
+| container/   | ~930  | done   | docker run, mounts, sidecars     |
+| gateway/     | ~760  | done   | orchestration, commands, errors  |
 | cmd/arizuko/ | ~187  | done   | run, create, group CLI           |
 
-Total: ~4,630 LOC Go (vs ~9,400 LOC TS)
+Total: ~4,910 LOC Go (vs ~9,400 LOC TS)
 
 ## Recently incorporated from kanipi
 
@@ -31,6 +31,8 @@ Total: ~4,630 LOC Go (vs ~9,400 LOC TS)
 - Per-channel output styling (outputStyle in settings.json)
 - Media/video/voice config plumbing to container runner
 - Sidecar IPC directory creation
+- Sidecar lifecycle management (start/stop/settings wiring)
+- Gateway commands (/new, /ping, /chatid, /stop)
 
 ## Not ported (functionality gaps)
 
@@ -40,16 +42,13 @@ Total: ~4,630 LOC Go (vs ~9,400 LOC TS)
 - **Action registry** — unified action system.
   Go version would use JSON Schema or struct tags.
 
-- **Commands** — /new, /ping, /chatid, /stop, /put, /get, /ls.
+- **File commands** — /put, /get, /ls (agent-side).
 
 - **Web proxy** — vite proxy + auth.
 
 - **MIME enricher** — attachment download + transcription pipeline.
 
 - **Slink** — share link system for web access.
-
-- **Sidecar management** — start/stop MCP sidecar containers,
-  reconcile settings.json.
 
 ## Open questions
 
