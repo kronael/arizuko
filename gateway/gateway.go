@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -128,6 +132,10 @@ func (g *Gateway) Run(ctx context.Context) error {
 	slog.Info("all channels connected")
 
 	g.recoverPendingMessages()
+
+	if g.cfg.WebPort > 0 {
+		go g.serveWeb(ctx)
+	}
 
 	slog.Info("arizuko running",
 		"name", g.cfg.Name,
@@ -611,4 +619,24 @@ func channelName(ch core.Channel) string {
 		return ""
 	}
 	return ch.Name()
+}
+
+func (g *Gateway) serveWeb(ctx context.Context) {
+	pubDir := filepath.Join(g.cfg.WebDir, "pub")
+	addr := net.JoinHostPort("", strconv.Itoa(g.cfg.WebPort))
+
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: http.FileServer(http.Dir(pubDir)),
+	}
+	slog.Info("web server starting", "addr", addr, "dir", pubDir)
+
+	go func() {
+		<-ctx.Done()
+		srv.Close()
+	}()
+
+	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+		slog.Error("web server error", "err", err)
+	}
 }
