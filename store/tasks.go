@@ -121,6 +121,57 @@ func (s *Store) LogRun(taskID string, dur time.Duration, status, result, errStr 
 	return err
 }
 
+type TaskRun struct {
+	ID       int
+	TaskID   string
+	Prompt   string
+	RunAt    time.Time
+	Duration time.Duration
+	Status   string
+	Result   string
+	Error    string
+}
+
+func (s *Store) UnreportedRuns(groupFolder string) []TaskRun {
+	rows, err := s.db.Query(`
+		SELECT r.id, r.task_id, t.prompt, r.run_at, r.duration_ms, r.status, r.result, r.error
+		FROM task_run_logs r
+		JOIN scheduled_tasks t ON r.task_id = t.id
+		WHERE t.group_folder = ? AND (r.reported IS NULL OR r.reported = 0)
+		ORDER BY r.run_at ASC`, groupFolder)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var out []TaskRun
+	for rows.Next() {
+		var r TaskRun
+		var runAt string
+		var ms int64
+		var result, errStr *string
+		if err := rows.Scan(&r.ID, &r.TaskID, &r.Prompt, &runAt, &ms, &r.Status, &result, &errStr); err != nil {
+			continue
+		}
+		r.RunAt, _ = time.Parse(time.RFC3339, runAt)
+		r.Duration = time.Duration(ms) * time.Millisecond
+		if result != nil {
+			r.Result = *result
+		}
+		if errStr != nil {
+			r.Error = *errStr
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func (s *Store) MarkRunsReported(ids []int) {
+	for _, id := range ids {
+		s.db.Exec(`UPDATE task_run_logs SET reported = 1 WHERE id = ?`, id)
+	}
+}
+
 func scanTask(r rowScanner) (core.Task, bool) {
 	var t core.Task
 	var nextRun, lastRun, lastResult *string

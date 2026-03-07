@@ -66,8 +66,17 @@ func (s *Store) migrate() error {
 	if ver < 1 {
 		s.migrateV1()
 		s.db.Exec("PRAGMA user_version = 1")
+		ver = 1
+	}
+	if ver < 2 {
+		s.migrateV2()
+		s.db.Exec("PRAGMA user_version = 2")
 	}
 	return nil
+}
+
+func (s *Store) migrateV2() {
+	s.db.Exec(`ALTER TABLE task_run_logs ADD COLUMN reported INTEGER DEFAULT 0`)
 }
 
 func (s *Store) migrateV1() {

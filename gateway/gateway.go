@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -117,13 +118,28 @@ func (g *Gateway) Run(ctx context.Context) error {
 		SendMessage: g.sendMessage,
 		RunAgent: func(
 			group core.Group, prompt, chatJid string,
-			isTask bool, onOutput func(string, string),
+			isolated bool, onOutput func(string, string),
 		) error {
-			out := g.runAgent(group, prompt, chatJid, 0, onOutput)
+			out := g.runAgentWithOpts(group, prompt, chatJid, onOutput, isolated)
 			if out.Error != "" {
 				return fmt.Errorf("%s", out.Error)
 			}
 			return nil
+		},
+		InjectMessage: func(folder, text string) bool {
+			g.mu.RLock()
+			var jid string
+			for _, grp := range g.groups {
+				if grp.Folder == folder {
+					jid = grp.JID
+					break
+				}
+			}
+			g.mu.RUnlock()
+			if jid == "" {
+				return false
+			}
+			return g.queue.SendMessage(jid, text)
 		},
 		Timezone: g.cfg.Timezone,
 	})
@@ -411,9 +427,19 @@ func (g *Gateway) runAgent(
 	group core.Group, prompt, chatJid string, msgCount int,
 	onOutput func(string, string),
 ) container.Output {
-	g.mu.RLock()
-	sessionID := g.sessions[group.Folder]
-	g.mu.RUnlock()
+	return g.runAgentWithOpts(group, prompt, chatJid, onOutput, false)
+}
+
+func (g *Gateway) runAgentWithOpts(
+	group core.Group, prompt, chatJid string,
+	onOutput func(string, string), isolated bool,
+) container.Output {
+	var sessionID string
+	if !isolated {
+		g.mu.RLock()
+		sessionID = g.sessions[group.Folder]
+		g.mu.RUnlock()
+	}
 
 	groupPath, err := g.folders.GroupPath(group.Folder)
 	if err != nil {
@@ -437,6 +463,13 @@ func (g *Gateway) runAgent(
 		annotations = append(annotations, d)
 	}
 
+	// Inject unreported task runs as context for non-isolated runs
+	if !isolated {
+		if taskCtx := g.formatTaskRuns(group.Folder); taskCtx != "" {
+			annotations = append(annotations, taskCtx)
+		}
+	}
+
 	input := container.Input{
 		Prompt:      prompt,
 		SessionID:   sessionID,
@@ -452,6 +485,11 @@ func (g *Gateway) runAgent(
 	}
 
 	out := container.Run(g.cfg, g.folders, input)
+
+	// Don't persist session for isolated runs
+	if isolated {
+		return out
+	}
 
 	if out.NewSessionID != "" {
 		g.mu.Lock()
@@ -469,6 +507,36 @@ func (g *Gateway) runAgent(
 	}
 
 	return out
+}
+
+func (g *Gateway) formatTaskRuns(folder string) string {
+	runs := g.store.UnreportedRuns(folder)
+	if len(runs) == 0 {
+		return ""
+	}
+
+	var ids []int
+	var lines []string
+	for _, r := range runs {
+		ids = append(ids, r.ID)
+		status := r.Status
+		if r.Error != "" {
+			status = "error: " + r.Error
+		}
+		summary := r.Result
+		if len(summary) > 500 {
+			summary = summary[:500] + "..."
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s\n  Result: %s",
+			r.RunAt.Format("2006-01-02 15:04"), r.Prompt, summary))
+		if status != "success" {
+			lines[len(lines)-1] += fmt.Sprintf("\n  Status: %s", status)
+		}
+	}
+
+	g.store.MarkRunsReported(ids)
+	return fmt.Sprintf("<scheduled-task-results>\nThe following scheduled tasks ran since your last conversation:\n%s\n</scheduled-task-results>",
+		strings.Join(lines, "\n"))
 }
 
 func (g *Gateway) findChannel(jid string) core.Channel {
