@@ -65,6 +65,7 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 			Name:            cfg.Name,
 			GroupsDir:       cfg.GroupsDir,
 			WebDir:          cfg.WebDir,
+			WebHost:         cfg.WebHost,
 			MediaEnabled:    cfg.MediaEnabled,
 			MediaMaxBytes:   cfg.MediaMaxBytes,
 			VoiceEnabled:    cfg.VoiceEnabled,
