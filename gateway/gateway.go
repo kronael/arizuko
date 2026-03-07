@@ -425,8 +425,11 @@ func (g *Gateway) runAgent(
 	g.queue.RegisterProcess(chatJid, cname, group.Folder)
 
 	// Write snapshots for agent context
-	container.WriteTasksSnapshot(groupPath, g.store.AllTasks())
-	container.WriteGroupsSnapshot(groupPath, g.groupList())
+	isRoot := g.cfg.IsRoot(group.Folder)
+	container.WriteTasksSnapshot(
+		g.folders, group.Folder, isRoot, g.store.AllTasks())
+	container.WriteGroupsSnapshot(
+		g.folders, group.Folder, isRoot, g.groupList())
 
 	input := container.Input{
 		Prompt:    prompt,
