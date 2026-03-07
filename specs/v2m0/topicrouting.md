@@ -1,9 +1,8 @@
 # Topic routing and agent hierarchy
 
-**Status**: partial
+**Status**: open
 
-Not arizuko-specific. General pattern for multi-agent
-message routing in chat systems.
+General pattern for multi-agent message routing in chat systems.
 
 ## Events are messages
 
@@ -132,15 +131,8 @@ agent: I'll track this in #auth-migration
   → subsequent messages tagged #auth-migration route there
 ```
 
-## Open questions
+## Open
 
-- How does the user list active topics? `/topics`?
-- Can topics span groups? (probably not — that's @agent)
-- Topic lifecycle — auto-close after idle? Manual close?
-- Can a topic have a different character/system prompt
-  even though it shares the group config?
-- Pipeline definition format — TOML? YAML? Agent-created
-  via MCP tool?
-- How do products override the default routing table?
-- Security: can any user route to any agent, or is there
-  ACL per @agent and #topic?
+- Topic lifecycle: auto-close after idle or manual
+- Pipeline definition: TOML config or agent-created via MCP
+- Security: ACL per @agent and #topic

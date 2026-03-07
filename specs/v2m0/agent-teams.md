@@ -1,7 +1,5 @@
 # Agent Teams: Analysis and Decision
 
-**Status**: shipped
-
 ## What Claude Code calls "Agent Teams" vs "Subagents"
 
 ### Subagents (Agent / Task tool)
@@ -32,10 +30,20 @@
    When the parent container exits (idle timeout, error), sibling processes may linger.
    We already saw orphan containers (`laughing_burnell`, `modest_jackson`) from this.
 
-3. **Experimental** — the feature is prefixed `EXPERIMENTAL` for a reason. Not ready
+3. **Stdio problem** — Gateway spawns one container → one stdio pair (stdin/stdout).
+   Agent teams spawn sibling processes inside the container, each with their own stdio.
+   Those sibling stdouts go nowhere: gateway never reads them. Any result, IPC message,
+   or channel reply from a teammate is silently dropped.
+
+4. **Path problem** — `~/.claude/teams/` and `~/.claude/tasks/` resolve to
+   `/home/node/.claude/` inside the container, mounted from `/data/sessions/{group}/.claude/`.
+   This is scoped per-group — correct for a single agent session, wrong for multi-teammate
+   coordination across the team lifecycle (teams persist, containers don't).
+
+5. **Experimental** — the feature is prefixed `EXPERIMENTAL` for a reason. Not ready
    for production chat gateway use.
 
-4. **No benefit** — a chat agent responding to messages has no need for sustained
+6. **No benefit** — a chat agent responding to messages has no need for sustained
    multi-session parallelism. The `Agent` (subagent) tool is sufficient for any
    parallel work within a single response.
 
