@@ -9,6 +9,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- **Scheduler NextRun timing**: update NextRun at task START before spawning
+  container, preventing re-scheduling while task runs
+- **IPC cron task NextRun**: use proper cron parsing instead of placeholder
+  (was now+1min for all schedule types)
+- **Queue error notifications**: added NotifyErrorFn callback for user error
+  notifications on circuit breaker and processing failures
+
+### Changed
+
+- **actions.ComputeNextRun**: exported for use by IPC watcher (was internal)
+
 ### Features
 
 - **inject_message IPC action**: agents can insert messages into DB without
