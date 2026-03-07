@@ -1,5 +1,7 @@
 # Workflows (v2)
 
+**Status**: not started
+
 Agent-driven multi-step processes across sessions.
 
 ## Agent-side media processing via MCP

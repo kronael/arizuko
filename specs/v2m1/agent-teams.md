@@ -1,5 +1,7 @@
 # Agent Teams: Analysis and Decision
 
+**Status**: shipped
+
 ## What Claude Code calls "Agent Teams" vs "Subagents"
 
 ### Subagents (Agent / Task tool)

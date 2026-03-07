@@ -1,5 +1,7 @@
 # Reddit channel (v2) — speculative
 
+**Status**: not started
+
 Reddit DMs (private messages) as inbound/outbound channel.
 Subreddit comment monitoring as optional source (v2).
 Polling via snoowrap. Free under 100 req/min.

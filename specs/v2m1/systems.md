@@ -1,5 +1,7 @@
 # Systems
 
+**Status**: partial
+
 Kanipi decomposes into orthogonal systems.
 
 ## Infrastructure

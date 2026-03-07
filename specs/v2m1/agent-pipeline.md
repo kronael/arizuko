@@ -1,5 +1,7 @@
 # Agent Orchestration & Workflows — speculative
 
+**Status**: not started
+
 ## Two distinct concepts
 
 ### 1. Agent orchestration (inter-agent messaging)

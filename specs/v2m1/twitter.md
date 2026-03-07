@@ -1,5 +1,7 @@
 # Twitter/X channel (v2) — speculative
 
+**Status**: not started
+
 Inbound/outbound via `agent-twitter-client` (elizaOS).
 No paid API — reverse-engineered client, cookie-based auth.
 

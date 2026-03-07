@@ -1,5 +1,7 @@
 # WebDAV Workspace Access — open (v2)
 
+**Status**: not started
+
 Expose each group's workspace directory over WebDAV so users can mount
 it in Finder, Cyberduck, or any WebDAV client and browse/edit files
 directly — without going through the agent or Telegram file transfer.

@@ -1,5 +1,7 @@
 # Agent Teams IPC Analysis — shipped
 
+**Status**: shipped
+
 ## How Claude Code Agent Teams Communicate
 
 The coordination bus is purely **filesystem-based**. No network, no daemon.

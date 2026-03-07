@@ -1,5 +1,7 @@
 # Gmail channel (v2) — speculative
 
+**Status**: not started
+
 Gmail-specific upgrade over the generic email channel (v1).
 Requires Google Cloud project + Gmail API enabled.
 

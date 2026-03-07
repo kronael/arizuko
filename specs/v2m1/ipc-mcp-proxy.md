@@ -1,5 +1,7 @@
 # IPC -> MCP Proxy (v2)
 
+**Status**: not started
+
 ## Problem
 
 Current IPC is a hand-rolled MCP proxy: agent -> nanoclaw

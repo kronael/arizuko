@@ -1,5 +1,7 @@
 # Plugins (v2) — open
 
+**Status**: not started
+
 Enableable plugin system for kanipi instances, similar to Eliza's
 character-level plugin config.
 

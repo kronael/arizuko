@@ -1,5 +1,7 @@
 # Topic routing and agent hierarchy
 
+**Status**: partial
+
 Not arizuko-specific. General pattern for multi-agent
 message routing in chat systems.
 

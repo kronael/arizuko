@@ -1,5 +1,7 @@
 # Memory: Episodes — open (v2)
 
+**Status**: not started
+
 Mechanically produced summaries of past sessions. Automatic, always on.
 Feeds long-term/facts memory. Not planned for v1.
 
