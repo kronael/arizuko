@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARIZUKO — multitenant Claude agent gateway</title>
+<link rel="stylesheet" href="/assets/hub.css">
+<style>
+:root {
+  --accent:  #e55e00;
+  --accent2: #991b1b;
+  --accent3: #a78bfa;
+}
+[data-theme="light"] {
+  --accent:  #c24a00;
+  --accent2: #7f1d1d;
+  --accent3: #7c3aed;
+}
+
+/* hero */
+.hero {
+  margin: 2.5em 0 2em;
+  border-left: 3px solid var(--accent);
+  padding-left: 1.2em;
+}
+.hero h1 {
+  font-size: 2.8em;
+  letter-spacing: 0.15em;
+  margin-bottom: 0.1em;
+  color: var(--accent);
+}
+.hero-sub {
+  font-size: 0.75em;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  font-style: italic;
+  margin-bottom: 0.6em;
+}
+.hero-tagline {
+  font-size: 1.05em;
+  color: var(--fg);
+  line-height: 1.5;
+  margin-bottom: 0.4em;
+}
+.hero-kanji {
+  font-size: 0.85em;
+  color: var(--dim);
+  font-family: serif;
+}
+
+/* stat grid */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr));
+  gap: 1em;
+  margin: 2em 0;
+}
+.stat {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1em;
+  text-align: center;
+}
+.stat-value {
+  font-size: 1.9em;
+  font-weight: bold;
+  color: var(--accent);
+  margin-bottom: 0.15em;
+}
+.stat-label {
+  color: var(--dim);
+  font-size: 0.8em;
+}
+
+/* principle grid */
+.principles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 1em;
+  margin: 1.5em 0 2em;
+}
+.principle {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.2em;
+}
+.principle-name {
+  font-size: 1em;
+  font-weight: bold;
+  color: var(--accent);
+  margin-bottom: 0.4em;
+}
+.principle p {
+  color: var(--dim);
+  font-size: 0.85em;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* component table */
+.comp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  gap: 1em;
+  margin: 1.5em 0;
+}
+.comp-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.2em;
+}
+.comp-name {
+  font-family: 'SF Mono', monospace;
+  font-size: 1.1em;
+  color: var(--accent3);
+  margin-bottom: 0.3em;
+}
+.comp-desc {
+  font-size: 0.85em;
+  color: var(--fg);
+  margin-bottom: 0.5em;
+  line-height: 1.5;
+}
+.comp-detail {
+  font-size: 0.8em;
+  color: var(--dim);
+  line-height: 1.5;
+}
+
+/* code block */
+.code-wrap {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.2em 1.5em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+.code-wrap pre {
+  margin: 0;
+  font-size: 0.85em;
+  line-height: 1.6;
+  color: var(--fg);
+}
+.code-wrap .kw  { color: var(--accent3); }
+.code-wrap .fn  { color: var(--accent);  }
+.code-wrap .str { color: #86efac; }
+.code-wrap .cmt { color: var(--dim); font-style: italic; }
+.code-wrap .typ { color: #67e8f9; }
+
+/* install */
+.install-box {
+  background: var(--code-bg);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.9em 1.2em;
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  margin: 1em 0;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+.install-prompt { color: var(--dim); }
+.install-cmd { color: var(--accent); }
+
+/* status badge */
+.badge {
+  display: inline-block;
+  font-size: 0.7em;
+  padding: 0.15em 0.5em;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-left: 0.4em;
+}
+.badge-done    { background: #001a0a; color: #4ade80;        border: 1px solid #4ade80;        }
+.badge-next    { background: #1a1a2e; color: var(--accent3); border: 1px solid var(--accent3); }
+
+/* roadmap */
+.roadmap-row {
+  display: grid;
+  grid-template-columns: 5em 1fr;
+  gap: 1em;
+  align-items: start;
+  padding: 0.7em 0;
+  border-bottom: 1px solid var(--border);
+}
+.roadmap-row:last-child { border-bottom: none; }
+.roadmap-phase {
+  font-size: 0.8em;
+  font-weight: bold;
+  color: var(--accent);
+  padding-top: 0.1em;
+}
+.roadmap-items {
+  font-size: 0.85em;
+  color: var(--dim);
+  line-height: 1.6;
+}
+
+/* mythology aside */
+.myth {
+  border-left: 2px solid var(--accent2);
+  padding: 0.8em 1em;
+  margin: 1.5em 0;
+  background: color-mix(in srgb, var(--accent2) 5%, var(--bg));
+}
+.myth-label {
+  font-size: 0.7em;
+  letter-spacing: 0.1em;
+  color: var(--accent2);
+  text-transform: uppercase;
+  margin-bottom: 0.4em;
+}
+.myth p {
+  color: var(--dim);
+  font-size: 0.85em;
+  line-height: 1.6;
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .hero h1      { font-size: 1.9em; }
+  .stat-value   { font-size: 1.4em; }
+  .stats        { grid-template-columns: repeat(3, 1fr); }
+}
+</style>
+</head>
+<body>
+<a href="/" class="back-btn">&larr; back</a>
+<button class="theme-toggle" aria-label="Toggle theme"></button>
+<div class="hub-container">
+
+<div class="hero">
+  <h1>ARIZUKO</h1>
+  <div class="hero-sub">v1.0.0 — permission tiers, scheduled tasks, IPC actions</div>
+  <div class="hero-tagline">Multitenant Claude agent gateway. Polls messaging channels, routes to containerized agents via docker, streams responses back.</div>
+  <div class="hero-kanji">蟻巫女 — goddess of the undead ants · <span style="color: var(--accent); font-style: normal;">17 packages, 122 tests, one binary</span></div>
+</div>
+
+<nav class="hub-nav" id="nav">
+  <div class="hub-nav-inner">
+    <a href="#architecture" class="nav-item">
+      <span class="nav-label">Architecture</span>
+      <span class="nav-hint">message flow</span>
+    </a>
+    <a href="#packages" class="nav-item">
+      <span class="nav-label">Packages</span>
+      <span class="nav-hint">17 modules</span>
+    </a>
+    <a href="#channels" class="nav-item">
+      <span class="nav-label">Channels</span>
+      <span class="nav-hint">5 adapters</span>
+    </a>
+    <a href="#features" class="nav-item">
+      <span class="nav-label">Features</span>
+      <span class="nav-hint">what's shipped</span>
+    </a>
+    <a href="#install" class="nav-item">
+      <span class="nav-label">Get It</span>
+      <span class="nav-hint">build &amp; run</span>
+    </a>
+    <a href="#roadmap" class="nav-item">
+      <span class="nav-label">Roadmap</span>
+      <span class="nav-hint">what's next</span>
+    </a>
+  </div>
+</nav>
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-value">17</div>
+    <div class="stat-label">Go packages</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">9,800</div>
+    <div class="stat-label">lines of Go</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">122</div>
+    <div class="stat-label">tests passing</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">5</div>
+    <div class="stat-label">channel adapters</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">SQLite</div>
+    <div class="stat-label">WAL mode, 12 tables</div>
+  </div>
+</div>
+
+<!-- ARCHITECTURE -->
+<section id="architecture">
+<h2>Message Flow</h2>
+
+<div class="code-wrap"><pre><span class="cmt">// Channel → store → gateway poll → queue → container → channel</span>
+
+Channel.<span class="fn">OnMessage</span> → store.<span class="fn">PutMessage</span> + <span class="fn">PutChat</span>
+  → gateway.<span class="fn">messageLoop</span> <span class="cmt">(polls every 2s)</span>
+  → store.<span class="fn">NewMessages</span> <span class="cmt">(unprocessed since cursor)</span>
+  → <span class="fn">checkTrigger</span> <span class="cmt">(direct mode or @name regex)</span>
+  → <span class="fn">handleCommand</span> <span class="cmt">(/new, /ping, /chatid, /stop)</span>
+  → router.<span class="fn">ResolveRoutingTarget</span> <span class="cmt">(delegate to child if matched)</span>
+  → queue.<span class="fn">EnqueueMessageCheck</span> → <span class="fn">processGroupMessages</span>
+    → router.<span class="fn">FormatMessages</span> <span class="cmt">(XML batch)</span>
+    → container.<span class="fn">Run</span> <span class="cmt">(docker run -i --rm)</span>
+    → stream output → router.<span class="fn">FormatOutbound</span>
+    → channel.<span class="fn">Send</span></pre></div>
+
+<p style="font-size: 0.85em; color: var(--dim);">Each agent runs in its own docker container. The gateway mounts group folders, IPC dirs, and session state. Agent reads prompt from stdin, writes JSON to stdout. Signal-driven IPC (SIGUSR1) for immediate wake, 500ms fallback poll.</p>
+</section>
+
+<!-- CHANNELS -->
+<section id="channels">
+<h2>Channel Adapters</h2>
+
+<div class="comp-grid">
+  <div class="comp-card">
+    <div class="comp-name">Telegram <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">Long polling via go-telegram-bot-api. Markdown→HTML conversion.</div>
+    <div class="comp-detail">JID: <code>telegram:&lt;chatID&gt;</code>. @bot mention translation. Media placeholders (photo, video, voice, sticker, document, location, contact). File sending routed by extension. 4096 char limit with HTML retry fallback. Forward/reply metadata.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">Discord <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">WebSocket gateway via discordgo. Intent-based event handling.</div>
+    <div class="comp-detail">JID: <code>discord:&lt;channelID&gt;</code>. Bot mention <code>&lt;@id&gt;</code> → <code>@name</code> translation. Attachment type detection. Reply context fetch. 2000 char message splitting. Guild/channel name resolution.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">WhatsApp <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">Signal protocol via whatsmeow. Event-driven with offline queue.</div>
+    <div class="comp-detail">JID: <code>whatsapp:&lt;jid&gt;</code>. SQLite auth store. Outgoing queue drains on reconnect. Forward/reply from contextInfo. Bot detection (own number vs shared). Media: photo, video, voice, audio, document, sticker. File upload via whatsmeow.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">Email <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">IMAP IDLE inbound, SMTP outbound. Thread tracking via In-Reply-To.</div>
+    <div class="comp-detail">JID: <code>email:&lt;threadID&gt;</code>. TLS on port 993. Exponential backoff reconnect (1s→60s). SHA256 thread ID generation. Headers injected as context (From, Subject, Date). Dependency-injected thread storage.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">Web SSE <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">Server-sent events broadcast hub. Per-group listener management.</div>
+    <div class="comp-detail">JID: <code>web:&lt;group&gt;</code>. Buffered channels (cap 16). Non-blocking send (drops if full). Thread-safe add/remove/disconnect.</div>
+  </div>
+</div>
+</section>
+
+<!-- PACKAGES -->
+<section id="packages">
+<h2>Packages</h2>
+
+<div class="comp-grid">
+  <div class="comp-card">
+    <div class="comp-name">gateway <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">Main loop, message routing, gateway commands.</div>
+    <div class="comp-detail">Polls for new messages, dispatches to queue, handles /new /ping /chatid /stop. Per-chat error tracking with cursor rollback. Diary annotations injected into agent context.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">container <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">Docker spawn, volume mounts, sidecars, skills seeding.</div>
+    <div class="comp-detail">Builds 8 mount types (group, media, self, share, session, IPC, web, extra). Seeds settings.json with env vars and MCP sidecar config. Manages sidecar container lifecycle.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">queue <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">Per-group concurrency, stdin piping, circuit breaker.</div>
+    <div class="comp-detail">Serializes agent invocations per group. Global concurrency limit (default 5). Circuit breaker opens after 3 consecutive failures, reset by new message.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">router <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">XML message formatting, 5-tier routing rules.</div>
+    <div class="comp-detail">Command → pattern → keyword → sender → default. Parent-child delegation within same world, max depth 3. Outbound filtering strips internal tags.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">store <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">SQLite persistence. 12 tables, WAL mode, 5s busy timeout.</div>
+    <div class="comp-detail">Messages, chats, groups, sessions, session log, system messages, scheduled tasks, task run logs, router state, auth, email threads.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">actions <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">Unified action registry. JSON schemas, authorization.</div>
+    <div class="comp-detail">init() self-registration. Actions: send_message, send_file, reset_session, schedule_task, pause/resume/cancel_task, register_group, delegate_group, set_routing_rules, refresh_groups. Root vs non-root authorization.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">channels <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">5 channel adapters implementing core.Channel.</div>
+    <div class="comp-detail">Telegram, Discord, WhatsApp, Email, Web SSE. Each owns a JID prefix. Forward/reply metadata. Media placeholders. Trigger translation.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">mime <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">Magic-bytes MIME detection. Attachment pipeline.</div>
+    <div class="comp-detail">Built-in signatures for 12 formats (JPEG, PNG, GIF, WEBP, AVI, WebM, MP4, OGG, FLAC, MP3, PDF, ZIP). RIFF subtype detection. Extension fallback. Handler interface for pluggable processing.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">ipc <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">File-based IPC watcher. Request/reply + legacy fire-and-forget.</div>
+    <div class="comp-detail">Agent writes requests, gateway dispatches by type, writes replies. Atomic via tmp+rename. Non-root groups restricted to registered JIDs.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">scheduler <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">SQLite-backed task runner. Cron, interval, or once.</div>
+    <div class="comp-detail">Polls due tasks every 60s. Cron via robfig/cron. Two context modes: group (injected as user message, shared session) or isolated (fresh session, results reported on next message).</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">diary <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">YAML frontmatter diary annotations for agent context.</div>
+    <div class="comp-detail">Reads recent .md files from group diary/. Extracts summary from YAML frontmatter. Returns XML annotations with age labels.</div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-name">mountsec <span class="badge badge-done">shipped</span></div>
+    <div class="comp-desc">Mount allowlist validation.</div>
+    <div class="comp-detail">Paths must be absolute, resolve symlinks, exist on host, be under an AllowedRoot. Blocks .ssh, .gnupg, .env, credentials, private keys.</div>
+  </div>
+</div>
+
+<p style="font-size: 0.85em; color: var(--dim);">Also: <code>core/</code> (types, Channel interface), <code>runtime/</code> (docker abstraction, orphan cleanup), <code>groupfolder/</code> (path resolution), <code>logger/</code> (slog JSON init), <code>cmd/arizuko/</code> (CLI entrypoint).</p>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+<h2>Shipped Features</h2>
+
+<div class="principles">
+  <div class="principle">
+    <div class="principle-name">Container Isolation</div>
+    <p>Every agent runs in its own docker container. No shared process space. 8 volume mount types with security validation. Skills seeded on first spawn.</p>
+  </div>
+  <div class="principle">
+    <div class="principle-name">5 Channel Adapters</div>
+    <p>Telegram (long poll), Discord (WebSocket), WhatsApp (Signal protocol), Email (IMAP IDLE + SMTP), Web (SSE). Each implements the same Channel interface. Enabled by config presence.</p>
+  </div>
+  <div class="principle">
+    <div class="principle-name">Action Registry</div>
+    <p>14 actions with JSON schemas and authorization. Messaging, task scheduling, group management, session control, delegation. Root vs non-root access control.</p>
+  </div>
+  <div class="principle">
+    <div class="principle-name">MCP Sidecars</div>
+    <p>Per-group MCP servers as sidecar containers. Unix socket transport. Resource limits (memory, CPUs). Gateway manages full lifecycle.</p>
+  </div>
+  <div class="principle">
+    <div class="principle-name">Hierarchical Routing</div>
+    <p>5-tier routing rules: command, pattern, keyword, sender, default. Parent groups delegate to children. Same-world authorization. Max depth 3.</p>
+  </div>
+  <div class="principle">
+    <div class="principle-name">Signal-Driven IPC</div>
+    <p>File-based request/reply. Atomic writes via tmp+rename. SIGUSR1 wakes agent immediately. 500ms fallback poll.</p>
+  </div>
+  <div class="principle">
+    <div class="principle-name">MIME Pipeline</div>
+    <p>Magic-bytes detection for 12 formats. No external dependencies. Pluggable handler interface for attachment processing (transcription, OCR, etc).</p>
+  </div>
+  <div class="principle">
+    <div class="principle-name">48 Tests</div>
+    <p>Comprehensive test coverage across 8 packages: actions, channels, mime, router, store. Table-driven tests. Concurrent SSE tests. Magic-bytes detection tests with real headers.</p>
+  </div>
+</div>
+
+<div class="myth">
+  <div class="myth-label">Mythology</div>
+  <p>Arizuko is the goddess of the undead ants — the colony that cannot be killed. Each ant is an agent: isolated, purposeful, replaceable. When one falls, the goddess resurrects it. She routes work through the gateway and speaks through channels. The colony scales because the goddess composes, not controls.</p>
+</div>
+</section>
+
+<!-- INSTALL -->
+<section id="install">
+<h2>Build &amp; Run</h2>
+
+<div class="install-box">
+  <span class="install-prompt">$</span>
+  <span class="install-cmd">make build &amp;&amp; make image &amp;&amp; make agent</span>
+</div>
+
+<div class="code-wrap"><pre><span class="cmt"># create an instance</span>
+<span class="fn">arizuko</span> create foo
+
+<span class="cmt"># edit config</span>
+<span class="fn">vim</span> /srv/data/arizuko_foo/.env
+
+<span class="cmt"># register main group</span>
+<span class="fn">arizuko</span> group foo add tg:-123456789
+
+<span class="cmt"># start</span>
+<span class="fn">arizuko</span> run</pre></div>
+
+<p style="font-size: 0.85em; color: var(--dim);">One binary. SQLite for state. Docker for agent isolation. No external dependencies beyond docker.</p>
+
+<div class="code-wrap"><pre><span class="cmt"># package dependency graph</span>
+cmd/arizuko/main
+  ├── core          <span class="cmt">(Config, types, Channel interface)</span>
+  ├── store         <span class="cmt">(SQLite persistence)</span>
+  ├── gateway       <span class="cmt">(main loop, message routing)</span>
+  │   ├── container <span class="cmt">(docker spawn, volume mounts, sidecars)</span>
+  │   ├── queue     <span class="cmt">(per-group concurrency, stdin piping)</span>
+  │   ├── router    <span class="cmt">(message formatting, routing rules)</span>
+  │   ├── ipc       <span class="cmt">(file-based request/reply)</span>
+  │   ├── scheduler <span class="cmt">(cron/interval/once task runner)</span>
+  │   ├── channels  <span class="cmt">(telegram, discord, whatsapp, email, web)</span>
+  │   ├── actions   <span class="cmt">(14 actions, JSON schemas, auth)</span>
+  │   ├── mime      <span class="cmt">(magic-bytes detection, handler pipeline)</span>
+  │   └── diary     <span class="cmt">(YAML frontmatter annotations)</span>
+  └── logger        <span class="cmt">(slog JSON init)</span></pre></div>
+</section>
+
+<!-- ROADMAP -->
+<section id="roadmap">
+<h2>Roadmap</h2>
+
+<div style="margin: 1em 0;">
+  <div class="roadmap-row">
+    <div class="roadmap-phase" style="color: #4ade80;">v0.0.1</div>
+    <div class="roadmap-items">Go rewrite. 16 packages. Gateway, container orchestration, queue, router, IPC, scheduler, diary, mount security, sidecars, CLI.</div>
+  </div>
+  <div class="roadmap-row">
+    <div class="roadmap-phase" style="color: #4ade80;">v0.0.2</div>
+    <div class="roadmap-items">Channel adapters (telegram, discord, whatsapp, email, web SSE). Action registry (10 actions). MIME pipeline. 122 tests across 8 packages.</div>
+  </div>
+  <div class="roadmap-row">
+    <div class="roadmap-phase" style="color: #4ade80;">v1.0.0</div>
+    <div class="roadmap-items">Permission tiers (0=root, 1=world, 2=agent, 3=worker). Scheduled task CtxMode. IPC actions with authorization. Error notifications. Live deployment on REDACTED instance.</div>
+  </div>
+  <div class="roadmap-row">
+    <div class="roadmap-phase">v0.1</div>
+    <div class="roadmap-items">Slink web channel. Tool middleware. Credential isolation. Web dashboard.</div>
+  </div>
+  <div class="roadmap-row">
+    <div class="roadmap-phase">later</div>
+    <div class="roadmap-items">Multi-host transport. Plugin system. Horizontal scaling.</div>
+  </div>
+</div>
+</section>
+
+<!-- LINKS -->
+<h2>Links</h2>
+
+<div class="jump-box">
+  <div class="jump-title">Related</div>
+  <div class="jump-grid">
+    <a href="/agents/architecture-comparison/" class="jump-link">
+      <span class="jump-icon">&#x1F50D;</span>
+      <span class="jump-text">
+        <span class="jump-text-main">Systems Compared</span>
+        <span class="jump-text-sub">6 frameworks, 13 patterns</span>
+      </span>
+    </a>
+    <a href="/agents/tools/" class="jump-link">
+      <span class="jump-icon">&#x1F510;</span>
+      <span class="jump-text">
+        <span class="jump-text-main">Tools &amp; Security</span>
+        <span class="jump-text-sub">IPC bus, secret boundary</span>
+      </span>
+    </a>
+    <a href="/golang/" class="jump-link">
+      <span class="jump-icon">&#x1F4A8;</span>
+      <span class="jump-text">
+        <span class="jump-text-main">Go</span>
+        <span class="jump-text-sub">why it's fast</span>
+      </span>
+    </a>
+  </div>
+</div>
+
+<footer class="hub-footer">
+  arizuko &middot;
+  <a href="https://github.com/REDACTED/arizuko">github.com/REDACTED/arizuko</a> &middot;
+  <a href="https://github.com/REDACTED">REDACTED</a>
+  <br>
+  <span style="color: var(--dim);">v1.0.0 v0.0.2 &middot; go-nativemiddot; go-native &middot; MIT</span>
+
+  <details class="llm-info">
+    <summary>Agent context</summary>
+    <p>
+      ARIZUKO is a multitenant Claude agent gateway written in Go. It polls messaging channels
+      (Telegram, Discord, WhatsApp, Email, Web SSE) for new messages, routes them to containerized
+      Claude agents via docker, and streams responses back to users. 17 packages, ~9,800 LOC,
+      122 tests. Named after the goddess of the undead ants.
+      Key components: gateway (message loop), container (docker spawn, sidecars), queue (per-group
+      concurrency, circuit breaker), router (5-tier routing rules), store (SQLite WAL, 12 tables),
+      channels (5 adapters), actions (14 actions, JSON schemas), ipc (file-based SIGUSR1),
+      scheduler (cron/interval/once), mime (magic-bytes detection), diary (YAML annotations),
+      mountsec (allowlist validation). Evolved from Kanipi (TypeScript). v1.0.0 adds permission tiers (4 levels), scheduled task context modes, IPC actions with authorization. v0.0.2 added channels,
+      actions, MIME pipeline, and comprehensive test suite.
+    </p>
+  </details>
+</footer>
+
+</div>
+<script src="/assets/hub.js"></script>
+</body>
+</html>

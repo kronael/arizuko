@@ -24,6 +24,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Features
 
+- **Scheduled task CtxMode**: `group` mode injects prompt as user message
+  (runs in group session), `isolated` mode (default) runs in fresh session
+  without persistence. Task results injected as context on next group message.
 - **inject_message IPC action**: agents can insert messages into DB without
   channel delivery; tier 0/1 only
 - **Permission tiers**: folder-depth-based authorization (0=root, 1=world,
