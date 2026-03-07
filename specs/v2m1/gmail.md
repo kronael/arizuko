@@ -34,7 +34,7 @@ if (GMAIL_CREDENTIALS_FILE) {
    (no public webhook needed — pull works behind NAT/firewall).
 3. On notification: fetch message via Gmail API, parse, dispatch.
 
-Setup (one-time, via `arizuko gmail setup`):
+Setup (one-time, via `kanipi gmail setup`):
 
 - Create Pub/Sub topic + subscription
 - Grant `gmail-api-push@system.gserviceaccount.com` publisher role
@@ -52,7 +52,7 @@ Threading: set `threadId` field on send (Gmail native — no
 OAuth2 via `googleapis`. Token stored in `store/gmail-token.json`.
 Refreshed automatically by the Google client library.
 
-First-time: `arizuko gmail auth` → opens browser for consent, saves token.
+First-time: `kanipi gmail auth` → opens browser for consent, saves token.
 
 ## JID format
 
@@ -67,7 +67,7 @@ No hashing needed — Gmail IDs are stable.
 ## Config
 
 ```env
-GMAIL_CREDENTIALS_FILE=/srv/data/arizuko_name/store/gmail-credentials.json
+GMAIL_CREDENTIALS_FILE=/srv/data/kanipi_name/store/gmail-credentials.json
 GMAIL_PUBSUB_TOPIC=projects/my-project/topics/gmail-push
 GMAIL_PUBSUB_SUBSCRIPTION=projects/my-project/subscriptions/gmail-push-sub
 ```

@@ -17,8 +17,8 @@ are provisioned per-VM and stored in the platform DB.
 
 ## Scope
 
-Arizuko adaptation: one Caddy sidecar per arizuko instance (not per group),
-serving `GROUPS_DIR` as root. Auth reuses the existing arizuko user accounts
+Kanipi adaptation: one Caddy sidecar per kanipi instance (not per group),
+serving `GROUPS_DIR` as root. Auth reuses the existing kanipi user accounts
 (`auth.ts`). Access is proxied through the existing web layer.
 
 ## Architecture
@@ -27,15 +27,15 @@ serving `GROUPS_DIR` as root. Auth reuses the existing arizuko user accounts
 WebDAV client (Finder / Cyberduck)
         │  Basic Auth: username:webdav_token
         ▼
-  arizuko web proxy  (web-proxy.ts)
+  kanipi web proxy  (web-proxy.ts)
         │  path: /dav/<group>/
         │  validates webdav_token against DB
         ▼
-  Caddy sidecar  (arizuko-webdav container)
+  Caddy sidecar  (kanipi-webdav container)
         │  no-auth (trusted internal network only)
         │  root: GROUPS_DIR
         ▼
-  /srv/data/arizuko_<name>/groups/<group>/
+  /srv/data/kanipi_<name>/groups/<group>/
 ```
 
 Caddy does the WebDAV heavy lifting (PROPFIND, PUT, MKCOL, COPY, MOVE,
@@ -45,12 +45,12 @@ DELETE, LOCK). Gateway proxy handles auth and path scoping.
 
 Uses the existing argon2id local-account system from `specs/v1/auth.md`.
 
-WebDAV clients require HTTP Basic Auth. Arizuko issues a **WebDAV token**
+WebDAV clients require HTTP Basic Auth. Kanipi issues a **WebDAV token**
 per user (separate from JWT — static tokens designed for client mounts):
 
 ```bash
-arizuko config <instance> user webdav-token <username>   # generate/rotate
-arizuko config <instance> user webdav-token <username> --show
+kanipi config <instance> user webdav-token <username>   # generate/rotate
+kanipi config <instance> user webdav-token <username> --show
 ```
 
 Token stored as `webdav_token` on the `auth_users` row (SHA-256 stored,
@@ -71,7 +71,7 @@ may only access groups they're authorised for. Paths outside their groups
 return 403 without reaching Caddy.
 
 ```bash
-arizuko config <instance> user webdav-groups <username> main support
+kanipi config <instance> user webdav-groups <username> main support
 ```
 
 ## URL scheme
@@ -93,7 +93,7 @@ All other paths under `<group>/` are read-write.
 
 ## Caddy sidecar
 
-Single `arizuko-webdav` container, no auth (internal only), full WebDAV:
+Single `kanipi-webdav` container, no auth (internal only), full WebDAV:
 
 ```caddyfile
 :8179 {
@@ -108,7 +108,7 @@ Single `arizuko-webdav` container, no auth (internal only), full WebDAV:
 Requires Caddy with the `mholt/caddy-webdav` module (not in stock Caddy).
 Built as a separate image: `sidecar/webdav/Dockerfile`.
 
-Mount: `-v /srv/data/arizuko_<name>/groups:/srv/groups:rw`
+Mount: `-v /srv/data/kanipi_<name>/groups:/srv/groups:rw`
 
 Caddy does LOCK (advisory, in-memory) — sufficient for single-instance.
 No NFS or distributed locking needed.
@@ -142,11 +142,11 @@ WEBDAV_SIDECAR_URL=http://localhost:8179
 
 ## Ansible
 
-Add `arizuko-webdav` service entry to `host_vars/REDACTED.../vars`:
+Add `kanipi-webdav` service entry to `host_vars/REDACTED.../vars`:
 
 ```yaml
-- image: arizuko-webdav
-  name: arizuko_webdav
+- image: kanipi-webdav
+  name: kanipi_webdav
   params: >-
     -v /srv/data/REDACTED/groups:/srv/groups:rw
     -p 127.0.0.1:8179:8179
