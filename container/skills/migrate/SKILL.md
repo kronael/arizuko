@@ -69,4 +69,15 @@ for session in /workspace/data/sessions/*/; do
 done
 ```
 
+## c) Re-read CLAUDE.md
+
+After migrations that update `~/.claude/CLAUDE.md`, re-read it to apply
+changes in the current session:
+
+```bash
+cat ~/.claude/CLAUDE.md
+```
+
+Read the output and follow any new instructions immediately.
+
 Report summary of groups updated and migrations run.

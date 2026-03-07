@@ -5,7 +5,7 @@ description: Show instance info, workspace state, available skills and tools. Us
 
 # Info
 
-Display information about the current arizuko instance.
+Display information about the current kanipi instance.
 
 ## What to report
 

@@ -3,333 +3,249 @@
 ## Overview
 
 Arizuko is a multitenant Claude agent gateway. It polls messaging
-channels for new messages, routes them to containerized Claude
-agents via docker, and streams responses back to users.
+channels for new messages, routes them to containerized Claude agents
+via docker, and streams responses back to users.
 
-TypeScript (ESM, NodeNext), SQLite (better-sqlite3), Docker.
+Go, SQLite (modernc.org/sqlite), Docker.
+
+## Package Dependency Graph
+
+```
+cmd/arizuko/main
+  ├── core          (Config, types, Channel interface)
+  ├── store         (SQLite persistence)
+  ├── gateway       (main loop, message routing)
+  │   ├── container (docker spawn, volume mounts, sidecars)
+  │   │   ├── groupfolder
+  │   │   ├── mountsec
+  │   │   └── runtime
+  │   ├── queue     (per-group concurrency, stdin piping)
+  │   │   └── runtime
+  │   ├── router    (message formatting, routing rules)
+  │   ├── ipc       (file-based request/reply)
+  │   ├── scheduler (cron/interval/once task runner)
+  │   │   └── store
+  │   ├── diary     (YAML frontmatter annotations)
+  │   └── groupfolder
+  └── logger        (slog JSON init)
+```
 
 ## Message Flow
 
 ```
-Channel (telegram/whatsapp/discord/email)
-  -> DB (store message + chat metadata)
-  -> message loop (poll getNewMessages)
-  -> trigger check (direct mode or @name mention)
-  -> routing rules (resolveRoutingTarget: delegate to child group if matched)
-  -> GroupQueue (per-group serialization)
-  -> startSidecars (per-group MCP servers)
-  -> runContainerAgent (docker run)
-  -> stream output back to channel
+Channel → store.PutMessage + PutChat
+  → gateway.messageLoop (polls every 2s)
+  → store.NewMessages (unprocessed since lastTimestamp)
+  → checkTrigger (direct mode or @name regex)
+  → handleCommand (/new, /ping, /chatid, /stop)
+  → router.ResolveRoutingTarget (delegate to child group if matched)
+  → queue.SendMessage (stdin pipe to running container) OR
+  → queue.EnqueueMessageCheck → processGroupMessages
+    → store.MessagesSince (per-chat agent cursor)
+    → store.FlushSysMsgs (XML system events prepended)
+    → router.FormatMessages (XML message batch)
+    → container.Run (docker run)
+    → stream output → router.FormatOutbound (strip <internal> tags)
+    → channel.Send
 ```
 
-Vite dev server runs alongside the gateway for web apps built
-by agents. Managed by the bash entrypoint (`arizuko`), not Node.
+## Key Types (core package)
+
+| Type            | Purpose                                                        |
+| --------------- | -------------------------------------------------------------- |
+| `Config`        | All settings from `.env` + env vars                            |
+| `Message`       | Incoming message (sender, content, reply context)              |
+| `Group`         | Registered group (folder, trigger, routing rules)              |
+| `GroupConfig`   | Per-group: mounts, timeout, sidecars                           |
+| `RoutingRule`   | Kind (command/pattern/keyword/sender/default) + match + target |
+| `Task`          | Scheduled task (cron/interval/once, prompt, status)            |
+| `Channel`       | Interface: Connect, Send, SendFile, Owns, Typing, Disconnect   |
+| `ChatInfo`      | Chat metadata with errored flag                                |
+| `SessionRecord` | Session log entry                                              |
+
+## SQLite Schema
+
+| Table               | Key columns                                                                                                          |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `chats`             | jid (PK), name, channel, is_group, errored                                                                           |
+| `messages`          | id (PK), chat_jid, sender, content, timestamp                                                                        |
+| `registered_groups` | jid (PK), folder, trigger_word, requires_trigger, container_config (JSON), routing_rules (JSON), parent, slink_token |
+| `sessions`          | group_folder (PK), session_id                                                                                        |
+| `session_log`       | id (auto), group_folder, session_id, started_at, ended_at, result, error                                             |
+| `system_messages`   | id (auto), group_id, origin, event, body                                                                             |
+| `scheduled_tasks`   | id (PK), group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, next_run, status               |
+| `task_run_logs`     | id (auto), task_id, run_at, duration_ms, status, result                                                              |
+| `router_state`      | key (PK), value — persists lastTimestamp, lastAgentTimestamp                                                         |
+| `auth_users`        | sub (unique), username (unique), hash                                                                                |
+| `auth_sessions`     | token_hash (PK), user_sub, expires_at                                                                                |
+| `email_threads`     | thread_id (PK), chat_jid, subject                                                                                    |
+
+WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
+
+## Container Lifecycle
+
+1. `runtime.EnsureRunning()` — verify docker is reachable
+2. `runtime.CleanupOrphans()` — stop stale `arizuko-*` containers
+3. `container.Run()`:
+   - Resolve group path via `groupfolder.Resolver`
+   - `BuildMounts()` — assemble volume mounts (group, media, self, share, session, IPC, web, extra)
+   - `mountsec.ValidateAdditionalMounts()` — check against allowlist
+   - `seedSettings()` — write `settings.json` to session `.claude/` dir (env vars, sidecar MCP config)
+   - `seedSkills()` — copy `container/skills/` to session on first run
+   - `StartSidecars()` — launch MCP sidecar containers (if configured)
+   - `docker run -i --rm` with volume mounts, write JSON to stdin, read stdout
+   - Parse output between `---NANOCLAW_OUTPUT_START---` / `---NANOCLAW_OUTPUT_END---` markers
+   - Output shape: `{ status, result, newSessionId, error }`
+   - Timer-based timeout with graceful stop then kill
+   - `StopSidecars()` — stop sidecar containers after agent exits
+   - Write log to `groups/<folder>/logs/container-<timestamp>.log`
+
+Session management: new session ID from container output updates
+`store.sessions`. On error with no output, session is evicted
+(cursor rolled back so messages retry). On error with output,
+cursor advances (partial work preserved).
+
+## IPC Mechanism (ipc package)
+
+File-based, polled every 1s by `ipc.Watcher`:
+
+- **Request-response**: agent writes `requests/<id>.json`, gateway
+  dispatches by type (`send_message`, `send_file`, `reset_session`),
+  writes `replies/<id>.json`. Atomic via tmp+rename.
+- **Legacy fire-and-forget**: agent writes `messages/<id>.json`
+  or `tasks/<id>.json`, gateway drains and executes.
+- **Stdin piping**: `queue.SendMessage()` writes `input/<ts>.json`,
+  sends SIGUSR1 to container for immediate wake.
+
+Authorization: non-root groups can only send to registered JIDs.
+
+## Sidecar Management (container/sidecar.go)
+
+Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
+
+1. `StartSidecars()` — `docker run -d` each sidecar with socket volume
+   at `ipc/sidecars/<name>.sock`, resource limits (memory, CPUs), network mode
+2. Socket path wired into agent `settings.json` as `mcpServers` entry
+   using `socat UNIX-CONNECT` transport
+3. `StopSidecars()` — `docker stop` then `docker rm -f` on exit
+
+## Queue (queue package)
+
+`GroupQueue` serializes agent invocations per group:
+
+- `maxConcurrent` global limit (default 5)
+- Per-group state: active flag, pending messages/tasks, container name
+- Circuit breaker: 3 consecutive failures opens breaker (reset by new message)
+- `EnqueueMessageCheck` → `runForGroup` → `processMessages` callback
+- `EnqueueTask` → `runTask` → task function
+- `drainGroupLocked` — after completion, run pending tasks then messages then waiting groups
+- `SendMessage` — write to IPC input dir + SIGUSR1 signal for live stdin piping
+
+## Routing Rules (router package)
+
+`ResolveRoutingTarget(msg, rules)` evaluates in tier order:
+
+1. **command** — exact prefix match (e.g. `/code`)
+2. **pattern** — regex match on content (max 200 chars)
+3. **keyword** — case-insensitive substring
+4. **sender** — regex on sender name
+5. **default** — always matches
 
-## Components
+`IsAuthorizedRoutingTarget` — target must be direct child of source
+within same world (root segment). Max delegation depth: 3.
 
-### index.ts
+## Scheduler (scheduler package)
 
-Main loop. Initializes channels, starts IPC watcher, scheduler,
-and message poll loop. Routes incoming messages to GroupQueue.
-Handles group registration and discovery across channels.
+Polls `store.DueTasks()` every 60s. For each due task:
 
-### config.ts
+1. Verify task still active
+2. Enqueue via `queue.EnqueueTask` (respects concurrency limits)
+3. Run agent with task prompt
+4. Log run in `task_run_logs`
+5. Compute next run: cron (via robfig/cron parser), interval (ms), or mark once-tasks complete
 
-All config from `.env` + env vars. Exports typed constants.
-Channel enablement by token presence (telegram/discord),
-auth dir (whatsapp), or `EMAIL_IMAP_HOST` (email).
-Test helpers `_overrideConfig`/`_resetConfig` gated behind
-`NODE_ENV=test`.
+## Diary System (diary package)
 
-### db.ts
+`diary.Read(groupDir, max)` reads recent `.md` files from `group/diary/`.
+Extracts `summary:` from YAML frontmatter. Returns XML annotations
+with age labels (today, yesterday, N days/weeks ago). Prepended to
+agent prompt as `<knowledge layer="diary">`.
 
-SQLite database. Stores messages, registered groups, chat
-metadata, sessions, and scheduled tasks. All access is
-synchronous (better-sqlite3). Key functions: `storeMessage`,
-`getNewMessages`, `getAllRegisteredGroups`, `setSession`.
+## Error Handling
 
-Tables: `messages`, `registered_groups`, `session_history`,
-`system_messages`, `scheduled_tasks`, `task_run_logs`,
-`email_threads`, `auth_users`, `auth_sessions`.
+- Per-chat `errored` flag in `chats` table
+- On agent error with no output: cursor rolled back, flag set, retry on next message
+- On agent error with output: cursor advances, partial output preserved
+- Circuit breaker in queue: 3 failures → stop processing until new message arrives
+- Container timeout: graceful `docker stop`, then `Process.Kill`
 
-`registered_groups` includes `parent`, `routing_rules`, and
-`slink_token` columns for hierarchical routing and web channel.
+## Mount Security (mountsec package)
 
-`system_messages` stores pending events per group; flushed as
-XML before agent stdin.
+Additional mounts validated against `~/.config/arizuko/mount-allowlist.json`:
 
-### slink.ts
+- Path must be absolute, resolve symlinks, exist on host
+- Must be under an `AllowedRoot`
+- Blocked patterns: `.ssh`, `.gnupg`, `.env`, credentials, private keys
+- Non-root groups forced read-only when `NonMainReadOnly` is set
+- Container path: `/workspace/extra/<name>`
 
-Web channel for `POST /pub/s/:token`. Rate limiting (anon/auth),
-JWT verification (HMAC-SHA256), `media_url` attachments. Returns
-`SlinkResponse` — HTTP wiring in `web-proxy.ts`.
+## Docker-in-Docker Path Translation
 
-### commands/
+`container.hp()` translates local paths to host paths when gateway runs in
+docker. `Config.HostProjectRoot` (from `HOST_DATA_DIR` env) provides the
+host-side base. All volume mount paths go through `hp()` before being
+passed to `docker run`.
 
-Pluggable command registry. Each command implements `CommandHandler`
-(name, description, handle). Commands are registered at startup and
-intercepted before messages reach the agent queue. `writeCommandsXml`
-serializes the registry to each group's IPC directory so agents can
-discover available commands. Built-in: `/new` (clear session), `/ping`,
-`/chatid`.
+## Configuration
 
-### channels/
+All config via `.env` in data dir or env vars (`core.LoadConfig`).
+Key values: `ASSISTANT_NAME`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`,
+`EMAIL_IMAP_HOST`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`,
+`HOST_DATA_DIR`, `HOST_APP_DIR`, `MEDIA_ENABLED`, `WHISPER_BASE_URL`.
 
-One file per channel. Each implements `Channel` interface:
+Channels enabled by token presence (telegram/discord) or config
+presence (email).
 
-- `telegram.ts` — grammy bot, polls via webhook or long-poll
-- `whatsapp.ts` — baileys client, event-driven
-- `discord.ts` — discord.js client, event-driven
-- `email.ts` — IMAP IDLE + SMTP reply threading
+## Gateway Commands
 
-Each channel stores incoming messages via `storeMessage` and
-provides `sendMessage(jid, text)` for outbound delivery.
-
-`telegram.ts` converts agent markdown to Telegram HTML via
-`mdToHtml()`. Typing indicator refreshes every 4s (Telegram
-expires at ~5s), stops on `status=success` output — not on
-container exit.
-
-### web-proxy.ts
-
-HTTP server sitting in front of Vite. Handles:
-
-- `POST /pub/s/:token` — delegates to `handleSlinkPost` (unauthenticated)
-- `GET /pub/REDACTED.js` — serves the public slink client script (unauthenticated)
-- `GET /_REDACTED/stream?group=<n>` — SSE stream; pushes agent responses to
-  browser clients via `addSseListener`/`removeSseListener` in `channels/web.ts`
-- `POST /_REDACTED/message` — receives messages from authenticated web UI
-- Everything else — proxied to Vite; HTML responses have `/_REDACTED/REDACTED.js`
-  injected before `</body>`
-
-Auth boundary: `/pub/` and `/_REDACTED/` prefixes bypass basic auth.
-All other paths require `REDACTED_USERS` credentials (if configured).
-
-### mime.ts + mime-enricher.ts + mime-handlers/
-
-Attachment pipeline. `mime.ts` downloads attachments in parallel,
-saves to session dir, runs matching handlers, returns annotation
-lines for the agent prompt. `mime-enricher.ts` runs enrichment at
-storage time (decoupled from dispatch); `waitForEnrichments()`
-blocks until all pending jobs complete so transcriptions are
-present when the prompt is assembled.
-
-Handlers: `voice.ts` (multi-pass whisper transcription per
-`.whisper-language`), `video.ts` (audio track extraction),
-`whisper.ts` (shared HTTP client to sidecar, 60s timeout).
-
-### container-runner.ts
-
-Spawns docker containers per agent invocation. Builds volume
-mounts (group folder, state, web dir), writes prompt to stdin,
-reads JSON output from stdout between sentinel markers.
-
-Sentinel markers (`---NANOCLAW_OUTPUT_START---` /
-`---NANOCLAW_OUTPUT_END---`) delimit structured output from
-agent log noise.
-
-Output shape: `{ status, result, newSessionId, error }`.
-
-`_spawnProcess` is an exported `let` binding (default: `spawn`) that
-tests replace to mock docker without a running daemon.
-
-Also writes `groups.json`, `tasks.json`, and `action_manifest.json`
-snapshots into the group IPC directory before each agent run. Runs `chownRecursive`
-on `WEB_DIR` before mounting so the agent (uid 1000) can write
-web files.
-
-### container-runtime.ts
-
-Docker lifecycle management. Starts/stops containers, cleans up
-orphaned containers on startup. Orphan detection filters by
-`ancestor=containerImage` to catch subagent containers spawned
-by agent-team runs. Provides `readonlyMountArgs` for constructing
-docker volume flags.
-
-### group-queue.ts
-
-Per-group message queue. Ensures sequential agent invocations
-per group (no concurrent runs for the same group). Pipes stdin
-to running containers for multi-turn within a session.
-
-### group-folder.ts
-
-Resolves and validates group folder paths. Enforces path
-containment (no `..` escapes). Validates folder name format
-before use in volume mounts or IPC paths.
-
-### router.ts
-
-Message formatting and outbound routing. Formats batched
-messages as XML for agent prompt input. Strips `<internal>`
-tags from agent output before sending to channel users.
-
-`isAuthorizedRoutingTarget(source, target)` validates that target
-is a direct child of source within the same world (root segment).
-`resolveRoutingTarget(msg, rules)` evaluates routing rules against
-a message (tier order: command, pattern, keyword, sender, default).
-
-### action-registry.ts + actions/
-
-Unified action system. Each action has name, Zod schema, handler,
-and optional command/MCP flags. Registry is the single source of
-truth — IPC dispatch, MCP tools, and commands all reference it.
-
-Actions: `send_message`, `send_file`, `schedule_task`, `pause_task`,
-`resume_task`, `cancel_task`, `refresh_groups`, `register_group`,
-`reset_session`, `delegate_group`, `set_routing_rules`.
-
-`getManifest()` serializes all MCP-exposed actions as JSON Schema
-for agent-side tool discovery.
-
-### ipc.ts
-
-File-based IPC between gateway and agent containers. Two modes:
-
-1. **Request-response** (new): agent writes to `requests/`,
-   gateway dispatches through action registry, writes reply to
-   `replies/`. Enables typed responses and tool discovery.
-2. **Fire-and-forget** (legacy): agent writes to `messages/`
-   or `tasks/`, gateway drains and executes. Kept for backwards
-   compat during rollout.
-
-File sends serialized per group via drain lock.
-
-### ipc-compat.ts
-
-Backwards compatibility shim. Exports `processTaskIpc` for legacy
-fire-and-forget task IPC during rollout.
-
-### auth.ts
-
-Authentication utilities. JWT minting/verification (HMAC-SHA256),
-cookie parsing, session management. Used by `web-proxy.ts` for
-auth endpoints (`/auth/login`, `/auth/refresh`) and by slink for
-JWT-authenticated requests.
-
-### task-scheduler.ts
-
-Cron-based scheduled task runner. Reads tasks from DB, fires
-agent invocations at scheduled times. Uses `cron-parser` for
-expression evaluation.
-
-### mount-security.ts
-
-Validates additional volume mounts requested by agents against
-an allowlist at `~/.config/arizuko/mount-allowlist.json`.
-Allowlist stored outside project root to prevent tampering.
-
-## Container Model
-
-Each agent invocation runs in a fresh docker container:
-
-```
-docker run
-  -v groups/<folder>:/workspace/group   # group files (rw)
-  -v arizuko/:/workspace/self            # arizuko source, all groups (ro)
-  -v share/:/workspace/share             # cross-group shared state (ro/rw)
-  -v web/:/workspace/web                # web output (rw)
-  -v data/sessions/<id>:/workspace/ipc  # IPC directory (rw)
-  -v <additional>:/workspace/extra/...  # allowlisted mounts (ro)
-```
-
-Full workspace namespace: `self`, `group`, `share`, `web`, `ipc`,
-`extra`. `/workspace/self` exposes the arizuko source and all group
-folders (read-only) — replaces the old `/workspace/project` which
-only mounted the main group.
-
-The container entrypoint (`container/agent-runner/`) reads the
-prompt from stdin and writes JSON output to stdout. The agent-side
-MCP server (`ipc-mcp-stdio.ts`) exposes gateway actions as tools
-via request-response IPC (writes to `requests/`, polls `replies/`).
-Agent-written `mcpServers` entries in `settings.json` are merged
-with the built-in server at spawn time.
-
-System messages (new-session, new-day) are flushed from DB and
-prepended as XML to the stdin payload before user messages.
-
-**reset_session IPC**: agents can request a session reset via IPC
-(`type:'reset_session'`). The gateway evicts the current session
-and the next invocation starts fresh.
-
-**Skills seeding**: on first spawn for a group, `container/skills/`
-is seeded to `~/.claude/skills/` inside the container. Includes
-arizuko-specific skills plus development skills bundled from
-REDACTED/tools (bash, go, python, typescript, etc.). A `CLAUDE.md`
-is also seeded alongside.
-
-**character.json**: agent identity is defined in
-`container/character.json` (ElizaOS-style: bio, topics, adjectives,
-style, messageExamples). Fields are randomized per query at runtime
-to vary personality. Per-instance overrides via
-`/workspace/share/character.json` are merged at load time.
-Replaces the old `SOUL.md` approach.
-
-**Migration system**: `container/skills/self/MIGRATION_VERSION`
-tracks the applied version number. `container/skills/self/migrations/`
-contains numbered migration files (`NNN-desc.md`). The `/migrate`
-skill syncs all groups from the canonical source when the version
-changes.
-
-**Sidecar lifecycle**: per-group MCP sidecars are started before the
-agent (`startSidecars`), probed for readiness, and their socket paths
-merged into the agent's `settings.json` (`reconcileSidecarSettings`).
-Sidecar images are discovered from `SIDECAR_<NAME>_IMAGE` env vars.
-Sockets live at `/workspace/ipc/sidecars/<name>.sock`. Stopped after
-agent exit (`stopSidecars`). Stale sidecar entries in `settings.json`
-are purged on remove/disable.
-
-**Signal-driven IPC**: gateway writes IPC file then sends SIGUSR1
-to the container; agent wakes immediately on signal rather than
-waiting for the 500ms poll interval.
-
-**Progress updates**: every 100 SDK messages, the agent runner
-emits partial output to the channel.
-
-**`error_max_turns` recovery**: resumes with `maxTurns=3`, asks
-Claude to summarise progress, prompts user to say "continue".
-
-## State
-
-- Registered groups → SQLite (`registered_groups` table; includes `parent`, `routing_rules`, `slink_token`)
-- Message history → SQLite (`messages` table)
-- Sessions → SQLite (`session_history` table) + filesystem. On agent error, the DB
-  pointer is evicted so the next run starts a fresh session; JSONL remains on
-  disk for history.
-- System messages → SQLite (`system_messages` table), flushed per invocation
-- Scheduled tasks → SQLite (`scheduled_tasks` table), run logs in `task_run_logs`
-- Email threads → SQLite (`email_threads` table) for SMTP reply threading
-- Web auth users → SQLite (`auth_users` table)
-- Web auth sessions → SQLite (`auth_sessions` table)
-- WhatsApp auth → `store/auth/` (baileys format)
-
-## External Systems
-
-| System   | Library       | Role                                                |
-| -------- | ------------- | --------------------------------------------------- |
-| Telegram | grammy        | message channel                                     |
-| WhatsApp | baileys       | message channel                                     |
-| Discord  | discord.js    | message channel                                     |
-| Email    | IMAP/SMTP     | message channel (IDLE + reply threading)            |
-| Docker   | child_process | agent container runtime                             |
-| Claude   | claude-code   | agent (runs in container)                           |
-| Whisper  | fetch (HTTP)  | voice/video transcription (arizuko-whisper sidecar) |
+| Command      | Effect                                    |
+| ------------ | ----------------------------------------- |
+| `/new [msg]` | Clear session, optionally process message |
+| `/ping`      | Status: group, session, active containers |
+| `/chatid`    | Echo the chat JID                         |
+| `/stop`      | Stop running container for this chat      |
 
 ## Repository Layout
 
 ```
-src/              gateway source (TypeScript)
-  actions/        action handlers by domain (messaging, tasks, groups, session)
-  channels/       telegram, whatsapp, discord, email
-  commands/       slash command handlers (/new, /ping, /chatid)
-container/        agent container build (make image → arizuko-agent)
-  agent-runner/   in-container entrypoint
-  skills/         agent-side skills
-template/         seed for new instances
-  web/            vite web app template
-  workspace/      mcporter config seed
-sidecar/          MCP server binaries
-  whisper/        whisper sidecar (make image → arizuko-whisper)
-specs/            versioned API/behavior specs
-arizuko           bash entrypoint (create/run/group/vite)
+cmd/arizuko/     CLI entrypoint (run, create, group)
+core/            Config, types, Channel interface
+store/           SQLite persistence (messages, groups, sessions, tasks, auth)
+gateway/         Main loop, message routing, commands
+container/       Docker spawn, volume mounts, sidecars, skills seeding
+  agent-runner/  In-container agent entrypoint
+  skills/        Agent-side skills
+queue/           Per-group concurrency, stdin piping
+router/          Message formatting, routing rules
+ipc/             File-based IPC watcher
+scheduler/       Cron/interval/once task runner
+diary/           YAML frontmatter diary annotations
+groupfolder/     Group path resolution and validation
+mountsec/        Mount allowlist validation
+runtime/         Docker binary, orphan cleanup
+logger/          slog JSON init
+template/        Seed for new instances
+sidecar/         MCP server binaries (whisper)
 ```
+
+## Data Directory
+
+`/srv/data/arizuko_<name>/` per instance:
+
+- `.env` — config
+- `store/` — SQLite DB (`messages.db`)
+- `groups/<folder>/` — group files, logs, diary, media
+- `groups/<world>/share/` — cross-group shared state
+- `data/ipc/<folder>/` — IPC directories (requests, replies, input, sidecars)
+- `data/sessions/<folder>/.claude/` — agent session (settings, skills, CLAUDE.md)
+- `web/` — vite web app

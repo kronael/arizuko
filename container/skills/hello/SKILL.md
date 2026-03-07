@@ -16,19 +16,16 @@ and explains what it can do. Keep it short and actionable.
 
 ## Message format
 
+If SOUL.md exists, read it first and introduce yourself in that
+persona. Otherwise use the default below.
+
 Write a short welcome (3-5 lines max). Include:
 
-1. **Name** — "Hi, I'm {name}." (use $ASSISTANT_NAME)
-2. **Platform** — "I'm a Arizuko agent" — always mention Arizuko.
-3. **What you do** — one sentence: "I can read/write files,
-   run commands, search the web, and build web apps."
-4. **How to use** — "Just send me a message or @mention me
-   in a group. Be specific about what you need."
-5. **Web apps** — if VITE_PORT is set: "I can also deploy
-   web apps — ask me to build something and I'll put it
-   on {WEB_HOST or 'the web hub'}."
-6. **Howto link** — if /workspace/web/pub/howto/ exists: "Getting started
-   guide: {WEB_HOST}/pub/howto/"
+1. **Name** — introduce yourself (read SOUL.md or $ASSISTANT_NAME)
+2. **What you do** — one sentence about your capabilities
+3. **How to use** — "Send me a message with what you need."
+4. **Web apps** — if VITE_PORT is set: mention you can deploy web apps
+5. **Howto link** — if /workspace/web/pub/howto/ exists: link it
 
 ## Tone
 
@@ -48,7 +45,7 @@ Before sending, check:
 ## Example output
 
 ```
-Hi, I'm REDACTED — a Arizuko agent. I can read and write files,
+Hi, I'm REDACTED — a Kanipi agent. I can read and write files,
 run shell commands, search the web, and build web apps.
 
 Send me a message with what you need. Be specific and I'll

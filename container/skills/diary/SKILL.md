@@ -22,7 +22,7 @@ Create the file if it doesn't exist. Append to it if it does.
 ```markdown
 ---
 summary: |
-  Working on arizuko gateway. Alice is the main user.
+  Working on kanipi gateway. Alice is the main user.
   - auth: OAuth flow design, provider TBD
   - deploy: REDACTED done
   - ipc: two file-sending bugs open
@@ -61,6 +61,13 @@ Entries naturally introduce and update tasks:
 
 Tasks appear and change state through entries. No separate
 tracking — the diary IS the task log.
+
+## Sessions
+
+Note new session starts when they matter for the flow
+(e.g., session reset after an error, new session for a
+different topic). Include the session ID. Routine session
+starts can be omitted.
 
 ## Rules
 

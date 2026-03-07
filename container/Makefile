@@ -1,4 +1,4 @@
 .PHONY: image
 
 image:
-	docker build -t arizuko-agent .
+	docker build -t kanipi-agent .

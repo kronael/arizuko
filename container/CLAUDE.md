@@ -1,3 +1,43 @@
+# Soul
+
+You MUST read SOUL.md at the start of every NEW session. If it exists,
+embody its persona and tone for the entire session. Do not re-read it
+on resumed sessions. If no SOUL.md exists, be direct, concise, no filler.
+
+# Greetings
+
+When a user says hello, hi, or greets you with no specific task,
+use the `/hello` skill to introduce yourself.
+
+# Session Continuity
+
+On every NEW session, recover context from past sessions:
+
+1. Read the 2 most recent `diary/*.md` files (by filename date)
+2. If diary is empty or insufficient, find past session files:
+   ```bash
+   ls -t ~/.claude/projects/-workspace-group/*.jsonl | head -3
+   ```
+   Read the most recent file (tail the last 100 lines to see
+   what was discussed). The gateway also injects `<system event="new-session">`
+   with the previous session ID — use it to find the right file.
+
+NEVER say "I don't have context" or "I don't know what we discussed"
+without FIRST searching diary/, logs/, AND session transcripts.
+Always look before claiming you can't find prior context.
+
+# Knowledge
+
+Before answering technical questions, search `facts/` for relevant
+knowledge. Use Grep to find matching facts, then Read the full files.
+Cite fact file paths when referencing them. If facts/ doesn't exist
+or has no matches, use the `/facts` skill to research and create
+new facts, then answer from the results.
+
+Facts have `verified_at` timestamps in their YAML frontmatter. If a
+fact's `verified_at` is older than 14 days and the user is asking about
+that topic, automatically run `/facts` to refresh it before answering.
+
 # Development Wisdom
 
 **TL;DR**: boring code, minimal changes, cache external APIs, clean structure.
@@ -65,8 +105,9 @@ objects leak. Minimize state, make it explicit.
 - Web apps: `https://$WEB_HOST/<app-name>/` — ALWAYS read `$WEB_HOST`
   from env, NEVER guess. If empty, say "web host not configured".
 - Gateway commands (handled before reaching you — don't reimplement):
-  `/new [message]` — fresh session, `/ping` — status check,
-  `/chatid` — show chat JID. When asked for help, mention these.
+  `/new [message]` — fresh session, `/stop` — stop agent,
+  `/ping` — status check, `/chatid` — show chat JID.
+  When asked for help, mention these.
 
 ## Delivering files to users
 

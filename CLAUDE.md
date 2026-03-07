@@ -2,16 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Conventions
-
-- JSONL files use `.jl` extension (not `.jsonl`)
-
-## Format Conventions
-
-- XML tags for prompt structure (context sections, examples)
-- JSON for IPC, MCP, tool parameters, structured output
-- See `specs/xml-vs-json-llm.md` for research
-
 ## What is arizuko
 
 Nanoclaw fork — multitenant Claude agent gateway with
@@ -21,201 +11,152 @@ systemd-managed instances, MCP sidecar extensibility.
 ## Build & Test
 
 ```bash
-make build          # tsc compile (src/ → dist/)
-make lint           # typecheck without emitting
-make image                     # gateway docker image
-make -C container image        # agent docker image
-make -C sidecar/whisper image  # whisper sidecar image
-npm run dev         # tsx dev mode
+make build    # go build → ./arizuko binary
+make lint     # go vet ./...
+make test     # go test ./... -count=1
+make image    # gateway docker image
+make agent    # agent docker image (make -C container image)
 ```
 
-Tests use vitest (devDependency). Run all:
-`vitest run`. Run one file: `vitest run src/foo.test.ts`.
-Many tests require docker — they'll fail without it.
-
-Pre-commit hooks (prettier, typecheck, hygiene) configured
-via `.pre-commit-config.yaml`. Prettier uses single quotes.
+Tests use `modernc.org/sqlite` (pure Go, no CGO).
+Pre-commit hooks configured via `.pre-commit-config.yaml`.
 
 ## Architecture
 
-TypeScript (ESM, NodeNext). Gateway polls channels for
-messages, routes to containerized Claude agents via docker.
+Go binary. Gateway polls channels for messages, routes to
+containerized Claude agents via docker, streams output back.
 
-**Flow**: Channel → DB (store message) → message loop polls
-→ GroupQueue → runContainerAgent (docker run) → stream
-output back to channel.
+**Flow**: Channel → store.PutMessage → gateway.messageLoop polls
+→ GroupQueue → container.Run (docker run) → stream output
+→ channel.Send.
 
-Key modules:
+See ARCHITECTURE.md for package graph, schema, container model.
 
-- `index.ts` — main loop, channel init, message routing
-- `config.ts` — config from `.env` + env vars (no web config)
-- `db.ts` — SQLite (better-sqlite3) for messages, state, tasks
-- `container-runner.ts` — spawns agent containers, streams I/O
-- `container-runtime.ts` — docker lifecycle, orphan cleanup
-- `group-queue.ts` — per-group message queueing, stdin piping
-- `router.ts` — message formatting, channel→JID resolution
-- `action-registry.ts` — unified action system (Zod schemas, authorization)
-- `actions/` — action handlers by domain (messaging, tasks, groups, session)
-- `ipc.ts` — container↔gateway IPC (request-response + legacy fire-and-forget)
-- `task-scheduler.ts` — cron-based scheduled tasks
-- `mount-security.ts` — validates additional mounts against `~/.config/arizuko/mount-allowlist.json` (stored outside project to prevent agent tampering)
-- `mime.ts` — shared `mimeFromFile()` via file-type (magic bytes detection)
-- `channels/` — telegram (grammy), whatsapp (baileys), discord (discord.js),
-  email (IMAP IDLE + SMTP threading)
+## Packages
 
-**Web**: vite dev server managed by bash entrypoint (not
-the TS gateway). No `web-server.ts` — web is external.
-
-**Container model**: each agent runs in a docker container.
-Gateway mounts group folder + state into container. Agent
-reads prompt from stdin, writes results to stdout as JSON.
-`container/agent-runner/` is the in-container entrypoint. IPC is
-signal-driven: gateway writes a file then sends SIGUSR1 to the
-container; agent wakes immediately on signal, falls back to 500ms poll.
-
-**Docker-in-docker path translation**: when the gateway itself
-runs in docker, `process.cwd()` paths are container-internal.
-`config.ts:detectHostPath()` reads `/proc/self/mountinfo` to
-find the host-side path of `PROJECT_ROOT` so child containers
-receive correct host mount paths. `HOST_PROJECT_ROOT_PATH` is
-the translated value (falls back to `process.cwd()` on bare metal).
-`container-runner.ts:hostPath()` applies the same translation for
-session dirs; `chownRecursive()` ensures they are writable by
-node uid 1000 inside agent containers.
+- `cmd/arizuko/` — entrypoint (run, create, group subcommands)
+- `core/` — Config, types (Message, Group, Task, Channel interface)
+- `store/` — SQLite persistence (messages, groups, sessions, tasks, auth)
+- `gateway/` — main loop, message routing, commands (/new, /ping, /chatid, /stop)
+- `container/` — docker spawn, volume mounts, sidecars, skills seeding
+- `queue/` — per-group concurrency, stdin piping, circuit breaker
+- `router/` — XML message formatting, routing rules, outbound filtering
+- `ipc/` — file-based IPC watcher (request/reply + legacy fire-and-forget)
+- `scheduler/` — cron/interval/once task runner (robfig/cron)
+- `diary/` — YAML frontmatter diary annotations for agent context
+- `groupfolder/` — group path resolution and validation
+- `mountsec/` — mount allowlist validation
+- `runtime/` — docker binary abstraction, orphan cleanup
+- `logger/` — slog JSON handler init
 
 ## Layout
 
 ```
-src/                  gateway source (TypeScript)
-container/            agent container build
-  agent-runner/       in-container agent entrypoint
-  build.sh            agent image builder
-  skills/             agent-side skills
-template/             seed for new instances
-  web/                vite web app template
-sidecar/              MCP server binaries
-arizuko               bash entrypoint (create/run/group/vite)
+cmd/arizuko/       CLI entrypoint
+core/              Config, types, Channel interface
+store/             SQLite (messages.db)
+gateway/           Main loop + commands
+container/         Docker runner + sidecars
+  agent-runner/    In-container agent entrypoint
+  skills/          Agent-side skills
+queue/             Per-group concurrency
+router/            Message formatting + routing
+ipc/               File-based IPC
+scheduler/         Task scheduler
+diary/             Diary annotations
+groupfolder/       Path validation
+mountsec/          Mount security
+runtime/           Docker lifecycle
+logger/            Logging init
+template/          Instance seed files
+sidecar/           MCP server binaries
 ```
+
+## Conventions
+
+- JSONL files use `.jl` extension (not `.jsonl`)
+- XML tags for prompt structure, JSON for IPC/MCP/structured output
+- Container output delimited by `---NANOCLAW_OUTPUT_START---` / `---NANOCLAW_OUTPUT_END---`
+- IPC: atomic writes via tmp+rename, SIGUSR1 for immediate wake
 
 ## Data Dir
 
 `/srv/data/arizuko_<name>/` per instance:
 
 - `.env` — config (gateway reads from cwd)
-- `store/` — SQLite DB, whatsapp auth
-- `groups/main/logs/` — conversation logs
-- `web/` — vite web app (seeded from template/web/)
-- `data/` — IPC, sessions
+- `store/` — SQLite DB
+- `groups/<folder>/` — group files, logs, diary
+- `data/ipc/<folder>/` — IPC directories
+- `data/sessions/<folder>/.claude/` — agent session state
 
 ## Config
 
-All config via `.env` in data dir or env vars. Key values:
-`ASSISTANT_NAME`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`,
-`EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`,
-`CONTAINER_IMAGE`, `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`.
+All config via `.env` in data dir or env vars (`core.LoadConfig`).
+Key values: `ASSISTANT_NAME`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`,
+`EMAIL_IMAP_HOST`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`.
 
-`CONTAINER_IMAGE` is read from both `.env` and env vars (env var
-wins). Most other container settings are env-var only.
-
-`env.ts` handles raw `.env` file loading; `config.ts` exports
-typed constants derived from env. Always import from `config.ts`.
-
-Channels enabled by token presence (telegram/discord), auth dir existence
-(whatsapp), or `EMAIL_IMAP_HOST` presence (email).
+`HOST_DATA_DIR` and `HOST_APP_DIR` for docker-in-docker path translation.
+Channels enabled by token/config presence.
 
 ## Entrypoint
 
-`arizuko create <name>` — seed data dir, .env, systemd unit.
-`arizuko config <instance> group list|add|rm` — manage registered groups.
-`arizuko <instance>` — cd to home, run gateway + vite
-(restart loop). VITE_PORT/WEB_HOST configured in .env.
-
-Group commands use `node -e` with better-sqlite3 against
-`/srv/data/arizuko_$instance/store/messages.db`. `group add`
-creates the DB + schema if missing (solves bootstrap).
-First group defaults to folder=main, requires_trigger=0.
-Subsequent groups require folder arg and use trigger mode.
-
-## Related projects
-
-- `/home/onvos/app/eliza-atlas` — ElizaOS fork with deep facts/memory system;
-  the evangelist plugin (`/home/onvos/app/eliza-plugin-evangelist`) implements
-  YAML-based facts repository, vector search, and Claude Code-powered research.
-  This is the reference implementation for arizuko's v2 facts/long-term memory.
-  Key files: `src/services/factsService.ts`, `src/services/researchService.ts`
-- `/home/onvos/app/refs/brainpro` — brainpro agent (Rust/gateway); reference
-  for `memory/YYYY-MM-DD.md` daily notes pattern and session map design
+`arizuko run` — load config, open store, start gateway.
+`arizuko create <name>` — seed data dir, .env, default group.
+`arizuko group <instance> list|add|rm` — manage registered groups.
 
 ## Design Philosophy
 
-Arizuko aims to be minimal and orthogonal — components should be independently
-useful and have the narrowest possible responsibility. Like Postfix or GNU Hurd:
-each subsystem (channels, memory, IPC, task scheduler) operates on a clean
-interface, knows nothing of the others, and could in principle run with its own
-privileges or as its own process. Complexity is a liability. If two things can
-be separated without losing capability, separate them. Avoid shared state between
-subsystems. Plugins should extend individual subsystems through their own hooks,
-not through a god-object that owns everything.
-
-Prioritize extensibility and reusability over speed. Don't optimize
-for performance unless measured. Agent self-extension (skills, MCP
+Minimal and orthogonal — components independently useful with
+narrow responsibility. Each subsystem (channels, memory, IPC,
+scheduler) operates on clean interfaces, knows nothing of others.
+Complexity is a liability. Agent self-extension (skills, MCP
 servers, CLAUDE.md, memory) is the primary extension mechanism.
 
 ## Operational check (post-deploy)
 
-After deploying a new version, run this check sequence:
-
 ```bash
-# 1. Service health — should be active (running), no restart loops
+# 1. Service health
 sudo systemctl status arizuko_<instance>
 
-# 2. Startup sequence — expect these lines in order:
-#    "Database initialized", "State loaded", "<channel> connected",
-#    "IPC watcher started", "Scheduler loop started", "NanoClaw running"
+# 2. Startup sequence — expect: "state loaded", "channel connected",
+#    "ipc watcher started", "scheduler loop started", "arizuko running"
 sudo journalctl -u arizuko_<instance> --since "5 minutes ago" --no-pager | head -30
 
-# 3. Errors/warnings — should return nothing
+# 3. Errors
 sudo journalctl -u arizuko_<instance> --since "5 minutes ago" --no-pager \
   | grep -iE 'error|warn|fatal|crash|unhandled|reject'
 
-# 4. Container orphans — arizuko-* containers >1h old are suspect
+# 4. Container orphans
 sudo docker ps --filter "name=arizuko-" --format "{{.Names}} {{.Status}}"
 
-# 5. IPC file accumulation — request files should drain, not pile up
+# 5. IPC file accumulation
 find /srv/data/arizuko_<instance>/data/ipc/*/requests/ -name '*.json' 2>/dev/null | wc -l
 ```
 
-Red flags in journalctl:
+Red flags: `"error in message loop"`, `"container timeout"`,
+`"circuit breaker open"`, `"agent error"`, no log activity >30s.
 
-- `"Error in message loop"` — unhandled error, likely repeating
-- `"Container timeout with no output"` — agent hung
-- `"Max retries exceeded, dropping messages"` — persistent failure
-- `"Failed to parse container output"` — agent output malformed
-- No log activity for >30s — message loop stalled
+Key error emitters: `gateway/gateway.go` (message loop),
+`queue/queue.go` (concurrency/circuit breaker),
+`container/runner.go` (spawn/timeout), `ipc/watcher.go` (drain).
 
-When investigating issues, correlate journalctl timestamps with
-source code error paths. Key error emitters: `index.ts` (message
-loop), `group-queue.ts` (retry/concurrency), `container-runner.ts`
-(spawn/timeout), `ipc.ts` (drain errors).
-
-## Shipping changes (agent skills / web convention)
-
-When making notable arizuko changes:
+## Shipping changes
 
 1. Add entry to `CHANGELOG.md`
 2. Add migration file `container/skills/self/migrations/NNN-desc.md`
-3. Update `container/skills/self/MIGRATION_VERSION` to match highest N
-4. Update "Latest migration version" in `container/skills/self/SKILL.md`
+3. Update `container/skills/self/MIGRATION_VERSION`
+4. Update `container/skills/self/SKILL.md`
 5. Rebuild agent image
 
 ## Tagging a new version
 
-After all changes are committed:
+1. Update `CHANGELOG.md` — move [Unreleased] to `[vX.Y.Z] — YYYY-MM-DD`
+2. Update `README.md` and `ARCHITECTURE.md` if needed
+3. `git tag vX.Y.Z`
+4. Tag docker images: `docker tag arizuko:latest arizuko:vX.Y.Z` and same for `arizuko-agent`
+5. Add `.diary/YYYYMMDD.md` entry
 
-1. Update `package.json` version
-2. Update `CHANGELOG.md` — move [Unreleased] to `[vX.Y.Z] — YYYY-MM-DD`
-3. Update `README.md` and `ARCHITECTURE.md` if needed
-4. `git tag vX.Y.Z`
-5. Tag docker images: `docker tag arizuko:latest arizuko:vX.Y.Z` and same for `arizuko-agent`
-6. Per-instance gateway tags: `docker tag arizuko:vX.Y.Z arizuko-<name>:latest` for instances being upgraded
-7. Add `.diary/YYYYMMDD.md` entry documenting what was deployed and which instances
+## Related projects
+
+- `/home/onvos/app/eliza-atlas` — ElizaOS fork; reference for facts/memory
+- `/home/onvos/app/refs/brainpro` — reference for daily notes pattern
