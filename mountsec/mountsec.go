@@ -1,0 +1,208 @@
+package mountsec
+
+import (
+	"encoding/json"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+var defaultBlocked = []string{
+	".ssh", ".gnupg", ".gpg", ".aws", ".azure", ".gcloud",
+	".kube", ".docker", "credentials", ".env", ".netrc",
+	".npmrc", ".pypirc", "id_rsa", "id_ed25519",
+	"private_key", ".secret",
+}
+
+type AllowedRoot struct {
+	Path           string `json:"path"`
+	AllowReadWrite bool   `json:"allowReadWrite"`
+	Description    string `json:"description,omitempty"`
+}
+
+type Allowlist struct {
+	AllowedRoots    []AllowedRoot `json:"allowedRoots"`
+	BlockedPatterns []string      `json:"blockedPatterns"`
+	NonMainReadOnly bool          `json:"nonMainReadOnly"`
+}
+
+type AdditionalMount struct {
+	HostPath      string `json:"hostPath"`
+	ContainerPath string `json:"containerPath,omitempty"`
+	Readonly      *bool  `json:"readonly,omitempty"`
+}
+
+type ValidMount struct {
+	HostPath      string
+	ContainerPath string
+	Readonly      bool
+}
+
+func LoadAllowlist(path string) Allowlist {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			slog.Warn("mount allowlist not found, additional mounts blocked", "path", path)
+		} else {
+			slog.Error("failed to read mount allowlist", "path", path, "err", err)
+		}
+		return Allowlist{}
+	}
+
+	var al Allowlist
+	if err := json.Unmarshal(data, &al); err != nil {
+		slog.Error("failed to parse mount allowlist", "path", path, "err", err)
+		return Allowlist{}
+	}
+
+	seen := map[string]bool{}
+	merged := make([]string, 0, len(defaultBlocked)+len(al.BlockedPatterns))
+	for _, p := range append(defaultBlocked, al.BlockedPatterns...) {
+		if !seen[p] {
+			seen[p] = true
+			merged = append(merged, p)
+		}
+	}
+	al.BlockedPatterns = merged
+
+	slog.Info("mount allowlist loaded",
+		"path", path,
+		"allowedRoots", len(al.AllowedRoots),
+		"blockedPatterns", len(al.BlockedPatterns))
+	return al
+}
+
+func ValidateAdditionalMounts(
+	mounts []AdditionalMount,
+	groupName string,
+	isRoot bool,
+	al Allowlist,
+) []ValidMount {
+	var out []ValidMount
+	for _, m := range mounts {
+		v, ok, reason := validateOne(m, isRoot, al)
+		if ok {
+			out = append(out, v)
+			slog.Debug("mount validated",
+				"group", groupName,
+				"host", v.HostPath,
+				"container", v.ContainerPath,
+				"readonly", v.Readonly)
+		} else {
+			slog.Warn("mount rejected",
+				"group", groupName,
+				"host", m.HostPath,
+				"reason", reason)
+		}
+	}
+	return out
+}
+
+func validateOne(m AdditionalMount, isRoot bool, al Allowlist) (ValidMount, bool, string) {
+	if len(al.AllowedRoots) == 0 {
+		return ValidMount{}, false, "no allowlist configured"
+	}
+
+	expanded := expandHome(m.HostPath)
+	if !filepath.IsAbs(expanded) {
+		return ValidMount{}, false, "host path not absolute after expansion: " + expanded
+	}
+
+	real, err := filepath.EvalSymlinks(expanded)
+	if err != nil {
+		return ValidMount{}, false, "host path does not exist: " + expanded
+	}
+
+	if pat := matchesBlocked(real, al.BlockedPatterns); pat != "" {
+		return ValidMount{}, false, "matches blocked pattern \"" + pat + "\": " + real
+	}
+
+	root := findAllowedRoot(real, al.AllowedRoots)
+	if root == nil {
+		return ValidMount{}, false, "not under any allowed root: " + real
+	}
+
+	cp := m.ContainerPath
+	if cp == "" {
+		cp = filepath.Base(m.HostPath)
+	}
+	if !validContainerPath(cp) {
+		return ValidMount{}, false, "invalid container path: " + cp
+	}
+
+	ro := true
+	if m.Readonly != nil && !*m.Readonly {
+		switch {
+		case !isRoot && al.NonMainReadOnly:
+			slog.Info("mount forced readonly for non-main group", "host", m.HostPath)
+		case !root.AllowReadWrite:
+			slog.Info("mount forced readonly, root disallows rw", "host", m.HostPath, "root", root.Path)
+		default:
+			ro = false
+		}
+	}
+
+	return ValidMount{
+		HostPath:      real,
+		ContainerPath: "/workspace/extra/" + cp,
+		Readonly:      ro,
+	}, true, ""
+}
+
+func expandHome(p string) string {
+	home, _ := os.UserHomeDir()
+	if p == "~" {
+		return home
+	}
+	if strings.HasPrefix(p, "~/") {
+		return filepath.Join(home, p[2:])
+	}
+	return p
+}
+
+func matchesBlocked(real string, patterns []string) string {
+	parts := strings.Split(real, string(filepath.Separator))
+	for _, pat := range patterns {
+		for _, part := range parts {
+			if part == pat || strings.Contains(part, pat) {
+				return pat
+			}
+		}
+		if strings.Contains(real, pat) {
+			return pat
+		}
+	}
+	return ""
+}
+
+func findAllowedRoot(real string, roots []AllowedRoot) *AllowedRoot {
+	for i := range roots {
+		expanded := expandHome(roots[i].Path)
+		rr, err := filepath.EvalSymlinks(expanded)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(rr, real)
+		if err != nil {
+			continue
+		}
+		if !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel) {
+			return &roots[i]
+		}
+	}
+	return nil
+}
+
+func validContainerPath(p string) bool {
+	if p == "" || strings.TrimSpace(p) == "" {
+		return false
+	}
+	if strings.Contains(p, "..") {
+		return false
+	}
+	if strings.HasPrefix(p, "/") {
+		return false
+	}
+	return true
+}

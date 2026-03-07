@@ -1,0 +1,638 @@
+package gateway
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/onvos/arizuko/container"
+	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/groupfolder"
+	"github.com/onvos/arizuko/ipc"
+	"github.com/onvos/arizuko/queue"
+	"github.com/onvos/arizuko/router"
+	"github.com/onvos/arizuko/runtime"
+	"github.com/onvos/arizuko/scheduler"
+	"github.com/onvos/arizuko/store"
+)
+
+type Gateway struct {
+	cfg     *core.Config
+	store   *store.Store
+	queue   *queue.GroupQueue
+	folders *groupfolder.Resolver
+
+	mu       sync.RWMutex
+	channels []core.Channel
+	groups   map[string]core.Group
+	sessions map[string]string
+
+	lastTimestamp      time.Time
+	lastAgentTimestamp map[string]time.Time
+	lastMessageDate   map[string]string
+
+	runnerCfg *container.RunnerConfig
+}
+
+func New(cfg *core.Config, s *store.Store) *Gateway {
+	return &Gateway{
+		cfg:   cfg,
+		store: s,
+		queue: queue.New(cfg.MaxContainers, cfg.DataDir),
+		folders: &groupfolder.Resolver{
+			GroupsDir: cfg.GroupsDir,
+			DataDir:   cfg.DataDir,
+		},
+		groups:             make(map[string]core.Group),
+		sessions:           make(map[string]string),
+		lastAgentTimestamp: make(map[string]time.Time),
+		lastMessageDate:   make(map[string]string),
+		runnerCfg: &container.RunnerConfig{
+			Image:           cfg.Image,
+			Timeout:         cfg.Timeout,
+			IdleTimeout:     cfg.IdleTimeout,
+			HostProjectRoot: cfg.HostProjectRoot,
+			HostAppDir:      cfg.HostAppDir,
+			HostGroupsDir:   cfg.HostGroupsDir,
+			DataDir:         cfg.DataDir,
+			Timezone:        cfg.Timezone,
+			Name:            cfg.Name,
+		},
+	}
+}
+
+func (g *Gateway) AddChannel(ch core.Channel) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.channels = append(g.channels, ch)
+}
+
+func (g *Gateway) Run(ctx context.Context) error {
+	if err := runtime.EnsureRunning(); err != nil {
+		return fmt.Errorf("runtime check failed: %w", err)
+	}
+	runtime.CleanupOrphans(g.cfg.Image)
+
+	g.loadState()
+
+	w := ipc.NewWatcher(g.cfg.DataDir, ipc.Deps{
+		SendMessage:   g.sendMessage,
+		SendDocument:  g.sendDocument,
+		ClearSession:  g.clearSession,
+		GroupsDir:     g.cfg.GroupsDir,
+		HostGroupsDir: g.cfg.HostGroupsDir,
+		IsRoot:        g.cfg.IsRoot,
+		RegisteredJids: func() map[string]bool {
+			g.mu.RLock()
+			defer g.mu.RUnlock()
+			m := make(map[string]bool, len(g.groups))
+			for jid := range g.groups {
+				m[jid] = true
+			}
+			return m
+		},
+	})
+	w.Start()
+
+	sched := scheduler.New(scheduler.Deps{
+		Store: g.store,
+		Groups: func() map[string]core.Group {
+			g.mu.RLock()
+			defer g.mu.RUnlock()
+			cp := make(map[string]core.Group, len(g.groups))
+			for k, v := range g.groups {
+				cp[k] = v
+			}
+			return cp
+		},
+		Sessions: func() map[string]string {
+			g.mu.RLock()
+			defer g.mu.RUnlock()
+			cp := make(map[string]string, len(g.sessions))
+			for k, v := range g.sessions {
+				cp[k] = v
+			}
+			return cp
+		},
+		EnqueueTask: func(jid, taskID string, fn func() error) {
+			g.queue.EnqueueTask(jid, taskID, fn)
+		},
+		SendMessage: g.sendMessage,
+		RunAgent: func(
+			group core.Group, prompt, chatJid string,
+			isTask bool, onOutput func(string, string),
+		) error {
+			out := g.runAgent(group, prompt, chatJid, 0, onOutput)
+			if out.Error != "" {
+				return fmt.Errorf("%s", out.Error)
+			}
+			return nil
+		},
+		Timezone: g.cfg.Timezone,
+	})
+	sched.Start()
+
+	g.queue.SetProcessMessagesFn(g.processGroupMessages)
+
+	g.recoverPendingMessages()
+
+	for _, ch := range g.channels {
+		if err := ch.Connect(ctx); err != nil {
+			slog.Error("channel connect failed",
+				"channel", ch.Name(), "err", err)
+			continue
+		}
+		slog.Info("channel connected", "channel", ch.Name())
+	}
+
+	slog.Info("arizuko running",
+		"name", g.cfg.Name,
+		"groups", len(g.groups),
+		"image", g.cfg.Image,
+	)
+
+	g.messageLoop(ctx)
+	return nil
+}
+
+func (g *Gateway) Shutdown() {
+	g.queue.Shutdown()
+	for _, ch := range g.channels {
+		if err := ch.Disconnect(); err != nil {
+			slog.Error("channel disconnect failed",
+				"channel", ch.Name(), "err", err)
+		}
+	}
+	g.saveState()
+	slog.Info("gateway shut down")
+}
+
+func (g *Gateway) RegisterGroup(jid string, group core.Group) {
+	g.mu.Lock()
+	g.groups[jid] = group
+	g.mu.Unlock()
+
+	if err := g.store.PutGroup(jid, group); err != nil {
+		slog.Error("failed to persist group", "jid", jid, "err", err)
+	}
+}
+
+// --- state persistence ---
+
+func (g *Gateway) loadState() {
+	raw := g.store.GetState("last_timestamp")
+	if raw != "" {
+		g.lastTimestamp, _ = time.Parse(time.RFC3339Nano, raw)
+	}
+
+	g.lastAgentTimestamp = make(map[string]time.Time)
+	raw = g.store.GetState("last_agent_timestamp")
+	if raw != "" {
+		var m map[string]string
+		if json.Unmarshal([]byte(raw), &m) == nil {
+			for k, v := range m {
+				t, _ := time.Parse(time.RFC3339Nano, v)
+				g.lastAgentTimestamp[k] = t
+			}
+		}
+	}
+
+	g.sessions = g.store.AllSessions()
+	if g.sessions == nil {
+		g.sessions = make(map[string]string)
+	}
+
+	g.groups = g.store.AllGroups()
+	if g.groups == nil {
+		g.groups = make(map[string]core.Group)
+	}
+
+	slog.Info("state loaded",
+		"groups", len(g.groups),
+		"sessions", len(g.sessions),
+	)
+}
+
+func (g *Gateway) saveState() {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	g.store.SetState("last_timestamp",
+		g.lastTimestamp.Format(time.RFC3339Nano))
+
+	m := make(map[string]string, len(g.lastAgentTimestamp))
+	for k, v := range g.lastAgentTimestamp {
+		m[k] = v.Format(time.RFC3339Nano)
+	}
+	b, _ := json.Marshal(m)
+	g.store.SetState("last_agent_timestamp", string(b))
+}
+
+// --- message loop ---
+
+func (g *Gateway) messageLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		g.pollOnce()
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(g.cfg.PollInterval):
+		}
+	}
+}
+
+func (g *Gateway) pollOnce() {
+	g.mu.RLock()
+	jids := make([]string, 0, len(g.groups))
+	for jid := range g.groups {
+		jids = append(jids, jid)
+	}
+	since := g.lastTimestamp
+	g.mu.RUnlock()
+
+	if len(jids) == 0 {
+		return
+	}
+
+	msgs, hi, err := g.store.NewMessages(jids, since, g.cfg.Name)
+	if err != nil {
+		slog.Error("error in message loop", "err", err)
+		return
+	}
+	if len(msgs) == 0 {
+		return
+	}
+
+	g.mu.Lock()
+	g.lastTimestamp = hi
+	g.mu.Unlock()
+
+	byChat := make(map[string][]core.Message)
+	for _, m := range msgs {
+		byChat[m.ChatJID] = append(byChat[m.ChatJID], m)
+	}
+
+	for chatJid, chatMsgs := range byChat {
+		g.mu.RLock()
+		group, ok := g.groups[chatJid]
+		g.mu.RUnlock()
+		if !ok {
+			continue
+		}
+
+		triggered := g.checkTrigger(group, chatMsgs)
+		if !triggered {
+			continue
+		}
+
+		// Check routing rules on last message
+		last := chatMsgs[len(chatMsgs)-1]
+		if target := router.ResolveRoutingTarget(last, group.Rules); target != "" {
+			if router.IsAuthorizedRoutingTarget(group.Folder, target) {
+				prompt := last.Content
+				g.delegateToChild(target, prompt, chatJid, 0)
+				continue
+			}
+		}
+
+		// Try piping to active container first
+		if g.queue.SendMessage(chatJid, last.Content) {
+			continue
+		}
+
+		g.queue.EnqueueMessageCheck(chatJid)
+	}
+
+	g.saveState()
+}
+
+// --- process group messages (queue callback) ---
+
+func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
+	g.mu.RLock()
+	group, ok := g.groups[chatJid]
+	agentTs := g.lastAgentTimestamp[chatJid]
+	g.mu.RUnlock()
+	if !ok {
+		return false, fmt.Errorf("group not registered: %s", chatJid)
+	}
+
+	ch := g.findChannel(chatJid)
+
+	msgs, err := g.store.MessagesSince(chatJid, agentTs, g.cfg.Name)
+	if err != nil {
+		return false, fmt.Errorf("query messages: %w", err)
+	}
+	if len(msgs) == 0 {
+		return false, nil
+	}
+
+	if group.NeedTrig && !g.checkTrigger(group, msgs) {
+		return false, nil
+	}
+
+	// Check routing on last message
+	last := msgs[len(msgs)-1]
+	if target := router.ResolveRoutingTarget(last, group.Rules); target != "" {
+		if router.IsAuthorizedRoutingTarget(group.Folder, target) {
+			g.delegateToChild(target, last.Content, chatJid, 0)
+			g.advanceAgentCursor(chatJid, msgs)
+			return true, nil
+		}
+	}
+
+	// Emit new-session / new-day system messages
+	g.emitSystemEvents(group, chatJid)
+
+	sysMsgs := g.store.FlushSysMsgs(group.Folder)
+	prompt := sysMsgs + router.FormatMessages(msgs)
+
+	if ch != nil {
+		ch.Typing(chatJid, true)
+	}
+
+	var hadOutput bool
+	savedTs := agentTs
+
+	out := g.runAgent(group, prompt, chatJid, len(msgs),
+		func(text, status string) {
+			if text != "" {
+				hadOutput = true
+				clean := router.FormatOutbound(text)
+				if clean != "" {
+					g.sendMessage(chatJid, clean)
+				}
+			}
+		},
+	)
+
+	if ch != nil {
+		ch.Typing(chatJid, false)
+	}
+
+	if out.Error != "" {
+		slog.Error("agent error",
+			"group", group.Folder, "err", out.Error)
+		if hadOutput {
+			// Keep cursor — prevent duplicate sends
+			g.advanceAgentCursor(chatJid, msgs)
+		} else {
+			// Roll back cursor for retry
+			g.mu.Lock()
+			g.lastAgentTimestamp[chatJid] = savedTs
+			g.mu.Unlock()
+			g.sendMessage(chatJid,
+				"Failed: agent error, will retry on next message.")
+		}
+		return false, fmt.Errorf("agent: %s", out.Error)
+	}
+
+	g.advanceAgentCursor(chatJid, msgs)
+	return true, nil
+}
+
+// --- agent execution ---
+
+func (g *Gateway) runAgent(
+	group core.Group, prompt, chatJid string, msgCount int,
+	onOutput func(string, string),
+) container.Output {
+	g.mu.RLock()
+	sessionID := g.sessions[group.Folder]
+	g.mu.RUnlock()
+
+	groupPath, err := g.folders.GroupPath(group.Folder)
+	if err != nil {
+		return container.Output{Error: err.Error()}
+	}
+
+	ts := time.Now().UnixMilli()
+	sanitized := sanitizeFolder(group.Folder)
+	cname := fmt.Sprintf("arizuko-%s-%d", sanitized, ts)
+
+	g.queue.RegisterProcess(chatJid, cname, group.Folder)
+
+	// Write snapshots for agent context
+	container.WriteTasksSnapshot(groupPath, g.store.AllTasks())
+	container.WriteGroupsSnapshot(groupPath, g.groupList())
+
+	input := container.Input{
+		Prompt:    prompt,
+		SessionID: sessionID,
+		ChatJID:   chatJid,
+		Folder:    group.Folder,
+		GroupPath: groupPath,
+		Name:      cname,
+		Config:    group.Config,
+		OnOutput:  onOutput,
+	}
+
+	out := container.Run(g.runnerCfg, input)
+
+	// Handle session updates
+	if out.NewSessionID != "" {
+		g.mu.Lock()
+		g.sessions[group.Folder] = out.NewSessionID
+		g.mu.Unlock()
+		g.store.SetSession(group.Folder, out.NewSessionID)
+		if sessionID == "" {
+			g.store.RecordSession(group.Folder, out.NewSessionID)
+		}
+	} else if out.Error != "" && !out.HadOutput {
+		// Evict session on error with no progress
+		g.mu.Lock()
+		delete(g.sessions, group.Folder)
+		g.mu.Unlock()
+		g.store.DeleteSession(group.Folder)
+	}
+
+	return out
+}
+
+// --- helpers ---
+
+func (g *Gateway) findChannel(jid string) core.Channel {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	for _, ch := range g.channels {
+		if ch.Owns(jid) {
+			return ch
+		}
+	}
+	return nil
+}
+
+func (g *Gateway) sendMessage(jid, text string) error {
+	ch := g.findChannel(jid)
+	if ch == nil {
+		return fmt.Errorf("no channel for jid %s", jid)
+	}
+	return ch.Send(jid, text)
+}
+
+func (g *Gateway) sendDocument(jid, path, name string) error {
+	ch := g.findChannel(jid)
+	if ch == nil {
+		return fmt.Errorf("no channel for jid %s", jid)
+	}
+	return ch.SendFile(jid, path, name)
+}
+
+func (g *Gateway) clearSession(folder string) {
+	g.mu.Lock()
+	delete(g.sessions, folder)
+	g.mu.Unlock()
+	g.store.DeleteSession(folder)
+}
+
+func (g *Gateway) checkTrigger(group core.Group, msgs []core.Message) bool {
+	if !group.NeedTrig {
+		return true
+	}
+	for _, m := range msgs {
+		if g.cfg.TriggerRE.MatchString(m.Content) {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {
+	if len(msgs) == 0 {
+		return
+	}
+	last := msgs[len(msgs)-1].Timestamp
+	g.mu.Lock()
+	g.lastAgentTimestamp[chatJid] = last
+	g.mu.Unlock()
+	g.saveState()
+}
+
+func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	folder := group.Folder
+	today := time.Now().Format("2006-01-02")
+
+	// New-day event
+	if prev, ok := g.lastMessageDate[folder]; ok && prev != today {
+		g.store.EnqueueSysMsg(folder, "gateway", "new_day",
+			fmt.Sprintf("Date changed to %s", today))
+	}
+	g.lastMessageDate[folder] = today
+
+	// New-session event (no active session)
+	if g.sessions[folder] == "" {
+		g.store.EnqueueSysMsg(folder, "gateway", "new_session", "")
+	}
+}
+
+func (g *Gateway) delegateToChild(
+	childFolder, prompt, originJid string, depth int,
+) {
+	if depth > 3 {
+		slog.Warn("delegation depth exceeded",
+			"folder", childFolder, "depth", depth)
+		return
+	}
+
+	// Find the group registered with this folder
+	g.mu.RLock()
+	var childJid string
+	var child core.Group
+	var found bool
+	for jid, gr := range g.groups {
+		if gr.Folder == childFolder {
+			childJid = jid
+			child = gr
+			found = true
+			break
+		}
+	}
+	g.mu.RUnlock()
+
+	if !found {
+		slog.Warn("delegate target not found", "folder", childFolder)
+		return
+	}
+
+	g.queue.EnqueueTask(childJid, fmt.Sprintf("delegate-%s-%d",
+		childFolder, time.Now().UnixMilli()),
+		func() error {
+			out := g.runAgent(child, prompt, originJid, 0,
+				func(text, status string) {
+					if text != "" {
+						clean := router.FormatOutbound(text)
+						if clean != "" {
+							g.sendMessage(originJid, clean)
+						}
+					}
+				},
+			)
+			if out.Error != "" {
+				return fmt.Errorf("delegate agent: %s", out.Error)
+			}
+			return nil
+		},
+	)
+}
+
+func (g *Gateway) recoverPendingMessages() {
+	g.mu.RLock()
+	jids := make([]string, 0, len(g.groups))
+	for jid := range g.groups {
+		jids = append(jids, jid)
+	}
+	g.mu.RUnlock()
+
+	for _, jid := range jids {
+		g.mu.RLock()
+		agentTs := g.lastAgentTimestamp[jid]
+		g.mu.RUnlock()
+
+		msgs, err := g.store.MessagesSince(jid, agentTs, g.cfg.Name)
+		if err != nil {
+			slog.Error("recovery query failed", "jid", jid, "err", err)
+			continue
+		}
+		if len(msgs) > 0 {
+			slog.Info("recovering pending messages",
+				"jid", jid, "count", len(msgs))
+			g.queue.EnqueueMessageCheck(jid)
+		}
+	}
+}
+
+func (g *Gateway) groupList() []core.Group {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]core.Group, 0, len(g.groups))
+	for _, gr := range g.groups {
+		out = append(out, gr)
+	}
+	return out
+}
+
+var nonAlphaNum = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+
+func sanitizeFolder(folder string) string {
+	s := strings.ReplaceAll(folder, "/", "-")
+	s = nonAlphaNum.ReplaceAllString(s, "-")
+	if len(s) > 40 {
+		s = s[:40]
+	}
+	return strings.Trim(s, "-")
+}

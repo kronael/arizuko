@@ -1,0 +1,70 @@
+package groupfolder
+
+import (
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"strings"
+)
+
+var (
+	segmentRe       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+	reservedFolders = map[string]bool{"share": true}
+)
+
+type Resolver struct {
+	GroupsDir string
+	DataDir   string
+}
+
+func isValidFolder(folder string) bool {
+	if folder == "" || folder != strings.TrimSpace(folder) {
+		return false
+	}
+	if strings.Contains(folder, "..") || strings.Contains(folder, `\`) {
+		return false
+	}
+	for _, seg := range strings.Split(folder, "/") {
+		if !segmentRe.MatchString(seg) {
+			return false
+		}
+		if reservedFolders[strings.ToLower(seg)] {
+			return false
+		}
+	}
+	return true
+}
+
+func ensureWithinBase(base, resolved string) error {
+	rel, err := filepath.Rel(base, resolved)
+	if err != nil {
+		return fmt.Errorf("path escapes base directory: %s", resolved)
+	}
+	if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return fmt.Errorf("path escapes base directory: %s", resolved)
+	}
+	return nil
+}
+
+func (r *Resolver) GroupPath(folder string) (string, error) {
+	if !isValidFolder(folder) {
+		return "", fmt.Errorf("invalid group folder %q", folder)
+	}
+	p := filepath.Join(r.GroupsDir, folder)
+	if err := ensureWithinBase(r.GroupsDir, p); err != nil {
+		return "", err
+	}
+	return p, nil
+}
+
+func (r *Resolver) IpcPath(folder string) (string, error) {
+	if !isValidFolder(folder) {
+		return "", fmt.Errorf("invalid group folder %q", folder)
+	}
+	base := filepath.Join(r.DataDir, "ipc")
+	p := filepath.Join(base, folder)
+	if err := ensureWithinBase(base, p); err != nil {
+		return "", err
+	}
+	return p, nil
+}
