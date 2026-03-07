@@ -7,6 +7,52 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.0.1] — 2026-03-07
+
+Go rewrite. All core gateway functionality ported from TypeScript.
+16 packages, ~4,700 LOC Go (vs ~9,400 LOC TS).
+
+### Packages
+
+- **core/** — Config, types (Message, Group, Task, Channel interface)
+- **store/** — SQLite persistence (12 tables, WAL mode, PRAGMA user_version migrations)
+- **gateway/** — Main loop, message routing, commands (/new, /ping, /chatid, /stop)
+- **container/** — Docker spawn, 8 volume mount types, MCP sidecar lifecycle, skills seeding
+- **queue/** — Per-group concurrency, stdin piping, circuit breaker (3 failures)
+- **router/** — XML message formatting, 5-tier routing rules, outbound filtering
+- **ipc/** — File-based request/reply + legacy fire-and-forget, SIGUSR1 wake
+- **scheduler/** — Cron/interval/once task runner (robfig/cron), run logging
+- **diary/** — YAML frontmatter diary annotations with age labels
+- **groupfolder/** — Group path resolution and validation
+- **mountsec/** — Mount allowlist validation (blocked patterns, read-only enforcement)
+- **runtime/** — Docker binary abstraction, orphan cleanup
+- **logger/** — slog JSON handler init
+- **cmd/arizuko/** — CLI entrypoint (run, create, group subcommands)
+
+### Features
+
+- Per-chat error tracking with cursor rollback on agent failure
+- Forward/reply message metadata (forwarded_from, reply_to_text, reply_to_sender)
+- MCP sidecar management (start/stop/settings wiring via Unix sockets)
+- Gateway capabilities manifest (.gateway-caps TOML)
+- Per-channel output styling (outputStyle in settings.json)
+- Diary annotations injected into agent context
+- Docker-in-docker path translation via HOST_DATA_DIR/HOST_APP_DIR
+
+### Not ported
+
+- Channel adapters (telegram, discord, whatsapp, email) — Channel interface exists
+- Action registry (unified action system with typed schemas)
+- Web proxy + auth layer
+- MIME enricher (attachment pipeline)
+- Slink web channel
+
+---
+
+## TypeScript releases (pre-Go rewrite)
+
+---
+
 ## [v0.6.3] — 2026-03-06
 
 ### Features

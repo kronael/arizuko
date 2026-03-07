@@ -1,83 +1,71 @@
 # arizuko
 
-Multitenant Claude agent gateway with multi-channel support
-(telegram, whatsapp, discord, email). Nanoclaw fork with
-systemd-managed instances and MCP sidecar extensibility.
+Multitenant Claude agent gateway. Polls messaging channels,
+routes to containerized Claude agents via docker, streams
+responses back. Go, SQLite, Docker.
 
 ## Quick Start
 
 ```bash
-make image                     # build gateway docker image
-make -C container image        # build agent docker image
-make -C sidecar/whisper image  # build whisper sidecar image
-./arizuko create foo            # seed instance at /srv/data/arizuko_foo/
-```
+make build    # go build → ./arizuko binary
+make image    # gateway docker image
+make agent    # agent docker image
 
-Edit `/srv/data/arizuko_foo/.env` with channel tokens,
-register the main group, and start:
-
-```bash
-./arizuko config foo group add tg:-123456789  # register main group
-./arizuko foo                                 # start gateway
+arizuko create foo                      # seed instance
+vim /srv/data/arizuko_foo/.env          # configure
+arizuko group foo add tg:-123456789     # register group
+arizuko run                             # start gateway
 ```
 
 ## Group Management
 
-Groups must be registered before the bot processes messages.
-
 ```bash
-arizuko config <instance> group list               # registered + discovered
-arizuko config <instance> group add <jid> [folder] # register group
-arizuko config <instance> group rm  <jid>          # unregister (not main)
+arizuko group <instance> list               # registered + discovered
+arizuko group <instance> add <jid> [folder] # register group
+arizuko group <instance> rm  <jid>          # unregister
 ```
 
-First group added defaults to folder `main` with direct mode
-(no trigger required). Subsequent groups require a folder name
-and use trigger mode (`@assistant_name` to activate).
+First group defaults to folder `main` with direct mode.
+Subsequent groups use trigger mode (`@assistant_name`).
 
-## Web Channel (slink)
+## Packages
 
-Groups with a slink token accept messages via HTTP:
-
-```bash
-POST /pub/s/<token>
-Content-Type: application/json
-
-{"text": "hello", "media_url": "https://example.com/file.mp3"}
+```
+cmd/arizuko/     CLI entrypoint (run, create, group)
+core/            Config, types, Channel interface
+store/           SQLite persistence (12 tables, WAL mode)
+gateway/         Main loop, message routing, commands
+container/       Docker spawn, volume mounts, sidecars
+queue/           Per-group concurrency, circuit breaker
+router/          XML message formatting, 5-tier routing rules
+ipc/             File-based request/reply, SIGUSR1 wake
+scheduler/       Cron/interval/once task runner
+diary/           YAML frontmatter diary annotations
+groupfolder/     Group path resolution
+mountsec/        Mount allowlist validation
+runtime/         Docker binary abstraction, orphan cleanup
+logger/          slog JSON init
+template/        Instance seed files
+sidecar/         MCP server binaries (whisper)
 ```
 
-Optional `Authorization: Bearer <jwt>` header. When `AUTH_SECRET` is set,
-JWTs are verified (HMAC-SHA256). Authenticated requests get a higher rate
-limit (`SLINK_AUTH_RPM`, default 60/min vs `SLINK_ANON_RPM` default 10/min).
+## Message Flow
 
-`/pub/REDACTED.js` is a client-side script for embedding in public web pages
-(reads `data-token` from script tag). The authenticated `/_REDACTED/REDACTED.js`
-is injected into all proxied HTML pages and adds a `POST /_REDACTED/message`
-handler plus a SSE stream at `/_REDACTED/stream?group=<name>` for receiving
-agent responses in-page.
+```
+Channel → store.PutMessage + PutChat
+  → gateway.messageLoop (polls every 2s)
+  → store.NewMessages (unprocessed since cursor)
+  → checkTrigger (direct mode or @name regex)
+  → handleCommand (/new, /ping, /chatid, /stop)
+  → router.ResolveRoutingTarget (delegate to child if matched)
+  → queue.EnqueueMessageCheck → processGroupMessages
+    → router.FormatMessages (XML batch)
+    → container.Run (docker run -i --rm)
+    → stream output → router.FormatOutbound
+    → channel.Send
+```
 
-## System Messages and Sessions
-
-The gateway injects system messages (new-session, new-day) as XML
-prepended to agent stdin. Messages are enqueued in the `system_messages`
-DB table and flushed on the next agent invocation for the group.
-
-Every container spawn/exit is recorded in the `session_history` table. On
-agent error, the user receives a retry prompt and the session cursor rolls
-back so the next run starts fresh. New-session injection includes the last
-2 previous sessions as `<previous_session>` XML elements.
-
-## Commands
-
-Slash commands (`/new`, `/ping`, `/chatid`) are handled by a pluggable
-registry in `src/commands/`. Commands are intercepted before the message
-reaches the agent. The registry is exported as `commands.xml` into each
-group's IPC directory so agents can discover available commands.
-
-## Routing
-
-Groups support hierarchical parent-child delegation. A parent group
-can delegate messages to child groups based on routing rules:
+## Routing Rules
 
 | Rule type | Match criteria                              |
 | --------- | ------------------------------------------- |
@@ -87,23 +75,24 @@ can delegate messages to child groups based on routing rules:
 | sender    | sender name matches regex                   |
 | default   | fallback when no other rule matches         |
 
-Rules are evaluated in tier order (command, pattern, keyword, sender,
-default); first match within each tier wins. Delegation is authorized
-only for direct parent-to-child relationships within the same world
-(same root folder segment), capped at depth 3.
-
-Set via `set_routing_rules` action; delegate via `delegate_group` action.
+Evaluated in tier order. Parent groups delegate to children
+within same world, max depth 3.
 
 ## MCP Sidecars
 
-Per-group MCP servers run as sidecar containers alongside the agent.
-Configure via `SIDECAR_<NAME>_IMAGE` env vars (e.g. `SIDECAR_WHISPER_IMAGE`).
+Per-group MCP servers run as sidecar containers. Communicate
+via Unix sockets at `/workspace/ipc/sidecars/<name>.sock`.
+Gateway starts sidecars before agent, wires them into
+`settings.json` as MCP servers, stops them after agent exits.
 
-Per-group sidecar config is stored in `container_config.sidecars` on
-`registered_groups`. Sidecars communicate via Unix sockets at
-`/workspace/ipc/sidecars/<name>.sock`. The gateway starts sidecars
-before the agent, probes readiness, and merges them into the agent's
-`settings.json` as MCP servers.
+## Gateway Commands
+
+| Command      | Effect                                    |
+| ------------ | ----------------------------------------- |
+| `/new [msg]` | Clear session, optionally process message |
+| `/ping`      | Status: group, session, active containers |
+| `/chatid`    | Echo the chat JID                         |
+| `/stop`      | Stop running container for this chat      |
 
 ## Instance Layout
 
@@ -111,101 +100,39 @@ before the agent, probes readiness, and merges them into the agent's
 
 ```
 .env                    config (tokens, ports)
-store/                  SQLite DB, whatsapp auth
-groups/main/logs/       conversation logs
-data/sessions/          per-session state dirs
-data/ipc/               agent IPC files
-web/pub/                public web files (no auth)
-web/priv/               private web files (auth required)
+store/                  SQLite DB (messages.db)
+groups/<folder>/        group files, logs, diary
+data/ipc/<folder>/      IPC directories
+data/sessions/<folder>/ agent session state
 ```
-
-The `/pub/` URL prefix is the auth boundary: files under `web/pub/`
-are served without authentication, `web/priv/` requires auth.
-Agent skills are seeded from `container/skills/` to
-`~/.claude/skills/` inside each container on first spawn.
 
 ## Config
 
-All via `.env` (seeded from `template/env.example`):
+All via `.env` in data dir or env vars:
 
-| Key                       | Purpose                                       |
-| ------------------------- | --------------------------------------------- |
-| ASSISTANT_NAME            | instance name                                 |
-| TELEGRAM_BOT_TOKEN        | enables telegram channel                      |
-| DISCORD_BOT_TOKEN         | enables discord channel                       |
-| CONTAINER_IMAGE           | agent docker image                            |
-| CLAUDE_CODE_OAUTH_TOKEN   | passed to agent containers                    |
-| IDLE_TIMEOUT              | container idle shutdown (ms)                  |
-| MAX_CONCURRENT_CONTAINERS | concurrent agent limit                        |
-| VITE_PORT                 | enables vite web serving                      |
-| WEB_HOST                  | vite host binding                             |
-| REDACTED_USERS               | basic auth users (alice:pw,bob:pw2)           |
-| AUTH_SECRET               | HMAC secret for JWT verification (slink)      |
-| WHISPER_BASE_URL          | whisper sidecar URL for transcription         |
-| EMAIL_IMAP_HOST           | enables email channel (IMAP IDLE)             |
-| EMAIL_SMTP_HOST           | SMTP for reply threading (defaults from IMAP) |
-| EMAIL_ACCOUNT             | email account address                         |
-| EMAIL_PASSWORD            | email account password                        |
-| MEDIA_ENABLED             | enable attachment pipeline (default false)    |
-| SIDECAR\_\*\_IMAGE        | per-name sidecar docker image                 |
-| TIMEZONE                  | cron timezone (validated, fallback UTC)       |
+| Key                       | Purpose                      |
+| ------------------------- | ---------------------------- |
+| ASSISTANT_NAME            | instance name                |
+| TELEGRAM_BOT_TOKEN        | enables telegram channel     |
+| DISCORD_BOT_TOKEN         | enables discord channel      |
+| CONTAINER_IMAGE           | agent docker image           |
+| IDLE_TIMEOUT              | container idle shutdown (ms) |
+| MAX_CONCURRENT_CONTAINERS | concurrent agent limit       |
+| HOST_DATA_DIR             | docker-in-docker host path   |
+| HOST_APP_DIR              | docker-in-docker app path    |
+| MEDIA_ENABLED             | enable attachment pipeline   |
+| WHISPER_BASE_URL          | whisper sidecar URL          |
+| TIMEZONE                  | cron timezone (fallback UTC) |
 
-Channels enabled by token presence (telegram/discord),
-auth dir existence (whatsapp: `store/auth/creds.json`),
-or `EMAIL_IMAP_HOST` presence (email).
-
-Per-group whisper language hints: create `.whisper-language` in the group
-folder with one BCP-47 language code per line (e.g. `cs`, `de`). The whisper
-handler runs one additional forced-decode pass per language and labels each
-result separately alongside the auto-detected pass.
-
-## Deployment
-
-Run directly with docker:
-
-```bash
-docker run -d -i --name arizuko_foo \
-    --network=host \
-    -v /srv/data/arizuko_foo:/srv/app/home \
-    -v /srv/run/arizuko_foo:/srv/run/arizuko_foo \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    arizuko foo
-```
-
-Or with systemd — create `/etc/systemd/system/arizuko_foo.service`:
-
-```ini
-[Unit]
-Description=arizuko foo
-After=docker.service
-Requires=docker.service
-
-[Service]
-Restart=always
-RestartSec=1
-ExecStartPre=-/usr/bin/docker stop %n
-ExecStartPre=-/usr/bin/docker rm -f %n
-ExecStop=/usr/bin/docker rm -f %n
-ExecStart=/usr/bin/docker run -i --rm --name %n \
-    --network=host \
-    -v /srv/data/arizuko_foo:/srv/app/home \
-    -v /srv/run/arizuko_foo:/srv/run/arizuko_foo \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    arizuko foo
-
-[Install]
-WantedBy=default.target
-```
-
-Then `systemctl enable --now arizuko_foo`.
+Channels enabled by token presence.
 
 ## Development
 
 ```bash
-make build          # tsc compile (src/ -> dist/)
-make lint           # typecheck without emitting
-make test           # all tests (vitest run src/ + tests/e2e/)
-npm run dev         # tsx dev mode
+make build    # go build → ./arizuko
+make lint     # go vet ./...
+make test     # go test ./... -count=1
+make clean    # remove binary + tmp/
 ```
 
-Pre-commit hooks: prettier (single quotes), typecheck, hygiene.
+Pre-commit hooks configured via `.pre-commit-config.yaml`.
