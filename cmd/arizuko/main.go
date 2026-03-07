@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/onvos/arizuko/channels"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/gateway"
 	"github.com/onvos/arizuko/logger"
@@ -52,6 +53,35 @@ func cmdRun() {
 	defer s.Close()
 
 	gw := gateway.New(cfg, s)
+
+	hooks := core.ChannelHooks{
+		OnMessage: func(msg core.Message) {
+			if err := s.PutMessage(msg); err != nil {
+				slog.Error("store message", "err", err)
+			}
+		},
+		OnChat: func(jid, name string, group bool) {
+			ch := "telegram"
+			if len(jid) > 0 {
+				for _, p := range []string{"telegram:", "discord:", "whatsapp:", "email:", "web:"} {
+					if len(jid) > len(p) && jid[:len(p)] == p {
+						ch = p[:len(p)-1]
+						break
+					}
+				}
+			}
+			s.PutChat(jid, name, ch, group)
+		},
+	}
+
+	if cfg.TelegramToken != "" {
+		gw.AddChannel(channels.NewTelegram(
+			cfg.TelegramToken, cfg.Name, cfg.TriggerRE, hooks))
+	}
+	if cfg.DiscordToken != "" {
+		gw.AddChannel(channels.NewDiscord(
+			cfg.DiscordToken, cfg.Name, cfg.TriggerRE, hooks))
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
