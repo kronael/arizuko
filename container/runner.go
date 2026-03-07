@@ -27,7 +27,6 @@ const (
 
 var safeNameRe = regexp.MustCompile(`[^a-zA-Z0-9-]`)
 
-// Input is written to container stdin as JSON.
 type Input struct {
 	Prompt    string            `json:"prompt"`
 	SessionID string            `json:"sessionId,omitempty"`
@@ -40,7 +39,6 @@ type Input struct {
 	Depth     int               `json:"delegateDepth,omitempty"`
 	Channel   string            `json:"channelName,omitempty"`
 
-	// Non-serialized fields used by the runner.
 	GroupPath   string           `json:"-"`
 	Name        string           `json:"-"`
 	Config      core.GroupConfig `json:"-"`
@@ -49,7 +47,6 @@ type Input struct {
 	OnOutput    OnOutputFn       `json:"-"`
 }
 
-// Output is parsed from container stdout between marker pairs.
 type Output struct {
 	Status       string `json:"status"` // success|error
 	Result       string `json:"result"`
@@ -66,7 +63,6 @@ type VolumeMount struct {
 	RO        bool
 }
 
-// RunnerConfig holds all config needed by the runner.
 type RunnerConfig struct {
 	Image           string
 	Timeout         time.Duration
@@ -89,9 +85,6 @@ type RunnerConfig struct {
 	WhisperURL      string
 }
 
-// Run spawns a docker container, writes input JSON to stdin, streams
-// output from stdout, parses OUTPUT_START/END markers, and returns
-// the final result.
 func Run(cfg *RunnerConfig, in Input) Output {
 	root := !strings.Contains(in.Folder, "/")
 	folders := &groupfolder.Resolver{
@@ -109,7 +102,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 
 	mounts := BuildMounts(cfg, in, groupDir, root, folders)
 
-	// Check migration version, annotate if behind
 	appDir := cfg.HostAppDir
 	latest := migrationVersion(
 		filepath.Join(appDir, "container", "skills", "self", "MIGRATION_VERSION"))
@@ -123,13 +115,11 @@ func Run(cfg *RunnerConfig, in Input) Output {
 			agent, latest))
 	}
 
-	// Prepend annotations to prompt
 	if len(in.Annotations) > 0 {
 		in.Prompt = strings.Join(in.Annotations, "\n") +
 			"\n\n" + in.Prompt
 	}
 
-	// Start sidecars
 	var sidecarNames []string
 	if len(in.Config.Sidecars) > 0 {
 		ipcDir, _ := folders.IpcPath(in.Folder)
@@ -176,7 +166,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 		return Output{Error: "start: " + err.Error()}
 	}
 
-	// Write input JSON with secrets to stdin, then close
 	in.Secrets = readSecrets()
 	in.AsstName = cfg.Name
 	payload, _ := json.Marshal(in)
@@ -184,7 +173,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 	stdin.Write(payload)
 	stdin.Close()
 
-	// Drain stderr in background
 	var stderrBuf strings.Builder
 	var stderrMu sync.Mutex
 	go func() {
@@ -203,7 +191,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 		}
 	}()
 
-	// Timeout: max(configTimeout, idleTimeout + 30s)
 	cfgTimeout := cfg.Timeout
 	if in.Config.Timeout > 0 {
 		cfgTimeout = in.Config.Timeout
@@ -227,7 +214,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 		}
 	})
 
-	// Parse streaming output from stdout
 	var (
 		parseBuf     strings.Builder
 		fullBuf      strings.Builder
@@ -242,7 +228,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 		if n > 0 {
 			chunk := string(buf[:n])
 
-			// Accumulate for logging (capped)
 			if fullBuf.Len() < maxOutputSize {
 				rem := maxOutputSize - fullBuf.Len()
 				if len(chunk) > rem {
@@ -254,7 +239,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 				}
 			}
 
-			// Stream-parse for output markers
 			parseBuf.WriteString(chunk)
 			for {
 				s := parseBuf.String()
@@ -293,7 +277,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 				}
 				hadStreaming = true
 
-				// Reset timeout on activity
 				timer.Reset(cfgTimeout)
 
 				if in.OnOutput != nil {
@@ -309,7 +292,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 	exitErr := cmd.Wait()
 	timer.Stop()
 
-	// Stop sidecars
 	if len(sidecarNames) > 0 {
 		StopSidecars(sidecarNames)
 	}
@@ -323,7 +305,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 		}
 	}
 
-	// Write log file
 	stderrMu.Lock()
 	stderrStr := stderrBuf.String()
 	stderrMu.Unlock()
@@ -338,7 +319,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 		"duration", elapsed,
 		"timedOut", timedOut, "hadOutput", hadStreaming)
 
-	// Handle timeout
 	if timedOut {
 		if hadStreaming {
 			slog.Info(
@@ -361,7 +341,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 		}
 	}
 
-	// Handle non-zero exit
 	if code != 0 {
 		slog.Error("container exited with error",
 			"group", in.Folder, "code", code,
@@ -379,7 +358,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 		}
 	}
 
-	// Streaming mode: already delivered via OnOutput
 	if hadStreaming {
 		slog.Info("container completed (streaming mode)",
 			"group", in.Folder, "duration", elapsed,
@@ -391,7 +369,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 		}
 	}
 
-	// Legacy mode: parse last marker pair from accumulated stdout
 	allStdout := fullBuf.String()
 	si := strings.LastIndex(allStdout, outputStartMarker)
 	ei := strings.LastIndex(allStdout, outputEndMarker)
@@ -408,7 +385,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 		}
 	}
 
-	// Fallback: last non-empty line
 	lines := strings.Split(strings.TrimSpace(allStdout), "\n")
 	if len(lines) > 0 {
 		var out Output
@@ -423,7 +399,6 @@ func Run(cfg *RunnerConfig, in Input) Output {
 	}
 }
 
-// BuildMounts assembles the volume mounts for a container run.
 func BuildMounts(
 	cfg *RunnerConfig, in Input,
 	groupDir string, root bool,
@@ -431,13 +406,11 @@ func BuildMounts(
 ) []VolumeMount {
 	var m []VolumeMount
 
-	// Group working directory
 	m = append(m, VolumeMount{
 		Host:      hp(cfg, groupDir),
 		Container: "/workspace/group",
 	})
 
-	// Media dir
 	media := filepath.Join(groupDir, "media")
 	os.MkdirAll(media, 0o755)
 	m = append(m, VolumeMount{
@@ -445,14 +418,12 @@ func BuildMounts(
 		Container: "/workspace/media",
 	})
 
-	// App source read-only
 	m = append(m, VolumeMount{
 		Host:      cfg.HostAppDir,
 		Container: "/workspace/self",
 		RO:        true,
 	})
 
-	// Shared dir per world (first segment of folder)
 	world := strings.SplitN(in.Folder, "/", 2)[0]
 	share := filepath.Join(cfg.GroupsDir, world, "share")
 	os.MkdirAll(share, 0o755)
@@ -462,7 +433,6 @@ func BuildMounts(
 		RO:        !root,
 	})
 
-	// Claude sessions dir (.claude)
 	sessDir := filepath.Join(
 		cfg.DataDir, "sessions", in.Folder, ".claude")
 	os.MkdirAll(sessDir, 0o755)
@@ -474,7 +444,6 @@ func BuildMounts(
 		Container: "/home/node/.claude",
 	})
 
-	// IPC dir
 	ipcDir, err := folders.IpcPath(in.Folder)
 	if err == nil {
 		for _, sub := range []string{
@@ -489,7 +458,6 @@ func BuildMounts(
 		})
 	}
 
-	// Agent runner source — seed once, mount read-write
 	runnerSrc := filepath.Join(
 		cfg.HostAppDir, "container", "agent-runner", "src")
 	groupRunnerDir := filepath.Join(
@@ -505,7 +473,6 @@ func BuildMounts(
 		Container: "/app/src",
 	})
 
-	// Additional mounts from group config
 	if len(in.Config.Mounts) > 0 {
 		var add []mountsec.AdditionalMount
 		for _, cm := range in.Config.Mounts {
@@ -527,7 +494,6 @@ func BuildMounts(
 		}
 	}
 
-	// Web dir
 	if fi, err := os.Stat(cfg.WebDir); err == nil && fi.IsDir() {
 		chown(cfg.WebDir, 1000, 1000)
 		m = append(m, VolumeMount{
@@ -536,7 +502,6 @@ func BuildMounts(
 		})
 	}
 
-	// Root group gets sessions/ rw for migrate skill
 	if root {
 		sd := filepath.Join(cfg.DataDir, "sessions")
 		os.MkdirAll(sd, 0o755)
@@ -581,8 +546,6 @@ func buildArgs(
 	return args
 }
 
-// hp translates a local path to a host-side path for
-// docker-in-docker scenarios.
 func hp(cfg *RunnerConfig, local string) string {
 	if cfg.HostProjectRoot == "" {
 		return local
@@ -596,19 +559,20 @@ func hp(cfg *RunnerConfig, local string) string {
 }
 
 func readSecrets() map[string]string {
-	s := make(map[string]string)
+	var s map[string]string
 	for _, k := range []string{
 		"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY",
 	} {
 		if v := os.Getenv(k); v != "" {
+			if s == nil {
+				s = make(map[string]string, 2)
+			}
 			s[k] = v
 		}
 	}
 	return s
 }
 
-// seedSettings creates or updates settings.json, injecting env vars
-// that change per spawn.
 func seedSettings(
 	claudeDir string, cfg *RunnerConfig,
 	in Input, root bool,
@@ -630,7 +594,6 @@ func seedSettings(
 		}
 	}
 
-	// Always update per-spawn values
 	env["WEB_HOST"] = cfg.WebHost
 	env["NANOCLAW_ASSISTANT_NAME"] = cfg.Name
 	env["NANOCLAW_IS_ROOT"] = ""
@@ -646,7 +609,6 @@ func seedSettings(
 	}
 	settings["env"] = env
 
-	// Wire sidecar MCP servers
 	if len(in.Config.Sidecars) > 0 {
 		servers, _ := settings["mcpServers"].(map[string]any)
 		if servers == nil {
@@ -691,8 +653,6 @@ func seedSettings(
 	os.WriteFile(fp, append(data, '\n'), 0o644)
 }
 
-// seedSkills copies skill directories from container/skills/ into
-// the group's .claude/skills/. Only seeds if not already present.
 func seedSkills(cfg *RunnerConfig, claudeDir string) {
 	src := filepath.Join(cfg.HostAppDir, "container", "skills")
 	dst := filepath.Join(claudeDir, "skills")
@@ -845,8 +805,6 @@ func writeLog(
 		"logFile", path, "verbose", verbose)
 }
 
-// WriteTasksSnapshot writes a tasks JSON file into the IPC dir
-// for the container to read.
 func WriteTasksSnapshot(
 	folders *groupfolder.Resolver,
 	folder string, isRoot bool,
@@ -860,7 +818,6 @@ func WriteTasksSnapshot(
 	}
 	os.MkdirAll(ipcDir, 0o755)
 
-	filtered := tasks
 	if !isRoot {
 		var f []core.Task
 		for _, t := range tasks {
@@ -868,16 +825,14 @@ func WriteTasksSnapshot(
 				f = append(f, t)
 			}
 		}
-		filtered = f
+		tasks = f
 	}
 
-	data, _ := json.MarshalIndent(filtered, "", "  ")
+	data, _ := json.MarshalIndent(tasks, "", "  ")
 	p := filepath.Join(ipcDir, "current_tasks.json")
 	os.WriteFile(p, data, 0o644)
 }
 
-// WriteGroupsSnapshot writes available groups JSON into the IPC dir
-// for the container to read.
 func WriteGroupsSnapshot(
 	folders *groupfolder.Resolver,
 	folder string, isRoot bool,
@@ -891,16 +846,15 @@ func WriteGroupsSnapshot(
 	}
 	os.MkdirAll(ipcDir, 0o755)
 
-	visible := groups
 	if !isRoot {
-		visible = nil
+		groups = nil
 	}
 
 	snap := struct {
 		Groups   []core.Group `json:"groups"`
 		LastSync string       `json:"lastSync"`
 	}{
-		Groups:   visible,
+		Groups:   groups,
 		LastSync: time.Now().Format(time.RFC3339),
 	}
 

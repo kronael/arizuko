@@ -16,7 +16,6 @@ func Read(groupDir string, max int) string {
 		return ""
 	}
 
-	// Collect .md files, sort descending
 	var files []string
 	for _, e := range entries {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {

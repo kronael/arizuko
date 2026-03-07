@@ -8,8 +8,6 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// --- Session tracking ---
-
 func (s *Store) GetSession(folder string) string {
 	var id string
 	s.db.QueryRow(`SELECT session_id FROM sessions WHERE group_folder = ?`, folder).Scan(&id)
@@ -45,8 +43,6 @@ func (s *Store) AllSessions() map[string]string {
 	return out
 }
 
-// --- Router state (KV) ---
-
 func (s *Store) GetState(key string) string {
 	var val string
 	s.db.QueryRow(`SELECT value FROM router_state WHERE key = ?`, key).Scan(&val)
@@ -61,8 +57,6 @@ func (s *Store) SetState(key, val string) error {
 	)
 	return err
 }
-
-// --- System messages ---
 
 func (s *Store) EnqueueSysMsg(folder, origin, event, body string) error {
 	_, err := s.db.Exec(
@@ -93,7 +87,6 @@ func (s *Store) FlushSysMsgs(folder string) string {
 	}
 
 	if len(ids) > 0 {
-		// Delete flushed messages
 		ph := strings.Repeat("?,", len(ids))
 		ph = ph[:len(ph)-1]
 		args := make([]any, len(ids))
@@ -105,8 +98,6 @@ func (s *Store) FlushSysMsgs(folder string) string {
 
 	return b.String()
 }
-
-// --- Session log ---
 
 func (s *Store) RecordSession(folder, sessionID string) (int64, error) {
 	r, err := s.db.Exec(

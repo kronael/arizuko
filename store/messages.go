@@ -35,13 +35,10 @@ func (s *Store) AppendContent(id, suffix string) error {
 	return err
 }
 
-// NewMessages returns messages newer than since for any of the given JIDs,
-// excluding bot messages. Returns the messages and the new high-water timestamp.
 func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]core.Message, time.Time, error) {
 	if len(jids) == 0 {
 		return nil, since, nil
 	}
-	// Build placeholder string
 	ph := "("
 	args := make([]any, 0, len(jids)+2)
 	for i, jid := range jids {
@@ -87,7 +84,6 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 	return msgs, hi, rows.Err()
 }
 
-// MessagesSince returns up to 100 messages for a single JID since the given time.
 func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]core.Message, error) {
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,

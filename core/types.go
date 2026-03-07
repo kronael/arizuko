@@ -14,7 +14,6 @@ type Message struct {
 	Timestamp     time.Time
 	FromMe        bool
 	BotMsg        bool
-	ReplyTo       string // legacy
 	ForwardedFrom string
 	ReplyToText   string
 	ReplyToSender string
@@ -74,11 +73,6 @@ type Task struct {
 	Created  time.Time
 }
 
-type SendOpts struct {
-	ReplyTo string
-}
-
-// Channel is the interface all messaging channels implement.
 type Channel interface {
 	Name() string
 	Connect(ctx context.Context) error
@@ -89,13 +83,11 @@ type Channel interface {
 	Disconnect() error
 }
 
-// ChannelHooks are callbacks from channel to gateway. Set once at startup.
 type ChannelHooks struct {
 	OnMessage func(msg Message)
 	OnChat    func(jid, name string, group bool)
 }
 
-// SessionRecord represents a completed or in-progress session.
 type SessionRecord struct {
 	ID        int64
 	Folder    string
@@ -107,7 +99,6 @@ type SessionRecord struct {
 	MsgCount  int
 }
 
-// ChatInfo is a discovered chat (group or DM).
 type ChatInfo struct {
 	JID      string
 	Name     string

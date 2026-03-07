@@ -37,7 +37,6 @@ func Open(dir string) (*Store, error) {
 	return s, nil
 }
 
-// OpenMem creates an in-memory store for testing.
 func OpenMem() (*Store, error) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -62,7 +61,6 @@ func (s *Store) migrate() error {
 		}
 	}
 
-	// Check user_version for data migrations
 	var ver int
 	s.db.QueryRow("PRAGMA user_version").Scan(&ver)
 	if ver < 1 {
@@ -73,11 +71,9 @@ func (s *Store) migrate() error {
 }
 
 func (s *Store) migrateV1() {
-	// Prefix bare telegram JIDs
 	s.db.Exec(`UPDATE chats SET jid = 'telegram:' || jid WHERE jid GLOB '[0-9]*' AND channel = 'telegram'`)
 	s.db.Exec(`UPDATE messages SET chat_jid = 'telegram:' || chat_jid WHERE chat_jid GLOB '[0-9]*' AND EXISTS (SELECT 1 FROM chats WHERE chats.jid = 'telegram:' || messages.chat_jid AND chats.channel = 'telegram')`)
 	s.db.Exec(`UPDATE registered_groups SET jid = 'telegram:' || jid WHERE jid GLOB '[0-9]*'`)
-	// Similar for whatsapp and discord
 	s.db.Exec(`UPDATE chats SET jid = 'whatsapp:' || jid WHERE jid NOT LIKE '%:%' AND channel = 'whatsapp'`)
 	s.db.Exec(`UPDATE chats SET jid = 'discord:' || jid WHERE jid NOT LIKE '%:%' AND channel = 'discord'`)
 }

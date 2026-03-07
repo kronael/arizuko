@@ -119,15 +119,6 @@ func (g *Gateway) Run(ctx context.Context) error {
 			}
 			return cp
 		},
-		Sessions: func() map[string]string {
-			g.mu.RLock()
-			defer g.mu.RUnlock()
-			cp := make(map[string]string, len(g.sessions))
-			for k, v := range g.sessions {
-				cp[k] = v
-			}
-			return cp
-		},
 		EnqueueTask: func(jid, taskID string, fn func() error) {
 			g.queue.EnqueueTask(jid, taskID, fn)
 		},
@@ -191,8 +182,6 @@ func (g *Gateway) RegisterGroup(jid string, group core.Group) {
 	}
 }
 
-// --- state persistence ---
-
 func (g *Gateway) loadState() {
 	raw := g.store.GetState("last_timestamp")
 	if raw != "" {
@@ -241,8 +230,6 @@ func (g *Gateway) saveState() {
 	b, _ := json.Marshal(m)
 	g.store.SetState("last_agent_timestamp", string(b))
 }
-
-// --- message loop ---
 
 func (g *Gateway) messageLoop(ctx context.Context) {
 	for {
@@ -306,13 +293,11 @@ func (g *Gateway) pollOnce() {
 			continue
 		}
 
-		// Handle gateway commands
 		last := chatMsgs[len(chatMsgs)-1]
 		if g.handleCommand(last, group) {
 			continue
 		}
 
-		// Check routing rules on last message
 		if target := router.ResolveRoutingTarget(last, group.Rules); target != "" {
 			if router.IsAuthorizedRoutingTarget(group.Folder, target) {
 				prompt := last.Content
@@ -321,7 +306,6 @@ func (g *Gateway) pollOnce() {
 			}
 		}
 
-		// Try piping to active container first
 		if g.queue.SendMessage(chatJid, last.Content) {
 			g.store.ClearChatErrored(chatJid)
 			continue
@@ -332,8 +316,6 @@ func (g *Gateway) pollOnce() {
 
 	g.saveState()
 }
-
-// --- process group messages (queue callback) ---
 
 func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	g.mu.RLock()
@@ -358,14 +340,12 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return false, nil
 	}
 
-	// Handle gateway commands
 	last := msgs[len(msgs)-1]
 	if g.handleCommand(last, group) {
 		g.advanceAgentCursor(chatJid, msgs)
 		return true, nil
 	}
 
-	// Check routing on last message
 	if target := router.ResolveRoutingTarget(last, group.Rules); target != "" {
 		if router.IsAuthorizedRoutingTarget(group.Folder, target) {
 			g.delegateToChild(target, last.Content, chatJid, 0)
@@ -374,7 +354,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		}
 	}
 
-	// Emit new-session / new-day system messages
 	g.emitSystemEvents(group, chatJid)
 
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
@@ -407,10 +386,8 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		slog.Error("agent error",
 			"group", group.Folder, "err", out.Error)
 		if hadOutput {
-			// Keep cursor — prevent duplicate sends
 			g.advanceAgentCursor(chatJid, msgs)
 		} else {
-			// Roll back cursor for retry
 			g.mu.Lock()
 			g.lastAgentTimestamp[chatJid] = savedTs
 			g.mu.Unlock()
@@ -425,8 +402,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	g.store.ClearChatErrored(chatJid)
 	return true, nil
 }
-
-// --- agent execution ---
 
 func (g *Gateway) runAgent(
 	group core.Group, prompt, chatJid string, msgCount int,
@@ -447,14 +422,12 @@ func (g *Gateway) runAgent(
 
 	g.queue.RegisterProcess(chatJid, cname, group.Folder)
 
-	// Write snapshots for agent context
 	isRoot := g.cfg.IsRoot(group.Folder)
 	container.WriteTasksSnapshot(
 		g.folders, group.Folder, isRoot, g.store.AllTasks())
 	container.WriteGroupsSnapshot(
 		g.folders, group.Folder, isRoot, g.groupList())
 
-	// Diary annotation
 	var annotations []string
 	if d := diary.Read(groupPath, 2); d != "" {
 		annotations = append(annotations, d)
@@ -476,7 +449,6 @@ func (g *Gateway) runAgent(
 
 	out := container.Run(g.runnerCfg, input)
 
-	// Handle session updates
 	if out.NewSessionID != "" {
 		g.mu.Lock()
 		g.sessions[group.Folder] = out.NewSessionID
@@ -486,7 +458,6 @@ func (g *Gateway) runAgent(
 			g.store.RecordSession(group.Folder, out.NewSessionID)
 		}
 	} else if out.Error != "" && !out.HadOutput {
-		// Evict session on error with no progress
 		g.mu.Lock()
 		delete(g.sessions, group.Folder)
 		g.mu.Unlock()
@@ -495,8 +466,6 @@ func (g *Gateway) runAgent(
 
 	return out
 }
-
-// --- helpers ---
 
 func (g *Gateway) findChannel(jid string) core.Channel {
 	g.mu.RLock()
@@ -562,14 +531,12 @@ func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
 	folder := group.Folder
 	today := time.Now().Format("2006-01-02")
 
-	// New-day event
 	if prev, ok := g.lastMessageDate[folder]; ok && prev != today {
 		g.store.EnqueueSysMsg(folder, "gateway", "new_day",
 			fmt.Sprintf("Date changed to %s", today))
 	}
 	g.lastMessageDate[folder] = today
 
-	// New-session event (no active session)
 	if g.sessions[folder] == "" {
 		g.store.EnqueueSysMsg(folder, "gateway", "new_session", "")
 	}
@@ -584,7 +551,6 @@ func (g *Gateway) delegateToChild(
 		return
 	}
 
-	// Find the group registered with this folder
 	g.mu.RLock()
 	var childJid string
 	var child core.Group

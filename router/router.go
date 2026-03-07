@@ -8,9 +8,6 @@ import (
 )
 
 func EscapeXml(s string) string {
-	if s == "" {
-		return ""
-	}
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
@@ -40,17 +37,10 @@ func FormatMessages(msgs []core.Message) string {
 
 var internalRe = regexp.MustCompile(`(?s)<internal>.*?</internal>`)
 
-func StripInternalTags(text string) string {
-	return strings.TrimSpace(internalRe.ReplaceAllString(text, ""))
-}
-
 func FormatOutbound(raw string) string {
-	return StripInternalTags(raw)
+	return strings.TrimSpace(internalRe.ReplaceAllString(raw, ""))
 }
 
-// IsAuthorizedRoutingTarget returns true if source may route to target:
-// same world (same root segment) and target has exactly one more path
-// segment than source (direct parent->child).
 func IsAuthorizedRoutingTarget(source, target string) bool {
 	srcRoot := strings.SplitN(source, "/", 2)[0]
 	tgtRoot := strings.SplitN(target, "/", 2)[0]
@@ -61,9 +51,6 @@ func IsAuthorizedRoutingTarget(source, target string) bool {
 	return strings.HasPrefix(suffix, "/") && strings.IndexByte(suffix[1:], '/') == -1
 }
 
-// ResolveRoutingTarget evaluates routing rules against a message.
-// Tiers: command > pattern > keyword > sender > default.
-// First match within each tier wins. Returns "" if no match.
 func ResolveRoutingTarget(msg core.Message, rules []core.RoutingRule) string {
 	tiers := []string{"command", "pattern", "keyword", "sender", "default"}
 	for _, tier := range tiers {

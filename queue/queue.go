@@ -103,7 +103,6 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 		return
 	}
 
-	// Mark active and bump count under lock before spawning goroutine
 	s.active = true
 	s.idleWaiting = false
 	s.isTaskContainer = false
@@ -156,7 +155,6 @@ func (q *GroupQueue) EnqueueTask(groupJid, taskID string, fn TaskFn) {
 		return
 	}
 
-	// Run immediately — mark active under lock
 	s.active = true
 	s.idleWaiting = false
 	s.isTaskContainer = true
@@ -235,7 +233,6 @@ func (q *GroupQueue) CloseStdin(groupJid string) {
 	q.mu.Unlock()
 }
 
-// closeStdinLocked writes the _close sentinel. Caller must hold q.mu.
 func (q *GroupQueue) closeStdinLocked(s *GroupState) {
 	inputDir := filepath.Join(q.dataDir, "ipc", s.groupFolder, "input")
 	_ = os.MkdirAll(inputDir, 0o755)
@@ -261,8 +258,6 @@ func (q *GroupQueue) Shutdown() {
 		"activeCount", q.activeCount, "detachedContainers", detached)
 }
 
-// runForGroup runs processMessages outside the lock, then drains.
-// State must already be marked active with activeCount bumped.
 func (q *GroupQueue) runForGroup(groupJid, reason string) {
 	slog.Debug("starting container for group",
 		"groupJid", groupJid, "reason", reason, "activeCount", q.activeCount)
@@ -301,8 +296,6 @@ func (q *GroupQueue) runForGroup(groupJid, reason string) {
 	q.mu.Unlock()
 }
 
-// runTask runs a task function outside the lock, then drains.
-// State must already be marked active with activeCount bumped.
 func (q *GroupQueue) runTask(groupJid string, task QueuedTask) {
 	slog.Debug("running queued task",
 		"groupJid", groupJid, "taskId", task.ID, "activeCount", q.activeCount)
@@ -324,8 +317,6 @@ func (q *GroupQueue) runTask(groupJid string, task QueuedTask) {
 	q.mu.Unlock()
 }
 
-// drainGroupLocked checks for pending work in a group after completion.
-// Caller must hold q.mu. May release and re-acquire for goroutine spawning.
 func (q *GroupQueue) drainGroupLocked(groupJid string) {
 	if q.shuttingDown {
 		return
@@ -333,7 +324,6 @@ func (q *GroupQueue) drainGroupLocked(groupJid string) {
 
 	s := q.getGroup(groupJid)
 
-	// Tasks first (they won't be re-discovered from SQLite like messages)
 	if len(s.pendingTasks) > 0 {
 		task := s.pendingTasks[0]
 		s.pendingTasks = s.pendingTasks[1:]
@@ -345,7 +335,6 @@ func (q *GroupQueue) drainGroupLocked(groupJid string) {
 		return
 	}
 
-	// Then pending messages
 	if s.pendingMessages {
 		s.active = true
 		s.idleWaiting = false
@@ -356,12 +345,9 @@ func (q *GroupQueue) drainGroupLocked(groupJid string) {
 		return
 	}
 
-	// Nothing pending for this group; check waiting groups
 	q.drainWaitingLocked()
 }
 
-// drainWaitingLocked pops waiting groups and starts them if capacity allows.
-// Caller must hold q.mu.
 func (q *GroupQueue) drainWaitingLocked() {
 	for len(q.waitingGroups) > 0 && q.activeCount < q.maxConcurrent {
 		nextJid := q.waitingGroups[0]
@@ -397,21 +383,15 @@ func (q *GroupQueue) hasWaiting(groupJid string) bool {
 }
 
 func signalContainer(name string) {
-	cmd := exec.Command("docker", "kill", "--signal=SIGUSR1", name)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	_ = cmd.Run()
+	_ = exec.Command("docker", "kill", "--signal=SIGUSR1", name).Run()
 }
 
-// ActiveCount returns the number of currently running containers.
 func (q *GroupQueue) ActiveCount() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.activeCount
 }
 
-// StopProcess stops the container running for the given JID.
-// Returns true if a container was found and stopped.
 func (q *GroupQueue) StopProcess(jid string) bool {
 	q.mu.Lock()
 	s := q.groups[jid]

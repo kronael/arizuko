@@ -11,8 +11,6 @@ import (
 	"github.com/onvos/arizuko/runtime"
 )
 
-// StartSidecars launches sidecar containers and returns
-// their names for cleanup.
 func StartSidecars(
 	cfg *RunnerConfig, folder string,
 	sidecars map[string]core.Sidecar,
@@ -30,7 +28,6 @@ func StartSidecars(
 		cname := sidecarName(folder, name)
 		sockPath := filepath.Join(sockDir, name+".sock")
 
-		// Remove stale socket
 		os.Remove(sockPath)
 
 		mem := spec.MemMB
@@ -81,7 +78,6 @@ func StartSidecars(
 	return names
 }
 
-// StopSidecars stops the given sidecar containers.
 func StopSidecars(names []string) {
 	for _, name := range names {
 		cmd := exec.Command(

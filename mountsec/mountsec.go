@@ -162,13 +162,7 @@ func expandHome(p string) string {
 }
 
 func matchesBlocked(real string, patterns []string) string {
-	parts := strings.Split(real, string(filepath.Separator))
 	for _, pat := range patterns {
-		for _, part := range parts {
-			if part == pat || strings.Contains(part, pat) {
-				return pat
-			}
-		}
 		if strings.Contains(real, pat) {
 			return pat
 		}
@@ -195,14 +189,7 @@ func findAllowedRoot(real string, roots []AllowedRoot) *AllowedRoot {
 }
 
 func validContainerPath(p string) bool {
-	if p == "" || strings.TrimSpace(p) == "" {
-		return false
-	}
-	if strings.Contains(p, "..") {
-		return false
-	}
-	if strings.HasPrefix(p, "/") {
-		return false
-	}
-	return true
+	return strings.TrimSpace(p) != "" &&
+		!strings.Contains(p, "..") &&
+		!strings.HasPrefix(p, "/")
 }

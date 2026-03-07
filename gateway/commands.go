@@ -8,8 +8,6 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// handleCommand checks if a message is a gateway command.
-// Returns true if handled (caller should skip normal processing).
 func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
 	text := strings.TrimSpace(msg.Content)
 	if !strings.HasPrefix(text, "/") {

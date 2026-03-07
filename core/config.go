@@ -118,22 +118,6 @@ func (c *Config) IsRoot(folder string) bool {
 	return !strings.Contains(folder, "/")
 }
 
-func (c *Config) WhatsappEnabled() bool {
-	p := filepath.Join(c.StoreDir, "auth", "creds.json")
-	_, err := os.Stat(p)
-	return err == nil
-}
-
-// HostPath translates a project-relative path to host-side path
-// for docker-in-docker scenarios.
-func (c *Config) HostPath(local string) string {
-	rel, err := filepath.Rel(c.ProjectRoot, local)
-	if err != nil {
-		return local
-	}
-	return filepath.Join(c.HostProjectRoot, rel)
-}
-
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -167,11 +151,7 @@ func envDur(key string, fallback time.Duration) time.Duration {
 
 func resolveTimezone() string {
 	tz := os.Getenv("TZ")
-	if tz == "" {
-		tz = "UTC"
-	}
-	_, err := time.LoadLocation(tz)
-	if err != nil {
+	if _, err := time.LoadLocation(tz); tz == "" || err != nil {
 		return "UTC"
 	}
 	return tz
