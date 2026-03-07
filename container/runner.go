@@ -468,13 +468,15 @@ func BuildMounts(
 			chown(groupRunnerDir, 1000, 1000)
 		}
 	}
-	// Only mount agent-runner source if it exists (dev mode)
-	// In production, agent image has code baked in
-	if _, err := os.Stat(runnerSrc); err == nil {
-		m = append(m, VolumeMount{
-			Host:      hp(cfg, runnerSrc),
-			Container: "/app/src",
-		})
+	// Agent image has compiled code baked in.
+	// Only mount source in dev mode (explicit env var).
+	if os.Getenv("ARIZUKO_DEV") == "1" {
+		if _, err := os.Stat(runnerSrc); err == nil {
+			m = append(m, VolumeMount{
+				Host:      hp(cfg, runnerSrc),
+				Container: "/app/src",
+			})
+		}
 	}
 
 	if len(in.Config.Mounts) > 0 {
