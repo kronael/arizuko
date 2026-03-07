@@ -130,6 +130,10 @@ func (g *Gateway) Run(ctx context.Context) error {
 	sched.Start()
 
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
+	g.queue.SetNotifyErrorFn(func(jid string, err error) {
+		msg := fmt.Sprintf("⚠️ Agent error: %v\n\nSend another message to retry.", err)
+		g.sendMessage(jid, msg)
+	})
 
 	slog.Info("connecting channels", "count", len(g.channels))
 	for _, ch := range g.channels {

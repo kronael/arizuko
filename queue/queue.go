@@ -35,6 +35,7 @@ type GroupState struct {
 }
 
 type ProcessMessagesFn func(groupJid string) (bool, error)
+type NotifyErrorFn func(groupJid string, err error)
 
 type GroupQueue struct {
 	mu              sync.Mutex
@@ -43,6 +44,7 @@ type GroupQueue struct {
 	maxConcurrent   int
 	waitingGroups   []string
 	processMessages ProcessMessagesFn
+	notifyError     NotifyErrorFn
 	shuttingDown    bool
 	dataDir         string
 }
@@ -68,6 +70,12 @@ func (q *GroupQueue) SetProcessMessagesFn(fn ProcessMessagesFn) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.processMessages = fn
+}
+
+func (q *GroupQueue) SetNotifyErrorFn(fn NotifyErrorFn) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.notifyError = fn
 }
 
 func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
@@ -274,10 +282,14 @@ func (q *GroupQueue) runForGroup(groupJid, reason string) {
 
 	q.mu.Lock()
 	s := q.getGroup(groupJid)
+	notifyFn := q.notifyError
 	if err != nil {
 		s.consecutiveFailures++
 		slog.Error("error processing messages for group",
 			"groupJid", groupJid, "err", err)
+		if notifyFn != nil {
+			go notifyFn(groupJid, err)
+		}
 	} else if success {
 		s.consecutiveFailures = 0
 	} else {
@@ -285,6 +297,9 @@ func (q *GroupQueue) runForGroup(groupJid, reason string) {
 		if s.consecutiveFailures >= circuitBreakerThreshold {
 			slog.Error("circuit breaker open - too many consecutive failures",
 				"groupJid", groupJid, "failures", s.consecutiveFailures)
+			if notifyFn != nil {
+				go notifyFn(groupJid, fmt.Errorf("too many failures, send another message to retry"))
+			}
 		}
 	}
 
