@@ -1,16 +1,20 @@
 # Architecture Cleanup
 
-**Status**: partial (dead code deleted)
+**Status**: partial
 
 v2 Go port carries over v1 patterns. This spec documents cleanup needed
 to restore minimality and proper separation.
 
-## ~~Critical: Delete Dead actions/ Package~~ DONE
+## actions/ Package
 
-The `actions/` directory (505 LOC) was never imported anywhere. It duplicated
-all IPC action logic that already exists in `ipc/watcher.go:handleAction()`.
+~~Previously marked for deletion~~ — KEEP.
 
-**Deleted**: `rm -rf actions/` — saved 505 LOC
+The `actions/` package is an intentional extension point. The duplication
+between `actions/` and `ipc/watcher.go:handleAction()` is a bug to fix,
+not dead code to delete.
+
+**Fix**: Wire `handleAction()` to dispatch through `actions.Registry`.
+See `specs/v2m3/action-registry.md` for design.
 
 ## IPC Deps Bloat
 
