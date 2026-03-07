@@ -468,10 +468,14 @@ func BuildMounts(
 			chown(groupRunnerDir, 1000, 1000)
 		}
 	}
-	m = append(m, VolumeMount{
-		Host:      cfg.HostAppDir + "/container/agent-runner/src",
-		Container: "/app/src",
-	})
+	// Only mount agent-runner source if it exists (dev mode)
+	// In production, agent image has code baked in
+	if _, err := os.Stat(runnerSrc); err == nil {
+		m = append(m, VolumeMount{
+			Host:      hp(cfg, runnerSrc),
+			Container: "/app/src",
+		})
+	}
 
 	if len(in.Config.Mounts) > 0 {
 		var add []mountsec.AdditionalMount

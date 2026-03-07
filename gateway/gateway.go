@@ -139,9 +139,9 @@ func (g *Gateway) Run(ctx context.Context) error {
 
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 
-	g.recoverPendingMessages()
-
+	slog.Info("connecting channels", "count", len(g.channels))
 	for _, ch := range g.channels {
+		slog.Info("connecting channel", "channel", ch.Name())
 		if err := ch.Connect(ctx); err != nil {
 			slog.Error("channel connect failed",
 				"channel", ch.Name(), "err", err)
@@ -149,6 +149,9 @@ func (g *Gateway) Run(ctx context.Context) error {
 		}
 		slog.Info("channel connected", "channel", ch.Name())
 	}
+	slog.Info("all channels connected")
+
+	g.recoverPendingMessages()
 
 	slog.Info("arizuko running",
 		"name", g.cfg.Name,
