@@ -46,6 +46,8 @@ type Config struct {
 	MediaMaxBytes int64
 	WhisperURL    string
 	VoiceEnabled  bool
+	VideoEnabled  bool
+	WhisperModel  string
 
 	TriggerRE *regexp.Regexp
 }
@@ -98,6 +100,8 @@ func LoadConfig() (*Config, error) {
 		MediaMaxBytes: int64(envInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
 		WhisperURL:    envOr("WHISPER_BASE_URL", "http://localhost:8080"),
 		VoiceEnabled:  envOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
+		VideoEnabled:  envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
+		WhisperModel:  envOr("WHISPER_MODEL", "turbo"),
 	}
 
 	if c.EmailSMTP == "" && c.EmailIMAP != "" {

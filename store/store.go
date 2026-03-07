@@ -61,7 +61,25 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+
+	// Check user_version for data migrations
+	var ver int
+	s.db.QueryRow("PRAGMA user_version").Scan(&ver)
+	if ver < 1 {
+		s.migrateV1()
+		s.db.Exec("PRAGMA user_version = 1")
+	}
 	return nil
+}
+
+func (s *Store) migrateV1() {
+	// Prefix bare telegram JIDs
+	s.db.Exec(`UPDATE chats SET jid = 'telegram:' || jid WHERE jid GLOB '[0-9]*' AND channel = 'telegram'`)
+	s.db.Exec(`UPDATE messages SET chat_jid = 'telegram:' || chat_jid WHERE chat_jid GLOB '[0-9]*' AND EXISTS (SELECT 1 FROM chats WHERE chats.jid = 'telegram:' || messages.chat_jid AND chats.channel = 'telegram')`)
+	s.db.Exec(`UPDATE registered_groups SET jid = 'telegram:' || jid WHERE jid GLOB '[0-9]*'`)
+	// Similar for whatsapp and discord
+	s.db.Exec(`UPDATE chats SET jid = 'whatsapp:' || jid WHERE jid NOT LIKE '%:%' AND channel = 'whatsapp'`)
+	s.db.Exec(`UPDATE chats SET jid = 'discord:' || jid WHERE jid NOT LIKE '%:%' AND channel = 'discord'`)
 }
 
 var schema = []string{
@@ -70,7 +88,8 @@ var schema = []string{
 		name TEXT,
 		channel TEXT,
 		is_group INTEGER DEFAULT 0,
-		last_message_time TEXT
+		last_message_time TEXT,
+		errored INTEGER DEFAULT 0
 	)`,
 
 	`CREATE TABLE IF NOT EXISTS messages (
@@ -82,7 +101,9 @@ var schema = []string{
 		timestamp TEXT NOT NULL,
 		is_from_me INTEGER DEFAULT 0,
 		is_bot_message INTEGER DEFAULT 0,
-		reply_to TEXT
+		forwarded_from TEXT,
+		reply_to_text TEXT,
+		reply_to_sender TEXT
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_jid, timestamp)`,
 
@@ -120,6 +141,7 @@ var schema = []string{
 		group_id TEXT NOT NULL,
 		origin TEXT NOT NULL,
 		event TEXT NOT NULL,
+		attrs TEXT,
 		body TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL
 	)`,

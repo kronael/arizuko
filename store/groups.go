@@ -23,7 +23,7 @@ func (s *Store) PutChat(jid, name, ch string, group bool) error {
 
 func (s *Store) AllChats() []core.ChatInfo {
 	rows, err := s.db.Query(
-		`SELECT jid, name, channel, is_group, last_message_time
+		`SELECT jid, name, channel, is_group, last_message_time, errored
 		 FROM chats ORDER BY last_message_time DESC`)
 	if err != nil {
 		return nil
@@ -33,9 +33,9 @@ func (s *Store) AllChats() []core.ChatInfo {
 	var out []core.ChatInfo
 	for rows.Next() {
 		var c core.ChatInfo
-		var isGroup int
+		var isGroup, errored int
 		var name, ch, lastTime *string
-		rows.Scan(&c.JID, &name, &ch, &isGroup, &lastTime)
+		rows.Scan(&c.JID, &name, &ch, &isGroup, &lastTime, &errored)
 		if name != nil {
 			c.Name = *name
 		}
@@ -46,9 +46,26 @@ func (s *Store) AllChats() []core.ChatInfo {
 			c.LastTime = *lastTime
 		}
 		c.IsGroup = isGroup != 0
+		c.Errored = errored != 0
 		out = append(out, c)
 	}
 	return out
+}
+
+func (s *Store) MarkChatErrored(jid string) error {
+	_, err := s.db.Exec(`UPDATE chats SET errored = 1 WHERE jid = ?`, jid)
+	return err
+}
+
+func (s *Store) ClearChatErrored(jid string) error {
+	_, err := s.db.Exec(`UPDATE chats SET errored = 0 WHERE jid = ?`, jid)
+	return err
+}
+
+func (s *Store) IsChatErrored(jid string) bool {
+	var errored int
+	s.db.QueryRow(`SELECT errored FROM chats WHERE jid = ?`, jid).Scan(&errored)
+	return errored != 0
 }
 
 func (s *Store) PutGroup(jid string, g core.Group) error {

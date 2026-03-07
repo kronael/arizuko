@@ -6,15 +6,18 @@ import (
 )
 
 type Message struct {
-	ID        string
-	ChatJID   string
-	Sender    string
-	Name      string
-	Content   string
-	Timestamp time.Time
-	FromMe    bool
-	BotMsg    bool
-	ReplyTo   string
+	ID            string
+	ChatJID       string
+	Sender        string
+	Name          string
+	Content       string
+	Timestamp     time.Time
+	FromMe        bool
+	BotMsg        bool
+	ReplyTo       string // legacy
+	ForwardedFrom string
+	ReplyToText   string
+	ReplyToSender string
 }
 
 type Group struct {
@@ -111,4 +114,5 @@ type ChatInfo struct {
 	Channel  string
 	IsGroup  bool
 	LastTime string
+	Errored  bool
 }

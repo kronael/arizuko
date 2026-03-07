@@ -4,8 +4,8 @@
 
 | Package      | Lines | Status | Notes                            |
 | ------------ | ----- | ------ | -------------------------------- |
-| core/        | ~190  | done   | types, config, Channel iface     |
-| store/       | ~480  | done   | SQLite CRUD, full schema, tests  |
+| core/        | ~210  | done   | types, config, Channel iface     |
+| store/       | ~530  | done   | SQLite CRUD, schema, migrations  |
 | logger/      | ~23   | done   | slog JSON to stderr              |
 | groupfolder/ | ~70   | done   | path resolution + validation     |
 | router/      | ~120  | done   | XML format, routing rules        |
@@ -14,33 +14,42 @@
 | mountsec/    | ~210  | done   | mount validation + allowlist     |
 | runtime/     | ~63   | done   | docker lifecycle, orphan cleanup |
 | scheduler/   | ~195  | done   | cron via robfig/cron, tasks      |
-| container/   | ~370  | done   | docker run, mounts, output parse |
-| gateway/     | ~640  | done   | orchestration loop, routing      |
+| diary/       | ~100  | done   | YAML frontmatter diary reader    |
+| container/   | ~830  | done   | docker run, mounts, gateway-caps |
+| gateway/     | ~660  | done   | orchestration, error tracking    |
 | cmd/arizuko/ | ~187  | done   | run, create, group CLI           |
 
-Total: ~3,260 LOC Go (vs ~5,000+ LOC TS)
+Total: ~4,630 LOC Go (vs ~9,400 LOC TS)
+
+## Recently incorporated from kanipi
+
+- Forward/reply message metadata (forwarded_from, reply_to_text, reply_to_sender)
+- Per-chat error tracking (errored flag on chats, mark/clear/check)
+- DB migration system (PRAGMA user_version, v1 JID standardization)
+- Gateway capabilities manifest (.gateway-caps TOML)
+- Diary system (YAML frontmatter summaries as session annotations)
+- Per-channel output styling (outputStyle in settings.json)
+- Media/video/voice config plumbing to container runner
+- Sidecar IPC directory creation
 
 ## Not ported (functionality gaps)
 
 - **Channel adapters** — telegram, discord, whatsapp, email, web.
-  These are the biggest missing pieces. The Channel interface exists
-  but no implementations. Each is 200-500 LOC depending on the
-  platform SDK.
+  The Channel interface exists but no implementations.
 
-- **Action registry** — unified action system with Zod schemas.
+- **Action registry** — unified action system.
   Go version would use JSON Schema or struct tags.
 
-- **Commands** — /new, /ping, /chatid. Simple to add.
+- **Commands** — /new, /ping, /chatid, /stop, /put, /get, /ls.
 
-- **Web proxy** — vite proxy + auth. Could be net/http.
+- **Web proxy** — vite proxy + auth.
 
 - **MIME enricher** — attachment download + transcription pipeline.
-  voice/video → whisper → text annotation.
 
 - **Slink** — share link system for web access.
 
 - **Sidecar management** — start/stop MCP sidecar containers,
-  reconcile settings.json. Partially in TS container-runner.
+  reconcile settings.json.
 
 ## Open questions
 

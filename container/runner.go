@@ -38,6 +38,7 @@ type Input struct {
 	Secrets   map[string]string `json:"secrets,omitempty"`
 	MsgCount  int               `json:"messageCount,omitempty"`
 	Depth     int               `json:"delegateDepth,omitempty"`
+	Channel   string            `json:"channelName,omitempty"`
 
 	// Non-serialized fields used by the runner.
 	GroupPath   string           `json:"-"`
@@ -80,6 +81,12 @@ type RunnerConfig struct {
 	WebHost         string
 	Name            string
 	Allowlist       mountsec.Allowlist
+	MediaEnabled    bool
+	MediaMaxBytes   int64
+	VoiceEnabled    bool
+	VideoEnabled    bool
+	WhisperModel    string
+	WhisperURL      string
 }
 
 // Run spawns a docker container, writes input JSON to stdin, streams
@@ -98,6 +105,7 @@ func Run(cfg *RunnerConfig, in Input) Output {
 	}
 	os.MkdirAll(groupDir, 0o755)
 	chown(groupDir, 1000, 1000)
+	writeGatewayCaps(groupDir, cfg)
 
 	mounts := BuildMounts(cfg, in, groupDir, root, folders)
 
@@ -456,7 +464,7 @@ func BuildMounts(
 	ipcDir, err := folders.IpcPath(in.Folder)
 	if err == nil {
 		for _, sub := range []string{
-			"messages", "tasks", "input", "requests", "replies",
+			"messages", "tasks", "input", "requests", "replies", "sidecars",
 		} {
 			os.MkdirAll(filepath.Join(ipcDir, sub), 0o755)
 		}
@@ -616,6 +624,9 @@ func seedSettings(
 		env["NANOCLAW_IS_ROOT"] = "1"
 	}
 	env["NANOCLAW_DELEGATE_DEPTH"] = fmt.Sprintf("%d", in.Depth)
+	if in.Channel != "" {
+		settings["outputStyle"] = in.Channel
+	}
 	if in.SlinkToken != "" {
 		env["SLINK_TOKEN"] = in.SlinkToken
 	}
@@ -661,6 +672,22 @@ func seedSkills(cfg *RunnerConfig, claudeDir string) {
 			os.WriteFile(mdDst, data, 0o644)
 		}
 	}
+}
+
+func writeGatewayCaps(groupDir string, cfg *RunnerConfig) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "[voice]\nenabled = %v\nmodel = %q\n\n",
+		cfg.VoiceEnabled, cfg.WhisperModel)
+	fmt.Fprintf(&b, "[video]\nenabled = %v\n\n", cfg.VideoEnabled)
+	fmt.Fprintf(&b, "[media]\nenabled = %v\nmax_size_mb = %d\n\n",
+		cfg.MediaEnabled, cfg.MediaMaxBytes/(1024*1024))
+	if cfg.WebHost != "" {
+		fmt.Fprintf(&b, "[web]\nenabled = true\nhost = %q\n", cfg.WebHost)
+	} else {
+		fmt.Fprintf(&b, "[web]\nenabled = false\n")
+	}
+	os.WriteFile(filepath.Join(groupDir, ".gateway-caps"),
+		[]byte(b.String()), 0o644)
 }
 
 func migrationVersion(path string) int {

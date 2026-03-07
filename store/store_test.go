@@ -145,6 +145,24 @@ func TestSystemMessages(t *testing.T) {
 	}
 }
 
+func TestChatErrorTracking(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	s.PutChat("tg:1", "Test", "telegram", false)
+	if s.IsChatErrored("tg:1") {
+		t.Fatal("should not be errored initially")
+	}
+	s.MarkChatErrored("tg:1")
+	if !s.IsChatErrored("tg:1") {
+		t.Fatal("should be errored after mark")
+	}
+	s.ClearChatErrored("tg:1")
+	if s.IsChatErrored("tg:1") {
+		t.Fatal("should not be errored after clear")
+	}
+}
+
 func TestTaskCRUD(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()

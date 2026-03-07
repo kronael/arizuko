@@ -12,6 +12,7 @@ import (
 
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/diary"
 	"github.com/onvos/arizuko/groupfolder"
 	"github.com/onvos/arizuko/ipc"
 	"github.com/onvos/arizuko/queue"
@@ -62,6 +63,14 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 			DataDir:         cfg.DataDir,
 			Timezone:        cfg.Timezone,
 			Name:            cfg.Name,
+			GroupsDir:       cfg.GroupsDir,
+			WebDir:          cfg.WebDir,
+			MediaEnabled:    cfg.MediaEnabled,
+			MediaMaxBytes:   cfg.MediaMaxBytes,
+			VoiceEnabled:    cfg.VoiceEnabled,
+			VideoEnabled:    cfg.VideoEnabled,
+			WhisperModel:    cfg.WhisperModel,
+			WhisperURL:      cfg.WhisperURL,
 		},
 	}
 }
@@ -309,6 +318,7 @@ func (g *Gateway) pollOnce() {
 
 		// Try piping to active container first
 		if g.queue.SendMessage(chatJid, last.Content) {
+			g.store.ClearChatErrored(chatJid)
 			continue
 		}
 
@@ -395,11 +405,13 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 			g.mu.Unlock()
 			g.sendMessage(chatJid,
 				"Failed: agent error, will retry on next message.")
+			g.store.MarkChatErrored(chatJid)
 		}
 		return false, fmt.Errorf("agent: %s", out.Error)
 	}
 
 	g.advanceAgentCursor(chatJid, msgs)
+	g.store.ClearChatErrored(chatJid)
 	return true, nil
 }
 
@@ -431,15 +443,24 @@ func (g *Gateway) runAgent(
 	container.WriteGroupsSnapshot(
 		g.folders, group.Folder, isRoot, g.groupList())
 
+	// Diary annotation
+	var annotations []string
+	if d := diary.Read(groupPath, 2); d != "" {
+		annotations = append(annotations, d)
+	}
+
 	input := container.Input{
-		Prompt:    prompt,
-		SessionID: sessionID,
-		ChatJID:   chatJid,
-		Folder:    group.Folder,
-		GroupPath: groupPath,
-		Name:      cname,
-		Config:    group.Config,
-		OnOutput:  onOutput,
+		Prompt:      prompt,
+		SessionID:   sessionID,
+		ChatJID:     chatJid,
+		Folder:      group.Folder,
+		GroupPath:   groupPath,
+		Name:        cname,
+		Config:      group.Config,
+		SlinkToken:  group.SlinkToken,
+		Channel:     channelName(g.findChannel(chatJid)),
+		Annotations: annotations,
+		OnOutput:    onOutput,
 	}
 
 	out := container.Run(g.runnerCfg, input)
@@ -611,7 +632,7 @@ func (g *Gateway) recoverPendingMessages() {
 			slog.Error("recovery query failed", "jid", jid, "err", err)
 			continue
 		}
-		if len(msgs) > 0 {
+		if len(msgs) > 0 && !g.store.IsChatErrored(jid) {
 			slog.Info("recovering pending messages",
 				"jid", jid, "count", len(msgs))
 			g.queue.EnqueueMessageCheck(jid)
@@ -627,6 +648,13 @@ func (g *Gateway) groupList() []core.Group {
 		out = append(out, gr)
 	}
 	return out
+}
+
+func channelName(ch core.Channel) string {
+	if ch == nil {
+		return ""
+	}
+	return ch.Name()
 }
 
 var nonAlphaNum = regexp.MustCompile(`[^a-zA-Z0-9]+`)
