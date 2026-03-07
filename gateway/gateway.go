@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"regexp"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,7 +15,6 @@ import (
 	"github.com/onvos/arizuko/ipc"
 	"github.com/onvos/arizuko/queue"
 	"github.com/onvos/arizuko/router"
-	"github.com/onvos/arizuko/runtime"
 	"github.com/onvos/arizuko/scheduler"
 	"github.com/onvos/arizuko/store"
 )
@@ -36,8 +33,6 @@ type Gateway struct {
 	lastTimestamp      time.Time
 	lastAgentTimestamp map[string]time.Time
 	lastMessageDate   map[string]string
-
-	runnerCfg *container.RunnerConfig
 }
 
 func New(cfg *core.Config, s *store.Store) *Gateway {
@@ -53,26 +48,6 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 		sessions:           make(map[string]string),
 		lastAgentTimestamp: make(map[string]time.Time),
 		lastMessageDate:   make(map[string]string),
-		runnerCfg: &container.RunnerConfig{
-			Image:           cfg.Image,
-			Timeout:         cfg.Timeout,
-			IdleTimeout:     cfg.IdleTimeout,
-			HostProjectRoot: cfg.HostProjectRoot,
-			HostAppDir:      cfg.HostAppDir,
-			HostGroupsDir:   cfg.HostGroupsDir,
-			DataDir:         cfg.DataDir,
-			Timezone:        cfg.Timezone,
-			Name:            cfg.Name,
-			GroupsDir:       cfg.GroupsDir,
-			WebDir:          cfg.WebDir,
-			WebHost:         cfg.WebHost,
-			MediaEnabled:    cfg.MediaEnabled,
-			MediaMaxBytes:   cfg.MediaMaxBytes,
-			VoiceEnabled:    cfg.VoiceEnabled,
-			VideoEnabled:    cfg.VideoEnabled,
-			WhisperModel:    cfg.WhisperModel,
-			WhisperURL:      cfg.WhisperURL,
-		},
 	}
 }
 
@@ -83,10 +58,10 @@ func (g *Gateway) AddChannel(ch core.Channel) {
 }
 
 func (g *Gateway) Run(ctx context.Context) error {
-	if err := runtime.EnsureRunning(); err != nil {
+	if err := container.EnsureRunning(); err != nil {
 		return fmt.Errorf("runtime check failed: %w", err)
 	}
-	runtime.CleanupOrphans(g.cfg.Image)
+	container.CleanupOrphans(g.cfg.Image)
 
 	g.loadState()
 
@@ -421,7 +396,7 @@ func (g *Gateway) runAgent(
 	}
 
 	ts := time.Now().UnixMilli()
-	sanitized := sanitizeFolder(group.Folder)
+	sanitized := container.SanitizeFolder(group.Folder)
 	cname := fmt.Sprintf("arizuko-%s-%d", sanitized, ts)
 
 	g.queue.RegisterProcess(chatJid, cname, group.Folder)
@@ -451,7 +426,7 @@ func (g *Gateway) runAgent(
 		OnOutput:    onOutput,
 	}
 
-	out := container.Run(g.runnerCfg, input)
+	out := container.Run(g.cfg, g.folders, input)
 
 	if out.NewSessionID != "" {
 		g.mu.Lock()
@@ -636,15 +611,4 @@ func channelName(ch core.Channel) string {
 		return ""
 	}
 	return ch.Name()
-}
-
-var nonAlphaNum = regexp.MustCompile(`[^a-zA-Z0-9]+`)
-
-func sanitizeFolder(folder string) string {
-	s := strings.ReplaceAll(folder, "/", "-")
-	s = nonAlphaNum.ReplaceAllString(s, "-")
-	if len(s) > 40 {
-		s = s[:40]
-	}
-	return strings.Trim(s, "-")
 }

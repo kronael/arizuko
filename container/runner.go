@@ -16,7 +16,6 @@ import (
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/groupfolder"
 	"github.com/onvos/arizuko/mountsec"
-	"github.com/onvos/arizuko/runtime"
 )
 
 const (
@@ -26,6 +25,15 @@ const (
 )
 
 var safeNameRe = regexp.MustCompile(`[^a-zA-Z0-9-]`)
+
+func SanitizeFolder(folder string) string {
+	s := strings.ReplaceAll(folder, "/", "-")
+	s = safeNameRe.ReplaceAllString(s, "-")
+	if len(s) > 40 {
+		s = s[:40]
+	}
+	return strings.Trim(s, "-")
+}
 
 type Input struct {
 	Prompt    string            `json:"prompt"`
@@ -63,34 +71,8 @@ type VolumeMount struct {
 	RO        bool
 }
 
-type RunnerConfig struct {
-	Image           string
-	Timeout         time.Duration
-	IdleTimeout     time.Duration
-	Timezone        string
-	HostAppDir      string
-	HostProjectRoot string
-	HostGroupsDir   string
-	DataDir         string
-	GroupsDir       string
-	WebDir          string
-	WebHost         string
-	Name            string
-	Allowlist       mountsec.Allowlist
-	MediaEnabled    bool
-	MediaMaxBytes   int64
-	VoiceEnabled    bool
-	VideoEnabled    bool
-	WhisperModel    string
-	WhisperURL      string
-}
-
-func Run(cfg *RunnerConfig, in Input) Output {
+func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	root := !strings.Contains(in.Folder, "/")
-	folders := &groupfolder.Resolver{
-		GroupsDir: cfg.GroupsDir,
-		DataDir:   cfg.DataDir,
-	}
 
 	groupDir := in.GroupPath
 	if groupDir == "" {
@@ -148,7 +130,7 @@ func Run(cfg *RunnerConfig, in Input) Output {
 
 	start := time.Now()
 
-	cmd := exec.Command(runtime.Bin, args...)
+	cmd := exec.Command(Bin, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return Output{Error: "stdin pipe: " + err.Error()}
@@ -206,7 +188,7 @@ func Run(cfg *RunnerConfig, in Input) Output {
 		slog.Error("container timeout, stopping gracefully",
 			"group", in.Folder, "container", containerName)
 		stop := exec.Command(
-			runtime.Bin, runtime.StopContainerArgs(containerName)...)
+			Bin, StopContainerArgs(containerName)...)
 		if err := stop.Run(); err != nil {
 			slog.Warn("graceful stop failed, killing",
 				"group", in.Folder, "container", containerName)
@@ -400,7 +382,7 @@ func Run(cfg *RunnerConfig, in Input) Output {
 }
 
 func BuildMounts(
-	cfg *RunnerConfig, in Input,
+	cfg *core.Config, in Input,
 	groupDir string, root bool,
 	folders *groupfolder.Resolver,
 ) []VolumeMount {
@@ -490,7 +472,7 @@ func BuildMounts(
 			})
 		}
 		for _, v := range mountsec.ValidateAdditionalMounts(
-			add, in.Folder, root, cfg.Allowlist,
+			add, in.Folder, root, mountsec.Allowlist{},
 		) {
 			m = append(m, VolumeMount{
 				Host:      v.HostPath,
@@ -521,7 +503,7 @@ func BuildMounts(
 }
 
 func buildArgs(
-	cfg *RunnerConfig, mounts []VolumeMount, name string,
+	cfg *core.Config, mounts []VolumeMount, name string,
 ) []string {
 	args := []string{
 		"run", "-i", "--rm",
@@ -541,7 +523,7 @@ func buildArgs(
 	for _, m := range mounts {
 		if m.RO {
 			args = append(args,
-				runtime.ReadonlyMountArgs(m.Host, m.Container)...)
+				ReadonlyMountArgs(m.Host, m.Container)...)
 		} else {
 			args = append(args,
 				"-v", m.Host+":"+m.Container)
@@ -552,7 +534,7 @@ func buildArgs(
 	return args
 }
 
-func hp(cfg *RunnerConfig, local string) string {
+func hp(cfg *core.Config, local string) string {
 	if cfg.HostProjectRoot == "" {
 		return local
 	}
@@ -580,7 +562,7 @@ func readSecrets() map[string]string {
 }
 
 func seedSettings(
-	claudeDir string, cfg *RunnerConfig,
+	claudeDir string, cfg *core.Config,
 	in Input, root bool,
 ) {
 	fp := filepath.Join(claudeDir, "settings.json")
@@ -659,7 +641,7 @@ func seedSettings(
 	os.WriteFile(fp, append(data, '\n'), 0o644)
 }
 
-func seedSkills(cfg *RunnerConfig, claudeDir string) {
+func seedSkills(cfg *core.Config, claudeDir string) {
 	src := filepath.Join(cfg.HostAppDir, "container", "skills")
 	dst := filepath.Join(claudeDir, "skills")
 
@@ -695,7 +677,7 @@ func seedSkills(cfg *RunnerConfig, claudeDir string) {
 	}
 }
 
-func writeGatewayCaps(groupDir string, cfg *RunnerConfig) {
+func writeGatewayCaps(groupDir string, cfg *core.Config) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[voice]\nenabled = %v\nmodel = %q\n\n",
 		cfg.VoiceEnabled, cfg.WhisperModel)

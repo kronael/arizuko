@@ -82,18 +82,26 @@ func (s *Store) AllTasks() []core.Task {
 
 func (s *Store) UpdateTask(id string, p TaskPatch) error {
 	if p.Status != nil {
-		s.db.Exec(`UPDATE scheduled_tasks SET status = ? WHERE id = ?`, *p.Status, id)
+		if _, err := s.db.Exec(`UPDATE scheduled_tasks SET status = ? WHERE id = ?`, *p.Status, id); err != nil {
+			return err
+		}
 	}
 	if p.NextRun != nil {
-		s.db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`,
-			p.NextRun.Format(time.RFC3339), id)
+		if _, err := s.db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`,
+			p.NextRun.Format(time.RFC3339), id); err != nil {
+			return err
+		}
 	}
 	if p.LastRun != nil {
-		s.db.Exec(`UPDATE scheduled_tasks SET last_run = ? WHERE id = ?`,
-			p.LastRun.Format(time.RFC3339), id)
+		if _, err := s.db.Exec(`UPDATE scheduled_tasks SET last_run = ? WHERE id = ?`,
+			p.LastRun.Format(time.RFC3339), id); err != nil {
+			return err
+		}
 	}
 	if p.LastResult != nil {
-		s.db.Exec(`UPDATE scheduled_tasks SET last_result = ? WHERE id = ?`, *p.LastResult, id)
+		if _, err := s.db.Exec(`UPDATE scheduled_tasks SET last_result = ? WHERE id = ?`, *p.LastResult, id); err != nil {
+			return err
+		}
 	}
 	return nil
 }

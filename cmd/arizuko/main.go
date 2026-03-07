@@ -13,7 +13,6 @@ import (
 	"github.com/onvos/arizuko/channels"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/gateway"
-	"github.com/onvos/arizuko/logger"
 	"github.com/onvos/arizuko/store"
 )
 
@@ -37,7 +36,9 @@ func main() {
 }
 
 func cmdRun() {
-	logger.Init()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
 
 	cfg, err := core.LoadConfig()
 	if err != nil {

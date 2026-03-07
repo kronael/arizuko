@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onvos/arizuko/runtime"
+	"github.com/onvos/arizuko/container"
 )
 
 const circuitBreakerThreshold = 3
@@ -383,7 +383,7 @@ func (q *GroupQueue) hasWaiting(groupJid string) bool {
 }
 
 func signalContainer(name string) {
-	_ = exec.Command("docker", "kill", "--signal=SIGUSR1", name).Run()
+	_ = exec.Command(container.Bin, "kill", "--signal=SIGUSR1", name).Run()
 }
 
 func (q *GroupQueue) ActiveCount() int {
@@ -402,7 +402,7 @@ func (q *GroupQueue) StopProcess(jid string) bool {
 	name := s.containerName
 	q.mu.Unlock()
 
-	cmd := exec.Command(runtime.Bin, runtime.StopContainerArgs(name)...)
+	cmd := exec.Command(container.Bin, container.StopContainerArgs(name)...)
 	return cmd.Run() == nil
 }
 

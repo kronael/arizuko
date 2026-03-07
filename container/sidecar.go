@@ -8,11 +8,10 @@ import (
 	"path/filepath"
 
 	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/runtime"
 )
 
 func StartSidecars(
-	cfg *RunnerConfig, folder string,
+	cfg *core.Config, folder string,
 	sidecars map[string]core.Sidecar,
 	ipcDir string,
 ) []string {
@@ -60,7 +59,7 @@ func StartSidecars(
 
 		args = append(args, spec.Image)
 
-		cmd := exec.Command(runtime.Bin, args...)
+		cmd := exec.Command(Bin, args...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			slog.Error("sidecar start failed",
@@ -81,9 +80,9 @@ func StartSidecars(
 func StopSidecars(names []string) {
 	for _, name := range names {
 		cmd := exec.Command(
-			runtime.Bin, runtime.StopContainerArgs(name)...)
+			Bin, StopContainerArgs(name)...)
 		if err := cmd.Run(); err != nil {
-			exec.Command(runtime.Bin, "rm", "-f", name).Run()
+			exec.Command(Bin, "rm", "-f", name).Run()
 		}
 		slog.Debug("sidecar stopped", "container", name)
 	}
