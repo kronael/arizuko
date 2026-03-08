@@ -73,32 +73,6 @@
   font-size: 0.8em;
 }
 
-/* principle grid */
-.principles {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
-  gap: 1em;
-  margin: 1.5em 0 2em;
-}
-.principle {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 1.2em;
-}
-.principle-name {
-  font-size: 1em;
-  font-weight: bold;
-  color: var(--accent);
-  margin-bottom: 0.4em;
-}
-.principle p {
-  color: var(--dim);
-  font-size: 0.85em;
-  line-height: 1.5;
-  margin: 0;
-}
-
 /* component table */
 .comp-grid {
   display: grid;
@@ -179,28 +153,6 @@
 .badge-done    { background: #001a0a; color: #4ade80;        border: 1px solid #4ade80;        }
 .badge-next    { background: #1a1a2e; color: var(--accent3); border: 1px solid var(--accent3); }
 
-/* roadmap */
-.roadmap-row {
-  display: grid;
-  grid-template-columns: 5em 1fr;
-  gap: 1em;
-  align-items: start;
-  padding: 0.7em 0;
-  border-bottom: 1px solid var(--border);
-}
-.roadmap-row:last-child { border-bottom: none; }
-.roadmap-phase {
-  font-size: 0.8em;
-  font-weight: bold;
-  color: var(--accent);
-  padding-top: 0.1em;
-}
-.roadmap-items {
-  font-size: 0.85em;
-  color: var(--dim);
-  line-height: 1.6;
-}
-
 /* mythology aside */
 .myth {
   border-left: 2px solid var(--accent2);
@@ -236,9 +188,27 @@
 
 <div class="hero">
   <h1>ARIZUKO</h1>
-  <div class="hero-sub">v1.0.0 — permission tiers, scheduled tasks, IPC actions</div>
+  <div class="hero-sub">v1.0.0 — Go rewrite, permission tiers, scheduled tasks, IPC actions</div>
   <div class="hero-tagline">Multitenant Claude agent gateway. Polls messaging channels, routes to containerized agents via docker, streams responses back.</div>
-  <div class="hero-kanji">蟻巫女 — goddess of the undead ants · <span style="color: var(--accent); font-style: normal;">17 packages, 122 tests, one binary</span></div>
+  <div class="hero-kanji">&#34811;&#24043;&#22899; — goddess of the undead ants &middot; <span style="color: var(--accent); font-style: normal;">17 packages, 122 tests, one binary</span></div>
+</div>
+
+<div class="caveat" style="margin-bottom: 1.5em;">
+  <strong>Status: v1.0.0.</strong> Go rewrite of Kanipi (TypeScript). Five channels in production: Telegram, Discord, WhatsApp, Email, Web SSE.
+  4-tier permission model (root/world/agent/worker). 14 IPC actions with JSON schemas. Circuit breaker, error notifications, scheduled tasks with context modes.
+  Evolved from Kanipi (TypeScript) &mdash; same architecture, different language, tighter binary.
+</div>
+
+<div class="tldr-box">
+  <div class="tldr-label">TL;DR</div>
+  <div class="tldr-text">
+    Single Go binary. Polls 5 channel types for messages, routes to containerized Claude agents via docker, streams output back.
+    Each agent runs isolated in its own container with 8 mount types, MCP sidecars, signal-driven IPC, and skills seeding.
+    Permission tiers by folder depth. Scheduled tasks with two context modes. 14 IPC actions with authorization.
+    SQLite WAL for state, no external dependencies beyond docker.
+    <a href="#v2">V2</a> adds topic routing, memory layers, and MCP protocol migration.
+    <strong>17 packages, ~9,800 LOC Go, 122 tests.</strong>
+  </div>
 </div>
 
 <nav class="hub-nav" id="nav">
@@ -246,6 +216,10 @@
     <a href="#architecture" class="nav-item">
       <span class="nav-label">Architecture</span>
       <span class="nav-hint">message flow</span>
+    </a>
+    <a href="#v1" class="nav-item">
+      <span class="nav-label">V1</span>
+      <span class="nav-hint">what's shipped</span>
     </a>
     <a href="#packages" class="nav-item">
       <span class="nav-label">Packages</span>
@@ -255,17 +229,13 @@
       <span class="nav-label">Channels</span>
       <span class="nav-hint">5 adapters</span>
     </a>
-    <a href="#features" class="nav-item">
-      <span class="nav-label">Features</span>
-      <span class="nav-hint">what's shipped</span>
-    </a>
     <a href="#install" class="nav-item">
       <span class="nav-label">Get It</span>
       <span class="nav-hint">build &amp; run</span>
     </a>
-    <a href="#roadmap" class="nav-item">
-      <span class="nav-label">Roadmap</span>
-      <span class="nav-hint">what's next</span>
+    <a href="#v2" class="nav-item">
+      <span class="nav-label">V2</span>
+      <span class="nav-hint">topics + memory</span>
     </a>
   </div>
 </nav>
@@ -288,6 +258,10 @@
     <div class="stat-label">channel adapters</div>
   </div>
   <div class="stat">
+    <div class="stat-value">14</div>
+    <div class="stat-label">IPC actions</div>
+  </div>
+  <div class="stat">
     <div class="stat-value">SQLite</div>
     <div class="stat-label">WAL mode, 12 tables</div>
   </div>
@@ -297,21 +271,256 @@
 <section id="architecture">
 <h2>Message Flow</h2>
 
-<div class="code-wrap"><pre><span class="cmt">// Channel → store → gateway poll → queue → container → channel</span>
+<div class="code-wrap"><pre><span class="cmt">// Channel &rarr; store &rarr; gateway poll &rarr; queue &rarr; container &rarr; channel</span>
 
-Channel.<span class="fn">OnMessage</span> → store.<span class="fn">PutMessage</span> + <span class="fn">PutChat</span>
-  → gateway.<span class="fn">messageLoop</span> <span class="cmt">(polls every 2s)</span>
-  → store.<span class="fn">NewMessages</span> <span class="cmt">(unprocessed since cursor)</span>
-  → <span class="fn">checkTrigger</span> <span class="cmt">(direct mode or @name regex)</span>
-  → <span class="fn">handleCommand</span> <span class="cmt">(/new, /ping, /chatid, /stop)</span>
-  → router.<span class="fn">ResolveRoutingTarget</span> <span class="cmt">(delegate to child if matched)</span>
-  → queue.<span class="fn">EnqueueMessageCheck</span> → <span class="fn">processGroupMessages</span>
-    → router.<span class="fn">FormatMessages</span> <span class="cmt">(XML batch)</span>
-    → container.<span class="fn">Run</span> <span class="cmt">(docker run -i --rm)</span>
-    → stream output → router.<span class="fn">FormatOutbound</span>
-    → channel.<span class="fn">Send</span></pre></div>
+Channel.<span class="fn">OnMessage</span> &rarr; store.<span class="fn">PutMessage</span> + <span class="fn">PutChat</span>
+  &rarr; gateway.<span class="fn">messageLoop</span> <span class="cmt">(polls every 2s)</span>
+  &rarr; store.<span class="fn">NewMessages</span> <span class="cmt">(unprocessed since cursor)</span>
+  &rarr; <span class="fn">checkTrigger</span> <span class="cmt">(direct mode or @name regex)</span>
+  &rarr; <span class="fn">handleCommand</span> <span class="cmt">(/new, /ping, /chatid, /stop)</span>
+  &rarr; router.<span class="fn">ResolveRoutingTarget</span> <span class="cmt">(delegate to child if matched)</span>
+  &rarr; queue.<span class="fn">EnqueueMessageCheck</span> &rarr; <span class="fn">processGroupMessages</span>
+    &rarr; router.<span class="fn">FormatMessages</span> <span class="cmt">(XML batch)</span>
+    &rarr; container.<span class="fn">Run</span> <span class="cmt">(docker run -i --rm)</span>
+    &rarr; stream output &rarr; router.<span class="fn">FormatOutbound</span>
+    &rarr; channel.<span class="fn">Send</span></pre></div>
 
 <p style="font-size: 0.85em; color: var(--dim);">Each agent runs in its own docker container. The gateway mounts group folders, IPC dirs, and session state. Agent reads prompt from stdin, writes JSON to stdout. Signal-driven IPC (SIGUSR1) for immediate wake, 500ms fallback poll.</p>
+</section>
+
+<!-- V1 -->
+<section id="v1">
+<h2>V1: What's Shipped</h2>
+
+<p>Go rewrite of the Kanipi TypeScript gateway. Same architecture, 17 packages, ~9,800 LOC. Five channels, container isolation, 14 IPC actions, permission tiers, scheduled tasks, circuit breaker, MCP sidecars, diary memory, skills system.</p>
+
+<div class="path-box">
+  <div class="path-title">V1 Features</div>
+
+  <div class="path-step">
+    <div class="path-num">1</div>
+    <div class="path-content">
+      <div class="path-action">Container isolation</div>
+      <div class="path-detail">
+        Every agent runs in its own docker container. No shared process space.
+        8 volume mount types with security validation. Skills seeded on first spawn.
+        Timer-based timeout with graceful stop then kill. Session persistence across runs.
+        Output delimited by <code>---NANOCLAW_OUTPUT_START---</code> / <code>---NANOCLAW_OUTPUT_END---</code> markers.
+        Docker-in-docker path translation via <code>HOST_DATA_DIR</code> / <code>HOST_APP_DIR</code>.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">2</div>
+    <div class="path-content">
+      <div class="path-action">Five channel adapters</div>
+      <div class="path-detail">
+        <strong>Telegram</strong> via go-telegram-bot-api (long polling). <strong>Discord</strong> via discordgo (WebSocket gateway).
+        <strong>WhatsApp</strong> via whatsmeow (Signal protocol). <strong>Email</strong> via IMAP IDLE + SMTP threading.
+        <strong>Web SSE</strong> server-sent events broadcast hub.
+        Each implements the same <code>Channel</code> interface. Enabled by config presence.
+        Forward/reply metadata per channel. Media placeholders. Trigger translation.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">3</div>
+    <div class="path-content">
+      <div class="path-action">Permission tiers</div>
+      <div class="path-detail">
+        4-tier model derived from folder depth: <strong>root</strong> (tier 0, no <code>/</code> in folder),
+        <strong>world</strong> (tier 1, one segment), <strong>agent</strong> (tier 2), <strong>worker</strong> (tier 3).
+        Enforced on all IPC actions. Root gets full access. World gets rw on shared state. Agents get rw workdir
+        with ro setup files. Workers get everything ro. Mount access varies by tier.
+        <code>inject_message</code> restricted to tier 0/1. Group registration restricted to same-world parents.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">4</div>
+    <div class="path-content">
+      <div class="path-action">Action registry (14 actions)</div>
+      <div class="path-detail">
+        Unified action system with JSON schema validation. Self-registering <code>init()</code> pattern.
+        <strong>Messaging</strong>: send_message, send_file, inject_message.
+        <strong>Tasks</strong>: schedule_task, pause_task, resume_task, cancel_task.
+        <strong>Groups</strong>: register_group, delegate_group, escalate_group, set_routing_rules, refresh_groups.
+        <strong>Session</strong>: reset_session.
+        Authorization enforced per action &mdash; agents can only act on their own group. Root vs non-root access control.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">5</div>
+    <div class="path-content">
+      <div class="path-action">Scheduled tasks with CtxMode</div>
+      <div class="path-detail">
+        SQLite-backed scheduler: <code>cron</code>, <code>interval</code>, and <code>once</code> modes.
+        Cron via robfig/cron parser. Two context modes: <strong>group</strong> (injects prompt as user message,
+        runs in shared group session) or <strong>isolated</strong> (fresh session per run, no persistence,
+        results injected as context on next group message). Run log with per-task status and result.
+        NextRun computed at task start to prevent re-scheduling while container runs.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">6</div>
+    <div class="path-content">
+      <div class="path-action">Signal-driven IPC</div>
+      <div class="path-detail">
+        File-based request/reply. Agent writes <code>requests/&lt;id&gt;.json</code>, gateway dispatches by type,
+        writes <code>replies/&lt;id&gt;.json</code>. Atomic via tmp+rename. SIGUSR1 wakes agent immediately after
+        gateway writes IPC file. 500ms fallback poll. Legacy fire-and-forget retained.
+        Stdin piping via <code>input/</code> dir for live message injection.
+        Non-root groups restricted to registered JIDs.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">7</div>
+    <div class="path-content">
+      <div class="path-action">Hierarchical routing</div>
+      <div class="path-detail">
+        5-tier routing rules: command, pattern, keyword, sender, default.
+        Parent groups delegate to children. Same-world authorization, direct parent-child only.
+        Max delegation depth 3. Regex pattern capped at 200 chars (ReDoS mitigation).
+        Groups registered via CLI with folder mapping. First group defaults to root.
+        Subsequent groups use trigger mode (agent responds only when mentioned).
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">8</div>
+    <div class="path-content">
+      <div class="path-action">MCP sidecars</div>
+      <div class="path-detail">
+        Per-group MCP server configuration in <code>GroupConfig.Sidecars</code>.
+        Sidecar containers run alongside agent. Socket transport at <code>ipc/sidecars/&lt;name&gt;.sock</code>.
+        Resource limits (memory, CPUs). Gateway manages full lifecycle: start, health check, settings wiring, cleanup.
+        Socket path wired into agent <code>settings.json</code> as <code>mcpServers</code> entry.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">9</div>
+    <div class="path-content">
+      <div class="path-action">Circuit breaker + error notifications</div>
+      <div class="path-detail">
+        Per-group consecutive failure counter. After 3 failures, circuit opens &mdash; no more
+        automatic retries. New user message resets the breaker.
+        Agent errors advance the cursor and notify the user to retry manually.
+        On error with no output: cursor rolled back, session evicted, messages retry.
+        On error with output: cursor advances, partial work preserved.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">10</div>
+    <div class="path-content">
+      <div class="path-action">Diary memory</div>
+      <div class="path-detail">
+        Agent-written daily notes in <code>group/diary/YYYYMMDD.md</code>.
+        YAML frontmatter summary injected on session start (two most recent files, with relative time:
+        "today", "yesterday", "3 days ago").
+        Returned as XML annotations in <code>&lt;knowledge layer="diary"&gt;</code> tag.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">11</div>
+    <div class="path-content">
+      <div class="path-action">MIME pipeline</div>
+      <div class="path-detail">
+        Magic-bytes detection for 12 formats: JPEG, PNG, GIF, WEBP, AVI, WebM, MP4, OGG, FLAC, MP3, PDF, ZIP.
+        RIFF subtype detection. Extension fallback. No external dependencies.
+        Pluggable handler interface for attachment processing.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">12</div>
+    <div class="path-content">
+      <div class="path-action">Mount security</div>
+      <div class="path-detail">
+        Additional mounts validated against <code>~/.config/arizuko/mount-allowlist.json</code>.
+        Paths must be absolute, resolve symlinks, exist on host, be under an <code>AllowedRoot</code>.
+        Blocked patterns: <code>.ssh</code>, <code>.gnupg</code>, <code>.env</code>, credentials, private keys.
+        Non-root groups forced read-only. Container path: <code>/workspace/extra/&lt;name&gt;</code>.
+        The allowlist itself is never mounted (tamper-proof from agents).
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>Workspace Layout</h3>
+<p>Each agent container receives a structured workspace namespace. Access varies by permission tier.</p>
+<div class="table-wrap">
+  <table>
+    <tr><th>Mount</th><th>Path</th><th>Access</th></tr>
+    <tr><td><code>group</code></td><td><code>/workspace/group</code></td><td>current group workdir (rw, ro for workers)</td></tr>
+    <tr><td><code>media</code></td><td><code>/workspace/media</code></td><td>media files (rw)</td></tr>
+    <tr><td><code>self</code></td><td><code>/workspace/self</code></td><td>arizuko source (ro, root only)</td></tr>
+    <tr><td><code>share</code></td><td><code>groups/&lt;world&gt;/share/</code></td><td>cross-group shared state (rw root/world, ro agent/worker)</td></tr>
+    <tr><td><code>session</code></td><td><code>data/sessions/&lt;folder&gt;/.claude/</code></td><td>agent session, skills, CLAUDE.md (rw, ro for tier 2+)</td></tr>
+    <tr><td><code>ipc</code></td><td><code>data/ipc/&lt;folder&gt;/</code></td><td>IPC dirs: requests, replies, input, sidecars (rw)</td></tr>
+    <tr><td><code>web</code></td><td><code>/workspace/web</code></td><td>web output (rw, root/world only)</td></tr>
+    <tr><td><code>extra</code></td><td><code>/workspace/extra/...</code></td><td>allowlisted additional mounts (ro, validated by mountsec)</td></tr>
+  </table>
+</div>
+<p style="font-size: 0.9em; color: var(--dim);">
+  <code>/workspace/self</code> is root-only (tier 0). Root and world get full rw on shared state.
+  Agents get rw workdir with ro setup files. Workers get everything ro.
+  All paths go through <code>container.hp()</code> for docker-in-docker translation.
+</p>
+
+<h3>Skills System</h3>
+<p style="font-size: 0.9em; color: var(--dim);">
+  <code>container/skills/</code> is seeded to <code>~/.claude/skills/</code> inside each container on
+  first spawn for a group. Includes arizuko skills (self, migrate) plus development skills.
+  A <code>CLAUDE.md</code> is seeded alongside. SOUL.md for per-group agent identity (personality, tone, style).
+</p>
+
+<h3>Migration System</h3>
+<p style="font-size: 0.9em; color: var(--dim);">
+  <code>container/skills/self/MIGRATION_VERSION</code> tracks applied version. Numbered files in
+  <code>container/skills/self/migrations/</code> describe changes. The <code>/migrate</code> skill
+  syncs all groups from canonical source when version advances. Gateway prepends annotation when
+  group skills are behind current version.
+</p>
+
+<div class="table-wrap">
+  <table>
+    <tr><th>Metric</th><th>Value</th></tr>
+    <tr><td>Language</td><td><span class="metric">Go</span> (evolved from Kanipi TypeScript)</td></tr>
+    <tr><td>Packages</td><td><span class="metric">17</span></td></tr>
+    <tr><td>Source LOC</td><td><span class="metric">~9,800</span></td></tr>
+    <tr><td>Tests</td><td><span class="metric">122 passing</span></td></tr>
+    <tr><td>Channels</td><td>Telegram, Discord, WhatsApp, Email, Web SSE</td></tr>
+    <tr><td>IPC actions</td><td>14 with JSON schemas</td></tr>
+    <tr><td>Permission tiers</td><td>4 (root / world / agent / worker)</td></tr>
+    <tr><td>MIME formats</td><td>12 (magic-bytes detection)</td></tr>
+    <tr><td>DB</td><td>SQLite WAL, schema v2, 12 tables</td></tr>
+    <tr><td>Config</td><td><code>.env</code> + env vars, no YAML</td></tr>
+    <tr><td>Deploy</td><td>systemd per instance + <code>arizuko create</code> CLI</td></tr>
+    <tr><td>Runtime tested</td><td><span class="metric metric-good">yes (v1.0.0)</span></td></tr>
+  </table>
+</div>
+
+<div class="myth">
+  <div class="myth-label">Mythology</div>
+  <p>Arizuko is the goddess of the undead ants &mdash; the colony that cannot be killed. Each ant is an agent: isolated, purposeful, replaceable. When one falls, the goddess resurrects it. She routes work through the gateway and speaks through channels. The colony scales because the goddess composes, not controls.</p>
+</div>
 </section>
 
 <!-- CHANNELS -->
@@ -321,26 +530,26 @@ Channel.<span class="fn">OnMessage</span> → store.<span class="fn">PutMessage<
 <div class="comp-grid">
   <div class="comp-card">
     <div class="comp-name">Telegram <span class="badge badge-done">shipped</span></div>
-    <div class="comp-desc">Long polling via go-telegram-bot-api. Markdown→HTML conversion.</div>
+    <div class="comp-desc">Long polling via go-telegram-bot-api. Markdown to HTML conversion.</div>
     <div class="comp-detail">JID: <code>telegram:&lt;chatID&gt;</code>. @bot mention translation. Media placeholders (photo, video, voice, sticker, document, location, contact). File sending routed by extension. 4096 char limit with HTML retry fallback. Forward/reply metadata.</div>
   </div>
 
   <div class="comp-card">
     <div class="comp-name">Discord <span class="badge badge-done">shipped</span></div>
     <div class="comp-desc">WebSocket gateway via discordgo. Intent-based event handling.</div>
-    <div class="comp-detail">JID: <code>discord:&lt;channelID&gt;</code>. Bot mention <code>&lt;@id&gt;</code> → <code>@name</code> translation. Attachment type detection. Reply context fetch. 2000 char message splitting. Guild/channel name resolution.</div>
+    <div class="comp-detail">JID: <code>discord:&lt;channelID&gt;</code>. Bot mention <code>&lt;@id&gt;</code> to <code>@name</code> translation. Attachment type detection. Reply context fetch. 2000 char message splitting. Guild/channel name resolution.</div>
   </div>
 
   <div class="comp-card">
     <div class="comp-name">WhatsApp <span class="badge badge-done">shipped</span></div>
     <div class="comp-desc">Signal protocol via whatsmeow. Event-driven with offline queue.</div>
-    <div class="comp-detail">JID: <code>whatsapp:&lt;jid&gt;</code>. SQLite auth store. Outgoing queue drains on reconnect. Forward/reply from contextInfo. Bot detection (own number vs shared). Media: photo, video, voice, audio, document, sticker. File upload via whatsmeow.</div>
+    <div class="comp-detail">JID: <code>whatsapp:&lt;jid&gt;</code>. SQLite auth store. Outgoing queue drains on reconnect. Forward/reply from contextInfo. Media: photo, video, voice, audio, document, sticker. File upload via whatsmeow.</div>
   </div>
 
   <div class="comp-card">
     <div class="comp-name">Email <span class="badge badge-done">shipped</span></div>
     <div class="comp-desc">IMAP IDLE inbound, SMTP outbound. Thread tracking via In-Reply-To.</div>
-    <div class="comp-detail">JID: <code>email:&lt;threadID&gt;</code>. TLS on port 993. Exponential backoff reconnect (1s→60s). SHA256 thread ID generation. Headers injected as context (From, Subject, Date). Dependency-injected thread storage.</div>
+    <div class="comp-detail">JID: <code>email:&lt;threadID&gt;</code>. TLS on port 993. Exponential backoff reconnect (1s to 60s). SHA256 thread ID generation. Headers injected as context (From, Subject, Date).</div>
   </div>
 
   <div class="comp-card">
@@ -357,124 +566,79 @@ Channel.<span class="fn">OnMessage</span> → store.<span class="fn">PutMessage<
 
 <div class="comp-grid">
   <div class="comp-card">
-    <div class="comp-name">gateway <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">gateway</div>
     <div class="comp-desc">Main loop, message routing, gateway commands.</div>
     <div class="comp-detail">Polls for new messages, dispatches to queue, handles /new /ping /chatid /stop. Per-chat error tracking with cursor rollback. Diary annotations injected into agent context.</div>
   </div>
 
   <div class="comp-card">
-    <div class="comp-name">container <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">container</div>
     <div class="comp-desc">Docker spawn, volume mounts, sidecars, skills seeding.</div>
     <div class="comp-detail">Builds 8 mount types (group, media, self, share, session, IPC, web, extra). Seeds settings.json with env vars and MCP sidecar config. Manages sidecar container lifecycle.</div>
   </div>
 
   <div class="comp-card">
-    <div class="comp-name">queue <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">queue</div>
     <div class="comp-desc">Per-group concurrency, stdin piping, circuit breaker.</div>
     <div class="comp-detail">Serializes agent invocations per group. Global concurrency limit (default 5). Circuit breaker opens after 3 consecutive failures, reset by new message.</div>
   </div>
 
   <div class="comp-card">
-    <div class="comp-name">router <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">router</div>
     <div class="comp-desc">XML message formatting, 5-tier routing rules.</div>
-    <div class="comp-detail">Command → pattern → keyword → sender → default. Parent-child delegation within same world, max depth 3. Outbound filtering strips internal tags.</div>
+    <div class="comp-detail">Command, pattern, keyword, sender, default. Parent-child delegation within same world, max depth 3. Outbound filtering strips internal tags.</div>
   </div>
 
   <div class="comp-card">
-    <div class="comp-name">store <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">store</div>
     <div class="comp-desc">SQLite persistence. 12 tables, WAL mode, 5s busy timeout.</div>
     <div class="comp-detail">Messages, chats, groups, sessions, session log, system messages, scheduled tasks, task run logs, router state, auth, email threads.</div>
   </div>
 
   <div class="comp-card">
-    <div class="comp-name">actions <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">actions</div>
     <div class="comp-desc">Unified action registry. JSON schemas, authorization.</div>
-    <div class="comp-detail">init() self-registration. Actions: send_message, send_file, reset_session, schedule_task, pause/resume/cancel_task, register_group, delegate_group, set_routing_rules, refresh_groups. Root vs non-root authorization.</div>
+    <div class="comp-detail">14 actions with self-registering init() pattern. Messaging, tasks, groups, session. Tier-based authorization. Root vs non-root access control.</div>
   </div>
 
   <div class="comp-card">
-    <div class="comp-name">channels <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">channels</div>
     <div class="comp-desc">5 channel adapters implementing core.Channel.</div>
     <div class="comp-detail">Telegram, Discord, WhatsApp, Email, Web SSE. Each owns a JID prefix. Forward/reply metadata. Media placeholders. Trigger translation.</div>
   </div>
 
   <div class="comp-card">
-    <div class="comp-name">mime <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">mime</div>
     <div class="comp-desc">Magic-bytes MIME detection. Attachment pipeline.</div>
-    <div class="comp-detail">Built-in signatures for 12 formats (JPEG, PNG, GIF, WEBP, AVI, WebM, MP4, OGG, FLAC, MP3, PDF, ZIP). RIFF subtype detection. Extension fallback. Handler interface for pluggable processing.</div>
+    <div class="comp-detail">12 formats (JPEG, PNG, GIF, WEBP, AVI, WebM, MP4, OGG, FLAC, MP3, PDF, ZIP). RIFF subtype detection. Extension fallback. Pluggable handler interface.</div>
   </div>
 
   <div class="comp-card">
-    <div class="comp-name">ipc <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">ipc</div>
     <div class="comp-desc">File-based IPC watcher. Request/reply + legacy fire-and-forget.</div>
-    <div class="comp-detail">Agent writes requests, gateway dispatches by type, writes replies. Atomic via tmp+rename. Non-root groups restricted to registered JIDs.</div>
+    <div class="comp-detail">Agent writes requests, gateway dispatches by type, writes replies. Atomic via tmp+rename. SIGUSR1 wake. Non-root groups restricted to registered JIDs.</div>
   </div>
 
   <div class="comp-card">
-    <div class="comp-name">scheduler <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">scheduler</div>
     <div class="comp-desc">SQLite-backed task runner. Cron, interval, or once.</div>
-    <div class="comp-detail">Polls due tasks every 60s. Cron via robfig/cron. Two context modes: group (injected as user message, shared session) or isolated (fresh session, results reported on next message).</div>
+    <div class="comp-detail">Polls due tasks every 60s. Cron via robfig/cron. Two context modes: group (shared session) or isolated (fresh session, results on next message).</div>
   </div>
 
   <div class="comp-card">
-    <div class="comp-name">diary <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">diary</div>
     <div class="comp-desc">YAML frontmatter diary annotations for agent context.</div>
     <div class="comp-detail">Reads recent .md files from group diary/. Extracts summary from YAML frontmatter. Returns XML annotations with age labels.</div>
   </div>
 
   <div class="comp-card">
-    <div class="comp-name">mountsec <span class="badge badge-done">shipped</span></div>
+    <div class="comp-name">mountsec</div>
     <div class="comp-desc">Mount allowlist validation.</div>
     <div class="comp-detail">Paths must be absolute, resolve symlinks, exist on host, be under an AllowedRoot. Blocks .ssh, .gnupg, .env, credentials, private keys.</div>
   </div>
 </div>
 
 <p style="font-size: 0.85em; color: var(--dim);">Also: <code>core/</code> (types, Channel interface), <code>runtime/</code> (docker abstraction, orphan cleanup), <code>groupfolder/</code> (path resolution), <code>logger/</code> (slog JSON init), <code>cmd/arizuko/</code> (CLI entrypoint).</p>
-</section>
-
-<!-- FEATURES -->
-<section id="features">
-<h2>Shipped Features</h2>
-
-<div class="principles">
-  <div class="principle">
-    <div class="principle-name">Container Isolation</div>
-    <p>Every agent runs in its own docker container. No shared process space. 8 volume mount types with security validation. Skills seeded on first spawn.</p>
-  </div>
-  <div class="principle">
-    <div class="principle-name">5 Channel Adapters</div>
-    <p>Telegram (long poll), Discord (WebSocket), WhatsApp (Signal protocol), Email (IMAP IDLE + SMTP), Web (SSE). Each implements the same Channel interface. Enabled by config presence.</p>
-  </div>
-  <div class="principle">
-    <div class="principle-name">Action Registry</div>
-    <p>14 actions with JSON schemas and authorization. Messaging, task scheduling, group management, session control, delegation. Root vs non-root access control.</p>
-  </div>
-  <div class="principle">
-    <div class="principle-name">MCP Sidecars</div>
-    <p>Per-group MCP servers as sidecar containers. Unix socket transport. Resource limits (memory, CPUs). Gateway manages full lifecycle.</p>
-  </div>
-  <div class="principle">
-    <div class="principle-name">Hierarchical Routing</div>
-    <p>5-tier routing rules: command, pattern, keyword, sender, default. Parent groups delegate to children. Same-world authorization. Max depth 3.</p>
-  </div>
-  <div class="principle">
-    <div class="principle-name">Signal-Driven IPC</div>
-    <p>File-based request/reply. Atomic writes via tmp+rename. SIGUSR1 wakes agent immediately. 500ms fallback poll.</p>
-  </div>
-  <div class="principle">
-    <div class="principle-name">MIME Pipeline</div>
-    <p>Magic-bytes detection for 12 formats. No external dependencies. Pluggable handler interface for attachment processing (transcription, OCR, etc).</p>
-  </div>
-  <div class="principle">
-    <div class="principle-name">48 Tests</div>
-    <p>Comprehensive test coverage across 8 packages: actions, channels, mime, router, store. Table-driven tests. Concurrent SSE tests. Magic-bytes detection tests with real headers.</p>
-  </div>
-</div>
-
-<div class="myth">
-  <div class="myth-label">Mythology</div>
-  <p>Arizuko is the goddess of the undead ants — the colony that cannot be killed. Each ant is an agent: isolated, purposeful, replaceable. When one falls, the goddess resurrects it. She routes work through the gateway and speaks through channels. The colony scales because the goddess composes, not controls.</p>
-</div>
 </section>
 
 <!-- INSTALL -->
@@ -506,42 +670,152 @@ cmd/arizuko/main
   ├── store         <span class="cmt">(SQLite persistence)</span>
   ├── gateway       <span class="cmt">(main loop, message routing)</span>
   │   ├── container <span class="cmt">(docker spawn, volume mounts, sidecars)</span>
+  │   │   ├── groupfolder
+  │   │   ├── mountsec
+  │   │   └── runtime
   │   ├── queue     <span class="cmt">(per-group concurrency, stdin piping)</span>
+  │   │   └── runtime
   │   ├── router    <span class="cmt">(message formatting, routing rules)</span>
   │   ├── ipc       <span class="cmt">(file-based request/reply)</span>
   │   ├── scheduler <span class="cmt">(cron/interval/once task runner)</span>
-  │   ├── channels  <span class="cmt">(telegram, discord, whatsapp, email, web)</span>
-  │   ├── actions   <span class="cmt">(14 actions, JSON schemas, auth)</span>
-  │   ├── mime      <span class="cmt">(magic-bytes detection, handler pipeline)</span>
-  │   └── diary     <span class="cmt">(YAML frontmatter annotations)</span>
+  │   │   └── store
+  │   ├── diary     <span class="cmt">(YAML frontmatter annotations)</span>
+  │   └── groupfolder
   └── logger        <span class="cmt">(slog JSON init)</span></pre></div>
 </section>
 
-<!-- ROADMAP -->
-<section id="roadmap">
-<h2>Roadmap</h2>
+<!-- V2 -->
+<section id="v2">
+<h2>V2: Roadmap</h2>
 
-<div style="margin: 1em 0;">
-  <div class="roadmap-row">
-    <div class="roadmap-phase" style="color: #4ade80;">v0.0.1</div>
-    <div class="roadmap-items">Go rewrite. 16 packages. Gateway, container orchestration, queue, router, IPC, scheduler, diary, mount security, sidecars, CLI.</div>
+<p>V1 serves the operator. V2 adds audience-facing features, protocol upgrades, and new channels.</p>
+
+<div class="path-box">
+  <div class="path-title">Topics + Sessions</div>
+
+  <div class="path-step">
+    <div class="path-num">1</div>
+    <div class="path-content">
+      <div class="path-action">#topic routing</div>
+      <div class="path-detail">
+        Route messages within a group to different agents by topic or thread.
+        Topic ID as JID segment. Glob pattern matching.
+        Same group, different conversations, different handling.
+      </div>
+    </div>
   </div>
-  <div class="roadmap-row">
-    <div class="roadmap-phase" style="color: #4ade80;">v0.0.2</div>
-    <div class="roadmap-items">Channel adapters (telegram, discord, whatsapp, email, web SSE). Action registry (10 actions). MIME pipeline. 122 tests across 8 packages.</div>
+
+  <div class="path-step">
+    <div class="path-num">2</div>
+    <div class="path-content">
+      <div class="path-action">Session resume tokens</div>
+      <div class="path-detail">
+        Embed session ID in reply footer, extract on next message, pass <code>--resume &lt;id&gt;</code>
+        for explicit continuation. Thread-level granularity within groups &mdash; the takopi pattern.
+      </div>
+    </div>
   </div>
-  <div class="roadmap-row">
-    <div class="roadmap-phase" style="color: #4ade80;">v1.0.0</div>
-    <div class="roadmap-items">Permission tiers (0=root, 1=world, 2=agent, 3=worker). Scheduled task CtxMode. IPC actions with authorization. Error notifications. Live deployment on REDACTED instance.</div>
+</div>
+
+<div class="path-box">
+  <div class="path-title">Memory Layers</div>
+
+  <div class="path-step">
+    <div class="path-num">1</div>
+    <div class="path-content">
+      <div class="path-action">Diary (shipped in V1)</div>
+      <div class="path-detail">
+        Daily markdown notes with YAML frontmatter. The raw input layer.
+        Two most recent files injected on session start with relative time labels.
+      </div>
+    </div>
   </div>
-  <div class="roadmap-row">
-    <div class="roadmap-phase">v0.1</div>
-    <div class="roadmap-items">Slink web channel. Tool middleware. Credential isolation. Web dashboard.</div>
+
+  <div class="path-step">
+    <div class="path-num">2</div>
+    <div class="path-content">
+      <div class="path-action">Work (current task state)</div>
+      <div class="path-detail">
+        Ephemeral <code>work.md</code> describing active task, blockers, next steps.
+        Overwritten each time, not appended. Most volatile layer.
+      </div>
+    </div>
   </div>
-  <div class="roadmap-row">
-    <div class="roadmap-phase">later</div>
-    <div class="roadmap-items">Multi-host transport. Plugin system. Horizontal scaling.</div>
+
+  <div class="path-step">
+    <div class="path-num">3</div>
+    <div class="path-content">
+      <div class="path-action">Episodes (weekly/monthly)</div>
+      <div class="path-detail">
+        Scheduled aggregation of diary entries into episode summaries.
+        Compresses daily notes into longer-term patterns and milestones.
+      </div>
+    </div>
   </div>
+
+  <div class="path-step">
+    <div class="path-num">4</div>
+    <div class="path-content">
+      <div class="path-action">Facts (permanent)</div>
+      <div class="path-detail">
+        Conceptual knowledge distilled from episodes. Entities, relationships, recurring patterns.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="path-box">
+  <div class="path-title">Protocol + Channels</div>
+
+  <div class="path-step">
+    <div class="path-num">1</div>
+    <div class="path-content">
+      <div class="path-action">IPC to MCP migration</div>
+      <div class="path-detail">
+        Replace file-based IPC with MCP over Unix socket.
+        Structured protocol, bidirectional, typed tool calls.
+        File IPC remains as fallback.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">2</div>
+    <div class="path-content">
+      <div class="path-action">Credential injection via MCP proxy</div>
+      <div class="path-detail">
+        Agent calls a tool, gateway adds the API key before forwarding.
+        The credential never enters the container's process memory.
+        Requires network isolation (<code>--network none</code>) to prevent exfiltration.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">3</div>
+    <div class="path-content">
+      <div class="path-action">Web dashboard</div>
+      <div class="path-detail">
+        Observe all agents, their state, costs, token usage, message flow.
+        Built on the same IPC/MCP bus as everything else.
+      </div>
+    </div>
+  </div>
+
+  <div class="path-step">
+    <div class="path-num">4</div>
+    <div class="path-content">
+      <div class="path-action">X/Twitter adapter</div>
+      <div class="path-detail">
+        OAuth 2.0, rate-limited posting. Middleware intercepts post tool calls into a pending queue.
+        No draft publishes without human approval.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="caveat">
+  V2 is designed but not implemented. Components will crystallize from V1 usage, not from spec documents.
 </div>
 </section>
 
@@ -551,6 +825,13 @@ cmd/arizuko/main
 <div class="jump-box">
   <div class="jump-title">Related</div>
   <div class="jump-grid">
+    <a href="/kanipi/" class="jump-link">
+      <span class="jump-icon">&#x1F4DC;</span>
+      <span class="jump-text">
+        <span class="jump-text-main">Kanipi</span>
+        <span class="jump-text-sub">TypeScript predecessor</span>
+      </span>
+    </a>
     <a href="/agents/architecture-comparison/" class="jump-link">
       <span class="jump-icon">&#x1F50D;</span>
       <span class="jump-text">
@@ -580,26 +861,74 @@ cmd/arizuko/main
   <a href="https://github.com/REDACTED/arizuko">github.com/REDACTED/arizuko</a> &middot;
   <a href="https://github.com/REDACTED">REDACTED</a>
   <br>
-  <span style="color: var(--dim);">v1.0.0 v0.0.2 &middot; go-nativemiddot; go-native &middot; MIT</span>
+  <span style="color: var(--accent);">v1.0.0 &middot; go &middot; telegram &middot; discord &middot; whatsapp &middot; email &middot; web</span>
 
   <details class="llm-info">
     <summary>Agent context</summary>
     <p>
-      ARIZUKO is a multitenant Claude agent gateway written in Go. It polls messaging channels
-      (Telegram, Discord, WhatsApp, Email, Web SSE) for new messages, routes them to containerized
-      Claude agents via docker, and streams responses back to users. 17 packages, ~9,800 LOC,
-      122 tests. Named after the goddess of the undead ants.
-      Key components: gateway (message loop), container (docker spawn, sidecars), queue (per-group
-      concurrency, circuit breaker), router (5-tier routing rules), store (SQLite WAL, 12 tables),
-      channels (5 adapters), actions (14 actions, JSON schemas), ipc (file-based SIGUSR1),
-      scheduler (cron/interval/once), mime (magic-bytes detection), diary (YAML annotations),
-      mountsec (allowlist validation). Evolved from Kanipi (TypeScript). v1.0.0 adds permission tiers (4 levels), scheduled task context modes, IPC actions with authorization. v0.0.2 added channels,
-      actions, MIME pipeline, and comprehensive test suite.
+      ARIZUKO is a multitenant Claude agent gateway written in Go. Evolved from Kanipi (TypeScript).
+      V1.0.0 ships 5 channels: Telegram (go-telegram-bot-api), Discord (discordgo),
+      WhatsApp (whatsmeow), Email (IMAP IDLE + SMTP), Web SSE.
+      17 packages, ~9,800 LOC Go, 122 tests.
+      4-tier permission model: root (tier 0), world (tier 1), agent (tier 2), worker (tier 3).
+      Tier derived from folder depth. Mount isolation: 8 mount types with per-tier access control.
+      Config: .env + env vars (no YAML). Channels enabled by token/config presence.
+      14 IPC actions with JSON schemas: messaging (send_message, send_file, inject_message),
+      tasks (schedule/pause/resume/cancel), groups (register, delegate, escalate, routing_rules, refresh),
+      session (reset). Authorization enforced per action with tier-based access.
+      inject_message: insert into DB without channel delivery, tier 0/1 only.
+      Scheduled tasks: cron/interval/once with two CtxModes — group (shared session) or isolated (fresh session, results injected on next message).
+      MCP sidecars: per-group sidecar config, gateway-managed lifecycle, Unix socket transport.
+      Signal-driven IPC: SIGUSR1 immediate wake, 500ms fallback. Atomic file writes via tmp+rename.
+      Circuit breaker: 3 consecutive failures opens, new user message resets. Error notifications to users.
+      Diary memory: daily markdown with YAML frontmatter, 2 most recent injected on session start.
+      MIME pipeline: magic-bytes detection for 12 formats, pluggable handler interface.
+      Mount security: allowlist validation, blocked patterns (.ssh, .gnupg, .env, credentials, private keys).
+      Workspace: group(rw), media(rw), self(ro root-only), share(rw root/world, ro agent/worker),
+      session(rw, ro tier 2+), ipc(rw), web(rw root/world), extra(ro allowlisted).
+      Skills seeded from container/skills/ per group. SOUL.md for agent identity.
+      Migration system: MIGRATION_VERSION + migrations/ dir; /migrate skill syncs groups.
+      SQLite WAL, schema v2, 12 tables, 5s busy timeout. Docker-in-docker path translation.
+      Hierarchical routing: 5-tier rules (command/pattern/keyword/sender/default), max depth 3.
+      V2 planned: topic routing, session resume tokens, memory layers (diary/work/episodes/facts),
+      IPC-to-MCP migration, credential injection via MCP proxy, web dashboard, X/Twitter adapter.
+      Deploy: systemd per instance, arizuko CLI for create/config/group management.
     </p>
   </details>
 </footer>
 
 </div>
+
+<!--llm
+type: product
+name: arizuko
+repo: github.com/REDACTED/arizuko
+base: nanoclaw (via kanipi)
+language: go
+status: v1.0.0
+channels: telegram (go-telegram-bot-api), discord (discordgo), whatsapp (whatsmeow), email (imap+smtp), web sse
+config: .env + env vars, sqlite group state
+source: 17 packages ~9800 LOC, 122 tests
+permissions: 4-tier (root/world/agent/worker), tier from folder depth, mount isolation
+workspace: group(rw), media(rw), self(ro root-only), share(rw root/world ro agent/worker), session(rw ro tier2+), ipc(rw), web(rw root/world), extra(ro allowlisted)
+skills: container/skills/ seeded to ~/.claude/skills/ per group
+identity: SOUL.md per group (personality, tone, style)
+migration: MIGRATION_VERSION + migrations/ dir, /migrate skill syncs groups
+ipc: signal-driven (SIGUSR1), 500ms fallback, file-based request/reply, 14 actions with json schemas
+memory: diary (shipped, gateway injection), work.md (v2), episodes (v2), facts (v2)
+actions: send_message, send_file, inject_message, reset_session, schedule/pause/resume/cancel_task, register/delegate/escalate_group, set_routing_rules, refresh_groups — tier-based auth
+mcp: per-group sidecar config, gateway-managed lifecycle, unix socket transport
+media: mime magic-bytes detection (12 formats), pluggable handler interface
+error-handling: circuit breaker (3 failures), no auto-retry, user-notified, cursor rollback on no-output errors
+scheduler: cron/interval/once, ctxmode group (shared session) or isolated (fresh, results on next message)
+mount-security: allowlist validation, blocked patterns, non-root forced ro
+routing: 5-tier rules (command/pattern/keyword/sender/default), parent-child delegation, max depth 3
+v2-planned: topic-routing, session-resume-tokens, memory-layers, ipc-mcp-migration, credential-injection, web-dashboard, x-twitter-adapter
+deploy: systemd per instance, arizuko CLI
+evolved-from: kanipi (typescript)
+updated: 2026-03-08
+-->
+
 <script src="/assets/hub.js"></script>
 </body>
 </html>
