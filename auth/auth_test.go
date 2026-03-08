@@ -298,7 +298,7 @@ func TestMiddlewareMalformedAuth(t *testing.T) {
 func TestOAuthStateExpired(t *testing.T) {
 	// create state with timestamp 11 minutes in the past
 	ts := fmt.Sprintf("%d", time.Now().Add(-11*time.Minute).Unix())
-	mac := hmacSHA256Bytes(testSecret, []byte(ts))
+	mac := hmacSHA256(testSecret, []byte(ts))
 	state := ts + "." + mac
 
 	r := httptest.NewRequest(
@@ -307,12 +307,6 @@ func TestOAuthStateExpired(t *testing.T) {
 	if verifyState(testSecret, r) {
 		t.Fatal("expired state should not verify")
 	}
-}
-
-func hmacSHA256Bytes(key, msg []byte) string {
-	h := hmac.New(sha256.New, key)
-	h.Write(msg)
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 func TestSplitArgon2EdgeCases(t *testing.T) {

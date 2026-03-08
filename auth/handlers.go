@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -141,15 +142,7 @@ func verifyArgon2(encoded, password string) bool {
 		parts.time, parts.memory, parts.threads,
 		uint32(len(expected)),
 	)
-	if len(derived) != len(expected) {
-		return false
-	}
-	// constant-time compare
-	var diff byte
-	for i := range derived {
-		diff |= derived[i] ^ expected[i]
-	}
-	return diff == 0
+	return subtle.ConstantTimeCompare(derived, expected) == 1
 }
 
 type argon2Params struct {

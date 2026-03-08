@@ -132,7 +132,7 @@ func handleTelegram(cfg *core.Config, s *store.Store, secret []byte) http.Handle
 	}
 }
 
-func createOAuthSession(w http.ResponseWriter, r *http.Request, s *store.Store, secret []byte, sub, name string) {
+func createOAuthSession(w http.ResponseWriter, _ *http.Request, s *store.Store, secret []byte, sub, name string) {
 	if _, ok := s.AuthUserBySub(sub); !ok {
 		username := sub
 		if err := s.CreateAuthUser(sub, username, "", name); err != nil {
