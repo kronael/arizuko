@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/diary"
@@ -789,9 +790,17 @@ func (g *Gateway) serveWeb(ctx context.Context) {
 	pubDir := filepath.Join(g.cfg.WebDir, "pub")
 	addr := net.JoinHostPort("", strconv.Itoa(g.cfg.WebPort))
 
+	mux := http.NewServeMux()
+	auth.RegisterRoutes(mux, g.store, g.cfg)
+	mux.Handle("/", http.FileServer(http.Dir(pubDir)))
+	var handler http.Handler = mux
+	if g.cfg.AuthSecret != "" {
+		handler = auth.Middleware([]byte(g.cfg.AuthSecret), mux)
+	}
+
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: http.FileServer(http.Dir(pubDir)),
+		Handler: handler,
 	}
 	slog.Info("web server starting", "addr", addr, "dir", pubDir)
 

@@ -25,8 +25,14 @@ type Config struct {
 	WebPort       int
 	VitePort      int
 	REDACTEDUsers    string
-	AuthSecret    string
-	WebHost       string
+	AuthSecret      string
+	WebHost         string
+	AuthUsername    string
+	AuthBaseURL     string
+	GitHubClientID  string
+	GitHubSecret    string
+	DiscordClientID string
+	DiscordSecret   string
 
 	ProjectRoot     string
 	HostProjectRoot string
@@ -79,8 +85,14 @@ func LoadConfig() (*Config, error) {
 		WebPort:       webPort,
 		VitePort:      vitePort,
 		REDACTEDUsers:    envOr("REDACTED_USERS", ""),
-		AuthSecret:    envOr("AUTH_SECRET", ""),
-		WebHost:       envOr("WEB_HOST", ""),
+		AuthSecret:      envOr("AUTH_SECRET", ""),
+		WebHost:         envOr("WEB_HOST", ""),
+		AuthUsername:    envOr("AUTH_USERNAME", ""),
+		AuthBaseURL:     envOr("AUTH_BASE_URL", ""),
+		GitHubClientID:  envOr("GITHUB_CLIENT_ID", ""),
+		GitHubSecret:    envOr("GITHUB_CLIENT_SECRET", ""),
+		DiscordClientID: envOr("DISCORD_CLIENT_ID", ""),
+		DiscordSecret:   envOr("DISCORD_CLIENT_SECRET", ""),
 
 		ProjectRoot:     root,
 		HostProjectRoot: hostRoot,

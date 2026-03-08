@@ -28,7 +28,6 @@ NEVER use simple cp/rsync for migrations. ALWAYS use intelligent agent-driven me
    - Upstream-only changes → update
    - Local-only changes → preserve
    - Both changed → agent-driven 3-way merge
-4. **Respect markers**: Honor .migration-exclude and local customizations
 
 ## Implementation
 
@@ -41,7 +40,7 @@ For each session in /workspace/data/sessions/*/:
   - Agent reads dest: /workspace/data/sessions/{group}/
   - Agent performs intelligent merge:
     * Skills: Compare SKILL.md files, merge if both changed
-    * Web files: Respect .migration-exclude, preserve local edits
+    * Web files: Preserve local edits
     * Config: Merge CLAUDE.md sections intelligently
   - Agent reports: files updated, conflicts resolved, files preserved
 ```
@@ -77,8 +76,6 @@ When both source and dest have changes:
 
 **Web files**:
 
-- Check for .migration-exclude marker
-- If file listed in exclusion → skip entirely
 - If file has local customizations → preserve (detect by comparing with previous version if available)
 - Otherwise → update from source
 
