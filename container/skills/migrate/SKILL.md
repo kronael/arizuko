@@ -1,41 +1,98 @@
 ---
 name: migrate
-description: Sync skills and run pending migrations across all groups. Root group only. Use when asked to "migrate", "sync skills", "update skills", or "run migrations".
+description: Intelligently sync skills and files across groups with conflict resolution. Root group only. Use when asked to "migrate", "sync skills", "update skills", or "run migrations".
 ---
 
 # Migrate
 
-Root group only. Refuse if `NANOCLAW_IS_ROOT` is not `1`.
+Intelligent migration system that merges changes while preserving local modifications.
+
+## Root-only check
 
 ```bash
-if [ "$NANOCLAW_IS_ROOT" != "1" ]; then echo "ERROR: migrate is root-group only"; exit 1; fi
-echo "root group confirmed"
+if [ "$NANOCLAW_IS_ROOT" != "1" ]; then
+  echo "ERROR: migrate is root-group only"
+  exit 1
+fi
 ```
 
-## a) Skill sync
+## Migration strategy
 
-Copy updated skills from source to all group session dirs.
+NEVER use simple cp/rsync for migrations. ALWAYS use intelligent agent-driven merging:
 
-```bash
-src=/workspace/self/container/skills
+1. **Detect changes**: Compare source vs destination
+2. **Classify conflicts**: Identify local modifications vs upstream changes
+3. **Intelligent merge**:
+   - New files → copy
+   - Unchanged files → skip
+   - Upstream-only changes → update
+   - Local-only changes → preserve
+   - Both changed → agent-driven 3-way merge
+4. **Respect markers**: Honor .migration-exclude and local customizations
 
-for session in /workspace/data/sessions/*/; do
-  skills_dir="$session/.claude/skills"
-  test -d "$skills_dir" || continue
-  group=$(basename "$session")
-  updated=""
-  for skill in "$src"/*/; do
-    name=$(basename "$skill")
-    dest="$skills_dir/$name"
-    # Compare SKILL.md; copy if missing or changed
-    if ! diff -q "$skill/SKILL.md" "$dest/SKILL.md" >/dev/null 2>&1; then
-      cp -r "$skill" "$dest"
-      updated="$updated $name"
-    fi
-  done
-  test -n "$updated" && echo "$group: updated$updated" || echo "$group: up to date"
-done
+## Implementation
+
+Use Task tool with general-purpose agent to perform migration for each group:
+
 ```
+For each session in /workspace/data/sessions/*/:
+  - Spawn agent with migration task
+  - Agent reads source: /workspace/self/container/
+  - Agent reads dest: /workspace/data/sessions/{group}/
+  - Agent performs intelligent merge:
+    * Skills: Compare SKILL.md files, merge if both changed
+    * Web files: Respect .migration-exclude, preserve local edits
+    * Config: Merge CLAUDE.md sections intelligently
+  - Agent reports: files updated, conflicts resolved, files preserved
+```
+
+## Agent prompt template
+
+```
+Migrate {source} to {dest} intelligently:
+
+1. List all files in source and dest
+2. For each file:
+   - New in source? → Copy
+   - Deleted in source but modified in dest? → Keep and warn
+   - Changed in source only? → Update
+   - Changed in dest only? → Preserve
+   - Changed in both? → 3-way merge or ask user
+3. Report summary:
+   - Copied: {count}
+   - Updated: {count}
+   - Preserved: {count}
+   - Conflicts: {list}
+```
+
+## Conflict resolution rules
+
+When both source and dest have changes:
+
+**SKILL.md files**:
+
+- If description/frontmatter changed: merge YAML frontmatter, prefer source description
+- If content rules changed: add new rules from source, preserve local additions
+- If examples changed: merge examples, prefer more comprehensive version
+
+**Web files**:
+
+- Check for .migration-exclude marker
+- If file listed in exclusion → skip entirely
+- If file has local customizations → preserve (detect by comparing with previous version if available)
+- Otherwise → update from source
+
+**CLAUDE.md**:
+
+- Merge sections additively
+- Preserve local project-specific sections
+- Update global wisdom sections from source
+
+**Code files (main, scripts)**:
+
+- If dest has been modified → preserve and warn
+- If dest is unchanged → update from source
+- NEVER overwrite local code changes
 
 ## b) Run pending migrations
 
