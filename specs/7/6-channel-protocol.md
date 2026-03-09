@@ -3,40 +3,40 @@
 **Status**: design
 
 Channel adapters connect to platforms and talk to the
-gateway over HTTP. Both sides are HTTP servers. Channel
-self-registers with gateway so gateway knows where to
+router over HTTP. Both sides are HTTP servers. Channel
+self-registers with router so router knows where to
 find it.
 
 ## Why self-registration
 
-Gateway doesn't manage channel lifecycle. Channels are
+Router doesn't manage channel lifecycle. Channels are
 external processes — started by systemd, docker, manual,
-whatever. On startup, channel registers with gateway:
+whatever. On startup, channel registers with router:
 "I handle these JID prefixes, call me at this URL."
 
 This makes channels modular. Anyone can write one in any
-language. Gateway doesn't need static config for channels —
+language. Router doesn't need static config for channels —
 they announce themselves.
 
 ## Why REST, not WebSocket
 
 Both directions are synchronous HTTP calls:
 
-- Channel → gateway: deliver inbound message
-- Gateway → channel: send outbound message
+- Channel → router: deliver inbound message
+- Router → channel: send outbound message
 
 Each call is a complete transaction. No connection state,
 no reconnect logic, no message ordering concerns. When
-gateway's POST to /send returns 200, the message is on
+router's POST to /send returns 200, the message is on
 the platform. Done.
 
 ## Protocol
 
-### Gateway endpoints (channel → gateway)
+### Router endpoints (channel → router)
 
 #### Register
 
-Channel starts, tells gateway what it handles.
+Channel starts, tells router what it handles.
 
 ```
 POST /v1/channels/register
@@ -44,7 +44,7 @@ Authorization: Bearer <shared-secret>
 
 {
   "name": "telegram",
-  "url": "http://localhost:9001",
+  "url": "http://telegram:9001",
   "jid_prefixes": ["tg:"],
   "capabilities": {
     "send_text": true,
@@ -60,8 +60,8 @@ Authorization: Bearer <shared-secret>
 → 200 {"ok": true, "token": "<session-token>"}
 ```
 
-`url` is where gateway calls the channel. Session token
-for subsequent channel→gateway calls.
+`url` is where router calls the channel. Session token
+for subsequent channel→router calls.
 
 #### Deliver inbound message
 
@@ -82,7 +82,7 @@ Authorization: Bearer <session-token>
     {
       "mime": "image/jpeg",
       "filename": "photo.jpg",
-      "url": "http://localhost:9001/files/abc123",
+      "url": "http://telegram:9001/files/abc123",
       "size": 84210
     }
   ]
@@ -92,7 +92,7 @@ Authorization: Bearer <session-token>
 ```
 
 Attachments: channel serves files on its own HTTP server.
-Gateway fetches if needed for agent context.
+Router fetches if needed for agent context.
 
 #### Chat metadata
 
@@ -118,9 +118,9 @@ Authorization: Bearer <session-token>
 → 200 {"ok": true}
 ```
 
-### Channel endpoints (gateway → channel)
+### Channel endpoints (router → channel)
 
-Gateway calls these on the URL registered by the channel.
+Router calls these on the URL registered by the channel.
 
 #### Send message
 
@@ -175,12 +175,12 @@ GET /health
 → 200 {"status": "ok", "name": "telegram", "jid_prefixes": ["tg:"]}
 ```
 
-Gateway calls every 30s. Three consecutive failures →
+Router calls every 30s. Three consecutive failures →
 auto-deregister. Outbound queues until channel re-registers.
 
 ## Capabilities
 
-Declared at registration. Gateway skips calls the channel
+Declared at registration. Router skips calls the channel
 can't handle:
 
 | Capability  | If false                |
@@ -199,8 +199,8 @@ Extensible. Unknown capabilities ignored.
 
 Shared secret from .env (`CHANNEL_SECRET`). Used for:
 
-- Channel → gateway: registration (gets session token back)
-- Gateway → channel: all calls use the same shared secret
+- Channel → router: registration (gets session token back)
+- Router → channel: all calls use the same shared secret
 
 Simple. Both sides trust each other via the shared secret.
 
@@ -208,28 +208,29 @@ Simple. Both sides trust each other via the shared secret.
 
 ```
 1. Channel starts, connects to platform (telegram API, etc)
-2. Channel POSTs /v1/channels/register to gateway
-3. Gateway stores registration, starts health checks
+2. Channel POSTs /v1/channels/register to router
+3. Router stores registration, starts health checks
 4. Inbound: platform event → channel POSTs /v1/messages
-5. Outbound: gateway POSTs /send to channel → platform
+5. Outbound: router POSTs /send to channel → platform
 6. Channel shuts down → POSTs /v1/channels/deregister
 7. Channel crashes → health fails → auto-deregister
 ```
 
-Queued outbound: if channel is down, gateway queues
-messages internally. When channel re-registers, gateway
+Queued outbound: if channel is down, router queues
+messages internally. When channel re-registers, router
 replays them.
 
 ## Transport
 
 Channel's registered `url` determines transport:
 
-| URL                                      | Transport   |
-| ---------------------------------------- | ----------- |
-| `http://localhost:9001`                  | TCP         |
-| `http://10.0.0.5:9001`                   | TCP remote  |
-| `http+unix:///run/arizuko/telegram.sock` | Unix socket |
-| vsock CID:port                           | vsock       |
+| URL                                      | Transport      |
+| ---------------------------------------- | -------------- |
+| `http://telegram:9001`                   | Docker network |
+| `http://localhost:9001`                  | TCP local      |
+| `http://10.0.0.5:9001`                   | TCP remote     |
+| `http+unix:///run/arizuko/telegram.sock` | Unix socket    |
+| vsock CID:port                           | vsock          |
 
 **Future**: HTTP over unix socket and vsock are natively
 supported in Go (`net/http` accepts any `net.Listener`).
@@ -239,16 +240,16 @@ toward this now, but the design is compatible.
 
 ## Why this design
 
-- **Testable**: mock gateway with any HTTP server, test
+- **Testable**: mock router with any HTTP server, test
   channel in isolation. Mock channel with any HTTP server,
-  test gateway in isolation.
+  test router in isolation.
 - **Agent-writable**: clear boundary, clear contract. An AI
   agent can write a channel adapter given this spec. No
-  context about gateway internals needed.
+  context about router internals needed.
 - **Language-free**: any language with an HTTP client/server
   library works. That's all of them.
 - **Modular**: add a new platform by writing one adapter.
-  Remove by deregistering. No gateway changes.
+  Remove by deregistering. No router changes.
 - **Transport-agnostic**: HTTP works over localhost, network,
   vsock. The protocol doesn't care.
 
@@ -257,7 +258,7 @@ toward this now, but the design is compatible.
 Current Go code has channels as in-process interfaces
 (`core.Channel`). Migration:
 
-1. Gateway exposes HTTP API alongside existing channels
+1. Router exposes HTTP API alongside existing channels
 2. HTTP channel adapter implements `core.Channel` — proxies
    between HTTP protocol and internal interface
 3. External channels register and work via HTTP
@@ -267,21 +268,21 @@ Current Go code has channels as in-process interfaces
 
 ### Large file delivery
 
-Outbound: gateway sends file via multipart POST. Simple.
-Inbound: channel provides URL, gateway fetches. What if
+Outbound: router sends file via multipart POST. Simple.
+Inbound: channel provides URL, router fetches. What if
 channel is behind NAT? Options:
 
-- Channel uploads to gateway (POST /v1/files)
+- Channel uploads to router (POST /v1/files)
 - Base64 inline (doubles size, fine for <25MB)
-- Presigned upload URL from gateway
+- Presigned upload URL from router
 
 ### Event types beyond messages
 
 Reactions, edits, deletes, joins, leaves — each gets its
-own gateway endpoint? Or one generic `/v1/events` with a
+own router endpoint? Or one generic `/v1/events` with a
 type field? Specific endpoints for now.
 
 ### Multiple instances of same channel
 
 Two telegram bots: each registers with different JID
-prefixes. Gateway routes by prefix. No conflict.
+prefixes. Router routes by prefix. No conflict.
