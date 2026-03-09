@@ -27,5 +27,5 @@ Mark as unverified until confirmed.
 
 ## Records updated
 
-`specs/v1/memory-session.md` open item 2 — resolved, no code change needed.
+`specs/1/P-memory-session.md` open item 2 — resolved, no code change needed.
 Delete this file when memory-session.md is updated.

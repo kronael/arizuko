@@ -23,7 +23,7 @@ Functional multi-channel agent gateway.
 
 ## v1m1 — next to ship
 
-Partial work, close to done. `specs/v1m1/`
+Partial work, close to done. `specs/2/`
 
 - memory-facts: gateway injection + MCP tools
 - paths: hostPath() elimination
@@ -35,7 +35,7 @@ Partial work, close to done. `specs/v1m1/`
 
 ## v1m2 — outstanding, not urgent
 
-`specs/v1m2/`
+`specs/3/`
 
 - message-mcp: get_history/get_thread MCP tools
 - agent-messaging: structured agent-to-agent messages
@@ -44,7 +44,7 @@ Partial work, close to done. `specs/v1m1/`
 
 ## v2m1 — memory layers, agent teams, feed adapters
 
-New subsystems and channel types. `specs/v2m1/`
+New subsystems and channel types. `specs/7/`
 
 - memory-episodic: diary aggregation to weekly/monthly
 - agent-teams: multi-agent collaboration
@@ -56,7 +56,7 @@ New subsystems and channel types. `specs/v2m1/`
 
 ## v2m2 — Go rewrite
 
-Gateway rewrite in Go. Agent container stays TypeScript. `specs/v2m2/`
+Gateway rewrite in Go. Agent container stays TypeScript. `specs/7/`
 
 - Single static binary, no node_modules
 - Native concurrency (goroutines vs polling loops)

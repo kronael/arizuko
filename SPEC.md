@@ -1,11 +1,11 @@
 # SPEC: Three New Specs for arizuko
 
-Write three new spec files under `specs/v1/`. Each spec should follow
+Write three new spec files under `specs/1/`. Each spec should follow
 the existing style: markdown, concise, concrete, no fluff. Reference
 existing specs and code where relevant. Use XML tags sparingly for
 structured examples.
 
-## Deliverable 1: `specs/v1/group-routing.md`
+## Deliverable 1: `specs/1/F-group-routing.md`
 
 **Title**: Hierarchical Group Routing
 
@@ -20,7 +20,7 @@ Key design points:
   command prefix, keyword, or delegation via IPC)
 - Children inherit the parent's channel bindings but can override
 - The main (root) group is just the top of the tree — not special-cased
-- JID hierarchy from `specs/v1/worlds.md` (Phase 1 shipped: `/` separator,
+- JID hierarchy from `specs/1/e-worlds.md` (Phase 1 shipped: `/` separator,
   glob routing with minimatch) is the foundation
 - Parent group's agent can delegate to child groups via IPC
   (`type:'delegate'` with `{group, prompt}`)
@@ -41,10 +41,10 @@ Reference patterns:
 
 Existing arizuko specs to build on:
 
-- `specs/v1/worlds.md` — JID hierarchy, glob routing
-- `specs/v2/agent-routing.md` — worker agents per group (command/keyword/delegate)
-- `specs/v2/systems.md` — topics → agents decomposition
-- `specs/v1/actions.md` — action registry for IPC delegation
+- `specs/1/e-worlds.md` — JID hierarchy, glob routing
+- `specs/1/1-agent-routing.md` — worker agents per group (command/keyword/delegate)
+- `specs/1/Z-systems.md` — topics → agents decomposition
+- `specs/1/0-actions.md` — action registry for IPC delegation
 
 Write concrete examples showing:
 
@@ -55,7 +55,7 @@ Write concrete examples showing:
 Include a section on what changes in gateway code (router.ts, group-queue.ts,
 registered_groups schema).
 
-## Deliverable 2: `specs/v1/isolation.md`
+## Deliverable 2: `specs/1/h-isolation.md`
 
 **Title**: MCP Tool Isolation
 
@@ -88,9 +88,9 @@ Reference patterns:
 
 Existing arizuko specs to build on:
 
-- `specs/v2/ipc-mcp-proxy.md` — MCP over socket, three MCP layers
-- `specs/v1/extend-agent.md` — agent-registered MCP servers
-- `specs/v1/extend-gateway.md` — gateway registries
+- `specs/3/A-ipc-mcp-proxy.md` — MCP over socket, three MCP layers
+- `specs/1/9-extend-agent.md` — agent-registered MCP servers
+- `specs/1/A-extend-gateway.md` — gateway registries
 - `sidecar/whisper/` — existing sidecar implementation
 
 Write concrete examples showing:
@@ -102,7 +102,7 @@ Write concrete examples showing:
 Include a section on the sidecar lifecycle (start, health check, stop)
 and how this relates to the existing whisper sidecar.
 
-## Deliverable 3: `specs/v1/reference-systems.md`
+## Deliverable 3: `specs/1/S-reference-systems.md`
 
 **Title**: Reference Systems Analysis
 
@@ -208,7 +208,7 @@ List specific patterns arizuko should adopt, with priority:
 
 ## Style Guidelines
 
-- Match existing spec style in `specs/v1/`
+- Match existing spec style in `specs/1/`
 - Concise, no marketing language
 - Code examples in TypeScript (gateway is TS)
 - Reference existing code paths where relevant

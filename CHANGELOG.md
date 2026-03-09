@@ -294,7 +294,7 @@ Go rewrite. All core gateway functionality ported from TypeScript.
   `WhisperResult` return type.
 - `src/mime-handlers/whisper.test.ts`: updated for `WhisperResult`,
   60s abort timeout.
-- `specs/v2/autotesting.md`: test strategy for all subsystems.
+- `specs/2/2-autotesting.md`: test strategy for all subsystems.
 
 ---
 
@@ -310,7 +310,7 @@ Go rewrite. All core gateway functionality ported from TypeScript.
   mocking docker without a running daemon
 - Fixed container-runner test mocks: missing `HOST_APP_DIR`/`WEB_HOST`
   constants; `readFileSync` mock returning `''` now returns `'{}'`
-- `specs/v1/testing.md`: all testability gaps marked shipped
+- `specs/1/b-testing.md`: all testability gaps marked shipped
 
 ### Config
 
@@ -340,8 +340,8 @@ Go rewrite. All core gateway functionality ported from TypeScript.
 
 ### Specs
 
-- All `specs/v1/` marked with shipped/partial/open status
-- `specs/v1/sync.md` rewritten as solved
+- All `specs/1/` marked with shipped/partial/open status
+- `specs/1/X-sync.md` rewritten as solved
 
 ### Cleanup
 
@@ -366,7 +366,7 @@ Go rewrite. All core gateway functionality ported from TypeScript.
 
 ### Specs
 
-- `specs/v1/auth.md`: updated to reflect v1 implementation
+- `specs/1/3-auth.md`: updated to reflect v1 implementation
 
 ---
 
@@ -443,7 +443,7 @@ Go rewrite. All core gateway functionality ported from TypeScript.
 - Added auth DB schema: `users`, `sessions`, `oauth_accounts` tables
 - Added auth query functions: `createUser`, `getUserByProvider`, `createSession`, etc.
 - Added `AUTH_SECRET` config constant for JWT signing
-- Added web UI auth spec at `specs/v1/auth.md`
+- Added web UI auth spec at `specs/1/3-auth.md`
 
 ### Whisper sidecar
 
