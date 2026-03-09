@@ -406,6 +406,9 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	if out.Error != "" {
 		slog.Error("agent error",
 			"group", group.Folder, "err", out.Error)
+		if gp, err := g.folders.GroupPath(group.Folder); err == nil {
+			diary.WriteRecovery(gp, "error", out.Error)
+		}
 		if hadOutput {
 			g.advanceAgentCursor(chatJid, msgs)
 		} else {

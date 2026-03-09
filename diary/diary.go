@@ -2,6 +2,7 @@ package diary
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -48,6 +49,28 @@ func Read(groupDir string, max int) string {
 	}
 	b.WriteString("</knowledge>")
 	return b.String()
+}
+
+func WriteRecovery(groupDir, reason, errMsg string) {
+	now := time.Now()
+	dir := filepath.Join(groupDir, "diary")
+	os.MkdirAll(dir, 0755)
+	file := filepath.Join(dir, now.Format("20060102")+".md")
+	_, exists := os.Stat(file)
+	var entry string
+	if exists != nil {
+		entry = fmt.Sprintf("---\nsummary: \"session ended: %s\"\n---\n", reason)
+	}
+	entry += fmt.Sprintf("\n## Recovery (%s)\nReason: %s\nError: %s\n",
+		now.Format("15:04"), reason, errMsg)
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		slog.Error("write recovery diary failed", "err", err)
+		return
+	}
+	defer f.Close()
+	f.WriteString(entry)
+	slog.Info("wrote recovery diary entry", "group", groupDir, "reason", reason)
 }
 
 func ageLabel(key, today, yesterday string, now time.Time) string {
