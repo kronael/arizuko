@@ -62,7 +62,7 @@ func handleGitHubCallback(cfg *core.Config, s *store.Store, secret []byte) http.
 			http.Error(w, "oauth failed", http.StatusBadGateway)
 			return
 		}
-		createOAuthSession(w, r, s, secret, "github:"+sub, name)
+		createOAuthSession(w, s, secret, "github:"+sub, name)
 	}
 }
 
@@ -108,7 +108,7 @@ func handleDiscordCallback(cfg *core.Config, s *store.Store, secret []byte) http
 			http.Error(w, "oauth failed", http.StatusBadGateway)
 			return
 		}
-		createOAuthSession(w, r, s, secret, "discord:"+sub, name)
+		createOAuthSession(w, s, secret, "discord:"+sub, name)
 	}
 }
 
@@ -128,11 +128,11 @@ func handleTelegram(cfg *core.Config, s *store.Store, secret []byte) http.Handle
 		if ln := r.FormValue("last_name"); ln != "" {
 			name += " " + ln
 		}
-		createOAuthSession(w, r, s, secret, "telegram:"+sub, name)
+		createOAuthSession(w, s, secret, "telegram:"+sub, name)
 	}
 }
 
-func createOAuthSession(w http.ResponseWriter, _ *http.Request, s *store.Store, secret []byte, sub, name string) {
+func createOAuthSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, name string) {
 	if _, ok := s.AuthUserBySub(sub); !ok {
 		username := sub
 		if err := s.CreateAuthUser(sub, username, "", name); err != nil {

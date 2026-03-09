@@ -24,7 +24,7 @@ type Config struct {
 	Timezone      string
 	WebPort       int
 	VitePort      int
-	REDACTEDUsers    string
+	REDACTEDUsers      string
 	AuthSecret      string
 	WebHost         string
 	AuthUsername    string
@@ -84,7 +84,7 @@ func LoadConfig() (*Config, error) {
 		Timezone:      resolveTimezone(),
 		WebPort:       webPort,
 		VitePort:      vitePort,
-		REDACTEDUsers:    envOr("REDACTED_USERS", ""),
+		REDACTEDUsers:      envOr("REDACTED_USERS", ""),
 		AuthSecret:      envOr("AUTH_SECRET", ""),
 		WebHost:         envOr("WEB_HOST", ""),
 		AuthUsername:    envOr("AUTH_USERNAME", ""),

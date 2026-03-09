@@ -31,7 +31,6 @@ form{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 2px 8px rgba(0,
 input{width:100%;padding:.5rem;margin:.25rem 0 1rem;box-sizing:border-box;border:1px solid #ddd;border-radius:4px}
 button{width:100%;padding:.5rem;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer}
 h2{margin:0 0 1rem;text-align:center}
-.err{color:red;font-size:.9em;text-align:center}
 </style></head><body>
 <form method="POST" action="/auth/login">
 <h2>Login</h2>
