@@ -2,28 +2,45 @@
 
 **Status**: design
 
-Channel adapters are HTTP clients that connect to the gateway
-(router). Each adapter handles one platform. Both sides are
-HTTP servers — gateway receives inbound messages, channel
-receives send requests.
+Channel adapters connect to platforms and talk to the
+gateway over HTTP. Both sides are HTTP servers. Channel
+self-registers with gateway so gateway knows where to
+find it.
+
+## Why self-registration
+
+Gateway doesn't manage channel lifecycle. Channels are
+external processes — started by systemd, docker, manual,
+whatever. On startup, channel registers with gateway:
+"I handle these JID prefixes, call me at this URL."
+
+This makes channels modular. Anyone can write one in any
+language. Gateway doesn't need static config for channels —
+they announce themselves.
 
 ## Why REST, not WebSocket
 
-Delivery is synchronous. Gateway calls channel to send,
-channel sends to platform, returns 200. Done. No connection
-state, no reconnect logic, no heartbeat frames. If the call
-fails, the message wasn't delivered — gateway knows immediately.
+Both directions are synchronous HTTP calls:
 
-Channel polls nothing. Gateway polls nothing. Each call is
-a complete transaction.
+- Channel → gateway: deliver inbound message
+- Gateway → channel: send outbound message
 
-## Registration
+Each call is a complete transaction. No connection state,
+no reconnect logic, no message ordering concerns. When
+gateway's POST to /send returns 200, the message is on
+the platform. Done.
 
-Channel starts, registers with gateway. Tells it which JID
-prefixes it handles and what it can do.
+## Protocol
+
+### Gateway endpoints (channel → gateway)
+
+#### Register
+
+Channel starts, tells gateway what it handles.
 
 ```
 POST /v1/channels/register
+Authorization: Bearer <shared-secret>
 
 {
   "name": "telegram",
@@ -34,54 +51,19 @@ POST /v1/channels/register
     "send_file": true,
     "typing": true,
     "threading": false,
-    "native_commands": false
+    "reactions": false,
+    "edit": false,
+    "delete": false
   }
 }
 
 → 200 {"ok": true, "token": "<session-token>"}
 ```
 
-Gateway stores the registration. Routes outbound messages
-to the channel whose `jid_prefixes` match.
+`url` is where gateway calls the channel. Session token
+for subsequent channel→gateway calls.
 
-Multiple channels can register for overlapping prefixes —
-first registered wins (or error, TBD).
-
-### Auth
-
-Channel includes a shared secret from .env in the
-`Authorization: Bearer <token>` header on registration.
-Gateway returns a session token for subsequent calls.
-Channel uses session token; gateway uses the same shared
-secret when calling channel endpoints.
-
-### Deregistration
-
-Explicit:
-
-```
-POST /v1/channels/deregister
-Authorization: Bearer <session-token>
-
-→ 200 {"ok": true}
-```
-
-Implicit: gateway pings channel periodically. If ping fails
-N times (default 3), gateway deregisters it. JIDs for that
-channel become unroutable — messages queue in DB until the
-channel re-registers and the gateway replays them.
-
-## Gateway endpoints (channel → gateway)
-
-### Register
-
-```
-POST /v1/channels/register
-```
-
-See above.
-
-### Deliver inbound message
+#### Deliver inbound message
 
 ```
 POST /v1/messages
@@ -109,13 +91,10 @@ Authorization: Bearer <session-token>
 → 200 {"ok": true}
 ```
 
-Gateway stores the message, routes to the appropriate group.
-
 Attachments: channel serves files on its own HTTP server.
-Gateway downloads them if needed (for agent context). This
-keeps large blobs out of the protocol — just a URL.
+Gateway fetches if needed for agent context.
 
-### Chat metadata
+#### Chat metadata
 
 ```
 POST /v1/chats
@@ -124,23 +103,30 @@ Authorization: Bearer <session-token>
 {
   "chat_jid": "tg:-1001234567",
   "name": "Dev Chat",
-  "is_group": true,
-  "channel": "telegram"
+  "is_group": true
 }
 
 → 200 {"ok": true}
 ```
 
-Upserts chat info. Sent on first message from a chat, or
-when metadata changes (name, participants).
+#### Deregister
 
-## Channel endpoints (gateway → channel)
+```
+POST /v1/channels/deregister
+Authorization: Bearer <session-token>
 
-### Send message
+→ 200 {"ok": true}
+```
+
+### Channel endpoints (gateway → channel)
+
+Gateway calls these on the URL registered by the channel.
+
+#### Send message
 
 ```
 POST /send
-Authorization: Bearer <secret>
+Authorization: Bearer <shared-secret>
 
 {
   "chat_jid": "tg:-1001234567",
@@ -152,17 +138,13 @@ Authorization: Bearer <secret>
 → 200 {"ok": true, "message_id": "tg-msg-456"}
 ```
 
-Synchronous delivery. When this returns 200, the message
-is on the platform. Gateway can mark it delivered.
+Synchronous delivery. 200 = on the platform.
 
-If channel returns 4xx/5xx, delivery failed. Gateway
-decides retry policy.
-
-### Send file
+#### Send file
 
 ```
 POST /send-file
-Authorization: Bearer <secret>
+Authorization: Bearer <shared-secret>
 
 Content-Type: multipart/form-data
 - chat_jid: "tg:-1001234567"
@@ -172,24 +154,20 @@ Content-Type: multipart/form-data
 → 200 {"ok": true, "message_id": "tg-msg-457"}
 ```
 
-### Set typing
+#### Typing
 
 ```
 POST /typing
-Authorization: Bearer <secret>
+Authorization: Bearer <shared-secret>
 
-{
-  "chat_jid": "tg:-1001234567",
-  "on": true
-}
+{"chat_jid": "tg:-1001234567", "on": true}
 
 → 200 {"ok": true}
 ```
 
-Fire-and-forget from gateway's perspective. Failure is
-not an error — typing indicators are cosmetic.
+Fire-and-forget. Failure is not an error.
 
-### Ping
+#### Health
 
 ```
 GET /health
@@ -197,111 +175,110 @@ GET /health
 → 200 {"status": "ok", "name": "telegram", "jid_prefixes": ["tg:"]}
 ```
 
-No auth needed. Gateway calls this every 30s. Three
-consecutive failures → deregister.
+Gateway calls every 30s. Three consecutive failures →
+auto-deregister. Outbound queues until channel re-registers.
+
+## Capabilities
+
+Declared at registration. Gateway skips calls the channel
+can't handle:
+
+| Capability  | If false                |
+| ----------- | ----------------------- |
+| `send_text` | channel is receive-only |
+| `send_file` | skip /send-file calls   |
+| `typing`    | skip /typing calls      |
+| `threading` | no reply_to on outbound |
+| `reactions` | no reaction forwarding  |
+| `edit`      | no edit forwarding      |
+| `delete`    | no delete forwarding    |
+
+Extensible. Unknown capabilities ignored.
+
+## Auth
+
+Shared secret from .env (`CHANNEL_SECRET`). Used for:
+
+- Channel → gateway: registration (gets session token back)
+- Gateway → channel: all calls use the same shared secret
+
+Simple. Both sides trust each other via the shared secret.
 
 ## Lifecycle
 
 ```
 1. Channel starts, connects to platform (telegram API, etc)
 2. Channel POSTs /v1/channels/register to gateway
-3. Gateway stores registration, starts health pings
+3. Gateway stores registration, starts health checks
 4. Inbound: platform event → channel POSTs /v1/messages
-5. Outbound: gateway POSTs /send to channel → channel sends
+5. Outbound: gateway POSTs /send to channel → platform
 6. Channel shuts down → POSTs /v1/channels/deregister
-7. Channel crashes → health pings fail → auto-deregister
+7. Channel crashes → health fails → auto-deregister
 ```
 
-Messages that arrive while a channel is deregistered queue
-in the gateway's outbox. When the channel re-registers,
-gateway replays queued messages.
+Queued outbound: if channel is down, gateway queues
+messages internally. When channel re-registers, gateway
+replays them.
 
 ## Transport
 
-Channel `url` in registration determines transport:
+Channel's registered `url` determines transport:
 
-- `http://localhost:9001` — same host, different process
-- `http://10.0.0.5:9001` — different host
-- `vsock://3:9001` — VM guest over vsock (CID 3, port 9001)
+| URL                     | Use case                     |
+| ----------------------- | ---------------------------- |
+| `http://localhost:9001` | same host, different process |
+| `http://10.0.0.5:9001`  | different host               |
+| `vsock://3:9001`        | VM guest over vsock          |
 
-Gateway treats it as opaque HTTP. For vsock, a thin
-HTTP-over-vsock proxy on the host translates. Channel
-doesn't know or care about the transport — it's just
-an HTTP server.
+For vsock: HTTP-over-vsock proxy on host. Channel is just
+an HTTP server inside the VM. Gateway doesn't know the
+difference.
 
-## Capabilities
+## Why this design
 
-Capabilities declared at registration. Gateway uses them
-to decide what to attempt:
+- **Testable**: mock gateway with any HTTP server, test
+  channel in isolation. Mock channel with any HTTP server,
+  test gateway in isolation.
+- **Agent-writable**: clear boundary, clear contract. An AI
+  agent can write a channel adapter given this spec. No
+  context about gateway internals needed.
+- **Language-free**: any language with an HTTP client/server
+  library works. That's all of them.
+- **Modular**: add a new platform by writing one adapter.
+  Remove by deregistering. No gateway changes.
+- **Transport-agnostic**: HTTP works over localhost, network,
+  vsock. The protocol doesn't care.
 
-| Capability        | If false                       |
-| ----------------- | ------------------------------ |
-| `send_text`       | channel is receive-only        |
-| `send_file`       | gateway skips /send-file calls |
-| `typing`          | gateway skips /typing calls    |
-| `threading`       | no reply_to on outbound        |
-| `native_commands` | gateway handles /commands      |
-| `reactions`       | no reaction forwarding         |
-| `edit`            | no message edit forwarding     |
-| `delete`          | no message delete forwarding   |
+## Migration from in-process channels
 
-Extensible — new capabilities added without protocol change.
-Unknown capabilities ignored by gateway.
+Current Go code has channels as in-process interfaces
+(`core.Channel`). Migration:
 
-## Why this is simpler than WebSocket
-
-- No connection state management
-- No reconnect/backoff logic
-- No ping/pong framing
-- No message ordering concerns
-- Standard HTTP middleware (auth, logging, rate limiting)
-- Every call is independently retriable
-- Load balancers, proxies, TLS termination all work
-- Any HTTP client in any language
-
-The only thing WebSocket gives is push without polling.
-But we don't poll — gateway pushes to channel via POST,
-channel pushes to gateway via POST. Both sides are servers.
-
-## Relation to existing code
-
-Current Go implementation has channels as in-process
-interfaces (`core.Channel`). Migration path:
-
-1. Keep in-process channels working (backward compat)
-2. Add HTTP adapter that implements `core.Channel`
-3. HTTP adapter forwards to registered external channel
-4. External channels implement this protocol
-5. Eventually remove in-process channel code
-
-The gateway doesn't change its internal routing — it still
-calls `channel.Send()`. The HTTP adapter is just a new
-implementation of that interface that does a POST instead
-of a direct platform API call.
+1. Gateway exposes HTTP API alongside existing channels
+2. HTTP channel adapter implements `core.Channel` — proxies
+   between HTTP protocol and internal interface
+3. External channels register and work via HTTP
+4. Retire in-process channels one by one
 
 ## Open questions
 
-### Attachment handling
+### Large file delivery
 
-Large files: should channel upload to gateway, or should
-gateway fetch from channel URL? Current design: channel
-provides a URL, gateway fetches if needed. Keeps the
-protocol simple but requires channel to serve files.
+Outbound: gateway sends file via multipart POST. Simple.
+Inbound: channel provides URL, gateway fetches. What if
+channel is behind NAT? Options:
 
-### Batching
-
-Send multiple messages in one call? Probably not needed —
-chat messages are low volume. Keep it simple: one message
-per request.
+- Channel uploads to gateway (POST /v1/files)
+- Base64 inline (doubles size, fine for <25MB)
+- Presigned upload URL from gateway
 
 ### Event types beyond messages
 
-Reactions, edits, deletes, joins, leaves — each a POST to
-a gateway endpoint? Or one generic `/v1/events` endpoint
-with a type field? Generic is more extensible but less
-self-documenting. Keeping specific endpoints for now.
+Reactions, edits, deletes, joins, leaves — each gets its
+own gateway endpoint? Or one generic `/v1/events` with a
+type field? Specific endpoints for now.
 
 ### Multiple instances of same channel
 
-Two telegram bots? Each registers with different JID
-prefixes. Gateway routes by prefix match. No conflict.
+Two telegram bots: each registers with different JID
+prefixes. Gateway routes by prefix. No conflict.
