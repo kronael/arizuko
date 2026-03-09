@@ -224,15 +224,18 @@ replays them.
 
 Channel's registered `url` determines transport:
 
-| URL                     | Use case                     |
-| ----------------------- | ---------------------------- |
-| `http://localhost:9001` | same host, different process |
-| `http://10.0.0.5:9001`  | different host               |
-| `vsock://3:9001`        | VM guest over vsock          |
+| URL                                      | Transport   |
+| ---------------------------------------- | ----------- |
+| `http://localhost:9001`                  | TCP         |
+| `http://10.0.0.5:9001`                   | TCP remote  |
+| `http+unix:///run/arizuko/telegram.sock` | Unix socket |
+| vsock CID:port                           | vsock       |
 
-For vsock: HTTP-over-vsock proxy on host. Channel is just
-an HTTP server inside the VM. Gateway doesn't know the
-difference.
+**Future**: HTTP over unix socket and vsock are natively
+supported in Go (`net/http` accepts any `net.Listener`).
+The protocol is pure HTTP regardless of transport — no
+changes needed, just a different dialer. Not building
+toward this now, but the design is compatible.
 
 ## Why this design
 
