@@ -10,7 +10,7 @@ find it.
 ## Why self-registration
 
 Router doesn't manage channel lifecycle. Channels are
-external processes — started by systemd, docker, manual,
+external processes — started by docker compose, manual,
 whatever. On startup, channel registers with router:
 "I handle these JID prefixes, call me at this URL."
 
