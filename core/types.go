@@ -59,6 +59,16 @@ type RoutingRule struct {
 	Target string // group folder
 }
 
+// Route is a flat routing table entry (replaces RoutingRule JSON blob).
+type Route struct {
+	ID     int64
+	JID    string
+	Seq    int
+	Type   string // command|verb|pattern|keyword|sender|trigger|default
+	Match  string
+	Target string
+}
+
 type Task struct {
 	ID       string
 	Group    string

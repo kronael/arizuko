@@ -101,9 +101,25 @@ func cmdCreate(args []string) {
 	name := args[0]
 	dataDir := fmt.Sprintf("/srv/data/arizuko_%s", name)
 
-	for _, sub := range []string{"store", "groups/main/logs", "data", "web"} {
+	for _, sub := range []string{"store", "groups/main/.claude", "groups/main/logs", "data", "web"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: mkdir %s: %v\n", sub, err)
+			os.Exit(1)
+		}
+	}
+
+	claudeMd := filepath.Join(dataDir, "groups/main/.claude/CLAUDE.md")
+	if _, err := os.Stat(claudeMd); os.IsNotExist(err) {
+		content := `# Agent Instructions
+
+You operate inside a group chat where participants often talk to each other
+and may not be addressing you. Only respond when you are clearly being spoken
+to — by name, direct mention, or as the obvious recipient of a question or
+request. If the conversation is between users and does not involve you, stay
+silent.
+`
+		if err := os.WriteFile(claudeMd, []byte(content), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed: write CLAUDE.md: %v\n", err)
 			os.Exit(1)
 		}
 	}

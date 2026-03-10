@@ -97,7 +97,12 @@ func (g *Gateway) Run(ctx context.Context) error {
 		UpdateTaskStatus: func(id, status string) error {
 			return g.store.UpdateTask(id, store.TaskPatch{Status: &status})
 		},
-		DeleteTask: g.store.DeleteTask,
+		DeleteTask:  g.store.DeleteTask,
+		GetRoutes:   g.store.GetRoutes,
+		SetRoutes:   g.store.SetRoutes,
+		AddRoute:    g.store.AddRoute,
+		DeleteRoute: g.store.DeleteRoute,
+		GetRoute:    g.store.GetRoute,
 	})
 	// w.Start() moved after channel connect — draining old IPC
 	// requests before channels are ready causes nil pointer panics
@@ -309,8 +314,20 @@ func (g *Gateway) pollOnce() {
 			continue
 		}
 
-		triggered := g.checkTrigger(group, chatMsgs)
-		if !triggered {
+		routes := g.store.GetRoutes(chatJid)
+		needTrig := false
+		if len(routes) > 0 {
+			for _, r := range routes {
+				if r.Type == "trigger" {
+					needTrig = true
+					break
+				}
+			}
+		} else {
+			needTrig = group.NeedTrig
+		}
+
+		if needTrig && !g.checkTrigger(chatMsgs) {
 			continue
 		}
 
@@ -319,10 +336,19 @@ func (g *Gateway) pollOnce() {
 			continue
 		}
 
-		if target := router.ResolveRoutingTarget(last, group.Rules); target != "" {
-			if router.IsAuthorizedRoutingTarget(group.Folder, target) {
-				prompt := last.Content
-				g.delegateToChild(target, prompt, chatJid, 0)
+		var routingTarget string
+		if len(routes) > 0 {
+			t := router.ResolveRoute(last, routes)
+			if t != "" && t != group.Folder {
+				routingTarget = t
+			}
+		} else if len(group.Rules) > 0 {
+			routingTarget = router.ResolveRoutingTarget(last, group.Rules)
+		}
+
+		if routingTarget != "" {
+			if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
+				g.delegateToChild(routingTarget, last.Content, chatJid, 0)
 				continue
 			}
 		}
@@ -357,7 +383,21 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return false, nil
 	}
 
-	if group.NeedTrig && !g.checkTrigger(group, msgs) {
+	// Load flat routes for this JID. Fall back to group.Rules if no routes exist.
+	routes := g.store.GetRoutes(chatJid)
+	needTrig := false
+	if len(routes) > 0 {
+		for _, r := range routes {
+			if r.Type == "trigger" {
+				needTrig = true
+				break
+			}
+		}
+	} else {
+		needTrig = group.NeedTrig
+	}
+
+	if needTrig && !g.checkTrigger(msgs) {
 		return false, nil
 	}
 
@@ -367,9 +407,19 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return true, nil
 	}
 
-	if target := router.ResolveRoutingTarget(last, group.Rules); target != "" {
-		if router.IsAuthorizedRoutingTarget(group.Folder, target) {
-			g.delegateToChild(target, last.Content, chatJid, 0)
+	var routingTarget string
+	if len(routes) > 0 {
+		t := router.ResolveRoute(last, routes)
+		if t != "" && t != group.Folder {
+			routingTarget = t
+		}
+	} else if len(group.Rules) > 0 {
+		routingTarget = router.ResolveRoutingTarget(last, group.Rules)
+	}
+
+	if routingTarget != "" {
+		if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
+			g.delegateToChild(routingTarget, last.Content, chatJid, 0)
 			g.advanceAgentCursor(chatJid, msgs)
 			return true, nil
 		}
@@ -658,10 +708,7 @@ func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth
 	return nil
 }
 
-func (g *Gateway) checkTrigger(group core.Group, msgs []core.Message) bool {
-	if !group.NeedTrig {
-		return true
-	}
+func (g *Gateway) checkTrigger(msgs []core.Message) bool {
 	for _, m := range msgs {
 		if g.cfg.TriggerRE.MatchString(m.Content) {
 			return true

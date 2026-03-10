@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 
@@ -71,12 +72,82 @@ func (s *Store) migrate() error {
 	if ver < 2 {
 		s.migrateV2()
 		s.db.Exec("PRAGMA user_version = 2")
+		ver = 2
+	}
+	if ver < 3 {
+		s.migrateV3()
+		s.db.Exec("PRAGMA user_version = 3")
 	}
 	return nil
 }
 
 func (s *Store) migrateV2() {
 	s.db.Exec(`ALTER TABLE task_run_logs ADD COLUMN reported INTEGER DEFAULT 0`)
+}
+
+// migrateV3 populates the flat routes table from registered_groups.
+func (s *Store) migrateV3() {
+	rows, err := s.db.Query(
+		`SELECT jid, folder, requires_trigger, routing_rules FROM registered_groups`)
+	if err != nil {
+		return
+	}
+	type groupRow struct {
+		jid      string
+		folder   string
+		needTrig int
+		rulesRaw *string
+	}
+	var gs []groupRow
+	for rows.Next() {
+		var r groupRow
+		rows.Scan(&r.jid, &r.folder, &r.needTrig, &r.rulesRaw)
+		gs = append(gs, r)
+	}
+	rows.Close()
+
+	for _, g := range gs {
+		var n int
+		s.db.QueryRow(`SELECT COUNT(*) FROM routes WHERE jid = ?`, g.jid).Scan(&n)
+		if n > 0 {
+			continue
+		}
+
+		var rules []struct {
+			Kind   string `json:"type"`
+			Match  string `json:"match"`
+			Target string `json:"target"`
+		}
+		if g.rulesRaw != nil && *g.rulesRaw != "" && *g.rulesRaw != "null" {
+			json.Unmarshal([]byte(*g.rulesRaw), &rules)
+		}
+
+		if len(rules) > 0 {
+			for i, rule := range rules {
+				s.db.Exec(
+					`INSERT INTO routes (jid, seq, type, match, target) VALUES (?, ?, ?, ?, ?)`,
+					g.jid, i*10, rule.Kind, nullStr(rule.Match), rule.Target,
+				)
+			}
+		} else if g.needTrig == 1 {
+			s.db.Exec(
+				`INSERT INTO routes (jid, seq, type, match, target) VALUES (?, 0, 'trigger', NULL, ?)`,
+				g.jid, g.folder,
+			)
+		} else {
+			s.db.Exec(
+				`INSERT INTO routes (jid, seq, type, match, target) VALUES (?, 0, 'default', NULL, ?)`,
+				g.jid, g.folder,
+			)
+		}
+	}
+}
+
+func nullStr(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func (s *Store) migrateV1() {
@@ -203,4 +274,14 @@ var schema = []string{
 		subject TEXT,
 		last_message_id TEXT
 	)`,
+
+	`CREATE TABLE IF NOT EXISTS routes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		jid TEXT NOT NULL,
+		seq INTEGER NOT NULL DEFAULT 0,
+		type TEXT NOT NULL DEFAULT 'default',
+		match TEXT,
+		target TEXT NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_routes_jid_seq ON routes(jid, seq)`,
 }
