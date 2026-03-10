@@ -253,17 +253,6 @@ toward this now, but the design is compatible.
 - **Transport-agnostic**: HTTP works over localhost, network,
   vsock. The protocol doesn't care.
 
-## Migration from in-process channels
-
-Current Go code has channels as in-process interfaces
-(`core.Channel`). Migration:
-
-1. Router exposes HTTP API alongside existing channels
-2. HTTP channel adapter implements `core.Channel` — proxies
-   between HTTP protocol and internal interface
-3. External channels register and work via HTTP
-4. Retire in-process channels one by one
-
 ## Open questions
 
 ### Large file delivery
