@@ -48,6 +48,9 @@ type Config struct {
 	EmailAccount  string
 	EmailPassword string
 
+	APIPort       int
+	ChannelSecret string
+
 	MediaEnabled  bool
 	MediaMaxBytes int64
 	WhisperURL    string
@@ -102,6 +105,9 @@ func LoadConfig() (*Config, error) {
 		DataDir:         filepath.Join(root, "data"),
 		HostGroupsDir:   filepath.Join(hostRoot, "groups"),
 		WebDir:          filepath.Join(root, "web"),
+
+		APIPort:       envInt("API_PORT", 0),
+		ChannelSecret: envOr("CHANNEL_SECRET", ""),
 
 		EmailIMAP:     envOr("EMAIL_IMAP_HOST", ""),
 		EmailSMTP:     envOr("EMAIL_SMTP_HOST", ""),

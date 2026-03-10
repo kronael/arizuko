@@ -63,6 +63,19 @@ func (g *Gateway) AddChannel(ch core.Channel) {
 	g.channels = append(g.channels, ch)
 }
 
+func (g *Gateway) RemoveChannel(name string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for i, ch := range g.channels {
+		if ch.Name() == name {
+			g.channels = append(g.channels[:i], g.channels[i+1:]...)
+			return
+		}
+	}
+}
+
+func (g *Gateway) Store() *store.Store { return g.store }
+
 func (g *Gateway) Run(ctx context.Context) error {
 	if err := container.EnsureRunning(); err != nil {
 		return fmt.Errorf("runtime check failed: %w", err)

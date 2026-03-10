@@ -31,18 +31,18 @@
 Architecture spec: `specs/7/0-architecture.md`
 Channel protocol: `specs/7/1-channel-protocol.md`
 
-### Phase 1: Router HTTP API
+### Phase 1: Router HTTP API ✓
 
-- [ ] Add channel registration endpoint (POST /v1/channels/register)
-- [ ] Add inbound message endpoint (POST /v1/messages)
-- [ ] Add chat metadata endpoint (POST /v1/chats)
-- [ ] Add deregister endpoint (POST /v1/channels/deregister)
-- [ ] Channel registry: in-memory map of registered channels
-- [ ] Route outbound to registered channel via HTTP POST /send
-- [ ] Health check loop: ping channel /health every 30s
-- [ ] Auto-deregister on 3 consecutive health failures
-- [ ] Queue outbound when channel is down, replay on re-register
-- [ ] Auth: shared secret for registration, session tokens
+- [x] Add channel registration endpoint (POST /v1/channels/register)
+- [x] Add inbound message endpoint (POST /v1/messages)
+- [x] Add chat metadata endpoint (POST /v1/chats)
+- [x] Add deregister endpoint (POST /v1/channels/deregister)
+- [x] Channel registry: in-memory map of registered channels
+- [x] Route outbound to registered channel via HTTP POST /send
+- [x] Health check loop: ping channel /health every 30s
+- [x] Auto-deregister on 3 consecutive health failures
+- [x] Queue outbound when channel is down, replay on re-register
+- [x] Auth: shared secret for registration, session tokens
 
 ### Phase 2: First external channel (telegram)
 

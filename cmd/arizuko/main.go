@@ -4,12 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/onvos/arizuko/api"
+	"github.com/onvos/arizuko/chanreg"
 	"github.com/onvos/arizuko/channels"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/gateway"
@@ -82,6 +87,30 @@ func cmdRun() {
 	if cfg.DiscordToken != "" {
 		gw.AddChannel(channels.NewDiscord(
 			cfg.DiscordToken, cfg.Name, cfg.TriggerRE, hooks))
+	}
+
+	if cfg.APIPort > 0 {
+		reg := chanreg.New(cfg.ChannelSecret)
+		apiSrv := api.New(reg, s)
+		apiSrv.OnRegister(func(name string, ch *chanreg.HTTPChannel) {
+			gw.RemoveChannel(name) // remove old if re-registering
+			gw.AddChannel(ch)
+			ch.DrainOutbox()
+		})
+		apiSrv.OnDeregister(func(name string) {
+			gw.RemoveChannel(name)
+		})
+
+		addr := net.JoinHostPort("", strconv.Itoa(cfg.APIPort))
+		srv := &http.Server{Addr: addr, Handler: apiSrv.Handler()}
+		go func() {
+			slog.Info("api server starting", "addr", addr)
+			if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+				slog.Error("api server error", "err", err)
+			}
+		}()
+
+		reg.StartHealthLoop(context.Background())
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
