@@ -44,14 +44,14 @@ Channel protocol: `specs/7/1-channel-protocol.md`
 - [x] Queue outbound when channel is down, replay on re-register
 - [x] Auth: shared secret for registration, session tokens
 
-### Phase 2: First external channel (telegram)
+### Phase 2: First external channel (telegram) ✓
 
-- [ ] Extract telegram adapter into standalone binary
-- [ ] Implements: HTTP server (/send, /send-file, /typing, /health)
-- [ ] Implements: HTTP client (register, deliver messages, chat metadata)
-- [ ] Connects to telegram API on one side, router HTTP on the other
-- [ ] Test: run adapter standalone, send/receive messages
-- [ ] Retire in-process telegram channel code
+- [x] Extract telegram adapter into standalone binary
+- [x] Implements: HTTP server (/send, /send-file, /typing, /health)
+- [x] Implements: HTTP client (register, deliver messages, chat metadata)
+- [x] Connects to telegram API on one side, router HTTP on the other
+- [x] Test: run adapter standalone, send/receive messages
+- [ ] Retire in-process telegram channel code (deferred — both coexist)
 
 ### Phase 3: Process runner (docker compose)
 

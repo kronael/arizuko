@@ -1,6 +1,9 @@
 build:
 	go build -o arizuko cmd/arizuko/main.go
 
+telegram:
+	make -C channels/telegram build
+
 lint:
 	go vet ./...
 
@@ -17,4 +20,4 @@ image:
 agent:
 	make -C container image
 
-.PHONY: build lint test clean image agent
+.PHONY: build telegram lint test clean image agent

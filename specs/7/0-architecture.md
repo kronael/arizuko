@@ -76,7 +76,7 @@ Channel receives a platform event, POSTs it to router:
 
 ```
 POST /v1/messages
-{"chat_jid": "tg:-1001234", "sender": "tg:123", "content": "hello", ...}
+{"chat_jid": "telegram:-1001234", "sender": "telegram:123", "content": "hello", ...}
 → 200 {"ok": true}
 ```
 
@@ -88,7 +88,7 @@ Router calls channel's HTTP endpoint to send:
 
 ```
 POST http://channel-url/send
-{"chat_jid": "tg:-1001234", "content": "reply", ...}
+{"chat_jid": "telegram:-1001234", "content": "reply", ...}
 → 200 {"ok": true, "message_id": "tg-456"}
 ```
 
@@ -104,7 +104,7 @@ POST /v1/channels/register
 {
   "name": "telegram",
   "url": "http://telegram:9001",
-  "jid_prefixes": ["tg:"],
+  "jid_prefixes": ["telegram:"],
   "capabilities": {"send_text": true, "send_file": true, "typing": true}
 }
 → 200 {"ok": true, "token": "<session-token>"}
@@ -127,7 +127,7 @@ Language follows best library for that platform.
 - Server side: listens for router's send/typing/health calls
 
 Channel self-registers with router on startup ("I handle
-tg:\*, call me at http://telegram:9001"). Router calls
+telegram:\*, call me at http://telegram:9001"). Router calls
 channel to send outbound. Channel calls router to deliver
 inbound. Both directions are synchronous HTTP.
 
@@ -189,7 +189,7 @@ different origin IDs work naturally.
 ```
 POST /v1/messages
 {
-  "chat_jid": "tg:-1001234",
+  "chat_jid": "telegram:-1001234",
   "content": "/daily-report",
   "sender": "scheduler:main",
   "origin": "scheduler"

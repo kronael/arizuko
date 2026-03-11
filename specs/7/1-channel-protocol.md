@@ -45,7 +45,7 @@ Authorization: Bearer <shared-secret>
 {
   "name": "telegram",
   "url": "http://telegram:9001",
-  "jid_prefixes": ["tg:"],
+  "jid_prefixes": ["telegram:"],
   "capabilities": {
     "send_text": true,
     "send_file": true,
@@ -71,8 +71,8 @@ Authorization: Bearer <session-token>
 
 {
   "id": "msg-uuid",
-  "chat_jid": "tg:-1001234567",
-  "sender": "tg:12345",
+  "chat_jid": "telegram:-1001234567",
+  "sender": "telegram:12345",
   "sender_name": "Alice",
   "content": "hello",
   "timestamp": 1709942400,
@@ -101,7 +101,7 @@ POST /v1/chats
 Authorization: Bearer <session-token>
 
 {
-  "chat_jid": "tg:-1001234567",
+  "chat_jid": "telegram:-1001234567",
   "name": "Dev Chat",
   "is_group": true
 }
@@ -129,13 +129,13 @@ POST /send
 Authorization: Bearer <shared-secret>
 
 {
-  "chat_jid": "tg:-1001234567",
+  "chat_jid": "telegram:-1001234567",
   "content": "reply text",
   "reply_to": "msg-uuid",
   "format": "markdown"
 }
 
-→ 200 {"ok": true, "message_id": "tg-msg-456"}
+→ 200 {"ok": true, "message_id": "telegram-msg-456"}
 ```
 
 Synchronous delivery. 200 = on the platform.
@@ -147,11 +147,11 @@ POST /send-file
 Authorization: Bearer <shared-secret>
 
 Content-Type: multipart/form-data
-- chat_jid: "tg:-1001234567"
+- chat_jid: "telegram:-1001234567"
 - filename: "report.pdf"
 - file: <binary>
 
-→ 200 {"ok": true, "message_id": "tg-msg-457"}
+→ 200 {"ok": true, "message_id": "telegram-msg-457"}
 ```
 
 #### Typing
@@ -160,7 +160,7 @@ Content-Type: multipart/form-data
 POST /typing
 Authorization: Bearer <shared-secret>
 
-{"chat_jid": "tg:-1001234567", "on": true}
+{"chat_jid": "telegram:-1001234567", "on": true}
 
 → 200 {"ok": true}
 ```
@@ -172,7 +172,7 @@ Fire-and-forget. Failure is not an error.
 ```
 GET /health
 
-→ 200 {"status": "ok", "name": "telegram", "jid_prefixes": ["tg:"]}
+→ 200 {"status": "ok", "name": "telegram", "jid_prefixes": ["telegram:"]}
 ```
 
 Router calls every 30s. Three consecutive failures →
