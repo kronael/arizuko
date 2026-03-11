@@ -11,8 +11,6 @@ const (
 	maxHealthFails = 3
 )
 
-// StartHealthLoop pings all registered channels every 30s.
-// Three consecutive failures triggers auto-deregister.
 func (r *Registry) StartHealthLoop(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(healthInterval)

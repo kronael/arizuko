@@ -224,20 +224,9 @@ func (s *Server) checkToken(w http.ResponseWriter, r *http.Request) *chanreg.Ent
 		writeErr(w, http.StatusUnauthorized, "missing token")
 		return nil
 	}
-
-	// try session token first, then shared secret
-	e := s.reg.ByToken(token)
-	if e != nil {
+	if e := s.reg.ByToken(token); e != nil {
 		return e
 	}
-
-	// allow shared secret as fallback for admin operations
-	if token == s.reg.Secret() {
-		// extract channel name from body later — for now reject
-		writeErr(w, http.StatusUnauthorized, "invalid token")
-		return nil
-	}
-
 	writeErr(w, http.StatusUnauthorized, "invalid token")
 	return nil
 }

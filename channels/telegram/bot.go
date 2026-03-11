@@ -167,8 +167,6 @@ func (b *bot) typing(jid string, on bool) error {
 	return nil
 }
 
-// helpers
-
 func parseChatID(jid string) (int64, error) {
 	return strconv.ParseInt(strings.TrimPrefix(jid, "telegram:"), 10, 64)
 }

@@ -11,10 +11,10 @@ systemd-managed instances, MCP sidecar extensibility.
 ## Build & Test
 
 ```bash
-make build    # go build → ./arizuko binary
+make build    # go build → ./arizuko + channels/telegram binary
 make lint     # go vet ./...
 make test     # go test ./... -count=1
-make image    # gateway docker image
+make image    # router docker image
 make agent    # agent docker image (make -C container image)
 ```
 
@@ -23,12 +23,13 @@ Pre-commit hooks configured via `.pre-commit-config.yaml`.
 
 ## Architecture
 
-Go binary. Gateway polls channels for messages, routes to
-containerized Claude agents via docker, streams output back.
+Go binary (router). Channels are external processes that register
+via HTTP; router polls stored messages, routes to containerized
+Claude agents via docker, streams output back to channels.
 
-**Flow**: Channel → store.PutMessage → gateway.messageLoop polls
-→ GroupQueue → container.Run (docker run) → stream output
-→ channel.Send.
+**Flow**: Channel adapter → HTTP API → store.PutMessage →
+gateway.messageLoop polls → GroupQueue → container.Run (docker run)
+→ stream output → HTTPChannel.Send → channel adapter.
 
 See ARCHITECTURE.md for package graph, schema, container model.
 
@@ -41,6 +42,8 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `container/` — docker spawn, volume mounts, sidecars, skills seeding
 - `queue/` — per-group concurrency, stdin piping, circuit breaker
 - `router/` — XML message formatting, routing rules, outbound filtering
+- `chanreg/` — channel registry, health checks, HTTP channel proxy (outbound)
+- `api/` — HTTP API server (channel registration, inbound messages, chat metadata)
 - `ipc/` — file-based IPC watcher (request/reply + legacy fire-and-forget)
 - `scheduler/` — cron/interval/once task runner (robfig/cron)
 - `diary/` — YAML frontmatter diary annotations for agent context
@@ -61,6 +64,9 @@ container/         Docker runner + sidecars
   skills/          Agent-side skills
 queue/             Per-group concurrency
 router/            Message formatting + routing
+chanreg/           Channel registry + HTTP proxy
+api/               Router HTTP API server
+channels/telegram/ Standalone telegram adapter
 ipc/               File-based IPC
 scheduler/         Task scheduler
 diary/             Diary annotations
@@ -93,7 +99,8 @@ sidecar/           MCP server binaries
 
 All config via `.env` in data dir or env vars (`core.LoadConfig`).
 Key values: `ASSISTANT_NAME`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`,
-`EMAIL_IMAP_HOST`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`.
+`EMAIL_IMAP_HOST`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`,
+`API_PORT`, `CHANNEL_SECRET`.
 
 `HOST_DATA_DIR` and `HOST_APP_DIR` for docker-in-docker path translation.
 Channels enabled by token/config presence.

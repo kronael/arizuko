@@ -16,8 +16,6 @@ import (
 	"time"
 )
 
-// HTTPChannel implements core.Channel by proxying to a registered
-// external channel adapter over HTTP.
 type HTTPChannel struct {
 	entry  *Entry
 	secret string
@@ -159,7 +157,6 @@ func (h *HTTPChannel) HealthCheck() error {
 	return nil
 }
 
-// DrainOutbox sends queued messages that accumulated while channel was down.
 func (h *HTTPChannel) DrainOutbox() {
 	h.mu.Lock()
 	q := h.outbox

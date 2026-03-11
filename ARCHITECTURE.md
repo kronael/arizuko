@@ -14,6 +14,10 @@ Go, SQLite (modernc.org/sqlite), Docker.
 cmd/arizuko/main
   ├── core          (Config, types, Channel interface)
   ├── store         (SQLite persistence)
+  ├── api           (HTTP API: channel registration, inbound messages)
+  │   ├── chanreg   (channel registry, health checks)
+  │   └── store
+  ├── chanreg       (channel registry, HTTP channel proxy)
   ├── gateway       (main loop, message routing)
   │   ├── container (docker spawn, volume mounts, sidecars)
   │   │   ├── groupfolder
@@ -28,6 +32,9 @@ cmd/arizuko/main
   │   ├── diary     (YAML frontmatter annotations)
   │   └── groupfolder
   └── logger        (slog JSON init)
+
+channels/telegram/main  (standalone adapter binary)
+  └── calls router HTTP API + serves outbound endpoints
 ```
 
 ## Message Flow
@@ -48,6 +55,39 @@ Channel → store.PutMessage + PutChat
     → stream output → router.FormatOutbound (strip <internal> tags)
     → channel.Send
 ```
+
+## Channel Protocol
+
+Channels are external processes that register with the router
+via HTTP. Both sides are HTTP servers.
+
+**Inbound**: Channel adapter receives platform event, POSTs to
+router `POST /v1/messages`. Router stores in SQLite, routes
+to group.
+
+**Outbound**: Router calls channel's registered URL
+`POST /send`. Synchronous — 200 means delivered to platform.
+
+**Registration**: On startup, channel `POST /v1/channels/register`
+with name, callback URL, JID prefixes, and capabilities. Router
+returns a session token for subsequent calls.
+
+**Health**: Router pings `GET /health` every 30s. Three
+consecutive failures triggers auto-deregister. Outbound queues
+in `HTTPChannel.outbox` until channel re-registers.
+
+**Auth**: Shared secret (`CHANNEL_SECRET`) for registration.
+Session token for channel-to-router calls. Shared secret for
+router-to-channel calls.
+
+**Packages**: `chanreg/` (registry, health loop, `HTTPChannel`
+proxy), `api/` (HTTP handlers for the router-side endpoints).
+
+**Standalone adapters**: `channels/telegram/` is the first
+external adapter. Polls telegram API, forwards to router HTTP,
+serves `/send`, `/send-file`, `/typing`, `/health` for outbound.
+
+Full protocol: `specs/7/1-channel-protocol.md`.
 
 ## Key Types (core package)
 
@@ -201,7 +241,8 @@ passed to `docker run`.
 All config via `.env` in data dir or env vars (`core.LoadConfig`).
 Key values: `ASSISTANT_NAME`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`,
 `EMAIL_IMAP_HOST`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`,
-`HOST_DATA_DIR`, `HOST_APP_DIR`, `MEDIA_ENABLED`, `WHISPER_BASE_URL`.
+`HOST_DATA_DIR`, `HOST_APP_DIR`, `MEDIA_ENABLED`, `WHISPER_BASE_URL`,
+`API_PORT`, `CHANNEL_SECRET`.
 
 Channels enabled by token presence (telegram/discord) or config
 presence (email).
@@ -218,24 +259,27 @@ presence (email).
 ## Repository Layout
 
 ```
-cmd/arizuko/     CLI entrypoint (run, create, group)
-core/            Config, types, Channel interface
-store/           SQLite persistence (messages, groups, sessions, tasks, auth)
-gateway/         Main loop, message routing, commands
-container/       Docker spawn, volume mounts, sidecars, skills seeding
-  agent-runner/  In-container agent entrypoint
-  skills/        Agent-side skills
-queue/           Per-group concurrency, stdin piping
-router/          Message formatting, routing rules
-ipc/             File-based IPC watcher
-scheduler/       Cron/interval/once task runner
-diary/           YAML frontmatter diary annotations
-groupfolder/     Group path resolution and validation
-mountsec/        Mount allowlist validation
-runtime/         Docker binary, orphan cleanup
-logger/          slog JSON init
-template/        Seed for new instances
-sidecar/         MCP server binaries (whisper)
+cmd/arizuko/        CLI entrypoint (run, create, group)
+core/               Config, types, Channel interface
+store/              SQLite persistence (messages, groups, sessions, tasks, auth)
+api/                HTTP API server (channel protocol endpoints)
+chanreg/            Channel registry, health checks, HTTP channel proxy
+gateway/            Main loop, message routing, commands
+container/          Docker spawn, volume mounts, sidecars, skills seeding
+  agent-runner/     In-container agent entrypoint
+  skills/           Agent-side skills
+queue/              Per-group concurrency, stdin piping
+router/             Message formatting, routing rules
+ipc/                File-based IPC watcher
+scheduler/          Cron/interval/once task runner
+diary/              YAML frontmatter diary annotations
+groupfolder/        Group path resolution and validation
+mountsec/           Mount allowlist validation
+runtime/            Docker binary, orphan cleanup
+logger/             slog JSON init
+template/           Seed for new instances
+sidecar/            MCP server binaries (whisper)
+channels/telegram/  Standalone telegram adapter binary
 ```
 
 ## Data Directory

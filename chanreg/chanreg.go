@@ -18,12 +18,7 @@ type Entry struct {
 	RegisteredAt time.Time
 }
 
-func (e *Entry) HasCap(cap string) bool {
-	if e.Capabilities == nil {
-		return false
-	}
-	return e.Capabilities[cap]
-}
+func (e *Entry) HasCap(cap string) bool { return e.Capabilities[cap] }
 
 type Registry struct {
 	mu      sync.RWMutex
