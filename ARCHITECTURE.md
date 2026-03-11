@@ -2,9 +2,10 @@
 
 ## Overview
 
-Arizuko is a multitenant Claude agent gateway. It polls messaging
-channels for new messages, routes them to containerized Claude agents
-via docker, and streams responses back to users.
+Arizuko is a multitenant Claude agent router. External channel
+adapters register via HTTP, deliver inbound messages to the router
+API. Router routes to containerized Claude agents via docker and
+calls channels back to send replies.
 
 Go, SQLite (modernc.org/sqlite), Docker.
 
@@ -40,7 +41,7 @@ channels/telegram/main  (standalone adapter binary)
 ## Message Flow
 
 ```
-Channel → store.PutMessage + PutChat
+Channel adapter → POST /v1/messages (api) → store.PutMessage
   → gateway.messageLoop (polls every 2s)
   → store.NewMessages (unprocessed since lastTimestamp)
   → checkTrigger (direct mode or @name regex)
@@ -53,7 +54,7 @@ Channel → store.PutMessage + PutChat
     → router.FormatMessages (XML message batch)
     → container.Run (docker run)
     → stream output → router.FormatOutbound (strip <internal> tags)
-    → channel.Send
+    → HTTPChannel.Send → POST /send to channel adapter
 ```
 
 ## Channel Protocol

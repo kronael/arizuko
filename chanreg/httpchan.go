@@ -68,17 +68,15 @@ func (h *HTTPChannel) Send(jid, text string) error {
 	b, _ := json.Marshal(body)
 
 	resp, err := h.post("/send", b)
-	if err != nil {
-		h.enqueue(outMsg{JID: jid, Content: text})
-		return fmt.Errorf("channel %s send: %w", h.entry.Name, err)
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		err = fmt.Errorf("status %d", resp.StatusCode)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		h.enqueue(outMsg{JID: jid, Content: text})
-		return fmt.Errorf("channel %s send: status %d", h.entry.Name, resp.StatusCode)
-	}
-	return nil
+	h.enqueue(outMsg{JID: jid, Content: text})
+	return fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
 func (h *HTTPChannel) SendFile(jid, path, name string) error {
@@ -114,43 +112,36 @@ func (h *HTTPChannel) SendFile(jid, path, name string) error {
 	req.Header.Set("Authorization", "Bearer "+h.secret)
 
 	resp, err := h.client.Do(req)
-	if err != nil {
-		h.enqueue(outMsg{JID: jid, IsFile: true, Path: path, Name: name})
-		return fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		err = fmt.Errorf("status %d", resp.StatusCode)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		h.enqueue(outMsg{JID: jid, IsFile: true, Path: path, Name: name})
-		return fmt.Errorf("channel %s send-file: status %d", h.entry.Name, resp.StatusCode)
-	}
-	return nil
+	h.enqueue(outMsg{JID: jid, IsFile: true, Path: path, Name: name})
+	return fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
 }
 
 func (h *HTTPChannel) Typing(jid string, on bool) error {
 	if !h.entry.HasCap("typing") {
 		return nil
 	}
-	body := map[string]any{"chat_jid": jid, "on": on}
-	b, _ := json.Marshal(body)
-	resp, err := h.post("/typing", b)
-	if err != nil {
-		return nil // typing is fire-and-forget
+	b, _ := json.Marshal(map[string]any{"chat_jid": jid, "on": on})
+	if resp, err := h.post("/typing", b); err == nil {
+		resp.Body.Close()
 	}
-	resp.Body.Close()
-	return nil
+	return nil // fire-and-forget
 }
 
 func (h *HTTPChannel) Disconnect() error { return nil }
 
 func (h *HTTPChannel) HealthCheck() error {
-	url := h.entry.URL + "/health"
-	req, _ := http.NewRequest("GET", url, nil)
-	resp, err := h.client.Do(req)
+	resp, err := h.client.Get(h.entry.URL + "/health")
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health: status %d", resp.StatusCode)
 	}

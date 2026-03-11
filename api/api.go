@@ -206,12 +206,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) checkSecret(w http.ResponseWriter, r *http.Request) bool {
-	secret := s.reg.Secret()
-	if secret == "" {
-		return true
-	}
-	token := extractBearer(r)
-	if token != secret {
+	if s := s.reg.Secret(); s != "" && extractBearer(r) != s {
 		writeErr(w, http.StatusUnauthorized, "invalid secret")
 		return false
 	}
@@ -232,11 +227,7 @@ func (s *Server) checkToken(w http.ResponseWriter, r *http.Request) *chanreg.Ent
 }
 
 func extractBearer(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	if strings.HasPrefix(h, "Bearer ") {
-		return h[7:]
-	}
-	return h
+	return strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

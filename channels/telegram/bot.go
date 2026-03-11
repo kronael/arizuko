@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -58,8 +57,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *routerClient) {
 	if msg.From != nil && msg.From.IsBot {
 		return
 	}
-	chatID := strconv.FormatInt(msg.Chat.ID, 10)
-	jid := "telegram:" + chatID
+	jid := "telegram:" + strconv.FormatInt(msg.Chat.ID, 10)
 	isGroup := msg.Chat.IsGroup() || msg.Chat.IsSuperGroup()
 
 	name := msg.Chat.Title
@@ -96,7 +94,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *routerClient) {
 		Sender:     "telegram:" + userID(msg.From),
 		SenderName: userName(msg.From),
 		Content:    content,
-		Timestamp:  time.Unix(int64(msg.Date), 0).Unix(),
+		Timestamp:  int64(msg.Date),
 		IsGroup:    isGroup,
 	})
 	if err != nil {
