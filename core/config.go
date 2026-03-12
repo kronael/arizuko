@@ -61,6 +61,11 @@ type Config struct {
 	TriggerRE *regexp.Regexp
 }
 
+func LoadConfigFrom(dir string) (*Config, error) {
+	_ = godotenv.Load(filepath.Join(dir, ".env"))
+	return LoadConfig()
+}
+
 func LoadConfig() (*Config, error) {
 	_ = godotenv.Load(".env")
 

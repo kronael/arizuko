@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -16,6 +18,7 @@ import (
 	"github.com/onvos/arizuko/api"
 	"github.com/onvos/arizuko/chanreg"
 	"github.com/onvos/arizuko/channels"
+	"github.com/onvos/arizuko/compose"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/gateway"
 	"github.com/onvos/arizuko/store"
@@ -23,7 +26,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group> ...")
+		fmt.Println("usage: arizuko <run|create|group|compose|status> ...")
 		os.Exit(1)
 	}
 
@@ -34,6 +37,10 @@ func main() {
 		cmdCreate(os.Args[2:])
 	case "group":
 		cmdGroup(os.Args[2:])
+	case "compose":
+		cmdCompose(os.Args[2:])
+	case "status":
+		cmdStatus(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		os.Exit(1)
@@ -258,5 +265,88 @@ func cmdGroup(args []string) {
 	default:
 		fmt.Fprintf(os.Stderr, "unknown group action: %s\n", action)
 		os.Exit(1)
+	}
+}
+
+func cmdCompose(args []string) {
+	if len(args) < 1 {
+		fmt.Println("usage: arizuko compose <instance> [--dry-run]")
+		os.Exit(1)
+	}
+	name := args[0]
+	dataDir := fmt.Sprintf("/srv/data/arizuko_%s", name)
+	dryRun := len(args) > 1 && args[1] == "--dry-run"
+
+	yml, err := compose.Generate(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if dryRun {
+		fmt.Print(yml)
+		return
+	}
+
+	outPath := filepath.Join(dataDir, "docker-compose.yml")
+	if err := os.WriteFile(outPath, []byte(yml), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed: write compose: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("wrote %s\n", outPath)
+
+	cmd := exec.Command("docker", "compose", "-f", outPath, "up", "-d", "--remove-orphans")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed: docker compose up: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func cmdStatus(args []string) {
+	if len(args) < 1 {
+		fmt.Println("usage: arizuko status <instance>")
+		os.Exit(1)
+	}
+	name := args[0]
+	dataDir := fmt.Sprintf("/srv/data/arizuko_%s", name)
+	composePath := filepath.Join(dataDir, "docker-compose.yml")
+
+	if _, err := os.Stat(composePath); err != nil {
+		fmt.Fprintf(os.Stderr, "no compose file at %s — run 'arizuko compose %s' first\n", composePath, name)
+		os.Exit(1)
+	}
+
+	cmd := exec.Command("docker", "compose", "-f", composePath, "ps", "--format",
+		"table {{.Name}}\t{{.Status}}\t{{.Ports}}")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Run()
+
+	cfg, err := core.LoadConfigFrom(dataDir)
+	if err != nil || cfg.APIPort == 0 {
+		return
+	}
+	url := fmt.Sprintf("http://localhost:%d/v1/channels", cfg.APIPort)
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Printf("\nrouter API unreachable at %s\n", url)
+		return
+	}
+	defer resp.Body.Close()
+	var channels struct {
+		Channels []struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"channels"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&channels) == nil && len(channels.Channels) > 0 {
+		fmt.Printf("\nregistered channels:\n")
+		for _, ch := range channels.Channels {
+			fmt.Printf("  %s → %s\n", ch.Name, ch.URL)
+		}
+	} else {
+		fmt.Printf("\nno channels registered\n")
 	}
 }
