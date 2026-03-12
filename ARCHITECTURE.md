@@ -32,6 +32,7 @@ cmd/arizuko/main
   │   │   └── store
   │   ├── diary     (YAML frontmatter annotations)
   │   └── groupfolder
+  ├── compose      (docker-compose generation)
   └── logger        (slog JSON init)
 
 channels/telegram/main  (standalone adapter binary)
@@ -240,13 +241,12 @@ passed to `docker run`.
 ## Configuration
 
 All config via `.env` in data dir or env vars (`core.LoadConfig`).
-Key values: `ASSISTANT_NAME`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`,
-`EMAIL_IMAP_HOST`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`,
-`HOST_DATA_DIR`, `HOST_APP_DIR`, `MEDIA_ENABLED`, `WHISPER_BASE_URL`,
-`API_PORT`, `CHANNEL_SECRET`.
+Key values: `ASSISTANT_NAME`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`,
+`MAX_CONCURRENT_CONTAINERS`, `HOST_DATA_DIR`, `HOST_APP_DIR`,
+`MEDIA_ENABLED`, `WHISPER_BASE_URL`, `API_PORT`, `CHANNEL_SECRET`.
 
-Channels enabled by token presence (telegram/discord) or config
-presence (email).
+API server always starts (default port 8080). Channel adapters
+are external processes that register via `POST /v1/channels/register`.
 
 ## Gateway Commands
 
@@ -260,7 +260,7 @@ presence (email).
 ## Repository Layout
 
 ```
-cmd/arizuko/        CLI entrypoint (run, create, group)
+cmd/arizuko/        CLI entrypoint (run, create, group, compose, status)
 core/               Config, types, Channel interface
 store/              SQLite persistence (messages, groups, sessions, tasks, auth)
 api/                HTTP API server (channel protocol endpoints)
@@ -271,6 +271,7 @@ container/          Docker spawn, volume mounts, sidecars, skills seeding
   skills/           Agent-side skills
 queue/              Per-group concurrency, stdin piping
 router/             Message formatting, routing rules
+compose/            Docker-compose generation from services/*.toml
 ipc/                File-based IPC watcher
 scheduler/          Cron/interval/once task runner
 diary/              YAML frontmatter diary annotations

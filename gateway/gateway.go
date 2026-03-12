@@ -74,8 +74,6 @@ func (g *Gateway) RemoveChannel(name string) {
 	}
 }
 
-func (g *Gateway) Store() *store.Store { return g.store }
-
 func (g *Gateway) Run(ctx context.Context) error {
 	if err := container.EnsureRunning(); err != nil {
 		return fmt.Errorf("runtime check failed: %w", err)
@@ -209,16 +207,6 @@ func (g *Gateway) Shutdown() {
 	}
 	g.saveState()
 	slog.Info("gateway shut down")
-}
-
-func (g *Gateway) RegisterGroup(jid string, group core.Group) {
-	g.mu.Lock()
-	g.groups[jid] = group
-	g.mu.Unlock()
-
-	if err := g.store.PutGroup(jid, group); err != nil {
-		slog.Error("failed to persist group", "jid", jid, "err", err)
-	}
 }
 
 func (g *Gateway) loadState() {
@@ -450,7 +438,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	var hadOutput bool
 	savedTs := agentTs
 
-	out := g.runAgent(group, prompt, chatJid, len(msgs),
+	out := g.runAgentWithOpts(group, prompt, chatJid,
 		func(text, status string) {
 			if text != "" {
 				hadOutput = true
@@ -459,8 +447,8 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 					g.sendMessage(chatJid, clean)
 				}
 			}
-		},
-	)
+		}, false)
+
 
 	if ch != nil {
 		ch.Typing(chatJid, false)
@@ -488,13 +476,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	g.advanceAgentCursor(chatJid, msgs)
 	g.store.ClearChatErrored(chatJid)
 	return true, nil
-}
-
-func (g *Gateway) runAgent(
-	group core.Group, prompt, chatJid string, msgCount int,
-	onOutput func(string, string),
-) container.Output {
-	return g.runAgentWithOpts(group, prompt, chatJid, onOutput, false)
 }
 
 func (g *Gateway) runAgentWithOpts(
@@ -702,7 +683,7 @@ func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth
 	g.queue.EnqueueTask(parentJid, fmt.Sprintf("escalate-%s-%d",
 		parentFolder, time.Now().UnixMilli()),
 		func() error {
-			out := g.runAgent(parent, prompt, originJid, 0,
+			out := g.runAgentWithOpts(parent, prompt, originJid,
 				func(text, status string) {
 					if text != "" {
 						clean := router.FormatOutbound(text)
@@ -710,8 +691,7 @@ func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth
 							g.sendMessage(originJid, clean)
 						}
 					}
-				},
-			)
+				}, false)
 			if out.Error != "" {
 				return fmt.Errorf("escalate agent: %s", out.Error)
 			}
@@ -787,7 +767,7 @@ func (g *Gateway) delegateToChild(
 	g.queue.EnqueueTask(childJid, fmt.Sprintf("delegate-%s-%d",
 		childFolder, time.Now().UnixMilli()),
 		func() error {
-			out := g.runAgent(child, prompt, originJid, 0,
+			out := g.runAgentWithOpts(child, prompt, originJid,
 				func(text, status string) {
 					if text != "" {
 						clean := router.FormatOutbound(text)
@@ -795,8 +775,7 @@ func (g *Gateway) delegateToChild(
 							g.sendMessage(originJid, clean)
 						}
 					}
-				},
-			)
+				}, false)
 			if out.Error != "" {
 				return fmt.Errorf("delegate agent: %s", out.Error)
 			}
