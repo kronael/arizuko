@@ -17,7 +17,6 @@ import (
 
 	"github.com/onvos/arizuko/api"
 	"github.com/onvos/arizuko/chanreg"
-	"github.com/onvos/arizuko/channels"
 	"github.com/onvos/arizuko/compose"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/gateway"
@@ -67,58 +66,26 @@ func cmdRun() {
 
 	gw := gateway.New(cfg, s)
 
-	hooks := core.ChannelHooks{
-		OnMessage: func(msg core.Message) {
-			if err := s.PutMessage(msg); err != nil {
-				slog.Error("store message", "err", err)
-			}
-		},
-		OnChat: func(jid, name string, group bool) {
-			ch := "telegram"
-			if len(jid) > 0 {
-				for _, p := range []string{"telegram:", "discord:", "whatsapp:", "email:", "web:"} {
-					if len(jid) > len(p) && jid[:len(p)] == p {
-						ch = p[:len(p)-1]
-						break
-					}
-				}
-			}
-			s.PutChat(jid, name, ch, group)
-		},
-	}
+	reg := chanreg.New(cfg.ChannelSecret)
+	apiSrv := api.New(reg, s)
+	apiSrv.OnRegister(func(name string, ch *chanreg.HTTPChannel) {
+		gw.RemoveChannel(name)
+		gw.AddChannel(ch)
+		ch.DrainOutbox()
+	})
+	apiSrv.OnDeregister(func(name string) {
+		gw.RemoveChannel(name)
+	})
 
-	if cfg.TelegramToken != "" {
-		gw.AddChannel(channels.NewTelegram(
-			cfg.TelegramToken, cfg.Name, cfg.TriggerRE, hooks))
-	}
-	if cfg.DiscordToken != "" {
-		gw.AddChannel(channels.NewDiscord(
-			cfg.DiscordToken, cfg.Name, cfg.TriggerRE, hooks))
-	}
-
-	if cfg.APIPort > 0 {
-		reg := chanreg.New(cfg.ChannelSecret)
-		apiSrv := api.New(reg, s)
-		apiSrv.OnRegister(func(name string, ch *chanreg.HTTPChannel) {
-			gw.RemoveChannel(name) // remove old if re-registering
-			gw.AddChannel(ch)
-			ch.DrainOutbox()
-		})
-		apiSrv.OnDeregister(func(name string) {
-			gw.RemoveChannel(name)
-		})
-
-		addr := net.JoinHostPort("", strconv.Itoa(cfg.APIPort))
-		srv := &http.Server{Addr: addr, Handler: apiSrv.Handler()}
-		go func() {
-			slog.Info("api server starting", "addr", addr)
-			if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-				slog.Error("api server error", "err", err)
-			}
-		}()
-
-		reg.StartHealthLoop(context.Background())
-	}
+	addr := net.JoinHostPort("", strconv.Itoa(cfg.APIPort))
+	srv := &http.Server{Addr: addr, Handler: apiSrv.Handler()}
+	go func() {
+		slog.Info("api server starting", "addr", addr)
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			slog.Error("api server error", "err", err)
+		}
+	}()
+	reg.StartHealthLoop(context.Background())
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
@@ -137,7 +104,7 @@ func cmdCreate(args []string) {
 	name := args[0]
 	dataDir := fmt.Sprintf("/srv/data/arizuko_%s", name)
 
-	for _, sub := range []string{"store", "groups/main/.claude", "groups/main/logs", "data", "web"} {
+	for _, sub := range []string{"store", "groups/main/.claude", "groups/main/logs", "data", "web", "services"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: mkdir %s: %v\n", sub, err)
 			os.Exit(1)
@@ -162,7 +129,7 @@ silent.
 
 	envFile := filepath.Join(dataDir, ".env")
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
-		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=arizuko-agent:latest\n", name)
+		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=arizuko-agent:latest\nAPI_PORT=8080\nCHANNEL_SECRET=\n", name)
 		if err := os.WriteFile(envFile, []byte(content), 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: write .env: %v\n", err)
 			os.Exit(1)

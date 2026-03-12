@@ -93,11 +93,6 @@ type Channel interface {
 	Disconnect() error
 }
 
-type ChannelHooks struct {
-	OnMessage func(msg Message)
-	OnChat    func(jid, name string, group bool)
-}
-
 type SessionRecord struct {
 	ID        int64
 	Folder    string

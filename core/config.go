@@ -15,7 +15,6 @@ import (
 type Config struct {
 	Name          string
 	TelegramToken string
-	DiscordToken  string
 	Image         string
 	Timeout       time.Duration
 	IdleTimeout   time.Duration
@@ -83,7 +82,6 @@ func LoadConfig() (*Config, error) {
 	c := &Config{
 		Name:          name,
 		TelegramToken: envOr("TELEGRAM_BOT_TOKEN", ""),
-		DiscordToken:  envOr("DISCORD_BOT_TOKEN", ""),
 		Image:         envOr("CONTAINER_IMAGE", "arizuko-agent:latest"),
 		Timeout:       envDur("CONTAINER_TIMEOUT", 30*time.Minute),
 		IdleTimeout:   envDur("IDLE_TIMEOUT", 30*time.Minute),
@@ -111,7 +109,7 @@ func LoadConfig() (*Config, error) {
 		HostGroupsDir:   filepath.Join(hostRoot, "groups"),
 		WebDir:          filepath.Join(root, "web"),
 
-		APIPort:       envInt("API_PORT", 0),
+		APIPort:       envInt("API_PORT", 8080),
 		ChannelSecret: envOr("CHANNEL_SECRET", ""),
 
 		EmailIMAP:     envOr("EMAIL_IMAP_HOST", ""),
