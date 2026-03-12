@@ -97,7 +97,6 @@ var routerEnvKeys = []string{
 	"HOST_DATA_DIR",
 	"HOST_APP_DIR",
 	"TELEGRAM_BOT_TOKEN",
-	"DISCORD_BOT_TOKEN",
 	"AUTH_SECRET",
 	"WEB_PORT",
 }

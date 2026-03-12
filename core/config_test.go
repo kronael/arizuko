@@ -8,7 +8,7 @@ import (
 func TestLoadConfigDefaults(t *testing.T) {
 	// Clear env to test defaults
 	for _, k := range []string{
-		"ASSISTANT_NAME", "TELEGRAM_BOT_TOKEN", "DISCORD_BOT_TOKEN",
+		"ASSISTANT_NAME", "TELEGRAM_BOT_TOKEN",
 		"CONTAINER_IMAGE", "MAX_CONCURRENT_CONTAINERS", "TZ",
 	} {
 		os.Unsetenv(k)
