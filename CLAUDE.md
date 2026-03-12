@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is arizuko
 
-Nanoclaw fork — multitenant Claude agent gateway with
-multi-channel support (telegram, whatsapp, discord, email).
-systemd-managed instances, MCP sidecar extensibility.
+Nanoclaw fork — multitenant Claude agent router. External
+channel adapters register via HTTP; router routes messages
+to containerized Claude agents. Docker compose orchestration,
+MCP sidecar extensibility.
 
 ## Build & Test
 
@@ -14,7 +15,7 @@ systemd-managed instances, MCP sidecar extensibility.
 make build    # go build → ./arizuko + channels/telegram binary
 make lint     # go vet ./...
 make test     # go test ./... -count=1
-make image    # router docker image
+make images   # all docker images (router + adapters + agent)
 make agent    # agent docker image (make -C container image)
 ```
 
@@ -35,7 +36,7 @@ See ARCHITECTURE.md for package graph, schema, container model.
 
 ## Packages
 
-- `cmd/arizuko/` — entrypoint (run, create, group subcommands)
+- `cmd/arizuko/` — entrypoint (run, create, group, compose, status subcommands)
 - `core/` — Config, types (Message, Group, Task, Channel interface)
 - `store/` — SQLite persistence (messages, groups, sessions, tasks, auth)
 - `gateway/` — main loop, message routing, commands (/new, /ping, /chatid, /stop)
@@ -50,6 +51,7 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `groupfolder/` — group path resolution and validation
 - `mountsec/` — mount allowlist validation
 - `runtime/` — docker binary abstraction, orphan cleanup
+- `compose/` — docker-compose.yml generation from services/\*.toml
 - `logger/` — slog JSON handler init
 
 ## Layout
@@ -66,6 +68,7 @@ queue/             Per-group concurrency
 router/            Message formatting + routing
 chanreg/           Channel registry + HTTP proxy
 api/               Router HTTP API server
+compose/           Docker-compose generation
 channels/telegram/ Standalone telegram adapter
 ipc/               File-based IPC
 scheduler/         Task scheduler
@@ -98,18 +101,19 @@ sidecar/           MCP server binaries
 ## Config
 
 All config via `.env` in data dir or env vars (`core.LoadConfig`).
-Key values: `ASSISTANT_NAME`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`,
-`EMAIL_IMAP_HOST`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`,
-`API_PORT`, `CHANNEL_SECRET`.
+Key values: `ASSISTANT_NAME`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`,
+`MAX_CONCURRENT_CONTAINERS`, `API_PORT`, `CHANNEL_SECRET`.
 
 `HOST_DATA_DIR` and `HOST_APP_DIR` for docker-in-docker path translation.
-Channels enabled by token/config presence.
+API server always starts (default port 8080).
 
 ## Entrypoint
 
-`arizuko run` — load config, open store, start gateway.
+`arizuko run` — load config, open store, start API server, start gateway.
 `arizuko create <name>` — seed data dir, .env, default group.
 `arizuko group <instance> list|add|rm` — manage registered groups.
+`arizuko compose <instance> [--dry-run]` — generate docker-compose.yml, optionally run `docker compose up`.
+`arizuko status <instance>` — show compose services and registered channels.
 
 ## Design Philosophy
 
