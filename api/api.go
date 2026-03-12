@@ -67,10 +67,9 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entry := s.reg.Get(req.Name)
-	if entry != nil && s.onRegister != nil {
-		ch := chanreg.NewHTTPChannel(entry, s.reg.Secret())
-		s.onRegister(req.Name, ch)
+	if s.onRegister != nil {
+		entry := s.reg.Get(req.Name)
+		s.onRegister(req.Name, chanreg.NewHTTPChannel(entry, s.reg.Secret()))
 	}
 
 	slog.Info("channel registered",
@@ -84,14 +83,11 @@ func (s *Server) handleDeregister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := entry.Name
-	s.reg.Deregister(name)
-
+	s.reg.Deregister(entry.Name)
 	if s.onDeregister != nil {
-		s.onDeregister(name)
+		s.onDeregister(entry.Name)
 	}
-
-	slog.Info("channel deregistered", "name", name)
+	slog.Info("channel deregistered", "name", entry.Name)
 	writeJSON(w, map[string]any{"ok": true})
 }
 

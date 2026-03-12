@@ -115,9 +115,6 @@ func (g *Gateway) Run(ctx context.Context) error {
 		DeleteRoute: g.store.DeleteRoute,
 		GetRoute:    g.store.GetRoute,
 	})
-	// w.Start() moved after channel connect — draining old IPC
-	// requests before channels are ready causes nil pointer panics
-
 	sched := scheduler.New(scheduler.Deps{
 		Store: g.store,
 		Groups: func() map[string]core.Group {
@@ -384,7 +381,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return false, nil
 	}
 
-	// Load flat routes for this JID. Fall back to group.Rules if no routes exist.
 	routes := g.store.GetRoutes(chatJid)
 	needTrig := false
 	if len(routes) > 0 {
@@ -449,7 +445,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 			}
 		}, false)
 
-
 	if ch != nil {
 		ch.Typing(chatJid, false)
 	}
@@ -511,7 +506,6 @@ func (g *Gateway) runAgentWithOpts(
 		annotations = append(annotations, d)
 	}
 
-	// Inject unreported task runs as context for non-isolated runs
 	if !isolated {
 		if taskCtx := g.formatTaskRuns(group.Folder); taskCtx != "" {
 			annotations = append(annotations, taskCtx)
@@ -534,7 +528,6 @@ func (g *Gateway) runAgentWithOpts(
 
 	out := container.Run(g.cfg, g.folders, input)
 
-	// Don't persist session for isolated runs
 	if isolated {
 		return out
 	}

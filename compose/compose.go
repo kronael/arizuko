@@ -22,7 +22,10 @@ type ServiceConfig struct {
 }
 
 func Generate(dataDir string) (string, error) {
-	env := loadEnv(filepath.Join(dataDir, ".env"))
+	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
+	if env == nil {
+		env = map[string]string{}
+	}
 	servicesDir := filepath.Join(dataDir, "services")
 
 	entries, err := os.ReadDir(servicesDir)
@@ -122,7 +125,11 @@ func renderService(name string, cfg ServiceConfig, env map[string]string) string
 	}
 	if len(cfg.Environment) > 0 {
 		b.WriteString("    environment:\n")
-		keys := sortedKeys(cfg.Environment)
+		keys := make([]string, 0, len(cfg.Environment))
+		for k := range cfg.Environment {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
 		for _, k := range keys {
 			v := interpolate(cfg.Environment[k], env)
 			fmt.Fprintf(&b, "      %s: '%s'\n", k, v)
@@ -148,14 +155,6 @@ func interpolate(s string, env map[string]string) string {
 	return s
 }
 
-func loadEnv(path string) map[string]string {
-	m, err := godotenv.Read(path)
-	if err != nil {
-		return map[string]string{}
-	}
-	return m
-}
-
 func envOr(env map[string]string, key, fallback string) string {
 	if v, ok := env[key]; ok && v != "" {
 		return v
@@ -164,15 +163,6 @@ func envOr(env map[string]string, key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func yamlList(items []string) string {

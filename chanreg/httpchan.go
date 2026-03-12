@@ -16,14 +16,15 @@ import (
 	"time"
 )
 
+const maxOutbox = 1000
+
 type HTTPChannel struct {
 	entry  *Entry
 	secret string
 	client *http.Client
 
-	mu      sync.RWMutex
-	outbox  []outMsg
-	maxQueue int
+	mu     sync.RWMutex
+	outbox []outMsg
 }
 
 type outMsg struct {
@@ -39,7 +40,6 @@ func NewHTTPChannel(e *Entry, secret string) *HTTPChannel {
 		entry:  e,
 		secret: secret,
 		client: &http.Client{Timeout: 30 * time.Second},
-		maxQueue: 1000,
 	}
 }
 
@@ -189,7 +189,7 @@ func (h *HTTPChannel) post(path string, body []byte) (*http.Response, error) {
 func (h *HTTPChannel) enqueue(m outMsg) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.outbox) >= h.maxQueue {
+	if len(h.outbox) >= maxOutbox {
 		slog.Warn("outbox full, dropping message",
 			"channel", h.entry.Name, "jid", m.JID)
 		return
