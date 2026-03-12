@@ -51,16 +51,16 @@ Channel protocol: `specs/7/1-channel-protocol.md`
 - [x] Implements: HTTP client (register, deliver messages, chat metadata)
 - [x] Connects to telegram API on one side, router HTTP on the other
 - [x] Test: run adapter standalone, send/receive messages
-- [ ] Retire in-process telegram channel code (deferred — both coexist)
+- [x] Retire in-process channel code (all channels removed)
 
-### Phase 3: Process runner (docker compose)
+### Phase 3: Process runner (docker compose) ✓
 
-- [ ] Monorepo layout: each channel in channels/<name>/ with Dockerfile
-- [ ] `make` builds all images (router + channel adapters)
-- [ ] `./arizuko` generates docker-compose.yml from services/\*.toml
-- [ ] `docker compose up -d` manages lifecycle
-- [ ] `arizuko status` shows router + registered channels
-- [ ] Extension support: drop .toml in services/ for third-party images
+- [x] Monorepo layout: each channel in channels/<name>/ with Dockerfile
+- [x] `make` builds all images (router + channel adapters)
+- [x] `arizuko compose` generates docker-compose.yml from services/\*.toml
+- [x] `docker compose up -d` manages lifecycle
+- [x] `arizuko status` shows router + registered channels
+- [x] Extension support: drop .toml in services/ for third-party images
 
 ### Phase 4: MCP IPC (replace file-based)
 

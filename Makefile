@@ -13,10 +13,12 @@ clean:
 	rm -rf tmp/
 	make -C channels/telegram clean
 
-image:
+images:
 	docker build -t arizuko .
+	docker build -t arizuko-telegram -f channels/telegram/Dockerfile .
+	make -C container image
 
 agent:
 	make -C container image
 
-.PHONY: build lint test clean image agent
+.PHONY: build lint test clean images agent
