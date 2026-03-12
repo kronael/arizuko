@@ -9,6 +9,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- **IPC → MCP over unix socket**: replaced file-based IPC watcher
+  (`ipc/watcher.go`) with Go MCP server (`ipc/server.go`) served
+  on a per-container unix socket. Agent connects via socat shim.
+  Removed `nanoclaw` Node.js MCP server from agent-runner.
+  Hard cutover — IPC file subdirs (`messages/`, `tasks/`,
+  `requests/`, `replies/`) removed. Migration 015.
+
 ### Fixed
 
 - **Scheduler NextRun timing**: update NextRun at task START before spawning

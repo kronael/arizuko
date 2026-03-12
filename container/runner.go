@@ -15,6 +15,7 @@ import (
 
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/groupfolder"
+	"github.com/onvos/arizuko/ipc"
 	"github.com/onvos/arizuko/mountsec"
 )
 
@@ -53,6 +54,7 @@ type Input struct {
 	SlinkToken  string           `json:"-"`
 	Annotations []string         `json:"-"`
 	OnOutput    OnOutputFn       `json:"-"`
+	MCPDeps     ipc.Deps         `json:"-"`
 }
 
 type Output struct {
@@ -144,7 +146,20 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		return Output{Error: "stderr pipe: " + err.Error()}
 	}
 
+	var stopMCP func()
+	if ipcDir, err := folders.IpcPath(in.Folder); err == nil {
+		sockPath := filepath.Join(ipcDir, "router.sock")
+		if stop, err := ipc.ServeMCP(sockPath, in.MCPDeps, in.Folder); err != nil {
+			slog.Warn("failed to start MCP server", "group", in.Folder, "err", err)
+		} else {
+			stopMCP = stop
+		}
+	}
+
 	if err := cmd.Start(); err != nil {
+		if stopMCP != nil {
+			stopMCP()
+		}
 		return Output{Error: "start: " + err.Error()}
 	}
 
@@ -274,6 +289,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	exitErr := cmd.Wait()
 	timer.Stop()
 
+	if stopMCP != nil {
+		stopMCP()
+	}
 	if len(sidecarNames) > 0 {
 		StopSidecars(sidecarNames)
 	}
@@ -428,9 +446,7 @@ func BuildMounts(
 
 	ipcDir, err := folders.IpcPath(in.Folder)
 	if err == nil {
-		for _, sub := range []string{
-			"messages", "tasks", "input", "requests", "replies", "sidecars",
-		} {
+		for _, sub := range []string{"input", "sidecars"} {
 			os.MkdirAll(filepath.Join(ipcDir, sub), 0o755)
 		}
 		chown(ipcDir, 1000, 1000)
@@ -596,6 +612,16 @@ func seedSettings(
 		env["SLINK_TOKEN"] = in.SlinkToken
 	}
 	settings["env"] = env
+
+	servers, _ := settings["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+	}
+	servers["nanoclaw"] = map[string]any{
+		"command": "socat",
+		"args":    []string{"STDIO", "UNIX-CONNECT:/workspace/ipc/router.sock"},
+	}
+	settings["mcpServers"] = servers
 
 	if len(in.Config.Sidecars) > 0 {
 		servers, _ := settings["mcpServers"].(map[string]any)

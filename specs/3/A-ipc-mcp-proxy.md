@@ -58,13 +58,11 @@ data/sessions/main/ipc/gateway.sock  -> group: main
 Container: `/workspace/ipc/gateway.sock`. Gateway knows
 group by which socket received the connection.
 
-## Open questions
+## Decisions (Phase 4)
 
-- **Transport**: unix socket for docker, virtio-vsock for
-  Firecracker/QEMU. socat bridges both.
-- **Bidirectional**: gateway push via MCP notifications?
-  Would replace SIGUSR1 + input file polling.
-- **nanoclaw fate**: proxy client or replaced by direct
-  SDK connection?
-- **Middleware**: pre/post hooks on MCP calls (logging,
-  rate limiting, transforms).
+- **Transport**: stdio over socat (`socat STDIO UNIX-CONNECT:/workspace/ipc/router.sock`)
+- **Socket lifecycle**: created by router before container spawn,
+  removed after container exits. Path: `data/ipc/<folder>/router.sock`
+- **Auth**: unix socket filesystem permissions only (0600)
+- **nanoclaw fate**: replaced entirely by Go MCP server (`ipc/server.go`)
+- IPC file dispatch (`ipc/watcher.go`) deleted — hard cutover complete

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/onvos/arizuko/core"
@@ -58,6 +59,35 @@ func (s *Store) DueTasks() ([]core.Task, error) {
 		}
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) ListTasks(folder string, isRoot bool) []core.Task {
+	var rows *sql.Rows
+	var err error
+	if isRoot {
+		rows, err = s.db.Query(
+			`SELECT id, group_folder, chat_jid, prompt, schedule_type, schedule_value,
+			        context_mode, next_run, last_run, last_result, status, created_at
+			 FROM scheduled_tasks ORDER BY created_at DESC`)
+	} else {
+		rows, err = s.db.Query(
+			`SELECT id, group_folder, chat_jid, prompt, schedule_type, schedule_value,
+			        context_mode, next_run, last_run, last_result, status, created_at
+			 FROM scheduled_tasks WHERE group_folder = ? ORDER BY created_at DESC`, folder)
+	}
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var out []core.Task
+	for rows.Next() {
+		t, ok := scanTask(rows)
+		if ok {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func (s *Store) AllTasks() []core.Task {

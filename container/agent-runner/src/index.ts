@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import { query, HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
-import { fileURLToPath } from 'url';
 
 interface ContainerInput {
   prompt: string;
@@ -363,7 +362,6 @@ function waitForIpcMessage(): Promise<string | null> {
 async function runQuery(
   prompt: string,
   sessionId: string | undefined,
-  mcpServerPath: string,
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
@@ -445,13 +443,8 @@ async function runQuery(
         mcpServers: {
           ...loadAgentMcpServers(),
           nanoclaw: {
-            command: 'node',
-            args: [mcpServerPath],
-            env: {
-              NANOCLAW_CHAT_JID: containerInput.chatJid,
-              NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
-              NANOCLAW_IS_ROOT: isRoot(containerInput.groupFolder) ? '1' : '0',
-            },
+            command: 'socat',
+            args: ['STDIO', 'UNIX-CONNECT:/workspace/ipc/router.sock'],
           },
         },
         hooks: {
@@ -560,9 +553,6 @@ async function main(): Promise<void> {
     sdkEnv[key] = value;
   }
 
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
-
   let sessionId = containerInput.sessionId;
   fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
@@ -586,7 +576,7 @@ async function main(): Promise<void> {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      const queryResult = await runQuery(prompt, sessionId, containerInput, sdkEnv, resumeAt);
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }

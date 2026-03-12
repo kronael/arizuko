@@ -35,10 +35,11 @@ type Gateway struct {
 	channels []core.Channel
 	groups   map[string]core.Group
 	sessions map[string]string
+	mcpDeps  ipc.Deps
 
 	lastTimestamp      time.Time
 	lastAgentTimestamp map[string]time.Time
-	lastMessageDate   map[string]string
+	lastMessageDate    map[string]string
 }
 
 func New(cfg *core.Config, s *store.Store) *Gateway {
@@ -82,7 +83,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 
 	g.loadState()
 
-	w := ipc.NewWatcher(g.cfg.DataDir, ipc.Deps{
+	g.mcpDeps = ipc.Deps{
 		SendMessage:   g.sendMessage,
 		SendDocument:  g.sendDocument,
 		ClearSession:  g.clearSession,
@@ -109,12 +110,13 @@ func (g *Gateway) Run(ctx context.Context) error {
 			return g.store.UpdateTask(id, store.TaskPatch{Status: &status})
 		},
 		DeleteTask:  g.store.DeleteTask,
+		ListTasks:   g.store.ListTasks,
 		GetRoutes:   g.store.GetRoutes,
 		SetRoutes:   g.store.SetRoutes,
 		AddRoute:    g.store.AddRoute,
 		DeleteRoute: g.store.DeleteRoute,
 		GetRoute:    g.store.GetRoute,
-	})
+	}
 	sched := scheduler.New(scheduler.Deps{
 		Store: g.store,
 		Groups: func() map[string]core.Group {
@@ -177,7 +179,6 @@ func (g *Gateway) Run(ctx context.Context) error {
 	}
 	slog.Info("all channels connected")
 
-	w.Start()
 	g.recoverPendingMessages()
 
 	if g.cfg.WebPort > 0 {
@@ -524,6 +525,7 @@ func (g *Gateway) runAgentWithOpts(
 		Channel:     channelName(g.findChannel(chatJid)),
 		Annotations: annotations,
 		OnOutput:    onOutput,
+		MCPDeps:     g.mcpDeps,
 	}
 
 	out := container.Run(g.cfg, g.folders, input)
