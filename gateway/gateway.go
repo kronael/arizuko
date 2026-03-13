@@ -298,7 +298,7 @@ func (g *Gateway) pollOnce() {
 
 	for chatJid, chatMsgs := range byChat {
 		g.mu.RLock()
-		group, ok := g.groups[chatJid]
+		group, ok := g.groupForJid(chatJid)
 		g.mu.RUnlock()
 		if !ok {
 			continue
@@ -336,7 +336,7 @@ func (g *Gateway) pollOnce() {
 
 func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	g.mu.RLock()
-	group, ok := g.groups[chatJid]
+	group, ok := g.groupForJid(chatJid)
 	agentTs := g.lastAgentTimestamp[chatJid]
 	g.mu.RUnlock()
 	if !ok {
@@ -676,6 +676,23 @@ func routesNeedTrigger(routes []core.Route) bool {
 		}
 	}
 	return false
+}
+
+// groupForJid resolves a JID to its registered group.
+// local: JIDs encode the folder directly (local:folder → folder).
+func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
+	if gr, ok := g.groups[jid]; ok {
+		return gr, true
+	}
+	if strings.HasPrefix(jid, "local:") {
+		folder := jid[6:]
+		for _, gr := range g.groups {
+			if gr.Folder == folder {
+				return gr, true
+			}
+		}
+	}
+	return core.Group{}, false
 }
 
 func resolveTarget(msg core.Message, routes []core.Route, selfFolder string) string {
