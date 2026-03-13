@@ -47,6 +47,7 @@ type Input struct {
 	MsgCount  int               `json:"messageCount,omitempty"`
 	Depth     int               `json:"delegateDepth,omitempty"`
 	Channel   string            `json:"channelName,omitempty"`
+	MessageID string            `json:"messageId,omitempty"`
 
 	GroupPath   string           `json:"-"`
 	Name        string           `json:"-"`

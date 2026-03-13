@@ -24,6 +24,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **Enriched message XML**: `sender_id`, `ago` attributes on messages
 - **max_children enforcement**: `GroupConfig.MaxChildren` limits child
   group creation via register_group MCP tool
+- **Template routing**: RFC 6570 Level 1 `{sender}` expansion in route
+  targets for per-user routing (e.g. `atlas/{sender}` → `atlas/tg-123456`)
+- **local: JID convention**: `local:folder` JIDs resolve by convention
+  (strip prefix = folder), no DB route needed
+- **Relaxed folder validation**: folder names now allow `@`, `.` and other
+  chars needed for WhatsApp JIDs as folder names
+- **messageId passthrough**: last message ID passed to container runner
+- **GetDefaultTarget**: store method returns first default route target,
+  resolves template targets to hub base folder
 
 ### Changed
 
@@ -33,6 +42,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   Removed `nanoclaw` Node.js MCP server from agent-runner.
   Hard cutover — IPC file subdirs (`messages/`, `tasks/`,
   `requests/`, `replies/`) removed. Migration 015.
+- **MAX_DELEGATE_DEPTH reduced**: delegation depth limit changed from 3 to 1
 
 ### Fixed
 

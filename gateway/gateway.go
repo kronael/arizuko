@@ -411,7 +411,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 					g.sendMessage(chatJid, clean)
 				}
 			}
-		}, false)
+		}, false, last.ID)
 
 	if ch != nil {
 		ch.Typing(chatJid, false)
@@ -443,7 +443,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 func (g *Gateway) runAgentWithOpts(
 	group core.Group, prompt, chatJid string,
-	onOutput func(string, string), isolated bool,
+	onOutput func(string, string), isolated bool, msgID ...string,
 ) container.Output {
 	var sessionID string
 	if !isolated {
@@ -480,6 +480,11 @@ func (g *Gateway) runAgentWithOpts(
 		}
 	}
 
+	var mid string
+	if len(msgID) > 0 {
+		mid = msgID[0]
+	}
+
 	input := container.Input{
 		Prompt:      prompt,
 		SessionID:   sessionID,
@@ -490,6 +495,7 @@ func (g *Gateway) runAgentWithOpts(
 		Config:      group.Config,
 		SlinkToken:  group.SlinkToken,
 		Channel:     channelName(g.findChannel(chatJid)),
+		MessageID:   mid,
 		Annotations: annotations,
 		OnOutput:    onOutput,
 		MCPDeps:     g.mcpDeps,
@@ -620,7 +626,7 @@ func (g *Gateway) getGroups() map[string]core.Group {
 }
 
 func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth int) error {
-	if depth > 3 {
+	if depth > 1 {
 		return fmt.Errorf("delegation depth exceeded")
 	}
 
@@ -670,6 +676,15 @@ func routesNeedTrigger(routes []core.Route) bool {
 		}
 	}
 	return false
+}
+
+// resolveFolder resolves the group folder for a chat JID.
+// local: JIDs resolve by convention (strip prefix). Others use DB default route.
+func (g *Gateway) resolveFolder(jid string) string {
+	if strings.HasPrefix(jid, "local:") {
+		return jid[6:]
+	}
+	return g.store.GetDefaultTarget(jid)
 }
 
 func resolveTarget(msg core.Message, routes []core.Route, selfFolder string) string {
@@ -724,7 +739,7 @@ func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
 func (g *Gateway) delegateToChild(
 	childFolder, prompt, originJid string, depth int,
 ) error {
-	if depth > 3 {
+	if depth > 1 {
 		return fmt.Errorf("delegation depth exceeded")
 	}
 

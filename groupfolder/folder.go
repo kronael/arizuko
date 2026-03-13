@@ -3,14 +3,10 @@ package groupfolder
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
-var (
-	segmentRe       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
-	reservedFolders = map[string]bool{"share": true}
-)
+var reservedFolders = map[string]bool{"share": true}
 
 type Resolver struct {
 	GroupsDir string
@@ -25,7 +21,7 @@ func isValidFolder(folder string) bool {
 		return false
 	}
 	for _, seg := range strings.Split(folder, "/") {
-		if !segmentRe.MatchString(seg) {
+		if seg == "" || len(seg) > 128 {
 			return false
 		}
 		if reservedFolders[strings.ToLower(seg)] {

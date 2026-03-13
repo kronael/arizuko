@@ -1,6 +1,8 @@
 package store
 
 import (
+	"strings"
+
 	"github.com/onvos/arizuko/core"
 )
 
@@ -110,6 +112,25 @@ func (s *Store) GetRoutedJids() []string {
 		out = append(out, jid)
 	}
 	return out
+}
+
+// GetDefaultTarget returns the first default route's target for a JID.
+// For template targets like "atlas/{sender}", returns the base folder (hub).
+func (s *Store) GetDefaultTarget(jid string) string {
+	var target string
+	err := s.db.QueryRow(
+		`SELECT target FROM routes WHERE jid = ? AND type = 'default' ORDER BY seq LIMIT 1`, jid,
+	).Scan(&target)
+	if err != nil {
+		return ""
+	}
+	if strings.Contains(target, "{") {
+		if i := strings.LastIndex(target, "/"); i > 0 {
+			return target[:i]
+		}
+		return ""
+	}
+	return target
 }
 
 func (s *Store) GetJidsForFolder(folder string) []string {

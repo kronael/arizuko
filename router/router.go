@@ -224,51 +224,67 @@ func IsAuthorizedRoutingTarget(source, target string) bool {
 	return strings.HasPrefix(suffix, "/") && strings.IndexByte(suffix[1:], '/') == -1
 }
 
+// ExpandTarget performs RFC 6570 Level 1 template expansion on a route target.
+// Only {sender} is supported — expands to SenderToUserFileID(msg.Sender).
+func ExpandTarget(target string, msg core.Message) string {
+	if !strings.Contains(target, "{") {
+		return target
+	}
+	id := SenderToUserFileID(msg.Sender)
+	if id == "" || id == "-" || id == "-unknown" {
+		return ""
+	}
+	return strings.ReplaceAll(target, "{sender}", id)
+}
+
+func routeMatches(r core.Route, msg core.Message) bool {
+	switch r.Type {
+	case "command":
+		t := strings.TrimSpace(msg.Content)
+		return r.Match != "" && (t == r.Match || strings.HasPrefix(t, r.Match+" "))
+	case "pattern":
+		if r.Match == "" || len(r.Match) > 200 {
+			return false
+		}
+		re, err := regexp.Compile(r.Match)
+		if err != nil {
+			return false
+		}
+		return re.MatchString(msg.Content)
+	case "keyword":
+		return r.Match != "" && strings.Contains(
+			strings.ToLower(msg.Content), strings.ToLower(r.Match))
+	case "sender":
+		if r.Match == "" || len(r.Match) > 200 {
+			return false
+		}
+		name := msg.Name
+		if name == "" {
+			name = msg.Sender
+		}
+		re, err := regexp.Compile(r.Match)
+		if err != nil {
+			return false
+		}
+		return re.MatchString(name)
+	case "verb":
+		return false
+	case "trigger", "default":
+		return true
+	}
+	return false
+}
+
 // ResolveRoute evaluates flat routes sequentially (first match wins).
-// Returns target folder or "".
+// Template targets are expanded per-message. Returns target folder or "".
 func ResolveRoute(msg core.Message, routes []core.Route) string {
 	for _, r := range routes {
-		switch r.Type {
-		case "command":
-			t := strings.TrimSpace(msg.Content)
-			if r.Match != "" && (t == r.Match || strings.HasPrefix(t, r.Match+" ")) {
-				return r.Target
-			}
-		case "pattern":
-			if r.Match == "" || len(r.Match) > 200 {
-				continue
-			}
-			re, err := regexp.Compile(r.Match)
-			if err != nil {
-				continue
-			}
-			if re.MatchString(msg.Content) {
-				return r.Target
-			}
-		case "keyword":
-			if r.Match != "" && strings.Contains(strings.ToLower(msg.Content), strings.ToLower(r.Match)) {
-				return r.Target
-			}
-		case "sender":
-			if r.Match == "" || len(r.Match) > 200 {
-				continue
-			}
-			name := msg.Name
-			if name == "" {
-				name = msg.Sender
-			}
-			re, err := regexp.Compile(r.Match)
-			if err != nil {
-				continue
-			}
-			if re.MatchString(name) {
-				return r.Target
-			}
-		case "verb":
-			// verb matching reserved for social channel messages
+		if !routeMatches(r, msg) {
 			continue
-		case "trigger", "default":
-			return r.Target
+		}
+		t := ExpandTarget(r.Target, msg)
+		if t != "" {
+			return t
 		}
 	}
 	return ""

@@ -181,6 +181,51 @@ func TestFormatOutboundThinkAndStatus(t *testing.T) {
 	}
 }
 
+func TestExpandTarget(t *testing.T) {
+	msg := core.Message{Sender: "telegram:123456"}
+	cases := []struct {
+		target, want string
+	}{
+		{"atlas/support", "atlas/support"},
+		{"atlas/{sender}", "atlas/tg-123456"},
+		{"{sender}", "tg-123456"},
+	}
+	for _, tc := range cases {
+		got := ExpandTarget(tc.target, msg)
+		if got != tc.want {
+			t.Fatalf("ExpandTarget(%q) = %q, want %q", tc.target, got, tc.want)
+		}
+	}
+
+	// No sender → returns ""
+	got := ExpandTarget("atlas/{sender}", core.Message{})
+	if got != "" {
+		t.Fatalf("expected empty for no sender, got %q", got)
+	}
+}
+
+func TestResolveRouteTemplate(t *testing.T) {
+	msg := core.Message{
+		Sender:  "telegram:123456",
+		Content: "hello",
+	}
+	routes := []core.Route{
+		{Seq: 0, Type: "default", Target: "atlas/{sender}"},
+		{Seq: 1, Type: "default", Target: "atlas/support"},
+	}
+	got := ResolveRoute(msg, routes)
+	if got != "atlas/tg-123456" {
+		t.Fatalf("expected atlas/tg-123456, got %q", got)
+	}
+
+	// Empty sender falls through to next route
+	msg2 := core.Message{Content: "hello"}
+	got = ResolveRoute(msg2, routes)
+	if got != "atlas/support" {
+		t.Fatalf("expected atlas/support fallthrough, got %q", got)
+	}
+}
+
 func TestEscapeXml(t *testing.T) {
 	cases := []struct {
 		in, want string

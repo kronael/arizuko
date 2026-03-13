@@ -7,7 +7,11 @@ import (
 )
 
 func TestIsValidFolder(t *testing.T) {
-	valid := []string{"main", "main/code", "test-group", "A1_b2"}
+	valid := []string{
+		"main", "main/code", "test-group", "A1_b2",
+		".hidden", "tg-123456", "wa-5551234@s.whatsapp.net",
+		"atlas/tg-123456",
+	}
 	for _, f := range valid {
 		if !isValidFolder(f) {
 			t.Errorf("expected valid: %q", f)
@@ -16,8 +20,9 @@ func TestIsValidFolder(t *testing.T) {
 
 	invalid := []string{
 		"", " main", "main ", "../etc", "a\\b",
-		".hidden", "share", "main/share", "SHARE",
-		"a/" + string(make([]byte, 65)),
+		"share", "main/share", "SHARE",
+		"a/" + string(make([]byte, 129)),
+		"a/",
 	}
 	for _, f := range invalid {
 		if isValidFolder(f) {
