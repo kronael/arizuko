@@ -305,19 +305,7 @@ func (g *Gateway) pollOnce() {
 		}
 
 		routes := g.store.GetRoutes(chatJid)
-		needTrig := false
-		if len(routes) > 0 {
-			for _, r := range routes {
-				if r.Type == "trigger" {
-					needTrig = true
-					break
-				}
-			}
-		} else {
-			needTrig = group.NeedTrig
-		}
-
-		if needTrig && !g.checkTrigger(chatMsgs) {
+		if routesNeedTrigger(routes) && !g.checkTrigger(chatMsgs) {
 			continue
 		}
 
@@ -326,15 +314,7 @@ func (g *Gateway) pollOnce() {
 			continue
 		}
 
-		var routingTarget string
-		if len(routes) > 0 {
-			t := router.ResolveRoute(last, routes)
-			if t != "" && t != group.Folder {
-				routingTarget = t
-			}
-		} else if len(group.Rules) > 0 {
-			routingTarget = router.ResolveRoutingTarget(last, group.Rules)
-		}
+		routingTarget := resolveTarget(last, routes, group.Folder)
 
 		if routingTarget != "" {
 			if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
@@ -374,19 +354,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	}
 
 	routes := g.store.GetRoutes(chatJid)
-	needTrig := false
-	if len(routes) > 0 {
-		for _, r := range routes {
-			if r.Type == "trigger" {
-				needTrig = true
-				break
-			}
-		}
-	} else {
-		needTrig = group.NeedTrig
-	}
-
-	if needTrig && !g.checkTrigger(msgs) {
+	if routesNeedTrigger(routes) && !g.checkTrigger(msgs) {
 		return false, nil
 	}
 
@@ -396,15 +364,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return true, nil
 	}
 
-	var routingTarget string
-	if len(routes) > 0 {
-		t := router.ResolveRoute(last, routes)
-		if t != "" && t != group.Folder {
-			routingTarget = t
-		}
-	} else if len(group.Rules) > 0 {
-		routingTarget = router.ResolveRoutingTarget(last, group.Rules)
-	}
+	routingTarget := resolveTarget(last, routes, group.Folder)
 
 	if routingTarget != "" {
 		if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
@@ -685,6 +645,26 @@ func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth
 		},
 	)
 	return nil
+}
+
+func routesNeedTrigger(routes []core.Route) bool {
+	for _, r := range routes {
+		if r.Type == "trigger" {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveTarget(msg core.Message, routes []core.Route, selfFolder string) string {
+	if len(routes) == 0 {
+		return ""
+	}
+	t := router.ResolveRoute(msg, routes)
+	if t != "" && t != selfFolder {
+		return t
+	}
+	return ""
 }
 
 func (g *Gateway) checkTrigger(msgs []core.Message) bool {

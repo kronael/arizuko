@@ -29,7 +29,6 @@ type Group struct {
 	NeedTrig   bool
 	SlinkToken string
 	Parent     string
-	Rules      []RoutingRule
 }
 
 type GroupConfig struct {
@@ -53,13 +52,7 @@ type Sidecar struct {
 	Tools []string // ["*"] or specific
 }
 
-type RoutingRule struct {
-	Kind   string // command|pattern|keyword|sender|default
-	Match  string
-	Target string // group folder
-}
-
-// Route is a flat routing table entry (replaces RoutingRule JSON blob).
+// Route is a flat routing table entry.
 type Route struct {
 	ID     int64
 	JID    string

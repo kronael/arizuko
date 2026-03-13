@@ -72,13 +72,10 @@ func TestGroupCRUD(t *testing.T) {
 	defer s.Close()
 
 	g := core.Group{
-		JID:    "tg:123",
-		Name:   "Test",
-		Folder: "main",
+		JID:     "tg:123",
+		Name:    "Test",
+		Folder:  "main",
 		AddedAt: time.Now(),
-		Rules: []core.RoutingRule{
-			{Kind: "command", Match: "/code", Target: "main/code"},
-		},
 	}
 	if err := s.PutGroup("tg:123", g); err != nil {
 		t.Fatal(err)
@@ -90,9 +87,6 @@ func TestGroupCRUD(t *testing.T) {
 	}
 	if got.Folder != "main" {
 		t.Fatalf("expected folder 'main', got %q", got.Folder)
-	}
-	if len(got.Rules) != 1 {
-		t.Fatalf("expected 1 rule, got %d", len(got.Rules))
 	}
 
 	all := s.AllGroups()

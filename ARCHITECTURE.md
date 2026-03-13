@@ -93,34 +93,35 @@ Full protocol: `specs/7/1-channel-protocol.md`.
 
 ## Key Types (core package)
 
-| Type            | Purpose                                                        |
-| --------------- | -------------------------------------------------------------- |
-| `Config`        | All settings from `.env` + env vars                            |
-| `Message`       | Incoming message (sender, content, reply context)              |
-| `Group`         | Registered group (folder, trigger, routing rules)              |
-| `GroupConfig`   | Per-group: mounts, timeout, sidecars                           |
-| `RoutingRule`   | Kind (command/pattern/keyword/sender/default) + match + target |
-| `Task`          | Scheduled task (cron/interval/once, prompt, status)            |
-| `Channel`       | Interface: Connect, Send, SendFile, Owns, Typing, Disconnect   |
-| `ChatInfo`      | Chat metadata with errored flag                                |
-| `SessionRecord` | Session log entry                                              |
+| Type            | Purpose                                                      |
+| --------------- | ------------------------------------------------------------ |
+| `Config`        | All settings from `.env` + env vars                          |
+| `Message`       | Incoming message (sender, content, reply context)            |
+| `Group`         | Registered group (folder, trigger, config)                   |
+| `GroupConfig`   | Per-group: mounts, timeout, sidecars                         |
+| `Route`         | Flat routing table entry (type, match, target)               |
+| `Task`          | Scheduled task (cron/interval/once, prompt, status)          |
+| `Channel`       | Interface: Connect, Send, SendFile, Owns, Typing, Disconnect |
+| `ChatInfo`      | Chat metadata with errored flag                              |
+| `SessionRecord` | Session log entry                                            |
 
 ## SQLite Schema
 
-| Table               | Key columns                                                                                                          |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `chats`             | jid (PK), name, channel, is_group, errored                                                                           |
-| `messages`          | id (PK), chat_jid, sender, content, timestamp                                                                        |
-| `registered_groups` | jid (PK), folder, trigger_word, requires_trigger, container_config (JSON), routing_rules (JSON), parent, slink_token |
-| `sessions`          | group_folder (PK), session_id                                                                                        |
-| `session_log`       | id (auto), group_folder, session_id, started_at, ended_at, result, error                                             |
-| `system_messages`   | id (auto), group_id, origin, event, body                                                                             |
-| `scheduled_tasks`   | id (PK), group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, next_run, status               |
-| `task_run_logs`     | id (auto), task_id, run_at, duration_ms, status, result                                                              |
-| `router_state`      | key (PK), value — persists lastTimestamp, lastAgentTimestamp                                                         |
-| `auth_users`        | sub (unique), username (unique), hash                                                                                |
-| `auth_sessions`     | token_hash (PK), user_sub, expires_at                                                                                |
-| `email_threads`     | thread_id (PK), chat_jid, subject                                                                                    |
+| Table               | Key columns                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| `chats`             | jid (PK), name, channel, is_group, errored                                                             |
+| `messages`          | id (PK), chat_jid, sender, content, timestamp                                                          |
+| `registered_groups` | jid (PK), folder, trigger_word, requires_trigger, container_config (JSON), parent, slink_token         |
+| `routes`            | id (auto), jid, seq, type, match, target                                                               |
+| `sessions`          | group_folder (PK), session_id                                                                          |
+| `session_log`       | id (auto), group_folder, session_id, started_at, ended_at, result, error                               |
+| `system_messages`   | id (auto), group_id, origin, event, body                                                               |
+| `scheduled_tasks`   | id (PK), group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, next_run, status |
+| `task_run_logs`     | id (auto), task_id, run_at, duration_ms, status, result                                                |
+| `router_state`      | key (PK), value — persists lastTimestamp, lastAgentTimestamp                                           |
+| `auth_users`        | sub (unique), username (unique), hash                                                                  |
+| `auth_sessions`     | token_hash (PK), user_sub, expires_at                                                                  |
+| `email_threads`     | thread_id (PK), chat_jid, subject                                                                      |
 
 WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
 

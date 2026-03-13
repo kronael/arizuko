@@ -97,19 +97,22 @@ Latest migration version: **14**. If version < 14: migrations pending.
 
 ## MCP tools
 
-| Tool                | Description                                                 |
-| ------------------- | ----------------------------------------------------------- |
-| `send_message`      | Send intermediate status update to user while still running |
-| `send_file`         | Send a file from workspace to user as document attachment   |
-| `schedule_task`     | Schedule recurring or one-time agent task                   |
-| `pause_task`        | Pause a scheduled task                                      |
-| `resume_task`       | Resume a paused task                                        |
-| `cancel_task`       | Cancel and delete a scheduled task                          |
-| `register_group`    | Register new WhatsApp group (root only)                     |
-| `refresh_groups`    | Sync group metadata from channel (root only)                |
-| `delegate_group`    | Forward a message to a child group for processing           |
-| `set_routing_rules` | Set automatic routing rules for child groups                |
-| `reset_session`     | Clear this group's session and start fresh                  |
+| Tool             | Description                                                 |
+| ---------------- | ----------------------------------------------------------- |
+| `send_message`   | Send intermediate status update to user while still running |
+| `send_file`      | Send a file from workspace to user as document attachment   |
+| `schedule_task`  | Schedule recurring or one-time agent task                   |
+| `pause_task`     | Pause a scheduled task                                      |
+| `resume_task`    | Resume a paused task                                        |
+| `cancel_task`    | Cancel and delete a scheduled task                          |
+| `register_group` | Register new WhatsApp group (root only)                     |
+| `refresh_groups` | Sync group metadata from channel (root only)                |
+| `delegate_group` | Forward a message to a child group for processing           |
+| `set_routes`     | Replace all routes for a JID                                |
+| `add_route`      | Add a single route for a JID                                |
+| `get_routes`     | Get routes for a JID                                        |
+| `delete_route`   | Delete a route by ID                                        |
+| `reset_session`  | Clear this group's session and start fresh                  |
 
 ### send_file usage
 
