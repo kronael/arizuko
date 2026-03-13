@@ -19,6 +19,11 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   into prompt XML with sender identity from `users/` directory
 - **Reply-to ID**: messages store `reply_to_id`, formatted as XML
   attributes in prompt (`reply_to`, `<reply_to>` element). Schema migration v4.
+- **Clock header**: `<clock time="..." tz="..."/>` injected into prompts
+  so agents know the current time
+- **Enriched message XML**: `sender_id`, `ago` attributes on messages
+- **max_children enforcement**: `GroupConfig.MaxChildren` limits child
+  group creation via register_group MCP tool
 
 ### Changed
 

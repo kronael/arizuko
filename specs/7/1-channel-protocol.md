@@ -253,6 +253,41 @@ toward this now, but the design is compatible.
 - **Transport-agnostic**: HTTP works over localhost, network,
   vsock. The protocol doesn't care.
 
+## Isolated development and testing
+
+Each channel adapter is a standalone process with no
+dependencies on the router codebase. This enables:
+
+**Develop without the router running.** Start the adapter,
+point it at a mock HTTP server (or just `nc -l 8080`),
+verify platform events arrive as correct JSON. The adapter
+doesn't import router code, doesn't need SQLite, doesn't
+need docker.
+
+**Test inbound in isolation.** Send a message on the
+platform, check that the adapter POSTs correct JSON to
+the router URL. Mock router = any HTTP server that returns
+`{"ok": true}`.
+
+**Test outbound in isolation.** `curl POST /send` to the
+adapter with a chat_jid and content. Verify it appears on
+the platform. No router needed.
+
+**Develop incrementally.** A channel that only does inbound
+is immediately useful — users can message, router processes,
+agent responds via a different channel (or logs). Add
+outbound later. Add file support later. Add typing later.
+Each capability is independent.
+
+**Any language, any test framework.** The contract is HTTP.
+Test with curl, pytest, Go httptest, whatever matches the
+adapter's language.
+
+**Parallel development.** Multiple people (or agents) can
+build different channel adapters simultaneously. No merge
+conflicts — each lives in its own directory with its own
+dependencies.
+
 ## Open questions
 
 ### Large file delivery

@@ -385,7 +385,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		}
 	}
 
-	prompt := sysMsgs
+	prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n"
 	if userCtx != "" {
 		prompt += userCtx + "\n"
 	}

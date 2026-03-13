@@ -1,10 +1,12 @@
 package router
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/onvos/arizuko/core"
 )
@@ -17,6 +19,34 @@ func EscapeXml(s string) string {
 	return s
 }
 
+// ClockXml returns a <clock> tag with current time and timezone.
+func ClockXml(tz string) string {
+	loc := time.UTC
+	if tz != "" {
+		if l, err := time.LoadLocation(tz); err == nil {
+			loc = l
+		}
+	}
+	now := time.Now().In(loc)
+	return fmt.Sprintf(`<clock time="%s" tz="%s"/>`,
+		now.Format("2006-01-02T15:04:05Z07:00"), loc.String())
+}
+
+// TimeAgo returns a human-friendly duration since t (e.g. "3m", "2h", "1d").
+func TimeAgo(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}
+
 func FormatMessages(msgs []core.Message) string {
 	var b strings.Builder
 	b.WriteString("<messages>\n")
@@ -27,8 +57,16 @@ func FormatMessages(msgs []core.Message) string {
 		}
 		b.WriteString(`<message sender="`)
 		b.WriteString(EscapeXml(name))
-		b.WriteString(`" time="`)
+		b.WriteString(`"`)
+		if m.Sender != "" && m.Sender != name {
+			b.WriteString(` sender_id="`)
+			b.WriteString(EscapeXml(m.Sender))
+			b.WriteString(`"`)
+		}
+		b.WriteString(` time="`)
 		b.WriteString(m.Timestamp.Format("2006-01-02T15:04:05Z"))
+		b.WriteString(`" ago="`)
+		b.WriteString(TimeAgo(m.Timestamp))
 		b.WriteString(`"`)
 		if m.ReplyToID != "" {
 			b.WriteString(` reply_to="`)

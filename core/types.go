@@ -33,9 +33,10 @@ type Group struct {
 }
 
 type GroupConfig struct {
-	Mounts   []Mount
-	Timeout  time.Duration
-	Sidecars map[string]Sidecar
+	Mounts      []Mount
+	Timeout     time.Duration
+	Sidecars    map[string]Sidecar
+	MaxChildren int
 }
 
 type Mount struct {
