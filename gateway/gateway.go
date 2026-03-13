@@ -90,15 +90,6 @@ func (g *Gateway) Run(ctx context.Context) error {
 		GroupsDir:     g.cfg.GroupsDir,
 		HostGroupsDir: g.cfg.HostGroupsDir,
 		IsRoot:        g.cfg.IsRoot,
-		RegisteredJids: func() map[string]bool {
-			g.mu.RLock()
-			defer g.mu.RUnlock()
-			m := make(map[string]bool, len(g.groups))
-			for jid := range g.groups {
-				m[jid] = true
-			}
-			return m
-		},
 		InjectMessage:    g.injectMessage,
 		RegisterGroup:    g.registerGroupIPC,
 		GetGroups:        g.getGroups,
