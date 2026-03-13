@@ -38,7 +38,7 @@ gateway/         Main loop, message routing, commands
 container/       Docker spawn, volume mounts, sidecars
 queue/           Per-group concurrency, circuit breaker
 router/          XML message formatting, 5-tier routing rules
-ipc/             File-based request/reply, SIGUSR1 wake
+ipc/             MCP server on unix socket (per-group)
 scheduler/       Cron/interval/once task runner
 diary/           YAML frontmatter diary annotations
 groupfolder/     Group path resolution
@@ -102,7 +102,7 @@ Gateway starts sidecars before agent, wires them into
 .env                    config (tokens, ports)
 store/                  SQLite DB (messages.db)
 groups/<folder>/        group files, logs, diary
-data/ipc/<folder>/      IPC directories
+data/ipc/<folder>/      MCP unix sockets
 data/sessions/<folder>/ agent session state
 ```
 

@@ -45,7 +45,7 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `router/` — XML message formatting, routing rules, outbound filtering
 - `chanreg/` — channel registry, health checks, HTTP channel proxy (outbound)
 - `api/` — HTTP API server (channel registration, inbound messages, chat metadata)
-- `ipc/` — file-based IPC watcher (request/reply + legacy fire-and-forget)
+- `ipc/` — MCP server on unix socket (mark3labs/mcp-go, per-group)
 - `scheduler/` — cron/interval/once task runner (robfig/cron)
 - `diary/` — YAML frontmatter diary annotations for agent context
 - `groupfolder/` — group path resolution and validation
@@ -70,7 +70,7 @@ chanreg/           Channel registry + HTTP proxy
 api/               Router HTTP API server
 compose/           Docker-compose generation
 channels/telegram/ Standalone telegram adapter
-ipc/               File-based IPC
+ipc/               MCP server (unix socket)
 scheduler/         Task scheduler
 diary/             Diary annotations
 groupfolder/       Path validation
@@ -86,7 +86,7 @@ sidecar/           MCP server binaries
 - JSONL files use `.jl` extension (not `.jsonl`)
 - XML tags for prompt structure, JSON for IPC/MCP/structured output
 - Container output delimited by `---NANOCLAW_OUTPUT_START---` / `---NANOCLAW_OUTPUT_END---`
-- IPC: atomic writes via tmp+rename, SIGUSR1 for immediate wake
+- IPC: MCP over unix socket, socat bridge into container
 
 ## Data Dir
 
@@ -95,7 +95,7 @@ sidecar/           MCP server binaries
 - `.env` — config (gateway reads from cwd)
 - `store/` — SQLite DB
 - `groups/<folder>/` — group files, logs, diary
-- `data/ipc/<folder>/` — IPC directories
+- `data/ipc/<folder>/` — MCP unix sockets
 - `data/sessions/<folder>/.claude/` — agent session state
 
 ## Config
@@ -130,7 +130,7 @@ servers, CLAUDE.md, memory) is the primary extension mechanism.
 sudo systemctl status arizuko_<instance>
 
 # 2. Startup sequence — expect: "state loaded", "channel connected",
-#    "ipc watcher started", "scheduler loop started", "arizuko running"
+#    "scheduler loop started", "arizuko running"
 sudo journalctl -u arizuko_<instance> --since "5 minutes ago" --no-pager | head -30
 
 # 3. Errors
@@ -140,8 +140,8 @@ sudo journalctl -u arizuko_<instance> --since "5 minutes ago" --no-pager \
 # 4. Container orphans
 sudo docker ps --filter "name=arizuko-" --format "{{.Names}} {{.Status}}"
 
-# 5. IPC file accumulation
-find /srv/data/arizuko_<instance>/data/ipc/*/requests/ -name '*.json' 2>/dev/null | wc -l
+# 5. MCP socket check
+ls /srv/data/arizuko_<instance>/data/ipc/*/nanoclaw.sock 2>/dev/null
 ```
 
 Red flags: `"error in message loop"`, `"container timeout"`,
@@ -149,7 +149,7 @@ Red flags: `"error in message loop"`, `"container timeout"`,
 
 Key error emitters: `gateway/gateway.go` (message loop),
 `queue/queue.go` (concurrency/circuit breaker),
-`container/runner.go` (spawn/timeout), `ipc/watcher.go` (drain).
+`container/runner.go` (spawn/timeout), `ipc/server.go` (MCP).
 
 ## Shipping changes
 

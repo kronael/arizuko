@@ -27,7 +27,7 @@ cmd/arizuko/main
   │   ├── queue     (per-group concurrency, stdin piping)
   │   │   └── runtime
   │   ├── router    (message formatting, routing rules)
-  │   ├── ipc       (file-based request/reply)
+  │   ├── ipc       (MCP server on unix socket)
   │   ├── scheduler (cron/interval/once task runner)
   │   │   └── store
   │   ├── diary     (YAML frontmatter annotations)
@@ -130,9 +130,9 @@ WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
 2. `runtime.CleanupOrphans()` — stop stale `arizuko-*` containers
 3. `container.Run()`:
    - Resolve group path via `groupfolder.Resolver`
-   - `BuildMounts()` — assemble volume mounts (group, media, self, share, session, IPC, web, extra)
+   - `BuildMounts()` — assemble volume mounts (group, media, self, share, session, ipc, web, extra)
    - `mountsec.ValidateAdditionalMounts()` — check against allowlist
-   - `seedSettings()` — write `settings.json` to session `.claude/` dir (env vars, sidecar MCP config)
+   - `seedSettings()` — write `settings.json` to session `.claude/` dir (env vars, nanoclaw MCP via socat, sidecar MCP config)
    - `seedSkills()` — copy `container/skills/` to session on first run
    - `StartSidecars()` — launch MCP sidecar containers (if configured)
    - `docker run -i --rm` with volume mounts, write JSON to stdin, read stdout
@@ -149,15 +149,19 @@ cursor advances (partial work preserved).
 
 ## IPC Mechanism (ipc package)
 
-File-based, polled every 1s by `ipc.Watcher`:
+MCP server on unix socket (`mark3labs/mcp-go`). Gateway starts
+one `ipc.Server` per group before container spawn, listening on
+`data/ipc/<folder>/nanoclaw.sock`.
 
-- **Request-response**: agent writes `requests/<id>.json`, gateway
-  dispatches by type (`send_message`, `send_file`, `reset_session`),
-  writes `replies/<id>.json`. Atomic via tmp+rename.
-- **Legacy fire-and-forget**: agent writes `messages/<id>.json`
-  or `tasks/<id>.json`, gateway drains and executes.
-- **Stdin piping**: `queue.SendMessage()` writes `input/<ts>.json`,
-  sends SIGUSR1 to container for immediate wake.
+**Tools exposed**: `send_message`, `send_file`, `reset_session`,
+`delegate_to_child`, `create_task`, `list_tasks`.
+
+**Transport**: socat bridges the host unix socket into the container.
+Agent-runner configures `nanoclaw` MCP server in `settings.json`
+using `socat UNIX-CONNECT` to reach the socket.
+
+**Lifecycle**: server starts before `docker run`, stops after
+container exits. Socket file cleaned up on stop.
 
 Authorization: non-root groups can only send to registered JIDs.
 
@@ -181,7 +185,7 @@ Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
 - `EnqueueMessageCheck` → `runForGroup` → `processMessages` callback
 - `EnqueueTask` → `runTask` → task function
 - `drainGroupLocked` — after completion, run pending tasks then messages then waiting groups
-- `SendMessage` — write to IPC input dir + SIGUSR1 signal for live stdin piping
+- `SendMessage` — write to IPC input dir for live stdin piping
 
 ## Routing Rules (router package)
 
@@ -272,7 +276,7 @@ container/          Docker spawn, volume mounts, sidecars, skills seeding
 queue/              Per-group concurrency, stdin piping
 router/             Message formatting, routing rules
 compose/            Docker-compose generation from services/*.toml
-ipc/                File-based IPC watcher
+ipc/                MCP server (unix socket per group)
 scheduler/          Cron/interval/once task runner
 diary/              YAML frontmatter diary annotations
 groupfolder/        Group path resolution and validation
@@ -292,6 +296,6 @@ channels/telegram/  Standalone telegram adapter binary
 - `store/` — SQLite DB (`messages.db`)
 - `groups/<folder>/` — group files, logs, diary, media
 - `groups/<world>/share/` — cross-group shared state
-- `data/ipc/<folder>/` — IPC directories (requests, replies, input, sidecars)
+- `data/ipc/<folder>/` — MCP unix sockets + sidecar sockets
 - `data/sessions/<folder>/.claude/` — agent session (settings, skills, CLAUDE.md)
 - `web/` — vite web app
