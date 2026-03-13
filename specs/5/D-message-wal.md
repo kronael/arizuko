@@ -1,3 +1,7 @@
+---
+status: spec
+---
+
 # Message WAL (Write-Ahead Log)
 
 Reliable message delivery with cursor rollback for piped messages.

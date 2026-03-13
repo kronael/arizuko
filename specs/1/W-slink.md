@@ -1,8 +1,12 @@
+---
+status: shipped
+---
+
 # Slink Specification — shipped
 
 ## What it is
 
-A slink (REDACTED link) is the web channel for a nanoclaw group. Enabled the
+A slink (REDACTED link) is the web channel for a kanipi group. Enabled the
 same way as Telegram or Discord — by registering a `web:<name>` group.
 The gateway generates a public token at registration time; that token is
 the channel's POST endpoint.
@@ -16,15 +20,15 @@ POST /pub/s/<token>   →  delivers to the web group's agent
 ## Setup
 
 ```bash
-nanoclaw group add web:main       # registers group, generates slink token
-nanoclaw group add web:support    # multiple web groups per instance ok
+kanipi group add web:main       # registers group, generates slink token
+kanipi group add web:support    # multiple web groups per instance ok
 ```
 
 Same pattern as:
 
 ```bash
-nanoclaw group add tg:-100123456
-nanoclaw group add discord:123456
+kanipi group add tg:-100123456
+kanipi group add discord:123456
 ```
 
 The slink token is generated once at registration, stored on the group
@@ -93,22 +97,11 @@ Thresholds configurable via `SLINK_ANON_RPM` / `SLINK_AUTH_RPM` env vars.
 
 ---
 
-## DB
-
-```sql
-ALTER TABLE registered_groups ADD COLUMN slink_token TEXT;
--- populated at group registration for web: groups
-```
-
-No separate table. Token lives on the group row.
-
----
-
 ## Agent
 
 The agent receives slink POSTs as normal inbound messages on the
 `web:<name>` chat_jid. No special handling — same queue, same
-`runContainerAgent` call as any other channel.
+`runContainerCommand` call as any other channel.
 
 Agent knows its own slink URL via env vars injected at container start:
 
@@ -138,5 +131,5 @@ Claude Desktop and other MCP clients to connect natively. See
 ## Related
 
 - `specs/1/3-auth.md` — JWT issuance for authenticated web users
-- `specs/1/W-slink.md` — how agents use slinks to build living pages (TBD)
+- `specs/1/REDACTED.md` — how agents use slinks to build living pages (TBD)
 - `specs/3/J-sse.md` — SSE scoping + MCP transport direction

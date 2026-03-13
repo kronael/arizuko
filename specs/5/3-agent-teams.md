@@ -1,3 +1,7 @@
+---
+status: planned
+---
+
 # Agent Teams: Analysis and Decision
 
 ## What Claude Code calls "Agent Teams" vs "Subagents"

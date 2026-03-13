@@ -1,3 +1,7 @@
+---
+status: planned
+---
+
 # Memory: Episodes — open (v2)
 
 Mechanically produced summaries of past sessions. Automatic, always on.

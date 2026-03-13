@@ -1,12 +1,11 @@
+---
+status: shipped
+---
+
 # MIME Pipeline
 
 Media attachment processing. Runs on every inbound message
 before container spawn — downloads, transcribes, annotates.
-
-**Status**: ~60% shipped. Voice + video work. Full
-`MessageEnricher` interface is aspirational — current code
-uses simpler handler array. Formalize when third handler
-needed.
 
 ## Model
 
@@ -30,7 +29,7 @@ interface InboundMessage {
   senderName: string;
   text: string;
   timestamp: string;
-  channel: 'telegram' | 'whatsapp' | 'discord' | 'email';
+  channel: 'telegram' | 'whatsapp' | 'discord';
   groupFolder: string;
   isMain: boolean; // enricher-only context (not in ContainerInput)
   attachments?: RawAttachment[];
@@ -109,28 +108,24 @@ requires: ffmpeg in PATH
 
 ### GenericFileSaver
 
-```
-matches:  any attachment not matched by specific enricher
-enriches: download -> media/files/<filename>
-          -> localPath, sizeBytes, mimeType
-          -> ContextAnnotation(order:30)
-config:   MEDIA_ENABLED
-```
+Covered by the pipeline's default behavior: all attachments are
+saved and produce `[media attached: ...]` lines. No separate
+handler needed.
 
 ## Prompt assembly
 
 ```xml
-<attachment index="0" type="voice" path="/workspace/media/...">
+<attachment index="0" type="voice" path="/home/node/media/...">
   <transcript>...</transcript>
 </attachment>
-<attachment index="1" type="image" path="/workspace/media/...">
+<attachment index="1" type="image" path="/home/node/media/...">
   <description>file saved</description>
 </attachment>
 
 hey check this out
 ```
 
-Sidecar files: `-whisper.txt` / `-<enricher>.txt`.
+Enricher output files: `-whisper.txt` / `-<enricher>.txt`.
 
 ## Config
 
@@ -162,11 +157,11 @@ src/
 groups/<folder>/media/ -> /workspace/media/
   <YYYYMMDD>/
     <msg-id>-<idx>.<ext>            -- raw download
-    <msg-id>-<idx>-<enricher>.txt   -- enricher sidecar
+    <msg-id>-<idx>-<enricher>.txt   -- enricher output
 ```
 
 ## Extension
 
 1. Implement handler in `src/mime-handlers/<name>.ts`
-2. Add `<NAME>_ENABLED` to `src/config.ts`
+2. Add `<NAME>_ENABLED` to `config.ts`
 3. Register in `src/mime-enricher.ts`

@@ -1,6 +1,10 @@
+---
+status: planned
+---
+
 # Researcher
 
-Background task that explores repos, web, docs — grows the knowledge base.
+Background task that explores repos, web, docs — writes findings to facts/.
 
 ## Evangelist approach
 
@@ -15,10 +19,13 @@ Background task that explores repos, web, docs — grows the knowledge base.
 
 Subagent spawning. The agent already has all tools natively.
 
-### Trigger
+### Trigger (v1)
 
-- Agent detects knowledge gap (no facts match, grep returns nothing)
-- Or user asks explicitly
+Agent detects knowledge gap via grep (no embedding infrastructure).
+Future: similarity threshold when embeddings ship.
+
+- No facts match (grep returns nothing)
+- Or user asks explicitly (`/research <question>`)
 - Agent spawns a research subagent
 
 ### Subagent

@@ -1,3 +1,7 @@
+---
+status: shipped
+---
+
 # Prompt format
 
 ## Status key
@@ -45,7 +49,8 @@
 The `prompt` field in ContainerInput is assembled as:
 
 ```
-system messages (flushSystemMessages)
+clock header (clockXml)
+  → system messages (flushSystemMessages)
   → pendingArgs (command context, if any)
   → message history (formatMessages)
 ```
@@ -55,18 +60,20 @@ system messages (flushSystemMessages)
 system messages and message history so the agent sees it as
 the most recent instruction before the conversation.
 
-### pendingArgs injection order
+### Injection order
 
 In `src/index.ts`, the prompt string is assembled as:
 
 ```
-sysXml + '\n' + pendingArgs + '\n' + formatted
+clock + '\n' + sysXml + '\n' + pendingArgs + '\n' + formatted
 ```
 
-1. `sysXml` — flushed system messages (new-session, new-day)
-2. `pendingArgs` — command context text, consumed once from
+1. `clock` — `clockXml(TIMEZONE)`: `<clock time="..." tz="..." />`
+   (UTC ISO 8601 + configured timezone, initial prompt only)
+2. `sysXml` — flushed system messages (new-session, new-day)
+3. `pendingArgs` — command context text, consumed once from
    `pendingCommandArgs` map (keyed by chatJid), deleted after read
-3. `formatted` — `formatMessages()` output (XML `<messages>` block)
+4. `formatted` — `formatMessages()` output (XML `<messages>` block)
 
 `pendingArgs` is stashed by `/new` (and similar commands) before
 the message loop picks up the batch. It appears after system
@@ -79,15 +86,21 @@ one-shot instruction without polluting the message log.
 
 ```xml
 <messages>
-<message sender="Alice" time="2026-03-05T10:00:00Z">
+<message sender="Alice" sender_id="telegram:REDACTED"
+         chat_id="telegram:-1001234567890" chat="Support"
+         platform="telegram" time="2026-03-05T10:00:00Z" ago="3h">
   hey can you help
 </message>
 </messages>
 ```
 
-Attributes: `sender` (name or raw ID), `time` (ISO 8601).
-Content XML-escaped. `forwarded_from` and `reply_to` metadata
-included when present (see `formatMessages()` in `router.ts`).
+Attributes: `sender` (display name, falls back to sender ID),
+`sender_id` (JID), `chat_id` (chat JID), `chat` (group name,
+when is_group), `platform`, `time` (ISO 8601), `ago` (relative
+time: s/m/h/d/w). Content XML-escaped. `forwarded_from` and
+`reply_to` metadata included when present (see `formatMessages()`
+in `router.ts`). See `specs/3/H-jid-format.md` for full attribute
+table.
 
 ## Scheduled task header -- shipped
 
@@ -130,14 +143,13 @@ SIGUSR1. Agent polls on signal + 500ms fallback.
 
 ## IPC files -- agent-to-gateway -- shipped
 
-Agent writes to `/workspace/ipc/messages/` and
-`/workspace/ipc/tasks/`. Gateway watches via `fs.watch`.
+Agent writes to `/workspace/ipc/requests/`, reads replies from
+`/workspace/ipc/replies/`. Gateway watches via `fs.watch`.
 
-Message: `{ "type": "message", "chatJid": "...", "text": "..." }`
-File: `{ "type": "file", "chatJid": "...", "filepath": "...", "filename": "..." }`
-Task: `{ "type": "schedule_task", "targetJid": "...", ... }`
+Request: `{ "id": "...", "type": "action_name", ...params }`
+Reply: `{ "id": "...", "ok": true, "result": ... }` or `{ "ok": false, "error": "..." }`
 
-`filepath` must be under `/workspace/group/`.
+`filepath` in `send_file` must be under `~/`.
 
 ## System context injection -- shipped
 
@@ -145,21 +157,7 @@ System context via `systemPrompt.append`:
 
 - `/workspace/share/CLAUDE.md` appended for non-root only
 - Soul personality via skill (`soul/SKILL.md`), not code injection
-- Group-level `SOUL.md` override read by agent per CLAUDE.md instruction
+- Group `SOUL.md` at `/home/node/SOUL.md`; agent reads directly
 
-Group CLAUDE.md at `/home/node/.claude/CLAUDE.md`, loaded
-by SDK project-memory.
-
-## Open
-
-### reply_to threading -- shipped
-
-`formatMessages()` emits `<forwarded_from>` and `<reply_to>`
-XML elements when metadata is present. Channels (telegram,
-whatsapp) extract forward origin and reply context and store
-them on the message row.
-
-### XML throughout -- closed, won't do
-
-XML for prompt content. JSON for SDK/machine interfaces.
-See `../xml-vs-json-llm.md`.
+Agent CLAUDE.md at `~/.claude/CLAUDE.md`, group CLAUDE.md at
+`/home/node/CLAUDE.md` — both loaded by SDK.

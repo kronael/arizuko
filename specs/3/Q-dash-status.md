@@ -1,6 +1,8 @@
-# Dashboard: Status & Health
+---
+status: planned
+---
 
-**Status**: open
+# Dashboard: Status & Health
 
 Operator dashboard showing gateway health, active containers,
 message queues, and recent errors. Read-only — no mutations.

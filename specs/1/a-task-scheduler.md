@@ -1,6 +1,8 @@
-# Task Scheduler
+---
+status: shipped
+---
 
-**Status**: shipped (v1)
+# Task Scheduler
 
 ## Overview
 
@@ -43,7 +45,7 @@ After each run:
 
 ## Container execution
 
-Tasks run via `runContainerAgent`, same as user messages.
+Tasks run via `runContainerCommand`, same as user messages.
 Differences:
 
 - `isScheduledTask: true` in container input

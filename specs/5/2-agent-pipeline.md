@@ -1,6 +1,8 @@
-# Agent Orchestration & Workflows
+---
+status: planned
+---
 
-**Status**: product config (no new gateway code)
+# Agent Orchestration & Workflows
 
 Workflows are configuration on top of existing primitives:
 `delegate_group`, `escalate_group`, `send_message`, slink POSTs.

@@ -1,7 +1,11 @@
+---
+status: reference
+---
+
 # Reference Systems Analysis
 
 Concrete findings from studying brainpro, takopi, and eliza-atlas.
-Source code read, not summaries. Informs nanoclaw v2 design.
+Source code read, not summaries. Informs kanipi v2 design.
 
 Sources:
 
@@ -134,7 +138,7 @@ Assembly order from manifest frontmatter. Conditional sections
 only injected when that mode is active. Allows specialization
 without forking the full prompt.
 
-### What nanoclaw should adopt
+### What kanipi should adopt
 
 - Doom loop detection: container runner or agent-runner
 - Circuit breaker: around `docker run` / LLM calls
@@ -227,11 +231,11 @@ N/A — stateless bridge. Memory lives inside the agent CLI
 (session files, CLAUDE.md, etc). Takopi only passes
 `--resume` to reattach.
 
-### What nanoclaw should adopt
+### What kanipi should adopt
 
 - Resume token pattern: embed token in reply, extract on
   next message, `--resume` to agent CLI
-- Per-thread FIFO with session lock (nanoclaw already has
+- Per-thread FIFO with session lock (kanipi already has
   GroupQueue; resume locking is missing)
 - ActionKind taxonomy for richer streaming events
 
@@ -329,20 +333,20 @@ runtime cache. Session guards block unrelated messages.
 `originalMessageId` → `platformMessageId` lookup enables
 threaded research delivery back to origin message.
 
-### What nanoclaw should adopt
+### What kanipi should adopt
 
 - XML context bundles for facts/knowledge injection
   (matches Anthropic's recommendation; see `xml-vs-json-llm.md`)
 - Two-phase verification: Opus researches, Sonnet refutes
-- YAML facts repo pattern for nanoclaw's long-term memory
-  (see `../v2/memory-facts.md`)
+- YAML facts repo pattern for kanipi's long-term memory
+  (see `specs/2/3-memory-facts.md`)
 - HelpSessionManager TTL pattern for scoped agent sessions
 
 ---
 
 ## Cross-cutting comparison
 
-| Pattern        | brainpro                            | takopi                        | eliza-atlas           | nanoclaw                  |
+| Pattern        | brainpro                            | takopi                        | eliza-atlas           | kanipi                    |
 | -------------- | ----------------------------------- | ----------------------------- | --------------------- | ------------------------- |
 | Routing        | Session-per-channel-target          | Thread-per-message            | Room-per-workspace    | Group-per-JID             |
 | Resume         | Session UUID (uuid.json)            | Resume token (`engine:value`) | Session+message ID    | Session folder            |
@@ -354,19 +358,19 @@ threaded research delivery back to origin message.
 
 ---
 
-## Concrete adoptions for nanoclaw
+## Concrete adoptions for kanipi
 
 ### P0 — this sprint
 
-**Hierarchical group routing** (see `group-routing.md`)
+**Hierarchical group routing** (see `specs/1/F-group-routing.md`)
 Builds on: takopi ThreadScheduler (FIFO per thread), brainpro
 ChannelSessionMap (session per target). Groups form a tree;
 parent routes to children by command/pattern/delegation.
 
-**MCP sidecar isolation** (see `isolation.md`)
-Builds on: nanoclaw `sidecar/whisper/`, brainpro MCP config.toml,
-eliza-atlas service model. Each MCP server in its own container
-with unix socket transport. Gateway manages lifecycle.
+**MCP server isolation** (see `specs/1/isolation.md`)
+Builds on: brainpro MCP config.toml, eliza-atlas service model.
+Each MCP server in its own container with unix socket transport.
+Gateway manages lifecycle.
 
 ### P1
 
@@ -414,10 +418,10 @@ class SpawnCircuitBreaker {
 Wrap memory/facts injection in XML tags for system prompt.
 `<context_bundle>` with `<facts>`, `<session>`, `<history>`.
 Research shows Claude parses XML structure better than plain
-text for prompt sections (see `../xml-vs-json-llm.md`).
+text for prompt sections (see `specs/res/xml-vs-json-llm.md`).
 
 **Two-phase fact verification** — from eliza-atlas.
-When agent writes to `facts/`, gateway or a sidecar runs
+When agent writes to `facts/`, gateway or a verifier runs
 Sonnet to attempt refutation. Rejects findings without
 source evidence. Prevents fact file pollution.
 

@@ -1,3 +1,7 @@
+---
+status: shipped
+---
+
 # System Messages
 
 Gateway-generated annotations riding alongside user messages
@@ -118,10 +122,3 @@ them back to user verbatim.
 
 `/ping`, `/chatid` — reply only, no agent involvement.
 Channel join/leave — gateway-internal.
-
-## Open
-
-- `enqueueSystemMessage` / `flushSystemMessages` in db.ts
-- `sessions` table write/update in container-runner.ts
-- `new-session` injection: build `<previous_session>` block
-- Agent self-persona: add system messages to SKILL.md

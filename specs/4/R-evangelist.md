@@ -1,6 +1,8 @@
-# Evangelist
+---
+status: planned
+---
 
-**Status**: open
+# Evangelist
 
 Community engagement agent. Watches external content sources
 (reddit first, then twitter/discord/forums), makes sense of

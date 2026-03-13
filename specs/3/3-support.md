@@ -1,3 +1,7 @@
+---
+status: spec
+---
+
 # Code Researcher
 
 A kanipi product configuration that turns a group into a codebase Q&A
@@ -42,7 +46,7 @@ jobs stream interim updates via `send_message` IPC.
 
 ## Kanipi changes required
 
-### 1. Extra mount config (already partially specced in `specs/1/g-files.md`)
+### 1. Extra mount config (already partially specced in `specs/1/D-files-in.md`)
 
 Instance `.env` gains:
 

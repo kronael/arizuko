@@ -1,3 +1,7 @@
+---
+status: shipped
+---
+
 # Agent Self-Extension
 
 How the agent extends itself across sessions. Runs Claude
@@ -28,7 +32,7 @@ Agent-runner merges with built-in `nanoclaw` server.
   "mcpServers": {
     "mytools": {
       "command": "node",
-      "args": ["/workspace/group/tools/myserver.js"]
+      "args": ["/home/node/tools/myserver.js"]
     }
   }
 }
@@ -57,8 +61,7 @@ const allowedTools = [...builtinTools, ...mcpWildcards];
 - Agent can only run binaries inside container (sandboxed)
 - `nanoclaw` cannot be overridden (spread order)
 - Agent MCP servers are container-local, no gateway access
-- For isolated MCP servers (own containers), see `mcp-sidecar.md`
-  — agent requests sidecars via `request_sidecar` IPC action
+- For isolated MCP servers (own containers), see phase 3 specs
 
 ### Gateway settings preservation
 
@@ -71,9 +74,8 @@ Agent-runner source (`container/agent-runner/src/`) is mounted
 into the container at `/app/src`. The entrypoint recompiles
 with `tsc` on every spawn to pick up agent self-modifications.
 
-Gateway copies source to `data/sessions/<group>/agent-runner-src/`
-on first spawn. Agent can modify its own runner code; changes
-take effect on next spawn after recompilation.
+Agent can modify its own runner code; changes take effect on
+next spawn after recompilation.
 
 **Build pipeline**: `make build` compiles agent-runner locally.
 `make lint` and pre-commit typecheck it. The Dockerfile also

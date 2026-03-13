@@ -1,4 +1,8 @@
-# v1/introspection — Agent capability introspection and configuration
+---
+status: shipped
+---
+
+# introspection — Agent capability introspection and configuration
 
 ## Problem
 
@@ -19,7 +23,7 @@ spec formalises both.
 
 ## Gateway capabilities manifest
 
-Gateway writes `/workspace/group/.gateway-caps` on each container spawn.
+Gateway writes `/home/node/.gateway-caps` on each container spawn.
 TOML format. Agent reads it to know what's enabled and configurable.
 
 ```toml
@@ -46,7 +50,7 @@ spawn). Agent uses it to give accurate answers about capabilities.
 
 ## Agent-writable configuration files
 
-Files the agent creates/edits in `/workspace/group/`:
+Files the agent creates/edits in `/home/node/`:
 
 | File                | Type        | Effect                                       |
 | ------------------- | ----------- | -------------------------------------------- |
@@ -74,7 +78,7 @@ ru
 
 ## Gateway-caps implementation notes
 
-- Written in `container-runner.ts` before `runContainerAgent`, alongside
+- Written in `container-runner.ts` before `runContainerCommand`, alongside
   the existing tasks/groups snapshots
 - Derive from live config constants — no separate config read
 - Agent treats it as advisory; missing file = assume defaults

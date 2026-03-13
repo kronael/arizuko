@@ -1,6 +1,8 @@
-# Social Actions — Outbound
+---
+status: shipped
+---
 
-**Status**: open
+# Social Actions — Outbound
 
 Outbound actions for social platforms. Not a new interface —
 entries in the existing action registry, exposed as MCP tools.
@@ -13,19 +15,19 @@ Gateway resolves platform from JID prefix.
 | `post`        | reddit, twitter, mastodon, bluesky, fb, threads |
 | `reply`       | all                                             |
 | `react`       | all                                             |
-| `repost`      | twitter, mastodon, bluesky                      |
+| `repost`      | twitter, mastodon, bluesky, reddit              |
 | `follow`      | reddit, twitter, mastodon, bluesky              |
-| `unfollow`    | reddit, twitter, mastodon, bluesky              |
+| `unfollow`    | reddit, mastodon, bluesky                       |
 | `set_profile` | mastodon, bluesky, reddit                       |
 | `delete_post` | all                                             |
 | `edit_post`   | reddit, mastodon, fb                            |
 | `close`       | gateway (marks thread group closed)             |
 | `delete`      | gateway (removes thread group)                  |
-| `ban`         | reddit, discord, twitch, youtube, mastodon      |
-| `unban`       | reddit, discord, twitch, mastodon               |
+| `ban`         | reddit, discord, twitch, youtube, mastodon, fb  |
+| `unban`       | reddit, discord, twitch, mastodon, fb           |
 | `timeout`     | discord, twitch, youtube                        |
 | `mute`        | reddit, twitter, mastodon, bluesky              |
-| `block`       | twitter, mastodon, bluesky, twitch              |
+| `block`       | twitter, mastodon, bluesky, twitch, fb          |
 | `pin`         | reddit, mastodon, discord                       |
 | `unpin`       | reddit, mastodon, discord                       |
 | `lock`        | reddit, discord                                 |
@@ -103,10 +105,36 @@ All schemas use Zod. `jid` determines platform via prefix.
 These are the MCP tool names — generic verbs. The handler
 switches on platform internally. See `U-channel-actions.md`.
 
-## Open
+## Resolved decisions
 
-- Media upload flow — presigned URLs or inline base64?
-- Rate limit tracking per platform per JID
-- Retry/backoff strategy for transient failures
-- Content length validation per platform
-- Thread-aware posting (tweet threads, reddit comment chains)
+- **Media upload**: file path on disk. Agent writes media
+  to group folder, passes path. Gateway uploads via platform
+  client. No presigned URLs, no base64.
+- **Rate limits**: exponential backoff (1s, 2s, 4s, max 60s).
+  Return structured error `{ error: 'rate_limited', retry_after_ms }`.
+  Agent decides whether to retry.
+- **Content length**: gateway validates per platform before
+  sending. On exceed: return error with max length, don't
+  truncate or split. Agent rewrites.
+- **Thread-aware posting**: not in this milestone. `post`
+  creates standalone content. Thread continuation is future
+  work (add `thread` field to post schema later).
+
+## Scope
+
+This milestone: register the 27 action handlers in
+`src/actions/social.ts` with generic verb names. Handlers
+switch on `platformFromJid()`. Only mastodon and bluesky
+channels implemented (build-first tier). Other platforms
+are stubs that return "not implemented" errors.
+
+## Acceptance criteria
+
+1. `src/actions/social.ts` exports all 27 actions
+2. Actions registered in `src/ipc.ts` alongside existing actions
+3. `platformFromJid()` utility in `src/router.ts`
+4. Client registry (`registerClient`/`unregisterClient`) works
+5. Mastodon: post, reply, react, repost, follow work end-to-end
+6. Bluesky: post, reply, react, repost, follow work end-to-end
+7. Other platforms return structured "not implemented" error
+8. All existing tests pass

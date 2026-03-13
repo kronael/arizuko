@@ -1,3 +1,7 @@
+---
+status: planned
+---
+
 # Agent Routing & Specialized Workers — open (v2)
 
 Pipeline-based message routing to specialized agents within a group.
@@ -54,7 +58,7 @@ A worker definition:
 {
   "name": "coder",
   "trigger": "/code",
-  "image": "nanoclaw-agent-coder:latest",
+  "image": "kanipi-agent-coder:latest",
   "claudeMd": "container/workers/coder/CLAUDE.md"
 }
 ```
@@ -72,7 +76,7 @@ inbound message
   → routing rules (command / keyword / delegation)
   → worker selected
   → worker queue (same GroupQueue, different slot key)
-  → runContainerAgent with worker config
+  → runContainerCommand with worker config
   → response back to channel
 ```
 

@@ -1,3 +1,7 @@
+---
+status: spec
+---
+
 # Message MCP -- v2
 
 MCP tools for agent-side message history queries.
@@ -30,5 +34,5 @@ For v2, parent channel ID passed explicitly.
 
 ## Open
 
-- MCP sidecar interface design
+- MCP server interface design
 - Auth: agent can only query own group's messages

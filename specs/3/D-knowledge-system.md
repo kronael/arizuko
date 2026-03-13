@@ -1,6 +1,8 @@
-# Knowledge System
+---
+status: partial
+---
 
-**Status**: partial
+# Knowledge System
 
 The pattern underlying diary, facts, episodes, and user context.
 Each is an instance of: markdown files in a directory, with
@@ -8,14 +10,14 @@ summaries selected and injected into agent context.
 
 ## Memory Layers
 
-| Layer    | Spec                    | Status  | Storage   |
-| -------- | ----------------------- | ------- | --------- |
-| Messages | memory-messages.md      | shipped | DB (SQL)  |
-| Session  | memory-session.md       | shipped | SDK (.jl) |
-| Managed  | memory-managed.md       | shipped | Files     |
-| Diary    | memory-diary.md         | shipped | Files     |
-| Facts    | v1m1/memory-facts.md    | v2      | Files     |
-| Episodes | v1m2/memory-episodic.md | v2      | Files     |
+| Layer    | Spec                   | Status  | Storage   |
+| -------- | ---------------------- | ------- | --------- |
+| Messages | memory-messages.md     | shipped | DB (SQL)  |
+| Session  | memory-session.md      | shipped | SDK (.jl) |
+| Managed  | memory-managed.md      | shipped | Files     |
+| Diary    | memory-diary.md        | shipped | Files     |
+| Facts    | 2/3-memory-facts.md    | v2      | Files     |
+| Episodes | 3/B-memory-episodic.md | v2      | Files     |
 
 Diary has agent-side skills (write/read) and gateway-side injection
 (shipped v0.7.0). Other push layers (user context, episodes) not yet

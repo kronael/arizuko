@@ -1,6 +1,8 @@
-# Channel Actions — Dynamic Registration and Filtered Manifest
+---
+status: shipped
+---
 
-**Status**: open
+# Channel Actions — Dynamic Registration and Filtered Manifest
 
 Each social channel registers its outbound actions on connect.
 The gateway filters the manifest per group so agents only see
@@ -147,9 +149,15 @@ passes group context so the manifest only includes actions
 the agent can actually use.
 
 ```typescript
+// permissionTier: src/config.ts (existing)
+// jidsForGroup: iterate registeredGroups(), collect JIDs
+//   where group.folder === sourceGroup or startsWith
 export function getManifest(sourceGroup: string): ManifestEntry[] {
   const tier = permissionTier(sourceGroup);
-  const groupJids = jidsForGroup(sourceGroup);
+  const groups = registeredGroups();
+  const groupJids = Object.entries(groups)
+    .filter(([_, g]) => g.folder === sourceGroup)
+    .map(([jid]) => jid);
   const platforms = groupJids.map(platformFromJid).filter(Boolean);
 
   return [...actions.values()]
@@ -285,7 +293,27 @@ No agent-runner changes. Existing hardcoded tools still work.
 3. Actions include `platforms` array for manifest filtering
 4. Agent sees only tools supported by its group's platforms
 
-## Open
+## Scope
 
-- Rate limit errors — structured error for agent retry?
-- Media upload — presigned URL or stream through gateway?
+Phase 1 and Phase 2 are this milestone. Phase 3 (social
+channel actions) ships alongside the first social channels
+(mastodon, bluesky).
+
+Existing channels (telegram, whatsapp, discord, email) stay
+as-is — single-file structure, no migration to the
+`src/channels/{platform}/` directory pattern. New social
+channels use the new pattern. Existing channels gain
+`minTier` annotations on their actions but no structural
+change.
+
+## Acceptance criteria
+
+1. `Action` interface has `minTier` and `platforms` fields
+2. `unregisterAction()` exists in action-registry
+3. `getManifest(sourceGroup, opts)` filters by tier + platforms
+4. `drainRequests` passes sourceGroup to getManifest
+5. Existing actions annotated with `minTier` where applicable
+6. Agent-runner fetches manifest and registers tools dynamically
+7. `list_tasks` kept as special case in agent-runner
+8. `ipc-mcp-stdio.ts` < 100 lines (down from ~400)
+9. All existing tests pass

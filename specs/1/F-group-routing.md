@@ -1,339 +1,168 @@
-# Hierarchical Group Routing
-
-Any group can define routing rules for child groups beneath
-it. A parent group decides how inbound messages flow to
-its children — statically via rules, or dynamically via
-IPC delegation from its agent.
-
-Builds on `specs/1/e-worlds.md` (Phase 1 shipped: `/`
-separator, `isRoot()`, glob matching via minimatch).
-
+---
+status: shipped
 ---
 
-## Group tree model
+# Gateway Routing
 
-Group folder hierarchy mirrors a file path:
+The gateway has one routing table. Messages arrive on a JID,
+the router scans the table, and resolves a destination folder.
+Groups are folder configs — they don't own JIDs or routing
+rules.
 
-```
-main          ← root (isRoot = true)
-main/code     ← child of main
-main/code/py  ← grandchild
-team          ← another root
-team/alice    ← child of team
-team/bob      ← child of team
-```
+## Concepts
 
-`parent` = folder with one fewer segment. Root groups
-have no parent. A group is a parent if any registered
-group has it as a prefix.
+- **JID** — a chat identifier (`telegram:123`, `discord:456`).
+  The source of inbound messages. Not owned by any group.
+- **Group** — a folder with config (name, container_config,
+  tier). Receives messages via routing or delegation. Has no
+  JID.
+- **Route** — a rule in the routing table. Maps a JID +
+  condition to a destination folder.
 
-**Channel bindings** live on the parent (or root). Child
-groups have no JID of their own — they are addressed by
-folder. Responses from children are sent to the originating
-JID.
+## Routing table
 
----
-
-## Routing rules
-
-A parent group holds a JSON array `routing_rules`. Each
-rule maps a condition to a target child folder.
-
-```typescript
-type RoutingRule =
-  | { type: 'command'; trigger: string; target: string }
-  | { type: 'pattern'; pattern: string; target: string }
-  | { type: 'keyword'; keyword: string; target: string }
-  | { type: 'sender'; pattern: string; target: string }
-  | { type: 'default'; target: string };
-```
-
-| Field     | Description                                      |
-| --------- | ------------------------------------------------ |
-| `type`    | Rule kind (command / pattern / keyword / sender) |
-| `trigger` | Command prefix (`/code`, `/research`)            |
-| `pattern` | Regex against full message text                  |
-| `keyword` | Substring match (case-insensitive)               |
-| `target`  | Target child folder (`main/code`, `team/alice`)  |
-
-`sender` matches against the sender JID or display name.
-
-### Evaluation order
-
-For each inbound message on a parent-bound JID:
-
-1. **Exact command** — message starts with `trigger` value
-2. **Pattern** — regex matches message text
-3. **Keyword** — case-insensitive substring in message
-4. **Sender** — regex matches sender name or JID
-5. **Default** — catch-all, if present
-6. **No match** — message handled by parent group itself
-
-First matching rule wins. Rules evaluated in array order
-within each type tier.
-
----
-
-## IPC delegation
-
-A parent's agent can delegate dynamically at runtime by
-writing an IPC request:
-
-```json
-{
-  "id": "1709693200000-abc123",
-  "type": "delegate_group",
-  "group": "main/code",
-  "prompt": "Fix the type error in src/db.ts",
-  "chatJid": "tg:-100123456"
-}
-```
-
-| Field     | Description                              |
-| --------- | ---------------------------------------- |
-| `group`   | Target child folder (must be registered) |
-| `prompt`  | Prompt to send to the child agent        |
-| `chatJid` | Originating JID (for reply routing)      |
-
-Gateway reply:
-
-```json
-{ "id": "...", "ok": true, "result": { "queued": true } }
-```
-
-The child agent's response is sent back to the originating
-JID via `sendMessage`. Delegation is fire-and-queue: the
-parent's current container does not wait for the child to
-finish. The child runs in its own GroupQueue slot.
-
-Authorization: direct parent → child only. Source group
-must be the immediate parent of the target (exactly one
-segment deeper, same world prefix). Root groups may
-delegate to their own direct children only — not to
-grandchildren or cross-world groups. A child cannot
-delegate to siblings, ancestors, or groups in other
-worlds.
-
----
-
-## Schema changes
-
-New columns on `registered_groups`:
+One flat ordered table in the gateway. Each row:
 
 ```sql
-ALTER TABLE registered_groups ADD COLUMN parent TEXT;
-ALTER TABLE registered_groups ADD COLUMN routing_rules TEXT;
+CREATE TABLE routes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  jid TEXT NOT NULL,         -- which JID this rule applies to
+  seq INTEGER NOT NULL,      -- evaluation order (lower first)
+  type TEXT NOT NULL,        -- command/verb/pattern/keyword/sender/default
+  match TEXT,                -- trigger/pattern/keyword/verb value
+  target TEXT NOT NULL       -- destination folder
+);
 ```
 
-| Column          | Type | Description                            |
-| --------------- | ---- | -------------------------------------- |
-| `parent`        | TEXT | Parent folder, NULL for roots          |
-| `routing_rules` | TEXT | JSON array of `RoutingRule[]`, NULL=[] |
+### Evaluation
 
-`parent` is informational — routing lookups use folder
-prefix matching. `routing_rules` is only read on the
-parent; child rows ignore it.
+Message arrives on JID:
 
-Migration: existing rows get `parent = NULL`,
-`routing_rules = NULL`.
+1. Select all routes for that JID, ordered by `seq`
+2. Scan rules, first match wins:
+   - `command` — message starts with `match` value
+   - `verb` — message verb equals `match`
+   - `pattern` — regex `match` against message text
+   - `keyword` — case-insensitive substring
+   - `sender` — regex `match` against sender name/JID
+   - `default` — always matches (catch-all)
+3. Match found → destination folder. No match → drop (no
+   group handles this JID).
 
-`register_group` action gains optional `parent` param.
-Setting `parent` does not require the parent to exist yet
-(allows bottom-up registration).
+No hops, no chains. One scan, one destination.
 
----
+### Example
 
-## Gateway changes
+```
+routes for telegram:REDACTED (DM):
+  seq=0  command  @root    → root
+  seq=1  default  *        → atlas
 
-### router.ts
+routes for telegram:-1003805633088 (group chat):
+  seq=0  default  *        → atlas/support
+```
 
-Add `resolveRoutingTarget()`:
+DM message "hello" → atlas. DM message "@root status" → root.
+Group message → atlas/support.
+
+## Groups table
+
+Groups are folder configs. No JID, no routing rules.
+
+## Channel JID check
+
+Channels check `isRoutedJid(jid)` — a boolean that answers "does any
+route exist for this JID?". They do not receive or use GroupConfig.
+The concept of "a group for a JID" does not exist in flat routing.
+One JID can route to different folders based on message content.
+
+```sql
+CREATE TABLE groups (
+  folder TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  added_at TEXT NOT NULL,
+  container_config TEXT,
+  parent TEXT
+);
+```
+
+Tier is derived from folder path (same as today):
 
 ```typescript
-function resolveRoutingTarget(
-  msg: NewMessage,
-  rules: RoutingRule[],
-): string | null {
-  for (const rule of rules) {
-    if (rule.type === 'command') {
-      if (
-        msg.content.startsWith(rule.trigger + ' ') ||
-        msg.content === rule.trigger
-      )
-        return rule.target;
-    } else if (rule.type === 'pattern') {
-      if (new RegExp(rule.pattern).test(msg.content)) return rule.target;
-    } else if (rule.type === 'keyword') {
-      if (msg.content.toLowerCase().includes(rule.keyword.toLowerCase()))
-        return rule.target;
-    } else if (rule.type === 'sender') {
-      const s = msg.sender_name ?? msg.sender;
-      if (new RegExp(rule.pattern).test(s)) return rule.target;
-    } else if (rule.type === 'default') {
-      return rule.target;
-    }
-  }
-  return null;
+function permissionTier(folder: string): 0 | 1 | 2 | 3 {
+  if (folder === 'root') return 0;
+  return Math.min(folder.split('/').length, 3);
 }
 ```
 
-`processGroupMessages` calls this after trigger check, before
-`runContainerAgent`. If a target is found, the message is
-enqueued for the child group instead.
+## IPC actions
 
-### group-queue.ts
+### Routing (gateway-level)
 
-`GroupQueue` is already keyed by an opaque string ID.
-Child groups use their folder as the queue key (not a JID).
-No structural changes needed — `enqueueMessageCheck` and
-`enqueueTask` accept any string key.
+- `get_routes` — read routes for a JID (or all)
+- `add_route` — add a single route rule for a JID
+- `delete_route` — remove a route rule by ID
 
-`processMessagesFn` is invoked with the child folder key.
-The calling code must look up the child group by folder
-and use the originating JID for `sendMessage` responses.
+Tier 0 can modify any routes. Tier 1 can modify routes
+targeting folders in its own subtree. Tier 2+ cannot
+modify routes.
 
-Add `delegateToChild()` helper in `index.ts`:
+### Delegation (agent-level)
+
+- `delegate_group` — send a prompt to another group's
+  agent. Root world can delegate anywhere. Others can
+  only delegate to descendants in the same world.
+- `escalate_group` — send a prompt to the parent group.
+
+Delegation is an agent choice at runtime. Routing is
+gateway-level, pre-spawn.
+
+## IPC delegation auth
+
+Root world groups (`root`, `root/*`) can delegate to any
+folder. Other groups can only delegate to descendants in
+their own subtree.
 
 ```typescript
-async function delegateToChild(
-  childFolder: string,
-  prompt: string,
-  originJid: string,
-): Promise<void> {
-  const child = registeredGroups[childFolder];
-  if (!child) return; // unregistered child, silently drop
-  queue.enqueueMessageCheck(childFolder);
-  // store synthetic message for the child's folder/JID
+function isAuthorizedRoutingTarget(src: string, dst: string): boolean {
+  if (src.split('/')[0] === 'root') return true;
+  const srcWorld = src.split('/')[0];
+  const dstWorld = dst.split('/')[0];
+  if (srcWorld !== dstWorld) return false;
+  return dst.startsWith(src + '/');
 }
 ```
 
----
+## Migration from registered_groups
 
-## Examples
+**Done** (migration 0005). The old `registered_groups` table
+merged JID mapping, group config, and routing rules into one row.
+It has been replaced by:
 
-### 1. Root routes `/code` to child group
+1. `groups` table — folder-keyed config (name, container_config,
+   parent, trigger_pattern, slink_token, etc.)
+2. `routes` table — flat JID → folder routing rules
+3. `registered_groups` table dropped
 
-Root group `main` (JID `telegram:-100111`) has:
+## Error handling
 
-```json
-{
-  "folder": "main",
-  "routing_rules": [
-    { "type": "command", "trigger": "/code", "target": "main/code" }
-  ]
-}
-```
+**No route match**: Message is stored but not processed.
+Gateway logs at debug level. No agent runs.
 
-Child group `main/code` registered:
+**Route match, delegation fails** (target can't spawn):
+Message cursor advances (marked as processed). Gateway
+logs error. No retry — message is "dropped" but still in
+DB for parent access via MCP message history tools.
 
-```json
-{ "folder": "main/code", "parent": "main", "requires_trigger": 0 }
-```
+**Authorization check**: Happens at route creation time
+(IPC actions), not at runtime. If a route exists, it's
+followed. Bad routes in DB are the operator's problem.
 
-Message `/code fix the null check` arrives on
-`telegram:-100111`:
-
-1. Gateway finds group `main` via JID lookup
-2. `resolveRoutingTarget` matches `command` rule
-3. Message enqueued for `main/code` GroupQueue slot
-4. `main/code` container spawned; response sent back to
-   `telegram:-100111`
-
-The `/code` prefix can be stripped before the child sees
-it (configurable per rule, default: strip).
-
-### 2. Team parent routes by sender to per-person children
-
-Group `team` (JID `discord:12345`) has:
-
-```json
-{
-  "folder": "team",
-  "routing_rules": [
-    { "type": "sender", "pattern": "alice", "target": "team/alice" },
-    { "type": "sender", "pattern": "bob", "target": "team/bob" },
-    { "type": "default", "target": "team/shared" }
-  ]
-}
-```
-
-Message from Alice → routes to `team/alice` (own session,
-CLAUDE.md, skills). Message from unknown → `team/shared`.
-
-Each child maintains its own session history in
-`data/sessions/team/<name>/`.
-
-### 3. Parent agent delegates dynamically via IPC
-
-Parent `main` processes a message: "can you deploy the
-app and then summarize the logs?". The agent decides
-to split the work:
-
-```
-Agent in main:
-  calls mcp__nanoclaw__delegate_group
-    { "group": "main/deploy", "prompt": "deploy the app" }
-  calls mcp__nanoclaw__delegate_group
-    { "group": "main/logs",   "prompt": "summarize recent logs" }
-```
-
-Gateway receives both delegate requests, enqueues both
-child groups. They can run in parallel (subject to
-`MAX_CONCURRENT_CONTAINERS`). Each child sends its
-response back to the originating JID independently.
-
-`delegate_group` is registered as a gateway action
-(see `specs/1/0-actions.md`), exposed as an MCP tool
-via the action manifest.
-
----
-
-## Prior art
-
-- **brainpro** (muaddib): One session per `ChannelTarget`.
-  No intra-channel routing. Subagents defined in
-  `.brainpro/agents/<name>.toml` with restricted tool sets
-  — closest analog to child groups.
-- **takopi**: Per-thread FIFO queues. Thread = routing key.
-  Thread-aware routing with resume tokens. Parallel threads,
-  serialized within a thread. Projects bound to chat IDs —
-  static routing only.
-
-Key difference from `specs/1/1-agent-routing.md`: that
-spec covers workers within a single group (intra-group,
-same JID). This spec covers routing across distinct
-registered groups (inter-group, child groups with their
-own session and config). The IPC `delegate` message
-defined here can also drive `agent-routing.md` delegation.
-
----
-
-## Error handling: static vs dynamic
-
-**Static routing** (gateway message loop): if the target is
-unauthorized or missing, the gateway logs a warning and falls
-back to the parent agent. The message is not lost.
-
-**Dynamic routing** (`delegate_group` action): if the target
-is unauthorized, the action throws an error. The caller gets
-an error reply via IPC. This is intentional — the agent chose
-to delegate explicitly and should handle the failure.
+**Dynamic delegation** (`delegate_group`): unauthorized
+target → error reply via IPC. The agent handles it.
 
 ## Open
 
-- Strip command prefix before child sees it: per-rule flag
-  or always-strip? Default proposal: strip.
-- Circular delegation: `main` delegates to `main/code`
-  which delegates back. Detect via delegation depth counter
-  (max 3). Gateway enforces, not agent.
-- Child response threading: should child responses reply-to
-  the triggering message? Per-channel support varies.
-- Static rules evaluated on latest message only; multi-
-  message context (e.g., "route if last 3 messages from
-  same sender") is out of scope for v1.
-- `routing_rules` regex untrusted if operator-supplied —
-  validate patterns on insert, reject malformed.
-- Broadcast mode: send to multiple children (no winner).
-  Out of scope for v1.
-- Phase 4 (worlds.md): tree-scoped IPC auth — planned.
-  Direct parent→child enforced; cross-world blocked.
+- Strip command prefix before child sees it: per-rule flag or always-strip?
+- Broadcast mode: route to multiple targets. Out of scope.
+- Wildcard JID routes (`*`) for catch-all across all chats.

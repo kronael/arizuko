@@ -1,6 +1,8 @@
-# Agent Code Modification (Staging Area)
+---
+status: planned
+---
 
-**Status**: not started
+# Agent Code Modification (Staging Area)
 
 ## Problem
 

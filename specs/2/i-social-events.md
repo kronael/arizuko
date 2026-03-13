@@ -1,6 +1,8 @@
-# Social Events — Unified Inbound Model
+---
+status: shipped
+---
 
-**Status**: open
+# Social Events — Unified Inbound Model
 
 Normalize inbound events from all platforms into a typed
 event struct. Gateway filters by impulse weights and routes
@@ -249,12 +251,14 @@ so every message flushes immediately — zero behavior change.
 
 Immediate events (weight ≥ threshold) are delivered as
 individual messages with full content. Batched events
-(weight < threshold) are formatted as a summary line
+(weight < threshold) are formatted as a plain text summary
 appended to the prompt:
 
 ```
 [5 reactions on post abc123, 3 reposts, 10 new followers]
 ```
+
+Plain text brackets — no XML for batched summaries.
 
 ## Routing by verb
 
@@ -330,21 +334,44 @@ See `T-social-actions.md`.
 
 ## JID format
 
-| Platform  | DM JID                     | Feed JID                        |
-| --------- | -------------------------- | ------------------------------- |
-| Reddit    | `reddit:u_{user}`          | `reddit:r_{sub}`                |
-| Twitter   | `x:{userId}`               | `x:{userId}:feed`               |
-| Mastodon  | `mastodon:{instance}:{id}` | `mastodon:{instance}:{id}:feed` |
-| Bluesky   | `bsky:{did}`               | `bsky:{did}:feed`               |
-| Twitch    | `twitch:{channel}`         | -                               |
-| YouTube   | `yt:{channelId}:live`      | `yt:{channelId}:comments`       |
-| Facebook  | `fb:{threadId}`            | `fb:page:{pageId}`              |
-| Instagram | `ig:{threadId}`            | `ig:biz:{accountId}`            |
-| Threads   | `threads:{userId}`         | -                               |
-| LinkedIn  | `li:page:{pageId}`         | -                               |
+| Platform  | DM JID                     | Feed JID                       |
+| --------- | -------------------------- | ------------------------------ |
+| Reddit    | `reddit:{username}`        | `reddit:r_{sub}`               |
+| Twitter   | `twitter:{userId}`         | `twitter:{userId}:feed`        |
+| Mastodon  | `mastodon:{id}`            | `mastodon:{id}:feed`           |
+| Bluesky   | `bluesky:{did}`            | `bluesky:{did}:feed`           |
+| Twitch    | `twitch:{channel}`         | -                              |
+| YouTube   | `youtube:{channelId}:live` | `youtube:{channelId}:comments` |
+| Facebook  | `facebook:{pageId}`        | `facebook:{pageId}:feed`       |
+| Instagram | `instagram:{threadId}`     | `instagram:biz:{accountId}`    |
+| Threads   | `threads:{userId}`         | -                              |
+| LinkedIn  | `linkedin:page:{pageId}`   | -                              |
 
-## Open
+## Resolved decisions
 
-- Batch summary format — XML tags or plain text brackets?
-- React `content` field carries reaction value (upvote, emoji)
-- Platform auth failure handling (disable, retry, alert)
+- **Batch summary**: plain text brackets (not XML)
+- **React content**: string — platform-native value (emoji,
+  "upvote", "downvote", "like"). Null if unavailable.
+- **Auth failure**: log error, mark channel disconnected,
+  reconnect on next loop tick. No alert system yet.
+
+## Scope
+
+This milestone implements the gateway-side InboundEvent type,
+impulse filter, verb routing, and XML format changes. Social
+channel watchers (mastodon, reddit, etc.) are separate work —
+this spec covers the shared infrastructure they plug into.
+
+Existing channels (telegram, whatsapp, discord, email) are
+updated to set `verb`, `platform`, `mentions_me` on their
+events. No structural changes to existing channel files.
+
+## Acceptance criteria
+
+1. `InboundEvent` type exists in `src/types.ts` with all fields
+2. `src/impulse.ts` passes unit tests (accumulate, flush, timeout)
+3. `formatMessages()` emits platform/verb/mentions_me attributes
+4. Existing channels set verb=Message and correct platform
+5. Telegram sets `mentions_me=true` on @bot mentions
+6. Verb routing rule type added, existing routing still works
+7. All existing tests pass (zero regression)

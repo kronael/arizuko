@@ -1,6 +1,17 @@
-# Memory: Session -- open
+---
+status: shipped
+---
+
+# Memory: Session
 
 SDK session continuity across container invocations.
+
+## Terminology
+
+- **SDK session**: The .jl transcript file (Claude Code native)
+- **Group session**: Per-group persistence, one active per group
+- **Container run**: Single invocation of agent container
+- **Session record**: DB row logging a completed run
 
 ## What it is
 
@@ -64,15 +75,16 @@ Gateway enqueues system messages (see `system-messages.md`):
 
 ```xml
 <system origin="gateway" event="new-session">
-  <previous_session id="9123f10a" started="..."
-    ended="..." msgs="42" result="ok"/>
+  <previous_session id="9123f10a"/>
+  <previous_session id="fa649547"/>
+  <previous_session id="3c8a12bb"/>
 </system>
 <system origin="diary" date="2026-03-04">
   discussed API design
 </system>
 ```
 
-- Last session ID for continuity tracing
+- Last 2 session IDs for continuity tracing
 - Last diary entry summary (if exists)
 - MEMORY.md loaded automatically by SDK
 
@@ -85,23 +97,13 @@ Gateway enqueues system messages (see `system-messages.md`):
 | Agent request  | IPC `reset_session`        | New session |
 | User `/new`    | Gateway detects            | New session |
 
-## Episode notes (REDACTED, Mar 2026)
+## `/new` routing
 
-Observed on live 4-day session (REDACTED, session 58f49dbe):
+`/new [message]` — clears the session for whatever group the router resolves
+for the incoming message. Optional message becomes the first prompt in the new
+session. Commands must not bypass routing.
 
-- Single session ran 4+ days without reset (IPC kept
-  container alive between user turns)
-- Full message replay on every restart (no checkpoint)
-- No fallback on crash/timeout — all context lost
-- SDK resume failure handling is urgent
+## Deferred
 
-## Open
-
-1. Gateway error handling on `status: error` — clear
-   stored session ID, notify user to retry
-2. Session ID history injection — store last 3 in DB
-3. Agent skills — document session layout in SKILL.md
-4. `sessions` table collapse into
-   `registered_groups.session_id`
-5. `reset_session` IPC — specced in `commands.md`
-6. `/new` detection — specced in `commands.md`
+- Sessions table collapse into `registered_groups.session_id` (cleanup only)
+- Agent SKILL.md session layout docs (cosmetic)

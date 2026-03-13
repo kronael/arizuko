@@ -1,13 +1,20 @@
+---
+status: shipped
+---
+
 # Memory: Messages
 
 Recent message history piped to agent on each invocation.
 
+See `specs/1/K-knowledge-system.md` for memory layer overview.
+
 ## Stdin envelope
 
-Agent receives a single `prompt` string — an envelope with
-system messages then message history:
+Agent receives a single `prompt` string — clock header,
+system messages, then message history:
 
 ```xml
+<clock time="2026-03-11T17:23:00.000Z" tz="Europe/Prague" />
 <system origin="gateway" event="new-session">
   <previous_session id="9123f10a" started="..."
     ended="..." msgs="42" result="ok"/>
@@ -16,14 +23,19 @@ system messages then message history:
   deployed REDACTED, auth flow open
 </system>
 <messages>
-  <message sender="Alice" time="...">hey</message>
-  <message sender="Bob" time="...">sure</message>
+  <message sender="Alice" sender_id="telegram:111218"
+           chat_id="telegram:-100123" chat="Support"
+           platform="telegram" time="..." ago="3h">hey</message>
+  <message sender="Bob" sender_id="telegram:222333"
+           chat_id="telegram:-100123" chat="Support"
+           platform="telegram" time="..." ago="1m">sure</message>
 </messages>
 ```
 
-1. **System messages** -- zero or more `<system>` blocks
+1. **Clock** -- `<clock>` with UTC time and timezone (initial prompt only)
+2. **System messages** -- zero or more `<system>` blocks
    (see `system-messages.md`)
-2. **Message history** -- `<messages>` block, always present
+3. **Message history** -- `<messages>` block, always present
 
 ## Message history -- shipped
 
@@ -41,8 +53,11 @@ regardless of age.
 </messages>
 ```
 
-Attributes: `sender` (display name or raw ID), `time`
-(ISO 8601), `reply_to` (open). Content XML-escaped.
+Attributes: `sender` (display name), `sender_id` (JID),
+`chat_id` (chat JID), `chat` (group name, when is_group),
+`platform`, `time` (ISO 8601), `ago` (relative time).
+Content XML-escaped. See `specs/3/H-jid-format.md` for
+full attribute table.
 Bot messages filtered (`is_bot_message = 0`).
 
 ## Session interaction

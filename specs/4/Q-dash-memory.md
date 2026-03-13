@@ -1,6 +1,8 @@
-# Dashboard: Memory View & Edit
+---
+status: planned
+---
 
-**Status**: open
+# Dashboard: Memory View & Edit
 
 Web UI for viewing and editing agent memory files (MEMORY.md,
 diary entries, facts). Operators can inspect what the agent

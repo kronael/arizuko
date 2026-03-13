@@ -1,7 +1,13 @@
-# Memory: Managed — shipped
+---
+status: shipped
+---
+
+# Memory: Managed
 
 Claude Code's built-in persistent memory. No custom code required.
 Automatic, always on. Agent controls content entirely.
+
+See `specs/1/K-knowledge-system.md` for memory layer overview.
 
 ## What it is
 
@@ -68,12 +74,12 @@ Mounted read-only into non-main groups via
 
 ## What belongs where
 
-| File                 | Content                                                             |
-| -------------------- | ------------------------------------------------------------------- |
-| `CLAUDE.md`          | Instructions, conventions, how to behave — authoritative rules      |
-| `MEMORY.md`          | Tacit knowledge — preferences, patterns, "how" things work          |
-| `facts/<concept>.md` | World facts — "what" things are (v2, see `../v1m1/memory-facts.md`) |
-| `diary/YYYYMMDD.md`  | Time-stamped events — "what happened" (v1, see `memory-diary.md`)   |
+| File                 | Content                                                           |
+| -------------------- | ----------------------------------------------------------------- |
+| `CLAUDE.md`          | Instructions, conventions, how to behave — authoritative rules    |
+| `MEMORY.md`          | Tacit knowledge — preferences, patterns, "how" things work        |
+| `facts/<concept>.md` | World facts — "what" things are (v2, see `memory-facts.md`)       |
+| `diary/YYYYMMDD.md`  | Time-stamped events — "what happened" (v1, see `memory-diary.md`) |
 
 MEMORY.md is for tacit/behavioural knowledge. Facts are for
 concept-centric world knowledge. Diary is for timestamped events.

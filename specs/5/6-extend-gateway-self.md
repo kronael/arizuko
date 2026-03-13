@@ -1,3 +1,7 @@
+---
+status: planned
+---
+
 # Gateway Self-Modification — open
 
 How the root agent modifies the gateway itself. Beyond agent

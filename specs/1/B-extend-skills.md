@@ -1,3 +1,7 @@
+---
+status: shipped
+---
+
 # Skills -- shipped
 
 Markdown instruction sets loaded into every agent container.

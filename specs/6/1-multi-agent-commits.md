@@ -1,3 +1,7 @@
+---
+status: planned
+---
+
 # Multi-Agent Commit Coordination
 
 When multiple agents work on a single repo (e.g. kanipi dev with
