@@ -678,15 +678,6 @@ func routesNeedTrigger(routes []core.Route) bool {
 	return false
 }
 
-// resolveFolder resolves the group folder for a chat JID.
-// local: JIDs resolve by convention (strip prefix). Others use DB default route.
-func (g *Gateway) resolveFolder(jid string) string {
-	if strings.HasPrefix(jid, "local:") {
-		return jid[6:]
-	}
-	return g.store.GetDefaultTarget(jid)
-}
-
 func resolveTarget(msg core.Message, routes []core.Route, selfFolder string) string {
 	if len(routes) == 0 {
 		return ""
