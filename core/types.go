@@ -15,6 +15,7 @@ type Message struct {
 	FromMe        bool
 	BotMsg        bool
 	ForwardedFrom string
+	ReplyToID     string
 	ReplyToText   string
 	ReplyToSender string
 }

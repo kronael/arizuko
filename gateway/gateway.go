@@ -377,7 +377,19 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	g.emitSystemEvents(group, chatJid)
 
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
-	prompt := sysMsgs + router.FormatMessages(msgs)
+
+	var userCtx string
+	if last.Sender != "" {
+		if gp, err := g.folders.GroupPath(group.Folder); err == nil {
+			userCtx = router.UserContextXml(last.Sender, gp)
+		}
+	}
+
+	prompt := sysMsgs
+	if userCtx != "" {
+		prompt += userCtx + "\n"
+	}
+	prompt += router.FormatMessages(msgs)
 
 	if ch != nil {
 		ch.Typing(chatJid, true)
@@ -390,7 +402,11 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		func(text, status string) {
 			if text != "" {
 				hadOutput = true
-				clean := router.FormatOutbound(text)
+				stripped, statuses := router.ExtractStatusBlocks(text)
+				for _, s := range statuses {
+					g.sendMessage(chatJid, s)
+				}
+				clean := router.FormatOutbound(stripped)
 				if clean != "" {
 					g.sendMessage(chatJid, clean)
 				}

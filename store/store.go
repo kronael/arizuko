@@ -77,8 +77,17 @@ func (s *Store) migrate() error {
 	if ver < 3 {
 		s.migrateV3()
 		s.db.Exec("PRAGMA user_version = 3")
+		ver = 3
+	}
+	if ver < 4 {
+		s.migrateV4()
+		s.db.Exec("PRAGMA user_version = 4")
 	}
 	return nil
+}
+
+func (s *Store) migrateV4() {
+	s.db.Exec(`ALTER TABLE messages ADD COLUMN reply_to_id TEXT`)
 }
 
 func (s *Store) migrateV2() {
@@ -178,6 +187,7 @@ var schema = []string{
 		is_from_me INTEGER DEFAULT 0,
 		is_bot_message INTEGER DEFAULT 0,
 		forwarded_from TEXT,
+		reply_to_id TEXT,
 		reply_to_text TEXT,
 		reply_to_sender TEXT
 	)`,

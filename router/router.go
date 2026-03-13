@@ -1,6 +1,8 @@
 package router
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -27,7 +29,28 @@ func FormatMessages(msgs []core.Message) string {
 		b.WriteString(EscapeXml(name))
 		b.WriteString(`" time="`)
 		b.WriteString(m.Timestamp.Format("2006-01-02T15:04:05Z"))
-		b.WriteString(`">`)
+		b.WriteString(`"`)
+		if m.ReplyToID != "" {
+			b.WriteString(` reply_to="`)
+			b.WriteString(EscapeXml(m.ReplyToID))
+			b.WriteString(`"`)
+		}
+		b.WriteString(`>`)
+		if m.ReplyToText != "" {
+			b.WriteString(`<reply_to sender="`)
+			rSender := m.ReplyToSender
+			if rSender == "" {
+				rSender = "unknown"
+			}
+			b.WriteString(EscapeXml(rSender))
+			if m.ReplyToID != "" {
+				b.WriteString(`" id="`)
+				b.WriteString(EscapeXml(m.ReplyToID))
+			}
+			b.WriteString(`">`)
+			b.WriteString(EscapeXml(m.ReplyToText))
+			b.WriteString("</reply_to>")
+		}
 		b.WriteString(EscapeXml(m.Content))
 		b.WriteString("</message>\n")
 	}
@@ -53,9 +76,99 @@ func SpawnFolderName(jid string) string {
 }
 
 var internalRe = regexp.MustCompile(`(?s)<internal>.*?</internal>`)
+var statusRe = regexp.MustCompile(`(?s)<status>(.*?)</status>`)
 
 func FormatOutbound(raw string) string {
-	return strings.TrimSpace(internalRe.ReplaceAllString(raw, ""))
+	s := internalRe.ReplaceAllString(raw, "")
+	s = StripThinkBlocks(s)
+	s = statusRe.ReplaceAllString(s, "")
+	return strings.TrimSpace(s)
+}
+
+// ExtractStatusBlocks removes <status> blocks and returns them separately.
+func ExtractStatusBlocks(s string) (string, []string) {
+	var statuses []string
+	cleaned := statusRe.ReplaceAllStringFunc(s, func(m string) string {
+		sub := statusRe.FindStringSubmatch(m)
+		if len(sub) > 1 {
+			t := strings.TrimSpace(sub[1])
+			if t != "" {
+				statuses = append(statuses, t)
+			}
+		}
+		return ""
+	})
+	return cleaned, statuses
+}
+
+// StripThinkBlocks removes <think>...</think> blocks including nested ones.
+func StripThinkBlocks(s string) string {
+	var b strings.Builder
+	depth := 0
+	i := 0
+	for i < len(s) {
+		if strings.HasPrefix(s[i:], "<think>") {
+			depth++
+			i += 7
+		} else if strings.HasPrefix(s[i:], "</think>") && depth > 0 {
+			depth--
+			i += 8
+		} else if depth == 0 {
+			b.WriteByte(s[i])
+			i++
+		} else {
+			i++
+		}
+	}
+	return b.String()
+}
+
+var platformShort = map[string]string{
+	"telegram": "tg", "whatsapp": "wa", "discord": "dc",
+	"email": "em", "web": "web",
+}
+
+// SenderToUserFileID converts "platform:id" to short file ID (e.g. "tg-123").
+func SenderToUserFileID(sender string) string {
+	parts := strings.SplitN(sender, ":", 2)
+	if len(parts) != 2 {
+		return sender
+	}
+	short := platformShort[parts[0]]
+	if short == "" {
+		p := parts[0]
+		if len(p) > 2 {
+			p = p[:2]
+		}
+		short = p
+	}
+	return short + "-" + parts[1]
+}
+
+var nameRe = regexp.MustCompile(`(?m)^name:\s*(.+)$`)
+
+// UserContextXml returns a <user> tag for the sender, or "" if no sender.
+// Reads user file from groupDir/users/<id>.md for name lookup.
+func UserContextXml(sender, groupDir string) string {
+	if sender == "" || sender == "system" {
+		return ""
+	}
+	id := SenderToUserFileID(sender)
+	attrs := []string{`id="` + EscapeXml(id) + `"`}
+
+	usersDir := filepath.Join(groupDir, "users")
+	userFile := filepath.Join(usersDir, id+".md")
+	resolved, err := filepath.Abs(userFile)
+	if err == nil && strings.HasPrefix(resolved, filepath.Clean(usersDir)+string(os.PathSeparator)) {
+		if data, err := os.ReadFile(userFile); err == nil {
+			content := string(data)
+			if m := nameRe.FindStringSubmatch(content); len(m) > 1 {
+				attrs = append(attrs, `name="`+EscapeXml(strings.TrimSpace(m[1]))+`"`)
+			}
+			attrs = append(attrs, `memory="~/users/`+id+`.md"`)
+		}
+	}
+	return "<user " + strings.Join(attrs, " ") + " />"
 }
 
 // IsAuthorizedRoutingTarget returns true if source may delegate to target.

@@ -140,6 +140,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		Name:      req.SenderName,
 		Content:   req.Content,
 		Timestamp: ts,
+		ReplyToID: req.ReplyTo,
 	}
 
 	if err := s.store.PutMessage(msg); err != nil {

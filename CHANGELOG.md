@@ -9,6 +9,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **Think block stripping**: `<think>` blocks stripped from agent output
+  before forwarding to user (depth-tracking, handles nested blocks)
+- **Status block extraction**: `<status>` blocks extracted and sent as
+  separate interim messages before main response
+- **User context injection**: `<user id="..." name="..." />` tag injected
+  into prompt XML with sender identity from `users/` directory
+- **Reply-to ID**: messages store `reply_to_id`, formatted as XML
+  attributes in prompt (`reply_to`, `<reply_to>` element). Schema migration v4.
+
 ### Changed
 
 - **IPC → MCP over unix socket**: replaced file-based IPC watcher
