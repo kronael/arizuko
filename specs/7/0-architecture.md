@@ -1,6 +1,6 @@
 # arizuko master architecture — microservice design
 
-**Status**: design (updated 2026-03-10)
+**Status**: design (updated 2026-03-14)
 
 ## Design principles
 
@@ -8,65 +8,55 @@
    "small is good" — it's that clear boundaries make each
    piece testable in isolation and writable by an AI agent.
    An agent can build a channel adapter from scratch given
-   the protocol spec. An agent can test it by mocking the
-   router HTTP API. No context about the rest of the system
+   the protocol spec. No context about the rest of the system
    needed.
-2. **Contract over code**: HTTP protocol + JSON wire format
-   are the interfaces. Language per service is free.
-3. **Each daemon is independently testable**: mock the HTTP
-   boundary, verify behavior. No integration environment
+2. **Contract is the database**: SQLite schema is the API.
+   Co-located services share one `.db` file directly. Each
+   service owns its tables, shares the message bus. Language
+   per service is free — anything that speaks SQLite.
+3. **Each daemon is independently testable**: open a test DB,
+   run migrations, verify behavior. No integration environment
    needed to test a single component.
-4. **Router owns state**: SQLite is internal to the router.
-   No other process touches it. All access is via HTTP API.
-5. **Channels are external**: router doesn't start, stop, or
-   manage channels. They're independent containers that register
-   via HTTP on the docker network.
+4. **Channels are external**: orchestrator doesn't start, stop,
+   or manage channels. They're independent containers that
+   register via HTTP on the docker network. Channels are the
+   only services that use HTTP instead of direct DB access
+   (they may run on remote hosts without filesystem access).
+5. **Service-namespaced migrations**: each service owns its
+   migration runner and `.sql` files. See `specs/7/7-microservices.md`.
 
 ## Component map
 
 ```
-                   ┌───────────────────────────┐
-                   │         Router             │
-                   │                            │
-                   │  SQLite (internal)         │
-                   │  messages, groups, tasks,  │
-                   │  sessions, auth, outbox    │
-                   │                            │
-                   │  HTTP API (:8080)          │
-                   │  MCP socket (per-group)    │
-                   │  docker-in-docker          │
-                   └──┬────┬────┬────┬────┬────┘
-                      │    │    │    │    │
-     docker network   │    │    │    │    │     MCP
-         ┌────────────┤    │    │    │    ├──────────┐
-         │            │    │    │    │    │          │
-     ┌───┴──┐   ┌────┴┐  ┌┴───┐ ┌──┴─┐  │   ┌──────┴──────┐
-     │  tg  │   │ dc  │  │ wa │ │ em │  │   │   agent     │
-     │      │   │     │  │    │ │    │  │   │  container  │
-     └──────┘   └─────┘  └────┘ └────┘  │   └─────────────┘
-                                         │
-     containers on docker network    ┌───┴────┐  ┌──────────┐
-     (any language)                  │  web   │  │scheduler │
-                                     │ slink  │  └──────────┘
-                                     └────────┘
+     ┌──────────────────────────────────────────────┐
+     │              SQLite (messages.db)             │
+     │                                               │
+     │  messages, chats, routes, registered_groups,  │
+     │  sessions, scheduled_tasks, auth, jobs, ...   │
+     └──┬────┬────┬────┬────────────────────────────┘
+        │    │    │    │
+   ┌────┴┐ ┌┴───┐│ ┌──┴──────────┐
+   │sched│ │ API││ │ orchestrator │
+   │     │ │    ││ │  routing     │
+   └─────┘ └────┘│ │  queue       │
+                  │ │  containers  │──── agent containers
+                  │ │  MCP/IPC     │     (docker-in-docker)
+                  │ └─────────────┘
+                  │
+           HTTP API (:8080)
+                  │
+     ┌────────────┤ docker network
+     │            │
+ ┌───┴──┐   ┌────┴┐  ┌────┐ ┌────┐
+ │  tg  │   │ dc  │  │ wa │ │ em │
+ └──────┘   └─────┘  └────┘ └────┘
+ channel adapters (HTTP, external)
 ```
 
-## Revised from earlier design
-
-Earlier versions of this spec had channels sharing SQLite
-directly (outbox pattern). That's superseded. Channels are
-now pure HTTP clients — they never touch the database.
-
-Why the change:
-
-- **Isolation**: channels may run in VMs with only vsock.
-  No shared filesystem = no shared SQLite.
-- **Simplicity**: REST is simpler than SQLite WAL coordination
-  with multi-writer contention and polling.
-- **Sync delivery**: POST /send returns when the message is
-  on the platform. No outbox polling, no sent_at marking.
-- **Any transport**: HTTP works over localhost, vsock proxy,
-  across hosts. SQLite needs a shared filesystem.
+Co-located services (orchestrator, scheduler, API) share
+the SQLite file directly. Channel adapters are external —
+they use HTTP because they may run on remote hosts without
+filesystem access.
 
 ## How it works
 
@@ -148,62 +138,40 @@ discovers them.
 **Size**: ~200-400 LOC each. An agent can write one in
 10 minutes given the protocol spec.
 
-## Component 2: Router
+## Component 2: Orchestrator
 
-The brain. Receives messages via HTTP, routes to groups,
-spawns agent containers, calls channels to send replies.
-The only container with SQLite and docker-in-docker access.
+The main process. Polls messages, resolves routes, manages
+the job queue, spawns containers, streams output back to
+messages. Routing is a function, not a separate service.
 
-**Contract**:
+**Responsibilities**:
 
-- IN: HTTP API (channel registration, inbound messages, web/slink)
-- OUT: HTTP calls to registered channels (send, typing)
-- OUT: spawn agent containers (docker-in-docker)
-- IN: agent output (stdout JSONL)
-- OUT: MCP server on unix socket (per-group, for agent IPC)
-
-**Internal state**: SQLite (messages, groups, tasks, sessions,
-auth, router_state). No other process reads or writes it.
-
-**Subcomponents** (within router process):
-
-- HTTP server: channel API + web/slink endpoints
-- Message router: JID → group resolution, prompt assembly
-- Group queue: per-group worker, semaphore for max containers
-- Container runner: docker lifecycle (docker-in-docker)
+- HTTP API: channel registration, inbound messages, admin
+- Route resolution: JID → group via routes table
+- Job queue: per-group serialization, concurrency cap
+- Container runner: docker-in-docker lifecycle
 - MCP server: per-group unix socket for agent IPC
-  **Size**: ~800-1200 LOC. The most complex component, but
-  it's the only stateful one.
+- Session management: resume, evict on error
+
+Opens the shared SQLite DB directly. Runs its own migration
+runner with service name `orchestrator`.
+
+See `specs/7/9-orchestrator.md` for full spec.
 
 ## Component 3: Scheduler
 
-**Decision**: external process. Scheduler is just another
-message producer — it posts scheduled messages to router
-via `POST /v1/messages` when they're due.
+Separate process. Opens the shared SQLite DB directly.
+Polls `scheduled_tasks` for due items, INSERTs into
+`messages`. A cron daemon that writes rows.
 
-Scheduler reads task definitions from router via HTTP,
-evaluates cron/interval/once expressions, and fires
-messages at the right time. Multiple schedulers with
-different origin IDs work naturally.
+Owns `scheduled_tasks` table. Runs its own migration
+runner with service name `scheduler`.
 
-```
-POST /v1/messages
-{
-  "chat_jid": "telegram:-1001234",
-  "content": "/daily-report",
-  "sender": "scheduler:main",
-  "origin": "scheduler"
-}
-```
+Task CRUD: agents create/pause/cancel tasks via MCP tools
+(IPC actions that write directly to the DB). The scheduler
+only reads.
 
-Router doesn't know or care that the message came from a
-scheduler vs a human. It routes the same way.
-
-Task CRUD: router exposes `/v1/tasks` endpoints. Scheduler
-polls for its tasks, agents create tasks via MCP tools.
-
-Scheduler runs as its own container in docker compose,
-same as channel adapters.
+See `specs/7/8-scheduler-service.md` for full spec.
 
 ## Component 4: Web Server
 
@@ -281,9 +249,9 @@ Allowlist file outside project root so containers can't tamper.
 Folder name validation: `/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/`
 with path traversal prevention.
 
-## Component 6: MCP IPC (agent ↔ router)
+## Component 6: MCP IPC (agent ↔ orchestrator)
 
-Router runs an MCP server per group on a unix socket.
+Orchestrator runs an MCP server per group on a unix socket.
 Agent containers connect as MCP clients.
 
 ```
@@ -372,32 +340,31 @@ generated compose file.
 
 ```yaml
 services:
-  router:
+  orchestrator:
     image: arizuko:latest
     command: ['run']
     volumes: ['./:/srv/data', '/var/run/docker.sock:/var/run/docker.sock']
     ports: ['8080:8080']
     restart: on-failure
 
+  scheduler:
+    image: arizuko-scheduler:latest
+    volumes: ['./store:/srv/data/store']
+    restart: on-failure
+
   telegram:
     image: arizuko-telegram:latest
     environment:
-      ROUTER_URL: http://router:8080
+      ROUTER_URL: http://orchestrator:8080
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
     restart: on-failure
-    depends_on: [router]
-
-  scheduler:
-    image: arizuko-scheduler:latest
-    environment:
-      ROUTER_URL: http://router:8080
-    restart: on-failure
-    depends_on: [router]
+    depends_on: [orchestrator]
 ```
 
-Router is the only container with SQLite and docker-in-docker
-(for agent containers). Channel containers connect to router
-over the docker network via HTTP.
+Orchestrator and scheduler share the SQLite DB via volume
+mount. Only orchestrator has docker-in-docker access (for
+agent containers). Channel adapters connect via HTTP over
+the docker network.
 
 ### How `arizuko run` works
 
@@ -485,8 +452,8 @@ container — Claude Code, langaxe, or a shell script.
 | discord adapter  | TS or Go      | discord.js / discordgo |
 | whatsapp adapter | TS            | baileys has no rival   |
 | email adapter    | Go or Python  | go-imap / aioimaplib   |
-| router           | Go            | current implementation |
-| web server       | Go            | router-internal        |
+| orchestrator     | Go            | current implementation |
+| web server       | Go            | orchestrator-internal  |
 | agent runner     | any (or bash) | thin CLI wrapper       |
 
 Only channel adapters have a strong language preference

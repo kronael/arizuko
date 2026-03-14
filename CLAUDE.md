@@ -161,8 +161,8 @@ CREATE TABLE migrations (
 **Table ownership:**
 
 - Shared: `messages`, `chats`, `migrations`
-- Router: `routes`, `registered_groups`, `router_state`
-- Worker: `sessions`, `session_log`, `system_messages`
+- Orchestrator: `routes`, `registered_groups`, `router_state`,
+  `sessions`, `session_log`, `system_messages`, `jobs`
 - Scheduler: `scheduled_tasks`
 - Auth: `auth_users`, `auth_sessions`
 
