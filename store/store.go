@@ -3,7 +3,7 @@ package store
 import (
 	"database/sql"
 	"embed"
-	"encoding/json"
+
 	"fmt"
 	"os"
 	"path/filepath"
@@ -118,10 +118,6 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("commit %s: %w", name, err)
 		}
 
-		if ver == 4 {
-			s.migrateV3FlatRouting()
-		}
-
 		maxVer = ver
 	}
 
@@ -159,64 +155,6 @@ func (s *Store) seedFromPragma() {
 	for i := 1; i <= maxMig; i++ {
 		s.db.Exec("INSERT OR IGNORE INTO migrations (version, applied_at) VALUES (?, ?)",
 			i, now)
-	}
-}
-
-// migrateV3FlatRouting populates routes table from registered_groups routing_rules.
-func (s *Store) migrateV3FlatRouting() {
-	rows, err := s.db.Query(
-		`SELECT jid, folder, requires_trigger, routing_rules FROM registered_groups`)
-	if err != nil {
-		return
-	}
-	type groupRow struct {
-		jid      string
-		folder   string
-		needTrig int
-		rulesRaw *string
-	}
-	var gs []groupRow
-	for rows.Next() {
-		var r groupRow
-		rows.Scan(&r.jid, &r.folder, &r.needTrig, &r.rulesRaw)
-		gs = append(gs, r)
-	}
-	rows.Close()
-
-	for _, g := range gs {
-		var n int
-		s.db.QueryRow(`SELECT COUNT(*) FROM routes WHERE jid = ?`, g.jid).Scan(&n)
-		if n > 0 {
-			continue
-		}
-
-		var rules []struct {
-			Kind   string `json:"type"`
-			Match  string `json:"match"`
-			Target string `json:"target"`
-		}
-		if g.rulesRaw != nil && *g.rulesRaw != "" && *g.rulesRaw != "null" {
-			json.Unmarshal([]byte(*g.rulesRaw), &rules)
-		}
-
-		if len(rules) > 0 {
-			for i, rule := range rules {
-				s.db.Exec(
-					`INSERT INTO routes (jid, seq, type, match, target) VALUES (?, ?, ?, ?, ?)`,
-					g.jid, i*10, rule.Kind, nullStr(rule.Match), rule.Target,
-				)
-			}
-		} else if g.needTrig == 1 {
-			s.db.Exec(
-				`INSERT INTO routes (jid, seq, type, match, target) VALUES (?, 0, 'trigger', NULL, ?)`,
-				g.jid, g.folder,
-			)
-		} else {
-			s.db.Exec(
-				`INSERT INTO routes (jid, seq, type, match, target) VALUES (?, 0, 'default', NULL, ?)`,
-				g.jid, g.folder,
-			)
-		}
 	}
 }
 
