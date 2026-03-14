@@ -2,12 +2,21 @@ package store
 
 import (
 	"database/sql"
+	"embed"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+//go:embed migrations/*.sql
+var migrationFS embed.FS
 
 type Store struct {
 	db *sql.DB
@@ -56,55 +65,105 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) migrate() error {
-	for _, stmt := range schema {
-		if _, err := s.db.Exec(stmt); err != nil {
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
+		version INTEGER PRIMARY KEY,
+		applied_at TEXT NOT NULL
+	)`)
+
+	s.seedFromPragma()
+
+	var maxVer int
+	s.db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM migrations").Scan(&maxVer)
+
+	entries, err := migrationFS.ReadDir("migrations")
+	if err != nil {
+		return fmt.Errorf("read migrations: %w", err)
+	}
+	var names []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".sql") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		ver, err := strconv.Atoi(name[:4])
+		if err != nil {
+			continue
+		}
+		if ver <= maxVer {
+			continue
+		}
+		if ver != maxVer+1 {
+			return fmt.Errorf("migration gap: expected %d, found %d", maxVer+1, ver)
+		}
+
+		sql, err := migrationFS.ReadFile("migrations/" + name)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+
+		tx, err := s.db.Begin()
+		if err != nil {
 			return err
 		}
+		if _, err := tx.Exec(string(sql)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %s: %w", name, err)
+		}
+		tx.Exec("INSERT INTO migrations (version, applied_at) VALUES (?, ?)",
+			ver, time.Now().Format(time.RFC3339))
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit %s: %w", name, err)
+		}
+
+		if ver == 4 {
+			s.migrateV3FlatRouting()
+		}
+
+		maxVer = ver
+	}
+
+	return nil
+}
+
+// seedFromPragma bridges old PRAGMA user_version databases to the
+// new migrations table. Maps old versions to new migration numbers
+// and marks them as already applied.
+func (s *Store) seedFromPragma() {
+	var n int
+	s.db.QueryRow("SELECT COUNT(*) FROM migrations").Scan(&n)
+	if n > 0 {
+		return
 	}
 
 	var ver int
 	s.db.QueryRow("PRAGMA user_version").Scan(&ver)
-	if ver < 1 {
-		s.migrateV1()
-		s.db.Exec("PRAGMA user_version = 1")
-		ver = 1
+	if ver == 0 {
+		return
 	}
-	if ver < 2 {
-		s.migrateV2()
-		s.db.Exec("PRAGMA user_version = 2")
-		ver = 2
+
+	// Old PRAGMA versions map to new migration numbers:
+	// pragma 1 (jid format)        → migrations 1,2
+	// pragma 2 (task reported)     → migrations 1,2,3
+	// pragma 3 (flat routing)      → migrations 1,2,3,4
+	// pragma 4 (reply_to_id)       → migrations 1,2,3,4,5
+	// pragma 5 (agent_cursor)      → migrations 1,2,3,4,5,6
+	maxMig := ver + 1
+	if maxMig > 6 {
+		maxMig = 6
 	}
-	if ver < 3 {
-		s.migrateV3()
-		s.db.Exec("PRAGMA user_version = 3")
-		ver = 3
+
+	now := time.Now().Format(time.RFC3339)
+	for i := 1; i <= maxMig; i++ {
+		s.db.Exec("INSERT OR IGNORE INTO migrations (version, applied_at) VALUES (?, ?)",
+			i, now)
 	}
-	if ver < 4 {
-		s.migrateV4()
-		s.db.Exec("PRAGMA user_version = 4")
-		ver = 4
-	}
-	if ver < 5 {
-		s.migrateV5()
-		s.db.Exec("PRAGMA user_version = 5")
-	}
-	return nil
 }
 
-func (s *Store) migrateV4() {
-	s.db.Exec(`ALTER TABLE messages ADD COLUMN reply_to_id TEXT`)
-}
-
-func (s *Store) migrateV5() {
-	s.db.Exec(`ALTER TABLE registered_groups ADD COLUMN agent_cursor TEXT`)
-}
-
-func (s *Store) migrateV2() {
-	s.db.Exec(`ALTER TABLE task_run_logs ADD COLUMN reported INTEGER DEFAULT 0`)
-}
-
-// migrateV3 populates the flat routes table from registered_groups.
-func (s *Store) migrateV3() {
+// migrateV3FlatRouting populates routes table from registered_groups routing_rules.
+func (s *Store) migrateV3FlatRouting() {
 	rows, err := s.db.Query(
 		`SELECT jid, folder, requires_trigger, routing_rules FROM registered_groups`)
 	if err != nil {
@@ -166,141 +225,4 @@ func nullStr(s string) interface{} {
 		return nil
 	}
 	return s
-}
-
-func (s *Store) migrateV1() {
-	s.db.Exec(`UPDATE chats SET jid = 'telegram:' || jid WHERE jid GLOB '[0-9]*' AND channel = 'telegram'`)
-	s.db.Exec(`UPDATE messages SET chat_jid = 'telegram:' || chat_jid WHERE chat_jid GLOB '[0-9]*' AND EXISTS (SELECT 1 FROM chats WHERE chats.jid = 'telegram:' || messages.chat_jid AND chats.channel = 'telegram')`)
-	s.db.Exec(`UPDATE registered_groups SET jid = 'telegram:' || jid WHERE jid GLOB '[0-9]*'`)
-	s.db.Exec(`UPDATE chats SET jid = 'whatsapp:' || jid WHERE jid NOT LIKE '%:%' AND channel = 'whatsapp'`)
-	s.db.Exec(`UPDATE chats SET jid = 'discord:' || jid WHERE jid NOT LIKE '%:%' AND channel = 'discord'`)
-}
-
-var schema = []string{
-	`CREATE TABLE IF NOT EXISTS chats (
-		jid TEXT PRIMARY KEY,
-		name TEXT,
-		channel TEXT,
-		is_group INTEGER DEFAULT 0,
-		last_message_time TEXT,
-		errored INTEGER DEFAULT 0
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS messages (
-		id TEXT PRIMARY KEY,
-		chat_jid TEXT NOT NULL,
-		sender TEXT NOT NULL,
-		sender_name TEXT,
-		content TEXT NOT NULL,
-		timestamp TEXT NOT NULL,
-		is_from_me INTEGER DEFAULT 0,
-		is_bot_message INTEGER DEFAULT 0,
-		forwarded_from TEXT,
-		reply_to_id TEXT,
-		reply_to_text TEXT,
-		reply_to_sender TEXT
-	)`,
-	`CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_jid, timestamp)`,
-
-	`CREATE TABLE IF NOT EXISTS registered_groups (
-		jid TEXT PRIMARY KEY,
-		name TEXT NOT NULL,
-		folder TEXT NOT NULL,
-		trigger_word TEXT NOT NULL,
-		added_at TEXT NOT NULL,
-		container_config TEXT,
-		requires_trigger INTEGER DEFAULT 1,
-		slink_token TEXT,
-		parent TEXT,
-		routing_rules TEXT
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS sessions (
-		group_folder TEXT PRIMARY KEY,
-		session_id TEXT NOT NULL
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS session_log (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		group_folder TEXT NOT NULL,
-		session_id TEXT NOT NULL,
-		started_at TEXT NOT NULL,
-		ended_at TEXT,
-		result TEXT,
-		error TEXT,
-		message_count INTEGER
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS system_messages (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		group_id TEXT NOT NULL,
-		origin TEXT NOT NULL,
-		event TEXT NOT NULL,
-		attrs TEXT,
-		body TEXT NOT NULL DEFAULT '',
-		created_at TEXT NOT NULL
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS scheduled_tasks (
-		id TEXT PRIMARY KEY,
-		group_folder TEXT NOT NULL,
-		chat_jid TEXT NOT NULL,
-		prompt TEXT NOT NULL,
-		schedule_type TEXT NOT NULL,
-		schedule_value TEXT NOT NULL,
-		context_mode TEXT NOT NULL DEFAULT 'group',
-		next_run TEXT,
-		last_run TEXT,
-		last_result TEXT,
-		status TEXT NOT NULL DEFAULT 'active',
-		created_at TEXT NOT NULL
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS task_run_logs (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		task_id TEXT NOT NULL,
-		run_at TEXT NOT NULL,
-		duration_ms INTEGER NOT NULL,
-		status TEXT NOT NULL,
-		result TEXT,
-		error TEXT
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS router_state (
-		key TEXT PRIMARY KEY,
-		value TEXT NOT NULL
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS auth_users (
-		id INTEGER PRIMARY KEY,
-		sub TEXT UNIQUE NOT NULL,
-		username TEXT UNIQUE NOT NULL,
-		hash TEXT NOT NULL,
-		name TEXT NOT NULL,
-		created_at TEXT NOT NULL
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS auth_sessions (
-		token_hash TEXT PRIMARY KEY,
-		user_sub TEXT NOT NULL,
-		expires_at TEXT NOT NULL,
-		created_at TEXT NOT NULL
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS email_threads (
-		thread_id TEXT PRIMARY KEY,
-		chat_jid TEXT NOT NULL,
-		subject TEXT,
-		last_message_id TEXT
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS routes (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		jid TEXT NOT NULL,
-		seq INTEGER NOT NULL DEFAULT 0,
-		type TEXT NOT NULL DEFAULT 'default',
-		match TEXT,
-		target TEXT NOT NULL
-	)`,
-	`CREATE INDEX IF NOT EXISTS idx_routes_jid_seq ON routes(jid, seq)`,
 }
