@@ -3,7 +3,6 @@ package store
 import (
 	"database/sql"
 	"embed"
-
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,101 +65,75 @@ func (s *Store) Close() error {
 
 func (s *Store) migrate() error {
 	s.db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
-		version INTEGER PRIMARY KEY,
-		applied_at TEXT NOT NULL
-	)`)
-
+		version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`)
 	s.seedFromPragma()
 
-	var maxVer int
-	s.db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM migrations").Scan(&maxVer)
+	var max int
+	s.db.QueryRow("SELECT COALESCE(MAX(version),0) FROM migrations").Scan(&max)
 
-	entries, err := migrationFS.ReadDir("migrations")
-	if err != nil {
-		return fmt.Errorf("read migrations: %w", err)
-	}
-	var names []string
+	entries, _ := migrationFS.ReadDir("migrations")
+	var files []string
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
+			files = append(files, e.Name())
 		}
 	}
-	sort.Strings(names)
+	sort.Strings(files)
 
-	for _, name := range names {
-		ver, err := strconv.Atoi(name[:4])
-		if err != nil {
+	for _, f := range files {
+		ver, _ := strconv.Atoi(f[:4])
+		if ver <= max {
 			continue
 		}
-		if ver <= maxVer {
-			continue
+		if ver != max+1 {
+			return fmt.Errorf("migration gap: expected %d, got %d", max+1, ver)
 		}
-		if ver != maxVer+1 {
-			return fmt.Errorf("migration gap: expected %d, found %d", maxVer+1, ver)
-		}
-
-		sql, err := migrationFS.ReadFile("migrations/" + name)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", name, err)
-		}
-
-		tx, err := s.db.Begin()
-		if err != nil {
+		if err := s.runMigration(f, ver); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(string(sql)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("migration %s: %w", name, err)
-		}
-		tx.Exec("INSERT INTO migrations (version, applied_at) VALUES (?, ?)",
-			ver, time.Now().Format(time.RFC3339))
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit %s: %w", name, err)
-		}
-
-		maxVer = ver
+		max = ver
 	}
-
 	return nil
 }
 
-// seedFromPragma bridges old PRAGMA user_version databases to the
-// new migrations table. Maps old versions to new migration numbers
-// and marks them as already applied.
+func (s *Store) runMigration(f string, ver int) error {
+	raw, _ := migrationFS.ReadFile("migrations/" + f)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(string(raw)); err != nil {
+		return fmt.Errorf("%s: %w", f, err)
+	}
+	if _, err := tx.Exec("INSERT INTO migrations (version, applied_at) VALUES (?,?)",
+		ver, time.Now().Format(time.RFC3339)); err != nil {
+		return fmt.Errorf("%s: record: %w", f, err)
+	}
+	return tx.Commit()
+}
+
+// seedFromPragma bridges databases that used PRAGMA user_version
+// to the migrations table. Remove after all instances upgraded.
 func (s *Store) seedFromPragma() {
 	var n int
 	s.db.QueryRow("SELECT COUNT(*) FROM migrations").Scan(&n)
 	if n > 0 {
 		return
 	}
-
 	var ver int
 	s.db.QueryRow("PRAGMA user_version").Scan(&ver)
 	if ver == 0 {
 		return
 	}
-
-	// Old PRAGMA versions map to new migration numbers:
-	// pragma 1 (jid format)        → migrations 1,2
-	// pragma 2 (task reported)     → migrations 1,2,3
-	// pragma 3 (flat routing)      → migrations 1,2,3,4
-	// pragma 4 (reply_to_id)       → migrations 1,2,3,4,5
-	// pragma 5 (agent_cursor)      → migrations 1,2,3,4,5,6
-	maxMig := ver + 1
-	if maxMig > 6 {
-		maxMig = 6
+	// pragma 1→mig 2, 2→3, 3→3, 4→4, 5→5
+	m := map[int]int{1: 2, 2: 3, 3: 3, 4: 4, 5: 5}
+	maxMig := m[ver]
+	if maxMig == 0 {
+		maxMig = 5
 	}
-
 	now := time.Now().Format(time.RFC3339)
 	for i := 1; i <= maxMig; i++ {
-		s.db.Exec("INSERT OR IGNORE INTO migrations (version, applied_at) VALUES (?, ?)",
-			i, now)
+		s.db.Exec("INSERT OR IGNORE INTO migrations (version,applied_at) VALUES (?,?)", i, now)
 	}
-}
-
-func nullStr(s string) interface{} {
-	if s == "" {
-		return nil
-	}
-	return s
 }

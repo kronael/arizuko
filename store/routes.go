@@ -65,3 +65,10 @@ func (s *Store) DeleteRoute(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM routes WHERE id = ?`, id)
 	return err
 }
+
+func nullStr(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
