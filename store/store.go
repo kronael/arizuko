@@ -63,13 +63,17 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+const serviceName = "store"
+
 func (s *Store) migrate() error {
 	s.db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
-		version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`)
+		service TEXT NOT NULL, version INTEGER NOT NULL, applied_at TEXT NOT NULL,
+		PRIMARY KEY (service, version))`)
 	s.seedFromPragma()
 
 	var max int
-	s.db.QueryRow("SELECT COALESCE(MAX(version),0) FROM migrations").Scan(&max)
+	s.db.QueryRow("SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?",
+		serviceName).Scan(&max)
 
 	entries, _ := migrationFS.ReadDir("migrations")
 	var files []string
@@ -106,8 +110,8 @@ func (s *Store) runMigration(f string, ver int) error {
 	if _, err := tx.Exec(string(raw)); err != nil {
 		return fmt.Errorf("%s: %w", f, err)
 	}
-	if _, err := tx.Exec("INSERT INTO migrations (version, applied_at) VALUES (?,?)",
-		ver, time.Now().Format(time.RFC3339)); err != nil {
+	if _, err := tx.Exec("INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",
+		serviceName, ver, time.Now().Format(time.RFC3339)); err != nil {
 		return fmt.Errorf("%s: record: %w", f, err)
 	}
 	return tx.Commit()
@@ -117,7 +121,7 @@ func (s *Store) runMigration(f string, ver int) error {
 // to the migrations table. Remove after all instances upgraded.
 func (s *Store) seedFromPragma() {
 	var n int
-	s.db.QueryRow("SELECT COUNT(*) FROM migrations").Scan(&n)
+	s.db.QueryRow("SELECT COUNT(*) FROM migrations WHERE service=?", serviceName).Scan(&n)
 	if n > 0 {
 		return
 	}
@@ -134,6 +138,7 @@ func (s *Store) seedFromPragma() {
 	}
 	now := time.Now().Format(time.RFC3339)
 	for i := 1; i <= maxMig; i++ {
-		s.db.Exec("INSERT OR IGNORE INTO migrations (version,applied_at) VALUES (?,?)", i, now)
+		s.db.Exec("INSERT OR IGNORE INTO migrations (service,version,applied_at) VALUES (?,?,?)",
+			serviceName, i, now)
 	}
 }

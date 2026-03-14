@@ -123,6 +123,49 @@ scheduler) operates on clean interfaces, knows nothing of others.
 Complexity is a liability. Agent self-extension (skills, MCP
 servers, CLAUDE.md, memory) is the primary extension mechanism.
 
+## Database-as-Contract Architecture
+
+**The SQLite database is the coordination layer.** Services are
+independent processes that share one `.db` file. The schema is
+the API — any language that speaks SQLite can participate.
+
+**Principles:**
+
+- `messages` table is the bus. Producers (channel adapters,
+  scheduler, API) INSERT messages. Workers read and process.
+- Each service owns its tables (scheduler owns `scheduled_tasks`,
+  worker owns `sessions`, router owns `routes`). Ownership is
+  by convention, not enforced — SQLite has no GRANT/REVOKE.
+- Each service runs its own migration runner independently.
+  Migrations are namespaced in the `migrations` table by service
+  name — independent version sequences, no coordination needed.
+- The shared `.db` file is a deployment convenience, not an
+  architectural coupling. Any service could point at its own DB
+  file without code changes.
+- WAL mode + busy timeout handles concurrent access. Writes are
+  short (single INSERTs), contention is negligible.
+- State lives in the DB, not in memory. Services read from DB
+  on each access — no in-memory caches of DB state.
+
+**Migration table schema:**
+
+```sql
+CREATE TABLE migrations (
+  service TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  applied_at TEXT NOT NULL,
+  PRIMARY KEY (service, version)
+);
+```
+
+**Table ownership:**
+
+- Shared: `messages`, `chats`, `migrations`
+- Router: `routes`, `registered_groups`, `router_state`
+- Worker: `sessions`, `session_log`, `system_messages`
+- Scheduler: `scheduled_tasks`, `task_run_logs`
+- Auth: `auth_users`, `auth_sessions`
+
 ## Operational check (post-deploy)
 
 ```bash
