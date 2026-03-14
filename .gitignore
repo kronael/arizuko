@@ -26,3 +26,4 @@ refs
 old/
 /arizuko
 channels/telegram/telegram
+services/scheduler/scheduler
