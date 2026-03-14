@@ -82,12 +82,21 @@ func (s *Store) migrate() error {
 	if ver < 4 {
 		s.migrateV4()
 		s.db.Exec("PRAGMA user_version = 4")
+		ver = 4
+	}
+	if ver < 5 {
+		s.migrateV5()
+		s.db.Exec("PRAGMA user_version = 5")
 	}
 	return nil
 }
 
 func (s *Store) migrateV4() {
 	s.db.Exec(`ALTER TABLE messages ADD COLUMN reply_to_id TEXT`)
+}
+
+func (s *Store) migrateV5() {
+	s.db.Exec(`ALTER TABLE registered_groups ADD COLUMN agent_cursor TEXT`)
 }
 
 func (s *Store) migrateV2() {

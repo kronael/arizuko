@@ -56,8 +56,8 @@ func (g *Gateway) cmdNew(chatJid string, group core.Group, arg string) bool {
 }
 
 func (g *Gateway) cmdPing(chatJid string, group core.Group) bool {
+	sessID := g.store.GetSession(group.Folder)
 	g.mu.RLock()
-	sessID := g.sessions[group.Folder]
 	nGroups := len(g.groups)
 	g.mu.RUnlock()
 

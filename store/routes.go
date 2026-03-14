@@ -21,22 +21,6 @@ func (s *Store) GetRoutes(jid string) []core.Route {
 	return out
 }
 
-func (s *Store) GetAllRoutes() []core.Route {
-	rows, err := s.db.Query(
-		`SELECT id, jid, seq, type, COALESCE(match, ''), target
-		 FROM routes ORDER BY jid, seq ASC`)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []core.Route
-	for rows.Next() {
-		var r core.Route
-		rows.Scan(&r.ID, &r.JID, &r.Seq, &r.Type, &r.Match, &r.Target)
-		out = append(out, r)
-	}
-	return out
-}
 
 func (s *Store) GetRoute(id int64) (core.Route, bool) {
 	var r core.Route
@@ -80,49 +64,4 @@ func (s *Store) SetRoutes(jid string, routes []core.Route) error {
 func (s *Store) DeleteRoute(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM routes WHERE id = ?`, id)
 	return err
-}
-
-func (s *Store) GetJidsThatNeedTrigger() map[string]bool {
-	rows, err := s.db.Query(`SELECT DISTINCT jid FROM routes WHERE type = 'trigger'`)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	out := make(map[string]bool)
-	for rows.Next() {
-		var jid string
-		rows.Scan(&jid)
-		out[jid] = true
-	}
-	return out
-}
-
-func (s *Store) GetRoutedJids() []string {
-	rows, err := s.db.Query(`SELECT DISTINCT jid FROM routes`)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var jid string
-		rows.Scan(&jid)
-		out = append(out, jid)
-	}
-	return out
-}
-
-func (s *Store) GetJidsForFolder(folder string) []string {
-	rows, err := s.db.Query(`SELECT DISTINCT jid FROM routes WHERE target = ?`, folder)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var jid string
-		rows.Scan(&jid)
-		out = append(out, jid)
-	}
-	return out
 }

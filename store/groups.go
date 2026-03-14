@@ -125,6 +125,43 @@ func (s *Store) AllGroups() map[string]core.Group {
 	return out
 }
 
+func (s *Store) GetAgentCursor(jid string) time.Time {
+	var raw *string
+	s.db.QueryRow(
+		`SELECT agent_cursor FROM registered_groups WHERE jid = ?`, jid,
+	).Scan(&raw)
+	if raw == nil || *raw == "" {
+		return time.Time{}
+	}
+	t, _ := time.Parse(time.RFC3339Nano, *raw)
+	return t
+}
+
+func (s *Store) SetAgentCursor(jid string, ts time.Time) {
+	s.db.Exec(
+		`UPDATE registered_groups SET agent_cursor = ? WHERE jid = ?`,
+		ts.Format(time.RFC3339Nano), jid,
+	)
+}
+
+func (s *Store) AllAgentCursors() map[string]time.Time {
+	rows, err := s.db.Query(
+		`SELECT jid, agent_cursor FROM registered_groups WHERE agent_cursor IS NOT NULL`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := make(map[string]time.Time)
+	for rows.Next() {
+		var jid, raw string
+		rows.Scan(&jid, &raw)
+		if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+			out[jid] = t
+		}
+	}
+	return out
+}
+
 func scanGroup(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string

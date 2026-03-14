@@ -34,12 +34,9 @@ type Gateway struct {
 	mu       sync.RWMutex
 	channels []core.Channel
 	groups   map[string]core.Group
-	sessions map[string]string
 	mcpDeps  ipc.Deps
 
-	lastTimestamp      time.Time
-	lastAgentTimestamp map[string]time.Time
-	lastMessageDate    map[string]string
+	lastTimestamp time.Time
 }
 
 func New(cfg *core.Config, s *store.Store) *Gateway {
@@ -51,10 +48,7 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 			GroupsDir: cfg.GroupsDir,
 			DataDir:   cfg.DataDir,
 		},
-		groups:             make(map[string]core.Group),
-		sessions:           make(map[string]string),
-		lastAgentTimestamp: make(map[string]time.Time),
-		lastMessageDate:   make(map[string]string),
+		groups: make(map[string]core.Group),
 	}
 }
 
@@ -204,21 +198,18 @@ func (g *Gateway) loadState() {
 		g.lastTimestamp, _ = time.Parse(time.RFC3339Nano, raw)
 	}
 
-	g.lastAgentTimestamp = make(map[string]time.Time)
+	// Migrate old JSON-blob cursors to per-row columns (one-time)
 	raw = g.store.GetState("last_agent_timestamp")
 	if raw != "" {
 		var m map[string]string
 		if json.Unmarshal([]byte(raw), &m) == nil {
 			for k, v := range m {
-				t, _ := time.Parse(time.RFC3339Nano, v)
-				g.lastAgentTimestamp[k] = t
+				if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
+					g.store.SetAgentCursor(k, t)
+				}
 			}
 		}
-	}
-
-	g.sessions = g.store.AllSessions()
-	if g.sessions == nil {
-		g.sessions = make(map[string]string)
+		g.store.SetState("last_agent_timestamp", "")
 	}
 
 	g.groups = g.store.AllGroups()
@@ -226,25 +217,14 @@ func (g *Gateway) loadState() {
 		g.groups = make(map[string]core.Group)
 	}
 
-	slog.Info("state loaded",
-		"groups", len(g.groups),
-		"sessions", len(g.sessions),
-	)
+	slog.Info("state loaded", "groups", len(g.groups))
 }
 
 func (g *Gateway) saveState() {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-
 	g.store.SetState("last_timestamp",
 		g.lastTimestamp.Format(time.RFC3339Nano))
-
-	m := make(map[string]string, len(g.lastAgentTimestamp))
-	for k, v := range g.lastAgentTimestamp {
-		m[k] = v.Format(time.RFC3339Nano)
-	}
-	b, _ := json.Marshal(m)
-	g.store.SetState("last_agent_timestamp", string(b))
 }
 
 func (g *Gateway) messageLoop(ctx context.Context) {
@@ -337,11 +317,12 @@ func (g *Gateway) pollOnce() {
 func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	g.mu.RLock()
 	group, ok := g.groupForJid(chatJid)
-	agentTs := g.lastAgentTimestamp[chatJid]
 	g.mu.RUnlock()
 	if !ok {
 		return false, fmt.Errorf("group not registered: %s", chatJid)
 	}
+
+	agentTs := g.store.GetAgentCursor(chatJid)
 
 	ch := g.findChannel(chatJid)
 
@@ -426,9 +407,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		if hadOutput {
 			g.advanceAgentCursor(chatJid, msgs)
 		} else {
-			g.mu.Lock()
-			g.lastAgentTimestamp[chatJid] = savedTs
-			g.mu.Unlock()
+			g.store.SetAgentCursor(chatJid, savedTs)
 			g.sendMessage(chatJid,
 				"Failed: agent error, will retry on next message.")
 			g.store.MarkChatErrored(chatJid)
@@ -447,9 +426,7 @@ func (g *Gateway) runAgentWithOpts(
 ) container.Output {
 	var sessionID string
 	if !isolated {
-		g.mu.RLock()
-		sessionID = g.sessions[group.Folder]
-		g.mu.RUnlock()
+		sessionID = g.store.GetSession(group.Folder)
 	}
 
 	groupPath, err := g.folders.GroupPath(group.Folder)
@@ -508,17 +485,11 @@ func (g *Gateway) runAgentWithOpts(
 	}
 
 	if out.NewSessionID != "" {
-		g.mu.Lock()
-		g.sessions[group.Folder] = out.NewSessionID
-		g.mu.Unlock()
 		g.store.SetSession(group.Folder, out.NewSessionID)
 		if sessionID == "" {
 			g.store.RecordSession(group.Folder, out.NewSessionID)
 		}
 	} else if out.Error != "" && !out.HadOutput {
-		g.mu.Lock()
-		delete(g.sessions, group.Folder)
-		g.mu.Unlock()
 		g.store.DeleteSession(group.Folder)
 	}
 
@@ -583,9 +554,6 @@ func (g *Gateway) sendDocument(jid, path, name string) error {
 }
 
 func (g *Gateway) clearSession(folder string) {
-	g.mu.Lock()
-	delete(g.sessions, folder)
-	g.mu.Unlock()
 	g.store.DeleteSession(folder)
 }
 
@@ -719,27 +687,20 @@ func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {
 	if len(msgs) == 0 {
 		return
 	}
-	last := msgs[len(msgs)-1].Timestamp
-	g.mu.Lock()
-	g.lastAgentTimestamp[chatJid] = last
-	g.mu.Unlock()
-	g.saveState()
+	g.store.SetAgentCursor(chatJid, msgs[len(msgs)-1].Timestamp)
 }
 
 func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
 	folder := group.Folder
 	today := time.Now().Format("2006-01-02")
 
-	if prev, ok := g.lastMessageDate[folder]; ok && prev != today {
+	cursor := g.store.GetAgentCursor(chatJid)
+	if !cursor.IsZero() && cursor.Format("2006-01-02") != today {
 		g.store.EnqueueSysMsg(folder, "gateway", "new_day",
 			fmt.Sprintf("Date changed to %s", today))
 	}
-	g.lastMessageDate[folder] = today
 
-	if g.sessions[folder] == "" {
+	if g.store.GetSession(folder) == "" {
 		g.store.EnqueueSysMsg(folder, "gateway", "new_session", "")
 	}
 }
@@ -799,10 +760,7 @@ func (g *Gateway) recoverPendingMessages() {
 	g.mu.RUnlock()
 
 	for _, jid := range jids {
-		g.mu.RLock()
-		agentTs := g.lastAgentTimestamp[jid]
-		g.mu.RUnlock()
-
+		agentTs := g.store.GetAgentCursor(jid)
 		msgs, err := g.store.MessagesSince(jid, agentTs, g.cfg.Name)
 		if err != nil {
 			slog.Error("recovery query failed", "jid", jid, "err", err)
