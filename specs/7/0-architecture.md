@@ -17,7 +17,7 @@
 3. **Each daemon is independently testable**: open a test DB,
    run migrations, verify behavior. No integration environment
    needed to test a single component.
-4. **Channels are external**: orchestrator doesn't start, stop,
+4. **Channels are external**: arz-gated doesn't start, stop,
    or manage channels. They're independent containers that
    register via HTTP on the docker network. Channels are the
    only services that use HTTP instead of direct DB access
@@ -33,36 +33,50 @@
      │                                               │
      │  messages, chats, routes, registered_groups,  │
      │  sessions, scheduled_tasks, auth, jobs, ...   │
-     └──┬────┬────┬────┬────────────────────────────┘
-        │    │    │    │
-   ┌────┴┐ ┌┴───┐│ ┌──┴──────────┐
-   │sched│ │ API││ │ orchestrator │
-   │     │ │    ││ │  routing     │
-   └─────┘ └────┘│ │  queue       │
-                  │ │  containers  │──── agent containers
-                  │ │  MCP/IPC     │     (docker-in-docker)
-                  │ └─────────────┘
-                  │
-           HTTP API (:8080)
-                  │
-     ┌────────────┤ docker network
-     │            │
- ┌───┴──┐   ┌────┴┐  ┌────┐ ┌────┐
- │  tg  │   │ dc  │  │ wa │ │ em │
- └──────┘   └─────┘  └────┘ └────┘
- channel adapters (HTTP, external)
+     └──┬────┬────┬────┬────┬─────────────────────┘
+        │    │    │    │    │
+   ┌────┴┐ ┌┴────┐ ┌──┴┐ ┌┴──────────┐
+   │timed│ │actid│ │API│ │  gated    │
+   │     │ │     │ │   │ │  routing  │
+   └─────┘ └─────┘ └───┘ │  queue    │
+                          │  contrs  │──── agent containers
+                          └──────────┘     (docker-in-docker)
+                          │
+                   HTTP API (:8080)
+                          │
+             ┌────────────┤ docker network
+             │            │
+         ┌───┴──┐   ┌────┴┐  ┌────┐ ┌────┐
+         │ teled│   │discd│  │whap│ │emai│
+         └──────┘   └─────┘  └────┘ └────┘
+         channel adapters (HTTP, external)
 ```
 
-Co-located services (orchestrator, scheduler, API) share
+Co-located daemons (arz-gated, arz-timed, arz-actid) share
 the SQLite file directly. Channel adapters are external —
 they use HTTP because they may run on remote hosts without
 filesystem access.
 
+## Daemon table
+
+All daemons follow 4+d naming with `arz-` prefix.
+
+| Daemon      | Role                                    | Spec                             |
+| ----------- | --------------------------------------- | -------------------------------- |
+| `arz-gated` | Message loop, routing, containers       | `specs/7/9-gated.md`             |
+| `arz-actid` | MCP sockets, identity stamping, routing | `specs/7/10-actid.md`            |
+| `arz-authd` | Authorization policy engine             | `specs/7/11-authd.md`            |
+| `arz-timed` | Cron poll, writes to messages           | `specs/7/8-scheduler-service.md` |
+| `arz-teled` | Telegram adapter                        |                                  |
+| `arz-discd` | Discord adapter                         |                                  |
+| `arz-whapd` | WhatsApp adapter                        |                                  |
+| `arz-emaid` | Email adapter                           |                                  |
+
 ## How it works
 
-### Channel → Router (inbound)
+### Channel → arz-gated (inbound)
 
-Channel receives a platform event, POSTs it to router:
+Channel receives a platform event, POSTs it to arz-gated:
 
 ```
 POST /v1/messages
@@ -70,11 +84,11 @@ POST /v1/messages
 → 200 {"ok": true}
 ```
 
-Router stores in SQLite, routes to the appropriate group.
+arz-gated stores in SQLite, routes to the appropriate group.
 
-### Router → Channel (outbound)
+### arz-gated → Channel (outbound)
 
-Router calls channel's HTTP endpoint to send:
+arz-gated calls channel's HTTP endpoint to send:
 
 ```
 POST http://channel-url/send
@@ -100,9 +114,9 @@ POST /v1/channels/register
 → 200 {"ok": true, "token": "<session-token>"}
 ```
 
-Router health-checks registered channels every 30s.
+arz-gated health-checks registered channels every 30s.
 Three failures → auto-deregister. Channel re-registers
-on restart and router replays queued outbound.
+on restart and arz-gated replays queued outbound.
 
 Full protocol: `specs/7/1-channel-protocol.md`.
 
@@ -113,19 +127,19 @@ Language follows best library for that platform.
 
 **Two-sided HTTP**:
 
-- Client side: calls router API to register and deliver messages
-- Server side: listens for router's send/typing/health calls
+- Client side: calls arz-gated API to register and deliver messages
+- Server side: listens for arz-gated's send/typing/health calls
 
-Channel self-registers with router on startup ("I handle
-telegram:\*, call me at http://telegram:9001"). Router calls
-channel to send outbound. Channel calls router to deliver
+Channel self-registers with arz-gated on startup ("I handle
+telegram:\*, call me at http://telegram:9001"). arz-gated calls
+channel to send outbound. Channel calls arz-gated to deliver
 inbound. Both directions are synchronous HTTP.
 
 **Contract**: `specs/7/1-channel-protocol.md`
 
-**Lifecycle**: external. Router doesn't start or stop channels.
+**Lifecycle**: external. arz-gated doesn't start or stop channels.
 Each channel adapter is its own container managed by docker
-compose. They self-register via HTTP — that's how router
+compose. They self-register via HTTP — that's how arz-gated
 discovers them.
 
 **Implementations**:
@@ -138,9 +152,9 @@ discovers them.
 **Size**: ~200-400 LOC each. An agent can write one in
 10 minutes given the protocol spec.
 
-## Component 2: Orchestrator
+## Component 2: arz-gated (gateway)
 
-The main process. Polls messages, resolves routes, manages
+The main daemon. Polls messages, resolves routes, manages
 the job queue, spawns containers, streams output back to
 messages. Routing is a function, not a separate service.
 
@@ -150,69 +164,88 @@ messages. Routing is a function, not a separate service.
 - Route resolution: JID → group via routes table
 - Job queue: per-group serialization, concurrency cap
 - Container runner: docker-in-docker lifecycle
-- MCP server: per-group unix socket for agent IPC
 - Session management: resume, evict on error
 
 Opens the shared SQLite DB directly. Runs its own migration
-runner with service name `orchestrator`.
+runner with service name `gated`.
 
-See `specs/7/9-orchestrator.md` for full spec.
+See `specs/7/9-gated.md` for full spec.
 
-## Component 3: Scheduler
+## Component 3: arz-timed (scheduler)
 
-Separate process. Opens the shared SQLite DB directly.
+Separate daemon. Opens the shared SQLite DB directly.
 Polls `scheduled_tasks` for due items, INSERTs into
 `messages`. A cron daemon that writes rows.
 
 Owns `scheduled_tasks` table. Runs its own migration
-runner with service name `scheduler`.
+runner with service name `timed`.
 
 Task CRUD: agents create/pause/cancel tasks via MCP tools
-(IPC actions that write directly to the DB). The scheduler
+(IPC actions that write directly to the DB). arz-timed
 only reads.
 
 See `specs/7/8-scheduler-service.md` for full spec.
 
-## Component 4: Web Server
+## Component 4: arz-actid (MCP identity)
 
-**Open**: separate process or router-internal?
+MCP server daemon. Receives MCP calls from agent containers,
+resolves caller identity (folder, tier), stamps the request,
+and forwards to the appropriate consumer daemon.
 
-If separate, it talks to router the same way channels do —
-HTTP API. Slink messages are just `POST /v1/messages` with
-`origin=web`. Auth tables could be router-internal (web
-calls router API for auth) or a separate auth DB.
+No authorization logic — just identity resolution and routing.
 
-If router-internal, it's simpler — one process, one port,
-shared state. Web routes are just more handlers on the
-router's HTTP server.
+See `specs/7/10-actid.md` for full spec.
 
-Leaning router-internal. Web + router share too much
+## Component 5: arz-authd (authorization)
+
+Policy engine daemon. Consumers call it to check permissions.
+Tier-based: tier computed from folder depth. Input is caller
+identity + action + target. Output is allow/deny.
+
+Doesn't know what actions do — just knows policy.
+
+See `specs/7/11-authd.md` for full spec.
+
+## Component 6: Web Server
+
+**Open**: separate daemon or arz-gated-internal?
+
+If separate, it talks to arz-gated the same way channels do —
+HTTP API. Web messages are just `POST /v1/messages` with
+`origin=web`. Auth tables could be arz-gated-internal (web
+calls arz-gated API for auth) or a separate auth DB.
+
+If arz-gated-internal, it's simpler — one process, one port,
+shared state. Web routes are just more handlers on arz-gated's
+HTTP server.
+
+Leaning arz-gated-internal. Web + arz-gated share too much
 state (auth, groups, messages) for separate processes
 to be worth the coordination cost.
 
-## Component 5: Agent Runner
+## Component 7: Agent Runner
 
 Thin wrapper inside a docker container. Invokes Claude Code
-CLI, pipes stdin/stdout, connects to router MCP socket.
+CLI, pipes stdin/stdout, connects to arz-actid MCP socket.
 
 **Contract**:
 
 - IN: JSON on stdin `{prompt, sessionId, secrets, ...}`
 - OUT: JSONL on stdout (results, session IDs)
-- OUT: MCP client → router socket for send_message, etc.
+- OUT: MCP client → arz-actid socket for send_message, etc.
 
 **Interface**: stdin/stdout JSON + MCP unix socket.
 
 Claude Code CLI is the runtime. Agent runner just configures
 and invokes it. ~50-100 LOC in any language.
 
-MCP connection to router via socat stdio-to-socket bridge:
+MCP connection to arz-actid via socat stdio-to-socket bridge:
 
 ```json
 {
   "nanoclaw": {
     "command": "socat",
-    "args": ["STDIO", "UNIX-CONNECT:/workspace/ipc/router.sock"]
+    "args": ["STDIO", "UNIX-CONNECT:/workspace/ipc/actid.sock"]
   }
 }
 ```
@@ -249,44 +282,47 @@ Allowlist file outside project root so containers can't tamper.
 Folder name validation: `/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/`
 with path traversal prevention.
 
-## Component 6: MCP IPC (agent ↔ orchestrator)
+## Component 8: MCP IPC (agent ↔ arz-actid ↔ consumers)
 
-Orchestrator runs an MCP server per group on a unix socket.
-Agent containers connect as MCP clients.
+arz-actid runs an MCP server per group on a unix socket.
+Agent containers connect as MCP clients. arz-actid stamps
+identity and forwards to the appropriate consumer daemon.
 
 ```
-Router                           Agent Container
-──────                           ──────────────
-MCP server on                    MCP client via socat
-/data/ipc/<group>.sock           /workspace/ipc/router.sock
-
-     ←── initialize ──────────
-     ──── capabilities ───────→
-     ←── tools/call ──────────
-         {send_message, text}
-     ──── result: {ok} ───────→
-     ──── notification: ──────→   (push to agent)
-         {new_message: "..."}
+Agent Container              arz-actid                 Consumer
+──────────────               ─────────                 ────────
+MCP client via socat    →    MCP server on              arz-gated
+/workspace/ipc/actid.sock    /data/ipc/<group>.sock     arz-timed
+                                                        etc.
+     ←── initialize ──────
+     ──── capabilities ───→
+     ←── tools/call ──────
+         {send_message}
+                             stamp identity (folder, tier)
+                             route to consumer
+                                  → arz-authd: authorize?
+                                  ← allow/deny
+     ──── result: {ok} ───→
 ```
 
 ### MCP tools
 
-| Tool                | What it does           | Min tier |
-| ------------------- | ---------------------- | -------- |
-| `send_message`      | send to chat channel   | 3        |
-| `send_file`         | send file to chat      | 3        |
-| `schedule_task`     | create scheduled task  | 2        |
-| `list_tasks`        | list group's tasks     | 3        |
-| `delete_task`       | delete a task          | 2        |
-| `register_group`    | register new group     | 1        |
-| `clear_session`     | reset agent session    | 3        |
-| `delegate`          | delegate to subgroup   | 2        |
-| `inject_message`    | inject as if from user | 1        |
-| `escalate_group`    | escalate to parent     | 1        |
-| `set_routing_rules` | update routing         | 2        |
-| `pause_task`        | pause scheduled task   | 2        |
-| `resume_task`       | resume paused task     | 2        |
-| `cancel_task`       | cancel scheduled task  | 2        |
+| Tool                | What it does           | Consumer  | Min tier |
+| ------------------- | ---------------------- | --------- | -------- |
+| `send_message`      | send to chat channel   | arz-gated | 3        |
+| `send_file`         | send file to chat      | arz-gated | 3        |
+| `schedule_task`     | create scheduled task  | arz-timed | 2        |
+| `list_tasks`        | list group's tasks     | arz-timed | 3        |
+| `delete_task`       | delete a task          | arz-timed | 2        |
+| `register_group`    | register new group     | arz-gated | 1        |
+| `clear_session`     | reset agent session    | arz-gated | 3        |
+| `delegate`          | delegate to subgroup   | arz-gated | 2        |
+| `inject_message`    | inject as if from user | arz-gated | 1        |
+| `escalate_group`    | escalate to parent     | arz-gated | 1        |
+| `set_routing_rules` | update routing         | arz-gated | 2        |
+| `pause_task`        | pause scheduled task   | arz-timed | 2        |
+| `resume_task`       | resume paused task     | arz-timed | 2        |
+| `cancel_task`       | cancel scheduled task  | arz-timed | 2        |
 
 Replaces file-based IPC (JSON files + SIGUSR1).
 
@@ -329,7 +365,7 @@ image = "arizuko-telegram:latest"
 restart = "on-failure"
 
 [environment]
-ROUTER_URL = "http://router:8080"
+GATED_URL = "http://gated:8080"
 TELEGRAM_BOT_TOKEN = "${TELEGRAM_BOT_TOKEN}"
 ```
 
@@ -340,29 +376,34 @@ generated compose file.
 
 ```yaml
 services:
-  orchestrator:
+  gated:
     image: arizuko:latest
     command: ['run']
     volumes: ['./:/srv/data', '/var/run/docker.sock:/var/run/docker.sock']
     ports: ['8080:8080']
     restart: on-failure
 
-  scheduler:
-    image: arizuko-scheduler:latest
+  timed:
+    image: arizuko-timed:latest
     volumes: ['./store:/srv/data/store']
+    restart: on-failure
+
+  actid:
+    image: arizuko-actid:latest
+    volumes: ['./store:/srv/data/store', './data/ipc:/srv/data/ipc']
     restart: on-failure
 
   telegram:
     image: arizuko-telegram:latest
     environment:
-      ROUTER_URL: http://orchestrator:8080
+      GATED_URL: http://gated:8080
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
     restart: on-failure
-    depends_on: [orchestrator]
+    depends_on: [gated]
 ```
 
-Orchestrator and scheduler share the SQLite DB via volume
-mount. Only orchestrator has docker-in-docker access (for
+arz-gated and arz-timed share the SQLite DB via volume
+mount. Only arz-gated has docker-in-docker access (for
 agent containers). Channel adapters connect via HTTP over
 the docker network.
 
@@ -401,7 +442,7 @@ removes the orphan container.
 
 ```bash
 arizuko run                # generate compose, start everything
-arizuko status             # show router + registered channels + service health
+arizuko status             # show daemons + registered channels + service health
 docker compose logs -f telegram  # logs for one component
 docker compose ps          # container-level inspection
 docker compose restart telegram  # restart one component
@@ -412,7 +453,7 @@ docker compose restart telegram  # restart one component
 The services dir is for co-located containers. Channels
 running on other hosts or in VMs don't need a `.toml`
 file — they just register via HTTP using the external
-router URL. The two mechanisms coexist: local channels
+arz-gated URL. The two mechanisms coexist: local channels
 are managed via docker compose, remote channels
 self-register over the network.
 
@@ -429,7 +470,7 @@ the transport table.
 ## Not components: memory, skills, character
 
 These shape agent behavior, not system architecture.
-They live inside the container, not in the router:
+They live inside the container, not in arz-gated:
 
 - **Skills**: SKILL.md files mounted into container
 - **Memory**: files in group folder (diary/, CLAUDE.md)
@@ -441,7 +482,7 @@ The architecture just mounts the right directories.
 
 Agent-level pipelines (chaining tools, prompts, agents)
 handled by langaxe (`/home/onvos/app/langaxe`). Not part
-of arizuko. Router doesn't care what runs inside the
+of arizuko. arz-gated doesn't care what runs inside the
 container — Claude Code, langaxe, or a shell script.
 
 ## Language per service
@@ -452,8 +493,8 @@ container — Claude Code, langaxe, or a shell script.
 | discord adapter  | TS or Go      | discord.js / discordgo |
 | whatsapp adapter | TS            | baileys has no rival   |
 | email adapter    | Go or Python  | go-imap / aioimaplib   |
-| orchestrator     | Go            | current implementation |
-| web server       | Go            | orchestrator-internal  |
+| arz-gated        | Go            | current implementation |
+| web server       | Go            | arz-gated-internal     |
 | agent runner     | any (or bash) | thin CLI wrapper       |
 
 Only channel adapters have a strong language preference
@@ -465,7 +506,9 @@ Built-in components live in the monorepo. Each has a
 binary and a Dockerfile in its subdirectory.
 
 ```
-cmd/arizuko/         ← router binary
+cmd/arizuko/         ← arz-gated binary
+services/timed/      ← arz-timed binary
+services/actid/      ← arz-actid binary
 channels/telegram/   ← telegram adapter binary + Dockerfile
 channels/discord/    ← discord adapter binary + Dockerfile
 channels/whatsapp/   ← whatsapp adapter binary + Dockerfile
@@ -479,7 +522,7 @@ generates docker-compose.yml and launches everything.
 ```bash
 make              # build all images
 ./arizuko         # generate compose, docker compose up -d
-./arizuko status  # show router + registered channels
+./arizuko status  # show daemons + registered channels
 ```
 
 ## Extension modules (open problem)
@@ -491,26 +534,26 @@ What works now:
 
 - Build your own image, push to a registry
 - Add a `.toml` config to the services dir referencing it
-- Router doesn't care — it just sees HTTP registration
+- arz-gated doesn't care — it just sees HTTP registration
 
 What's missing:
 
 - Discovery: how to find extensions
 - Install: `arizuko install <repo>` that clones + builds + adds config
 - Versioning: how to pin and upgrade extension versions
-- Security: extension containers get docker network access to router
+- Security: extension containers get docker network access to arz-gated
 - Dependencies: extension A needs extension B
 
 Not designed yet. The built-in model works. Extensions are
 deferred until the built-in channels are validated.
 
-### Multiple routers
+### Multiple instances
 
-Current design: one router per instance, single SQLite.
+Current design: one arz-gated per instance, single SQLite.
 Horizontal scaling would need either:
 
-- Multiple routers sharing PostgreSQL (big change)
-- Sharding by group across router instances
+- Multiple instances sharing PostgreSQL (big change)
+- Sharding by group across instances
 - Staying single-instance (fine for chat scale)
 
 Single instance is fine for foreseeable scale.
@@ -531,5 +574,5 @@ Earlier designs explored:
 - Channels as in-process goroutines — works for monolith,
   but doesn't survive isolation boundaries.
 - File-based IPC for agent↔router — being replaced by
-  MCP over unix socket.
+  MCP over unix socket via arz-actid.
 - Custom process supervisor — replaced by docker compose.
