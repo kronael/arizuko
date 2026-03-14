@@ -125,46 +125,42 @@ servers, CLAUDE.md, memory) is the primary extension mechanism.
 
 ## Database-as-Contract Architecture
 
-**The SQLite database is the coordination layer.** Services are
-independent processes that share one `.db` file. The schema is
-the API — any language that speaks SQLite can participate.
+Three services, one SQLite DB, no HTTP between them.
 
-**Principles:**
-
-- `messages` table is the bus. Producers (channel adapters,
-  scheduler, API) INSERT messages. Workers read and process.
-- Each service owns its tables (scheduler owns `scheduled_tasks`,
-  worker owns `sessions`, router owns `routes`). Ownership is
-  by convention, not enforced — SQLite has no GRANT/REVOKE.
-- Each service runs its own migration runner independently.
-  Migrations are namespaced in the `migrations` table by service
-  name — independent version sequences, no coordination needed.
-- The shared `.db` file is a deployment convenience, not an
-  architectural coupling. Any service could point at its own DB
-  file without code changes.
-- WAL mode + busy timeout handles concurrent access. Writes are
-  short (single INSERTs), contention is negligible.
-- State lives in the DB, not in memory. Services read from DB
-  on each access — no in-memory caches of DB state.
-
-**Migration table schema:**
-
-```sql
-CREATE TABLE migrations (
-  service TEXT NOT NULL,
-  version INTEGER NOT NULL,
-  applied_at TEXT NOT NULL,
-  PRIMARY KEY (service, version)
-);
+```
+Channel ←→ DB ←→ Gateway → docker run → Agent Container
+                    ↑
+                 Scheduler
 ```
 
-**Table ownership:**
+- **Channel**: platform ↔ DB rows (inbound and outbound)
+- **Gateway**: polls messages, routes, spawns containers,
+  writes output back to DB
+- **Scheduler**: cron daemon, writes to messages when due
+- **Agent container**: ephemeral child of gateway, not a service
+
+Services don't communicate — they each read/write shared
+state independently. No HTTP between internal services.
+
+**Table ownership** (by convention, SQLite has no GRANT):
 
 - Shared: `messages`, `chats`, `migrations`
-- Orchestrator: `routes`, `registered_groups`, `router_state`,
+- Gateway: `routes`, `registered_groups`, `router_state`,
   `sessions`, `session_log`, `system_messages`, `jobs`
 - Scheduler: `scheduled_tasks`
 - Auth: `auth_users`, `auth_sessions`
+- Channel: platform-specific (e.g. `email_threads`)
+
+**Migrations** namespaced by service in shared table:
+
+```sql
+CREATE TABLE migrations (
+  service TEXT NOT NULL, version INTEGER NOT NULL,
+  applied_at TEXT NOT NULL, PRIMARY KEY (service, version)
+);
+```
+
+See `specs/7/7-microservices.md` for full spec.
 
 ## Operational check (post-deploy)
 
