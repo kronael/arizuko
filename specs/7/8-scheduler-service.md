@@ -2,51 +2,56 @@
 
 ## Role
 
-A message producer. Polls `scheduled_tasks` for due items,
-writes messages to the `messages` table. That's it.
+A cron daemon that writes messages. Polls `scheduled_tasks`
+for due items, inserts into `messages`. That's it.
 
 The scheduler does NOT:
 
 - Run containers or agents
 - Know about MCP, docker, sessions, or volumes
-- Handle authorization beyond task ownership
 - Deliver messages to channels
-- Manage group configuration
+- Track results or execution status
 
-## Current State (coupled)
+## Table
 
-The scheduler currently depends on gateway callbacks:
+```sql
+CREATE TABLE scheduled_tasks (
+  id TEXT PRIMARY KEY,
+  owner TEXT NOT NULL,
+  chat_jid TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  cron TEXT,
+  next_run TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL
+);
+```
 
-- `RunAgentFn` — runs a container directly
-- `EnqueueTaskFn` — pushes into the gateway's queue
-- `InjectMessageFn` — writes a fake user message
-- `SendMessageFn` — delivers output to a channel
-- `Groups()` — reads the in-memory group map
+- `owner` — group folder that created the task. Used by MCP
+  actions for authorization (can this agent touch this task?).
+- `cron` — cron expression. NULL for one-shot tasks.
+- `next_run` — when to fire next. For one-shot: set directly,
+  goes NULL after firing. For cron: recomputed after each fire.
+- `status` — `active` or `paused`. No other states.
 
-This is wrong. The scheduler is not a worker. It should not
-know how containers run or how messages are delivered.
+One-shot tasks: set `next_run` to an ISO timestamp, leave
+`cron` null. After firing, `next_run` goes null. The task
+never fires again. No special type, no special status.
 
-## Target State (decoupled)
-
-The scheduler is its own process. It opens `messages.db`,
-runs its own migrations, and loops:
+## Loop
 
 ```
 every poll_interval:
   SELECT * FROM scheduled_tasks
     WHERE status = 'active' AND next_run <= now
 
-  for each due task:
+  for each task:
     INSERT INTO messages (id, chat_jid, sender, content, timestamp)
-      VALUES (task-{id}-{run}, task.chat_jid, 'scheduler', task.prompt, now)
-    UPDATE scheduled_tasks SET next_run = ..., last_run = now
-    INSERT INTO task_run_logs (task_id, run_at, ...)
+    if task.cron IS NOT NULL:
+      UPDATE next_run = next_cron(task.cron)
+    else:
+      UPDATE next_run = NULL
 ```
-
-The message appears in the bus. The router picks it up, resolves
-the route, hands it to the worker. The worker runs the container.
-Output flows back through messages. The scheduler never sees any
-of this.
 
 ## Deps
 
@@ -57,52 +62,58 @@ type Scheduler struct {
 }
 ```
 
-That's it. No gateway, no queue, no channels, no groups map.
+No gateway, no queue, no channels, no groups map.
 
-## Tables Owned
+## MCP Actions
 
-- `scheduled_tasks` — task definitions, next_run, status
-- `task_run_logs` — execution history
+Not part of the scheduler process. The IPC server exposes
+these as MCP tools to agents — they're just DB writes.
 
-## Tables Written (shared bus)
+### schedule_task
 
-- `messages` — INSERT only, sender='scheduler'
-
-## Migration Runner
-
-Own `migrations/` directory, own service name in migrations table:
-
-```sql
--- scheduler migration 0001
-CREATE TABLE IF NOT EXISTS scheduled_tasks (...);
-CREATE TABLE IF NOT EXISTS task_run_logs (...);
+```
+input: chat_jid, prompt, cron (optional), next_run (optional)
+auth:  tier 0 anywhere, tier 1 own world, tier 2 own group
+→ INSERT INTO scheduled_tasks
 ```
 
-## Context Modes
+### pause_task / resume_task
 
-- **isolated** (default): scheduler inserts message with a marker
-  that tells the worker to use a fresh session.
-- **group**: scheduler inserts a normal user message. The worker
-  processes it in the existing group session — indistinguishable
-  from a human message except for `sender = 'scheduler'`.
+```
+input: task_id
+auth:  task.owner must match caller's group (or root)
+→ UPDATE status = 'paused' | 'active'
+```
 
-The scheduler doesn't need to implement these modes differently.
-It always just inserts a message. The worker reads the task's
-`context_mode` and decides session strategy.
+### cancel_task
 
-## Task CRUD
+```
+input: task_id
+auth:  same as pause
+→ DELETE FROM scheduled_tasks WHERE id = ?
+```
 
-Tasks are created/paused/cancelled via IPC actions (from agents)
-or the admin API. The scheduler only reads them — it doesn't
-expose any API of its own. CRUD goes directly to the DB.
+## Migration
 
-## Error Handling
+Own runner, own service name:
 
-The scheduler logs to `task_run_logs` that it fired the message.
-Whether the container succeeds or fails is the worker's problem.
-The scheduler's job is done once the message is in the table.
+```sql
+-- scheduler:0001
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+  id TEXT PRIMARY KEY,
+  owner TEXT NOT NULL,
+  chat_jid TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  cron TEXT,
+  next_run TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL
+);
+```
 
-If the worker needs to report task results back, it updates
-`scheduled_tasks.last_result` directly — it owns that write
-path as the executor, even though the scheduler owns the table.
-This is the one acceptable cross-service write.
+## Messages as Log
+
+The scheduler's audit trail is the `messages` table.
+Every fire is a row with `sender='scheduler'`. No separate
+`task_run_logs` table. If you want to know what the scheduler
+did, query messages.

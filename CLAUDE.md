@@ -163,7 +163,7 @@ CREATE TABLE migrations (
 - Shared: `messages`, `chats`, `migrations`
 - Router: `routes`, `registered_groups`, `router_state`
 - Worker: `sessions`, `session_log`, `system_messages`
-- Scheduler: `scheduled_tasks`, `task_run_logs`
+- Scheduler: `scheduled_tasks`
 - Auth: `auth_users`, `auth_sessions`
 
 ## Operational check (post-deploy)
