@@ -60,10 +60,14 @@ func Generate(dataDir string) (string, error) {
 		return services[i].name < services[j].name
 	})
 
+	// derive project name from dataDir (REDACTED)
+	project := filepath.Base(dataDir)
+
 	var b strings.Builder
+	fmt.Fprintf(&b, "name: %s\n", project)
 	b.WriteString("services:\n")
-	b.WriteString(routerService(dataDir, env))
-	b.WriteString(schedulerService(dataDir, env))
+	b.WriteString(gatedService(dataDir, env))
+	b.WriteString(timedService(dataDir, env))
 	for _, s := range services {
 		b.WriteString(renderService(s.name, s.cfg, env))
 	}
@@ -75,12 +79,12 @@ type namedService struct {
 	cfg  ServiceConfig
 }
 
-func routerService(dataDir string, env map[string]string) string {
+func gatedService(dataDir string, env map[string]string) string {
 	apiPort := envOr(env, "API_PORT", "8080")
 	hostData := envOr(env, "HOST_DATA_DIR", dataDir)
 	hostApp := envOr(env, "HOST_APP_DIR", "")
 	var b strings.Builder
-	fmt.Fprintf(&b, "  router:\n")
+	fmt.Fprintf(&b, "  gated:\n")
 	fmt.Fprintf(&b, "    image: arizuko:latest\n")
 	fmt.Fprintf(&b, "    command: ['run']\n")
 	fmt.Fprintf(&b, "    volumes:\n")
@@ -116,10 +120,10 @@ func routerService(dataDir string, env map[string]string) string {
 	return b.String()
 }
 
-func schedulerService(dataDir string, env map[string]string) string {
+func timedService(dataDir string, env map[string]string) string {
 	tz := envOr(env, "TZ", "UTC")
 	var b strings.Builder
-	fmt.Fprintf(&b, "  scheduler:\n")
+	fmt.Fprintf(&b, "  timed:\n")
 	fmt.Fprintf(&b, "    image: arizuko:latest\n")
 	fmt.Fprintf(&b, "    entrypoint: ['timed']\n")
 	fmt.Fprintf(&b, "    volumes:\n")
@@ -127,7 +131,7 @@ func schedulerService(dataDir string, env map[string]string) string {
 	fmt.Fprintf(&b, "    environment:\n")
 	fmt.Fprintf(&b, "      DATABASE: /srv/data/store/messages.db\n")
 	fmt.Fprintf(&b, "      TIMEZONE: '%s'\n", tz)
-	fmt.Fprintf(&b, "    depends_on: [router]\n")
+	fmt.Fprintf(&b, "    depends_on: [gated]\n")
 	fmt.Fprintf(&b, "    restart: on-failure\n")
 	return b.String()
 }
@@ -182,7 +186,7 @@ func renderService(name string, cfg ServiceConfig, env map[string]string) string
 	}
 	deps := cfg.DependsOn
 	if len(deps) == 0 {
-		deps = []string{"router"}
+		deps = []string{"gated"}
 	}
 	fmt.Fprintf(&b, "    depends_on: [%s]\n", strings.Join(deps, ", "))
 	restart := cfg.Restart

@@ -19,11 +19,11 @@ func TestGenerateMinimal(t *testing.T) {
 	if !strings.Contains(out, "services:") {
 		t.Error("missing services header")
 	}
-	if !strings.Contains(out, "router:") {
-		t.Error("missing router service")
+	if !strings.Contains(out, "gated:") {
+		t.Error("missing gated service")
 	}
 	if !strings.Contains(out, "arizuko:latest") {
-		t.Error("missing router image")
+		t.Error("missing gated image")
 	}
 }
 
@@ -36,7 +36,7 @@ func TestGenerateWithChannel(t *testing.T) {
 image = "arizuko-telegram:latest"
 
 [environment]
-ROUTER_URL = "http://router:8080"
+ROUTER_URL = "http://gated:8080"
 TELEGRAM_TOKEN = "${TELEGRAM_BOT_TOKEN}"
 CHANNEL_SECRET = "${CHANNEL_SECRET}"
 `), 0o644)
@@ -57,8 +57,8 @@ CHANNEL_SECRET = "${CHANNEL_SECRET}"
 	if !strings.Contains(out, "s3cr3t") {
 		t.Error("CHANNEL_SECRET not interpolated")
 	}
-	if !strings.Contains(out, "depends_on: [router]") {
-		t.Error("missing depends_on router")
+	if !strings.Contains(out, "depends_on: [gated]") {
+		t.Error("missing depends_on gated")
 	}
 }
 
@@ -69,12 +69,12 @@ func TestGenerateMultipleServices(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "services/discord.toml"), []byte(`
 image = "arizuko-discord:latest"
 [environment]
-ROUTER_URL = "http://router:9090"
+ROUTER_URL = "http://gated:9090"
 `), 0o644)
 	os.WriteFile(filepath.Join(dir, "services/telegram.toml"), []byte(`
 image = "arizuko-telegram:latest"
 [environment]
-ROUTER_URL = "http://router:9090"
+ROUTER_URL = "http://gated:9090"
 `), 0o644)
 
 	out, err := Generate(dir)
@@ -105,14 +105,14 @@ func TestGenerateCustomDependsOn(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(""), 0o644)
 	os.WriteFile(filepath.Join(dir, "services/whisper.toml"), []byte(`
 image = "whisper:latest"
-depends_on = ["router", "telegram"]
+depends_on = ["gated", "telegram"]
 `), 0o644)
 
 	out, err := Generate(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "depends_on: [router, telegram]") {
+	if !strings.Contains(out, "depends_on: [gated, telegram]") {
 		t.Error("custom depends_on not rendered")
 	}
 }
@@ -136,9 +136,9 @@ func TestRouterEnvPassthrough(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "ASSISTANT_NAME: 'bot'") {
-		t.Error("ASSISTANT_NAME not passed to router")
+		t.Error("ASSISTANT_NAME not passed to gated")
 	}
 	if !strings.Contains(out, "CONTAINER_IMAGE: 'agent:v2'") {
-		t.Error("CONTAINER_IMAGE not passed to router")
+		t.Error("CONTAINER_IMAGE not passed to gated")
 	}
 }
