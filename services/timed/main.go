@@ -19,7 +19,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-const serviceName = "scheduler"
+const serviceName = "timed"
 
 func main() {
 	dsn := os.Getenv("DATABASE")
