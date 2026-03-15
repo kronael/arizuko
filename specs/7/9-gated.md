@@ -55,6 +55,45 @@ SELECT folder FROM routes
 Longest prefix match wins. A route for `telegram:-1001234`
 beats `telegram:`.
 
+### Template routing
+
+Route targets support RFC 6570 Level 1 template expansion.
+A target containing `{sender}` expands per-message to
+`<base>/<sender-file-id>` via `router.SenderToUserFileID`.
+
+```
+seq=0  type=default  target=atlas/{sender}
+seq=1  type=default  target=atlas/support
+```
+
+Non-existent targets are auto-created from the hub's
+`prototype/` directory. If creation fails (max_children,
+no prototype dir, mkdir error), fall through to next route.
+
+```
+atlas/              routing hub
+  prototype/        seed files for auto-created children
+  support/          fallback group (tier 2)
+  tg-123456/        per-user, auto-created (tier 2)
+  wa-5551234/       per-user, auto-created (tier 2)
+```
+
+All children are siblings at the same tier. No sibling
+visibility. `max_children` on the hub caps total
+auto-created groups (default 50).
+
+Template variables: `{sender}` only for now. Future:
+`{platform}`, `{chat}`.
+
+Folder names use sender IDs directly — `@`, `.` etc
+are valid Unix filenames. `SenderToUserFileID` converts
+`telegram:123` to `tg-123`, `whatsapp:5551234` to
+`wa-5551234`.
+
+Implementation: `router.SenderToUserFileID` in
+`router/router.go`. Auto-creation via `groupfolder`
+package.
+
 ## Job queue
 
 Per-group serialization with global concurrency cap:
@@ -113,6 +152,58 @@ icmcd at server creation time:
 
 icmcd resolves identity and calls authd.Authorize before
 invoking the callback. gated does not see raw MCP requests.
+
+## Gateway commands
+
+Intercepted before agent dispatch. Text-command model for
+channel consistency (some channels have native commands,
+arizuko uses text interception).
+
+| Command   | Effect                                          |
+| --------- | ----------------------------------------------- |
+| `/new`    | Clear session, enqueue trailing args as message |
+| `/ping`   | Reply with group, session, active containers    |
+| `/chatid` | Reply with the chat JID                         |
+| `/stop`   | Kill active container for this chat             |
+
+Commands are gateway code, not agent tools. The command
+registry is not exported to agents. `/file` commands
+(put/get/list) are deferred — agents handle files via
+MCP tools instead.
+
+Implementation: `gateway/commands.go`.
+
+## Agent output processing
+
+Agent output is delimited by sentinel markers
+(`---NANOCLAW_OUTPUT_START---` / `---NANOCLAW_OUTPUT_END---`).
+Between markers, gated applies outbound filtering
+(`router.FormatOutbound`) before sending to channels.
+
+### Think blocks
+
+`<think>...</think>` tags for agent internal reasoning.
+Stripped before channel delivery. Supports nesting
+(depth-tracked). Unclosed `<think>` hides everything
+after it (safe default — agent stays silent). Empty
+result after stripping = silent turn (no message sent).
+
+Use case: group-chat agents that must sometimes stay
+silent. Agent opens `<think>`, reasons, decides not to
+respond, never closes — silence is the natural result.
+
+### Status messages
+
+`<status>text</status>` blocks for agent-initiated
+progress updates. Extracted and sent as interim messages
+before the final response. Multiple per turn OK.
+
+`<status>` inside `<think>` is silently dropped (think
+stripping runs first). Unclosed `<status>` tags treated
+as literal text (not stripped).
+
+Implementation: `router/router.go` (`StripThinkBlocks`,
+`ExtractStatusBlocks`, `FormatOutbound`).
 
 ## Channel health checks
 

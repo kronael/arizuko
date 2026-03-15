@@ -288,23 +288,37 @@ build different channel adapters simultaneously. No merge
 conflicts — each lives in its own directory with its own
 dependencies.
 
-## Open questions
+## Decided (previously open)
 
 ### Large file delivery
 
-Outbound: router sends file via multipart POST. Simple.
-Inbound: channel provides URL, router fetches. What if
-channel is behind NAT? Options:
+**Inbound**: channel uploads file to router via
+`POST /v1/files` (multipart). Router stores in group
+media dir, returns path. Channel then references path
+in the message attachment. This works regardless of
+NAT — channel always initiates the connection to router.
 
-- Channel uploads to router (POST /v1/files)
-- Base64 inline (doubles size, fine for <25MB)
-- Presigned upload URL from router
+```
+POST /v1/files
+Authorization: Bearer <session-token>
+Content-Type: multipart/form-data
+- chat_jid: "telegram:-1001234567"
+- filename: "photo.jpg"
+- file: <binary>
+
+-> 200 {"ok": true, "path": "media/photo-abc123.jpg"}
+```
+
+Channel includes the returned `path` in the attachment
+object instead of a URL. Router resolves locally.
+
+**Outbound**: router sends file via multipart POST to
+channel's `/send-file` endpoint. Unchanged.
 
 ### Event types beyond messages
 
-Reactions, edits, deletes, joins, leaves — each gets its
-own router endpoint? Or one generic `/v1/events` with a
-type field? Specific endpoints for now.
+Specific endpoints for now. Each event type gets its own
+router endpoint when needed. No generic `/v1/events`.
 
 ### Multiple instances of same channel
 

@@ -1,81 +1,81 @@
-## <!-- source: arizuko specs/3/P-message-ids.md, synced 2026-03-15 -->
-
 ## status: shipped
 
 # Message IDs: Reply and Forward Metadata
 
-Enrich inbound message metadata with channel-native IDs for reply threading
-and forward attribution. Mirrors the reply_msgid work in 5-permissions.
+Enrich inbound message metadata with channel-native IDs for
+reply threading and forward attribution.
 
 ## Problem
 
-`NewMessage` captures reply context as plain text (`reply_to_text`,
-`reply_to_sender`) and forward source as a name string (`forwarded_from`).
-No IDs are stored. Agents cannot thread replies to specific messages and
-cannot reference original forwarded sources.
+Inbound messages capture reply context as plain text and
+forward source as a name string. No IDs stored. Agents
+cannot thread replies or reference forwarded sources.
 
-## Fields to add to `NewMessage`
+## Fields on inbound message
 
-```typescript
-export interface NewMessage {
-  // existing
-  forwarded_from?: string; // original sender name
-  reply_to_text?: string; // quoted message text (100 chars)
-  reply_to_sender?: string; // quoted message sender name
-  // new
-  reply_to_id?: string; // channel-native ID of the replied-to message
-  forwarded_from_id?: string; // source chat/channel ID (where available)
-  forwarded_msgid?: string; // original message ID (channel posts only)
+```go
+type Message struct {
+    // existing
+    ForwardedFrom   string // original sender name
+    ReplyToText     string // quoted text (100 chars)
+    ReplyToSender   string // quoted sender name
+    // added
+    ReplyToID       string // channel-native replied-to msg ID
+    ForwardedFromID string // source chat/channel ID
+    ForwardedMsgID  string // original message ID (channel posts)
 }
 ```
 
-## Channel coverage
+## Channel coverage — reply/forward metadata
 
-### Reply IDs (`reply_to_id`)
+Full matrix of what each channel provides for inbound
+metadata extraction.
 
-| Channel  | Source                                    | Available                                  |
-| -------- | ----------------------------------------- | ------------------------------------------ |
-| Telegram | `ctx.message.reply_to_message.message_id` | yes                                        |
-| Discord  | `msg.reference.messageId`                 | yes                                        |
-| WhatsApp | `ctxInfo.stanzaId`                        | yes                                        |
-| Mastodon | `status.inReplyToId`                      | yes (already in `replyTo` on `NewMessage`) |
-| Email    | thread-based, no per-message ID           | n/a                                        |
+### Reply metadata
 
-### Forward IDs (`forwarded_from_id`, `forwarded_msgid`)
+| Channel  | reply_to_id  | reply_to_sender | reply_to_text |
+| -------- | ------------ | --------------- | ------------- |
+| Telegram | yes          | yes             | yes           |
+| Discord  | yes          | yes             | yes           |
+| WhatsApp | yes          | yes             | yes           |
+| Email    | n/a (thread) | yes (From)      | n/a           |
+| Local    | yes (UUID)   | yes             | yes           |
 
-| Channel  | Source                                                                | Available                  |
-| -------- | --------------------------------------------------------------------- | -------------------------- |
-| Telegram | `forward_origin.type === 'channel'`: `fwd.chat.id` + `fwd.message_id` | yes                        |
-| Telegram | `forward_origin.type === 'user'` / `'hidden_user'`                    | no original ID             |
-| Discord  | `MessageReferenceType.Forward`                                        | no sender metadata exposed |
-| WhatsApp | `ctxInfo.isForwarded = true`                                          | no original source         |
+### Forward metadata
 
-Only Telegram channel posts carry a recoverable origin ID.
-For other forward types, `forwarded_from` name string is sufficient.
+| Channel  | fwd_from (name) | fwd_from_id (chat) | fwd_msgid |
+| -------- | --------------- | ------------------ | --------- |
+| Telegram | yes             | channel posts only | chan only |
+| Discord  | "(forwarded)"   | no                 | no        |
+| WhatsApp | yes (flag only) | no                 | no        |
+| Email    | n/a             | n/a                | n/a       |
+| Local    | yes             | yes                | yes       |
+
+Only Telegram channel posts carry recoverable origin ID.
+For other forward types, name string is sufficient.
+
+### Outbound reply threading
+
+| Channel  | Mechanism                          | Status   |
+| -------- | ---------------------------------- | -------- |
+| Telegram | reply_parameters.message_id        | shipped  |
+| Discord  | MessageReference                   | planned  |
+| WhatsApp | quoted WAMessage object (deferred) | deferred |
+| Email    | In-Reply-To header                 | n/a      |
+| Local    | replyTo field on store             | shipped  |
 
 ## Router XML
 
-Current: `<forwarded_from sender="..."/>` (no ID). Keep existing tag name.
-
-Updated:
-
 ```xml
-<!-- simple forward — name only -->
 <forwarded_from sender="John"/>
-
-<!-- channel post forward — with source -->
-<forwarded_from sender="Tech News" chat="telegram:-100123456" id="456"/>
-
-<!-- reply — already correct, add id -->
-<reply_to sender="Alice" id="789">quoted message text…</reply_to>
+<forwarded_from sender="News" chat="telegram:-100123" id="456"/>
+<reply_to sender="Alice" id="789">quoted text</reply_to>
 ```
 
-`id` on both tags is the channel-native message ID. Omit if absent.
-`chat` / `id` on `<forwarded_from>` only when both are present (Telegram channel posts).
+`id` is channel-native message ID. Omit if absent.
+`chat`/`id` on `<forwarded_from>` only when both present.
 
 ## DB schema
-
-Add columns to `messages` table via migration:
 
 ```sql
 ALTER TABLE messages ADD COLUMN reply_to_id TEXT;
@@ -83,45 +83,9 @@ ALTER TABLE messages ADD COLUMN forwarded_from_id TEXT;
 ALTER TABLE messages ADD COLUMN forwarded_msgid TEXT;
 ```
 
-Update `storeMessage` and `getNewMessages` to include the new columns.
+## Deferred
 
-## send_message: reply threading
-
-`send_message` action gains optional `replyTo?: string`.
-`ActionContext.sendMessage` signature: `(jid, text, opts?: SendOpts)`.
-Agents pass the `reply_to_id` or `reply_msgid` from session context.
-
-Channel implementations of `sendMessage(jid, text, opts)`:
-
-| Channel  | Implementation                                                                        | Status   |
-| -------- | ------------------------------------------------------------------------------------- | -------- |
-| Telegram | `reply_parameters: { message_id: Number(opts.replyTo) }`                              | done     |
-| Discord  | `channel.send({ content, reply: { messageReference: { messageId: opts.replyTo } } })` | todo     |
-| WhatsApp | needs quoted message object — deferred                                                | deferred |
-| Mastodon | `client.reply(opts.replyTo, text)` stub                                               | verify   |
-| Reddit   | `client.reply(opts.replyTo, text)` stub                                               | verify   |
-| Email    | `In-Reply-To` header — already thread-based                                           | n/a      |
-
-## Required changes
-
-- `src/types.ts`: add `reply_to_id?`, `forwarded_from_id?`, `forwarded_msgid?` to `NewMessage`
-- `src/migrations/0009-message-ids.sql`: ALTER TABLE for three new columns
-- `src/db.ts` `storeMessage` + `getNewMessages`: include new columns
-- `src/channels/telegram.ts`: extract `reply_to_id` from `reply_to_message.message_id`;
-  extract `forwarded_from_id` + `forwarded_msgid` from `forward_origin.type === 'channel'`
-- `src/channels/discord.ts`: extract `reply_to_id` from `msg.reference.messageId`;
-  implement `sendMessage` reply via `channel.send({ reply: ... })`
-- `src/channels/whatsapp.ts`: extract `reply_to_id` from `ctxInfo.stanzaId`
-- `src/router.ts` `formatMessages`: add `id` attr to `<reply_to>`;
-  add `chat`/`id` attrs to `<forwarded_from>` when present
-- `src/actions/messaging.ts` `send_message`: add `replyTo?: string` field
-- `src/action-registry.ts` `ActionContext.sendMessage`: add `opts?: SendOpts`
-- `src/ipc.ts`: wire `SendOpts` through to channel `sendMessage` calls
-
-## Open
-
-- **WhatsApp reply**: Baileys requires `{ quoted: WAMessage }` (full message
-  object, not just ID). Needs message fetch or cache. Deferred.
-- **Discord forward metadata**: `MessageReferenceType.Forward` doesn't expose
-  the original sender. `'(forwarded)'` string is best available.
-- **Mastodon/Reddit reply**: `client.reply()` stubs need integration test.
+- WhatsApp reply: Baileys requires full WAMessage object,
+  not just ID. Needs message cache. Deferred.
+- Discord forward: MessageReferenceType.Forward exposes no
+  original sender. "(forwarded)" string is best available.

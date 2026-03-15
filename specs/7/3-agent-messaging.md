@@ -35,8 +35,20 @@ Agent JWTs are minted by the gateway on request (new IPC task
 Main group can create links targeting any group — natural hub for
 orchestrating inter-agent communication.
 
-## Open questions
+## Decided (previously open)
 
-- How do agents discover each other's links? (Registry in main group?)
-- Should agent JWTs be scoped to specific link tokens?
-- Rate limiting between agents?
+- **Agent discovery**: via MCP `tools/list` on shared unix
+  sockets. Agents connected to the same `icmcd` instance
+  discover available groups through the `list_groups` tool.
+  Main group acts as natural registry — it sees all groups
+  and can share link tokens via delegation.
+
+- **JWT scoping**: per-link-token. Each agent JWT encodes
+  the specific link token it was minted for in the `aud`
+  claim. An agent with a JWT for link A cannot use it to
+  POST to link B. Minted via `mint_agent_jwt` MCP tool.
+
+- **Rate limiting**: standard per-sender limits. Same rate
+  limits that apply to human senders apply to agent senders.
+  No special agent-to-agent rate policy. If an agent floods,
+  it gets throttled like any other sender.

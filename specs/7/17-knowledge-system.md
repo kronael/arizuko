@@ -89,118 +89,120 @@ Nudge text comes from skill config, not hardcoded in gateway.
 (`userContextXml()` in `router.ts`). Both ~5 lines each. Injection
 point is `formatPrompt()` in `index.ts`.
 
-**TODO**: Unified XML schemas. Each layer's format should be a typed
-structure (DTO/schema) with a shared formatter:
-
-```ts
-// src/schemas/knowledge.ts — shared types
-interface KnowledgeEntry {
-  key: string;        // "20260306", "tg-123456", "2026-W09"
-  attrs: Record<string, string>;  // age, confidence, etc.
-  summary: string;
-}
-
-interface KnowledgeLayer {
-  tag: string;        // "diary", "user", "episode"
-  entries: KnowledgeEntry[];
-}
-
-function formatLayerXml(layer: KnowledgeLayer): string { ... }
-```
-
-Each layer defines its own schema and selection logic, calls the
-shared formatter. Not a framework — just organized types and one
-XML helper. The formatters stay in their own files:
-
-- `diary.ts` → `formatDiaryXml()` uses `KnowledgeLayer` with tag `"diary"`
-- `router.ts` → `userContextXml()` uses its own format (pointer, not entries)
-- `episode.ts` (future) → `formatEpisodeXml()` with tag `"episode"`
-
-Episodes would follow the same pattern once built.
+Each layer has its own formatter in the `router/` package.
+Diary and user context are ~5 lines each. No shared
+abstraction needed until episodes ship — three similar
+formatters is fine.
 
 ## Pull layer: `/recall`
 
-Agent-driven semantic grep — an Explore subagent reads summaries/headers
-and judges relevance. The LLM IS the search engine. No embeddings, no
-vector DB.
+Agent-driven semantic search across knowledge stores. Read-only.
+All stores use `summary:` frontmatter, so recall treats them
+uniformly. A store is just a directory name.
 
-**Shipped** (as CLAUDE.md behavior): agent greps `facts/` `header:` fields,
-deliberates in `<think>`, reads matches.
-
-**TODO**: `/recall` skill — teaches the agent the semantic search protocol.
-Always-present base skill (like `/diary`, `/users`).
-
-### How it works
-
-The agent spawns an **Explore subagent** with a query and target layers.
-The Explore agent knows the protocol:
-
-1. Scan `header:` (facts) or `summary:` (diary) YAML frontmatter
-2. Read each candidate header, judge relevance to the query
-3. Return matches with file paths + why each is relevant
-
-The calling agent receives results, deliberates in `<think>` (mandatory
-3-step: what does it say, does it answer, what gaps remain), then either
-answers from the matched files or escalates to `/facts` for research.
+### Stores
 
 ```
-Agent receives question
-  → spawns Explore with "/recall: <question>"
-  → Explore scans facts/ headers + diary/ summaries
-  → Explore returns: "3 matches: facts/X.md (covers Y), diary/20260310.md (mentions Z)"
-  → Agent reads matched files, deliberates in <think>
-  → answers from knowledge, or runs /facts if gaps remain
+facts/     diary/     users/     episodes/
 ```
 
-### Layers scanned
-
-| Layer    | Key field       | Example                              |
-| -------- | --------------- | ------------------------------------ |
-| Facts    | `header:` YAML  | dense paragraph, optimized for match |
-| Diary    | `summary:` YAML | 5 bullet points per day              |
-| Episodes | `summary:` YAML | week/month rollup (when built)       |
+Each store = directory of `*.md` files with `summary:` in YAML
+frontmatter. Adding a store = one string. No code changes.
 
 ### Separation from `/facts`
 
 - **`/recall`** — retrieval only. Scan, match, return. No writing.
-- **`/facts`** — research only. Create/refresh facts via research +
-  verification subagents. Called when `/recall` finds no matches.
+- **`/facts`** — research only. Create/refresh via subagents.
 
-Currently both are bundled in `/facts`. Separating them means the agent
-can recall without the overhead of spawning researcher + verifier.
+### v1: LLM semantic grep (shipped)
 
-Scales to ~200 facts + 30 diary entries. At 500+ the header scan gets
-expensive — embeddings or cached index would help but aren't needed yet.
+Agent spawns an Explore subagent that greps `summary:` across
+all store dirs and judges relevance. The LLM is the search engine.
+
+```
+question -> /recall -> Explore subagent greps summary: fields
+         -> judges relevance per file
+         -> returns: path, store, why it matches
+         -> agent reads matched files
+         -> answers or escalates to /facts if gaps remain
+```
+
+Explore protocol:
+
+1. Grep `summary:` in `*.md` across all store dirs
+2. Read each summary, judge relevance to query
+3. Return matches with file path + reasoning
+
+After results, agent deliberates in `<think>` (mandatory):
+what does it say, does it answer, what gaps remain.
+
+Scales to ~300 files. Beyond that, switch to v2.
+
+### v2: CLI retrieval + Explore judge
+
+Same Explore agent for judgment. Pre-filter via CLI tool
+with FTS5 + vector search (hybrid BM25 + cosine).
+
+Three steps:
+
+1. **Expand** — agent generates ~10 search terms from query
+2. **Retrieve** — `recall "term"` CLI for each (fast, mechanical)
+3. **Judge** — Explore subagent with pre-filtered results
+
+CLI tool: `container/agent-runner/recall` (Go binary).
+Reads `.recallrc` from cwd. Uses SQLite FTS5 + sqlite-vec.
+
+```
+recall                   # sync index, show 5 newest
+recall "telegram auth"   # search, show top 5
+recall -10 "query"       # search, show top 10
+```
+
+DB per store in `.local/recall/` (derived cache, deletable).
+Lazy indexing: scan dirs, compare mtime, embed new/changed.
+Embeddings via Ollama `nomic-embed-text` (768-dim, ~100ms/file).
+
+Search: FTS5 BM25 (keywords) + vector cosine (semantic).
+RRF fusion: vector 0.7, BM25 0.3.
+
+### Skill
+
+```
+container/skills/recall/SKILL.md
+```
+
+Always-present base skill. Teaches the agent the semantic
+search protocol. `/recall` scans facts/, diary/, users/,
+episodes/. Read-only — never writes.
+
+### Decided (previously open)
+
+- `/recall` scans `users/` — yes, included in stores list
+- `/recall` does NOT scan `MEMORY.md` — different format,
+  agent reads it directly
+- Episode format: same `<entry>` structure as diary, with
+  `summary:` frontmatter
+- Performance at 500+: switch to v2 CLI retrieval. No
+  embeddings in v1, add when corpus demands it.
 
 ## What's left to build
 
-1. **Unified schemas** — typed DTOs for each layer's XML format,
-   shared `formatLayerXml()` helper
-2. **`/recall` skill** — always-present retrieval subagent across
-   facts + diary (+ episodes when built)
-3. **Separate recall from `/facts`** — `/facts` becomes research-only
-4. **Episodes** — scheduled aggregation from diary, formatter, injection
-5. **Episode aggregation prompt** — what to keep at each compression
-   level (day→week→month)
-
-## Open questions
-
-- Should `/recall` also scan `users/` and `MEMORY.md`?
-- Episode format: same `<entry>` structure as diary, or its own?
-- Performance at 500+ facts: cached index vs embeddings vs status quo
+1. **`/recall` skill** — always-present retrieval subagent
+2. **Separate recall from `/facts`** — `/facts` research-only
+3. **Episodes** — scheduled diary aggregation + injection
+4. **v2 CLI tool** — when corpus exceeds ~300 files
 
 ## Relationship to existing specs
 
-These specs describe specific layers built on this pattern:
+Layers built on this pattern:
 
-- `specs/1/L-memory-diary.md` — diary layer (agent skills + gateway
-  injection shipped)
-- `specs/4/B-memory-episodic.md` — episodes layer (designed, not built)
-- `specs/3/7-user-context.md` — user layer (shipped)
-- `specs/3/3-code-research.md` — facts layer (shipped, see research + verify)
+- diary layer (shipped)
+- user context layer (shipped)
+- facts layer (shipped)
+- episodes layer (designed, not built)
 
-These specs describe different systems, NOT instances of this pattern:
+Different systems (not this pattern):
 
-- `specs/3/E-memory-session.md` — SDK state (container-runner.ts)
-- `specs/1/N-memory-messages.md` — DB rows (router.ts SQL)
-- `specs/1/M-memory-managed.md` — MEMORY.md (Claude Code native)
+- Session state (container runner)
+- Message DB rows (store package)
+- MEMORY.md (Claude Code native)

@@ -58,3 +58,24 @@ CREATE TABLE migrations (
 Shared tables (any daemon can read/write): `messages`, `chats`.
 All other tables are owned by a single daemon — see individual
 daemon specs for schema.
+
+## Path translation (docker-in-docker)
+
+gated runs in Docker and spawns child containers via the
+host Docker daemon. Gateway-internal paths must be
+translated to host-side paths for child volume mounts.
+
+Two env vars, computed once at startup in `core.LoadConfig`:
+
+| Var             | Purpose                        |
+| --------------- | ------------------------------ |
+| `HOST_DATA_DIR` | Host path to instance data dir |
+| `HOST_APP_DIR`  | Host path to application dir   |
+
+Each mount path is constructed explicitly from these
+constants. No string replacement or path rewriting at
+runtime. When unset, defaults to the gateway's own
+filesystem paths (native mode, no translation needed).
+
+Used by: `container/` (volume mounts), `compose/`
+(docker-compose.yml generation), `icmcd/` (socket paths).

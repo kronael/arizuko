@@ -40,88 +40,65 @@ transport options.
 **Current**: Per-group sidecar config in `GroupConfig.Sidecars`.
 Launched as separate containers with Unix socket IPC.
 
-### Open Questions
+### Decided
 
-1. **Sidecar protocol**: Currently assumes MCP over Unix socket.
-   - Is MCP required?
-   - Can sidecars use other protocols (HTTP, gRPC)?
-   - How to specify protocol?
+1. **Sidecar protocol**: MCP over unix socket uniformly. All
+   sidecars expose MCP tools on a socket in `/workspace/ipc/`.
+   Same transport as `icmcd` — agent connects via MCP client.
+   No HTTP, no gRPC. One protocol means one client library.
 
-2. **Sidecar lifecycle**: Currently started/stopped with agent container.
-   - Should sidecars persist across agent runs?
-   - Shared sidecars between groups?
-   - Health checks?
+2. **Sidecar lifecycle**: persistent daemons, not per-agent.
+   Like `icmcd` and `timed` — started by compose, run
+   continuously, survive agent container restarts. Shared
+   sidecars between groups are possible via socket path.
 
-3. **Sidecar discovery**: How do agents know what sidecars are available?
-   - Written to manifest at spawn?
-   - Query gateway via IPC?
+3. **Sidecar discovery**: via MCP `tools/list`. Agent connects
+   to each socket in `/workspace/ipc/`, calls `tools/list`,
+   merges available tools. No manifest, no gateway query.
 
-4. **Sidecar auth**: Can sidecars access agent credentials?
-   - Env var passthrough (current)
-   - Scoped tokens?
-   - No auth?
-
-### Proposed Design
-
-```yaml
-# groups/<folder>/container-config.yaml
-sidecars:
-  whisper:
-    image: arizuko-whisper:latest
-    protocol: http # NEW: http|mcp|grpc
-    port: 8080 # NEW: if http/grpc
-    persist: false # NEW: keep running?
-    env:
-      WHISPER_MODEL: large-v3
-    resources:
-      memory: 4G
-      cpus: 2.0
-    tools: ['*'] # MCP tool filter
-```
+4. **Sidecar auth**: env var passthrough (current). Sidecars
+   inherit group-scoped env from compose config. No scoped
+   tokens in v1 — sidecar runs at the same trust level as
+   the agent it serves.
 
 ## 4. Skills System
 
 **Current**: `container/skills/` seeded into agent session.
 Each skill has `SKILL.md` with prompt injection.
 
-### Open Questions
+### Decided
 
-1. **Skill loading**: When are skills loaded?
-   - At container spawn (current)
-   - On demand?
-   - Cached in session?
+1. **Skill loading**: on spawn, if destination does not exist.
+   Gateway copies `container/skills/` to session dir on first
+   spawn per group. Agent owns its copy — changes persist.
+   Canonical definitions at `/workspace/self/container/skills/`
+   (read-only mount) for `/migrate` diffing.
 
-2. **Skill dependencies**: Can skills depend on other skills?
-   - Dependency resolution?
-   - Version constraints?
+2. **Skill dependencies**: deferred. No dependency resolution
+   in v1. Skills are standalone units. If a skill needs another,
+   document it in SKILL.md — human ensures both are present.
 
-3. **Skill scope**: Are skills global or per-group?
-   - Gateway skills (container/skills/) are global
-   - Agent skills (.claude/skills/) are per-session
-   - Group skills (groups/<folder>/.claude/skills/) are per-group
+3. **Skill scope**: three levels, no inheritance:
+   - `container/skills/` — global, baked into image (read-only)
+   - `groups/<folder>/.claude/skills/` — per-group, persistent
+   - `.claude/skills/` — per-session, seeded from global on
+     first spawn, then agent-owned
 
-4. **Skill updates**: How do skills get updated?
-   - Migration system (current: `MIGRATION_VERSION`)
-   - Hot reload?
-   - Agent self-update?
+4. **Skill updates**: `MIGRATION_VERSION` integer + `/migrate`
+   skill. Root agent runs `/migrate`, which diffs canonical vs
+   session skills for every group, copies changed skill dirs,
+   runs numbered migration `.md` scripts. No hot reload.
 
-5. **Skill marketplace**: Can agents install skills from external sources?
-   - Security implications?
-   - Verification/signing?
+5. **Skill marketplace**: deferred indefinitely. No external
+   skill install in v1.
 
-### Proposed Design
+### Skill format
 
 ```
-container/skills/         # Gateway-provided, read-only
-groups/<folder>/skills/   # Group-specific, persistent
-.claude/skills/           # Session-specific, ephemeral
-
-Skill Format:
-  <name>/
-    SKILL.md              # Required: prompt injection
-    CLAUDE.md             # Optional: additional context
-    schema.json           # Optional: tool definitions
-    migrations/           # Optional: upgrade scripts
+<name>/
+  SKILL.md              # Required: prompt injection
+  CLAUDE.md             # Optional: additional context
+  migrations/           # Optional: numbered upgrade scripts
 ```
 
 ## 5. Routing Rules
@@ -135,46 +112,31 @@ Agents modify routing via MCP `set_routing_rules` tool
 
 ## 6. Permission Tiers
 
-**Current**: 4 tiers based on folder depth (0=root, 1=world,
-2=agent, 3=worker). See `specs/7/11-authd.md` for tier
-definitions and MCP tool tier assignments.
+**Decided**: folder-depth model. 4 tiers, no inheritance,
+no escalation in v1, no custom tiers.
 
-### Open Questions
+| Tier | Name   | Depth | Example             |
+| ---- | ------ | ----- | ------------------- |
+| 0    | root   | 0     | `root`              |
+| 1    | world  | 1     | `atlas`             |
+| 2    | agent  | 2     | `atlas/support`     |
+| 3    | worker | 3+    | `atlas/support/web` |
 
-1. **Tier semantics**: Are tiers the right model?
-   - Alternative: explicit capability grants
-   - Alternative: ACLs per action
+Tier = `min(folder.split("/").length, 3)`, except `root`
+which is always 0. Folders deeper than 3 are clamped to
+worker. Registration rejects depth > 3.
 
-2. **Tier inheritance**: Do children inherit parent permissions?
-   - Current: no, tier computed from depth
-   - Proposal: explicit inheritance?
+No inheritance — tier computed from depth, not parent.
+No escalation — agents cannot temporarily gain higher
+tier. `escalate_group` sends a message to the parent,
+it does not grant permissions.
 
-3. **Tier escalation**: Can an agent temporarily escalate?
-   - Current: no
-   - Proposal: escalate_group action for delegation
+No custom tiers or named roles. The 4-tier model covers
+all current needs. Capabilities are implicit in tier
+number via `maxTier` on each action in the registry.
 
-4. **Custom tiers**: Can users define new permission levels?
-   - Named roles instead of numbers?
-
-### Proposed Design
-
-```go
-// Option A: Keep tier system, add explicit caps
-type ActionContext struct {
-    SourceGroup string
-    Tier        int
-    Caps        []string // ["inject_message", "register_group", ...]
-}
-
-// Option B: Replace tiers with capabilities
-type ActionContext struct {
-    SourceGroup string
-    CanInject   bool
-    CanRegister bool
-    CanDelegate bool
-    CanSchedule bool
-}
-```
+See `specs/7/11-authd.md` for per-action tier assignments
+and mount enforcement table.
 
 ## 7. Plugin Architecture
 
@@ -182,20 +144,13 @@ Plugins are docker containers with `.toml` configs in the
 services/ directory. See `specs/7/0-architecture.md` for
 the services directory format.
 
-### Open Questions
-
-1. **Discovery**: how to find third-party extensions
-2. **Install**: `arizuko install <repo>` workflow
-3. **Versioning**: how to pin and upgrade versions
-4. **Security**: network access to router
-5. **Dependencies**: extension A needs extension B
-
-Not designed yet. Built-in model works. Extensions deferred
-until built-in channels are validated.
+**Deferred**. Discovery, install workflow, versioning,
+security, and dependency resolution are all deferred until
+built-in channels and sidecars are validated. The current
+model (services/\*.toml + compose generation) works.
 
 ## Non-goals (for now)
 
-- External plugin loading (deferred)
-- Plugin marketplace (deferred indefinitely)
+- External plugin marketplace (deferred indefinitely)
 - Hot reload (deferred)
 - WebAssembly support (deferred)
