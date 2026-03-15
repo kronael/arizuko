@@ -9,6 +9,48 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v1.2.0] — 2026-03-15
+
+Docker compose orchestration, daemon isolation, comprehensive test
+coverage, code refinement.
+
+### Architecture
+
+- **Docker compose deployment**: `arizuko compose <instance>` generates
+  docker-compose.yml from `.env` + `services/*.toml`. Systemd runs
+  `docker compose up` in foreground.
+- **`arizuko run`**: gated-only gateway entrypoint. timed and teled are
+  separate containers in the compose stack.
+- **Single Docker image**: all three binaries (arizuko, timed, teled)
+  built into one image, differentiated by entrypoint.
+- **Daemon naming**: compose services use spec names (gated, timed, teled)
+  with `container_name` for clean log prefixes.
+
+### Changed
+
+- `services/gated/` deleted — gated runs via `cmd/arizuko/main.go run`
+- `arizuko create` generates random CHANNEL_SECRET (was empty)
+- `instanceDir()` helper replaces 4 repeated sprintf calls
+- `delegateToChild`/`delegateToParent` collapsed into `delegateToFolder`
+- `groupByFolder`/`groupJIDs` helpers extracted from duplicated loops
+- Dead `"verb"` routing case removed from router
+- icmcd/authd reclassified as libraries (not daemons) in docs
+
+### Tests
+
+- 21 gateway tests (commands, routing, state, channels, system events)
+- 20 container tests (sanitize, mounts, args, settings, output parsing)
+- 15 timed tests (migration, fire, cron, concurrent dedup)
+- Fixed concurrent test: shared-cache SQLite for in-memory multi-goroutine
+
+### Docs
+
+- CLAUDE.md, ARCHITECTURE.md, README.md aligned with deletions
+- Service table shows type (daemon/library)
+- Routing rules renumbered (verb tier removed)
+
+---
+
 ## [v1.1.0] — 2026-03-15
 
 Microservice architecture. Scheduler extracted to standalone daemon,
