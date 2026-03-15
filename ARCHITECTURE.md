@@ -28,8 +28,6 @@ cmd/arizuko/main
   │   │   └── runtime
   │   ├── router    (message formatting, routing rules)
   │   ├── ipc       (MCP server on unix socket)
-  │   ├── scheduler (cron/interval/once task runner)
-  │   │   └── store
   │   ├── diary     (YAML frontmatter annotations)
   │   └── groupfolder
   ├── compose      (docker-compose generation)
@@ -100,28 +98,27 @@ Full protocol: `specs/7/1-channel-protocol.md`.
 | `Group`         | Registered group (folder, trigger, config)                   |
 | `GroupConfig`   | Per-group: mounts, timeout, sidecars                         |
 | `Route`         | Flat routing table entry (type, match, target)               |
-| `Task`          | Scheduled task (cron/interval/once, prompt, status)          |
+| `Task`          | Scheduled task (cron, prompt, status)                        |
 | `Channel`       | Interface: Connect, Send, SendFile, Owns, Typing, Disconnect |
 | `ChatInfo`      | Chat metadata with errored flag                              |
 | `SessionRecord` | Session log entry                                            |
 
 ## SQLite Schema
 
-| Table               | Key columns                                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------ |
-| `chats`             | jid (PK), name, channel, is_group, errored                                                             |
-| `messages`          | id (PK), chat_jid, sender, content, timestamp                                                          |
-| `registered_groups` | jid (PK), folder, trigger_word, requires_trigger, container_config (JSON), parent, slink_token         |
-| `routes`            | id (auto), jid, seq, type, match, target                                                               |
-| `sessions`          | group_folder (PK), session_id                                                                          |
-| `session_log`       | id (auto), group_folder, session_id, started_at, ended_at, result, error                               |
-| `system_messages`   | id (auto), group_id, origin, event, body                                                               |
-| `scheduled_tasks`   | id (PK), group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, next_run, status |
-| `task_run_logs`     | id (auto), task_id, run_at, duration_ms, status, result                                                |
-| `router_state`      | key (PK), value — persists lastTimestamp, lastAgentTimestamp                                           |
-| `auth_users`        | sub (unique), username (unique), hash                                                                  |
-| `auth_sessions`     | token_hash (PK), user_sub, expires_at                                                                  |
-| `email_threads`     | thread_id (PK), chat_jid, subject                                                                      |
+| Table               | Key columns                                                                                    |
+| ------------------- | ---------------------------------------------------------------------------------------------- |
+| `chats`             | jid (PK), name, channel, is_group, errored                                                     |
+| `messages`          | id (PK), chat_jid, sender, content, timestamp                                                  |
+| `registered_groups` | jid (PK), folder, trigger_word, requires_trigger, container_config (JSON), parent, slink_token |
+| `routes`            | id (auto), jid, seq, type, match, target                                                       |
+| `sessions`          | group_folder (PK), session_id                                                                  |
+| `session_log`       | id (auto), group_folder, session_id, started_at, ended_at, result, error                       |
+| `system_messages`   | id (auto), group_id, origin, event, body                                                       |
+| `scheduled_tasks`   | id (PK), owner, chat_jid, prompt, cron, next_run, status, created_at                           |
+| `router_state`      | key (PK), value — persists lastTimestamp, lastAgentTimestamp                                   |
+| `auth_users`        | sub (unique), username (unique), hash                                                          |
+| `auth_sessions`     | token_hash (PK), user_sub, expires_at                                                          |
+| `email_threads`     | thread_id (PK), chat_jid, subject                                                              |
 
 WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
 
@@ -201,15 +198,17 @@ Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
 `IsAuthorizedRoutingTarget` — target must be direct child of source
 within same world (root segment). Max delegation depth: 3.
 
-## Scheduler (scheduler package)
+## Scheduler (services/timed/)
 
-Polls `store.DueTasks()` every 60s. For each due task:
+Standalone daemon (`arz-timed`). Polls `scheduled_tasks` every
+60s. For each due task (active + next_run <= now):
 
-1. Verify task still active
-2. Enqueue via `queue.EnqueueTask` (respects concurrency limits)
-3. Run agent with task prompt
-4. Log run in `task_run_logs`
-5. Compute next run: cron (via robfig/cron parser), interval (ms), or mark once-tasks complete
+1. Insert prompt as message into `messages` table (sender: `scheduler`)
+2. Compute next run via robfig/cron parser, update `next_run`
+3. Tasks without cron expression get `next_run` set to NULL (one-shot)
+
+Gateway picks up scheduler-injected messages in its normal poll loop.
+Own migration runner using shared `migrations` table (keyed by service name).
 
 ## Diary System (diary package)
 
@@ -278,7 +277,6 @@ queue/              Per-group concurrency, stdin piping
 router/             Message formatting, routing rules
 compose/            Docker-compose generation from services/*.toml
 ipc/                MCP server (unix socket per group)
-scheduler/          Cron/interval/once task runner
 diary/              YAML frontmatter diary annotations
 groupfolder/        Group path resolution and validation
 mountsec/           Mount allowlist validation
@@ -287,6 +285,7 @@ logger/             slog JSON init
 template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
 channels/telegram/  Standalone telegram adapter binary
+services/timed/     Scheduler daemon (arz-timed)
 ```
 
 ## Data Directory

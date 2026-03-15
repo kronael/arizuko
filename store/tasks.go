@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/onvos/arizuko/core"
@@ -66,39 +67,24 @@ func (s *Store) ListTasks(folder string, isRoot bool) []core.Task {
 	return out
 }
 
-func (s *Store) AllTasks() []core.Task {
-	rows, err := s.db.Query(
-		`SELECT id, owner, chat_jid, prompt, cron, next_run, status, created_at
-		 FROM scheduled_tasks ORDER BY created_at DESC`)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-
-	var out []core.Task
-	for rows.Next() {
-		t, ok := scanTask(rows)
-		if ok {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
 func (s *Store) UpdateTask(id string, p TaskPatch) error {
+	var sets []string
+	var args []any
 	if p.Status != nil {
-		if _, err := s.db.Exec(`UPDATE scheduled_tasks SET status = ? WHERE id = ?`,
-			*p.Status, id); err != nil {
-			return err
-		}
+		sets = append(sets, "status = ?")
+		args = append(args, *p.Status)
 	}
 	if p.NextRun != nil {
-		if _, err := s.db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`,
-			p.NextRun.Format(time.RFC3339), id); err != nil {
-			return err
-		}
+		sets = append(sets, "next_run = ?")
+		args = append(args, p.NextRun.Format(time.RFC3339))
 	}
-	return nil
+	if len(sets) == 0 {
+		return nil
+	}
+	args = append(args, id)
+	_, err := s.db.Exec(
+		"UPDATE scheduled_tasks SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+	return err
 }
 
 func (s *Store) DeleteTask(id string) error {

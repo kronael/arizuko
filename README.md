@@ -39,7 +39,6 @@ container/       Docker spawn, volume mounts, sidecars
 queue/           Per-group concurrency, circuit breaker
 router/          XML message formatting, 5-tier routing rules
 ipc/             MCP server on unix socket (per-group)
-scheduler/       Cron/interval/once task runner
 diary/           YAML frontmatter diary annotations
 groupfolder/     Group path resolution
 mountsec/        Mount allowlist validation
@@ -47,6 +46,7 @@ runtime/         Docker binary abstraction, orphan cleanup
 logger/          slog JSON init
 template/        Instance seed files
 sidecar/         MCP server binaries (whisper)
+services/timed/  Scheduler daemon
 ```
 
 ## Message Flow

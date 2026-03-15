@@ -397,7 +397,7 @@ func (g *Gateway) runAgentWithOpts(
 
 	isRoot := g.cfg.IsRoot(group.Folder)
 	container.WriteTasksSnapshot(
-		g.folders, group.Folder, isRoot, g.store.AllTasks())
+		g.folders, group.Folder, isRoot, g.store.ListTasks("", true))
 	container.WriteGroupsSnapshot(
 		g.folders, group.Folder, isRoot, g.groupList())
 

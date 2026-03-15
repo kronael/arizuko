@@ -46,7 +46,7 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `chanreg/` — channel registry, health checks, HTTP channel proxy (outbound)
 - `api/` — HTTP API server (channel registration, inbound messages, chat metadata)
 - `ipc/` — MCP server on unix socket (mark3labs/mcp-go, per-group)
-- `scheduler/` — cron/interval/once task runner (robfig/cron)
+- `services/timed/` — standalone scheduler daemon (cron poll, writes to messages table)
 - `diary/` — YAML frontmatter diary annotations for agent context
 - `groupfolder/` — group path resolution and validation
 - `mountsec/` — mount allowlist validation
@@ -71,7 +71,6 @@ api/               Router HTTP API server
 compose/           Docker-compose generation
 channels/telegram/ Standalone telegram adapter
 ipc/               MCP server (unix socket)
-scheduler/         Task scheduler
 diary/             Diary annotations
 groupfolder/       Path validation
 mountsec/          Mount security
@@ -79,6 +78,7 @@ runtime/           Docker lifecycle
 logger/            Logging init
 template/          Instance seed files
 sidecar/           MCP server binaries
+services/timed/    Scheduler daemon
 ```
 
 ## Conventions

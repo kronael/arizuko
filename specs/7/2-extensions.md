@@ -15,7 +15,7 @@ Goal: make the system extensible without modifying core code.
 | Sidecars      | core/types.go:47    | Agent         | Container config |
 | Mounts        | core/types.go:41    | Agent         | Container config |
 | Skills        | container/skills/   | Agent         | File-based       |
-| Tasks         | scheduler/          | Agent         | IPC actions      |
+| Tasks         | services/timed/     | Agent         | IPC actions      |
 | Diary         | diary/              | Agent         | File-based       |
 
 ## 1. Action Registry

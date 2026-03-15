@@ -41,7 +41,6 @@ type Input struct {
 	SessionID string            `json:"sessionId,omitempty"`
 	ChatJID   string            `json:"chatJid"`
 	Folder    string            `json:"groupFolder"`
-	IsTask    bool              `json:"isScheduledTask,omitempty"`
 	AsstName  string            `json:"assistantName,omitempty"`
 	Secrets   map[string]string `json:"secrets,omitempty"`
 	MsgCount  int               `json:"messageCount,omitempty"`
