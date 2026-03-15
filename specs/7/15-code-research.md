@@ -1,10 +1,10 @@
-## <!-- source: kanipi specs/3/3-code-research.md, synced 2026-03-15 -->
+## <!-- source: arizuko specs/3/3-code-research.md, synced 2026-03-15 -->
 
 ## status: shipped
 
 # Code Research Agent
 
-A kanipi product configuration that turns a group into a codebase Q&A agent
+A arizuko product configuration that turns a group into a codebase Q&A agent
 with background research capabilities. Users ask questions about a mounted
 codebase; the agent searches facts, researches deeply when needed, and
 replies with evidence-backed findings.
@@ -97,7 +97,7 @@ Results written to `facts/<slug>.md`. Agent answers from verified facts.
 
 All prompts below are **verbatim from the ElizaOS source** in
 `refs/eliza-plugin-evangelist/`. Each includes the original, then
-a note on how kanipi handles the same concern.
+a note on how arizuko handles the same concern.
 
 ### 3a. Research Prompt
 
@@ -192,7 +192,7 @@ Existing knowledge files (reuse slug if your findings relate):
 
 **Kanipi equivalent**: The `/facts` skill runs Claude Code subagents with the
 same two-phase approach (research + verify). The prompt is simpler because
-kanipi agents have native tool access — no need for workspace setup
+arizuko agents have native tool access — no need for workspace setup
 instructions. The factset XML output format is reused verbatim.
 
 ### 3b. Verification Prompt
@@ -459,7 +459,7 @@ Source: ElizaOS character definition
 ```
 
 **Kanipi equivalent**: `character.json` supports same fields except
-`templates` (kanipi uses SDK system prompt, not Handlebars). The `{NAME}`
+`templates` (arizuko uses SDK system prompt, not Handlebars). The `{NAME}`
 placeholder is replaced at load time. Style section works identically.
 
 ### 3i. Allowed Tools
@@ -597,7 +597,7 @@ already cover it before re-researching.
 ### Option A: World template (future)
 
 ```bash
-kanipi create <name> --world code-researcher
+arizuko create <name> --world code-researcher
 # Pre-configured: SYSTEM.md, SOUL.md template, /facts skill, mount config
 ```
 
@@ -606,14 +606,14 @@ kanipi create <name> --world code-researcher
 **Step 1: Create instance + groups**
 
 ```bash
-kanipi create myresearch
-kanipi group add myresearch atlas --tier 1
-kanipi group add myresearch atlas/support --tier 2
+arizuko create myresearch
+arizuko group add myresearch atlas --tier 1
+arizuko group add myresearch atlas/support --tier 2
 ```
 
 **Step 2: Configure codebase mount**
 
-Edit `/srv/data/kanipi_myresearch/.env`:
+Edit `/srv/data/arizuko_myresearch/.env`:
 
 ```env
 EXTRA_MOUNTS=/path/to/target/repo:codebase:ro
@@ -625,7 +625,7 @@ TELEGRAM_BOT_TOKEN=...
 Copy the reference SYSTEM.md (section 4 above) into the group folder:
 
 ```bash
-cp system-template.md /srv/data/kanipi_myresearch/groups/atlas/support/SYSTEM.md
+cp system-template.md /srv/data/arizuko_myresearch/groups/atlas/support/SYSTEM.md
 ```
 
 Edit `{AGENT_NAME}` to match your agent's name.
@@ -648,7 +648,7 @@ can and say "I don't know" when you can't.
 Create initial fact files from existing documentation:
 
 ```bash
-mkdir -p /srv/data/kanipi_myresearch/groups/atlas/support/facts
+mkdir -p /srv/data/arizuko_myresearch/groups/atlas/support/facts
 # Copy or create initial .md files with YAML frontmatter
 ```
 
@@ -660,7 +660,7 @@ Configure `trigger_pattern` if needed.
 **Step 7: Test**
 
 ```bash
-sudo systemctl start kanipi_myresearch
+sudo systemctl start arizuko_myresearch
 # Send a question via configured channel
 # Verify: agent searches facts/, runs /facts if needed, cites evidence
 ```
@@ -695,7 +695,7 @@ Trigger: responds to all messages (requires_trigger=0)
 | CodebaseService (file search helpers) | agent uses Read/Grep/Glob natively      | No      |
 | FactsService (fact extraction)        | agent's own reasoning + /facts skill    | No      |
 | KnowledgeDiscoveryService             | deferred (semantic search)              | No      |
-| HelpSessionManager                    | kanipi groups scope sessions            | No      |
+| HelpSessionManager                    | arizuko groups scope sessions           | No      |
 | researchNeededAction (classification) | agent decides inline via strict rule    | No      |
 | Auth bridge (OAuth token mgmt)        | gateway runs outside container          | No      |
 | ALLOWED_TOOLS restriction             | SYSTEM.md convention (no write tools)   | No      |

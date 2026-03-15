@@ -8,7 +8,7 @@ container runner, HTTP API, session management.
 - **HTTP API**: channel registration, inbound messages, admin
 - **Message loop**: polls `messages` for unprocessed rows
 - **Route resolution**: JID → group via `routes` table
-- **Job queue**: per-group serialization, concurrency cap
+- **Job queue**: per-group serialization, concurrency cap (in-memory, queue/ package)
 - **Container runner**: docker-in-docker lifecycle (spawn,
   stream output, collect results, cleanup)
 - **Session management**: resume previous session, evict on
@@ -24,7 +24,6 @@ container runner, HTTP API, session management.
 | `sessions`          | active agent sessions per group      |
 | `session_log`       | session history (start, end, reason) |
 | `system_messages`   | system-generated messages            |
-| `jobs`              | active/queued container jobs         |
 
 Shared tables (read/write): `messages`, `chats`.
 Migration service name: `gated`.
@@ -62,7 +61,7 @@ Per-group serialization with global concurrency cap:
 
 - Each group processes one job at a time (serial)
 - Global cap: `MAX_CONCURRENT_CONTAINERS` (default 5)
-- Queue overflow: jobs wait in `jobs` table
+- Queue overflow: jobs wait in memory (pending queue)
 - Circuit breaker: consecutive failures pause the group
 
 States: `queued` → `running` → `done` | `failed`.
@@ -103,16 +102,17 @@ Runs on `API_PORT` (default 8080).
 
 ## MCP tool handling
 
-gated is a consumer of MCP tools routed by actid.
-When actid forwards a tool call, gated:
+icmcd handles all MCP tools directly and calls gateway
+functions as callbacks. gated exposes these callbacks to
+icmcd at server creation time:
 
-1. Receives the stamped request (caller folder + tier)
-2. Calls authd to authorize
-3. Executes if allowed, rejects if not
+- Messaging: `send_message`, `send_file`, `inject_message`
+- Groups: `register_group`, `delegate_group`, `escalate_group`
+- Sessions: `reset_session`
+- Routing: `get_routes`, `set_routes`, `add_route`, `delete_route`
 
-Tools consumed: `send_message`, `send_file`, `register_group`,
-`reset_session`, `delegate_group`, `inject_message`, `escalate_group`,
-`get_routes`, `set_routes`, `add_route`, `delete_route`.
+icmcd resolves identity and calls authd.Authorize before
+invoking the callback. gated does not see raw MCP requests.
 
 ## Channel health checks
 

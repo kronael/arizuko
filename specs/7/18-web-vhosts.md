@@ -1,4 +1,4 @@
-## <!-- source: kanipi specs/3/8-web-virtual-hosts.md, synced 2026-03-15 -->
+## <!-- source: arizuko specs/3/8-web-virtual-hosts.md, synced 2026-03-15 -->
 
 ## status: shipped
 
@@ -9,7 +9,7 @@ manages mappings. Worlds write content to their subdirectory.
 
 ## Problem
 
-A single kanipi instance hosts multiple worlds. Each world needs
+A single arizuko instance hosts multiple worlds. Each world needs
 its own hostname (`REDACTED`, `atlas.REDACTED`) without
 per-world configuration in the gateway.
 

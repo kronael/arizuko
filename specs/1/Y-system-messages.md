@@ -1,30 +1,12 @@
----
-status: shipped
----
+<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # System Messages
 
-Gateway-generated annotations riding alongside user messages
-into agent stdin. Never sent to channel, never trigger agent
-alone — piggyback on next real user message.
+Gateway-generated annotations alongside user messages into agent
+stdin. Never sent to channel, never trigger agent alone -- piggyback
+on next real user message.
 
-## Envelope
-
-```xml
-<system origin="gateway" event="new-session">
-  <previous_session id="9123f10a" started="..."
-    ended="..." msgs="42" result="ok"/>
-</system>
-<system origin="command" event="new">
-  user invoked /new
-</system>
-<system origin="diary" date="2026-03-04">
-  deployed REDACTED
-</system>
-hey what's up
-```
-
-## Schema
+## XML schema
 
 ```xml
 <system origin="<subsystem>" [event="<event>"] [attrs]>
@@ -36,25 +18,7 @@ hey what's up
 - `event` -- optional event within subsystem
 - body -- free-form text or typed child elements
 
-## Queue
-
-Per-group, stored in DB.
-
-```ts
-interface SystemMessage {
-  origin: string;
-  event?: string;
-  attrs?: Record<string, string>;
-  body: string;
-}
-```
-
-**Enqueue**: `enqueueSystemMessage(groupId, msg)`.
-**Flush**: in `processGroupMessages`, before prompt:
-SELECT, serialise as XML, prepend to stdin, DELETE
-(same transaction). Empty queue = no overhead.
-
-## Origins
+## Origin table
 
 | Origin     | Event          | Producer         | When                     |
 | ---------- | -------------- | ---------------- | ------------------------ |
@@ -66,59 +30,12 @@ SELECT, serialise as XML, prepend to stdin, DELETE
 | `fact`     | --             | facts (v2)       | Proactive fact retrieval |
 | `identity` | --             | identity (v2)    | Active identity context  |
 
-### `<previous_session>` attributes
+## `<previous_session>` attributes
 
 `id` (UUID), `started` (ISO8601), `ended` (ISO8601),
 `msgs` (int), `result` (ok|error|unknown), `error` (text).
 
-## Sessions table
+## Flush semantics
 
-```sql
-CREATE TABLE sessions (
-  session_id    TEXT PRIMARY KEY,
-  group_id      TEXT NOT NULL,
-  started_at    TEXT NOT NULL,
-  ended_at      TEXT,
-  message_count INTEGER,
-  result        TEXT,
-  error         TEXT
-);
-```
-
-New-session injection: last 2 sessions by `started_at`.
-
-Code uses two tables: `sessions` (current session per group,
-keyed by `group_folder`) and `session_history` (historical
-records with `session_id`, `group_id`, `started_at`,
-`ended_at`, `message_count`, `result`, `error`).
-
-## new-day trigger
-
-Compare `new Date().toDateString()` against stored date.
-If different: `<system origin="gateway" event="new-day">`.
-
-## Persistence
-
-```sql
-CREATE TABLE system_messages (
-  id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  group_id TEXT NOT NULL,
-  origin   TEXT NOT NULL,
-  event    TEXT,
-  attrs    TEXT,
-  body     TEXT NOT NULL,
-  ts       TEXT NOT NULL
-);
-```
-
-## Agent awareness
-
-Documented in `container/skills/self/SKILL.md`. Agent
-should know system messages exist, what each origin means,
-that they come from gateway not user, and never quote
-them back to user verbatim.
-
-## Non-producers
-
-`/ping`, `/chatid` — reply only, no agent involvement.
-Channel join/leave — gateway-internal.
+Per-group queue stored in DB. On flush: SELECT, serialize as XML,
+prepend to stdin, DELETE (same transaction). Empty queue = no overhead.

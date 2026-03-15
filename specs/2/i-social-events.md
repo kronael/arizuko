@@ -1,91 +1,24 @@
----
-status: shipped
----
+## <!-- trimmed 2026-03-15: TS removed, rich facts only -->
+
+## status: shipped
 
 # Social Events — Unified Inbound Model
 
-Normalize inbound events from all platforms into a typed
-event struct. Gateway filters by impulse weights and routes
-by verb. Agents see a uniform stream.
+Normalize inbound events into typed InboundEvent. Gateway filters
+by impulse weights, routes by verb. Agents see uniform stream.
 
-## InboundEvent
+## Verbs
 
-Replaces `NewMessage` as the gateway's internal event type.
-Existing `NewMessage` fields map 1:1 (additive change).
+message, reply, post, react, repost, follow, join, edit, delete, close
 
-```typescript
-const Verb = {
-  Message: 'message',
-  Reply: 'reply',
-  Post: 'post',
-  React: 'react',
-  Repost: 'repost',
-  Follow: 'follow',
-  Join: 'join',
-  Edit: 'edit',
-  Delete: 'delete',
-  Close: 'close',
-} as const;
+## Platforms
 
-type Verb = (typeof Verb)[keyof typeof Verb];
+telegram, whatsapp, discord, email, web, reddit, twitter, mastodon,
+bluesky, twitch, youtube, facebook, instagram, threads, linkedin
 
-const Platform = {
-  Telegram: 'telegram',
-  WhatsApp: 'whatsapp',
-  Discord: 'discord',
-  Email: 'email',
-  Web: 'web',
-  Reddit: 'reddit',
-  Twitter: 'twitter',
-  Mastodon: 'mastodon',
-  Bluesky: 'bluesky',
-  Twitch: 'twitch',
-  YouTube: 'youtube',
-  Facebook: 'facebook',
-  Instagram: 'instagram',
-  Threads: 'threads',
-  LinkedIn: 'linkedin',
-} as const;
+## Platform Mapping
 
-type Platform = (typeof Platform)[keyof typeof Platform];
-
-interface InboundEvent {
-  id: string;
-  platform: Platform;
-  jid: string;
-  sender: string;
-  sender_name?: string;
-  timestamp: string;
-
-  verb: Verb;
-  content?: string;
-
-  // thread position
-  thread?: string;
-  parent?: string;
-  root?: string;
-
-  // object acted upon
-  target?: string;
-  target_author?: string;
-
-  // mentions
-  mentions?: string[]; // user IDs/names mentioned in content
-  mentions_me?: boolean; // true if agent is mentioned
-
-  // compat
-  is_from_me?: boolean;
-  is_bot_message?: boolean;
-  forwarded_from?: string;
-}
-```
-
-Verb and Platform are const objects — typed at compile time,
-serialized as strings in JSON/IPC/DB.
-
-## Platform mapping
-
-### Chat channels (existing — verb is always Message)
+### Chat channels (verb always Message)
 
 | Source            | verb    | content | thread   |
 | ----------------- | ------- | ------- | -------- |
@@ -151,67 +84,27 @@ serialized as strings in JSON/IPC/DB.
 | @mention        | Message | -       | post_id | yes         |
 | Page reaction   | React   | -       | post_id | -           |
 
-### Close events (thread lifecycle)
+### Close events
 
-| Platform | Signal                   | How                    |
-| -------- | ------------------------ | ---------------------- |
-| Discord  | thread archived/locked   | `THREAD_UPDATE` event  |
-| Reddit   | post locked by moderator | `locked: true` on post |
-| YouTube  | live stream ends         | stream status event    |
-| Twitch   | stream goes offline      | offline event          |
-| Twitter  | reply restrictions set   | reply settings change  |
-| Facebook | comments disabled        | comment setting change |
+| Platform | Signal                   |
+| -------- | ------------------------ |
+| Discord  | thread archived/locked   |
+| Reddit   | post locked by moderator |
+| YouTube  | live stream ends         |
+| Twitch   | stream goes offline      |
+| Twitter  | reply restrictions set   |
+| Facebook | comments disabled        |
 
 Mastodon and Bluesky have no close concept.
 
-## Impulse filter
+## Impulse Filter
 
-Separate module: `src/impulse.ts`. Pure function, no side
-effects, no DB, no platform knowledge. Gateway calls it
-between message discovery and queue enqueue.
-
-Each verb has an integer weight. Events accumulate impulse
-per group. When sum ≥ threshold, flush pending events to
-the group queue. Safety timeout flushes even if threshold
-never reached.
-
-```typescript
-interface ImpulseConfig {
-  threshold: number; // default: 100
-  weights: Partial<Record<Verb, number>>; // per-verb weight
-  max_hold_ms: number; // safety flush (default: 300000)
-}
-
-interface ImpulseState {
-  pending: InboundEvent[];
-  impulse: number;
-  last_flush: number; // timestamp ms
-}
-
-interface FlushResult {
-  events: InboundEvent[]; // all pending events
-  immediate: InboundEvent[]; // weight ≥ threshold (full delivery)
-  batched: InboundEvent[]; // weight < threshold (summary)
-}
-
-function accumulate(
-  state: ImpulseState,
-  event: InboundEvent,
-  config: ImpulseConfig,
-): { state: ImpulseState; flush: FlushResult | null };
-
-function checkTimeout(
-  state: ImpulseState,
-  config: ImpulseConfig,
-): FlushResult | null;
-```
+Per-group weight-based batching between message discovery and queue
+enqueue. Each verb has integer weight. Events accumulate impulse per
+group. When sum >= threshold, flush to queue. Safety timeout flushes
+if threshold never reached.
 
 ### Default weights
-
-All verbs default to 100 (immediate). Operator tunes down
-what's noisy for their use case. The gateway doesn't know
-which events matter — that depends on what sources were
-configured and why.
 
 | Verb    | Default | Notes                        |
 | ------- | ------- | ---------------------------- |
@@ -226,113 +119,31 @@ configured and why.
 | Edit    | 0       | ignored                      |
 | Delete  | 0       | ignored                      |
 
-Weight 0 = drop. Operator configures `weights` and
-`threshold` per group to taste.
-
-### Where it sits in code
-
-```
-index.ts startMessageLoop()
-  getNewMessages()           // poll DB for new messages
-  → for each group:
-    → impulse.accumulate()   // <-- new, per-group state
-    → if flush:
-        resolveRoutingTarget()
-        queue.enqueueMessageCheck()
-  → impulse.checkTimeout()   // <-- new, end of loop tick
-```
-
-The impulse state lives in a `Map<string, ImpulseState>`
-keyed by group JID, alongside the existing message loop
-state. Existing chat channels have weight 100 for Message,
-so every message flushes immediately — zero behavior change.
+Weight 0 = drop. Operator configures `weights` and `threshold` per group.
 
 ### Flush delivery
 
-Immediate events (weight ≥ threshold) are delivered as
-individual messages with full content. Batched events
-(weight < threshold) are formatted as a plain text summary
-appended to the prompt:
+Immediate events (weight >= threshold): individual messages with full
+content. Batched events (weight < threshold): plain text summary in
+brackets: `[5 reactions on post abc123, 3 reposts, 10 new followers]`
 
-```
-[5 reactions on post abc123, 3 reposts, 10 new followers]
-```
+## Verb Routing
 
-Plain text brackets — no XML for batched summaries.
+Rule evaluation: command > verb > pattern > keyword > sender > default.
 
-## Routing by verb
-
-Existing routing rules gain a `verb` type:
-
-```typescript
-| { type: 'verb'; verb: Verb; target: string }
-```
-
-Evaluation order: command → verb → pattern → keyword →
-sender → default.
-
-```json
-[
-  { "type": "verb", "verb": "post", "target": "main/feed" },
-  { "type": "verb", "verb": "reply", "target": "main/support" },
-  { "type": "verb", "verb": "message", "target": "main/dm" }
-]
-```
-
-## Agent-facing XML format
-
-`formatMessages()` in `router.ts` adds new attributes to
-the XML header so the agent knows context:
+## Agent XML Format
 
 ```xml
 <message sender="alice" time="..." platform="mastodon" verb="reply"
          thread="status_123" target="status_456">
   content here
 </message>
-
-<message sender="bob" time="..." platform="telegram" verb="message"
-         mentions_me="true">
-  @agent what do you think?
-</message>
 ```
 
-- `platform` — always present (telegram, discord, mastodon...)
-- `verb` — always present (message, reply, post, react...)
-- `mentions_me` — present when agent is mentioned
-- `thread`, `target` — present when set
+Attributes: `platform` (always), `verb` (always), `mentions_me` (when
+mentioned), `thread`/`target` (when set). Additive to existing format.
 
-Existing chat channels emit `verb="message"` with the
-platform name. No behavior change for current agents —
-new attributes are additive.
-
-## Thread context
-
-Thread fields (`thread`, `parent`, `root`) are data on the
-event. The agent sees them. The router can match on them
-via pattern rules. If routing resolves to a non-existent
-group, prototypes spawn it (`F-prototypes.md`).
-
-## Migration from NewMessage
-
-Additive. No breaking change.
-
-1. Add `verb: Verb` and `platform: Platform` to `NewMessage`
-2. Add optional `thread`, `parent`, `root`, `target`,
-   `target_author`
-3. Existing channels set `verb: Verb.Message`
-4. Rename `NewMessage` → `InboundEvent` when stable
-
-Field mapping:
-
-- `chat_jid` → `jid`
-- `replyTo` → `parent`
-- `reply_to_text`, `reply_to_sender` → dropped (DB lookup)
-
-## Outbound actions
-
-See `T-social-actions.md`.
-
-## JID format
+## JID Format
 
 | Platform  | DM JID                     | Feed JID                       |
 | --------- | -------------------------- | ------------------------------ |
@@ -347,31 +158,8 @@ See `T-social-actions.md`.
 | Threads   | `threads:{userId}`         | -                              |
 | LinkedIn  | `linkedin:page:{pageId}`   | -                              |
 
-## Resolved decisions
+## Decisions
 
-- **Batch summary**: plain text brackets (not XML)
-- **React content**: string — platform-native value (emoji,
-  "upvote", "downvote", "like"). Null if unavailable.
-- **Auth failure**: log error, mark channel disconnected,
-  reconnect on next loop tick. No alert system yet.
-
-## Scope
-
-This milestone implements the gateway-side InboundEvent type,
-impulse filter, verb routing, and XML format changes. Social
-channel watchers (mastodon, reddit, etc.) are separate work —
-this spec covers the shared infrastructure they plug into.
-
-Existing channels (telegram, whatsapp, discord, email) are
-updated to set `verb`, `platform`, `mentions_me` on their
-events. No structural changes to existing channel files.
-
-## Acceptance criteria
-
-1. `InboundEvent` type exists in `src/types.ts` with all fields
-2. `src/impulse.ts` passes unit tests (accumulate, flush, timeout)
-3. `formatMessages()` emits platform/verb/mentions_me attributes
-4. Existing channels set verb=Message and correct platform
-5. Telegram sets `mentions_me=true` on @bot mentions
-6. Verb routing rule type added, existing routing still works
-7. All existing tests pass (zero regression)
+- Batch summary: plain text brackets (not XML)
+- React content: string — platform-native value (emoji, "upvote", etc.)
+- Auth failure: log error, mark channel disconnected, reconnect next tick

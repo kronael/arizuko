@@ -1,4 +1,4 @@
-## <!-- source: kanipi specs/4/K-versioning-personas.md, synced 2026-03-15 -->
+## <!-- source: arizuko specs/4/K-versioning-personas.md, synced 2026-03-15 -->
 
 ## status: open
 
@@ -20,8 +20,8 @@ should work at scale. Currently ad-hoc — needs a coherent model.
 
 ### Image distribution
 
-- Single `kanipi-agent:latest` built from `container/`
-- Per-instance tags: `kanipi-agent-<name>:latest`
+- Single `arizuko-agent:latest` built from `container/`
+- Per-instance tags: `arizuko-agent-<name>:latest`
 - `CONTAINER_IMAGE` in each instance's `.env` selects the tag
 - Selective upgrades: tag + restart one instance at a time
 
@@ -133,7 +133,7 @@ Skills can be updated independently.
 plugins could be the unit of composition within those repos:
 
 ```
-kanipi-REDACTED/
+REDACTED/
   .env.example
   plugins/
     base-chat/
@@ -177,7 +177,7 @@ container/worlds/code-researcher/
   env.example       # required env vars (EXTRA_MOUNTS, etc.)
 ```
 
-`kanipi create <name> --world code-researcher` would scaffold a new
+`arizuko create <name> --world code-researcher` would scaffold a new
 instance from the template. Migrations can update world templates.
 Users fork or extend by editing the group folder directly.
 

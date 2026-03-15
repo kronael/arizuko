@@ -195,10 +195,12 @@ Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
 `ResolveRoutingTarget(msg, rules)` evaluates in tier order:
 
 1. **command** — exact prefix match (e.g. `/code`)
-2. **pattern** — regex match on content (max 200 chars)
-3. **keyword** — case-insensitive substring
-4. **sender** — regex on sender name
-5. **default** — always matches
+2. **verb** — exact first-word match (e.g. `review`)
+3. **pattern** — regex match on content (max 200 chars)
+4. **keyword** — case-insensitive substring
+5. **sender** — regex on sender name
+6. **trigger** — trigger word match (group activation)
+7. **default** — always matches
 
 `IsAuthorizedRoutingTarget` — target must be direct child of source
 within same world (root segment). Max delegation depth: 3.

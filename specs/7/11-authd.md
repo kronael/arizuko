@@ -16,8 +16,8 @@ It receives a query and returns allow or deny.
 
 ## Interface
 
-Called by consumer daemons (gated, timed, etc.)
-after receiving a stamped request from actid.
+Called by icmcd after resolving caller identity from
+the socket path.
 
 ```
 authorize(caller, action, target) → allow | deny
@@ -25,7 +25,7 @@ authorize(caller, action, target) → allow | deny
 
 Where:
 
-- `caller`: `{folder, tier}` — stamped by actid
+- `caller`: `{folder, tier}` — resolved by icmcd from socket path
 - `action`: tool name (e.g. `send_message`, `schedule_task`)
 - `target`: action-specific (e.g. chat_jid, task_id)
 
@@ -83,7 +83,7 @@ folder depth (no tables needed).
 ## Flow
 
 ```
-gated receives stamped request from actid:
+icmcd receives MCP tool call, resolves identity:
   {tool: cancel_task, caller: {folder: "andy/research", tier: 1}, args: {taskId: "abc"}}
 
 gated calls authd:
@@ -101,7 +101,7 @@ gated executes the cancellation.
 
 ## Web Authentication
 
-<!-- source: kanipi specs/3/A-auth.md, synced 2026-03-15 -->
+<!-- source: arizuko specs/3/A-auth.md, synced 2026-03-15 -->
 
 Web auth is handled by the same authd package. Separate from
 MCP tier-based authorization — this covers human user login.

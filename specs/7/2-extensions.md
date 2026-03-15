@@ -11,110 +11,21 @@ Goal: make the system extensible without modifying core code.
 | ------------- | ------------------- | ------------- | ---------------- |
 | Channels      | external containers | Developer     | HTTP protocol    |
 | Actions       | MCP tools           | Agent/Plugin  | Registry + MCP   |
-| Routing Rules | core/types.go:56    | Agent         | IPC config       |
-| Sidecars      | core/types.go:47    | Agent         | Container config |
-| Mounts        | core/types.go:41    | Agent         | Container config |
+| Routing Rules | router/             | Agent         | MCP tools        |
+| Sidecars      | container/          | Agent         | Container config |
+| Mounts        | container/          | Agent         | Container config |
 | Skills        | container/skills/   | Agent         | File-based       |
 | Tasks         | services/timed/     | Agent         | IPC actions      |
 | Diary         | diary/              | Agent         | File-based       |
 
 ## 1. Action Registry
 
-### Current state
+Shipped as `icmcd/` package. All 16 MCP tools registered in
+a single handler with gateway callbacks injected at creation
+time. Agent discovers tools via MCP `tools/list`. Authorization
+via `authd.Authorize` at runtime.
 
-Two parallel implementations:
-
-```
-actions/registry.go     ipc/watcher.go
-├── Register()          ├── handleAction() switch
-├── Get()               │   case "send_message":
-├── All()               │   case "send_file":
-├── Manifest()          │   case "reset_session":
-│                       │   case "inject_message":
-actions/messaging.go    │   case "register_group":
-├── send_message        │   case "escalate_group":
-├── send_file           │   case "delegate_group":
-│                       │   case "set_routing_rules":
-actions/groups.go       │   case "schedule_task":
-├── register_group      │   case "pause_task":
-├── delegate_group      │   case "resume_task":
-├── set_routing_rules   │   case "cancel_task":
-│                       │
-actions/tasks.go        └── (direct implementation)
-├── schedule_task
-├── pause_task
-├── resume_task
-├── cancel_task
-```
-
-**Problem**: actions/ defines handlers but they're never called.
-IPC watcher reimplements all logic inline.
-
-### Proposed design: registry dispatch
-
-```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│ MCP Request │────▶│ Action       │────▶│ Handler     │
-│ {type, ...} │     │ Registry     │     │ Function    │
-└─────────────┘     └──────────────┘     └─────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │ Schema      │
-                    │ Validation  │
-                    └─────────────┘
-```
-
-`handleAction()` becomes: `return actions.Dispatch(typ, data, ctx)`
-
-Single code path, DRY. All actions must be registered.
-
-### Context structure
-
-Actions need access to gateway capabilities:
-
-```go
-type Context struct {
-    // Identity
-    SourceGroup string
-    Tier        int
-
-    // Channel operations
-    SendMessage  func(jid, text string) error
-    SendDocument func(jid, path, name string) error
-
-    // Session operations
-    ClearSession  func(folder string)
-    InjectMessage func(jid, content, sender, senderName string) (string, error)
-
-    // Group operations
-    RegisterGroup    func(jid string, group core.Group) error
-    GetGroups        func() map[string]core.Group
-    DelegateToChild  func(folder, prompt, jid string, depth int) error
-    DelegateToParent func(folder, prompt, jid string, depth int) error
-
-    // Task operations
-    CreateTask       func(t core.Task) error
-    GetTask          func(id string) (core.Task, bool)
-    UpdateTaskStatus func(id, status string) error
-    DeleteTask       func(id string) error
-
-    // Paths
-    GroupsDir     string
-    HostGroupsDir string
-}
-```
-
-Alternative: scoped contexts via interfaces (ChannelContext,
-GroupContext, TaskContext, SessionContext) to avoid a single
-large struct.
-
-### Action discovery
-
-MCP tools are self-describing — agent discovers available
-tools through MCP `tools/list`. No separate manifest file.
-
-Transport: MCP tools on unix socket (replaces file IPC).
-See `specs/7/10-actid.md` for tool routing and
+See `specs/7/10-icmcd.md` for tool list and architecture,
 `specs/7/11-authd.md` for tier assignments.
 
 ## 2. Channel Interface

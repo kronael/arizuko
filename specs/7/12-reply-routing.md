@@ -1,4 +1,4 @@
-## <!-- source: kanipi specs/3/R-reply-routing.md, synced 2026-03-15 -->
+## <!-- source: arizuko specs/3/R-reply-routing.md, synced 2026-03-15 -->
 
 ## status: shipped
 

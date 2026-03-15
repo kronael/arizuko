@@ -8,7 +8,7 @@ All daemons follow 4+d naming.
 | ------- | ------- | ---------------------------- | -------------------------------- |
 | `gated` | running | Gateway, routing, containers | `specs/7/9-gated.md`             |
 | `timed` | running | Cron poll, writes messages   | `specs/7/8-scheduler-service.md` |
-| `icmcd` | running | MCP server, identity+auth    | `specs/7/10-actid.md`            |
+| `icmcd` | running | MCP server, identity+auth    | `specs/7/10-icmcd.md`            |
 | `authd` | running | Authorization policy         | `specs/7/11-authd.md`            |
 | `teled` | running | Telegram adapter             |                                  |
 | `discd` | planned | Discord adapter              |                                  |
