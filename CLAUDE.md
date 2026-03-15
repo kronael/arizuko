@@ -40,19 +40,19 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `core/` — Config, types (Message, Group, Task, Channel interface)
 - `store/` — SQLite persistence (messages, groups, sessions, tasks, auth)
 - `gateway/` — main loop, message routing, commands (/new, /ping, /chatid, /stop)
-- `container/` — docker spawn, volume mounts, sidecars, skills seeding
+- `container/` — docker spawn, volume mounts, sidecars, runtime, skills seeding
 - `queue/` — per-group concurrency, stdin piping, circuit breaker
 - `router/` — XML message formatting, routing rules, outbound filtering
 - `chanreg/` — channel registry, health checks, HTTP channel proxy (outbound)
 - `api/` — HTTP API server (channel registration, inbound messages, chat metadata)
-- `ipc/` — MCP server on unix socket (mark3labs/mcp-go, per-group)
+- `ipc/` — MCP server on unix socket (mark3labs/mcp-go, per-group, identity+auth inline)
 - `services/timed/` — standalone scheduler daemon (cron poll, writes to messages table)
+- `auth/` — JWT, OAuth, session middleware
+- `mime/` — attachment type detection
 - `diary/` — YAML frontmatter diary annotations for agent context
 - `groupfolder/` — group path resolution and validation
 - `mountsec/` — mount allowlist validation
-- `runtime/` — docker binary abstraction, orphan cleanup
 - `compose/` — docker-compose.yml generation from services/\*.toml
-- `logger/` — slog JSON handler init
 
 ## Layout
 
@@ -61,7 +61,7 @@ cmd/arizuko/       CLI entrypoint
 core/              Config, types, Channel interface
 store/             SQLite (messages.db)
 gateway/           Main loop + commands
-container/         Docker runner + sidecars
+container/         Docker runner + sidecars + runtime
   agent-runner/    In-container agent entrypoint
   skills/          Agent-side skills
 queue/             Per-group concurrency
@@ -70,12 +70,12 @@ chanreg/           Channel registry + HTTP proxy
 api/               Router HTTP API server
 compose/           Docker-compose generation
 channels/telegram/ Standalone telegram adapter
-ipc/               MCP server (unix socket)
+ipc/               MCP server (unix socket, identity+auth inline)
+auth/              JWT, OAuth, session middleware
+mime/              Attachment type detection
 diary/             Diary annotations
 groupfolder/       Path validation
 mountsec/          Mount security
-runtime/           Docker lifecycle
-logger/            Logging init
 template/          Instance seed files
 sidecar/           MCP server binaries
 services/timed/    Scheduler daemon
@@ -125,24 +125,21 @@ servers, CLAUDE.md, memory) is the primary extension mechanism.
 
 ## Service Architecture
 
-Daemons use 4+d naming. Shared SQLite DB.
+Daemons use 4+d naming. Shared SQLite DB (WAL mode).
 
-| Daemon  | Role                                    |
-| ------- | --------------------------------------- |
-| `gated` | Message loop, routing, containers       |
-| `actid` | MCP sockets, identity stamping, routing |
-| `authd` | Authorization policy engine             |
-| `timed` | Cron poll, writes to messages           |
-| `teled` | Telegram adapter                        |
-| `discd` | Discord adapter                         |
-| `whapd` | WhatsApp adapter                        |
-| `emaid` | Email adapter                           |
+| Daemon  | Status  | Role                              |
+| ------- | ------- | --------------------------------- |
+| `gated` | running | Message loop, routing, containers |
+| `timed` | running | Cron poll, writes to messages     |
+| `teled` | running | Telegram adapter                  |
+| `discd` | planned | Discord adapter                   |
+| `whapd` | planned | WhatsApp adapter                  |
+| `emaid` | planned | Email adapter                     |
 
-Agent MCP flow: agent → actid (stamp identity) →
-consumer → authd (authorize) → execute or reject.
+Identity stamping (actid) and authorization (authd) are inline
+in `ipc/server.go`, not separate daemons.
 
-Service layout: `services/<name>/main.go`, `migrations/`,
-`<name>.go`, `<name>_test.go`.
+Service layout: `services/<name>/main.go`, `migrations/`.
 
 See `specs/7/0-architecture.md` for full spec.
 
@@ -153,7 +150,7 @@ See `specs/7/0-architecture.md` for full spec.
 sudo systemctl status arizuko_<instance>
 
 # 2. Startup sequence — expect: "state loaded", "channel connected",
-#    "scheduler loop started", "arizuko running"
+#    "scheduler started", "arizuko running"
 sudo journalctl -u arizuko_<instance> --since "5 minutes ago" --no-pager | head -30
 
 # 3. Errors

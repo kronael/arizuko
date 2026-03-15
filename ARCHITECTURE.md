@@ -18,23 +18,25 @@ cmd/arizuko/main
   ├── api           (HTTP API: channel registration, inbound messages)
   │   ├── chanreg   (channel registry, health checks)
   │   └── store
+  ├── auth          (JWT, OAuth, session middleware)
   ├── chanreg       (channel registry, HTTP channel proxy)
   ├── gateway       (main loop, message routing)
-  │   ├── container (docker spawn, volume mounts, sidecars)
+  │   ├── container (docker spawn, volume mounts, sidecars, runtime)
   │   │   ├── groupfolder
-  │   │   ├── mountsec
-  │   │   └── runtime
+  │   │   └── mountsec
   │   ├── queue     (per-group concurrency, stdin piping)
-  │   │   └── runtime
   │   ├── router    (message formatting, routing rules)
-  │   ├── ipc       (MCP server on unix socket)
+  │   ├── ipc       (MCP server on unix socket, identity+auth inline)
   │   ├── diary     (YAML frontmatter annotations)
   │   └── groupfolder
-  ├── compose      (docker-compose generation)
-  └── logger        (slog JSON init)
+  ├── mime          (attachment type detection)
+  └── compose       (docker-compose generation)
 
 channels/telegram/main  (standalone adapter binary)
   └── calls router HTTP API + serves outbound endpoints
+
+services/timed/main  (standalone scheduler daemon)
+  └── polls scheduled_tasks, inserts messages into shared DB
 ```
 
 ## Message Flow
@@ -161,7 +163,11 @@ using `socat UNIX-CONNECT` to reach the socket.
 **Lifecycle**: server starts before `docker run`, stops after
 container exits. Socket file cleaned up on stop.
 
-Authorization: non-root groups can only send to registered JIDs.
+**Identity and authorization** (actid/authd functions) are inline
+in `ipc/server.go` -- not separate daemons. Identity stamping
+(which group made the call) and authorization checks (non-root
+groups can only send to registered JIDs) happen in the tool
+handlers before execution.
 
 ## Sidecar Management (container/sidecar.go)
 
@@ -200,15 +206,20 @@ within same world (root segment). Max delegation depth: 3.
 
 ## Scheduler (services/timed/)
 
-Standalone daemon (`arz-timed`). Polls `scheduled_tasks` every
-60s. For each due task (active + next_run <= now):
+Standalone daemon (`arz-timed`). Single Go binary with its own `main()`.
+Reads `DATABASE` env for SQLite path. Polls `scheduled_tasks` every 60s.
+For each due task (status=active, next_run <= now):
 
 1. Insert prompt as message into `messages` table (sender: `scheduler`)
 2. Compute next run via robfig/cron parser, update `next_run`
 3. Tasks without cron expression get `next_run` set to NULL (one-shot)
 
 Gateway picks up scheduler-injected messages in its normal poll loop.
-Own migration runner using shared `migrations` table (keyed by service name).
+
+**DB sharing**: timed opens the same SQLite DB as gated (WAL mode).
+Own migration runner using shared `migrations` table (keyed by service
+name `"timed"`). Schema: `services/timed/migrations/0001-schema.sql`
+creates `scheduled_tasks` if not present (idempotent with store's copy).
 
 ## Diary System (diary package)
 
@@ -237,10 +248,8 @@ Additional mounts validated against `~/.config/arizuko/mount-allowlist.json`:
 
 ## Docker-in-Docker Path Translation
 
-`container.hp()` translates local paths to host paths when gateway runs in
-docker. `Config.HostProjectRoot` (from `HOST_DATA_DIR` env) provides the
-host-side base. All volume mount paths go through `hp()` before being
-passed to `docker run`.
+`container.hp()` translates local paths to host paths when gateway runs
+in docker. `HOST_DATA_DIR` env provides the host-side base.
 
 ## Configuration
 
@@ -249,17 +258,7 @@ Key values: `ASSISTANT_NAME`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`,
 `MAX_CONCURRENT_CONTAINERS`, `HOST_DATA_DIR`, `HOST_APP_DIR`,
 `MEDIA_ENABLED`, `WHISPER_BASE_URL`, `API_PORT`, `CHANNEL_SECRET`.
 
-API server always starts (default port 8080). Channel adapters
-are external processes that register via `POST /v1/channels/register`.
-
-## Gateway Commands
-
-| Command      | Effect                                    |
-| ------------ | ----------------------------------------- |
-| `/new [msg]` | Clear session, optionally process message |
-| `/ping`      | Status: group, session, active containers |
-| `/chatid`    | Echo the chat JID                         |
-| `/stop`      | Stop running container for this chat      |
+API server always starts (default port 8080).
 
 ## Repository Layout
 
@@ -268,20 +267,20 @@ cmd/arizuko/        CLI entrypoint (run, create, group, compose, status)
 core/               Config, types, Channel interface
 store/              SQLite persistence (messages, groups, sessions, tasks, auth)
 api/                HTTP API server (channel protocol endpoints)
+auth/               JWT, OAuth, session middleware
 chanreg/            Channel registry, health checks, HTTP channel proxy
 gateway/            Main loop, message routing, commands
-container/          Docker spawn, volume mounts, sidecars, skills seeding
+container/          Docker spawn, volume mounts, sidecars, runtime, skills seeding
   agent-runner/     In-container agent entrypoint
   skills/           Agent-side skills
 queue/              Per-group concurrency, stdin piping
 router/             Message formatting, routing rules
 compose/            Docker-compose generation from services/*.toml
-ipc/                MCP server (unix socket per group)
+ipc/                MCP server (unix socket per group, identity+auth inline)
 diary/              YAML frontmatter diary annotations
 groupfolder/        Group path resolution and validation
 mountsec/           Mount allowlist validation
-runtime/            Docker binary, orphan cleanup
-logger/             slog JSON init
+mime/               Attachment type detection
 template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
 channels/telegram/  Standalone telegram adapter binary

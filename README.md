@@ -35,15 +35,15 @@ cmd/arizuko/     CLI entrypoint (run, create, group)
 core/            Config, types, Channel interface
 store/           SQLite persistence (12 tables, WAL mode)
 gateway/         Main loop, message routing, commands
-container/       Docker spawn, volume mounts, sidecars
+container/       Docker spawn, volume mounts, sidecars, runtime
 queue/           Per-group concurrency, circuit breaker
 router/          XML message formatting, 5-tier routing rules
 ipc/             MCP server on unix socket (per-group)
+auth/            JWT, OAuth, session middleware
+mime/            Attachment type detection
 diary/           YAML frontmatter diary annotations
 groupfolder/     Group path resolution
 mountsec/        Mount allowlist validation
-runtime/         Docker binary abstraction, orphan cleanup
-logger/          slog JSON init
 template/        Instance seed files
 sidecar/         MCP server binaries (whisper)
 services/timed/  Scheduler daemon
