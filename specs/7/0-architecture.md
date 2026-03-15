@@ -4,16 +4,16 @@
 
 All daemons follow 4+d naming.
 
-| Daemon  | Role                         | Spec                             |
-| ------- | ---------------------------- | -------------------------------- |
-| `gated` | Gateway, routing, containers | `specs/7/9-gated.md`             |
-| `timed` | Cron poll, writes messages   | `specs/7/8-scheduler-service.md` |
-| `actid` | MCP identity stamping        | `specs/7/10-actid.md`            |
-| `authd` | Authorization policy         | `specs/7/11-authd.md`            |
-| `teled` | Telegram adapter             |                                  |
-| `discd` | Discord adapter              |                                  |
-| `whapd` | WhatsApp adapter             |                                  |
-| `emaid` | Email adapter                |                                  |
+| Daemon  | Status  | Role                         | Spec                             |
+| ------- | ------- | ---------------------------- | -------------------------------- |
+| `gated` | running | Gateway, routing, containers | `specs/7/9-gated.md`             |
+| `timed` | running | Cron poll, writes messages   | `specs/7/8-scheduler-service.md` |
+| `icmcd` | running | MCP server, identity+auth    | `specs/7/10-actid.md`            |
+| `authd` | running | Authorization policy         | `specs/7/11-authd.md`            |
+| `teled` | running | Telegram adapter             |                                  |
+| `discd` | planned | Discord adapter              |                                  |
+| `whapd` | planned | WhatsApp adapter             |                                  |
+| `emaid` | planned | Email adapter                |                                  |
 
 Channel adapters are external — they use HTTP because they
 may run on remote hosts. See `specs/7/1-channel-protocol.md`.
@@ -23,7 +23,7 @@ may run on remote hosts. See `specs/7/1-channel-protocol.md`.
 ```
                      SQLite (messages.db)
                     /        |         \
-               gated       timed      authd
+               gated       timed      icmcd/authd
                  |
             HTTP (:8080)
                  |
@@ -32,15 +32,14 @@ may run on remote hosts. See `specs/7/1-channel-protocol.md`.
      teled discd whapd emaid
 ```
 
-- **Co-located daemons** (gated, timed, actid, authd) share
+- **Co-located daemons** (gated, timed, icmcd, authd) share
   one SQLite file. No IPC between them — each reads/writes
   the DB independently.
 - **Channel adapters** connect to gated via HTTP. They
   self-register, deliver inbound messages, receive outbound.
-- **Agent containers** connect to actid via MCP unix socket.
-  actid stamps identity and routes tool calls to the
-  appropriate consumer (gated or timed). Consumers call
-  authd to authorize.
+- **Agent containers** connect to icmcd via MCP unix socket.
+  icmcd stamps identity and calls authd.Authorize for
+  runtime authorization before executing tool calls.
 
 ## Shared database
 

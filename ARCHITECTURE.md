@@ -18,7 +18,7 @@ cmd/arizuko/main
   ├── api           (HTTP API: channel registration, inbound messages)
   │   ├── chanreg   (channel registry, health checks)
   │   └── store
-  ├── auth          (JWT, OAuth, session middleware)
+  ├── authd         (identity, authorization, JWT, OAuth, middleware)
   ├── chanreg       (channel registry, HTTP channel proxy)
   ├── gateway       (main loop, message routing)
   │   ├── container (docker spawn, volume mounts, sidecars, runtime)
@@ -26,7 +26,7 @@ cmd/arizuko/main
   │   │   └── mountsec
   │   ├── queue     (per-group concurrency, stdin piping)
   │   ├── router    (message formatting, routing rules)
-  │   ├── ipc       (MCP server on unix socket, identity+auth inline)
+  │   ├── icmcd     (MCP server on unix socket, runtime auth via authd)
   │   ├── diary     (YAML frontmatter annotations)
   │   └── groupfolder
   ├── mime          (attachment type detection)
@@ -35,7 +35,7 @@ cmd/arizuko/main
 channels/telegram/main  (standalone adapter binary)
   └── calls router HTTP API + serves outbound endpoints
 
-services/timed/main  (standalone scheduler daemon)
+timed/main  (standalone scheduler daemon)
   └── polls scheduled_tasks, inserts messages into shared DB
 ```
 
@@ -147,14 +147,12 @@ Session management: new session ID from container output updates
 (cursor rolled back so messages retry). On error with output,
 cursor advances (partial work preserved).
 
-## IPC Mechanism (ipc package)
+## IPC Mechanism (icmcd package)
 
 MCP server on unix socket (`mark3labs/mcp-go`). Gateway starts
-one `ipc.Server` per group before container spawn, listening on
-`data/ipc/<folder>/nanoclaw.sock`.
-
-**Tools exposed**: `send_message`, `send_file`, `reset_session`,
-`delegate_to_child`, `create_task`, `list_tasks`.
+one `icmcd` server per group before container spawn, listening on
+`data/ipc/<folder>/nanoclaw.sock`. All 16 tools always registered;
+runtime auth via `authd.Authorize`.
 
 **Transport**: socat bridges the host unix socket into the container.
 Agent-runner configures `nanoclaw` MCP server in `settings.json`
@@ -163,11 +161,9 @@ using `socat UNIX-CONNECT` to reach the socket.
 **Lifecycle**: server starts before `docker run`, stops after
 container exits. Socket file cleaned up on stop.
 
-**Identity and authorization** (actid/authd functions) are inline
-in `ipc/server.go` -- not separate daemons. Identity stamping
-(which group made the call) and authorization checks (non-root
-groups can only send to registered JIDs) happen in the tool
-handlers before execution.
+**Identity and authorization**: `icmcd` resolves caller identity
+from socket path (folder, tier). Authorization checks delegated
+to `authd.Authorize` at runtime.
 
 ## Sidecar Management (container/sidecar.go)
 
@@ -204,7 +200,7 @@ Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
 `IsAuthorizedRoutingTarget` — target must be direct child of source
 within same world (root segment). Max delegation depth: 3.
 
-## Scheduler (services/timed/)
+## Scheduler (timed/)
 
 Standalone daemon (`arz-timed`). Single Go binary with its own `main()`.
 Reads `DATABASE` env for SQLite path. Polls `scheduled_tasks` every 60s.
@@ -218,7 +214,7 @@ Gateway picks up scheduler-injected messages in its normal poll loop.
 
 **DB sharing**: timed opens the same SQLite DB as gated (WAL mode).
 Own migration runner using shared `migrations` table (keyed by service
-name `"timed"`). Schema: `services/timed/migrations/0001-schema.sql`
+name `"timed"`). Schema: `timed/migrations/0001-schema.sql`
 creates `scheduled_tasks` if not present (idempotent with store's copy).
 
 ## Diary System (diary package)
@@ -267,7 +263,7 @@ cmd/arizuko/        CLI entrypoint (run, create, group, compose, status)
 core/               Config, types, Channel interface
 store/              SQLite persistence (messages, groups, sessions, tasks, auth)
 api/                HTTP API server (channel protocol endpoints)
-auth/               JWT, OAuth, session middleware
+authd/              Identity, authorization, JWT, OAuth, middleware
 chanreg/            Channel registry, health checks, HTTP channel proxy
 gateway/            Main loop, message routing, commands
 container/          Docker spawn, volume mounts, sidecars, runtime, skills seeding
@@ -276,7 +272,7 @@ container/          Docker spawn, volume mounts, sidecars, runtime, skills seedi
 queue/              Per-group concurrency, stdin piping
 router/             Message formatting, routing rules
 compose/            Docker-compose generation from services/*.toml
-ipc/                MCP server (unix socket per group, identity+auth inline)
+icmcd/              MCP server (unix socket per group, runtime auth via authd)
 diary/              YAML frontmatter diary annotations
 groupfolder/        Group path resolution and validation
 mountsec/           Mount allowlist validation
@@ -284,7 +280,7 @@ mime/               Attachment type detection
 template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
 channels/telegram/  Standalone telegram adapter binary
-services/timed/     Scheduler daemon (arz-timed)
+timed/              Scheduler daemon (arz-timed)
 ```
 
 ## Data Directory

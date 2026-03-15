@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onvos/arizuko/auth"
+	"github.com/onvos/arizuko/authd"
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/diary"
 	"github.com/onvos/arizuko/groupfolder"
-	"github.com/onvos/arizuko/ipc"
+	"github.com/onvos/arizuko/icmcd"
 	"github.com/onvos/arizuko/queue"
 	"github.com/onvos/arizuko/router"
 	"github.com/onvos/arizuko/store"
@@ -33,7 +33,8 @@ type Gateway struct {
 	mu       sync.RWMutex
 	channels []core.Channel
 	groups   map[string]core.Group
-	mcpDeps  ipc.Deps
+	gatedFns icmcd.GatedFns
+	storeFns icmcd.StoreFns
 
 	lastTimestamp time.Time
 }
@@ -76,20 +77,21 @@ func (g *Gateway) Run(ctx context.Context) error {
 
 	g.loadState()
 
-	g.mcpDeps = ipc.Deps{
-		SendMessage:   g.sendMessage,
-		SendDocument:  g.sendDocument,
-		ClearSession:  g.clearSession,
-		GroupsDir:     g.cfg.GroupsDir,
-		HostGroupsDir: g.cfg.HostGroupsDir,
-		IsRoot:        g.cfg.IsRoot,
+	g.gatedFns = icmcd.GatedFns{
+		SendMessage:      g.sendMessage,
+		SendDocument:     g.sendDocument,
+		ClearSession:     g.clearSession,
+		GroupsDir:        g.cfg.GroupsDir,
+		HostGroupsDir:    g.cfg.HostGroupsDir,
 		InjectMessage:    g.injectMessage,
 		RegisterGroup:    g.registerGroupIPC,
 		GetGroups:        g.getGroups,
 		DelegateToChild:  g.delegateToChild,
 		DelegateToParent: g.delegateToParent,
-		CreateTask:       g.store.CreateTask,
-		GetTask:          g.store.GetTask,
+	}
+	g.storeFns = icmcd.StoreFns{
+		CreateTask: g.store.CreateTask,
+		GetTask:    g.store.GetTask,
 		UpdateTaskStatus: func(id, status string) error {
 			return g.store.UpdateTask(id, store.TaskPatch{Status: &status})
 		},
@@ -424,7 +426,8 @@ func (g *Gateway) runAgentWithOpts(
 		MessageID:   mid,
 		Annotations: annotations,
 		OnOutput:    onOutput,
-		MCPDeps:     g.mcpDeps,
+		GatedFns: g.gatedFns,
+		StoreFns: g.storeFns,
 	}
 
 	out := container.Run(g.cfg, g.folders, input)
@@ -715,11 +718,11 @@ func (g *Gateway) serveWeb(ctx context.Context) {
 	addr := net.JoinHostPort("", strconv.Itoa(g.cfg.WebPort))
 
 	mux := http.NewServeMux()
-	auth.RegisterRoutes(mux, g.store, g.cfg)
+	authd.RegisterRoutes(mux, g.store, g.cfg)
 	mux.Handle("/", http.FileServer(http.Dir(pubDir)))
 	var handler http.Handler = mux
 	if g.cfg.AuthSecret != "" {
-		handler = auth.Middleware([]byte(g.cfg.AuthSecret), mux)
+		handler = authd.Middleware([]byte(g.cfg.AuthSecret), mux)
 	}
 
 	srv := &http.Server{

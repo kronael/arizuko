@@ -1,6 +1,6 @@
 # authd
 
-**Status**: design -- currently implemented inline in gated (ipc/server.go)
+**Status**: shipped — `authd/` package (identity.go, policy.go, web.go, jwt.go, oauth.go, middleware.go)
 
 Authorization policy engine. Consumers call it to check
 whether a caller is allowed to perform an action.
@@ -101,17 +101,12 @@ gated executes the cancellation.
 
 ## Layout
 
-No separate service directory exists yet. Currently implemented
-inline in `ipc/server.go` within gated (tier checks and
-ownership validation are per-tool handler logic).
-
-Future layout:
-
 ```
-services/authd/
-  main.go
-  migrations/
-    0001-schema.sql
-  authd.go
-  authd_test.go
+authd/
+  identity.go
+  policy.go
+  web.go
+  jwt.go
+  oauth.go
+  middleware.go
 ```

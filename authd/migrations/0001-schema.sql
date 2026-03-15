@@ -1,0 +1,14 @@
+CREATE TABLE IF NOT EXISTS auth_users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sub TEXT UNIQUE NOT NULL,
+  username TEXT UNIQUE NOT NULL,
+  hash TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_sub TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);

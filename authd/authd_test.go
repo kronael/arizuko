@@ -1,4 +1,4 @@
-package auth
+package authd
 
 import (
 	"crypto/hmac"
@@ -435,5 +435,147 @@ func TestTelegramWidgetVerify(t *testing.T) {
 	form.Set("hash", "invalid")
 	if verifyTelegramWidget(form, botToken) {
 		t.Fatal("invalid hash should fail")
+	}
+}
+
+// --- Policy tests ---
+
+func TestAuthorizeBasicTools(t *testing.T) {
+	id := Resolve("world/parent/child")
+	for _, tool := range []string{"send_message", "send_file", "list_tasks"} {
+		if err := Authorize(id, tool, AuthzTarget{}); err != nil {
+			t.Errorf("%s should be allowed for all tiers: %v", tool, err)
+		}
+	}
+}
+
+func TestAuthorizeResetSession(t *testing.T) {
+	id := Resolve("w/a")
+	if err := Authorize(id, "reset_session", AuthzTarget{TargetFolder: "w/a"}); err != nil {
+		t.Fatalf("self reset should work: %v", err)
+	}
+	if err := Authorize(id, "reset_session", AuthzTarget{TargetFolder: "w/a/b"}); err != nil {
+		t.Fatalf("child reset should work: %v", err)
+	}
+	if err := Authorize(id, "reset_session", AuthzTarget{TargetFolder: "w/x"}); err == nil {
+		t.Fatal("non-descendant reset should fail")
+	}
+}
+
+func TestAuthorizeInjectMessage(t *testing.T) {
+	if err := Authorize(Resolve("w"), "inject_message", AuthzTarget{}); err != nil {
+		t.Fatal("tier 0 should inject")
+	}
+	if err := Authorize(Resolve("w/a"), "inject_message", AuthzTarget{}); err != nil {
+		t.Fatal("tier 1 should inject")
+	}
+	if err := Authorize(Resolve("w/a/b"), "inject_message", AuthzTarget{}); err == nil {
+		t.Fatal("tier 2 should not inject")
+	}
+}
+
+func TestAuthorizeRegisterGroup(t *testing.T) {
+	if err := Authorize(Resolve("w"), "register_group", AuthzTarget{TargetFolder: "w"}); err == nil {
+		t.Fatal("tier 0 should not register worlds")
+	}
+	if err := Authorize(Resolve("w"), "register_group", AuthzTarget{TargetFolder: "w/child"}); err != nil {
+		t.Fatalf("tier 0 should register children: %v", err)
+	}
+	if err := Authorize(Resolve("w/a"), "register_group", AuthzTarget{TargetFolder: "w/a/child"}); err != nil {
+		t.Fatalf("tier 1 should register direct children: %v", err)
+	}
+	if err := Authorize(Resolve("w/a"), "register_group", AuthzTarget{TargetFolder: "w/b/child"}); err == nil {
+		t.Fatal("tier 1 should not register outside own subtree")
+	}
+	if err := Authorize(Resolve("w/a/b"), "register_group", AuthzTarget{}); err == nil {
+		t.Fatal("tier 2 should not register groups")
+	}
+}
+
+func TestAuthorizeEscalateGroup(t *testing.T) {
+	if err := Authorize(Resolve("w/a/b"), "escalate_group", AuthzTarget{}); err != nil {
+		t.Fatal("tier 2 should escalate")
+	}
+	if err := Authorize(Resolve("w/a"), "escalate_group", AuthzTarget{}); err == nil {
+		t.Fatal("tier 1 should not escalate")
+	}
+}
+
+func TestAuthorizeDelegateGroup(t *testing.T) {
+	id := Resolve("w/a")
+	if err := Authorize(id, "delegate_group", AuthzTarget{TargetFolder: "w/a/child"}); err != nil {
+		t.Fatalf("should delegate to child: %v", err)
+	}
+	if err := Authorize(id, "delegate_group", AuthzTarget{TargetFolder: "w/b"}); err == nil {
+		t.Fatal("should not delegate to non-child")
+	}
+	if err := Authorize(Resolve("w/a/b/c"), "delegate_group", AuthzTarget{}); err == nil {
+		t.Fatal("tier 3 should not delegate")
+	}
+}
+
+func TestAuthorizeRouteTools(t *testing.T) {
+	for _, tool := range []string{"get_routes", "set_routes", "add_route", "delete_route"} {
+		if err := Authorize(Resolve("w"), tool, AuthzTarget{}); err != nil {
+			t.Errorf("%s should work at tier 0: %v", tool, err)
+		}
+		if err := Authorize(Resolve("w/a/b"), tool, AuthzTarget{}); err == nil {
+			t.Errorf("%s should fail at tier 2", tool)
+		}
+	}
+}
+
+func TestAuthorizeScheduleTask(t *testing.T) {
+	if err := Authorize(Resolve("w"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err != nil {
+		t.Fatal("tier 0 should schedule any task")
+	}
+	if err := Authorize(Resolve("w/a"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err != nil {
+		t.Fatal("tier 1 same world should schedule")
+	}
+	if err := Authorize(Resolve("w/a"), "schedule_task", AuthzTarget{TaskOwner: "x/b"}); err == nil {
+		t.Fatal("tier 1 different world should fail")
+	}
+	if err := Authorize(Resolve("w/a/b"), "schedule_task", AuthzTarget{TaskOwner: "w/a/b"}); err != nil {
+		t.Fatal("tier 2 own task should schedule")
+	}
+	if err := Authorize(Resolve("w/a/b"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err == nil {
+		t.Fatal("tier 2 other's task should fail")
+	}
+	if err := Authorize(Resolve("w/a/b/c"), "schedule_task", AuthzTarget{}); err == nil {
+		t.Fatal("tier 3 should not schedule")
+	}
+}
+
+func TestAuthorizeTaskOps(t *testing.T) {
+	for _, tool := range []string{"pause_task", "resume_task", "cancel_task"} {
+		if err := Authorize(Resolve("w"), tool, AuthzTarget{TaskOwner: "w/a"}); err != nil {
+			t.Errorf("%s tier 0 should work: %v", tool, err)
+		}
+		if err := Authorize(Resolve("w/a/b/c"), tool, AuthzTarget{}); err == nil {
+			t.Errorf("%s tier 3 should fail", tool)
+		}
+	}
+}
+
+func TestIdentityResolve(t *testing.T) {
+	tests := []struct {
+		folder string
+		tier   int
+		world  string
+	}{
+		{"main", 0, "main"},
+		{"world/parent", 1, "world"},
+		{"world/parent/child", 2, "world"},
+		{"world/a/b/c", 3, "world"},
+		{"world/a/b/c/d", 3, "world"},
+	}
+	for _, tc := range tests {
+		id := Resolve(tc.folder)
+		if id.Tier != tc.tier {
+			t.Errorf("%s: tier got %d, want %d", tc.folder, id.Tier, tc.tier)
+		}
+		if id.World != tc.world {
+			t.Errorf("%s: world got %q, want %q", tc.folder, id.World, tc.world)
+		}
 	}
 }

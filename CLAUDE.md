@@ -45,9 +45,9 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `router/` — XML message formatting, routing rules, outbound filtering
 - `chanreg/` — channel registry, health checks, HTTP channel proxy (outbound)
 - `api/` — HTTP API server (channel registration, inbound messages, chat metadata)
-- `ipc/` — MCP server on unix socket (mark3labs/mcp-go, per-group, identity+auth inline)
-- `services/timed/` — standalone scheduler daemon (cron poll, writes to messages table)
-- `auth/` — JWT, OAuth, session middleware
+- `icmcd/` — MCP server on unix socket (mark3labs/mcp-go, per-group, runtime auth via authd)
+- `timed/` — standalone scheduler daemon (cron poll, writes to messages table)
+- `authd/` — identity, authorization policy, JWT, OAuth, session middleware
 - `mime/` — attachment type detection
 - `diary/` — YAML frontmatter diary annotations for agent context
 - `groupfolder/` — group path resolution and validation
@@ -70,15 +70,15 @@ chanreg/           Channel registry + HTTP proxy
 api/               Router HTTP API server
 compose/           Docker-compose generation
 channels/telegram/ Standalone telegram adapter
-ipc/               MCP server (unix socket, identity+auth inline)
-auth/              JWT, OAuth, session middleware
+icmcd/             MCP server (unix socket, runtime auth via authd)
+authd/             Identity, authorization, JWT, OAuth, middleware
 mime/              Attachment type detection
 diary/             Diary annotations
 groupfolder/       Path validation
 mountsec/          Mount security
 template/          Instance seed files
 sidecar/           MCP server binaries
-services/timed/    Scheduler daemon
+timed/             Scheduler daemon
 ```
 
 ## Conventions
@@ -131,15 +131,14 @@ Daemons use 4+d naming. Shared SQLite DB (WAL mode).
 | ------- | ------- | --------------------------------- |
 | `gated` | running | Message loop, routing, containers |
 | `timed` | running | Cron poll, writes to messages     |
+| `icmcd` | running | MCP server, identity stamping     |
+| `authd` | running | Authorization policy, JWT, OAuth  |
 | `teled` | running | Telegram adapter                  |
 | `discd` | planned | Discord adapter                   |
 | `whapd` | planned | WhatsApp adapter                  |
 | `emaid` | planned | Email adapter                     |
 
-Identity stamping (actid) and authorization (authd) are inline
-in `ipc/server.go`, not separate daemons.
-
-Service layout: `services/<name>/main.go`, `migrations/`.
+Service layout: `<name>/main.go`, `migrations/`.
 
 See `specs/7/0-architecture.md` for full spec.
 
@@ -169,7 +168,7 @@ Red flags: `"error in message loop"`, `"container timeout"`,
 
 Key error emitters: `gateway/gateway.go` (message loop),
 `queue/queue.go` (concurrency/circuit breaker),
-`container/runner.go` (spawn/timeout), `ipc/server.go` (MCP).
+`container/runner.go` (spawn/timeout), `icmcd/icmcd.go` (MCP).
 
 ## Shipping changes
 

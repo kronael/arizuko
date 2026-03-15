@@ -16,7 +16,7 @@ import (
 
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/groupfolder"
-	"github.com/onvos/arizuko/ipc"
+	"github.com/onvos/arizuko/icmcd"
 	"github.com/onvos/arizuko/mountsec"
 )
 
@@ -55,7 +55,8 @@ type Input struct {
 	SlinkToken  string           `json:"-"`
 	Annotations []string         `json:"-"`
 	OnOutput    OnOutputFn       `json:"-"`
-	MCPDeps     ipc.Deps         `json:"-"`
+	GatedFns icmcd.GatedFns `json:"-"`
+	StoreFns icmcd.StoreFns `json:"-"`
 }
 
 type Output struct {
@@ -150,7 +151,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	var stopMCP func()
 	if ipcDir, err := folders.IpcPath(in.Folder); err == nil {
 		sockPath := filepath.Join(ipcDir, "router.sock")
-		if stop, err := ipc.ServeMCP(sockPath, in.MCPDeps, in.Folder); err != nil {
+		if stop, err := icmcd.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder); err != nil {
 			slog.Warn("failed to start MCP server", "group", in.Folder, "err", err)
 		} else {
 			stopMCP = stop
