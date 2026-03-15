@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -130,7 +132,9 @@ silent.
 
 	envFile := filepath.Join(dataDir, ".env")
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
-		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=arizuko-agent:latest\nAPI_PORT=8080\nCHANNEL_SECRET=\n", name)
+		secret := make([]byte, 16)
+		rand.Read(secret)
+		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=arizuko-agent:latest\nAPI_PORT=8080\nCHANNEL_SECRET=%s\n", name, hex.EncodeToString(secret))
 		if err := os.WriteFile(envFile, []byte(content), 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: write .env: %v\n", err)
 			os.Exit(1)

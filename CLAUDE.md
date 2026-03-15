@@ -80,7 +80,6 @@ mountsec/          Mount security
 template/          Instance seed files
 sidecar/           MCP server binaries
 services/
-  gated/           Gateway daemon (message loop, routing, containers)
   timed/           Scheduler daemon (cron poll, writes to messages)
   teled/           Telegram channel adapter
 ```
@@ -113,6 +112,7 @@ API server always starts (default port 8080).
 
 ## Entrypoint
 
+`arizuko run` — start gateway daemon (gated). Used by compose.
 `arizuko create <name>` — seed data dir, .env, default group.
 `arizuko group <instance> list|add|rm` — manage registered groups.
 `arizuko compose <instance> [--dry-run]` — generate docker-compose.yml, optionally run `docker compose up`.
@@ -130,18 +130,20 @@ servers, CLAUDE.md, memory) is the primary extension mechanism.
 
 Daemons use 4+d naming. Shared SQLite DB (WAL mode).
 
-| Daemon  | Status  | Role                              |
+| Name    | Type    | Role                              |
 | ------- | ------- | --------------------------------- |
-| `gated` | running | Message loop, routing, containers |
-| `timed` | running | Cron poll, writes to messages     |
-| `icmcd` | running | MCP server, identity stamping     |
-| `authd` | running | Authorization policy, JWT, OAuth  |
-| `teled` | running | Telegram adapter                  |
+| `gated` | daemon  | Message loop, routing, containers |
+| `timed` | daemon  | Cron poll, writes to messages     |
+| `icmcd` | library | MCP server, identity stamping     |
+| `authd` | library | Authorization policy, JWT, OAuth  |
+| `teled` | daemon  | Telegram adapter                  |
 | `discd` | planned | Discord adapter                   |
 | `whapd` | planned | WhatsApp adapter                  |
 | `emaid` | planned | Email adapter                     |
 
-Service layout: `services/<name>/main.go`, `migrations/`.
+Deployment: `arizuko compose <instance>` generates docker-compose.yml.
+Daemons: `services/<name>/main.go`. Libraries: `icmcd/`, `authd/`.
+gated entrypoint: `cmd/arizuko/main.go` (`arizuko run`).
 
 See `specs/7/0-architecture.md` for full spec.
 
