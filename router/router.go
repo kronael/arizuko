@@ -96,22 +96,7 @@ func FormatMessages(msgs []core.Message) string {
 	return b.String()
 }
 
-var (
-	nonAlphanumRe   = regexp.MustCompile(`[^A-Za-z0-9]`)
-	multiUnderscoreRe = regexp.MustCompile(`_+`)
-)
 
-// SpawnFolderName derives a valid group folder segment from a JID.
-// e.g. "tg:-100123456" → "tg_100123456"
-func SpawnFolderName(jid string) string {
-	s := nonAlphanumRe.ReplaceAllString(jid, "_")
-	s = multiUnderscoreRe.ReplaceAllString(s, "_")
-	s = strings.Trim(s, "_")
-	if len(s) > 63 {
-		s = s[:63]
-	}
-	return s
-}
 
 var internalRe = regexp.MustCompile(`(?s)<internal>.*?</internal>`)
 var statusRe = regexp.MustCompile(`(?s)<status>(.*?)</status>`)

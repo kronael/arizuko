@@ -21,36 +21,7 @@ func (s *Store) PutChat(jid, name, ch string, group bool) error {
 	return err
 }
 
-func (s *Store) AllChats() []core.ChatInfo {
-	rows, err := s.db.Query(
-		`SELECT jid, name, channel, is_group, last_message_time, errored
-		 FROM chats ORDER BY last_message_time DESC`)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
 
-	var out []core.ChatInfo
-	for rows.Next() {
-		var c core.ChatInfo
-		var isGroup, errored int
-		var name, ch, lastTime *string
-		rows.Scan(&c.JID, &name, &ch, &isGroup, &lastTime, &errored)
-		if name != nil {
-			c.Name = *name
-		}
-		if ch != nil {
-			c.Channel = *ch
-		}
-		if lastTime != nil {
-			c.LastTime = *lastTime
-		}
-		c.IsGroup = isGroup != 0
-		c.Errored = errored != 0
-		out = append(out, c)
-	}
-	return out
-}
 
 func (s *Store) MarkChatErrored(jid string) error {
 	_, err := s.db.Exec(`UPDATE chats SET errored = 1 WHERE jid = ?`, jid)

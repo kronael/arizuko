@@ -94,12 +94,3 @@ type SessionRecord struct {
 	Error     string
 	MsgCount  int
 }
-
-type ChatInfo struct {
-	JID      string
-	Name     string
-	Channel  string
-	IsGroup  bool
-	LastTime string
-	Errored  bool
-}
