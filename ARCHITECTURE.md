@@ -32,10 +32,13 @@ cmd/arizuko/main
   ├── mime          (attachment type detection)
   └── compose       (docker-compose generation)
 
-channels/telegram/main  (standalone adapter binary)
+services/gated/main  (gateway daemon)
+  └── loads config, opens store, starts API server, runs gateway
+
+services/teled/main  (telegram adapter daemon)
   └── calls router HTTP API + serves outbound endpoints
 
-timed/main  (standalone scheduler daemon)
+services/timed/main  (scheduler daemon)
   └── polls scheduled_tasks, inserts messages into shared DB
 ```
 
@@ -85,7 +88,7 @@ router-to-channel calls.
 **Packages**: `chanreg/` (registry, health loop, `HTTPChannel`
 proxy), `api/` (HTTP handlers for the router-side endpoints).
 
-**Standalone adapters**: `channels/telegram/` is the first
+**Standalone adapters**: `services/teled/` is the first
 external adapter. Polls telegram API, forwards to router HTTP,
 serves `/send`, `/send-file`, `/typing`, `/health` for outbound.
 
@@ -200,9 +203,9 @@ Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
 `IsAuthorizedRoutingTarget` — target must be direct child of source
 within same world (root segment). Max delegation depth: 3.
 
-## Scheduler (timed/)
+## Scheduler (services/timed/)
 
-Standalone daemon (`arz-timed`). Single Go binary with its own `main()`.
+Standalone daemon. Single Go binary with its own `main()`.
 Reads `DATABASE` env for SQLite path. Polls `scheduled_tasks` every 60s.
 For each due task (status=active, next_run <= now):
 
@@ -214,7 +217,7 @@ Gateway picks up scheduler-injected messages in its normal poll loop.
 
 **DB sharing**: timed opens the same SQLite DB as gated (WAL mode).
 Own migration runner using shared `migrations` table (keyed by service
-name `"timed"`). Schema: `timed/migrations/0001-schema.sql`
+name `"timed"`). Schema: `services/timed/migrations/0001-schema.sql`
 creates `scheduled_tasks` if not present (idempotent with store's copy).
 
 ## Diary System (diary package)
@@ -259,7 +262,7 @@ API server always starts (default port 8080).
 ## Repository Layout
 
 ```
-cmd/arizuko/        CLI entrypoint (run, create, group, compose, status)
+cmd/arizuko/        CLI entrypoint (create, group, compose, status)
 core/               Config, types, Channel interface
 store/              SQLite persistence (messages, groups, sessions, tasks, auth)
 api/                HTTP API server (channel protocol endpoints)
@@ -279,8 +282,10 @@ mountsec/           Mount allowlist validation
 mime/               Attachment type detection
 template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
-channels/telegram/  Standalone telegram adapter binary
-timed/              Scheduler daemon (arz-timed)
+services/
+  gated/            Gateway daemon (message loop, routing, containers)
+  timed/            Scheduler daemon (cron poll, messages)
+  teled/            Telegram adapter daemon
 ```
 
 ## Data Directory

@@ -1,5 +1,5 @@
 build:
-	go build -o telegram .
+	go build -o teled .
 
 test:
 	go test ./... -count=1
@@ -8,7 +8,7 @@ lint:
 	go vet ./...
 
 clean:
-	rm -f telegram
+	rm -f teled
 
 image:
 	docker build -t arizuko-telegram .

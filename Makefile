@@ -1,6 +1,6 @@
 build:
 	go build -o arizuko cmd/arizuko/main.go
-	make -C channels/telegram build
+	make -C services/teled build
 
 lint:
 	go vet ./...
@@ -11,11 +11,11 @@ test:
 clean:
 	rm -f arizuko
 	rm -rf tmp/
-	make -C channels/telegram clean
+	make -C services/teled clean
 
 images:
 	docker build -t arizuko .
-	docker build -t arizuko-telegram -f channels/telegram/Dockerfile .
+	docker build -t arizuko-telegram -f services/teled/Dockerfile .
 	make -C container image
 
 agent:

@@ -3,9 +3,9 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /telegram ./channels/telegram/
+RUN CGO_ENABLED=0 go build -o /teled ./services/teled/
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
-COPY --from=build /telegram /usr/local/bin/telegram
-ENTRYPOINT ["telegram"]
+COPY --from=build /teled /usr/local/bin/teled
+ENTRYPOINT ["teled"]

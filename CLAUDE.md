@@ -12,7 +12,7 @@ MCP sidecar extensibility.
 ## Build & Test
 
 ```bash
-make build    # go build → ./arizuko + channels/telegram binary
+make build    # go build → ./arizuko + services/teled binary
 make lint     # go vet ./...
 make test     # go test ./... -count=1
 make images   # all docker images (router + adapters + agent)
@@ -36,7 +36,7 @@ See ARCHITECTURE.md for package graph, schema, container model.
 
 ## Packages
 
-- `cmd/arizuko/` — entrypoint (run, create, group, compose, status subcommands)
+- `cmd/arizuko/` — CLI entrypoint (create, group, compose, status subcommands)
 - `core/` — Config, types (Message, Group, Task, Channel interface)
 - `store/` — SQLite persistence (messages, groups, sessions, tasks, auth)
 - `gateway/` — main loop, message routing, commands (/new, /ping, /chatid, /stop)
@@ -46,18 +46,20 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `chanreg/` — channel registry, health checks, HTTP channel proxy (outbound)
 - `api/` — HTTP API server (channel registration, inbound messages, chat metadata)
 - `icmcd/` — MCP server on unix socket (mark3labs/mcp-go, per-group, runtime auth via authd)
-- `timed/` — standalone scheduler daemon (cron poll, writes to messages table)
 - `authd/` — identity, authorization policy, JWT, OAuth, session middleware
 - `mime/` — attachment type detection
 - `diary/` — YAML frontmatter diary annotations for agent context
 - `groupfolder/` — group path resolution and validation
 - `mountsec/` — mount allowlist validation
 - `compose/` — docker-compose.yml generation from services/\*.toml
+- `services/gated/` — gateway daemon entrypoint
+- `services/timed/` — scheduler daemon (cron poll, writes to messages table)
+- `services/teled/` — telegram channel adapter daemon
 
 ## Layout
 
 ```
-cmd/arizuko/       CLI entrypoint
+cmd/arizuko/       CLI entrypoint (create, group, compose, status)
 core/              Config, types, Channel interface
 store/             SQLite (messages.db)
 gateway/           Main loop + commands
@@ -69,7 +71,6 @@ router/            Message formatting + routing
 chanreg/           Channel registry + HTTP proxy
 api/               Router HTTP API server
 compose/           Docker-compose generation
-channels/telegram/ Standalone telegram adapter
 icmcd/             MCP server (unix socket, runtime auth via authd)
 authd/             Identity, authorization, JWT, OAuth, middleware
 mime/              Attachment type detection
@@ -78,7 +79,10 @@ groupfolder/       Path validation
 mountsec/          Mount security
 template/          Instance seed files
 sidecar/           MCP server binaries
-timed/             Scheduler daemon
+services/
+  gated/           Gateway daemon (message loop, routing, containers)
+  timed/           Scheduler daemon (cron poll, writes to messages)
+  teled/           Telegram channel adapter
 ```
 
 ## Conventions
@@ -109,7 +113,6 @@ API server always starts (default port 8080).
 
 ## Entrypoint
 
-`arizuko run` — load config, open store, start API server, start gateway.
 `arizuko create <name>` — seed data dir, .env, default group.
 `arizuko group <instance> list|add|rm` — manage registered groups.
 `arizuko compose <instance> [--dry-run]` — generate docker-compose.yml, optionally run `docker compose up`.
@@ -138,7 +141,7 @@ Daemons use 4+d naming. Shared SQLite DB (WAL mode).
 | `whapd` | planned | WhatsApp adapter                  |
 | `emaid` | planned | Email adapter                     |
 
-Service layout: `<name>/main.go`, `migrations/`.
+Service layout: `services/<name>/main.go`, `migrations/`.
 
 See `specs/7/0-architecture.md` for full spec.
 

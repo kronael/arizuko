@@ -25,5 +25,6 @@ objects
 refs
 old/
 /arizuko
-channels/telegram/telegram
+services/teled/teled
 services/timed/timed
+services/gated/gated
