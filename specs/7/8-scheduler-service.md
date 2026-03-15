@@ -17,6 +17,8 @@ CREATE TABLE scheduled_tasks (
 );
 ```
 
+Migration service name: `timed`.
+
 - `owner` — group folder that created the task. Used by
   actid/authd for authorization.
 - `cron` — cron expression. NULL for one-shot tasks.
