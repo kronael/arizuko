@@ -24,10 +24,7 @@ type Registry struct {
 	mu      sync.RWMutex
 	entries map[string]*Entry // keyed by name
 	byToken map[string]*Entry // keyed by session token
-	secret  string
-
-	onRegister   func(name string, e *Entry)
-	onDeregister func(name string)
+	secret string
 }
 
 func New(secret string) *Registry {
@@ -37,9 +34,6 @@ func New(secret string) *Registry {
 		secret:  secret,
 	}
 }
-
-func (r *Registry) OnRegister(fn func(string, *Entry))     { r.onRegister = fn }
-func (r *Registry) OnDeregister(fn func(string))            { r.onDeregister = fn }
 
 func (r *Registry) Register(name, url string, prefixes []string, caps map[string]bool) (string, error) {
 	r.mu.Lock()
@@ -65,10 +59,6 @@ func (r *Registry) Register(name, url string, prefixes []string, caps map[string
 	r.entries[name] = e
 	r.byToken[token] = e
 
-	if r.onRegister != nil {
-		r.onRegister(name, e)
-	}
-
 	return token, nil
 }
 
@@ -80,10 +70,6 @@ func (r *Registry) Deregister(name string) {
 		delete(r.entries, name)
 	}
 	r.mu.Unlock()
-
-	if ok && r.onDeregister != nil {
-		r.onDeregister(name)
-	}
 }
 
 func (r *Registry) Get(name string) *Entry {

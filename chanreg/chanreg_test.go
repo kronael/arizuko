@@ -109,23 +109,6 @@ func TestAll(t *testing.T) {
 	}
 }
 
-func TestCallbacks(t *testing.T) {
-	r := New("s")
-	var registered, deregistered string
-	r.OnRegister(func(name string, _ *Entry) { registered = name })
-	r.OnDeregister(func(name string) { deregistered = name })
-
-	r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
-	if registered != "tg" {
-		t.Errorf("registered = %q", registered)
-	}
-
-	r.Deregister("tg")
-	if deregistered != "tg" {
-		t.Errorf("deregistered = %q", deregistered)
-	}
-}
-
 func TestHealthFailNonexistent(t *testing.T) {
 	r := New("s")
 	if f := r.RecordHealthFail("nope"); f != 0 {

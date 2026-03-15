@@ -104,7 +104,7 @@ func fire(db *sql.DB, tz string) {
 					next.Format(time.RFC3339), t.id)
 			}
 		} else {
-			db.Exec(`UPDATE scheduled_tasks SET next_run = NULL WHERE id = ?`, t.id)
+			db.Exec(`UPDATE scheduled_tasks SET status = 'completed', next_run = NULL WHERE id = ?`, t.id)
 		}
 
 		slog.Info("fired task", "id", t.id, "jid", t.jid)
@@ -150,24 +150,31 @@ func migrate(db *sql.DB) error {
 		if ver != max+1 {
 			return fmt.Errorf("migration gap: expected %d, got %d", max+1, ver)
 		}
-		raw, _ := migrationFS.ReadFile("migrations/" + f)
-		tx, err := db.Begin()
-		if err != nil {
+		if err := runMigration(db, f, ver); err != nil {
 			return err
-		}
-		defer tx.Rollback()
-		if _, err := tx.Exec(string(raw)); err != nil {
-			return fmt.Errorf("%s: %w", f, err)
-		}
-		if _, err := tx.Exec(
-			"INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",
-			serviceName, ver, time.Now().Format(time.RFC3339)); err != nil {
-			return fmt.Errorf("%s: record: %w", f, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("%s: commit: %w", f, err)
 		}
 		max = ver
 	}
 	return nil
+}
+
+func runMigration(db *sql.DB, f string, ver int) error {
+	raw, err := migrationFS.ReadFile("migrations/" + f)
+	if err != nil {
+		return fmt.Errorf("%s: read: %w", f, err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(string(raw)); err != nil {
+		return fmt.Errorf("%s: %w", f, err)
+	}
+	if _, err := tx.Exec(
+		"INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",
+		serviceName, ver, time.Now().Format(time.RFC3339)); err != nil {
+		return fmt.Errorf("%s: record: %w", f, err)
+	}
+	return tx.Commit()
 }

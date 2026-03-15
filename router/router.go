@@ -220,8 +220,12 @@ func IsAuthorizedRoutingTarget(source, target string) bool {
 	if srcRoot != tgtRoot {
 		return false
 	}
+	if len(target) <= len(source) {
+		return false
+	}
 	suffix := target[len(source):]
-	return strings.HasPrefix(suffix, "/") && strings.IndexByte(suffix[1:], '/') == -1
+	return strings.HasPrefix(suffix, "/") && len(suffix) > 1 &&
+		strings.IndexByte(suffix[1:], '/') == -1
 }
 
 // ExpandTarget performs RFC 6570 Level 1 template expansion on a route target.

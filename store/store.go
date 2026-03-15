@@ -101,7 +101,10 @@ func (s *Store) migrate() error {
 }
 
 func (s *Store) runMigration(f string, ver int) error {
-	raw, _ := migrationFS.ReadFile("migrations/" + f)
+	raw, err := migrationFS.ReadFile("migrations/" + f)
+	if err != nil {
+		return fmt.Errorf("%s: read: %w", f, err)
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -117,8 +120,6 @@ func (s *Store) runMigration(f string, ver int) error {
 	return tx.Commit()
 }
 
-// seedFromPragma bridges databases that used PRAGMA user_version
-// to the migrations table. Remove after all instances upgraded.
 func (s *Store) seedFromPragma() {
 	var n int
 	s.db.QueryRow("SELECT COUNT(*) FROM migrations WHERE service=?", serviceName).Scan(&n)

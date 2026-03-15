@@ -54,7 +54,6 @@ type Sidecar struct {
 	Tools []string // ["*"] or specific
 }
 
-// Route is a flat routing table entry.
 type Route struct {
 	ID     int64
 	JID    string

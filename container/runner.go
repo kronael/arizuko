@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/onvos/arizuko/core"
@@ -197,9 +198,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		cfgTimeout = grace
 	}
 
-	var timedOut bool
+	var timedOut atomic.Bool
 	timer := time.AfterFunc(cfgTimeout, func() {
-		timedOut = true
+		timedOut.Store(true)
 		slog.Error("container timeout, stopping gracefully",
 			"group", in.Folder, "container", containerName)
 		stop := exec.Command(
@@ -311,15 +312,16 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	ts := time.Now().Format("2006-01-02T15-04-05")
 	logFile := filepath.Join(logsDir, "container-"+ts+".log")
+	to := timedOut.Load()
 	writeLog(logFile, in, containerName, elapsed, code,
-		timedOut, hadStreaming, fullBuf.String(), stderrStr, mounts)
+		to, hadStreaming, fullBuf.String(), stderrStr, mounts)
 
 	slog.Info("container exited",
 		"group", in.Folder, "code", code,
 		"duration", elapsed,
-		"timedOut", timedOut, "hadOutput", hadStreaming)
+		"timedOut", to, "hadOutput", hadStreaming)
 
-	if timedOut {
+	if to {
 		if hadStreaming {
 			slog.Info(
 				"container timed out after output (idle cleanup)",

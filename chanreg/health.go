@@ -2,7 +2,9 @@ package chanreg
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 )
 
@@ -26,11 +28,24 @@ func (r *Registry) StartHealthLoop(ctx context.Context) {
 	}()
 }
 
+var healthClient = &http.Client{Timeout: 10 * time.Second}
+
+func healthPing(c *http.Client, baseURL string) error {
+	resp, err := c.Get(baseURL + "/health")
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("health: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func (r *Registry) checkAll() {
 	entries := r.All()
 	for name, e := range entries {
-		ch := NewHTTPChannel(e, r.secret)
-		if err := ch.HealthCheck(); err != nil {
+		if err := healthPing(healthClient, e.URL); err != nil {
 			fails := r.RecordHealthFail(name)
 			slog.Warn("channel health failed",
 				"channel", name, "fails", fails, "err", err)

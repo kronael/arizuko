@@ -21,7 +21,6 @@ func (s *Store) GetRoutes(jid string) []core.Route {
 	return out
 }
 
-
 func (s *Store) GetRoute(id int64) (core.Route, bool) {
 	var r core.Route
 	err := s.db.QueryRow(
@@ -66,7 +65,7 @@ func (s *Store) DeleteRoute(id int64) error {
 	return err
 }
 
-func nullStr(s string) interface{} {
+func nullStr(s string) any {
 	if s == "" {
 		return nil
 	}

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -210,7 +210,7 @@ func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 	}
 
 	ts := time.Now().UnixMilli()
-	r := rand.Intn(1679616) // 36^4
+	r := rand.IntN(1679616) // 36^4
 	name := fmt.Sprintf("%d-%s.json", ts, base36(r))
 	fp := filepath.Join(inputDir, name)
 	tmp := fp + ".tmp"
