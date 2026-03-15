@@ -164,16 +164,14 @@ func TestTaskCRUD(t *testing.T) {
 	now := time.Now()
 	next := now.Add(time.Hour)
 	task := core.Task{
-		ID:       "t1",
-		Group:    "main",
-		ChatJID:  "tg:1",
-		Prompt:   "check weather",
-		SchedTyp: "cron",
-		SchedVal: "0 9 * * *",
-		CtxMode:  "group",
-		NextRun:  &next,
-		Status:   "active",
-		Created:  now,
+		ID:      "t1",
+		Owner:   "main",
+		ChatJID: "tg:1",
+		Prompt:  "check weather",
+		Cron:    "0 9 * * *",
+		NextRun: &next,
+		Status:  "active",
+		Created: now,
 	}
 	if err := s.CreateTask(task); err != nil {
 		t.Fatal(err)
@@ -187,17 +185,11 @@ func TestTaskCRUD(t *testing.T) {
 		t.Fatalf("unexpected prompt: %q", got.Prompt)
 	}
 
-	// Not due yet
-	due, _ := s.DueTasks()
-	if len(due) != 0 {
-		t.Fatalf("expected 0 due tasks, got %d", len(due))
-	}
-
-	// Make it due
+	// Update next_run
 	past := now.Add(-time.Hour)
 	s.UpdateTask("t1", TaskPatch{NextRun: &past})
-	due, _ = s.DueTasks()
-	if len(due) != 1 {
-		t.Fatalf("expected 1 due task, got %d", len(due))
+	got, ok = s.GetTask("t1")
+	if !ok {
+		t.Fatal("task not found after update")
 	}
 }

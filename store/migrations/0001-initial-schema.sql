@@ -65,28 +65,15 @@ CREATE TABLE IF NOT EXISTS system_messages (
 
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
   id TEXT PRIMARY KEY,
-  group_folder TEXT NOT NULL,
+  owner TEXT NOT NULL,
   chat_jid TEXT NOT NULL,
   prompt TEXT NOT NULL,
-  schedule_type TEXT NOT NULL,
-  schedule_value TEXT NOT NULL,
-  context_mode TEXT NOT NULL DEFAULT 'group',
+  cron TEXT,
   next_run TEXT,
-  last_run TEXT,
-  last_result TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   created_at TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS task_run_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  task_id TEXT NOT NULL,
-  run_at TEXT NOT NULL,
-  duration_ms INTEGER NOT NULL,
-  status TEXT NOT NULL,
-  result TEXT,
-  error TEXT
-);
+CREATE INDEX IF NOT EXISTS idx_tasks_next ON scheduled_tasks(status, next_run);
 
 CREATE TABLE IF NOT EXISTS router_state (
   key TEXT PRIMARY KEY,

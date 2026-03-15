@@ -836,7 +836,7 @@ func WriteTasksSnapshot(
 	if !isRoot {
 		var f []core.Task
 		for _, t := range tasks {
-			if t.Group == folder {
+			if t.Owner == folder {
 				f = append(f, t)
 			}
 		}

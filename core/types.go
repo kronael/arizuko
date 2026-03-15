@@ -65,17 +65,14 @@ type Route struct {
 }
 
 type Task struct {
-	ID       string
-	Group    string
-	ChatJID  string
-	Prompt   string
-	SchedTyp string // cron|interval|once
-	SchedVal string
-	CtxMode  string // group|isolated
-	NextRun  *time.Time
-	LastRun  *time.Time
-	Status   string // active|paused|completed
-	Created  time.Time
+	ID      string
+	Owner   string
+	ChatJID string
+	Prompt  string
+	Cron    string // cron expr; empty for one-shot
+	NextRun *time.Time
+	Status  string // active|paused|completed
+	Created time.Time
 }
 
 type Channel interface {
