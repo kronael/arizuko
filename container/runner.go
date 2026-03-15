@@ -469,8 +469,6 @@ func BuildMounts(
 			chown(groupRunnerDir, 1000, 1000)
 		}
 	}
-	// Agent image has compiled code baked in.
-	// Only mount source in dev mode (explicit env var).
 	if os.Getenv("ARIZUKO_DEV") == "1" {
 		if _, err := os.Stat(runnerSrc); err == nil {
 			m = append(m, VolumeMount{
@@ -627,10 +625,6 @@ func seedSettings(
 	settings["mcpServers"] = servers
 
 	if len(in.Config.Sidecars) > 0 {
-		servers, _ := settings["mcpServers"].(map[string]any)
-		if servers == nil {
-			servers = map[string]any{}
-		}
 		managed, _ := settings["_managedSidecars"].([]any)
 		var allowed []any
 		if a, ok := settings["allowedTools"].([]any); ok {

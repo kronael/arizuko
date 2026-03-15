@@ -32,9 +32,6 @@ cmd/arizuko/main
   ├── mime          (attachment type detection)
   └── compose       (docker-compose generation)
 
-services/gated/main  (gateway daemon)
-  └── loads config, opens store, starts API server, runs gateway
-
 services/teled/main  (telegram adapter daemon)
   └── calls router HTTP API + serves outbound endpoints
 
@@ -195,12 +192,11 @@ Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
 `ResolveRoutingTarget(msg, rules)` evaluates in tier order:
 
 1. **command** — exact prefix match (e.g. `/code`)
-2. **verb** — exact first-word match (e.g. `review`)
-3. **pattern** — regex match on content (max 200 chars)
-4. **keyword** — case-insensitive substring
-5. **sender** — regex on sender name
-6. **trigger** — trigger word match (group activation)
-7. **default** — always matches
+2. **pattern** — regex match on content (max 200 chars)
+3. **keyword** — case-insensitive substring
+4. **sender** — regex on sender name
+5. **trigger** — trigger word match (group activation)
+6. **default** — always matches
 
 `IsAuthorizedRoutingTarget` — target must be direct child of source
 within same world (root segment). Max delegation depth: 3.
@@ -285,7 +281,6 @@ mime/               Attachment type detection
 template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
 services/
-  gated/            Gateway daemon (message loop, routing, containers)
   timed/            Scheduler daemon (cron poll, messages)
   teled/            Telegram adapter daemon
 ```

@@ -60,7 +60,6 @@ func Generate(dataDir string) (string, error) {
 		return services[i].name < services[j].name
 	})
 
-	// derive project name from dataDir (REDACTED)
 	project := filepath.Base(dataDir)
 
 	var b strings.Builder

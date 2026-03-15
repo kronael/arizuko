@@ -37,7 +37,7 @@ store/           SQLite persistence (12 tables, WAL mode)
 gateway/         Main loop, message routing, commands
 container/       Docker spawn, volume mounts, sidecars, runtime
 queue/           Per-group concurrency, circuit breaker
-router/          XML message formatting, 5-tier routing rules
+router/          XML message formatting, routing rules
 ipc/             MCP server on unix socket (per-group)
 auth/            JWT, OAuth, session middleware
 mime/            Attachment type detection

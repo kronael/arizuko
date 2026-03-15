@@ -155,7 +155,6 @@ func (g *Gateway) loadState() {
 		g.lastTimestamp, _ = time.Parse(time.RFC3339Nano, raw)
 	}
 
-	// Migrate old JSON-blob cursors to per-row columns (one-time)
 	raw = g.store.GetState("last_agent_timestamp")
 	if raw != "" {
 		var m map[string]string
@@ -203,11 +202,8 @@ func (g *Gateway) messageLoop(ctx context.Context) {
 }
 
 func (g *Gateway) pollOnce() {
+	jids := g.groupJIDs()
 	g.mu.RLock()
-	jids := make([]string, 0, len(g.groups))
-	for jid := range g.groups {
-		jids = append(jids, jid)
-	}
 	since := g.lastTimestamp
 	g.mu.RUnlock()
 
@@ -488,8 +484,6 @@ func (g *Gateway) injectMessage(jid, content, sender, senderName string) (string
 		Name:      senderName,
 		Content:   content,
 		Timestamp: time.Now(),
-		FromMe:    false,
-		BotMsg:    false,
 	}
 	if err := g.store.PutMessage(msg); err != nil {
 		return "", err
@@ -515,48 +509,23 @@ func (g *Gateway) getGroups() map[string]core.Group {
 	return cp
 }
 
-func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth int) error {
-	if depth > 1 {
-		return fmt.Errorf("delegation depth exceeded")
-	}
-
-	g.mu.RLock()
-	var parentJid string
-	var parent core.Group
-	var found bool
+func (g *Gateway) groupByFolderLocked(folder string) (string, core.Group, bool) {
 	for jid, gr := range g.groups {
-		if gr.Folder == parentFolder {
-			parentJid = jid
-			parent = gr
-			found = true
-			break
+		if gr.Folder == folder {
+			return jid, gr, true
 		}
 	}
-	g.mu.RUnlock()
+	return "", core.Group{}, false
+}
 
-	if !found {
-		return fmt.Errorf("parent group not found: %s", parentFolder)
-	}
+func (g *Gateway) groupByFolder(folder string) (string, core.Group, bool) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.groupByFolderLocked(folder)
+}
 
-	g.queue.EnqueueTask(parentJid, fmt.Sprintf("escalate-%s-%d",
-		parentFolder, time.Now().UnixMilli()),
-		func() error {
-			out := g.runAgentWithOpts(parent, prompt, originJid,
-				func(text, status string) {
-					if text != "" {
-						clean := router.FormatOutbound(text)
-						if clean != "" {
-							g.sendMessage(originJid, clean)
-						}
-					}
-				}, false)
-			if out.Error != "" {
-				return fmt.Errorf("escalate agent: %s", out.Error)
-			}
-			return nil
-		},
-	)
-	return nil
+func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth int) error {
+	return g.delegateToFolder("escalate", parentFolder, prompt, originJid, depth)
 }
 
 func routesNeedTrigger(routes []core.Route) bool {
@@ -568,19 +537,13 @@ func routesNeedTrigger(routes []core.Route) bool {
 	return false
 }
 
-// groupForJid resolves a JID to its registered group.
-// local: JIDs encode the folder directly (local:folder → folder).
 func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
 	if gr, ok := g.groups[jid]; ok {
 		return gr, true
 	}
 	if strings.HasPrefix(jid, "local:") {
-		folder := jid[6:]
-		for _, gr := range g.groups {
-			if gr.Folder == folder {
-				return gr, true
-			}
-		}
+		_, gr, ok := g.groupByFolderLocked(jid[6:])
+		return gr, ok
 	}
 	return core.Group{}, false
 }
@@ -630,32 +593,25 @@ func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
 func (g *Gateway) delegateToChild(
 	childFolder, prompt, originJid string, depth int,
 ) error {
+	return g.delegateToFolder("delegate", childFolder, prompt, originJid, depth)
+}
+
+func (g *Gateway) delegateToFolder(
+	label, folder, prompt, originJid string, depth int,
+) error {
 	if depth > 1 {
 		return fmt.Errorf("delegation depth exceeded")
 	}
 
-	g.mu.RLock()
-	var childJid string
-	var child core.Group
-	var found bool
-	for jid, gr := range g.groups {
-		if gr.Folder == childFolder {
-			childJid = jid
-			child = gr
-			found = true
-			break
-		}
-	}
-	g.mu.RUnlock()
-
+	targetJid, target, found := g.groupByFolder(folder)
 	if !found {
-		return fmt.Errorf("delegate target not found: %s", childFolder)
+		return fmt.Errorf("%s target not found: %s", label, folder)
 	}
 
-	g.queue.EnqueueTask(childJid, fmt.Sprintf("delegate-%s-%d",
-		childFolder, time.Now().UnixMilli()),
+	g.queue.EnqueueTask(targetJid, fmt.Sprintf("%s-%s-%d",
+		label, folder, time.Now().UnixMilli()),
 		func() error {
-			out := g.runAgentWithOpts(child, prompt, originJid,
+			out := g.runAgentWithOpts(target, prompt, originJid,
 				func(text, status string) {
 					if text != "" {
 						clean := router.FormatOutbound(text)
@@ -665,7 +621,7 @@ func (g *Gateway) delegateToChild(
 					}
 				}, false)
 			if out.Error != "" {
-				return fmt.Errorf("delegate agent: %s", out.Error)
+				return fmt.Errorf("%s agent: %s", label, out.Error)
 			}
 			return nil
 		},
@@ -673,15 +629,18 @@ func (g *Gateway) delegateToChild(
 	return nil
 }
 
-func (g *Gateway) recoverPendingMessages() {
+func (g *Gateway) groupJIDs() []string {
 	g.mu.RLock()
+	defer g.mu.RUnlock()
 	jids := make([]string, 0, len(g.groups))
 	for jid := range g.groups {
 		jids = append(jids, jid)
 	}
-	g.mu.RUnlock()
+	return jids
+}
 
-	for _, jid := range jids {
+func (g *Gateway) recoverPendingMessages() {
+	for _, jid := range g.groupJIDs() {
 		agentTs := g.store.GetAgentCursor(jid)
 		msgs, err := g.store.MessagesSince(jid, agentTs, g.cfg.Name)
 		if err != nil {

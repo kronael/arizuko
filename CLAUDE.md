@@ -52,7 +52,6 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `groupfolder/` — group path resolution and validation
 - `mountsec/` — mount allowlist validation
 - `compose/` — docker-compose.yml generation from services/\*.toml
-- `services/gated/` — gateway daemon entrypoint
 - `services/timed/` — scheduler daemon (cron poll, writes to messages table)
 - `services/teled/` — telegram channel adapter daemon
 

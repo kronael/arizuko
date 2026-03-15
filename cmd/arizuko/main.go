@@ -99,13 +99,17 @@ func cmdRun() {
 	}
 }
 
+func instanceDir(name string) string {
+	return fmt.Sprintf("/srv/data/arizuko_%s", name)
+}
+
 func cmdCreate(args []string) {
 	if len(args) < 1 {
 		fmt.Println("usage: arizuko create <name>")
 		os.Exit(1)
 	}
 	name := args[0]
-	dataDir := fmt.Sprintf("/srv/data/arizuko_%s", name)
+	dataDir := instanceDir(name)
 
 	for _, sub := range []string{"store", "groups/main/.claude", "groups/main/logs", "data", "web", "services"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
@@ -148,11 +152,10 @@ silent.
 	}
 
 	err = s.PutGroup("main", core.Group{
-		JID:      "main",
-		Name:     name,
-		Folder:   "main",
-		NeedTrig: false,
-		AddedAt:  time.Now(),
+		JID:     "main",
+		Name:    name,
+		Folder:  "main",
+		AddedAt: time.Now(),
 	})
 	s.Close()
 	if err != nil {
@@ -171,7 +174,7 @@ func cmdGroup(args []string) {
 	instance := args[0]
 	action := args[1]
 
-	dataDir := fmt.Sprintf("/srv/data/arizuko_%s", instance)
+	dataDir := instanceDir(instance)
 	s, err := store.Open(filepath.Join(dataDir, "store"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed: open db: %v\n", err)
@@ -246,7 +249,7 @@ func cmdCompose(args []string) {
 		os.Exit(1)
 	}
 	name := args[0]
-	dataDir := fmt.Sprintf("/srv/data/arizuko_%s", name)
+	dataDir := instanceDir(name)
 	dryRun := len(args) > 1 && args[1] == "--dry-run"
 
 	yml, err := compose.Generate(dataDir)
@@ -282,7 +285,7 @@ func cmdStatus(args []string) {
 		os.Exit(1)
 	}
 	name := args[0]
-	dataDir := fmt.Sprintf("/srv/data/arizuko_%s", name)
+	dataDir := instanceDir(name)
 	composePath := filepath.Join(dataDir, "docker-compose.yml")
 
 	if _, err := os.Stat(composePath); err != nil {
