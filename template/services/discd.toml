@@ -1,0 +1,10 @@
+image = "arizuko:latest"
+entrypoint = ["discd"]
+
+[environment]
+ROUTER_URL = "http://gated:${API_PORT}"
+DISCORD_BOT_TOKEN = "${DISCORD_BOT_TOKEN}"
+CHANNEL_SECRET = "${CHANNEL_SECRET}"
+ASSISTANT_NAME = "${ASSISTANT_NAME}"
+LISTEN_ADDR = ":9002"
+LISTEN_URL = "http://discd:9002"

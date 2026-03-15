@@ -1,0 +1,13 @@
+image = "arizuko-whatsapp:latest"
+entrypoint = ["node", "dist/main.js"]
+
+[environment]
+ROUTER_URL = "http://gated:${API_PORT}"
+CHANNEL_SECRET = "${CHANNEL_SECRET}"
+ASSISTANT_NAME = "${ASSISTANT_NAME}"
+LISTEN_ADDR = ":9002"
+LISTEN_URL = "http://whapd:9002"
+WHATSAPP_AUTH_DIR = "/srv/data/store/whatsapp-auth"
+
+[volumes]
+"${DATA_DIR}/store/whatsapp-auth" = "/srv/data/store/whatsapp-auth"

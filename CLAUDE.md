@@ -47,13 +47,14 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `api/` — HTTP API server (channel registration, inbound messages, chat metadata)
 - `icmcd/` — MCP server on unix socket (mark3labs/mcp-go, per-group, runtime auth via authd)
 - `authd/` — identity, authorization policy, JWT, OAuth, session middleware
-- `mime/` — attachment type detection
 - `diary/` — YAML frontmatter diary annotations for agent context
 - `groupfolder/` — group path resolution and validation
 - `mountsec/` — mount allowlist validation
 - `compose/` — docker-compose.yml generation from services/\*.toml
 - `services/timed/` — scheduler daemon (cron poll, writes to messages table)
-- `services/teled/` — telegram channel adapter daemon
+- `services/teled/` — telegram channel adapter daemon (Go)
+- `services/discd/` — discord channel adapter daemon (Go)
+- `services/whapd/` — whatsapp channel adapter daemon (TypeScript/baileys)
 
 ## Layout
 
@@ -72,15 +73,17 @@ api/               Router HTTP API server
 compose/           Docker-compose generation
 icmcd/             MCP server (unix socket, runtime auth via authd)
 authd/             Identity, authorization, JWT, OAuth, middleware
-mime/              Attachment type detection
 diary/             Diary annotations
 groupfolder/       Path validation
 mountsec/          Mount security
 template/          Instance seed files
 sidecar/           MCP server binaries
 services/
-  timed/           Scheduler daemon (cron poll, writes to messages)
-  teled/           Telegram channel adapter
+  gated/           Gateway daemon (Go)
+  timed/           Scheduler daemon (Go)
+  teled/           Telegram adapter (Go)
+  discd/           Discord adapter (Go)
+  whapd/           WhatsApp adapter (TypeScript)
 ```
 
 ## Conventions
@@ -136,14 +139,14 @@ Daemons use 4+d naming. Shared SQLite DB (WAL mode).
 | `timed` | daemon  | Cron poll, writes to messages     |
 | `icmcd` | library | MCP server, identity stamping     |
 | `authd` | library | Authorization policy, JWT, OAuth  |
-| `teled` | daemon  | Telegram adapter                  |
-| `discd` | planned | Discord adapter                   |
-| `whapd` | planned | WhatsApp adapter                  |
+| `teled` | daemon  | Telegram adapter (Go)             |
+| `discd` | daemon  | Discord adapter (Go)              |
+| `whapd` | daemon  | WhatsApp adapter (TypeScript)     |
 | `emaid` | planned | Email adapter                     |
 
 Deployment: `arizuko compose <instance>` generates docker-compose.yml.
-Daemons: `services/<name>/main.go`. Libraries: `icmcd/`, `authd/`.
-gated entrypoint: `cmd/arizuko/main.go` (`arizuko run`).
+Go daemons: `services/<name>/main.go`. TS daemons: `services/<name>/src/main.ts`.
+Libraries: `icmcd/`, `authd/`. Host CLI: `cmd/arizuko/main.go`.
 
 See `specs/7/0-architecture.md` for full spec.
 

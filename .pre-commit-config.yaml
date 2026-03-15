@@ -28,7 +28,7 @@ repos:
         language: system
         pass_filenames: false
         files: \.ts$
-        exclude: ^(\.refs/|container/)
+        exclude: ^(\.refs/|container/|services/whapd/)
       - id: typecheck-agent
         name: typecheck-agent
         entry: bash -c 'cd container/agent-runner && npm install --silent && bunx tsc --noEmit'
