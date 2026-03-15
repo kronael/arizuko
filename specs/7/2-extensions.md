@@ -114,8 +114,8 @@ MCP tools are self-describing — agent discovers available
 tools through MCP `tools/list`. No separate manifest file.
 
 Transport: MCP tools on unix socket (replaces file IPC).
-See `specs/7/0-architecture.md` Component 6 for the MCP
-protocol and full tools table with tier assignments.
+See `specs/7/10-actid.md` for tool routing and
+`specs/7/11-authd.md` for tier assignments.
 
 ## 2. Channel Interface
 
@@ -225,7 +225,7 @@ Agents modify routing via MCP `set_routing_rules` tool
 ## 6. Permission Tiers
 
 **Current**: 4 tiers based on folder depth (0=root, 1=world,
-2=agent, 3=worker). See `specs/7/0-architecture.md` for tier
+2=agent, 3=worker). See `specs/7/11-authd.md` for tier
 definitions and MCP tool tier assignments.
 
 ### Open Questions
@@ -269,8 +269,7 @@ type ActionContext struct {
 
 Plugins are docker containers with `.toml` configs in the
 services/ directory. See `specs/7/0-architecture.md` for
-the services directory format, docker compose generation,
-and extension module design.
+the services directory format.
 
 ### Open Questions
 

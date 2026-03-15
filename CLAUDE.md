@@ -144,7 +144,7 @@ consumer → authd (authorize) → execute or reject.
 Service layout: `services/<name>/main.go`, `migrations/`,
 `<name>.go`, `<name>_test.go`.
 
-See `specs/7/7-microservices.md` for full spec.
+See `specs/7/0-architecture.md` for full spec.
 
 ## Operational check (post-deploy)
 
