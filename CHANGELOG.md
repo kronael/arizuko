@@ -9,83 +9,58 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-### Added
+## [v1.1.0] — 2026-03-15
 
-- **Think block stripping**: `<think>` blocks stripped from agent output
-  before forwarding to user (depth-tracking, handles nested blocks)
-- **Status block extraction**: `<status>` blocks extracted and sent as
-  separate interim messages before main response
-- **User context injection**: `<user id="..." name="..." />` tag injected
-  into prompt XML with sender identity from `users/` directory
-- **Reply-to ID**: messages store `reply_to_id`, formatted as XML
-  attributes in prompt (`reply_to`, `<reply_to>` element). Schema migration v4.
-- **Clock header**: `<clock time="..." tz="..."/>` injected into prompts
-  so agents know the current time
-- **Enriched message XML**: `sender_id`, `ago` attributes on messages
-- **max_children enforcement**: `GroupConfig.MaxChildren` limits child
-  group creation via register_group MCP tool
-- **Template routing**: RFC 6570 Level 1 `{sender}` expansion in route
-  targets for per-user routing (e.g. `atlas/{sender}` → `atlas/tg-123456`)
-- **local: JID convention**: `local:folder` JIDs resolve to the group
-  with that folder, no route entry needed
-- **Relaxed folder validation**: folder names now allow `@`, `.` and other
-  chars needed for WhatsApp JIDs as folder names
-- **messageId passthrough**: last message ID passed to container runner
+Microservice architecture. Scheduler extracted to standalone daemon,
+schema simplified, dead code removed, specs aligned with code.
 
-### Changed
+### Architecture
 
-- **IPC → MCP over unix socket**: replaced file-based IPC watcher
-  (`ipc/watcher.go`) with Go MCP server (`ipc/server.go`) served
-  on a per-container unix socket. Agent connects via socat shim.
-  Removed `nanoclaw` Node.js MCP server from agent-runner.
-  Hard cutover — IPC file subdirs (`messages/`, `tasks/`,
-  `requests/`, `replies/`) removed. Migration 015.
-- **MAX_DELEGATE_DEPTH reduced**: delegation depth limit changed from 3 to 1
+- **services/timed/**: standalone scheduler daemon (~150 LOC), polls
+  scheduled_tasks, inserts into messages. Zero dependencies on gateway.
+  Own migration runner (service name: `timed`).
+- **Daemon specs**: gated (9), timed (8), actid (10), authd (11) —
+  one spec per daemon with clear table ownership.
+- **0-architecture.md**: lean service overview replacing 579-line monolith.
 
-### Fixed
+### Breaking: scheduled_tasks schema
 
-- **Scheduler NextRun timing**: update NextRun at task START before spawning
-  container, preventing re-scheduling while task runs
-- **IPC cron task NextRun**: use proper cron parsing instead of placeholder
-  (was now+1min for all schedule types)
-- **Queue error notifications**: added NotifyErrorFn callback for user error
-  notifications on circuit breaker and processing failures
+- `group_folder` → `owner`
+- `schedule_type` + `schedule_value` → `cron` (nullable, NULL = one-shot)
+- Removed: `context_mode`, `last_run`, `last_result`
+- Removed: `task_run_logs` table
+- Migration renumbered (0003-0004)
+
+### Removed
+
+- `scheduler/` package (embedded in gateway, replaced by services/timed/)
+- `actions/` package (dead code, unused)
+- `store.DueTasks()`, `store.LogRun()`, `store.AllTasks()`,
+  `store.UnreportedRuns()`, `store.MarkRunsReported()` (old scheduler methods)
+- `container.Input.IsTask` field (dead)
+- `core.Task.SchedTyp`, `SchedVal`, `CtxMode` fields (old schema)
+- `gateway.formatTaskRuns()` (used removed task_run_logs)
 
 ### Changed
 
-- **actions.ComputeNextRun**: exported for use by IPC watcher (was internal)
-
-### Features
-
-- **Scheduled task CtxMode**: `group` mode injects prompt as user message
-  (runs in group session), `isolated` mode (default) runs in fresh session
-  without persistence. Task results injected as context on next group message.
-- **inject_message IPC action**: agents can insert messages into DB without
-  channel delivery; tier 0/1 only
-- **Permission tiers**: folder-depth-based authorization (0=root, 1=world,
-  2=agent, 3=worker); enforced on all IPC actions
-- **register_group action**: agents can register child groups via IPC
-- **escalate_group action**: delegate prompt to parent group agent
-- **delegate_group action**: delegate prompt to child group agent
-- **set_routing_rules action**: update routing rules for a group
-- **Task actions**: schedule_task, pause_task, resume_task, cancel_task
-  via IPC with tier-based authorization
-
-### Gateway
-
-- `injectMessage()`: stores injected messages in DB
-- `registerGroupIPC()`: persists agent-registered groups
-- `getGroups()`: returns groups map for IPC authorization
-- `delegateToParent()`: escalation handler
-- `delegateToChild()`: now returns error for IPC integration
+- `schedule_task` MCP tool: takes `targetJid`, `prompt`, `cron` (optional).
+  No more `schedule_type`/`schedule_value`/`context_mode` params.
+- `store.UpdateTask`: consolidated from two SQL queries to one.
+- `store.ListTasks`: replaced duplicate `AllTasks()`.
 
 ### Tests
 
-- TestInjectMessage, TestInjectMessageUnauthorized
-- TestPermissionTiers, TestWorldOf, TestIsDirectChild
-- TestRegisterGroupFromWorld, TestRegisterGroupUnauthorized
-- TestScheduleTask, TestPauseResumeTask, TestCancelTask
-- TestTaskActionUnauthorizedTier
+- 10 timed daemon unit tests (migration, poll, cron, one-shot, paused, future)
+- 12 microservice contract integration tests (schema compat, message insertion,
+  task lifecycle, table ownership isolation)
+- 16 store task edge case tests (duplicates, nonexistent, empty patch, filters)
+
+### Specs
+
+- Tool names aligned with code: `delegate_group`, `reset_session`,
+  `get_routes`/`set_routes`/`add_route`/`delete_route`
+- Parameter names: camelCase (`targetJid`, `taskId`)
+- actid/authd marked as design (currently inline in gated)
 
 ---
 
