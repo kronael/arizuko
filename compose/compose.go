@@ -86,7 +86,7 @@ func gatedService(dataDir string, env map[string]string) string {
 	fmt.Fprintf(&b, "  gated:\n")
 	fmt.Fprintf(&b, "    container_name: gated\n")
 	fmt.Fprintf(&b, "    image: arizuko:latest\n")
-	fmt.Fprintf(&b, "    command: ['run']\n")
+	fmt.Fprintf(&b, "    command: ['serve']\n")
 	fmt.Fprintf(&b, "    volumes:\n")
 	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
 	fmt.Fprintf(&b, "      - /var/run/docker.sock:/var/run/docker.sock\n")

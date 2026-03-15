@@ -27,19 +27,19 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|compose|status> ...")
+		fmt.Println("usage: arizuko <run|serve|create|group|status> ...")
 		os.Exit(1)
 	}
 
 	switch os.Args[1] {
 	case "run":
-		cmdRun()
+		cmdRun(os.Args[2:])
+	case "serve":
+		cmdServe()
 	case "create":
 		cmdCreate(os.Args[2:])
 	case "group":
 		cmdGroup(os.Args[2:])
-	case "compose":
-		cmdCompose(os.Args[2:])
 	case "status":
 		cmdStatus(os.Args[2:])
 	default:
@@ -48,7 +48,32 @@ func main() {
 	}
 }
 
-func cmdRun() {
+func cmdRun(args []string) {
+	if len(args) < 1 {
+		fmt.Println("usage: arizuko run <instance>")
+		os.Exit(1)
+	}
+	name := args[0]
+	dataDir := instanceDir(name)
+
+	yml, err := compose.Generate(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed: %v\n", err)
+		os.Exit(1)
+	}
+	outPath := filepath.Join(dataDir, "docker-compose.yml")
+	if err := os.WriteFile(outPath, []byte(yml), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed: write compose: %v\n", err)
+		os.Exit(1)
+	}
+
+	cmd := exec.Command("docker", "compose", "-f", outPath, "up", "--remove-orphans")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Run()
+}
+
+func cmdServe() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
@@ -241,28 +266,6 @@ func cmdGroup(args []string) {
 		fmt.Fprintf(os.Stderr, "unknown group action: %s\n", action)
 		os.Exit(1)
 	}
-}
-
-func cmdCompose(args []string) {
-	if len(args) < 1 {
-		fmt.Println("usage: arizuko compose <instance>")
-		os.Exit(1)
-	}
-	name := args[0]
-	dataDir := instanceDir(name)
-
-	yml, err := compose.Generate(dataDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	outPath := filepath.Join(dataDir, "docker-compose.yml")
-	if err := os.WriteFile(outPath, []byte(yml), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: write compose: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("wrote %s\n", outPath)
 }
 
 func cmdStatus(args []string) {
