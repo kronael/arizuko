@@ -111,8 +111,8 @@ When actid forwards a tool call, gated:
 3. Executes if allowed, rejects if not
 
 Tools consumed: `send_message`, `send_file`, `register_group`,
-`clear_session`, `delegate`, `inject_message`, `escalate_group`,
-`set_routing_rules`.
+`reset_session`, `delegate_group`, `inject_message`, `escalate_group`,
+`get_routes`, `set_routes`, `add_route`, `delete_route`.
 
 ## Channel health checks
 

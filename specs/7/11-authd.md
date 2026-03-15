@@ -1,5 +1,7 @@
 # authd
 
+**Status**: design -- currently implemented inline in gated (ipc/server.go)
+
 Authorization policy engine. Consumers call it to check
 whether a caller is allowed to perform an action.
 
@@ -34,12 +36,14 @@ Where:
 Each MCP tool has a minimum tier. Lower-numbered tiers
 have more privilege.
 
-| Min tier | Tools                                                         |
-| -------- | ------------------------------------------------------------- |
-| 1        | `register_group`, `inject_message`, `escalate_group`          |
-| 2        | `schedule_task`, `delete_task`, `pause_task`,                 |
-|          | `resume_task`, `cancel_task`, `delegate`, `set_routing_rules` |
-| 3        | `send_message`, `send_file`, `list_tasks`, `clear_session`    |
+| Min tier | Tools                                                      |
+| -------- | ---------------------------------------------------------- |
+| 1        | `register_group`, `inject_message`, `get_routes`,          |
+|          | `set_routes`, `add_route`, `delete_route`                  |
+| 2        | `schedule_task`, `pause_task`, `resume_task`,              |
+|          | `cancel_task`, `delegate_group`                            |
+| 2+ only  | `escalate_group` (tier >= 2 only, not root/world)          |
+| 3        | `send_message`, `send_file`, `list_tasks`, `reset_session` |
 
 Tier 0 (root) can call everything. Tier 3 (worker) can
 only call tier-3 tools.
@@ -48,10 +52,12 @@ only call tier-3 tools.
 
 Some actions require ownership validation beyond tier:
 
-- `delete_task`: caller's folder must match task's `owner`
-- `pause_task` / `resume_task`: same ownership check
-- `set_routing_rules`: caller must own the target group
-- `delegate`: caller must own the parent group
+- `pause_task` / `resume_task` / `cancel_task`: caller's
+  folder must match task's `owner` (tier 2), or be in same
+  world (tier 1), or be root (tier 0)
+- `set_routes` / `add_route` / `delete_route`: tier 1 can
+  only modify routes targeting own subtree
+- `delegate_group`: target must be a child of caller's folder
 
 ### Scope containment
 
@@ -78,22 +84,28 @@ folder depth (no tables needed).
 
 ```
 gated receives stamped request from actid:
-  {tool: delete_task, caller: {folder: "andy/research", tier: 1}, args: {task_id: "abc"}}
+  {tool: cancel_task, caller: {folder: "andy/research", tier: 1}, args: {taskId: "abc"}}
 
 gated calls authd:
   authorize(caller={folder: "andy/research", tier: 1},
-            action="delete_task",
-            target={task_id: "abc"})
+            action="cancel_task",
+            target={taskId: "abc"})
 
 authd checks:
-  1. tier 1 ≤ min tier 2 for delete_task? yes
-  2. task "abc" owner = "andy/research"? yes (ownership check)
+  1. tier 1 ≤ min tier 2 for cancel_task? yes
+  2. task "abc" owner in same world as caller? yes (world check)
   → allow
 
-gated executes the delete.
+gated executes the cancellation.
 ```
 
 ## Layout
+
+No separate service directory exists yet. Currently implemented
+inline in `ipc/server.go` within gated (tier checks and
+ownership validation are per-tool handler logic).
+
+Future layout:
 
 ```
 services/authd/

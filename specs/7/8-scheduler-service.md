@@ -53,15 +53,18 @@ it, asks authd to authorize, then executes.
 ### schedule_task
 
 ```
-input: chat_jid, prompt, cron (optional), next_run (optional)
+input: targetJid, prompt, cron (optional)
 auth:  task.owner checked by authd (tier-based)
 → INSERT INTO scheduled_tasks
 ```
 
+`next_run` is computed from `cron` expression, not a user param.
+One-shot tasks: omit `cron`, set `next_run` directly in DB.
+
 ### pause_task / resume_task
 
 ```
-input: task_id
+input: taskId
 auth:  task.owner must match caller (checked by authd)
 → UPDATE status = 'paused' | 'active'
 ```
@@ -69,7 +72,7 @@ auth:  task.owner must match caller (checked by authd)
 ### cancel_task
 
 ```
-input: task_id
+input: taskId
 → DELETE FROM scheduled_tasks WHERE id = ?
 ```
 
