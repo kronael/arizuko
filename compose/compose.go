@@ -85,6 +85,7 @@ func gatedService(dataDir string, env map[string]string) string {
 	hostApp := envOr(env, "HOST_APP_DIR", "")
 	var b strings.Builder
 	fmt.Fprintf(&b, "  gated:\n")
+	fmt.Fprintf(&b, "    container_name: gated\n")
 	fmt.Fprintf(&b, "    image: arizuko:latest\n")
 	fmt.Fprintf(&b, "    command: ['run']\n")
 	fmt.Fprintf(&b, "    volumes:\n")
@@ -124,6 +125,7 @@ func timedService(dataDir string, env map[string]string) string {
 	tz := envOr(env, "TZ", "UTC")
 	var b strings.Builder
 	fmt.Fprintf(&b, "  timed:\n")
+	fmt.Fprintf(&b, "    container_name: timed\n")
 	fmt.Fprintf(&b, "    image: arizuko:latest\n")
 	fmt.Fprintf(&b, "    entrypoint: ['timed']\n")
 	fmt.Fprintf(&b, "    volumes:\n")
@@ -153,6 +155,7 @@ var routerEnvKeys = []string{
 func renderService(name string, cfg ServiceConfig, env map[string]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "  %s:\n", name)
+	fmt.Fprintf(&b, "    container_name: %s\n", name)
 	fmt.Fprintf(&b, "    image: %s\n", cfg.Image)
 	if len(cfg.Entrypoint) > 0 {
 		fmt.Fprintf(&b, "    entrypoint: %s\n", yamlList(cfg.Entrypoint))
