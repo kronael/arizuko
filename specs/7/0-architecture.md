@@ -17,7 +17,7 @@
 3. **Each daemon is independently testable**: open a test DB,
    run migrations, verify behavior. No integration environment
    needed to test a single component.
-4. **Channels are external**: arz-gated doesn't start, stop,
+4. **Channels are external**: gated doesn't start, stop,
    or manage channels. They're independent containers that
    register via HTTP on the docker network. Channels are the
    only services that use HTTP instead of direct DB access
@@ -52,31 +52,31 @@
          channel adapters (HTTP, external)
 ```
 
-Co-located daemons (arz-gated, arz-timed, arz-actid) share
+Co-located daemons (gated, timed, actid) share
 the SQLite file directly. Channel adapters are external —
 they use HTTP because they may run on remote hosts without
 filesystem access.
 
 ## Daemon table
 
-All daemons follow 4+d naming with `arz-` prefix.
+All daemons follow 4+d naming.
 
-| Daemon      | Role                                    | Spec                             |
-| ----------- | --------------------------------------- | -------------------------------- |
-| `arz-gated` | Message loop, routing, containers       | `specs/7/9-gated.md`             |
-| `arz-actid` | MCP sockets, identity stamping, routing | `specs/7/10-actid.md`            |
-| `arz-authd` | Authorization policy engine             | `specs/7/11-authd.md`            |
-| `arz-timed` | Cron poll, writes to messages           | `specs/7/8-scheduler-service.md` |
-| `arz-teled` | Telegram adapter                        |                                  |
-| `arz-discd` | Discord adapter                         |                                  |
-| `arz-whapd` | WhatsApp adapter                        |                                  |
-| `arz-emaid` | Email adapter                           |                                  |
+| Daemon  | Role                                    | Spec                             |
+| ------- | --------------------------------------- | -------------------------------- |
+| `gated` | Message loop, routing, containers       | `specs/7/9-gated.md`             |
+| `actid` | MCP sockets, identity stamping, routing | `specs/7/10-actid.md`            |
+| `authd` | Authorization policy engine             | `specs/7/11-authd.md`            |
+| `timed` | Cron poll, writes to messages           | `specs/7/8-scheduler-service.md` |
+| `teled` | Telegram adapter                        |                                  |
+| `discd` | Discord adapter                         |                                  |
+| `whapd` | WhatsApp adapter                        |                                  |
+| `emaid` | Email adapter                           |                                  |
 
 ## How it works
 
-### Channel → arz-gated (inbound)
+### Channel → gated (inbound)
 
-Channel receives a platform event, POSTs it to arz-gated:
+Channel receives a platform event, POSTs it to gated:
 
 ```
 POST /v1/messages
@@ -84,11 +84,11 @@ POST /v1/messages
 → 200 {"ok": true}
 ```
 
-arz-gated stores in SQLite, routes to the appropriate group.
+gated stores in SQLite, routes to the appropriate group.
 
-### arz-gated → Channel (outbound)
+### gated → Channel (outbound)
 
-arz-gated calls channel's HTTP endpoint to send:
+gated calls channel's HTTP endpoint to send:
 
 ```
 POST http://channel-url/send
@@ -114,9 +114,9 @@ POST /v1/channels/register
 → 200 {"ok": true, "token": "<session-token>"}
 ```
 
-arz-gated health-checks registered channels every 30s.
+gated health-checks registered channels every 30s.
 Three failures → auto-deregister. Channel re-registers
-on restart and arz-gated replays queued outbound.
+on restart and gated replays queued outbound.
 
 Full protocol: `specs/7/1-channel-protocol.md`.
 
@@ -127,19 +127,19 @@ Language follows best library for that platform.
 
 **Two-sided HTTP**:
 
-- Client side: calls arz-gated API to register and deliver messages
-- Server side: listens for arz-gated's send/typing/health calls
+- Client side: calls gated API to register and deliver messages
+- Server side: listens for gated's send/typing/health calls
 
-Channel self-registers with arz-gated on startup ("I handle
-telegram:\*, call me at http://telegram:9001"). arz-gated calls
-channel to send outbound. Channel calls arz-gated to deliver
+Channel self-registers with gated on startup ("I handle
+telegram:\*, call me at http://telegram:9001"). gated calls
+channel to send outbound. Channel calls gated to deliver
 inbound. Both directions are synchronous HTTP.
 
 **Contract**: `specs/7/1-channel-protocol.md`
 
-**Lifecycle**: external. arz-gated doesn't start or stop channels.
+**Lifecycle**: external. gated doesn't start or stop channels.
 Each channel adapter is its own container managed by docker
-compose. They self-register via HTTP — that's how arz-gated
+compose. They self-register via HTTP — that's how gated
 discovers them.
 
 **Implementations**:
@@ -152,7 +152,7 @@ discovers them.
 **Size**: ~200-400 LOC each. An agent can write one in
 10 minutes given the protocol spec.
 
-## Component 2: arz-gated (gateway)
+## Component 2: gated (gateway)
 
 The main daemon. Polls messages, resolves routes, manages
 the job queue, spawns containers, streams output back to
@@ -171,7 +171,7 @@ runner with service name `gated`.
 
 See `specs/7/9-gated.md` for full spec.
 
-## Component 3: arz-timed (scheduler)
+## Component 3: timed (scheduler)
 
 Separate daemon. Opens the shared SQLite DB directly.
 Polls `scheduled_tasks` for due items, INSERTs into
@@ -181,12 +181,12 @@ Owns `scheduled_tasks` table. Runs its own migration
 runner with service name `timed`.
 
 Task CRUD: agents create/pause/cancel tasks via MCP tools
-(IPC actions that write directly to the DB). arz-timed
+(IPC actions that write directly to the DB). timed
 only reads.
 
 See `specs/7/8-scheduler-service.md` for full spec.
 
-## Component 4: arz-actid (MCP identity)
+## Component 4: actid (MCP identity)
 
 MCP server daemon. Receives MCP calls from agent containers,
 resolves caller identity (folder, tier), stamps the request,
@@ -196,7 +196,7 @@ No authorization logic — just identity resolution and routing.
 
 See `specs/7/10-actid.md` for full spec.
 
-## Component 5: arz-authd (authorization)
+## Component 5: authd (authorization)
 
 Policy engine daemon. Consumers call it to check permissions.
 Tier-based: tier computed from folder depth. Input is caller
@@ -208,38 +208,38 @@ See `specs/7/11-authd.md` for full spec.
 
 ## Component 6: Web Server
 
-**Open**: separate daemon or arz-gated-internal?
+**Open**: separate daemon or gated-internal?
 
-If separate, it talks to arz-gated the same way channels do —
+If separate, it talks to gated the same way channels do —
 HTTP API. Web messages are just `POST /v1/messages` with
-`origin=web`. Auth tables could be arz-gated-internal (web
-calls arz-gated API for auth) or a separate auth DB.
+`origin=web`. Auth tables could be gated-internal (web
+calls gated API for auth) or a separate auth DB.
 
-If arz-gated-internal, it's simpler — one process, one port,
-shared state. Web routes are just more handlers on arz-gated's
+If gated-internal, it's simpler — one process, one port,
+shared state. Web routes are just more handlers on gated's
 HTTP server.
 
-Leaning arz-gated-internal. Web + arz-gated share too much
+Leaning gated-internal. Web + gated share too much
 state (auth, groups, messages) for separate processes
 to be worth the coordination cost.
 
 ## Component 7: Agent Runner
 
 Thin wrapper inside a docker container. Invokes Claude Code
-CLI, pipes stdin/stdout, connects to arz-actid MCP socket.
+CLI, pipes stdin/stdout, connects to actid MCP socket.
 
 **Contract**:
 
 - IN: JSON on stdin `{prompt, sessionId, secrets, ...}`
 - OUT: JSONL on stdout (results, session IDs)
-- OUT: MCP client → arz-actid socket for send_message, etc.
+- OUT: MCP client → actid socket for send_message, etc.
 
 **Interface**: stdin/stdout JSON + MCP unix socket.
 
 Claude Code CLI is the runtime. Agent runner just configures
 and invokes it. ~50-100 LOC in any language.
 
-MCP connection to arz-actid via socat stdio-to-socket bridge:
+MCP connection to actid via socat stdio-to-socket bridge:
 
 ```json
 {
@@ -282,17 +282,17 @@ Allowlist file outside project root so containers can't tamper.
 Folder name validation: `/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/`
 with path traversal prevention.
 
-## Component 8: MCP IPC (agent ↔ arz-actid ↔ consumers)
+## Component 8: MCP IPC (agent ↔ actid ↔ consumers)
 
-arz-actid runs an MCP server per group on a unix socket.
-Agent containers connect as MCP clients. arz-actid stamps
+actid runs an MCP server per group on a unix socket.
+Agent containers connect as MCP clients. actid stamps
 identity and forwards to the appropriate consumer daemon.
 
 ```
-Agent Container              arz-actid                 Consumer
+Agent Container              actid                 Consumer
 ──────────────               ─────────                 ────────
-MCP client via socat    →    MCP server on              arz-gated
-/workspace/ipc/actid.sock    /data/ipc/<group>.sock     arz-timed
+MCP client via socat    →    MCP server on              gated
+/workspace/ipc/actid.sock    /data/ipc/<group>.sock     timed
                                                         etc.
      ←── initialize ──────
      ──── capabilities ───→
@@ -300,29 +300,29 @@ MCP client via socat    →    MCP server on              arz-gated
          {send_message}
                              stamp identity (folder, tier)
                              route to consumer
-                                  → arz-authd: authorize?
+                                  → authd: authorize?
                                   ← allow/deny
      ──── result: {ok} ───→
 ```
 
 ### MCP tools
 
-| Tool                | What it does           | Consumer  | Min tier |
-| ------------------- | ---------------------- | --------- | -------- |
-| `send_message`      | send to chat channel   | arz-gated | 3        |
-| `send_file`         | send file to chat      | arz-gated | 3        |
-| `schedule_task`     | create scheduled task  | arz-timed | 2        |
-| `list_tasks`        | list group's tasks     | arz-timed | 3        |
-| `delete_task`       | delete a task          | arz-timed | 2        |
-| `register_group`    | register new group     | arz-gated | 1        |
-| `clear_session`     | reset agent session    | arz-gated | 3        |
-| `delegate`          | delegate to subgroup   | arz-gated | 2        |
-| `inject_message`    | inject as if from user | arz-gated | 1        |
-| `escalate_group`    | escalate to parent     | arz-gated | 1        |
-| `set_routing_rules` | update routing         | arz-gated | 2        |
-| `pause_task`        | pause scheduled task   | arz-timed | 2        |
-| `resume_task`       | resume paused task     | arz-timed | 2        |
-| `cancel_task`       | cancel scheduled task  | arz-timed | 2        |
+| Tool                | What it does           | Consumer | Min tier |
+| ------------------- | ---------------------- | -------- | -------- |
+| `send_message`      | send to chat channel   | gated    | 3        |
+| `send_file`         | send file to chat      | gated    | 3        |
+| `schedule_task`     | create scheduled task  | timed    | 2        |
+| `list_tasks`        | list group's tasks     | timed    | 3        |
+| `delete_task`       | delete a task          | timed    | 2        |
+| `register_group`    | register new group     | gated    | 1        |
+| `clear_session`     | reset agent session    | gated    | 3        |
+| `delegate`          | delegate to subgroup   | gated    | 2        |
+| `inject_message`    | inject as if from user | gated    | 1        |
+| `escalate_group`    | escalate to parent     | gated    | 1        |
+| `set_routing_rules` | update routing         | gated    | 2        |
+| `pause_task`        | pause scheduled task   | timed    | 2        |
+| `resume_task`       | resume paused task     | timed    | 2        |
+| `cancel_task`       | cancel scheduled task  | timed    | 2        |
 
 Replaces file-based IPC (JSON files + SIGUSR1).
 
@@ -402,8 +402,8 @@ services:
     depends_on: [gated]
 ```
 
-arz-gated and arz-timed share the SQLite DB via volume
-mount. Only arz-gated has docker-in-docker access (for
+gated and timed share the SQLite DB via volume
+mount. Only gated has docker-in-docker access (for
 agent containers). Channel adapters connect via HTTP over
 the docker network.
 
@@ -453,7 +453,7 @@ docker compose restart telegram  # restart one component
 The services dir is for co-located containers. Channels
 running on other hosts or in VMs don't need a `.toml`
 file — they just register via HTTP using the external
-arz-gated URL. The two mechanisms coexist: local channels
+gated URL. The two mechanisms coexist: local channels
 are managed via docker compose, remote channels
 self-register over the network.
 
@@ -470,7 +470,7 @@ the transport table.
 ## Not components: memory, skills, character
 
 These shape agent behavior, not system architecture.
-They live inside the container, not in arz-gated:
+They live inside the container, not in gated:
 
 - **Skills**: SKILL.md files mounted into container
 - **Memory**: files in group folder (diary/, CLAUDE.md)
@@ -482,7 +482,7 @@ The architecture just mounts the right directories.
 
 Agent-level pipelines (chaining tools, prompts, agents)
 handled by langaxe (`/home/onvos/app/langaxe`). Not part
-of arizuko. arz-gated doesn't care what runs inside the
+of arizuko. gated doesn't care what runs inside the
 container — Claude Code, langaxe, or a shell script.
 
 ## Language per service
@@ -493,8 +493,8 @@ container — Claude Code, langaxe, or a shell script.
 | discord adapter  | TS or Go      | discord.js / discordgo |
 | whatsapp adapter | TS            | baileys has no rival   |
 | email adapter    | Go or Python  | go-imap / aioimaplib   |
-| arz-gated        | Go            | current implementation |
-| web server       | Go            | arz-gated-internal     |
+| gated            | Go            | current implementation |
+| web server       | Go            | gated-internal         |
 | agent runner     | any (or bash) | thin CLI wrapper       |
 
 Only channel adapters have a strong language preference
@@ -506,9 +506,9 @@ Built-in components live in the monorepo. Each has a
 binary and a Dockerfile in its subdirectory.
 
 ```
-cmd/arizuko/         ← arz-gated binary
-services/timed/      ← arz-timed binary
-services/actid/      ← arz-actid binary
+cmd/arizuko/         ← gated binary
+services/timed/      ← timed binary
+services/actid/      ← actid binary
 channels/telegram/   ← telegram adapter binary + Dockerfile
 channels/discord/    ← discord adapter binary + Dockerfile
 channels/whatsapp/   ← whatsapp adapter binary + Dockerfile
@@ -534,14 +534,14 @@ What works now:
 
 - Build your own image, push to a registry
 - Add a `.toml` config to the services dir referencing it
-- arz-gated doesn't care — it just sees HTTP registration
+- gated doesn't care — it just sees HTTP registration
 
 What's missing:
 
 - Discovery: how to find extensions
 - Install: `arizuko install <repo>` that clones + builds + adds config
 - Versioning: how to pin and upgrade extension versions
-- Security: extension containers get docker network access to arz-gated
+- Security: extension containers get docker network access to gated
 - Dependencies: extension A needs extension B
 
 Not designed yet. The built-in model works. Extensions are
@@ -549,7 +549,7 @@ deferred until the built-in channels are validated.
 
 ### Multiple instances
 
-Current design: one arz-gated per instance, single SQLite.
+Current design: one gated per instance, single SQLite.
 Horizontal scaling would need either:
 
 - Multiple instances sharing PostgreSQL (big change)
@@ -574,5 +574,5 @@ Earlier designs explored:
 - Channels as in-process goroutines — works for monolith,
   but doesn't survive isolation boundaries.
 - File-based IPC for agent↔router — being replaced by
-  MCP over unix socket via arz-actid.
+  MCP over unix socket via actid.
 - Custom process supervisor — replaced by docker compose.

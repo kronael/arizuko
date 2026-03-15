@@ -1,4 +1,4 @@
-# arz-gated
+# gated
 
 Gateway daemon. Message loop, route resolution, job queue,
 container runner, HTTP API, session management.
@@ -103,11 +103,11 @@ Runs on `API_PORT` (default 8080).
 
 ## MCP tool handling
 
-arz-gated is a consumer of MCP tools routed by arz-actid.
-When arz-actid forwards a tool call, arz-gated:
+gated is a consumer of MCP tools routed by actid.
+When actid forwards a tool call, gated:
 
 1. Receives the stamped request (caller folder + tier)
-2. Calls arz-authd to authorize
+2. Calls authd to authorize
 3. Executes if allowed, rejects if not
 
 Tools consumed: `send_message`, `send_file`, `register_group`,
@@ -116,7 +116,7 @@ Tools consumed: `send_message`, `send_file`, `register_group`,
 
 ## Channel health checks
 
-Every 30s, arz-gated pings registered channels:
+Every 30s, gated pings registered channels:
 
 ```
 GET http://channel-url/health

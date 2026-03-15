@@ -123,42 +123,26 @@ scheduler) operates on clean interfaces, knows nothing of others.
 Complexity is a liability. Agent self-extension (skills, MCP
 servers, CLAUDE.md, memory) is the primary extension mechanism.
 
-## Database-as-Contract Architecture
+## Service Architecture
 
-Three services, one SQLite DB, no HTTP between them.
+Daemons use 4+d naming. Shared SQLite DB.
 
-```
-Channel ←→ DB ←→ Gateway → docker run → Agent Container
-                    ↑
-                 Scheduler
-```
+| Daemon  | Role                                    |
+| ------- | --------------------------------------- |
+| `gated` | Message loop, routing, containers       |
+| `actid` | MCP sockets, identity stamping, routing |
+| `authd` | Authorization policy engine             |
+| `timed` | Cron poll, writes to messages           |
+| `teled` | Telegram adapter                        |
+| `discd` | Discord adapter                         |
+| `whapd` | WhatsApp adapter                        |
+| `emaid` | Email adapter                           |
 
-- **Channel**: platform ↔ DB rows (inbound and outbound)
-- **Gateway**: polls messages, routes, spawns containers,
-  writes output back to DB
-- **Scheduler**: cron daemon, writes to messages when due
-- **Agent container**: ephemeral child of gateway, not a service
+Agent MCP flow: agent → actid (stamp identity) →
+consumer → authd (authorize) → execute or reject.
 
-Services don't communicate — they each read/write shared
-state independently. No HTTP between internal services.
-
-**Table ownership** (by convention, SQLite has no GRANT):
-
-- Shared: `messages`, `chats`, `migrations`
-- Gateway: `routes`, `registered_groups`, `router_state`,
-  `sessions`, `session_log`, `system_messages`, `jobs`
-- Scheduler: `scheduled_tasks`
-- Auth: `auth_users`, `auth_sessions`
-- Channel: platform-specific (e.g. `email_threads`)
-
-**Migrations** namespaced by service in shared table:
-
-```sql
-CREATE TABLE migrations (
-  service TEXT NOT NULL, version INTEGER NOT NULL,
-  applied_at TEXT NOT NULL, PRIMARY KEY (service, version)
-);
-```
+Service layout: `services/<name>/main.go`, `migrations/`,
+`<name>.go`, `<name>_test.go`.
 
 See `specs/7/7-microservices.md` for full spec.
 

@@ -1,16 +1,6 @@
-# Scheduler Microservice
+# timed
 
-## Role
-
-A cron daemon that writes messages. Polls `scheduled_tasks`
-for due items, inserts into `messages`. That's it.
-
-The scheduler does NOT:
-
-- Run containers or agents
-- Know about MCP, docker, sessions, or volumes
-- Deliver messages to channels
-- Track results or execution status
+Cron daemon. Polls `scheduled_tasks`, INSERTs into `messages`.
 
 ## Table
 
@@ -27,53 +17,42 @@ CREATE TABLE scheduled_tasks (
 );
 ```
 
-- `owner` — group folder that created the task. Used by MCP
-  actions for authorization (can this agent touch this task?).
+- `owner` — group folder that created the task. Used by
+  actid/authd for authorization.
 - `cron` — cron expression. NULL for one-shot tasks.
-- `next_run` — when to fire next. For one-shot: set directly,
-  goes NULL after firing. For cron: recomputed after each fire.
+- `next_run` — when to fire next. One-shot: set directly,
+  goes NULL after firing. Cron: recomputed after each fire.
 - `status` — `active` or `paused`. No other states.
 
-One-shot tasks: set `next_run` to an ISO timestamp, leave
-`cron` null. After firing, `next_run` goes null. The task
-never fires again. No special type, no special status.
+No `schedule_type`, no `interval`, no `context_mode`, no
+`last_run`, no `last_result`, no `task_run_logs`. Cron
+covers intervals. One-shot is just NULL cron + set next_run.
+Messages table is the audit trail.
 
 ## Loop
 
 ```
-every poll_interval:
-  SELECT * FROM scheduled_tasks
+every 60s:
+  SELECT id, chat_jid, prompt, cron FROM scheduled_tasks
     WHERE status = 'active' AND next_run <= now
 
   for each task:
-    INSERT INTO messages (id, chat_jid, sender, content, timestamp)
-    if task.cron IS NOT NULL:
-      UPDATE next_run = next_cron(task.cron)
-    else:
-      UPDATE next_run = NULL
+    INSERT INTO messages (sender='scheduler')
+    if cron IS NOT NULL: next_run = next_cron(cron)
+    else: next_run = NULL
 ```
-
-## Deps
-
-```go
-type Scheduler struct {
-  db       *sql.DB
-  timezone string
-}
-```
-
-No gateway, no queue, no channels, no groups map.
 
 ## MCP Actions
 
-Not part of the scheduler process. The IPC server exposes
-these as MCP tools to agents — they're just DB writes.
+Handled by actid → timed → authd. The agent
+calls the MCP tool, actid stamps identity, timed receives
+it, asks authd to authorize, then executes.
 
 ### schedule_task
 
 ```
 input: chat_jid, prompt, cron (optional), next_run (optional)
-auth:  tier 0 anywhere, tier 1 own world, tier 2 own group
+auth:  task.owner checked by authd (tier-based)
 → INSERT INTO scheduled_tasks
 ```
 
@@ -81,7 +60,7 @@ auth:  tier 0 anywhere, tier 1 own world, tier 2 own group
 
 ```
 input: task_id
-auth:  task.owner must match caller's group (or root)
+auth:  task.owner must match caller (checked by authd)
 → UPDATE status = 'paused' | 'active'
 ```
 
@@ -89,31 +68,20 @@ auth:  task.owner must match caller's group (or root)
 
 ```
 input: task_id
-auth:  same as pause
 → DELETE FROM scheduled_tasks WHERE id = ?
 ```
 
-## Migration
+## Layout
 
-Own runner, own service name:
-
-```sql
--- scheduler:0001
-CREATE TABLE IF NOT EXISTS scheduled_tasks (
-  id TEXT PRIMARY KEY,
-  owner TEXT NOT NULL,
-  chat_jid TEXT NOT NULL,
-  prompt TEXT NOT NULL,
-  cron TEXT,
-  next_run TEXT,
-  status TEXT NOT NULL DEFAULT 'active',
-  created_at TEXT NOT NULL
-);
+```
+services/timed/
+  main.go
+  migrations/
+    0001-schema.sql
 ```
 
-## Messages as Log
+## Implementation
 
-The scheduler's audit trail is the `messages` table.
-Every fire is a row with `sender='scheduler'`. No separate
-`task_run_logs` table. If you want to know what the scheduler
-did, query messages.
+`services/timed/main.go` — ~150 LOC. Zero dependencies on
+gateway, store, core, or any arizuko package. Just
+`database/sql`, `robfig/cron`, `modernc.org/sqlite`.

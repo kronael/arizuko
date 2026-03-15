@@ -1,11 +1,11 @@
-# arz-authd
+# authd
 
 Authorization policy engine. Consumers call it to check
 whether a caller is allowed to perform an action.
 
 ## Role
 
-arz-authd is a pure policy engine. It answers one question:
+authd is a pure policy engine. It answers one question:
 
 > Can caller with identity X perform action Y on target Z?
 
@@ -14,8 +14,8 @@ It receives a query and returns allow or deny.
 
 ## Interface
 
-Called by consumer daemons (arz-gated, arz-timed, etc.)
-after receiving a stamped request from arz-actid.
+Called by consumer daemons (gated, timed, etc.)
+after receiving a stamped request from actid.
 
 ```
 authorize(caller, action, target) → allow | deny
@@ -23,7 +23,7 @@ authorize(caller, action, target) → allow | deny
 
 Where:
 
-- `caller`: `{folder, tier}` — stamped by arz-actid
+- `caller`: `{folder, tier}` — stamped by actid
 - `action`: tool name (e.g. `send_message`, `schedule_task`)
 - `target`: action-specific (e.g. chat_jid, task_id)
 
@@ -77,20 +77,20 @@ folder depth (no tables needed).
 ## Flow
 
 ```
-arz-gated receives stamped request from arz-actid:
+gated receives stamped request from actid:
   {tool: delete_task, caller: {folder: "andy/research", tier: 1}, args: {task_id: "abc"}}
 
-arz-gated calls arz-authd:
+gated calls authd:
   authorize(caller={folder: "andy/research", tier: 1},
             action="delete_task",
             target={task_id: "abc"})
 
-arz-authd checks:
+authd checks:
   1. tier 1 ≤ min tier 2 for delete_task? yes
   2. task "abc" owner = "andy/research"? yes (ownership check)
   → allow
 
-arz-gated executes the delete.
+gated executes the delete.
 ```
 
 ## Layout
