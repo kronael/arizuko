@@ -1,26 +1,37 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"time"
 
+	"github.com/onvos/arizuko/api"
+	"github.com/onvos/arizuko/chanreg"
 	"github.com/onvos/arizuko/compose"
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/gateway"
 	"github.com/onvos/arizuko/store"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <create|group|compose|status> ...")
+		fmt.Println("usage: arizuko <run|create|group|compose|status> ...")
 		os.Exit(1)
 	}
 
 	switch os.Args[1] {
+	case "run":
+		cmdRun()
 	case "create":
 		cmdCreate(os.Args[2:])
 	case "group":
@@ -31,6 +42,105 @@ func main() {
 		cmdStatus(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
+		os.Exit(1)
+	}
+}
+
+func cmdRun() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
+
+	s, err := store.Open(cfg.StoreDir)
+	if err != nil {
+		slog.Error("database", "err", err)
+		os.Exit(1)
+	}
+	defer s.Close()
+
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
+
+	var children []*exec.Cmd
+
+	// start timed (scheduler)
+	dbPath := filepath.Join(cfg.StoreDir, "messages.db")
+	timed := exec.CommandContext(ctx, "timed")
+	timed.Env = append(os.Environ(),
+		"DATABASE="+dbPath,
+		"TIMEZONE="+cfg.Timezone,
+	)
+	timed.Stdout = os.Stdout
+	timed.Stderr = os.Stderr
+	if err := timed.Start(); err != nil {
+		slog.Error("timed start failed", "err", err)
+	} else {
+		slog.Info("scheduler started", "pid", timed.Process.Pid)
+		children = append(children, timed)
+	}
+
+	// start teled (telegram) if token is set
+	if cfg.TelegramToken != "" {
+		teled := exec.CommandContext(ctx, "teled")
+		teled.Env = append(os.Environ(),
+			"TELEGRAM_BOT_TOKEN="+cfg.TelegramToken,
+			"ROUTER_URL="+fmt.Sprintf("http://localhost:%d", cfg.APIPort),
+			"CHANNEL_SECRET="+cfg.ChannelSecret,
+			"ASSISTANT_NAME="+cfg.Name,
+			"LISTEN_ADDR=:9001",
+			"LISTEN_URL=http://localhost:9001",
+		)
+		teled.Stdout = os.Stdout
+		teled.Stderr = os.Stderr
+		if err := teled.Start(); err != nil {
+			slog.Error("teled start failed", "err", err)
+		} else {
+			slog.Info("telegram adapter started", "pid", teled.Process.Pid)
+			children = append(children, teled)
+		}
+	}
+
+	// wait for children in background
+	for _, c := range children {
+		go func(cmd *exec.Cmd) {
+			if err := cmd.Wait(); err != nil {
+				slog.Warn("child exited", "err", err)
+			}
+		}(c)
+	}
+
+	gw := gateway.New(cfg, s)
+
+	reg := chanreg.New(cfg.ChannelSecret)
+	apiSrv := api.New(reg, s)
+	apiSrv.OnRegister(func(name string, ch *chanreg.HTTPChannel) {
+		gw.RemoveChannel(name)
+		gw.AddChannel(ch)
+		ch.DrainOutbox()
+	})
+	apiSrv.OnDeregister(func(name string) {
+		gw.RemoveChannel(name)
+	})
+
+	addr := net.JoinHostPort("", strconv.Itoa(cfg.APIPort))
+	srv := &http.Server{Addr: addr, Handler: apiSrv.Handler()}
+	go func() {
+		slog.Info("api server starting", "addr", addr)
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			slog.Error("api server error", "err", err)
+		}
+	}()
+	reg.StartHealthLoop(context.Background())
+
+	if err := gw.Run(ctx); err != nil {
+		slog.Error("gateway error", "err", err)
 		os.Exit(1)
 	}
 }
