@@ -44,3 +44,10 @@ Pipeline topology lives in orchestrator's skill files (product config).
 
 - `specs/1/W-slink.md` — slink endpoint for inter-agent POSTs
 - `specs/1/2-agent-teams.md` — why Claude agent teams don't work
+
+## Note: Agent-Side Media Processing (from N-workflows.md)
+
+Agent registers own MCP server for media tools (OCR, image description).
+Gateway downloads/saves (MIME pipeline); enrichment happens agent-side.
+Pro: contextual processing, no gateway restart, agent configures own
+models. Con: uses agent turn tokens/time, no pre-enrichment.
