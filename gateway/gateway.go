@@ -21,7 +21,6 @@ import (
 	"github.com/onvos/arizuko/ipc"
 	"github.com/onvos/arizuko/queue"
 	"github.com/onvos/arizuko/router"
-	"github.com/onvos/arizuko/scheduler"
 	"github.com/onvos/arizuko/store"
 )
 
@@ -102,50 +101,6 @@ func (g *Gateway) Run(ctx context.Context) error {
 		DeleteRoute: g.store.DeleteRoute,
 		GetRoute:    g.store.GetRoute,
 	}
-	sched := scheduler.New(scheduler.Deps{
-		Store: g.store,
-		Groups: func() map[string]core.Group {
-			g.mu.RLock()
-			defer g.mu.RUnlock()
-			cp := make(map[string]core.Group, len(g.groups))
-			for k, v := range g.groups {
-				cp[k] = v
-			}
-			return cp
-		},
-		EnqueueTask: func(jid, taskID string, fn func() error) {
-			g.queue.EnqueueTask(jid, taskID, fn)
-		},
-		SendMessage: g.sendMessage,
-		RunAgent: func(
-			group core.Group, prompt, chatJid string,
-			isolated bool, onOutput func(string, string),
-		) error {
-			out := g.runAgentWithOpts(group, prompt, chatJid, onOutput, isolated)
-			if out.Error != "" {
-				return fmt.Errorf("%s", out.Error)
-			}
-			return nil
-		},
-		InjectMessage: func(folder, text string) bool {
-			g.mu.RLock()
-			var jid string
-			for _, grp := range g.groups {
-				if grp.Folder == folder {
-					jid = grp.JID
-					break
-				}
-			}
-			g.mu.RUnlock()
-			if jid == "" {
-				return false
-			}
-			return g.queue.SendMessage(jid, text)
-		},
-		Timezone: g.cfg.Timezone,
-	})
-	sched.Start()
-
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetNotifyErrorFn(func(jid string, err error) {
 		msg := fmt.Sprintf("⚠️ Agent error: %v\n\nSend another message to retry.", err)
@@ -451,12 +406,6 @@ func (g *Gateway) runAgentWithOpts(
 		annotations = append(annotations, d)
 	}
 
-	if !isolated {
-		if taskCtx := g.formatTaskRuns(group.Folder); taskCtx != "" {
-			annotations = append(annotations, taskCtx)
-		}
-	}
-
 	var mid string
 	if len(msgID) > 0 {
 		mid = msgID[0]
@@ -494,36 +443,6 @@ func (g *Gateway) runAgentWithOpts(
 	}
 
 	return out
-}
-
-func (g *Gateway) formatTaskRuns(folder string) string {
-	runs := g.store.UnreportedRuns(folder)
-	if len(runs) == 0 {
-		return ""
-	}
-
-	var ids []int
-	var lines []string
-	for _, r := range runs {
-		ids = append(ids, r.ID)
-		status := r.Status
-		if r.Error != "" {
-			status = "error: " + r.Error
-		}
-		summary := r.Result
-		if len(summary) > 500 {
-			summary = summary[:500] + "..."
-		}
-		lines = append(lines, fmt.Sprintf("- %s: %s\n  Result: %s",
-			r.RunAt.Format("2006-01-02 15:04"), r.Prompt, summary))
-		if status != "success" {
-			lines[len(lines)-1] += fmt.Sprintf("\n  Status: %s", status)
-		}
-	}
-
-	g.store.MarkRunsReported(ids)
-	return fmt.Sprintf("<scheduled-task-results>\nThe following scheduled tasks ran since your last conversation:\n%s\n</scheduled-task-results>",
-		strings.Join(lines, "\n"))
 }
 
 func (g *Gateway) findChannel(jid string) core.Channel {
