@@ -112,10 +112,11 @@ API server always starts (default port 8080).
 ## Entrypoint
 
 `arizuko run <instance>` — generate compose, run `docker compose up` (host command, what systemd calls).
-`arizuko serve` — gateway daemon (gated). Runs inside container.
 `arizuko create <name>` — seed data dir, .env, default group.
 `arizuko group <instance> list|add|rm` — manage registered groups.
 `arizuko status <instance>` — show compose services and registered channels.
+
+Daemons are standalone binaries: `gated`, `timed`, `teled`. Each in `services/<name>/main.go`.
 
 ## Design Philosophy
 

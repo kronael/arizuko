@@ -1,5 +1,6 @@
 build:
 	go build -o arizuko cmd/arizuko/main.go
+	CGO_ENABLED=1 go build -o gated ./services/gated/
 	make -C services/teled build
 
 lint:
@@ -9,7 +10,7 @@ test:
 	go test ./... -count=1
 
 clean:
-	rm -f arizuko
+	rm -f arizuko gated
 	rm -rf tmp/
 	make -C services/teled clean
 
