@@ -202,7 +202,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	var timedOut atomic.Bool
 	timer := time.AfterFunc(cfgTimeout, func() {
 		timedOut.Store(true)
-		slog.Error("container timeout, stopping gracefully",
+		slog.Info("container timeout, stopping",
 			"group", in.Folder, "container", containerName)
 		stop := exec.Command(
 			Bin, StopContainerArgs(containerName)...)
@@ -276,7 +276,11 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 				}
 				hadStreaming = true
 
-				timer.Reset(cfgTimeout)
+				if parsed.SessionID != "" {
+					timer.Reset(5 * time.Second)
+				} else {
+					timer.Reset(cfgTimeout)
+				}
 
 				if in.OnOutput != nil {
 					in.OnOutput(parsed.Result, parsed.Status)
