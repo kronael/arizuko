@@ -184,12 +184,213 @@ func TestTaskCRUD(t *testing.T) {
 	if got.Prompt != "check weather" {
 		t.Fatalf("unexpected prompt: %q", got.Prompt)
 	}
+	if got.Cron != "0 9 * * *" {
+		t.Fatalf("cron = %q, want '0 9 * * *'", got.Cron)
+	}
+	if got.Owner != "main" {
+		t.Fatalf("owner = %q, want 'main'", got.Owner)
+	}
+	if got.Status != "active" {
+		t.Fatalf("status = %q, want 'active'", got.Status)
+	}
+	if got.NextRun == nil {
+		t.Fatal("next_run is nil")
+	}
 
-	// Update next_run
+	// Update next_run and verify it changed
 	past := now.Add(-time.Hour)
-	s.UpdateTask("t1", TaskPatch{NextRun: &past})
+	if err := s.UpdateTask("t1", TaskPatch{NextRun: &past}); err != nil {
+		t.Fatal("UpdateTask:", err)
+	}
 	got, ok = s.GetTask("t1")
 	if !ok {
 		t.Fatal("task not found after update")
+	}
+	if got.NextRun == nil || got.NextRun.After(now) {
+		t.Fatal("next_run should be in the past after update")
+	}
+}
+
+func TestTaskGetNonexistent(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	_, ok := s.GetTask("does-not-exist")
+	if ok {
+		t.Fatal("expected not found for nonexistent task")
+	}
+}
+
+func TestTaskDuplicateID(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	now := time.Now()
+	task := core.Task{
+		ID: "dup-1", Owner: "main", ChatJID: "tg:1",
+		Prompt: "first", Status: "active", Created: now,
+	}
+	if err := s.CreateTask(task); err != nil {
+		t.Fatal(err)
+	}
+	task.Prompt = "second"
+	err := s.CreateTask(task)
+	if err == nil {
+		t.Fatal("expected error on duplicate task ID")
+	}
+}
+
+func TestTaskUpdateEmptyPatch(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	now := time.Now()
+	s.CreateTask(core.Task{
+		ID: "ep-1", Owner: "main", ChatJID: "tg:1",
+		Prompt: "test", Status: "active", Created: now,
+	})
+
+	// empty patch should be a no-op
+	err := s.UpdateTask("ep-1", TaskPatch{})
+	if err != nil {
+		t.Fatal("empty patch should not error:", err)
+	}
+	got, ok := s.GetTask("ep-1")
+	if !ok {
+		t.Fatal("task not found")
+	}
+	if got.Status != "active" {
+		t.Fatalf("status changed after empty patch: %q", got.Status)
+	}
+}
+
+func TestTaskUpdateNonexistent(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	status := "paused"
+	// should not error, just no rows affected
+	err := s.UpdateTask("ghost", TaskPatch{Status: &status})
+	if err != nil {
+		t.Fatal("UpdateTask on nonexistent should not error:", err)
+	}
+}
+
+func TestTaskUpdateStatus(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	now := time.Now()
+	s.CreateTask(core.Task{
+		ID: "us-1", Owner: "main", ChatJID: "tg:1",
+		Prompt: "test", Status: "active", Created: now,
+	})
+
+	status := "paused"
+	s.UpdateTask("us-1", TaskPatch{Status: &status})
+	got, _ := s.GetTask("us-1")
+	if got.Status != "paused" {
+		t.Fatalf("status = %q, want 'paused'", got.Status)
+	}
+}
+
+func TestTaskDelete(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	now := time.Now()
+	s.CreateTask(core.Task{
+		ID: "del-1", Owner: "main", ChatJID: "tg:1",
+		Prompt: "delete me", Status: "active", Created: now,
+	})
+
+	if err := s.DeleteTask("del-1"); err != nil {
+		t.Fatal("DeleteTask:", err)
+	}
+	_, ok := s.GetTask("del-1")
+	if ok {
+		t.Fatal("task still exists after delete")
+	}
+}
+
+func TestTaskDeleteNonexistent(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	// deleting nonexistent should not error
+	if err := s.DeleteTask("ghost"); err != nil {
+		t.Fatal("DeleteTask on nonexistent should not error:", err)
+	}
+}
+
+func TestTaskListByFolder(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	now := time.Now()
+	s.CreateTask(core.Task{
+		ID: "lf-1", Owner: "alpha", ChatJID: "tg:1",
+		Prompt: "alpha task", Status: "active", Created: now,
+	})
+	s.CreateTask(core.Task{
+		ID: "lf-2", Owner: "beta", ChatJID: "tg:2",
+		Prompt: "beta task", Status: "active", Created: now.Add(time.Second),
+	})
+	s.CreateTask(core.Task{
+		ID: "lf-3", Owner: "alpha", ChatJID: "tg:3",
+		Prompt: "alpha task 2", Status: "active", Created: now.Add(2 * time.Second),
+	})
+
+	// non-root: filter by folder
+	alpha := s.ListTasks("alpha", false)
+	if len(alpha) != 2 {
+		t.Fatalf("expected 2 alpha tasks, got %d", len(alpha))
+	}
+
+	beta := s.ListTasks("beta", false)
+	if len(beta) != 1 {
+		t.Fatalf("expected 1 beta task, got %d", len(beta))
+	}
+
+	// root: all tasks
+	all := s.ListTasks("", true)
+	if len(all) != 3 {
+		t.Fatalf("expected 3 total tasks, got %d", len(all))
+	}
+}
+
+func TestTaskListEmpty(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	tasks := s.ListTasks("main", false)
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 tasks, got %d", len(tasks))
+	}
+
+	all := s.ListTasks("", true)
+	if len(all) != 0 {
+		t.Fatalf("expected 0 tasks (root), got %d", len(all))
+	}
+}
+
+func TestTaskOneShotNoCron(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	now := time.Now()
+	next := now.Add(time.Hour)
+	s.CreateTask(core.Task{
+		ID: "os-1", Owner: "main", ChatJID: "tg:1",
+		Prompt: "run once", NextRun: &next,
+		Status: "active", Created: now,
+	})
+
+	got, ok := s.GetTask("os-1")
+	if !ok {
+		t.Fatal("task not found")
+	}
+	if got.Cron != "" {
+		t.Fatalf("cron should be empty for one-shot, got %q", got.Cron)
 	}
 }
