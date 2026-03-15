@@ -13,6 +13,7 @@ import (
 
 type ServiceConfig struct {
 	Image       string            `toml:"image"`
+	Entrypoint  []string          `toml:"entrypoint"`
 	Restart     string            `toml:"restart"`
 	DependsOn   []string          `toml:"depends_on"`
 	Environment map[string]string `toml:"environment"`
@@ -25,6 +26,15 @@ func Generate(dataDir string) (string, error) {
 	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
 	if env == nil {
 		env = map[string]string{}
+	}
+	defaults := map[string]string{
+		"API_PORT":       "8080",
+		"ASSISTANT_NAME": "arizuko",
+	}
+	for k, v := range defaults {
+		if _, ok := env[k]; !ok {
+			env[k] = v
+		}
 	}
 	servicesDir := filepath.Join(dataDir, "services")
 
@@ -53,6 +63,7 @@ func Generate(dataDir string) (string, error) {
 	var b strings.Builder
 	b.WriteString("services:\n")
 	b.WriteString(routerService(dataDir, env))
+	b.WriteString(schedulerService(dataDir, env))
 	for _, s := range services {
 		b.WriteString(renderService(s.name, s.cfg, env))
 	}
@@ -66,21 +77,35 @@ type namedService struct {
 
 func routerService(dataDir string, env map[string]string) string {
 	apiPort := envOr(env, "API_PORT", "8080")
+	hostData := envOr(env, "HOST_DATA_DIR", dataDir)
+	hostApp := envOr(env, "HOST_APP_DIR", "")
 	var b strings.Builder
 	fmt.Fprintf(&b, "  router:\n")
 	fmt.Fprintf(&b, "    image: arizuko:latest\n")
 	fmt.Fprintf(&b, "    command: ['run']\n")
 	fmt.Fprintf(&b, "    volumes:\n")
-	fmt.Fprintf(&b, "      - %s:/srv/data\n", dataDir)
+	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
 	fmt.Fprintf(&b, "      - /var/run/docker.sock:/var/run/docker.sock\n")
+	if hostApp != "" {
+		fmt.Fprintf(&b, "      - %s:/srv/app/arizuko:ro\n", hostApp)
+	}
 	fmt.Fprintf(&b, "    ports:\n")
 	fmt.Fprintf(&b, "      - '%s:%s'\n", apiPort, apiPort)
+	webPort := envOr(env, "WEB_PORT", "")
+	if webPort != "" {
+		fmt.Fprintf(&b, "      - '%s:%s'\n", webPort, webPort)
+	}
 	fmt.Fprintf(&b, "    environment:\n")
-	fmt.Fprintf(&b, "      DATA_DIR: /srv/data\n")
 	fmt.Fprintf(&b, "      API_PORT: '%s'\n", apiPort)
 	secret := envOr(env, "CHANNEL_SECRET", "")
 	if secret != "" {
 		fmt.Fprintf(&b, "      CHANNEL_SECRET: '%s'\n", secret)
+	}
+	if hostData != "" {
+		fmt.Fprintf(&b, "      HOST_DATA_DIR: '%s'\n", hostData)
+	}
+	if hostApp != "" {
+		fmt.Fprintf(&b, "      HOST_APP_DIR: '%s'\n", hostApp)
 	}
 	for _, k := range routerEnvKeys {
 		if v := envOr(env, k, ""); v != "" {
@@ -91,23 +116,43 @@ func routerService(dataDir string, env map[string]string) string {
 	return b.String()
 }
 
+func schedulerService(dataDir string, env map[string]string) string {
+	tz := envOr(env, "TZ", "UTC")
+	var b strings.Builder
+	fmt.Fprintf(&b, "  scheduler:\n")
+	fmt.Fprintf(&b, "    image: arizuko:latest\n")
+	fmt.Fprintf(&b, "    entrypoint: ['timed']\n")
+	fmt.Fprintf(&b, "    volumes:\n")
+	fmt.Fprintf(&b, "      - %s/store:/srv/data/store\n", dataDir)
+	fmt.Fprintf(&b, "    environment:\n")
+	fmt.Fprintf(&b, "      DATABASE: /srv/data/store/messages.db\n")
+	fmt.Fprintf(&b, "      TIMEZONE: '%s'\n", tz)
+	fmt.Fprintf(&b, "    depends_on: [router]\n")
+	fmt.Fprintf(&b, "    restart: on-failure\n")
+	return b.String()
+}
+
 var routerEnvKeys = []string{
 	"ASSISTANT_NAME",
 	"CONTAINER_IMAGE",
 	"CONTAINER_TIMEOUT",
 	"IDLE_TIMEOUT",
 	"MAX_CONCURRENT_CONTAINERS",
-	"HOST_DATA_DIR",
-	"HOST_APP_DIR",
-	"TELEGRAM_BOT_TOKEN",
 	"AUTH_SECRET",
 	"WEB_PORT",
+	"WEB_HOST",
+	"MEDIA_ENABLED",
+	"VOICE_TRANSCRIPTION_ENABLED",
+	"WHISPER_BASE_URL",
 }
 
 func renderService(name string, cfg ServiceConfig, env map[string]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "  %s:\n", name)
 	fmt.Fprintf(&b, "    image: %s\n", cfg.Image)
+	if len(cfg.Entrypoint) > 0 {
+		fmt.Fprintf(&b, "    entrypoint: %s\n", yamlList(cfg.Entrypoint))
+	}
 	if len(cfg.Command) > 0 {
 		fmt.Fprintf(&b, "    command: %s\n", yamlList(cfg.Command))
 	}

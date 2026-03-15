@@ -1,7 +1,10 @@
-image = "arizuko-telegram:latest"
+image = "arizuko:latest"
+entrypoint = ["teled"]
 
 [environment]
 ROUTER_URL = "http://router:${API_PORT}"
-TELEGRAM_TOKEN = "${TELEGRAM_BOT_TOKEN}"
+TELEGRAM_BOT_TOKEN = "${TELEGRAM_BOT_TOKEN}"
 CHANNEL_SECRET = "${CHANNEL_SECRET}"
 ASSISTANT_NAME = "${ASSISTANT_NAME}"
+LISTEN_ADDR = ":9001"
+LISTEN_URL = "http://telegram:9001"

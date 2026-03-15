@@ -64,58 +64,6 @@ func cmdRun() {
 	}
 	defer s.Close()
 
-	ctx, cancel := signal.NotifyContext(context.Background(),
-		syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
-
-	var children []*exec.Cmd
-
-	// start timed (scheduler)
-	dbPath := filepath.Join(cfg.StoreDir, "messages.db")
-	timed := exec.CommandContext(ctx, "timed")
-	timed.Env = append(os.Environ(),
-		"DATABASE="+dbPath,
-		"TIMEZONE="+cfg.Timezone,
-	)
-	timed.Stdout = os.Stdout
-	timed.Stderr = os.Stderr
-	if err := timed.Start(); err != nil {
-		slog.Error("timed start failed", "err", err)
-	} else {
-		slog.Info("scheduler started", "pid", timed.Process.Pid)
-		children = append(children, timed)
-	}
-
-	// start teled (telegram) if token is set
-	if cfg.TelegramToken != "" {
-		teled := exec.CommandContext(ctx, "teled")
-		teled.Env = append(os.Environ(),
-			"TELEGRAM_BOT_TOKEN="+cfg.TelegramToken,
-			"ROUTER_URL="+fmt.Sprintf("http://localhost:%d", cfg.APIPort),
-			"CHANNEL_SECRET="+cfg.ChannelSecret,
-			"ASSISTANT_NAME="+cfg.Name,
-			"LISTEN_ADDR=:9001",
-			"LISTEN_URL=http://localhost:9001",
-		)
-		teled.Stdout = os.Stdout
-		teled.Stderr = os.Stderr
-		if err := teled.Start(); err != nil {
-			slog.Error("teled start failed", "err", err)
-		} else {
-			slog.Info("telegram adapter started", "pid", teled.Process.Pid)
-			children = append(children, teled)
-		}
-	}
-
-	// wait for children in background
-	for _, c := range children {
-		go func(cmd *exec.Cmd) {
-			if err := cmd.Wait(); err != nil {
-				slog.Warn("child exited", "err", err)
-			}
-		}(c)
-	}
-
 	gw := gateway.New(cfg, s)
 
 	reg := chanreg.New(cfg.ChannelSecret)
@@ -138,6 +86,10 @@ func cmdRun() {
 		}
 	}()
 	reg.StartHealthLoop(context.Background())
+
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
 
 	if err := gw.Run(ctx); err != nil {
 		slog.Error("gateway error", "err", err)
