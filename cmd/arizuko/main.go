@@ -245,22 +245,16 @@ func cmdGroup(args []string) {
 
 func cmdCompose(args []string) {
 	if len(args) < 1 {
-		fmt.Println("usage: arizuko compose <instance> [--dry-run]")
+		fmt.Println("usage: arizuko compose <instance>")
 		os.Exit(1)
 	}
 	name := args[0]
 	dataDir := instanceDir(name)
-	dryRun := len(args) > 1 && args[1] == "--dry-run"
 
 	yml, err := compose.Generate(dataDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed: %v\n", err)
 		os.Exit(1)
-	}
-
-	if dryRun {
-		fmt.Print(yml)
-		return
 	}
 
 	outPath := filepath.Join(dataDir, "docker-compose.yml")
@@ -269,14 +263,6 @@ func cmdCompose(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("wrote %s\n", outPath)
-
-	cmd := exec.Command("docker", "compose", "-f", outPath, "up", "-d", "--remove-orphans")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: docker compose up: %v\n", err)
-		os.Exit(1)
-	}
 }
 
 func cmdStatus(args []string) {
