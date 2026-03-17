@@ -233,7 +233,7 @@ Source: `providers/knowledgeContext.ts`
 <knowledge_context query="{message text}">
   <tier name="High" count="2">
     <fact path="validator-bonds-overview" confidence="92%">
-      header: Validator Bonds Overview
+      summary: Validator Bonds Overview
       topic: validator-bonds
       verification: verified (high)
       summary: Bond accounts store validator identity...
@@ -257,7 +257,7 @@ Tiers and limits:
 Confidence formula: `max(0, (similarity - 0.70) * 3.33)`
 
 **Kanipi equivalent**: No embedding infrastructure. Agent greps `facts/`
-headers directly in `<think>` blocks. The strict relevance rule replaces
+summaries directly in `<think>` blocks. The strict relevance rule replaces
 tiered confidence — fact either fully answers the question or doesn't.
 Semantic search deferred to future work.
 

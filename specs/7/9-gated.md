@@ -55,6 +55,9 @@ SELECT folder FROM routes
 Longest prefix match wins. A route for `telegram:-1001234`
 beats `telegram:`.
 
+Route type `command` matches `text == match || text.startsWith(match + " ")`.
+Route type `prefix` matches `text.startsWith(match)` (no space required).
+
 ### Template routing
 
 Route targets support RFC 6570 Level 1 template expansion.
@@ -93,6 +96,15 @@ are valid Unix filenames. `SenderToUserFileID` converts
 Implementation: `router.SenderToUserFileID` in
 `router/router.go`. Auto-creation via `groupfolder`
 package.
+
+### Predefined routes
+
+On group registration (tiers 0-2), gateway inserts:
+
+- `seq=-2, type=prefix, match=@` — delegate to named child
+- `seq=-1, type=prefix, match=#` — topic-scoped session
+
+See `specs/7/23-topic-routing.md`.
 
 ## Job queue
 
@@ -159,12 +171,16 @@ Intercepted before agent dispatch. Text-command model for
 channel consistency (some channels have native commands,
 arizuko uses text interception).
 
-| Command   | Effect                                          |
-| --------- | ----------------------------------------------- |
-| `/new`    | Clear session, enqueue trailing args as message |
-| `/ping`   | Reply with group, session, active containers    |
-| `/chatid` | Reply with the chat JID                         |
-| `/stop`   | Kill active container for this chat             |
+| Command    | Effect                                               |
+| ---------- | ---------------------------------------------------- |
+| `/new`     | Clear session, enqueue trailing args as message      |
+| `/ping`    | Reply with group, session, active containers         |
+| `/chatid`  | Reply with the chat JID                              |
+| `/stop`    | Kill active container for this chat                  |
+| `/status`  | Show gateway state, channels, containers (root only) |
+| `/approve` | Approve onboarding request (root only)               |
+| `/reject`  | Reject onboarding request (root only)                |
+| `/grant`   | Set grant overrides for a group (root only)          |
 
 Commands are gateway code, not agent tools. The command
 registry is not exported to agents. `/file` commands
@@ -172,6 +188,15 @@ registry is not exported to agents. `/file` commands
 MCP tools instead.
 
 Implementation: `gateway/commands.go`.
+
+## Notifications
+
+`notify(text)` sends to root group's JIDs from the route table.
+No dedicated CONTROL_JID — root's chat IS the control channel.
+
+Sources: onboarding requests, container errors, channel health.
+Recorded via audit log (source: "control").
+See `specs/7/20-control-chat.md`.
 
 ## Agent output processing
 

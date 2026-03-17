@@ -1,6 +1,6 @@
 ## <!-- source: arizuko specs/3/D-knowledge-system.md, synced 2026-03-15 -->
 
-## status: partial
+## status: shipped
 
 # Knowledge System
 
@@ -18,9 +18,9 @@ summaries selected and injected into agent context.
 | Diary    | memory-diary.md        | shipped | Files     |
 | User ctx | 3/7-user-context.md    | shipped | Files     |
 | Facts    | 3/1-atlas.md           | shipped | Files     |
-| Episodes | 4/B-memory-episodic.md | planned | Files     |
+| Episodes | 4/B-memory-episodic.md | shipped | Files     |
 
-Diary, user context, and facts are shipped. Episodes not yet built.
+All memory layers shipped.
 
 ## The pattern
 
@@ -42,12 +42,14 @@ Given a directory of markdown files:
   `<user>` pointer per message, agent reads file by default (shipped).
   Agent writes via `/users` skill.
 - **Episodes** (`episodes/*.md`) — event-keyed, all or recent,
-  inject on session start. Not yet built.
+  inject on session start. Progressive compression: sessions →
+  episodes (day/week/month). Created via `/compact-memories`
+  skill on cron schedule.
 
 **Pull layers** — large corpus, agent searches on demand:
 
 - **Facts** (`facts/*.md`) — topic-keyed, too many to inject all.
-  Agent scans `header:` frontmatter via grep, deliberates on relevance
+  Agent scans `summary:` frontmatter via grep, deliberates on relevance
   in `<think>`, reads matching files. The LLM's language understanding
   is the semantic matching — no embeddings needed.
   Researcher subagent writes; verifier reviews before merge.
@@ -138,6 +140,8 @@ what does it say, does it answer, what gaps remain.
 
 Scales to ~300 files. Beyond that, switch to v2.
 
+See `specs/7/24-recall.md` for full recall spec.
+
 ### v2: CLI retrieval + Explore judge
 
 Same Explore agent for judgment. Pre-filter via CLI tool
@@ -187,10 +191,7 @@ episodes/. Read-only — never writes.
 
 ## What's left to build
 
-1. **`/recall` skill** — always-present retrieval subagent
-2. **Separate recall from `/facts`** — `/facts` research-only
-3. **Episodes** — scheduled diary aggregation + injection
-4. **v2 CLI tool** — when corpus exceeds ~300 files
+1. **v2 CLI tool** — when corpus exceeds ~300 files (FTS5 + sqlite-vec)
 
 ## Relationship to existing specs
 
@@ -199,7 +200,7 @@ Layers built on this pattern:
 - diary layer (shipped)
 - user context layer (shipped)
 - facts layer (shipped)
-- episodes layer (designed, not built)
+- episodes layer (shipped)
 
 Different systems (not this pattern):
 
