@@ -12,7 +12,7 @@ MCP sidecar extensibility.
 ## Build & Test
 
 ```bash
-make build    # go build → ./arizuko + services/teled binary
+make build    # go build → ./arizuko + all daemon binaries
 make lint     # go vet ./...
 make test     # go test ./... -count=1
 make images   # all docker images (router + adapters + agent)
@@ -50,7 +50,7 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `diary/` — YAML frontmatter diary annotations for agent context
 - `groupfolder/` — group path resolution and validation
 - `mountsec/` — mount allowlist validation
-- `compose/` — docker-compose.yml generation from services/\*.toml
+- `compose/` — docker-compose.yml generation from \*.toml service configs
 - `gated/` — gateway daemon (standalone binary)
 - `timed/` — scheduler daemon (standalone binary)
 - `teled/` — telegram adapter daemon (Go)

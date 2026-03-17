@@ -210,7 +210,7 @@ Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
 `IsAuthorizedRoutingTarget` — target must be direct child of source
 within same world (root segment). Max delegation depth: 3.
 
-## Scheduler (services/timed/)
+## Scheduler (timed/)
 
 Standalone daemon. Single Go binary with its own `main()`.
 Reads `DATABASE` env for SQLite path. Polls `scheduled_tasks` every 60s.
@@ -224,7 +224,7 @@ Gateway picks up scheduler-injected messages in its normal poll loop.
 
 **DB sharing**: timed opens the same SQLite DB as gated (WAL mode).
 Own migration runner using shared `migrations` table (keyed by service
-name `"timed"`). Schema: `services/timed/migrations/0001-schema.sql`
+name `"timed"`). Schema: `timed/migrations/0001-schema.sql`
 creates `scheduled_tasks` if not present (idempotent with store's copy).
 
 ## Diary System (diary package)
@@ -281,7 +281,7 @@ container/          Docker spawn, volume mounts, sidecars, runtime, skills seedi
   skills/           Agent-side skills
 queue/              Per-group concurrency, stdin piping
 router/             Message formatting, routing rules
-compose/            Docker-compose generation from services/*.toml
+compose/            Docker-compose generation from *.toml service configs
 icmcd/              MCP server (unix socket per group, runtime auth via authd)
 diary/              YAML frontmatter diary annotations
 groupfolder/        Group path resolution and validation

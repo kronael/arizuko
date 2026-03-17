@@ -45,11 +45,11 @@ diary/            YAML frontmatter diary annotations
 groupfolder/      Group path resolution
 mountsec/         Mount allowlist validation
 template/         Instance seed files
-services/gated/   Gateway daemon (Go)
-services/timed/   Scheduler daemon (Go)
-services/teled/   Telegram adapter (Go)
-services/discd/   Discord adapter (Go)
-services/whapd/   WhatsApp adapter (TypeScript)
+gated/            Gateway daemon (Go)
+timed/            Scheduler daemon (Go)
+teled/            Telegram adapter (Go)
+discd/            Discord adapter (Go)
+whapd/            WhatsApp adapter (TypeScript)
 ```
 
 ## Message Flow

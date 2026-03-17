@@ -15,7 +15,7 @@ Goal: make the system extensible without modifying core code.
 | Sidecars      | container/          | Agent         | Container config |
 | Mounts        | container/          | Agent         | Container config |
 | Skills        | container/skills/   | Agent         | File-based       |
-| Tasks         | services/timed/     | Agent         | IPC actions      |
+| Tasks         | timed/              | Agent         | IPC actions      |
 | Diary         | diary/              | Agent         | File-based       |
 
 ## 1. Action Registry
@@ -141,13 +141,13 @@ and mount enforcement table.
 ## 7. Plugin Architecture
 
 Plugins are docker containers with `.toml` configs in the
-services/ directory. See `specs/7/0-architecture.md` for
-the services directory format.
+data dir `services/` directory. See `specs/7/0-architecture.md`
+for the compose generation format.
 
 **Deferred**. Discovery, install workflow, versioning,
 security, and dependency resolution are all deferred until
 built-in channels and sidecars are validated. The current
-model (services/\*.toml + compose generation) works.
+model (\*.toml + compose generation) works.
 
 ## Non-goals (for now)
 
