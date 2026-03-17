@@ -5,10 +5,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 go build -o /arizuko cmd/arizuko/main.go
-RUN CGO_ENABLED=1 go build -o /gated ./services/gated/
-RUN CGO_ENABLED=1 go build -o /timed services/timed/main.go
-RUN CGO_ENABLED=0 go build -o /teled ./services/teled/
-RUN CGO_ENABLED=0 go build -o /discd ./services/discd/
+RUN CGO_ENABLED=1 go build -o /gated ./gated/
+RUN CGO_ENABLED=1 go build -o /timed ./timed/
+RUN CGO_ENABLED=0 go build -o /teled ./teled/
+RUN CGO_ENABLED=0 go build -o /discd ./discd/
 
 FROM alpine:3.20
 RUN apk add --no-cache sqlite-libs ca-certificates docker-cli

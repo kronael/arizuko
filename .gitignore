@@ -25,6 +25,8 @@ objects
 refs
 old/
 /arizuko
-services/teled/teled
-services/timed/timed
-services/gated/gated
+bin/
+teled/teled
+timed/timed
+gated/gated
+discd/discd

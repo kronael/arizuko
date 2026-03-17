@@ -14,7 +14,7 @@ make agent    # agent docker image
 arizuko create foo                      # seed instance
 vim /srv/data/arizuko_foo/.env          # configure
 arizuko group foo add tg:-123456789     # register group
-arizuko run                             # start gateway
+arizuko run foo                         # start gateway
 ```
 
 ## Group Management
@@ -31,22 +31,25 @@ Subsequent groups use trigger mode (`@assistant_name`).
 ## Packages
 
 ```
-cmd/arizuko/     CLI entrypoint (run, create, group)
-core/            Config, types, Channel interface
-store/           SQLite persistence (12 tables, WAL mode)
-gateway/         Main loop, message routing, commands
-container/       Docker spawn, volume mounts, sidecars, runtime
-queue/           Per-group concurrency, circuit breaker
-router/          XML message formatting, routing rules
-ipc/             MCP server on unix socket (per-group)
-auth/            JWT, OAuth, session middleware
-mime/            Attachment type detection
-diary/           YAML frontmatter diary annotations
-groupfolder/     Group path resolution
-mountsec/        Mount allowlist validation
-template/        Instance seed files
-sidecar/         MCP server binaries (whisper)
-services/timed/  Scheduler daemon
+cmd/arizuko/      CLI entrypoint (run, create, group, status)
+core/             Config, types, Channel interface
+store/            SQLite persistence
+gateway/          Main loop, message routing, commands
+container/        Docker spawn, volume mounts, sidecars
+queue/            Per-group concurrency, circuit breaker
+router/           XML message formatting, routing rules
+compose/          Docker-compose generation
+icmcd/            MCP server on unix socket
+authd/            Identity, authorization, JWT
+diary/            YAML frontmatter diary annotations
+groupfolder/      Group path resolution
+mountsec/         Mount allowlist validation
+template/         Instance seed files
+services/gated/   Gateway daemon (Go)
+services/timed/   Scheduler daemon (Go)
+services/teled/   Telegram adapter (Go)
+services/discd/   Discord adapter (Go)
+services/whapd/   WhatsApp adapter (TypeScript)
 ```
 
 ## Message Flow
@@ -62,7 +65,7 @@ Channel → store.PutMessage + PutChat
     → router.FormatMessages (XML batch)
     → container.Run (docker run -i --rm)
     → stream output → router.FormatOutbound
-    → channel.Send
+    → HTTPChannel.Send → POST /send to channel adapter
 ```
 
 ## Routing Rules
@@ -113,18 +116,16 @@ All via `.env` in data dir or env vars:
 | Key                       | Purpose                      |
 | ------------------------- | ---------------------------- |
 | ASSISTANT_NAME            | instance name                |
-| TELEGRAM_BOT_TOKEN        | enables telegram channel     |
-| DISCORD_BOT_TOKEN         | enables discord channel      |
 | CONTAINER_IMAGE           | agent docker image           |
 | IDLE_TIMEOUT              | container idle shutdown (ms) |
 | MAX_CONCURRENT_CONTAINERS | concurrent agent limit       |
+| API_PORT                  | router HTTP API port         |
+| CHANNEL_SECRET            | shared secret for channels   |
 | HOST_DATA_DIR             | docker-in-docker host path   |
 | HOST_APP_DIR              | docker-in-docker app path    |
 | MEDIA_ENABLED             | enable attachment pipeline   |
 | WHISPER_BASE_URL          | whisper sidecar URL          |
 | TIMEZONE                  | cron timezone (fallback UTC) |
-
-Channels enabled by token presence.
 
 ## Development
 

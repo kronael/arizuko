@@ -220,8 +220,8 @@ re-registers on restart.
 ## Layout
 
 ```
-cmd/arizuko/
-  main.go          ← entrypoint (includes gated startup)
+gated/
+  main.go          ← gateway daemon entrypoint
 gateway/           ← message loop, commands
 queue/             ← per-group concurrency, circuit breaker
 container/         ← docker runner

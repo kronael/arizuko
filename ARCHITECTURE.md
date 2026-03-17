@@ -29,13 +29,21 @@ cmd/arizuko/main
   │   ├── icmcd     (MCP server on unix socket, runtime auth via authd)
   │   ├── diary     (YAML frontmatter annotations)
   │   └── groupfolder
-  ├── mime          (attachment type detection)
   └── compose       (docker-compose generation)
 
-services/teled/main  (telegram adapter daemon)
+gated/main           (gateway daemon entrypoint)
+  └── wires core + store + gateway + api + chanreg + icmcd + authd
+
+teled/main           (telegram adapter daemon)
   └── calls router HTTP API + serves outbound endpoints
 
-services/timed/main  (scheduler daemon)
+discd/main           (discord adapter daemon)
+  └── calls router HTTP API + serves outbound endpoints
+
+whapd/               (whatsapp adapter daemon, TypeScript)
+  └── calls router HTTP API + serves outbound endpoints
+
+timed/main           (scheduler daemon)
   └── polls scheduled_tasks, inserts messages into shared DB
 ```
 
@@ -85,9 +93,11 @@ router-to-channel calls.
 **Packages**: `chanreg/` (registry, health loop, `HTTPChannel`
 proxy), `api/` (HTTP handlers for the router-side endpoints).
 
-**Standalone adapters**: `services/teled/` is the first
-external adapter. Polls telegram API, forwards to router HTTP,
-serves `/send`, `/send-file`, `/typing`, `/health` for outbound.
+**Standalone adapters**: `teled/` (Telegram, Go), `discd/`
+(Discord, Go), and `whapd/` (WhatsApp, TypeScript) are external
+adapter daemons. Each polls its platform API, forwards to router
+HTTP, and serves `/send`, `/send-file`, `/typing`, `/health` for
+outbound.
 
 Full protocol: `specs/7/1-channel-protocol.md`.
 
@@ -102,7 +112,6 @@ Full protocol: `specs/7/1-channel-protocol.md`.
 | `Route`         | Flat routing table entry (type, match, target)               |
 | `Task`          | Scheduled task (cron, prompt, status)                        |
 | `Channel`       | Interface: Connect, Send, SendFile, Owns, Typing, Disconnect |
-| `ChatInfo`      | Chat metadata with errored flag                              |
 | `SessionRecord` | Session log entry                                            |
 
 ## SQLite Schema
@@ -277,12 +286,13 @@ icmcd/              MCP server (unix socket per group, runtime auth via authd)
 diary/              YAML frontmatter diary annotations
 groupfolder/        Group path resolution and validation
 mountsec/           Mount allowlist validation
-mime/               Attachment type detection
 template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
-services/
-  timed/            Scheduler daemon (cron poll, messages)
-  teled/            Telegram adapter daemon
+gated/              Gateway daemon
+timed/              Scheduler daemon (cron poll, messages)
+teled/              Telegram adapter (Go)
+discd/              Discord adapter (Go)
+whapd/              WhatsApp adapter (TypeScript)
 ```
 
 ## Data Directory

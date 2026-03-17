@@ -11,8 +11,8 @@ All daemons follow 4+d naming.
 | `icmcd` | running | MCP server, identity+auth    | `specs/7/10-icmcd.md`            |
 | `authd` | running | Authorization policy         | `specs/7/11-authd.md`            |
 | `teled` | running | Telegram adapter             |                                  |
-| `discd` | planned | Discord adapter              |                                  |
-| `whapd` | planned | WhatsApp adapter             |                                  |
+| `discd` | running | Discord adapter              |                                  |
+| `whapd` | running | WhatsApp adapter             |                                  |
 | `emaid` | planned | Email adapter                |                                  |
 
 Channel adapters are external — they use HTTP because they

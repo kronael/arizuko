@@ -88,7 +88,7 @@ input: taskId
 ## Layout
 
 ```
-services/timed/
+timed/
   main.go
   migrations/
     0001-schema.sql
@@ -96,6 +96,6 @@ services/timed/
 
 ## Implementation
 
-`services/timed/main.go` — ~150 LOC. Zero dependencies on
+`timed/main.go` — ~150 LOC. Zero dependencies on
 gateway, store, core, or any arizuko package. Just
 `database/sql`, `robfig/cron`, `modernc.org/sqlite`.

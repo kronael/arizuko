@@ -9,6 +9,42 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v1.3.0] — 2026-03-17
+
+Channel adapters, flat layout, dead code cleanup, container fix.
+
+### Architecture
+
+- **Flat layout**: services hoisted from `services/` to top-level dirs
+  (`gated/`, `timed/`, `teled/`, `discd/`, `whapd/`). Each is a
+  standalone program tree.
+- **gated split**: gateway daemon is own binary at `gated/main.go`,
+  no longer embedded in `cmd/arizuko/`. `arizuko run <instance>`
+  generates compose and runs `docker compose up`.
+- **Discord adapter** (`discd/`): Go, ~250 LOC. WebSocket events,
+  mention rewriting, file sending. Registers via channel protocol.
+- **WhatsApp adapter** (`whapd/`): TypeScript/baileys, ~270 LOC.
+  QR auth, session persistence, reconnect. Shows multilang versatility.
+
+### Fixed
+
+- Container hangs 30min after output: timer resets to 5s after final
+  output (identified by `newSessionId`), not the full idle timeout.
+
+### Removed
+
+- `mime/` package (never imported)
+- `store.AllChats()`, `core.ChatInfo` (unused)
+- `router.SpawnFolderName()` and related regexes (unused)
+
+### Docs
+
+- All docs updated for flat layout (no more `services/` prefix)
+- Specs: discd/whapd status → running (was planned)
+- ARCHITECTURE, README, CLAUDE.md aligned with current code
+
+---
+
 ## [v1.2.0] — 2026-03-15
 
 Docker compose orchestration, daemon isolation, comprehensive test
@@ -21,14 +57,13 @@ coverage, code refinement.
   `docker compose up` in foreground.
 - **`arizuko run`**: gated-only gateway entrypoint. timed and teled are
   separate containers in the compose stack.
-- **Single Docker image**: all three binaries (arizuko, timed, teled)
-  built into one image, differentiated by entrypoint.
+- **Single Docker image**: all five binaries (arizuko, gated, timed,
+  teled, discd) built into one image, differentiated by entrypoint.
 - **Daemon naming**: compose services use spec names (gated, timed, teled)
   with `container_name` for clean log prefixes.
 
 ### Changed
 
-- `services/gated/` deleted — gated runs via `cmd/arizuko/main.go run`
 - `arizuko create` generates random CHANNEL_SECRET (was empty)
 - `instanceDir()` helper replaces 4 repeated sprintf calls
 - `delegateToChild`/`delegateToParent` collapsed into `delegateToFolder`

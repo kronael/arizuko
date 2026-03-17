@@ -36,7 +36,7 @@ See ARCHITECTURE.md for package graph, schema, container model.
 
 ## Packages
 
-- `cmd/arizuko/` — CLI entrypoint (create, group, compose, status subcommands)
+- `cmd/arizuko/` — CLI entrypoint (run, create, group, status subcommands)
 - `core/` — Config, types (Message, Group, Task, Channel interface)
 - `store/` — SQLite persistence (messages, groups, sessions, tasks, auth)
 - `gateway/` — main loop, message routing, commands (/new, /ping, /chatid, /stop)
@@ -51,15 +51,16 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `groupfolder/` — group path resolution and validation
 - `mountsec/` — mount allowlist validation
 - `compose/` — docker-compose.yml generation from services/\*.toml
-- `services/timed/` — scheduler daemon (cron poll, writes to messages table)
-- `services/teled/` — telegram channel adapter daemon (Go)
-- `services/discd/` — discord channel adapter daemon (Go)
-- `services/whapd/` — whatsapp channel adapter daemon (TypeScript/baileys)
+- `gated/` — gateway daemon (standalone binary)
+- `timed/` — scheduler daemon (standalone binary)
+- `teled/` — telegram adapter daemon (Go)
+- `discd/` — discord adapter daemon (Go)
+- `whapd/` — whatsapp adapter daemon (TypeScript/baileys)
 
 ## Layout
 
 ```
-cmd/arizuko/       CLI entrypoint (create, group, compose, status)
+cmd/arizuko/       CLI entrypoint (run, create, group, status)
 core/              Config, types, Channel interface
 store/             SQLite (messages.db)
 gateway/           Main loop + commands
@@ -78,12 +79,11 @@ groupfolder/       Path validation
 mountsec/          Mount security
 template/          Instance seed files
 sidecar/           MCP server binaries
-services/
-  gated/           Gateway daemon (Go)
-  timed/           Scheduler daemon (Go)
-  teled/           Telegram adapter (Go)
-  discd/           Discord adapter (Go)
-  whapd/           WhatsApp adapter (TypeScript)
+gated/             Gateway daemon (standalone binary)
+timed/             Scheduler daemon (standalone binary)
+teled/             Telegram adapter (Go)
+discd/             Discord adapter (Go)
+whapd/             WhatsApp adapter (TypeScript)
 ```
 
 ## Conventions
@@ -119,7 +119,7 @@ API server always starts (default port 8080).
 `arizuko group <instance> list|add|rm` — manage registered groups.
 `arizuko status <instance>` — show compose services and registered channels.
 
-Daemons are standalone binaries: `gated`, `timed`, `teled`. Each in `services/<name>/main.go`.
+Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`. Each in `<name>/main.go`.
 
 ## Design Philosophy
 
@@ -145,7 +145,7 @@ Daemons use 4+d naming. Shared SQLite DB (WAL mode).
 | `emaid` | planned | Email adapter                     |
 
 Deployment: `arizuko compose <instance>` generates docker-compose.yml.
-Go daemons: `services/<name>/main.go`. TS daemons: `services/<name>/src/main.ts`.
+Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
 Libraries: `icmcd/`, `authd/`. Host CLI: `cmd/arizuko/main.go`.
 
 See `specs/7/0-architecture.md` for full spec.
