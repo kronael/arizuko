@@ -2,7 +2,7 @@
 
 **Status**: design
 
-Gateway-to-operator communication via root group's chat.
+Operator communication via root group's chat.
 No dedicated `CONTROL_JID` — root's JIDs from routing table
 are the control channel. Commands use existing command registry,
 not a separate dispatcher.
@@ -14,24 +14,35 @@ routing. Gateway commands (`/status`, `/approve`, etc.) are
 intercepted before container run — same as `/new`, `/stop`,
 `/ping`. Non-command messages proceed to root agent normally.
 
-## Gateway to operator (notifications)
+## Notifications (service pattern)
 
-`notify(text string)` in `gateway/notify.go`:
+Any service can notify the operator. Not a shared library —
+a pattern each service implements:
 
-- Looks up root's JIDs via route table (folder = "root")
-- Sends to each via `HTTPChannel.Send`
-- Records via `storeOutbound(source: "control")`
+1. Look up root's JIDs from routes table (folder = "root")
+2. Send to each via channel adapter HTTP API
+3. Record via `store.StoreOutbound(source: "control")`
 
-Examples:
+### Who sends what
 
-- Onboarding: "New: alice via telegram:-12345"
-- Errors: "Container timeout for atlas/"
-- Health: "Channel discord reconnected after 5m"
+| Service | Notifications                                       |
+| ------- | --------------------------------------------------- |
+| `onbod` | Onboarding events ("New: alice via telegram:-1234") |
+| `gated` | Container errors, channel health                    |
+| `dashd` | None (read-only)                                    |
 
-## Operator to gateway (commands)
+## Commands
 
-Registered in `gateway/commands.go` like existing commands.
+| Command    | Service        | Notes                                         |
+| ---------- | -------------- | --------------------------------------------- |
+| `/status`  | gated or dashd | TBD                                           |
+| `/approve` | onbod          | Approve pending onboard                       |
+| `/reject`  | onbod          | Reject pending onboard                        |
+| `/grant`   | icmcd          | MCP tool (`icmcd/grants`), not a chat command |
+
 Root-only commands check tier inside their handler.
+Registered in `gateway/commands.go` like existing commands
+(except `/grant` which is an MCP tool).
 
 ## Not in scope
 

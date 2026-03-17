@@ -53,9 +53,12 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `compose/` — docker-compose.yml generation from \*.toml service configs
 - `gated/` — gateway daemon (standalone binary)
 - `timed/` — scheduler daemon (standalone binary)
+- `onbod/` — onboarding daemon (planned)
+- `dashd/` — operator dashboards daemon (planned)
 - `teled/` — telegram adapter daemon (Go)
 - `discd/` — discord adapter daemon (Go)
 - `whapd/` — whatsapp adapter daemon (TypeScript/baileys)
+- `grants/` — grant rule engine (library, planned)
 
 ## Layout
 
@@ -81,6 +84,9 @@ template/          Instance seed files
 sidecar/           MCP server binaries
 gated/             Gateway daemon (standalone binary)
 timed/             Scheduler daemon (standalone binary)
+onbod/             Onboarding daemon (planned)
+dashd/             Operator dashboards (planned)
+grants/            Grant rule engine (planned)
 teled/             Telegram adapter (Go)
 discd/             Discord adapter (Go)
 whapd/             WhatsApp adapter (TypeScript)
@@ -119,7 +125,7 @@ API server always starts (default port 8080).
 `arizuko group <instance> list|add|rm` — manage registered groups.
 `arizuko status <instance>` — show compose services and registered channels.
 
-Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`. Each in `<name>/main.go`.
+Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`, `onbod`, `dashd`. Each in `<name>/main.go`.
 
 ## Design Philosophy
 
@@ -133,16 +139,19 @@ servers, CLAUDE.md, memory) is the primary extension mechanism.
 
 Daemons use 4+d naming. Shared SQLite DB (WAL mode).
 
-| Name    | Type    | Role                              |
-| ------- | ------- | --------------------------------- |
-| `gated` | daemon  | Message loop, routing, containers |
-| `timed` | daemon  | Cron poll, writes to messages     |
-| `icmcd` | library | MCP server, identity stamping     |
-| `authd` | library | Authorization policy, JWT, OAuth  |
-| `teled` | daemon  | Telegram adapter (Go)             |
-| `discd` | daemon  | Discord adapter (Go)              |
-| `whapd` | daemon  | WhatsApp adapter (TypeScript)     |
-| `emaid` | planned | Email adapter                     |
+| Name     | Type    | Role                              |
+| -------- | ------- | --------------------------------- |
+| `gated`  | daemon  | Message loop, routing, containers |
+| `timed`  | daemon  | Cron poll, writes to messages     |
+| `onbod`  | planned | Onboarding state machine          |
+| `dashd`  | planned | Operator dashboards (HTMX)        |
+| `icmcd`  | library | MCP server, identity stamping     |
+| `authd`  | library | Authorization policy, JWT, OAuth  |
+| `grants` | planned | Grant rule engine                 |
+| `teled`  | daemon  | Telegram adapter (Go)             |
+| `discd`  | daemon  | Discord adapter (Go)              |
+| `whapd`  | daemon  | WhatsApp adapter (TypeScript)     |
+| `emaid`  | planned | Email adapter                     |
 
 Deployment: `arizuko compose <instance>` generates docker-compose.yml.
 Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.

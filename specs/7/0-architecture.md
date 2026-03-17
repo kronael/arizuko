@@ -10,6 +10,8 @@ All daemons follow 4+d naming.
 | `timed` | running | Cron poll, writes messages   | `specs/7/8-scheduler-service.md` |
 | `icmcd` | running | MCP server, identity+auth    | `specs/7/10-icmcd.md`            |
 | `authd` | running | Authorization policy         | `specs/7/11-authd.md`            |
+| `onbod` | planned | Onboarding state machine     | `specs/7/21-onboarding.md`       |
+| `dashd` | planned | Operator dashboards (HTMX)   | `specs/7/25-dashboards.md`       |
 | `teled` | running | Telegram adapter             |                                  |
 | `discd` | running | Discord adapter              |                                  |
 | `whapd` | running | WhatsApp adapter             |                                  |
@@ -21,20 +23,20 @@ may run on remote hosts. See `specs/7/1-channel-protocol.md`.
 ## Communication
 
 ```
-                     SQLite (messages.db)
-                    /        |         \
-               gated       timed      icmcd/authd
-                 |
-            HTTP (:8080)
-                 |
+                      SQLite (messages.db)
+                   /    |    \     \      \
+              gated  timed  onbod  dashd  icmcd/authd
+                |                   |
+           HTTP (:8080)        HTTP (:8090)
+                |
          docker network
         /    |    \    \
      teled discd whapd emaid
 ```
 
-- **Co-located daemons** (gated, timed, icmcd, authd) share
-  one SQLite file. No IPC between them — each reads/writes
-  the DB independently.
+- **Co-located daemons** (gated, timed, onbod, dashd, icmcd,
+  authd) share one SQLite file. No IPC between them — each
+  reads/writes the DB independently.
 - **Channel adapters** connect to gated via HTTP. They
   self-register, deliver inbound messages, receive outbound.
 - **Agent containers** connect to icmcd via MCP unix socket.

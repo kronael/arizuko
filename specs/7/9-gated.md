@@ -36,7 +36,9 @@ every 1s:
 
   for each message:
     route = resolve_route(message.chat_jid)
-    if no route: skip (or create default route)
+    if no route:
+      if ONBOARDING_ENABLED: insert into onboarding table, skip
+      else: drop message
     enqueue_job(route.group, message)
     UPDATE messages SET processed = 1
 ```
@@ -171,16 +173,15 @@ Intercepted before agent dispatch. Text-command model for
 channel consistency (some channels have native commands,
 arizuko uses text interception).
 
-| Command    | Effect                                               |
-| ---------- | ---------------------------------------------------- |
-| `/new`     | Clear session, enqueue trailing args as message      |
-| `/ping`    | Reply with group, session, active containers         |
-| `/chatid`  | Reply with the chat JID                              |
-| `/stop`    | Kill active container for this chat                  |
-| `/status`  | Show gateway state, channels, containers (root only) |
-| `/approve` | Approve onboarding request (root only)               |
-| `/reject`  | Reject onboarding request (root only)                |
-| `/grant`   | Set grant overrides for a group (root only)          |
+| Command   | Effect                                               |
+| --------- | ---------------------------------------------------- |
+| `/new`    | Clear session, enqueue trailing args as message      |
+| `/ping`   | Reply with group, session, active containers         |
+| `/chatid` | Reply with the chat JID                              |
+| `/stop`   | Kill active container for this chat                  |
+| `/status` | Show gateway state, channels, containers (root only) |
+
+`/approve`, `/reject` live in onbod. `/grant` lives in icmcd.
 
 Commands are gateway code, not agent tools. The command
 registry is not exported to agents. `/file` commands
@@ -194,7 +195,8 @@ Implementation: `gateway/commands.go`.
 `notify(text)` sends to root group's JIDs from the route table.
 No dedicated CONTROL_JID — root's chat IS the control channel.
 
-Sources: onboarding requests, container errors, channel health.
+Sources: container errors, channel health events.
+Onboarding notifications come from onbod, not gated.
 Recorded via audit log (source: "control").
 See `specs/7/20-control-chat.md`.
 

@@ -290,6 +290,9 @@ template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
 gated/              Gateway daemon
 timed/              Scheduler daemon (cron poll, messages)
+onbod/              Onboarding daemon (planned)
+dashd/              Operator dashboards (planned)
+grants/             Grant rule engine (planned)
 teled/              Telegram adapter (Go)
 discd/              Discord adapter (Go)
 whapd/              WhatsApp adapter (TypeScript)
