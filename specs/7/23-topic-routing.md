@@ -115,9 +115,29 @@ ALTER TABLE messages ADD COLUMN topic TEXT DEFAULT '';
 - `/stop #topic` — stop container for that topic
 - No prefix = default session
 
+## Evaluation order
+
+```
+1. Gateway commands (/new, /stop, /ping, etc.)
+2. Route table scan (seq-ordered, first match wins)
+   seq -2: @ prefix (predefined for tiers 0-2)
+   seq -1: # prefix (predefined for tiers 0-2)
+   seq  0: default route
+   seq  N: user-defined routes
+```
+
+## Batch ordering note
+
+Route resolution happens on the last non-command message in a poll
+batch. If multiple messages arrive together with different `@`/`#`
+prefixes, the last message determines routing for the entire batch.
+This is a known limitation — future improvement: per-message
+resolution before batching.
+
 ## Not in scope
 
 - Agent-created topics
 - Topic ACLs
 - Topic listing command
 - Cross-group topic routing
+- Pipeline/DAG routing between topics

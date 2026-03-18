@@ -74,9 +74,18 @@ Health, channels, containers, queues, errors.
 | Containers | name, group, status, uptime, idle                             | 10s     |
 | Queue      | JID, group, pending, failures, circuit breaker state          | 5s      |
 | Errors     | last 20 from task_run_logs + queue failures. Expandable       | 5s      |
+| Onboarding | pending requests with JID, name, age, approve command         | 30s     |
 
-**Fragments**: `banner`, `channels`, `groups`, `containers`, `queue`, `errors`, `group-detail?folder=<f>`
-**API**: `api/state` (full snapshot), `api/errors` (recent errors)
+Onboarding section only shown when `ONBOARDING_ENABLED=1`. Format:
+
+```
+Pending onboarding (2)
+  telegram:-12345  alice      2m ago   /approve telegram:-12345
+  discord:98765    bob        15m ago  /approve discord:98765
+```
+
+**Fragments**: `banner`, `channels`, `groups`, `containers`, `queue`, `errors`, `group-detail?folder=<f>`, `onboarding`
+**API**: `api/state` (full snapshot), `api/errors` (recent errors), `api/onboarding` (pending entries)
 **Health**: ok = 0 failures + all channels connected. Warn = failures > 0 or at max containers. Error = channel down or circuit breaker tripped.
 
 ---

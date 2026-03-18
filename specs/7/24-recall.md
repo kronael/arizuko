@@ -124,6 +124,76 @@ v2 recall tool lives in agent container (`container/agent-runner/`).
 Language-agnostic concept — Go agent containers could implement the
 same protocol with Go sqlite-vec bindings.
 
+## Progressive compression (episodes)
+
+Session transcripts and diary entries compress into progressive
+summaries. Both use the same file format and are indexed by `/recall`.
+
+### Hierarchy
+
+```
+Episodes (from session transcripts):
+  .claude/projects/<uuid>.jl  ─┐
+  .claude/projects/<uuid>.jl  ─┤→ episodes/20260310.md  (day)
+  .claude/projects/<uuid>.jl  ─┘      ↓
+  episodes/20260310.md  ─┐
+  episodes/20260311.md  ─┤→ episodes/2026-W11.md  (week)
+  episodes/20260312.md  ─┘      ↓
+  episodes/2026-W10.md  ─┐
+  episodes/2026-W11.md  ─┤→ episodes/2026-03.md  (month)
+
+Diary (from work log entries):
+  diary/20260310.md  ─┐
+  diary/20260311.md  ─┤→ diary/week/2026-W11.md      ↓  diary/month/2026-03.md
+```
+
+### File format
+
+```markdown
+---
+summary: >
+  - Shipped discord support
+  - Resolved telegram auth token rotation
+period: '2026-W11'
+type: week
+store: episodes
+sources:
+  - episodes/20260310.md
+aggregated_at: '2026-03-17T02:00:00Z'
+---
+
+## Key decisions
+
+...
+```
+
+### Compression schedule
+
+`/compact-memories` skill, run via timed (cron), `context_mode: isolated`:
+
+```
+/compact-memories episodes day    → 0 2 * * *     daily
+/compact-memories episodes week   → 0 3 * * 1     Monday
+/compact-memories episodes month  → 0 4 1 * *     1st of month
+/compact-memories diary week      → 0 3 * * 1     Monday
+/compact-memories diary month     → 0 4 1 * *     1st of month
+```
+
+### Gateway injection
+
+On session start, inject most recent of each type:
+
+```xml
+<episodes count="3">
+  <entry key="20260314" type="day">summary</entry>
+  <entry key="2026-W11" type="week">summary</entry>
+  <entry key="2026-02" type="month">summary</entry>
+</episodes>
+```
+
+Diary week/month summaries not injected — 14-day daily injection covers.
+Week/month diary summaries exist for `/recall` searches over longer timeframes.
+
 ## Not in scope
 
 - Write operations (recall is read-only)

@@ -18,6 +18,7 @@ send_message                     allow send_message, any params
 send_message(jid=telegram:*)     allow send_message, only telegram
 !send_message                    deny send_message
 send_reply                       allow reply in same thread
+send_file(!jid)                  allow send_file, jid must NOT be present
 *                                allow everything (root default)
 ```
 
@@ -25,13 +26,13 @@ send_reply                       allow reply in same thread
 - `*` in name matches `[a-zA-Z0-9_]` only
 - `*` in param values matches any char except `,` and `)`
 - Unmentioned params = allowed
-- `!param` = param must NOT be present
-- No parens or `()` = any params
+- `!param` inside parens = param must NOT be present
+- No parens or `()` = any params (equivalent)
 - Last match wins; no match = deny
 
 Action names match MCP tool names: `send_message`, `send_reply`,
 `send_file`, `schedule_task`, `delegate_group`, etc.
-Platform scoping via `jid` param (e.g. `jid=twitter:*`).
+Platform scoping via `jid` param (e.g. `jid=telegram:*`, `jid=discord:*`).
 
 ## Defaults (from routing table)
 
@@ -105,6 +106,19 @@ are accessible per tier, generates allow rules per action+platform.
 - `set_grants(folder, rules)` — replace rules (tier 0-1 only)
 - `get_grants(folder)` — list rules
 - `delegate_group` gains optional `grants` param
+
+## Authority
+
+- Tier 0 — any grant
+- Tier 1 — descendants in own world
+- Tier 2+ — cannot modify grants
+
+## Security
+
+- Agent cannot edit grants DB (not in container)
+- Rules ephemeral per-session (derived at spawn, passed in start.json)
+- Delegation can only narrow (`NarrowRules`)
+- No grants in start.json → `["*"]` (backward compat)
 
 ## Not in scope
 

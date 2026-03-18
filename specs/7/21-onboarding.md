@@ -92,12 +92,28 @@ match=/reject   →  onbod
 - Root-only (tier 0)
 - Reads `world_name` from onboarding table
 - Creates world folder: `groups/<world_name>/`
-- Copies prototype if `ONBOARDING_PROTOTYPE` set
+- Copies prototype from `groups/root/prototype/` if `ONBOARDING_PROTOTYPE` set,
+  or from `ONBOARDING_PROTOTYPE` path if configured
 - Inserts group in DB (tier 1)
-- Adds default route
+- Adds routes: default (seq 0), `@` (seq -2), `#` (seq -1)
+- Grants: tier 1 defaults (see action-grants spec)
 - Enqueues welcome system message
 - Sets onboarding status to `approved`
 - notify(): "Approved: alice -> alice-studio/"
+
+Welcome system message enqueued for the new group:
+
+```xml
+<system origin="gateway" event="onboarding">
+  <user jid="telegram:-12345" />
+  <group folder="alice-studio" tier="1" />
+  <instructions>
+    This is a new user's first interaction.
+    1. Run /hello to welcome the user.
+    2. Run /howto to build a getting-started web page for them.
+  </instructions>
+</system>
+```
 
 ### /reject <jid>
 
