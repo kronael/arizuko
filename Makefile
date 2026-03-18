@@ -1,6 +1,7 @@
 build:
 	go build -o arizuko cmd/arizuko/main.go
 	CGO_ENABLED=1 go build -o bin/gated ./gated/
+	go build -o bin/onbod ./onbod/
 	make -C teled build
 	make -C discd build
 

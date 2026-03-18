@@ -548,7 +548,13 @@ func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
 	g.mu.Lock()
 	g.groups[jid] = group
 	g.mu.Unlock()
-	return g.store.PutGroup(jid, group)
+	if err := g.store.PutGroup(jid, group); err != nil {
+		return err
+	}
+	if auth.Resolve(group.Folder).Tier <= 2 {
+		g.store.InsertPrefixRoutes(jid, group.Folder)
+	}
+	return nil
 }
 
 func (g *Gateway) getGroups() map[string]core.Group {
