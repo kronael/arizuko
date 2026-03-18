@@ -59,6 +59,7 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `discd/` — discord adapter daemon (Go)
 - `whapd/` — whatsapp adapter daemon (TypeScript/baileys)
 - `grants/` — grant rule engine (library, planned)
+- `notify/` — operator notifications (library, planned)
 
 ## Layout
 
@@ -87,6 +88,7 @@ timed/             Scheduler daemon (standalone binary)
 onbod/             Onboarding daemon (planned)
 dashd/             Operator dashboards (planned)
 grants/            Grant rule engine (planned)
+notify/            Operator notifications (planned)
 teled/             Telegram adapter (Go)
 discd/             Discord adapter (Go)
 whapd/             WhatsApp adapter (TypeScript)
@@ -148,6 +150,7 @@ Daemons use 4+d naming. Shared SQLite DB (WAL mode).
 | `icmcd`  | library | MCP server, identity stamping     |
 | `authd`  | library | Authorization policy, JWT, OAuth  |
 | `grants` | planned | Grant rule engine                 |
+| `notify` | planned | Operator notifications            |
 | `teled`  | daemon  | Telegram adapter (Go)             |
 | `discd`  | daemon  | Discord adapter (Go)              |
 | `whapd`  | daemon  | WhatsApp adapter (TypeScript)     |

@@ -192,12 +192,12 @@ Implementation: `gateway/commands.go`.
 
 ## Notifications
 
-`notify(text)` sends to root group's JIDs from the route table.
-No dedicated CONTROL_JID — root's chat IS the control channel.
+gated imports `notify/` shared library to send operator
+notifications. No dedicated CONTROL_JID — root's chat IS
+the control channel.
 
 Sources: container errors, channel health events.
-Onboarding notifications come from onbod, not gated.
-Recorded via audit log (source: "control").
+Onboarding notifications come from onbod (same library).
 See `specs/7/20-control-chat.md`.
 
 ## Agent output processing

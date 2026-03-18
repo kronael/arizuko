@@ -101,10 +101,10 @@ table for commands from root JIDs (tier 0).
 
 ## Notifications and replies
 
-onbod sends messages via channel adapter HTTP API directly.
-It resolves the channel adapter URL from the `channels` table
-(registered adapters). All outbound messages are stored via
-`store.StoreOutbound` with `source: "onboarding"` for audit.
+onbod imports `notify/` to send operator notifications
+(same shared library as gated). Replies to onboarding users
+sent via channel adapter HTTP API. All outbound messages
+stored via `store.StoreOutbound` with `source: "onboarding"`.
 
 ## Service contract
 

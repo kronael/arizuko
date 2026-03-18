@@ -37,6 +37,9 @@ may run on remote hosts. See `specs/7/1-channel-protocol.md`.
 - **Co-located daemons** (gated, timed, onbod, dashd, icmcd,
   authd) share one SQLite file. No IPC between them — each
   reads/writes the DB independently.
+- **Shared libraries**: authd (auth/policy), grants (rule
+  engine), notify (operator notifications). Imported by any
+  service that needs them.
 - **Channel adapters** connect to gated via HTTP. They
   self-register, deliver inbound messages, receive outbound.
 - **Agent containers** connect to icmcd via MCP unix socket.

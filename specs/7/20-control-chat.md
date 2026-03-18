@@ -14,10 +14,16 @@ routing. Gateway commands (`/status`, `/approve`, etc.) are
 intercepted before container run — same as `/new`, `/stop`,
 `/ping`. Non-command messages proceed to root agent normally.
 
-## Notifications (service pattern)
+## Notifications (shared library)
 
-Any service can notify the operator. Not a shared library —
-a pattern each service implements:
+`notify/` package. Any service imports it to send operator
+messages. Same pattern as authd — shared library, not
+duplicated code.
+
+```go
+// notify/notify.go
+func Send(db *store.Store, text string) error
+```
 
 1. Look up root's JIDs from routes table (folder = "root")
 2. Send to each via channel adapter HTTP API
