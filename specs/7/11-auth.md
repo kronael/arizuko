@@ -1,13 +1,13 @@
-# authd
+# auth
 
-**Status**: shipped — `authd/` package (identity.go, policy.go, web.go, jwt.go, oauth.go, middleware.go)
+**Status**: shipped — `auth/` package (identity.go, policy.go, web.go, jwt.go, oauth.go, middleware.go)
 
 Authorization policy engine. Consumers call it to check
 whether a caller is allowed to perform an action.
 
 ## Role
 
-authd is a pure policy engine. It answers one question:
+auth is a pure policy engine. It answers one question:
 
 > Can caller with identity X perform action Y on target Z?
 
@@ -16,7 +16,7 @@ It receives a query and returns allow or deny.
 
 ## Interface
 
-Called by icmcd after resolving caller identity from
+Called by ipc after resolving caller identity from
 the socket path.
 
 ```
@@ -25,7 +25,7 @@ authorize(caller, action, target) → allow | deny
 
 Where:
 
-- `caller`: `{folder, tier}` — resolved by icmcd from socket path
+- `caller`: `{folder, tier}` — resolved by ipc from socket path
 - `action`: tool name (e.g. `send_message`, `schedule_task`)
 - `target`: action-specific (e.g. chat_jid, task_id)
 
@@ -74,7 +74,7 @@ Callers can only act within their own subtree:
 | `auth_users`    | user accounts (web login) |
 | `auth_sessions` | web session tokens        |
 
-Migration service name: `authd`.
+Migration service name: `auth`.
 
 These tables are for web authentication, separate from
 the tier-based MCP authorization which is computed from
@@ -83,15 +83,15 @@ folder depth (no tables needed).
 ## Flow
 
 ```
-icmcd receives MCP tool call, resolves identity:
+ipc receives MCP tool call, resolves identity:
   {tool: cancel_task, caller: {folder: "andy/research", tier: 1}, args: {taskId: "abc"}}
 
-gated calls authd:
+gated calls auth:
   authorize(caller={folder: "andy/research", tier: 1},
             action="cancel_task",
             target={taskId: "abc"})
 
-authd checks:
+auth checks:
   1. tier 1 ≤ min tier 2 for cancel_task? yes
   2. task "abc" owner in same world as caller? yes (world check)
   → allow
@@ -103,7 +103,7 @@ gated executes the cancellation.
 
 <!-- source: arizuko specs/3/A-auth.md, synced 2026-03-15 -->
 
-Web auth is handled by the same authd package. Separate from
+Web auth is handled by the same auth package. Separate from
 MCP tier-based authorization — this covers human user login.
 
 ### What ships
@@ -205,7 +205,7 @@ arizuko config <instance> user passwd <username> <password>
 ## Layout
 
 ```
-authd/
+auth/
   identity.go
   policy.go
   web.go

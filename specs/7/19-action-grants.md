@@ -45,7 +45,7 @@ which JIDs have routes to the group.
   platforms routed to self or children.
 - **Tier 3+ (leaf)** — `send_reply` only. Same chat/thread.
 
-Replaces existing `maxTier` checks in `authd.Authorize` —
+Replaces existing `maxTier` checks in `auth.Authorize` —
 grants become the single enforcement point.
 
 ## Overrides (DB)
@@ -81,7 +81,7 @@ Can only narrow, never widen.
 
 ## Module: `grants/`
 
-Self-contained package. No dependency on icmcd or gateway.
+Self-contained package. No dependency on ipc or gateway.
 
 ```go
 func ParseRule(r string) Rule
@@ -97,9 +97,9 @@ are accessible per tier, generates allow rules per action+platform.
 ## Integration
 
 - `container/runner.go`: call `DeriveRules`, add `grants` to start.json
-- `icmcd/icmcd.go`: call `CheckAction` before tool execution,
-  deny with error if check fails. Replaces `authd.Authorize`
-- `icmcd/icmcd.go`: call `MatchingRules` per tool for manifest
+- `ipc/ipc.go`: call `CheckAction` before tool execution,
+  deny with error if check fails. Replaces `auth.Authorize`
+- `ipc/ipc.go`: call `MatchingRules` per tool for manifest
 - `gateway/gateway.go`: `delegate_group` passes optional `grants`
   param, calls `NarrowRules`
 

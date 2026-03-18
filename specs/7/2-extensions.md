@@ -20,13 +20,13 @@ Goal: make the system extensible without modifying core code.
 
 ## 1. Action Registry
 
-Shipped as `icmcd/` package. All 16 MCP tools registered in
+Shipped as `ipc/` package. All 16 MCP tools registered in
 a single handler with gateway callbacks injected at creation
 time. Agent discovers tools via MCP `tools/list`. Authorization
-via `authd.Authorize` at runtime.
+via `auth.Authorize` at runtime.
 
-See `specs/7/10-icmcd.md` for tool list and architecture,
-`specs/7/11-authd.md` for tier assignments.
+See `specs/7/10-ipc.md` for tool list and architecture,
+`specs/7/11-auth.md` for tier assignments.
 
 ## 2. Channel Interface
 
@@ -44,11 +44,11 @@ Launched as separate containers with Unix socket IPC.
 
 1. **Sidecar protocol**: MCP over unix socket uniformly. All
    sidecars expose MCP tools on a socket in `/workspace/ipc/`.
-   Same transport as `icmcd` — agent connects via MCP client.
+   Same transport as `ipc` — agent connects via MCP client.
    No HTTP, no gRPC. One protocol means one client library.
 
 2. **Sidecar lifecycle**: persistent daemons, not per-agent.
-   Like `icmcd` and `timed` — started by compose, run
+   Like `ipc` and `timed` — started by compose, run
    continuously, survive agent container restarts. Shared
    sidecars between groups are possible via socket path.
 
@@ -135,7 +135,7 @@ No custom tiers or named roles. The 4-tier model covers
 all current needs. Capabilities are implicit in tier
 number via `maxTier` on each action in the registry.
 
-See `specs/7/11-authd.md` for per-action tier assignments
+See `specs/7/11-auth.md` for per-action tier assignments
 and mount enforcement table.
 
 ## 7. Plugin Architecture

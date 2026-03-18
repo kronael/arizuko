@@ -17,7 +17,7 @@ intercepted before container run — same as `/new`, `/stop`,
 ## Notifications (shared library)
 
 `notify/` package. Any service imports it to send operator
-messages. Same pattern as authd — shared library, not
+messages. Same pattern as auth — shared library, not
 duplicated code.
 
 ```go
@@ -39,12 +39,12 @@ func Send(db *store.Store, text string) error
 
 ## Commands
 
-| Command    | Service        | Notes                                         |
-| ---------- | -------------- | --------------------------------------------- |
-| `/status`  | gated or dashd | TBD                                           |
-| `/approve` | onbod          | Approve pending onboard                       |
-| `/reject`  | onbod          | Reject pending onboard                        |
-| `/grant`   | icmcd          | MCP tool (`icmcd/grants`), not a chat command |
+| Command    | Service        | Notes                                       |
+| ---------- | -------------- | ------------------------------------------- |
+| `/status`  | gated or dashd | TBD                                         |
+| `/approve` | onbod          | Approve pending onboard                     |
+| `/reject`  | onbod          | Reject pending onboard                      |
+| `/grant`   | ipc            | MCP tool (`ipc/grants`), not a chat command |
 
 Root-only commands check tier inside their handler.
 Registered in `gateway/commands.go` like existing commands

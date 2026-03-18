@@ -44,8 +44,8 @@ ID prefixed `out-` to avoid PK collision with inbound.
 | --------- | ------------------ | ------------------------ |
 | agent     | gateway/gateway.go | streaming agent output   |
 | agent     | gateway/gateway.go | delegate/escalate output |
-| mcp       | icmcd/icmcd.go     | send_message tool        |
-| mcp       | icmcd/icmcd.go     | send_file tool           |
+| mcp       | ipc/ipc.go         | send_message tool        |
+| mcp       | ipc/ipc.go         | send_file tool           |
 | scheduler | timed/main.go      | scheduler messages       |
 | control   | gateway/notify.go  | operator notifications   |
 

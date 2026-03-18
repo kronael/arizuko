@@ -38,7 +38,7 @@ orchestrating inter-agent communication.
 ## Decided (previously open)
 
 - **Agent discovery**: via MCP `tools/list` on shared unix
-  sockets. Agents connected to the same `icmcd` instance
+  sockets. Agents connected to the same `ipc` instance
   discover available groups through the `list_groups` tool.
   Main group acts as natural registry — it sees all groups
   and can share link tokens via delegation.

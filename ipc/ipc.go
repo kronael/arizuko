@@ -1,4 +1,4 @@
-package icmcd
+package ipc
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/onvos/arizuko/authd"
+	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/core"
 	"github.com/robfig/cron/v3"
 )
@@ -105,7 +105,7 @@ func groupFolderByJid(groups map[string]core.Group, jid string) string {
 }
 
 func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServer {
-	id := authd.Resolve(folder)
+	id := auth.Resolve(folder)
 	srv := server.NewMCPServer("nanoclaw", "1.0")
 
 	// send_message
@@ -151,7 +151,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		if gf == "" {
 			return toolErr("missing groupFolder")
 		}
-		if err := authd.Authorize(id, "reset_session", authd.AuthzTarget{TargetFolder: gf}); err != nil {
+		if err := auth.Authorize(id, "reset_session", auth.AuthzTarget{TargetFolder: gf}); err != nil {
 			return toolErr(err.Error())
 		}
 		gated.ClearSession(gf)
@@ -166,7 +166,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		mcp.WithString("sender"),
 		mcp.WithString("senderName"),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := authd.Authorize(id, "inject_message", authd.AuthzTarget{}); err != nil {
+		if err := auth.Authorize(id, "inject_message", auth.AuthzTarget{}); err != nil {
 			return toolErr(err.Error())
 		}
 		if gated.InjectMessage == nil {
@@ -204,7 +204,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		jid := req.GetString("jid", "")
 		gfld := req.GetString("folder", "")
 
-		if err := authd.Authorize(id, "register_group", authd.AuthzTarget{TargetFolder: gfld}); err != nil {
+		if err := auth.Authorize(id, "register_group", auth.AuthzTarget{TargetFolder: gfld}); err != nil {
 			return toolErr(err.Error())
 		}
 
@@ -219,7 +219,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 			}
 			n := 0
 			for _, g := range groups {
-				if authd.IsDirectChild(parent, g.Folder) {
+				if auth.IsDirectChild(parent, g.Folder) {
 					n++
 				}
 			}
@@ -250,7 +250,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		mcp.WithString("chatJid", mcp.Required()),
 		mcp.WithNumber("depth"),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := authd.Authorize(id, "escalate_group", authd.AuthzTarget{}); err != nil {
+		if err := auth.Authorize(id, "escalate_group", auth.AuthzTarget{}); err != nil {
 			return toolErr(err.Error())
 		}
 		if gated.DelegateToParent == nil {
@@ -283,7 +283,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		mcp.WithNumber("depth"),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		target := req.GetString("group", "")
-		if err := authd.Authorize(id, "delegate_group", authd.AuthzTarget{TargetFolder: target}); err != nil {
+		if err := auth.Authorize(id, "delegate_group", auth.AuthzTarget{TargetFolder: target}); err != nil {
 			return toolErr(err.Error())
 		}
 		if gated.DelegateToChild == nil {
@@ -307,7 +307,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		mcp.WithDescription("Get routes for a JID"),
 		mcp.WithString("jid", mcp.Required()),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := authd.Authorize(id, "get_routes", authd.AuthzTarget{}); err != nil {
+		if err := auth.Authorize(id, "get_routes", auth.AuthzTarget{}); err != nil {
 			return toolErr(err.Error())
 		}
 		if db.GetRoutes == nil || gated.GetGroups == nil {
@@ -318,7 +318,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 			return toolErr("jid required")
 		}
 		tf := groupFolderByJid(gated.GetGroups(), jid)
-		if err := authd.Authorize(id, "get_routes", authd.AuthzTarget{RouteTarget: tf}); err != nil {
+		if err := auth.Authorize(id, "get_routes", auth.AuthzTarget{RouteTarget: tf}); err != nil {
 			return toolErr(err.Error())
 		}
 		return toolJSON(map[string]any{"jid": jid, "routes": db.GetRoutes(jid)})
@@ -330,7 +330,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		mcp.WithString("jid", mcp.Required()),
 		mcp.WithString("routes", mcp.Required()),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := authd.Authorize(id, "set_routes", authd.AuthzTarget{}); err != nil {
+		if err := auth.Authorize(id, "set_routes", auth.AuthzTarget{}); err != nil {
 			return toolErr(err.Error())
 		}
 		if db.SetRoutes == nil || gated.GetGroups == nil {
@@ -341,7 +341,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 			return toolErr("jid required")
 		}
 		tf := groupFolderByJid(gated.GetGroups(), jid)
-		if err := authd.Authorize(id, "set_routes", authd.AuthzTarget{RouteTarget: tf}); err != nil {
+		if err := auth.Authorize(id, "set_routes", auth.AuthzTarget{RouteTarget: tf}); err != nil {
 			return toolErr(err.Error())
 		}
 		var routes []core.Route
@@ -361,7 +361,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		mcp.WithString("jid", mcp.Required()),
 		mcp.WithString("route", mcp.Required()),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := authd.Authorize(id, "add_route", authd.AuthzTarget{}); err != nil {
+		if err := auth.Authorize(id, "add_route", auth.AuthzTarget{}); err != nil {
 			return toolErr(err.Error())
 		}
 		if db.AddRoute == nil || gated.GetGroups == nil {
@@ -381,7 +381,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		if !isRouteTypeValid(route.Type) {
 			return toolErr("invalid route type")
 		}
-		if err := authd.Authorize(id, "add_route", authd.AuthzTarget{RouteTarget: route.Target}); err != nil {
+		if err := auth.Authorize(id, "add_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
 			return toolErr(err.Error())
 		}
 		rid, err := db.AddRoute(jid, route)
@@ -397,7 +397,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		mcp.WithDescription("Delete a route by ID"),
 		mcp.WithNumber("id", mcp.Required()),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := authd.Authorize(id, "delete_route", authd.AuthzTarget{}); err != nil {
+		if err := auth.Authorize(id, "delete_route", auth.AuthzTarget{}); err != nil {
 			return toolErr(err.Error())
 		}
 		if db.DeleteRoute == nil || db.GetRoute == nil {
@@ -411,7 +411,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		if !ok {
 			return toolErr(fmt.Sprintf("route not found: %d", rid))
 		}
-		if err := authd.Authorize(id, "delete_route", authd.AuthzTarget{RouteTarget: route.Target}); err != nil {
+		if err := auth.Authorize(id, "delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
 			return toolErr(err.Error())
 		}
 		if err := db.DeleteRoute(rid); err != nil {
@@ -441,7 +441,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		}
 		targetFolder := targetGroup.Folder
 
-		if err := authd.Authorize(id, "schedule_task", authd.AuthzTarget{TaskOwner: targetFolder}); err != nil {
+		if err := auth.Authorize(id, "schedule_task", auth.AuthzTarget{TaskOwner: targetFolder}); err != nil {
 			return toolErr(err.Error())
 		}
 
@@ -483,7 +483,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		if !ok {
 			return toolErr("task not found")
 		}
-		if err := authd.Authorize(id, "pause_task", authd.AuthzTarget{TaskOwner: task.Owner}); err != nil {
+		if err := auth.Authorize(id, "pause_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
 			return toolErr(err.Error())
 		}
 		if err := db.UpdateTaskStatus(taskID, "paused"); err != nil {
@@ -506,7 +506,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		if !ok {
 			return toolErr("task not found")
 		}
-		if err := authd.Authorize(id, "resume_task", authd.AuthzTarget{TaskOwner: task.Owner}); err != nil {
+		if err := auth.Authorize(id, "resume_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
 			return toolErr(err.Error())
 		}
 		if err := db.UpdateTaskStatus(taskID, "active"); err != nil {
@@ -529,7 +529,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		if !ok {
 			return toolErr("task not found")
 		}
-		if err := authd.Authorize(id, "cancel_task", authd.AuthzTarget{TaskOwner: task.Owner}); err != nil {
+		if err := auth.Authorize(id, "cancel_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
 			return toolErr(err.Error())
 		}
 		if err := db.DeleteTask(taskID); err != nil {

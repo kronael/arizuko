@@ -5,7 +5,7 @@
 ## Shipped (decision records)
 
 - [3-agent-teams.md](3-agent-teams.md) — why Agent Teams disabled (orphan/stdio/scoping)
-- [A-ipc-mcp-proxy.md](A-ipc-mcp-proxy.md) — MCP over unix socket (shipped as icmcd)
+- [A-ipc-mcp-proxy.md](A-ipc-mcp-proxy.md) — MCP over unix socket (shipped as ipc)
 
 ## Future
 

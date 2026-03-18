@@ -5,4 +5,4 @@
 Replaced hand-rolled IPC file dispatch with MCP over unix socket.
 Transport: stdio over socat to per-group socket (`data/ipc/<folder>/router.sock`).
 Auth: unix socket filesystem permissions (0600). nanoclaw replaced by
-Go MCP server (`icmcd`). IPC file watcher deleted -- hard cutover complete.
+Go MCP server (`ipc`). IPC file watcher deleted -- hard cutover complete.

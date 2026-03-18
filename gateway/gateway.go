@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onvos/arizuko/authd"
+	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/diary"
 	"github.com/onvos/arizuko/groupfolder"
-	"github.com/onvos/arizuko/icmcd"
+	"github.com/onvos/arizuko/ipc"
 	"github.com/onvos/arizuko/queue"
 	"github.com/onvos/arizuko/router"
 	"github.com/onvos/arizuko/store"
@@ -33,8 +33,8 @@ type Gateway struct {
 	mu       sync.RWMutex
 	channels []core.Channel
 	groups   map[string]core.Group
-	gatedFns icmcd.GatedFns
-	storeFns icmcd.StoreFns
+	gatedFns ipc.GatedFns
+	storeFns ipc.StoreFns
 
 	lastTimestamp time.Time
 }
@@ -77,7 +77,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 
 	g.loadState()
 
-	g.gatedFns = icmcd.GatedFns{
+	g.gatedFns = ipc.GatedFns{
 		SendMessage:      g.sendMessage,
 		SendDocument:     g.sendDocument,
 		ClearSession:     g.clearSession,
@@ -89,7 +89,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		DelegateToChild:  g.delegateToChild,
 		DelegateToParent: g.delegateToParent,
 	}
-	g.storeFns = icmcd.StoreFns{
+	g.storeFns = ipc.StoreFns{
 		CreateTask: g.store.CreateTask,
 		GetTask:    g.store.GetTask,
 		UpdateTaskStatus: func(id, status string) error {
@@ -677,11 +677,11 @@ func (g *Gateway) serveWeb(ctx context.Context) {
 	addr := net.JoinHostPort("", strconv.Itoa(g.cfg.WebPort))
 
 	mux := http.NewServeMux()
-	authd.RegisterRoutes(mux, g.store, g.cfg)
+	auth.RegisterRoutes(mux, g.store, g.cfg)
 	mux.Handle("/", http.FileServer(http.Dir(pubDir)))
 	var handler http.Handler = mux
 	if g.cfg.AuthSecret != "" {
-		handler = authd.Middleware([]byte(g.cfg.AuthSecret), mux)
+		handler = auth.Middleware([]byte(g.cfg.AuthSecret), mux)
 	}
 
 	srv := &http.Server{

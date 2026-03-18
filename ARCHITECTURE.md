@@ -18,7 +18,7 @@ cmd/arizuko/main
   ├── api           (HTTP API: channel registration, inbound messages)
   │   ├── chanreg   (channel registry, health checks)
   │   └── store
-  ├── authd         (identity, authorization, JWT, OAuth, middleware)
+  ├── auth          (identity, authorization, JWT, OAuth, middleware)
   ├── chanreg       (channel registry, HTTP channel proxy)
   ├── gateway       (main loop, message routing)
   │   ├── container (docker spawn, volume mounts, sidecars, runtime)
@@ -26,13 +26,13 @@ cmd/arizuko/main
   │   │   └── mountsec
   │   ├── queue     (per-group concurrency, stdin piping)
   │   ├── router    (message formatting, routing rules)
-  │   ├── icmcd     (MCP server on unix socket, runtime auth via authd)
+  │   ├── ipc       (MCP server on unix socket, runtime auth via auth)
   │   ├── diary     (YAML frontmatter annotations)
   │   └── groupfolder
   └── compose       (docker-compose generation)
 
 gated/main           (gateway daemon entrypoint)
-  └── wires core + store + gateway + api + chanreg + icmcd + authd
+  └── wires core + store + gateway + api + chanreg + ipc + auth
 
 teled/main           (telegram adapter daemon)
   └── calls router HTTP API + serves outbound endpoints
@@ -156,12 +156,12 @@ Session management: new session ID from container output updates
 (cursor rolled back so messages retry). On error with output,
 cursor advances (partial work preserved).
 
-## IPC Mechanism (icmcd package)
+## IPC Mechanism (ipc package)
 
 MCP server on unix socket (`mark3labs/mcp-go`). Gateway starts
-one `icmcd` server per group before container spawn, listening on
+one `ipc` server per group before container spawn, listening on
 `data/ipc/<folder>/nanoclaw.sock`. All 16 tools always registered;
-runtime auth via `authd.Authorize`.
+runtime auth via `auth.Authorize`.
 
 **Transport**: socat bridges the host unix socket into the container.
 Agent-runner configures `nanoclaw` MCP server in `settings.json`
@@ -170,9 +170,9 @@ using `socat UNIX-CONNECT` to reach the socket.
 **Lifecycle**: server starts before `docker run`, stops after
 container exits. Socket file cleaned up on stop.
 
-**Identity and authorization**: `icmcd` resolves caller identity
+**Identity and authorization**: `ipc` resolves caller identity
 from socket path (folder, tier). Authorization checks delegated
-to `authd.Authorize` at runtime.
+to `auth.Authorize` at runtime.
 
 ## Sidecar Management (container/sidecar.go)
 
@@ -273,7 +273,7 @@ cmd/arizuko/        CLI entrypoint (create, group, compose, status)
 core/               Config, types, Channel interface
 store/              SQLite persistence (messages, groups, sessions, tasks, auth)
 api/                HTTP API server (channel protocol endpoints)
-authd/              Identity, authorization, JWT, OAuth, middleware
+auth/               Identity, authorization, JWT, OAuth, middleware
 chanreg/            Channel registry, health checks, HTTP channel proxy
 gateway/            Main loop, message routing, commands
 container/          Docker spawn, volume mounts, sidecars, runtime, skills seeding
@@ -282,7 +282,7 @@ container/          Docker spawn, volume mounts, sidecars, runtime, skills seedi
 queue/              Per-group concurrency, stdin piping
 router/             Message formatting, routing rules
 compose/            Docker-compose generation from *.toml service configs
-icmcd/              MCP server (unix socket per group, runtime auth via authd)
+ipc/                MCP server (unix socket per group, runtime auth via auth)
 diary/              YAML frontmatter diary annotations
 groupfolder/        Group path resolution and validation
 mountsec/           Mount allowlist validation

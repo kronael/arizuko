@@ -1,14 +1,14 @@
-# icmcd
+# ipc
 
-**Status**: shipped — `icmcd/` package (icmcd.go, all 16 tools, runtime auth via authd)
+**Status**: shipped — `ipc/` package (ipc.go, all 16 tools, runtime auth via auth)
 
 MCP daemon. Per-group MCP server on unix socket. Resolves caller
-identity from socket path, authorizes via authd, executes all
+identity from socket path, authorizes via auth, executes all
 16 tools inline via handler functions.
 
 ## Role
 
-icmcd is the single MCP entry point for all agent containers.
+ipc is the single MCP entry point for all agent containers.
 It does three things:
 
 1. **Accept** MCP connections from agent containers
@@ -16,12 +16,12 @@ It does three things:
 3. **Execute** the tool inline (handlers call gateway/store/timed functions directly)
 
 No forwarding to other daemons. All tool logic runs inside
-icmcd's handlers, which receive gateway callbacks at setup time.
+ipc's handlers, which receive gateway callbacks at setup time.
 
 ## Identity resolution
 
 Each agent container connects from a known group folder.
-icmcd resolves identity from the socket path:
+ipc resolves identity from the socket path:
 
 ```
 /data/ipc/<folder>/nanoclaw.sock → folder = <folder>
@@ -50,12 +50,12 @@ socat bridge:
 }
 ```
 
-icmcd exposes all 16 tools in a single tool list. Authorization
-is checked per-call via authd.Authorize before execution.
+ipc exposes all 16 tools in a single tool list. Authorization
+is checked per-call via auth.Authorize before execution.
 
 ## Tools
 
-All tools are handled inline by icmcd. Gateway and store
+All tools are handled inline by ipc. Gateway and store
 functions are injected as callbacks at server creation time.
 
 | Tool             | Domain     |
@@ -81,23 +81,23 @@ functions are injected as callbacks at server creation time.
 
 ```
 agent calls send_message("hello")
-  → icmcd receives on /data/ipc/andy/research/nanoclaw.sock
+  → ipc receives on /data/ipc/andy/research/nanoclaw.sock
   → resolves: folder=andy/research, tier=1
-  → calls authd.Authorize: can tier=1 from andy/research do send_message?
-  → authd: allow (tier 1 ≤ min tier 3)
-  → icmcd executes send_message via gateway callback
+  → calls auth.Authorize: can tier=1 from andy/research do send_message?
+  → auth: allow (tier 1 ≤ min tier 3)
+  → ipc executes send_message via gateway callback
   → result returned to agent
 ```
 
 ## No tables owned
 
-icmcd is stateless. It doesn't own any database tables.
+ipc is stateless. It doesn't own any database tables.
 It reads group information from the filesystem (socket paths)
 and computes tier from folder depth. No migrations.
 
 ## Layout
 
 ```
-icmcd/
-  icmcd.go
+ipc/
+  ipc.go
 ```

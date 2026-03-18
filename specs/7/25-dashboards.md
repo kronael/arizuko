@@ -21,8 +21,8 @@ Standalone daemon like timed, teled. Reads shared SQLite DB
 
 ## Auth
 
-All `/dash/*` routes use authd middleware for JWT cookie
-verification. dashd imports `authd` as a library.
+All `/dash/*` routes use auth middleware for JWT cookie
+verification. dashd imports `auth` as a library.
 
 ## URL Convention
 

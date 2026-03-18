@@ -69,7 +69,7 @@ coverage, code refinement.
 - `delegateToChild`/`delegateToParent` collapsed into `delegateToFolder`
 - `groupByFolder`/`groupJIDs` helpers extracted from duplicated loops
 - Dead `"verb"` routing case removed from router
-- icmcd/authd reclassified as libraries (not daemons) in docs
+- ipc/auth reclassified as libraries (not daemons) in docs
 
 ### Tests
 
@@ -96,7 +96,7 @@ schema simplified, dead code removed, specs aligned with code.
 - **services/timed/**: standalone scheduler daemon (~150 LOC), polls
   scheduled_tasks, inserts into messages. Zero dependencies on gateway.
   Own migration runner (service name: `timed`).
-- **Daemon specs**: gated (9), timed (8), actid (10), authd (11) —
+- **Daemon specs**: gated (9), timed (8), actid (10), auth (11) —
   one spec per daemon with clear table ownership.
 - **0-architecture.md**: lean service overview replacing 579-line monolith.
 
@@ -137,7 +137,7 @@ schema simplified, dead code removed, specs aligned with code.
 - Tool names aligned with code: `delegate_group`, `reset_session`,
   `get_routes`/`set_routes`/`add_route`/`delete_route`
 - Parameter names: camelCase (`targetJid`, `taskId`)
-- actid/authd marked as design (currently inline in gated)
+- actid/auth marked as design (currently inline in gated)
 
 ---
 

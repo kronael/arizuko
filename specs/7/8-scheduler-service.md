@@ -20,7 +20,7 @@ CREATE TABLE scheduled_tasks (
 Migration service name: `timed`.
 
 - `owner` — group folder that created the task. Used by
-  icmcd/authd for authorization.
+  ipc/auth for authorization.
 - `cron` — cron expression. NULL for one-shot tasks.
 - `next_run` — when to fire next. One-shot: set directly,
   goes NULL after firing. Cron: recomputed after each fire.
@@ -46,8 +46,8 @@ every 60s:
 
 ## MCP Actions
 
-Handled by icmcd directly. The agent calls the MCP tool,
-icmcd stamps identity, calls authd.Authorize, then
+Handled by ipc directly. The agent calls the MCP tool,
+ipc stamps identity, calls auth.Authorize, then
 executes the tool inline (reads/writes scheduled_tasks
 table). timed only does the cron poll loop.
 
@@ -55,7 +55,7 @@ table). timed only does the cron poll loop.
 
 ```
 input: targetJid, prompt, cron (optional)
-auth:  task.owner checked by authd (tier-based)
+auth:  task.owner checked by auth (tier-based)
 → INSERT INTO scheduled_tasks
 ```
 
@@ -66,7 +66,7 @@ One-shot tasks: omit `cron`, set `next_run` directly in DB.
 
 ```
 input: (none, or optional owner filter)
-auth:  caller identity checked by authd (tier-based)
+auth:  caller identity checked by auth (tier-based)
 → SELECT FROM scheduled_tasks WHERE owner matches caller
 ```
 
@@ -74,7 +74,7 @@ auth:  caller identity checked by authd (tier-based)
 
 ```
 input: taskId
-auth:  task.owner must match caller (checked by authd)
+auth:  task.owner must match caller (checked by auth)
 → UPDATE status = 'paused' | 'active'
 ```
 

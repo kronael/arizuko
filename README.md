@@ -39,8 +39,8 @@ container/        Docker spawn, volume mounts, sidecars
 queue/            Per-group concurrency, circuit breaker
 router/           XML message formatting, routing rules
 compose/          Docker-compose generation
-icmcd/            MCP server on unix socket
-authd/            Identity, authorization, JWT
+ipc/              MCP server on unix socket
+auth/             Identity, authorization, JWT
 diary/            YAML frontmatter diary annotations
 groupfolder/      Group path resolution
 mountsec/         Mount allowlist validation

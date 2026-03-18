@@ -1,21 +1,31 @@
 # Service Architecture
 
-## Daemons
+## Naming convention
 
-All daemons follow 4+d naming.
+Daemons end in `d` (4+d): `gated`, `timed`, `onbod`, `dashd`.
+Libraries don't: `auth`, `ipc`, `grants`, `notify`.
+
+## Daemons
 
 | Daemon  | Status  | Role                         | Spec                             |
 | ------- | ------- | ---------------------------- | -------------------------------- |
 | `gated` | running | Gateway, routing, containers | `specs/7/9-gated.md`             |
 | `timed` | running | Cron poll, writes messages   | `specs/7/8-scheduler-service.md` |
-| `icmcd` | running | MCP server, identity+auth    | `specs/7/10-icmcd.md`            |
-| `authd` | running | Authorization policy         | `specs/7/11-authd.md`            |
 | `onbod` | planned | Onboarding state machine     | `specs/7/21-onboarding.md`       |
 | `dashd` | planned | Operator dashboards (HTMX)   | `specs/7/25-dashboards.md`       |
 | `teled` | running | Telegram adapter             |                                  |
 | `discd` | running | Discord adapter              |                                  |
 | `whapd` | running | WhatsApp adapter             |                                  |
 | `emaid` | planned | Email adapter                |                                  |
+
+## Libraries
+
+| Package  | Spec                          | Role                          |
+| -------- | ----------------------------- | ----------------------------- |
+| `auth`   | `specs/7/11-auth.md`          | Identity, authorization, JWT  |
+| `ipc`    | `specs/7/10-ipc.md`           | MCP server, per-group sockets |
+| `grants` | `specs/7/19-action-grants.md` | Grant rule engine             |
+| `notify` | `specs/7/20-control-chat.md`  | Operator notifications        |
 
 Channel adapters are external — they use HTTP because they
 may run on remote hosts. See `specs/7/1-channel-protocol.md`.
@@ -25,7 +35,7 @@ may run on remote hosts. See `specs/7/1-channel-protocol.md`.
 ```
                       SQLite (messages.db)
                    /    |    \     \      \
-              gated  timed  onbod  dashd  icmcd/authd
+              gated  timed  onbod  dashd  ipc/auth
                 |                   |
            HTTP (:8080)        HTTP (:8090)
                 |
@@ -34,16 +44,16 @@ may run on remote hosts. See `specs/7/1-channel-protocol.md`.
      teled discd whapd emaid
 ```
 
-- **Co-located daemons** (gated, timed, onbod, dashd, icmcd,
-  authd) share one SQLite file. No IPC between them — each
+- **Co-located services** (gated, timed, onbod, dashd, ipc,
+  auth) share one SQLite file. No IPC between them — each
   reads/writes the DB independently.
-- **Shared libraries**: authd (auth/policy), grants (rule
+- **Shared libraries**: auth (auth/policy), grants (rule
   engine), notify (operator notifications). Imported by any
   service that needs them.
 - **Channel adapters** connect to gated via HTTP. They
   self-register, deliver inbound messages, receive outbound.
-- **Agent containers** connect to icmcd via MCP unix socket.
-  icmcd stamps identity and calls authd.Authorize for
+- **Agent containers** connect to ipc via MCP unix socket.
+  ipc stamps identity and calls auth.Authorize for
   runtime authorization before executing tool calls.
 
 ## Shared database
@@ -83,4 +93,4 @@ runtime. When unset, defaults to the gateway's own
 filesystem paths (native mode, no translation needed).
 
 Used by: `container/` (volume mounts), `compose/`
-(docker-compose.yml generation), `icmcd/` (socket paths).
+(docker-compose.yml generation), `ipc/` (socket paths).

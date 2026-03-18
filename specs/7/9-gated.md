@@ -155,16 +155,16 @@ Runs on `API_PORT` (default 8080).
 
 ## MCP tool handling
 
-icmcd handles all MCP tools directly and calls gateway
+ipc handles all MCP tools directly and calls gateway
 functions as callbacks. gated exposes these callbacks to
-icmcd at server creation time:
+ipc at server creation time:
 
 - Messaging: `send_message`, `send_file`, `inject_message`
 - Groups: `register_group`, `delegate_group`, `escalate_group`
 - Sessions: `reset_session`
 - Routing: `get_routes`, `set_routes`, `add_route`, `delete_route`
 
-icmcd resolves identity and calls authd.Authorize before
+ipc resolves identity and calls auth.Authorize before
 invoking the callback. gated does not see raw MCP requests.
 
 ## Gateway commands
@@ -181,7 +181,7 @@ arizuko uses text interception).
 | `/stop`   | Kill active container for this chat                  |
 | `/status` | Show gateway state, channels, containers (root only) |
 
-`/approve`, `/reject` live in onbod. `/grant` lives in icmcd.
+`/approve`, `/reject` live in onbod. `/grant` lives in ipc.
 
 Commands are gateway code, not agent tools. The command
 registry is not exported to agents. `/file` commands

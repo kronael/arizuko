@@ -1,9 +1,9 @@
-package icmcd
+package ipc
 
 import (
 	"testing"
 
-	"github.com/onvos/arizuko/authd"
+	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/core"
 )
 
@@ -105,7 +105,7 @@ func TestAllToolsRegistered(t *testing.T) {
 }
 
 func TestIdentityUsedInServer(t *testing.T) {
-	id := authd.Resolve("world/parent/child")
+	id := auth.Resolve("world/parent/child")
 	if id.Tier != 2 {
 		t.Fatalf("got tier %d, want 2", id.Tier)
 	}

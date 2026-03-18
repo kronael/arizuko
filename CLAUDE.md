@@ -45,8 +45,8 @@ See ARCHITECTURE.md for package graph, schema, container model.
 - `router/` — XML message formatting, routing rules, outbound filtering
 - `chanreg/` — channel registry, health checks, HTTP channel proxy (outbound)
 - `api/` — HTTP API server (channel registration, inbound messages, chat metadata)
-- `icmcd/` — MCP server on unix socket (mark3labs/mcp-go, per-group, runtime auth via authd)
-- `authd/` — identity, authorization policy, JWT, OAuth, session middleware
+- `ipc/` — MCP server on unix socket (mark3labs/mcp-go, per-group, runtime auth via auth)
+- `auth/` — identity, authorization policy, JWT, OAuth, session middleware
 - `diary/` — YAML frontmatter diary annotations for agent context
 - `groupfolder/` — group path resolution and validation
 - `mountsec/` — mount allowlist validation
@@ -76,8 +76,8 @@ router/            Message formatting + routing
 chanreg/           Channel registry + HTTP proxy
 api/               Router HTTP API server
 compose/           Docker-compose generation
-icmcd/             MCP server (unix socket, runtime auth via authd)
-authd/             Identity, authorization, JWT, OAuth, middleware
+ipc/               MCP server (unix socket, runtime auth via auth)
+auth/              Identity, authorization, JWT, OAuth, middleware
 diary/             Diary annotations
 groupfolder/       Path validation
 mountsec/          Mount security
@@ -139,7 +139,7 @@ servers, CLAUDE.md, memory) is the primary extension mechanism.
 
 ## Service Architecture
 
-Daemons use 4+d naming. Shared SQLite DB (WAL mode).
+Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 
 | Name     | Type    | Role                              |
 | -------- | ------- | --------------------------------- |
@@ -147,8 +147,8 @@ Daemons use 4+d naming. Shared SQLite DB (WAL mode).
 | `timed`  | daemon  | Cron poll, writes to messages     |
 | `onbod`  | planned | Onboarding state machine          |
 | `dashd`  | planned | Operator dashboards (HTMX)        |
-| `icmcd`  | library | MCP server, identity stamping     |
-| `authd`  | library | Authorization policy, JWT, OAuth  |
+| `ipc`    | library | MCP server, identity stamping     |
+| `auth`   | library | Authorization policy, JWT, OAuth  |
 | `grants` | planned | Grant rule engine                 |
 | `notify` | planned | Operator notifications            |
 | `teled`  | daemon  | Telegram adapter (Go)             |
@@ -158,7 +158,7 @@ Daemons use 4+d naming. Shared SQLite DB (WAL mode).
 
 Deployment: `arizuko compose <instance>` generates docker-compose.yml.
 Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
-Libraries: `icmcd/`, `authd/`. Host CLI: `cmd/arizuko/main.go`.
+Libraries: `ipc/`, `auth/`. Host CLI: `cmd/arizuko/main.go`.
 
 See `specs/7/0-architecture.md` for full spec.
 
@@ -188,7 +188,7 @@ Red flags: `"error in message loop"`, `"container timeout"`,
 
 Key error emitters: `gateway/gateway.go` (message loop),
 `queue/queue.go` (concurrency/circuit breaker),
-`container/runner.go` (spawn/timeout), `icmcd/icmcd.go` (MCP).
+`container/runner.go` (spawn/timeout), `ipc/ipc.go` (MCP).
 
 ## Shipping changes
 
