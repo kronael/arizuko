@@ -64,3 +64,23 @@ func (s *Store) DeleteRoute(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM routes WHERE id = ?`, id)
 	return err
 }
+
+// RouteSourceJIDsInWorld returns distinct source JIDs where target is
+// worldFolder or any subfolder of it.
+func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string {
+	rows, err := s.db.Query(
+		`SELECT DISTINCT jid FROM routes
+		 WHERE target = ? OR target LIKE ?||'/%'`,
+		worldFolder, worldFolder)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var jid string
+		rows.Scan(&jid)
+		out = append(out, jid)
+	}
+	return out
+}

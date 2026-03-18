@@ -17,7 +17,25 @@ func TestBuildMCPServer(t *testing.T) {
 		HostGroupsDir: "/tmp/groups",
 	}
 	db := StoreFns{}
-	srv := buildMCPServer(gated, db, "world/parent")
+	// tier-0 gets all tools via ["*"] rules
+	srv := buildMCPServer(gated, db, "world", []string{"*"})
+	if srv == nil {
+		t.Fatal("expected non-nil server")
+	}
+}
+
+func TestBuildMCPServer_NoTools(t *testing.T) {
+	gated := GatedFns{
+		SendMessage:   func(jid, text string) error { return nil },
+		SendDocument:  func(jid, path, fn string) error { return nil },
+		ClearSession:  func(f string) {},
+		GetGroups:     func() map[string]core.Group { return nil },
+		GroupsDir:     "/tmp/groups",
+		HostGroupsDir: "/tmp/groups",
+	}
+	db := StoreFns{}
+	// empty rules → no tools registered (except get/set_grants for tier 0-1)
+	srv := buildMCPServer(gated, db, "world", []string{})
 	if srv == nil {
 		t.Fatal("expected non-nil server")
 	}
@@ -69,15 +87,13 @@ func TestGroupFolderByJid(t *testing.T) {
 }
 
 func TestAllToolsRegistered(t *testing.T) {
-	// Verify that buildMCPServer registers tools for a high-tier folder
-	// (previously these would have been filtered out)
 	gated := GatedFns{
 		SendMessage:      func(jid, text string) error { return nil },
 		SendDocument:     func(jid, path, fn string) error { return nil },
 		ClearSession:     func(f string) {},
 		GetGroups:        func() map[string]core.Group { return nil },
-		DelegateToChild:  func(f, p, j string, d int) error { return nil },
-		DelegateToParent: func(f, p, j string, d int) error { return nil },
+		DelegateToChild:  func(f, p, j string, d int, r []string) error { return nil },
+		DelegateToParent: func(f, p, j string, d int, r []string) error { return nil },
 		InjectMessage:    func(j, c, s, n string) (string, error) { return "", nil },
 		RegisterGroup:    func(j string, g core.Group) error { return nil },
 		GroupsDir:        "/tmp/groups",
@@ -94,14 +110,21 @@ func TestAllToolsRegistered(t *testing.T) {
 		AddRoute:         func(j string, r core.Route) (int64, error) { return 0, nil },
 		DeleteRoute:      func(id int64) error { return nil },
 		GetRoute:         func(id int64) (core.Route, bool) { return core.Route{}, false },
+		GetGrants:        func(f string) []string { return nil },
+		SetGrants:        func(f string, r []string) error { return nil },
 	}
 
-	// tier 3 folder — in old code, many tools would be excluded
-	srv := buildMCPServer(gated, db, "w/a/b/c")
+	// tier-0 with all rules — all tools should be present
+	srv := buildMCPServer(gated, db, "world", []string{"*"})
 	if srv == nil {
 		t.Fatal("expected non-nil server")
 	}
-	// If we got here without panic, all tools were registered successfully
+
+	// tier-3 with send_reply only — most tools absent
+	srv2 := buildMCPServer(gated, db, "w/a/b/c", []string{"send_reply"})
+	if srv2 == nil {
+		t.Fatal("expected non-nil server for tier-3")
+	}
 }
 
 func TestIdentityUsedInServer(t *testing.T) {

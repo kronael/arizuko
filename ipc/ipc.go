@@ -16,6 +16,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/core"
+	grantslib "github.com/onvos/arizuko/grants"
 	"github.com/onvos/arizuko/mountsec"
 	"github.com/robfig/cron/v3"
 )
@@ -27,8 +28,8 @@ type GatedFns struct {
 	InjectMessage    func(jid, content, sender, senderName string) (string, error)
 	RegisterGroup    func(jid string, group core.Group) error
 	GetGroups        func() map[string]core.Group
-	DelegateToChild  func(folder, prompt, jid string, depth int) error
-	DelegateToParent func(folder, prompt, jid string, depth int) error
+	DelegateToChild  func(folder, prompt, jid string, depth int, rules []string) error
+	DelegateToParent func(folder, prompt, jid string, depth int, rules []string) error
 	GroupsDir        string
 	HostGroupsDir    string
 }
@@ -44,9 +45,11 @@ type StoreFns struct {
 	AddRoute         func(jid string, r core.Route) (int64, error)
 	DeleteRoute      func(id int64) error
 	GetRoute         func(id int64) (core.Route, bool)
+	GetGrants        func(folder string) []string
+	SetGrants        func(folder string, rules []string) error
 }
 
-func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string) (func(), error) {
+func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string) (func(), error) {
 	os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -62,7 +65,7 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string) (func
 				return
 			}
 			go func() {
-				srv := buildMCPServer(gated, db, folder)
+				srv := buildMCPServer(gated, db, folder, rules)
 				stdioSrv := server.NewStdioServer(srv)
 				stdioSrv.Listen(ctx, conn, conn)
 				conn.Close()
@@ -105,451 +108,589 @@ func groupFolderByJid(groups map[string]core.Group, jid string) string {
 	return ""
 }
 
-func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServer {
+// allowed checks if an action is permitted by rules.
+func allowed(rules []string, action string, params map[string]string) bool {
+	return grantslib.CheckAction(rules, action, params)
+}
+
+// toolDesc appends matching rules to a description for manifest clarity.
+func toolDesc(base string, rules []string, action string) string {
+	matching := grantslib.MatchingRules(rules, action)
+	if len(matching) == 0 {
+		return base
+	}
+	data, _ := json.Marshal(matching)
+	return base + "\ngrants: " + string(data)
+}
+
+func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) *server.MCPServer {
 	id := auth.Resolve(folder)
 	srv := server.NewMCPServer("nanoclaw", "1.0")
 
 	// send_message
-	srv.AddTool(mcp.NewTool("send_message",
-		mcp.WithDescription("Send a text message to a chat"),
-		mcp.WithString("chatJid", mcp.Required()),
-		mcp.WithString("text", mcp.Required()),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := gated.SendMessage(req.GetString("chatJid", ""), req.GetString("text", "")); err != nil {
-			return toolErr(err.Error())
-		}
-		return toolOK()
-	})
+	if len(grantslib.MatchingRules(rules, "send_message")) > 0 {
+		srv.AddTool(mcp.NewTool("send_message",
+			mcp.WithDescription(toolDesc("Send a text message to a chat", rules, "send_message")),
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("text", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chatJid", "")
+			if !allowed(rules, "send_message", map[string]string{"jid": jid}) {
+				return toolErr("send_message: not permitted")
+			}
+			if err := gated.SendMessage(jid, req.GetString("text", "")); err != nil {
+				return toolErr(err.Error())
+			}
+			return toolOK()
+		})
+	}
 
 	// send_file
-	srv.AddTool(mcp.NewTool("send_file",
-		mcp.WithDescription("Send a file to a chat"),
-		mcp.WithString("chatJid", mcp.Required()),
-		mcp.WithString("filepath", mcp.Required()),
-		mcp.WithString("filename"),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		jid := req.GetString("chatJid", "")
-		fp := req.GetString("filepath", "")
-		name := req.GetString("filename", "")
-		rel := strings.TrimPrefix(strings.TrimPrefix(fp, "/workspace/group/"), "/workspace/group")
-		localPath := filepath.Join(gated.GroupsDir, folder, rel)
-		hostPath := filepath.Join(gated.HostGroupsDir, folder, rel)
-		if _, err := mountsec.ValidateFilePath(localPath, filepath.Join(gated.GroupsDir, folder)); err != nil {
-			return toolErr("path outside group dir")
-		}
-		if !strings.HasPrefix(hostPath, filepath.Join(gated.HostGroupsDir, folder)+"/") {
-			return toolErr("path outside group dir")
-		}
-		if err := gated.SendDocument(jid, localPath, name); err != nil {
-			return toolErr(err.Error())
-		}
-		return toolOK()
-	})
+	if len(grantslib.MatchingRules(rules, "send_file")) > 0 {
+		srv.AddTool(mcp.NewTool("send_file",
+			mcp.WithDescription(toolDesc("Send a file to a chat", rules, "send_file")),
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("filepath", mcp.Required()),
+			mcp.WithString("filename"),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chatJid", "")
+			if !allowed(rules, "send_file", map[string]string{"jid": jid}) {
+				return toolErr("send_file: not permitted")
+			}
+			fp := req.GetString("filepath", "")
+			name := req.GetString("filename", "")
+			rel := strings.TrimPrefix(strings.TrimPrefix(fp, "/workspace/group/"), "/workspace/group")
+			localPath := filepath.Join(gated.GroupsDir, folder, rel)
+			hostPath := filepath.Join(gated.HostGroupsDir, folder, rel)
+			if _, err := mountsec.ValidateFilePath(localPath, filepath.Join(gated.GroupsDir, folder)); err != nil {
+				return toolErr("path outside group dir")
+			}
+			if !strings.HasPrefix(hostPath, filepath.Join(gated.HostGroupsDir, folder)+"/") {
+				return toolErr("path outside group dir")
+			}
+			if err := gated.SendDocument(jid, localPath, name); err != nil {
+				return toolErr(err.Error())
+			}
+			return toolOK()
+		})
+	}
 
 	// reset_session
-	srv.AddTool(mcp.NewTool("reset_session",
-		mcp.WithDescription("Clear the agent session for a group"),
-		mcp.WithString("groupFolder", mcp.Required()),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		gf := req.GetString("groupFolder", "")
-		if gf == "" {
-			return toolErr("missing groupFolder")
-		}
-		if err := auth.Authorize(id, "reset_session", auth.AuthzTarget{TargetFolder: gf}); err != nil {
-			return toolErr(err.Error())
-		}
-		gated.ClearSession(gf)
-		return toolOK()
-	})
+	if len(grantslib.MatchingRules(rules, "reset_session")) > 0 {
+		srv.AddTool(mcp.NewTool("reset_session",
+			mcp.WithDescription(toolDesc("Clear the agent session for a group", rules, "reset_session")),
+			mcp.WithString("groupFolder", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			gf := req.GetString("groupFolder", "")
+			if gf == "" {
+				return toolErr("missing groupFolder")
+			}
+			if !allowed(rules, "reset_session", nil) {
+				return toolErr("reset_session: not permitted")
+			}
+			if err := auth.Authorize(id, "reset_session", auth.AuthzTarget{TargetFolder: gf}); err != nil {
+				return toolErr(err.Error())
+			}
+			gated.ClearSession(gf)
+			return toolOK()
+		})
+	}
 
 	// inject_message
-	srv.AddTool(mcp.NewTool("inject_message",
-		mcp.WithDescription("Inject a message into the store for a chat"),
-		mcp.WithString("chatJid", mcp.Required()),
-		mcp.WithString("content", mcp.Required()),
-		mcp.WithString("sender"),
-		mcp.WithString("senderName"),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := auth.Authorize(id, "inject_message", auth.AuthzTarget{}); err != nil {
-			return toolErr(err.Error())
-		}
-		if gated.InjectMessage == nil {
-			return toolErr("inject_message not configured")
-		}
-		jid := req.GetString("chatJid", "")
-		sender := req.GetString("sender", "system")
-		if sender == "" {
-			sender = "system"
-		}
-		senderName := req.GetString("senderName", "system")
-		if senderName == "" {
-			senderName = "system"
-		}
-		mid, err := gated.InjectMessage(jid, req.GetString("content", ""), sender, senderName)
-		if err != nil {
-			return toolErr(err.Error())
-		}
-		slog.Info("message injected", "id", mid, "chatJid", jid, "sourceGroup", folder)
-		return toolJSON(map[string]any{"injected": true, "id": mid})
-	})
+	if len(grantslib.MatchingRules(rules, "inject_message")) > 0 {
+		srv.AddTool(mcp.NewTool("inject_message",
+			mcp.WithDescription(toolDesc("Inject a message into the store for a chat", rules, "inject_message")),
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("content", mcp.Required()),
+			mcp.WithString("sender"),
+			mcp.WithString("senderName"),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !allowed(rules, "inject_message", nil) {
+				return toolErr("inject_message: not permitted")
+			}
+			if gated.InjectMessage == nil {
+				return toolErr("inject_message not configured")
+			}
+			jid := req.GetString("chatJid", "")
+			sender := req.GetString("sender", "system")
+			if sender == "" {
+				sender = "system"
+			}
+			senderName := req.GetString("senderName", "system")
+			if senderName == "" {
+				senderName = "system"
+			}
+			mid, err := gated.InjectMessage(jid, req.GetString("content", ""), sender, senderName)
+			if err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("message injected", "id", mid, "chatJid", jid, "sourceGroup", folder)
+			return toolJSON(map[string]any{"injected": true, "id": mid})
+		})
+	}
 
 	// register_group
-	srv.AddTool(mcp.NewTool("register_group",
-		mcp.WithDescription("Register a new agent group"),
-		mcp.WithString("jid", mcp.Required()),
-		mcp.WithString("name", mcp.Required()),
-		mcp.WithString("folder", mcp.Required()),
-		mcp.WithString("parent"),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if gated.RegisterGroup == nil {
-			return toolErr("register_group not configured")
-		}
-		jid := req.GetString("jid", "")
-		gfld := req.GetString("folder", "")
-
-		if err := auth.Authorize(id, "register_group", auth.AuthzTarget{TargetFolder: gfld}); err != nil {
-			return toolErr(err.Error())
-		}
-
-		groups := gated.GetGroups()
-		parent := folder
-		if p, ok := groups[jid]; ok {
-			parent = p.Folder
-		}
-		if pg, ok := groups[parent]; ok && pg.Config.MaxChildren >= 0 {
-			if pg.Config.MaxChildren == 0 {
-				return toolErr("spawning disabled for this group")
+	if len(grantslib.MatchingRules(rules, "register_group")) > 0 {
+		srv.AddTool(mcp.NewTool("register_group",
+			mcp.WithDescription(toolDesc("Register a new agent group", rules, "register_group")),
+			mcp.WithString("jid", mcp.Required()),
+			mcp.WithString("name", mcp.Required()),
+			mcp.WithString("folder", mcp.Required()),
+			mcp.WithString("parent"),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.RegisterGroup == nil {
+				return toolErr("register_group not configured")
 			}
-			n := 0
-			for _, g := range groups {
-				if auth.IsDirectChild(parent, g.Folder) {
-					n++
+			jid := req.GetString("jid", "")
+			gfld := req.GetString("folder", "")
+			if !allowed(rules, "register_group", nil) {
+				return toolErr("register_group: not permitted")
+			}
+			if err := auth.Authorize(id, "register_group", auth.AuthzTarget{TargetFolder: gfld}); err != nil {
+				return toolErr(err.Error())
+			}
+
+			groups := gated.GetGroups()
+			parent := folder
+			if p, ok := groups[jid]; ok {
+				parent = p.Folder
+			}
+			if pg, ok := groups[parent]; ok && pg.Config.MaxChildren >= 0 {
+				if pg.Config.MaxChildren == 0 {
+					return toolErr("spawning disabled for this group")
+				}
+				n := 0
+				for _, g := range groups {
+					if auth.IsDirectChild(parent, g.Folder) {
+						n++
+					}
+				}
+				if n >= pg.Config.MaxChildren {
+					return toolErr(fmt.Sprintf("max_children limit reached (%d)", pg.Config.MaxChildren))
 				}
 			}
-			if n >= pg.Config.MaxChildren {
-				return toolErr(fmt.Sprintf("max_children limit reached (%d)", pg.Config.MaxChildren))
-			}
-		}
 
-		gr := core.Group{
-			JID:     jid,
-			Name:    req.GetString("name", ""),
-			Folder:  gfld,
-			AddedAt: time.Now(),
-			Parent:  req.GetString("parent", ""),
-		}
-		if err := gated.RegisterGroup(jid, gr); err != nil {
-			return toolErr(err.Error())
-		}
-		slog.Info("group registered", "jid", jid, "folder", gfld, "sourceGroup", folder)
-		return toolJSON(map[string]any{"registered": true})
-	})
+			gr := core.Group{
+				JID:     jid,
+				Name:    req.GetString("name", ""),
+				Folder:  gfld,
+				AddedAt: time.Now(),
+				Parent:  req.GetString("parent", ""),
+			}
+			if err := gated.RegisterGroup(jid, gr); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("group registered", "jid", jid, "folder", gfld, "sourceGroup", folder)
+			return toolJSON(map[string]any{"registered": true})
+		})
+	}
 
 	// escalate_group
-	srv.AddTool(mcp.NewTool("escalate_group",
-		mcp.WithDescription("Escalate a task to the parent group"),
-		mcp.WithString("prompt", mcp.Required()),
-		mcp.WithString("chatJid", mcp.Required()),
-		mcp.WithNumber("depth"),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := auth.Authorize(id, "escalate_group", auth.AuthzTarget{}); err != nil {
-			return toolErr(err.Error())
-		}
-		if gated.DelegateToParent == nil {
-			return toolErr("escalate_group not configured")
-		}
-		prompt := req.GetString("prompt", "")
-		chatJid := req.GetString("chatJid", "")
-		depth := req.GetInt("depth", 0)
-		if depth >= 1 {
-			return toolErr(fmt.Sprintf("delegation depth %d exceeds limit 1", depth))
-		}
-		idx := strings.LastIndex(folder, "/")
-		if idx == -1 {
-			return toolErr("unauthorized: no parent group")
-		}
-		parent := folder[:idx]
-		slog.Info("escalating to parent", "sourceGroup", folder, "parent", parent, "depth", depth)
-		if err := gated.DelegateToParent(parent, prompt, chatJid, depth+1); err != nil {
-			return toolErr(err.Error())
-		}
-		return toolJSON(map[string]any{"queued": true, "parent": parent})
-	})
+	if len(grantslib.MatchingRules(rules, "escalate_group")) > 0 {
+		srv.AddTool(mcp.NewTool("escalate_group",
+			mcp.WithDescription(toolDesc("Escalate a task to the parent group", rules, "escalate_group")),
+			mcp.WithString("prompt", mcp.Required()),
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithNumber("depth"),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !allowed(rules, "escalate_group", nil) {
+				return toolErr("escalate_group: not permitted")
+			}
+			if gated.DelegateToParent == nil {
+				return toolErr("escalate_group not configured")
+			}
+			prompt := req.GetString("prompt", "")
+			chatJid := req.GetString("chatJid", "")
+			depth := req.GetInt("depth", 0)
+			if depth >= 1 {
+				return toolErr(fmt.Sprintf("delegation depth %d exceeds limit 1", depth))
+			}
+			idx := strings.LastIndex(folder, "/")
+			if idx == -1 {
+				return toolErr("unauthorized: no parent group")
+			}
+			parent := folder[:idx]
+			slog.Info("escalating to parent", "sourceGroup", folder, "parent", parent, "depth", depth)
+			if err := gated.DelegateToParent(parent, prompt, chatJid, depth+1, nil); err != nil {
+				return toolErr(err.Error())
+			}
+			return toolJSON(map[string]any{"queued": true, "parent": parent})
+		})
+	}
 
 	// delegate_group
-	srv.AddTool(mcp.NewTool("delegate_group",
-		mcp.WithDescription("Delegate a task to a child group"),
-		mcp.WithString("group", mcp.Required()),
-		mcp.WithString("prompt", mcp.Required()),
-		mcp.WithString("chatJid", mcp.Required()),
-		mcp.WithNumber("depth"),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		target := req.GetString("group", "")
-		if err := auth.Authorize(id, "delegate_group", auth.AuthzTarget{TargetFolder: target}); err != nil {
-			return toolErr(err.Error())
-		}
-		if gated.DelegateToChild == nil {
-			return toolErr("delegate_group not configured")
-		}
-		prompt := req.GetString("prompt", "")
-		chatJid := req.GetString("chatJid", "")
-		depth := req.GetInt("depth", 0)
-		if depth >= 1 {
-			return toolErr(fmt.Sprintf("delegation depth %d exceeds limit 1", depth))
-		}
-		slog.Info("delegating to child", "sourceGroup", folder, "child", target, "depth", depth)
-		if err := gated.DelegateToChild(target, prompt, chatJid, depth+1); err != nil {
-			return toolErr(err.Error())
-		}
-		return toolJSON(map[string]any{"queued": true})
-	})
+	if len(grantslib.MatchingRules(rules, "delegate_group")) > 0 {
+		srv.AddTool(mcp.NewTool("delegate_group",
+			mcp.WithDescription(toolDesc("Delegate a task to a child group", rules, "delegate_group")),
+			mcp.WithString("group", mcp.Required()),
+			mcp.WithString("prompt", mcp.Required()),
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithNumber("depth"),
+			mcp.WithString("grants"),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			target := req.GetString("group", "")
+			if !allowed(rules, "delegate_group", nil) {
+				return toolErr("delegate_group: not permitted")
+			}
+			if err := auth.Authorize(id, "delegate_group", auth.AuthzTarget{TargetFolder: target}); err != nil {
+				return toolErr(err.Error())
+			}
+			if gated.DelegateToChild == nil {
+				return toolErr("delegate_group not configured")
+			}
+			prompt := req.GetString("prompt", "")
+			chatJid := req.GetString("chatJid", "")
+			depth := req.GetInt("depth", 0)
+			if depth >= 1 {
+				return toolErr(fmt.Sprintf("delegation depth %d exceeds limit 1", depth))
+			}
+
+			var delegateRules []string
+			if grantStr := req.GetString("grants", ""); grantStr != "" {
+				var requested []string
+				if err := json.Unmarshal([]byte(grantStr), &requested); err != nil {
+					return toolErr("invalid grants json: " + err.Error())
+				}
+				delegateRules = grantslib.NarrowRules(rules, requested)
+			}
+
+			slog.Info("delegating to child", "sourceGroup", folder, "child", target, "depth", depth)
+			if err := gated.DelegateToChild(target, prompt, chatJid, depth+1, delegateRules); err != nil {
+				return toolErr(err.Error())
+			}
+			return toolJSON(map[string]any{"queued": true})
+		})
+	}
 
 	// get_routes
-	srv.AddTool(mcp.NewTool("get_routes",
-		mcp.WithDescription("Get routes for a JID"),
-		mcp.WithString("jid", mcp.Required()),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := auth.Authorize(id, "get_routes", auth.AuthzTarget{}); err != nil {
-			return toolErr(err.Error())
-		}
-		if db.GetRoutes == nil || gated.GetGroups == nil {
-			return toolErr("get_routes not configured")
-		}
-		jid := req.GetString("jid", "")
-		if jid == "" {
-			return toolErr("jid required")
-		}
-		tf := groupFolderByJid(gated.GetGroups(), jid)
-		if err := auth.Authorize(id, "get_routes", auth.AuthzTarget{RouteTarget: tf}); err != nil {
-			return toolErr(err.Error())
-		}
-		return toolJSON(map[string]any{"jid": jid, "routes": db.GetRoutes(jid)})
-	})
+	if len(grantslib.MatchingRules(rules, "get_routes")) > 0 {
+		srv.AddTool(mcp.NewTool("get_routes",
+			mcp.WithDescription(toolDesc("Get routes for a JID", rules, "get_routes")),
+			mcp.WithString("jid", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !allowed(rules, "get_routes", nil) {
+				return toolErr("get_routes: not permitted")
+			}
+			if db.GetRoutes == nil || gated.GetGroups == nil {
+				return toolErr("get_routes not configured")
+			}
+			jid := req.GetString("jid", "")
+			if jid == "" {
+				return toolErr("jid required")
+			}
+			tf := groupFolderByJid(gated.GetGroups(), jid)
+			if err := auth.Authorize(id, "get_routes", auth.AuthzTarget{RouteTarget: tf}); err != nil {
+				return toolErr(err.Error())
+			}
+			return toolJSON(map[string]any{"jid": jid, "routes": db.GetRoutes(jid)})
+		})
+	}
 
 	// set_routes
-	srv.AddTool(mcp.NewTool("set_routes",
-		mcp.WithDescription("Replace all routes for a JID"),
-		mcp.WithString("jid", mcp.Required()),
-		mcp.WithString("routes", mcp.Required()),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := auth.Authorize(id, "set_routes", auth.AuthzTarget{}); err != nil {
-			return toolErr(err.Error())
-		}
-		if db.SetRoutes == nil || gated.GetGroups == nil {
-			return toolErr("set_routes not configured")
-		}
-		jid := req.GetString("jid", "")
-		if jid == "" {
-			return toolErr("jid required")
-		}
-		tf := groupFolderByJid(gated.GetGroups(), jid)
-		if err := auth.Authorize(id, "set_routes", auth.AuthzTarget{RouteTarget: tf}); err != nil {
-			return toolErr(err.Error())
-		}
-		var routes []core.Route
-		if err := json.Unmarshal([]byte(req.GetString("routes", "")), &routes); err != nil {
-			return toolErr("invalid routes json: " + err.Error())
-		}
-		if err := db.SetRoutes(jid, routes); err != nil {
-			return toolErr(err.Error())
-		}
-		slog.Info("routes set", "jid", jid, "count", len(routes))
-		return toolJSON(map[string]any{"updated": true, "count": len(routes)})
-	})
+	if len(grantslib.MatchingRules(rules, "set_routes")) > 0 {
+		srv.AddTool(mcp.NewTool("set_routes",
+			mcp.WithDescription(toolDesc("Replace all routes for a JID", rules, "set_routes")),
+			mcp.WithString("jid", mcp.Required()),
+			mcp.WithString("routes", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !allowed(rules, "set_routes", nil) {
+				return toolErr("set_routes: not permitted")
+			}
+			if db.SetRoutes == nil || gated.GetGroups == nil {
+				return toolErr("set_routes not configured")
+			}
+			jid := req.GetString("jid", "")
+			if jid == "" {
+				return toolErr("jid required")
+			}
+			tf := groupFolderByJid(gated.GetGroups(), jid)
+			if err := auth.Authorize(id, "set_routes", auth.AuthzTarget{RouteTarget: tf}); err != nil {
+				return toolErr(err.Error())
+			}
+			var routes []core.Route
+			if err := json.Unmarshal([]byte(req.GetString("routes", "")), &routes); err != nil {
+				return toolErr("invalid routes json: " + err.Error())
+			}
+			if err := db.SetRoutes(jid, routes); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("routes set", "jid", jid, "count", len(routes))
+			return toolJSON(map[string]any{"updated": true, "count": len(routes)})
+		})
+	}
 
 	// add_route
-	srv.AddTool(mcp.NewTool("add_route",
-		mcp.WithDescription("Add a single route for a JID"),
-		mcp.WithString("jid", mcp.Required()),
-		mcp.WithString("route", mcp.Required()),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := auth.Authorize(id, "add_route", auth.AuthzTarget{}); err != nil {
-			return toolErr(err.Error())
-		}
-		if db.AddRoute == nil || gated.GetGroups == nil {
-			return toolErr("add_route not configured")
-		}
-		jid := req.GetString("jid", "")
-		if jid == "" {
-			return toolErr("jid required")
-		}
-		var route core.Route
-		if err := json.Unmarshal([]byte(req.GetString("route", "")), &route); err != nil {
-			return toolErr("invalid route json")
-		}
-		if route.Target == "" {
-			return toolErr("route.target required")
-		}
-		if !isRouteTypeValid(route.Type) {
-			return toolErr("invalid route type")
-		}
-		if err := auth.Authorize(id, "add_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
-			return toolErr(err.Error())
-		}
-		rid, err := db.AddRoute(jid, route)
-		if err != nil {
-			return toolErr(err.Error())
-		}
-		slog.Info("route added", "jid", jid, "id", rid, "type", route.Type)
-		return toolJSON(map[string]any{"id": rid, "jid": jid})
-	})
+	if len(grantslib.MatchingRules(rules, "add_route")) > 0 {
+		srv.AddTool(mcp.NewTool("add_route",
+			mcp.WithDescription(toolDesc("Add a single route for a JID", rules, "add_route")),
+			mcp.WithString("jid", mcp.Required()),
+			mcp.WithString("route", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !allowed(rules, "add_route", nil) {
+				return toolErr("add_route: not permitted")
+			}
+			if db.AddRoute == nil || gated.GetGroups == nil {
+				return toolErr("add_route not configured")
+			}
+			jid := req.GetString("jid", "")
+			if jid == "" {
+				return toolErr("jid required")
+			}
+			var route core.Route
+			if err := json.Unmarshal([]byte(req.GetString("route", "")), &route); err != nil {
+				return toolErr("invalid route json")
+			}
+			if route.Target == "" {
+				return toolErr("route.target required")
+			}
+			if !isRouteTypeValid(route.Type) {
+				return toolErr("invalid route type")
+			}
+			if err := auth.Authorize(id, "add_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
+				return toolErr(err.Error())
+			}
+			rid, err := db.AddRoute(jid, route)
+			if err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("route added", "jid", jid, "id", rid, "type", route.Type)
+			return toolJSON(map[string]any{"id": rid, "jid": jid})
+		})
+	}
 
 	// delete_route
-	srv.AddTool(mcp.NewTool("delete_route",
-		mcp.WithDescription("Delete a route by ID"),
-		mcp.WithNumber("id", mcp.Required()),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := auth.Authorize(id, "delete_route", auth.AuthzTarget{}); err != nil {
-			return toolErr(err.Error())
-		}
-		if db.DeleteRoute == nil || db.GetRoute == nil {
-			return toolErr("delete_route not configured")
-		}
-		rid := int64(req.GetInt("id", 0))
-		if rid == 0 {
-			return toolErr("id required")
-		}
-		route, ok := db.GetRoute(rid)
-		if !ok {
-			return toolErr(fmt.Sprintf("route not found: %d", rid))
-		}
-		if err := auth.Authorize(id, "delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
-			return toolErr(err.Error())
-		}
-		if err := db.DeleteRoute(rid); err != nil {
-			return toolErr(err.Error())
-		}
-		slog.Info("route deleted", "id", rid)
-		return toolJSON(map[string]any{"deleted": true, "id": rid})
-	})
+	if len(grantslib.MatchingRules(rules, "delete_route")) > 0 {
+		srv.AddTool(mcp.NewTool("delete_route",
+			mcp.WithDescription(toolDesc("Delete a route by ID", rules, "delete_route")),
+			mcp.WithNumber("id", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !allowed(rules, "delete_route", nil) {
+				return toolErr("delete_route: not permitted")
+			}
+			if db.DeleteRoute == nil || db.GetRoute == nil {
+				return toolErr("delete_route not configured")
+			}
+			rid := int64(req.GetInt("id", 0))
+			if rid == 0 {
+				return toolErr("id required")
+			}
+			route, ok := db.GetRoute(rid)
+			if !ok {
+				return toolErr(fmt.Sprintf("route not found: %d", rid))
+			}
+			if err := auth.Authorize(id, "delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
+				return toolErr(err.Error())
+			}
+			if err := db.DeleteRoute(rid); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("route deleted", "id", rid)
+			return toolJSON(map[string]any{"deleted": true, "id": rid})
+		})
+	}
 
 	// schedule_task
-	srv.AddTool(mcp.NewTool("schedule_task",
-		mcp.WithDescription("Schedule a recurring or one-time task"),
-		mcp.WithString("targetJid", mcp.Required()),
-		mcp.WithString("prompt", mcp.Required()),
-		mcp.WithString("cron"),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if db.CreateTask == nil || gated.GetGroups == nil {
-			return toolErr("schedule_task not configured")
-		}
-		targetJid := req.GetString("targetJid", "")
-		cronExpr := req.GetString("cron", "")
-
-		groups := gated.GetGroups()
-		targetGroup, ok := groups[targetJid]
-		if !ok {
-			return toolErr("target group not registered")
-		}
-		targetFolder := targetGroup.Folder
-
-		if err := auth.Authorize(id, "schedule_task", auth.AuthzTarget{TaskOwner: targetFolder}); err != nil {
-			return toolErr(err.Error())
-		}
-
-		var nextRun *time.Time
-		if cronExpr != "" {
-			p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-			sched, err := p.Parse(cronExpr)
-			if err != nil {
-				return toolErr(fmt.Sprintf("invalid cron %q: %v", cronExpr, err))
+	if len(grantslib.MatchingRules(rules, "schedule_task")) > 0 {
+		srv.AddTool(mcp.NewTool("schedule_task",
+			mcp.WithDescription(toolDesc("Schedule a recurring or one-time task", rules, "schedule_task")),
+			mcp.WithString("targetJid", mcp.Required()),
+			mcp.WithString("prompt", mcp.Required()),
+			mcp.WithString("cron"),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !allowed(rules, "schedule_task", nil) {
+				return toolErr("schedule_task: not permitted")
 			}
-			t := sched.Next(time.Now())
-			nextRun = &t
-		}
+			if db.CreateTask == nil || gated.GetGroups == nil {
+				return toolErr("schedule_task not configured")
+			}
+			targetJid := req.GetString("targetJid", "")
+			cronExpr := req.GetString("cron", "")
 
-		taskID := fmt.Sprintf("task-%d-%s", time.Now().UnixMilli(), uuid.New().String()[:8])
-		task := core.Task{
-			ID: taskID, Owner: targetFolder, ChatJID: targetJid,
-			Prompt: req.GetString("prompt", ""), Cron: cronExpr,
-			NextRun: nextRun, Status: core.TaskActive, Created: time.Now(),
-		}
-		if err := db.CreateTask(task); err != nil {
-			return toolErr(err.Error())
-		}
-		slog.Info("task created via mcp", "taskId", taskID, "sourceGroup", folder,
-			"targetFolder", targetFolder)
-		return toolJSON(map[string]any{"taskId": taskID})
-	})
+			groups := gated.GetGroups()
+			targetGroup, ok := groups[targetJid]
+			if !ok {
+				return toolErr("target group not registered")
+			}
+			targetFolder := targetGroup.Folder
+
+			if err := auth.Authorize(id, "schedule_task", auth.AuthzTarget{TaskOwner: targetFolder}); err != nil {
+				return toolErr(err.Error())
+			}
+
+			var nextRun *time.Time
+			if cronExpr != "" {
+				p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+				sched, err := p.Parse(cronExpr)
+				if err != nil {
+					return toolErr(fmt.Sprintf("invalid cron %q: %v", cronExpr, err))
+				}
+				t := sched.Next(time.Now())
+				nextRun = &t
+			}
+
+			taskID := fmt.Sprintf("task-%d-%s", time.Now().UnixMilli(), uuid.New().String()[:8])
+			task := core.Task{
+				ID: taskID, Owner: targetFolder, ChatJID: targetJid,
+				Prompt: req.GetString("prompt", ""), Cron: cronExpr,
+				NextRun: nextRun, Status: core.TaskActive, Created: time.Now(),
+			}
+			if err := db.CreateTask(task); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("task created via mcp", "taskId", taskID, "sourceGroup", folder,
+				"targetFolder", targetFolder)
+			return toolJSON(map[string]any{"taskId": taskID})
+		})
+	}
 
 	// pause_task
-	srv.AddTool(mcp.NewTool("pause_task",
-		mcp.WithDescription("Pause a scheduled task"),
-		mcp.WithString("taskId", mcp.Required()),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if db.GetTask == nil || db.UpdateTaskStatus == nil {
-			return toolErr("pause_task not configured")
-		}
-		taskID := req.GetString("taskId", "")
-		task, ok := db.GetTask(taskID)
-		if !ok {
-			return toolErr("task not found")
-		}
-		if err := auth.Authorize(id, "pause_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
-			return toolErr(err.Error())
-		}
-		if err := db.UpdateTaskStatus(taskID, core.TaskPaused); err != nil {
-			return toolErr(err.Error())
-		}
-		slog.Info("task paused via mcp", "taskId", taskID, "sourceGroup", folder)
-		return toolJSON(map[string]any{"ok": true})
-	})
+	if len(grantslib.MatchingRules(rules, "pause_task")) > 0 {
+		srv.AddTool(mcp.NewTool("pause_task",
+			mcp.WithDescription(toolDesc("Pause a scheduled task", rules, "pause_task")),
+			mcp.WithString("taskId", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !allowed(rules, "pause_task", nil) {
+				return toolErr("pause_task: not permitted")
+			}
+			if db.GetTask == nil || db.UpdateTaskStatus == nil {
+				return toolErr("pause_task not configured")
+			}
+			taskID := req.GetString("taskId", "")
+			task, ok := db.GetTask(taskID)
+			if !ok {
+				return toolErr("task not found")
+			}
+			if err := auth.Authorize(id, "pause_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
+				return toolErr(err.Error())
+			}
+			if err := db.UpdateTaskStatus(taskID, core.TaskPaused); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("task paused via mcp", "taskId", taskID, "sourceGroup", folder)
+			return toolJSON(map[string]any{"ok": true})
+		})
+	}
 
 	// resume_task
-	srv.AddTool(mcp.NewTool("resume_task",
-		mcp.WithDescription("Resume a paused scheduled task"),
-		mcp.WithString("taskId", mcp.Required()),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if db.GetTask == nil || db.UpdateTaskStatus == nil {
-			return toolErr("resume_task not configured")
-		}
-		taskID := req.GetString("taskId", "")
-		task, ok := db.GetTask(taskID)
-		if !ok {
-			return toolErr("task not found")
-		}
-		if err := auth.Authorize(id, "resume_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
-			return toolErr(err.Error())
-		}
-		if err := db.UpdateTaskStatus(taskID, core.TaskActive); err != nil {
-			return toolErr(err.Error())
-		}
-		slog.Info("task resumed via mcp", "taskId", taskID, "sourceGroup", folder)
-		return toolJSON(map[string]any{"ok": true})
-	})
+	if len(grantslib.MatchingRules(rules, "resume_task")) > 0 {
+		srv.AddTool(mcp.NewTool("resume_task",
+			mcp.WithDescription(toolDesc("Resume a paused scheduled task", rules, "resume_task")),
+			mcp.WithString("taskId", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !allowed(rules, "resume_task", nil) {
+				return toolErr("resume_task: not permitted")
+			}
+			if db.GetTask == nil || db.UpdateTaskStatus == nil {
+				return toolErr("resume_task not configured")
+			}
+			taskID := req.GetString("taskId", "")
+			task, ok := db.GetTask(taskID)
+			if !ok {
+				return toolErr("task not found")
+			}
+			if err := auth.Authorize(id, "resume_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
+				return toolErr(err.Error())
+			}
+			if err := db.UpdateTaskStatus(taskID, core.TaskActive); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("task resumed via mcp", "taskId", taskID, "sourceGroup", folder)
+			return toolJSON(map[string]any{"ok": true})
+		})
+	}
 
 	// cancel_task
-	srv.AddTool(mcp.NewTool("cancel_task",
-		mcp.WithDescription("Cancel and delete a scheduled task"),
-		mcp.WithString("taskId", mcp.Required()),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if db.GetTask == nil || db.DeleteTask == nil {
-			return toolErr("cancel_task not configured")
-		}
-		taskID := req.GetString("taskId", "")
-		task, ok := db.GetTask(taskID)
-		if !ok {
-			return toolErr("task not found")
-		}
-		if err := auth.Authorize(id, "cancel_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
-			return toolErr(err.Error())
-		}
-		if err := db.DeleteTask(taskID); err != nil {
-			return toolErr(err.Error())
-		}
-		slog.Info("task cancelled via mcp", "taskId", taskID, "sourceGroup", folder)
-		return toolJSON(map[string]any{"ok": true})
-	})
+	if len(grantslib.MatchingRules(rules, "cancel_task")) > 0 {
+		srv.AddTool(mcp.NewTool("cancel_task",
+			mcp.WithDescription(toolDesc("Cancel and delete a scheduled task", rules, "cancel_task")),
+			mcp.WithString("taskId", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !allowed(rules, "cancel_task", nil) {
+				return toolErr("cancel_task: not permitted")
+			}
+			if db.GetTask == nil || db.DeleteTask == nil {
+				return toolErr("cancel_task not configured")
+			}
+			taskID := req.GetString("taskId", "")
+			task, ok := db.GetTask(taskID)
+			if !ok {
+				return toolErr("task not found")
+			}
+			if err := auth.Authorize(id, "cancel_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
+				return toolErr(err.Error())
+			}
+			if err := db.DeleteTask(taskID); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("task cancelled via mcp", "taskId", taskID, "sourceGroup", folder)
+			return toolJSON(map[string]any{"ok": true})
+		})
+	}
 
 	// list_tasks
-	srv.AddTool(mcp.NewTool("list_tasks",
-		mcp.WithDescription("List scheduled tasks visible to this group"),
-	), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if db.ListTasks == nil {
-			return toolErr("list_tasks not configured")
-		}
-		return toolJSON(db.ListTasks(folder, id.Tier == 0))
-	})
+	if len(grantslib.MatchingRules(rules, "list_tasks")) > 0 {
+		srv.AddTool(mcp.NewTool("list_tasks",
+			mcp.WithDescription(toolDesc("List scheduled tasks visible to this group", rules, "list_tasks")),
+		), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !allowed(rules, "list_tasks", nil) {
+				return toolErr("list_tasks: not permitted")
+			}
+			if db.ListTasks == nil {
+				return toolErr("list_tasks not configured")
+			}
+			return toolJSON(db.ListTasks(folder, id.Tier == 0))
+		})
+	}
+
+	// get_grants — tier 0-1 only
+	if id.Tier <= 1 {
+		srv.AddTool(mcp.NewTool("get_grants",
+			mcp.WithDescription("Get grant rules for a folder (tier 0-1 only)"),
+			mcp.WithString("folder", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if db.GetGrants == nil {
+				return toolErr("get_grants not configured")
+			}
+			gf := req.GetString("folder", "")
+			if gf == "" {
+				return toolErr("folder required")
+			}
+			if err := auth.Authorize(id, "get_grants", auth.AuthzTarget{TargetFolder: gf}); err != nil {
+				return toolErr(err.Error())
+			}
+			r := db.GetGrants(gf)
+			return toolJSON(map[string]any{"folder": gf, "rules": r})
+		})
+	}
+
+	// set_grants — tier 0-1 only
+	if id.Tier <= 1 {
+		srv.AddTool(mcp.NewTool("set_grants",
+			mcp.WithDescription("Set grant rules for a folder (tier 0-1 only)"),
+			mcp.WithString("folder", mcp.Required()),
+			mcp.WithString("rules", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if db.SetGrants == nil {
+				return toolErr("set_grants not configured")
+			}
+			gf := req.GetString("folder", "")
+			if gf == "" {
+				return toolErr("folder required")
+			}
+			if err := auth.Authorize(id, "set_grants", auth.AuthzTarget{TargetFolder: gf}); err != nil {
+				return toolErr(err.Error())
+			}
+			var newRules []string
+			if err := json.Unmarshal([]byte(req.GetString("rules", "")), &newRules); err != nil {
+				return toolErr("invalid rules json: " + err.Error())
+			}
+			if err := db.SetGrants(gf, newRules); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("grants set", "folder", gf, "count", len(newRules), "sourceGroup", folder)
+			return toolJSON(map[string]any{"ok": true, "folder": gf, "count": len(newRules)})
+		})
+	}
 
 	return srv
 }

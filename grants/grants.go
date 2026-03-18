@@ -3,7 +3,7 @@ package grants
 import (
 	"strings"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/store"
 )
 
 // Rule is a parsed grant rule.
@@ -207,35 +207,52 @@ func NarrowRules(parent, child []string) []string {
 // platformSendActions are the per-platform actions granted at tier 1+.
 var platformSendActions = []string{"send_message", "send_file", "send_reply"}
 
-// DeriveRules returns default rules for a folder+tier based on routes.
-// routes should be all routes visible at the appropriate scope for the tier.
-func DeriveRules(routes []core.Route, folder string, tier int) []string {
+// tier1FixedActions are management actions always included at tier 1.
+var tier1FixedActions = []string{
+	"schedule_task", "register_group", "escalate_group", "delegate_group",
+	"get_routes", "set_routes", "add_route", "delete_route",
+	"list_tasks", "pause_task", "resume_task", "cancel_task",
+}
+
+// DeriveRules returns default rules for folder+tier, querying the store for
+// route JIDs in the appropriate scope.
+// worldFolder is the tier-1 ancestor (same as folder for tier-0/1 groups).
+// DB override rows (from s.GetGrants) are appended by the caller.
+func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []string {
 	switch tier {
 	case 0:
 		return []string{"*"}
 	case 1:
-		return deriveTier1Rules(routes)
+		var jids []string
+		if s != nil {
+			jids = s.RouteSourceJIDsInWorld(worldFolder)
+		}
+		return deriveTier1Rules(jids)
 	case 2:
-		return deriveTier2Rules(routes, folder)
+		var jids []string
+		if s != nil {
+			jids = s.RouteSourceJIDsInWorld(folder)
+		}
+		return deriveTier2Rules(jids)
 	default:
 		return []string{"send_reply"}
 	}
 }
 
-func deriveTier1Rules(routes []core.Route) []string {
-	platforms := extractPlatforms(routes)
+func deriveTier1Rules(jids []string) []string {
+	platforms := extractPlatforms(jids)
 	var rules []string
 	for _, p := range platforms {
 		for _, a := range platformSendActions {
 			rules = append(rules, a+"(jid="+p+":*)")
 		}
 	}
-	rules = append(rules, "schedule_task", "register_group", "escalate_group", "delegate_group")
+	rules = append(rules, tier1FixedActions...)
 	return rules
 }
 
-func deriveTier2Rules(routes []core.Route, folder string) []string {
-	platforms := extractPlatformsForFolder(routes, folder)
+func deriveTier2Rules(jids []string) []string {
+	platforms := extractPlatforms(jids)
 	var rules []string
 	rules = append(rules, "send_message", "send_reply")
 	for _, p := range platforms {
@@ -246,25 +263,12 @@ func deriveTier2Rules(routes []core.Route, folder string) []string {
 	return rules
 }
 
-// extractPlatforms returns sorted unique platform prefixes from all route JIDs.
-func extractPlatforms(routes []core.Route) []string {
+// extractPlatforms returns sorted unique platform prefixes from JIDs.
+func extractPlatforms(jids []string) []string {
 	seen := map[string]bool{}
-	for _, r := range routes {
-		if p := jidPlatform(r.JID); p != "" {
+	for _, jid := range jids {
+		if p := jidPlatform(jid); p != "" {
 			seen[p] = true
-		}
-	}
-	return sortedKeys(seen)
-}
-
-// extractPlatformsForFolder returns platforms for routes targeting folder or its children.
-func extractPlatformsForFolder(routes []core.Route, folder string) []string {
-	seen := map[string]bool{}
-	for _, r := range routes {
-		if r.Target == folder || strings.HasPrefix(r.Target, folder+"/") {
-			if p := jidPlatform(r.JID); p != "" {
-				seen[p] = true
-			}
 		}
 	}
 	return sortedKeys(seen)

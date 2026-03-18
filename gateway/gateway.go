@@ -17,6 +17,7 @@ import (
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/diary"
+	"github.com/onvos/arizuko/grants"
 	"github.com/onvos/arizuko/groupfolder"
 	"github.com/onvos/arizuko/ipc"
 	"github.com/onvos/arizuko/queue"
@@ -86,8 +87,12 @@ func (g *Gateway) Run(ctx context.Context) error {
 		InjectMessage:    g.injectMessage,
 		RegisterGroup:    g.registerGroupIPC,
 		GetGroups:        g.getGroups,
-		DelegateToChild:  g.delegateToChild,
-		DelegateToParent: g.delegateToParent,
+		DelegateToChild:  func(folder, prompt, jid string, depth int, rules []string) error {
+			return g.delegateToChild(folder, prompt, jid, depth, rules)
+		},
+		DelegateToParent: func(folder, prompt, jid string, depth int, rules []string) error {
+			return g.delegateToParent(folder, prompt, jid, depth, rules)
+		},
 	}
 	g.storeFns = ipc.StoreFns{
 		CreateTask: g.store.CreateTask,
@@ -102,6 +107,8 @@ func (g *Gateway) Run(ctx context.Context) error {
 		AddRoute:    g.store.AddRoute,
 		DeleteRoute: g.store.DeleteRoute,
 		GetRoute:    g.store.GetRoute,
+		GetGrants:   g.store.GetGrants,
+		SetGrants:   g.store.SetGrants,
 	}
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetNotifyErrorFn(func(jid string, err error) {
@@ -252,7 +259,7 @@ func (g *Gateway) pollOnce() {
 
 		if routingTarget != "" {
 			if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
-				g.delegateToChild(routingTarget, last.Content, chatJid, 0)
+				g.delegateToChild(routingTarget, last.Content, chatJid, 0, nil)
 				continue
 			}
 		}
@@ -312,7 +319,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 	if routingTarget != "" {
 		if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
-			g.delegateToChild(routingTarget, last.Content, chatJid, 0)
+			g.delegateToChild(routingTarget, last.Content, chatJid, 0, nil)
 			g.advanceAgentCursor(chatJid, msgs)
 			return true, nil
 		}
@@ -355,7 +362,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 					g.sendMessage(chatJid, clean)
 				}
 			}
-		}, false, last.ID)
+		}, false, nil, last.ID)
 
 	if ch != nil {
 		ch.Typing(chatJid, false)
@@ -388,11 +395,21 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 func (g *Gateway) runAgentWithOpts(
 	group core.Group, prompt, chatJid string,
-	onOutput func(string, string), isolated bool, msgID ...string,
+	onOutput func(string, string), isolated bool,
+	rules []string, msgID ...string,
 ) container.Output {
 	var sessionID string
 	if !isolated {
 		sessionID = g.store.GetSession(group.Folder)
+	}
+
+	if rules == nil {
+		id := auth.Resolve(group.Folder)
+		worldFolder := auth.WorldOf(group.Folder)
+		rules = grants.DeriveRules(g.store, group.Folder, id.Tier, worldFolder)
+		if dbRules := g.store.GetGrants(group.Folder); dbRules != nil {
+			rules = append(rules, dbRules...)
+		}
 	}
 
 	groupPath, err := g.folders.GroupPath(group.Folder)
@@ -435,8 +452,9 @@ func (g *Gateway) runAgentWithOpts(
 		MessageID:   mid,
 		Annotations: annotations,
 		OnOutput:    onOutput,
-		GatedFns: g.gatedFns,
-		StoreFns: g.storeFns,
+		Grants:      rules,
+		GatedFns:    g.gatedFns,
+		StoreFns:    g.storeFns,
 	}
 
 	out := container.Run(g.cfg, g.folders, input)
@@ -531,8 +549,8 @@ func (g *Gateway) groupByFolderLocked(folder string) (string, core.Group, bool) 
 	return "", core.Group{}, false
 }
 
-func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth int) error {
-	return g.delegateToFolder("escalate", parentFolder, prompt, originJid, depth)
+func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth int, rules []string) error {
+	return g.delegateToFolder("escalate", parentFolder, prompt, originJid, depth, rules)
 }
 
 func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
@@ -580,13 +598,13 @@ func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
 }
 
 func (g *Gateway) delegateToChild(
-	childFolder, prompt, originJid string, depth int,
+	childFolder, prompt, originJid string, depth int, rules []string,
 ) error {
-	return g.delegateToFolder("delegate", childFolder, prompt, originJid, depth)
+	return g.delegateToFolder("delegate", childFolder, prompt, originJid, depth, rules)
 }
 
 func (g *Gateway) delegateToFolder(
-	label, folder, prompt, originJid string, depth int,
+	label, folder, prompt, originJid string, depth int, rules []string,
 ) error {
 	if depth > 1 {
 		return fmt.Errorf("delegation depth exceeded")
@@ -610,7 +628,7 @@ func (g *Gateway) delegateToFolder(
 							g.sendMessage(originJid, clean)
 						}
 					}
-				}, false)
+				}, false, rules)
 			if out.Error != "" {
 				return fmt.Errorf("%s agent: %s", label, out.Error)
 			}

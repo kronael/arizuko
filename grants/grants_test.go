@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/store"
 )
 
 // --- ParseRule ---
@@ -101,6 +102,12 @@ func TestCheckAction_NoRules(t *testing.T) {
 	}
 }
 
+func TestCheckAction_EmptyRules(t *testing.T) {
+	if CheckAction([]string{}, "send_message", nil) {
+		t.Fatal("empty rules = deny")
+	}
+}
+
 func TestCheckAction_AllowAll(t *testing.T) {
 	if !CheckAction([]string{"*"}, "send_message", nil) {
 		t.Fatal("* should allow everything")
@@ -180,31 +187,54 @@ func TestMatchingRules_Wildcard(t *testing.T) {
 
 // --- DeriveRules ---
 
+func openTestStore(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.OpenMem()
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+func addRoute(t *testing.T, s *store.Store, jid, target string) {
+	t.Helper()
+	_, err := s.AddRoute(jid, core.Route{
+		JID:    jid,
+		Type:   "default",
+		Target: target,
+	})
+	if err != nil {
+		t.Fatalf("AddRoute: %v", err)
+	}
+}
+
 func TestDeriveRules_Tier0(t *testing.T) {
-	rules := DeriveRules(nil, "root", 0)
+	rules := DeriveRules(nil, "root", 0, "root")
 	if len(rules) != 1 || rules[0] != "*" {
 		t.Fatalf("tier 0 = %v, want [*]", rules)
 	}
 }
 
 func TestDeriveRules_Tier3Plus(t *testing.T) {
-	rules := DeriveRules(nil, "leaf", 3)
+	rules := DeriveRules(nil, "leaf", 3, "leaf")
 	if len(rules) != 1 || rules[0] != "send_reply" {
 		t.Fatalf("tier 3+ = %v, want [send_reply]", rules)
 	}
 }
 
 func TestDeriveRules_Tier1(t *testing.T) {
-	routes := []core.Route{
-		{JID: "telegram:100", Target: "main"},
-		{JID: "discord:200", Target: "main"},
-		{JID: "telegram:101", Target: "other"},
-	}
-	rules := DeriveRules(routes, "root", 1)
-	// should include rules for discord and telegram, plus management actions
+	s := openTestStore(t)
+	addRoute(t, s, "telegram:100", "main")
+	addRoute(t, s, "discord:200", "main")
+	addRoute(t, s, "telegram:101", "other")
+
+	rules := DeriveRules(s, "main", 1, "main")
 	hasDiscord := false
 	hasTelegram := false
 	hasMgmt := false
+	hasGetRoutes := false
+	hasListTasks := false
 	for _, r := range rules {
 		if r == "send_message(jid=discord:*)" {
 			hasDiscord = true
@@ -215,6 +245,12 @@ func TestDeriveRules_Tier1(t *testing.T) {
 		if r == "schedule_task" {
 			hasMgmt = true
 		}
+		if r == "get_routes" {
+			hasGetRoutes = true
+		}
+		if r == "list_tasks" {
+			hasListTasks = true
+		}
 	}
 	if !hasDiscord {
 		t.Error("missing discord rule")
@@ -223,17 +259,49 @@ func TestDeriveRules_Tier1(t *testing.T) {
 		t.Error("missing telegram rule")
 	}
 	if !hasMgmt {
-		t.Error("missing management rules")
+		t.Error("missing management rules (schedule_task)")
+	}
+	if !hasGetRoutes {
+		t.Error("missing get_routes rule")
+	}
+	if !hasListTasks {
+		t.Error("missing list_tasks rule")
+	}
+}
+
+func TestDeriveRules_Tier1_WorldScope(t *testing.T) {
+	s := openTestStore(t)
+	// routes targeting worldFolder itself and subfolders
+	addRoute(t, s, "telegram:100", "main")
+	addRoute(t, s, "discord:200", "main/child")
+	addRoute(t, s, "slack:300", "other") // different world — should not appear
+
+	rules := DeriveRules(s, "main", 1, "main")
+	hasDiscord := false
+	hasSlack := false
+	for _, r := range rules {
+		if r == "send_message(jid=discord:*)" {
+			hasDiscord = true
+		}
+		if r == "send_message(jid=slack:*)" {
+			hasSlack = true
+		}
+	}
+	if !hasDiscord {
+		t.Error("tier-1 should include routes to subfolders in world")
+	}
+	if hasSlack {
+		t.Error("tier-1 should not include routes from other worlds")
 	}
 }
 
 func TestDeriveRules_Tier2(t *testing.T) {
-	routes := []core.Route{
-		{JID: "telegram:100", Target: "main"},
-		{JID: "discord:200", Target: "main/child"},
-		{JID: "slack:300", Target: "other"}, // should not appear
-	}
-	rules := DeriveRules(routes, "main", 2)
+	s := openTestStore(t)
+	addRoute(t, s, "telegram:100", "main")
+	addRoute(t, s, "discord:200", "main/child")
+	addRoute(t, s, "slack:300", "other") // should not appear
+
+	rules := DeriveRules(s, "main", 2, "main")
 	hasTelegram := false
 	hasDiscord := false
 	hasSlack := false
