@@ -46,8 +46,9 @@ type Config struct {
 	EmailAccount  string
 	EmailPassword string
 
-	APIPort       int
-	ChannelSecret string
+	APIPort            int
+	ChannelSecret      string
+	OnboardingEnabled  bool
 
 	MediaEnabled  bool
 	MediaMaxBytes int64
@@ -107,8 +108,9 @@ func LoadConfig() (*Config, error) {
 		HostGroupsDir:   filepath.Join(hostRoot, "groups"),
 		WebDir:          filepath.Join(root, "web"),
 
-		APIPort:       envInt("API_PORT", 8080),
-		ChannelSecret: envOr("CHANNEL_SECRET", ""),
+		APIPort:           envInt("API_PORT", 8080),
+		ChannelSecret:     envOr("CHANNEL_SECRET", ""),
+		OnboardingEnabled: envOr("ONBOARDING_ENABLED", "false") == "true",
 
 		EmailIMAP:     envOr("EMAIL_IMAP_HOST", ""),
 		EmailSMTP:     envOr("EMAIL_SMTP_HOST", ""),

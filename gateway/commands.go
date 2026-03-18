@@ -8,8 +8,40 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
+// cmdText strips media placeholder and routing prefix before command detection.
+// "[Doc: f.txt] @root /stop" → "/stop"
+func cmdText(raw string) string {
+	t := strings.TrimSpace(raw)
+	if strings.HasPrefix(t, "[") {
+		if i := strings.Index(t, "]"); i >= 0 {
+			t = strings.TrimSpace(t[i+1:])
+		}
+	}
+	if strings.HasPrefix(t, "@") {
+		if i := strings.IndexByte(t, ' '); i >= 0 {
+			t = strings.TrimSpace(t[i+1:])
+		}
+	}
+	return t
+}
+
+// isGatewayCommand reports whether text (after stripping prefixes) is a
+// command handled by gated — not an agent message.
+func isGatewayCommand(raw string) bool {
+	t := cmdText(raw)
+	if !strings.HasPrefix(t, "/") {
+		return false
+	}
+	word := strings.ToLower(strings.SplitN(t[1:], " ", 2)[0])
+	switch word {
+	case "new", "ping", "chatid", "stop", "status":
+		return true
+	}
+	return false
+}
+
 func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
-	text := strings.TrimSpace(msg.Content)
+	text := cmdText(msg.Content)
 	if !strings.HasPrefix(text, "/") {
 		return false
 	}

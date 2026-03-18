@@ -133,6 +133,30 @@ func (s *Store) AllAgentCursors() map[string]time.Time {
 	return out
 }
 
+// UnroutedChatJIDs returns distinct chat JIDs that have messages since `since`
+// but have no entry in the routes table. Used by gated when onboarding is enabled
+// to surface new users to the onboarding handler.
+func (s *Store) UnroutedChatJIDs(since time.Time) []string {
+	rows, err := s.db.Query(
+		`SELECT DISTINCT chat_jid FROM messages
+		 WHERE timestamp > ?
+		   AND is_bot_message = 0
+		   AND chat_jid NOT IN (SELECT DISTINCT jid_prefix FROM routes)`,
+		since.Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var jids []string
+	for rows.Next() {
+		var jid string
+		rows.Scan(&jid)
+		jids = append(jids, jid)
+	}
+	return jids
+}
+
 func scanGroup(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string

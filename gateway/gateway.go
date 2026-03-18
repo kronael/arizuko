@@ -207,6 +207,10 @@ func (g *Gateway) pollOnce() {
 	since := g.lastTimestamp
 	g.mu.RUnlock()
 
+	if g.cfg.OnboardingEnabled {
+		jids = append(jids, g.store.UnroutedChatJIDs(since)...)
+	}
+
 	if len(jids) == 0 {
 		return
 	}
@@ -292,11 +296,26 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return false, nil
 	}
 
-	last := msgs[len(msgs)-1]
+	// Filter out gateway commands — they are handled by the message loop.
+	// Advance cursor past command-only batches to avoid double-processing.
+	agentMsgs := make([]core.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if !isGatewayCommand(m.Content) {
+			agentMsgs = append(agentMsgs, m)
+		}
+	}
+	if len(agentMsgs) == 0 {
+		g.advanceAgentCursor(chatJid, msgs)
+		return true, nil
+	}
+
+	last := agentMsgs[len(agentMsgs)-1]
 	if g.handleCommand(last, group) {
 		g.advanceAgentCursor(chatJid, msgs)
 		return true, nil
 	}
+
+	msgs = agentMsgs
 
 	routingTarget := resolveTarget(last, routes, group.Folder)
 

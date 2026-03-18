@@ -2,6 +2,7 @@ package container
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -445,7 +446,7 @@ func BuildMounts(
 	os.MkdirAll(sessDir, 0o755)
 	chown(sessDir, 1000, 1000)
 	seedSettings(sessDir, cfg, in, root)
-	seedSkills(cfg, sessDir)
+	seedSkills(cfg, sessDir, in.Folder)
 	m = append(m, VolumeMount{
 		Host:      hp(cfg, sessDir),
 		Container: "/home/node/.claude",
@@ -668,7 +669,7 @@ func seedSettings(
 	os.WriteFile(fp, append(data, '\n'), 0o644)
 }
 
-func seedSkills(cfg *core.Config, claudeDir string) {
+func seedSkills(cfg *core.Config, claudeDir, folder string) {
 	src := filepath.Join(cfg.HostAppDir, "container", "skills")
 	dst := filepath.Join(claudeDir, "skills")
 
@@ -701,6 +702,20 @@ func seedSkills(cfg *core.Config, claudeDir string) {
 		if data, err := os.ReadFile(mdSrc); err == nil {
 			os.WriteFile(mdDst, data, 0o644)
 		}
+	}
+
+	// Seed .claude.json if missing — SDK silently returns 0 messages without it.
+	jsonDst := filepath.Join(claudeDir, ".claude.json")
+	if _, err := os.Stat(jsonDst); os.IsNotExist(err) {
+		userID := fmt.Sprintf("%x", sha256.Sum256([]byte("arizuko:"+folder)))
+		data, _ := json.MarshalIndent(map[string]any{
+			"firstStartTime":            time.Now().Format(time.RFC3339),
+			"userID":                    userID,
+			"thinkingMigrationComplete": true,
+			"sonnet45MigrationComplete": true,
+		}, "", "  ")
+		os.WriteFile(jsonDst, append(data, '\n'), 0o644)
+		chown(jsonDst, 1000, 1000)
 	}
 }
 
