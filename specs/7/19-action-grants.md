@@ -120,8 +120,23 @@ DB override rules are appended after defaults.
 
 Returns all rules (allow and deny) whose action glob matches
 `action`. The caller is responsible for filtering: if
-`CheckAction(result, action, {})` is false, omit the tool from
+`CheckAction(result, action, nil)` is false, omit the tool from
 the manifest. MatchingRules does not filter deny rules itself.
+`nil` params and empty-map params are equivalent in `CheckAction` —
+both mean "no params provided".
+
+### Store query for DeriveRules
+
+Add to `store/`:
+
+```go
+// RouteSourceJIDsInWorld returns distinct source JIDs whose route
+// target is the worldFolder or a descendant (target = worldFolder
+// OR target LIKE worldFolder || '/%').
+func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string
+```
+
+Platform prefix extracted as the part before `:` in each JID.
 
 ## Integration
 

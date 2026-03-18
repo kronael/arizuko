@@ -67,8 +67,11 @@ awaiting_name, prompted_at IS NOT NULL:
                  send "Got it! Waiting for approval."
 
 pending (on every new message from this jid while status = pending):
-  -> same message query as above (timestamp > last_sent or prompted_at)
+  -> query: SELECT content FROM messages WHERE chat_jid = jid
+       AND is_bot_message = 0 AND timestamp > prompted_at
+       ORDER BY timestamp DESC LIMIT 1
   -> message found: send "Still waiting for approval."
+                   SET prompted_at = now (prevents re-send on next poll)
 
 rejected:
   -> silence (no reply)
@@ -113,9 +116,9 @@ onbod receives the sender's `chat_jid` in the HTTP POST payload.
 It verifies root-only access by querying the routes table:
 `SELECT target FROM routes WHERE jid = ? AND seq = 0 LIMIT 1`
 to find the target folder for the sender's JID, then checks
-`SELECT parent FROM registered_groups WHERE folder = ?` — if
-`parent IS NULL`, the sender is tier 0 (root). Otherwise reject
-with "Permission denied."
+`SELECT parent FROM registered_groups WHERE folder = ?`
+(SQLite table name: `registered_groups`) — if `parent IS NULL`,
+the sender is tier 0 (root). Otherwise reject with "Permission denied."
 
 ### /approve <jid>
 
@@ -183,7 +186,8 @@ by matching `jid` prefix to `jid_prefixes` column.
 ## Notifications and replies
 
 onbod uses the `notify/` library (`notify.Send(jids, text, sendFn)`)
-for operator notifications. `sendFn` wraps the outbound POST above.
+for operator notifications. `sendFn` has type `func(jid, text string) error`
+and wraps the outbound POST above.
 Replies and notifications stored via `store.StoreOutbound`:
 
 `store.StoreOutbound` and `store.OutboundEntry` already exist
@@ -226,7 +230,9 @@ deliver inbound messages from a user platform.
 
 - **Input**: shared SQLite DB (onboarding table, messages table, channels table, groups table, routes table); HTTP POST to `/send`
 - **Output**: HTTP POST to channel adapter `/send` endpoint, writes to SQLite tables
-- **No imports** from gateway, core, or any arizuko Go package
+- **No imports** from `gateway/`, `container/`, `queue/`, `router/`,
+  `api/`, `ipc/`, or `core/` arizuko packages
+- **May import**: `notify/` and `store/` (library packages only)
 - **Dependencies**: `database/sql`, `modernc.org/sqlite`
 
 ## Notifications

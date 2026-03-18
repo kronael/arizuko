@@ -127,21 +127,33 @@ and appends `"Topic session: #name"` to `annotations` when non-empty.
 
 ## Schema changes
 
-Sessions table gains `topic` column, PK changes:
+Sessions table gains `topic` column, PK changes. SQLite cannot
+ALTER TABLE to change the PK, so migration recreates the table:
 
 ```sql
+-- migration file: store/migrations/0008-topic-sessions.sql
 CREATE TABLE sessions_new (
   group_folder TEXT NOT NULL,
   topic TEXT NOT NULL DEFAULT '',
   session_id TEXT NOT NULL,
   PRIMARY KEY (group_folder, topic)
 );
+INSERT INTO sessions_new (group_folder, topic, session_id)
+  SELECT group_folder, '', session_id FROM sessions;
+DROP TABLE sessions;
+ALTER TABLE sessions_new RENAME TO sessions;
+
+ALTER TABLE messages ADD COLUMN topic TEXT NOT NULL DEFAULT '';
 ```
 
-Messages table gains topic column:
+## delegateToFolder
 
-```sql
-ALTER TABLE messages ADD COLUMN topic TEXT DEFAULT '';
+`delegateToFolder` is an existing function in `gateway/gateway.go`.
+It routes a message to a target group folder by folder path,
+bypassing the normal route lookup. Signature:
+
+```go
+func (g *Gateway) delegateToFolder(msg core.Message, folder string) bool
 ```
 
 ## start.json topic injection
