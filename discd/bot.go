@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -28,7 +27,7 @@ func newBot(cfg config) (*bot, error) {
 	return &bot{session: s, cfg: cfg}, nil
 }
 
-func (b *bot) start(ctx context.Context, rc *routerClient) error {
+func (b *bot) start(rc *routerClient) error {
 	b.rc = rc
 	b.session.AddHandler(b.onMessage)
 	if err := b.session.Open(); err != nil {

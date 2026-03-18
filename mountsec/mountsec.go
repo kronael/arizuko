@@ -2,6 +2,7 @@ package mountsec
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -37,6 +38,26 @@ type ValidMount struct {
 	HostPath      string
 	ContainerPath string
 	Readonly      bool
+}
+
+// ValidateFilePath checks that path resolves (via symlinks) to within root
+// and does not match any blocked pattern. Returns the resolved path or an error.
+func ValidateFilePath(path, root string) (string, error) {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("path not found")
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("root not found")
+	}
+	if !strings.HasPrefix(real, realRoot+string(filepath.Separator)) {
+		return "", fmt.Errorf("path outside allowed directory")
+	}
+	if pat := matchesBlocked(real, defaultBlocked); pat != "" {
+		return "", fmt.Errorf("blocked path pattern %q", pat)
+	}
+	return real, nil
 }
 
 func LoadAllowlist(path string) Allowlist {

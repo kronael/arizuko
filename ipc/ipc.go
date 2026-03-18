@@ -16,6 +16,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/mountsec"
 	"github.com/robfig/cron/v3"
 )
 
@@ -133,6 +134,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		rel := strings.TrimPrefix(strings.TrimPrefix(fp, "/workspace/group/"), "/workspace/group")
 		localPath := filepath.Join(gated.GroupsDir, folder, rel)
 		hostPath := filepath.Join(gated.HostGroupsDir, folder, rel)
+		if _, err := mountsec.ValidateFilePath(localPath, filepath.Join(gated.GroupsDir, folder)); err != nil {
+			return toolErr("path outside group dir")
+		}
 		if !strings.HasPrefix(hostPath, filepath.Join(gated.HostGroupsDir, folder)+"/") {
 			return toolErr("path outside group dir")
 		}

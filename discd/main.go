@@ -38,7 +38,7 @@ func main() {
 	rc.token = token
 	slog.Info("registered with router", "url", cfg.RouterURL)
 
-	if err := bot.start(ctx, rc); err != nil {
+	if err := bot.start(rc); err != nil {
 		slog.Error("discord connect failed", "err", err)
 		os.Exit(1)
 	}

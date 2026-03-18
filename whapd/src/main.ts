@@ -28,7 +28,6 @@ function env(k: string, def?: string): string {
 
 const routerURL = env('ROUTER_URL');
 const channelSecret = env('CHANNEL_SECRET', '');
-const assistantName = env('ASSISTANT_NAME', '');
 const listenAddr = env('LISTEN_ADDR', ':9002');
 const listenURL = env('LISTEN_URL', 'http://whapd:9002');
 const authDir = env('WHATSAPP_AUTH_DIR', '/srv/data/store/whatsapp-auth');

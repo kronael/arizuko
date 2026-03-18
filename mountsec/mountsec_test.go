@@ -217,6 +217,40 @@ func TestValidContainerPath(t *testing.T) {
 	}
 }
 
+func TestValidateFilePath(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "file.txt")
+	os.WriteFile(sub, []byte("ok"), 0o644)
+
+	// happy path
+	if _, err := ValidateFilePath(sub, root); err != nil {
+		t.Fatalf("expected ok, got %v", err)
+	}
+
+	// path outside root (traversal)
+	outside := filepath.Join(root, "..", "other.txt")
+	os.WriteFile(filepath.Join(filepath.Dir(root), "other.txt"), []byte("x"), 0o644)
+	if _, err := ValidateFilePath(outside, root); err == nil {
+		t.Fatal("expected error for path outside root")
+	}
+
+	// blocked pattern
+	sshKey := filepath.Join(root, "id_rsa")
+	os.WriteFile(sshKey, []byte("key"), 0o644)
+	if _, err := ValidateFilePath(sshKey, root); err == nil {
+		t.Fatal("expected error for blocked pattern")
+	}
+
+	// symlink escape
+	target := filepath.Join(filepath.Dir(root), "secret.txt")
+	os.WriteFile(target, []byte("secret"), 0o644)
+	link := filepath.Join(root, "link.txt")
+	os.Symlink(target, link)
+	if _, err := ValidateFilePath(link, root); err == nil {
+		t.Fatal("expected error for symlink escape")
+	}
+}
+
 func TestLoadAllowlistMissing(t *testing.T) {
 	al := LoadAllowlist("/nonexistent/path.json")
 	if len(al.AllowedRoots) != 0 {
