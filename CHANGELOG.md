@@ -9,6 +9,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- `gateway/commands.go`: `cmdText()` strips media placeholders and routing
+  prefixes before command detection; `isGatewayCommand()` predicate added;
+  `handleCommand()` uses `cmdText()` consistently.
+- `gateway/gateway.go`: `processGroupMessages()` filters gateway commands
+  from agent context (they are never forwarded to the container);
+  `pollOnce()` includes unrouted JIDs when `ONBOARDING_ENABLED` is set.
+- `store/groups.go`: `UnroutedChatJIDs(since time.Time)` returns chat JIDs
+  with recent messages that have no entry in the routes table.
+- `container/runner.go`: `seedSkills()` seeds `.claude.json` if missing
+  (SDK requires it); takes `folder` param for stable userID hash.
+- `core/config.go`: `OnboardingEnabled bool` field (`ONBOARDING_ENABLED` env).
+
 ## [v1.3.0] — 2026-03-17
 
 Channel adapters, flat layout, dead code cleanup, container fix.

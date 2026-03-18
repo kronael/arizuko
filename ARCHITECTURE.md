@@ -58,6 +58,7 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
   → router.ResolveRoutingTarget (delegate to child group if matched)
   → queue.SendMessage (stdin pipe to running container) OR
   → queue.EnqueueMessageCheck → processGroupMessages
+    → filter out gateway commands (isGatewayCommand — not forwarded to agent)
     → store.MessagesSince (per-chat agent cursor)
     → store.FlushSysMsgs (XML system events prepended)
     → router.FormatMessages (XML message batch)
@@ -142,7 +143,7 @@ WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
    - `BuildMounts()` — assemble volume mounts (group, media, self, share, session, ipc, web, extra)
    - `mountsec.ValidateAdditionalMounts()` — check against allowlist
    - `seedSettings()` — write `settings.json` to session `.claude/` dir (env vars, nanoclaw MCP via socat, sidecar MCP config)
-   - `seedSkills()` — copy `container/skills/` to session on first run
+   - `seedSkills()` — copy `container/skills/` to session on first run; also seeds `.claude.json` if missing (SDK requires it; keyed by folder for stable userID hash)
    - `StartSidecars()` — launch MCP sidecar containers (if configured)
    - `docker run -i --rm` with volume mounts, write JSON to stdin, read stdout
    - Parse output between `---NANOCLAW_OUTPUT_START---` / `---NANOCLAW_OUTPUT_END---` markers
@@ -262,7 +263,8 @@ in docker. `HOST_DATA_DIR` env provides the host-side base.
 All config via `.env` in data dir or env vars (`core.LoadConfig`).
 Key values: `ASSISTANT_NAME`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`,
 `MAX_CONCURRENT_CONTAINERS`, `HOST_DATA_DIR`, `HOST_APP_DIR`,
-`MEDIA_ENABLED`, `WHISPER_BASE_URL`, `API_PORT`, `CHANNEL_SECRET`.
+`MEDIA_ENABLED`, `WHISPER_BASE_URL`, `API_PORT`, `CHANNEL_SECRET`,
+`ONBOARDING_ENABLED` (surfaces unrouted JIDs for onboarding handler).
 
 API server always starts (default port 8080).
 

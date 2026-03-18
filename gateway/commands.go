@@ -34,7 +34,7 @@ func isGatewayCommand(raw string) bool {
 	}
 	word := strings.ToLower(strings.SplitN(t[1:], " ", 2)[0])
 	switch word {
-	case "new", "ping", "chatid", "stop", "status":
+	case "new", "ping", "chatid", "stop":
 		return true
 	}
 	return false

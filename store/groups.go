@@ -21,8 +21,6 @@ func (s *Store) PutChat(jid, name, ch string, group bool) error {
 	return err
 }
 
-
-
 func (s *Store) MarkChatErrored(jid string) error {
 	_, err := s.db.Exec(`UPDATE chats SET errored = 1 WHERE jid = ?`, jid)
 	return err
@@ -141,7 +139,7 @@ func (s *Store) UnroutedChatJIDs(since time.Time) []string {
 		`SELECT DISTINCT chat_jid FROM messages
 		 WHERE timestamp > ?
 		   AND is_bot_message = 0
-		   AND chat_jid NOT IN (SELECT DISTINCT jid_prefix FROM routes)`,
+		   AND chat_jid NOT IN (SELECT jid_prefix FROM routes)`,
 		since.Format(time.RFC3339Nano),
 	)
 	if err != nil {

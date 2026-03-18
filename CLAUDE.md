@@ -115,7 +115,8 @@ whapd/             WhatsApp adapter (TypeScript)
 
 All config via `.env` in data dir or env vars (`core.LoadConfig`).
 Key values: `ASSISTANT_NAME`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`,
-`MAX_CONCURRENT_CONTAINERS`, `API_PORT`, `CHANNEL_SECRET`.
+`MAX_CONCURRENT_CONTAINERS`, `API_PORT`, `CHANNEL_SECRET`,
+`ONBOARDING_ENABLED`.
 
 `HOST_DATA_DIR` and `HOST_APP_DIR` for docker-in-docker path translation.
 API server always starts (default port 8080).
