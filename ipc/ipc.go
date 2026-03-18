@@ -462,7 +462,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		task := core.Task{
 			ID: taskID, Owner: targetFolder, ChatJID: targetJid,
 			Prompt: req.GetString("prompt", ""), Cron: cronExpr,
-			NextRun: nextRun, Status: "active", Created: time.Now(),
+			NextRun: nextRun, Status: core.TaskActive, Created: time.Now(),
 		}
 		if err := db.CreateTask(task); err != nil {
 			return toolErr(err.Error())
@@ -488,7 +488,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		if err := auth.Authorize(id, "pause_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
 			return toolErr(err.Error())
 		}
-		if err := db.UpdateTaskStatus(taskID, "paused"); err != nil {
+		if err := db.UpdateTaskStatus(taskID, core.TaskPaused); err != nil {
 			return toolErr(err.Error())
 		}
 		slog.Info("task paused via mcp", "taskId", taskID, "sourceGroup", folder)
@@ -511,7 +511,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		if err := auth.Authorize(id, "resume_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
 			return toolErr(err.Error())
 		}
-		if err := db.UpdateTaskStatus(taskID, "active"); err != nil {
+		if err := db.UpdateTaskStatus(taskID, core.TaskActive); err != nil {
 			return toolErr(err.Error())
 		}
 		slog.Info("task resumed via mcp", "taskId", taskID, "sourceGroup", folder)

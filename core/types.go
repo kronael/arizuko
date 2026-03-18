@@ -61,6 +61,12 @@ type Route struct {
 	Target string
 }
 
+const (
+	TaskActive    = "active"
+	TaskPaused    = "paused"
+	TaskCompleted = "completed"
+)
+
 type Task struct {
 	ID      string
 	Owner   string
@@ -68,7 +74,7 @@ type Task struct {
 	Prompt  string
 	Cron    string // cron expr; empty for one-shot
 	NextRun *time.Time
-	Status  string // active|paused|completed
+	Status  string // TaskActive | TaskPaused | TaskCompleted
 	Created time.Time
 }
 

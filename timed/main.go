@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,25 +23,35 @@ var migrationFS embed.FS
 const serviceName = "timed"
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	dsn := os.Getenv("DATABASE")
 	if dsn == "" {
-		fmt.Fprintln(os.Stderr, "DATABASE env required")
-		os.Exit(1)
+		dataDir := os.Getenv("DATA_DIR")
+		if dataDir == "" {
+			slog.Error("DATABASE or DATA_DIR env required")
+			os.Exit(1)
+		}
+		dsn = filepath.Join(dataDir, "store", "messages.db")
 	}
-	tz := os.Getenv("TIMEZONE")
-	if tz == "" {
+	tz := os.Getenv("TZ")
+	if _, err := time.LoadLocation(tz); tz == "" || err != nil {
 		tz = "UTC"
 	}
 	db, err := sql.Open("sqlite", dsn+"?_busy_timeout=5000")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		slog.Error("open db", "err", err)
 		os.Exit(1)
 	}
 	defer db.Close()
-	db.Exec("PRAGMA journal_mode=WAL")
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		slog.Warn("set WAL mode", "err", err)
+	}
 
 	if err := migrate(db); err != nil {
-		fmt.Fprintln(os.Stderr, "migrate:", err)
+		slog.Error("migrate", "err", err)
 		os.Exit(1)
 	}
 
@@ -100,11 +111,17 @@ func fire(db *sql.DB, tz string) {
 		if t.cronExpr != nil && *t.cronExpr != "" {
 			next, err := nextCron(*t.cronExpr, tz)
 			if err == nil {
-				db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`,
-					next.Format(time.RFC3339), t.id)
+				if _, err := db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`,
+					next.Format(time.RFC3339), t.id); err != nil {
+					slog.Warn("update task next_run", "task", t.id, "err", err)
+				}
 			}
 		} else {
-			db.Exec(`UPDATE scheduled_tasks SET status = 'completed', next_run = NULL WHERE id = ?`, t.id)
+			if _, err := db.Exec(
+				`UPDATE scheduled_tasks SET status = 'completed', next_run = NULL WHERE id = ?`, t.id,
+			); err != nil {
+				slog.Warn("complete task", "task", t.id, "err", err)
+			}
 		}
 
 		slog.Info("fired task", "id", t.id, "jid", t.jid)
@@ -125,13 +142,17 @@ func nextCron(expr, tz string) (time.Time, error) {
 }
 
 func migrate(db *sql.DB) error {
-	db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
 		service TEXT NOT NULL, version INTEGER NOT NULL, applied_at TEXT NOT NULL,
-		PRIMARY KEY (service, version))`)
+		PRIMARY KEY (service, version))`); err != nil {
+		return fmt.Errorf("create migrations table: %w", err)
+	}
 
 	var max int
-	db.QueryRow("SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?",
-		serviceName).Scan(&max)
+	if err := db.QueryRow("SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?",
+		serviceName).Scan(&max); err != nil {
+		return fmt.Errorf("read migration version: %w", err)
+	}
 
 	entries, _ := migrationFS.ReadDir("migrations")
 	var files []string

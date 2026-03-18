@@ -30,7 +30,11 @@ const routerURL = env('ROUTER_URL');
 const channelSecret = env('CHANNEL_SECRET', '');
 const listenAddr = env('LISTEN_ADDR', ':9002');
 const listenURL = env('LISTEN_URL', 'http://whapd:9002');
-const authDir = env('WHATSAPP_AUTH_DIR', '/srv/data/store/whatsapp-auth');
+const dataDir = env('DATA_DIR', '');
+const authDir = env(
+  'WHATSAPP_AUTH_DIR',
+  dataDir ? `${dataDir}/store/whatsapp-auth` : '/srv/data/store/whatsapp-auth',
+);
 
 let sock: WASocket | null = null;
 const rc = new RouterClient(routerURL, channelSecret);

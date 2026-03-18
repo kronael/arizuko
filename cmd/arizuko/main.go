@@ -59,7 +59,10 @@ func cmdRun(args []string) {
 	cmd := exec.Command("docker", "compose", "-f", outPath, "up", "--remove-orphans")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed: docker compose: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func instanceDir(name string) string {
