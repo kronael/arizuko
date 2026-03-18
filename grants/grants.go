@@ -180,21 +180,19 @@ var tier1FixedActions = []string{
 
 // DeriveRules returns default rules for folder+tier. DB overrides appended by caller.
 func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []string {
+	jidsIn := func(scope string) []string {
+		if s == nil {
+			return nil
+		}
+		return s.RouteSourceJIDsInWorld(scope)
+	}
 	switch tier {
 	case 0:
 		return []string{"*"}
 	case 1:
-		var jids []string
-		if s != nil {
-			jids = s.RouteSourceJIDsInWorld(worldFolder)
-		}
-		return deriveTier1Rules(jids)
+		return deriveTier1Rules(jidsIn(worldFolder))
 	case 2:
-		var jids []string
-		if s != nil {
-			jids = s.RouteSourceJIDsInWorld(folder)
-		}
-		return deriveTier2Rules(jids)
+		return deriveTier2Rules(jidsIn(folder))
 	default:
 		return []string{"send_reply"}
 	}

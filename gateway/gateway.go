@@ -87,12 +87,8 @@ func (g *Gateway) Run(ctx context.Context) error {
 		InjectMessage:    g.injectMessage,
 		RegisterGroup:    g.registerGroupIPC,
 		GetGroups:        g.getGroups,
-		DelegateToChild:  func(folder, prompt, jid string, depth int, rules []string) error {
-			return g.delegateToChild(folder, prompt, jid, depth, rules)
-		},
-		DelegateToParent: func(folder, prompt, jid string, depth int, rules []string) error {
-			return g.delegateToParent(folder, prompt, jid, depth, rules)
-		},
+		DelegateToChild:  g.delegateToChild,
+		DelegateToParent: g.delegateToParent,
 	}
 	g.storeFns = ipc.StoreFns{
 		CreateTask: g.store.CreateTask,
@@ -310,8 +306,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 	routes := g.store.GetRoutes(chatJid)
 
-	// Filter out gateway commands — they are handled by the message loop.
-	// Advance cursor past command-only batches to avoid double-processing.
 	all := msgs
 	n := 0
 	for _, m := range msgs {
@@ -425,11 +419,8 @@ func (g *Gateway) runAgentWithOpts(
 
 	if rules == nil {
 		id := auth.Resolve(group.Folder)
-		worldFolder := auth.WorldOf(group.Folder)
-		rules = grants.DeriveRules(g.store, group.Folder, id.Tier, worldFolder)
-		if dbRules := g.store.GetGrants(group.Folder); dbRules != nil {
-			rules = append(rules, dbRules...)
-		}
+		rules = grants.DeriveRules(g.store, group.Folder, id.Tier, auth.WorldOf(group.Folder))
+		rules = append(rules, g.store.GetGrants(group.Folder)...)
 	}
 
 	groupPath, err := g.folders.GroupPath(group.Folder)
