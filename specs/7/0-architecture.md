@@ -36,11 +36,11 @@ may run on remote hosts. See `specs/7/1-channel-protocol.md`.
                       SQLite (messages.db)
                    /    |    \     \      \
               gated  timed  onbod  dashd  ipc/auth
-                |                   |
-           HTTP (:8080)        HTTP (:8090)
                 |
-         docker network
-        /    |    \    \
+           HTTP (:8080)          channels table
+                |              /    |    \    \    \
+         docker network     teled discd whapd onbod dashd
+        /    |    \    \       (+ agent: implicit, docker run)
      teled discd whapd emaid
 ```
 
@@ -50,8 +50,17 @@ may run on remote hosts. See `specs/7/1-channel-protocol.md`.
 - **Shared libraries**: auth (auth/policy), grants (rule
   engine), notify (operator notifications). Imported by any
   service that needs them.
-- **Channel adapters** connect to gated via HTTP. They
-  self-register, deliver inbound messages, receive outbound.
+- **All services register in the channels table** — external
+  adapters (teled, discd, whapd) and internal services
+  (onbod, dashd) use the same registration mechanism.
+  See `specs/7/1-channel-protocol.md`.
+- **Route targets** are either a group folder path (contains
+  `/`) or a service name (no `/`). Folder paths → write to
+  messages table. Service names → channels table lookup →
+  HTTP POST to registered URL.
+- **Agent is an implicit channel** — currently hardcoded as
+  `docker run` in gated. Conceptually a channel named
+  `agent`. Future: registers as `http://agentd:8092`.
 - **Agent containers** connect to ipc via MCP unix socket.
   ipc stamps identity and calls auth.Authorize for
   runtime authorization before executing tool calls.

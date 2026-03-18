@@ -19,6 +19,27 @@ Standalone daemon like timed, teled. Reads shared SQLite DB
 - HTMX from CDN, no frontend tooling
 - Included in generated docker-compose.yml
 
+dashd registers in the channels table on startup:
+
+```
+name:         "dashd"
+url:          "http://dashd:8090"
+capabilities: {receive_only: true}
+```
+
+`receive_only` — gated routes messages to dashd but dashd does not
+deliver inbound messages from a user platform.
+
+The `/status` command is routed by gated via the channels table
+(HTTP POST to dashd's `/send` endpoint). Routing table entry:
+
+```
+match=/status  →  dashd
+```
+
+dashd processes the command and replies via `notify/` or HTTP POST
+back to the requesting JID's channel adapter.
+
 ## Auth
 
 All `/dash/*` routes use auth middleware for JWT cookie

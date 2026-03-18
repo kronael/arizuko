@@ -183,17 +183,98 @@ auto-deregister. Outbound queues until channel re-registers.
 Declared at registration. Router skips calls the channel
 can't handle:
 
-| Capability  | If false                |
-| ----------- | ----------------------- |
-| `send_text` | channel is receive-only |
-| `send_file` | skip /send-file calls   |
-| `typing`    | skip /typing calls      |
-| `threading` | no reply_to on outbound |
-| `reactions` | no reaction forwarding  |
-| `edit`      | no edit forwarding      |
-| `delete`    | no delete forwarding    |
+| Capability     | If false                       |
+| -------------- | ------------------------------ |
+| `send_text`    | channel is send-disabled       |
+| `send_file`    | skip /send-file calls          |
+| `typing`       | skip /typing calls             |
+| `threading`    | no reply_to on outbound        |
+| `reactions`    | no reaction forwarding         |
+| `edit`         | no edit forwarding             |
+| `delete`       | no delete forwarding           |
+| `receive_only` | channel never delivers inbound |
 
 Extensible. Unknown capabilities ignored.
+
+## Internal service channels
+
+Internal services (onbod, dashd) register in the same
+channels table as external adapters. They set
+`receive_only: true` — they receive routed messages but
+never deliver inbound messages.
+
+```
+POST /v1/channels/register
+Authorization: Bearer <shared-secret>
+
+{
+  "name": "onbod",
+  "url": "http://onbod:8091",
+  "jid_prefixes": [],
+  "capabilities": {
+    "receive_only": true
+  }
+}
+
+→ 200 {"ok": true, "token": "<session-token>"}
+```
+
+```
+POST /v1/channels/register
+Authorization: Bearer <shared-secret>
+
+{
+  "name": "dashd",
+  "url": "http://dashd:8090",
+  "jid_prefixes": [],
+  "capabilities": {
+    "receive_only": true
+  }
+}
+
+→ 200 {"ok": true, "token": "<session-token>"}
+```
+
+No JID prefixes — they're never matched for inbound
+routing. Router sends to them only when a route rule
+targets their service name.
+
+## Route targets
+
+A route target is either:
+
+- **Folder path** (contains `/`) — write message to
+  messages table; agent picks it up.
+- **Service name** (no `/`) — look up URL in channels
+  table, HTTP POST to `/send`. Same protocol as any
+  channel.
+
+Examples:
+
+```
+match=/approve  →  onbod     (service name → channels lookup)
+match=/reject   →  onbod
+match=/status   →  dashd
+match=*         →  groups/default   (folder path → messages table)
+```
+
+gated holds no hardcoded knowledge of `/approve`,
+`/reject`, etc. They're just routes.
+
+## Agent channel
+
+The agent is currently an implicit channel — gated
+hardcodes `docker run` to spawn agent containers. The
+conceptual model is identical to any other channel:
+
+- Route target is a group folder path
+- "Channel" receives the message and responds
+- Responses route back through the originating channel
+
+Future: agent registers as `http://agentd:8092`. gated
+becomes a pure router with no container logic. The
+transition requires no protocol changes — just moving
+the docker spawn out of gated and into a dedicated daemon.
 
 ## Auth
 

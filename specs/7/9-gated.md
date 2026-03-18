@@ -60,6 +60,15 @@ beats `telegram:`.
 Route type `command` matches `text == match || text.startsWith(match + " ")`.
 Route type `prefix` matches `text.startsWith(match)` (no space required).
 
+### Route targets
+
+- **Group folder** (contains `/`): write message to messages table, enqueue for container.
+- **Service name** (no `/`): look up URL in channels table, POST message to channel's `/send` endpoint.
+
+Service routing enables commands like `/approve` and `/reject` to be plain
+prefix routes pointing to `onbod`, resolved identically to group routes.
+No special gateway code required.
+
 ### Template routing
 
 Route targets support RFC 6570 Level 1 template expansion.
@@ -173,20 +182,22 @@ Intercepted before agent dispatch. Text-command model for
 channel consistency (some channels have native commands,
 arizuko uses text interception).
 
-| Command   | Effect                                               |
-| --------- | ---------------------------------------------------- |
-| `/new`    | Clear session, enqueue trailing args as message      |
-| `/ping`   | Reply with group, session, active containers         |
-| `/chatid` | Reply with the chat JID                              |
-| `/stop`   | Kill active container for this chat                  |
-| `/status` | Show gateway state, channels, containers (root only) |
-
-`/approve`, `/reject` live in onbod. `/grant` lives in ipc.
+| Command   | Effect                                                         |
+| --------- | -------------------------------------------------------------- |
+| `/new`    | Clear session, enqueue trailing args as message                |
+| `/ping`   | Reply with group, session, active containers                   |
+| `/chatid` | Reply with the chat JID                                        |
+| `/stop`   | Kill active container for this chat                            |
+| `/status` | Show gateway state, channels, containers (TBD: route to dashd) |
 
 Commands are gateway code, not agent tools. The command
 registry is not exported to agents. `/file` commands
 (put/get/list) are deferred — agents handle files via
 MCP tools instead.
+
+Service routes (not gateway code): `/approve` → `onbod`,
+`/reject` → `onbod`. These are prefix routes in the routing
+table resolved via channels table. `/grant` is an MCP tool in ipc.
 
 Implementation: `gateway/commands.go`.
 

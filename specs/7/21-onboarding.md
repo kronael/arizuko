@@ -46,7 +46,7 @@ state machine.
 ## State machine
 
 ```
-onbod polls onboarding table + messages
+onbod polls onboarding table; receives commands via HTTP POST /send
 
   awaiting_name (new entry, no user response yet):
     -> wait for message from this jid
@@ -78,8 +78,14 @@ CREATE TABLE onboarding (
 
 ## Commands
 
-onbod handles `/approve` and `/reject`. It polls the messages
-table for commands from root JIDs (tier 0).
+onbod handles `/approve` and `/reject`. gated routes these via
+the channels table — onbod receives them as HTTP POST to its
+`/send` endpoint. Routing table entries:
+
+```
+match=/approve  →  onbod
+match=/reject   →  onbod
+```
 
 ### /approve <jid>
 
@@ -108,7 +114,18 @@ stored via `store.StoreOutbound` with `source: "onboarding"`.
 
 ## Service contract
 
-- **Input**: shared SQLite DB (onboarding table, messages table, channels table, groups table, routes table)
+onbod registers in the channels table on startup (same as teled/discd):
+
+```
+name:         "onbod"
+url:          "http://onbod:8091"
+capabilities: {receive_only: true}
+```
+
+`receive_only` — gated routes messages to onbod but onbod does not
+deliver inbound messages from a user platform.
+
+- **Input**: shared SQLite DB (onboarding table, messages table, channels table, groups table, routes table); HTTP POST to `/send`
 - **Output**: HTTP POST to channel adapter `/send` endpoint, writes to SQLite tables
 - **No imports** from gateway, core, or any arizuko Go package
 - **Dependencies**: `database/sql`, `modernc.org/sqlite`

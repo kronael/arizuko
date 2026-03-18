@@ -10,9 +10,11 @@ not a separate dispatcher.
 ## Design
 
 Root group is the control chat. Messages to root follow normal
-routing. Gateway commands (`/status`, `/approve`, etc.) are
-intercepted before container run — same as `/new`, `/stop`,
-`/ping`. Non-command messages proceed to root agent normally.
+routing. `/new`, `/stop`, `/ping`, `/chatid` are intercepted
+by gated before container run. `/approve` and `/reject` are
+prefix routes in the routing table pointing to `onbod` —
+they never reach gated's command handler. Non-command
+messages proceed to root agent normally.
 
 ## Notifications (shared library)
 
@@ -39,16 +41,17 @@ func Send(db *store.Store, text string) error
 
 ## Commands
 
-| Command    | Service        | Notes                                       |
-| ---------- | -------------- | ------------------------------------------- |
-| `/status`  | gated or dashd | TBD                                         |
-| `/approve` | onbod          | Approve pending onboard                     |
-| `/reject`  | onbod          | Reject pending onboard                      |
-| `/grant`   | ipc            | MCP tool (`ipc/grants`), not a chat command |
+| Command    | Service        | How                        | Notes                               |
+| ---------- | -------------- | -------------------------- | ----------------------------------- |
+| `/status`  | gated or dashd | gated command (TBD: route) | Gateway state, channels, containers |
+| `/approve` | onbod          | route → onbod service      | Approve pending onboard             |
+| `/reject`  | onbod          | route → onbod service      | Reject pending onboard              |
+| `/grant`   | ipc            | MCP tool                   | `ipc/grants`, not a chat command    |
 
 Root-only commands check tier inside their handler.
-Registered in `gateway/commands.go` like existing commands
-(except `/grant` which is an MCP tool).
+`/approve` and `/reject` are routing table entries, not
+`gateway/commands.go` handlers. `/status` may follow
+(TBD). `/grant` is an MCP tool, not a route.
 
 ## Not in scope
 
