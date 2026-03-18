@@ -99,13 +99,13 @@ func TestSessionState(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	s.SetSession("main", "sess-1")
-	if got := s.GetSession("main"); got != "sess-1" {
+	s.SetSession("main", "", "sess-1")
+	if got, ok := s.GetSession("main", ""); !ok || got != "sess-1" {
 		t.Fatalf("expected sess-1, got %q", got)
 	}
 
-	s.DeleteSession("main")
-	if got := s.GetSession("main"); got != "" {
+	s.DeleteSession("main", "")
+	if got, _ := s.GetSession("main", ""); got != "" {
 		t.Fatalf("expected empty after delete, got %q", got)
 	}
 }

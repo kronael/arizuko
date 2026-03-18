@@ -161,15 +161,15 @@ func TestCmdNew_ClearsSession(t *testing.T) {
 	gw.AddChannel(ch)
 	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
 
-	s.SetSession("grp", "sess-123")
-	if s.GetSession("grp") == "" {
+	s.SetSession("grp", "", "sess-123")
+	if id, ok := s.GetSession("grp", ""); !ok || id == "" {
 		t.Fatal("session not set")
 	}
 
 	msg := core.Message{ChatJID: "jid1", Content: "/new"}
 	gw.handleCommand(msg, gw.groups["jid1"])
 
-	if s.GetSession("grp") != "" {
+	if id, _ := s.GetSession("grp", ""); id != "" {
 		t.Error("session not cleared after /new")
 	}
 }
@@ -386,7 +386,7 @@ func TestEmitSystemEvents_NewDay(t *testing.T) {
 
 	yesterday := time.Now().AddDate(0, 0, -1)
 	s.SetAgentCursor("jid1", yesterday)
-	s.SetSession("grp1", "sess-1")
+	s.SetSession("grp1", "", "sess-1")
 
 	gw.emitSystemEvents(grp, "jid1")
 

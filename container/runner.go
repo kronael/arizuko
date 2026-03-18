@@ -43,6 +43,7 @@ type Input struct {
 	SessionID string            `json:"sessionId,omitempty"`
 	ChatJID   string            `json:"chatJid"`
 	Folder    string            `json:"groupFolder"`
+	Topic     string            `json:"topic,omitempty"`
 	AsstName  string            `json:"assistantName,omitempty"`
 	Secrets   map[string]string `json:"secrets,omitempty"`
 	MsgCount  int               `json:"messageCount,omitempty"`
@@ -101,6 +102,11 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			"[pending migration] Skills version %d < %d. "+
 				"Run /migrate (main group) to sync all groups.",
 			agent, latest))
+	}
+
+	if in.Topic != "" {
+		in.Annotations = append(in.Annotations,
+			"Topic session: "+in.Topic)
 	}
 
 	if len(in.Annotations) > 0 {

@@ -8,28 +8,35 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-func (s *Store) GetSession(folder string) string {
+func (s *Store) GetSession(folder, topic string) (string, bool) {
 	var id string
-	s.db.QueryRow(`SELECT session_id FROM sessions WHERE group_folder = ?`, folder).Scan(&id)
-	return id
+	err := s.db.QueryRow(
+		`SELECT session_id FROM sessions WHERE group_folder = ? AND topic = ?`,
+		folder, topic,
+	).Scan(&id)
+	return id, err == nil
 }
 
-func (s *Store) SetSession(folder, id string) error {
+func (s *Store) SetSession(folder, topic, id string) error {
 	_, err := s.db.Exec(
-		`INSERT INTO sessions (group_folder, session_id) VALUES (?, ?)
-		 ON CONFLICT(group_folder) DO UPDATE SET session_id = excluded.session_id`,
-		folder, id,
+		`INSERT INTO sessions (group_folder, topic, session_id) VALUES (?, ?, ?)
+		 ON CONFLICT(group_folder, topic) DO UPDATE SET session_id = excluded.session_id`,
+		folder, topic, id,
 	)
 	return err
 }
 
-func (s *Store) DeleteSession(folder string) error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE group_folder = ?`, folder)
+func (s *Store) DeleteSession(folder, topic string) error {
+	_, err := s.db.Exec(
+		`DELETE FROM sessions WHERE group_folder = ? AND topic = ?`,
+		folder, topic,
+	)
 	return err
 }
 
 func (s *Store) AllSessions() map[string]string {
-	rows, err := s.db.Query(`SELECT group_folder, session_id FROM sessions`)
+	rows, err := s.db.Query(
+		`SELECT group_folder, session_id FROM sessions WHERE topic = ''`)
 	if err != nil {
 		return nil
 	}

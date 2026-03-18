@@ -254,6 +254,8 @@ func routeMatches(r core.Route, msg core.Message) bool {
 			return false
 		}
 		return re.MatchString(name)
+	case "prefix":
+		return r.Match != "" && strings.HasPrefix(strings.TrimSpace(msg.Content), r.Match)
 	case "default":
 		return true
 	}

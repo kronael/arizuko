@@ -70,8 +70,30 @@ func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
 }
 
 func (g *Gateway) cmdNew(chatJid string, group core.Group, arg string) bool {
-	g.clearSession(group.Folder)
 	g.store.ClearChatErrored(chatJid)
+
+	// /new #topic [msg] — reset named topic session
+	if strings.HasPrefix(arg, "#") {
+		name, rest, _ := parsePrefix(arg)
+		topic := "#" + name
+		g.store.DeleteSession(group.Folder, topic)
+		if rest != "" {
+			g.store.PutMessage(core.Message{
+				ID:        fmt.Sprintf("cmd-new-%d", time.Now().UnixNano()),
+				ChatJID:   chatJid,
+				Sender:    "user",
+				Content:   "#" + name + " " + rest,
+				Timestamp: time.Now(),
+			})
+			g.queue.EnqueueMessageCheck(chatJid)
+			g.sendMessage(chatJid, "Topic session cleared. Processing your message...")
+		} else {
+			g.sendMessage(chatJid, "Topic session cleared.")
+		}
+		return true
+	}
+
+	g.clearSession(group.Folder)
 
 	if arg != "" {
 		g.store.PutMessage(core.Message{
@@ -90,7 +112,7 @@ func (g *Gateway) cmdNew(chatJid string, group core.Group, arg string) bool {
 }
 
 func (g *Gateway) cmdPing(chatJid string, group core.Group) bool {
-	sessID := g.store.GetSession(group.Folder)
+	sessID, _ := g.store.GetSession(group.Folder, "")
 	g.mu.RLock()
 	nGroups := len(g.groups)
 	g.mu.RUnlock()

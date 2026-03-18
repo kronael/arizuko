@@ -245,6 +245,13 @@ func (g *Gateway) pollOnce() {
 		group, ok := g.groupForJid(chatJid)
 		g.mu.RUnlock()
 		if !ok {
+			if g.cfg.OnboardingEnabled {
+				last := chatMsgs[len(chatMsgs)-1]
+				ch := g.findChannel(chatJid)
+				if err := g.store.InsertOnboarding(chatJid, last.Sender, channelName(ch)); err != nil {
+					slog.Warn("insert onboarding", "jid", chatJid, "err", err)
+				}
+			}
 			continue
 		}
 
@@ -253,6 +260,12 @@ func (g *Gateway) pollOnce() {
 		last := chatMsgs[len(chatMsgs)-1]
 		if g.handleCommand(last, group) {
 			continue
+		}
+
+		if pr := findPrefixRoute(routes, last); pr != nil {
+			if g.handlePrefixRoute(pr, last, group, chatJid) {
+				continue
+			}
 		}
 
 		routingTarget := resolveTarget(last, routes, group.Folder)
@@ -315,6 +328,13 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 	last := msgs[len(msgs)-1]
 
+	if pr := findPrefixRoute(routes, last); pr != nil {
+		if g.handlePrefixRoute(pr, last, group, chatJid) {
+			g.advanceAgentCursor(chatJid, msgs)
+			return true, nil
+		}
+	}
+
 	routingTarget := resolveTarget(last, routes, group.Folder)
 
 	if routingTarget != "" {
@@ -362,7 +382,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 					g.sendMessage(chatJid, clean)
 				}
 			}
-		}, false, nil, last.ID)
+		}, false, nil, "", last.ID)
 
 	if ch != nil {
 		ch.Typing(chatJid, false)
@@ -396,11 +416,11 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 func (g *Gateway) runAgentWithOpts(
 	group core.Group, prompt, chatJid string,
 	onOutput func(string, string), isolated bool,
-	rules []string, msgID ...string,
+	rules []string, topic string, msgID ...string,
 ) container.Output {
 	var sessionID string
 	if !isolated {
-		sessionID = g.store.GetSession(group.Folder)
+		sessionID, _ = g.store.GetSession(group.Folder, topic)
 	}
 
 	if rules == nil {
@@ -444,6 +464,7 @@ func (g *Gateway) runAgentWithOpts(
 		SessionID:   sessionID,
 		ChatJID:     chatJid,
 		Folder:      group.Folder,
+		Topic:       topic,
 		GroupPath:   groupPath,
 		Name:        cname,
 		Config:      group.Config,
@@ -464,12 +485,12 @@ func (g *Gateway) runAgentWithOpts(
 	}
 
 	if out.NewSessionID != "" {
-		g.store.SetSession(group.Folder, out.NewSessionID)
+		g.store.SetSession(group.Folder, topic, out.NewSessionID)
 		if sessionID == "" {
 			g.store.RecordSession(group.Folder, out.NewSessionID)
 		}
 	} else if out.Error != "" && !out.HadOutput {
-		g.store.DeleteSession(group.Folder)
+		g.store.DeleteSession(group.Folder, topic)
 	}
 
 	return out
@@ -503,7 +524,7 @@ func (g *Gateway) sendDocument(jid, path, name string) error {
 }
 
 func (g *Gateway) clearSession(folder string) {
-	g.store.DeleteSession(folder)
+	g.store.DeleteSession(folder, "")
 }
 
 func (g *Gateway) injectMessage(jid, content, sender, senderName string) (string, error) {
@@ -575,6 +596,79 @@ func resolveTarget(msg core.Message, routes []core.Route, selfFolder string) str
 	return ""
 }
 
+// parsePrefix parses "@name rest" or "#name rest".
+// Returns the name (without the symbol) and the remaining text.
+func parsePrefix(text string) (name, rest string, ok bool) {
+	t := strings.TrimSpace(text)
+	if len(t) < 2 || (t[0] != '@' && t[0] != '#') {
+		return "", "", false
+	}
+	sym := t[1:]
+	i := strings.IndexByte(sym, ' ')
+	if i == -1 {
+		return sym, "", true
+	}
+	return sym[:i], strings.TrimSpace(sym[i+1:]), true
+}
+
+// findPrefixRoute returns the first prefix-type route matching msg, or nil.
+func findPrefixRoute(routes []core.Route, msg core.Message) *core.Route {
+	for i := range routes {
+		r := &routes[i]
+		if r.Type == "prefix" && r.Match != "" &&
+			strings.HasPrefix(strings.TrimSpace(msg.Content), r.Match) {
+			return r
+		}
+	}
+	return nil
+}
+
+// handlePrefixRoute dispatches a message that matched a prefix route.
+// Returns true if the message was consumed.
+func (g *Gateway) handlePrefixRoute(
+	r *core.Route, msg core.Message, group core.Group, chatJid string,
+) bool {
+	name, stripped, ok := parsePrefix(msg.Content)
+	if !ok || name == "" {
+		return false
+	}
+	switch r.Match {
+	case "@":
+		childFolder := r.Target + "/" + name
+		g.mu.RLock()
+		_, _, exists := g.groupByFolderLocked(childFolder)
+		g.mu.RUnlock()
+		if !exists {
+			slog.Warn("@prefix: child group not found", "child", childFolder)
+			return true
+		}
+		g.delegateToFolder("route", childFolder, stripped, chatJid, 0, nil)
+		return true
+	case "#":
+		topic := "#" + name
+		g.queue.EnqueueTask(chatJid,
+			fmt.Sprintf("topic-%s-%s-%d", group.Folder, name, time.Now().UnixMilli()),
+			func() error {
+				out := g.runAgentWithOpts(group, stripped, chatJid,
+					func(text, status string) {
+						if text != "" {
+							clean := router.FormatOutbound(text)
+							if clean != "" {
+								g.sendMessage(chatJid, clean)
+							}
+						}
+					}, false, nil, topic)
+				if out.Error != "" {
+					return fmt.Errorf("topic agent: %s", out.Error)
+				}
+				return nil
+			},
+		)
+		return true
+	}
+	return false
+}
+
 func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {
 	if len(msgs) == 0 {
 		return
@@ -592,7 +686,7 @@ func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
 			fmt.Sprintf("Date changed to %s", today))
 	}
 
-	if g.store.GetSession(folder) == "" {
+	if id, ok := g.store.GetSession(folder, ""); !ok || id == "" {
 		g.store.EnqueueSysMsg(folder, "gateway", "new_session", "")
 	}
 }
@@ -628,7 +722,7 @@ func (g *Gateway) delegateToFolder(
 							g.sendMessage(originJid, clean)
 						}
 					}
-				}, false, rules)
+				}, false, rules, "")
 			if out.Error != "" {
 				return fmt.Errorf("%s agent: %s", label, out.Error)
 			}
