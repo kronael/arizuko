@@ -149,11 +149,7 @@ func cmdGroup(args []string) {
 	case "list":
 		groups := s.AllGroups()
 		for _, g := range groups {
-			trig := "no-trigger"
-			if g.NeedTrig {
-				trig = "trigger"
-			}
-			fmt.Printf("%s\t%s\t%s\t%s\n", g.JID, g.Name, g.Folder, trig)
+			fmt.Printf("%s\t%s\t%s\n", g.JID, g.Name, g.Folder)
 		}
 
 	case "add":
@@ -167,7 +163,6 @@ func cmdGroup(args []string) {
 		if len(args) > 4 {
 			folder = args[4]
 		}
-		needTrig := folder != "main"
 
 		groupDir := filepath.Join(dataDir, "groups", folder, "logs")
 		if err := os.MkdirAll(groupDir, 0o755); err != nil {
@@ -176,11 +171,10 @@ func cmdGroup(args []string) {
 		}
 
 		err := s.PutGroup(jid, core.Group{
-			JID:      jid,
-			Name:     name,
-			Folder:   folder,
-			NeedTrig: needTrig,
-			AddedAt:  time.Now(),
+			JID:     jid,
+			Name:    name,
+			Folder:  folder,
+			AddedAt: time.Now(),
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: add group: %v\n", err)

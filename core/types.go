@@ -24,10 +24,8 @@ type Group struct {
 	JID        string
 	Name       string
 	Folder     string
-	Trigger    string
 	AddedAt    time.Time
 	Config     GroupConfig
-	NeedTrig   bool
 	SlinkToken string
 	Parent     string
 }
@@ -58,7 +56,7 @@ type Route struct {
 	ID     int64
 	JID    string
 	Seq    int
-	Type   string // command|verb|pattern|keyword|sender|trigger|default
+	Type   string // command|verb|pattern|keyword|sender|default
 	Match  string
 	Target string
 }

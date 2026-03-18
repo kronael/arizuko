@@ -91,7 +91,7 @@ func toolOK() (*mcp.CallToolResult, error) {
 
 func isRouteTypeValid(t string) bool {
 	switch t {
-	case "command", "verb", "pattern", "keyword", "sender", "trigger", "default":
+	case "command", "verb", "pattern", "keyword", "sender", "default":
 		return true
 	}
 	return false
@@ -195,7 +195,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 		mcp.WithString("jid", mcp.Required()),
 		mcp.WithString("name", mcp.Required()),
 		mcp.WithString("folder", mcp.Required()),
-		mcp.WithString("trigger"),
 		mcp.WithString("parent"),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if gated.RegisterGroup == nil {
@@ -232,7 +231,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string) *server.MCPServe
 			JID:     jid,
 			Name:    req.GetString("name", ""),
 			Folder:  gfld,
-			Trigger: req.GetString("trigger", ""),
 			AddedAt: time.Now(),
 			Parent:  req.GetString("parent", ""),
 		}

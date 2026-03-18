@@ -31,9 +31,6 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.Timezone != "UTC" {
 		t.Fatalf("expected UTC timezone, got %q", cfg.Timezone)
 	}
-	if cfg.TriggerRE == nil {
-		t.Fatal("expected TriggerRE to be compiled")
-	}
 }
 
 func TestLoadConfigFromEnv(t *testing.T) {
@@ -64,26 +61,6 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	}
 	if cfg.MaxContainers != 10 {
 		t.Fatalf("expected 10, got %d", cfg.MaxContainers)
-	}
-}
-
-func TestLoadConfigTriggerRE(t *testing.T) {
-	os.Setenv("ASSISTANT_NAME", "REDACTED")
-	defer os.Unsetenv("ASSISTANT_NAME")
-
-	cfg, _ := LoadConfig()
-
-	if !cfg.TriggerRE.MatchString("@REDACTED hello") {
-		t.Fatal("should match @REDACTED")
-	}
-	if !cfg.TriggerRE.MatchString("@REDACTED hello") {
-		t.Fatal("should match case-insensitive")
-	}
-	if cfg.TriggerRE.MatchString("hello @REDACTED") {
-		t.Fatal("should only match at start")
-	}
-	if cfg.TriggerRE.MatchString("@REDACTEDful") {
-		t.Fatal("should require word boundary")
 	}
 }
 

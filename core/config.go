@@ -1,10 +1,8 @@
 package core
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -56,8 +54,6 @@ type Config struct {
 	VoiceEnabled  bool
 	VideoEnabled  bool
 	WhisperModel  string
-
-	TriggerRE *regexp.Regexp
 }
 
 func LoadConfigFrom(dir string) (*Config, error) {
@@ -128,9 +124,6 @@ func LoadConfig() (*Config, error) {
 	if c.EmailSMTP == "" && c.EmailIMAP != "" {
 		c.EmailSMTP = strings.Replace(c.EmailIMAP, "imap.", "smtp.", 1)
 	}
-
-	c.TriggerRE = regexp.MustCompile(
-		fmt.Sprintf(`(?i)^@%s\b`, regexp.QuoteMeta(c.Name)))
 
 	return c, nil
 }

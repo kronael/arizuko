@@ -242,9 +242,6 @@ func (g *Gateway) pollOnce() {
 		}
 
 		routes := g.store.GetRoutes(chatJid)
-		if routesNeedTrigger(routes) && !g.checkTrigger(chatMsgs) {
-			continue
-		}
 
 		last := chatMsgs[len(chatMsgs)-1]
 		if g.handleCommand(last, group) {
@@ -292,9 +289,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	}
 
 	routes := g.store.GetRoutes(chatJid)
-	if routesNeedTrigger(routes) && !g.checkTrigger(msgs) {
-		return false, nil
-	}
 
 	// Filter out gateway commands — they are handled by the message loop.
 	// Advance cursor past command-only batches to avoid double-processing.
@@ -541,15 +535,6 @@ func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth
 	return g.delegateToFolder("escalate", parentFolder, prompt, originJid, depth)
 }
 
-func routesNeedTrigger(routes []core.Route) bool {
-	for _, r := range routes {
-		if r.Type == "trigger" {
-			return true
-		}
-	}
-	return false
-}
-
 func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
 	if gr, ok := g.groups[jid]; ok {
 		return gr, true
@@ -570,15 +555,6 @@ func resolveTarget(msg core.Message, routes []core.Route, selfFolder string) str
 		return t
 	}
 	return ""
-}
-
-func (g *Gateway) checkTrigger(msgs []core.Message) bool {
-	for _, m := range msgs {
-		if g.cfg.TriggerRE.MatchString(m.Content) {
-			return true
-		}
-	}
-	return false
 }
 
 func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {

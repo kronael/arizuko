@@ -254,7 +254,7 @@ func routeMatches(r core.Route, msg core.Message) bool {
 			return false
 		}
 		return re.MatchString(name)
-	case "trigger", "default":
+	case "default":
 		return true
 	}
 	return false

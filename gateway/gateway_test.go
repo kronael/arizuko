@@ -3,7 +3,6 @@ package gateway
 import (
 	"context"
 	"encoding/json"
-	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -69,7 +68,6 @@ func testGateway(t *testing.T) (*Gateway, *store.Store) {
 		MaxContainers: 2,
 		DataDir:       dir,
 		GroupsDir:     dir,
-		TriggerRE:     regexp.MustCompile(`(?i)^@test\b`),
 	}
 	gw := New(cfg, s)
 	return gw, s
@@ -223,39 +221,6 @@ func TestGroupForJid_LocalPrefix(t *testing.T) {
 	}
 	if gr.Name != "Beta" {
 		t.Errorf("name = %q, want %q", gr.Name, "Beta")
-	}
-}
-
-func TestRoutesNeedTrigger(t *testing.T) {
-	none := []core.Route{{Type: "keyword", Match: "hi", Target: "grp"}}
-	if routesNeedTrigger(none) {
-		t.Error("routesNeedTrigger true with no trigger route")
-	}
-
-	trig := []core.Route{
-		{Type: "keyword", Match: "hi", Target: "grp"},
-		{Type: "trigger", Match: ".*", Target: "grp"},
-	}
-	if !routesNeedTrigger(trig) {
-		t.Error("routesNeedTrigger false with trigger route present")
-	}
-
-	if routesNeedTrigger(nil) {
-		t.Error("routesNeedTrigger true for nil routes")
-	}
-}
-
-func TestCheckTrigger(t *testing.T) {
-	gw, _ := testGateway(t)
-
-	msgs := []core.Message{{Content: "@test hello"}}
-	if !gw.checkTrigger(msgs) {
-		t.Error("checkTrigger false for matching message")
-	}
-
-	msgs = []core.Message{{Content: "hello world"}}
-	if gw.checkTrigger(msgs) {
-		t.Error("checkTrigger true for non-matching message")
 	}
 }
 

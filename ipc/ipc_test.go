@@ -44,7 +44,7 @@ func TestToolJSONFormat(t *testing.T) {
 }
 
 func TestIsRouteTypeValid(t *testing.T) {
-	valid := []string{"command", "verb", "pattern", "keyword", "sender", "trigger", "default"}
+	valid := []string{"command", "verb", "pattern", "keyword", "sender", "default"}
 	for _, v := range valid {
 		if !isRouteTypeValid(v) {
 			t.Errorf("%s should be valid", v)
