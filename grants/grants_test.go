@@ -148,6 +148,14 @@ func TestCheckAction_ParamMismatch(t *testing.T) {
 	}
 }
 
+func TestCheckAction_NilParamsWithParamConstraint(t *testing.T) {
+	// Rule requires jid param; nil input params must not panic or silently match.
+	rules := []string{"send_message(jid=telegram:*)"}
+	if CheckAction(rules, "send_message", nil) {
+		t.Fatal("nil params must not silently match a param-constrained rule")
+	}
+}
+
 func TestCheckAction_NoMatch_Deny(t *testing.T) {
 	rules := []string{"send_reply"}
 	if CheckAction(rules, "send_message", nil) {
