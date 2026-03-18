@@ -376,3 +376,20 @@ func TestNarrowRules_AllowKeptIfParentAllows(t *testing.T) {
 		t.Fatal("send_reply should be kept (parent allows it)")
 	}
 }
+
+func TestNarrowRules_NilChildLeavesParentUnchanged(t *testing.T) {
+	parent := []string{"send_reply"}
+	out := NarrowRules(parent, nil)
+	if len(out) != 1 || out[0] != "send_reply" {
+		t.Fatalf("nil child should leave parent unchanged, got %v", out)
+	}
+}
+
+func TestNarrowRules_NilParentDoesNotWidenToStar(t *testing.T) {
+	out := NarrowRules(nil, []string{"*"})
+	for _, r := range out {
+		if r == "*" {
+			t.Fatal("nil parent must not widen to [*]")
+		}
+	}
+}
