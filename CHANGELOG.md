@@ -9,6 +9,29 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **Topic sessions** (`gateway/gateway.go`, `store/sessions.go`,
+  `store/migrations/0008-topic-sessions.sql`): `#topic` prefix routes
+  messages to isolated sessions within a group. `/new #topic` resets only
+  that topic. `sessions` table gains a `topic` column; PK is now
+  `(group_folder, topic)`.
+- **Prefix routing** (`router/router.go`): new `prefix` route type. `@name`
+  dispatches to a named group, `#topic` selects a topic session. Evaluated
+  before `pattern` in tier order.
+- **Grants engine** (`grants/grants.go`): `CheckAction`, `NarrowRules`,
+  `MatchingRules`, `DeriveRules`. Rules are derived at container spawn
+  (`container/runner.go`) and injected into `start.json`.
+- **IPC grants integration** (`ipc/ipc.go`): MCP manifest filtered by grants
+  rules so agents only see permitted tools. `set_grants`/`get_grants` tools
+  added. `delegate_group` calls `NarrowRules` before persisting child rules.
+- **Onboarding daemon** (`onbod/main.go`, `store/onboarding.go`,
+  `store/migrations/0009-onboarding.sql`): state machine
+  `awaiting_name → pending → approved/rejected`. Poll loop prompts users,
+  validates names, notifies tier-0 operators. `/approve` and `/reject`
+  commands handled via `/send` HTTP endpoint. On approval, creates group dir,
+  inserts routes, sends welcome system event.
+
 ### Changed
 
 - `gateway/commands.go`: `cmdText()` strips media placeholders and routing
@@ -16,7 +39,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `handleCommand()` uses `cmdText()` consistently.
 - `gateway/gateway.go`: `processGroupMessages()` filters gateway commands
   from agent context (they are never forwarded to the container);
-  `pollOnce()` includes unrouted JIDs when `ONBOARDING_ENABLED` is set.
+  `pollOnce()` includes unrouted JIDs when `ONBOARDING_ENABLED` is set;
+  `insertOnboarding` hook seeds `onboarding` table for new unrouted JIDs.
 - `store/groups.go`: `UnroutedChatJIDs(since time.Time)` returns chat JIDs
   with recent messages that have no entry in the routes table.
 - `container/runner.go`: `seedSkills()` seeds `.claude.json` if missing

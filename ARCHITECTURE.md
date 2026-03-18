@@ -45,6 +45,12 @@ whapd/               (whatsapp adapter daemon, TypeScript)
 
 timed/main           (scheduler daemon)
   └── polls scheduled_tasks, inserts messages into shared DB
+
+onbod/main           (onboarding daemon)
+  └── state machine, /send HTTP endpoint, poll loop
+
+grants/              (library)
+  └── CheckAction, NarrowRules, MatchingRules, DeriveRules
 ```
 
 ## Message Flow
@@ -54,7 +60,8 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
   → gateway.messageLoop (polls every 2s)
   → store.NewMessages (unprocessed since lastTimestamp)
   → checkTrigger (direct mode or @name regex)
-  → handleCommand (/new, /ping, /chatid, /stop)
+  → handleCommand (/new [#topic], /ping, /chatid, /stop)
+  → prefix dispatch (@name → named group, #topic → topic session)
   → router.ResolveRoutingTarget (delegate to child group if matched)
   → queue.SendMessage (stdin pipe to running container) OR
   → queue.EnqueueMessageCheck → processGroupMessages
@@ -62,6 +69,7 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
     → store.MessagesSince (per-chat agent cursor)
     → store.FlushSysMsgs (XML system events prepended)
     → router.FormatMessages (XML message batch)
+    → grants.DeriveRules → inject into start.json
     → container.Run (docker run)
     → stream output → router.FormatOutbound (strip <internal> tags)
     → HTTPChannel.Send → POST /send to channel adapter
@@ -123,7 +131,7 @@ Full protocol: `specs/7/1-channel-protocol.md`.
 | `messages`          | id (PK), chat_jid, sender, content, timestamp                                                  |
 | `registered_groups` | jid (PK), folder, trigger_word, requires_trigger, container_config (JSON), parent, slink_token |
 | `routes`            | id (auto), jid, seq, type, match, target                                                       |
-| `sessions`          | group_folder (PK), session_id                                                                  |
+| `sessions`          | group_folder + topic (PK), session_id                                                          |
 | `session_log`       | id (auto), group_folder, session_id, started_at, ended_at, result, error                       |
 | `system_messages`   | id (auto), group_id, origin, event, body                                                       |
 | `scheduled_tasks`   | id (PK), owner, chat_jid, prompt, cron, next_run, status, created_at                           |
@@ -131,6 +139,7 @@ Full protocol: `specs/7/1-channel-protocol.md`.
 | `auth_users`        | sub (unique), username (unique), hash                                                          |
 | `auth_sessions`     | token_hash (PK), user_sub, expires_at                                                          |
 | `email_threads`     | thread_id (PK), chat_jid, subject                                                              |
+| `onboarding`        | jid (PK), status, world_name, prompted_at                                                      |
 
 WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
 
@@ -161,8 +170,11 @@ cursor advances (partial work preserved).
 
 MCP server on unix socket (`mark3labs/mcp-go`). Gateway starts
 one `ipc` server per group before container spawn, listening on
-`data/ipc/<folder>/nanoclaw.sock`. All 16 tools always registered;
-runtime auth via `auth.Authorize`.
+`data/ipc/<folder>/nanoclaw.sock`. Tools registered from MCP manifest
+filtered by grants rules for the caller's group; runtime auth via
+`auth.Authorize`. `set_grants`/`get_grants` tools allow agents to
+read and write grant rules. `delegate_group` calls `NarrowRules`
+to merge parent+child rules before persisting.
 
 **Transport**: socat bridges the host unix socket into the container.
 Agent-runner configures `nanoclaw` MCP server in `settings.json`
@@ -202,14 +214,62 @@ Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
 `ResolveRoutingTarget(msg, rules)` evaluates in tier order:
 
 1. **command** — exact prefix match (e.g. `/code`)
-2. **pattern** — regex match on content (max 200 chars)
-3. **keyword** — case-insensitive substring
-4. **sender** — regex on sender name
-5. **trigger** — trigger word match (group activation)
-6. **default** — always matches
+2. **prefix** — `@name` or `#topic` prefix routing
+3. **pattern** — regex match on content (max 200 chars)
+4. **keyword** — case-insensitive substring
+5. **sender** — regex on sender name
+6. **trigger** — trigger word match (group activation)
+7. **default** — always matches
 
 `IsAuthorizedRoutingTarget` — target must be direct child of source
 within same world (root segment). Max delegation depth: 3.
+
+## Topic Sessions
+
+`/new #topic` resets the session for a named topic within a group, leaving
+other topics unaffected. Prefix dispatch in the message loop routes messages
+prefixed with `#topic` to the matching topic session and `@name` to a named
+group. `store.GetSession`/`SetSession`/`DeleteSession` take a `topic` param;
+the `sessions` table has a composite PK of `(group_folder, topic)`.
+
+## Grants Engine (grants package)
+
+Rule strings control which MCP tools and actions a group may use. Rule format:
+`[!]action[(param=glob,...)]`. Evaluation is last-match-wins; no match = deny.
+
+- `CheckAction(rules, action, params)` — returns allow/deny
+- `NarrowRules(parent, child)` — merges rules; child can only narrow, never widen
+- `MatchingRules(rules, action)` — returns rules matching a given action
+- `DeriveRules(store, folder, tier, worldFolder)` — computes default rules from
+  group tier: tier-0 gets `*`, tier-1 gets platform send actions + management
+  tools, tier-2 gets send only, deeper gets `send_reply` only
+
+Rules are derived at container spawn time and injected into `start.json`.
+The `ipc` MCP manifest is filtered by grants so agents only see permitted tools.
+
+## Onboarding Daemon (onbod/)
+
+Standalone daemon. Registers itself as a channel with the router, seeds `/approve`
+and `/reject` command routes in the `routes` table on startup.
+
+State machine per JID (`onboarding` table):
+
+```
+awaiting_name → (user sends name) → pending → (operator /approve) → approved
+                                             → (operator /reject)  → rejected
+```
+
+Poll loop (every 10s):
+
+1. Prompt unanswered `awaiting_name` records
+2. Validate name response (lowercase, no collision) → transition to `pending`,
+   notify tier-0 JIDs
+3. Respond to pending users who send messages: "Still waiting for approval"
+
+On `/approve <jid>`: creates group dir, optionally copies prototype, inserts
+`registered_groups` row and default routes, sends welcome system event message.
+Operator must be a tier-0 group (no parent). Uses `notify` library to fan out
+messages to all tier-0 root JIDs.
 
 ## Scheduler (timed/)
 
@@ -292,9 +352,9 @@ template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
 gated/              Gateway daemon
 timed/              Scheduler daemon (cron poll, messages)
-onbod/              Onboarding daemon (planned)
+onbod/              Onboarding daemon
 dashd/              Operator dashboards (planned)
-grants/             Grant rule engine (planned)
+grants/             Grant rule engine
 teled/              Telegram adapter (Go)
 discd/              Discord adapter (Go)
 whapd/              WhatsApp adapter (TypeScript)

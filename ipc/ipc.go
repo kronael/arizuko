@@ -108,11 +108,6 @@ func groupFolderByJid(groups map[string]core.Group, jid string) string {
 	return ""
 }
 
-// allowed checks if an action is permitted by rules.
-func allowed(rules []string, action string, params map[string]string) bool {
-	return grantslib.CheckAction(rules, action, params)
-}
-
 // toolDesc appends matching rules to a description for manifest clarity.
 func toolDesc(base string, rules []string, action string) string {
 	matching := grantslib.MatchingRules(rules, action)
@@ -135,7 +130,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("text", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !allowed(rules, "send_message", map[string]string{"jid": jid}) {
+			if !grantslib.CheckAction(rules, "send_message", map[string]string{"jid": jid}) {
 				return toolErr("send_message: not permitted")
 			}
 			if err := gated.SendMessage(jid, req.GetString("text", "")); err != nil {
@@ -154,7 +149,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("filename"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !allowed(rules, "send_file", map[string]string{"jid": jid}) {
+			if !grantslib.CheckAction(rules, "send_file", map[string]string{"jid": jid}) {
 				return toolErr("send_file: not permitted")
 			}
 			fp := req.GetString("filepath", "")
@@ -185,7 +180,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if gf == "" {
 				return toolErr("missing groupFolder")
 			}
-			if !allowed(rules, "reset_session", nil) {
+			if !grantslib.CheckAction(rules, "reset_session", nil) {
 				return toolErr("reset_session: not permitted")
 			}
 			if err := auth.Authorize(id, "reset_session", auth.AuthzTarget{TargetFolder: gf}); err != nil {
@@ -205,7 +200,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("sender"),
 			mcp.WithString("senderName"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !allowed(rules, "inject_message", nil) {
+			if !grantslib.CheckAction(rules, "inject_message", nil) {
 				return toolErr("inject_message: not permitted")
 			}
 			if gated.InjectMessage == nil {
@@ -243,7 +238,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			jid := req.GetString("jid", "")
 			gfld := req.GetString("folder", "")
-			if !allowed(rules, "register_group", nil) {
+			if !grantslib.CheckAction(rules, "register_group", nil) {
 				return toolErr("register_group: not permitted")
 			}
 			if err := auth.Authorize(id, "register_group", auth.AuthzTarget{TargetFolder: gfld}); err != nil {
@@ -293,7 +288,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithNumber("depth"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !allowed(rules, "escalate_group", nil) {
+			if !grantslib.CheckAction(rules, "escalate_group", nil) {
 				return toolErr("escalate_group: not permitted")
 			}
 			if gated.DelegateToParent == nil {
@@ -329,7 +324,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("grants"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			target := req.GetString("group", "")
-			if !allowed(rules, "delegate_group", nil) {
+			if !grantslib.CheckAction(rules, "delegate_group", nil) {
 				return toolErr("delegate_group: not permitted")
 			}
 			if err := auth.Authorize(id, "delegate_group", auth.AuthzTarget{TargetFolder: target}); err != nil {
@@ -368,7 +363,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithDescription(toolDesc("Get routes for a JID", rules, "get_routes")),
 			mcp.WithString("jid", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !allowed(rules, "get_routes", nil) {
+			if !grantslib.CheckAction(rules, "get_routes", nil) {
 				return toolErr("get_routes: not permitted")
 			}
 			if db.GetRoutes == nil || gated.GetGroups == nil {
@@ -393,7 +388,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("jid", mcp.Required()),
 			mcp.WithString("routes", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !allowed(rules, "set_routes", nil) {
+			if !grantslib.CheckAction(rules, "set_routes", nil) {
 				return toolErr("set_routes: not permitted")
 			}
 			if db.SetRoutes == nil || gated.GetGroups == nil {
@@ -426,7 +421,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("jid", mcp.Required()),
 			mcp.WithString("route", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !allowed(rules, "add_route", nil) {
+			if !grantslib.CheckAction(rules, "add_route", nil) {
 				return toolErr("add_route: not permitted")
 			}
 			if db.AddRoute == nil || gated.GetGroups == nil {
@@ -464,7 +459,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithDescription(toolDesc("Delete a route by ID", rules, "delete_route")),
 			mcp.WithNumber("id", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !allowed(rules, "delete_route", nil) {
+			if !grantslib.CheckAction(rules, "delete_route", nil) {
 				return toolErr("delete_route: not permitted")
 			}
 			if db.DeleteRoute == nil || db.GetRoute == nil {
@@ -497,7 +492,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("prompt", mcp.Required()),
 			mcp.WithString("cron"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !allowed(rules, "schedule_task", nil) {
+			if !grantslib.CheckAction(rules, "schedule_task", nil) {
 				return toolErr("schedule_task: not permitted")
 			}
 			if db.CreateTask == nil || gated.GetGroups == nil {
@@ -549,7 +544,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithDescription(toolDesc("Pause a scheduled task", rules, "pause_task")),
 			mcp.WithString("taskId", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !allowed(rules, "pause_task", nil) {
+			if !grantslib.CheckAction(rules, "pause_task", nil) {
 				return toolErr("pause_task: not permitted")
 			}
 			if db.GetTask == nil || db.UpdateTaskStatus == nil {
@@ -577,7 +572,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithDescription(toolDesc("Resume a paused scheduled task", rules, "resume_task")),
 			mcp.WithString("taskId", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !allowed(rules, "resume_task", nil) {
+			if !grantslib.CheckAction(rules, "resume_task", nil) {
 				return toolErr("resume_task: not permitted")
 			}
 			if db.GetTask == nil || db.UpdateTaskStatus == nil {
@@ -605,7 +600,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithDescription(toolDesc("Cancel and delete a scheduled task", rules, "cancel_task")),
 			mcp.WithString("taskId", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !allowed(rules, "cancel_task", nil) {
+			if !grantslib.CheckAction(rules, "cancel_task", nil) {
 				return toolErr("cancel_task: not permitted")
 			}
 			if db.GetTask == nil || db.DeleteTask == nil {
@@ -632,7 +627,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		srv.AddTool(mcp.NewTool("list_tasks",
 			mcp.WithDescription(toolDesc("List scheduled tasks visible to this group", rules, "list_tasks")),
 		), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !allowed(rules, "list_tasks", nil) {
+			if !grantslib.CheckAction(rules, "list_tasks", nil) {
 				return toolErr("list_tasks: not permitted")
 			}
 			if db.ListTasks == nil {
@@ -642,7 +637,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// get_grants — tier 0-1 only
+	// get_grants / set_grants — tier 0-1 only
 	if id.Tier <= 1 {
 		srv.AddTool(mcp.NewTool("get_grants",
 			mcp.WithDescription("Get grant rules for a folder (tier 0-1 only)"),
@@ -658,13 +653,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err := auth.Authorize(id, "get_grants", auth.AuthzTarget{TargetFolder: gf}); err != nil {
 				return toolErr(err.Error())
 			}
-			r := db.GetGrants(gf)
-			return toolJSON(map[string]any{"folder": gf, "rules": r})
+			return toolJSON(map[string]any{"folder": gf, "rules": db.GetGrants(gf)})
 		})
-	}
 
-	// set_grants — tier 0-1 only
-	if id.Tier <= 1 {
 		srv.AddTool(mcp.NewTool("set_grants",
 			mcp.WithDescription("Set grant rules for a folder (tier 0-1 only)"),
 			mcp.WithString("folder", mcp.Required()),

@@ -47,9 +47,11 @@ mountsec/         Mount allowlist validation
 template/         Instance seed files
 gated/            Gateway daemon (Go)
 timed/            Scheduler daemon (Go)
+onbod/            Onboarding daemon (Go)
 teled/            Telegram adapter (Go)
 discd/            Discord adapter (Go)
 whapd/            WhatsApp adapter (TypeScript)
+grants/           Grant rule engine (library)
 ```
 
 ## Message Flow
@@ -73,6 +75,7 @@ Channel → store.PutMessage + PutChat
 | Rule type | Match criteria                              |
 | --------- | ------------------------------------------- |
 | command   | message starts with trigger string          |
+| prefix    | `@name` or `#topic` prefix                  |
 | pattern   | message matches regex (max 200 char)        |
 | keyword   | message contains keyword (case-insensitive) |
 | sender    | sender name matches regex                   |
@@ -90,12 +93,13 @@ Gateway starts sidecars before agent, wires them into
 
 ## Gateway Commands
 
-| Command      | Effect                                    |
-| ------------ | ----------------------------------------- |
-| `/new [msg]` | Clear session, optionally process message |
-| `/ping`      | Status: group, session, active containers |
-| `/chatid`    | Echo the chat JID                         |
-| `/stop`      | Stop running container for this chat      |
+| Command       | Effect                                    |
+| ------------- | ----------------------------------------- |
+| `/new [msg]`  | Clear session, optionally process message |
+| `/new #topic` | Reset only the named topic session        |
+| `/ping`       | Status: group, session, active containers |
+| `/chatid`     | Echo the chat JID                         |
+| `/stop`       | Stop running container for this chat      |
 
 ## Instance Layout
 
