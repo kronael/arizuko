@@ -41,7 +41,9 @@ which JIDs have routes to the group.
 
 - **Tier 0 (root)** — `["*"]`. All actions, all params.
 - **Tier 1 (world root)** — all actions on every platform with
-  at least one route anywhere in the world.
+  at least one route whose target folder is a descendant of
+  the tier-1 group's world root (i.e., `target = world OR
+target LIKE world || '/%'` in the routes table).
 - **Tier 2** — `send_message`, `send_reply`, plus actions on
   platforms routed to self or children.
 - **Tier 3+ (leaf)** — `send_reply` only. Same chat/thread.
@@ -74,8 +76,15 @@ Denied actions omitted. Allowed actions include matching rules:
 
 ## Delegation
 
-Child rules = parent rules + narrowing rules appended.
-Can only narrow, never widen.
+`NarrowRules(parent, child []string) []string` appends child rules
+to parent, then strips any child allow rule where
+`CheckAction(parent, action, nil)` is false — i.e. an allow rule
+that the parent does not permit is silently dropped. Child deny
+rules always pass through unchanged. Result: delegation can only
+restrict, never expand.
+
+`delegate_group` `grants` param: JSON string array, e.g.
+`["send_reply","!send_file"]`. Empty or absent = no narrowing.
 
 ## Module: `grants/`
 

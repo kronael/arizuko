@@ -39,9 +39,10 @@ if group == nil && cfg.OnboardingEnabled {
 ```
 
 Messages from unrouted JIDs with existing onboarding entries
-are written to the messages table with a marker (e.g.
-`origin: "onboarding"`). onbod reads those to drive the
-state machine.
+are written to the messages table normally. onbod reads them
+using: `SELECT * FROM messages WHERE chat_jid = ? AND
+is_bot_message = 0 ORDER BY timestamp DESC LIMIT 1`
+to find the latest user message for each onboarding JID.
 
 ## State machine
 
@@ -56,11 +57,11 @@ onbod polls onboarding table; receives commands via HTTP POST /send
     -> notify() root
     -> send "Got it! Waiting for approval."
 
-  pending:
+  pending (on every new message from this jid while status = pending):
     -> send "Still waiting for approval."
 
   rejected:
-    -> silence
+    -> silence (no reply)
 ```
 
 ## State table
@@ -80,12 +81,27 @@ CREATE TABLE onboarding (
 
 onbod handles `/approve` and `/reject`. gated routes these via
 the channels table — onbod receives them as HTTP POST to its
-`/send` endpoint. Routing table entries:
+`/send` endpoint. Routing table entries seeded by onbod at
+startup via DB upsert (INSERT OR IGNORE):
 
+```sql
+INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
+  VALUES ('*', -10, 'command', '/approve', 'onbod'),
+         ('*', -10, 'command', '/reject',  'onbod');
 ```
-match=/approve  →  onbod
-match=/reject   →  onbod
-```
+
+`jid = '*'` is a wildcard matching any source JID (evaluated
+by gated when no exact-match route exists for the source JID).
+
+### Tier-0 enforcement
+
+onbod receives the sender's `chat_jid` in the HTTP POST payload.
+It verifies root-only access by querying the routes table:
+`SELECT target FROM routes WHERE jid = ? AND seq = 0 LIMIT 1`
+to find the target folder for the sender's JID, then checks
+`SELECT parent FROM registered_groups WHERE folder = ?` — if
+`parent IS NULL`, the sender is tier 0 (root). Otherwise reject
+with "Permission denied."
 
 ### /approve <jid>
 
@@ -146,17 +162,26 @@ deliver inbound messages from a user platform.
 - **No imports** from gateway, core, or any arizuko Go package
 - **Dependencies**: `database/sql`, `modernc.org/sqlite`
 
+## Notifications
+
+onbod determines root JIDs by querying:
+`SELECT jid FROM routes WHERE target = (SELECT folder FROM registered_groups WHERE parent IS NULL LIMIT 1) AND seq = 0`
+then calls `notify.Send(jids, text, sendFn)` from the `notify/` library.
+
 ## Config
 
 ```
-ONBOARDING_ENABLED=0              # off by default
-ONBOARDING_PROTOTYPE=             # optional: clone from prototype/
+DATABASE=                         # required (or DATA_DIR)
+DATA_DIR=                         # used to derive DATABASE if not set
+ONBOARDING_ENABLED=0              # off by default; onbod exits if 0
+ONBOARDING_PROTOTYPE=             # path to prototype dir to clone; empty = no cloning
+ONBOARD_POLL_INTERVAL=10s         # poll interval for onboarding table
 ```
 
 ## Layout
 
 ```
-services/onbod/
+onbod/
   main.go
 ```
 

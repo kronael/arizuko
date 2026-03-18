@@ -42,7 +42,7 @@ the same group. Same agent, same folder, different session.
 
 ## Predefined routes on group creation
 
-For tiers 0-2, insert `@` and `#` routes alongside default:
+For tiers 0-2, insert `@` and `#` routes for the registration JID:
 
 ```go
 if tier <= 2 {
@@ -51,7 +51,10 @@ if tier <= 2 {
 }
 ```
 
-Negative seq ensures `@` and `#` evaluated before user routes.
+`jid` is the source JID passed to `register_group`. Routes are per
+source-JID; if a new JID is later routed to a tier 0-2 group via
+`add_route`, the ipc handler also inserts `@` and `#` routes for
+that JID. Negative seq ensures `@` and `#` evaluated before user routes.
 
 ## Route matching
 
@@ -81,8 +84,32 @@ func ParsePrefix(text string) (name, rest string, ok bool)
 2. Target is self (same folder)
 3. Strip prefix
 4. Look up `GetSession(folder, topic)` for topic-specific session
-5. Run container with that session
-6. Store returned session via `SetSession(folder, sessionId, topic)`
+5. Run container with that session and topic in RunConfig
+6. Store returned session via `SetSession(folder, topic, sessionId)`
+
+## Store function signatures
+
+```go
+// GetSession returns session ID for (folder, topic). topic="" = default.
+func (s *Store) GetSession(folder, topic string) string
+
+// SetSession stores session ID for (folder, topic).
+func (s *Store) SetSession(folder, topic, sessionID string)
+```
+
+Existing call sites that pass only folder use `topic = ""`.
+
+## RunConfig topic field
+
+```go
+type RunConfig struct {
+    // ... existing fields ...
+    Topic string // "" for default session; "#name" for named topic
+}
+```
+
+`container.Run` passes `Topic` into `start.json` as `"topic"` field
+and appends `"Topic session: #name"` to `annotations` when non-empty.
 
 ## Schema changes
 
