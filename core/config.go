@@ -46,9 +46,9 @@ type Config struct {
 	EmailAccount  string
 	EmailPassword string
 
-	APIPort            int
-	ChannelSecret      string
-	OnboardingEnabled  bool
+	APIPort           int
+	ChannelSecret     string
+	OnboardingEnabled bool
 
 	MediaEnabled  bool
 	MediaMaxBytes int64

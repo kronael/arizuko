@@ -32,7 +32,7 @@ func (s *Store) GetRoute(id int64) (core.Route, bool) {
 func (s *Store) AddRoute(jid string, r core.Route) (int64, error) {
 	res, err := s.db.Exec(
 		`INSERT INTO routes (jid, seq, type, match, target) VALUES (?, ?, ?, ?, ?)`,
-		jid, r.Seq, r.Type, nullStr(r.Match), r.Target,
+		jid, r.Seq, r.Type, nilIfEmpty(r.Match), r.Target,
 	)
 	if err != nil {
 		return 0, err
@@ -52,7 +52,7 @@ func (s *Store) SetRoutes(jid string, routes []core.Route) error {
 	for _, r := range routes {
 		if _, err := tx.Exec(
 			`INSERT INTO routes (jid, seq, type, match, target) VALUES (?, ?, ?, ?, ?)`,
-			jid, r.Seq, r.Type, nullStr(r.Match), r.Target,
+			jid, r.Seq, r.Type, nilIfEmpty(r.Match), r.Target,
 		); err != nil {
 			return err
 		}
@@ -63,11 +63,4 @@ func (s *Store) SetRoutes(jid string, routes []core.Route) error {
 func (s *Store) DeleteRoute(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM routes WHERE id = ?`, id)
 	return err
-}
-
-func nullStr(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
 }

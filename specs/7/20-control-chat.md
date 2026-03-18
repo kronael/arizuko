@@ -19,25 +19,12 @@ messages proceed to root agent normally.
 ## Notifications (shared library)
 
 `notify/` package. Any service imports it to send operator
-messages. Same pattern as auth — shared library, not
-duplicated code.
+messages to root's JIDs. Looks up root's JIDs from routes
+table, sends via channel adapter HTTP API, records via
+`store.StoreOutbound(source: "control")`.
 
-```go
-// notify/notify.go
-func Send(db *store.Store, text string) error
-```
-
-1. Look up root's JIDs from routes table (folder = "root")
-2. Send to each via channel adapter HTTP API
-3. Record via `store.StoreOutbound(source: "control")`
-
-### Who sends what
-
-| Service | Notifications                                       |
-| ------- | --------------------------------------------------- |
-| `onbod` | Onboarding events ("New: alice via telegram:-1234") |
-| `gated` | Container errors, channel health                    |
-| `dashd` | None (read-only)                                    |
+Senders: `gated` (container errors, channel health), `onbod`
+(onboarding events). See individual daemon specs.
 
 ## Commands
 

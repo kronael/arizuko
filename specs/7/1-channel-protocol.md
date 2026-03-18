@@ -199,45 +199,11 @@ Extensible. Unknown capabilities ignored.
 ## Internal service channels
 
 Internal services (onbod, dashd) register in the same
-channels table as external adapters. They set
-`receive_only: true` — they receive routed messages but
-never deliver inbound messages.
-
-```
-POST /v1/channels/register
-Authorization: Bearer <shared-secret>
-
-{
-  "name": "onbod",
-  "url": "http://onbod:8091",
-  "jid_prefixes": [],
-  "capabilities": {
-    "receive_only": true
-  }
-}
-
-→ 200 {"ok": true, "token": "<session-token>"}
-```
-
-```
-POST /v1/channels/register
-Authorization: Bearer <shared-secret>
-
-{
-  "name": "dashd",
-  "url": "http://dashd:8090",
-  "jid_prefixes": [],
-  "capabilities": {
-    "receive_only": true
-  }
-}
-
-→ 200 {"ok": true, "token": "<session-token>"}
-```
-
-No JID prefixes — they're never matched for inbound
-routing. Router sends to them only when a route rule
-targets their service name.
+channels table as external adapters using `receive_only: true` —
+they receive routed messages but never deliver inbound messages.
+No JID prefixes — router sends to them only when a route rule
+targets their service name. See individual service specs for
+their registration details.
 
 ## Route targets
 
@@ -249,17 +215,9 @@ A route target is either:
   table, HTTP POST to `/send`. Same protocol as any
   channel.
 
-Examples:
-
-```
-match=/approve  →  onbod     (service name → channels lookup)
-match=/reject   →  onbod
-match=/status   →  dashd
-match=*         →  groups/default   (folder path → messages table)
-```
-
 gated holds no hardcoded knowledge of `/approve`,
-`/reject`, etc. They're just routes.
+`/reject`, etc. They're just routes. See `specs/7/9-gated.md`
+for route resolution details.
 
 ## Agent channel
 
@@ -272,9 +230,7 @@ conceptual model is identical to any other channel:
 - Responses route back through the originating channel
 
 Future: agent registers as `http://agentd:8092`. gated
-becomes a pure router with no container logic. The
-transition requires no protocol changes — just moving
-the docker spawn out of gated and into a dedicated daemon.
+becomes a pure router with no container logic.
 
 ## Auth
 
@@ -318,56 +274,6 @@ supported in Go (`net/http` accepts any `net.Listener`).
 The protocol is pure HTTP regardless of transport — no
 changes needed, just a different dialer. Not building
 toward this now, but the design is compatible.
-
-## Why this design
-
-- **Testable**: mock router with any HTTP server, test
-  channel in isolation. Mock channel with any HTTP server,
-  test router in isolation.
-- **Agent-writable**: clear boundary, clear contract. An AI
-  agent can write a channel adapter given this spec. No
-  context about router internals needed.
-- **Language-free**: any language with an HTTP client/server
-  library works. That's all of them.
-- **Modular**: add a new platform by writing one adapter.
-  Remove by deregistering. No router changes.
-- **Transport-agnostic**: HTTP works over localhost, network,
-  vsock. The protocol doesn't care.
-
-## Isolated development and testing
-
-Each channel adapter is a standalone process with no
-dependencies on the router codebase. This enables:
-
-**Develop without the router running.** Start the adapter,
-point it at a mock HTTP server (or just `nc -l 8080`),
-verify platform events arrive as correct JSON. The adapter
-doesn't import router code, doesn't need SQLite, doesn't
-need docker.
-
-**Test inbound in isolation.** Send a message on the
-platform, check that the adapter POSTs correct JSON to
-the router URL. Mock router = any HTTP server that returns
-`{"ok": true}`.
-
-**Test outbound in isolation.** `curl POST /send` to the
-adapter with a chat_jid and content. Verify it appears on
-the platform. No router needed.
-
-**Develop incrementally.** A channel that only does inbound
-is immediately useful — users can message, router processes,
-agent responds via a different channel (or logs). Add
-outbound later. Add file support later. Add typing later.
-Each capability is independent.
-
-**Any language, any test framework.** The contract is HTTP.
-Test with curl, pytest, Go httptest, whatever matches the
-adapter's language.
-
-**Parallel development.** Multiple people (or agents) can
-build different channel adapters simultaneously. No merge
-conflicts — each lives in its own directory with its own
-dependencies.
 
 ## Decided (previously open)
 

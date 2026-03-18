@@ -96,8 +96,6 @@ func FormatMessages(msgs []core.Message) string {
 	return b.String()
 }
 
-
-
 var internalRe = regexp.MustCompile(`(?s)<internal>.*?</internal>`)
 var statusRe = regexp.MustCompile(`(?s)<status>(.*?)</status>`)
 

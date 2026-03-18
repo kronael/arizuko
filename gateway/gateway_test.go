@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -72,6 +73,57 @@ func testGateway(t *testing.T) (*Gateway, *store.Store) {
 	}
 	gw := New(cfg, s)
 	return gw, s
+}
+
+func TestCmdText(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"hello", "hello"},
+		{"/stop", "/stop"},
+		{"[Doc: file.pdf] /stop", "/stop"},
+		{"[Image] @root /new", "/new"},
+		{"@root /ping", "/ping"},
+		{"[Media] plain text", "plain text"},
+		{"  [x] @y /chatid  ", "/chatid"},
+		{"@only", ""},
+		{"[bracket only]", ""},
+	}
+	for _, tc := range cases {
+		got := cmdText(tc.in)
+		if got != tc.want {
+			t.Errorf("cmdText(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestIsGatewayCommand(t *testing.T) {
+	yes := []string{
+		"/new", "/New", "/NEW",
+		"/ping", "/chatid", "/stop",
+		"[Doc: f.pdf] /stop",
+		"@root /ping",
+		"[x] @y /new some arg",
+	}
+	for _, s := range yes {
+		if !isGatewayCommand(s) {
+			t.Errorf("isGatewayCommand(%q) = false, want true", s)
+		}
+	}
+
+	no := []string{
+		"hello",
+		"/approve",
+		"/foo",
+		"/newbie",
+		"@root plain text",
+		"",
+	}
+	for _, s := range no {
+		if isGatewayCommand(s) {
+			t.Errorf("isGatewayCommand(%q) = true, want false", s)
+		}
+	}
 }
 
 func TestHandleCommand_RecognizedCommands(t *testing.T) {
@@ -377,7 +429,7 @@ func TestEmitSystemEvents_NewDay(t *testing.T) {
 	if out == "" {
 		t.Fatal("no system events emitted")
 	}
-	if !contains(out, "new_day") {
+	if !strings.Contains(out, "new_day") {
 		t.Errorf("expected new_day event, got: %s", out)
 	}
 }
@@ -395,20 +447,7 @@ func TestEmitSystemEvents_NewSession(t *testing.T) {
 	if out == "" {
 		t.Fatal("no system events emitted")
 	}
-	if !contains(out, "new_session") {
+	if !strings.Contains(out, "new_session") {
 		t.Errorf("expected new_session event, got: %s", out)
 	}
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && searchStr(s, sub)
-}
-
-func searchStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

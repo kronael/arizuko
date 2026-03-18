@@ -145,7 +145,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.store.PutMessage(msg); err != nil {
 		writeErr(w, http.StatusInternalServerError, "store failed")
-		slog.Error("api store message", "err", err)
+		slog.Error("store message failed", "err", err)
 		return
 	}
 

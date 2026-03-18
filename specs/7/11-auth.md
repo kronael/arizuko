@@ -80,25 +80,6 @@ These tables are for web authentication, separate from
 the tier-based MCP authorization which is computed from
 folder depth (no tables needed).
 
-## Flow
-
-```
-ipc receives MCP tool call, resolves identity:
-  {tool: cancel_task, caller: {folder: "andy/research", tier: 1}, args: {taskId: "abc"}}
-
-gated calls auth:
-  authorize(caller={folder: "andy/research", tier: 1},
-            action="cancel_task",
-            target={taskId: "abc"})
-
-auth checks:
-  1. tier 1 ≤ min tier 2 for cancel_task? yes
-  2. task "abc" owner in same world as caller? yes (world check)
-  → allow
-
-gated executes the cancellation.
-```
-
 ## Web Authentication
 
 <!-- source: arizuko specs/3/A-auth.md, synced 2026-03-15 -->

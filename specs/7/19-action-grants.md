@@ -45,9 +45,6 @@ which JIDs have routes to the group.
   platforms routed to self or children.
 - **Tier 3+ (leaf)** — `send_reply` only. Same chat/thread.
 
-Replaces existing `maxTier` checks in `auth.Authorize` —
-grants become the single enforcement point.
-
 ## Overrides (DB)
 
 ```sql

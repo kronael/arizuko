@@ -16,63 +16,63 @@ import (
 
 const circuitBreakerThreshold = 3
 
-type TaskFn func() error
+type taskFn func() error
 
-type QueuedTask struct {
+type queuedTask struct {
 	ID string
-	Fn TaskFn
+	Fn taskFn
 }
 
-type GroupState struct {
+type groupState struct {
 	active              bool
 	idleWaiting         bool
 	isTaskContainer     bool
 	pendingMessages     bool
-	pendingTasks        []QueuedTask
+	pendingTasks        []queuedTask
 	containerName       string
 	groupFolder         string
 	consecutiveFailures int
 }
 
-type ProcessMessagesFn func(groupJid string) (bool, error)
-type NotifyErrorFn func(groupJid string, err error)
+type processMessagesFn func(groupJid string) (bool, error)
+type notifyErrorFn func(groupJid string, err error)
 
 type GroupQueue struct {
 	mu              sync.Mutex
-	groups          map[string]*GroupState
+	groups          map[string]*groupState
 	activeCount     int
 	maxConcurrent   int
 	waitingGroups   []string
-	processMessages ProcessMessagesFn
-	notifyError     NotifyErrorFn
+	processMessages processMessagesFn
+	notifyError     notifyErrorFn
 	shuttingDown    bool
 	dataDir         string
 }
 
 func New(maxConcurrent int, dataDir string) *GroupQueue {
 	return &GroupQueue{
-		groups:        make(map[string]*GroupState),
+		groups:        make(map[string]*groupState),
 		maxConcurrent: maxConcurrent,
 		dataDir:       dataDir,
 	}
 }
 
-func (q *GroupQueue) getGroup(groupJid string) *GroupState {
+func (q *GroupQueue) getGroup(groupJid string) *groupState {
 	s := q.groups[groupJid]
 	if s == nil {
-		s = &GroupState{}
+		s = &groupState{}
 		q.groups[groupJid] = s
 	}
 	return s
 }
 
-func (q *GroupQueue) SetProcessMessagesFn(fn ProcessMessagesFn) {
+func (q *GroupQueue) SetProcessMessagesFn(fn processMessagesFn) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.processMessages = fn
 }
 
-func (q *GroupQueue) SetNotifyErrorFn(fn NotifyErrorFn) {
+func (q *GroupQueue) SetNotifyErrorFn(fn notifyErrorFn) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.notifyError = fn
@@ -121,7 +121,7 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 	go q.runForGroup(groupJid, "messages")
 }
 
-func (q *GroupQueue) EnqueueTask(groupJid, taskID string, fn TaskFn) {
+func (q *GroupQueue) EnqueueTask(groupJid, taskID string, fn taskFn) {
 	q.mu.Lock()
 	if q.shuttingDown {
 		q.mu.Unlock()
@@ -139,7 +139,7 @@ func (q *GroupQueue) EnqueueTask(groupJid, taskID string, fn TaskFn) {
 		}
 	}
 
-	task := QueuedTask{ID: taskID, Fn: fn}
+	task := queuedTask{ID: taskID, Fn: fn}
 
 	if s.active {
 		s.pendingTasks = append(s.pendingTasks, task)
@@ -182,16 +182,6 @@ func (q *GroupQueue) RegisterProcess(groupJid, containerName, groupFolder string
 	}
 }
 
-func (q *GroupQueue) NotifyIdle(groupJid string) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	s := q.getGroup(groupJid)
-	s.idleWaiting = true
-	if len(s.pendingTasks) > 0 {
-		q.closeStdinLocked(s)
-	}
-}
-
 func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 	q.mu.Lock()
 	s := q.getGroup(groupJid)
@@ -230,18 +220,7 @@ func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 	return true
 }
 
-func (q *GroupQueue) CloseStdin(groupJid string) {
-	q.mu.Lock()
-	s := q.getGroup(groupJid)
-	if !s.active || s.groupFolder == "" {
-		q.mu.Unlock()
-		return
-	}
-	q.closeStdinLocked(s)
-	q.mu.Unlock()
-}
-
-func (q *GroupQueue) closeStdinLocked(s *GroupState) {
+func (q *GroupQueue) closeStdinLocked(s *groupState) {
 	inputDir := filepath.Join(q.dataDir, "ipc", s.groupFolder, "input")
 	_ = os.MkdirAll(inputDir, 0o755)
 	_ = os.WriteFile(filepath.Join(inputDir, "_close"), nil, 0o644)
@@ -311,7 +290,7 @@ func (q *GroupQueue) runForGroup(groupJid, reason string) {
 	q.mu.Unlock()
 }
 
-func (q *GroupQueue) runTask(groupJid string, task QueuedTask) {
+func (q *GroupQueue) runTask(groupJid string, task queuedTask) {
 	slog.Debug("running queued task",
 		"groupJid", groupJid, "taskId", task.ID, "activeCount", q.activeCount)
 

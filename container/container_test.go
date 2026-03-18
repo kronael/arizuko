@@ -593,3 +593,77 @@ func TestWriteLogTimeout(t *testing.T) {
 		t.Error("missing streaming output flag")
 	}
 }
+
+func TestSeedSkillsClaudeJSON(t *testing.T) {
+	claudeDir := t.TempDir()
+	appDir := t.TempDir()
+	os.MkdirAll(filepath.Join(appDir, "container", "skills"), 0o755)
+	cfg := &core.Config{HostAppDir: appDir}
+
+	seedSkills(cfg, claudeDir, "mygroup")
+
+	p := filepath.Join(claudeDir, ".claude.json")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf(".claude.json not created: %v", err)
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if _, ok := m["userID"]; !ok {
+		t.Error("userID missing")
+	}
+	if _, ok := m["firstStartTime"]; !ok {
+		t.Error("firstStartTime missing")
+	}
+	if m["thinkingMigrationComplete"] != true {
+		t.Errorf("thinkingMigrationComplete = %v", m["thinkingMigrationComplete"])
+	}
+	if m["sonnet45MigrationComplete"] != true {
+		t.Errorf("sonnet45MigrationComplete = %v", m["sonnet45MigrationComplete"])
+	}
+}
+
+func TestSeedSkillsClaudeJSON_Idempotent(t *testing.T) {
+	claudeDir := t.TempDir()
+	appDir := t.TempDir()
+	os.MkdirAll(filepath.Join(appDir, "container", "skills"), 0o755)
+	cfg := &core.Config{HostAppDir: appDir}
+
+	seedSkills(cfg, claudeDir, "mygroup")
+
+	p := filepath.Join(claudeDir, ".claude.json")
+	first, _ := os.ReadFile(p)
+
+	seedSkills(cfg, claudeDir, "mygroup")
+	second, _ := os.ReadFile(p)
+
+	if string(first) != string(second) {
+		t.Error("second call overwrote .claude.json")
+	}
+}
+
+func TestSeedSkillsClaudeJSON_UserIDDerivedFromFolder(t *testing.T) {
+	appDir := t.TempDir()
+	os.MkdirAll(filepath.Join(appDir, "container", "skills"), 0o755)
+	cfg := &core.Config{HostAppDir: appDir}
+
+	d1 := t.TempDir()
+	d2 := t.TempDir()
+	seedSkills(cfg, d1, "folderA")
+	seedSkills(cfg, d2, "folderB")
+
+	data1, _ := os.ReadFile(filepath.Join(d1, ".claude.json"))
+	data2, _ := os.ReadFile(filepath.Join(d2, ".claude.json"))
+
+	var m1, m2 map[string]any
+	json.Unmarshal(data1, &m1)
+	json.Unmarshal(data2, &m2)
+
+	if m1["userID"] == m2["userID"] {
+		t.Error("different folders should produce different userIDs")
+	}
+}

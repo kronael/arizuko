@@ -394,3 +394,89 @@ func TestTaskOneShotNoCron(t *testing.T) {
 		t.Fatalf("cron should be empty for one-shot, got %q", got.Cron)
 	}
 }
+
+func TestUnroutedChatJIDs_NoMessages(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	jids := s.UnroutedChatJIDs(time.Now().Add(-time.Hour))
+	if len(jids) != 0 {
+		t.Fatalf("expected 0 jids, got %v", jids)
+	}
+}
+
+func TestUnroutedChatJIDs_NoRoute(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	now := time.Now()
+	s.PutMessage(core.Message{
+		ID: "m1", ChatJID: "tg:1", Sender: "user",
+		Content: "hi", Timestamp: now,
+	})
+	s.PutMessage(core.Message{
+		ID: "m2", ChatJID: "tg:2", Sender: "user",
+		Content: "hello", Timestamp: now,
+	})
+
+	jids := s.UnroutedChatJIDs(now.Add(-time.Second))
+	if len(jids) != 2 {
+		t.Fatalf("expected 2 unrouted jids, got %v", jids)
+	}
+}
+
+func TestUnroutedChatJIDs_ExcludesRouted(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	now := time.Now()
+	s.PutMessage(core.Message{
+		ID: "m1", ChatJID: "tg:1", Sender: "user",
+		Content: "hi", Timestamp: now,
+	})
+	s.PutMessage(core.Message{
+		ID: "m2", ChatJID: "tg:2", Sender: "user",
+		Content: "hello", Timestamp: now,
+	})
+
+	// route tg:1 → should be excluded
+	s.AddRoute("tg:1", core.Route{Type: "default", Target: "main"})
+
+	jids := s.UnroutedChatJIDs(now.Add(-time.Second))
+	if len(jids) != 1 || jids[0] != "tg:2" {
+		t.Fatalf("expected [tg:2], got %v", jids)
+	}
+}
+
+func TestUnroutedChatJIDs_ExcludesBotMessages(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	now := time.Now()
+	s.PutMessage(core.Message{
+		ID: "m1", ChatJID: "tg:1", Sender: "bot",
+		Content: "reply", Timestamp: now, BotMsg: true,
+	})
+
+	jids := s.UnroutedChatJIDs(now.Add(-time.Second))
+	if len(jids) != 0 {
+		t.Fatalf("bot messages should be excluded, got %v", jids)
+	}
+}
+
+func TestUnroutedChatJIDs_SinceFilter(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	old := time.Now().Add(-time.Hour)
+	s.PutMessage(core.Message{
+		ID: "m1", ChatJID: "tg:1", Sender: "user",
+		Content: "old message", Timestamp: old,
+	})
+
+	// query since now — old message should not appear
+	jids := s.UnroutedChatJIDs(time.Now())
+	if len(jids) != 0 {
+		t.Fatalf("expected 0 (message before since), got %v", jids)
+	}
+}

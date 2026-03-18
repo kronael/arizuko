@@ -20,6 +20,8 @@ func cmdText(raw string) string {
 	if strings.HasPrefix(t, "@") {
 		if i := strings.IndexByte(t, ' '); i >= 0 {
 			t = strings.TrimSpace(t[i+1:])
+		} else {
+			t = ""
 		}
 	}
 	return t

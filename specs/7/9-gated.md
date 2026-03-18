@@ -203,12 +203,7 @@ Implementation: `gateway/commands.go`.
 
 ## Notifications
 
-gated imports `notify/` shared library to send operator
-notifications. No dedicated CONTROL_JID — root's chat IS
-the control channel.
-
-Sources: container errors, channel health events.
-Onboarding notifications come from onbod (same library).
+gated imports `notify/` for container errors and channel health events.
 See `specs/7/20-control-chat.md`.
 
 ## Agent output processing
@@ -242,28 +237,3 @@ as literal text (not stripped).
 
 Implementation: `router/router.go` (`StripThinkBlocks`,
 `ExtractStatusBlocks`, `FormatOutbound`).
-
-## Channel health checks
-
-Every 30s, gated pings registered channels:
-
-```
-GET http://channel-url/health
-→ 200 {"ok": true}
-```
-
-Three consecutive failures → auto-deregister. Channel
-re-registers on restart.
-
-## Layout
-
-```
-gated/
-  main.go          ← gateway daemon entrypoint
-gateway/           ← message loop, commands
-queue/             ← per-group concurrency, circuit breaker
-container/         ← docker runner
-api/               ← HTTP API server
-chanreg/           ← channel registry, health checks
-router/            ← message formatting, routing rules
-```

@@ -374,13 +374,16 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 			diary.WriteRecovery(gp, "error", out.Error)
 		}
 		if hadOutput {
+			// Output was already delivered and cursor advanced; treat as
+			// success so the circuit breaker does not fire and a duplicate
+			// error notification is not sent.
 			g.advanceAgentCursor(chatJid, msgs)
-		} else {
-			g.store.SetAgentCursor(chatJid, savedTs)
-			g.sendMessage(chatJid,
-				"Failed: agent error, will retry on next message.")
-			g.store.MarkChatErrored(chatJid)
+			return true, nil
 		}
+		g.store.SetAgentCursor(chatJid, savedTs)
+		g.sendMessage(chatJid,
+			"Failed: agent error, will retry on next message.")
+		g.store.MarkChatErrored(chatJid)
 		return false, fmt.Errorf("agent: %s", out.Error)
 	}
 
@@ -534,12 +537,6 @@ func (g *Gateway) groupByFolderLocked(folder string) (string, core.Group, bool) 
 	return "", core.Group{}, false
 }
 
-func (g *Gateway) groupByFolder(folder string) (string, core.Group, bool) {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.groupByFolderLocked(folder)
-}
-
 func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth int) error {
 	return g.delegateToFolder("escalate", parentFolder, prompt, originJid, depth)
 }
@@ -619,7 +616,9 @@ func (g *Gateway) delegateToFolder(
 		return fmt.Errorf("delegation depth exceeded")
 	}
 
-	targetJid, target, found := g.groupByFolder(folder)
+	g.mu.RLock()
+	targetJid, target, found := g.groupByFolderLocked(folder)
+	g.mu.RUnlock()
 	if !found {
 		return fmt.Errorf("%s target not found: %s", label, folder)
 	}
