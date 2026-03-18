@@ -52,9 +52,20 @@ if tier <= 2 {
 ```
 
 `jid` is the source JID passed to `register_group`. Routes are per
-source-JID; if a new JID is later routed to a tier 0-2 group via
-`add_route`, the ipc handler also inserts `@` and `#` routes for
-that JID. Negative seq ensures `@` and `#` evaluated before user routes.
+source-JID. When `add_route` is called in `ipc/ipc.go` and the
+target group's tier is 0-2, the handler also inserts `@` and `#`
+prefix routes for the same source JID (after inserting the
+requested route):
+
+```go
+g, ok := db.GetGroupByFolder(route.Target)
+if ok && g.Tier <= 2 {
+    db.AddRoute(route.JID, store.Route{Seq: -2, Type: "prefix", Match: "@", Target: g.Folder})
+    db.AddRoute(route.JID, store.Route{Seq: -1, Type: "prefix", Match: "#", Target: g.Folder})
+}
+```
+
+Negative seq ensures `@` and `#` evaluated before user routes.
 
 ## Route matching
 

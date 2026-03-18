@@ -46,34 +46,48 @@ to find the latest user message for each onboarding JID.
 
 ## State machine
 
+onbod polls onboarding table every `ONBOARD_POLL_INTERVAL` (default 10s).
+
 ```
-onbod polls onboarding table; receives commands via HTTP POST /send
+awaiting_name, prompted_at IS NULL:
+  -> send "Pick a name for your workspace:"
+  -> SET prompted_at = now
 
-  awaiting_name (new entry, no user response yet):
-    -> wait for message from this jid
-    -> validate input (a-z0-9-, not taken, not reserved)
-    -> invalid: send "Try again — lowercase letters, numbers, hyphens only"
-    -> valid: set status=pending, store world_name
-    -> notify() root
-    -> send "Got it! Waiting for approval."
+awaiting_name, prompted_at IS NOT NULL:
+  -> query latest user message: SELECT content FROM messages
+       WHERE chat_jid = jid AND is_bot_message = 0
+       AND timestamp > prompted_at ORDER BY timestamp DESC LIMIT 1
+  -> no message yet: skip
+  -> message found:
+     -> validate (a-z0-9-, not taken, not reserved)
+     -> invalid: send "Try again — lowercase letters, numbers, hyphens only"
+                 SET prompted_at = now (re-prompt)
+     -> valid:   SET status=pending, world_name=<input>
+                 notify() root: "<jid> wants '<world_name>' — /approve <jid>"
+                 send "Got it! Waiting for approval."
 
-  pending (on every new message from this jid while status = pending):
-    -> send "Still waiting for approval."
+pending (on every new message from this jid while status = pending):
+  -> same message query as above (timestamp > last_sent or prompted_at)
+  -> message found: send "Still waiting for approval."
 
-  rejected:
-    -> silence (no reply)
+rejected:
+  -> silence (no reply)
+
+approved:
+  -> skip (handled by /approve, nothing to poll)
 ```
 
 ## State table
 
 ```sql
 CREATE TABLE onboarding (
-  jid        TEXT PRIMARY KEY,
-  status     TEXT NOT NULL,  -- awaiting_name | pending | approved | rejected
-  sender     TEXT,
-  channel    TEXT,
-  world_name TEXT,
-  created    TEXT NOT NULL
+  jid         TEXT PRIMARY KEY,
+  status      TEXT NOT NULL,  -- awaiting_name | pending | approved | rejected
+  sender      TEXT,
+  channel     TEXT,
+  world_name  TEXT,
+  prompted_at TEXT,           -- ISO8601; NULL until initial prompt sent
+  created     TEXT NOT NULL
 );
 ```
 
@@ -137,12 +151,51 @@ Welcome system message enqueued for the new group:
 - Sets status to `rejected`
 - notify(): "Rejected: <jid>"
 
+## HTTP /send endpoint
+
+onbod's `/send` endpoint accepts the same payload gated sends to
+any channel adapter:
+
+```json
+{ "jid": "<chat_jid>", "text": "<message content>" }
+```
+
+`jid` is the source chat JID of the incoming message (e.g.
+`telegram:-12345`). `text` is the raw message text. This is how
+gated delivers `/approve` and `/reject` commands to onbod.
+
+## Outbound replies
+
+To send a reply to a user, onbod POSTs to the channel adapter's
+`/send` endpoint (found in the channels table for the JID prefix):
+
+```
+POST <adapter_url>/send
+Content-Type: application/json
+Authorization: Bearer <channel_token>
+
+{"jid": "<chat_jid>", "text": "<reply>"}
+```
+
+The adapter URL and token are looked up from the channels table
+by matching `jid` prefix to `jid_prefixes` column.
+
 ## Notifications and replies
 
-onbod imports `notify/` to send operator notifications
-(same shared library as gated). Replies to onboarding users
-sent via channel adapter HTTP API. All outbound messages
-stored via `store.StoreOutbound` with `source: "onboarding"`.
+onbod uses the `notify/` library (`notify.Send(jids, text, sendFn)`)
+for operator notifications. `sendFn` wraps the outbound POST above.
+Replies and notifications stored via `store.StoreOutbound`:
+
+```go
+// OutboundEntry fields used:
+store.OutboundEntry{
+    ChatJID:     jid,
+    Content:     text,
+    Source:      "onboarding",
+    GroupFolder: "",        // not applicable for onbod
+    Timestamp:   time.Now(),
+}
+```
 
 ## Service contract
 

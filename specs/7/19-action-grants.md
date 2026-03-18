@@ -98,8 +98,29 @@ func MatchingRules(rules []string, action string) []string
 func NarrowRules(parent, child []string) []string
 ```
 
-`DeriveRules` reads routes from DB to determine which platforms
-are accessible per tier, generates allow rules per action+platform.
+### DeriveRules output
+
+Platforms = JID prefixes (e.g. `telegram`, `discord`) extracted
+from route source JIDs in scope.
+
+- **Tier 0**: `["*"]`
+- **Tier 1**: for each platform P in world: `["send_message(jid=P:*)",
+"send_reply(jid=P:*)", "send_file(jid=P:*)", "schedule_task",
+"delegate_group", "register_group", "escalate_group",
+"get_routes", "set_routes", "add_route", "delete_route",
+"list_tasks", "pause_task", "resume_task", "cancel_task"]`
+- **Tier 2**: for each platform P routed to self or children:
+  `["send_message(jid=P:*)", "send_reply(jid=P:*)"]`
+- **Tier 3+**: `["send_reply"]`
+
+DB override rules are appended after defaults.
+
+### MatchingRules
+
+Returns all rules (allow and deny) whose action glob matches
+`action`. The caller is responsible for filtering: if
+`CheckAction(result, action, {})` is false, omit the tool from
+the manifest. MatchingRules does not filter deny rules itself.
 
 ## Integration
 
