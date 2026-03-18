@@ -79,10 +79,12 @@ case "prefix":
     return strings.HasPrefix(strings.TrimSpace(msg.Content), r.Match)
 ```
 
-After match, caller parses the full prefix:
+After match, caller parses the full prefix. Add to `gateway/gateway.go`:
 
 ```go
-func ParsePrefix(text string) (name, rest string, ok bool)
+// ParsePrefix parses "@name rest" or "#name rest" from text.
+// Returns name (without @ or #), rest of message, and ok=true on success.
+func parsePrefix(text string) (name, rest string, ok bool)
 ```
 
 ## @agent resolution
@@ -103,15 +105,18 @@ func ParsePrefix(text string) (name, rest string, ok bool)
 
 ## Store function signatures
 
+Existing `GetSession`/`SetSession` in `store/sessions.go` take only
+`folder string`. Change signatures to add `topic`:
+
 ```go
-// GetSession returns session ID for (folder, topic). topic="" = default.
-func (s *Store) GetSession(folder, topic string) string
+// GetSession returns (sessionID, true) or ("", false) if not found.
+func (s *Store) GetSession(folder, topic string) (string, bool)
 
 // SetSession stores session ID for (folder, topic).
-func (s *Store) SetSession(folder, topic, sessionID string)
+func (s *Store) SetSession(folder, topic, sessionID string) error
 ```
 
-Existing call sites that pass only folder use `topic = ""`.
+Existing call sites update to pass `topic = ""`.
 
 ## RunConfig topic field
 
@@ -148,13 +153,18 @@ ALTER TABLE messages ADD COLUMN topic TEXT NOT NULL DEFAULT '';
 
 ## delegateToFolder
 
-`delegateToFolder` is an existing function in `gateway/gateway.go`.
-It routes a message to a target group folder by folder path,
-bypassing the normal route lookup. Signature:
+`delegateToFolder` is an existing function in `gateway/gateway.go`:
 
 ```go
-func (g *Gateway) delegateToFolder(msg core.Message, folder string) bool
+func (g *Gateway) delegateToFolder(label, folder, prompt, originJid string, depth int) error
 ```
+
+For `@agent` dispatch: `label="route"`, `folder=childFolder`,
+`prompt=stripped text`, `originJid=msg.ChatJID`, `depth=0`.
+
+For `@agent` resolution: `<target>` and `<parent>` both refer to the
+route's Target field (= the receiving group's folder). The child folder
+is `route.Target + "/" + name` where `name` is parsed from `@name`.
 
 ## start.json topic injection
 
@@ -164,9 +174,9 @@ func (g *Gateway) delegateToFolder(msg core.Message, folder string) bool
 
 ## Command integration
 
-- `/new #topic msg` — reset named topic session, route msg
-- `/stop #topic` — stop container for that topic
-- No prefix = default session
+- `/new #topic msg` — reset named topic session: `DELETE FROM sessions WHERE group_folder=? AND topic=?`, then route msg to that topic
+- `/stop #topic` — not in scope; standard `/stop` stops all containers for the folder
+- No prefix = default session (topic="")
 
 ## Evaluation order
 

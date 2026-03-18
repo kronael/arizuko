@@ -38,6 +38,9 @@ if group == nil && cfg.OnboardingEnabled {
 }
 ```
 
+`insertOnboarding` uses `INSERT OR IGNORE` — duplicate JIDs are
+silently skipped (user is already in the onboarding flow).
+
 Messages from unrouted JIDs with existing onboarding entries
 are written to the messages table normally. onbod reads them
 using: `SELECT * FROM messages WHERE chat_jid = ? AND
@@ -71,7 +74,10 @@ pending (on every new message from this jid while status = pending):
        AND is_bot_message = 0 AND timestamp > prompted_at
        ORDER BY timestamp DESC LIMIT 1
   -> message found: send "Still waiting for approval."
-                   SET prompted_at = now (prevents re-send on next poll)
+                   SET prompted_at = now
+                   (prompted_at acts as "last reply sent at"; next poll
+                   only triggers if a NEW message arrives after this
+                   timestamp, preventing repeated replies per poll)
 
 rejected:
   -> silence (no reply)
@@ -241,15 +247,45 @@ onbod determines root JIDs by querying:
 `SELECT jid FROM routes WHERE target = (SELECT folder FROM registered_groups WHERE parent IS NULL LIMIT 1) AND seq = 0`
 then calls `notify.Send(jids, text, sendFn)` from the `notify/` library.
 
+## Welcome message enqueue
+
+`/approve` inserts a synthetic message into the messages table to
+deliver the welcome system prompt to the new group's container:
+
+```sql
+INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_bot_message)
+VALUES (
+  'onboard-welcome-' || <jid> || '-' || <unix_nano>,
+  <user_jid>,            -- the onboarding user's JID
+  'gateway',
+  '<system origin="gateway" event="onboarding">...</system>',
+  <now_rfc3339>,
+  0
+)
+```
+
+## Prototype copy
+
+If `ONBOARDING_PROTOTYPE` is set, onbod copies the directory at that
+path into the new group folder using recursive file copy
+(`filepath.WalkDir` + `os.ReadFile`/`os.WriteFile`). Destination:
+`<DATA_DIR>/groups/<world_name>/`. Symlinks are not followed.
+
 ## Config
 
 ```
 DATABASE=                         # required (or DATA_DIR)
 DATA_DIR=                         # used to derive DATABASE if not set
+ROUTER_URL=                       # required: channel adapter HTTP base
+CHANNEL_SECRET=                   # auth secret for channel POSTs
 ONBOARDING_ENABLED=0              # off by default; onbod exits if 0
 ONBOARDING_PROTOTYPE=             # path to prototype dir to clone; empty = no cloning
+ONBOD_LISTEN_ADDR=:8091           # HTTP listen address
 ONBOARD_POLL_INTERVAL=10s         # poll interval for onboarding table
 ```
+
+`notify.Send(jids []string, text string, fn func(jid, text string) error)` —
+`jids` is `[]string` of root JIDs.
 
 ## Layout
 

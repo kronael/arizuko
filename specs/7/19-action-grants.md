@@ -91,12 +91,25 @@ restrict, never expand.
 Self-contained package. No dependency on ipc or gateway.
 
 ```go
-func ParseRule(r string) Rule
-func DeriveRules(s *store.Store, folder string, tier int) []string
+// Rule and ParseRule already exist in grants/grants.go:
+type Rule struct {
+    Deny   bool
+    Action string
+    Params map[string]ParamRule
+}
+type ParamRule struct { Deny bool; Pattern string }
+func ParseRule(r string) Rule  // already implemented
+
+// Functions to add:
+func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []string
 func CheckAction(rules []string, action string, params map[string]string) bool
 func MatchingRules(rules []string, action string) []string
 func NarrowRules(parent, child []string) []string
 ```
+
+- `DeriveRules`: `worldFolder` = folder itself for tier 1 (tier-1 group IS the world root); for tier 2+, caller derives worldFolder by walking parent chain.
+- `CheckAction([]string{}, action, nil)` → `false` (no rules = deny)
+- `NarrowRules(parent, nil)` or `NarrowRules(parent, []string{})` → returns `parent` unchanged
 
 ### DeriveRules output
 
