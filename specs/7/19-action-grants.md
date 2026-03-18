@@ -104,11 +104,12 @@ Platforms = JID prefixes (e.g. `telegram`, `discord`) extracted
 from route source JIDs in scope.
 
 - **Tier 0**: `["*"]`
-- **Tier 1**: for each platform P in world: `["send_message(jid=P:*)",
-"send_reply(jid=P:*)", "send_file(jid=P:*)", "schedule_task",
-"delegate_group", "register_group", "escalate_group",
-"get_routes", "set_routes", "add_route", "delete_route",
-"list_tasks", "pause_task", "resume_task", "cancel_task"]`
+- **Tier 1**: always `["schedule_task", "delegate_group",
+"register_group", "escalate_group", "get_routes", "set_routes",
+"add_route", "delete_route", "list_tasks", "pause_task",
+"resume_task", "cancel_task"]` plus, for each platform P in
+  world: `["send_message(jid=P:*)", "send_reply(jid=P:*)",
+"send_file(jid=P:*)"]`
 - **Tier 2**: for each platform P routed to self or children:
   `["send_message(jid=P:*)", "send_reply(jid=P:*)"]`
 - **Tier 3+**: `["send_reply"]`

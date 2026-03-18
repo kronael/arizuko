@@ -65,6 +65,9 @@ if ok && g.Tier <= 2 {
 }
 ```
 
+`store.AddRoute` uses `INSERT OR IGNORE` semantics — duplicate
+`(jid, seq, match)` entries are silently skipped.
+
 Negative seq ensures `@` and `#` evaluated before user routes.
 
 ## Route matching
@@ -169,6 +172,10 @@ ALTER TABLE messages ADD COLUMN topic TEXT DEFAULT '';
 Route resolution happens on the last non-command message in a poll
 batch. If multiple messages arrive together with different `@`/`#`
 prefixes, the last message determines routing for the entire batch.
+All messages in the batch (including earlier ones with different
+prefixes) are delivered to the target resolved from the last message.
+Earlier prefix content is not lost — it arrives in the container's
+message context — but routing is determined by the final message.
 This is a known limitation — future improvement: per-message
 resolution before batching.
 

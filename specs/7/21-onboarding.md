@@ -186,16 +186,30 @@ onbod uses the `notify/` library (`notify.Send(jids, text, sendFn)`)
 for operator notifications. `sendFn` wraps the outbound POST above.
 Replies and notifications stored via `store.StoreOutbound`:
 
+`store.StoreOutbound` and `store.OutboundEntry` already exist
+(shipped in Round 1, `store/outbound.go`):
+
 ```go
-// OutboundEntry fields used:
-store.OutboundEntry{
-    ChatJID:     jid,
-    Content:     text,
-    Source:      "onboarding",
-    GroupFolder: "",        // not applicable for onbod
-    Timestamp:   time.Now(),
+type OutboundEntry struct {
+    ChatJID     string
+    Content     string
+    Source      string
+    GroupFolder string
+    Timestamp   time.Time
 }
+func (s *Store) StoreOutbound(e OutboundEntry) error
 ```
+
+onbod uses `Source: "onboarding"`, `GroupFolder: ""`.
+
+## Target routing (onbod as a channel service)
+
+When gated's route table returns `target = "onbod"` for an
+incoming message, gated looks up `"onbod"` in the channels
+table (not the groups table) and HTTP-POSTs to the channel's
+`/send` URL. This is the same path as routing to any channel
+service. See `specs/7/1-channel-protocol.md` §service-routes
+for the full lookup mechanism.
 
 ## Service contract
 
