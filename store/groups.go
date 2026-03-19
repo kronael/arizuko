@@ -194,39 +194,42 @@ func (s *Store) UnroutedChatJIDs(since time.Time) []string {
 	return jids
 }
 
+func derefStr(p *string) string {
+	if p != nil {
+		return *p
+	}
+	return ""
+}
+
+func derefInt(p *int) int {
+	if p != nil {
+		return *p
+	}
+	return 0
+}
+
 func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string
 	var cfgJSON, slinkToken, parent, state *string
 	var spawnTTL, archiveDays *int
 
-	err := r.Scan(&g.JID, &g.Name, &g.Folder, &addedAt, &cfgJSON, &slinkToken, &parent,
-		&state, &spawnTTL, &archiveDays)
-	if err != nil {
+	if err := r.Scan(&g.JID, &g.Name, &g.Folder, &addedAt, &cfgJSON, &slinkToken, &parent,
+		&state, &spawnTTL, &archiveDays); err != nil {
 		return g, false
 	}
 
 	g.AddedAt, _ = time.Parse(time.RFC3339, addedAt)
-	if slinkToken != nil {
-		g.SlinkToken = *slinkToken
-	}
-	if parent != nil {
-		g.Parent = *parent
-	}
+	g.SlinkToken = derefStr(slinkToken)
+	g.Parent = derefStr(parent)
+	g.SpawnTTLDays = derefInt(spawnTTL)
+	g.ArchiveClosedDays = derefInt(archiveDays)
 	if cfgJSON != nil {
 		json.Unmarshal([]byte(*cfgJSON), &g.Config)
 	}
-	if state != nil {
-		g.State = *state
-	}
+	g.State = derefStr(state)
 	if g.State == "" {
 		g.State = "active"
-	}
-	if spawnTTL != nil {
-		g.SpawnTTLDays = *spawnTTL
-	}
-	if archiveDays != nil {
-		g.ArchiveClosedDays = *archiveDays
 	}
 	return g, true
 }

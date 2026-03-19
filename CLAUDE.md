@@ -130,7 +130,7 @@ Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 | `whapd`  | daemon  | WhatsApp adapter (TypeScript)                                         |
 | `emaid`  | planned | Email adapter                                                         |
 
-Deployment: `arizuko compose <instance>` generates docker-compose.yml.
+Deployment: `arizuko run <instance>` generates docker-compose.yml and runs `docker compose up`.
 Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
 Libraries: `ipc/`, `auth/`. Host CLI: `cmd/arizuko/main.go`.
 

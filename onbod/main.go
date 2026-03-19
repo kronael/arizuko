@@ -392,23 +392,29 @@ func promptNew(db *sql.DB, cfg config) {
 	}
 }
 
+type onboardRow struct{ jid, promptedAt string }
+
+func queryOnboarding(db *sql.DB, where string) ([]onboardRow, error) {
+	rows, err := db.Query(`SELECT jid, prompted_at FROM onboarding WHERE ` + where)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []onboardRow
+	for rows.Next() {
+		var r onboardRow
+		rows.Scan(&r.jid, &r.promptedAt)
+		out = append(out, r)
+	}
+	return out, nil
+}
+
 func checkNameResponse(db *sql.DB, cfg config) {
-	rows, err := db.Query(
-		`SELECT jid, prompted_at FROM onboarding
-		 WHERE status = 'awaiting_name' AND prompted_at IS NOT NULL`)
+	pending, err := queryOnboarding(db, "status = 'awaiting_name' AND prompted_at IS NOT NULL")
 	if err != nil {
 		slog.Error("checkNameResponse query", "err", err)
 		return
 	}
-
-	type row struct{ jid, promptedAt string }
-	var pending []row
-	for rows.Next() {
-		var r row
-		rows.Scan(&r.jid, &r.promptedAt)
-		pending = append(pending, r)
-	}
-	rows.Close()
 
 	for _, r := range pending {
 		var content string
@@ -454,22 +460,11 @@ func checkNameResponse(db *sql.DB, cfg config) {
 }
 
 func checkPendingMessages(db *sql.DB, cfg config) {
-	rows, err := db.Query(
-		`SELECT jid, prompted_at FROM onboarding
-		 WHERE status = 'pending' AND prompted_at IS NOT NULL`)
+	pending, err := queryOnboarding(db, "status = 'pending' AND prompted_at IS NOT NULL")
 	if err != nil {
 		slog.Error("checkPendingMessages query", "err", err)
 		return
 	}
-
-	type row struct{ jid, promptedAt string }
-	var pending []row
-	for rows.Next() {
-		var r row
-		rows.Scan(&r.jid, &r.promptedAt)
-		pending = append(pending, r)
-	}
-	rows.Close()
 
 	for _, r := range pending {
 		var count int

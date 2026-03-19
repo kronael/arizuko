@@ -347,7 +347,7 @@ API server always starts (default port 8080).
 ## Repository Layout
 
 ```
-cmd/arizuko/        CLI entrypoint (create, group, compose, status)
+cmd/arizuko/        CLI entrypoint (run, create, group, status)
 core/               Config, types, Channel interface
 store/              SQLite persistence (messages, groups, sessions, tasks, auth)
 api/                HTTP API server (channel protocol endpoints)

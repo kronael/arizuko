@@ -27,11 +27,10 @@ func Generate(dataDir string) (string, error) {
 	if env == nil {
 		env = map[string]string{}
 	}
-	defaults := map[string]string{
+	for k, v := range map[string]string{
 		"API_PORT":       "8080",
 		"ASSISTANT_NAME": "arizuko",
-	}
-	for k, v := range defaults {
+	} {
 		if _, ok := env[k]; !ok {
 			env[k] = v
 		}
@@ -84,117 +83,162 @@ type namedService struct {
 	cfg  ServiceConfig
 }
 
+type svcDef struct {
+	name        string
+	app         string
+	flavor      string
+	entrypoint  string
+	dataDir     string
+	ports       []string
+	environment map[string]string
+	dependsOn   string
+}
+
+func writeSvc(def svcDef) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "  %s:\n", def.name)
+	fmt.Fprintf(&b, "    container_name: %s_%s_%s\n", def.app, def.name, def.flavor)
+	b.WriteString("    image: arizuko:latest\n")
+	fmt.Fprintf(&b, "    entrypoint: ['%s']\n", def.entrypoint)
+	fmt.Fprintf(&b, "    volumes:\n      - %s:/srv/app/home\n", def.dataDir)
+	if len(def.ports) > 0 {
+		b.WriteString("    ports:\n")
+		for _, p := range def.ports {
+			fmt.Fprintf(&b, "      - '%s'\n", p)
+		}
+	}
+	b.WriteString("    environment:\n")
+	keys := make([]string, 0, len(def.environment))
+	for k := range def.environment {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Fprintf(&b, "      %s: '%s'\n", k, def.environment[k])
+	}
+	dep := def.dependsOn
+	if dep == "" {
+		dep = "gated"
+	}
+	fmt.Fprintf(&b, "    depends_on: [%s]\n", dep)
+	b.WriteString("    restart: on-failure\n")
+	return b.String()
+}
+
 func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	apiPort := envOr(env, "API_PORT", "8080")
 	hostData := envOr(env, "HOST_DATA_DIR", dataDir)
 	hostApp := envOr(env, "HOST_APP_DIR", "")
-	var b strings.Builder
-	fmt.Fprintf(&b, "  gated:\n")
-	fmt.Fprintf(&b, "    container_name: %s_gated_%s\n", app, flavor)
-	fmt.Fprintf(&b, "    image: arizuko:latest\n")
-	fmt.Fprintf(&b, "    entrypoint: ['gated']\n")
-	fmt.Fprintf(&b, "    volumes:\n")
-	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
-	fmt.Fprintf(&b, "      - /var/run/docker.sock:/var/run/docker.sock\n")
-	if hostApp != "" {
-		fmt.Fprintf(&b, "      - %s:/srv/app/arizuko:ro\n", hostApp)
-	}
-	fmt.Fprintf(&b, "    ports:\n")
-	fmt.Fprintf(&b, "      - '%s:%s'\n", apiPort, apiPort)
-	webPort := envOr(env, "WEB_PORT", "")
-	if webPort != "" {
-		fmt.Fprintf(&b, "      - '%s:%s'\n", webPort, webPort)
-	}
-	fmt.Fprintf(&b, "    environment:\n")
-	fmt.Fprintf(&b, "      API_PORT: '%s'\n", apiPort)
-	secret := envOr(env, "CHANNEL_SECRET", "")
-	if secret != "" {
-		fmt.Fprintf(&b, "      CHANNEL_SECRET: '%s'\n", secret)
+
+	environment := map[string]string{"API_PORT": apiPort}
+	if secret := envOr(env, "CHANNEL_SECRET", ""); secret != "" {
+		environment["CHANNEL_SECRET"] = secret
 	}
 	if hostData != "" {
-		fmt.Fprintf(&b, "      HOST_DATA_DIR: '%s'\n", hostData)
+		environment["HOST_DATA_DIR"] = hostData
 	}
 	if hostApp != "" {
-		fmt.Fprintf(&b, "      HOST_APP_DIR: '%s'\n", hostApp)
+		environment["HOST_APP_DIR"] = hostApp
 	}
 	for _, k := range routerEnvKeys {
 		if v := envOr(env, k, ""); v != "" {
-			fmt.Fprintf(&b, "      %s: '%s'\n", k, v)
+			environment[k] = v
 		}
 	}
-	fmt.Fprintf(&b, "    restart: on-failure\n")
+
+	var ports []string
+	ports = append(ports, apiPort+":"+apiPort)
+	if webPort := envOr(env, "WEB_PORT", ""); webPort != "" {
+		ports = append(ports, webPort+":"+webPort)
+	}
+
+	// gated needs extra volumes; build manually
+	var b strings.Builder
+	fmt.Fprintf(&b, "  gated:\n")
+	fmt.Fprintf(&b, "    container_name: %s_gated_%s\n", app, flavor)
+	b.WriteString("    image: arizuko:latest\n")
+	b.WriteString("    entrypoint: ['gated']\n")
+	b.WriteString("    volumes:\n")
+	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
+	b.WriteString("      - /var/run/docker.sock:/var/run/docker.sock\n")
+	if hostApp != "" {
+		fmt.Fprintf(&b, "      - %s:/srv/app/arizuko:ro\n", hostApp)
+	}
+	b.WriteString("    ports:\n")
+	for _, p := range ports {
+		fmt.Fprintf(&b, "      - '%s'\n", p)
+	}
+	b.WriteString("    environment:\n")
+	keys := make([]string, 0, len(environment))
+	for k := range environment {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Fprintf(&b, "      %s: '%s'\n", k, environment[k])
+	}
+	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }
 
 func timedService(app, flavor, dataDir string, env map[string]string) string {
-	tz := envOr(env, "TZ", "UTC")
-	var b strings.Builder
-	fmt.Fprintf(&b, "  timed:\n")
-	fmt.Fprintf(&b, "    container_name: %s_timed_%s\n", app, flavor)
-	fmt.Fprintf(&b, "    image: arizuko:latest\n")
-	fmt.Fprintf(&b, "    entrypoint: ['timed']\n")
-	fmt.Fprintf(&b, "    volumes:\n")
-	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
-	fmt.Fprintf(&b, "    environment:\n")
-	fmt.Fprintf(&b, "      DATA_DIR: /srv/app/home\n")
-	fmt.Fprintf(&b, "      TIMEZONE: '%s'\n", tz)
-	fmt.Fprintf(&b, "    depends_on: [gated]\n")
-	fmt.Fprintf(&b, "    restart: on-failure\n")
-	return b.String()
+	return writeSvc(svcDef{
+		name:       "timed",
+		app:        app,
+		flavor:     flavor,
+		entrypoint: "timed",
+		dataDir:    dataDir,
+		environment: map[string]string{
+			"DATA_DIR": "/srv/app/home",
+			"TIMEZONE": envOr(env, "TZ", "UTC"),
+		},
+	})
 }
 
 func onbodService(app, flavor, dataDir string, env map[string]string) string {
-	listenAddr := envOr(env, "ONBOD_LISTEN_ADDR", ":8092")
-	prototype := envOr(env, "ONBOARDING_PROTOTYPE", "")
-	secret := envOr(env, "CHANNEL_SECRET", "")
-	var b strings.Builder
-	fmt.Fprintf(&b, "  onbod:\n")
-	fmt.Fprintf(&b, "    container_name: %s_onbod_%s\n", app, flavor)
-	fmt.Fprintf(&b, "    image: arizuko:latest\n")
-	fmt.Fprintf(&b, "    entrypoint: ['onbod']\n")
-	fmt.Fprintf(&b, "    volumes:\n")
-	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
-	fmt.Fprintf(&b, "    environment:\n")
-	fmt.Fprintf(&b, "      DATA_DIR: /srv/app/home\n")
-	fmt.Fprintf(&b, "      ONBOD_LISTEN_ADDR: '%s'\n", listenAddr)
-	fmt.Fprintf(&b, "      ONBOARDING_ENABLED: 'true'\n")
-	if prototype != "" {
-		fmt.Fprintf(&b, "      ONBOARDING_PROTOTYPE: '%s'\n", prototype)
+	environment := map[string]string{
+		"DATA_DIR":           "/srv/app/home",
+		"ONBOARDING_ENABLED": "true",
+		"ONBOD_LISTEN_ADDR":  envOr(env, "ONBOD_LISTEN_ADDR", ":8092"),
 	}
-	if secret != "" {
-		fmt.Fprintf(&b, "      CHANNEL_SECRET: '%s'\n", secret)
+	if p := envOr(env, "ONBOARDING_PROTOTYPE", ""); p != "" {
+		environment["ONBOARDING_PROTOTYPE"] = p
 	}
-	fmt.Fprintf(&b, "    depends_on: [gated]\n")
-	fmt.Fprintf(&b, "    restart: on-failure\n")
-	return b.String()
+	if s := envOr(env, "CHANNEL_SECRET", ""); s != "" {
+		environment["CHANNEL_SECRET"] = s
+	}
+	return writeSvc(svcDef{
+		name:        "onbod",
+		app:         app,
+		flavor:      flavor,
+		entrypoint:  "onbod",
+		dataDir:     dataDir,
+		environment: environment,
+	})
 }
 
 func dashdService(app, flavor, dataDir string, env map[string]string) string {
 	dashPort := envOr(env, "DASH_PORT", "8090")
-	authSecret := envOr(env, "AUTH_SECRET", "")
-	webHost := envOr(env, "WEB_HOST", "")
-	var b strings.Builder
-	fmt.Fprintf(&b, "  dashd:\n")
-	fmt.Fprintf(&b, "    container_name: %s_dashd_%s\n", app, flavor)
-	fmt.Fprintf(&b, "    image: arizuko:latest\n")
-	fmt.Fprintf(&b, "    entrypoint: ['dashd']\n")
-	fmt.Fprintf(&b, "    volumes:\n")
-	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
-	fmt.Fprintf(&b, "    ports:\n")
-	fmt.Fprintf(&b, "      - '%s:%s'\n", dashPort, dashPort)
-	fmt.Fprintf(&b, "    environment:\n")
-	fmt.Fprintf(&b, "      DATA_DIR: /srv/app/home\n")
-	fmt.Fprintf(&b, "      DB_PATH: /srv/app/home/store/messages.db\n")
-	fmt.Fprintf(&b, "      DASH_PORT: '%s'\n", dashPort)
-	if authSecret != "" {
-		fmt.Fprintf(&b, "      AUTH_SECRET: '%s'\n", authSecret)
+	environment := map[string]string{
+		"DATA_DIR": "/srv/app/home",
+		"DB_PATH":  "/srv/app/home/store/messages.db",
+		"DASH_PORT": dashPort,
 	}
-	if webHost != "" {
-		fmt.Fprintf(&b, "      WEB_HOST: '%s'\n", webHost)
+	if s := envOr(env, "AUTH_SECRET", ""); s != "" {
+		environment["AUTH_SECRET"] = s
 	}
-	fmt.Fprintf(&b, "    depends_on: [gated]\n")
-	fmt.Fprintf(&b, "    restart: on-failure\n")
-	return b.String()
+	if h := envOr(env, "WEB_HOST", ""); h != "" {
+		environment["WEB_HOST"] = h
+	}
+	return writeSvc(svcDef{
+		name:        "dashd",
+		app:         app,
+		flavor:      flavor,
+		entrypoint:  "dashd",
+		dataDir:     dataDir,
+		ports:       []string{dashPort + ":" + dashPort},
+		environment: environment,
+	})
 }
 
 var routerEnvKeys = []string{

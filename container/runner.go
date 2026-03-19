@@ -787,63 +787,63 @@ func writeLog(
 	stdout, stderr string,
 	mounts []VolumeMount,
 ) {
-	var b strings.Builder
+	isErr := code != 0 || timedOut
+	lvl := os.Getenv("LOG_LEVEL")
+	verbose := lvl == "debug" || lvl == "trace"
+
+	suffix := ""
 	if timedOut {
-		fmt.Fprintf(&b, "=== Container Run Log (TIMEOUT) ===\n")
-	} else {
-		fmt.Fprintf(&b, "=== Container Run Log ===\n")
+		suffix = " (TIMEOUT)"
 	}
-	fmt.Fprintf(&b, "Timestamp: %s\n",
-		time.Now().Format(time.RFC3339))
-	fmt.Fprintf(&b, "Group: %s\n", in.Folder)
-	fmt.Fprintf(&b, "Container: %s\n", cname)
-	fmt.Fprintf(&b, "Duration: %s\n", dur)
-	fmt.Fprintf(&b, "Exit Code: %d\n", code)
+	var b strings.Builder
+	fmt.Fprintf(&b, "=== Container Run Log%s ===\n", suffix)
+	fmt.Fprintf(&b, "Timestamp: %s\nGroup: %s\nContainer: %s\nDuration: %s\nExit Code: %d\n",
+		time.Now().Format(time.RFC3339), in.Folder, cname, dur, code)
 	if timedOut {
 		fmt.Fprintf(&b, "Had Streaming Output: %v\n", hadOutput)
 	}
 
-	isErr := code != 0 || timedOut
-	lvl := os.Getenv("LOG_LEVEL")
-	verbose := lvl == "debug" || lvl == "trace"
+	b.WriteString("\n=== Mounts ===\n")
+	for _, m := range mounts {
+		ro := ""
+		if m.RO {
+			ro = " (ro)"
+		}
+		if verbose || isErr {
+			fmt.Fprintf(&b, "%s -> %s%s\n", m.Host, m.Container, ro)
+		} else {
+			fmt.Fprintf(&b, "%s%s\n", m.Container, ro)
+		}
+	}
 
 	if verbose || isErr {
 		fmt.Fprintf(&b, "\n=== Input ===\n")
 		ij, _ := json.MarshalIndent(in, "", "  ")
 		b.Write(ij)
-		fmt.Fprintf(&b, "\n\n=== Mounts ===\n")
-		for _, m := range mounts {
-			ro := ""
-			if m.RO {
-				ro = " (ro)"
-			}
-			fmt.Fprintf(&b, "%s -> %s%s\n",
-				m.Host, m.Container, ro)
-		}
-		fmt.Fprintf(&b, "\n=== Stderr ===\n%s\n", stderr)
+		fmt.Fprintf(&b, "\n\n=== Stderr ===\n%s\n", stderr)
 		fmt.Fprintf(&b, "\n=== Stdout ===\n%s\n", stdout)
 	} else {
-		fmt.Fprintf(&b, "\n=== Input Summary ===\n")
-		fmt.Fprintf(&b, "Prompt length: %d chars\n",
-			len(in.Prompt))
 		sid := in.SessionID
 		if sid == "" {
 			sid = "new"
 		}
-		fmt.Fprintf(&b, "Session ID: %s\n", sid)
-		fmt.Fprintf(&b, "\n=== Mounts ===\n")
-		for _, m := range mounts {
-			ro := ""
-			if m.RO {
-				ro = " (ro)"
-			}
-			fmt.Fprintf(&b, "%s%s\n", m.Container, ro)
-		}
+		fmt.Fprintf(&b, "\n=== Input Summary ===\nPrompt length: %d chars\nSession ID: %s\n",
+			len(in.Prompt), sid)
 	}
 
 	os.WriteFile(path, []byte(b.String()), 0o644)
-	slog.Debug("container log written",
-		"logFile", path, "verbose", verbose)
+	slog.Debug("container log written", "logFile", path, "verbose", verbose)
+}
+
+func writeSnapshot(folders *groupfolder.Resolver, folder, filename string, v any) {
+	ipcDir, err := folders.IpcPath(folder)
+	if err != nil {
+		slog.Warn("cannot write snapshot", "folder", folder, "file", filename, "err", err)
+		return
+	}
+	os.MkdirAll(ipcDir, 0o755)
+	data, _ := json.MarshalIndent(v, "", "  ")
+	os.WriteFile(filepath.Join(ipcDir, filename), data, 0o644)
 }
 
 func WriteTasksSnapshot(
@@ -851,14 +851,6 @@ func WriteTasksSnapshot(
 	folder string, isRoot bool,
 	tasks []core.Task,
 ) {
-	ipcDir, err := folders.IpcPath(folder)
-	if err != nil {
-		slog.Warn("cannot write tasks snapshot",
-			"folder", folder, "err", err)
-		return
-	}
-	os.MkdirAll(ipcDir, 0o755)
-
 	if !isRoot {
 		var f []core.Task
 		for _, t := range tasks {
@@ -868,10 +860,7 @@ func WriteTasksSnapshot(
 		}
 		tasks = f
 	}
-
-	data, _ := json.MarshalIndent(tasks, "", "  ")
-	p := filepath.Join(ipcDir, "current_tasks.json")
-	os.WriteFile(p, data, 0o644)
+	writeSnapshot(folders, folder, "current_tasks.json", tasks)
 }
 
 func WriteGroupsSnapshot(
@@ -879,27 +868,11 @@ func WriteGroupsSnapshot(
 	folder string, isRoot bool,
 	groups []core.Group,
 ) {
-	ipcDir, err := folders.IpcPath(folder)
-	if err != nil {
-		slog.Warn("cannot write groups snapshot",
-			"folder", folder, "err", err)
-		return
-	}
-	os.MkdirAll(ipcDir, 0o755)
-
 	if !isRoot {
 		groups = nil
 	}
-
-	snap := struct {
+	writeSnapshot(folders, folder, "available_groups.json", struct {
 		Groups   []core.Group `json:"groups"`
 		LastSync string       `json:"lastSync"`
-	}{
-		Groups:   groups,
-		LastSync: time.Now().Format(time.RFC3339),
-	}
-
-	data, _ := json.MarshalIndent(snap, "", "  ")
-	p := filepath.Join(ipcDir, "available_groups.json")
-	os.WriteFile(p, data, 0o644)
+	}{groups, time.Now().Format(time.RFC3339)})
 }

@@ -311,59 +311,42 @@ func (q *GroupQueue) runTask(groupJid string, task queuedTask) {
 	q.mu.Unlock()
 }
 
+// startGroupLocked picks and launches the next pending work for jid.
+// Returns true if something was started. Must be called with q.mu held.
+func (q *GroupQueue) startGroupLocked(jid string) bool {
+	s := q.getGroup(jid)
+	if len(s.pendingTasks) > 0 {
+		task := s.pendingTasks[0]
+		s.pendingTasks = s.pendingTasks[1:]
+		s.active, s.idleWaiting, s.isTaskContainer = true, false, true
+		q.activeCount++
+		go q.runTask(jid, task)
+		return true
+	}
+	if s.pendingMessages {
+		s.active, s.idleWaiting, s.isTaskContainer = true, false, false
+		s.pendingMessages = false
+		q.activeCount++
+		go q.runForGroup(jid, "drain")
+		return true
+	}
+	return false
+}
+
 func (q *GroupQueue) drainGroupLocked(groupJid string) {
 	if q.shuttingDown {
 		return
 	}
-
-	s := q.getGroup(groupJid)
-
-	if len(s.pendingTasks) > 0 {
-		task := s.pendingTasks[0]
-		s.pendingTasks = s.pendingTasks[1:]
-		s.active = true
-		s.idleWaiting = false
-		s.isTaskContainer = true
-		q.activeCount++
-		go q.runTask(groupJid, task)
-		return
+	if !q.startGroupLocked(groupJid) {
+		q.drainWaitingLocked()
 	}
-
-	if s.pendingMessages {
-		s.active = true
-		s.idleWaiting = false
-		s.isTaskContainer = false
-		s.pendingMessages = false
-		q.activeCount++
-		go q.runForGroup(groupJid, "drain")
-		return
-	}
-
-	q.drainWaitingLocked()
 }
 
 func (q *GroupQueue) drainWaitingLocked() {
 	for len(q.waitingGroups) > 0 && q.activeCount < q.maxConcurrent {
-		nextJid := q.waitingGroups[0]
+		jid := q.waitingGroups[0]
 		q.waitingGroups = q.waitingGroups[1:]
-		s := q.getGroup(nextJid)
-
-		if len(s.pendingTasks) > 0 {
-			task := s.pendingTasks[0]
-			s.pendingTasks = s.pendingTasks[1:]
-			s.active = true
-			s.idleWaiting = false
-			s.isTaskContainer = true
-			q.activeCount++
-			go q.runTask(nextJid, task)
-		} else if s.pendingMessages {
-			s.active = true
-			s.idleWaiting = false
-			s.isTaskContainer = false
-			s.pendingMessages = false
-			q.activeCount++
-			go q.runForGroup(nextJid, "drain")
-		}
+		q.startGroupLocked(jid)
 	}
 }
 

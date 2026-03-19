@@ -21,7 +21,7 @@ arizuko run foo                         # start gateway
 
 ```bash
 arizuko group <instance> list               # registered + discovered
-arizuko group <instance> add <jid> [folder] # register group
+arizuko group <instance> add <jid> <name> [folder] # register group
 arizuko group <instance> rm  <jid>          # unregister
 ```
 
@@ -48,6 +48,7 @@ template/         Instance seed files
 gated/            Gateway daemon (Go)
 timed/            Scheduler daemon (Go)
 onbod/            Onboarding daemon (Go)
+dashd/            Operator dashboards (Go)
 teled/            Telegram adapter (Go)
 discd/            Discord adapter (Go)
 whapd/            WhatsApp adapter (TypeScript)
