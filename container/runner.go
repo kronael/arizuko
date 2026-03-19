@@ -109,6 +109,10 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			"Topic session: "+in.Topic)
 	}
 
+	if ep := ReadRecentEpisodes(groupDir); ep != "" {
+		in.Annotations = append(in.Annotations, ep)
+	}
+
 	if len(in.Annotations) > 0 {
 		in.Prompt = strings.Join(in.Annotations, "\n") +
 			"\n\n" + in.Prompt
