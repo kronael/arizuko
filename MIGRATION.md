@@ -89,11 +89,12 @@ If your instance uses a root folder named something other than `root` (e.g.
 
 ### New in arizuko (no kanipi equivalent)
 
-| Var              | Purpose                                                                                                                                                                                       |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `API_PORT`       | Port for the channel registration HTTP API (default 8080). In kanipi this was the web server.                                                                                                 |
-| `CHANNEL_SECRET` | Shared secret that channel adapters must send as `Bearer` token to `/v1/channels/register`. No equivalent in kanipi — all channel adapters were in-process.                                   |
-| `AUTH_BASE_URL`  | Explicit base URL for OAuth redirect URIs. kanipi derived this from `WEB_HOST`. In arizuko `WEB_HOST` still works as a fallback (`https://<WEB_HOST>`), but `AUTH_BASE_URL` takes precedence. |
+| Var                                         | Purpose                                                                                                                                                                                       |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `API_PORT`                                  | Port for the channel registration HTTP API (default 8080). In kanipi this was the web server.                                                                                                 |
+| `CHANNEL_SECRET`                            | Shared secret that channel adapters must send as `Bearer` token to `/v1/channels/register`. No equivalent in kanipi — all channel adapters were in-process.                                   |
+| `AUTH_BASE_URL`                             | Explicit base URL for OAuth redirect URIs. kanipi derived this from `WEB_HOST`. In arizuko `WEB_HOST` still works as a fallback (`https://<WEB_HOST>`), but `AUTH_BASE_URL` takes precedence. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth (`auth/oauth.go`, v1.5.0). Set both to enable the Google login button. No equivalent in kanipi.                                                                                  |
 
 ### Removed from arizuko
 
@@ -106,7 +107,6 @@ If your instance uses a root folder named something other than `root` (e.g.
 | `WEBDAV_ENABLED` / `WEBDAV_URL`                                                        | WebDAV integration not ported.                                                                                                            |
 | `FILE_TRANSFER_ENABLED` / `FILE_DENY_GLOBS` / `FILE_MAX_*`                             | File command surface not ported to arizuko.                                                                                               |
 | Social channel vars (`MASTODON_*`, `BLUESKY_*`, `REDDIT_*`, `TWITTER_*`, `FACEBOOK_*`) | Social channels are TypeScript-specific; not ported.                                                                                      |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                                            | Google OAuth not yet ported to arizuko.                                                                                                   |
 
 ### Behaviorally different
 
@@ -299,22 +299,16 @@ start from the standard template.
 From `.kanipi-delta.md` and code inspection:
 
 | Feature                              | Notes                                                                  |
-| ------------------------------------ | ---------------------------------------------------------------------- | ------ | ---------- |
+| ------------------------------------ | ---------------------------------------------------------------------- |
 | `refresh_groups` IPC action          | No equivalent; channel adapters sync state via HTTP registration       |
-| Google OAuth                         | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` ignored                    |
-| Dashboards (HTMX)                    | `dashd` binary planned but not shipped                                 |
-| Recall / episodic memory             | sqlite-vec embeddings, not ported                                      |
 | Social channels                      | Twitter, Bluesky, Mastodon, Reddit, Facebook — TS-specific, not ported |
-| Prototype spawning (`create --from`) | Group folder cloning not implemented                                   |
 | `prototype/.claude/` seed            | Skills seeding path changed; prototype concept removed                 |
 | WebDAV integration                   | `WEBDAV_ENABLED` / `WEBDAV_URL` ignored                                |
-| File transfer commands (`/file put   | get                                                                    | list`) | Not ported |
+| File transfer commands               | `/file put\|get\|list` — not ported                                    |
 | Per-group web prefix / virtual hosts | Not implemented                                                        |
 | MIME enrichment via Whisper sidecar  | Whisper still requires a standalone service; sidecar wiring not ported |
-| Bot-mention visibility               | @mention always-respond behavior not ported                            |
 | Cross-channel preemption             | Not implemented                                                        |
 | SSE stream                           | kanipi had `/_REDACTED/stream`; arizuko has no SSE endpoint yet           |
-| `send_reply` MCP tool                | Removed — use `send_message`                                           |
 
 ---
 

@@ -7,6 +7,34 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Kanipi skill sync** (`container/skills/`, `container/output-styles/`): 6 new
+  agent skills (acquire, compact-memories, recall, specs, users, infra), 3 output
+  style guides (discord, telegram, email). Agent migrations 015-042 added;
+  `MIGRATION_VERSION` bumped 16 → 37. `hello` skill updated to comprehensive format.
+  Sync head: fdbac9f.
+- **REDACTED instance**: `REDACTED` running. Groups: root, REDACTED, happy.
+  Port layout: gated 8081, dashd 8091, web 49165. Telegram bot: REDACTED.
+
+### Changed
+
+- **Compose container naming** (`compose/compose.go`): all services named
+  `<app>_<daemon>_<flavor>` (e.g. `arizuko_gated_REDACTED`, `arizuko_teled_REDACTED`).
+  Applies to built-in services (gated, timed, dashd) and user-defined services
+  from `services/*.toml`. Prevents container name conflicts when multiple instances
+  run on the same host.
+
+### Infrastructure
+
+- **Ansible role** (`core/ansible/roles/arizuko-service/`): systemd unit generation
+  from template. Instances declared as `arizuko_instances: [{flavor: REDACTED}, {flavor: REDACTED}]`
+  in `host_vars`. Data dir and secrets are NOT managed by Ansible.
+
+---
+
 ## [v1.5.0] — 2026-03-19
 
 ### Added

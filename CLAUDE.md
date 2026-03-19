@@ -34,33 +34,6 @@ gateway.messageLoop polls → GroupQueue → container.Run (docker run)
 
 See ARCHITECTURE.md for package graph, schema, container model.
 
-## Packages
-
-- `cmd/arizuko/` — CLI entrypoint (run, create, group, status subcommands)
-- `core/` — Config, types (Message, Group, Task, Channel interface)
-- `store/` — SQLite persistence (messages, groups, sessions, tasks, auth)
-- `gateway/` — main loop, message routing, commands (/new, /ping, /chatid, /stop)
-- `container/` — docker spawn, volume mounts, sidecars, runtime, skills seeding
-- `queue/` — per-group concurrency, stdin piping, circuit breaker
-- `router/` — XML message formatting, routing rules, outbound filtering
-- `chanreg/` — channel registry, health checks, HTTP channel proxy (outbound)
-- `api/` — HTTP API server (channel registration, inbound messages, chat metadata)
-- `ipc/` — MCP server on unix socket (mark3labs/mcp-go, per-group, runtime auth via auth)
-- `auth/` — identity, authorization policy, JWT, OAuth, session middleware
-- `diary/` — YAML frontmatter diary annotations for agent context
-- `groupfolder/` — group path resolution and validation
-- `mountsec/` — mount allowlist validation
-- `compose/` — docker-compose.yml generation from \*.toml service configs
-- `gated/` — gateway daemon (standalone binary)
-- `timed/` — scheduler daemon (standalone binary)
-- `onbod/` — onboarding daemon (planned)
-- `dashd/` — operator dashboards daemon (planned)
-- `teled/` — telegram adapter daemon (Go)
-- `discd/` — discord adapter daemon (Go)
-- `whapd/` — whatsapp adapter daemon (TypeScript/baileys)
-- `grants/` — grant rule engine (library, planned)
-- `notify/` — operator notifications (library, planned)
-
 ## Layout
 
 ```
@@ -85,10 +58,10 @@ template/          Instance seed files
 sidecar/           MCP server binaries
 gated/             Gateway daemon (standalone binary)
 timed/             Scheduler daemon (standalone binary)
-onbod/             Onboarding daemon (planned)
-dashd/             Operator dashboards (planned)
-grants/            Grant rule engine (planned)
-notify/            Operator notifications (planned)
+onbod/             Onboarding daemon (not in compose by default)
+dashd/             Operator dashboards
+grants/            Grant rule engine
+notify/            Operator notifications (library)
 teled/             Telegram adapter (Go)
 discd/             Discord adapter (Go)
 whapd/             WhatsApp adapter (TypeScript)
@@ -142,20 +115,20 @@ servers, CLAUDE.md, memory) is the primary extension mechanism.
 
 Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 
-| Name     | Type    | Role                              |
-| -------- | ------- | --------------------------------- |
-| `gated`  | daemon  | Message loop, routing, containers |
-| `timed`  | daemon  | Cron poll, writes to messages     |
-| `onbod`  | planned | Onboarding state machine          |
-| `dashd`  | planned | Operator dashboards (HTMX)        |
-| `ipc`    | library | MCP server, identity stamping     |
-| `auth`   | library | Authorization policy, JWT, OAuth  |
-| `grants` | planned | Grant rule engine                 |
-| `notify` | planned | Operator notifications            |
-| `teled`  | daemon  | Telegram adapter (Go)             |
-| `discd`  | daemon  | Discord adapter (Go)              |
-| `whapd`  | daemon  | WhatsApp adapter (TypeScript)     |
-| `emaid`  | planned | Email adapter                     |
+| Name     | Type    | Role                                                   |
+| -------- | ------- | ------------------------------------------------------ |
+| `gated`  | daemon  | Message loop, routing, containers                      |
+| `timed`  | daemon  | Cron poll, writes to messages                          |
+| `onbod`  | daemon  | Onboarding state machine (add via services/onbod.toml) |
+| `dashd`  | daemon  | Operator dashboards (HTMX)                             |
+| `ipc`    | library | MCP server, identity stamping                          |
+| `auth`   | library | Authorization policy, JWT, OAuth                       |
+| `grants` | library | Grant rule engine                                      |
+| `notify` | library | Operator notifications                                 |
+| `teled`  | daemon  | Telegram adapter (Go)                                  |
+| `discd`  | daemon  | Discord adapter (Go)                                   |
+| `whapd`  | daemon  | WhatsApp adapter (TypeScript)                          |
+| `emaid`  | planned | Email adapter                                          |
 
 Deployment: `arizuko compose <instance>` generates docker-compose.yml.
 Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.

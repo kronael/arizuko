@@ -247,6 +247,24 @@ Rule strings control which MCP tools and actions a group may use. Rule format:
 Rules are derived at container spawn time and injected into `start.json`.
 The `ipc` MCP manifest is filtered by grants so agents only see permitted tools.
 
+## Compose Container Naming
+
+`compose.Generate()` derives the project name from the data dir basename
+(`REDACTED` → app=`arizuko`, flavor=`REDACTED`). All containers get
+`container_name: <app>_<daemon>_<flavor>`:
+
+- Built-in: `arizuko_gated_REDACTED`, `arizuko_timed_REDACTED`, `arizuko_dashd_REDACTED`
+- User-defined (from `services/*.toml`): `arizuko_<name>_REDACTED`
+
+This naming prevents conflicts when multiple instances run on the same host.
+
+**`onbod` is not included in compose generation.** To deploy it, add a
+`services/onbod.toml`. Default listen address is `:8091`; `dashd` defaults to
+`:8090`. When deploying both, verify ports do not conflict. Set `ONBOD_LISTEN_ADDR`
+to override onbod's listen address.
+`ONBOARDING_ENABLED` defaults to false in gated; set to `true` to surface
+unrouted JIDs for the onboarding handler.
+
 ## Onboarding Daemon (onbod/)
 
 Standalone daemon. Registers itself as a channel with the router, seeds `/approve`
@@ -352,8 +370,8 @@ template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
 gated/              Gateway daemon
 timed/              Scheduler daemon (cron poll, messages)
-onbod/              Onboarding daemon
-dashd/              Operator dashboards (planned)
+onbod/              Onboarding daemon (not in compose by default)
+dashd/              Operator dashboards
 grants/             Grant rule engine
 teled/              Telegram adapter (Go)
 discd/              Discord adapter (Go)
