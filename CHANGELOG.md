@@ -7,7 +7,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
-## [v1.6.0] — 2026-03-19
+## [v0.12.0] — 2026-03-19
 
 ### Added
 
@@ -37,7 +37,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
-## [v1.5.0] — 2026-03-19
+## [v0.11.0] — 2026-03-19
 
 ### Added
 
@@ -59,7 +59,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **Bot-mention guidance** (`container/CLAUDE.md`): agents always respond
   when @mentioned by name, stay silent otherwise.
 
-## [v1.4.0] — 2026-03-18
+## [v0.10.0] — 2026-03-18
 
 ### Added
 
@@ -99,7 +99,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   (SDK requires it); takes `folder` param for stable userID hash.
 - `core/config.go`: `OnboardingEnabled bool` field (`ONBOARDING_ENABLED` env).
 
-## [v1.3.0] — 2026-03-17
+## [v0.9.1] — 2026-03-17
 
 Channel adapters, flat layout, dead code cleanup, container fix.
 
@@ -135,7 +135,7 @@ Channel adapters, flat layout, dead code cleanup, container fix.
 
 ---
 
-## [v1.2.0] — 2026-03-15
+## [v0.9.0] — 2026-03-15
 
 Docker compose orchestration, daemon isolation, comprehensive test
 coverage, code refinement.
@@ -176,7 +176,7 @@ coverage, code refinement.
 
 ---
 
-## [v1.1.0] — 2026-03-15
+## [v0.8.0] — 2026-03-15
 
 Microservice architecture. Scheduler extracted to standalone daemon,
 schema simplified, dead code removed, specs aligned with code.
@@ -231,7 +231,7 @@ schema simplified, dead code removed, specs aligned with code.
 
 ---
 
-## [v0.0.1] — 2026-03-07
+## [v0.7.0] — 2026-03-07
 
 Go rewrite. All core gateway functionality ported from TypeScript.
 16 packages, ~4,700 LOC Go (vs ~9,400 LOC TS).
