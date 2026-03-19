@@ -7,7 +7,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
-## [Unreleased]
+## [v1.6.0] — 2026-03-19
 
 ### Added
 
