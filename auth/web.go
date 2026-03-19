@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
 	"golang.org/x/crypto/argon2"
 )
@@ -21,15 +22,21 @@ const (
 	cookieName = "refresh_token"
 )
 
-func handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, `<!DOCTYPE html>
+func handleLoginPage(cfg *core.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		buttons := ""
+		if cfg.GoogleClientID != "" {
+			buttons += `<a href="/auth/google" class="oauth-btn">Sign in with Google</a>`
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<!DOCTYPE html>
 <html><head><title>Login</title>
 <style>
 body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}
 form{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1);width:300px}
-input{width:100%;padding:.5rem;margin:.25rem 0 1rem;box-sizing:border-box;border:1px solid #ddd;border-radius:4px}
-button{width:100%;padding:.5rem;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer}
+input{width:100%%;padding:.5rem;margin:.25rem 0 1rem;box-sizing:border-box;border:1px solid #ddd;border-radius:4px}
+button{width:100%%;padding:.5rem;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer}
+.oauth-btn{display:block;width:100%%;padding:.5rem;margin-top:.5rem;background:#fff;color:#333;border:1px solid #ddd;border-radius:4px;cursor:pointer;text-align:center;text-decoration:none;box-sizing:border-box}
 h2{margin:0 0 1rem;text-align:center}
 </style></head><body>
 <form method="POST" action="/auth/login">
@@ -37,7 +44,8 @@ h2{margin:0 0 1rem;text-align:center}
 <input name="username" placeholder="Username" required autofocus>
 <input name="password" type="password" placeholder="Password" required>
 <button type="submit">Login</button>
-</form></body></html>`)
+%s</form></body></html>`, buttons)
+	}
 }
 
 func handleLogin(s *store.Store, secret []byte) http.HandlerFunc {

@@ -60,7 +60,7 @@ func Middleware(secret []byte, next http.Handler) http.Handler {
 
 func RegisterRoutes(mux *http.ServeMux, s *store.Store, cfg *core.Config) {
 	secret := []byte(cfg.AuthSecret)
-	mux.HandleFunc("GET /auth/login", handleLoginPage)
+	mux.HandleFunc("GET /auth/login", handleLoginPage(cfg))
 	mux.HandleFunc("POST /auth/login", handleLogin(s, secret))
 	mux.HandleFunc("POST /auth/refresh", handleRefresh(s, secret))
 	mux.HandleFunc("POST /auth/logout", handleLogout(s))
@@ -76,6 +76,12 @@ func RegisterRoutes(mux *http.ServeMux, s *store.Store, cfg *core.Config) {
 			handleDiscordRedirect(cfg, secret))
 		mux.HandleFunc("GET /auth/discord/callback",
 			handleDiscordCallback(cfg, s, secret))
+	}
+	if cfg.GoogleClientID != "" {
+		mux.HandleFunc("GET /auth/google",
+			handleGoogleRedirect(cfg, secret))
+		mux.HandleFunc("GET /auth/google/callback",
+			handleGoogleCallback(cfg, s, secret))
 	}
 	if cfg.TelegramToken != "" {
 		mux.HandleFunc("POST /auth/telegram",

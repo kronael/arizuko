@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
 	argon2id "golang.org/x/crypto/argon2"
 )
@@ -106,7 +107,7 @@ func TestMiddlewarePassesWithJWT(t *testing.T) {
 
 func newTestServer(s *store.Store) *httptest.Server {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /auth/login", handleLoginPage)
+	mux.HandleFunc("GET /auth/login", handleLoginPage(&core.Config{}))
 	mux.HandleFunc("POST /auth/login", handleLogin(s, testSecret))
 	mux.HandleFunc("POST /auth/refresh",
 		handleRefresh(s, testSecret))

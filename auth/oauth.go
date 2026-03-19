@@ -20,6 +20,9 @@ import (
 
 const stateTTL = 10 * time.Minute
 
+var googleTokenURL    = "https://oauth2.googleapis.com/token"
+var googleUserinfoURL = "https://www.googleapis.com/oauth2/v3/userinfo"
+
 func handleGitHubRedirect(cfg *core.Config, secret []byte) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		state := signState(secret)
@@ -110,6 +113,94 @@ func handleDiscordCallback(cfg *core.Config, s *store.Store, secret []byte) http
 		}
 		createOAuthSession(w, s, secret, "discord:"+sub, name)
 	}
+}
+
+func handleGoogleRedirect(cfg *core.Config, secret []byte) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		state := signState(secret)
+		http.SetCookie(w, &http.Cookie{
+			Name: "oauth_state", Value: state, Path: "/",
+			MaxAge: int(stateTTL.Seconds()), HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		})
+		cb := authBaseURL(cfg) + "/auth/google/callback"
+		u := fmt.Sprintf(
+			"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email%%20profile&state=%s",
+			url.QueryEscape(cfg.GoogleClientID),
+			url.QueryEscape(cb),
+			url.QueryEscape(state),
+		)
+		http.Redirect(w, r, u, http.StatusTemporaryRedirect)
+	}
+}
+
+func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !verifyState(secret, r) {
+			http.Error(w, "invalid state", http.StatusForbidden)
+			return
+		}
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			http.Error(w, "missing code", http.StatusBadRequest)
+			return
+		}
+		token, err := exchangeGoogle(cfg, code)
+		if err != nil {
+			slog.Error("google token exchange failed", "err", err)
+			http.Error(w, "oauth failed", http.StatusBadGateway)
+			return
+		}
+		sub, name, err := fetchGoogleUser(token)
+		if err != nil {
+			slog.Error("google user fetch failed", "err", err)
+			http.Error(w, "oauth failed", http.StatusBadGateway)
+			return
+		}
+		createOAuthSession(w, s, secret, "google:"+sub, name)
+	}
+}
+
+func exchangeGoogle(cfg *core.Config, code string) (string, error) {
+	cb := authBaseURL(cfg) + "/auth/google/callback"
+	resp, err := http.PostForm(googleTokenURL, url.Values{
+		"code":          {code},
+		"client_id":     {cfg.GoogleClientID},
+		"client_secret": {cfg.GoogleSecret},
+		"redirect_uri":  {cb},
+		"grant_type":    {"authorization_code"},
+	})
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var tok struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tok); err != nil {
+		return "", err
+	}
+	if tok.AccessToken == "" {
+		return "", fmt.Errorf("empty access token")
+	}
+	return tok.AccessToken, nil
+}
+
+func fetchGoogleUser(token string) (sub, name string, err error) {
+	req, _ := http.NewRequest("GET", googleUserinfoURL, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	var u struct {
+		Sub  string `json:"sub"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil {
+		return "", "", err
+	}
+	return u.Sub, u.Name, nil
 }
 
 func handleTelegram(cfg *core.Config, s *store.Store, secret []byte) http.HandlerFunc {

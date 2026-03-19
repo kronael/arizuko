@@ -29,6 +29,8 @@ type Config struct {
 	GitHubSecret    string
 	DiscordClientID string
 	DiscordSecret   string
+	GoogleClientID  string
+	GoogleSecret    string
 
 	ProjectRoot     string
 	HostProjectRoot string
@@ -94,6 +96,8 @@ func LoadConfig() (*Config, error) {
 		GitHubSecret:    envOr("GITHUB_CLIENT_SECRET", ""),
 		DiscordClientID: envOr("DISCORD_CLIENT_ID", ""),
 		DiscordSecret:   envOr("DISCORD_CLIENT_SECRET", ""),
+		GoogleClientID:  envOr("GOOGLE_CLIENT_ID", ""),
+		GoogleSecret:    envOr("GOOGLE_CLIENT_SECRET", ""),
 
 		ProjectRoot:     root,
 		HostProjectRoot: hostRoot,
