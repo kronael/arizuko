@@ -128,10 +128,6 @@ func LoadConfig() (*Config, error) {
 	return c, nil
 }
 
-func (c *Config) IsRoot(folder string) bool {
-	return !strings.Contains(folder, "/")
-}
-
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

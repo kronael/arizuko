@@ -81,17 +81,16 @@ func TestGroupCRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, ok := s.GetGroup("tg:123")
+	all := s.AllGroups()
+	if len(all) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(all))
+	}
+	got, ok := all["tg:123"]
 	if !ok {
 		t.Fatal("group not found")
 	}
 	if got.Folder != "main" {
 		t.Fatalf("expected folder 'main', got %q", got.Folder)
-	}
-
-	all := s.AllGroups()
-	if len(all) != 1 {
-		t.Fatalf("expected 1 group, got %d", len(all))
 	}
 }
 

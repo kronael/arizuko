@@ -6,10 +6,25 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/onvos/arizuko/core"
 )
+
+var reCache sync.Map
+
+func getRegexp(pattern string) (*regexp.Regexp, error) {
+	if v, ok := reCache.Load(pattern); ok {
+		return v.(*regexp.Regexp), nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	reCache.Store(pattern, re)
+	return re, nil
+}
 
 func EscapeXml(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
@@ -233,7 +248,7 @@ func routeMatches(r core.Route, msg core.Message) bool {
 		if r.Match == "" || len(r.Match) > 200 {
 			return false
 		}
-		re, err := regexp.Compile(r.Match)
+		re, err := getRegexp(r.Match)
 		if err != nil {
 			return false
 		}
@@ -249,7 +264,7 @@ func routeMatches(r core.Route, msg core.Message) bool {
 		if name == "" {
 			name = msg.Sender
 		}
-		re, err := regexp.Compile(r.Match)
+		re, err := getRegexp(r.Match)
 		if err != nil {
 			return false
 		}

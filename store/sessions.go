@@ -34,22 +34,6 @@ func (s *Store) DeleteSession(folder, topic string) error {
 	return err
 }
 
-func (s *Store) AllSessions() map[string]string {
-	rows, err := s.db.Query(
-		`SELECT group_folder, session_id FROM sessions WHERE topic = ''`)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	out := make(map[string]string)
-	for rows.Next() {
-		var folder, id string
-		rows.Scan(&folder, &id)
-		out[folder] = id
-	}
-	return out
-}
-
 func (s *Store) GetState(key string) string {
 	var val string
 	s.db.QueryRow(`SELECT value FROM router_state WHERE key = ?`, key).Scan(&val)

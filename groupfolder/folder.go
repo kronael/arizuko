@@ -6,6 +6,10 @@ import (
 	"strings"
 )
 
+func IsRoot(folder string) bool {
+	return !strings.Contains(folder, "/")
+}
+
 var reservedFolders = map[string]bool{"share": true}
 
 type Resolver struct {

@@ -57,14 +57,6 @@ func (s *Store) PutGroup(jid string, g core.Group) error {
 	return err
 }
 
-func (s *Store) GetGroup(jid string) (core.Group, bool) {
-	row := s.db.QueryRow(
-		`SELECT jid, name, folder, added_at, container_config, slink_token, parent
-		 FROM registered_groups WHERE jid = ?`, jid)
-	g, ok := scanGroup(row)
-	return g, ok
-}
-
 func (s *Store) DeleteGroup(jid string) error {
 	_, err := s.db.Exec(`DELETE FROM registered_groups WHERE jid = ?`, jid)
 	return err

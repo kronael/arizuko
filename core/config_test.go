@@ -64,20 +64,6 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	}
 }
 
-func TestIsRoot(t *testing.T) {
-	cfg := &Config{}
-
-	if !cfg.IsRoot("main") {
-		t.Fatal("main should be root")
-	}
-	if cfg.IsRoot("main/code") {
-		t.Fatal("main/code should not be root")
-	}
-	if cfg.IsRoot("main/sub/deep") {
-		t.Fatal("nested should not be root")
-	}
-}
-
 func TestLoadConfigEmailSMTPFallback(t *testing.T) {
 	os.Setenv("EMAIL_IMAP_HOST", "imap.example.com")
 	os.Unsetenv("EMAIL_SMTP_HOST")

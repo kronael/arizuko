@@ -81,9 +81,3 @@ func (s *Store) DeleteAuthSession(tokenHash string) error {
 	_, err := s.db.Exec(`DELETE FROM auth_sessions WHERE token_hash = ?`, tokenHash)
 	return err
 }
-
-func (s *Store) PruneExpiredSessions() error {
-	_, err := s.db.Exec(`DELETE FROM auth_sessions WHERE expires_at < ?`,
-		time.Now().Format(time.RFC3339))
-	return err
-}

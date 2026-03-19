@@ -82,6 +82,18 @@ func TestResolverIpcPath(t *testing.T) {
 	}
 }
 
+func TestIsRoot(t *testing.T) {
+	if !IsRoot("main") {
+		t.Fatal("main should be root")
+	}
+	if IsRoot("main/code") {
+		t.Fatal("main/code should not be root")
+	}
+	if IsRoot("main/sub/deep") {
+		t.Fatal("nested should not be root")
+	}
+}
+
 func TestResolverPathTraversal(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "groups"), 0o755)

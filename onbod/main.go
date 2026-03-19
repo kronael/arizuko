@@ -306,31 +306,39 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 
 	now := time.Now().Format(time.RFC3339)
 
-	db.Exec(`
+	if _, err := db.Exec(`
 		INSERT OR IGNORE INTO registered_groups (jid, name, folder, added_at)
 		VALUES (?, ?, ?, ?)`,
-		targetJID, worldName, worldName, now)
+		targetJID, worldName, worldName, now); err != nil {
+		slog.Error("approve: insert registered_groups", "err", err)
+	}
 
-	db.Exec(`
+	if _, err := db.Exec(`
 		INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
 		VALUES (?, 0, 'default', NULL, ?),
 		       (?, -2, 'prefix', '@', ?),
 		       (?, -1, 'prefix', '#', ?)`,
 		targetJID, worldName,
 		targetJID, worldName,
-		targetJID, worldName)
+		targetJID, worldName); err != nil {
+		slog.Error("approve: insert routes", "err", err)
+	}
 
 	welcomeID := fmt.Sprintf("onboard-welcome-%s-%d", targetJID, time.Now().UnixNano())
 	welcomeBody := fmt.Sprintf(
 		`<system_event type="onboard_welcome">Your workspace %s is ready. Welcome!</system_event>`,
 		worldName)
-	db.Exec(`
+	if _, err := db.Exec(`
 		INSERT INTO messages
 		  (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
 		VALUES (?, ?, 'system', ?, ?, 1, 1, 'onboarding', '')`,
-		welcomeID, targetJID, welcomeBody, time.Now().Format(time.RFC3339Nano))
+		welcomeID, targetJID, welcomeBody, time.Now().Format(time.RFC3339Nano)); err != nil {
+		slog.Error("approve: insert welcome message", "err", err)
+	}
 
-	db.Exec(`UPDATE onboarding SET status = 'approved' WHERE jid = ?`, targetJID)
+	if _, err := db.Exec(`UPDATE onboarding SET status = 'approved' WHERE jid = ?`, targetJID); err != nil {
+		slog.Error("approve: update onboarding status", "err", err)
+	}
 
 	roots := rootJIDs(db)
 	notify.Send(roots, "Approved: "+targetJID+" -> "+worldName+"/",
@@ -510,19 +518,15 @@ func rootJIDs(db *sql.DB) []string {
 }
 
 func sendReply(db *sql.DB, jid, text, secret string) {
-	storeOutbound(db, jid, text)
-	if err := sendOutbound(db, jid, text, secret); err != nil {
-		slog.Warn("send reply failed", "jid", jid, "err", err)
-	}
-}
-
-func storeOutbound(db *sql.DB, jid, text string) {
 	id := fmt.Sprintf("out-%d", time.Now().UnixNano())
 	db.Exec(`
 		INSERT INTO messages
 		  (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
 		VALUES (?, ?, 'bot', ?, ?, 1, 1, 'onboarding', '')`,
 		id, jid, text, time.Now().Format(time.RFC3339Nano))
+	if err := sendOutbound(db, jid, text, secret); err != nil {
+		slog.Warn("send reply failed", "jid", jid, "err", err)
+	}
 }
 
 func sendOutbound(db *sql.DB, jid, text, secret string) error {
