@@ -5,51 +5,170 @@ description: Send a welcome message to introduce yourself and explain what you c
 
 # Hello
 
-Send a friendly welcome message that introduces the bot
-and explains what it can do. Keep it short and actionable.
+If `SOUL.md` exists (in home directory), read it first and introduce yourself
+in that persona. Otherwise use `$ASSISTANT_NAME`.
 
-## When to use
+Write a welcome message with two parts:
 
-- First message from a new user or group
-- User asks "who are you" or "what can you do"
-- User says "hello" or "hi" with no other context
+1. **Greeting** (2-3 lines) — name, what you do, "send me a message"
+2. **Feature overview** — hierarchical list of capabilities (see below)
 
-## Message format
+## Feature Overview
 
-If SOUL.md exists, read it first and introduce yourself in that
-persona. Otherwise use the default below.
+Present ALL features as a scannable hierarchical list. Use this exact
+structure — L1 is the category, L2 is a one-line summary with key details.
+Omit any category where the capability is not available (e.g., no web host).
 
-Write a short welcome (3-5 lines max). Include:
+```
+Messaging
+  Multi-channel: telegram, whatsapp, discord, email, web
+  @agent routing: address subgroups directly (@support, @code)
+  #topic sessions: separate conversation threads (#deploy, #research)
+  /new resets session, /stop halts agent, /ping checks status
 
-1. **Name** — introduce yourself (read SOUL.md or $ASSISTANT_NAME)
-2. **What you do** — one sentence about your capabilities
-3. **How to use** — "Send me a message with what you need."
-4. **Web apps** — if VITE_PORT is set: mention you can deploy web apps
-5. **Howto link** — if /workspace/web/pub/howto/ exists: link it
+Files
+  Send attachments — images, PDFs, docs are read automatically
+  Voice messages transcribed to text
+  /file put|get|list — transfer files to/from workspace
+
+Memory & Knowledge
+  Diary — daily work log, auto-surfaced each session
+  Facts — researched knowledge base, verified and dated
+  Episodes — compressed weekly/monthly summaries
+  User context — per-person preferences and history
+  /recall — search all knowledge layers at once
+
+Skills
+  Extensible skill system — coding, research, web, ops, trading
+  /compact-memories — compress session history into episodes
+  /facts — research and verify knowledge
+
+Web
+  Deploy web apps and dashboards at $WEB_HOST
+  Per-group web hosting with virtual hosts
+
+Tasks & Scheduling
+  Cron-based scheduled tasks
+  Recurring research, memory compaction, custom jobs
+
+Dashboard
+  /dash/ portal — live gateway status, health monitoring
+  Container state, uptime, error tracking
+
+Commands (gateway-level, always available)
+  /new [msg] — fresh session    /stop — halt agent
+  /ping — status check          /chatid — show chat JID
+  /status — gateway health      /file — file transfer
+```
+
+Adapt this list to what you actually know is available. For example:
+
+- If `$WEB_HOST` is set, include the Web section with the actual URL
+- If you see skills in `~/.claude/skills/`, mention the skill system
+- Drop sections that don't apply to your instance
+
+## Web prefix
+
+```bash
+GROUP_FOLDER=$NANOCLAW_GROUP_FOLDER
+if [ "$NANOCLAW_IS_ROOT" = "1" ] || [ "$NANOCLAW_IS_WORLD_ADMIN" = "1" ]; then
+  WEB_DIR="/workspace/web"
+else
+  WEB_SUB=$(basename "$GROUP_FOLDER")
+  WEB_DIR="/workspace/web/$WEB_SUB"
+fi
+WEB_PREFIX="$GROUP_FOLDER"
+[ "$NANOCLAW_IS_ROOT" = "1" ] && WEB_PREFIX=""
+```
+
+Howto URL: `https://$WEB_HOST/$WEB_PREFIX/howto/`
+
+Check it exists before linking:
+
+```bash
+ls "$WEB_DIR/howto/index.html" 2>/dev/null
+```
+
+## Formatting Rules
+
+- Single chat message — must fit telegram/discord without scrolling
+- Use indented lines for L2, not bullets or numbered lists
+- Keep each L2 line under 60 chars where possible
+- Bold the L1 category names
+- No emojis unless the user uses them
+- Match the user's language
 
 ## Tone
 
 - Friendly but not chatty
-- No emojis unless the user uses them
-- Match the user's language (Czech if they write Czech, etc.)
-- Never list every capability — keep it high-level
+- Informative but scannable — users skim, they don't read walls
+- "Ask me about any of these" as a closing invite
 
-## Context detection
+## Examples
 
-Before sending, check:
-
-- `echo $ASSISTANT_NAME` for bot name
-- `ls /workspace/web/pub/howto/` to decide whether to link howto
-- The user's message language to reply in the same language
-
-## Example output
+Root group:
 
 ```
-Hi, I'm REDACTED — a Kanipi agent. I can read and write files,
-run shell commands, search the web, and build web apps.
+Hi, I'm REDACTED — a Kanipi agent. I can research, code, build
+web apps, and help with analysis and daily tasks.
 
-Send me a message with what you need. Be specific and I'll
-get to work. I can also deploy web apps for you — just ask.
+Here's what I can do:
 
-Getting started: https://REDACTED/pub/howto/
+Messaging
+  Multi-channel: telegram, whatsapp, discord, email, web
+  @agent — route to subgroups (@support, @code)
+  #topic — separate threads (#deploy, #research)
+
+Files
+  Send me images, PDFs, docs — I read them directly
+  Voice messages auto-transcribed
+  /file put|get|list for workspace transfers
+
+Memory & Knowledge
+  Diary, facts, episodes — I remember across sessions
+  Per-user context — I track your preferences
+  /recall searches everything at once
+
+Web
+  I deploy apps and pages at REDACTED
+
+Tasks
+  Scheduled jobs — research, cleanup, custom cron
+
+Commands
+  /new — fresh session  /stop — halt  /ping — status
+  /chatid — show JID    /status — gateway health
+
+Ask me about any of these, or just tell me what you need.
+Getting started: https://REDACTED/howto/
+```
+
+Non-root group:
+
+```
+Hi, I'm myai — part of the REDACTED instance. I can research,
+code, build web apps, and help with daily tasks.
+
+Here's what I can do:
+
+Messaging
+  @agent — talk to sibling groups (@support)
+  #topic — separate threads (#deploy, #review)
+
+Files & Media
+  Send attachments — I read images, PDFs, docs
+  /file put|get|list for transfers
+
+Memory
+  Diary, facts, episodes across sessions
+  /recall to search all knowledge
+
+Web
+  Apps and pages at REDACTED/myai/
+
+Commands
+  /new — fresh session  /stop — halt  /ping — status
+
+Tell me what you need.
+Getting started: https://REDACTED/myai/howto/
 ```

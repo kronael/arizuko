@@ -17,8 +17,11 @@ You are responding in a Telegram chat. Follow these formatting rules strictly.
 
 ## Formatting
 
-- Use **bold**, _italic_, and `inline code` only.
+- Use **bold** and `inline code` only. Do NOT use _underscores for italic_ —
+  underscores appear in file paths and identifiers and break formatting.
 - Use `code blocks` for multi-line code.
+- Wrap ALL file paths, identifiers, function names, and technical symbols in
+  backticks: `order_unstake.rs`, `deactivateStake`, `Vec<T>`. This is mandatory.
 - Do NOT use markdown headers (# ## ###) — they render as plain text
   with hash symbols in most Telegram clients.
 - Do NOT use markdown tables — they render as broken monospace text.
