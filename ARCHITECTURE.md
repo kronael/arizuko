@@ -258,12 +258,10 @@ The `ipc` MCP manifest is filtered by grants so agents only see permitted tools.
 
 This naming prevents conflicts when multiple instances run on the same host.
 
-**`onbod` is not included in compose generation.** To deploy it, add a
-`services/onbod.toml`. Default listen address is `:8091`; `dashd` defaults to
-`:8090`. When deploying both, verify ports do not conflict. Set `ONBOD_LISTEN_ADDR`
-to override onbod's listen address.
-`ONBOARDING_ENABLED` defaults to false in gated; set to `true` to surface
-unrouted JIDs for the onboarding handler.
+`onbod` is auto-included in compose when `ONBOARDING_ENABLED=true`. Compose
+sets `ONBOD_LISTEN_ADDR=:8092` to avoid conflict with `dashd` (`:8090`).
+Without compose, onbod defaults to `:8091`. `ONBOARDING_ENABLED` defaults to
+false in gated; set to `true` to surface unrouted JIDs for the onboarding handler.
 
 ## Onboarding Daemon (onbod/)
 
@@ -370,7 +368,7 @@ template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
 gated/              Gateway daemon
 timed/              Scheduler daemon (cron poll, messages)
-onbod/              Onboarding daemon (not in compose by default)
+onbod/              Onboarding daemon (auto-included when ONBOARDING_ENABLED=true)
 dashd/              Operator dashboards
 grants/             Grant rule engine
 teled/              Telegram adapter (Go)

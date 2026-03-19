@@ -58,7 +58,7 @@ template/          Instance seed files
 sidecar/           MCP server binaries
 gated/             Gateway daemon (standalone binary)
 timed/             Scheduler daemon (standalone binary)
-onbod/             Onboarding daemon (not in compose by default)
+onbod/             Onboarding daemon (auto-included when ONBOARDING_ENABLED=true)
 dashd/             Operator dashboards
 grants/            Grant rule engine
 notify/            Operator notifications (library)
@@ -115,20 +115,20 @@ servers, CLAUDE.md, memory) is the primary extension mechanism.
 
 Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 
-| Name     | Type    | Role                                                   |
-| -------- | ------- | ------------------------------------------------------ |
-| `gated`  | daemon  | Message loop, routing, containers                      |
-| `timed`  | daemon  | Cron poll, writes to messages                          |
-| `onbod`  | daemon  | Onboarding state machine (add via services/onbod.toml) |
-| `dashd`  | daemon  | Operator dashboards (HTMX)                             |
-| `ipc`    | library | MCP server, identity stamping                          |
-| `auth`   | library | Authorization policy, JWT, OAuth                       |
-| `grants` | library | Grant rule engine                                      |
-| `notify` | library | Operator notifications                                 |
-| `teled`  | daemon  | Telegram adapter (Go)                                  |
-| `discd`  | daemon  | Discord adapter (Go)                                   |
-| `whapd`  | daemon  | WhatsApp adapter (TypeScript)                          |
-| `emaid`  | planned | Email adapter                                          |
+| Name     | Type    | Role                                                                  |
+| -------- | ------- | --------------------------------------------------------------------- |
+| `gated`  | daemon  | Message loop, routing, containers                                     |
+| `timed`  | daemon  | Cron poll, writes to messages                                         |
+| `onbod`  | daemon  | Onboarding state machine (auto-included when ONBOARDING_ENABLED=true) |
+| `dashd`  | daemon  | Operator dashboards (HTMX)                                            |
+| `ipc`    | library | MCP server, identity stamping                                         |
+| `auth`   | library | Authorization policy, JWT, OAuth                                      |
+| `grants` | library | Grant rule engine                                                     |
+| `notify` | library | Operator notifications                                                |
+| `teled`  | daemon  | Telegram adapter (Go)                                                 |
+| `discd`  | daemon  | Discord adapter (Go)                                                  |
+| `whapd`  | daemon  | WhatsApp adapter (TypeScript)                                         |
+| `emaid`  | planned | Email adapter                                                         |
 
 Deployment: `arizuko compose <instance>` generates docker-compose.yml.
 Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.

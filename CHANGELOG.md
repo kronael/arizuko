@@ -26,6 +26,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   Applies to built-in services (gated, timed, dashd) and user-defined services
   from `services/*.toml`. Prevents container name conflicts when multiple instances
   run on the same host.
+- **Onbod in compose**: `onbod` auto-included when `ONBOARDING_ENABLED=true`.
+  Compose sets `ONBOD_LISTEN_ADDR=:8092` to avoid conflict with `dashd` (`:8090`).
 
 ### Infrastructure
 
