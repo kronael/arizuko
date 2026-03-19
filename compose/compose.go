@@ -61,13 +61,15 @@ func Generate(dataDir string) (string, error) {
 	})
 
 	project := filepath.Base(dataDir)
+	// project = "REDACTED" → app = "arizuko", flavor = "REDACTED"
+	app, flavor, _ := strings.Cut(project, "_")
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "name: %s\n", project)
 	b.WriteString("services:\n")
-	b.WriteString(gatedService(dataDir, env))
-	b.WriteString(timedService(dataDir, env))
-	b.WriteString(dashdService(dataDir, env))
+	b.WriteString(gatedService(app, flavor, dataDir, env))
+	b.WriteString(timedService(app, flavor, dataDir, env))
+	b.WriteString(dashdService(app, flavor, dataDir, env))
 	for _, s := range services {
 		b.WriteString(renderService(s.name, s.cfg, env))
 	}
@@ -79,13 +81,13 @@ type namedService struct {
 	cfg  ServiceConfig
 }
 
-func gatedService(dataDir string, env map[string]string) string {
+func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	apiPort := envOr(env, "API_PORT", "8080")
 	hostData := envOr(env, "HOST_DATA_DIR", dataDir)
 	hostApp := envOr(env, "HOST_APP_DIR", "")
 	var b strings.Builder
 	fmt.Fprintf(&b, "  gated:\n")
-	fmt.Fprintf(&b, "    container_name: gated\n")
+	fmt.Fprintf(&b, "    container_name: %s_gated_%s\n", app, flavor)
 	fmt.Fprintf(&b, "    image: arizuko:latest\n")
 	fmt.Fprintf(&b, "    entrypoint: ['gated']\n")
 	fmt.Fprintf(&b, "    volumes:\n")
@@ -121,11 +123,11 @@ func gatedService(dataDir string, env map[string]string) string {
 	return b.String()
 }
 
-func timedService(dataDir string, env map[string]string) string {
+func timedService(app, flavor, dataDir string, env map[string]string) string {
 	tz := envOr(env, "TZ", "UTC")
 	var b strings.Builder
 	fmt.Fprintf(&b, "  timed:\n")
-	fmt.Fprintf(&b, "    container_name: timed\n")
+	fmt.Fprintf(&b, "    container_name: %s_timed_%s\n", app, flavor)
 	fmt.Fprintf(&b, "    image: arizuko:latest\n")
 	fmt.Fprintf(&b, "    entrypoint: ['timed']\n")
 	fmt.Fprintf(&b, "    volumes:\n")
@@ -138,13 +140,13 @@ func timedService(dataDir string, env map[string]string) string {
 	return b.String()
 }
 
-func dashdService(dataDir string, env map[string]string) string {
+func dashdService(app, flavor, dataDir string, env map[string]string) string {
 	dashPort := envOr(env, "DASH_PORT", "8090")
 	authSecret := envOr(env, "AUTH_SECRET", "")
 	webHost := envOr(env, "WEB_HOST", "")
 	var b strings.Builder
 	fmt.Fprintf(&b, "  dashd:\n")
-	fmt.Fprintf(&b, "    container_name: dashd\n")
+	fmt.Fprintf(&b, "    container_name: %s_dashd_%s\n", app, flavor)
 	fmt.Fprintf(&b, "    image: arizuko:latest\n")
 	fmt.Fprintf(&b, "    entrypoint: ['dashd']\n")
 	fmt.Fprintf(&b, "    volumes:\n")
