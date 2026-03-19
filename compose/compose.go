@@ -71,7 +71,7 @@ func Generate(dataDir string) (string, error) {
 	b.WriteString(timedService(app, flavor, dataDir, env))
 	b.WriteString(dashdService(app, flavor, dataDir, env))
 	for _, s := range services {
-		b.WriteString(renderService(s.name, s.cfg, env))
+		b.WriteString(renderService(app, flavor, s.name, s.cfg, env))
 	}
 	return b.String(), nil
 }
@@ -182,10 +182,10 @@ var routerEnvKeys = []string{
 	"WHISPER_BASE_URL",
 }
 
-func renderService(name string, cfg ServiceConfig, env map[string]string) string {
+func renderService(app, flavor, name string, cfg ServiceConfig, env map[string]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "  %s:\n", name)
-	fmt.Fprintf(&b, "    container_name: %s\n", name)
+	fmt.Fprintf(&b, "    container_name: %s_%s_%s\n", app, name, flavor)
 	fmt.Fprintf(&b, "    image: %s\n", cfg.Image)
 	if len(cfg.Entrypoint) > 0 {
 		fmt.Fprintf(&b, "    entrypoint: %s\n", yamlList(cfg.Entrypoint))
