@@ -1,0 +1,106 @@
+package gateway
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/onvos/arizuko/core"
+)
+
+var jidSanitizeRe = regexp.MustCompile(`[^a-z0-9_\-/]`)
+
+// spawnFolderName derives child folder from parentFolder and childJID.
+// Replaces ":" with "_", strips non-alphanumeric (except -_/), lowercases.
+func spawnFolderName(parentFolder, childJID string) string {
+	s := strings.ToLower(strings.ReplaceAll(childJID, ":", "_"))
+	s = jidSanitizeRe.ReplaceAllString(s, "")
+	return parentFolder + "/" + s
+}
+
+// spawnFromPrototype copies parent's prototype/ dir to child folder and registers child.
+// Returns error if prototype/ missing, max_children reached, or copy fails.
+func (g *Gateway) spawnFromPrototype(parentJID, parentFolder, childJID string) (core.Group, error) {
+	protoDir := filepath.Join(g.cfg.GroupsDir, parentFolder, "prototype")
+	if _, err := os.Stat(protoDir); err != nil {
+		return core.Group{}, fmt.Errorf("no prototype dir: %w", err)
+	}
+
+	parent, ok := g.groups[parentJID]
+	if ok && parent.Config.MaxChildren == 0 {
+		return core.Group{}, fmt.Errorf("spawning disabled (max_children=0)")
+	}
+	if ok && parent.Config.MaxChildren > 0 {
+		n := 0
+		for _, gr := range g.groups {
+			if gr.Parent == parentFolder {
+				n++
+			}
+		}
+		if n >= parent.Config.MaxChildren {
+			return core.Group{}, fmt.Errorf("max_children limit reached (%d)", parent.Config.MaxChildren)
+		}
+	}
+
+	childFolder := spawnFolderName(parentFolder, childJID)
+	childDir := filepath.Join(g.cfg.GroupsDir, childFolder)
+	if err := copyDirNoSymlinks(protoDir, childDir); err != nil {
+		return core.Group{}, fmt.Errorf("copy prototype: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(childDir, "logs"), 0o755); err != nil {
+		return core.Group{}, err
+	}
+
+	child := core.Group{
+		JID:     childJID,
+		Name:    childJID,
+		Folder:  childFolder,
+		Parent:  parentFolder,
+		AddedAt: time.Now(),
+		State:   "active",
+	}
+	if err := g.store.PutGroup(childJID, child); err != nil {
+		return core.Group{}, err
+	}
+	g.mu.Lock()
+	g.groups[childJID] = child
+	g.mu.Unlock()
+	return child, nil
+}
+
+// copyDirNoSymlinks recursively copies src to dst, skipping symlinks.
+func copyDirNoSymlinks(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil // skip symlinks
+		}
+		rel, _ := filepath.Rel(src, path)
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		return copyFile(path, target)
+	})
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}

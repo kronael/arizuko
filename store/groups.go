@@ -40,21 +40,72 @@ func (s *Store) IsChatErrored(jid string) bool {
 func (s *Store) PutGroup(jid string, g core.Group) error {
 	cfgJSON, _ := json.Marshal(g.Config)
 
+	state := g.State
+	if state == "" {
+		state = "active"
+	}
+	ttl := g.SpawnTTLDays
+	if ttl == 0 {
+		ttl = 7
+	}
+	archiveDays := g.ArchiveClosedDays
+	if archiveDays == 0 {
+		archiveDays = 1
+	}
+
 	_, err := s.db.Exec(
 		`INSERT INTO registered_groups
-		 (jid, name, folder, added_at, container_config, slink_token, parent)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		 (jid, name, folder, added_at, container_config, slink_token, parent,
+		  state, spawn_ttl_days, archive_closed_days, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(jid) DO UPDATE SET
 		   name=excluded.name, folder=excluded.folder,
 		   container_config=excluded.container_config,
 		   slink_token=excluded.slink_token,
-		   parent=excluded.parent`,
+		   parent=excluded.parent,
+		   state=excluded.state,
+		   spawn_ttl_days=excluded.spawn_ttl_days,
+		   archive_closed_days=excluded.archive_closed_days,
+		   updated_at=excluded.updated_at`,
 		jid, g.Name, g.Folder,
 		g.AddedAt.Format(time.RFC3339),
 		string(cfgJSON), g.SlinkToken,
 		g.Parent,
+		state, ttl, archiveDays,
+		time.Now().Format(time.RFC3339),
 	)
 	return err
+}
+
+func (s *Store) MarkGroupClosed(folder string) error {
+	_, err := s.db.Exec(
+		`UPDATE registered_groups SET state='closed', updated_at=? WHERE folder=?`,
+		time.Now().Format(time.RFC3339), folder,
+	)
+	return err
+}
+
+func (s *Store) GroupsToArchive(minClosedAge time.Duration) []core.Group {
+	cutoff := time.Now().Add(-minClosedAge).Format(time.RFC3339)
+	rows, err := s.db.Query(
+		`SELECT jid, name, folder, added_at, container_config, slink_token, parent,
+		        state, spawn_ttl_days, archive_closed_days
+		 FROM registered_groups
+		 WHERE state='closed' AND updated_at < ?`,
+		cutoff,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []core.Group
+	for rows.Next() {
+		g, ok := scanGroupFull(rows)
+		if ok {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 func (s *Store) DeleteGroup(jid string) error {
@@ -64,7 +115,8 @@ func (s *Store) DeleteGroup(jid string) error {
 
 func (s *Store) AllGroups() map[string]core.Group {
 	rows, err := s.db.Query(
-		`SELECT jid, name, folder, added_at, container_config, slink_token, parent
+		`SELECT jid, name, folder, added_at, container_config, slink_token, parent,
+		        state, spawn_ttl_days, archive_closed_days
 		 FROM registered_groups`)
 	if err != nil {
 		return nil
@@ -73,7 +125,7 @@ func (s *Store) AllGroups() map[string]core.Group {
 
 	out := make(map[string]core.Group)
 	for rows.Next() {
-		g, ok := scanGroup(rows)
+		g, ok := scanGroupFull(rows)
 		if ok {
 			out[g.JID] = g
 		}
@@ -142,12 +194,14 @@ func (s *Store) UnroutedChatJIDs(since time.Time) []string {
 	return jids
 }
 
-func scanGroup(r rowScanner) (core.Group, bool) {
+func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string
-	var cfgJSON, slinkToken, parent *string
+	var cfgJSON, slinkToken, parent, state *string
+	var spawnTTL, archiveDays *int
 
-	err := r.Scan(&g.JID, &g.Name, &g.Folder, &addedAt, &cfgJSON, &slinkToken, &parent)
+	err := r.Scan(&g.JID, &g.Name, &g.Folder, &addedAt, &cfgJSON, &slinkToken, &parent,
+		&state, &spawnTTL, &archiveDays)
 	if err != nil {
 		return g, false
 	}
@@ -161,6 +215,18 @@ func scanGroup(r rowScanner) (core.Group, bool) {
 	}
 	if cfgJSON != nil {
 		json.Unmarshal([]byte(*cfgJSON), &g.Config)
+	}
+	if state != nil {
+		g.State = *state
+	}
+	if g.State == "" {
+		g.State = "active"
+	}
+	if spawnTTL != nil {
+		g.SpawnTTLDays = *spawnTTL
+	}
+	if archiveDays != nil {
+		g.ArchiveClosedDays = *archiveDays
 	}
 	return g, true
 }

@@ -732,6 +732,20 @@ func (g *Gateway) delegateToFolder(
 	targetJid, target, found := g.groupByFolderLocked(folder)
 	g.mu.RUnlock()
 	if !found {
+		// attempt prototype spawn when target has a parent prefix
+		sep := strings.LastIndex(folder, "/")
+		if sep > 0 {
+			parentFolder := folder[:sep]
+			g.mu.RLock()
+			parentJID, _, parentOK := g.groupByFolderLocked(parentFolder)
+			g.mu.RUnlock()
+			if parentOK {
+				spawned, err := g.spawnFromPrototype(parentJID, parentFolder, originJid)
+				if err == nil {
+					return g.delegateToFolder(label, spawned.Folder, prompt, originJid, depth+1, rules)
+				}
+			}
+		}
 		return fmt.Errorf("%s target not found: %s", label, folder)
 	}
 

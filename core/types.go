@@ -21,13 +21,16 @@ type Message struct {
 }
 
 type Group struct {
-	JID        string
-	Name       string
-	Folder     string
-	AddedAt    time.Time
-	Config     GroupConfig
-	SlinkToken string
-	Parent     string
+	JID              string
+	Name             string
+	Folder           string
+	AddedAt          time.Time
+	Config           GroupConfig
+	SlinkToken       string
+	Parent           string
+	State            string // "active" | "closed" | "archived"; default "active"
+	SpawnTTLDays     int    // days before inactive spawn is closed; default 7
+	ArchiveClosedDays int   // days closed before archival; default 1
 }
 
 type GroupConfig struct {
