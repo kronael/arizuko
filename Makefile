@@ -2,6 +2,7 @@ build:
 	go build -o arizuko cmd/arizuko/main.go
 	CGO_ENABLED=1 go build -o bin/gated ./gated/
 	go build -o bin/onbod ./onbod/
+	go build -o bin/dashd ./dashd/
 	make -C teled build
 	make -C discd build
 
@@ -14,6 +15,7 @@ test:
 clean:
 	rm -f arizuko
 	rm -rf bin/ tmp/
+	rm -f bin/dashd
 	make -C teled clean
 	make -C discd clean
 

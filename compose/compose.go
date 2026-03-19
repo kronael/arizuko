@@ -67,6 +67,7 @@ func Generate(dataDir string) (string, error) {
 	b.WriteString("services:\n")
 	b.WriteString(gatedService(dataDir, env))
 	b.WriteString(timedService(dataDir, env))
+	b.WriteString(dashdService(dataDir, env))
 	for _, s := range services {
 		b.WriteString(renderService(s.name, s.cfg, env))
 	}
@@ -132,6 +133,34 @@ func timedService(dataDir string, env map[string]string) string {
 	fmt.Fprintf(&b, "    environment:\n")
 	fmt.Fprintf(&b, "      DATABASE: /srv/data/store/messages.db\n")
 	fmt.Fprintf(&b, "      TIMEZONE: '%s'\n", tz)
+	fmt.Fprintf(&b, "    depends_on: [gated]\n")
+	fmt.Fprintf(&b, "    restart: on-failure\n")
+	return b.String()
+}
+
+func dashdService(dataDir string, env map[string]string) string {
+	dashPort := envOr(env, "DASH_PORT", "8090")
+	authSecret := envOr(env, "AUTH_SECRET", "")
+	webHost := envOr(env, "WEB_HOST", "")
+	var b strings.Builder
+	fmt.Fprintf(&b, "  dashd:\n")
+	fmt.Fprintf(&b, "    container_name: dashd\n")
+	fmt.Fprintf(&b, "    image: arizuko:latest\n")
+	fmt.Fprintf(&b, "    entrypoint: ['dashd']\n")
+	fmt.Fprintf(&b, "    volumes:\n")
+	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
+	fmt.Fprintf(&b, "    ports:\n")
+	fmt.Fprintf(&b, "      - '%s:%s'\n", dashPort, dashPort)
+	fmt.Fprintf(&b, "    environment:\n")
+	fmt.Fprintf(&b, "      DATA_DIR: /srv/app/home\n")
+	fmt.Fprintf(&b, "      DB_PATH: /srv/app/home/store/messages.db\n")
+	fmt.Fprintf(&b, "      DASH_PORT: '%s'\n", dashPort)
+	if authSecret != "" {
+		fmt.Fprintf(&b, "      AUTH_SECRET: '%s'\n", authSecret)
+	}
+	if webHost != "" {
+		fmt.Fprintf(&b, "      WEB_HOST: '%s'\n", webHost)
+	}
 	fmt.Fprintf(&b, "    depends_on: [gated]\n")
 	fmt.Fprintf(&b, "    restart: on-failure\n")
 	return b.String()
