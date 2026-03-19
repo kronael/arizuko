@@ -40,12 +40,13 @@ func (s *Store) AddRoute(jid string, r core.Route) (int64, error) {
 	return res.LastInsertId()
 }
 
-// InsertPrefixRoutes inserts @ (seq=-2) and # (seq=-1) prefix routes for jid
-// pointing at folder. Uses INSERT OR IGNORE to skip duplicates.
+// InsertPrefixRoutes inserts @ (seq=9998) and # (seq=9999) prefix routes for jid
+// pointing at folder. High seq ensures user routes evaluated first can override them.
+// Uses INSERT OR IGNORE to skip duplicates.
 func (s *Store) InsertPrefixRoutes(jid, folder string) {
 	s.db.Exec(
 		`INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
-		 VALUES (?, -2, 'prefix', '@', ?), (?, -1, 'prefix', '#', ?)`,
+		 VALUES (?, 9998, 'prefix', '@', ?), (?, 9999, 'prefix', '#', ?)`,
 		jid, folder, jid, folder,
 	)
 }

@@ -111,6 +111,8 @@ silent.
 		}
 	}
 
+	exec.Command("git", "init", filepath.Join(dataDir, "groups/main")).Run()
+
 	s, err := store.Open(filepath.Join(dataDir, "store"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed: open db: %v\n", err)
@@ -167,11 +169,12 @@ func cmdGroup(args []string) {
 			folder = args[4]
 		}
 
-		groupDir := filepath.Join(dataDir, "groups", folder, "logs")
-		if err := os.MkdirAll(groupDir, 0o755); err != nil {
+		groupDir := filepath.Join(dataDir, "groups", folder)
+		if err := os.MkdirAll(filepath.Join(groupDir, "logs"), 0o755); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: mkdir group dir: %v\n", err)
 			os.Exit(1)
 		}
+		exec.Command("git", "init", groupDir).Run()
 
 		err := s.PutGroup(jid, core.Group{
 			JID:     jid,

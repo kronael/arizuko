@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -545,7 +547,32 @@ func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
 	if auth.Resolve(group.Folder).Tier <= 2 {
 		g.store.InsertPrefixRoutes(jid, group.Folder)
 	}
+	ensureGroupGitRepo(filepath.Join(g.cfg.GroupsDir, group.Folder))
 	return nil
+}
+
+// ensureGroupGitRepo initialises a git repo in groupDir if one does not exist,
+// and writes a .gitignore that excludes runtime-only directories.
+func ensureGroupGitRepo(groupDir string) {
+	if _, err := os.Stat(filepath.Join(groupDir, ".git")); err == nil {
+		return
+	}
+	if err := exec.Command("git", "init", groupDir).Run(); err != nil {
+		return // git unavailable or dir missing — non-fatal
+	}
+	gitignore := filepath.Join(groupDir, ".gitignore")
+	if _, err := os.Stat(gitignore); err == nil {
+		return
+	}
+	lines := []string{"diary/", "episodes/", "users/", "logs/", "media/", "tmp/", "*.jl"}
+	entries, _ := os.ReadDir(groupDir)
+	runtime := map[string]bool{"diary": true, "episodes": true, "users": true, "logs": true, "media": true, "tmp": true}
+	for _, e := range entries {
+		if e.IsDir() && !runtime[e.Name()] {
+			lines = append(lines, e.Name()+"/")
+		}
+	}
+	os.WriteFile(gitignore, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
 func (g *Gateway) getGroups() map[string]core.Group {
