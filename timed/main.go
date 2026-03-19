@@ -1,9 +1,12 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"database/sql"
 	"embed"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -27,9 +30,11 @@ func main() {
 		Level: slog.LevelInfo,
 	})))
 
+	dataDir := os.Getenv("DATA_DIR")
+	groupsDir := filepath.Join(dataDir, "groups")
+
 	dsn := os.Getenv("DATABASE")
 	if dsn == "" {
-		dataDir := os.Getenv("DATA_DIR")
 		if dataDir == "" {
 			slog.Error("DATABASE or DATA_DIR env required")
 			os.Exit(1)
@@ -63,11 +68,16 @@ func main() {
 	tick := time.NewTicker(60 * time.Second)
 	defer tick.Stop()
 
+	daily := time.NewTicker(24 * time.Hour)
+	defer daily.Stop()
+
 	fire(db, tz) // first tick immediately
 	for {
 		select {
 		case <-tick.C:
 			fire(db, tz)
+		case <-daily.C:
+			cleanupSpawns(db, groupsDir)
 		case <-stop:
 			slog.Info("scheduler stopped")
 			return
@@ -198,4 +208,110 @@ func runMigration(db *sql.DB, f string, ver int) error {
 		return fmt.Errorf("%s: record: %w", f, err)
 	}
 	return tx.Commit()
+}
+
+func cleanupSpawns(db *sql.DB, groupsDir string) {
+	// 1. Close active spawns with no recent messages past their TTL
+	rows, err := db.Query(
+		`SELECT g.folder, g.spawn_ttl_days
+		 FROM registered_groups g
+		 WHERE g.parent IS NOT NULL AND g.parent != '' AND g.state = 'active'`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	now := time.Now()
+	for rows.Next() {
+		var folder string
+		var ttlDays int
+		rows.Scan(&folder, &ttlDays)
+		var lastMsg string
+		db.QueryRow(`SELECT MAX(timestamp) FROM messages WHERE chat_jid IN (
+			SELECT jid FROM registered_groups WHERE folder = ?)`, folder).Scan(&lastMsg)
+		if lastMsg == "" {
+			continue // never had messages, don't close
+		}
+		t, err := time.Parse(time.RFC3339, lastMsg)
+		if err != nil {
+			continue
+		}
+		if now.Sub(t) > time.Duration(ttlDays)*24*time.Hour {
+			db.Exec(`UPDATE registered_groups SET state='closed', updated_at=? WHERE folder=?`,
+				now.Format(time.RFC3339), folder)
+			slog.Info("closed idle spawn", "folder", folder)
+		}
+	}
+
+	// 2. Archive closed groups past their archive_closed_days threshold
+	rows2, err := db.Query(
+		`SELECT folder, parent, archive_closed_days, updated_at
+		 FROM registered_groups WHERE state = 'closed'`)
+	if err != nil {
+		return
+	}
+	defer rows2.Close()
+	type archiveTarget struct{ folder, parent string }
+	var toArchive []archiveTarget
+	for rows2.Next() {
+		var folder, parent, updatedAt string
+		var archiveDays int
+		rows2.Scan(&folder, &parent, &archiveDays, &updatedAt)
+		t, err := time.Parse(time.RFC3339, updatedAt)
+		if err != nil {
+			continue
+		}
+		if now.Sub(t) > time.Duration(archiveDays)*24*time.Hour {
+			toArchive = append(toArchive, archiveTarget{folder, parent})
+		}
+	}
+	for _, g := range toArchive {
+		archiveSpawn(db, groupsDir, g.folder, g.parent)
+	}
+}
+
+func archiveSpawn(db *sql.DB, groupsDir, folder, parent string) {
+	leaf := filepath.Base(folder)
+	archiveDir := filepath.Join(groupsDir, parent, "archive")
+	os.MkdirAll(archiveDir, 0o755)
+	archivePath := filepath.Join(archiveDir, fmt.Sprintf("%s-%d.tar.gz", leaf, time.Now().Unix()))
+
+	srcDir := filepath.Join(groupsDir, folder)
+	if err := compressDirTarGz(srcDir, archivePath); err != nil {
+		slog.Error("archive spawn", "folder", folder, "err", err)
+		return
+	}
+	db.Exec(`DELETE FROM registered_groups WHERE folder = ?`, folder)
+	os.RemoveAll(srcDir)
+	slog.Info("archived spawn", "folder", folder, "archive", archivePath)
+}
+
+func compressDirTarGz(src, dst string) error {
+	f, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	gz := gzip.NewWriter(f)
+	defer gz.Close()
+	tw := tar.NewWriter(gz)
+	defer tw.Close()
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.Type()&os.ModeSymlink != 0 {
+			return err
+		}
+		rel, _ := filepath.Rel(src, path)
+		info, _ := d.Info()
+		hdr, _ := tar.FileInfoHeader(info, "")
+		hdr.Name = rel
+		tw.WriteHeader(hdr)
+		if !d.IsDir() {
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			io.Copy(tw, file)
+		}
+		return nil
+	})
 }
