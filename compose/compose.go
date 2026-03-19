@@ -70,6 +70,9 @@ func Generate(dataDir string) (string, error) {
 	b.WriteString(gatedService(app, flavor, dataDir, env))
 	b.WriteString(timedService(app, flavor, dataDir, env))
 	b.WriteString(dashdService(app, flavor, dataDir, env))
+	if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
+		b.WriteString(onbodService(app, flavor, dataDir, env))
+	}
 	for _, s := range services {
 		b.WriteString(renderService(app, flavor, s.name, s.cfg, env))
 	}
@@ -135,6 +138,32 @@ func timedService(app, flavor, dataDir string, env map[string]string) string {
 	fmt.Fprintf(&b, "    environment:\n")
 	fmt.Fprintf(&b, "      DATA_DIR: /srv/app/home\n")
 	fmt.Fprintf(&b, "      TIMEZONE: '%s'\n", tz)
+	fmt.Fprintf(&b, "    depends_on: [gated]\n")
+	fmt.Fprintf(&b, "    restart: on-failure\n")
+	return b.String()
+}
+
+func onbodService(app, flavor, dataDir string, env map[string]string) string {
+	listenAddr := envOr(env, "ONBOD_LISTEN_ADDR", ":8092")
+	prototype := envOr(env, "ONBOARDING_PROTOTYPE", "")
+	secret := envOr(env, "CHANNEL_SECRET", "")
+	var b strings.Builder
+	fmt.Fprintf(&b, "  onbod:\n")
+	fmt.Fprintf(&b, "    container_name: %s_onbod_%s\n", app, flavor)
+	fmt.Fprintf(&b, "    image: arizuko:latest\n")
+	fmt.Fprintf(&b, "    entrypoint: ['onbod']\n")
+	fmt.Fprintf(&b, "    volumes:\n")
+	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
+	fmt.Fprintf(&b, "    environment:\n")
+	fmt.Fprintf(&b, "      DATA_DIR: /srv/app/home\n")
+	fmt.Fprintf(&b, "      ONBOD_LISTEN_ADDR: '%s'\n", listenAddr)
+	fmt.Fprintf(&b, "      ONBOARDING_ENABLED: 'true'\n")
+	if prototype != "" {
+		fmt.Fprintf(&b, "      ONBOARDING_PROTOTYPE: '%s'\n", prototype)
+	}
+	if secret != "" {
+		fmt.Fprintf(&b, "      CHANNEL_SECRET: '%s'\n", secret)
+	}
 	fmt.Fprintf(&b, "    depends_on: [gated]\n")
 	fmt.Fprintf(&b, "    restart: on-failure\n")
 	return b.String()
