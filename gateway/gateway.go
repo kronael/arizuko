@@ -436,7 +436,7 @@ func (g *Gateway) runAgentWithOpts(
 
 	g.queue.RegisterProcess(chatJid, cname, group.Folder)
 
-	isRoot := g.cfg.IsRoot(group.Folder)
+	isRoot := groupfolder.IsRoot(group.Folder)
 	container.WriteTasksSnapshot(
 		g.folders, group.Folder, isRoot, g.store.ListTasks("", true))
 	container.WriteGroupsSnapshot(
