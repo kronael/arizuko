@@ -207,6 +207,11 @@ Key error emitters: `gateway/gateway.go` (message loop),
 4. Tag docker images: `docker tag arizuko:latest arizuko:vX.Y.Z` and same for `arizuko-agent`
 5. Add `.diary/YYYYMMDD.md` entry
 
+## Migrating from kanipi
+
+See `MIGRATION.md` at repo root — non-obvious differences only (IPC transport,
+schema, auth hashing, env vars, feature gaps).
+
 ## Related projects
 
 - `/home/onvos/app/eliza-atlas` — ElizaOS fork; reference for facts/memory

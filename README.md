@@ -141,3 +141,9 @@ make clean    # remove binary + tmp/
 ```
 
 Pre-commit hooks configured via `.pre-commit-config.yaml`.
+
+## Migrating from kanipi
+
+See [MIGRATION.md](MIGRATION.md) for a concise guide covering non-obvious
+differences: IPC transport (files → MCP/unix socket), schema changes, auth
+password hashing, env var renames, and feature gaps.
