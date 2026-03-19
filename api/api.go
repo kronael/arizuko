@@ -32,6 +32,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/channels/register", s.handleRegister)
 	mux.HandleFunc("POST /v1/channels/deregister", s.handleDeregister)
+	mux.HandleFunc("POST /v1/outbound", s.handleOutbound)
 	mux.HandleFunc("POST /v1/messages", s.handleMessage)
 	mux.HandleFunc("POST /v1/chats", s.handleChat)
 	mux.HandleFunc("GET /v1/channels", s.handleListChannels)
@@ -88,6 +89,31 @@ func (s *Server) handleDeregister(w http.ResponseWriter, r *http.Request) {
 		s.onDeregister(entry.Name)
 	}
 	slog.Info("channel deregistered", "name", entry.Name)
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
+	if !s.checkSecret(w, r) {
+		return
+	}
+	var req struct {
+		JID  string `json:"jid"`
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.JID == "" || req.Text == "" {
+		writeErr(w, http.StatusBadRequest, "jid and text required")
+		return
+	}
+	entry := s.reg.ForJID(req.JID)
+	if entry == nil {
+		writeErr(w, http.StatusNotFound, "no channel for jid")
+		return
+	}
+	ch := chanreg.NewHTTPChannel(entry, s.reg.Secret())
+	if err := ch.Send(req.JID, req.Text); err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	writeJSON(w, map[string]any{"ok": true})
 }
 

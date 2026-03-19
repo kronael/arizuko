@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -95,6 +96,20 @@ func (r *Registry) All() map[string]*Entry {
 }
 
 func (r *Registry) Secret() string { return r.secret }
+
+// ForJID returns the first registered channel whose JID prefix matches jid.
+func (r *Registry) ForJID(jid string) *Entry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, e := range r.entries {
+		for _, p := range e.JIDPrefixes {
+			if strings.HasPrefix(jid, p) {
+				return e
+			}
+		}
+	}
+	return nil
+}
 
 func (r *Registry) RecordHealthFail(name string) int {
 	r.mu.Lock()

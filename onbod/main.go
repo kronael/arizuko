@@ -34,6 +34,7 @@ type config struct {
 	dsn          string
 	secret       string
 	listenAddr   string
+	gatedURL     string
 	pollInterval time.Duration
 	prototype    string
 	groupsDir    string
@@ -131,6 +132,12 @@ func loadConfig() (config, error) {
 
 	cfg.secret = os.Getenv("CHANNEL_SECRET")
 	cfg.prototype = os.Getenv("ONBOARDING_PROTOTYPE")
+
+	apiPort := os.Getenv("API_PORT")
+	if apiPort == "" {
+		apiPort = "8080"
+	}
+	cfg.gatedURL = "http://gated:" + apiPort
 
 	if g := os.Getenv("GROUPS_DIR"); g != "" {
 		cfg.groupsDir = g
@@ -276,7 +283,7 @@ func isTier0(db *sql.DB, senderJID string) bool {
 
 func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targetJID string) {
 	if !isTier0(db, senderJID) {
-		sendReply(db, senderJID, "Permission denied.", cfg.secret)
+		sendReply(cfg, senderJID, "Permission denied.")
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -342,7 +349,7 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 
 	roots := rootJIDs(db)
 	notify.Send(roots, "Approved: "+targetJID+" -> "+worldName+"/",
-		func(jid, text string) error { return sendOutbound(db, jid, text, cfg.secret) })
+		func(jid, text string) error { sendReply(cfg, jid, text); return nil })
 
 	slog.Info("approved", "jid", targetJID, "world", worldName)
 	w.WriteHeader(http.StatusOK)
@@ -350,7 +357,7 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 
 func handleReject(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targetJID string) {
 	if !isTier0(db, senderJID) {
-		sendReply(db, senderJID, "Permission denied.", cfg.secret)
+		sendReply(cfg, senderJID, "Permission denied.")
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -359,7 +366,7 @@ func handleReject(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targ
 
 	roots := rootJIDs(db)
 	notify.Send(roots, "Rejected: "+targetJID,
-		func(jid, text string) error { return sendOutbound(db, jid, text, cfg.secret) })
+		func(jid, text string) error { sendReply(cfg, jid, text); return nil })
 
 	slog.Info("rejected", "jid", targetJID)
 	w.WriteHeader(http.StatusOK)
@@ -386,7 +393,7 @@ func promptNew(db *sql.DB, cfg config) {
 	for rows.Next() {
 		var jid string
 		rows.Scan(&jid)
-		sendReply(db, jid, "Pick a name for your workspace:", cfg.secret)
+		sendReply(cfg, jid, "Pick a name for your workspace:")
 		db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`, now, jid)
 		slog.Info("prompted new user", "jid", jid)
 	}
@@ -429,16 +436,15 @@ func checkNameResponse(db *sql.DB, cfg config) {
 
 		name := strings.TrimSpace(content)
 		if !nameRE.MatchString(name) {
-			sendReply(db, r.jid,
-				"Invalid name. Use lowercase letters, numbers, and hyphens only. Try again:",
-				cfg.secret)
+			sendReply(cfg, r.jid, "Invalid name. Use lowercase letters, numbers, and hyphens only. Try again:")
+
 			db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`,
 				time.Now().Format(time.RFC3339), r.jid)
 			continue
 		}
 
 		if nameTaken(db, name, r.jid) {
-			sendReply(db, r.jid, "That name is already taken. Try another:", cfg.secret)
+			sendReply(cfg, r.jid, "That name is already taken. Try another:")
 			db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`,
 				time.Now().Format(time.RFC3339), r.jid)
 			continue
@@ -453,7 +459,7 @@ func checkNameResponse(db *sql.DB, cfg config) {
 			"New onboarding request: %s wants world %q. Send /approve %s or /reject %s",
 			r.jid, name, r.jid, r.jid)
 		notify.Send(roots, msg,
-			func(jid2, text string) error { return sendOutbound(db, jid2, text, cfg.secret) })
+			func(jid2, text string) error { sendReply(cfg, jid2, text); return nil })
 
 		slog.Info("onboarding pending", "jid", r.jid, "world", name)
 	}
@@ -476,7 +482,7 @@ func checkPendingMessages(db *sql.DB, cfg config) {
 			continue
 		}
 
-		sendReply(db, r.jid, "Still waiting for approval.", cfg.secret)
+		sendReply(cfg, r.jid, "Still waiting for approval.")
 		db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`,
 			time.Now().Format(time.RFC3339), r.jid)
 	}
@@ -512,63 +518,19 @@ func rootJIDs(db *sql.DB) []string {
 	return jids
 }
 
-func sendReply(db *sql.DB, jid, text, secret string) {
-	id := fmt.Sprintf("out-%d", time.Now().UnixNano())
-	db.Exec(`
-		INSERT INTO messages
-		  (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
-		VALUES (?, ?, 'bot', ?, ?, 1, 1, 'onboarding', '')`,
-		id, jid, text, time.Now().Format(time.RFC3339Nano))
-	if err := sendOutbound(db, jid, text, secret); err != nil {
-		slog.Warn("send reply failed", "jid", jid, "err", err)
-	}
-}
-
-func sendOutbound(db *sql.DB, jid, text, secret string) error {
-	url, err := channelURL(db, jid)
-	if err != nil {
-		return err
-	}
-	return postSend(url, jid, text, secret)
-}
-
-func channelURL(db *sql.DB, jid string) (string, error) {
-	rows, err := db.Query(
-		`SELECT url, jid_prefixes FROM channels WHERE jid_prefixes IS NOT NULL`)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var url, prefixesJSON string
-		rows.Scan(&url, &prefixesJSON)
-		var prefixes []string
-		json.Unmarshal([]byte(prefixesJSON), &prefixes)
-		for _, p := range prefixes {
-			if strings.HasPrefix(jid, p) {
-				return url, nil
-			}
-		}
-	}
-	return "", fmt.Errorf("no channel for jid %s", jid)
-}
-
-func postSend(baseURL, jid, text, secret string) error {
+func sendReply(cfg config, jid, text string) {
 	body, _ := json.Marshal(map[string]string{"jid": jid, "text": text})
-	req, err := http.NewRequest("POST", baseURL+"/send", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
+	req, _ := http.NewRequest("POST", cfg.gatedURL+"/v1/outbound", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	if secret != "" {
-		req.Header.Set("Authorization", "Bearer "+secret)
+	if cfg.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.secret)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		slog.Warn("send reply failed", "jid", jid, "err", err)
+		return
 	}
 	resp.Body.Close()
-	return nil
 }
 
 func copyDir(src, dst string) error {
