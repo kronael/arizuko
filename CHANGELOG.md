@@ -7,6 +7,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v1.5.0] — 2026-03-19
+
+### Added
+
+- **Google OAuth** (`auth/oauth.go`, `auth/web.go`, `auth/middleware.go`):
+  `/auth/google` and `/auth/google/callback` routes. Login page gains a
+  Google button when `GOOGLE_CLIENT_ID` env is set.
+- **Prototype spawning** (`gateway/spawn.go`, `store/migrations/0010-prototype-spawn.sql`):
+  when a route targets an unregistered folder and the parent group has a
+  `prototype/` subdirectory, a child group is auto-created by copying the
+  prototype. Groups gain `state`, `spawn_ttl_days`, `archive_closed_days`
+  columns. Daily cleanup in `timed` marks idle spawns closed and archives
+  them as `.tar.gz`.
+- **Episode injection** (`container/episodes.go`, `container/runner.go`):
+  `episodes/` YAML-frontmatter files in a group folder are read at session
+  start and injected as `<episodes>` XML into the prompt.
+- **Dashd** (`dashd/main.go`): operator dashboard daemon (HTMX, read-only
+  SQLite). Pages: status, tasks, activity, groups, memory browser. Auth via
+  existing JWT session cookie. Added to Makefile and compose generation.
+- **Bot-mention guidance** (`container/CLAUDE.md`): agents always respond
+  when @mentioned by name, stay silent otherwise.
+
 ## [v1.4.0] — 2026-03-18
 
 ### Added
