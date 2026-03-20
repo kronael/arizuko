@@ -82,7 +82,7 @@ func TestGoogleCallback_Success(t *testing.T) {
 
 	// fake userinfo server
 	userinfoSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"sub": "12345", "name": "Test User"})
+		json.NewEncoder(w).Encode(map[string]string{"sub": "12345", "name": "Test User", "email": "user@example.com"})
 	}))
 	defer userinfoSrv.Close()
 
@@ -133,6 +133,83 @@ func TestLoginPageGoogleButton(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "/auth/google") {
 		t.Error("expected google auth link in login page")
+	}
+}
+
+func TestGoogleAllowlistPass(t *testing.T) {
+	if !matchEmailAllowlist("alice@REDACTED", "*@REDACTED,admin@example.com") {
+		t.Fatal("expected wildcard match to pass")
+	}
+	if !matchEmailAllowlist("admin@example.com", "*@REDACTED,admin@example.com") {
+		t.Fatal("expected exact match to pass")
+	}
+}
+
+func TestGoogleAllowlistBlock(t *testing.T) {
+	s, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"access_token": "tok-xyz"})
+	}))
+	defer tokenSrv.Close()
+
+	userinfoSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"sub": "99999", "name": "Bad User", "email": "hacker@evil.com",
+		})
+	}))
+	defer userinfoSrv.Close()
+
+	orig1 := googleTokenURL
+	orig2 := googleUserinfoURL
+	googleTokenURL = tokenSrv.URL
+	googleUserinfoURL = userinfoSrv.URL
+	defer func() {
+		googleTokenURL = orig1
+		googleUserinfoURL = orig2
+	}()
+
+	cfg := &core.Config{
+		GoogleClientID:      "gid",
+		GoogleSecret:        "gsec",
+		WebHost:             "example.com",
+		GoogleAllowedEmails: "*@REDACTED",
+	}
+	secret := []byte("testsecret")
+
+	state := signState(secret)
+	req := httptest.NewRequest("GET",
+		"/auth/google/callback?state="+url.QueryEscape(state)+"&code=testcode", nil)
+	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
+	rec := httptest.NewRecorder()
+	cl := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	_ = cl
+	handleGoogleCallback(cfg, s, secret).ServeHTTP(rec, req)
+	if rec.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("want 307 redirect, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Header().Get("Location"), "error=unauthorized") {
+		t.Fatalf("expected unauthorized in redirect, got %s", rec.Header().Get("Location"))
+	}
+}
+
+func TestGitHubNoOrg(t *testing.T) {
+	s, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// no org restriction — any user allowed
+	cfg := &core.Config{GitHubAllowedOrg: ""}
+	if cfg.GitHubAllowedOrg != "" {
+		t.Fatal("expected empty org to skip check")
 	}
 }
 

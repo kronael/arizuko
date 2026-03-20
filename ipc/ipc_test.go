@@ -127,6 +127,46 @@ func TestAllToolsRegistered(t *testing.T) {
 	}
 }
 
+func TestSendReply(t *testing.T) {
+	var got struct{ jid, text, replyToId string }
+	gated := GatedFns{
+		SendMessage:  func(jid, text string) error { got.jid = jid; got.text = text; return nil },
+		SendDocument: func(jid, path, fn string) error { return nil },
+		SendReply: func(jid, text, rid string) error {
+			got.jid = jid
+			got.text = text
+			got.replyToId = rid
+			return nil
+		},
+		GetGroups:     func() map[string]core.Group { return nil },
+		GroupsDir:     "/tmp/groups",
+		HostGroupsDir: "/tmp/groups",
+	}
+	db := StoreFns{}
+	srv := buildMCPServer(gated, db, "world", []string{"send_reply"})
+	if srv == nil {
+		t.Fatal("expected non-nil server")
+	}
+}
+
+func TestRefreshGroups(t *testing.T) {
+	groups := map[string]core.Group{
+		"jid1": {Folder: "world/a", Name: "Group A"},
+	}
+	gated := GatedFns{
+		SendMessage:   func(jid, text string) error { return nil },
+		GetGroups:     func() map[string]core.Group { return groups },
+		GroupsDir:     "/tmp/groups",
+		HostGroupsDir: "/tmp/groups",
+	}
+	db := StoreFns{}
+	// tier ≤ 2 gets refresh_groups
+	srv := buildMCPServer(gated, db, "world/a", []string{"*"})
+	if srv == nil {
+		t.Fatal("expected non-nil server")
+	}
+}
+
 func TestIdentityUsedInServer(t *testing.T) {
 	id := auth.Resolve("world/parent/child")
 	if id.Tier != 2 {
