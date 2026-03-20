@@ -89,11 +89,19 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
-func (b *bot) send(jid, text string) error {
+func (b *bot) send(jid, text, replyTo string) error {
 	chID := strings.TrimPrefix(jid, "discord:")
-	for _, c := range chunk(text, 2000) {
-		if _, err := b.session.ChannelMessageSend(chID, c); err != nil {
-			return fmt.Errorf("discord send: %w", err)
+	chunks := chunk(text, 2000)
+	for i, c := range chunks {
+		if replyTo != "" && i == 0 {
+			ref := &discordgo.MessageReference{MessageID: replyTo}
+			if _, err := b.session.ChannelMessageSendReply(chID, c, ref); err != nil {
+				return fmt.Errorf("discord send: %w", err)
+			}
+		} else {
+			if _, err := b.session.ChannelMessageSend(chID, c); err != nil {
+				return fmt.Errorf("discord send: %w", err)
+			}
 		}
 	}
 	return nil

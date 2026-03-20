@@ -38,7 +38,7 @@ func (m *mockChannel) Owns(jid string) bool {
 	return false
 }
 
-func (m *mockChannel) Send(jid, text string) error {
+func (m *mockChannel) Send(jid, text, _ string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sent = append(m.sent, sentMsg{jid, text})

@@ -102,15 +102,24 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *routerClient) {
 	}
 }
 
-func (b *bot) send(jid, text string) error {
+func (b *bot) send(jid, text, replyTo string) error {
 	id, err := parseChatID(jid)
 	if err != nil {
 		return err
+	}
+	replyMsgID := 0
+	if replyTo != "" {
+		if n, err := strconv.ParseInt(replyTo, 10, 64); err == nil {
+			replyMsgID = int(n)
+		}
 	}
 	html := mdToHTML(text)
 	for _, c := range chunk(html, 4096) {
 		m := tgbotapi.NewMessage(id, c)
 		m.ParseMode = "HTML"
+		if replyMsgID != 0 {
+			m.ReplyToMessageID = replyMsgID
+		}
 		if _, err := b.api.Send(m); err != nil {
 			if strings.Contains(err.Error(), "400") {
 				for _, p := range chunk(text, 4096) {
