@@ -13,56 +13,6 @@ type TaskPatch struct {
 	NextRun *time.Time
 }
 
-type TaskRun struct {
-	ID         int64
-	TaskID     string
-	RunAt      time.Time
-	DurationMs int64
-	Status     string
-	Result     string
-	Error      string
-}
-
-func (s *Store) LogTaskRun(taskID, status, result, errorMsg string, durationMs int64) error {
-	_, err := s.db.Exec(
-		`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, result, error)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		taskID, time.Now().Format(time.RFC3339), durationMs, status,
-		nilIfEmpty(result), nilIfEmpty(errorMsg),
-	)
-	return err
-}
-
-func (s *Store) ListTaskRuns(taskID string, limit int) ([]TaskRun, error) {
-	rows, err := s.db.Query(
-		`SELECT id, task_id, run_at, duration_ms, status, result, error
-		 FROM task_run_logs WHERE task_id = ? ORDER BY run_at DESC LIMIT ?`,
-		taskID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []TaskRun
-	for rows.Next() {
-		var r TaskRun
-		var runAt string
-		var result, errStr *string
-		if err := rows.Scan(&r.ID, &r.TaskID, &runAt, &r.DurationMs,
-			&r.Status, &result, &errStr); err != nil {
-			continue
-		}
-		r.RunAt, _ = time.Parse(time.RFC3339, runAt)
-		if result != nil {
-			r.Result = *result
-		}
-		if errStr != nil {
-			r.Error = *errStr
-		}
-		out = append(out, r)
-	}
-	return out, nil
-}
-
 
 func (s *Store) CreateTask(t core.Task) error {
 	var nextRun *string
