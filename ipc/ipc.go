@@ -95,6 +95,14 @@ func toolOK() (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText("ok"), nil
 }
 
+// normalizeJID appends @s.whatsapp.net to bare WhatsApp IDs (B4).
+func normalizeJID(jid string) string {
+	if strings.HasPrefix(jid, "whatsapp:") && !strings.Contains(jid, "@") {
+		return jid + "@s.whatsapp.net"
+	}
+	return jid
+}
+
 func isRouteTypeValid(t string) bool {
 	switch t {
 	case "command", "verb", "pattern", "keyword", "sender", "default":
@@ -154,16 +162,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if !grantslib.CheckAction(rules, "send_reply", map[string]string{"jid": jid}) {
 				return toolErr("send_reply: not permitted")
 			}
-			text := req.GetString("text", "")
-			replyToId := req.GetString("replyToId", "")
-			if replyToId != "" && gated.SendReply != nil {
-				if err := gated.SendReply(jid, text, replyToId); err != nil {
-					return toolErr(err.Error())
-				}
-			} else {
-				if err := gated.SendMessage(jid, text); err != nil {
-					return toolErr(err.Error())
-				}
+			if err := gated.SendReply(jid, req.GetString("text", ""), req.GetString("replyToId", "")); err != nil {
+				return toolErr(err.Error())
 			}
 			return toolOK()
 		})
@@ -480,7 +480,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if db.AddRoute == nil || gated.GetGroups == nil {
 				return toolErr("add_route not configured")
 			}
-			jid := req.GetString("jid", "")
+			jid := normalizeJID(req.GetString("jid", ""))
 			if jid == "" {
 				return toolErr("jid required")
 			}
