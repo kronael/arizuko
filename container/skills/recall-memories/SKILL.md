@@ -1,5 +1,5 @@
 ---
-name: recall
+name: recall-memories
 description: Search knowledge stores for relevant information.
 user_invocable: true
 arg: <question>

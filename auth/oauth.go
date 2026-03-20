@@ -131,13 +131,40 @@ func handleGoogleRedirect(cfg *core.Config, secret []byte) http.HandlerFunc {
 		})
 		cb := authBaseURL(cfg) + "/auth/google/callback"
 		u := fmt.Sprintf(
-			"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email%%20profile&state=%s",
+			"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email%%20profile&state=%s%s",
 			url.QueryEscape(cfg.GoogleClientID),
 			url.QueryEscape(cb),
 			url.QueryEscape(state),
+			googleWorkspaceHD(cfg.GoogleAllowedEmails),
 		)
 		http.Redirect(w, r, u, http.StatusTemporaryRedirect)
 	}
+}
+
+// googleWorkspaceHD returns the &hd= hint for Google OAuth when all allowed
+// email patterns share a single domain (e.g. "*@example.com"). This restricts
+// the sign-in picker to that workspace at Google's level, before our callback.
+func googleWorkspaceHD(allowedEmails string) string {
+	if allowedEmails == "" {
+		return ""
+	}
+	seen := map[string]struct{}{}
+	for _, p := range strings.Split(allowedEmails, ",") {
+		p = strings.TrimSpace(p)
+		if i := strings.Index(p, "@"); i >= 0 {
+			domain := p[i+1:]
+			domain = strings.TrimPrefix(domain, "*.")
+			if domain != "" {
+				seen[domain] = struct{}{}
+			}
+		}
+	}
+	if len(seen) == 1 {
+		for d := range seen {
+			return "&hd=" + url.QueryEscape(d)
+		}
+	}
+	return ""
 }
 
 func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte) http.HandlerFunc {

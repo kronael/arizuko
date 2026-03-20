@@ -36,7 +36,7 @@ Memory & Knowledge
   Facts — researched knowledge base, verified and dated
   Episodes — compressed weekly/monthly summaries
   User context — per-person preferences and history
-  /recall — search all knowledge layers at once
+  /recall-memories — search all knowledge layers at once
 
 Skills
   Extensible skill system — coding, research, web, ops, trading
@@ -127,7 +127,7 @@ Files
 Memory & Knowledge
   Diary, facts, episodes — I remember across sessions
   Per-user context — I track your preferences
-  /recall searches everything at once
+  /recall-memories searches everything at once
 
 Web
   I deploy apps and pages at REDACTED
@@ -161,7 +161,7 @@ Files & Media
 
 Memory
   Diary, facts, episodes across sessions
-  /recall to search all knowledge
+  /recall-memories to search all knowledge
 
 Web
   Apps and pages at REDACTED/myai/

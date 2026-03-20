@@ -354,9 +354,10 @@ function waitForIpcMessage(): Promise<string | null> {
         resolve(messages.join('\n'));
         return;
       }
-      let timer: ReturnType<typeof setTimeout>;
-      wakeup = () => { clearTimeout(timer); poll(); };
-      timer = setTimeout(poll, IPC_POLL_MS);
+      // Per spec (L-chat-bound-sessions): exit when input/ is empty.
+      // Gateway detects exit and re-queues any messages that arrived after.
+      wakeup = null;
+      resolve(null);
     };
     poll();
   });
@@ -616,10 +617,10 @@ async function main(): Promise<void> {
 
       log('Query ended, waiting for next IPC message...');
 
-      // Wait for the next message or _close sentinel
+      // Wait for the next message, _close sentinel, or empty input (self-exit)
       const nextMessage = await waitForIpcMessage();
       if (nextMessage === null) {
-        log('Close sentinel received, exiting');
+        log(shouldClose() ? 'Close sentinel received, exiting' : 'Input empty, exiting');
         break;
       }
 
