@@ -155,6 +155,7 @@ func TestRefreshGroups(t *testing.T) {
 	}
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) error { return nil },
+		SendDocument:  func(jid, path, fn string) error { return nil },
 		GetGroups:     func() map[string]core.Group { return groups },
 		GroupsDir:     "/tmp/groups",
 		HostGroupsDir: "/tmp/groups",
