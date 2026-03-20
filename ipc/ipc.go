@@ -32,6 +32,7 @@ type GatedFns struct {
 	GetGroups        func() map[string]core.Group
 	DelegateToChild  func(folder, prompt, jid string, depth int, rules []string) error
 	DelegateToParent func(folder, prompt, jid string, depth int, rules []string) error
+	SpawnGroup       func(parentJID, childJID string) (core.Group, error)
 	GroupsDir        string
 	HostGroupsDir    string
 }
@@ -306,6 +307,39 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			slog.Info("group registered", "jid", jid, "folder", gfld, "sourceGroup", folder)
 			return toolJSON(map[string]any{"registered": true})
+		})
+	}
+
+	// spawn_group
+	if len(grantslib.MatchingRules(rules, "spawn_group")) > 0 {
+		srv.AddTool(mcp.NewTool("spawn_group",
+			mcp.WithDescription(toolDesc("Spawn a new child group from this group's prototype directory", rules, "spawn_group")),
+			mcp.WithString("childJid", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.SpawnGroup == nil {
+				return toolErr("spawn_group not configured")
+			}
+			if !grantslib.CheckAction(rules, "spawn_group", nil) {
+				return toolErr("spawn_group: not permitted")
+			}
+			childJID := req.GetString("childJid", "")
+			if childJID == "" {
+				return toolErr("childJid required")
+			}
+			// find parent JID for this folder
+			parentJID := ""
+			for jid, g := range gated.GetGroups() {
+				if g.Folder == folder {
+					parentJID = jid
+					break
+				}
+			}
+			child, err := gated.SpawnGroup(parentJID, childJID)
+			if err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("group spawned", "childJid", childJID, "folder", child.Folder, "sourceGroup", folder)
+			return toolJSON(map[string]any{"spawned": true, "folder": child.Folder, "jid": child.JID})
 		})
 	}
 

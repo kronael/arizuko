@@ -124,3 +124,4 @@ session and data isolation — routing is fixed by the parent's config.
 
 - Prototype inheritance across worlds (each world's root defines its own)
 - Spawn creation from chat commands (use auto-threading routes)
+- Spawn cleanup/TTL jobs (spawns persist active indefinitely)

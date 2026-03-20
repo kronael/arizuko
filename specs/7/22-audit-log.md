@@ -9,10 +9,9 @@ scheduler output, and control chat notifications. Uses existing
 by existing queries (`is_bot_message=0`).
 
 Implementation state: schema columns (`source`, `group_folder`) are present
-in migrations. `OutboundEntry` type and `StoreOutbound()` function are NOT
-implemented (`store/outbound.go` is empty). Integration points (gateway,
-ipc, timed) do NOT call StoreOutbound. Audit trail is NOT yet functional —
-columns exist but are unpopulated.
+in migrations. `StoreOutbound()` is NOT implemented. Integration points
+(gateway, ipc, timed) do NOT call StoreOutbound. Audit trail is NOT yet
+functional — columns exist but are unpopulated.
 
 ## Schema
 
@@ -28,17 +27,16 @@ ALTER TABLE messages ADD COLUMN group_folder TEXT;
 ## API
 
 ```go
-// store/outbound.go
-func (s *Store) StoreOutbound(entry OutboundEntry) error
-
+// store/ (not yet implemented)
 type OutboundEntry struct {
-    ChatJID      string
-    Content      string
-    Source       string
-    GroupFolder  string
-    ReplyToID    string
+    ChatJID       string
+    Content       string
+    Source        string
+    GroupFolder   string
+    ReplyToID     string
     PlatformMsgID string
 }
+func (s *Store) StoreOutbound(entry OutboundEntry) error
 ```
 
 Non-blocking: log warning on failure, never propagate error.

@@ -95,6 +95,15 @@ func (g *Gateway) Run(ctx context.Context) error {
 		GetGroups:        g.getGroups,
 		DelegateToChild:  g.delegateToChild,
 		DelegateToParent: g.delegateToParent,
+		SpawnGroup: func(parentJID, childJID string) (core.Group, error) {
+			g.mu.RLock()
+			parent, ok := g.groups[parentJID]
+			g.mu.RUnlock()
+			if !ok {
+				return core.Group{}, fmt.Errorf("parent group not found: %s", parentJID)
+			}
+			return g.spawnFromPrototype(parentJID, parent.Folder, childJID)
+		},
 	}
 	g.storeFns = ipc.StoreFns{
 		CreateTask: g.store.CreateTask,

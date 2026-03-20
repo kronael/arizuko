@@ -194,23 +194,8 @@ by matching `jid` prefix to `jid_prefixes` column.
 onbod uses the `notify/` library (`notify.Send(jids, text, sendFn)`)
 for operator notifications. `sendFn` has type `func(jid, text string) error`
 and wraps the outbound POST above.
-Replies and notifications stored via `store.StoreOutbound`:
-
-`store.StoreOutbound` and `store.OutboundEntry` already exist
-(shipped in Round 1, `store/outbound.go`):
-
-```go
-type OutboundEntry struct {
-    ChatJID     string
-    Content     string
-    Source      string
-    GroupFolder string
-    Timestamp   time.Time
-}
-func (s *Store) StoreOutbound(e OutboundEntry) error
-```
-
-onbod uses `Source: "onboarding"`, `GroupFolder: ""`.
+Notifications sent via `notify.Send(jids, text, sendFn)` only — no
+outbound audit log. `store.StoreOutbound` is not implemented.
 
 ## Target routing (onbod as a channel service)
 
