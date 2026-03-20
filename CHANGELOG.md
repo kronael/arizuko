@@ -7,6 +7,35 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Reply-to threading** (`core/`, `gateway/gateway.go`): `Channel.Send` accepts
+  a `replyTo` message ID; gateway passes the last agent-sent message ID as reply
+  context on each outbound send.
+- **Chunk chaining** (`gateway/gateway.go`): `Send` returns the sent message ID;
+  gateway chains `lastSentID` per agent run so multi-chunk replies thread correctly.
+- **recall-memories / recall-messages skills** (`container/skills/`): `recall`
+  skill renamed to `recall-memories`; new `recall-messages` skill added for
+  message history lookup.
+- **Google OAuth workspace hint** (`auth/oauth.go`): `hd=` parameter passed in
+  OAuth redirect when `GOOGLE_OAUTH_HD` is set, restricting login to a single
+  Google Workspace domain.
+- **Agent-runner exits on empty IPC input** (`container/agent-runner/src/index.ts`):
+  `waitForIpcMessage` (async Promise wrapper) replaced with synchronous
+  `checkIpcMessage`; runner exits immediately when IPC input dir is empty,
+  enabling L-chat-bound sessions.
+
+### Changed
+
+- `gateway/gateway.go`: `runAgentWithOpts` variadic `msgID ...string` collapsed
+  to plain `msgID string`; 3 call sites updated. Removes optional-string ambiguity.
+- `ipc/ipc.go`: `send_reply` handler nil-guard on `SendReply` removed; collapsed
+  to single unconditional call (guard was dead — `SendReply` is never nil).
+
+---
+
 ## [v0.12.0] — 2026-03-19
 
 ### Added

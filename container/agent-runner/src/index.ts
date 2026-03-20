@@ -340,27 +340,12 @@ function drainIpcInput(): string[] {
   }
 }
 
-function waitForIpcMessage(): Promise<string | null> {
-  return new Promise((resolve) => {
-    const poll = () => {
-      if (shouldClose()) {
-        wakeup = null;
-        resolve(null);
-        return;
-      }
-      const messages = drainIpcInput();
-      if (messages.length > 0) {
-        wakeup = null;
-        resolve(messages.join('\n'));
-        return;
-      }
-      // Per spec (L-chat-bound-sessions): exit when input/ is empty.
-      // Gateway detects exit and re-queues any messages that arrived after.
-      wakeup = null;
-      resolve(null);
-    };
-    poll();
-  });
+// Per spec (L-chat-bound-sessions): exit when input/ is empty.
+// Gateway detects exit and re-queues any messages that arrived after.
+function checkIpcMessage(): string | null {
+  if (shouldClose()) return null;
+  const messages = drainIpcInput();
+  return messages.length > 0 ? messages.join('\n') : null;
 }
 
 /**
@@ -615,12 +600,11 @@ async function main(): Promise<void> {
       // Emit session update so host can track it
       writeOutput({ status: 'success', result: null, newSessionId: sessionId });
 
-      log('Query ended, waiting for next IPC message...');
+      log('Query ended, checking for next IPC message...');
 
-      // Wait for the next message, _close sentinel, or empty input (self-exit)
-      const nextMessage = await waitForIpcMessage();
+      const nextMessage = checkIpcMessage();
       if (nextMessage === null) {
-        log(shouldClose() ? 'Close sentinel received, exiting' : 'Input empty, exiting');
+        log('Input empty, exiting');
         break;
       }
 

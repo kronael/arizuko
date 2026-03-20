@@ -410,7 +410,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 func (g *Gateway) runAgentWithOpts(
 	group core.Group, prompt, chatJid, sender string,
 	onOutput func(string, string), isolated bool,
-	rules []string, topic string, msgID ...string,
+	rules []string, topic string, msgID string,
 ) container.Output {
 	var sessionID string
 	if !isolated {
@@ -440,11 +440,6 @@ func (g *Gateway) runAgentWithOpts(
 	container.WriteGroupsSnapshot(
 		g.folders, group.Folder, isRoot, g.groupList())
 
-	var mid string
-	if len(msgID) > 0 {
-		mid = msgID[0]
-	}
-
 	input := container.Input{
 		Prompt:    prompt,
 		SessionID: sessionID,
@@ -456,7 +451,7 @@ func (g *Gateway) runAgentWithOpts(
 		Config:    group.Config,
 		SlinkToken: group.SlinkToken,
 		Channel:   channelName(g.findChannel(chatJid)),
-		MessageID: mid,
+		MessageID: msgID,
 		Sender:    sender,
 		OnOutput:  onOutput,
 		Grants:    rules,
@@ -679,7 +674,7 @@ func (g *Gateway) handlePrefixRoute(
 								g.sendMessage(chatJid, clean)
 							}
 						}
-					}, false, nil, topic)
+					}, false, nil, topic, "")
 				if out.Error != "" {
 					return fmt.Errorf("topic agent: %s", out.Error)
 				}
@@ -758,7 +753,7 @@ func (g *Gateway) delegateToFolder(
 							g.sendMessage(originJid, clean)
 						}
 					}
-				}, false, rules, "")
+				}, false, rules, "", "")
 			if out.Error != "" {
 				return fmt.Errorf("%s agent: %s", label, out.Error)
 			}
