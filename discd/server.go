@@ -35,11 +35,12 @@ func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "chat_jid and content required")
 		return
 	}
-	if err := s.bot.send(req.ChatJID, req.Content, req.ReplyTo); err != nil {
+	sentID, err := s.bot.send(req.ChatJID, req.Content, req.ReplyTo)
+	if err != nil {
 		writeErr(w, 502, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true})
+	writeJSON(w, map[string]any{"ok": true, "id": sentID})
 }
 
 func (s *server) handleSendFile(w http.ResponseWriter, r *http.Request) {

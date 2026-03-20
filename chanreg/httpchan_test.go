@@ -47,7 +47,7 @@ func TestHTTPChannelSend(t *testing.T) {
 	}
 	ch := NewHTTPChannel(e, "secret")
 
-	if err := ch.Send("tg:123", "hello", ""); err != nil {
+	if _, err := ch.Send("tg:123", "hello", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got["chat_jid"] != "tg:123" || got["content"] != "hello" {
@@ -65,7 +65,7 @@ func TestHTTPChannelSendNoCapSkips(t *testing.T) {
 	ch := NewHTTPChannel(e, "secret")
 
 	// send_text not declared — should silently skip
-	if err := ch.Send("tg:123", "hello", ""); err != nil {
+	if _, err := ch.Send("tg:123", "hello", ""); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -79,7 +79,7 @@ func TestHTTPChannelSendQueuesOnError(t *testing.T) {
 	}
 	ch := NewHTTPChannel(e, "secret")
 
-	err := ch.Send("tg:123", "hello", "")
+	_, err := ch.Send("tg:123", "hello", "")
 	if err == nil {
 		t.Fatal("expected error for unreachable")
 	}

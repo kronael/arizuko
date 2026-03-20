@@ -123,7 +123,7 @@ func TestFullLifecycle(t *testing.T) {
 	}
 
 	// 3. Send outbound via HTTPChannel
-	if err := registeredCh.Send("tg:123", "reply from router", ""); err != nil {
+	if _, err := registeredCh.Send("tg:123", "reply from router", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -210,8 +210,8 @@ func TestOutboxReplay(t *testing.T) {
 	ch := chanreg.NewHTTPChannel(e, "secret")
 
 	// Send fails, queued
-	ch.Send("tg:123", "msg1", "")
-	ch.Send("tg:123", "msg2", "")
+	ch.Send("tg:123", "msg1", "") //nolint:errcheck
+	ch.Send("tg:123", "msg2", "") //nolint:errcheck
 
 	if ch.QueueLen() != 2 {
 		t.Fatalf("queue = %d, want 2", ch.QueueLen())

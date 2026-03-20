@@ -102,10 +102,10 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *routerClient) {
 	}
 }
 
-func (b *bot) send(jid, text, replyTo string) error {
+func (b *bot) send(jid, text, replyTo string) (string, error) {
 	id, err := parseChatID(jid)
 	if err != nil {
-		return err
+		return "", err
 	}
 	replyMsgID := 0
 	if replyTo != "" {
@@ -114,26 +114,34 @@ func (b *bot) send(jid, text, replyTo string) error {
 		}
 	}
 	html := mdToHTML(text)
+	var firstID string
 	for _, c := range chunk(html, 4096) {
 		m := tgbotapi.NewMessage(id, c)
 		m.ParseMode = "HTML"
 		if replyMsgID != 0 {
 			m.ReplyToMessageID = replyMsgID
+			replyMsgID = 0 // only first chunk replies
 		}
-		if _, err := b.api.Send(m); err != nil {
+		sent, err := b.api.Send(m)
+		if err != nil {
 			if strings.Contains(err.Error(), "400") {
 				for _, p := range chunk(text, 4096) {
 					pm := tgbotapi.NewMessage(id, p)
-					if _, e2 := b.api.Send(pm); e2 != nil {
-						return fmt.Errorf("telegram send: %w", e2)
+					if s2, e2 := b.api.Send(pm); e2 != nil {
+						return "", fmt.Errorf("telegram send: %w", e2)
+					} else if firstID == "" {
+						firstID = strconv.Itoa(s2.MessageID)
 					}
 				}
-				return nil
+				return firstID, nil
 			}
-			return fmt.Errorf("telegram send: %w", err)
+			return "", fmt.Errorf("telegram send: %w", err)
+		}
+		if firstID == "" {
+			firstID = strconv.Itoa(sent.MessageID)
 		}
 	}
-	return nil
+	return firstID, nil
 }
 
 func (b *bot) sendFile(jid, path, name string) error {

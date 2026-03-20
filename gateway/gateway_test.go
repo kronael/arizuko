@@ -38,11 +38,11 @@ func (m *mockChannel) Owns(jid string) bool {
 	return false
 }
 
-func (m *mockChannel) Send(jid, text, _ string) error {
+func (m *mockChannel) Send(jid, text, _ string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sent = append(m.sent, sentMsg{jid, text})
-	return nil
+	return "", nil
 }
 
 func (m *mockChannel) lastSent() string {

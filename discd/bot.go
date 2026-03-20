@@ -89,22 +89,29 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
-func (b *bot) send(jid, text, replyTo string) error {
+func (b *bot) send(jid, text, replyTo string) (string, error) {
 	chID := strings.TrimPrefix(jid, "discord:")
 	chunks := chunk(text, 2000)
+	var firstID string
 	for i, c := range chunks {
+		var (
+			msg *discordgo.Message
+			err error
+		)
 		if replyTo != "" && i == 0 {
 			ref := &discordgo.MessageReference{MessageID: replyTo}
-			if _, err := b.session.ChannelMessageSendReply(chID, c, ref); err != nil {
-				return fmt.Errorf("discord send: %w", err)
-			}
+			msg, err = b.session.ChannelMessageSendReply(chID, c, ref)
 		} else {
-			if _, err := b.session.ChannelMessageSend(chID, c); err != nil {
-				return fmt.Errorf("discord send: %w", err)
-			}
+			msg, err = b.session.ChannelMessageSend(chID, c)
+		}
+		if err != nil {
+			return "", fmt.Errorf("discord send: %w", err)
+		}
+		if firstID == "" && msg != nil {
+			firstID = msg.ID
 		}
 	}
-	return nil
+	return firstID, nil
 }
 
 func (b *bot) sendFile(jid, path, name string) error {

@@ -81,8 +81,11 @@ func (g *Gateway) Run(ctx context.Context) error {
 	g.loadState()
 
 	g.gatedFns = ipc.GatedFns{
-		SendMessage:      g.sendMessage,
-		SendReply:        g.sendMessageReply,
+		SendMessage: g.sendMessage,
+		SendReply: func(jid, text, replyTo string) error {
+			_, err := g.sendMessageReply(jid, text, replyTo)
+			return err
+		},
 		SendDocument:     g.sendDocument,
 		ClearSession:     g.clearSession,
 		GroupsDir:        g.cfg.GroupsDir,
@@ -357,7 +360,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	savedTs := agentTs
 
 	isolated := last.Sender == "scheduler-isolated"
-	replyTo := last.ID
+	lastSentID := last.ID
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		func(text, status string) {
 			if text != "" {
@@ -368,7 +371,9 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 				}
 				clean := router.FormatOutbound(stripped)
 				if clean != "" {
-					g.sendMessageReply(chatJid, clean, replyTo)
+					if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID); sentID != "" {
+						lastSentID = sentID
+					}
 				}
 			}
 		}, isolated, nil, "", last.ID)
@@ -489,13 +494,14 @@ func (g *Gateway) findChannel(jid string) core.Channel {
 }
 
 func (g *Gateway) sendMessage(jid, text string) error {
-	return g.sendMessageReply(jid, text, "")
+	_, err := g.sendMessageReply(jid, text, "")
+	return err
 }
 
-func (g *Gateway) sendMessageReply(jid, text, replyTo string) error {
+func (g *Gateway) sendMessageReply(jid, text, replyTo string) (string, error) {
 	ch := g.findChannel(jid)
 	if ch == nil {
-		return fmt.Errorf("no channel for jid %s", jid)
+		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
 	return ch.Send(jid, text, replyTo)
 }

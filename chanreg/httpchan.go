@@ -57,9 +57,9 @@ func (h *HTTPChannel) Owns(jid string) bool {
 	return false
 }
 
-func (h *HTTPChannel) Send(jid, text, replyTo string) error {
+func (h *HTTPChannel) Send(jid, text, replyTo string) (string, error) {
 	if !h.entry.HasCap("send_text") {
-		return nil
+		return "", nil
 	}
 	body := map[string]string{
 		"chat_jid": jid,
@@ -71,16 +71,20 @@ func (h *HTTPChannel) Send(jid, text, replyTo string) error {
 	}
 	b, _ := json.Marshal(body)
 
-	resp, err := h.post("/send", b)
+	httpResp, err := h.post("/send", b)
 	if err == nil {
-		defer resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			return nil
+		defer httpResp.Body.Close()
+		if httpResp.StatusCode == http.StatusOK {
+			var resp struct {
+				ID string `json:"id"`
+			}
+			json.NewDecoder(httpResp.Body).Decode(&resp) // ignore decode error — id may be absent
+			return resp.ID, nil
 		}
-		err = fmt.Errorf("status %d", resp.StatusCode)
+		err = fmt.Errorf("status %d", httpResp.StatusCode)
 	}
 	h.enqueue(outMsg{JID: jid, Content: text, ReplyTo: replyTo})
-	return fmt.Errorf("channel %s send: %w", h.entry.Name, err)
+	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
 func (h *HTTPChannel) SendFile(jid, path, name string) error {
@@ -163,7 +167,7 @@ func (h *HTTPChannel) DrainOutbox() {
 		if m.IsFile {
 			err = h.SendFile(m.JID, m.Path, m.Name)
 		} else {
-			err = h.Send(m.JID, m.Content, m.ReplyTo)
+			_, err = h.Send(m.JID, m.Content, m.ReplyTo)
 		}
 		if err != nil {
 			slog.Warn("outbox drain failed", "channel", h.entry.Name,
