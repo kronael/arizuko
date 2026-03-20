@@ -20,7 +20,6 @@ type Config struct {
 	PollInterval  time.Duration
 	Timezone      string
 	WebPort       int
-	VitePort      int
 	AuthSecret      string
 	WebHost         string
 	AuthUsername    string
@@ -74,10 +73,6 @@ func LoadConfig() (*Config, error) {
 	name := envOr("ASSISTANT_NAME", "Andy")
 
 	webPort := envInt("WEB_PORT", 0)
-	vitePort := envInt("VITE_PORT_INTERNAL", 0)
-	if vitePort == 0 && webPort > 0 {
-		vitePort = webPort + 1
-	}
 
 	c := &Config{
 		Name:          name,
@@ -89,7 +84,6 @@ func LoadConfig() (*Config, error) {
 		PollInterval:  2 * time.Second,
 		Timezone:      resolveTimezone(),
 		WebPort:       webPort,
-		VitePort:      vitePort,
 		AuthSecret:      envOr("AUTH_SECRET", ""),
 		WebHost:         envOr("WEB_HOST", ""),
 		AuthUsername:    envOr("AUTH_USERNAME", ""),

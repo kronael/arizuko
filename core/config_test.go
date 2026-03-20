@@ -75,16 +75,6 @@ func TestLoadConfigEmailSMTPFallback(t *testing.T) {
 	}
 }
 
-func TestLoadConfigVitePortDerivation(t *testing.T) {
-	os.Setenv("WEB_PORT", "8080")
-	os.Unsetenv("VITE_PORT_INTERNAL")
-	defer os.Unsetenv("WEB_PORT")
-
-	cfg, _ := LoadConfig()
-	if cfg.VitePort != 8081 {
-		t.Fatalf("expected vite port 8081, got %d", cfg.VitePort)
-	}
-}
 
 func TestEnvHelpers(t *testing.T) {
 	os.Unsetenv("TEST_VAR")
