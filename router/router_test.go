@@ -89,7 +89,7 @@ func TestIsAuthorizedRoutingTarget(t *testing.T) {
 	}
 }
 
-func TeststripThinkBlocks(t *testing.T) {
+func TestStripThinkBlocks(t *testing.T) {
 	cases := []struct {
 		name, in, want string
 	}{
@@ -132,7 +132,7 @@ func TestExtractStatusBlocks(t *testing.T) {
 	}
 }
 
-func TestsenderToUserFileID(t *testing.T) {
+func TestSenderToUserFileID(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
@@ -181,7 +181,7 @@ func TestFormatOutboundThinkAndStatus(t *testing.T) {
 	}
 }
 
-func TestexpandTarget(t *testing.T) {
+func TestExpandTarget(t *testing.T) {
 	msg := core.Message{Sender: "telegram:123456"}
 	cases := []struct {
 		target, want string
@@ -226,7 +226,7 @@ func TestResolveRouteTemplate(t *testing.T) {
 	}
 }
 
-func TestescapeXml(t *testing.T) {
+func TestEscapeXml(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{

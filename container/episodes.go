@@ -71,13 +71,12 @@ func ReadRecentEpisodes(groupDir string) string {
 
 	// sort each type descending by filename (ISO date format sorts correctly)
 	var all []ep
-	for epType, eps := range byType {
+	for _, eps := range byType {
 		sort.Slice(eps, func(i, j int) bool { return eps[i].key > eps[j].key })
 		limit := 3
 		if len(eps) < limit {
 			limit = len(eps)
 		}
-		_ = epType
 		all = append(all, eps[:limit]...)
 	}
 
