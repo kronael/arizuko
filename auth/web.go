@@ -107,7 +107,7 @@ func handleLogout(s *store.Store) http.HandlerFunc {
 }
 
 func issueSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, name string) {
-	jwt := MintJWT(secret, sub, name, jwtTTL)
+	jwt := mintJWT(secret, sub, name, jwtTTL)
 	refresh := genToken()
 	exp := time.Now().Add(refreshTTL)
 	if err := s.CreateAuthSession(hashToken(refresh), sub, exp); err != nil {

@@ -27,7 +27,7 @@ func WorldOf(folder string) string {
 	return folder
 }
 
-func IsInWorld(a, b string) bool {
+func isInWorld(a, b string) bool {
 	return WorldOf(a) == WorldOf(b)
 }
 

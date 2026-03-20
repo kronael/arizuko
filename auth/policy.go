@@ -67,7 +67,7 @@ func Authorize(id Identity, tool string, target AuthzTarget) error {
 		if id.Tier == 2 && target.TaskOwner != id.Folder {
 			return fmt.Errorf("unauthorized")
 		}
-		if id.Tier == 1 && !IsInWorld(id.Folder, target.TaskOwner) {
+		if id.Tier == 1 && !isInWorld(id.Folder, target.TaskOwner) {
 			return fmt.Errorf("unauthorized")
 		}
 		return nil
@@ -78,7 +78,7 @@ func Authorize(id Identity, tool string, target AuthzTarget) error {
 		if id.Tier == 2 && target.TaskOwner != id.Folder {
 			return fmt.Errorf("unauthorized")
 		}
-		if id.Tier == 1 && !IsInWorld(id.Folder, target.TaskOwner) {
+		if id.Tier == 1 && !isInWorld(id.Folder, target.TaskOwner) {
 			return fmt.Errorf("unauthorized")
 		}
 		return nil

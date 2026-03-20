@@ -22,7 +22,7 @@ type Claims struct {
 	Iat  int64  `json:"iat"`
 }
 
-func MintJWT(secret []byte, sub, name string, ttl time.Duration) string {
+func mintJWT(secret []byte, sub, name string, ttl time.Duration) string {
 	hdr := base64.RawURLEncoding.EncodeToString(
 		[]byte(`{"alg":"HS256","typ":"JWT"}`))
 	now := time.Now()

@@ -36,7 +36,7 @@ func hashArgon2(password string, salt []byte) string {
 var testSecret = []byte("test-secret-key-for-testing-only")
 
 func TestJWTRoundTrip(t *testing.T) {
-	token := MintJWT(testSecret, "user1", "Test User", time.Hour)
+	token := mintJWT(testSecret, "user1", "Test User", time.Hour)
 	claims, err := VerifyJWT(testSecret, token)
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestJWTRoundTrip(t *testing.T) {
 }
 
 func TestJWTExpired(t *testing.T) {
-	token := MintJWT(testSecret, "user1", "Test", -time.Hour)
+	token := mintJWT(testSecret, "user1", "Test", -time.Hour)
 	_, err := VerifyJWT(testSecret, token)
 	if err != ErrExpiredToken {
 		t.Fatalf("got err=%v, want ErrExpiredToken", err)
@@ -58,7 +58,7 @@ func TestJWTExpired(t *testing.T) {
 }
 
 func TestJWTBadSignature(t *testing.T) {
-	token := MintJWT(testSecret, "user1", "Test", time.Hour)
+	token := mintJWT(testSecret, "user1", "Test", time.Hour)
 	_, err := VerifyJWT([]byte("wrong"), token)
 	if err != ErrInvalidToken {
 		t.Fatalf("got err=%v, want ErrInvalidToken", err)
@@ -95,7 +95,7 @@ func TestMiddlewarePassesWithJWT(t *testing.T) {
 	h := Middleware(testSecret, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	}))
-	token := MintJWT(testSecret, "user1", "Test", time.Hour)
+	token := mintJWT(testSecret, "user1", "Test", time.Hour)
 	r := httptest.NewRequest("GET", "/dashboard", nil)
 	r.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
@@ -261,7 +261,7 @@ func TestMiddlewareExpiredJWT(t *testing.T) {
 		func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(200)
 		}))
-	token := MintJWT(testSecret, "u", "U", -time.Hour)
+	token := mintJWT(testSecret, "u", "U", -time.Hour)
 	r := httptest.NewRequest("GET", "/dashboard", nil)
 	r.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
