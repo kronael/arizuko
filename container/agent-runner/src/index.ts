@@ -12,6 +12,8 @@ interface ContainerInput {
   secrets?: Record<string, string>;
   messageCount?: number;
   delegateDepth?: number;
+  soul?: string;
+  systemMd?: string;
 }
 
 interface ContainerOutput {
@@ -120,10 +122,17 @@ async function readStdin(): Promise<string> {
 
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 function writeOutput(output: ContainerOutput): void {
   console.log(OUTPUT_START_MARKER);
   console.log(JSON.stringify(output));
+  console.log(OUTPUT_END_MARKER);
+}
+
+function writeHeartbeat(): void {
+  console.log(OUTPUT_START_MARKER);
+  console.log(JSON.stringify({ heartbeat: true }));
   console.log(OUTPUT_END_MARKER);
 }
 
@@ -415,6 +424,8 @@ async function runQuery(
     }
   }
 
+  const heartbeat = setInterval(writeHeartbeat, HEARTBEAT_INTERVAL_MS);
+
   try {
     for await (const message of query({
       prompt: stream,
@@ -423,7 +434,11 @@ async function runQuery(
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
         resume: sessionId,
         resumeSessionAt: resumeAt,
-        systemPrompt: { type: 'preset', preset: 'claude_code' },
+        systemPrompt: containerInput.systemMd
+          ? (containerInput.soul
+              ? containerInput.systemMd + '\n\n' + containerInput.soul
+              : containerInput.systemMd)
+          : { type: 'preset' as const, preset: 'claude_code' as const },
         allowedTools: [
           'Bash',
           'Read', 'Write', 'Edit', 'Glob', 'Grep',
@@ -502,6 +517,7 @@ async function runQuery(
     }
   }
 
+  clearInterval(heartbeat);
   ipcPolling = false;
   wakeup = null;
   log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
@@ -563,6 +579,9 @@ async function main(): Promise<void> {
   let prompt = containerInput.prompt;
   if (containerInput.isScheduledTask) {
     prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
+  }
+  if (containerInput.soul && !containerInput.systemMd) {
+    prompt = containerInput.soul + '\n\n' + prompt;
   }
   const pending = drainIpcInput();
   if (pending.length > 0) {
