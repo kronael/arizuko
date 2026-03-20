@@ -4,17 +4,23 @@
 
 ## ContainerInput (stdin JSON)
 
-| Field             | Type     | Notes                          |
-| ----------------- | -------- | ------------------------------ |
-| `prompt`          | string   | XML `<messages>` block         |
-| `sessionId`       | string?  | Resume; omit for new           |
-| `groupFolder`     | string   | Filesystem-safe folder name    |
-| `chatJid`         | string   | Channel JID                    |
-| `messageCount`    | number?  | Messages in this batch         |
-| `delegateDepth`   | number?  | Delegation nesting depth       |
-| `isScheduledTask` | boolean? | Scheduled task header if true  |
-| `assistantName`   | string?  | `NANOCLAW_ASSISTANT_NAME` env  |
-| `secrets`         | object?  | API keys; stripped, not logged |
+| Field           | Type     | Notes                                 |
+| --------------- | -------- | ------------------------------------- |
+| `prompt`        | string   | XML `<messages>` block                |
+| `sessionId`     | string?  | Resume; omit for new                  |
+| `groupFolder`   | string   | Filesystem-safe folder name           |
+| `chatJid`       | string   | Channel JID                           |
+| `topic`         | string?  | Topic session name                    |
+| `messageCount`  | number?  | Messages in this batch                |
+| `delegateDepth` | number?  | Delegation nesting depth              |
+| `assistantName` | string?  | `ASSISTANT_NAME` env                  |
+| `secrets`       | object?  | API keys; stripped, not logged        |
+| `channelName`   | string?  | Channel adapter name                  |
+| `messageId`     | string?  | Triggering message ID                 |
+| `grants`        | string[] | Authorization rules                   |
+| `sender`        | string?  | Message sender                        |
+| `soul`          | string?  | SOUL.md content for persona           |
+| `systemMd`      | string?  | SYSTEM.md full system prompt override |
 
 ## Prompt assembly order
 
@@ -45,6 +51,14 @@ Wrapped in sentinel markers:
 
 Multiple marker pairs per run (streaming). `<internal>` tags
 in `result` stripped before sending.
+
+## SOUL.md and SYSTEM.md Injection
+
+If `SOUL.md` exists in the group folder, its content is passed as the
+`soul` field. Agents should read and embody this persona.
+
+If `SYSTEM.md` exists in the group folder, its content replaces the
+default system prompt via `systemMd`.
 
 ## IPC close sentinel
 

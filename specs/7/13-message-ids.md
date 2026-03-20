@@ -26,6 +26,9 @@ type Message struct {
 }
 ```
 
+Note: `ForwardedFromID` and `ForwardedMsgID` are NOT yet in `core.Message`.
+Only `ForwardedFrom string` exists. `ReplyToID` is present.
+
 ## Channel coverage — reply/forward metadata
 
 Full matrix of what each channel provides for inbound
@@ -59,7 +62,7 @@ For other forward types, name string is sufficient.
 | Channel  | Mechanism                          | Status   |
 | -------- | ---------------------------------- | -------- |
 | Telegram | reply_parameters.message_id        | shipped  |
-| Discord  | MessageReference                   | planned  |
+| Discord  | MessageReference                   | shipped  |
 | WhatsApp | quoted WAMessage object (deferred) | deferred |
 | Email    | In-Reply-To header                 | n/a      |
 | Local    | replyTo field on store             | shipped  |

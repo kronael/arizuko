@@ -11,17 +11,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
-- **Reply-to threading** (`core/`, `gateway/gateway.go`): `Channel.Send` accepts
-  a `replyTo` message ID; gateway passes the last agent-sent message ID as reply
-  context on each outbound send.
+- **Reply-to threading** (`core/`, `gateway/gateway.go`): `Channel.Send` signature
+  is `Send(jid, text, replyTo string) (string, error)` — accepts a `replyTo`
+  message ID and returns the sent message ID; gateway passes the last agent-sent
+  message ID as reply context on each outbound send.
 - **Chunk chaining** (`gateway/gateway.go`): `Send` returns the sent message ID;
   gateway chains `lastSentID` per agent run so multi-chunk replies thread correctly.
 - **recall-memories / recall-messages skills** (`container/skills/`): `recall`
   skill renamed to `recall-memories`; new `recall-messages` skill added for
   message history lookup.
-- **Google OAuth workspace hint** (`auth/oauth.go`): `hd=` parameter passed in
-  OAuth redirect when `GOOGLE_OAUTH_HD` is set, restricting login to a single
-  Google Workspace domain.
+- **Google OAuth workspace hint** (`auth/oauth.go`): `hd=` parameter appended to
+  Google OAuth redirect when `GOOGLE_ALLOWED_EMAILS` patterns share a single domain
+  (e.g. `*@example.com`), restricting the sign-in picker to that workspace. Supports
+  multiple patterns — hint only added when all share one domain.
 - **Agent-runner exits on empty IPC input** (`container/agent-runner/src/index.ts`):
   `waitForIpcMessage` (async Promise wrapper) replaced with synchronous
   `checkIpcMessage`; runner exits immediately when IPC input dir is empty,
@@ -42,8 +44,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 - **Kanipi skill sync** (`container/skills/`, `container/output-styles/`): 6 new
   agent skills (acquire, compact-memories, recall, specs, users, infra), 3 output
-  style guides (discord, telegram, email). Agent migrations 015-042 added;
-  `MIGRATION_VERSION` bumped 16 → 37. `hello` skill updated to comprehensive format.
+  style guides (discord, telegram, email). Agent migrations 015-043 added;
+  `MIGRATION_VERSION` bumped 16 → 38. `hello` skill updated to comprehensive format.
   Sync head: fdbac9f.
 - **REDACTED instance**: `REDACTED` running. Groups: root, REDACTED, happy.
   Port layout: gated 8081, dashd 8091, web 49165. Telegram bot: REDACTED.

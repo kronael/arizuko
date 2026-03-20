@@ -11,8 +11,8 @@ Libraries don't: `auth`, `ipc`, `grants`, `notify`.
 | ------- | ------- | ---------------------------- | -------------------------------- |
 | `gated` | running | Gateway, routing, containers | `specs/7/9-gated.md`             |
 | `timed` | running | Cron poll, writes messages   | `specs/7/8-scheduler-service.md` |
-| `onbod` | planned | Onboarding state machine     | `specs/7/21-onboarding.md`       |
-| `dashd` | planned | Operator dashboards (HTMX)   | `specs/7/25-dashboards.md`       |
+| `onbod` | running | Onboarding state machine     | `specs/7/21-onboarding.md`       |
+| `dashd` | running | Operator dashboards (HTMX)   | `specs/7/25-dashboards.md`       |
 | `teled` | running | Telegram adapter             |                                  |
 | `discd` | running | Discord adapter              |                                  |
 | `whapd` | running | WhatsApp adapter             |                                  |

@@ -1,10 +1,14 @@
 # Dashboards
 
-**Status**: design
+**Status**: in-progress (daemon shell; no UI templates yet)
 
 Tile-based operator portal for monitoring instance state.
 Each subsystem has a dedicated dashboard; portal shows summary
 tiles with health indicators. All read-only.
+
+Note: the dashd HTTP server exists with auth middleware wired up, but
+dashboard HTML templates are not yet implemented. All routes exist as
+stubs; no actual dashboard pages are rendered.
 
 ## Implementation: dashd
 

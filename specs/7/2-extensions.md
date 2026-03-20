@@ -104,8 +104,8 @@ Each skill has `SKILL.md` with prompt injection.
 ## 5. Routing Rules
 
 Flat routes table (shipped). Keyed by `jid` + `seq`.
-7 rule types: command, verb, pattern, keyword, sender,
-trigger, default. First match wins.
+6 rule types: command, verb, pattern, keyword, sender,
+default. First match wins.
 
 Agents modify routing via MCP `set_routing_rules` tool
 (tier 0-2). Dynamic — no restart needed.

@@ -1,6 +1,6 @@
 # Topic Routing
 
-**Status**: design
+**Status**: shipped
 
 Routing symbols `@agent` and `#topic` as predefined route
 table entries. Created automatically on group registration

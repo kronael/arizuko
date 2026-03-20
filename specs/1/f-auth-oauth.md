@@ -40,6 +40,17 @@ Also checks `auth_date` within 5 minutes.
 5 attempts / 15 min per IP on `POST /auth/login`. In-memory sliding
 window, keyed by `X-Forwarded-For` or `remoteAddress`.
 
+## OAuth config env vars
+
+| Env var                 | Description                                                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GOOGLE_CLIENT_ID`      | Enables Google OAuth button on login page                                                                                                     |
+| `GOOGLE_CLIENT_SECRET`  | Google OAuth client secret                                                                                                                    |
+| `GOOGLE_ALLOWED_EMAILS` | Comma-separated glob patterns (e.g. `*@example.com`); enables email allowlist and single-domain `hd=` hint when all patterns share one domain |
+| `GITHUB_CLIENT_ID`      | Enables GitHub OAuth                                                                                                                          |
+| `GITHUB_CLIENT_SECRET`  | GitHub OAuth client secret                                                                                                                    |
+| `GITHUB_ALLOWED_ORG`    | GitHub org name; members-only enforcement on callback                                                                                         |
+
 ## DB schema
 
 ```sql

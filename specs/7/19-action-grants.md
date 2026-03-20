@@ -1,6 +1,6 @@
 # Action Grants
 
-**Status**: design
+**Status**: shipped
 
 Grant rules control which MCP actions a container can call.
 Rules derived from routing + tier at spawn, injected into
@@ -59,6 +59,9 @@ CREATE TABLE grants (
 
 Override rules appended after defaults. Last-match-wins.
 No row = defaults only.
+
+Note: actual DB schema uses `(id, jid, role, granted_by, granted_at)` for
+audit trail — not `(folder, rules TEXT JSON)` as originally specced above.
 
 ## Token in start.json
 

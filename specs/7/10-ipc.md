@@ -1,10 +1,10 @@
 # ipc
 
-**Status**: shipped — `ipc/` package (ipc.go, all 16 tools, runtime auth via auth)
+**Status**: shipped — `ipc/` package (ipc.go, all 19 tools, runtime auth via auth)
 
 MCP daemon. Per-group MCP server on unix socket. Resolves caller
 identity from socket path, authorizes via auth, executes all
-16 tools inline via handler functions.
+19 tools inline via handler functions.
 
 ## Role
 
@@ -50,7 +50,7 @@ socat bridge:
 }
 ```
 
-ipc exposes all 16 tools in a single tool list. Authorization
+ipc exposes all 19 tools in a single tool list. Authorization
 is checked per-call via auth.Authorize before execution.
 
 ## Tools
@@ -58,24 +58,28 @@ is checked per-call via auth.Authorize before execution.
 All tools are handled inline by ipc. Gateway and store
 functions are injected as callbacks at server creation time.
 
-| Tool             | Domain     |
-| ---------------- | ---------- |
-| `send_message`   | messaging  |
-| `send_file`      | messaging  |
-| `register_group` | groups     |
-| `reset_session`  | sessions   |
-| `delegate_group` | groups     |
-| `inject_message` | messaging  |
-| `escalate_group` | groups     |
-| `get_routes`     | routing    |
-| `set_routes`     | routing    |
-| `add_route`      | routing    |
-| `delete_route`   | routing    |
-| `schedule_task`  | scheduling |
-| `list_tasks`     | scheduling |
-| `pause_task`     | scheduling |
-| `resume_task`    | scheduling |
-| `cancel_task`    | scheduling |
+| Tool             | Domain        | Gating                    |
+| ---------------- | ------------- | ------------------------- |
+| `send_message`   | messaging     | grants                    |
+| `send_reply`     | messaging     | grants                    |
+| `send_file`      | messaging     | grants                    |
+| `inject_message` | messaging     | grants                    |
+| `register_group` | groups        | grants + auth.Authorize   |
+| `delegate_group` | groups        | grants + auth.Authorize   |
+| `escalate_group` | groups        | grants                    |
+| `refresh_groups` | groups        | tier ≤ 2                  |
+| `reset_session`  | sessions      | grants + auth.Authorize   |
+| `get_routes`     | routing       | grants + auth.Authorize   |
+| `set_routes`     | routing       | grants + auth.Authorize   |
+| `add_route`      | routing       | grants + auth.Authorize   |
+| `delete_route`   | routing       | grants + auth.Authorize   |
+| `schedule_task`  | scheduling    | grants + auth.Authorize   |
+| `list_tasks`     | scheduling    | grants                    |
+| `pause_task`     | scheduling    | grants + auth.Authorize   |
+| `resume_task`    | scheduling    | grants + auth.Authorize   |
+| `cancel_task`    | scheduling    | grants + auth.Authorize   |
+| `get_grants`     | authorization | tier ≤ 1 + auth.Authorize |
+| `set_grants`     | authorization | tier ≤ 1 + auth.Authorize |
 
 ## Request flow
 

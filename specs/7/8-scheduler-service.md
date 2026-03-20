@@ -1,3 +1,5 @@
+## status: shipped
+
 # timed
 
 Cron daemon. Polls `scheduled_tasks`, INSERTs into `messages`.
@@ -26,10 +28,19 @@ Migration service name: `timed`.
   goes NULL after firing. Cron: recomputed after each fire.
 - `status` — `active` or `paused`. No other states.
 
-No `schedule_type`, no `interval`, no `context_mode`, no
-`last_run`, no `last_result`, no `task_run_logs`. Cron
+## Implemented beyond base spec
+
+- `context_mode` column: `"group"` (resumes session) | `"isolated"` (no
+  `--resume`). Encoded as sender prefix `"scheduler-isolated"` in messages
+  when isolated; default sender `"scheduler"` resumes group session.
+- Interval mode: if `cron` field is a plain integer, treated as milliseconds
+  interval; `next_run = now + ms` after each fire.
+- `task_run_logs` table: tracks execution history
+  `(task_id, run_at, duration_ms, status, result, error)`.
+
+No `schedule_type`, no `last_run`, no `last_result`. Cron
 covers intervals. One-shot is just NULL cron + set next_run.
-Messages table is the audit trail.
+Messages table is the primary audit trail; `task_run_logs` supplements it.
 
 ## Loop
 

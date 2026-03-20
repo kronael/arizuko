@@ -1,6 +1,6 @@
 # Channel Adapter Protocol
 
-**Status**: design
+## status: shipped
 
 Channel adapters connect to platforms and talk to the
 router over HTTP. Both sides are HTTP servers. Channel
@@ -279,25 +279,14 @@ toward this now, but the design is compatible.
 
 ### Large file delivery
 
-**Inbound**: channel uploads file to router via
-`POST /v1/files` (multipart). Router stores in group
-media dir, returns path. Channel then references path
-in the message attachment. This works regardless of
-NAT — channel always initiates the connection to router.
+**Inbound**: `POST /v1/files` multipart upload is not yet
+implemented — gated has no `/v1/files` endpoint. Channel
+adapters serve files on their own HTTP server and reference
+file URLs directly in the attachment object. Router fetches
+if needed for agent context.
 
-```
-POST /v1/files
-Authorization: Bearer <session-token>
-Content-Type: multipart/form-data
-- chat_jid: "telegram:-1001234567"
-- filename: "photo.jpg"
-- file: <binary>
-
--> 200 {"ok": true, "path": "media/photo-abc123.jpg"}
-```
-
-Channel includes the returned `path` in the attachment
-object instead of a URL. Router resolves locally.
+**Outbound**: router sends file via multipart POST to
+channel's `/send-file` endpoint. Unchanged.
 
 **Outbound**: router sends file via multipart POST to
 channel's `/send-file` endpoint. Unchanged.

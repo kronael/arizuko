@@ -1,12 +1,18 @@
 # Audit Log
 
-**Status**: design
+**Status**: design (columns only)
 
 Record every outbound message the gateway sends. Covers agent
 replies, MCP actions (send_message, send_reply, send_file),
 scheduler output, and control chat notifications. Uses existing
 `messages` table with `is_from_me=1` — same structure, filtered
 by existing queries (`is_bot_message=0`).
+
+Implementation state: schema columns (`source`, `group_folder`) are present
+in migrations. `OutboundEntry` type and `StoreOutbound()` function are NOT
+implemented (`store/outbound.go` is empty). Integration points (gateway,
+ipc, timed) do NOT call StoreOutbound. Audit trail is NOT yet functional —
+columns exist but are unpopulated.
 
 ## Schema
 

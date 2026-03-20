@@ -1,5 +1,7 @@
 # Agent-to-Agent Messaging (v3)
 
+## status: planned
+
 ## Overview
 
 REDACTED links as universal addressable inboxes — not just for browser users
@@ -21,7 +23,7 @@ The JWT `sub` encodes the sender identity (e.g. `agent:<group_folder>`).
 The gateway verifies the JWT and sets `sender`/`sender_name` accordingly.
 
 Agent JWTs are minted by the gateway on request (new IPC task
-`mint_agent_jwt`) and stored by the agent for reuse.
+`mint_agent_jwt` — not yet implemented) and stored by the agent for reuse.
 
 ## Flow
 
@@ -39,14 +41,15 @@ orchestrating inter-agent communication.
 
 - **Agent discovery**: via MCP `tools/list` on shared unix
   sockets. Agents connected to the same `ipc` instance
-  discover available groups through the `list_groups` tool.
+  discover available groups through the `refresh_groups` tool.
   Main group acts as natural registry — it sees all groups
   and can share link tokens via delegation.
 
 - **JWT scoping**: per-link-token. Each agent JWT encodes
   the specific link token it was minted for in the `aud`
   claim. An agent with a JWT for link A cannot use it to
-  POST to link B. Minted via `mint_agent_jwt` MCP tool.
+  POST to link B. Minted via `mint_agent_jwt` MCP tool
+  (not yet implemented).
 
 - **Rate limiting**: standard per-sender limits. Same rate
   limits that apply to human senders apply to agent senders.

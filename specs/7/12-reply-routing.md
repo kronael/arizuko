@@ -1,4 +1,4 @@
-## status: shipped
+## status: shipped (partial)
 
 # Per-sender Reply Routing
 
@@ -102,3 +102,14 @@ and replyTo. Chunk chaining handles subsequent threading.
 Escalation metadata tracked on the queue entry (label =
 `escalate`). Gateway wraps response before storing via
 LocalChannel.
+
+## Implementation Status
+
+| Section                                | Status          | Notes                                                                     |
+| -------------------------------------- | --------------- | ------------------------------------------------------------------------- |
+| A. Send returns message ID             | shipped         | `Channel.Send(jid, text, replyTo string) (string, error)`                 |
+| B. Chunk chaining                      | shipped         | gateway `lastSentID` updated per send in `processGroupMessages`           |
+| C. MessageId through delegation        | shipped         | `msgID` param in `runAgentWithOpts`, passed to `ContainerInput.MessageID` |
+| D. MCP send_reply auto-injects replyTo | not implemented | `send_reply` takes explicit `replyToId`; no auto-injection from chain     |
+| E. Per-sender batching                 | not implemented | gateway groups by chatJid only, not per sender                            |
+| F. Escalation reply threading          | not implemented | `<escalation_response>` wrapping not in gateway.go                        |

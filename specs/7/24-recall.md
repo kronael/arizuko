@@ -1,6 +1,6 @@
 # Recall — Knowledge Retrieval
 
-**Status**: design
+**Status**: shipped (v1 only; v2 planned)
 
 Generic search across knowledge stores. Read-only — never writes.
 All stores use `summary:` frontmatter, so recall treats them
@@ -32,7 +32,7 @@ store dirs and judges relevance. The LLM is the search engine.
 ### Skill
 
 ```
-container/skills/recall/SKILL.md
+container/skills/recall-memories/SKILL.md
 ```
 
 Protocol:
@@ -193,6 +193,13 @@ On session start, inject most recent of each type:
 
 Diary week/month summaries not injected — 14-day daily injection covers.
 Week/month diary summaries exist for `/recall` searches over longer timeframes.
+
+## recall-messages skill
+
+`recall-messages` is a separate skill for searching chat message history
+(the `messages` table), distinct from knowledge store recall. It does not
+use the FTS5/sqlite-vec pipeline — message history lookup is a direct DB
+query. Shipped alongside `recall-memories` in the kanipi skill sync.
 
 ## Not in scope
 

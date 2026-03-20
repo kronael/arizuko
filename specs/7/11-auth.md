@@ -33,20 +33,24 @@ Where:
 
 ### Tier-based access
 
-Each MCP tool has a minimum tier. Lower-numbered tiers
-have more privilege.
+Most tools are gated by grant rules, not by tier directly.
+ipc only enforces tier for two tool groups:
 
-| Min tier | Tools                                                      |
-| -------- | ---------------------------------------------------------- |
-| 1        | `register_group`, `inject_message`, `get_routes`,          |
-|          | `set_routes`, `add_route`, `delete_route`                  |
-| 2        | `schedule_task`, `pause_task`, `resume_task`,              |
-|          | `cancel_task`, `delegate_group`                            |
-| 2+ only  | `escalate_group` (tier >= 2 only, not root/world)          |
-| 3        | `send_message`, `send_file`, `list_tasks`, `reset_session` |
+| Tier check | Tools                      |
+| ---------- | -------------------------- |
+| tier ≤ 1   | `get_grants`, `set_grants` |
+| tier ≤ 2   | `refresh_groups`           |
 
-Tier 0 (root) can call everything. Tier 3 (worker) can
-only call tier-3 tools.
+All other tools (`send_message`, `send_reply`, `send_file`,
+`inject_message`, `register_group`, `delegate_group`,
+`escalate_group`, `reset_session`, `get_routes`, `set_routes`,
+`add_route`, `delete_route`, `schedule_task`, `pause_task`,
+`resume_task`, `cancel_task`, `list_tasks`) are controlled
+by grant rules only — no tier check at the ipc level.
+auth.Authorize is still called for ownership checks on
+specific tools (see ownership checks below).
+
+Tier 0 (root) can call everything permitted by grants.
 
 ### Ownership checks
 

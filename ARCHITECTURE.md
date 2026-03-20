@@ -371,6 +371,7 @@ timed/              Scheduler daemon (cron poll, messages)
 onbod/              Onboarding daemon (auto-included when ONBOARDING_ENABLED=true)
 dashd/              Operator dashboards
 grants/             Grant rule engine
+notify/             Operator notification fan-out (library)
 teled/              Telegram adapter (Go)
 discd/              Discord adapter (Go)
 whapd/              WhatsApp adapter (TypeScript)

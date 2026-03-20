@@ -1,6 +1,6 @@
 # Control Chat
 
-**Status**: design
+**Status**: shipped (partial)
 
 Operator communication via root group's chat.
 No dedicated `CONTROL_JID` — root's JIDs from routing table
@@ -22,6 +22,8 @@ messages proceed to root agent normally.
 messages to root's JIDs. Looks up root's JIDs from routes
 table, sends via channel adapter HTTP API, records via
 `store.StoreOutbound(source: "control")`.
+
+Note: `notify/` package ships in `notify/notify.go`.
 
 Senders: `gated` (container errors, channel health), `onbod`
 (onboarding events). See individual daemon specs.

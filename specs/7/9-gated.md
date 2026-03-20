@@ -146,13 +146,15 @@ Security flags: `--cap-drop ALL`,
 
 Runs on `API_PORT` (default 8080).
 
-| Endpoint                    | Method | Purpose              |
-| --------------------------- | ------ | -------------------- |
-| `/v1/channels/register`     | POST   | channel registration |
-| `/v1/messages`              | POST   | inbound message      |
-| `/v1/channels/:name/health` | GET    | channel health check |
-| `/v1/groups`                | GET    | list groups          |
-| `/v1/status`                | GET    | daemon status        |
+| Endpoint                  | Method | Purpose                   |
+| ------------------------- | ------ | ------------------------- |
+| `/v1/channels/register`   | POST   | channel registration      |
+| `/v1/channels/deregister` | POST   | channel deregistration    |
+| `/v1/channels`            | GET    | list registered channels  |
+| `/v1/messages`            | POST   | inbound message           |
+| `/v1/chats`               | POST   | chat metadata             |
+| `/v1/outbound`            | POST   | send outbound via channel |
+| `/health`                 | GET    | daemon health check       |
 
 ## Session management
 

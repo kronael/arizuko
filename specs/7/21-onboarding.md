@@ -1,6 +1,6 @@
 # onbod
 
-**Status**: design
+**Status**: shipped
 
 Onboarding daemon. Polls `onboarding` table, runs state machine,
 sends replies via channel adapter HTTP API. Standalone service
