@@ -28,7 +28,7 @@ func (s *Store) LogTaskRun(taskID, status, result, errorMsg string, durationMs i
 		`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, result, error)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		taskID, time.Now().Format(time.RFC3339), durationMs, status,
-		nullStr(result), nullStr(errorMsg),
+		nilIfEmpty(result), nilIfEmpty(errorMsg),
 	)
 	return err
 }
@@ -63,12 +63,6 @@ func (s *Store) ListTaskRuns(taskID string, limit int) ([]TaskRun, error) {
 	return out, nil
 }
 
-func nullStr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
 
 func (s *Store) CreateTask(t core.Task) error {
 	var nextRun *string
