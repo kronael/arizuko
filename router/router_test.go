@@ -89,7 +89,7 @@ func TestIsAuthorizedRoutingTarget(t *testing.T) {
 	}
 }
 
-func TestStripThinkBlocks(t *testing.T) {
+func TeststripThinkBlocks(t *testing.T) {
 	cases := []struct {
 		name, in, want string
 	}{
@@ -101,7 +101,7 @@ func TestStripThinkBlocks(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := StripThinkBlocks(tc.in)
+			got := stripThinkBlocks(tc.in)
 			if got != tc.want {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}
@@ -132,7 +132,7 @@ func TestExtractStatusBlocks(t *testing.T) {
 	}
 }
 
-func TestSenderToUserFileID(t *testing.T) {
+func TestsenderToUserFileID(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
@@ -143,9 +143,9 @@ func TestSenderToUserFileID(t *testing.T) {
 		{"unknown:abc", "un-abc"},
 	}
 	for _, tc := range cases {
-		got := SenderToUserFileID(tc.in)
+		got := senderToUserFileID(tc.in)
 		if got != tc.want {
-			t.Fatalf("SenderToUserFileID(%q) = %q, want %q", tc.in, got, tc.want)
+			t.Fatalf("senderToUserFileID(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
@@ -181,7 +181,7 @@ func TestFormatOutboundThinkAndStatus(t *testing.T) {
 	}
 }
 
-func TestExpandTarget(t *testing.T) {
+func TestexpandTarget(t *testing.T) {
 	msg := core.Message{Sender: "telegram:123456"}
 	cases := []struct {
 		target, want string
@@ -191,14 +191,14 @@ func TestExpandTarget(t *testing.T) {
 		{"{sender}", "tg-123456"},
 	}
 	for _, tc := range cases {
-		got := ExpandTarget(tc.target, msg)
+		got := expandTarget(tc.target, msg)
 		if got != tc.want {
-			t.Fatalf("ExpandTarget(%q) = %q, want %q", tc.target, got, tc.want)
+			t.Fatalf("expandTarget(%q) = %q, want %q", tc.target, got, tc.want)
 		}
 	}
 
 	// No sender → returns ""
-	got := ExpandTarget("atlas/{sender}", core.Message{})
+	got := expandTarget("atlas/{sender}", core.Message{})
 	if got != "" {
 		t.Fatalf("expected empty for no sender, got %q", got)
 	}
@@ -226,7 +226,7 @@ func TestResolveRouteTemplate(t *testing.T) {
 	}
 }
 
-func TestEscapeXml(t *testing.T) {
+func TestescapeXml(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
@@ -235,9 +235,9 @@ func TestEscapeXml(t *testing.T) {
 		{"a&b<c>d", "a&amp;b&lt;c&gt;d"},
 	}
 	for _, tc := range cases {
-		got := EscapeXml(tc.in)
+		got := escapeXml(tc.in)
 		if got != tc.want {
-			t.Fatalf("EscapeXml(%q) = %q, want %q", tc.in, got, tc.want)
+			t.Fatalf("escapeXml(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

@@ -26,7 +26,7 @@ func getRegexp(pattern string) (*regexp.Regexp, error) {
 	return re, nil
 }
 
-func EscapeXml(s string) string {
+func escapeXml(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
@@ -48,7 +48,7 @@ func ClockXml(tz string) string {
 }
 
 // TimeAgo returns a human-friendly duration since t (e.g. "3m", "2h", "1d").
-func TimeAgo(t time.Time) string {
+func timeAgo(t time.Time) string {
 	d := time.Since(t)
 	switch {
 	case d < time.Minute:
@@ -71,21 +71,21 @@ func FormatMessages(msgs []core.Message) string {
 			name = m.Sender
 		}
 		b.WriteString(`<message sender="`)
-		b.WriteString(EscapeXml(name))
+		b.WriteString(escapeXml(name))
 		b.WriteString(`"`)
 		if m.Sender != "" && m.Sender != name {
 			b.WriteString(` sender_id="`)
-			b.WriteString(EscapeXml(m.Sender))
+			b.WriteString(escapeXml(m.Sender))
 			b.WriteString(`"`)
 		}
 		b.WriteString(` time="`)
 		b.WriteString(m.Timestamp.Format("2006-01-02T15:04:05Z"))
 		b.WriteString(`" ago="`)
-		b.WriteString(TimeAgo(m.Timestamp))
+		b.WriteString(timeAgo(m.Timestamp))
 		b.WriteString(`"`)
 		if m.ReplyToID != "" {
 			b.WriteString(` reply_to="`)
-			b.WriteString(EscapeXml(m.ReplyToID))
+			b.WriteString(escapeXml(m.ReplyToID))
 			b.WriteString(`"`)
 		}
 		b.WriteString(`>`)
@@ -95,16 +95,16 @@ func FormatMessages(msgs []core.Message) string {
 			if rSender == "" {
 				rSender = "unknown"
 			}
-			b.WriteString(EscapeXml(rSender))
+			b.WriteString(escapeXml(rSender))
 			if m.ReplyToID != "" {
 				b.WriteString(`" id="`)
-				b.WriteString(EscapeXml(m.ReplyToID))
+				b.WriteString(escapeXml(m.ReplyToID))
 			}
 			b.WriteString(`">`)
-			b.WriteString(EscapeXml(m.ReplyToText))
+			b.WriteString(escapeXml(m.ReplyToText))
 			b.WriteString("</reply_to>")
 		}
-		b.WriteString(EscapeXml(m.Content))
+		b.WriteString(escapeXml(m.Content))
 		b.WriteString("</message>\n")
 	}
 	b.WriteString("</messages>")
@@ -116,7 +116,7 @@ var statusRe = regexp.MustCompile(`(?s)<status>(.*?)</status>`)
 
 func FormatOutbound(raw string) string {
 	s := internalRe.ReplaceAllString(raw, "")
-	s = StripThinkBlocks(s)
+	s = stripThinkBlocks(s)
 	s = statusRe.ReplaceAllString(s, "")
 	return strings.TrimSpace(s)
 }
@@ -138,7 +138,7 @@ func ExtractStatusBlocks(s string) (string, []string) {
 }
 
 // StripThinkBlocks removes <think>...</think> blocks including nested ones.
-func StripThinkBlocks(s string) string {
+func stripThinkBlocks(s string) string {
 	var b strings.Builder
 	depth := 0
 	i := 0
@@ -165,7 +165,7 @@ var platformShort = map[string]string{
 }
 
 // SenderToUserFileID converts "platform:id" to short file ID (e.g. "tg-123").
-func SenderToUserFileID(sender string) string {
+func senderToUserFileID(sender string) string {
 	parts := strings.SplitN(sender, ":", 2)
 	if len(parts) != 2 {
 		return sender
@@ -189,8 +189,8 @@ func UserContextXml(sender, groupDir string) string {
 	if sender == "" || sender == "system" {
 		return ""
 	}
-	id := SenderToUserFileID(sender)
-	attrs := []string{`id="` + EscapeXml(id) + `"`}
+	id := senderToUserFileID(sender)
+	attrs := []string{`id="` + escapeXml(id) + `"`}
 
 	usersDir := filepath.Join(groupDir, "users")
 	userFile := filepath.Join(usersDir, id+".md")
@@ -199,7 +199,7 @@ func UserContextXml(sender, groupDir string) string {
 		if data, err := os.ReadFile(userFile); err == nil {
 			content := string(data)
 			if m := nameRe.FindStringSubmatch(content); len(m) > 1 {
-				attrs = append(attrs, `name="`+EscapeXml(strings.TrimSpace(m[1]))+`"`)
+				attrs = append(attrs, `name="`+escapeXml(strings.TrimSpace(m[1]))+`"`)
 			}
 			attrs = append(attrs, `memory="~/users/`+id+`.md"`)
 		}
@@ -227,12 +227,12 @@ func IsAuthorizedRoutingTarget(source, target string) bool {
 }
 
 // ExpandTarget performs RFC 6570 Level 1 template expansion on a route target.
-// Only {sender} is supported — expands to SenderToUserFileID(msg.Sender).
-func ExpandTarget(target string, msg core.Message) string {
+// Only {sender} is supported — expands to senderToUserFileID(msg.Sender).
+func expandTarget(target string, msg core.Message) string {
 	if !strings.Contains(target, "{") {
 		return target
 	}
-	id := SenderToUserFileID(msg.Sender)
+	id := senderToUserFileID(msg.Sender)
 	if id == "" || id == "-" || id == "-unknown" {
 		return ""
 	}
@@ -284,7 +284,7 @@ func ResolveRoute(msg core.Message, routes []core.Route) string {
 		if !routeMatches(r, msg) {
 			continue
 		}
-		t := ExpandTarget(r.Target, msg)
+		t := expandTarget(r.Target, msg)
 		if t != "" {
 			return t
 		}
