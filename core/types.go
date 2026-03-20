@@ -71,14 +71,15 @@ const (
 )
 
 type Task struct {
-	ID      string
-	Owner   string
-	ChatJID string
-	Prompt  string
-	Cron    string // cron expr; empty for one-shot
-	NextRun *time.Time
-	Status  string // TaskActive | TaskPaused | TaskCompleted
-	Created time.Time
+	ID          string
+	Owner       string
+	ChatJID     string
+	Prompt      string
+	Cron        string // cron expr, interval ms, or empty for one-shot
+	NextRun     *time.Time
+	Status      string // TaskActive | TaskPaused | TaskCompleted
+	Created     time.Time
+	ContextMode string // "group" | "isolated"; default "group"
 }
 
 type Channel interface {

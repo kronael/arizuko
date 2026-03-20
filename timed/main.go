@@ -85,9 +85,24 @@ func main() {
 	}
 }
 
+func isIntervalMs(cron string) (int64, bool) {
+	v, err := strconv.ParseInt(cron, 10, 64)
+	if err != nil || v <= 0 {
+		return 0, false
+	}
+	return v, true
+}
+
+func logRun(db *sql.DB, taskID, status string, durationMs int64) {
+	db.Exec(
+		`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status)
+		 VALUES (?, ?, ?, ?)`,
+		taskID, time.Now().Format(time.RFC3339), durationMs, status)
+}
+
 func fire(db *sql.DB, tz string) {
 	rows, err := db.Query(
-		`SELECT id, chat_jid, prompt, cron FROM scheduled_tasks
+		`SELECT id, chat_jid, prompt, cron, context_mode FROM scheduled_tasks
 		 WHERE status = 'active' AND next_run <= ?`,
 		time.Now().Format(time.RFC3339))
 	if err != nil {
@@ -97,29 +112,46 @@ func fire(db *sql.DB, tz string) {
 	defer rows.Close()
 
 	type task struct {
-		id, jid, prompt string
-		cronExpr        *string
+		id, jid, prompt, contextMode string
+		cronExpr                     *string
 	}
 	var due []task
 	for rows.Next() {
 		var t task
-		rows.Scan(&t.id, &t.jid, &t.prompt, &t.cronExpr)
+		rows.Scan(&t.id, &t.jid, &t.prompt, &t.cronExpr, &t.contextMode)
 		due = append(due, t)
 	}
 
 	for _, t := range due {
-		id := fmt.Sprintf("sched-%s-%d", t.id, time.Now().UnixNano())
+		start := time.Now()
+		sender := "scheduler"
+		if t.contextMode == "isolated" {
+			sender = "scheduler-isolated"
+		}
+		id := fmt.Sprintf("sched-%s-%d", t.id, start.UnixNano())
 		_, err := db.Exec(
 			`INSERT INTO messages (id, chat_jid, sender, content, timestamp)
-			 VALUES (?, ?, 'scheduler', ?, ?)`,
-			id, t.jid, t.prompt, time.Now().Format(time.RFC3339))
+			 VALUES (?, ?, ?, ?, ?)`,
+			id, t.jid, sender, t.prompt, start.Format(time.RFC3339))
 		if err != nil {
 			slog.Error("insert message", "task", t.id, "err", err)
+			logRun(db, t.id, "error", time.Since(start).Milliseconds())
 			continue
 		}
 
-		if t.cronExpr != nil && *t.cronExpr != "" {
-			next, err := nextCron(*t.cronExpr, tz)
+		cronVal := ""
+		if t.cronExpr != nil {
+			cronVal = *t.cronExpr
+		}
+
+		if ms, ok := isIntervalMs(cronVal); ok {
+			next := time.Now().Add(time.Duration(ms) * time.Millisecond)
+			if _, err := db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`,
+				next.Format(time.RFC3339), t.id); err != nil {
+				slog.Warn("update task next_run", "task", t.id, "err", err)
+			}
+		} else if cronVal != "" {
+			next, err := nextCron(cronVal, tz)
 			if err == nil {
 				if _, err := db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`,
 					next.Format(time.RFC3339), t.id); err != nil {
@@ -134,7 +166,8 @@ func fire(db *sql.DB, tz string) {
 			}
 		}
 
-		slog.Info("fired task", "id", t.id, "jid", t.jid)
+		logRun(db, t.id, "success", time.Since(start).Milliseconds())
+		slog.Info("fired task", "id", t.id, "jid", t.jid, "context_mode", t.contextMode)
 	}
 }
 

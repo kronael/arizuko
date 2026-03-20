@@ -345,17 +345,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
 
-	var userCtx string
-	if last.Sender != "" {
-		if gp, err := g.folders.GroupPath(group.Folder); err == nil {
-			userCtx = router.UserContextXml(last.Sender, gp)
-		}
-	}
-
 	prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n"
-	if userCtx != "" {
-		prompt += userCtx + "\n"
-	}
 	prompt += router.FormatMessages(msgs)
 
 	if ch != nil {
@@ -365,7 +355,8 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	var hadOutput bool
 	savedTs := agentTs
 
-	out := g.runAgentWithOpts(group, prompt, chatJid,
+	isolated := last.Sender == "scheduler-isolated"
+	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		func(text, status string) {
 			if text != "" {
 				hadOutput = true
@@ -378,7 +369,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 					g.sendMessage(chatJid, clean)
 				}
 			}
-		}, false, nil, "", last.ID)
+		}, isolated, nil, "", last.ID)
 
 	if ch != nil {
 		ch.Typing(chatJid, false)
@@ -410,7 +401,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 }
 
 func (g *Gateway) runAgentWithOpts(
-	group core.Group, prompt, chatJid string,
+	group core.Group, prompt, chatJid, sender string,
 	onOutput func(string, string), isolated bool,
 	rules []string, topic string, msgID ...string,
 ) container.Output {
@@ -442,33 +433,28 @@ func (g *Gateway) runAgentWithOpts(
 	container.WriteGroupsSnapshot(
 		g.folders, group.Folder, isRoot, g.groupList())
 
-	var annotations []string
-	if d := diary.Read(groupPath, 2); d != "" {
-		annotations = append(annotations, d)
-	}
-
 	var mid string
 	if len(msgID) > 0 {
 		mid = msgID[0]
 	}
 
 	input := container.Input{
-		Prompt:      prompt,
-		SessionID:   sessionID,
-		ChatJID:     chatJid,
-		Folder:      group.Folder,
-		Topic:       topic,
-		GroupPath:   groupPath,
-		Name:        cname,
-		Config:      group.Config,
-		SlinkToken:  group.SlinkToken,
-		Channel:     channelName(g.findChannel(chatJid)),
-		MessageID:   mid,
-		Annotations: annotations,
-		OnOutput:    onOutput,
-		Grants:      rules,
-		GatedFns:    g.gatedFns,
-		StoreFns:    g.storeFns,
+		Prompt:    prompt,
+		SessionID: sessionID,
+		ChatJID:   chatJid,
+		Folder:    group.Folder,
+		Topic:     topic,
+		GroupPath: groupPath,
+		Name:      cname,
+		Config:    group.Config,
+		SlinkToken: group.SlinkToken,
+		Channel:   channelName(g.findChannel(chatJid)),
+		MessageID: mid,
+		Sender:    sender,
+		OnOutput:  onOutput,
+		Grants:    rules,
+		GatedFns:  g.gatedFns,
+		StoreFns:  g.storeFns,
 	}
 
 	out := container.Run(g.cfg, g.folders, input)
@@ -673,7 +659,7 @@ func (g *Gateway) handlePrefixRoute(
 		g.queue.EnqueueTask(chatJid,
 			fmt.Sprintf("topic-%s-%s-%d", group.Folder, name, time.Now().UnixMilli()),
 			func() error {
-				out := g.runAgentWithOpts(group, stripped, chatJid,
+				out := g.runAgentWithOpts(group, stripped, chatJid, "",
 					func(text, status string) {
 						if text != "" {
 							clean := router.FormatOutbound(text)
@@ -752,7 +738,7 @@ func (g *Gateway) delegateToFolder(
 	g.queue.EnqueueTask(targetJid, fmt.Sprintf("%s-%s-%d",
 		label, folder, time.Now().UnixMilli()),
 		func() error {
-			out := g.runAgentWithOpts(target, prompt, originJid,
+			out := g.runAgentWithOpts(target, prompt, originJid, "",
 				func(text, status string) {
 					if text != "" {
 						clean := router.FormatOutbound(text)

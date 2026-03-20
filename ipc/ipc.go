@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 
 type GatedFns struct {
 	SendMessage      func(jid, text string) error
+	SendReply        func(jid, text, replyToId string) error
 	SendDocument     func(jid, path, filename string) error
 	ClearSession     func(folder string)
 	InjectMessage    func(jid, content, sender, senderName string) (string, error)
@@ -135,6 +137,33 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			if err := gated.SendMessage(jid, req.GetString("text", "")); err != nil {
 				return toolErr(err.Error())
+			}
+			return toolOK()
+		})
+	}
+
+	// send_reply
+	if len(grantslib.MatchingRules(rules, "send_reply")) > 0 {
+		srv.AddTool(mcp.NewTool("send_reply",
+			mcp.WithDescription(toolDesc("Send a reply to a chat, optionally threading to a message", rules, "send_reply")),
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("text", mcp.Required()),
+			mcp.WithString("replyToId"),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chatJid", "")
+			if !grantslib.CheckAction(rules, "send_reply", map[string]string{"jid": jid}) {
+				return toolErr("send_reply: not permitted")
+			}
+			text := req.GetString("text", "")
+			replyToId := req.GetString("replyToId", "")
+			if replyToId != "" && gated.SendReply != nil {
+				if err := gated.SendReply(jid, text, replyToId); err != nil {
+					return toolErr(err.Error())
+				}
+			} else {
+				if err := gated.SendMessage(jid, text); err != nil {
+					return toolErr(err.Error())
+				}
 			}
 			return toolOK()
 		})
@@ -487,10 +516,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	// schedule_task
 	if len(grantslib.MatchingRules(rules, "schedule_task")) > 0 {
 		srv.AddTool(mcp.NewTool("schedule_task",
-			mcp.WithDescription(toolDesc("Schedule a recurring or one-time task", rules, "schedule_task")),
+			mcp.WithDescription(toolDesc(
+				"Schedule a recurring or one-time task. cron: cron expression or interval in ms",
+				rules, "schedule_task")),
 			mcp.WithString("targetJid", mcp.Required()),
 			mcp.WithString("prompt", mcp.Required()),
 			mcp.WithString("cron"),
+			mcp.WithString("contextMode"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !grantslib.CheckAction(rules, "schedule_task", nil) {
 				return toolErr("schedule_task: not permitted")
@@ -500,6 +532,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			targetJid := req.GetString("targetJid", "")
 			cronExpr := req.GetString("cron", "")
+			contextMode := req.GetString("contextMode", "group")
+			if contextMode != "isolated" {
+				contextMode = "group"
+			}
 
 			groups := gated.GetGroups()
 			targetGroup, ok := groups[targetJid]
@@ -514,13 +550,19 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 
 			var nextRun *time.Time
 			if cronExpr != "" {
-				p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-				sched, err := p.Parse(cronExpr)
-				if err != nil {
-					return toolErr(fmt.Sprintf("invalid cron %q: %v", cronExpr, err))
+				// interval ms: pure integer string
+				if ms, err := strconv.ParseInt(cronExpr, 10, 64); err == nil && ms > 0 {
+					t := time.Now().Add(time.Duration(ms) * time.Millisecond)
+					nextRun = &t
+				} else {
+					p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+					sched, err := p.Parse(cronExpr)
+					if err != nil {
+						return toolErr(fmt.Sprintf("invalid cron %q: %v", cronExpr, err))
+					}
+					t := sched.Next(time.Now())
+					nextRun = &t
 				}
-				t := sched.Next(time.Now())
-				nextRun = &t
 			}
 
 			taskID := fmt.Sprintf("task-%d-%s", time.Now().UnixMilli(), uuid.New().String()[:8])
@@ -528,12 +570,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				ID: taskID, Owner: targetFolder, ChatJID: targetJid,
 				Prompt: req.GetString("prompt", ""), Cron: cronExpr,
 				NextRun: nextRun, Status: core.TaskActive, Created: time.Now(),
+				ContextMode: contextMode,
 			}
 			if err := db.CreateTask(task); err != nil {
 				return toolErr(err.Error())
 			}
 			slog.Info("task created via mcp", "taskId", taskID, "sourceGroup", folder,
-				"targetFolder", targetFolder)
+				"targetFolder", targetFolder, "contextMode", contextMode)
 			return toolJSON(map[string]any{"taskId": taskID})
 		})
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -45,6 +46,19 @@ func insertTask(t *testing.T, db *sql.DB, id, jid, prompt, status, nextRun strin
 	}
 }
 
+func insertTaskWithMode(t *testing.T, db *sql.DB, id, jid, prompt, status, nextRun string,
+	cronExpr *string, contextMode string,
+) {
+	t.Helper()
+	_, err := db.Exec(
+		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode)
+		 VALUES (?, 'test', ?, ?, ?, ?, ?, ?, ?)`,
+		id, jid, prompt, cronExpr, nextRun, status, time.Now().Format(time.RFC3339), contextMode)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func countMessages(t *testing.T, db *sql.DB) int {
 	t.Helper()
 	var n int
@@ -75,10 +89,17 @@ func TestMigrateIdempotent(t *testing.T) {
 	if err := migrate(db); err != nil {
 		t.Fatal("second migrate failed:", err)
 	}
+	entries, _ := migrationFS.ReadDir("migrations")
+	var migCount int
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".sql") {
+			migCount++
+		}
+	}
 	var n int
 	db.QueryRow("SELECT COUNT(*) FROM migrations WHERE service=?", serviceName).Scan(&n)
-	if n != 1 {
-		t.Fatalf("expected 1 migration record, got %d", n)
+	if n != migCount {
+		t.Fatalf("expected %d migration records, got %d", migCount, n)
 	}
 }
 
@@ -278,6 +299,100 @@ func TestFireInvalidCronStillFiresButNoUpdate(t *testing.T) {
 	nr, _ := time.Parse(time.RFC3339, nextRun)
 	if nr.After(time.Now()) {
 		t.Fatal("next_run should NOT be updated with invalid cron")
+	}
+}
+
+func TestLogTaskRun(t *testing.T) {
+	db := openTestDB(t)
+	migrate(db)
+
+	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
+	insertTask(t, db, "log1", "chat1", "ping", "active", past, nil)
+	setupMessages(t, db)
+	fire(db, "UTC")
+
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM task_run_logs WHERE task_id='log1'").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 run log, got %d", n)
+	}
+	var status string
+	db.QueryRow("SELECT status FROM task_run_logs WHERE task_id='log1'").Scan(&status)
+	if status != "success" {
+		t.Fatal("expected status=success, got", status)
+	}
+}
+
+func TestIntervalMode(t *testing.T) {
+	db := openTestDB(t)
+	migrate(db)
+	setupMessages(t, db)
+
+	intervalMs := "5000"
+	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
+	insertTask(t, db, "iv1", "chat1", "interval-task", "active", past, &intervalMs)
+
+	fire(db, "UTC")
+
+	if n := countMessages(t, db); n != 1 {
+		t.Fatal("expected 1 message, got", n)
+	}
+
+	var nextRun, status string
+	db.QueryRow("SELECT next_run, status FROM scheduled_tasks WHERE id='iv1'").Scan(&nextRun, &status)
+	if status != "active" {
+		t.Fatal("interval task should remain active, got", status)
+	}
+	nr, err := time.Parse(time.RFC3339, nextRun)
+	if err != nil {
+		t.Fatal("bad next_run:", nextRun)
+	}
+	if !nr.After(time.Now()) {
+		t.Fatal("next_run should be in future, got", nextRun)
+	}
+}
+
+func TestContextModeIsolated(t *testing.T) {
+	db := openTestDB(t)
+	migrate(db)
+	setupMessages(t, db)
+
+	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
+	insertTaskWithMode(t, db, "iso1", "chat1", "isolated-task", "active", past, nil, "isolated")
+
+	fire(db, "UTC")
+
+	if n := countMessages(t, db); n != 1 {
+		t.Fatal("expected 1 message, got", n)
+	}
+
+	var sender string
+	db.QueryRow("SELECT sender FROM messages WHERE content='isolated-task'").Scan(&sender)
+	if sender != "scheduler-isolated" {
+		t.Fatalf("expected sender=scheduler-isolated, got %q", sender)
+	}
+}
+
+func TestIsIntervalMs(t *testing.T) {
+	cases := []struct {
+		in  string
+		ms  int64
+		ok  bool
+	}{
+		{"5000", 5000, true},
+		{"1", 1, true},
+		{"0 9 * * *", 0, false},
+		{"", 0, false},
+		{"0", 0, false},
+		{"-1", 0, false},
+	}
+	for _, c := range cases {
+		ms, ok := isIntervalMs(c.in)
+		if ok != c.ok || ms != c.ms {
+			t.Errorf("isIntervalMs(%q) = (%d, %v), want (%d, %v)", c.in, ms, ok, c.ms, c.ok)
+		}
 	}
 }
 
