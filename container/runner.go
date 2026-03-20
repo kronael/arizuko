@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/diary"
 	"github.com/onvos/arizuko/groupfolder"
 	"github.com/onvos/arizuko/ipc"
 	"github.com/onvos/arizuko/mountsec"
+	"github.com/onvos/arizuko/router"
 )
 
 const (
@@ -51,6 +53,9 @@ type Input struct {
 	Channel   string            `json:"channelName,omitempty"`
 	MessageID string            `json:"messageId,omitempty"`
 	Grants    []string          `json:"grants,omitempty"`
+	Sender    string            `json:"sender,omitempty"`
+	Soul      string            `json:"soul,omitempty"`
+	SystemMd  string            `json:"systemMd,omitempty"`
 
 	GroupPath   string           `json:"-"`
 	Name        string           `json:"-"`
@@ -112,6 +117,17 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	if ep := ReadRecentEpisodes(groupDir); ep != "" {
 		in.Annotations = append(in.Annotations, ep)
 	}
+
+	if d := diary.Read(groupDir, 14); d != "" {
+		in.Annotations = append(in.Annotations, d)
+	}
+
+	if uc := router.UserContextXml(in.Sender, groupDir); uc != "" {
+		in.Annotations = append(in.Annotations, uc)
+	}
+
+	in.Soul = readOptional(filepath.Join(groupDir, "SOUL.md"))
+	in.SystemMd = readOptional(filepath.Join(groupDir, "SYSTEM.md"))
 
 	if len(in.Annotations) > 0 {
 		in.Prompt = strings.Join(in.Annotations, "\n") +
@@ -728,6 +744,14 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 		os.WriteFile(jsonDst, append(data, '\n'), 0o644)
 		chown(jsonDst, 1000, 1000)
 	}
+}
+
+func readOptional(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func writeGatewayCaps(groupDir string, cfg *core.Config) {

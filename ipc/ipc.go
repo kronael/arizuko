@@ -335,10 +335,34 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			parent := folder[:idx]
 			slog.Info("escalating to parent", "sourceGroup", folder, "parent", parent, "depth", depth)
-			if err := gated.DelegateToParent(parent, prompt, chatJid, depth+1, nil); err != nil {
+			wrapped := fmt.Sprintf("<escalation_origin folder=%q jid=%q/>\n%s", folder, chatJid, prompt)
+			if err := gated.DelegateToParent(parent, wrapped, chatJid, depth+1, nil); err != nil {
 				return toolErr(err.Error())
 			}
 			return toolJSON(map[string]any{"queued": true, "parent": parent})
+		})
+	}
+
+	// refresh_groups — tier ≤ 2
+	if id.Tier <= 2 {
+		srv.AddTool(mcp.NewTool("refresh_groups",
+			mcp.WithDescription("Reload the list of registered groups"),
+		), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.GetGroups == nil {
+				return toolErr("refresh_groups not configured")
+			}
+			groups := gated.GetGroups()
+			type groupInfo struct {
+				JID    string `json:"jid"`
+				Folder string `json:"folder"`
+				Name   string `json:"name"`
+				Parent string `json:"parent,omitempty"`
+			}
+			out := make([]groupInfo, 0, len(groups))
+			for jid, g := range groups {
+				out = append(out, groupInfo{JID: jid, Folder: g.Folder, Name: g.Name, Parent: g.Parent})
+			}
+			return toolJSON(out)
 		})
 	}
 

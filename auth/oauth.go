@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -64,6 +65,12 @@ func handleGitHubCallback(cfg *core.Config, s *store.Store, secret []byte) http.
 			slog.Error("github user fetch failed", "err", err)
 			http.Error(w, "oauth failed", http.StatusBadGateway)
 			return
+		}
+		if org := cfg.GitHubAllowedOrg; org != "" {
+			if !checkGitHubOrgMember(token, org, sub) {
+				http.Redirect(w, r, "/auth/login?error=unauthorized", http.StatusTemporaryRedirect)
+				return
+			}
 		}
 		createOAuthSession(w, s, secret, "github:"+sub, name)
 	}
@@ -150,11 +157,17 @@ func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte) http.
 			http.Error(w, "oauth failed", http.StatusBadGateway)
 			return
 		}
-		sub, name, err := fetchGoogleUser(token)
+		sub, name, email, err := fetchGoogleUser(token)
 		if err != nil {
 			slog.Error("google user fetch failed", "err", err)
 			http.Error(w, "oauth failed", http.StatusBadGateway)
 			return
+		}
+		if allowed := cfg.GoogleAllowedEmails; allowed != "" {
+			if !matchEmailAllowlist(email, allowed) {
+				http.Redirect(w, r, "/auth/login?error=unauthorized", http.StatusTemporaryRedirect)
+				return
+			}
 		}
 		createOAuthSession(w, s, secret, "google:"+sub, name)
 	}
@@ -185,22 +198,50 @@ func exchangeGoogle(cfg *core.Config, code string) (string, error) {
 	return tok.AccessToken, nil
 }
 
-func fetchGoogleUser(token string) (sub, name string, err error) {
+func fetchGoogleUser(token string) (sub, name, email string, err error) {
 	req, _ := http.NewRequest("GET", googleUserinfoURL, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	defer resp.Body.Close()
 	var u struct {
-		Sub  string `json:"sub"`
-		Name string `json:"name"`
+		Sub   string `json:"sub"`
+		Name  string `json:"name"`
+		Email string `json:"email"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return u.Sub, u.Name, nil
+	return u.Sub, u.Name, u.Email, nil
+}
+
+func matchEmailAllowlist(email, allowlist string) bool {
+	for _, pat := range strings.Split(allowlist, ",") {
+		pat = strings.TrimSpace(pat)
+		if pat == "" {
+			continue
+		}
+		if matched, _ := filepath.Match(pat, email); matched {
+			return true
+		}
+	}
+	return false
+}
+
+func checkGitHubOrgMember(token, org, username string) bool {
+	u := fmt.Sprintf("https://api.github.com/orgs/%s/members/%s",
+		url.PathEscape(org), url.PathEscape(username))
+	req, _ := http.NewRequest("GET", u, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		slog.Warn("github org check failed", "org", org, "err", err)
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusNoContent
 }
 
 func handleTelegram(cfg *core.Config, s *store.Store, secret []byte) http.HandlerFunc {
