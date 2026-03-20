@@ -667,3 +667,82 @@ func TestSeedSkillsClaudeJSON_UserIDDerivedFromFolder(t *testing.T) {
 		t.Error("different folders should produce different userIDs")
 	}
 }
+
+func TestReadOptional(t *testing.T) {
+	d := t.TempDir()
+
+	t.Run("missing file returns empty", func(t *testing.T) {
+		got := readOptional(filepath.Join(d, "nonexistent.md"))
+		if got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
+
+	t.Run("existing file returns trimmed content", func(t *testing.T) {
+		p := filepath.Join(d, "SOUL.md")
+		os.WriteFile(p, []byte("  be kind\n"), 0o644)
+		got := readOptional(p)
+		if got != "be kind" {
+			t.Errorf("got %q, want %q", got, "be kind")
+		}
+	})
+}
+
+func TestInputJSONNewFields(t *testing.T) {
+	in := Input{
+		Prompt:   "hello",
+		Folder:   "g",
+		ChatJID:  "chat@jid",
+		Sender:   "telegram:123",
+		Soul:     "be kind",
+		SystemMd: "you are an agent",
+	}
+
+	data, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]any
+	json.Unmarshal(data, &got)
+
+	if got["sender"] != "telegram:123" {
+		t.Errorf("sender = %v", got["sender"])
+	}
+	if got["soul"] != "be kind" {
+		t.Errorf("soul = %v", got["soul"])
+	}
+	if got["systemMd"] != "you are an agent" {
+		t.Errorf("systemMd = %v", got["systemMd"])
+	}
+}
+
+func TestSoulAndSystemMdLoading(t *testing.T) {
+	d := t.TempDir()
+	os.WriteFile(filepath.Join(d, "SOUL.md"), []byte("warm and friendly"), 0o644)
+	os.WriteFile(filepath.Join(d, "SYSTEM.md"), []byte("custom system prompt"), 0o644)
+
+	soul := readOptional(filepath.Join(d, "SOUL.md"))
+	if soul != "warm and friendly" {
+		t.Errorf("soul = %q", soul)
+	}
+
+	sys := readOptional(filepath.Join(d, "SYSTEM.md"))
+	if sys != "custom system prompt" {
+		t.Errorf("systemMd = %q", sys)
+	}
+}
+
+func TestSoulAndSystemMdMissing(t *testing.T) {
+	d := t.TempDir()
+
+	soul := readOptional(filepath.Join(d, "SOUL.md"))
+	if soul != "" {
+		t.Errorf("expected empty soul, got %q", soul)
+	}
+
+	sys := readOptional(filepath.Join(d, "SYSTEM.md"))
+	if sys != "" {
+		t.Errorf("expected empty systemMd, got %q", sys)
+	}
+}
