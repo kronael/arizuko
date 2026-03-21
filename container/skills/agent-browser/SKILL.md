@@ -1,6 +1,9 @@
 ---
 name: agent-browser
-description: Browse the web for any task — research topics, read articles, interact with web apps, fill forms, take screenshots, extract data, and test web pages. Use whenever a browser would be useful, not just when the user explicitly asks.
+description: >
+  CDP-based Chromium automation. Use for JS-rendered pages, auth flows,
+  form submission, screenshots, data extraction, or any task needing a
+  real browser. Prefer over curl for interactive or dynamic pages.
 allowed-tools: Bash(agent-browser:*)
 ---
 

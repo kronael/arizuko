@@ -2,14 +2,13 @@
 name: facts
 description: Research a topic and produce verified facts in facts/. Use when
   /recall-memories finds no match or when asked to research something.
-user_invocable: true
+user-invocable: true
 arg: <question or topic to research>
 ---
 
 # Facts
 
-Research a topic, verify the findings, and write them to `facts/` for
-future recall.
+Research → verify → write to `facts/` for future recall via `/recall-memories`.
 
 ## Step 1: Research (subagent)
 

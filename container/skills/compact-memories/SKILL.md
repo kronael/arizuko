@@ -1,16 +1,15 @@
 ---
 name: compact-memories
-description: Compress memory sources into progressive summaries.
-  Works on both episodes (session transcripts) and diary entries.
-  Called by scheduled tasks or manually.
-user_invocable: true
+description: >
+  Compress episodes (session transcripts) or diary entries into
+  progressive day/week/month summaries. Run on schedule or manually.
+user-invocable: true
 arg: <store> <level>
 ---
 
 # Compact Memories
 
-Progressive compression of memory stores. Each level is built
-from the level below. Two stores, same pattern.
+Progressive compression: each level built from the level below. Two stores, same pattern.
 
 ## Stores
 
