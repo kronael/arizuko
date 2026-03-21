@@ -23,8 +23,7 @@ func newMastoClient(cfg config) (*mastoClient, error) {
 		Server:      cfg.InstanceURL,
 		AccessToken: cfg.AccessToken,
 	})
-	ctx := context.Background()
-	me, err := c.GetAccountCurrentUser(ctx)
+	me, err := c.GetAccountCurrentUser(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("mastodon auth: %w", err)
 	}
@@ -87,17 +86,15 @@ func (mc *mastoClient) handleMention(n *mastodon.Notification, rc *routerClient)
 	if name == "" {
 		name = acc.Acct
 	}
-	_ = rc.sendChat(jid, name, false)
+	_ = rc.SendChat(jid, name, false)
 
-	content := stripHTML(n.Status.Content)
-	err := rc.sendMessage(inboundMsg{
+	err := rc.SendMessage(inboundMsg{
 		ID:         string(n.Status.ID),
 		ChatJID:    jid,
 		Sender:     "mastodon:" + string(acc.ID),
 		SenderName: name,
-		Content:    content,
+		Content:    stripHTML(n.Status.Content),
 		Timestamp:  n.Status.CreatedAt.Unix(),
-		IsGroup:    false,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
@@ -121,6 +118,5 @@ func stripHTML(s string) string {
 	s = strings.ReplaceAll(s, "<br />", "\n")
 	s = strings.ReplaceAll(s, "</p>", "\n")
 	s = reTag.ReplaceAllString(s, "")
-	s = html.UnescapeString(s)
-	return strings.TrimSpace(s)
+	return strings.TrimSpace(html.UnescapeString(s))
 }

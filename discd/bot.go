@@ -57,7 +57,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	} else {
 		name = m.Author.Username
 	}
-	b.rc.sendChat(jid, name, isGroup)
+	b.rc.SendChat(jid, name, isGroup)
 
 	content := m.Content
 	for _, att := range m.Attachments {
@@ -76,7 +76,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 
-	err = b.rc.sendMessage(inboundMsg{
+	err = b.rc.SendMessage(inboundMsg{
 		ID:         m.ID,
 		ChatJID:    jid,
 		Sender:     "discord:" + m.Author.ID,

@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 func main() {
@@ -30,13 +32,13 @@ func main() {
 	}
 
 	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	token, err := rc.register(cfg.Name, cfg.ListenURL,
+	token, err := rc.Register(cfg.Name, cfg.ListenURL,
 		[]string{"bluesky:"}, map[string]bool{"send_text": true})
 	if err != nil {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)
 	}
-	rc.token = token
+	rc.Token = token
 	slog.Info("registered with router", "url", cfg.RouterURL)
 
 	go bc.poll(ctx, rc)
@@ -52,7 +54,7 @@ func main() {
 
 	<-ctx.Done()
 	slog.Info("shutting down")
-	rc.deregister()
+	rc.Deregister()
 	srv.Close()
 }
 
@@ -70,30 +72,14 @@ type config struct {
 
 func loadConfig() config {
 	return config{
-		Name:          envOr("CHANNEL_NAME", "bluesky"),
-		Identifier:    mustEnv("BLUESKY_IDENTIFIER"),
-		Password:      mustEnv("BLUESKY_PASSWORD"),
-		Service:       envOr("BLUESKY_SERVICE", "https://bsky.social"),
-		RouterURL:     mustEnv("ROUTER_URL"),
-		ChannelSecret: envOr("CHANNEL_SECRET", ""),
-		ListenAddr:    envOr("LISTEN_ADDR", ":9005"),
-		ListenURL:     envOr("LISTEN_URL", "http://bluesky:9005"),
-		DataDir:       envOr("DATA_DIR", "/srv/data/bskyd"),
+		Name:          chanlib.EnvOr("CHANNEL_NAME", "bluesky"),
+		Identifier:    chanlib.MustEnv("BLUESKY_IDENTIFIER"),
+		Password:      chanlib.MustEnv("BLUESKY_PASSWORD"),
+		Service:       chanlib.EnvOr("BLUESKY_SERVICE", "https://bsky.social"),
+		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
+		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
+		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9005"),
+		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://bluesky:9005"),
+		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/bskyd"),
 	}
-}
-
-func envOr(k, v string) string {
-	if e := os.Getenv(k); e != "" {
-		return e
-	}
-	return v
-}
-
-func mustEnv(k string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	slog.Error("required env var missing", "key", k)
-	os.Exit(1)
-	return ""
 }

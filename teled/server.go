@@ -6,7 +6,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 type server struct {
@@ -18,9 +19,9 @@ func newServer(cfg config, b *bot) *server { return &server{cfg: cfg, bot: b} }
 
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /send", s.auth(s.handleSend))
-	mux.HandleFunc("POST /send-file", s.auth(s.handleSendFile))
-	mux.HandleFunc("POST /typing", s.auth(s.handleTyping))
+	mux.HandleFunc("POST /send", chanlib.Auth(s.cfg.ChannelSecret, s.handleSend))
+	mux.HandleFunc("POST /send-file", chanlib.Auth(s.cfg.ChannelSecret, s.handleSendFile))
+	mux.HandleFunc("POST /typing", chanlib.Auth(s.cfg.ChannelSecret, s.handleTyping))
 	mux.HandleFunc("GET /health", s.handleHealth)
 	return mux
 }
@@ -92,19 +93,6 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"status": "ok", "name": s.cfg.Name,
 		"jid_prefixes": []string{"telegram:"},
 	})
-}
-
-func (s *server) auth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if s.cfg.ChannelSecret != "" {
-			tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if tok != s.cfg.ChannelSecret {
-				writeErr(w, 401, "invalid secret")
-				return
-			}
-		}
-		next(w, r)
-	}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 func main() {
@@ -30,7 +32,7 @@ func main() {
 	}
 
 	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	token, err := rc.register(cfg.Name, cfg.ListenURL,
+	token, err := rc.Register(cfg.Name, cfg.ListenURL,
 		[]string{"discord:"}, map[string]bool{
 			"send_text": true, "send_file": true, "typing": true,
 		})
@@ -38,7 +40,7 @@ func main() {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)
 	}
-	rc.token = token
+	rc.Token = token
 	slog.Info("registered with router", "url", cfg.RouterURL)
 
 	if err := bot.start(rc); err != nil {
@@ -57,7 +59,7 @@ func main() {
 
 	<-ctx.Done()
 	slog.Info("shutting down")
-	rc.deregister()
+	rc.Deregister()
 	bot.stop()
 	srv.Close()
 }
@@ -69,28 +71,12 @@ type config struct {
 
 func loadConfig() config {
 	return config{
-		Name:          envOr("CHANNEL_NAME", "discord"),
-		DiscordToken:  mustEnv("DISCORD_BOT_TOKEN"),
-		RouterURL:     mustEnv("ROUTER_URL"),
-		ChannelSecret: envOr("CHANNEL_SECRET", ""),
-		ListenAddr:    envOr("LISTEN_ADDR", ":9002"),
-		ListenURL:     envOr("LISTEN_URL", "http://discord:9002"),
-		AssistantName: envOr("ASSISTANT_NAME", ""),
+		Name:          chanlib.EnvOr("CHANNEL_NAME", "discord"),
+		DiscordToken:  chanlib.MustEnv("DISCORD_BOT_TOKEN"),
+		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
+		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
+		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9002"),
+		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://discord:9002"),
+		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
 	}
-}
-
-func envOr(k, v string) string {
-	if e := os.Getenv(k); e != "" {
-		return e
-	}
-	return v
-}
-
-func mustEnv(k string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	slog.Error("required env var missing", "key", k)
-	os.Exit(1)
-	return ""
 }

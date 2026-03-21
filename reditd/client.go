@@ -246,9 +246,9 @@ func (rc *redditClient) handleThing(t thing, key string, router *routerClient) {
 	if isSubreddit && d.Subreddit != "" {
 		chatName = "r/" + d.Subreddit
 	}
-	_ = router.sendChat(jid, chatName, isSubreddit)
+	_ = router.SendChat(jid, chatName, isSubreddit)
 
-	err := router.sendMessage(inboundMsg{
+	err := router.SendMessage(inboundMsg{
 		ID:         d.Name,
 		ChatJID:    jid,
 		Sender:     sender,

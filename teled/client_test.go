@@ -71,7 +71,7 @@ func TestRouterClientRegister(t *testing.T) {
 	defer mr.close()
 
 	rc := newRouterClient(mr.srv.URL, "secret")
-	token, err := rc.register("telegram", "http://tg:9001",
+	token, err := rc.Register("telegram", "http://tg:9001",
 		[]string{"telegram:"}, map[string]bool{"send_text": true})
 
 	if err != nil {
@@ -90,7 +90,7 @@ func TestRouterClientRegisterBadSecret(t *testing.T) {
 	defer mr.close()
 
 	rc := newRouterClient(mr.srv.URL, "wrong")
-	_, err := rc.register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+	_, err := rc.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
 
 	if err == nil {
 		t.Fatal("expected error for bad secret")
@@ -102,9 +102,9 @@ func TestRouterClientSendMessage(t *testing.T) {
 	defer mr.close()
 
 	rc := newRouterClient(mr.srv.URL, "")
-	rc.token = "test-token"
+	rc.Token = "test-token"
 
-	err := rc.sendMessage(inboundMsg{
+	err := rc.SendMessage(inboundMsg{
 		ID:         "123",
 		ChatJID:    "telegram:-100123",
 		Sender:     "telegram:456",
@@ -135,9 +135,9 @@ func TestRouterClientSendChat(t *testing.T) {
 	defer mr.close()
 
 	rc := newRouterClient(mr.srv.URL, "")
-	rc.token = "test-token"
+	rc.Token = "test-token"
 
-	err := rc.sendChat("telegram:-100123", "Dev Chat", true)
+	err := rc.SendChat("telegram:-100123", "Dev Chat", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,9 +157,9 @@ func TestRouterClientDeregister(t *testing.T) {
 	defer mr.close()
 
 	rc := newRouterClient(mr.srv.URL, "")
-	rc.token = "test-token"
+	rc.Token = "test-token"
 
-	if err := rc.deregister(); err != nil {
+	if err := rc.Deregister(); err != nil {
 		t.Fatal(err)
 	}
 	if !mr.deregistered {
@@ -172,9 +172,9 @@ func TestRouterClientBadToken(t *testing.T) {
 	defer mr.close()
 
 	rc := newRouterClient(mr.srv.URL, "")
-	rc.token = "bad-token"
+	rc.Token = "bad-token"
 
-	err := rc.sendMessage(inboundMsg{
+	err := rc.SendMessage(inboundMsg{
 		ChatJID: "telegram:123",
 		Content: "hello",
 	})

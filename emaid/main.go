@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 func main() {
@@ -32,13 +34,13 @@ func main() {
 	defer cancel()
 
 	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	token, err := rc.register(cfg.Name, cfg.ListenURL,
+	token, err := rc.Register(cfg.Name, cfg.ListenURL,
 		[]string{"email:"}, map[string]bool{"send_text": true})
 	if err != nil {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)
 	}
-	rc.token = token
+	rc.Token = token
 	slog.Info("registered with router", "url", cfg.RouterURL)
 
 	poller := newPoller(cfg, db)
@@ -55,7 +57,7 @@ func main() {
 
 	<-ctx.Done()
 	slog.Info("shutting down")
-	rc.deregister()
+	rc.Deregister()
 	srv.Close()
 }
 
@@ -76,33 +78,17 @@ type config struct {
 
 func loadConfig() config {
 	return config{
-		Name:          envOr("CHANNEL_NAME", "email"),
-		IMAPHost:      mustEnv("EMAIL_IMAP_HOST"),
-		SMTPHost:      mustEnv("EMAIL_SMTP_HOST"),
-		Account:       mustEnv("EMAIL_ACCOUNT"),
-		Password:      mustEnv("EMAIL_PASSWORD"),
-		IMAPPort:      envOr("EMAIL_IMAP_PORT", "993"),
-		SMTPPort:      envOr("EMAIL_SMTP_PORT", "587"),
-		RouterURL:     mustEnv("ROUTER_URL"),
-		ChannelSecret: envOr("CHANNEL_SECRET", ""),
-		ListenAddr:    envOr("LISTEN_ADDR", ":9003"),
-		ListenURL:     envOr("LISTEN_URL", "http://email:9003"),
-		DataDir:       envOr("DATA_DIR", "/srv/data/emaid"),
+		Name:          chanlib.EnvOr("CHANNEL_NAME", "email"),
+		IMAPHost:      chanlib.MustEnv("EMAIL_IMAP_HOST"),
+		SMTPHost:      chanlib.MustEnv("EMAIL_SMTP_HOST"),
+		Account:       chanlib.MustEnv("EMAIL_ACCOUNT"),
+		Password:      chanlib.MustEnv("EMAIL_PASSWORD"),
+		IMAPPort:      chanlib.EnvOr("EMAIL_IMAP_PORT", "993"),
+		SMTPPort:      chanlib.EnvOr("EMAIL_SMTP_PORT", "587"),
+		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
+		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
+		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9003"),
+		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://email:9003"),
+		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/emaid"),
 	}
-}
-
-func envOr(k, v string) string {
-	if e := os.Getenv(k); e != "" {
-		return e
-	}
-	return v
-}
-
-func mustEnv(k string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	slog.Error("required env var missing", "key", k)
-	os.Exit(1)
-	return ""
 }

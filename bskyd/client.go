@@ -164,10 +164,10 @@ func (bc *bskyClient) handleNotification(n notification, rc *routerClient) {
 	if name == "" {
 		name = n.Author.Handle
 	}
-	_ = rc.sendChat(jid, name, false)
+	_ = rc.SendChat(jid, name, false)
 
 	ts, _ := time.Parse(time.RFC3339, n.IndexedAt)
-	err := rc.sendMessage(inboundMsg{
+	err := rc.SendMessage(inboundMsg{
 		ID:         uriToKey(n.URI),
 		ChatJID:    jid,
 		Sender:     "bluesky:" + n.Author.DID,

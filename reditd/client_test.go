@@ -86,10 +86,7 @@ func TestFirstPollSkip(t *testing.T) {
 	rc := makeRedditClient(t, apiSrv)
 	rc.http.Transport.(*hostRewrite).target = apiSrv.Listener.Addr().String()
 
-	router := &routerClient{
-		url:    routerSrv.URL,
-		client: &http.Client{Timeout: 5 * time.Second},
-	}
+	router := newRouterClient(routerSrv.URL, "")
 
 	rc.pollSource("inbox", "/message/inbox.json", router)
 	// On first poll, skipFirst is set to true and no dispatch occurs
@@ -116,10 +113,7 @@ func TestCursorAdvance(t *testing.T) {
 
 	routerSrv := stubRouterSrv(t)
 	rc := makeRedditClient(t, apiSrv)
-	router := &routerClient{
-		url:    routerSrv.URL,
-		client: &http.Client{Timeout: 5 * time.Second},
-	}
+	router := newRouterClient(routerSrv.URL, "")
 
 	rc.pollSource("inbox", "/message/inbox.json", router)
 	if rc.cursors["inbox"] != "t4_cursor123" {
@@ -149,10 +143,7 @@ func TestRateLimit429(t *testing.T) {
 
 	routerSrv := stubRouterSrv(t)
 	rc := makeRedditClient(t, apiSrv)
-	router := &routerClient{
-		url:    routerSrv.URL,
-		client: &http.Client{Timeout: 5 * time.Second},
-	}
+	router := newRouterClient(routerSrv.URL, "")
 
 	rc.pollSource("test", "/message/inbox.json", router)
 	if calls.Load() < 2 {

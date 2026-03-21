@@ -34,9 +34,9 @@ func TestE2EInboundFlow(t *testing.T) {
 	defer mr.close()
 
 	rc := newRouterClient(mr.srv.URL, "")
-	rc.token = "test-token"
+	rc.Token = "test-token"
 
-	err := rc.sendMessage(inboundMsg{
+	err := rc.SendMessage(inboundMsg{
 		ID: "42", ChatJID: "telegram:-1001234567890",
 		Sender: "telegram:12345", SenderName: "Alice",
 		Content: "Hello from telegram", Timestamp: 1709942400, IsGroup: true,
@@ -60,7 +60,7 @@ func TestE2ERegistrationAndDeregistration(t *testing.T) {
 	defer mr.close()
 
 	rc := newRouterClient(mr.srv.URL, "secret")
-	token, err := rc.register("telegram", "http://telegram:9001",
+	token, err := rc.Register("telegram", "http://telegram:9001",
 		[]string{"telegram:"}, map[string]bool{"send_text": true})
 	if err != nil {
 		t.Fatal(err)
@@ -69,11 +69,11 @@ func TestE2ERegistrationAndDeregistration(t *testing.T) {
 		t.Fatal("expected token")
 	}
 
-	rc.token = token
-	if err := rc.sendMessage(inboundMsg{ChatJID: "telegram:123", Content: "test"}); err != nil {
+	rc.Token = token
+	if err := rc.SendMessage(inboundMsg{ChatJID: "telegram:123", Content: "test"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := rc.deregister(); err != nil {
+	if err := rc.Deregister(); err != nil {
 		t.Fatal(err)
 	}
 	mr.mu.Lock()
@@ -104,8 +104,8 @@ func TestE2EChatMetadata(t *testing.T) {
 	defer mr.close()
 
 	rc := newRouterClient(mr.srv.URL, "")
-	rc.token = "test-token"
-	if err := rc.sendChat("telegram:-100123", "Dev Chat", true); err != nil {
+	rc.Token = "test-token"
+	if err := rc.SendChat("telegram:-100123", "Dev Chat", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,9 +121,9 @@ func TestE2EMultipleMessages(t *testing.T) {
 	defer mr.close()
 
 	rc := newRouterClient(mr.srv.URL, "")
-	rc.token = "test-token"
+	rc.Token = "test-token"
 	for i := 0; i < 5; i++ {
-		rc.sendMessage(inboundMsg{ChatJID: "telegram:123", Content: "msg"})
+		rc.SendMessage(inboundMsg{ChatJID: "telegram:123", Content: "msg"})
 	}
 	mr.mu.Lock()
 	if len(mr.messages) != 5 {

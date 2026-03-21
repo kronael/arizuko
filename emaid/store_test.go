@@ -14,6 +14,7 @@ func newTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS email_threads (
 			thread_id TEXT PRIMARY KEY,

@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 func main() {
@@ -30,7 +32,7 @@ func main() {
 	}
 
 	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	token, err := rc.register(cfg.Name, cfg.ListenURL,
+	token, err := rc.Register(cfg.Name, cfg.ListenURL,
 		[]string{"telegram:"}, map[string]bool{
 			"send_text": true, "send_file": true, "typing": true,
 		})
@@ -38,7 +40,7 @@ func main() {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)
 	}
-	rc.token = token
+	rc.Token = token
 	slog.Info("registered with router", "url", cfg.RouterURL)
 
 	go bot.poll(ctx, rc)
@@ -54,7 +56,7 @@ func main() {
 
 	<-ctx.Done()
 	slog.Info("shutting down")
-	rc.deregister()
+	rc.Deregister()
 	bot.stop()
 	srv.Close()
 }
@@ -66,28 +68,12 @@ type config struct {
 
 func loadConfig() config {
 	return config{
-		Name:          envOr("CHANNEL_NAME", "telegram"),
-		TelegramToken: mustEnv("TELEGRAM_BOT_TOKEN"),
-		RouterURL:     mustEnv("ROUTER_URL"),
-		ChannelSecret: envOr("CHANNEL_SECRET", ""),
-		ListenAddr:    envOr("LISTEN_ADDR", ":9001"),
-		ListenURL:     envOr("LISTEN_URL", "http://telegram:9001"),
-		AssistantName: envOr("ASSISTANT_NAME", ""),
+		Name:          chanlib.EnvOr("CHANNEL_NAME", "telegram"),
+		TelegramToken: chanlib.MustEnv("TELEGRAM_BOT_TOKEN"),
+		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
+		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
+		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9001"),
+		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://telegram:9001"),
+		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
 	}
-}
-
-func envOr(k, v string) string {
-	if e := os.Getenv(k); e != "" {
-		return e
-	}
-	return v
-}
-
-func mustEnv(k string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	slog.Error("required env var missing", "key", k)
-	os.Exit(1)
-	return ""
 }

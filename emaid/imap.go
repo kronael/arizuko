@@ -159,9 +159,9 @@ func (p *poller) handleMsg(
 		fromName, fromAddr, subject, env.Date.Format(time.RFC1123Z), toAddr, body)
 
 	jid := "email:" + threadID
-	_ = rc.sendChat(jid, fromName+" ("+fromAddr+")", false)
+	_ = rc.SendChat(jid, fromName+" ("+fromAddr+")", false)
 
-	if err := rc.sendMessage(inboundMsg{
+	if err := rc.SendMessage(inboundMsg{
 		ID:         msgID,
 		ChatJID:    jid,
 		Sender:     "email:" + fromAddr,

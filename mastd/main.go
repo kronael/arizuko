@@ -8,19 +8,18 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	cfg := loadConfig()
 	if cfg.ChannelSecret == "" {
 		slog.Warn("CHANNEL_SECRET not set; HTTP endpoints unauthenticated")
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(),
-		syscall.SIGTERM, syscall.SIGINT)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
 	mc, err := newMastoClient(cfg)
@@ -30,13 +29,12 @@ func main() {
 	}
 
 	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	token, err := rc.register(cfg.Name, cfg.ListenURL,
-		[]string{"mastodon:"}, map[string]bool{"send_text": true})
+	token, err := rc.Register(cfg.Name, cfg.ListenURL, []string{"mastodon:"}, map[string]bool{"send_text": true})
 	if err != nil {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)
 	}
-	rc.token = token
+	rc.Token = token
 	slog.Info("registered with router", "url", cfg.RouterURL)
 
 	go mc.stream(ctx, rc)
@@ -52,7 +50,7 @@ func main() {
 
 	<-ctx.Done()
 	slog.Info("shutting down")
-	rc.deregister()
+	rc.Deregister()
 	srv.Close()
 }
 
@@ -68,28 +66,12 @@ type config struct {
 
 func loadConfig() config {
 	return config{
-		Name:          envOr("CHANNEL_NAME", "mastodon"),
-		InstanceURL:   mustEnv("MASTODON_INSTANCE_URL"),
-		AccessToken:   mustEnv("MASTODON_ACCESS_TOKEN"),
-		RouterURL:     mustEnv("ROUTER_URL"),
-		ChannelSecret: envOr("CHANNEL_SECRET", ""),
-		ListenAddr:    envOr("LISTEN_ADDR", ":9004"),
-		ListenURL:     envOr("LISTEN_URL", "http://mastd:9004"),
+		Name:          chanlib.EnvOr("CHANNEL_NAME", "mastodon"),
+		InstanceURL:   chanlib.MustEnv("MASTODON_INSTANCE_URL"),
+		AccessToken:   chanlib.MustEnv("MASTODON_ACCESS_TOKEN"),
+		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
+		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
+		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9004"),
+		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://mastd:9004"),
 	}
-}
-
-func envOr(k, v string) string {
-	if e := os.Getenv(k); e != "" {
-		return e
-	}
-	return v
-}
-
-func mustEnv(k string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	slog.Error("required env var missing", "key", k)
-	os.Exit(1)
-	return ""
 }

@@ -64,7 +64,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *routerClient) {
 	if name == "" {
 		name = userName(msg.From)
 	}
-	rc.sendChat(jid, name, isGroup)
+	rc.SendChat(jid, name, isGroup)
 
 	content := mediaText(msg)
 	if content == "" {
@@ -88,7 +88,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *routerClient) {
 		}
 	}
 
-	err := rc.sendMessage(inboundMsg{
+	err := rc.SendMessage(inboundMsg{
 		ID:         strconv.Itoa(msg.MessageID),
 		ChatJID:    jid,
 		Sender:     "telegram:" + userID(msg.From),
