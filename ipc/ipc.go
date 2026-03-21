@@ -257,24 +257,54 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	// register_group
 	if len(grantslib.MatchingRules(rules, "register_group")) > 0 {
 		srv.AddTool(mcp.NewTool("register_group",
-			mcp.WithDescription(toolDesc("Register a new agent group", rules, "register_group")),
+			mcp.WithDescription(toolDesc(
+				"Register a new agent group. Set fromPrototype=true to copy this group's prototype/ directory into a new child folder (folder derived from jid); otherwise provide an explicit folder.",
+				rules, "register_group")),
 			mcp.WithString("jid", mcp.Required()),
-			mcp.WithString("name", mcp.Required()),
-			mcp.WithString("folder", mcp.Required()),
+			mcp.WithString("name"),
+			mcp.WithBoolean("fromPrototype"),
+			mcp.WithString("folder"),
 			mcp.WithString("parent"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if gated.RegisterGroup == nil {
 				return toolErr("register_group not configured")
 			}
-			jid := req.GetString("jid", "")
-			gfld := req.GetString("folder", "")
 			if !grantslib.CheckAction(rules, "register_group", nil) {
 				return toolErr("register_group: not permitted")
+			}
+			jid := req.GetString("jid", "")
+			name := req.GetString("name", jid)
+
+			if req.GetBool("fromPrototype", false) {
+				if gated.SpawnGroup == nil {
+					return toolErr("register_group: fromPrototype not configured")
+				}
+				parentJID := ""
+				for pjid, g := range gated.GetGroups() {
+					if g.Folder == folder {
+						parentJID = pjid
+						break
+					}
+				}
+				child, err := gated.SpawnGroup(parentJID, jid)
+				if err != nil {
+					return toolErr(err.Error())
+				}
+				if name != jid {
+					child.Name = name
+					gated.RegisterGroup(jid, child) //nolint
+				}
+				slog.Info("group registered from prototype", "jid", jid, "folder", child.Folder, "sourceGroup", folder)
+				return toolJSON(map[string]any{"registered": true, "folder": child.Folder, "jid": child.JID})
+			}
+
+			gfld := req.GetString("folder", "")
+			if gfld == "" {
+				return toolErr("folder required when fromPrototype is false")
 			}
 			if err := auth.Authorize(id, "register_group", auth.AuthzTarget{TargetFolder: gfld}); err != nil {
 				return toolErr(err.Error())
 			}
-
 			groups := gated.GetGroups()
 			parent := folder
 			if p, ok := groups[jid]; ok {
@@ -294,10 +324,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 					return toolErr(fmt.Sprintf("max_children limit reached (%d)", pg.Config.MaxChildren))
 				}
 			}
-
 			gr := core.Group{
 				JID:     jid,
-				Name:    req.GetString("name", ""),
+				Name:    name,
 				Folder:  gfld,
 				AddedAt: time.Now(),
 				Parent:  req.GetString("parent", ""),
@@ -306,40 +335,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr(err.Error())
 			}
 			slog.Info("group registered", "jid", jid, "folder", gfld, "sourceGroup", folder)
-			return toolJSON(map[string]any{"registered": true})
-		})
-	}
-
-	// spawn_group
-	if len(grantslib.MatchingRules(rules, "spawn_group")) > 0 {
-		srv.AddTool(mcp.NewTool("spawn_group",
-			mcp.WithDescription(toolDesc("Spawn a new child group from this group's prototype directory", rules, "spawn_group")),
-			mcp.WithString("childJid", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.SpawnGroup == nil {
-				return toolErr("spawn_group not configured")
-			}
-			if !grantslib.CheckAction(rules, "spawn_group", nil) {
-				return toolErr("spawn_group: not permitted")
-			}
-			childJID := req.GetString("childJid", "")
-			if childJID == "" {
-				return toolErr("childJid required")
-			}
-			// find parent JID for this folder
-			parentJID := ""
-			for jid, g := range gated.GetGroups() {
-				if g.Folder == folder {
-					parentJID = jid
-					break
-				}
-			}
-			child, err := gated.SpawnGroup(parentJID, childJID)
-			if err != nil {
-				return toolErr(err.Error())
-			}
-			slog.Info("group spawned", "childJid", childJID, "folder", child.Folder, "sourceGroup", folder)
-			return toolJSON(map[string]any{"spawned": true, "folder": child.Folder, "jid": child.JID})
+			return toolJSON(map[string]any{"registered": true, "folder": gfld, "jid": jid})
 		})
 	}
 

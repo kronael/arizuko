@@ -24,9 +24,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   Google OAuth redirect when `GOOGLE_ALLOWED_EMAILS` patterns share a single domain
   (e.g. `*@example.com`), restricting the sign-in picker to that workspace. Supports
   multiple patterns — hint only added when all share one domain.
-- **`spawn_group` MCP tool** (`ipc/ipc.go`, `gateway/gateway.go`): agents can spawn
-  child groups from their parent's `prototype/` directory via the `spawn_group` MCP
-  tool; requires `spawn_group` grant; returns folder and JID of the new child group.
+- **`register_group` fromPrototype** (`ipc/ipc.go`, `gateway/gateway.go`): `register_group`
+  now accepts `fromPrototype=true` to copy this group's `prototype/` directory into a new
+  child folder (folder derived from jid); `name` is now optional (defaults to jid); merges
+  the former `spawn_group` tool.
 - **Agent-runner exits on empty IPC input** (`container/agent-runner/src/index.ts`):
   `waitForIpcMessage` (async Promise wrapper) replaced with synchronous
   `checkIpcMessage`; runner exits immediately when IPC input dir is empty,
