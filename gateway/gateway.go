@@ -636,7 +636,7 @@ func parsePrefix(text string) (name, rest string, ok bool) {
 		if m := re.FindStringIndex(text); m != nil {
 			full := text[m[0]:m[1]]
 			name = full[1:] // strip @ or #
-			rest = strings.TrimSpace(text[:m[0]] + text[m[1]:])
+			rest = strings.TrimSpace(strings.Join(strings.Fields(text[:m[0]]+" "+text[m[1]:]), " "))
 			return name, rest, true
 		}
 	}

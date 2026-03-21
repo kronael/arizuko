@@ -416,3 +416,125 @@ func TestEmitSystemEvents_NewSession(t *testing.T) {
 		t.Errorf("expected new_session event, got: %s", out)
 	}
 }
+
+func TestParsePrefix_AtStart(t *testing.T) {
+	name, rest, ok := parsePrefix("@alice hello world")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if name != "alice" {
+		t.Errorf("name = %q, want alice", name)
+	}
+	if rest != "hello world" {
+		t.Errorf("rest = %q, want %q", rest, "hello world")
+	}
+}
+
+func TestParsePrefix_AtMiddle(t *testing.T) {
+	name, rest, ok := parsePrefix("hello @alice world")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if name != "alice" {
+		t.Errorf("name = %q, want alice", name)
+	}
+	if rest != "hello world" {
+		t.Errorf("rest = %q, want %q", rest, "hello world")
+	}
+}
+
+func TestParsePrefix_Hash(t *testing.T) {
+	name, rest, ok := parsePrefix("#topic rest of message")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if name != "topic" {
+		t.Errorf("name = %q, want topic", name)
+	}
+	if rest != "rest of message" {
+		t.Errorf("rest = %q, want %q", rest, "rest of message")
+	}
+}
+
+func TestParsePrefix_HashMidSentence(t *testing.T) {
+	name, _, ok := parsePrefix("ask #general for help")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if name != "general" {
+		t.Errorf("name = %q, want general", name)
+	}
+}
+
+func TestParsePrefix_None(t *testing.T) {
+	_, _, ok := parsePrefix("no prefix here")
+	if ok {
+		t.Error("expected ok=false for content with no @ or #")
+	}
+}
+
+func TestParsePrefix_Empty(t *testing.T) {
+	_, _, ok := parsePrefix("")
+	if ok {
+		t.Error("expected ok=false for empty string")
+	}
+}
+
+func TestFindPrefixRoute_AtMatch(t *testing.T) {
+	routes := []core.Route{
+		{Type: "prefix", Match: "@", Target: "agents", Seq: -2},
+	}
+	msg := core.Message{Content: "hey @alice help me"}
+	r := findPrefixRoute(routes, msg)
+	if r == nil {
+		t.Fatal("findPrefixRoute returned nil for @ content with @ route")
+	}
+	if r.Match != "@" {
+		t.Errorf("Match = %q, want @", r.Match)
+	}
+}
+
+func TestFindPrefixRoute_HashMatch(t *testing.T) {
+	routes := []core.Route{
+		{Type: "prefix", Match: "#", Target: "topics", Seq: -1},
+	}
+	msg := core.Message{Content: "discuss #ai today"}
+	r := findPrefixRoute(routes, msg)
+	if r == nil {
+		t.Fatal("findPrefixRoute returned nil for # content with # route")
+	}
+	if r.Match != "#" {
+		t.Errorf("Match = %q, want #", r.Match)
+	}
+}
+
+func TestFindPrefixRoute_NoMatch(t *testing.T) {
+	routes := []core.Route{
+		{Type: "prefix", Match: "@", Target: "agents", Seq: -2},
+		{Type: "prefix", Match: "#", Target: "topics", Seq: -1},
+	}
+	msg := core.Message{Content: "plain text no prefix"}
+	r := findPrefixRoute(routes, msg)
+	if r != nil {
+		t.Errorf("findPrefixRoute returned non-nil for content without @ or #")
+	}
+}
+
+func TestFindPrefixRoute_NoRoutes(t *testing.T) {
+	msg := core.Message{Content: "@alice hello"}
+	r := findPrefixRoute(nil, msg)
+	if r != nil {
+		t.Error("findPrefixRoute returned non-nil for empty routes")
+	}
+}
+
+func TestFindPrefixRoute_NonPrefixTypeIgnored(t *testing.T) {
+	routes := []core.Route{
+		{Type: "default", Match: "@", Target: "agents"},
+	}
+	msg := core.Message{Content: "@alice hello"}
+	r := findPrefixRoute(routes, msg)
+	if r != nil {
+		t.Error("findPrefixRoute should ignore non-prefix type routes")
+	}
+}
