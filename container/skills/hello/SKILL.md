@@ -100,18 +100,17 @@ ls "$WEB_DIR/howto/index.html" 2>/dev/null
 
 ## Tone
 
-- Friendly but not chatty
+- Calm, precise, direct — not chatty, not cold
 - Informative but scannable — users skim, they don't read walls
-- "Ask me about any of these" as a closing invite
+- Close with "Tell me what you need." not "Ask me about any of these"
 
 ## Examples
 
 Root group:
 
 ```
-Hi, I'm REDACTED — an Arizuko ant. Arizuko manages me: routes
-work, schedules tasks, keeps the colony productive.
-I can research, code, build web apps, and help with analysis.
+I'm REDACTED — one of Arizuko's ants. I can research, code,
+build web apps, and help with analysis and daily tasks.
 
 Here's what I can do:
 
@@ -140,15 +139,15 @@ Commands
   /new — fresh session  /stop — halt  /ping — status
   /chatid — show JID    /status — gateway health
 
-Ask me about any of these, or just tell me what you need.
+Tell me what you need.
 Getting started: https://REDACTED/howto/
 ```
 
 Non-root group:
 
 ```
-Hi, I'm myai — one of REDACTED' ants (Arizuko-managed).
-I can research, code, build web apps, and help with daily tasks.
+I'm myai — one of REDACTED' ants. I can research, code,
+build web apps, and help with daily tasks.
 
 Here's what I can do:
 
