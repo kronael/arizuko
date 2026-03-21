@@ -39,6 +39,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   to plain `msgID string`; 3 call sites updated. Removes optional-string ambiguity.
 - `ipc/ipc.go`: `send_reply` handler nil-guard on `SendReply` removed; collapsed
   to single unconditional call (guard was dead — `SendReply` is never nil).
+- `grants/grants.go`: `sortedKeys` uses `sort.Strings` instead of insertion sort;
+  `nullStr` deduped to single definition.
+- `auth/jwt.go`, `auth/identity.go`: `mintJWT`, `isInWorld` unexported (internal only).
+- `router/router.go`: `EscapeXml`, `TimeAgo`, `StripThinkBlocks`, `SenderToUserFileID`,
+  `ExpandTarget` unexported (internal only).
+
+### Removed
+
+- `store/outbound.go`: deleted (was empty file).
+- `store/tasks.go`: `LogTaskRun`, `ListTaskRuns`, `TaskRun` removed (dead code,
+  unused since timed daemon uses direct SQL).
+- `core/config.go`: `VitePort` field removed (unused).
 
 ---
 

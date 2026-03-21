@@ -30,19 +30,20 @@ func (g *Gateway) spawnFromPrototype(parentJID, parentFolder, childJID string) (
 		return core.Group{}, fmt.Errorf("no prototype dir: %w", err)
 	}
 
-	parent, ok := g.groups[parentJID]
-	if ok && parent.Config.MaxChildren == 0 {
-		return core.Group{}, fmt.Errorf("spawning disabled (max_children=0)")
-	}
-	if ok && parent.Config.MaxChildren > 0 {
-		n := 0
-		for _, gr := range g.groups {
-			if gr.Parent == parentFolder {
-				n++
-			}
+	if parent, ok := g.groups[parentJID]; ok {
+		if parent.Config.MaxChildren == 0 {
+			return core.Group{}, fmt.Errorf("spawning disabled (max_children=0)")
 		}
-		if n >= parent.Config.MaxChildren {
-			return core.Group{}, fmt.Errorf("max_children limit reached (%d)", parent.Config.MaxChildren)
+		if parent.Config.MaxChildren > 0 {
+			n := 0
+			for _, gr := range g.groups {
+				if gr.Parent == parentFolder {
+					n++
+				}
+			}
+			if n >= parent.Config.MaxChildren {
+				return core.Group{}, fmt.Errorf("max_children limit reached (%d)", parent.Config.MaxChildren)
+			}
 		}
 	}
 

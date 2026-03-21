@@ -120,6 +120,23 @@ session and data isolation — routing is fixed by the parent's config.
 4. Folder names derived from JID (`spawnFolderName(jid string) string`)
 5. Cleanup job marks inactive spawns closed, archives after threshold
 
+## Agent-facing spawn mechanism
+
+Agents can spawn children directly via the `register_group` MCP tool with
+`fromPrototype=true`. The `name` parameter is optional — when omitted it
+defaults to the calling group's jid. This replaces the former `spawn_group`
+tool (removed; merged into `register_group`).
+
+```
+agent calls register_group(fromPrototype=true)
+  → ipc copies caller's prototype/ dir into new child folder
+  → registers child in DB
+  → child is ready to receive messages
+```
+
+The automatic gateway path (unregistered route target → spawnFromPrototype)
+remains the primary mechanism for inbound-triggered spawns.
+
 ## Not in scope
 
 - Prototype inheritance across worlds (each world's root defines its own)

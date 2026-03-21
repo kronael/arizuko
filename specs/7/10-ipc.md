@@ -1,10 +1,10 @@
 # ipc
 
-**Status**: shipped — `ipc/` package (ipc.go, all 19 tools, runtime auth via auth)
+**Status**: shipped — `ipc/` package (ipc.go, all 20 tools, runtime auth via auth)
 
 MCP daemon. Per-group MCP server on unix socket. Resolves caller
-identity from socket path, authorizes via auth, executes all
-19 tools inline via handler functions.
+identity from socket path, authorizes via auth, executes all 20
+tools inline via handler functions.
 
 ## Role
 
@@ -50,7 +50,7 @@ socat bridge:
 }
 ```
 
-ipc exposes all 19 tools in a single tool list. Authorization
+ipc exposes all 20 tools in a single tool list. Authorization
 is checked per-call via auth.Authorize before execution.
 
 ## Tools
@@ -80,6 +80,10 @@ functions are injected as callbacks at server creation time.
 | `cancel_task`    | scheduling    | grants + auth.Authorize   |
 | `get_grants`     | authorization | tier ≤ 1 + auth.Authorize |
 | `set_grants`     | authorization | tier ≤ 1 + auth.Authorize |
+
+`register_group`: `name` is optional (defaults to jid). When `fromPrototype=true`,
+copies the caller's `prototype/` directory into the new child folder before
+registering. Merges the former `spawn_group` tool.
 
 ## Request flow
 

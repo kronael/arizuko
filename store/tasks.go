@@ -13,7 +13,6 @@ type TaskPatch struct {
 	NextRun *time.Time
 }
 
-
 func (s *Store) CreateTask(t core.Task) error {
 	var nextRun *string
 	if t.NextRun != nil {

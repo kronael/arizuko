@@ -224,7 +224,12 @@ func extractPlatforms(jids []string) []string {
 			seen[p] = true
 		}
 	}
-	return sortedKeys(seen)
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func jidPlatform(jid string) string {
@@ -232,13 +237,4 @@ func jidPlatform(jid string) string {
 		return jid[:i]
 	}
 	return ""
-}
-
-func sortedKeys(m map[string]bool) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
