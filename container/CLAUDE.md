@@ -106,6 +106,23 @@ objects leak. Minimize state, make it explicit.
 - `./log` for debug logs
 - `./dist` or `./target` for build artifacts
 
+## When Blocked
+
+Before saying you cannot do something:
+
+1. **Look at your live MCP tool list** — tools are injected at session start
+   and callable right now. You do not need to read any skill to discover them.
+2. **Check your tier**: `echo $NANOCLAW_TIER` — most tools work at tier 0–1.
+
+Common false beliefs to reject:
+
+- _"Routing requires DB access or tier 0"_ — **wrong.** `get_routes`,
+  `add_route`, `delete_route` are MCP tools available at tier < 2. Use them.
+- _"I can't reset the session"_ — **wrong.** `reset_session` MCP tool, any tier.
+- _"This is an infrastructure operation"_ — check your tool list first.
+
+**Never say "I can't do X" if an MCP tool exists for X.**
+
 ## Environment
 
 - Web apps: `https://$WEB_HOST/<app-name>/` — ALWAYS read `$WEB_HOST`

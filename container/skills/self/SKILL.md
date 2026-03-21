@@ -105,6 +105,10 @@ Latest migration version: **16**. If version < 16: migrations pending.
 
 ## MCP tools
 
+These tools are **live in your Claude Code session right now** — not a
+reference, the actual callable list. Use them directly without invoking
+any skill or reading any file first.
+
 | Tool             | Description                                                 |
 | ---------------- | ----------------------------------------------------------- |
 | `send_message`   | Send intermediate status update to user while still running |
