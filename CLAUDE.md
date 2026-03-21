@@ -65,6 +65,7 @@ notify/            Operator notifications (library)
 teled/             Telegram adapter (Go)
 discd/             Discord adapter (Go)
 whapd/             WhatsApp adapter (TypeScript)
+webd/              Web proxy daemon (auth, /dash/, /auth/, Vite)
 ```
 
 ## Conventions
@@ -128,6 +129,8 @@ Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 | `teled`  | daemon  | Telegram adapter (Go)                                                 |
 | `discd`  | daemon  | Discord adapter (Go)                                                  |
 | `whapd`  | daemon  | WhatsApp adapter (TypeScript)                                         |
+| `webd`   | daemon  | Web proxy: auth gate, /dash/, /auth/, Vite                            |
+| `vited`  | service | Vite dev server (arizuko-vite image)                                  |
 | `emaid`  | planned | Email adapter                                                         |
 
 Deployment: `arizuko run <instance>` generates docker-compose.yml and runs `docker compose up`.

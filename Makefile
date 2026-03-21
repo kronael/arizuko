@@ -3,6 +3,7 @@ build:
 	CGO_ENABLED=1 go build -o bin/gated ./gated/
 	go build -o bin/onbod ./onbod/
 	go build -o bin/dashd ./dashd/
+	go build -o bin/webd ./webd/
 	make -C teled build
 	make -C discd build
 	make -C emaid build
@@ -20,6 +21,7 @@ clean:
 	rm -f arizuko
 	rm -rf bin/ tmp/
 	rm -f bin/dashd
+	rm -f bin/webd
 	make -C teled clean
 	make -C discd clean
 	make -C emaid clean

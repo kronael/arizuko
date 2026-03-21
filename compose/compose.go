@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -69,6 +70,10 @@ func Generate(dataDir string) (string, error) {
 	b.WriteString(gatedService(app, flavor, dataDir, env))
 	b.WriteString(timedService(app, flavor, dataDir, env))
 	b.WriteString(dashdService(app, flavor, dataDir, env))
+	if webPort := envOr(env, "WEB_PORT", ""); webPort != "" {
+		b.WriteString(webdService(app, flavor, dataDir, env))
+		b.WriteString(vitedService(app, flavor, dataDir, env))
+	}
 	if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
 		b.WriteString(onbodService(app, flavor, dataDir, env))
 	}
@@ -146,11 +151,7 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 		}
 	}
 
-	var ports []string
-	ports = append(ports, apiPort+":"+apiPort)
-	if webPort := envOr(env, "WEB_PORT", ""); webPort != "" {
-		ports = append(ports, webPort+":"+webPort)
-	}
+	ports := []string{apiPort + ":" + apiPort}
 
 	// gated needs extra volumes; build manually
 	var b strings.Builder
@@ -241,6 +242,60 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 	})
 }
 
+func webdService(app, flavor, dataDir string, env map[string]string) string {
+	webPort := envOr(env, "WEB_PORT", "8095")
+	dashPort := envOr(env, "DASH_PORT", "8090")
+	vitePort := vitePortFrom(webPort)
+	dashAddr := envOr(env, "DASH_ADDR", "http://dashd:"+dashPort)
+	environment := map[string]string{
+		"WEB_PORT":  webPort,
+		"DASH_ADDR": dashAddr,
+		"VITE_ADDR": "http://vited:" + vitePort,
+	}
+	if s := envOr(env, "AUTH_SECRET", ""); s != "" {
+		environment["AUTH_SECRET"] = s
+	}
+	if p := envOr(env, "WEB_PUBLIC", ""); p != "" {
+		environment["WEB_PUBLIC"] = p
+	}
+	if r := envOr(env, "WEB_REDIRECTS", ""); r != "" {
+		environment["WEB_REDIRECTS"] = r
+	}
+	return writeSvc(svcDef{
+		name:        "webd",
+		app:         app,
+		flavor:      flavor,
+		entrypoint:  "webd",
+		dataDir:     dataDir,
+		ports:       []string{webPort + ":" + webPort},
+		environment: environment,
+		dependsOn:   "gated, dashd",
+	})
+}
+
+func vitedService(app, flavor, dataDir string, env map[string]string) string {
+	webPort := envOr(env, "WEB_PORT", "8095")
+	vitePort := vitePortFrom(webPort)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "  vited:\n")
+	fmt.Fprintf(&b, "    container_name: %s_vited_%s\n", app, flavor)
+	b.WriteString("    image: arizuko-vite:latest\n")
+	fmt.Fprintf(&b, "    volumes:\n      - %s/web:/web\n", dataDir)
+	b.WriteString("    environment:\n")
+	fmt.Fprintf(&b, "      VITE_PORT: '%s'\n", vitePort)
+	b.WriteString("    restart: on-failure\n")
+	return b.String()
+}
+
+func vitePortFrom(webPort string) string {
+	n, err := strconv.Atoi(webPort)
+	if err != nil {
+		return "8096"
+	}
+	return strconv.Itoa(n + 1)
+}
+
 var routerEnvKeys = []string{
 	"ASSISTANT_NAME",
 	"CONTAINER_IMAGE",
@@ -248,7 +303,6 @@ var routerEnvKeys = []string{
 	"IDLE_TIMEOUT",
 	"MAX_CONCURRENT_CONTAINERS",
 	"AUTH_SECRET",
-	"WEB_PORT",
 	"WEB_HOST",
 	"MEDIA_ENABLED",
 	"VOICE_TRANSCRIPTION_ENABLED",
