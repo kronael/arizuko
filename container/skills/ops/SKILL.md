@@ -38,14 +38,11 @@ RUN cargo build --release
 
 ### Cross-Compilation
 
-ALWAYS volume mount source, NEVER copy:
+ALWAYS volume mount source, NEVER copy into build image:
 
 ```bash
 docker run -v $(pwd):/src builder make -C /src build
 ```
-
-Image has tools, compilation uses mounted source. Build image once,
-reuse across projects.
 
 ### Resource Limits
 
@@ -61,32 +58,20 @@ reuse across projects.
 
 ## Secrets Management
 
-**TOML overrides** (preferred):
-
-```
-Base config: cfg/config.toml (committed)
-Secrets: /srv/key/env.toml (NOT committed)
-Precedence: env.toml > env vars > config.toml
-```
-
-**File paths**: chmod 600 for keypairs, service user owns certs
+- Base config: `cfg/config.toml` (committed)
+- Secrets: `/srv/key/env.toml` (NOT committed)
+- Precedence: env.toml > env vars > config.toml
+- chmod 600 for keypairs, service user owns certs
 
 ## Logging
 
-**Structured format**:
+Format: `Mon DD HH:MM:SS.fff [LEVEL] message key=value`
 
-```
-Format: Mon DD HH:MM:SS.fff [LEVEL] message key=value
-```
-
-- error: Failures only
-- warn: Recoverable issues
-- info: Normal operations (RECOMMENDED for production)
-- debug: Internal algorithm details
+- error/warn/info/debug — standard levels; info for production
 - Log rotation via logrotate (not in app)
 - CRITICAL prefix for monitoring alerts
 
-**RUST_LOG filtering**:
+RUST_LOG:
 
 ```bash
 RUST_LOG=info                    # Production
@@ -108,21 +93,10 @@ RUST_LOG=module::path=debug,info # Selective
 
 ## Error Handling
 
-**Error hierarchy**:
-
-```
-ApplicationError    # Business logic
-InfrastructureError # External services (gRPC, RPC, network)
-DomainError         # Model validation
-```
-
-**Retry strategy**:
-
-- Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms
+- Retry: exponential backoff 100ms→1600ms
 - ONLY retry transient errors (connection, timeout, unavailable)
 - NEVER retry validation or business logic errors
 - Alert on persistent errors (>10 failures)
-- Graceful degradation (cache fallback, read-only mode)
 
 ## Process Management
 
@@ -153,17 +127,11 @@ DomainError         # Model validation
 
 ### docker-service Role
 
-Containers MUST have either `./main` executable or `python -m main`.
-Ansible entrypoint: `[[ -x ./main ]] && exec ./main $args $cfg || exec python -m main $args $cfg`
-
-**Naming**: service names use underscores (`funding_report`), image
-names use dashes (`funding-report`). Ansible converts between them.
-
-**Network**: `--network=host` (no port mapping). EXPOSE for docs only.
-
-**Config**: `/cfg/<server>/<service>.toml` passed as last argument.
-
-**Volumes**: `/srv/spool/<name>` (persistent), `/srv/run/<name>` (runtime).
+- Containers MUST have `./main` or `python -m main`
+- Naming: service names use underscores, image names use dashes
+- Network: `--network=host` (no port mapping); EXPOSE for docs only
+- Config: `/cfg/<server>/<service>.toml` as last argument
+- Volumes: `/srv/spool/<name>` (persistent), `/srv/run/<name>` (runtime)
 
 **host_vars service definition**:
 
@@ -185,22 +153,15 @@ service:
 
 ## CI/CD
 
-ALWAYS use explicit make targets in CI:
+ALWAYS use explicit make targets in CI: `make prepare`, `make image`, `make test`
 
-```yaml
-- run: make prepare
-- run: make image
-- run: make test
-```
-
-NEVER: run release builds locally, skip clean before CI, assume
-cached state, mix debug and release artifacts.
+NEVER: release builds locally, skip clean before CI, mix debug/release artifacts.
 
 ## Deployment Checklist
 
-1. **Config**: TOML schema, env overrides, secrets isolation, PREFIX
-2. **Logging**: Structured format, levels, RUST_LOG, rotation
-3. **Monitoring**: Prometheus metrics, health check, alerting
-4. **Storage**: ${PREFIX}/data/, state persistence, backups
-5. **Security**: Minimal permissions, no secrets in logs, TLS
-6. **Operations**: Graceful shutdown, PID files, resource limits
+- Config: TOML schema, env overrides, secrets in `/srv/key/`
+- Logging: structured format, RUST_LOG, logrotate
+- Monitoring: Prometheus `/metrics`, `/.well-known/live`
+- Storage: `${PREFIX}/data/`, state persistence
+- Security: no secrets in logs, TLS at proxy, chmod 600 keys
+- Operations: graceful shutdown, PID files, memory limits

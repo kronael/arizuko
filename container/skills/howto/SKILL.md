@@ -1,8 +1,9 @@
 ---
 name: howto
-description: Generate a comprehensive howto page for this group. Documents all
-  features including memory, knowledge, scheduling, web apps. Deploys to the
-  group's web directory.
+description: >
+  Build and deploy a user-facing howto/docs page for this group.
+  Use when asked to "create howto", "generate docs", or "set up getting
+  started page".
 ---
 
 # Howto
@@ -52,6 +53,6 @@ Tell the user the URL.
 
 ## Rules
 
-- Footer MUST read: `powered by <a href="https://REDACTED/kanipi">kanipi</a>`
+- Footer MUST read: `powered by <a href="https://REDACTED/arizuko">arizuko</a>`
 - NEVER attribute to Anthropic or Claude
 - NEVER rebuild from scratch — the template has all 20 sections pre-written

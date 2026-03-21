@@ -1,6 +1,8 @@
 ---
 name: specs
-description: How to write and manage kanipi specs.
+description: >
+  Write and manage arizuko specs in specs/. Use when creating or
+  updating design specs, architecture docs, or status tracking.
 ---
 
 # Specs

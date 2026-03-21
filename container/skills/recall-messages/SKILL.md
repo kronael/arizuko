@@ -7,15 +7,13 @@ arg: <question>
 
 # Recall Messages
 
-Search older chat messages for information relevant to a question.
-Use this when looking for something a user said, a decision made in
-conversation, or context from past exchanges — not for knowledge stored
-in facts/, diary/, or episodes/ (use `/recall-memories` for those).
+Search chat message history for past conversations. Use for "what did X say",
+"did we discuss Y", decisions made in conversation.
+NEVER use for stored knowledge (facts/diary/episodes) — use `/recall-memories` for those.
 
-## v1 Protocol (simplistic)
+## v1 Protocol
 
-v1 uses an Explore subagent to grep through message history files.
-No vector search, no FTS — just structured text scanning.
+Explore subagent greps message history files. No vector search, no FTS.
 
 ### Step 1 — Fetch message history
 

@@ -1,6 +1,9 @@
 ---
-name: research-hub
-description: Deep research hubs on technical topics. Use when asked to "research thoroughly", "deep research", "create research hub", or build a comprehensive knowledge page on a frontier topic (biotech, AI, crypto, etc).
+name: research
+description: >
+  Build deep research hubs: parallel agents, iterative deepening, web page.
+  Use when asked to "research thoroughly", "deep research", or "create
+  a knowledge hub" on a frontier topic (biotech, AI, crypto, etc).
 ---
 
 # Research Hub

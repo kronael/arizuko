@@ -5,7 +5,7 @@ description: Intelligently sync skills and files across groups with conflict res
 
 # Migrate
 
-Intelligent migration system that merges changes while preserving local modifications.
+Sync skills and config across groups. Merges upstream changes, preserves local edits.
 
 ## Root-only check
 
@@ -18,16 +18,16 @@ fi
 
 ## Migration strategy
 
-NEVER use simple cp/rsync for migrations. ALWAYS use intelligent agent-driven merging:
+- NEVER use simple cp/rsync
+- ALWAYS agent-driven merge: detect, classify, resolve
 
-1. **Detect changes**: Compare source vs destination
-2. **Classify conflicts**: Identify local modifications vs upstream changes
-3. **Intelligent merge**:
-   - New files → copy
-   - Unchanged files → skip
-   - Upstream-only changes → update
-   - Local-only changes → preserve
-   - Both changed → agent-driven 3-way merge
+Merge rules:
+
+- New in source → copy
+- Unchanged → skip
+- Upstream-only changes → update
+- Local-only changes → preserve
+- Both changed → agent-driven 3-way merge
 
 ## Implementation
 

@@ -2,7 +2,7 @@
 name: users
 description: Read or update user context files. Use when you need to
   remember something about a user or recall what you know about them.
-user_invocable: true
+user-invocable: true
 arg: <user-id or action>
 ---
 

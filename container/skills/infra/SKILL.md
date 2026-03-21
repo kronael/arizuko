@@ -1,12 +1,14 @@
 ---
 name: infra
-description: Instance-level infrastructure management. Tier 0 (root) only.
+description: >
+  Root-group only. Assign virtual hostnames, manage vhosts.json,
+  verify DNS. Use when adding a new domain or hostname to an instance.
 user-invocable: true
 ---
 
-# Infra Skill
+# Infra
 
-Instance-level infrastructure management. Tier 0 (root) only.
+Root-only. Manage virtual hostnames and web directory structure.
 
 ## Hostname Assignment
 
@@ -33,9 +35,8 @@ won't work until DNS propagates.
 
 ## SSL/TLS
 
-TLS termination is handled by the reverse proxy (Caddy/nginx)
-in front of kanipi, not by kanipi itself. Caddy auto-provisions
-Let's Encrypt certs for configured domains.
+- TLS terminated by reverse proxy (Caddy/nginx) — not by arizuko
+- Caddy auto-provisions Let's Encrypt certs for configured domains
 
 ## Web Directory Structure
 

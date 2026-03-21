@@ -1,14 +1,16 @@
 ---
 name: recall-memories
-description: Search knowledge stores for relevant information.
-user_invocable: true
+description: >
+  Search facts/, diary/, users/, episodes/ for relevant knowledge.
+  Use for technical questions, person lookups, or recent work context.
+  Read-only — never writes files.
+user-invocable: true
 arg: <question>
 ---
 
-# Recall
+# Recall Memories
 
-Search `facts/`, `diary/`, `users/`, `episodes/` for information
-relevant to a question. Read-only — never writes files.
+Search all memory stores for information relevant to a question.
 
 ## Protocol
 

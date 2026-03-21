@@ -4,20 +4,20 @@ description: Code refinement and finalization. Orchestrates improve + readme age
 user-invocable: true
 ---
 
-# Refine Skill
+# Refine
 
-Orchestrates code refinement. Runs in main context for full conversation visibility.
+Orchestrates code refinement in main context (full conversation visibility).
 
-## Theme: Simplify First
+## Simplify First
 
-**Primary objective**: make the code simpler while preserving all functionality.
+Primary objective: make code simpler while preserving all functionality.
 
-- Remove dead code, redundant checks, unnecessary abstractions
-- Collapse multi-line logic that reads as clearly on one line
-- Prefer plain functions over classes when no state is held
-- Delete helpers used only once — inline them
-- Cut comments that restate code; keep only non-obvious intent
-- Fewer moving parts → fewer bugs; smaller surface → easier to test
+- ALWAYS remove dead code, redundant checks, unnecessary abstractions
+- ALWAYS collapse multi-line logic that reads as clearly on one line
+- ALWAYS prefer plain functions over classes when no state is held
+- ALWAYS delete helpers used only once — inline them
+- NEVER add comments that restate code; only non-obvious intent
+- Fewer moving parts = fewer bugs, smaller surface = easier to test
 
 ## Workflow
 
