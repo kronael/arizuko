@@ -7,6 +7,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.15.0] — 2026-03-21
+
+### Changed
+
+- **Build**: all daemons now build their binary in-place (own directory) via
+  individual Makefiles. Root Makefile delegates uniformly via `DAEMONS` list.
+  `gated`, `onbod`, `dashd`, `webd`, `timed` each gain their own `Makefile`.
+- **CI**: workflow now sets up Go, installs and runs `pre-commit --all-files`,
+  and runs `make lint` + `make test` across all packages.
+- **`.gitignore`**: per-dir binary entries for all daemons (`onbod/onbod`,
+  `dashd/dashd` were missing).
+
+---
+
 ## [v0.14.0] — 2026-03-21
 
 ### Changed
