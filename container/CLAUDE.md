@@ -22,7 +22,7 @@ On every NEW session, recover context from past sessions:
 1. Read the 2 most recent `diary/*.md` files (by filename date)
 2. If diary is empty or insufficient, find past session files:
    ```bash
-   ls -t ~/.claude/projects/-workspace-group/*.jsonl | head -3
+   ls -t ~/.claude/projects/-workspace-group/*.jl | head -3
    ```
    Read the most recent file (tail the last 100 lines to see
    what was discussed). The gateway also injects `<system event="new-session">`

@@ -102,7 +102,7 @@ ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0
 ```
 
-Latest migration version: **16**. If version < 16: migrations pending.
+Latest migration version: **38**. If version < 38: migrations pending.
 
 ## MCP tools
 
@@ -110,22 +110,24 @@ These tools are **live in your Claude Code session right now** — not a
 reference, the actual callable list. Use them directly without invoking
 any skill or reading any file first.
 
-| Tool             | Description                                                 |
-| ---------------- | ----------------------------------------------------------- |
-| `send_message`   | Send intermediate status update to user while still running |
-| `send_file`      | Send a file from workspace to user as document attachment   |
-| `schedule_task`  | Schedule recurring or one-time agent task                   |
-| `pause_task`     | Pause a scheduled task                                      |
-| `resume_task`    | Resume a paused task                                        |
-| `cancel_task`    | Cancel and delete a scheduled task                          |
-| `register_group` | Register new WhatsApp group (root only)                     |
-| `refresh_groups` | Sync group metadata from channel (root only)                |
-| `delegate_group` | Forward a message to a child group for processing           |
-| `set_routes`     | Replace all routes for a JID                                |
-| `add_route`      | Add a single route for a JID                                |
-| `get_routes`     | Get routes for a JID                                        |
-| `delete_route`   | Delete a route by ID                                        |
-| `reset_session`  | Clear this group's session and start fresh                  |
+| Tool             | Description                                                               |
+| ---------------- | ------------------------------------------------------------------------- |
+| `send_message`   | Send a text message to a chat (use jid param to target)                   |
+| `send_reply`     | Reply to current conversation (auto-injects replyTo); returns `messageId` |
+| `send_file`      | Send a file from workspace to user as document attachment                 |
+| `schedule_task`  | Schedule recurring or one-time agent task                                 |
+| `pause_task`     | Pause a scheduled task                                                    |
+| `resume_task`    | Resume a paused task                                                      |
+| `cancel_task`    | Cancel and delete a scheduled task                                        |
+| `register_group` | Register new WhatsApp group (root only)                                   |
+| `refresh_groups` | Sync group metadata from channel (root only)                              |
+| `delegate_group` | Forward a message to a child group for processing                         |
+| `escalate_group` | Escalate a task to the parent group                                       |
+| `set_routes`     | Replace all routes for a JID                                              |
+| `add_route`      | Add a single route for a JID                                              |
+| `get_routes`     | Get routes for a JID                                                      |
+| `delete_route`   | Delete a route by ID                                                      |
+| `reset_session`  | Clear this group's session and start fresh                                |
 
 ### send_file usage
 
