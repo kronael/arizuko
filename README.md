@@ -4,11 +4,13 @@ Multitenant Claude agent gateway. Polls messaging channels,
 routes to containerized Claude agents via docker, streams
 responses back. Go, SQLite, Docker.
 
-**蟻塚女** — _mistress of the ant hill._ Each agent is one ant: isolated
-in its container, focused on its work, patient across sessions. Arizuko
-coordinates — routing messages to the right ant, enforcing permissions,
-scheduling tasks, maintaining memory. No ant needs to understand the
-whole colony. Each does its piece; Arizuko ensures the grain reaches the hill.
+**蟻塚女** — _mistress of the ant hill._ Each agent is one ant: unalive,
+not dead — beyond the need to sleep, tire, or forget. Ants don't dream of
+being human. They are better than alive: patient across sessions, focused
+without distraction, persistent without effort. Arizuko organizes them —
+routing work, enforcing permissions, scheduling tasks, holding memory.
+No ant needs to understand the colony. Each does its piece;
+Arizuko ensures the grain reaches the hill.
 
 ## Quick Start
 
