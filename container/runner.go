@@ -118,10 +118,6 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		in.Annotations = append(in.Annotations, ep)
 	}
 
-	if f := ReadFacts(groupDir); f != "" {
-		in.Annotations = append(in.Annotations, f)
-	}
-
 	if d := diary.Read(groupDir, 14); d != "" {
 		in.Annotations = append(in.Annotations, d)
 	}
