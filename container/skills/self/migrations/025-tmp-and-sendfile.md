@@ -1,7 +1,6 @@
-# 025 — ~/tmp for temporary files
+# 025 — tmp dir for temporary files
 
-Use ~/tmp/ for all temporary files. Files sent via send_file must be
-under ~/. Files in /tmp or other paths outside ~/ are container-local
-and will be rejected by send_file with an error.
+Use `/workspace/group/tmp/` for all temporary files (not ~/tmp — ~/
+is in-container only and not accessible to the gateway).
 
-mkdir -p ~/tmp
+mkdir -p /workspace/group/tmp

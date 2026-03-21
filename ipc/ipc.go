@@ -193,7 +193,17 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			fp := req.GetString("filepath", "")
 			name := req.GetString("filename", "")
-			rel := strings.TrimPrefix(strings.TrimPrefix(fp, "/workspace/group/"), "/workspace/group")
+			// Translate /workspace/group/... or /workspace/media/... to localPath.
+			// Both mounts live under groupDir; media is groupDir/media.
+			var rel string
+			switch {
+			case strings.HasPrefix(fp, "/workspace/group/"):
+				rel = strings.TrimPrefix(fp, "/workspace/group/")
+			case strings.HasPrefix(fp, "/workspace/media/"):
+				rel = "media/" + strings.TrimPrefix(fp, "/workspace/media/")
+			default:
+				return toolErr("filepath must be under /workspace/group or /workspace/media")
+			}
 			localPath := filepath.Join(gated.GroupsDir, folder, rel)
 			hostPath := filepath.Join(gated.HostGroupsDir, folder, rel)
 			if _, err := mountsec.ValidateFilePath(localPath, filepath.Join(gated.GroupsDir, folder)); err != nil {
