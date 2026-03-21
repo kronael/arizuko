@@ -134,4 +134,68 @@ cat ~/.claude/CLAUDE.md
 
 Read the output and follow any new instructions immediately.
 
+## d) Apply template overlays
+
+For each group with `~/.claude/skills/self/TEMPLATES`, apply named overlays
+from `/workspace/self/templates/<name>/`.
+
+```bash
+src_templates=/workspace/self/templates
+
+for session in /workspace/data/sessions/*/; do
+  self_dir="$session/.claude/skills/self"
+  tfile="$self_dir/TEMPLATES"
+  test -f "$tfile" || continue
+  group=$(basename "$session")
+
+  while IFS= read -r name || [ -n "$name" ]; do
+    name=$(echo "$name" | tr -d '[:space:]')
+    [ -z "$name" ] && continue
+    tdir="$src_templates/$name"
+    if [ ! -d "$tdir" ]; then
+      echo "  $group: warning: template '$name' not found, skipping"
+      continue
+    fi
+
+    [ -f "$tdir/SOUL.md" ]   && cp "$tdir/SOUL.md"   "$session/SOUL.md"   && echo "$group: $name: SOUL.md"
+    [ -f "$tdir/SYSTEM.md" ] && cp "$tdir/SYSTEM.md" "$session/SYSTEM.md" && echo "$group: $name: SYSTEM.md"
+
+    if [ -f "$tdir/CLAUDE.md" ]; then
+      target="$session/.claude/CLAUDE.md"
+      python3 -c "
+import re
+src = open('$tdir/CLAUDE.md').read()
+tgt = open('$target').read() if __import__('os').path.exists('$target') else ''
+parts = re.split(r'(?=^## )', src, flags=re.M)
+with open('$target', 'a') as f:
+    for p in parts:
+        h = re.match(r'^(## [^\n]+)', p)
+        if h and h.group(1) not in tgt:
+            f.write(('\n' if tgt.rstrip() else '') + p)
+            tgt += p
+"
+      echo "$group: $name: CLAUDE.md merged"
+    fi
+
+    if [ -d "$tdir/.claude/skills" ]; then
+      for skill_dir in "$tdir/.claude/skills/"/*/; do
+        sname=$(basename "$skill_dir")
+        dest="$session/.claude/skills/$sname"
+        grep -qE "^(disabled: true|managed: local)" "$dest/SKILL.md" 2>/dev/null && continue
+        cp -r "$skill_dir" "$dest" && echo "$group: $name: skills/$sname"
+      done
+    fi
+
+    if [ -d "$tdir/.claude/output-styles" ]; then
+      mkdir -p "$session/.claude/output-styles/"
+      cp "$tdir/.claude/output-styles/"* "$session/.claude/output-styles/" 2>/dev/null
+      echo "$group: $name: output-styles"
+    fi
+  done < "$tfile"
+
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$self_dir/TEMPLATES.applied"
+  echo "$group: overlays done"
+done
+```
+
 Report summary of groups updated and migrations run.
