@@ -13,8 +13,12 @@ import (
 	"strings"
 	"time"
 
+	_ "modernc.org/sqlite"
+
 	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/chanlib"
+	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/store"
 )
 
 type config struct {
@@ -96,13 +100,14 @@ func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return h.Hijack()
 }
 
-func (s *server) handler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (s *server) handler(st *store.Store, cfg *core.Config) http.Handler {
+	mux := http.NewServeMux()
+	auth.RegisterRoutes(mux, st, cfg)
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, code: 200}
-
 		s.route(sw, r)
-
 		slog.Info("request",
 			"method", r.Method,
 			"path", r.URL.Path,
@@ -110,6 +115,8 @@ func (s *server) handler() http.Handler {
 			"dur", time.Since(start).String(),
 		)
 	})
+
+	return mux
 }
 
 func (s *server) route(w http.ResponseWriter, r *http.Request) {
@@ -127,20 +134,14 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. /auth/ — public (login pages)
-	if strings.HasPrefix(r.URL.Path, "/auth/") {
-		s.dashProxy.ServeHTTP(w, r)
-		return
-	}
-
-	// 4. /health — public
+	// 3. /health — public
 	if r.URL.Path == "/health" {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"ok":true}`))
 		return
 	}
 
-	// 5. /* — Vite, auth-gated unless WEB_PUBLIC=true
+	// 4. /* — Vite, auth-gated unless WEB_PUBLIC=true
 	if s.cfg.webPublic {
 		s.viteProxy.ServeHTTP(w, r)
 	} else {
@@ -189,13 +190,27 @@ func main() {
 	})))
 
 	cfg := loadConfig()
+
+	coreCfg, err := core.LoadConfig()
+	if err != nil {
+		slog.Error("load config", "err", err)
+		os.Exit(1)
+	}
+
+	st, err := store.Open(coreCfg.StoreDir)
+	if err != nil {
+		slog.Error("open store", "err", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+
 	s := newServer(cfg)
 
 	slog.Info("webd starting", "port", cfg.port, "dash", cfg.dashAddr, "vite", cfg.viteAddr)
 
 	srv := &http.Server{
 		Addr:    cfg.port,
-		Handler: s.handler(),
+		Handler: s.handler(st, coreCfg),
 	}
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
