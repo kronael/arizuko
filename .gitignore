@@ -23,6 +23,7 @@ config
 hooks
 objects
 refs
+.refs/
 old/
 /arizuko
 bin/
