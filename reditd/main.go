@@ -88,7 +88,7 @@ func loadConfig() config {
 		RouterURL:     mustEnv("ROUTER_URL"),
 		ChannelSecret: envOr("CHANNEL_SECRET", ""),
 		ListenAddr:    envOr("LISTEN_ADDR", ":9006"),
-		ListenURL:     envOr("LISTEN_URL", "http://reddit:9006"),
+		ListenURL:     envOr("LISTEN_URL", "http://reditd:9006"),
 	}
 }
 

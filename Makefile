@@ -8,7 +8,7 @@ build:
 	make -C emaid build
 	make -C mastod build
 	make -C bskyd build
-	make -C redd build
+	make -C reditd build
 
 lint:
 	go vet ./...
@@ -25,7 +25,7 @@ clean:
 	make -C emaid clean
 	make -C mastod clean
 	make -C bskyd clean
-	make -C redd clean
+	make -C reditd clean
 
 images:
 	docker build -t arizuko .
