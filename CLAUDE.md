@@ -17,9 +17,13 @@ make lint     # go vet ./...
 make test     # go test ./... -count=1
 make images   # all docker images (router + adapters + agent)
 make agent    # agent docker image (make -C container image)
+
+# Run a single test package
+go test ./gateway/... -count=1 -run TestName
 ```
 
 Tests use `modernc.org/sqlite` (pure Go, no CGO).
+Exception: `gated` requires `CGO_ENABLED=1` (see Makefile).
 Pre-commit hooks configured via `.pre-commit-config.yaml`.
 
 ## Architecture
@@ -62,10 +66,15 @@ onbod/             Onboarding daemon (auto-included when ONBOARDING_ENABLED=true
 dashd/             Operator dashboards
 grants/            Grant rule engine
 notify/            Operator notifications (library)
+chanlib/           Shared primitives for channel adapter daemons
 teled/             Telegram adapter (Go)
 discd/             Discord adapter (Go)
+mastd/             Mastodon adapter (Go)
+bskyd/             Bluesky adapter (Go)
+reditd/            Reddit adapter (Go)
 whapd/             WhatsApp adapter (TypeScript)
 webd/              Web proxy daemon (auth, /dash/, /auth/, Vite)
+cfg/               Instance config files (per-deploy .env snapshots)
 ```
 
 ## Conventions
@@ -102,7 +111,7 @@ API server always starts (default port 8080).
 `arizuko group <instance> list|add|rm` — manage registered groups.
 `arizuko status <instance>` — show compose services and registered channels.
 
-Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`, `onbod`, `dashd`. Each in `<name>/main.go`.
+Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`, `mastd`, `bskyd`, `reditd`, `onbod`, `dashd`. Each in `<name>/main.go`.
 
 ## Design Philosophy
 
@@ -116,22 +125,26 @@ servers, CLAUDE.md, memory) is the primary extension mechanism.
 
 Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 
-| Name     | Type    | Role                                                                  |
-| -------- | ------- | --------------------------------------------------------------------- |
-| `gated`  | daemon  | Message loop, routing, containers                                     |
-| `timed`  | daemon  | Cron poll, writes to messages                                         |
-| `onbod`  | daemon  | Onboarding state machine (auto-included when ONBOARDING_ENABLED=true) |
-| `dashd`  | daemon  | Operator dashboards (HTMX)                                            |
-| `ipc`    | library | MCP server, identity stamping                                         |
-| `auth`   | library | Authorization policy, JWT, OAuth                                      |
-| `grants` | library | Grant rule engine                                                     |
-| `notify` | library | Operator notifications                                                |
-| `teled`  | daemon  | Telegram adapter (Go)                                                 |
-| `discd`  | daemon  | Discord adapter (Go)                                                  |
-| `whapd`  | daemon  | WhatsApp adapter (TypeScript)                                         |
-| `webd`   | daemon  | Web proxy: auth gate, /dash/, /auth/, Vite                            |
-| `vited`  | service | Vite dev server (arizuko-vite image)                                  |
-| `emaid`  | planned | Email adapter                                                         |
+| Name      | Type    | Role                                                                  |
+| --------- | ------- | --------------------------------------------------------------------- |
+| `gated`   | daemon  | Message loop, routing, containers                                     |
+| `timed`   | daemon  | Cron poll, writes to messages                                         |
+| `onbod`   | daemon  | Onboarding state machine (auto-included when ONBOARDING_ENABLED=true) |
+| `dashd`   | daemon  | Operator dashboards (HTMX)                                            |
+| `ipc`     | library | MCP server, identity stamping                                         |
+| `auth`    | library | Authorization policy, JWT, OAuth                                      |
+| `grants`  | library | Grant rule engine                                                     |
+| `notify`  | library | Operator notifications                                                |
+| `chanlib` | library | Shared HTTP + auth primitives for channel adapters                    |
+| `teled`   | daemon  | Telegram adapter (Go)                                                 |
+| `discd`   | daemon  | Discord adapter (Go)                                                  |
+| `mastd`   | daemon  | Mastodon adapter (Go)                                                 |
+| `bskyd`   | daemon  | Bluesky adapter (Go)                                                  |
+| `reditd`  | daemon  | Reddit adapter (Go)                                                   |
+| `whapd`   | daemon  | WhatsApp adapter (TypeScript)                                         |
+| `webd`    | daemon  | Web proxy: auth gate, /dash/, /auth/, Vite                            |
+| `vited`   | service | Vite dev server (arizuko-vite image)                                  |
+| `emaid`   | planned | Email adapter                                                         |
 
 Deployment: `arizuko run <instance>` generates docker-compose.yml and runs `docker compose up`.
 Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
