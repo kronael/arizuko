@@ -5,6 +5,10 @@ build:
 	go build -o bin/dashd ./dashd/
 	make -C teled build
 	make -C discd build
+	make -C emaid build
+	make -C mastod build
+	make -C bskyd build
+	make -C redd build
 
 lint:
 	go vet ./...
@@ -18,6 +22,10 @@ clean:
 	rm -f bin/dashd
 	make -C teled clean
 	make -C discd clean
+	make -C emaid clean
+	make -C mastod clean
+	make -C bskyd clean
+	make -C redd clean
 
 images:
 	docker build -t arizuko .
