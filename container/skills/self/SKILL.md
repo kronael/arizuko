@@ -1,7 +1,8 @@
 ---
 name: self
-description: Introspect this agent — workspace layout, skills, channels,
-  migration version. Use for "who are you", "introspect", "status", "what version".
+description: Introspect this agent — workspace layout, MCP tools, skills,
+  channels, migration version. Use for "who are you", "introspect", "status",
+  "what version", or when blocked and unsure what you can do.
 ---
 
 # Self

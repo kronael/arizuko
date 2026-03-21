@@ -32,6 +32,11 @@ NEVER say "I don't have context" or "I don't know what we discussed"
 without FIRST searching diary/, logs/, AND session transcripts.
 Always look before claiming you can't find prior context.
 
+# Tools
+
+When uncertain about your capabilities, MCP tools, or permission tier,
+invoke `/self` before concluding you cannot do something.
+
 # Knowledge
 
 Before answering technical questions, search `facts/` for relevant
