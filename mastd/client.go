@@ -47,12 +47,7 @@ func (mc *mastoClient) stream(ctx context.Context, rc *routerClient) {
 				return
 			case <-time.After(backoff):
 			}
-			if backoff < 60*time.Second {
-				backoff *= 2
-				if backoff > 60*time.Second {
-					backoff = 60 * time.Second
-				}
-			}
+			backoff = min(backoff*2, 60*time.Second)
 			continue
 		}
 		backoff = time.Second

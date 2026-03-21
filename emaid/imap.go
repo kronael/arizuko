@@ -40,12 +40,7 @@ func (p *poller) run(ctx context.Context, rc *routerClient) {
 				return
 			case <-time.After(backoff):
 			}
-			if backoff < 60*time.Second {
-				backoff *= 2
-				if backoff > 60*time.Second {
-					backoff = 60 * time.Second
-				}
-			}
+			backoff = min(backoff*2, 60*time.Second)
 			continue
 		}
 		backoff = time.Second
@@ -129,7 +124,6 @@ func (p *poller) handleMsg(
 		}
 	}
 
-	// Determine thread
 	var threadID, rootMsgID string
 	if len(env.InReplyTo) > 0 {
 		parentID := strings.Trim(env.InReplyTo[0], "<>")
@@ -145,14 +139,12 @@ func (p *poller) handleMsg(
 	}
 	storeThread(p.db, msgID, threadID, fromAddr, rootMsgID)
 
-	// Get body
 	bodyRaw := msg.FindBodySection(&imap.FetchItemBodySection{})
 	body := ""
 	if bodyRaw != nil {
 		body = extractPlainText(bytes.NewReader(bodyRaw))
 	}
 
-	// Build content
 	subject := env.Subject
 	toAddr := ""
 	if len(env.To) > 0 {
@@ -177,7 +169,6 @@ func (p *poller) handleMsg(
 		slog.Error("deliver failed", "jid", jid, "err", err)
 	}
 
-	// Mark seen
 	c.Store(imap.SeqSetNum(seqNum), &imap.StoreFlags{
 		Op:    imap.StoreFlagsAdd,
 		Flags: []imap.Flag{imap.FlagSeen},

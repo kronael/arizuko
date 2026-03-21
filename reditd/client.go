@@ -24,8 +24,8 @@ type redditClient struct {
 	mu        sync.Mutex
 	token     string
 	expiresAt time.Time
-	cursors   map[string]string // source → "before" cursor
-	firstPoll map[string]bool
+	cursors   map[string]string
+	skipFirst map[string]bool
 }
 
 func newRedditClient(cfg config) (*redditClient, error) {
@@ -33,7 +33,7 @@ func newRedditClient(cfg config) (*redditClient, error) {
 		cfg:       cfg,
 		http:      &http.Client{Timeout: 15 * time.Second},
 		cursors:   map[string]string{},
-		firstPoll: map[string]bool{},
+		skipFirst: map[string]bool{},
 	}
 	if err := rc.refreshToken(); err != nil {
 		return nil, err
@@ -211,12 +211,8 @@ func (rc *redditClient) pollSource(key, path string, router *routerClient) {
 		rc.cursors[key] = l.Data.Children[0].Data.Name
 	}
 
-	if rc.firstPoll[key] {
-		rc.firstPoll[key] = false
-		return
-	}
-	if _, seen := rc.firstPoll[key]; !seen {
-		rc.firstPoll[key] = false
+	if !rc.skipFirst[key] {
+		rc.skipFirst[key] = true
 		return
 	}
 
@@ -229,11 +225,10 @@ func (rc *redditClient) handleThing(t thing, key string, router *routerClient) {
 	d := t.Data
 	sender := "reddit:" + d.Author
 
-	var jid string
-	if strings.HasPrefix(key, "sr:") {
+	isSubreddit := strings.HasPrefix(key, "sr:")
+	jid := sender
+	if isSubreddit {
 		jid = "reddit:" + d.Subreddit
-	} else {
-		jid = sender
 	}
 
 	content := d.Body
@@ -247,21 +242,20 @@ func (rc *redditClient) handleThing(t thing, key string, router *routerClient) {
 		return
 	}
 
-	name := d.Author
 	chatName := d.Author
-	if d.Subreddit != "" && strings.HasPrefix(key, "sr:") {
+	if isSubreddit && d.Subreddit != "" {
 		chatName = "r/" + d.Subreddit
 	}
-	_ = router.sendChat(jid, chatName, strings.HasPrefix(key, "sr:"))
+	_ = router.sendChat(jid, chatName, isSubreddit)
 
 	err := router.sendMessage(inboundMsg{
 		ID:         d.Name,
 		ChatJID:    jid,
 		Sender:     sender,
-		SenderName: name,
+		SenderName: d.Author,
 		Content:    content,
 		Timestamp:  int64(d.CreatedAt),
-		IsGroup:    strings.HasPrefix(key, "sr:"),
+		IsGroup:    isSubreddit,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)

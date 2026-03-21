@@ -35,7 +35,6 @@ func newBskyClient(cfg config) (*bskyClient, error) {
 }
 
 func (bc *bskyClient) auth() error {
-	// Try resume from disk
 	if s := bc.loadSession(); s != nil {
 		if err := bc.refreshSession(s.RefreshJwt); err == nil {
 			return nil
@@ -69,7 +68,7 @@ func (bc *bskyClient) saveSession() {
 func (bc *bskyClient) createSession() error {
 	body := map[string]string{"identifier": bc.cfg.Identifier, "password": bc.cfg.Password}
 	var s session
-	if err := bc.xrpc("POST", "com.atproto.server.createSession", nil, body, &s); err != nil {
+	if err := bc.xrpcWithAuth("POST", "com.atproto.server.createSession", nil, body, &s, ""); err != nil {
 		return fmt.Errorf("createSession: %w", err)
 	}
 	bc.session = s
@@ -138,7 +137,7 @@ func (bc *bskyClient) fetchNotifications(rc *routerClient) error {
 		Notifications []notification `json:"notifications"`
 	}
 	params := map[string]string{"reasons": "mention,reply", "limit": "25"}
-	if err := bc.xrpc("GET", "app.bsky.notification.listNotifications", params, nil, &result); err != nil {
+	if err := bc.xrpcWithAuth("GET", "app.bsky.notification.listNotifications", params, nil, &result, bc.session.AccessJwt); err != nil {
 		return err
 	}
 
@@ -153,8 +152,8 @@ func (bc *bskyClient) fetchNotifications(rc *routerClient) error {
 	}
 
 	if processed > 0 {
-		bc.xrpc("POST", "app.bsky.notification.updateSeen", nil,
-			map[string]string{"seenAt": now}, nil)
+		bc.xrpcWithAuth("POST", "app.bsky.notification.updateSeen", nil,
+			map[string]string{"seenAt": now}, nil, bc.session.AccessJwt)
 	}
 	return nil
 }
@@ -226,9 +225,6 @@ func (bc *bskyClient) getPostCID(uri string) (string, error) {
 	return result.CID, nil
 }
 
-func (bc *bskyClient) xrpc(method, nsid string, params map[string]string, body any, out any) error {
-	return bc.xrpcWithAuth(method, nsid, params, body, out, bc.session.AccessJwt)
-}
 
 func (bc *bskyClient) xrpcAuth(method, nsid string, params map[string]string, body any, out any) error {
 	err := bc.xrpcWithAuth(method, nsid, params, body, out, bc.session.AccessJwt)
