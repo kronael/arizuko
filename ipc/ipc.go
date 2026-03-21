@@ -144,6 +144,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if !grantslib.CheckAction(rules, "send_message", map[string]string{"jid": jid}) {
 				return toolErr("send_message: not permitted")
 			}
+			if gated.SendMessage == nil {
+				return toolErr("send_message not configured")
+			}
 			if err := gated.SendMessage(jid, req.GetString("text", "")); err != nil {
 				return toolErr(err.Error())
 			}
@@ -163,6 +166,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if !grantslib.CheckAction(rules, "send_reply", map[string]string{"jid": jid}) {
 				return toolErr("send_reply: not permitted")
 			}
+			if gated.SendReply == nil {
+				return toolErr("send_reply not configured")
+			}
 			if err := gated.SendReply(jid, req.GetString("text", ""), req.GetString("replyToId", "")); err != nil {
 				return toolErr(err.Error())
 			}
@@ -181,6 +187,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			jid := req.GetString("chatJid", "")
 			if !grantslib.CheckAction(rules, "send_file", map[string]string{"jid": jid}) {
 				return toolErr("send_file: not permitted")
+			}
+			if gated.SendDocument == nil {
+				return toolErr("send_file not configured")
 			}
 			fp := req.GetString("filepath", "")
 			name := req.GetString("filename", "")
@@ -212,6 +221,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			if !grantslib.CheckAction(rules, "reset_session", nil) {
 				return toolErr("reset_session: not permitted")
+			}
+			if gated.ClearSession == nil {
+				return toolErr("reset_session not configured")
 			}
 			if err := auth.Authorize(id, "reset_session", auth.AuthzTarget{TargetFolder: gf}); err != nil {
 				return toolErr(err.Error())

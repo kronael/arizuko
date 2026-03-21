@@ -43,6 +43,8 @@ func (s *Store) AddRoute(jid string, r core.Route) (int64, error) {
 // InsertPrefixRoutes inserts @ (seq=-2) and # (seq=-1) prefix routes for jid
 // pointing at folder. Negative seq ensures they evaluate before default (seq=0).
 // Uses INSERT OR IGNORE to skip duplicates.
+// Error is intentionally ignored: prefix routes are a convenience inserted by
+// convention and can be added manually if needed. Non-fatal.
 func (s *Store) InsertPrefixRoutes(jid, folder string) {
 	s.db.Exec(
 		`INSERT OR IGNORE INTO routes (jid, seq, type, match, target)

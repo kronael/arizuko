@@ -4,6 +4,11 @@ Multitenant Claude agent gateway. Polls messaging channels,
 routes to containerized Claude agents via docker, streams
 responses back. Go, SQLite, Docker.
 
+**蟻塚女** — _mistress of the ant hill._ Arizuko manages the ants:
+each agent is one ant, isolated, purposeful, diligent. The mistress
+coordinates — routing work, enforcing permissions, scheduling tasks —
+making every ant powerful and a productive part of the whole colony.
+
 ## Quick Start
 
 ```bash

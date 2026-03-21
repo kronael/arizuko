@@ -7,6 +7,7 @@ import (
 )
 
 func (s *Store) PutMessage(m core.Message) error {
+	// INSERT OR IGNORE: same message ID from same platform is idempotent.
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO messages
 		 (id, chat_jid, sender, sender_name, content, timestamp,

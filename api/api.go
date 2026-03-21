@@ -150,6 +150,19 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify the message JID belongs to one of the channel's registered prefixes.
+	var jidOK bool
+	for _, p := range entry.JIDPrefixes {
+		if strings.HasPrefix(req.ChatJID, p) {
+			jidOK = true
+			break
+		}
+	}
+	if !jidOK {
+		writeErr(w, http.StatusBadRequest, "jid prefix mismatch")
+		return
+	}
+
 	if req.ID == "" {
 		req.ID = fmt.Sprintf("%s-%d", entry.Name, time.Now().UnixNano())
 	}

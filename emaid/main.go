@@ -16,6 +16,9 @@ func main() {
 	})))
 
 	cfg := loadConfig()
+	if cfg.ChannelSecret == "" {
+		slog.Warn("CHANNEL_SECRET not set; HTTP endpoints unauthenticated")
+	}
 
 	db, err := openDB(cfg.DataDir)
 	if err != nil {

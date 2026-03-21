@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -98,11 +99,23 @@ func (b *bot) send(jid, text, replyTo string) (string, error) {
 			msg *discordgo.Message
 			err error
 		)
-		if replyTo != "" && i == 0 {
-			ref := &discordgo.MessageReference{MessageID: replyTo}
-			msg, err = b.session.ChannelMessageSendReply(chID, c, ref)
-		} else {
-			msg, err = b.session.ChannelMessageSend(chID, c)
+		for attempt := 0; attempt < 3; attempt++ {
+			if replyTo != "" && i == 0 {
+				ref := &discordgo.MessageReference{MessageID: replyTo}
+				msg, err = b.session.ChannelMessageSendReply(chID, c, ref)
+			} else {
+				msg, err = b.session.ChannelMessageSend(chID, c)
+			}
+			if err == nil {
+				break
+			}
+			errStr := err.Error()
+			if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") {
+				slog.Warn("discord rate limited, retrying", "attempt", attempt+1)
+				time.Sleep(time.Second)
+				continue
+			}
+			break
 		}
 		if err != nil {
 			return "", fmt.Errorf("discord send: %w", err)

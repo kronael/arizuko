@@ -17,6 +17,9 @@ func main() {
 	})))
 
 	cfg := loadConfig()
+	if cfg.ChannelSecret == "" {
+		slog.Warn("CHANNEL_SECRET not set; HTTP endpoints unauthenticated")
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(),
 		syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()

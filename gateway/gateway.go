@@ -40,6 +40,8 @@ type Gateway struct {
 	gatedFns ipc.GatedFns
 	storeFns ipc.StoreFns
 
+	// lastTimestamp is persisted and queried as RFC3339Nano throughout to
+	// preserve nanosecond precision; seconds-only formats risk missed messages.
 	lastTimestamp time.Time
 }
 
@@ -237,6 +239,7 @@ func (g *Gateway) pollOnce() {
 	msgs, hi, err := g.store.NewMessages(jids, since, g.cfg.Name)
 	if err != nil {
 		slog.Error("error in message loop", "err", err)
+		time.Sleep(5 * time.Second)
 		return
 	}
 	if len(msgs) == 0 {
@@ -671,6 +674,10 @@ func (g *Gateway) handlePrefixRoute(
 	}
 	switch r.Match {
 	case "@":
+		if strings.Contains(name, "/") {
+			slog.Warn("@prefix: name contains slash, rejecting", "name", name)
+			return false
+		}
 		childFolder := r.Target + "/" + name
 		g.mu.RLock()
 		_, _, exists := g.groupByFolderLocked(childFolder)
@@ -706,6 +713,9 @@ func (g *Gateway) handlePrefixRoute(
 	return false
 }
 
+// advanceAgentCursor marks messages up to the last one as processed.
+// If the process crashes after agent output but before this call, the
+// same messages will be replayed on restart (at-least-once delivery).
 func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {
 	if len(msgs) == 0 {
 		return

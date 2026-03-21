@@ -49,9 +49,19 @@ func getThreadByMsgID(db *sql.DB, msgID string) *emailThread {
 	return &t
 }
 
-func storeThread(db *sql.DB, msgID, threadID, fromAddress, rootMsgID string) {
-	db.Exec(`INSERT OR IGNORE INTO email_threads (thread_id, from_address, root_msg_id) VALUES (?,?,?)`,
+// upsertThread atomically records a message→thread mapping.
+// Concurrent polls on the same message ID are safe (INSERT OR IGNORE is idempotent).
+func upsertThread(db *sql.DB, msgID, threadID, fromAddress, rootMsgID string) {
+	tx, err := db.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	tx.Exec(
+		`INSERT OR IGNORE INTO email_threads (thread_id, from_address, root_msg_id) VALUES (?,?,?)`,
 		threadID, fromAddress, rootMsgID)
-	db.Exec(`INSERT OR IGNORE INTO email_msg_ids (msg_id, thread_id) VALUES (?,?)`,
+	tx.Exec(
+		`INSERT OR IGNORE INTO email_msg_ids (msg_id, thread_id) VALUES (?,?)`,
 		msgID, threadID)
+	tx.Commit()
 }

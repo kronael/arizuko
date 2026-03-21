@@ -71,28 +71,31 @@ func (p *poller) poll(ctx context.Context, rc *routerClient) error {
 	criteria := &imap.SearchCriteria{
 		NotFlag: []imap.Flag{imap.FlagSeen},
 	}
-	searchData, err := c.Search(criteria, nil).Wait()
+	// Use UID search so IDs are stable across reconnects.
+	searchData, err := c.UIDSearch(criteria, nil).Wait()
 	if err != nil {
 		return fmt.Errorf("search: %w", err)
 	}
 
-	nums := searchData.AllSeqNums()
-	if len(nums) == 0 {
+	uids := searchData.AllUIDs()
+	if len(uids) == 0 {
 		return nil
 	}
 
-	seqSet := imap.SeqSetNum(nums...)
+	uidSet := imap.UIDSetNum(uids...)
 	fetchOpts := &imap.FetchOptions{
 		Envelope:    true,
 		BodySection: []*imap.FetchItemBodySection{{}},
+		UID:         true,
 	}
-	msgs, err := c.Fetch(seqSet, fetchOpts).Collect()
+	// Pass UIDSet to Fetch — the library detects UIDSet and issues UID FETCH.
+	msgs, err := c.Fetch(uidSet, fetchOpts).Collect()
 	if err != nil {
 		return fmt.Errorf("fetch: %w", err)
 	}
 
-	for i, msg := range msgs {
-		if err := p.handleMsg(ctx, c, msg, nums[i], rc); err != nil {
+	for _, msg := range msgs {
+		if err := p.handleMsg(c, msg, rc); err != nil {
 			slog.Error("handle msg failed", "err", err)
 		}
 	}
@@ -100,10 +103,8 @@ func (p *poller) poll(ctx context.Context, rc *routerClient) error {
 }
 
 func (p *poller) handleMsg(
-	ctx context.Context,
 	c *imapclient.Client,
 	msg *imapclient.FetchMessageBuffer,
-	seqNum uint32,
 	rc *routerClient,
 ) error {
 	if msg.Envelope == nil {
@@ -112,7 +113,8 @@ func (p *poller) handleMsg(
 	env := msg.Envelope
 	msgID := strings.Trim(env.MessageID, "<>")
 	if msgID == "" {
-		msgID = fmt.Sprintf("noid-%d", msg.SeqNum)
+		// Use UID-based fallback: stable across reconnects (step 14).
+		msgID = fmt.Sprintf("uid-%d", msg.UID)
 	}
 
 	var fromAddr, fromName string
@@ -125,11 +127,13 @@ func (p *poller) handleMsg(
 	}
 
 	var threadID, rootMsgID string
-	if len(env.InReplyTo) > 0 {
-		parentID := strings.Trim(env.InReplyTo[0], "<>")
+	// Try all In-Reply-To values; use first match (step 14).
+	for _, irt := range env.InReplyTo {
+		parentID := strings.Trim(irt, "<>")
 		if t := getThreadByMsgID(p.db, parentID); t != nil {
 			threadID = t.ThreadID
 			rootMsgID = t.RootMsgID
+			break
 		}
 	}
 	if threadID == "" {
@@ -137,7 +141,7 @@ func (p *poller) handleMsg(
 		h := sha256.Sum256([]byte(rootMsgID))
 		threadID = fmt.Sprintf("%x", h[:6])
 	}
-	storeThread(p.db, msgID, threadID, fromAddr, rootMsgID)
+	upsertThread(p.db, msgID, threadID, fromAddr, rootMsgID)
 
 	bodyRaw := msg.FindBodySection(&imap.FetchItemBodySection{})
 	body := ""
@@ -169,7 +173,8 @@ func (p *poller) handleMsg(
 		slog.Error("deliver failed", "jid", jid, "err", err)
 	}
 
-	c.Store(imap.SeqSetNum(seqNum), &imap.StoreFlags{
+	// Pass UIDSet to Store — the library detects UIDSet and issues UID STORE.
+	c.Store(imap.UIDSetNum(msg.UID), &imap.StoreFlags{
 		Op:    imap.StoreFlagsAdd,
 		Flags: []imap.Flag{imap.FlagSeen},
 	}, nil)
