@@ -1,61 +1,78 @@
 ---
 name: facts
-description: Research a topic and produce verified facts. Spawns
-  subagents to search, write, and verify in steps. Use when facts/
-  has no matches for a question or when asked to research something.
+description:
+  Research a topic, collect facts from conversation, or refresh stale facts.
+  Use when facts/ has no matches, when asked to research something, or after a long
+  conversation to extract and persist what was learned.
 user_invocable: true
-arg: <question or topic to research>
+arg: <question or topic, or "collect" to extract from recent context>
 ---
 
-# Facts Research
+# Facts
 
-Produce verified facts on a topic. All work in subagents to keep
-the main context clean.
+Two modes: **research** (find and verify external knowledge) and **collect**
+(extract facts from the current conversation or recent diary).
 
-## Step 1: Research (subagent)
+## Mode: collect
 
-Spawn a research subagent with the topic. It must:
+When arg is `collect` or no arg given after a long session:
 
-- Search existing facts/ for related knowledge
-- Search codebase refs in /workspace/extra/ (Grep, Read)
+Spawn a single subagent that:
+
+1. Reads the last diary entry (`diary/YYYYMMDD.md`)
+2. Reads recent messages from context
+3. Identifies new facts worth persisting: about users, systems, decisions, entities
+4. For each fact: check if `facts/<slug>.md` already exists
+   - If yes: append new knowledge, update `verified_at`
+   - If no: create with YAML frontmatter (see format below)
+5. Reports: N facts updated, M facts created
+
+Do NOT collect trivial or ephemeral facts. Facts should answer
+"what do we permanently know about X?" — not "what happened today?".
+
+## Mode: research
+
+When arg is a question or topic:
+
+### Step 1: Research (subagent)
+
+Spawn a research subagent. It must:
+
+- Search existing `facts/` for related knowledge (`/recall-memories <topic>`)
 - Search the web (WebSearch, WebFetch)
-- Write new fact files to facts/ with YAML frontmatter:
-  ```yaml
-  ---
-  path: <slug>
-  category: <top-level category>
-  topic: <specific topic>
-  verified_at: <ISO timestamp>
-  header: >
-    <one-paragraph summary>
-  ---
-  <full content with sources, code refs, explanations>
-  ```
+- Write new fact files to `facts/` with YAML frontmatter
 - One fact per file, named by topic slug
-- Do NOT edit or delete existing facts
-- Stop after 3-10 new facts
+- Stop after 3–10 new facts
 
-## Step 2: Verify (subagent per batch)
+### Step 2: Verify (subagent per batch)
 
-For each batch of new facts (max 5 per batch), spawn a verifier
-subagent. It must:
+For each batch of new facts (max 5), spawn a verifier subagent:
 
-- Read each new fact file
 - Cross-reference against codebase and web sources
 - Check for contradictions with existing facts
-- Check that cited sources support the claims
 - Delete facts that fail verification
-- Update verified_at on facts that pass
+- Update `verified_at` on passing facts
 
-## Step 3: Answer
+### Step 3: Answer
 
-Read the surviving fact files, then answer the user's original
-question using them as knowledge. Don't report the research
-process — just answer naturally as if you always knew.
+Read surviving fact files, answer the user's original question naturally.
+
+## Fact file format
+
+```yaml
+---
+topic: <specific topic>
+category: <top-level category>
+verified_at: <ISO timestamp>
+summary: >
+  <one sentence — used by /recall-memories for fast grep>
+---
+<full content: explanation, sources, code refs>
+```
 
 ## Rules
 
 - ALWAYS use subagents — never research in main context
-- Batch verification: max 5 facts per verifier subagent
+- NEVER delete existing facts in collect mode — only append or create
 - Research subagent tools: Read, Glob, Grep, WebSearch, WebFetch, Write
 - Verifier subagent tools: Read, Glob, Grep, WebSearch, WebFetch, Bash
