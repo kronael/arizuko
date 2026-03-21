@@ -564,13 +564,6 @@ func ensureGroupGitRepo(groupDir string) {
 		return
 	}
 	lines := []string{"diary/", "episodes/", "users/", "logs/", "media/", "tmp/", "*.jl"}
-	entries, _ := os.ReadDir(groupDir)
-	runtime := map[string]bool{"diary": true, "episodes": true, "users": true, "logs": true, "media": true, "tmp": true}
-	for _, e := range entries {
-		if e.IsDir() && !runtime[e.Name()] {
-			lines = append(lines, e.Name()+"/")
-		}
-	}
 	os.WriteFile(gitignore, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 

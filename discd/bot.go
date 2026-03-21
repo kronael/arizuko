@@ -51,11 +51,9 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	ch, err := b.session.Channel(m.ChannelID)
 	isGroup := err == nil && ch.Type == discordgo.ChannelTypeGuildText
 
-	name := ""
+	name := m.Author.Username
 	if isGroup && ch.Name != "" {
 		name = ch.Name
-	} else {
-		name = m.Author.Username
 	}
 	b.rc.SendChat(jid, name, isGroup)
 

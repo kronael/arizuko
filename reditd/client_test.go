@@ -75,7 +75,6 @@ func stubRouterSrv(t *testing.T) *httptest.Server {
 // TestFirstPollSkip verifies that the first call to pollSource does not
 // dispatch messages even when items are present.
 func TestFirstPollSkip(t *testing.T) {
-	var dispatched atomic.Int32
 	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(listingWithItem("t4_aaa", "alice", "hello"))
@@ -93,7 +92,6 @@ func TestFirstPollSkip(t *testing.T) {
 	if !rc.skipFirst["inbox"] {
 		t.Error("skipFirst not set after first poll")
 	}
-	_ = dispatched
 }
 
 // TestCursorAdvance verifies that after the first poll (skip), the cursor is

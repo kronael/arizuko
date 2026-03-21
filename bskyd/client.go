@@ -225,7 +225,6 @@ func (bc *bskyClient) getPostCID(uri string) (string, error) {
 	return result.CID, nil
 }
 
-
 func (bc *bskyClient) xrpcAuth(method, nsid string, params map[string]string, body any, out any) error {
 	err := bc.xrpcWithAuth(method, nsid, params, body, out, bc.session.AccessJwt)
 	if err != nil && strings.Contains(err.Error(), "401") {
