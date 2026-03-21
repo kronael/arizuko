@@ -4,4 +4,4 @@ WORKDIR /web
 RUN npm install -g vite
 # Expose vite port (overridden by VITE_PORT env)
 EXPOSE 8096
-CMD sh -c "vite --host 0.0.0.0 --port ${VITE_PORT:-8096}"
+CMD sh -c "cd ${WEB_ROOT:-/web} && vite --host 0.0.0.0 --port ${VITE_PORT:-8096}"
