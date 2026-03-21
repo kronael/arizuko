@@ -51,14 +51,21 @@ diary/            YAML frontmatter diary annotations
 groupfolder/      Group path resolution
 mountsec/         Mount allowlist validation
 template/         Instance seed files
+chanlib/          Shared HTTP + auth primitives for channel adapters
+grants/           Grant rule engine (library)
+notify/           Operator notification fan-out (library)
 gated/            Gateway daemon (Go)
 timed/            Scheduler daemon (Go)
 onbod/            Onboarding daemon (Go)
 dashd/            Operator dashboards (Go)
+webd/             Web proxy (auth gate, /dash/, /auth/, Vite)
 teled/            Telegram adapter (Go)
 discd/            Discord adapter (Go)
+mastd/            Mastodon adapter (Go)
+bskyd/            Bluesky adapter (Go)
+reditd/           Reddit adapter (Go)
+emaid/            Email adapter (Go, IMAP/SMTP)
 whapd/            WhatsApp adapter (TypeScript)
-grants/           Grant rule engine (library)
 ```
 
 ## Message Flow

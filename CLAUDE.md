@@ -113,14 +113,6 @@ API server always starts (default port 8080).
 
 Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`, `mastd`, `bskyd`, `reditd`, `onbod`, `dashd`. Each in `<name>/main.go`.
 
-## Design Philosophy
-
-Minimal and orthogonal — components independently useful with
-narrow responsibility. Each subsystem (channels, memory, IPC,
-scheduler) operates on clean interfaces, knows nothing of others.
-Complexity is a liability. Agent self-extension (skills, MCP
-servers, CLAUDE.md, memory) is the primary extension mechanism.
-
 ## Service Architecture
 
 Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
@@ -144,13 +136,10 @@ Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 | `whapd`   | daemon  | WhatsApp adapter (TypeScript)                                         |
 | `webd`    | daemon  | Web proxy: auth gate, /dash/, /auth/, Vite                            |
 | `vited`   | service | Vite dev server (arizuko-vite image)                                  |
-| `emaid`   | planned | Email adapter                                                         |
+| `emaid`   | daemon  | Email adapter (IMAP/SMTP, Go)                                         |
 
-Deployment: `arizuko run <instance>` generates docker-compose.yml and runs `docker compose up`.
 Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
-Libraries: `ipc/`, `auth/`. Host CLI: `cmd/arizuko/main.go`.
-
-See `specs/7/0-architecture.md` for full spec.
+Libraries: `ipc/`, `auth/`, `chanlib/`. Host CLI: `cmd/arizuko/main.go`.
 
 ## Operational check (post-deploy)
 

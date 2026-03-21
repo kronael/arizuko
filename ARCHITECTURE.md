@@ -40,6 +40,18 @@ teled/main           (telegram adapter daemon)
 discd/main           (discord adapter daemon)
   └── calls router HTTP API + serves outbound endpoints
 
+mastd/main           (mastodon adapter daemon)
+  └── WebSocket streaming + REST API; calls router HTTP API
+
+bskyd/main           (bluesky adapter daemon)
+  └── AT Protocol polling; calls router HTTP API
+
+reditd/main          (reddit adapter daemon)
+  └── OAuth2 inbox/subreddit polling; calls router HTTP API
+
+emaid/main           (email adapter daemon)
+  └── IMAP TLS polling + SMTP STARTTLS replies; calls router HTTP API
+
 whapd/               (whatsapp adapter daemon, TypeScript)
   └── calls router HTTP API + serves outbound endpoints
 
@@ -51,6 +63,9 @@ onbod/main           (onboarding daemon)
 
 grants/              (library)
   └── CheckAction, NarrowRules, MatchingRules, DeriveRules
+
+chanlib/             (library)
+  └── RouterClient, InboundMsg, Auth middleware — shared by all channel adapters
 ```
 
 ## Message Flow
@@ -103,25 +118,28 @@ router-to-channel calls.
 proxy), `api/` (HTTP handlers for the router-side endpoints).
 
 **Standalone adapters**: `teled/` (Telegram, Go), `discd/`
-(Discord, Go), and `whapd/` (WhatsApp, TypeScript) are external
-adapter daemons. Each polls its platform API, forwards to router
-HTTP, and serves `/send`, `/send-file`, `/typing`, `/health` for
-outbound.
+(Discord, Go), `mastd/` (Mastodon, Go), `bskyd/` (Bluesky, Go),
+`reditd/` (Reddit, Go), `emaid/` (Email IMAP/SMTP, Go), and
+`whapd/` (WhatsApp, TypeScript) are external adapter daemons.
+Each polls its platform API, forwards to router HTTP, and serves
+`/send`, `/send-file`, `/typing`, `/health` for outbound. All
+Go adapters share `chanlib/` for `RouterClient`, `InboundMsg`,
+and auth middleware.
 
-Full protocol: `specs/7/1-channel-protocol.md`.
+Full protocol: `specs/4/1-channel-protocol.md`.
 
 ## Key Types (core package)
 
-| Type            | Purpose                                                      |
-| --------------- | ------------------------------------------------------------ |
-| `Config`        | All settings from `.env` + env vars                          |
-| `Message`       | Incoming message (sender, content, reply context)            |
-| `Group`         | Registered group (folder, trigger, config)                   |
-| `GroupConfig`   | Per-group: mounts, timeout, sidecars                         |
-| `Route`         | Flat routing table entry (type, match, target)               |
-| `Task`          | Scheduled task (cron, prompt, status)                        |
-| `Channel`       | Interface: Connect, Send, SendFile, Owns, Typing, Disconnect |
-| `SessionRecord` | Session log entry                                            |
+| Type            | Purpose                                                                                        |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| `Config`        | All settings from `.env` + env vars                                                            |
+| `Message`       | Incoming message (sender, content, reply context)                                              |
+| `Group`         | Registered group (folder, trigger, config)                                                     |
+| `GroupConfig`   | Per-group: mounts, timeout, sidecars                                                           |
+| `Route`         | Flat routing table entry (type, match, target)                                                 |
+| `Task`          | Scheduled task (cron, prompt, status)                                                          |
+| `Channel`       | Interface: Connect, `Send(jid, text, replyTo) (id, error)`, SendFile, Owns, Typing, Disconnect |
+| `SessionRecord` | Session log entry                                                                              |
 
 ## SQLite Schema
 
@@ -366,14 +384,20 @@ groupfolder/        Group path resolution and validation
 mountsec/           Mount allowlist validation
 template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
+chanlib/            Shared HTTP + auth primitives for channel adapters
+grants/             Grant rule engine
+notify/             Operator notification fan-out (library)
 gated/              Gateway daemon
 timed/              Scheduler daemon (cron poll, messages)
 onbod/              Onboarding daemon (auto-included when ONBOARDING_ENABLED=true)
 dashd/              Operator dashboards
-grants/             Grant rule engine
-notify/             Operator notification fan-out (library)
+webd/               Web proxy (auth gate, /dash/, /auth/, Vite)
 teled/              Telegram adapter (Go)
 discd/              Discord adapter (Go)
+mastd/              Mastodon adapter (Go)
+bskyd/              Bluesky adapter (Go)
+reditd/             Reddit adapter (Go)
+emaid/              Email adapter (Go, IMAP/SMTP)
 whapd/              WhatsApp adapter (TypeScript)
 ```
 

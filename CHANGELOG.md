@@ -54,12 +54,12 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **Email channel** (`emaid/`): IMAP TLS polling (every 30s) + SMTP STARTTLS replies; thread
   tracking via local SQLite; JID `email:<thread_id>`. Config: `EMAIL_IMAP_HOST`,
   `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`.
-- **Mastodon channel** (`mastod/`): WebSocket streaming for mention notifications; posts and
+- **Mastodon channel** (`mastd/`): WebSocket streaming for mention notifications; posts and
   replies via REST API. Config: `MASTODON_INSTANCE_URL`, `MASTODON_ACCESS_TOKEN`.
 - **Bluesky channel** (`bskyd/`): Polls AT Protocol notifications (replies + mentions) every
   10s; creates posts/replies via XRPC; session persistence. Config: `BLUESKY_IDENTIFIER`,
   `BLUESKY_PASSWORD`.
-- **Reddit channel** (`redd/`): OAuth2 password grant; polls inbox + configured subreddits
+- **Reddit channel** (`reditd/`): OAuth2 password grant; polls inbox + configured subreddits
   every 30s; replies via `/api/comment`. Config: `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`,
   `REDDIT_USERNAME`, `REDDIT_PASSWORD`, `REDDIT_SUBREDDITS`.
 
