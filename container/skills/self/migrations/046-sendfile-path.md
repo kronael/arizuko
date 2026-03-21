@@ -1,31 +1,23 @@
-# 046 — send_file: correct workspace path
+# 046 — send_file: home dir is group dir
 
 ## Goal
 
-Fix the workspace path for `send_file`. Only `/workspace/group/...` and
-`/workspace/media/...` are shared with the gateway and accessible for
-file delivery. `~/` (`/home/node/`) is in-container only and rejected.
+The agent home dir (~/) is the group directory, shared with the gateway.
+Files saved under ~/ are accessible to send_file. Use ~/tmp/ for temp files.
+Fix any /workspace/group references in CLAUDE.md introduced by a wrong migration.
 
 ## Check
 
 ```bash
-grep -q "/workspace/group/tmp" ~/.claude/CLAUDE.md && echo "done"
+grep -q "/workspace/group" ~/.claude/CLAUDE.md && echo "needs fix" || echo "ok"
 ```
 
 ## Steps
 
-Update `~/.claude/CLAUDE.md` — replace any `~/tmp` or `send_file` path
-guidance referencing `~` with the correct path:
-
 ```bash
-sed -i 's|~/tmp|/workspace/group/tmp|g' ~/.claude/CLAUDE.md
-sed -i 's|under ~/|under /workspace/group/ or /workspace/media/|g' ~/.claude/CLAUDE.md
-```
-
-Create the tmp dir if missing:
-
-```bash
-mkdir -p /workspace/group/tmp
+sed -i 's|/workspace/group/tmp|~/tmp|g' ~/.claude/CLAUDE.md
+sed -i 's|under /workspace/group/ or /workspace/media/|under ~/|g' ~/.claude/CLAUDE.md
+mkdir -p ~/tmp
 ```
 
 ## After

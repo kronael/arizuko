@@ -1,6 +1,6 @@
-# 025 — tmp dir for temporary files
+# 025 — ~/tmp for temporary files
 
-Use `/workspace/group/tmp/` for all temporary files (not ~/tmp — ~/
-is in-container only and not accessible to the gateway).
+Use ~/tmp/ for all temporary files. Files sent via send_file must be
+under ~/. ~/= /home/node = the group directory, shared with the gateway.
 
-mkdir -p /workspace/group/tmp
+mkdir -p ~/tmp

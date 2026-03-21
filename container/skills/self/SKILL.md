@@ -30,7 +30,7 @@ On every new session, BEFORE responding:
 | Path                       | Contents                                                 | Access                                      |
 | -------------------------- | -------------------------------------------------------- | ------------------------------------------- |
 | `/workspace/self`          | arizuko source (canonical skills, changelog, migrations) | read-only, all groups                       |
-| `/workspace/group`         | this group's working directory                           | read-write                                  |
+| `~/` (`/home/node`)        | this group's working directory                           | read-write                                  |
 | `/workspace/share`         | shared global memory                                     | read-only for non-root, read-write for root |
 | `/workspace/web`           | vite web app directory                                   | read-write                                  |
 | `/workspace/ipc`           | gateway↔agent IPC (input/, router.sock MCP server)       | read-write                                  |
@@ -131,10 +131,10 @@ any skill or reading any file first.
 
 ### send_file usage
 
-Call `send_file` with the absolute path of any file under `/workspace/group/`
-or `/workspace/media/`. These are the only paths the gateway can access.
-Use `/workspace/group/tmp/` for temporary output files.
-Paths under `~/` or `/tmp` are container-only and will be rejected.
+Call `send_file` with the absolute path of any file under `~/` (`/home/node/`).
+The home directory is the group directory, shared with the gateway.
+Use `~/tmp/` for temporary output files.
+Paths under `/tmp` are container-only and will be rejected.
 
 ## Group configuration files
 

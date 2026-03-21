@@ -145,9 +145,9 @@ Common false beliefs to reject:
 ALWAYS use the `send_file` MCP tool when delivering files to the user —
 NEVER describe or inline file contents in your text response.
 
-Call `send_file` with the absolute path of any file under `/workspace/group/`
-or `/workspace/media/`. These are the only paths shared with the gateway.
-Use `/workspace/group/tmp/` for temporary output files.
+Call `send_file` with the absolute path of any file under `~/` (`/home/node/`).
+The home directory is the group directory, shared with the gateway.
+Use `~/tmp/` for temporary output files.
 Do NOT send a follow-up text message describing what you sent — the
 file speaks for itself. Only add text if there's something to explain
 beyond what the file shows.

@@ -443,15 +443,11 @@ func BuildMounts(
 
 	m = append(m, VolumeMount{
 		Host:      hp(cfg, groupDir),
-		Container: "/workspace/group",
+		Container: "/home/node",
 	})
 
 	media := filepath.Join(groupDir, "media")
 	os.MkdirAll(media, 0o755)
-	m = append(m, VolumeMount{
-		Host:      hp(cfg, media),
-		Container: "/workspace/media",
-	})
 
 	m = append(m, VolumeMount{
 		Host:      cfg.HostAppDir,

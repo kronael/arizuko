@@ -174,12 +174,12 @@ func TestWorkspaceRel(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{"/workspace/group/foo.txt", "foo.txt", false},
-		{"/workspace/group/sub/dir/file.png", "sub/dir/file.png", false},
-		{"/workspace/media/image.jpg", "media/image.jpg", false},
-		{"/workspace/media/sub/clip.mp4", "media/sub/clip.mp4", false},
-		{"/workspace/group", "", true},  // exact prefix, no trailing slash
-		{"/workspace/media", "", true},  // exact prefix, no trailing slash
+		{"/home/node/file.txt", "file.txt", false},
+		{"/home/node/tmp/out.pdf", "tmp/out.pdf", false},
+		{"/workspace/group/file.txt", "file.txt", false},      // compat
+		{"/workspace/media/img.png", "", true},                // no longer valid
+		{"/workspace/group", "", true},                        // exact prefix, no trailing slash
+		{"/home/node", "", true},                              // exact prefix, no trailing slash
 		{"~/tmp/out.txt", "", true},
 		{"/tmp/file", "", true},
 	}
