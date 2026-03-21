@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -622,27 +623,37 @@ func resolveTarget(msg core.Message, routes []core.Route, selfFolder string) str
 	return ""
 }
 
-// parsePrefix parses "@name rest" or "#name rest".
-// Returns the name (without the symbol) and the remaining text.
+var rePrefixAt = regexp.MustCompile(`@(\w[\w-]*)`)
+var rePrefixHash = regexp.MustCompile(`#(\w[\w-]*)`)
+
+// parsePrefix finds the first @name or #name anywhere in text.
+// Returns the name (without the symbol) and the text with that token stripped.
 func parsePrefix(text string) (name, rest string, ok bool) {
-	t := strings.TrimSpace(text)
-	if len(t) < 2 || (t[0] != '@' && t[0] != '#') {
-		return "", "", false
+	for _, re := range []*regexp.Regexp{rePrefixAt, rePrefixHash} {
+		if m := re.FindStringIndex(text); m != nil {
+			full := text[m[0]:m[1]]
+			name = full[1:] // strip @ or #
+			rest = strings.TrimSpace(text[:m[0]] + text[m[1]:])
+			return name, rest, true
+		}
 	}
-	sym := t[1:]
-	i := strings.IndexByte(sym, ' ')
-	if i == -1 {
-		return sym, "", true
-	}
-	return sym[:i], strings.TrimSpace(sym[i+1:]), true
+	return "", "", false
 }
 
 // findPrefixRoute returns the first prefix-type route matching msg, or nil.
+// Matches @word or #word anywhere in the message content.
 func findPrefixRoute(routes []core.Route, msg core.Message) *core.Route {
+	hasAt := rePrefixAt.MatchString(msg.Content)
+	hasHash := rePrefixHash.MatchString(msg.Content)
 	for i := range routes {
 		r := &routes[i]
-		if r.Type == "prefix" && r.Match != "" &&
-			strings.HasPrefix(strings.TrimSpace(msg.Content), r.Match) {
+		if r.Type != "prefix" || r.Match == "" {
+			continue
+		}
+		if r.Match == "@" && hasAt {
+			return r
+		}
+		if r.Match == "#" && hasHash {
 			return r
 		}
 	}
