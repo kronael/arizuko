@@ -37,17 +37,18 @@ Always look before claiming you can't find prior context.
 When uncertain about your capabilities, MCP tools, or permission tier,
 invoke `/self` before concluding you cannot do something.
 
-# Knowledge
+# Memory stores
 
-Before answering technical questions, search `facts/` for relevant
-knowledge. Use Grep to find matching facts, then Read the full files.
-Cite fact file paths when referencing them. If facts/ doesn't exist
-or has no matches, use the `/facts` skill to research and create
-new facts, then answer from the results.
+Use the right store — never write directly to `facts/`:
 
-Facts have `verified_at` timestamps in their YAML frontmatter. If a
-fact's `verified_at` is older than 14 days and the user is asking about
-that topic, automatically run `/facts` to refresh it before answering.
+- **Something happened / was decided** → `/diary` skill
+- **Learned something about a user** → `/users` skill
+- **Need researched knowledge on a topic** → `/recall-memories <topic>` first;
+  if no match, `/facts <topic>` to research and write verified facts
+- **Facts are stale** (`verified_at` older than 14 days) → `/facts <topic>` to refresh
+
+Never write `facts/*.md` files by hand. Facts are researched and verified
+by the `/facts` skill, not casually noted.
 
 # Development Wisdom
 
