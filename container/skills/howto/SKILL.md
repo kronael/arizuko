@@ -8,20 +8,42 @@ description: >
 
 # Howto
 
-User-facing howto page: 20 topics, TLDR grid at top, deep-dive sections below.
+Build a user-facing howto page from content + style specs. Generate the HTML
+from scratch — do not copy a template.
 
-## Step 1 — Ask for a theme
+## Step 1 — Read the specs
 
-Before building, ask:
+```bash
+cat /workspace/self/container/skills/web/template/pub/howto/CONTENT.md
+cat /workspace/self/container/skills/web/template/pub/howto/STYLE.md
+```
+
+## Step 2 — Pick a style
+
+Ask the user OR choose autonomously:
 
 > "Which site's style should I imitate? Give me a URL or name (stripe.com,
-> linear.app, notion.so…). Or say 'default' for the warm earth-tone theme."
+> linear.app, notion.so…). Or say 'random' to let me choose."
 
-If given a URL: use `agent-browser` to open and screenshot it, extract the
-design system (colors, fonts, radius, card style, code blocks), then restyle
-the template to match. Keep structure, replace visuals.
+- **URL given**: use `agent-browser` to screenshot it, extract palette + typography + layout, map to the axes in STYLE.md.
+- **Name given**: map to the nearest archetype in STYLE.md.
+- **Random / not asked**: roll dice across the 5 axes in STYLE.md — pick one value per axis, ensure the combination is coherent (don't combine terminal density with vivid decoration).
 
-## Step 2 — Build
+Document your chosen axes in a comment at the top of the generated HTML.
+
+## Step 3 — Generate the HTML
+
+Write a complete, self-contained HTML file from CONTENT.md using your chosen style:
+
+- TLDR grid at top (one card per section)
+- All 20 sections as full cards with prose + code blocks
+- Remove sections for unconfigured features (voice if no voice channel, onboarding if `ONBOARDING_ENABLED` is not set)
+- Replace `kanipi agent` / `arizuko agent` in title and h1 with `$ASSISTANT_NAME`
+- Replace `bot.example.com` with `$WEB_HOST` (skip link if empty)
+- Dark mode toggle (fixed, top-right)
+- Mobile-responsive
+
+## Step 4 — Write and verify
 
 ```bash
 # resolve web dir
@@ -31,28 +53,21 @@ else
   WEB_DIR="/workspace/web/$(basename $NANOCLAW_GROUP_FOLDER)"
 fi
 mkdir -p "$WEB_DIR/howto"
-cp /workspace/self/container/skills/web/template/pub/howto/index.html \
-   "$WEB_DIR/howto/index.html"
-```
 
-Then customize the copy:
+# write generated HTML to $WEB_DIR/howto/index.html
 
-- Replace `kanipi agent` in `<title>` and `<h1>` with `$ASSISTANT_NAME`
-- Replace `bot.example.com` with `$WEB_HOST` (NEVER guess if empty)
-- Remove sections for unconfigured features (voice if no voice channel, onboarding if not enabled)
-- Apply chosen theme (or leave default)
-
-## Step 3 — Verify and link
-
-```bash
+# link from index if missing
 [ -f "$WEB_DIR/index.html" ] || echo '<a href="howto/">Getting Started →</a>' > "$WEB_DIR/index.html"
-curl -sL -o /dev/null -w '%{http_code}' "https://$WEB_HOST/$NANOCLAW_GROUP_FOLDER/howto/"
+
+# verify
+[ -n "$WEB_HOST" ] && curl -sL -o /dev/null -w '%{http_code}' "https://$WEB_HOST/howto/"
 ```
 
-Tell the user the URL.
+Tell the user the URL and which style was chosen.
 
 ## Rules
 
+- NEVER copy the old leather/earth-tone style unless explicitly asked
+- NEVER use a pre-written HTML template — always generate fresh
 - Footer MUST read: `powered by <a href="https://REDACTED/arizuko">arizuko</a>`
 - NEVER attribute to Anthropic or Claude
-- NEVER rebuild from scratch — the template has all 20 sections pre-written
