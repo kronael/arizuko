@@ -1,33 +1,21 @@
+DAEMONS = gated onbod dashd webd timed teled discd emaid mastd bskyd reditd
+
 build:
 	go build -o arizuko cmd/arizuko/main.go
-	CGO_ENABLED=1 go build -o bin/gated ./gated/
-	go build -o bin/onbod ./onbod/
-	go build -o bin/dashd ./dashd/
-	go build -o bin/webd ./webd/
-	make -C teled build
-	make -C discd build
-	make -C emaid build
-	make -C mastd build
-	make -C bskyd build
-	make -C reditd build
+	$(foreach d,$(DAEMONS),make -C $(d) build;)
 
 lint:
 	go vet ./...
+	$(foreach d,$(DAEMONS),make -C $(d) lint;)
 
 test:
 	go test ./... -count=1
+	$(foreach d,$(DAEMONS),make -C $(d) test;)
 
 clean:
 	rm -f arizuko
-	rm -rf bin/ tmp/
-	rm -f bin/dashd
-	rm -f bin/webd
-	make -C teled clean
-	make -C discd clean
-	make -C emaid clean
-	make -C mastd clean
-	make -C bskyd clean
-	make -C reditd clean
+	rm -rf tmp/
+	$(foreach d,$(DAEMONS),make -C $(d) clean;)
 
 images:
 	docker build -t arizuko .

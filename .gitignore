@@ -27,12 +27,14 @@ refs
 old/
 /arizuko
 bin/
-teled/teled
-timed/timed
 gated/gated
+onbod/onbod
+dashd/dashd
+webd/webd
+timed/timed
+teled/teled
 discd/discd
 emaid/emaid
 mastd/mastd
 bskyd/bskyd
 reditd/reditd
-webd/webd
