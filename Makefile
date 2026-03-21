@@ -6,7 +6,7 @@ build:
 	make -C teled build
 	make -C discd build
 	make -C emaid build
-	make -C mastod build
+	make -C mastd build
 	make -C bskyd build
 	make -C reditd build
 
@@ -23,7 +23,7 @@ clean:
 	make -C teled clean
 	make -C discd clean
 	make -C emaid clean
-	make -C mastod clean
+	make -C mastd clean
 	make -C bskyd clean
 	make -C reditd clean
 

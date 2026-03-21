@@ -71,7 +71,7 @@ func loadConfig() config {
 		RouterURL:     mustEnv("ROUTER_URL"),
 		ChannelSecret: envOr("CHANNEL_SECRET", ""),
 		ListenAddr:    envOr("LISTEN_ADDR", ":9004"),
-		ListenURL:     envOr("LISTEN_URL", "http://mastodon:9004"),
+		ListenURL:     envOr("LISTEN_URL", "http://mastd:9004"),
 	}
 }
 
