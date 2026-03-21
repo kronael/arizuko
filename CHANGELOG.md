@@ -7,6 +7,32 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.14.0] — 2026-03-21
+
+### Changed
+
+- **Agent persona**: agents are now described as "unalive" — not alive, not
+  alien. Removed ant/dead metaphors from bio, greeting, and README.
+- **Howto skill**: replaced static 66 KB HTML template with `CONTENT.md`
+  (20 sections as markdown) + `STYLE.md` (5-axis style generation guide).
+  Agent now generates the page fresh each deployment with a unique visual
+  style — palette, typography, density, decoration, and dark mode chosen
+  from named archetypes or by imitating a given URL.
+
+### Removed
+
+- `.refs/` directory (175 files, ~8 MB of old nanoclaw and arizuka reference
+  code) removed from repo and git history. Added to `.gitignore`.
+- `docs/kanipi.html` — stale landing page from pre-rename.
+- `template/web/pub/howto/index.html` — superseded by CONTENT.md + STYLE.md.
+
+### Docs
+
+- `CLAUDE.md`: noted `mastd`, `bskyd`, `reditd`, `chanlib`; CGO requirement
+  for `gated`; single-test command pattern.
+
+---
+
 ## [v0.13.0] — 2026-03-21
 
 ### Added
