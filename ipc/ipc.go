@@ -129,6 +129,19 @@ func toolDesc(base string, rules []string, action string) string {
 	return base + "\ngrants: " + string(data)
 }
 
+// workspaceRel translates /workspace/group/... or /workspace/media/... to
+// a relative path under the group dir. Returns an error for other prefixes.
+func workspaceRel(fp string) (string, error) {
+	switch {
+	case strings.HasPrefix(fp, "/workspace/group/"):
+		return strings.TrimPrefix(fp, "/workspace/group/"), nil
+	case strings.HasPrefix(fp, "/workspace/media/"):
+		return "media/" + strings.TrimPrefix(fp, "/workspace/media/"), nil
+	default:
+		return "", fmt.Errorf("filepath must be under /workspace/group or /workspace/media")
+	}
+}
+
 func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) *server.MCPServer {
 	id := auth.Resolve(folder)
 	srv := server.NewMCPServer("nanoclaw", "1.0")
@@ -193,16 +206,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			fp := req.GetString("filepath", "")
 			name := req.GetString("filename", "")
-			// Translate /workspace/group/... or /workspace/media/... to localPath.
-			// Both mounts live under groupDir; media is groupDir/media.
-			var rel string
-			switch {
-			case strings.HasPrefix(fp, "/workspace/group/"):
-				rel = strings.TrimPrefix(fp, "/workspace/group/")
-			case strings.HasPrefix(fp, "/workspace/media/"):
-				rel = "media/" + strings.TrimPrefix(fp, "/workspace/media/")
-			default:
-				return toolErr("filepath must be under /workspace/group or /workspace/media")
+			rel, err := workspaceRel(fp)
+			if err != nil {
+				return toolErr(err.Error())
 			}
 			localPath := filepath.Join(gated.GroupsDir, folder, rel)
 			hostPath := filepath.Join(gated.HostGroupsDir, folder, rel)

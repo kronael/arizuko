@@ -80,6 +80,12 @@ func (b *bot) stop() {
 	if b.cancel != nil {
 		b.cancel()
 	}
+	b.typingMu.Lock()
+	for jid, cancel := range b.typingCancel {
+		cancel()
+		delete(b.typingCancel, jid)
+	}
+	b.typingMu.Unlock()
 	b.api.StopReceivingUpdates()
 }
 
