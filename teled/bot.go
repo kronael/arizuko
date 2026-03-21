@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -15,6 +18,9 @@ type bot struct {
 	api    *tgbotapi.BotAPI
 	cfg    config
 	cancel context.CancelFunc
+
+	typingMu     sync.Mutex
+	typingCancel map[string]context.CancelFunc
 }
 
 func newBot(cfg config) (*bot, error) {
@@ -23,11 +29,34 @@ func newBot(cfg config) (*bot, error) {
 		return nil, fmt.Errorf("telegram auth: %w", err)
 	}
 	slog.Info("telegram connected", "username", api.Self.UserName)
-	return &bot{api: api, cfg: cfg}, nil
+	return &bot{api: api, cfg: cfg, typingCancel: make(map[string]context.CancelFunc)}, nil
+}
+
+func (b *bot) loadOffset() int {
+	if b.cfg.StateFile == "" {
+		return 0
+	}
+	data, err := os.ReadFile(b.cfg.StateFile)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func (b *bot) saveOffset(offset int) {
+	if b.cfg.StateFile == "" {
+		return
+	}
+	os.WriteFile(b.cfg.StateFile, []byte(strconv.Itoa(offset)), 0o644)
 }
 
 func (b *bot) poll(ctx context.Context, rc *routerClient) {
-	uc := tgbotapi.NewUpdate(0)
+	offset := b.loadOffset()
+	uc := tgbotapi.NewUpdate(offset)
 	uc.Timeout = 30
 	ch := b.api.GetUpdatesChan(uc)
 	ctx, b.cancel = context.WithCancel(ctx)
@@ -42,6 +71,7 @@ func (b *bot) poll(ctx context.Context, rc *routerClient) {
 			if u.Message != nil {
 				b.handle(u.Message, rc)
 			}
+			b.saveOffset(u.UpdateID + 1)
 		}
 	}
 }
@@ -171,14 +201,34 @@ func (b *bot) sendFile(jid, path, name string) error {
 }
 
 func (b *bot) typing(jid string, on bool) error {
-	if !on {
-		return nil
-	}
 	id, err := parseChatID(jid)
 	if err != nil {
 		return err
 	}
-	b.api.Send(tgbotapi.NewChatAction(id, tgbotapi.ChatTyping))
+	b.typingMu.Lock()
+	defer b.typingMu.Unlock()
+	if cancel, ok := b.typingCancel[jid]; ok {
+		cancel()
+		delete(b.typingCancel, jid)
+	}
+	if !on {
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	b.typingCancel[jid] = cancel
+	go func() {
+		b.api.Send(tgbotapi.NewChatAction(id, tgbotapi.ChatTyping))
+		t := time.NewTicker(4 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				b.api.Send(tgbotapi.NewChatAction(id, tgbotapi.ChatTyping))
+			}
+		}
+	}()
 	return nil
 }
 
