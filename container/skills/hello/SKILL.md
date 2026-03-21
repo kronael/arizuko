@@ -109,8 +109,9 @@ ls "$WEB_DIR/howto/index.html" 2>/dev/null
 Root group:
 
 ```
-Hi, I'm REDACTED — a Kanipi agent. I can research, code, build
-web apps, and help with analysis and daily tasks.
+Hi, I'm REDACTED — an Arizuko ant. Arizuko manages me: routes
+work, schedules tasks, keeps the colony productive.
+I can research, code, build web apps, and help with analysis.
 
 Here's what I can do:
 
@@ -146,8 +147,8 @@ Getting started: https://REDACTED/howto/
 Non-root group:
 
 ```
-Hi, I'm myai — part of the REDACTED instance. I can research,
-code, build web apps, and help with daily tasks.
+Hi, I'm myai — one of REDACTED' ants (Arizuko-managed).
+I can research, code, build web apps, and help with daily tasks.
 
 Here's what I can do:
 
