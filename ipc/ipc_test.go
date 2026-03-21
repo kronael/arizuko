@@ -168,6 +168,39 @@ func TestRefreshGroups(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRel(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"/workspace/group/foo.txt", "foo.txt", false},
+		{"/workspace/group/sub/dir/file.png", "sub/dir/file.png", false},
+		{"/workspace/media/image.jpg", "media/image.jpg", false},
+		{"/workspace/media/sub/clip.mp4", "media/sub/clip.mp4", false},
+		{"/workspace/group", "", true},  // exact prefix, no trailing slash
+		{"/workspace/media", "", true},  // exact prefix, no trailing slash
+		{"~/tmp/out.txt", "", true},
+		{"/tmp/file", "", true},
+	}
+	for _, c := range cases {
+		got, err := workspaceRel(c.in)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("workspaceRel(%q): expected error, got %q", c.in, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("workspaceRel(%q): unexpected error: %v", c.in, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("workspaceRel(%q): got %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestIdentityUsedInServer(t *testing.T) {
 	id := auth.Resolve("world/parent/child")
 	if id.Tier != 2 {
