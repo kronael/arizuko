@@ -102,7 +102,7 @@ ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0
 ```
 
-Latest migration version: **45**. If version < 45: migrations pending.
+Latest migration version: **46**. If version < 46: migrations pending.
 
 ## MCP tools
 
@@ -131,9 +131,10 @@ any skill or reading any file first.
 
 ### send_file usage
 
-Call `send_file` with the absolute path of any file under `/workspace`.
-The gateway resolves the container path to the host and delivers it as a
-document attachment.
+Call `send_file` with the absolute path of any file under `/workspace/group/`
+or `/workspace/media/`. These are the only paths the gateway can access.
+Use `/workspace/group/tmp/` for temporary output files.
+Paths under `~/` or `/tmp` are container-only and will be rejected.
 
 ## Group configuration files
 
