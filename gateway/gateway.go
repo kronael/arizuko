@@ -224,6 +224,7 @@ func (g *Gateway) pollOnce() {
 	if g.cfg.OnboardingEnabled {
 		jids = append(jids, g.store.UnroutedChatJIDs(since)...)
 	}
+	jids = append(jids, g.store.ActiveWebJIDs(since)...)
 
 	if len(jids) == 0 {
 		return
@@ -332,6 +333,16 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return true, nil
 	}
 
+	// web: JIDs carry a Topic per message — process each topic independently.
+	if strings.HasPrefix(chatJid, "web:") {
+		ok, err := g.processWebTopics(group, chatJid, ch, msgs)
+		if ok || err != nil {
+			return ok, err
+		}
+		g.advanceAgentCursor(chatJid, all)
+		return true, nil
+	}
+
 	last := msgs[len(msgs)-1]
 
 	if pr := findPrefixRoute(routes, last); pr != nil {
@@ -409,6 +420,83 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	}
 
 	g.advanceAgentCursor(chatJid, msgs)
+	g.store.ClearChatErrored(chatJid)
+	return true, nil
+}
+
+// processWebTopics processes web: messages grouped by topic.
+// Returns (true, nil) on success, (false, err) on first topic failure.
+// Returns (false, nil) if there are no non-empty topics (caller advances cursor).
+func (g *Gateway) processWebTopics(
+	group core.Group, chatJid string, ch core.Channel, msgs []core.Message,
+) (bool, error) {
+	byTopic := make(map[string][]core.Message)
+	var topicOrder []string
+	for _, m := range msgs {
+		if _, seen := byTopic[m.Topic]; !seen {
+			topicOrder = append(topicOrder, m.Topic)
+		}
+		byTopic[m.Topic] = append(byTopic[m.Topic], m)
+	}
+
+	if len(topicOrder) == 0 {
+		return false, nil
+	}
+
+	for _, topic := range topicOrder {
+		topicMsgs := byTopic[topic]
+		last := topicMsgs[len(topicMsgs)-1]
+
+		sysMsgs := g.store.FlushSysMsgs(group.Folder)
+		prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n"
+		prompt += router.FormatMessages(topicMsgs)
+
+		if ch != nil {
+			ch.Typing(chatJid, true)
+		}
+
+		var hadOutput bool
+		lastSentID := last.ID
+		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
+			func(text, status string) {
+				if text != "" {
+					hadOutput = true
+					stripped, statuses := router.ExtractStatusBlocks(text)
+					for _, s := range statuses {
+						g.sendMessage(chatJid, s)
+					}
+					clean := router.FormatOutbound(stripped)
+					if clean != "" {
+						if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID); sentID != "" {
+							lastSentID = sentID
+						}
+					}
+				}
+			}, false, nil, topic, last.ID)
+
+		if ch != nil {
+			ch.Typing(chatJid, false)
+		}
+
+		if out.Error != "" {
+			slog.Error("agent error",
+				"group", group.Folder, "topic", topic, "err", out.Error)
+			if gp, err := g.folders.GroupPath(group.Folder); err == nil {
+				diary.WriteRecovery(gp, "error", out.Error)
+			}
+			if hadOutput {
+				g.advanceAgentCursor(chatJid, topicMsgs)
+				return true, nil
+			}
+			g.sendMessage(chatJid,
+				"Failed: agent error, will retry on next message.")
+			g.store.MarkChatErrored(chatJid)
+			return false, fmt.Errorf("agent: %s", out.Error)
+		}
+
+		g.advanceAgentCursor(chatJid, topicMsgs)
+	}
+
 	g.store.ClearChatErrored(chatJid)
 	return true, nil
 }
@@ -596,6 +684,10 @@ func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
 	}
 	if strings.HasPrefix(jid, "local:") {
 		_, gr, ok := g.groupByFolderLocked(jid[6:])
+		return gr, ok
+	}
+	if strings.HasPrefix(jid, "web:") {
+		_, gr, ok := g.groupByFolderLocked(jid[4:])
 		return gr, ok
 	}
 	return core.Group{}, false

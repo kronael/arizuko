@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -66,18 +67,22 @@ func proxy(target string) *httputil.ReverseProxy {
 
 type server struct {
 	cfg       config
+	st        *store.Store
 	dashProxy *httputil.ReverseProxy
 	webdProxy *httputil.ReverseProxy
 	viteProxy *httputil.ReverseProxy
 	redirects map[string]*httputil.ReverseProxy
+	slinkRL   *rateLimiter
 }
 
-func newServer(cfg config) *server {
+func newServer(cfg config, st *store.Store) *server {
 	s := &server{
 		cfg:       cfg,
+		st:        st,
 		dashProxy: proxy(cfg.dashAddr),
 		viteProxy: proxy(cfg.viteAddr),
 		redirects: make(map[string]*httputil.ReverseProxy, len(cfg.redirects)),
+		slinkRL:   newRateLimiter(10, time.Minute),
 	}
 	if cfg.webdAddr != "" {
 		s.webdProxy = proxy(cfg.webdAddr)
@@ -86,6 +91,40 @@ func newServer(cfg config) *server {
 		s.redirects[prefix] = proxy(upstream)
 	}
 	return s
+}
+
+// rateLimiter is a simple sliding-window rate limiter keyed by IP.
+type rateLimiter struct {
+	mu      sync.Mutex
+	limit   int
+	window  time.Duration
+	buckets map[string][]time.Time
+}
+
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+	return &rateLimiter{limit: limit, window: window, buckets: make(map[string][]time.Time)}
+}
+
+func (rl *rateLimiter) allow(key string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-rl.window)
+	hits := rl.buckets[key]
+	n := 0
+	for _, t := range hits {
+		if t.After(cutoff) {
+			hits[n] = t
+			n++
+		}
+	}
+	hits = hits[:n]
+	if len(hits) >= rl.limit {
+		rl.buckets[key] = hits
+		return false
+	}
+	rl.buckets[key] = append(hits, now)
+	return true
 }
 
 type statusWriter struct {
@@ -147,11 +186,29 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. /slink/* — public (token-gated at webd)
+	// 4. /slink/* — rate-limited; resolve token and inject group headers
 	if strings.HasPrefix(r.URL.Path, "/slink/") {
+		remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if !s.slinkRL.allow(remoteIP) {
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
 		upstream := s.webdProxy
 		if upstream == nil {
 			upstream = s.viteProxy
+		}
+		// Extract token: first path segment after /slink/
+		rest := strings.TrimPrefix(r.URL.Path, "/slink/")
+		token := strings.SplitN(rest, "/", 2)[0]
+		if token != "" && s.st != nil {
+			if group, ok := s.st.GroupBySlinkToken(token); ok {
+				r2 := r.Clone(r.Context())
+				r2.Header.Set("X-Folder", group.Folder)
+				r2.Header.Set("X-Group-Name", group.Name)
+				r2.Header.Set("X-Slink-Token", token)
+				upstream.ServeHTTP(w, r2)
+				return
+			}
 		}
 		upstream.ServeHTTP(w, r)
 		return
@@ -204,6 +261,11 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		r2 := r.Clone(r.Context())
 		r2.Header.Set("X-User-Sub", claims.Sub)
 		r2.Header.Set("X-User-Name", claims.Name)
+		if claims.Groups != nil {
+			if b, err := json.Marshal(claims.Groups); err == nil {
+				r2.Header.Set("X-User-Groups", string(b))
+			}
+		}
 		next(w, r2)
 	}
 }
@@ -228,7 +290,7 @@ func main() {
 	}
 	defer st.Close()
 
-	s := newServer(cfg)
+	s := newServer(cfg, st)
 
 	slog.Info("proxyd starting", "port", cfg.port, "dash", cfg.dashAddr, "webd", cfg.webdAddr, "vite", cfg.viteAddr)
 

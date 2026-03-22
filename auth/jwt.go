@@ -16,17 +16,18 @@ var (
 )
 
 type Claims struct {
-	Sub  string `json:"sub"`
-	Name string `json:"name"`
-	Exp  int64  `json:"exp"`
-	Iat  int64  `json:"iat"`
+	Sub    string    `json:"sub"`
+	Name   string    `json:"name"`
+	Groups *[]string `json:"groups,omitempty"` // nil = operator (unrestricted)
+	Exp    int64     `json:"exp"`
+	Iat    int64     `json:"iat"`
 }
 
-func mintJWT(secret []byte, sub, name string, ttl time.Duration) string {
+func mintJWT(secret []byte, sub, name string, groups *[]string, ttl time.Duration) string {
 	hdr := base64.RawURLEncoding.EncodeToString(
 		[]byte(`{"alg":"HS256","typ":"JWT"}`))
 	now := time.Now()
-	c := Claims{Sub: sub, Name: name, Exp: now.Add(ttl).Unix(), Iat: now.Unix()}
+	c := Claims{Sub: sub, Name: name, Groups: groups, Exp: now.Add(ttl).Unix(), Iat: now.Unix()}
 	payload, _ := json.Marshal(c)
 	body := base64.RawURLEncoding.EncodeToString(payload)
 	sig := sign(secret, hdr+"."+body)

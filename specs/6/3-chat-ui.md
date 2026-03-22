@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Web Chat UI
@@ -98,14 +98,10 @@ webd, injects `X-User-Sub` + `X-User-Name` after JWT validation.
 
 ---
 
-## Gaps (unimplemented)
+## Gaps (shipped)
 
-- Gateway `web:` folder fallback in `groupForJid`
-- `local:` → `group:` rename across gateway, tests, CLI
-- `user_groups` table + `Groups []string` in `auth.Claims`
-- proxyd: slink token resolution + header injection
-- proxyd: group access check (`X-User-Groups` vs path folder)
-- Gateway: per-topic message processing for `web:` JID
+All gaps implemented. `local:` was NOT renamed to `group:` — `local:` describes
+the origin (internal/scheduler), not the destination, so the name is correct.
 
 ---
 

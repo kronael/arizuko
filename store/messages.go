@@ -285,6 +285,27 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	return msgs, rows.Err()
 }
 
+// ActiveWebJIDs returns distinct web: JIDs that have messages since `since`.
+// Used by the gateway poll loop to discover web chat conversations.
+func (s *Store) ActiveWebJIDs(since time.Time) []string {
+	rows, err := s.db.Query(
+		`SELECT DISTINCT chat_jid FROM messages
+		 WHERE chat_jid LIKE 'web:%' AND timestamp > ?`,
+		since.Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var jids []string
+	for rows.Next() {
+		var jid string
+		rows.Scan(&jid)
+		jids = append(jids, jid)
+	}
+	return jids
+}
+
 func btoi(b bool) int {
 	if b {
 		return 1

@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -44,18 +45,18 @@ func (s *server) handler() http.Handler {
 
 	// Private: full pages (proxyd has already validated auth, injects X-User-Sub).
 	mux.HandleFunc("GET /{$}", s.requireUser(s.handleGroupsPage))
-	mux.HandleFunc("GET /chat/{folder...}", s.requireUser(s.handleChatPage))
+	mux.HandleFunc("GET /chat/{folder...}", s.requireFolder(s.handleChatPage))
 
 	// Private: JSON API.
 	mux.HandleFunc("GET /api/groups", s.requireUser(s.handleAPIGroups))
-	mux.HandleFunc("GET /api/groups/{folder...}/topics", s.requireUser(s.handleAPITopics))
-	mux.HandleFunc("GET /api/groups/{folder...}/messages", s.requireUser(s.handleAPIMessages))
-	mux.HandleFunc("POST /api/groups/{folder...}/typing", s.requireUser(s.handleAPITyping))
+	mux.HandleFunc("GET /api/groups/{folder...}/topics", s.requireFolder(s.handleAPITopics))
+	mux.HandleFunc("GET /api/groups/{folder...}/messages", s.requireFolder(s.handleAPIMessages))
+	mux.HandleFunc("POST /api/groups/{folder...}/typing", s.requireFolder(s.handleAPITyping))
 
 	// Private: HTMX partials.
 	mux.HandleFunc("GET /x/groups", s.requireUser(s.handleXGroups))
-	mux.HandleFunc("GET /x/groups/{folder...}/topics", s.requireUser(s.handleXTopics))
-	mux.HandleFunc("GET /x/groups/{folder...}/messages", s.requireUser(s.handleXMessages))
+	mux.HandleFunc("GET /x/groups/{folder...}/topics", s.requireFolder(s.handleXTopics))
+	mux.HandleFunc("GET /x/groups/{folder...}/messages", s.requireFolder(s.handleXMessages))
 
 	return loggingMiddleware(mux)
 }
@@ -69,6 +70,32 @@ func (s *server) requireUser(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// requireFolder wraps requireUser and additionally enforces X-User-Groups
+// access for folder-specific endpoints. Groups header absent = operator access.
+func (s *server) requireFolder(next http.HandlerFunc) http.HandlerFunc {
+	return s.requireUser(func(w http.ResponseWriter, r *http.Request) {
+		groupsHdr := r.Header.Get("X-User-Groups")
+		if groupsHdr == "" {
+			// operator — unrestricted
+			next(w, r)
+			return
+		}
+		var allowed []string
+		if err := json.Unmarshal([]byte(groupsHdr), &allowed); err != nil {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		folder := folderParam(r)
+		for _, f := range allowed {
+			if f == folder || strings.HasPrefix(folder, f+"/") {
+				next(w, r)
+				return
+			}
+		}
+		http.Error(w, "Forbidden", http.StatusForbidden)
+	})
 }
 
 func userSub(r *http.Request) string  { return r.Header.Get("X-User-Sub") }
