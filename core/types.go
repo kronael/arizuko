@@ -18,6 +18,7 @@ type Message struct {
 	ReplyToID     string
 	ReplyToText   string
 	ReplyToSender string
+	Topic         string
 }
 
 type Group struct {
