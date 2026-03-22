@@ -2,82 +2,58 @@
 status: planned
 ---
 
-# SSE Stream — incomplete
-
-## Current behaviour
-
-`GET /slink/stream?group=<folder>` opens an SSE connection. The gateway
-broadcasts every agent response to **all listeners** on that group folder,
-regardless of who sent the triggering message.
-
-`/slink/` is in `PUBLIC_PREFIXES` — basic auth is bypassed. Anyone who
-knows the URL can subscribe to the stream.
-
-This is intentional for the public widget model: `REDACTED.js` embeds on a
-public page, all visitors see all agent responses.
+# SSE Stream
 
 ## Design direction: groups are the boundary
 
 Groups are the conversational and permission boundary. Per-sender
 scoping within a group is the wrong abstraction — it fights the
-shared-context model. Instead:
+shared-context model:
 
-- **Public group** → SSE broadcast to all (current, correct)
-- **Private group** → require auth (JWT) on the stream endpoint
+- **Public group** → SSE broadcast to all listeners (public widget)
+- **Private group** → require auth on the stream endpoint
 - **Per-user isolation** → auto-spawn a group per user via prototypes
 
-This means SSE auth is just "can you access this group." No per-sender
-tagging, no sub claims on messages, no filtering in sendMessage.
+SSE auth is "can you access this group" — nothing more granular.
 
-### Auth on the stream endpoint
+For the web chat UI specifically, topic scopes delivery within a group:
+the SSE hub delivers `message` events by `(folder, topic)`. See
+`specs/6/3-web-chat.md` for the slink/SSE auth model.
 
-Move `/slink/stream` out of `PUBLIC_PREFIXES` when the group requires auth:
+## Auth on the stream endpoint
 
-- Group has no `AUTH_SECRET` → stream stays open (public widget)
-- Group has `AUTH_SECRET` → require valid JWT on stream request
-  (`?token=<jwt>` or `Authorization` header)
+- Group has no slink token → stream is open (public widget)
+- Group has slink token → require token on stream request
 
-### Prototypes for per-user groups
+Token validated at proxyd before reaching webd. Not in `PUBLIC_PREFIXES`.
 
-When a new authenticated user connects and no dedicated group exists,
-gateway auto-spawns from a prototype config. Each spawned group gets
-its own folder, session, SSE stream. Auth is inherited from the
-prototype's permissions.
+## Prototypes for per-user groups
 
-See `specs/3/F-prototypes.md` for the prototype spawning design.
+When a new user connects and no dedicated group exists, gateway
+auto-spawns from a prototype config. Each spawned group gets its own
+folder, session, SSE stream. Auth inherited from prototype permissions.
 
-## MCP transport context
-
-The current slink pattern (POST for client→server, SSE for server→client) is
-structurally identical to the MCP SSE transport defined in spec v2024-11-05.
-That transport was deprecated in v2025-03-26 in favour of **Streamable HTTP**:
-a single endpoint that handles both directions, with the server optionally
-responding via an SSE stream when it wants to push multiple events.
-
-Reference: modelcontextprotocol.io/specification/2025-03-26/basic/transports
-
-### Slink as MCP server (open, v2+)
-
-If the gateway exposed a Streamable HTTP MCP endpoint per group, any MCP
-client (Claude Desktop, another agent, a browser widget) could connect
-natively without a custom protocol. The agent would appear as an MCP server;
-callers would send tool calls and receive streaming results.
-
-Trade-offs:
-
-- No custom REDACTED.js needed for MCP-capable clients
-- Agent-to-agent calls work out of the box
-- Rate limiting / auth moves to the MCP layer
-- Browser widget still needs a thin adapter (MCP client in JS)
-- Fire-and-forget POST pattern is lost (MCP is request/response)
-
-Not planned for v1. Document here as design direction.
+See `specs/3/F-prototypes.md`.
 
 ## Open questions
 
-- How does prototype spawning interact with group limits / cleanup?
+- How does prototype spawning interact with group limits and cleanup?
 - Should spawned groups expire after idle timeout or persist?
-- Stream reconnect: replay missed events from DB or accept gap?
+
+## MCP transport direction (v2+)
+
+The slink pattern (POST client→server, SSE server→client) is
+structurally identical to the deprecated MCP SSE transport
+(v2024-11-05). The current standard is Streamable HTTP (v2025-03-26):
+one endpoint, bidirectional, server responds via SSE when pushing
+multiple events.
+
+If the gateway exposed a Streamable HTTP MCP endpoint per group, any
+MCP client (Claude Desktop, another agent, a browser widget) could
+connect natively. Trade-offs: no custom JS needed for MCP clients;
+fire-and-forget POST pattern is lost (MCP is request/response).
+
+Not planned. Document as design direction.
 
 ## Not in scope
 
