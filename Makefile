@@ -1,4 +1,4 @@
-DAEMONS = gated onbod dashd proxyd timed teled discd emaid mastd bskyd reditd
+DAEMONS = gated onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd
 
 build:
 	go build -o arizuko cmd/arizuko/main.go

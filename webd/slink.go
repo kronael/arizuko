@@ -1,0 +1,129 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/onvos/arizuko/chanlib"
+	"github.com/onvos/arizuko/core"
+)
+
+// handleSlinkPost accepts user messages via token-authenticated POST.
+// POST /slink/<token>   body: content=Hello&topic=abc123
+func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	g, ok := s.st.GroupBySlinkToken(token)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	if r.ParseForm() != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	content := strings.TrimSpace(r.FormValue("content"))
+	topic := strings.TrimSpace(r.FormValue("topic"))
+	if content == "" {
+		http.Error(w, "content required", http.StatusBadRequest)
+		return
+	}
+	if topic == "" {
+		topic = fmt.Sprintf("t%d", time.Now().UnixMilli())
+	}
+
+	sender := userSub(r)
+	senderName := userName(r)
+	if sender == "" {
+		sender = "anon"
+		senderName = "Anonymous"
+	}
+
+	id := fmt.Sprintf("msg-%d", time.Now().UnixNano())
+	m := core.Message{
+		ID:        id,
+		ChatJID:   "web:" + g.Folder,
+		Sender:    sender,
+		Name:      senderName,
+		Content:   content,
+		Timestamp: time.Now(),
+		Topic:     topic,
+	}
+	if err := s.st.PutMessage(m); err != nil {
+		http.Error(w, "store failed", http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.rc.SendMessage(chanlib.InboundMsg{
+		ID:         m.ID,
+		ChatJID:    m.ChatJID,
+		Sender:     sender,
+		SenderName: senderName,
+		Content:    content,
+		Timestamp:  m.Timestamp.Unix(),
+		IsGroup:    false,
+	}); err != nil {
+		http.Error(w, "router unavailable", http.StatusBadGateway)
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]any{
+		"id":         m.ID,
+		"role":       "user",
+		"content":    m.Content,
+		"sender":     senderName,
+		"created_at": m.Timestamp.Format(time.RFC3339),
+	})
+	s.hub.publish(g.Folder, topic, "message", string(payload))
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<div class="msg user" id="msg-%s">%s</div>`, m.ID, htmlEscape(content))
+}
+
+// handleSlinkStream opens an SSE connection for a group/topic.
+// GET /slink/stream?group=<folder>&topic=<t>
+func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
+	folder := r.URL.Query().Get("group")
+	topic := r.URL.Query().Get("topic")
+	if folder == "" || topic == "" {
+		http.Error(w, "group and topic required", http.StatusBadRequest)
+		return
+	}
+
+	// Replay missed messages on reconnect.
+	if lastID := r.Header.Get("Last-Event-Id"); lastID != "" {
+		if t, ok := s.st.MessageTimestampByID(lastID, "web:"+folder); ok {
+			msgs, _ := s.st.MessagesSinceTopic(folder, topic, t, 50)
+			flusher, _ := w.(http.Flusher)
+			for _, m := range msgs {
+				role := "user"
+				if m.BotMsg {
+					role = "assistant"
+				}
+				data, _ := json.Marshal(map[string]any{
+					"id": m.ID, "role": role, "content": m.Content,
+					"created_at": m.Timestamp.Format(time.RFC3339),
+				})
+				fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+		}
+	}
+
+	ch, unsub := s.hub.subscribe(folder, topic)
+	defer unsub()
+	serveSSE(w, r, ch)
+}
+
+func htmlEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&#34;")
+	return s
+}
