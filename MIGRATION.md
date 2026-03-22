@@ -308,7 +308,7 @@ From `.kanipi-delta.md` and code inspection:
 | Per-group web prefix / virtual hosts | Not implemented                                                        |
 | MIME enrichment via Whisper sidecar  | Whisper still requires a standalone service; sidecar wiring not ported |
 | Cross-channel preemption             | Not implemented                                                        |
-| SSE stream                           | kanipi had `/_REDACTED/stream`; arizuko has no SSE endpoint yet           |
+| SSE stream                           | kanipi had `/_REDACTED/stream`; arizuko uses `/slink/stream`              |
 
 ---
 

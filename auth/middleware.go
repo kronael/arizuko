@@ -11,7 +11,7 @@ import (
 var publicPrefixes = []string{
 	"/auth/",
 	"/pub/",
-	"/_REDACTED/",
+	"/slink/",
 }
 
 var publicExact = []string{

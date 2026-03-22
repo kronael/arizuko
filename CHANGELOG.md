@@ -707,7 +707,7 @@ Go rewrite. All core gateway functionality ported from TypeScript.
 - Verified JWT signatures (HS256) for authenticated senders
 - Added anon/auth rate limiting via `SLINK_ANON_RPM` / `SLINK_AUTH_RPM` config
 - Supported `media_url` attachments with MIME type guessing
-- Added SSE stream at `/_REDACTED/stream` for agent-to-browser push
+- Added SSE stream at `/slink/stream` for agent-to-browser push
 - Added `slink_token` column on `registered_groups`; added `generateSlinkToken` helper
 - Fixed expired JWT treated as anon (now returns 401)
 - Fixed slink deduplication and SSE error logging

@@ -151,7 +151,7 @@ in webd as another routing rule (webd proxies to a dawd daemon) or
 ship dawd separately and let operators wire it via `WEB_REDIRECTS`?
 `WEB_REDIRECTS` makes dawd a drop-in without touching webd code.
 
-**Web channel** — kanipi had `/_REDACTED/message` for browser→agent
+**Web channel** — kanipi had `/_REDACTED/message` (now `/slink/`) for browser→agent
 messaging. Include in webd (webd accepts POST, writes to store) or
 implement as a separate channel daemon registered via chanreg? The
 chanreg model is cleaner and consistent with other adapters.

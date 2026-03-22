@@ -69,7 +69,7 @@ func TestMiddlewarePublicPaths(t *testing.T) {
 	h := Middleware(testSecret, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	}))
-	for _, p := range []string{"/auth/login", "/pub/index.html", "/_REDACTED/api", "/favicon.ico", "/robots.txt", "/style.css"} {
+	for _, p := range []string{"/auth/login", "/pub/index.html", "/slink/api", "/favicon.ico", "/robots.txt", "/style.css"} {
 		r := httptest.NewRequest("GET", p, nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)

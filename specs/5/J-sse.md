@@ -6,11 +6,11 @@ status: planned
 
 ## Current behaviour
 
-`GET /_REDACTED/stream?group=<folder>` opens an SSE connection. The gateway
+`GET /slink/stream?group=<folder>` opens an SSE connection. The gateway
 broadcasts every agent response to **all listeners** on that group folder,
 regardless of who sent the triggering message.
 
-`/_REDACTED/` is in `PUBLIC_PREFIXES` — basic auth is bypassed. Anyone who
+`/slink/` is in `PUBLIC_PREFIXES` — basic auth is bypassed. Anyone who
 knows the URL can subscribe to the stream.
 
 This is intentional for the public widget model: `REDACTED.js` embeds on a
@@ -31,7 +31,7 @@ tagging, no sub claims on messages, no filtering in sendMessage.
 
 ### Auth on the stream endpoint
 
-Move `/_REDACTED/stream` out of `PUBLIC_PREFIXES` when the group requires auth:
+Move `/slink/stream` out of `PUBLIC_PREFIXES` when the group requires auth:
 
 - Group has no `AUTH_SECRET` → stream stays open (public widget)
 - Group has `AUTH_SECRET` → require valid JWT on stream request
