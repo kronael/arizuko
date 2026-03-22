@@ -24,6 +24,7 @@ import (
 type config struct {
 	port       string
 	dashAddr   string
+	webdAddr   string
 	viteAddr   string
 	authSecret string
 	webPublic  bool
@@ -46,6 +47,7 @@ func loadConfig() config {
 	return config{
 		port:       port,
 		dashAddr:   chanlib.EnvOr("DASH_ADDR", "http://dashd:8091"),
+		webdAddr:   chanlib.EnvOr("WEBD_ADDR", ""),
 		viteAddr:   chanlib.EnvOr("VITE_ADDR", "http://localhost:8096"),
 		authSecret: os.Getenv("AUTH_SECRET"),
 		webPublic:  chanlib.EnvOr("WEB_PUBLIC", "false") == "true",
@@ -65,6 +67,7 @@ func proxy(target string) *httputil.ReverseProxy {
 type server struct {
 	cfg       config
 	dashProxy *httputil.ReverseProxy
+	webdProxy *httputil.ReverseProxy
 	viteProxy *httputil.ReverseProxy
 	redirects map[string]*httputil.ReverseProxy
 }
@@ -75,6 +78,9 @@ func newServer(cfg config) *server {
 		dashProxy: proxy(cfg.dashAddr),
 		viteProxy: proxy(cfg.viteAddr),
 		redirects: make(map[string]*httputil.ReverseProxy, len(cfg.redirects)),
+	}
+	if cfg.webdAddr != "" {
+		s.webdProxy = proxy(cfg.webdAddr)
 	}
 	for prefix, upstream := range cfg.redirects {
 		s.redirects[prefix] = proxy(upstream)
@@ -141,11 +147,25 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. /* — Vite, auth-gated unless WEB_PUBLIC=true
+	// 4. /slink/* — public (token-gated at webd)
+	if strings.HasPrefix(r.URL.Path, "/slink/") {
+		upstream := s.webdProxy
+		if upstream == nil {
+			upstream = s.viteProxy
+		}
+		upstream.ServeHTTP(w, r)
+		return
+	}
+
+	// 5. /* — webd (if configured) or Vite, auth-gated unless WEB_PUBLIC=true
+	upstream := s.viteProxy
+	if s.webdProxy != nil {
+		upstream = s.webdProxy
+	}
 	if s.cfg.webPublic {
-		s.viteProxy.ServeHTTP(w, r)
+		upstream.ServeHTTP(w, r)
 	} else {
-		s.requireAuth(s.viteProxy.ServeHTTP)(w, r)
+		s.requireAuth(upstream.ServeHTTP)(w, r)
 	}
 }
 
@@ -176,11 +196,15 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 			return
 		}
-		if _, err := auth.VerifyJWT(secret, token); err != nil {
+		claims, err := auth.VerifyJWT(secret, token)
+		if err != nil {
 			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 			return
 		}
-		next(w, r)
+		r2 := r.Clone(r.Context())
+		r2.Header.Set("X-User-Sub", claims.Sub)
+		r2.Header.Set("X-User-Name", claims.Name)
+		next(w, r2)
 	}
 }
 
@@ -206,7 +230,7 @@ func main() {
 
 	s := newServer(cfg)
 
-	slog.Info("proxyd starting", "port", cfg.port, "dash", cfg.dashAddr, "vite", cfg.viteAddr)
+	slog.Info("proxyd starting", "port", cfg.port, "dash", cfg.dashAddr, "webd", cfg.webdAddr, "vite", cfg.viteAddr)
 
 	srv := &http.Server{
 		Addr:    cfg.port,
