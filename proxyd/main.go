@@ -206,7 +206,7 @@ func main() {
 
 	s := newServer(cfg)
 
-	slog.Info("webd starting", "port", cfg.port, "dash", cfg.dashAddr, "vite", cfg.viteAddr)
+	slog.Info("proxyd starting", "port", cfg.port, "dash", cfg.dashAddr, "vite", cfg.viteAddr)
 
 	srv := &http.Server{
 		Addr:    cfg.port,
@@ -214,7 +214,7 @@ func main() {
 	}
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		slog.Error("webd failed", "err", err)
+		slog.Error("proxyd failed", "err", err)
 		os.Exit(1)
 	}
 }

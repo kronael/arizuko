@@ -73,7 +73,7 @@ mastd/             Mastodon adapter (Go)
 bskyd/             Bluesky adapter (Go)
 reditd/            Reddit adapter (Go)
 whapd/             WhatsApp adapter (TypeScript)
-webd/              Web proxy daemon (auth, /dash/, /auth/, Vite)
+proxyd/            Web proxy daemon (auth, /dash/, /auth/, Vite)
 cfg/               Instance config files (per-deploy .env snapshots)
 ```
 
@@ -134,7 +134,7 @@ Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 | `bskyd`   | daemon  | Bluesky adapter (Go)                                                  |
 | `reditd`  | daemon  | Reddit adapter (Go)                                                   |
 | `whapd`   | daemon  | WhatsApp adapter (TypeScript)                                         |
-| `webd`    | daemon  | Web proxy: auth gate, /dash/, /auth/, Vite                            |
+| `proxyd`  | daemon  | Web proxy: auth gate, /dash/, /auth/, Vite                            |
 | `vited`   | service | Vite dev server (arizuko-vite image)                                  |
 | `emaid`   | daemon  | Email adapter (IMAP/SMTP, Go)                                         |
 

@@ -71,7 +71,7 @@ func Generate(dataDir string) (string, error) {
 	b.WriteString(timedService(app, flavor, dataDir, env))
 	b.WriteString(dashdService(app, flavor, dataDir, env))
 	if webPort := envOr(env, "WEB_PORT", ""); webPort != "" {
-		b.WriteString(webdService(app, flavor, dataDir, env))
+		b.WriteString(proxydService(app, flavor, dataDir, env))
 		b.WriteString(vitedService(app, flavor, dataDir, env))
 	}
 	if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
@@ -242,7 +242,7 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 	})
 }
 
-func webdService(app, flavor, dataDir string, env map[string]string) string {
+func proxydService(app, flavor, dataDir string, env map[string]string) string {
 	webPort := envOr(env, "WEB_PORT", "8095")
 	dashPort := envOr(env, "DASH_PORT", "8090")
 	vitePort := vitePortFrom(webPort)
@@ -262,10 +262,10 @@ func webdService(app, flavor, dataDir string, env map[string]string) string {
 		environment["WEB_REDIRECTS"] = r
 	}
 	return writeSvc(svcDef{
-		name:        "webd",
+		name:        "proxyd",
 		app:         app,
 		flavor:      flavor,
-		entrypoint:  "webd",
+		entrypoint:  "proxyd",
 		dataDir:     dataDir,
 		ports:       []string{webPort + ":" + webPort},
 		environment: environment,

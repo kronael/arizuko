@@ -391,7 +391,7 @@ gated/              Gateway daemon
 timed/              Scheduler daemon (cron poll, messages)
 onbod/              Onboarding daemon (auto-included when ONBOARDING_ENABLED=true)
 dashd/              Operator dashboards
-webd/               Web proxy (auth gate, /dash/, /auth/, Vite)
+proxyd/             Web proxy (auth gate, /dash/, /auth/, Vite)
 teled/              Telegram adapter (Go)
 discd/              Discord adapter (Go)
 mastd/              Mastodon adapter (Go)
