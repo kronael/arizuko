@@ -144,7 +144,7 @@ func workspaceRel(fp string) (string, error) {
 
 func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) *server.MCPServer {
 	id := auth.Resolve(folder)
-	srv := server.NewMCPServer("nanoclaw", "1.0")
+	srv := server.NewMCPServer("arizuko", "1.0")
 
 	// send_message
 	if len(grantslib.MatchingRules(rules, "send_message")) > 0 {

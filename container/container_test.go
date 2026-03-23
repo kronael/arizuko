@@ -236,9 +236,9 @@ func TestSeedSettings(t *testing.T) {
 	if !ok {
 		t.Fatal("mcpServers not a map")
 	}
-	nc, ok := servers["nanoclaw"].(map[string]any)
+	nc, ok := servers["arizuko"].(map[string]any)
 	if !ok {
-		t.Fatal("nanoclaw server missing")
+		t.Fatal("arizuko server missing")
 	}
 	if nc["command"] != "socat" {
 		t.Errorf("command = %v", nc["command"])

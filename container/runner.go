@@ -646,7 +646,7 @@ func seedSettings(
 	if servers == nil {
 		servers = map[string]any{}
 	}
-	servers["nanoclaw"] = map[string]any{
+	servers["arizuko"] = map[string]any{
 		"command": "socat",
 		"args":    []string{"STDIO", "UNIX-CONNECT:/workspace/ipc/router.sock"},
 	}

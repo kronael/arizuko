@@ -59,8 +59,8 @@ function loadAgentMcpServers(): Record<string, McpServerConfig> {
     const servers = settings.mcpServers as
       Record<string, McpServerConfig> | undefined;
     if (!servers || typeof servers !== 'object') return {};
-    // Never override the built-in nanoclaw server
-    delete servers.nanoclaw;
+    // Never override the built-in arizuko server
+    delete servers.arizuko;
     return servers;
   } catch {
     return {};
@@ -432,7 +432,7 @@ async function runQuery(
           'Task', 'TaskOutput', 'TaskStop',
           'TodoWrite', 'ToolSearch', 'Skill',
           'NotebookEdit',
-          'mcp__nanoclaw__*',
+          'mcp__arizuko__*',
           ...Object.keys(loadAgentMcpServers()).map(
             (n) => `mcp__${n}__*`,
           ),
@@ -443,7 +443,7 @@ async function runQuery(
         settingSources: ['project', 'user'],
         mcpServers: {
           ...loadAgentMcpServers(),
-          nanoclaw: {
+          arizuko: {
             command: 'socat',
             args: ['STDIO', 'UNIX-CONNECT:/workspace/ipc/router.sock'],
           },

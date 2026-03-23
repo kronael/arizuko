@@ -185,7 +185,7 @@ require('fs').writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
 ```
 
 On next session spawn, the new MCP tools will be available as
-`mcp__mytools__*`. The built-in `nanoclaw` server cannot be overridden.
+`mcp__mytools__*`. The built-in `arizuko` server cannot be overridden.
 
 ### Known limitation
 
