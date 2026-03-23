@@ -1,11 +1,9 @@
-## <!-- source: arizuko specs/3/8-web-virtual-hosts.md, synced 2026-03-15 -->
-
 ## status: shipped
 
 # Web Virtual Hosts
 
-Hostname-based routing via web-proxy.ts redirect. Root agent
-manages mappings. Worlds write content to their subdirectory.
+Hostname-based routing via proxyd. Root agent manages mappings.
+Worlds write content to their subdirectory.
 
 ## Problem
 
@@ -17,10 +15,9 @@ per-world configuration in the gateway.
 
 ### Hostname → redirect
 
-`web-proxy.ts` reads `vhosts.json`, matches `Host` header,
+`proxyd` reads `vhosts.json`, matches `Host` header,
 and issues a `301` redirect to the world's subdirectory.
-Vite serves the subdirectory normally — no plugins, no
-`server.fs.allow` changes, no hidden rewrites.
+Vite serves the subdirectory normally.
 
 ```
 GET / Host: REDACTED
@@ -33,12 +30,16 @@ GET / Host: REDACTED
 ```json
 {
   "REDACTED": "REDACTED",
-  "support.acme.co": "atlas"
+  "*.atlas.REDACTED": "atlas"
 }
 ```
 
-Lives at `DATA_DIR/web/vhosts.json`. Root agent (tier 0) writes
-it directly — no gateway code, no DB table, no IPC actions.
+Lives at `DATA_DIR/web/vhosts.json`. Hostname keys support glob
+patterns (`*` prefix wildcard). Root agent (tier 0) writes it
+directly — no gateway code, no DB table, no IPC actions.
+
+Matching: exact first, then glob via `path.Match`. Port stripped
+before matching.
 
 ### Path safety
 
@@ -46,19 +47,10 @@ Two layers prevent cross-world serving:
 
 1. **Mount isolation** — tier 1 container bind-mounts
    `DATA_DIR/web/<world>/` as `/workspace/web/`. Cannot write
-   outside own directory. Symlinks resolve inside the mount.
+   outside own directory.
 
-2. **Redirect validation** — web-proxy rejects traversal in
-   the raw URL, then normalizes before redirecting:
-
-```typescript
-if (url.includes('..')) {
-  res.writeHead(400).end();
-  return;
-}
-const normalized = path.posix.normalize(url);
-res.writeHead(301, { Location: `/${world}${normalized}` });
-```
+2. **Redirect validation** — proxyd rejects `..` in the raw URL
+   (400), then normalizes with `path.Clean` before redirecting.
 
 `vhosts.json` is only writable by root (tier 0), so worlds
 cannot redirect to each other's namespaces.
@@ -83,7 +75,7 @@ for instance-level setup:
 - SSL/TLS notes
 - Web directory structure
 
-Baked into agent image for tier 0 only. Worlds don't see it.
+Baked into agent image for tier 0 only.
 
 ## World workflow
 
@@ -91,28 +83,19 @@ A tier 1 world agent writes web content:
 
 ```
 /workspace/web/index.html     ← its own web root
-/workspace/web/assets/         ← static files
+/workspace/web/assets/
 ```
 
 Inside the container, `/workspace/web/` is bind-mounted to
 `DATA_DIR/web/<world>/`. The world doesn't know about hostnames —
 it just writes files. The redirect serves them at `{world}.{domain}`.
 
-## Implementation order
-
-1. ~~web-proxy.ts: read `vhosts.json`, redirect by `Host` header~~ **shipped**
-2. ~~Change tier 1 mount: `/workspace/web/` → `DATA_DIR/web/<world>/`~~ **shipped**
-3. ~~`infra` skill for root agent~~ **shipped**
-
 ## Implementation notes
 
-- `loadVhosts()` in `web-proxy.ts` caches `vhosts.json`, re-checks
-  file mtime every 5s. Redirect runs before auth check.
-- `HOST_WEB_DIR` added to `config.ts` for host-path mount resolution.
-- `container-runner.ts` `buildVolumeMounts()`: tier 0 mounts full `WEB_DIR`;
-  tier 1 mounts `WEB_DIR/<world>/` as `/workspace/web` (per-world isolation).
-- Tests in `web-proxy.test.ts`: vhost redirect, path traversal
-  rejection, no-match fallthrough, missing vhosts.json.
+- `proxyd/main.go`: `vhosts.load()` checks mtime every 5s, swaps
+  atomically under `sync.RWMutex`. Redirect runs before auth check.
+- `core.Config.WebDir` = `DATA_DIR/web`; vhosts path =
+  `filepath.Join(cfg.WebDir, "vhosts.json")`
 
 ## Related
 
