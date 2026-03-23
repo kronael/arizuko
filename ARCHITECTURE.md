@@ -200,7 +200,7 @@ WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
    - Resolve group path via `groupfolder.Resolver`
    - `BuildMounts()` — assemble volume mounts (group, media, self, share, session, ipc, web, extra)
    - `mountsec.ValidateAdditionalMounts()` — check against allowlist
-   - `seedSettings()` — write `settings.json` to session `.claude/` dir (env vars, nanoclaw MCP via socat, sidecar MCP config)
+   - `seedSettings()` — write `settings.json` to session `.claude/` dir (env vars, arizuko MCP via socat, sidecar MCP config)
    - `seedSkills()` — copy `container/skills/` to session on first run; also seeds `.claude.json` if missing (SDK requires it; keyed by folder for stable userID hash)
    - `StartSidecars()` — launch MCP sidecar containers (if configured)
    - `docker run -i --rm` with volume mounts, write JSON to stdin, read stdout
@@ -219,14 +219,14 @@ cursor advances (partial work preserved).
 
 MCP server on unix socket (`mark3labs/mcp-go`). Gateway starts
 one `ipc` server per group before container spawn, listening on
-`data/ipc/<folder>/nanoclaw.sock`. Tools registered from MCP manifest
+`data/ipc/<folder>/router.sock`. Tools registered from MCP manifest
 filtered by grants rules for the caller's group; runtime auth via
 `auth.Authorize`. `set_grants`/`get_grants` tools allow agents to
 read and write grant rules. `delegate_group` calls `NarrowRules`
 to merge parent+child rules before persisting.
 
 **Transport**: socat bridges the host unix socket into the container.
-Agent-runner configures `nanoclaw` MCP server in `settings.json`
+Agent-runner configures `arizuko` MCP server in `settings.json`
 using `socat UNIX-CONNECT` to reach the socket.
 
 **Lifecycle**: server starts before `docker run`, stops after
