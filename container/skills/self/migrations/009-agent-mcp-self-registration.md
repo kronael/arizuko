@@ -2,7 +2,7 @@
 
 You can now register your own MCP servers by adding entries to
 `~/.claude/settings.json` under `mcpServers`. On next session spawn,
-agent-runner merges them with the built-in `nanoclaw` server and
+agent-runner merges them with the built-in `arizuko` server and
 makes their tools available.
 
 See the "Self-extension" section in `~/.claude/skills/self/SKILL.md`

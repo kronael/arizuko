@@ -24,7 +24,7 @@ Each agent container connects from a known group folder.
 ipc resolves identity from the socket path:
 
 ```
-/data/ipc/<folder>/nanoclaw.sock → folder = <folder>
+/data/ipc/<folder>/router.sock → folder = <folder>
 ```
 
 Tier is computed from folder depth (slash count):
@@ -43,9 +43,9 @@ socat bridge:
 
 ```json
 {
-  "nanoclaw": {
+  "arizuko": {
     "command": "socat",
-    "args": ["STDIO", "UNIX-CONNECT:/workspace/ipc/nanoclaw.sock"]
+    "args": ["STDIO", "UNIX-CONNECT:/workspace/ipc/router.sock"]
   }
 }
 ```
@@ -89,7 +89,7 @@ registering. Merges the former `spawn_group` tool.
 
 ```
 agent calls send_message("hello")
-  → ipc receives on /data/ipc/andy/research/nanoclaw.sock
+  → ipc receives on /data/ipc/andy/research/router.sock
   → resolves: folder=andy/research, tier=1
   → calls auth.Authorize: can tier=1 from andy/research do send_message?
   → auth: allow (tier 1 ≤ min tier 3)
