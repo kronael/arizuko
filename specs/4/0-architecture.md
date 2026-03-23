@@ -9,10 +9,10 @@ Libraries don't: `auth`, `ipc`, `grants`, `notify`.
 
 | Daemon  | Status  | Role                         | Spec                             |
 | ------- | ------- | ---------------------------- | -------------------------------- |
-| `gated` | running | Gateway, routing, containers | `specs/7/9-gated.md`             |
-| `timed` | running | Cron poll, writes messages   | `specs/7/8-scheduler-service.md` |
-| `onbod` | running | Onboarding state machine     | `specs/7/21-onboarding.md`       |
-| `dashd` | running | Operator dashboards (HTMX)   | `specs/7/25-dashboards.md`       |
+| `gated` | running | Gateway, routing, containers | `specs/4/9-gated.md`             |
+| `timed` | running | Cron poll, writes messages   | `specs/4/8-scheduler-service.md` |
+| `onbod` | running | Onboarding state machine     | `specs/4/21-onboarding.md`       |
+| `dashd` | running | Operator dashboards (HTMX)   | `specs/4/25-dashboards.md`       |
 | `teled` | running | Telegram adapter             |                                  |
 | `discd` | running | Discord adapter              |                                  |
 | `whapd` | running | WhatsApp adapter             |                                  |
@@ -22,13 +22,13 @@ Libraries don't: `auth`, `ipc`, `grants`, `notify`.
 
 | Package  | Spec                          | Role                          |
 | -------- | ----------------------------- | ----------------------------- |
-| `auth`   | `specs/7/11-auth.md`          | Identity, authorization, JWT  |
-| `ipc`    | `specs/7/10-ipc.md`           | MCP server, per-group sockets |
-| `grants` | `specs/7/19-action-grants.md` | Grant rule engine             |
-| `notify` | `specs/7/20-control-chat.md`  | Operator notifications        |
+| `auth`   | `specs/4/11-auth.md`          | Identity, authorization, JWT  |
+| `ipc`    | `specs/4/10-ipc.md`           | MCP server, per-group sockets |
+| `grants` | `specs/4/19-action-grants.md` | Grant rule engine             |
+| `notify` | `specs/4/20-control-chat.md`  | Operator notifications        |
 
 Channel adapters are external — they use HTTP because they
-may run on remote hosts. See `specs/7/1-channel-protocol.md`.
+may run on remote hosts. See `specs/4/1-channel-protocol.md`.
 
 ## Communication
 
@@ -53,7 +53,7 @@ may run on remote hosts. See `specs/7/1-channel-protocol.md`.
 - **All services register in the channels table** — external
   adapters (teled, discd, whapd) and internal services
   (onbod, dashd) use the same registration mechanism.
-  See `specs/7/1-channel-protocol.md`.
+  See `specs/4/1-channel-protocol.md`.
 - **Route targets** are either a group folder path (contains
   `/`) or a service name (no `/`). Folder paths → write to
   messages table. Service names → channels table lookup →
