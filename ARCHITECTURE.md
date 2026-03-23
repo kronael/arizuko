@@ -74,12 +74,14 @@ chanlib/             (library)
 Channel adapter → POST /v1/messages (api) → store.PutMessage
   → gateway.messageLoop (polls every 2s)
   → store.NewMessages (unprocessed since lastTimestamp)
+  → store.ActiveWebJIDs (web: JIDs with recent messages, polled same loop)
   → checkTrigger (direct mode or @name regex)
   → handleCommand (/new [#topic], /ping, /chatid, /stop)
   → prefix dispatch (@name → named group, #topic → topic session)
   → router.ResolveRoutingTarget (delegate to child group if matched)
   → queue.SendMessage (stdin pipe to running container) OR
   → queue.EnqueueMessageCheck → processGroupMessages
+    → web: JID → processWebTopics (per-topic agent run)
     → filter out gateway commands (isGatewayCommand — not forwarded to agent)
     → store.MessagesSince (per-chat agent cursor)
     → store.FlushSysMsgs (XML system events prepended)
@@ -89,6 +91,34 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
     → stream output → router.FormatOutbound (strip <internal> tags)
     → HTTPChannel.Send → POST /send to channel adapter
 ```
+
+## Web Channel (proxyd + webd)
+
+Web chat uses `web:<folder>` JIDs. Messages arrive via `webd` (HTTP/SSE),
+are stored directly in the shared SQLite DB. The gateway poll loop discovers
+active `web:` JIDs via `store.ActiveWebJIDs(since)` and routes them like any
+other channel. Each web message carries a topic; `processWebTopics` in the
+gateway splits messages by topic and runs one agent per topic.
+
+**Auth planes** (both resolved at proxyd before forwarding to webd):
+
+- **JWT plane**: user logs in via `/auth/`, proxyd validates the JWT and
+  injects `X-User-Sub` and optionally `X-User-Groups` (JSON array of folder
+  names). `groups: null` in the JWT = operator (unrestricted); `groups: []` =
+  no access; `groups: ["folder"]` = specific folders. Group list is read from
+  `user_groups` table at login time and embedded in the JWT.
+
+- **Slink plane**: proxyd resolves the slink token against
+  `registered_groups.slink_token` and injects `X-Folder`, `X-Group-Name`, and
+  `X-Slink-Token`. Rate-limited at 10 req/min per IP.
+
+`webd.requireFolder` middleware checks `X-User-Groups` on folder-specific
+endpoints. Absent header = operator (no restriction).
+
+`groupForJid` in the gateway resolves `web:<folder>` by stripping the prefix
+and looking up the group by folder path, the same fallback used by `slink:`.
+
+Full protocol: `specs/6/3-chat-ui.md`.
 
 ## Channel Protocol
 
@@ -156,6 +186,7 @@ Full protocol: `specs/4/1-channel-protocol.md`.
 | `router_state`      | key (PK), value — persists lastTimestamp, lastAgentTimestamp                                   |
 | `auth_users`        | sub (unique), username (unique), hash                                                          |
 | `auth_sessions`     | token_hash (PK), user_sub, expires_at                                                          |
+| `user_groups`       | user_sub + folder (PK) — restricts web user to specific group folders                          |
 | `email_threads`     | thread_id (PK), chat_jid, subject                                                              |
 | `onboarding`        | jid (PK), status, world_name, prompted_at                                                      |
 

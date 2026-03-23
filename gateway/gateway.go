@@ -373,27 +373,11 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		ch.Typing(chatJid, true)
 	}
 
-	var hadOutput bool
 	savedTs := agentTs
-
 	isolated := last.Sender == "scheduler-isolated"
-	lastSentID := last.ID
+	onOutput, hadOutput := g.makeOutputCallback(chatJid, last.ID)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
-		func(text, status string) {
-			if text != "" {
-				hadOutput = true
-				stripped, statuses := router.ExtractStatusBlocks(text)
-				for _, s := range statuses {
-					g.sendMessage(chatJid, s)
-				}
-				clean := router.FormatOutbound(stripped)
-				if clean != "" {
-					if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID); sentID != "" {
-						lastSentID = sentID
-					}
-				}
-			}
-		}, isolated, nil, "", last.ID)
+		onOutput, isolated, nil, "", last.ID)
 
 	if ch != nil {
 		ch.Typing(chatJid, false)
@@ -405,10 +389,9 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		if gp, err := g.folders.GroupPath(group.Folder); err == nil {
 			diary.WriteRecovery(gp, "error", out.Error)
 		}
-		if hadOutput {
-			// Output was already delivered and cursor advanced; treat as
-			// success so the circuit breaker does not fire and a duplicate
-			// error notification is not sent.
+		if *hadOutput {
+			// Output was already delivered; treat as success so the circuit
+			// breaker does not fire and a duplicate error notification is not sent.
 			g.advanceAgentCursor(chatJid, msgs)
 			return true, nil
 		}
@@ -455,24 +438,9 @@ func (g *Gateway) processWebTopics(
 			ch.Typing(chatJid, true)
 		}
 
-		var hadOutput bool
-		lastSentID := last.ID
+		onOutput, hadOutput := g.makeOutputCallback(chatJid, last.ID)
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
-			func(text, status string) {
-				if text != "" {
-					hadOutput = true
-					stripped, statuses := router.ExtractStatusBlocks(text)
-					for _, s := range statuses {
-						g.sendMessage(chatJid, s)
-					}
-					clean := router.FormatOutbound(stripped)
-					if clean != "" {
-						if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID); sentID != "" {
-							lastSentID = sentID
-						}
-					}
-				}
-			}, false, nil, topic, last.ID)
+			onOutput, false, nil, topic, last.ID)
 
 		if ch != nil {
 			ch.Typing(chatJid, false)
@@ -484,7 +452,7 @@ func (g *Gateway) processWebTopics(
 			if gp, err := g.folders.GroupPath(group.Folder); err == nil {
 				diary.WriteRecovery(gp, "error", out.Error)
 			}
-			if hadOutput {
+			if *hadOutput {
 				g.advanceAgentCursor(chatJid, topicMsgs)
 				return true, nil
 			}
@@ -499,6 +467,29 @@ func (g *Gateway) processWebTopics(
 
 	g.store.ClearChatErrored(chatJid)
 	return true, nil
+}
+
+// makeOutputCallback returns an output callback and a hadOutput flag for use
+// with runAgentWithOpts. The callback streams agent text back to chatJid,
+// chaining reply IDs as messages are sent.
+func (g *Gateway) makeOutputCallback(chatJid, firstMsgID string) (func(string, string), *bool) {
+	var hadOutput bool
+	lastSentID := firstMsgID
+	return func(text, _ string) {
+		if text == "" {
+			return
+		}
+		hadOutput = true
+		stripped, statuses := router.ExtractStatusBlocks(text)
+		for _, s := range statuses {
+			g.sendMessage(chatJid, s)
+		}
+		if clean := router.FormatOutbound(stripped); clean != "" {
+			if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID); sentID != "" {
+				lastSentID = sentID
+			}
+		}
+	}, &hadOutput
 }
 
 func (g *Gateway) runAgentWithOpts(
