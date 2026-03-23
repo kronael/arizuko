@@ -7,6 +7,40 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.16.0] — 2026-03-23
+
+### Fixed
+
+- **Queue**: messages delivered to a running container via stdin injection
+  (`SendMessage`) were silently dropped if the container died before
+  processing them. `SendMessage` now sets `pendingMessages=true` so the
+  next drain spawns a retry. `processGroupMessages` returning no messages
+  is now treated as success (was incorrectly incrementing failure counter).
+
+### Added
+
+- **Web chat**: `web:` JID routing in gateway, per-topic agent runs
+  (`processWebTopics`), `user_groups` table + `Groups` field in JWT,
+  proxyd slink token resolution with per-IP rate limiting (10 req/min),
+  `requireFolder` middleware in webd.
+- **Structured logging**: info/debug log coverage across `gated`, `timed`,
+  `gateway`, `ipc`, `chanlib`, `container/runner` — all routing decisions,
+  MCP tool calls, container lifecycle events, channel registration, and
+  task scheduling are now traceable from logs alone.
+- **Specs**: agent-managed services (`servd`, specs/7/28), self-improvement
+  loop (specs/7/29).
+
+### Changed
+
+- **MCP server name**: renamed from `nanoclaw` to `arizuko` in
+  `ipc/ipc.go`, `container/runner.go`, and `agent-runner`. Tool names
+  visible to agents are now `mcp__arizuko__*`.
+- **Isolated container names**: `timed` now encodes the task ID in the
+  sender field (`scheduler-isolated:<task_id>`); gateway builds container
+  name as `arizuko-<folder>-task-<task_id>` instead of a timestamp.
+
+---
+
 ## [v0.15.0] — 2026-03-21
 
 ### Changed
