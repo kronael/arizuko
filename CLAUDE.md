@@ -81,7 +81,7 @@ cfg/               Instance config files (per-deploy .env snapshots)
 
 - JSONL files use `.jl` extension (not `.jsonl`)
 - XML tags for prompt structure, JSON for IPC/MCP/structured output
-- Container output delimited by `---NANOCLAW_OUTPUT_START---` / `---NANOCLAW_OUTPUT_END---`
+- Container output delimited by `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---`
 - IPC: MCP over unix socket, socat bridge into container
 
 ## Data Dir
