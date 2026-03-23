@@ -27,6 +27,24 @@ Rules:
 - Testable in isolation without the router running
 - Start minimal (inbound only), add outbound incrementally
 
+## Telegram webhook mode
+
+teled currently polls via `getUpdates` (30s long-poll). Webhook mode pushes
+updates from Telegram immediately, lower latency and CPU.
+
+Code changes are small (~100 lines):
+
+- Add `POST /webhook` handler to `teled/server.go` — parse `tgbotapi.Update`,
+  validate `X-Telegram-Bot-Api-Secret-Token` header, call `b.handle()`
+- Remove `bot.poll()` and offset state file (`teled-offset`)
+- Call `api.SetWebhook(url)` on startup (or once manually)
+
+Blocker: **HTTPS endpoint** — Telegram requires TLS on 443/80/88/8443.
+teled already has an HTTP server (`:9001`); just needs TLS termination in
+front (nginx/Caddy). Once infra exists the code change is straightforward.
+
+- [ ] Add webhook handler + remove polling once HTTPS infra is confirmed
+
 ## Remaining kanipi feature ports
 
 | Feature            | Where     | Notes                    |
