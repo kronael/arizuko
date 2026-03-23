@@ -37,7 +37,7 @@ subtree only, tier 2+ cannot modify routes.
 - **No route match**: message stored but not processed, debug log
 - **Delegation failure**: cursor advances (marked processed),
   error logged, no retry; message still in DB for parent access
-- **Authorization**: checked at route creation time, not runtime
+- **Authorization**: checked at runtime during route resolution (`IsAuthorizedRoutingTarget`)
 
 ## Open questions
 

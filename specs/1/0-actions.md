@@ -54,10 +54,12 @@ spawn. `request_sidecar` starts immediately for current session.
 
 ## Routing rules
 
-RoutingRule types: `command`, `pattern` (regex), `keyword`,
+RoutingRule types: `command`, `prefix` (@/# shortcuts, seq -2/-1),
+`pattern` (regex), `keyword` (case-insensitive substring),
 `sender` (regex on sender JID), `default`.
 
-Evaluation order: command > pattern > keyword > sender > default.
+Evaluation order by seq (lower first); convention: prefix at -2/-1,
+command at 0, others positive, default last.
 
 `target` is a group folder name.
 
