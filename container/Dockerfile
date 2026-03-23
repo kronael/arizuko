@@ -106,8 +106,10 @@ RUN set -e; ARCH=$(dpkg --print-architecture); \
       -o /tmp/duckdb.zip && unzip /tmp/duckdb.zip duckdb -d /usr/local/bin \
       && chmod +x /usr/local/bin/duckdb && rm /tmp/duckdb.zip; \
     DELTA_VER=$(curl -fsSL https://api.github.com/repos/dandavison/delta/releases/latest | jq -r .tag_name); \
-    curl -fsSL "https://github.com/dandavison/delta/releases/download/${DELTA_VER}/git-delta_${DELTA_VER}_${ARCH}.deb" \
-      -o /tmp/delta.deb && dpkg -i /tmp/delta.deb && rm /tmp/delta.deb
+    DELTA_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64"); \
+    curl -fsSL "https://github.com/dandavison/delta/releases/download/${DELTA_VER}/delta-${DELTA_VER}-${DELTA_ARCH}-unknown-linux-gnu.tar.gz" \
+      | tar xz --strip-components=1 -C /usr/local/bin \
+        "delta-${DELTA_VER}-${DELTA_ARCH}-unknown-linux-gnu/delta"
 
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
