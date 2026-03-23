@@ -131,7 +131,6 @@ func (s *Store) seedFromPragma() {
 	if ver == 0 {
 		return
 	}
-	// pragma 1→mig 2, 2→3, 3→3, 4→4, 5→5
 	m := map[int]int{1: 2, 2: 3, 3: 3, 4: 4, 5: 5}
 	maxMig := m[ver]
 	if maxMig == 0 {

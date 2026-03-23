@@ -61,7 +61,6 @@ func Generate(dataDir string) (string, error) {
 	})
 
 	project := filepath.Base(dataDir)
-	// project = "REDACTED" → app = "arizuko", flavor = "REDACTED"
 	app, flavor, _ := strings.Cut(project, "_")
 
 	var b strings.Builder
@@ -99,6 +98,17 @@ type svcDef struct {
 	dependsOn   string
 }
 
+func writeEnv(b *strings.Builder, env map[string]string) {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Fprintf(b, "      %s: '%s'\n", k, env[k])
+	}
+}
+
 func writeSvc(def svcDef) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "  %s:\n", def.name)
@@ -113,14 +123,7 @@ func writeSvc(def svcDef) string {
 		}
 	}
 	b.WriteString("    environment:\n")
-	keys := make([]string, 0, len(def.environment))
-	for k := range def.environment {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		fmt.Fprintf(&b, "      %s: '%s'\n", k, def.environment[k])
-	}
+	writeEnv(&b, def.environment)
 	dep := def.dependsOn
 	if dep == "" {
 		dep = "gated"
@@ -153,7 +156,6 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 
 	ports := []string{apiPort + ":" + apiPort}
 
-	// gated needs extra volumes; build manually
 	var b strings.Builder
 	fmt.Fprintf(&b, "  gated:\n")
 	fmt.Fprintf(&b, "    container_name: %s_gated_%s\n", app, flavor)
@@ -170,14 +172,7 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 		fmt.Fprintf(&b, "      - '%s'\n", p)
 	}
 	b.WriteString("    environment:\n")
-	keys := make([]string, 0, len(environment))
-	for k := range environment {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		fmt.Fprintf(&b, "      %s: '%s'\n", k, environment[k])
-	}
+	writeEnv(&b, environment)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }
@@ -337,15 +332,11 @@ func renderService(app, flavor, name string, cfg ServiceConfig, env map[string]s
 	}
 	if len(cfg.Environment) > 0 {
 		b.WriteString("    environment:\n")
-		keys := make([]string, 0, len(cfg.Environment))
-		for k := range cfg.Environment {
-			keys = append(keys, k)
+		interped := make(map[string]string, len(cfg.Environment))
+		for k, v := range cfg.Environment {
+			interped[k] = interpolate(v, env)
 		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			v := interpolate(cfg.Environment[k], env)
-			fmt.Fprintf(&b, "      %s: '%s'\n", k, v)
-		}
+		writeEnv(&b, interped)
 	}
 	deps := cfg.DependsOn
 	if len(deps) == 0 {

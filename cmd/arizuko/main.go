@@ -44,20 +44,7 @@ func cmdRun(args []string) {
 		fmt.Println("usage: arizuko run <instance>")
 		os.Exit(1)
 	}
-	name := args[0]
-	dataDir := instanceDir(name)
-
-	yml, err := compose.Generate(dataDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: %v\n", err)
-		os.Exit(1)
-	}
-	outPath := filepath.Join(dataDir, "docker-compose.yml")
-	if err := os.WriteFile(outPath, []byte(yml), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: write compose: %v\n", err)
-		os.Exit(1)
-	}
-
+	outPath := generateCompose(instanceDir(args[0]))
 	cmd := exec.Command("docker", "compose", "-f", outPath, "up", "--remove-orphans")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -72,7 +59,10 @@ func cmdGenerate(args []string) {
 		fmt.Println("usage: arizuko generate <instance>")
 		os.Exit(1)
 	}
-	dataDir := instanceDir(args[0])
+	generateCompose(instanceDir(args[0]))
+}
+
+func generateCompose(dataDir string) string {
 	yml, err := compose.Generate(dataDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed: %v\n", err)
@@ -83,6 +73,7 @@ func cmdGenerate(args []string) {
 		fmt.Fprintf(os.Stderr, "Failed: write compose: %v\n", err)
 		os.Exit(1)
 	}
+	return outPath
 }
 
 func instanceDir(name string) string {
@@ -236,7 +227,7 @@ func cmdStatus(args []string) {
 	composePath := filepath.Join(dataDir, "docker-compose.yml")
 
 	if _, err := os.Stat(composePath); err != nil {
-		fmt.Fprintf(os.Stderr, "no compose file at %s — run 'arizuko compose %s' first\n", composePath, name)
+		fmt.Fprintf(os.Stderr, "no compose file at %s — run 'arizuko generate %s' first\n", composePath, name)
 		os.Exit(1)
 	}
 

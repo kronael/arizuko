@@ -20,7 +20,8 @@ make agent    # agent docker image
 arizuko create foo                      # seed instance
 vim /srv/data/arizuko_foo/.env          # configure
 arizuko group foo add tg:-123456789     # register group
-arizuko run foo                         # start gateway
+arizuko generate foo                    # write docker-compose.yml (no docker needed)
+arizuko run foo                         # generate + docker compose up
 ```
 
 ## Group Management
@@ -37,7 +38,7 @@ Subsequent groups use trigger mode (`@assistant_name`).
 ## Packages
 
 ```
-cmd/arizuko/      CLI entrypoint (run, create, group, status)
+cmd/arizuko/      CLI entrypoint (generate, run, create, group, status)
 core/             Config, types, Channel interface
 store/            SQLite persistence
 gateway/          Main loop, message routing, commands

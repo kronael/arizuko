@@ -41,7 +41,7 @@ See ARCHITECTURE.md for package graph, schema, container model.
 ## Layout
 
 ```
-cmd/arizuko/       CLI entrypoint (run, create, group, status)
+cmd/arizuko/       CLI entrypoint (generate, run, create, group, status)
 core/              Config, types, Channel interface
 store/             SQLite (messages.db)
 gateway/           Main loop + commands
@@ -106,7 +106,8 @@ API server always starts (default port 8080).
 
 ## Entrypoint
 
-`arizuko run <instance>` — generate compose, run `docker compose up` (host command, what systemd calls).
+`arizuko generate <instance>` — write `docker-compose.yml` to the data dir (no docker needed).
+`arizuko run <instance>` — generate compose then run `docker compose up` (what systemd calls via `docker run arizuko:latest arizuko generate <name>` + `docker compose up`).
 `arizuko create <name>` — seed data dir, .env, default group.
 `arizuko group <instance> list|add|rm` — manage registered groups.
 `arizuko status <instance>` — show compose services and registered channels.

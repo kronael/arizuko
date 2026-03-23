@@ -419,9 +419,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	return true, nil
 }
 
-// processWebTopics processes web: messages grouped by topic.
-// Returns (true, nil) on success, (false, err) on first topic failure.
-// Returns (false, nil) if there are no non-empty topics (caller advances cursor).
 func (g *Gateway) processWebTopics(
 	group core.Group, chatJid string, ch core.Channel, msgs []core.Message,
 ) (bool, error) {
@@ -481,9 +478,6 @@ func (g *Gateway) processWebTopics(
 	return true, nil
 }
 
-// makeOutputCallback returns an output callback and a hadOutput flag for use
-// with runAgentWithOpts. The callback streams agent text back to chatJid,
-// chaining reply IDs as messages are sent.
 func (g *Gateway) makeOutputCallback(chatJid, firstMsgID string) (func(string, string), *bool) {
 	var hadOutput bool
 	lastSentID := firstMsgID
@@ -645,8 +639,6 @@ func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
 	return nil
 }
 
-// ensureGroupGitRepo initialises a git repo in groupDir if one does not exist,
-// and writes a .gitignore that excludes runtime-only directories.
 func ensureGroupGitRepo(groupDir string) {
 	if _, err := os.Stat(filepath.Join(groupDir, ".git")); err == nil {
 		return
@@ -714,8 +706,6 @@ func resolveTarget(msg core.Message, routes []core.Route, selfFolder string) str
 var rePrefixAt = regexp.MustCompile(`@(\w[\w-]*)`)
 var rePrefixHash = regexp.MustCompile(`#(\w[\w-]*)`)
 
-// parsePrefix finds the first @name or #name anywhere in text.
-// Returns the name (without the symbol) and the text with that token stripped.
 func parsePrefix(text string) (name, rest string, ok bool) {
 	for _, re := range []*regexp.Regexp{rePrefixAt, rePrefixHash} {
 		if m := re.FindStringIndex(text); m != nil {
@@ -728,8 +718,6 @@ func parsePrefix(text string) (name, rest string, ok bool) {
 	return "", "", false
 }
 
-// findPrefixRoute returns the first prefix-type route matching msg, or nil.
-// Matches @word or #word anywhere in the message content.
 func findPrefixRoute(routes []core.Route, msg core.Message) *core.Route {
 	hasAt := rePrefixAt.MatchString(msg.Content)
 	hasHash := rePrefixHash.MatchString(msg.Content)
@@ -748,8 +736,6 @@ func findPrefixRoute(routes []core.Route, msg core.Message) *core.Route {
 	return nil
 }
 
-// handlePrefixRoute dispatches a message that matched a prefix route.
-// Returns true if the message was consumed.
 func (g *Gateway) handlePrefixRoute(
 	r *core.Route, msg core.Message, group core.Group, chatJid string,
 ) bool {
@@ -798,9 +784,6 @@ func (g *Gateway) handlePrefixRoute(
 	return false
 }
 
-// advanceAgentCursor marks messages up to the last one as processed.
-// If the process crashes after agent output but before this call, the
-// same messages will be replayed on restart (at-least-once delivery).
 func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {
 	if len(msgs) == 0 {
 		return

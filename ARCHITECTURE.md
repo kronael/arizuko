@@ -92,9 +92,9 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
     → HTTPChannel.Send → POST /send to channel adapter
 ```
 
-## Web Channel (proxyd + webd)
+## Web Channel (proxyd)
 
-Web chat uses `web:<folder>` JIDs. Messages arrive via `webd` (HTTP/SSE),
+Web chat uses `web:<folder>` JIDs. Messages arrive via `proxyd` (HTTP/SSE),
 are stored directly in the shared SQLite DB. The gateway poll loop discovers
 active `web:` JIDs via `store.ActiveWebJIDs(since)` and routes them like any
 other channel. Each web message carries a topic; `processWebTopics` in the
@@ -399,7 +399,7 @@ API server always starts (default port 8080).
 ## Repository Layout
 
 ```
-cmd/arizuko/        CLI entrypoint (run, create, group, status)
+cmd/arizuko/        CLI entrypoint (generate, run, create, group, status)
 core/               Config, types, Channel interface
 store/              SQLite persistence (messages, groups, sessions, tasks, auth)
 api/                HTTP API server (channel protocol endpoints)

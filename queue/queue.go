@@ -217,7 +217,6 @@ func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 	if container != "" {
 		signalContainer(container)
 	}
-	// Mark pending so a retry runs if the container dies before processing.
 	q.mu.Lock()
 	q.getGroup(groupJid).pendingMessages = true
 	q.mu.Unlock()
@@ -315,8 +314,6 @@ func (q *GroupQueue) runTask(groupJid string, task queuedTask) {
 	q.mu.Unlock()
 }
 
-// startGroupLocked picks and launches the next pending work for jid.
-// Returns true if something was started. Must be called with q.mu held.
 func (q *GroupQueue) startGroupLocked(jid string) bool {
 	s := q.getGroup(jid)
 	if len(s.pendingTasks) > 0 {
