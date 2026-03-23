@@ -370,8 +370,8 @@ func TestContextModeIsolated(t *testing.T) {
 
 	var sender string
 	db.QueryRow("SELECT sender FROM messages WHERE content='isolated-task'").Scan(&sender)
-	if sender != "scheduler-isolated" {
-		t.Fatalf("expected sender=scheduler-isolated, got %q", sender)
+	if !strings.HasPrefix(sender, "scheduler-isolated:") {
+		t.Fatalf("expected sender=scheduler-isolated:<id>, got %q", sender)
 	}
 }
 

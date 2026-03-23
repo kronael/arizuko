@@ -27,6 +27,12 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
+	slog.Info("gated starting",
+		"poll_interval", cfg.PollInterval,
+		"max_containers", cfg.MaxContainers,
+		"idle_timeout", cfg.IdleTimeout,
+		"onboarding", cfg.OnboardingEnabled,
+	)
 
 	s, err := store.Open(cfg.StoreDir)
 	if err != nil {
@@ -40,11 +46,13 @@ func main() {
 	reg := chanreg.New(cfg.ChannelSecret)
 	apiSrv := api.New(reg, s)
 	apiSrv.OnRegister(func(name string, ch *chanreg.HTTPChannel) {
+		slog.Info("channel registered", "name", name)
 		gw.RemoveChannel(name)
 		gw.AddChannel(ch)
 		ch.DrainOutbox()
 	})
 	apiSrv.OnDeregister(func(name string) {
+		slog.Info("channel deregistered", "name", name)
 		gw.RemoveChannel(name)
 	})
 
@@ -66,4 +74,7 @@ func main() {
 		slog.Error("gateway error", "err", err)
 		os.Exit(1)
 	}
+	slog.Info("gated shutdown: flushing")
+	gw.Shutdown()
+	slog.Info("gated stopped")
 }

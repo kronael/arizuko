@@ -59,6 +59,7 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 		return nil, err
 	}
 	os.Chmod(sockPath, 0600)
+	slog.Info("mcp server listening", "folder", folder, "sock", sockPath)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -67,6 +68,7 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 			if err != nil {
 				return
 			}
+			slog.Debug("mcp connection accepted", "folder", folder)
 			go func() {
 				srv := buildMCPServer(gated, db, folder, rules)
 				stdioSrv := server.NewStdioServer(srv)
@@ -146,6 +148,23 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	id := auth.Resolve(folder)
 	srv := server.NewMCPServer("arizuko", "1.0")
 
+	grantedTools := []string{
+		"send_message", "send_reply", "send_file", "reset_session",
+		"inject_message", "register_group", "escalate_group",
+		"delegate_group", "get_routes", "set_routes", "add_route",
+		"delete_route", "schedule_task", "pause_task", "resume_task",
+		"cancel_task", "list_tasks",
+	}
+	var skipped []string
+	for _, t := range grantedTools {
+		if len(grantslib.MatchingRules(rules, t)) == 0 {
+			skipped = append(skipped, t)
+		}
+	}
+	if len(skipped) > 0 {
+		slog.Debug("mcp tools not registered (no grant match)", "folder", folder, "tools", skipped)
+	}
+
 	// send_message
 	if len(grantslib.MatchingRules(rules, "send_message")) > 0 {
 		srv.AddTool(mcp.NewTool("send_message",
@@ -160,7 +179,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if gated.SendMessage == nil {
 				return toolErr("send_message not configured")
 			}
-			if err := gated.SendMessage(jid, req.GetString("text", "")); err != nil {
+			text := req.GetString("text", "")
+			snippet := text
+			if len(snippet) > 60 {
+				snippet = snippet[:60]
+			}
+			slog.Info("send_message", "folder", folder, "jid", jid, "text", snippet)
+			if err := gated.SendMessage(jid, text); err != nil {
 				return toolErr(err.Error())
 			}
 			return toolOK()
@@ -218,6 +243,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if !strings.HasPrefix(hostPath, filepath.Join(gated.HostGroupsDir, folder)+"/") {
 				return toolErr("path outside group dir")
 			}
+			slog.Info("send_file", "folder", folder, "jid", jid, "path", localPath)
 			if err := gated.SendDocument(jid, localPath, name); err != nil {
 				return toolErr(err.Error())
 			}
@@ -244,6 +270,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err := auth.Authorize(id, "reset_session", auth.AuthzTarget{TargetFolder: gf}); err != nil {
 				return toolErr(err.Error())
 			}
+			slog.Info("reset_session", "folder", folder, "targetFolder", gf)
 			gated.ClearSession(gf)
 			return toolOK()
 		})

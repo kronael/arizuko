@@ -261,6 +261,7 @@ func (g *Gateway) pollOnce() {
 					slog.Warn("insert onboarding", "jid", chatJid, "err", err)
 				}
 			}
+			slog.Debug("poll: no group for jid", "jid", chatJid)
 			continue
 		}
 
@@ -268,11 +269,13 @@ func (g *Gateway) pollOnce() {
 
 		last := chatMsgs[len(chatMsgs)-1]
 		if g.handleCommand(last, group) {
+			slog.Debug("poll: handled command", "jid", chatJid, "sender", last.Sender)
 			continue
 		}
 
 		if pr := findPrefixRoute(routes, last); pr != nil {
 			if g.handlePrefixRoute(pr, last, group, chatJid) {
+				slog.Debug("poll: routed via prefix", "jid", chatJid, "match", pr.Match)
 				continue
 			}
 		}
@@ -281,16 +284,20 @@ func (g *Gateway) pollOnce() {
 
 		if routingTarget != "" {
 			if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
+				slog.Debug("poll: delegating to child",
+					"jid", chatJid, "target", routingTarget)
 				g.delegateToChild(routingTarget, last.Content, chatJid, 0, nil)
 				continue
 			}
 		}
 
 		if g.queue.SendMessage(chatJid, last.Content) {
+			slog.Debug("poll: enqueued message", "jid", chatJid)
 			g.store.ClearChatErrored(chatJid)
 			continue
 		}
 
+		slog.Debug("poll: enqueue check", "jid", chatJid)
 		g.queue.EnqueueMessageCheck(chatJid)
 	}
 
@@ -347,6 +354,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 	if pr := findPrefixRoute(routes, last); pr != nil {
 		if g.handlePrefixRoute(pr, last, group, chatJid) {
+			slog.Debug("process: routed via prefix", "jid", chatJid, "match", pr.Match)
 			g.advanceAgentCursor(chatJid, msgs)
 			return true, nil
 		}
@@ -356,12 +364,16 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 	if routingTarget != "" {
 		if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
+			slog.Debug("process: delegating to child",
+				"jid", chatJid, "target", routingTarget)
 			g.delegateToChild(routingTarget, last.Content, chatJid, 0, nil)
 			g.advanceAgentCursor(chatJid, msgs)
 			return true, nil
 		}
 	}
 
+	slog.Debug("process: running agent",
+		"jid", chatJid, "group", group.Folder, "msgs", len(msgs))
 	g.emitSystemEvents(group, chatJid)
 
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
@@ -374,7 +386,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	}
 
 	savedTs := agentTs
-	isolated := last.Sender == "scheduler-isolated"
+	isolated := strings.HasPrefix(last.Sender, "scheduler-isolated")
 	onOutput, hadOutput := g.makeOutputCallback(chatJid, last.ID)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		onOutput, isolated, nil, "", last.ID)
@@ -513,9 +525,13 @@ func (g *Gateway) runAgentWithOpts(
 		return container.Output{Error: err.Error()}
 	}
 
-	ts := time.Now().UnixMilli()
 	sanitized := container.SanitizeFolder(group.Folder)
-	cname := fmt.Sprintf("arizuko-%s-%d", sanitized, ts)
+	var cname string
+	if taskID := strings.TrimPrefix(sender, "scheduler-isolated:"); taskID != sender {
+		cname = fmt.Sprintf("arizuko-%s-task-%s", sanitized, container.SanitizeFolder(taskID))
+	} else {
+		cname = fmt.Sprintf("arizuko-%s-%d", sanitized, time.Now().UnixMilli())
+	}
 
 	g.queue.RegisterProcess(chatJid, cname, group.Folder)
 

@@ -101,10 +101,13 @@ func logRun(db *sql.DB, taskID, status string, durationMs int64) {
 }
 
 func fire(db *sql.DB, tz string) {
+	now := time.Now()
+	slog.Debug("poll tasks", "at", now.Format(time.RFC3339))
+
 	rows, err := db.Query(
 		`SELECT id, chat_jid, prompt, cron, context_mode FROM scheduled_tasks
 		 WHERE status = 'active' AND next_run <= ?`,
-		time.Now().Format(time.RFC3339))
+		now.Format(time.RFC3339))
 	if err != nil {
 		slog.Error("query due tasks", "err", err)
 		return
@@ -122,11 +125,13 @@ func fire(db *sql.DB, tz string) {
 		due = append(due, t)
 	}
 
+	slog.Debug("due tasks", "count", len(due))
+
 	for _, t := range due {
 		start := time.Now()
 		sender := "scheduler"
 		if t.contextMode == "isolated" {
-			sender = "scheduler-isolated"
+			sender = "scheduler-isolated:" + t.id
 		}
 		id := fmt.Sprintf("sched-%s-%d", t.id, start.UnixNano())
 		_, err := db.Exec(
@@ -144,17 +149,22 @@ func fire(db *sql.DB, tz string) {
 			cronVal = *t.cronExpr
 		}
 
+		var nextRun string
 		if ms, ok := isIntervalMs(cronVal); ok {
 			next := time.Now().Add(time.Duration(ms) * time.Millisecond)
+			nextRun = next.Format(time.RFC3339)
 			if _, err := db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`,
-				next.Format(time.RFC3339), t.id); err != nil {
+				nextRun, t.id); err != nil {
 				slog.Warn("update task next_run", "task", t.id, "err", err)
 			}
 		} else if cronVal != "" {
 			next, err := nextCron(cronVal, tz)
-			if err == nil {
+			if err != nil {
+				slog.Warn("parse cron expr", "task", t.id, "cron", cronVal, "err", err)
+			} else {
+				nextRun = next.Format(time.RFC3339)
 				if _, err := db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`,
-					next.Format(time.RFC3339), t.id); err != nil {
+					nextRun, t.id); err != nil {
 					slog.Warn("update task next_run", "task", t.id, "err", err)
 				}
 			}
@@ -167,7 +177,9 @@ func fire(db *sql.DB, tz string) {
 		}
 
 		logRun(db, t.id, "success", time.Since(start).Milliseconds())
-		slog.Info("fired task", "id", t.id, "jid", t.jid, "context_mode", t.contextMode)
+		slog.Info("fired task",
+			"id", t.id, "jid", t.jid, "cron", cronVal,
+			"context_mode", t.contextMode, "next_run", nextRun)
 	}
 }
 
@@ -254,7 +266,9 @@ func cleanupSpawns(db *sql.DB, groupsDir string) {
 	}
 	defer rows.Close()
 	now := time.Now()
+	checkedSpawns := 0
 	for rows.Next() {
+		checkedSpawns++
 		var folder string
 		var ttlDays int
 		rows.Scan(&folder, &ttlDays)
@@ -274,6 +288,7 @@ func cleanupSpawns(db *sql.DB, groupsDir string) {
 			slog.Info("closed idle spawn", "folder", folder)
 		}
 	}
+	slog.Debug("cleanup spawns: checked active", "count", checkedSpawns)
 
 	// 2. Archive closed groups past their archive_closed_days threshold
 	rows2, err := db.Query(
@@ -296,6 +311,9 @@ func cleanupSpawns(db *sql.DB, groupsDir string) {
 		if now.Sub(t) > time.Duration(archiveDays)*24*time.Hour {
 			toArchive = append(toArchive, archiveTarget{folder, parent})
 		}
+	}
+	if len(toArchive) == 0 {
+		slog.Debug("cleanup spawns: nothing to archive")
 	}
 	for _, g := range toArchive {
 		archiveSpawn(db, groupsDir, g.folder, g.parent)

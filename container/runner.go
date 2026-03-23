@@ -153,9 +153,10 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	logsDir := filepath.Join(groupDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
 
+	sessionPresent := in.SessionID != ""
 	slog.Info("spawning container",
 		"group", in.Folder, "container", containerName,
-		"mounts", len(mounts), "root", root)
+		"mounts", len(mounts), "root", root, "session", sessionPresent)
 	slog.Debug("container args",
 		"group", in.Folder,
 		"args", strings.Join(args, " "))
@@ -690,6 +691,7 @@ func seedSettings(
 
 	data, _ := json.MarshalIndent(settings, "", "  ")
 	os.WriteFile(fp, append(data, '\n'), 0o644)
+	slog.Debug("settings seeded", "path", fp, "sidecars", len(in.Config.Sidecars))
 }
 
 func seedSkills(cfg *core.Config, claudeDir, folder string) {

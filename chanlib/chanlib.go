@@ -34,6 +34,7 @@ func NewRouterClient(url, secret string) *RouterClient {
 }
 
 func (r *RouterClient) Register(name, url string, prefixes []string, caps map[string]bool) (string, error) {
+	slog.Info("registering channel", "name", name, "url", url)
 	var resp struct {
 		OK    bool   `json:"ok"`
 		Token string `json:"token"`
@@ -43,11 +44,14 @@ func (r *RouterClient) Register(name, url string, prefixes []string, caps map[st
 		"name": name, "url": url, "jid_prefixes": prefixes, "capabilities": caps,
 	}, r.secret, &resp)
 	if err != nil {
+		slog.Error("channel registration failed", "name", name, "err", err)
 		return "", err
 	}
 	if !resp.OK {
+		slog.Error("channel registration rejected", "name", name, "reason", resp.Error)
 		return "", fmt.Errorf("register: %s", resp.Error)
 	}
+	slog.Info("channel registered", "name", name)
 	return resp.Token, nil
 }
 
