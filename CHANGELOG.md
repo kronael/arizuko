@@ -7,6 +7,33 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.17.0] — 2026-03-23
+
+### Added
+
+- **`arizuko generate`**: new subcommand that writes `docker-compose.yml`
+  without running the stack. Systemd units now use
+  `docker run arizuko:latest arizuko generate <name>` (ExecStartPre) +
+  `docker compose up` (ExecStart) — no host binary required. Compose
+  version always matches the image.
+
+- **Agent dev tooling**: `gh`, `duckdb`, `grpcurl`, `delta`, `semgrep`, and
+  15+ more tools added to the agent container image.
+
+### Fixed
+
+- **Delta install**: switched from `.deb` to tarball binary to avoid `dpkg`
+  dependency errors on the agent container build.
+
+### Changed
+
+- **Compose generator**: deduplicated `writeEnv` helper (was copy-pasted
+  three times); removed comments that restated code.
+- **Renamed throughout**: `webd` → `proxyd` in compose generator, systemd
+  Ansible template, and docs.
+
+---
+
 ## [v0.16.0] — 2026-03-23
 
 ### Fixed
