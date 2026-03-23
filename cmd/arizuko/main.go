@@ -25,6 +25,8 @@ func main() {
 	switch os.Args[1] {
 	case "run":
 		cmdRun(os.Args[2:])
+	case "generate":
+		cmdGenerate(os.Args[2:])
 	case "create":
 		cmdCreate(os.Args[2:])
 	case "group":
@@ -61,6 +63,24 @@ func cmdRun(args []string) {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed: docker compose: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func cmdGenerate(args []string) {
+	if len(args) < 1 {
+		fmt.Println("usage: arizuko generate <instance>")
+		os.Exit(1)
+	}
+	dataDir := instanceDir(args[0])
+	yml, err := compose.Generate(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed: %v\n", err)
+		os.Exit(1)
+	}
+	outPath := filepath.Join(dataDir, "docker-compose.yml")
+	if err := os.WriteFile(outPath, []byte(yml), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed: write compose: %v\n", err)
 		os.Exit(1)
 	}
 }
