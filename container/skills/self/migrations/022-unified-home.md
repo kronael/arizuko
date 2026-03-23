@@ -13,7 +13,7 @@ The group folder is mounted directly as the agent's home directory.
 
 ## What to do
 
-- Scripts using `basename /workspace/group` should use `$NANOCLAW_GROUP_FOLDER`
+- Scripts using `basename /workspace/group` should use `$ARIZUKO_GROUP_FOLDER`
 - Scripts using `/workspace/group/` paths should use relative paths or `/home/node/`
 - SOUL.md references: `~/.claude/SOUL.md` → just `SOUL.md`
 - Root migrate: `/workspace/data/sessions/` → `~/groups/`

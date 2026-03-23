@@ -46,8 +46,8 @@ The gateway mounts your group folder as `~` inside the container. Everything you
 
 ```bash
 echo ~                       # /home/node
-echo $NANOCLAW_GROUP_FOLDER  # your group folder path
-echo $NANOCLAW_TIER          # your permission tier (0=root, 1=world, 2=child, 3=read-only)
+echo $ARIZUKO_GROUP_FOLDER  # your group folder path
+echo $ARIZUKO_TIER          # your permission tier (0=root, 1=world, 2=child, 3=read-only)
 ```
 
 ## Skill seeding
@@ -68,7 +68,7 @@ updates, and runs pending migrations.
 ## Root group detection
 
 ```bash
-[ "$NANOCLAW_IS_ROOT" = "1" ] && echo root || echo non-root
+[ "$ARIZUKO_IS_ROOT" = "1" ] && echo root || echo non-root
 ```
 
 ## System messages
@@ -105,7 +105,7 @@ Rules:
 ## Introspect (all groups)
 
 ```bash
-echo "name: $NANOCLAW_ASSISTANT_NAME"
+echo "name: $ARIZUKO_ASSISTANT_NAME"
 echo "web:  ${WEB_HOST:-(not set)}"
 cat /workspace/web/.layout 2>/dev/null || echo legacy
 ls ~/.claude/skills/

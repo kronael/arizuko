@@ -1,11 +1,11 @@
 ---
 version: 15
-description: permission tiers, NANOCLAW_TIER env var
+description: permission tiers, ARIZUKO_TIER env var
 ---
 
 ## What changed
 
-- New env var `NANOCLAW_TIER`: 0=root, 1=world, 2=agent, 3=worker
+- New env var `ARIZUKO_TIER`: 0=root, 1=world, 2=agent, 3=worker
 - Tier 2 agents: home rw, setup files ro (CLAUDE.md, SOUL.md at group root,
   plus ~/.claude/CLAUDE.md, ~/.claude/skills, ~/.claude/settings.json,
   ~/.claude/output-styles). ~/.claude/projects/ remains rw.
@@ -15,5 +15,5 @@ description: permission tiers, NANOCLAW_TIER env var
 
 ## Action required
 
-Check tier: `echo "tier=$NANOCLAW_TIER"`
+Check tier: `echo "tier=$ARIZUKO_TIER"`
 No action needed — changes are automatic via gateway mounts.

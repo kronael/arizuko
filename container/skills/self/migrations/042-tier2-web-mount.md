@@ -15,8 +15,8 @@ description: tier 2 now has /workspace/web mount; fix web path logic
 ## Convention (updated)
 
 ```bash
-GROUP_FOLDER=$NANOCLAW_GROUP_FOLDER
-if [ "$NANOCLAW_IS_ROOT" = "1" ] || [ "$NANOCLAW_IS_WORLD_ADMIN" = "1" ]; then
+GROUP_FOLDER=$ARIZUKO_GROUP_FOLDER
+if [ "$ARIZUKO_IS_ROOT" = "1" ] || [ "$ARIZUKO_IS_WORLD_ADMIN" = "1" ]; then
   WEB_DIR="/workspace/web"
 else
   WEB_SUB=$(basename "$GROUP_FOLDER")
@@ -38,8 +38,8 @@ Move content if needed:
 
 ```bash
 # Only if /workspace/web exists and you're tier 2
-if [ "$NANOCLAW_TIER" = "2" ]; then
-  WEB_SUB=$(basename "$NANOCLAW_GROUP_FOLDER")
+if [ "$ARIZUKO_TIER" = "2" ]; then
+  WEB_SUB=$(basename "$ARIZUKO_GROUP_FOLDER")
   mkdir -p "/workspace/web/$WEB_SUB"
 fi
 ```

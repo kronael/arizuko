@@ -47,10 +47,10 @@ Write a complete, self-contained HTML file from CONTENT.md using your chosen sty
 
 ```bash
 # resolve web dir
-if [ "$NANOCLAW_IS_ROOT" = "1" ] || [ "$NANOCLAW_IS_WORLD_ADMIN" = "1" ]; then
+if [ "$ARIZUKO_IS_ROOT" = "1" ] || [ "$ARIZUKO_IS_WORLD_ADMIN" = "1" ]; then
   WEB_DIR="/workspace/web"
 else
-  WEB_DIR="/workspace/web/$(basename $NANOCLAW_GROUP_FOLDER)"
+  WEB_DIR="/workspace/web/$(basename $ARIZUKO_GROUP_FOLDER)"
 fi
 mkdir -p "$WEB_DIR/howto"
 

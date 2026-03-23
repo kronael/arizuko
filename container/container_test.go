@@ -216,14 +216,14 @@ func TestSeedSettings(t *testing.T) {
 	if !ok {
 		t.Fatal("env not a map")
 	}
-	if env["NANOCLAW_ASSISTANT_NAME"] != "TestBot" {
-		t.Errorf("name = %v", env["NANOCLAW_ASSISTANT_NAME"])
+	if env["ARIZUKO_ASSISTANT_NAME"] != "TestBot" {
+		t.Errorf("name = %v", env["ARIZUKO_ASSISTANT_NAME"])
 	}
-	if env["NANOCLAW_IS_ROOT"] != "1" {
-		t.Errorf("is_root = %v", env["NANOCLAW_IS_ROOT"])
+	if env["ARIZUKO_IS_ROOT"] != "1" {
+		t.Errorf("is_root = %v", env["ARIZUKO_IS_ROOT"])
 	}
-	if env["NANOCLAW_DELEGATE_DEPTH"] != "2" {
-		t.Errorf("depth = %v", env["NANOCLAW_DELEGATE_DEPTH"])
+	if env["ARIZUKO_DELEGATE_DEPTH"] != "2" {
+		t.Errorf("depth = %v", env["ARIZUKO_DELEGATE_DEPTH"])
 	}
 	if env["WEB_HOST"] != "https://example.com" {
 		t.Errorf("web_host = %v", env["WEB_HOST"])
@@ -257,9 +257,9 @@ func TestSeedSettingsNonRoot(t *testing.T) {
 	json.Unmarshal(data, &s)
 
 	env := s["env"].(map[string]any)
-	if env["NANOCLAW_IS_ROOT"] != "" {
-		t.Errorf("non-root should have empty NANOCLAW_IS_ROOT, got %v",
-			env["NANOCLAW_IS_ROOT"])
+	if env["ARIZUKO_IS_ROOT"] != "" {
+		t.Errorf("non-root should have empty ARIZUKO_IS_ROOT, got %v",
+			env["ARIZUKO_IS_ROOT"])
 	}
 }
 

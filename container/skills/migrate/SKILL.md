@@ -10,7 +10,7 @@ Sync skills and config across groups. Merges upstream changes, preserves local e
 ## Root-only check
 
 ```bash
-if [ "$NANOCLAW_IS_ROOT" != "1" ]; then
+if [ "$ARIZUKO_IS_ROOT" != "1" ]; then
   echo "ERROR: migrate is root-group only"
   exit 1
 fi

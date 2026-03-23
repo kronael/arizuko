@@ -70,15 +70,15 @@ Adapt this list to what you actually know is available. For example:
 ## Web prefix
 
 ```bash
-GROUP_FOLDER=$NANOCLAW_GROUP_FOLDER
-if [ "$NANOCLAW_IS_ROOT" = "1" ] || [ "$NANOCLAW_IS_WORLD_ADMIN" = "1" ]; then
+GROUP_FOLDER=$ARIZUKO_GROUP_FOLDER
+if [ "$ARIZUKO_IS_ROOT" = "1" ] || [ "$ARIZUKO_IS_WORLD_ADMIN" = "1" ]; then
   WEB_DIR="/workspace/web"
 else
   WEB_SUB=$(basename "$GROUP_FOLDER")
   WEB_DIR="/workspace/web/$WEB_SUB"
 fi
 WEB_PREFIX="$GROUP_FOLDER"
-[ "$NANOCLAW_IS_ROOT" = "1" ] && WEB_PREFIX=""
+[ "$ARIZUKO_IS_ROOT" = "1" ] && WEB_PREFIX=""
 ```
 
 Howto URL: `https://$WEB_HOST/$WEB_PREFIX/howto/`

@@ -15,7 +15,7 @@ within `/workspace/web/` instead of hardcoded paths.
 
 ```bash
 GROUP_FOLDER=$(basename /workspace/group)
-if [ "$NANOCLAW_IS_ROOT" = "1" ]; then
+if [ "$ARIZUKO_IS_ROOT" = "1" ]; then
   WEB_DIR="/workspace/web"
 else
   WEB_DIR="/workspace/web/$GROUP_FOLDER"

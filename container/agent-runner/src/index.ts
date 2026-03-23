@@ -120,8 +120,8 @@ async function readStdin(): Promise<string> {
   });
 }
 
-const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
+const OUTPUT_START_MARKER = '---ARIZUKO_OUTPUT_START---';
+const OUTPUT_END_MARKER = '---ARIZUKO_OUTPUT_END---';
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 function writeOutput(output: ContainerOutput): void {

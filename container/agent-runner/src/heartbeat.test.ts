@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
+const OUTPUT_START_MARKER = '---ARIZUKO_OUTPUT_START---';
+const OUTPUT_END_MARKER = '---ARIZUKO_OUTPUT_END---';
 
 // Capture stdout writes during fn, return accumulated string.
 function captureStdout(fn: () => void): string {

@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	outputStartMarker = "---NANOCLAW_OUTPUT_START---"
-	outputEndMarker   = "---NANOCLAW_OUTPUT_END---"
+	outputStartMarker = "---ARIZUKO_OUTPUT_START---"
+	outputEndMarker   = "---ARIZUKO_OUTPUT_END---"
 	maxOutputSize     = 10 * 1024 * 1024 // 10MB
 )
 
@@ -629,12 +629,12 @@ func seedSettings(
 	}
 
 	env["WEB_HOST"] = cfg.WebHost
-	env["NANOCLAW_ASSISTANT_NAME"] = cfg.Name
-	env["NANOCLAW_IS_ROOT"] = ""
+	env["ARIZUKO_ASSISTANT_NAME"] = cfg.Name
+	env["ARIZUKO_IS_ROOT"] = ""
 	if root {
-		env["NANOCLAW_IS_ROOT"] = "1"
+		env["ARIZUKO_IS_ROOT"] = "1"
 	}
-	env["NANOCLAW_DELEGATE_DEPTH"] = fmt.Sprintf("%d", in.Depth)
+	env["ARIZUKO_DELEGATE_DEPTH"] = fmt.Sprintf("%d", in.Depth)
 	if in.Channel != "" {
 		settings["outputStyle"] = in.Channel
 	}
