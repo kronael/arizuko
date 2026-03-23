@@ -18,10 +18,10 @@ Changes take effect on next session spawn.
 
 ## settings.json merge order
 
-Agent-written servers < sidecar servers < nanoclaw (nanoclaw always wins).
+Agent-written servers < sidecar servers < arizuko (arizuko always wins).
 
 Agent registers MCP servers via `settings.json`. Agent-runner merges
-with built-in `nanoclaw` server. Agent MCP servers are container-local,
+with built-in `arizuko` server. Agent MCP servers are container-local,
 no gateway access.
 
 ## Known limitation: hooks

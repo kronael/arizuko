@@ -33,7 +33,7 @@ call onOutput, delete file.
 
 **On restart (reclaim)**:
 
-1. `docker ps --filter name=nanoclaw-` -> list running containers
+1. `docker ps --filter name=arizuko-` -> list running containers
 2. Derive folder from container name
 3. Drain unprocessed output files -> call output handlers
 4. Register in GroupQueue with file-watching (no ChildProcess needed)

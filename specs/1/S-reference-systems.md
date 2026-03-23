@@ -346,15 +346,15 @@ threaded research delivery back to origin message.
 
 ## Cross-cutting comparison
 
-| Pattern        | brainpro                            | takopi                        | eliza-atlas           | kanipi                    |
-| -------------- | ----------------------------------- | ----------------------------- | --------------------- | ------------------------- |
-| Routing        | Session-per-channel-target          | Thread-per-message            | Room-per-workspace    | Group-per-JID             |
-| Resume         | Session UUID (uuid.json)            | Resume token (`engine:value`) | Session+message ID    | Session folder            |
-| Memory         | BOOTSTRAP+MEMORY+WORKING+daily      | None (stateless bridge)       | YAML facts+embeddings | Skills+CLAUDE.md          |
-| Tool isolation | Subagent toml+permission rules      | CLI flags (delegated)         | Restricted tool list  | Skills (CLAUDE.md rules)  |
-| MCP            | config.toml per-server, tool filter | N/A (CLI delegates)           | N/A (native tools)    | nanoclaw+agent-registered |
-| Streaming      | NDJSON unix socket                  | JSONL subprocess→TakopiEvent  | Progress events       | IPC messages              |
-| Resilience     | Circuit breaker+doom loop+fallback  | Thread-safe queuing           | Session lifecycle     | Not yet                   |
+| Pattern        | brainpro                            | takopi                        | eliza-atlas           | kanipi                   |
+| -------------- | ----------------------------------- | ----------------------------- | --------------------- | ------------------------ |
+| Routing        | Session-per-channel-target          | Thread-per-message            | Room-per-workspace    | Group-per-JID            |
+| Resume         | Session UUID (uuid.json)            | Resume token (`engine:value`) | Session+message ID    | Session folder           |
+| Memory         | BOOTSTRAP+MEMORY+WORKING+daily      | None (stateless bridge)       | YAML facts+embeddings | Skills+CLAUDE.md         |
+| Tool isolation | Subagent toml+permission rules      | CLI flags (delegated)         | Restricted tool list  | Skills (CLAUDE.md rules) |
+| MCP            | config.toml per-server, tool filter | N/A (CLI delegates)           | N/A (native tools)    | arizuko+agent-registered |
+| Streaming      | NDJSON unix socket                  | JSONL subprocess→TakopiEvent  | Progress events       | IPC messages             |
+| Resilience     | Circuit breaker+doom loop+fallback  | Thread-safe queuing           | Session lifecycle     | Not yet                  |
 
 ---
 

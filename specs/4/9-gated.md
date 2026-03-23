@@ -211,7 +211,7 @@ See `specs/7/20-control-chat.md`.
 ## Agent output processing
 
 Agent output is delimited by sentinel markers
-(`---NANOCLAW_OUTPUT_START---` / `---NANOCLAW_OUTPUT_END---`).
+(`---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---`).
 Between markers, gated applies outbound filtering
 (`router.FormatOutbound`) before sending to channels.
 

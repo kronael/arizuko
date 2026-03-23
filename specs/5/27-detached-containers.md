@@ -6,7 +6,7 @@
 
 Container↔gateway communication is coupled to the docker exec
 process. `container.Run` attaches stdout/stderr via exec streams and
-reads `---NANOCLAW_OUTPUT_START---` / `---NANOCLAW_OUTPUT_END---`
+reads `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---`
 markers.
 
 When gated restarts, the exec handle is gone. The container keeps

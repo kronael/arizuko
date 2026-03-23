@@ -7,7 +7,7 @@ communication. Builds on V-sidecars.md.
 
 ## settings.json merge order
 
-Agent-written servers < sidecar servers < nanoclaw (nanoclaw wins).
+Agent-written servers < sidecar servers < arizuko (arizuko wins).
 Gateway preserves agent-written `mcpServers` on each spawn.
 
 ## socat bridge pattern

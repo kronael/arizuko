@@ -29,7 +29,7 @@ Default: offline (safest). Privileged requires operator allowlist.
 
 ## Agent-requested sidecar validation
 
-- Image allowlist: `SIDECAR_ALLOWED_IMAGES=node:22-slim,python:3.12-slim,nanoclaw-sidecar-*`
+- Image allowlist: `SIDECAR_ALLOWED_IMAGES=node:22-slim,python:3.12-slim,arizuko-sidecar-*`
 - Mount restrictions: relative paths only, under /workspace/group/, default ro
 - Resource caps: memoryMb max 1024, cpus max 2.0
 - Network requires allowlist

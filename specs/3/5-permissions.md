@@ -51,7 +51,7 @@ Tier derived from folder depth: `min(folder.split('/').length, 3)`.
 </delegated_by>
 ```
 
-Child knows via `NANOCLAW_DELEGATE_DEPTH > 0` env var. Fire-and-forget;
+Child knows via `ARIZUKO_DELEGATE_DEPTH > 0` env var. Fire-and-forget;
 child replies directly to `chatJid`.
 
 ## local: Routing Enforcement

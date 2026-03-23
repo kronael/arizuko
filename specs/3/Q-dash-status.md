@@ -9,14 +9,14 @@ message queues, and recent errors. Read-only — no mutations.
 
 ## What it shows
 
-| Section       | Data source                        |
-| ------------- | ---------------------------------- |
-| Uptime        | `process.uptime()`                 |
-| Channels      | `channels[]` connected status      |
-| Containers    | `docker ps --filter name=nanoclaw` |
-| Group queues  | `GroupQueue` internal state        |
-| Recent errors | Last N error log entries           |
-| Sessions      | `sessions` map (folder → id)       |
+| Section       | Data source                       |
+| ------------- | --------------------------------- |
+| Uptime        | `process.uptime()`                |
+| Channels      | `channels[]` connected status     |
+| Containers    | `docker ps --filter name=arizuko` |
+| Group queues  | `GroupQueue` internal state       |
+| Recent errors | Last N error log entries          |
+| Sessions      | `sessions` map (folder → id)      |
 
 ## Architecture
 
@@ -55,7 +55,7 @@ app.get('/dash/status/api/state', authMiddleware, (req, res) => {
 
 ### Container list
 
-`docker ps --filter name=nanoclaw --format json` parsed and
+`docker ps --filter name=arizuko --format json` parsed and
 returned. Cached 5s to avoid hammering docker.
 
 ### SSE stream

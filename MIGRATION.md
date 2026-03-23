@@ -15,7 +15,7 @@ The agent wrote JSON files; the gateway polled/inotify-drained them.
 arizuko replaces this with MCP over a unix socket at
 `data/ipc/<group>/router.sock`. Inside the container the socket is mounted at
 `/workspace/ipc/router.sock`. The agent connects to it via a socat bridge that
-is injected into `.claude/settings.json` as an MCP server named `nanoclaw`.
+is injected into `.claude/settings.json` as an MCP server named `arizuko`.
 
 **What this means for agents:**
 

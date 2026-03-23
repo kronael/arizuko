@@ -61,7 +61,7 @@ registered_groups schema).
 
 How to isolate MCP tool servers in their own containers (docker now,
 sandboxes later). Today MCP servers run inside the agent container
-(nanoclaw, agent-registered servers). This spec describes running them
+(arizuko, agent-registered servers). This spec describes running them
 in separate containers with controlled communication.
 
 Key design points:
@@ -183,15 +183,15 @@ Key findings:
 
 Include a comparison table:
 
-| Pattern        | brainpro                       | takopi              | eliza-atlas           | arizuko status            |
-| -------------- | ------------------------------ | ------------------- | --------------------- | ------------------------- |
-| Routing        | Session-per-CLI                | Thread-per-message  | Room-per-workspace    | Group-per-JID             |
-| Resume         | Session UUID                   | Resume tokens       | Session+message ID    | Session folder            |
-| Memory         | BOOTSTRAP+MEMORY+WORKING+daily | N/A                 | YAML facts+embeddings | Skills+CLAUDE.md          |
-| Tool isolation | Subagent toml+permissions      | Per-runner CLI      | Service+action model  | Skills (CLAUDE.md rules)  |
-| MCP            | config.toml per-server         | N/A (CLI delegates) | N/A (native tools)    | nanoclaw+agent-registered |
-| Streaming      | NDJSON unix socket             | JSONL subprocess    | Progress events       | IPC messages              |
-| Resilience     | Circuit breaker+fallback       | Thread-safe queuing | Session lifecycle     | Not yet                   |
+| Pattern        | brainpro                       | takopi              | eliza-atlas           | arizuko status           |
+| -------------- | ------------------------------ | ------------------- | --------------------- | ------------------------ |
+| Routing        | Session-per-CLI                | Thread-per-message  | Room-per-workspace    | Group-per-JID            |
+| Resume         | Session UUID                   | Resume tokens       | Session+message ID    | Session folder           |
+| Memory         | BOOTSTRAP+MEMORY+WORKING+daily | N/A                 | YAML facts+embeddings | Skills+CLAUDE.md         |
+| Tool isolation | Subagent toml+permissions      | Per-runner CLI      | Service+action model  | Skills (CLAUDE.md rules) |
+| MCP            | config.toml per-server         | N/A (CLI delegates) | N/A (native tools)    | arizuko+agent-registered |
+| Streaming      | NDJSON unix socket             | JSONL subprocess    | Progress events       | IPC messages             |
+| Resilience     | Circuit breaker+fallback       | Thread-safe queuing | Session lifecycle     | Not yet                  |
 
 ### Concrete adoptions for arizuko
 
