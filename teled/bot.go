@@ -220,7 +220,7 @@ func (b *bot) typing(jid string, on bool) error {
 	if !on {
 		return nil
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	b.typingCancel[jid] = cancel
 	go func() {
 		b.api.Send(tgbotapi.NewChatAction(id, tgbotapi.ChatTyping))
