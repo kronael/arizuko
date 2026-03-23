@@ -10,6 +10,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +31,6 @@ type config struct {
 	viteAddr   string
 	authSecret string
 	webPublic  bool
-	redirects  map[string]string
 }
 
 func loadConfig() config {
@@ -37,14 +38,6 @@ func loadConfig() config {
 	if !strings.HasPrefix(port, ":") {
 		port = ":" + port
 	}
-
-	redirects := map[string]string{}
-	if raw := os.Getenv("WEB_REDIRECTS"); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &redirects); err != nil {
-			slog.Warn("WEB_REDIRECTS parse failed", "err", err)
-		}
-	}
-
 	return config{
 		port:       port,
 		dashAddr:   chanlib.EnvOr("DASH_ADDR", "http://dashd:8091"),
@@ -52,7 +45,6 @@ func loadConfig() config {
 		viteAddr:   chanlib.EnvOr("VITE_ADDR", "http://localhost:8096"),
 		authSecret: os.Getenv("AUTH_SECRET"),
 		webPublic:  chanlib.EnvOr("WEB_PUBLIC", "false") == "true",
-		redirects:  redirects,
 	}
 }
 
@@ -65,30 +57,86 @@ func proxy(target string) *httputil.ReverseProxy {
 	return httputil.NewSingleHostReverseProxy(u)
 }
 
+// vhosts manages hostname→world routing loaded from vhosts.json.
+type vhosts struct {
+	mu      sync.RWMutex
+	entries map[string]string
+	path    string
+	mtime   time.Time
+}
+
+func newVhosts(p string) *vhosts { return &vhosts{path: p, entries: map[string]string{}} }
+
+func (v *vhosts) load() {
+	info, err := os.Stat(v.path)
+	if os.IsNotExist(err) {
+		slog.Info("vhosts.json not found, skipping", "path", v.path)
+		return
+	}
+	if err != nil {
+		slog.Warn("vhosts stat failed", "err", err)
+		return
+	}
+	if !info.ModTime().After(v.mtime) {
+		return
+	}
+	raw, err := os.ReadFile(v.path)
+	if err != nil {
+		slog.Warn("vhosts read failed", "err", err)
+		return
+	}
+	m := map[string]string{}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		slog.Warn("vhosts parse failed", "err", err)
+		return
+	}
+	v.mu.Lock()
+	v.entries = m
+	v.mtime = info.ModTime()
+	v.mu.Unlock()
+	slog.Info("vhosts loaded", "count", len(m))
+}
+
+// match returns the world folder for the given host, or ("", false).
+func (v *vhosts) match(host string) (string, bool) {
+	// strip port
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if world, ok := v.entries[host]; ok {
+		return world, true
+	}
+	for pattern, world := range v.entries {
+		if ok, _ := path.Match(pattern, host); ok {
+			return world, true
+		}
+	}
+	return "", false
+}
+
 type server struct {
 	cfg       config
 	st        *store.Store
 	dashProxy *httputil.ReverseProxy
 	webdProxy *httputil.ReverseProxy
 	viteProxy *httputil.ReverseProxy
-	redirects map[string]*httputil.ReverseProxy
+	vh        *vhosts
 	slinkRL   *rateLimiter
 }
 
-func newServer(cfg config, st *store.Store) *server {
+func newServer(cfg config, st *store.Store, vh *vhosts) *server {
 	s := &server{
 		cfg:       cfg,
 		st:        st,
 		dashProxy: proxy(cfg.dashAddr),
 		viteProxy: proxy(cfg.viteAddr),
-		redirects: make(map[string]*httputil.ReverseProxy, len(cfg.redirects)),
+		vh:        vh,
 		slinkRL:   newRateLimiter(10, time.Minute),
 	}
 	if cfg.webdAddr != "" {
 		s.webdProxy = proxy(cfg.webdAddr)
-	}
-	for prefix, upstream := range cfg.redirects {
-		s.redirects[prefix] = proxy(upstream)
 	}
 	return s
 }
@@ -165,12 +213,19 @@ func (s *server) handler(st *store.Store, cfg *core.Config) http.Handler {
 }
 
 func (s *server) route(w http.ResponseWriter, r *http.Request) {
-	// 1. WEB_REDIRECTS prefix match
-	for prefix, rp := range s.redirects {
-		if strings.HasPrefix(r.URL.Path, prefix) {
-			rp.ServeHTTP(w, r)
+	// 1. vhosts hostname match → 301 redirect to /<world><path>
+	if world, ok := s.vh.match(r.Host); ok {
+		rawPath := r.URL.Path
+		if strings.Contains(rawPath, "..") {
+			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
+		target := path.Clean("/" + world + "/" + strings.TrimPrefix(rawPath, "/"))
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusMovedPermanently)
+		return
 	}
 
 	// 2. /dash/ — always auth-gated
@@ -290,7 +345,18 @@ func main() {
 	}
 	defer st.Close()
 
-	s := newServer(cfg, st)
+	vh := newVhosts(filepath.Join(coreCfg.WebDir, "vhosts.json"))
+	vh.load()
+
+	s := newServer(cfg, st, vh)
+
+	go func() {
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for range t.C {
+			vh.load()
+		}
+	}()
 
 	slog.Info("proxyd starting", "port", cfg.port, "dash", cfg.dashAddr, "webd", cfg.webdAddr, "vite", cfg.viteAddr)
 
