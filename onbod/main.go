@@ -556,10 +556,7 @@ func copyDir(src, dst string) error {
 	})
 }
 
-var defaultTasks = []struct {
-	prompt   string
-	schedule string
-}{
+var defaultTasks = [][2]string{
 	{"/compact-memories episodes day", "0 2 * * *"},
 	{"/compact-memories episodes week", "0 3 * * 1"},
 	{"/compact-memories episodes month", "0 4 1 * *"},
@@ -567,47 +564,14 @@ var defaultTasks = []struct {
 	{"/compact-memories diary month", "0 4 1 * *"},
 }
 
-// seedDefaultTasks creates the default compact-memories cron tasks for a
-// newly approved group. Skips any prompt already present (idempotent).
 func seedDefaultTasks(db *sql.DB, folder, chatJID string) {
-	rows, err := db.Query(
-		`SELECT prompt FROM scheduled_tasks WHERE owner = ?`, folder)
-	if err != nil {
-		slog.Error("seedDefaultTasks: query", "err", err)
-		return
-	}
-	existing := make(map[string]bool)
-	for rows.Next() {
-		var p string
-		if rows.Scan(&p) == nil {
-			existing[p] = true
-		}
-	}
-	rows.Close()
-
 	now := time.Now().Format(time.RFC3339)
-	for _, t := range defaultTasks {
-		if existing[t.prompt] {
-			continue
-		}
-		id := fmt.Sprintf("task-%d-%s", time.Now().UnixNano(), randomSuffix())
-		if _, err := db.Exec(
-			`INSERT INTO scheduled_tasks
-			 (id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode)
-			 VALUES (?, ?, ?, ?, ?, NULL, 'active', ?, 'isolated')`,
-			id, folder, chatJID, t.prompt, t.schedule, now,
-		); err != nil {
-			slog.Error("seedDefaultTasks: insert", "prompt", t.prompt, "err", err)
-		}
+	for i, t := range defaultTasks {
+		id := fmt.Sprintf("%s-mem-%d", folder, i)
+		db.Exec(`INSERT OR IGNORE INTO scheduled_tasks
+			(id,owner,chat_jid,prompt,cron,next_run,status,created_at,context_mode)
+			VALUES (?,?,?,?,?,?,?,?,?)`,
+			id, folder, chatJID, t[0], t[1], now, "active", now, "isolated")
 	}
 	slog.Info("seeded default tasks", "folder", folder)
-}
-
-func randomSuffix() string {
-	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, 6)
-	for i := range b {
-		b[i] = chars[time.Now().UnixNano()%int64(len(chars))]
-	}
-	return string(b)
 }
