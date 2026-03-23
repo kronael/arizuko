@@ -34,3 +34,101 @@ Rules:
 | prototype spawning | container | clone group on missing   |
 | reply-to outbound  | chanreg   | Channel interface change |
 | whisper pipeline   | mime      | voice/video transcribe   |
+
+## Container tooling
+
+Already in container: git, bun, go, rust, python+uv, chromium, ffmpeg, ripgrep, fd,
+fzf, bat, jq, shellcheck, pandoc, imagemagick, yt-dlp, tesseract, optipng, jpegoptim,
+marp-cli, biome, prettier, ruff, pyright, pandas, matplotlib, plotly, numpy, scipy,
+python-pptx, openpyxl, weasyprint.
+
+### Code hosting / VCS
+
+- [x] `gh` — GitHub CLI: issues, PRs, releases, gists, Actions
+
+### Data / query
+
+- [x] `sqlite3` — explicit CLI (query local DBs, not just via Python)
+- [x] `duckdb` — in-process analytics on CSV/JSON/parquet, no server needed
+- [x] `psql` — Postgres client (pg_dump, query remote DBs)
+- [x] `redis-cli` — query Redis instances
+- [ ] `xsv` — fast CSV slicing/sorting/joining (Rust, single binary)
+- [x] `yq` — YAML processor (jq for YAML; configs, k8s, CI files)
+- [x] `miller` — stream CSV/JSON/TSV like awk (complements xsv)
+
+### HTTP / API / network
+
+- [ ] `xh` — modern curl alternative (Rust httpie; cleaner API testing output)
+- [ ] `websocat` — WebSocket client/server for testing WS endpoints
+- [x] `grpcurl` — gRPC reflection + call testing
+- [ ] `hurl` — file-based HTTP test sequences (CI-friendly)
+- [x] `socat` — bidirectional data relay; Unix socket debugging
+
+### Git / diff
+
+- [x] `delta` — syntax-highlighted git diffs (agent-readable output)
+- [x] `shfmt` — shell script formatter (pair with shellcheck)
+
+### Linting / static analysis
+
+- [x] `hadolint` — Dockerfile linter
+- [x] `sqlfluff` — SQL formatter and linter
+- [x] `semgrep` — multi-language static analysis / secret scanning
+- [ ] `yamllint` — YAML strict linter (catches tab issues, duplicates)
+- [ ] `vale` — prose linter (docs, changelogs, READMEs)
+
+### Build / task runners
+
+- [ ] `just` — justfile task runner (simpler make; one per project)
+- [ ] `watchexec` — re-run commands on file change (dev loops)
+- [ ] `hyperfine` — command benchmarking with stats
+
+### Load / perf testing
+
+- [ ] `k6` — scriptable HTTP load testing (JS scripts)
+
+### Diagrams / visualization
+
+- [x] `graphviz` — dot → SVG/PNG (architecture, dependency graphs)
+- [ ] `gnuplot` — terminal/file plotting from data
+- [ ] `typst` — modern typesetting (PDF reports, whitepapers; lighter than LaTeX)
+
+### Media / documents
+
+- [x] `ghostscript` — PDF merge/split/compress
+- [x] `exiftool` — read/write media metadata
+- [x] `sox` — audio format conversion and processing
+- [x] `mediainfo` — detailed media file inspection
+- [x] `qrencode` — generate QR codes from CLI
+
+### Security / secrets
+
+- [ ] `age` — modern file encryption (replaces GPG for most cases)
+- [ ] `sops` — encrypted secrets files (YAML/JSON/env with age/GPG keys)
+
+### Infrastructure
+
+- [ ] `kubectl` — Kubernetes cluster management
+- [ ] `opentofu` — IaC (open Terraform fork; provision cloud resources)
+- [ ] `aws` CLI — S3, Lambda, ECR, CloudWatch from agent
+
+### Blockchain / crypto
+
+- [ ] `solana` CLI — keypairs, airdrop, deploy, account queries (Atlas/REDACTED)
+- [ ] `cast` (Foundry) — EVM: call contracts, send txs, decode data
+
+No binary tools needed for: Hyperliquid (`hyperliquid-python-sdk` / REST+WS),
+Ethereum (`web3` py / `viem` js), Polymarket (`py-clob-client` / REST).
+Install on-demand with `uv pip install` or `bun add`.
+
+### Runtime (one new language)
+
+- [ ] `ruby` — scripting, Jekyll, occasional gem tooling
+
+### Misc CLI
+
+- [x] `parallel` — GNU parallel; fan-out batch operations
+- [ ] `hexyl` — hex dump with ASCII sidebar (binary file inspection)
+- [x] `rsync` — efficient file sync (local and remote)
+- [ ] `mkcert` — locally-trusted dev HTTPS certs
+- [x] `ps`/`free` extras — `sysstat` package for `sar`, `iostat`, `mpstat` (scriptable, not TUI)
