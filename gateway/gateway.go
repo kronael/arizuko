@@ -314,7 +314,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return false, fmt.Errorf("query messages: %w", err)
 	}
 	if len(msgs) == 0 {
-		return false, nil
+		return true, nil
 	}
 
 	routes := g.store.GetRoutes(chatJid)

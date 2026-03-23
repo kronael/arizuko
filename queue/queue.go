@@ -217,6 +217,10 @@ func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 	if container != "" {
 		signalContainer(container)
 	}
+	// Mark pending so a retry runs if the container dies before processing.
+	q.mu.Lock()
+	q.getGroup(groupJid).pendingMessages = true
+	q.mu.Unlock()
 	return true
 }
 
