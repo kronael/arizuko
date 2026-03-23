@@ -207,7 +207,7 @@ WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
      `arizuko-<folder>-task-<task_id>` for isolated scheduler tasks
      (sender `scheduler-isolated:<task_id>`)
    - `docker run -i --rm` with volume mounts, write JSON to stdin, read stdout
-   - Parse output between `---NANOCLAW_OUTPUT_START---` / `---NANOCLAW_OUTPUT_END---` markers
+   - Parse output between `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---` markers
    - Output shape: `{ status, result, newSessionId, error }`
    - Timer-based timeout with graceful stop then kill
    - `StopSidecars()` — stop sidecar containers after agent exits

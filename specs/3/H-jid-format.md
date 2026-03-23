@@ -49,18 +49,18 @@ Prepend `<context>` block before `<messages>`:
 
 ### `<agent>` attributes
 
-| Attribute | Source                |
-| --------- | --------------------- |
-| `group`   | NANOCLAW_GROUP_FOLDER |
-| `name`    | NANOCLAW_GROUP_NAME   |
-| `tier`    | NANOCLAW_TIER         |
-| `world`   | folder.split('/')[0]  |
+| Attribute | Source               |
+| --------- | -------------------- |
+| `group`   | ARIZUKO_GROUP_FOLDER |
+| `name`    | ARIZUKO_GROUP_NAME   |
+| `tier`    | ARIZUKO_TIER         |
+| `world`   | folder.split('/')[0] |
 
 ### `<chat>` attributes
 
 | Attribute  | Source               |
 | ---------- | -------------------- |
-| `jid`      | NANOCLAW_CHAT_JID    |
+| `jid`      | ARIZUKO_CHAT_JID     |
 | `name`     | chats.name           |
 | `platform` | platformFromJid(jid) |
 | `is_group` | chats.is_group       |

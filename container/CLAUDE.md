@@ -118,7 +118,7 @@ Before saying you cannot do something:
 
 1. **Look at your live MCP tool list** — tools are injected at session start
    and callable right now. You do not need to read any skill to discover them.
-2. **Check your tier**: `echo $NANOCLAW_TIER` — most tools work at tier 0–1.
+2. **Check your tier**: `echo $ARIZUKO_TIER` — most tools work at tier 0–1.
 
 Common false beliefs to reject:
 

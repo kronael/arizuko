@@ -37,9 +37,9 @@ clock (clockXml) -> system messages (flushSystemMessages)
 Wrapped in sentinel markers:
 
 ```
----NANOCLAW_OUTPUT_START---
+---ARIZUKO_OUTPUT_START---
 {"status":"success","result":"...","newSessionId":"abc123"}
----NANOCLAW_OUTPUT_END---
+---ARIZUKO_OUTPUT_END---
 ```
 
 | Field          | Type             | Notes                     |
