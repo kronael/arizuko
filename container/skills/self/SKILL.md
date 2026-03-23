@@ -30,13 +30,25 @@ On every new session, BEFORE responding:
 | Path                       | Contents                                                 | Access                                      |
 | -------------------------- | -------------------------------------------------------- | ------------------------------------------- |
 | `/workspace/self`          | arizuko source (canonical skills, changelog, migrations) | read-only, all groups                       |
-| `~/` (`/home/node`)        | this group's working directory                           | read-write                                  |
+| `~/` (`/home/node`)        | home + cwd — group files, .claude/, diary, media         | read-write                                  |
 | `/workspace/share`         | shared global memory                                     | read-only for non-root, read-write for root |
 | `/workspace/web`           | vite web app directory                                   | read-write                                  |
 | `/workspace/ipc`           | gateway↔agent IPC (input/, router.sock MCP server)       | read-write                                  |
 | `/workspace/data/sessions` | all group session dirs (for migrate)                     | read-write, main only                       |
 | `/workspace/extra/<name>`  | operator-configured extra mounts                         | varies                                      |
 | `~/.claude`                | agent memory: skills, CLAUDE.md, sessions                | read-write                                  |
+
+## Where am I?
+
+**Your home is `~`** — cwd and home directory. NEVER use `/home/node/` in paths or tool calls. Always write `~/...`.
+
+The gateway mounts your group folder as `~` inside the container. Everything you create persists between sessions.
+
+```bash
+echo ~                       # /home/node
+echo $NANOCLAW_GROUP_FOLDER  # your group folder path
+echo $NANOCLAW_TIER          # your permission tier (0=root, 1=world, 2=child, 3=read-only)
+```
 
 ## Skill seeding
 
@@ -138,7 +150,7 @@ Paths under `/tmp` are container-only and will be rejected.
 
 ## Group configuration files
 
-Files you can create/edit in `/workspace/group/` to configure gateway behaviour:
+Files you can create/edit in `~/` to configure gateway behaviour:
 
 | File                | Effect                                                        |
 | ------------------- | ------------------------------------------------------------- |
@@ -150,7 +162,7 @@ Files you can create/edit in `/workspace/group/` to configure gateway behaviour:
 Example — transcribe in Czech and Russian as well as auto-detect:
 
 ```bash
-printf 'cs\nru\n' > /workspace/group/.whisper-language
+printf 'cs\nru\n' > ~/.whisper-language
 ```
 
 ## Self-extension
@@ -170,16 +182,16 @@ Write a server script to your workspace and register it in settings:
 
 ```bash
 # write your MCP server to workspace
-cat > /workspace/group/tools/myserver.js << 'EOF'
+cat > ~/tools/myserver.js << 'EOF'
 // ... your MCP server implementation ...
 EOF
 
 # register in settings (preserves existing entries)
 node -e "
-const f = '/home/node/.claude/settings.json';
+const f = process.env.HOME + '/.claude/settings.json';
 const s = JSON.parse(require('fs').readFileSync(f, 'utf-8'));
 s.mcpServers = s.mcpServers || {};
-s.mcpServers.mytools = { command: 'node', args: ['/workspace/group/tools/myserver.js'] };
+s.mcpServers.mytools = { command: 'node', args: [process.env.HOME + '/tools/myserver.js'] };
 require('fs').writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
 "
 ```
