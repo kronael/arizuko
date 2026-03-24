@@ -10,6 +10,22 @@ scheduling tasks, maintaining memory. Each agent operates in isolation —
 focused on its work, persistent across sessions. No agent needs to
 understand the whole system.
 
+## Philosophy
+
+Arizuko is infrastructure, not a product. The goal is a hard, tested, boring
+core — like a kernel — that you can build on top of without surprises. The
+adapters, agents, skills, and routing rules are yours to write, fork, and share.
+
+The design is intentionally porous: channel adapters are external processes,
+skills are files in a folder, MCP sidecars are independent binaries. Every
+boundary is a seam where you can cut in and replace a part without touching the
+rest. This is the bazaar model — the core holds, everything around it is yours.
+
+Agents running on arizuko are first-class participants in this: they can read
+their own skills, propose modifications, and ship changes through the same
+channels humans use. The system is designed to be understood and modified by
+whoever — or whatever — is running it.
+
 ## Quick Start
 
 ```bash
@@ -156,6 +172,12 @@ make clean    # remove binary + tmp/
 ```
 
 Pre-commit hooks configured via `.pre-commit-config.yaml`.
+
+## License
+
+[AGPL v3](LICENSE). Modify and run arizuko as a service → share your source.
+Channel adapters, MCP clients, and agents that call arizuko over HTTP are
+unaffected — the copyleft does not cross API boundaries.
 
 ## Migrating from kanipi
 
