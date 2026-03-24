@@ -233,3 +233,43 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	}
 	return g, true
 }
+
+// SetStickyGroup sets the sticky routing group for a chat (empty string clears).
+func (s *Store) SetStickyGroup(jid, folder string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO chats (jid, sticky_group) VALUES (?, ?)
+		 ON CONFLICT(jid) DO UPDATE SET sticky_group = excluded.sticky_group`,
+		jid, nilIfEmpty(folder),
+	)
+	return err
+}
+
+// GetStickyGroup returns the sticky routing group for a chat, or empty string.
+func (s *Store) GetStickyGroup(jid string) string {
+	var folder *string
+	s.db.QueryRow(`SELECT sticky_group FROM chats WHERE jid = ?`, jid).Scan(&folder)
+	if folder == nil {
+		return ""
+	}
+	return *folder
+}
+
+// SetStickyTopic sets the sticky topic for a chat (empty string clears).
+func (s *Store) SetStickyTopic(jid, topic string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO chats (jid, sticky_topic) VALUES (?, ?)
+		 ON CONFLICT(jid) DO UPDATE SET sticky_topic = excluded.sticky_topic`,
+		jid, nilIfEmpty(topic),
+	)
+	return err
+}
+
+// GetStickyTopic returns the sticky topic for a chat, or empty string.
+func (s *Store) GetStickyTopic(jid string) string {
+	var topic *string
+	s.db.QueryRow(`SELECT sticky_topic FROM chats WHERE jid = ?`, jid).Scan(&topic)
+	if topic == nil {
+		return ""
+	}
+	return *topic
+}

@@ -268,6 +268,13 @@ func (g *Gateway) pollOnce() {
 		routes := g.store.GetRoutes(chatJid)
 
 		last := chatMsgs[len(chatMsgs)-1]
+
+		// Handle sticky routing commands (@, @name, #, #topic)
+		if g.handleStickyCommand(chatJid, last) {
+			slog.Debug("poll: handled sticky command", "jid", chatJid)
+			continue
+		}
+
 		if g.handleCommand(last, group) {
 			slog.Debug("poll: handled command", "jid", chatJid, "sender", last.Sender)
 			continue
@@ -387,9 +394,10 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 	savedTs := agentTs
 	isolated := strings.HasPrefix(last.Sender, "scheduler-isolated")
-	onOutput, hadOutput := g.makeOutputCallback(chatJid, "", last.ID, group.Folder)
+	topic := g.effectiveTopic(chatJid, last.Topic)
+	onOutput, hadOutput := g.makeOutputCallback(chatJid, topic, last.ID, group.Folder)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
-		onOutput, isolated, nil, "", last.ID)
+		onOutput, isolated, nil, topic, last.ID)
 
 	if ch != nil {
 		ch.Typing(chatJid, false)
@@ -451,9 +459,10 @@ func (g *Gateway) processWebTopics(
 			ch.Typing(chatJid, true)
 		}
 
-		onOutput, hadOutput := g.makeOutputCallback(chatJid, topic, last.ID, group.Folder)
+		effectiveTopic := g.effectiveTopic(chatJid, topic)
+		onOutput, hadOutput := g.makeOutputCallback(chatJid, effectiveTopic, last.ID, group.Folder)
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
-			onOutput, false, nil, topic, last.ID)
+			onOutput, false, nil, effectiveTopic, last.ID)
 
 		if ch != nil {
 			ch.Typing(chatJid, false)
@@ -717,7 +726,7 @@ func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
 }
 
 func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolder string) string {
-	// 1. Check reply-chain routing first
+	// 1. Check reply-chain routing first (takes precedence over sticky)
 	if msg.ReplyToID != "" {
 		routedTo := g.store.RoutedToByMessageID(msg.ReplyToID)
 		if routedTo != "" {
@@ -730,7 +739,17 @@ func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolde
 		}
 	}
 
-	// 2. Fall back to standard route resolution
+	// 2. Check sticky group routing
+	stickyGroup := g.store.GetStickyGroup(msg.ChatJID)
+	if stickyGroup != "" {
+		if stickyGroup != selfFolder {
+			return stickyGroup
+		}
+		// Sticky points to self - stay in current group (no other routing)
+		return ""
+	}
+
+	// 3. Fall back to standard route resolution
 	if len(routes) == 0 {
 		return ""
 	}
@@ -739,6 +758,83 @@ func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolde
 		return t
 	}
 	return ""
+}
+
+// isStickyCommand returns true if content is exactly @, @name, #, or #topic.
+func isStickyCommand(content string) bool {
+	t := strings.TrimSpace(content)
+	if len(t) == 0 {
+		return false
+	}
+	first := t[0]
+	if first != '@' && first != '#' {
+		return false
+	}
+	// Must be only @ or # followed by non-space chars, no spaces
+	return !strings.Contains(t, " ")
+}
+
+// handleStickyCommand processes @/@name and #/#topic sticky routing commands.
+// Returns true if the message was a sticky command (handled or rejected).
+func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
+	if msg.BotMsg {
+		return false // Bots cannot set sticky state
+	}
+	if strings.HasPrefix(msg.Sender, "scheduler-") {
+		return false // Scheduled tasks don't use sticky
+	}
+
+	content := strings.TrimSpace(msg.Content)
+	if !isStickyCommand(content) {
+		return false
+	}
+
+	ch := g.findChannel(chatJid)
+
+	switch {
+	case content == "@":
+		g.store.SetStickyGroup(chatJid, "")
+		g.sendMessage(chatJid, "routing reset to default")
+		return true
+
+	case strings.HasPrefix(content, "@"):
+		name := content[1:]
+		// Validate group exists
+		g.mu.RLock()
+		_, _, ok := g.groupByFolderLocked(name)
+		g.mu.RUnlock()
+
+		if ok {
+			g.store.SetStickyGroup(chatJid, name)
+			g.sendMessage(chatJid, fmt.Sprintf("routing → %s", name))
+		} else {
+			g.sendMessage(chatJid, fmt.Sprintf("Failed: group %q not found", name))
+		}
+		return true
+
+	case content == "#":
+		g.store.SetStickyTopic(chatJid, "")
+		g.sendMessage(chatJid, "topic reset to default")
+		return true
+
+	case strings.HasPrefix(content, "#"):
+		topic := content[1:]
+		g.store.SetStickyTopic(chatJid, topic)
+		g.sendMessage(chatJid, fmt.Sprintf("topic → %s", topic))
+		return true
+	}
+
+	_ = ch // suppress unused warning if needed
+	return false
+}
+
+// effectiveTopic returns the sticky topic if set, otherwise the message topic.
+func (g *Gateway) effectiveTopic(chatJid, msgTopic string) string {
+	stickyTopic := g.store.GetStickyTopic(chatJid)
+	if stickyTopic != "" {
+		return stickyTopic
+	}
+	return msgTopic
 }
 
 var rePrefixAt = regexp.MustCompile(`@(\w[\w-]*)`)
