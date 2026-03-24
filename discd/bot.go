@@ -50,6 +50,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	jid := "discord:" + m.ChannelID
 	ch, err := b.session.Channel(m.ChannelID)
 	isGroup := err == nil && ch.Type == discordgo.ChannelTypeGuildText
+	isThread := err == nil && (ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread)
 
 	name := m.Author.Username
 	if isGroup && ch.Name != "" {
@@ -74,6 +75,11 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 
+	topic := ""
+	if isThread {
+		topic = m.ChannelID
+	}
+
 	err = b.rc.SendMessage(inboundMsg{
 		ID:         m.ID,
 		ChatJID:    jid,
@@ -82,6 +88,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		Content:    content,
 		Timestamp:  m.Timestamp.Unix(),
 		IsGroup:    isGroup,
+		Topic:      topic,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)

@@ -166,6 +166,11 @@ func (bc *bskyClient) handleNotification(n notification, rc *routerClient) {
 	}
 	_ = rc.SendChat(jid, name, false)
 
+	topic := ""
+	if n.Record.Reply != nil {
+		topic = n.Record.Reply.Parent.URI
+	}
+
 	ts, _ := time.Parse(time.RFC3339, n.IndexedAt)
 	err := rc.SendMessage(inboundMsg{
 		ID:         uriToKey(n.URI),
@@ -175,6 +180,7 @@ func (bc *bskyClient) handleNotification(n notification, rc *routerClient) {
 		Content:    n.Record.Text,
 		Timestamp:  ts.Unix(),
 		IsGroup:    false,
+		Topic:      topic,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)

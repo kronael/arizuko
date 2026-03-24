@@ -88,6 +88,11 @@ func (mc *mastoClient) handleMention(n *mastodon.Notification, rc *routerClient)
 	}
 	_ = rc.SendChat(jid, name, false)
 
+	topic := ""
+	if n.Status.InReplyToID != nil {
+		topic = string(*n.Status.InReplyToID)
+	}
+
 	err := rc.SendMessage(inboundMsg{
 		ID:         string(n.Status.ID),
 		ChatJID:    jid,
@@ -95,6 +100,7 @@ func (mc *mastoClient) handleMention(n *mastodon.Notification, rc *routerClient)
 		SenderName: name,
 		Content:    stripHTML(n.Status.Content),
 		Timestamp:  n.Status.CreatedAt.Unix(),
+		Topic:      topic,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)

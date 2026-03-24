@@ -119,6 +119,7 @@ async function connect(): Promise<void> {
           timestamp:
             Number(msg.messageTimestamp) || Math.floor(Date.now() / 1000),
           is_group: isGroup,
+          topic: '', // WhatsApp has no native threading support
         });
       } catch (e) {
         log('error', 'deliver failed', { jid: chatJid, err: String(e) });

@@ -248,6 +248,11 @@ func (rc *redditClient) handleThing(t thing, key string, router *routerClient) {
 	}
 	_ = router.SendChat(jid, chatName, isSubreddit)
 
+	topic := ""
+	if d.ParentID != "" {
+		topic = d.ParentID
+	}
+
 	err := router.SendMessage(inboundMsg{
 		ID:         d.Name,
 		ChatJID:    jid,
@@ -256,6 +261,7 @@ func (rc *redditClient) handleThing(t thing, key string, router *routerClient) {
 		Content:    content,
 		Timestamp:  int64(d.CreatedAt),
 		IsGroup:    isSubreddit,
+		Topic:      topic,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
