@@ -7,6 +7,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **License**: adopted AGPL v3. Modify and run arizuko as a networked service →
+  share source. Channel adapters and agents calling the HTTP/MCP API are
+  unaffected; copyleft does not cross network API boundaries.
+
+---
+
 ## [v0.17.0] — 2026-03-23
 
 ### Added
