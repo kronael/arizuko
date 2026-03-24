@@ -414,6 +414,10 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return false, fmt.Errorf("agent: %s", out.Error)
 	}
 
+	if !*hadOutput {
+		slog.Warn("agent completed with no output delivered",
+			"jid", chatJid, "group", group.Folder)
+	}
 	g.advanceAgentCursor(chatJid, msgs)
 	g.store.ClearChatErrored(chatJid)
 	return true, nil
@@ -471,6 +475,10 @@ func (g *Gateway) processWebTopics(
 			return false, fmt.Errorf("agent: %s", out.Error)
 		}
 
+		if !*hadOutput {
+			slog.Warn("agent completed with no output delivered",
+				"jid", chatJid, "group", group.Folder, "topic", topic)
+		}
 		g.advanceAgentCursor(chatJid, topicMsgs)
 	}
 
