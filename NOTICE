@@ -1,0 +1,14 @@
+arizuko
+Copyright (C) 2026 onvos
+
+If you use arizuko — in a product, a service, a fork, or as
+inspiration — acknowledge it. Not because the license forces you to
+in every case, but because that's how this kind of work compounds.
+
+Built on nanoclaw (qwibitai, MIT), kanipi (onvos, GPL v3),
+ElizaOS (elizaOS, MIT), smolagents (Hugging Face, Apache-2.0),
+OpenClaw (openclaw, MIT), NemoClaw (NVIDIA, Apache-2.0),
+Muaddib (Petr Baudis, MIT), Hermes (Nous Research, MIT),
+takopi (banteg, MIT), and Claude Code (Anthropic).
+
+See README.md § Acknowledgements for the full chain.

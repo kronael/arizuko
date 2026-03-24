@@ -173,11 +173,32 @@ make clean    # remove binary + tmp/
 
 Pre-commit hooks configured via `.pre-commit-config.yaml`.
 
+## Acknowledgements
+
+Built on the shoulders of people doing serious work in this space.
+If you use arizuko, acknowledge the chain.
+
+| Project                                                  | Author        | License     | What it contributed                                                                              |
+| -------------------------------------------------------- | ------------- | ----------- | ------------------------------------------------------------------------------------------------ |
+| [nanoclaw](https://github.com/qwibitai/nanoclaw)         | qwibitai      | MIT         | Direct ancestor — container-per-session model, the original shape of this system                 |
+| [kanipi](https://github.com/onvos/kanipi)                | onvos         | GPL v3      | TypeScript proof-of-concept this was rewritten from; routing model, MCP IPC design, skill system |
+| [ElizaOS](https://github.com/elizaOS/eliza)              | elizaOS       | MIT         | character.json agent persona model, plugin ecosystem thinking                                    |
+| [Claude Code](https://github.com/anthropics/claude-code) | Anthropic     | Proprietary | The agent runtime everything runs on — tools, subagents, MCP, skills                             |
+| [smolagents](https://github.com/huggingface/smolagents)  | Hugging Face  | Apache-2.0  | Code-as-action framing; thinking about what the minimal agent loop looks like                    |
+| [OpenClaw](https://github.com/openclaw/openclaw)         | openclaw      | MIT         | Multi-channel binding architecture, single-process gateway design                                |
+| [NemoClaw](https://github.com/NVIDIA/NemoClaw)           | NVIDIA        | Apache-2.0  | Landlock + seccomp + netns sandboxing model for agent containers                                 |
+| [Muaddib](https://github.com/pasky/muaddib)              | Petr Baudis   | MIT         | QEMU micro-VM isolation, 3-tier chronicle memory design                                          |
+| [Hermes](https://github.com/NousResearch/hermes-agent)   | Nous Research | MIT         | Self-improving skill learning across sessions                                                    |
+| [takopi](https://github.com/banteg/takopi)               | banteg        | MIT         | Telegram→agent dispatch, live progress streaming, the agents page at REDACTED/agents        |
+
 ## License
 
-[AGPL v3](LICENSE). Modify and run arizuko as a service → share your source.
-Channel adapters, MCP clients, and agents that call arizuko over HTTP are
-unaffected — the copyleft does not cross API boundaries.
+[GPL v3](LICENSE). If you modify arizuko and ship it, share your source.
+If you build on it — say so. Attribution is a social contract, not just
+a legal one: acknowledge the work this stands on.
+
+Channel adapters and agents calling arizuko's HTTP/MCP API are unaffected —
+copyleft does not cross network API boundaries.
 
 ## Migrating from kanipi
 
