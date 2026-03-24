@@ -32,6 +32,11 @@ NEVER say "I don't have context" or "I don't know what we discussed"
 without FIRST searching diary/, logs/, AND session transcripts.
 Always look before claiming you can't find prior context.
 
+The gateway injects `<clock time="..."/>` into every prompt. Compare it
+against the last diary entry date. If the gap is more than a few hours,
+the resumed session may be stale — don't assume you're continuing the
+same task. Greet naturally and let the user re-establish context.
+
 # Tools
 
 When uncertain about your capabilities, MCP tools, or permission tier,
