@@ -99,20 +99,20 @@ func (r *Router) Route(msg Message) Destination {
 }
 
 func (r *Router) resolveTarget(msg Message) string {
-  // 1. Reply chain routing
+  // 1. Content-based @mention (ONLY for user messages, explicit override)
+  if strings.Contains(msg.Sender, ":") {  // user has colon, agent doesn't
+    if mention := parseAtMention(msg.Content); mention != "" {
+      return mention  // explicit @mention wins
+    }
+  }
+
+  // 2. Reply chain routing (implicit continuation)
   if msg.ReplyToID != "" {
     if parent := r.store.GetMessage(msg.ReplyToID); parent != nil {
       // If parent was routed to agent, continue there
       if parent.RoutedTo != "" && !strings.Contains(parent.RoutedTo, ":") {
         return parent.RoutedTo
       }
-    }
-  }
-
-  // 2. Content-based routing (ONLY for user messages, not agent messages)
-  if strings.Contains(msg.Sender, ":") {  // user has colon, agent doesn't
-    if mention := parseAtMention(msg.Content); mention != "" {
-      return mention  // folder path
     }
   }
 
@@ -125,6 +125,15 @@ func (r *Router) resolveTarget(msg Message) string {
   return r.getDefaultGroup(msg.ChatJID)
 }
 ```
+
+**Priority order:**
+
+1. **@mention** (explicit) overrides reply chain
+2. **Reply chain** (implicit continuation) preserves conversation thread
+3. **Sticky** (session default) for repeated interactions
+4. **Default** (fallback) when nothing else applies
+
+When @mention overrides reply chain, `reply_to_text` and `reply_to_sender` are still preserved — the new agent sees the context even though they weren't the original recipient.
 
 **Key rule:** Agent messages (`sender` without `:`) NEVER get content-based routing. Only explicit `routed_to`.
 
@@ -291,16 +300,9 @@ func deriveTier2Rules(folderJIDs []string) []string {
 
 ## Migration Path
 
-**Phase 1: Remove `local:` prefix (breaking change, simple)**
+**Phase 1: Remove `local:` prefix**
 
-Current code uses `local:folder` for internal group references. This is redundant.
-
-Changes:
-
-- Remove `local:` prefix handling in `gateway.groupForJid()`
-- Direct folder path lookups: if no colon in JID → treat as folder → `groupByFolderLocked(jid)`
-- Update any code that constructs `local:` JIDs → use folder path directly
-- No backward compatibility needed (internal-only prefix)
+Remove `local:` prefix handling — it was never actually used. Direct folder path lookups: if no colon in JID → treat as folder.
 
 **Phase 2: Add `routed_to` column to messages**
 
