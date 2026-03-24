@@ -105,11 +105,11 @@ LocalChannel.
 
 ## Implementation Status
 
-| Section                                | Status          | Notes                                                                     |
-| -------------------------------------- | --------------- | ------------------------------------------------------------------------- |
-| A. Send returns message ID             | shipped         | `Channel.Send(jid, text, replyTo string) (string, error)`                 |
-| B. Chunk chaining                      | shipped         | gateway `lastSentID` updated per send in `processGroupMessages`           |
-| C. MessageId through delegation        | shipped         | `msgID` param in `runAgentWithOpts`, passed to `ContainerInput.MessageID` |
-| D. MCP send_reply auto-injects replyTo | not implemented | `send_reply` takes explicit `replyToId`; no auto-injection from chain     |
-| E. Per-sender batching                 | not implemented | gateway groups by chatJid only, not per sender                            |
-| F. Escalation reply threading          | not implemented | `<escalation_response>` wrapping not in gateway.go                        |
+| Section                                | Status            | Notes                                                                     |
+| -------------------------------------- | ----------------- | ------------------------------------------------------------------------- |
+| A. Send returns message ID             | shipped           | `Channel.Send(jid, text, replyTo string) (string, error)`                 |
+| B. Chunk chaining                      | shipped           | gateway `lastSentID` updated per send in `processGroupMessages`           |
+| C. MessageId through delegation        | shipped           | `msgID` param in `runAgentWithOpts`, passed to `ContainerInput.MessageID` |
+| D. MCP send_reply auto-injects replyTo | shipped (cc50def) | auto-injects replyTo from last MCP-sent ID when not provided explicitly   |
+| E. Per-sender batching                 | shipped (1fb565a) | `groupBySender` splits messages, each batch processes independently       |
+| F. Escalation reply threading          | not implemented   | `<escalation_response>` wrapping not in gateway.go                        |
