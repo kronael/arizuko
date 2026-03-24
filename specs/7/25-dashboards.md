@@ -1,14 +1,27 @@
 # Dashboards
 
-**Status**: in-progress (daemon shell; no UI templates yet)
+**Status**: shipped (partial) — basic dashboards implemented, advanced features pending (updated 2026-03-24)
 
 Tile-based operator portal for monitoring instance state.
 Each subsystem has a dedicated dashboard; portal shows summary
 tiles with health indicators. All read-only.
 
-Note: the dashd HTTP server exists with auth middleware wired up, but
-dashboard HTML templates are not yet implemented. All routes exist as
-stubs; no actual dashboard pages are rendered.
+## Implementation Status
+
+dashd HTTP server running with auth middleware and 5 working dashboards:
+
+- Portal (tile grid with navigation)
+- Status (channels, groups, sessions)
+- Tasks (scheduled tasks with HTMX auto-refresh)
+- Activity (recent messages)
+- Groups (hierarchy tree)
+- Memory (knowledge browser with group selector)
+
+All use inline HTML templates (no separate template files). HTMX
+for live updates without frontend build tooling.
+
+**Pending**: Banner health indicators, expandable sections, error
+details, onboarding section, flow visualizations, route editor.
 
 ## Implementation: dashd
 

@@ -5,6 +5,7 @@ store/auth/
 groups/
 data/
 .ship/
+.distill/
 node_modules/
 dist/
 package-lock.json
@@ -30,6 +31,7 @@ bin/
 gated/gated
 onbod/onbod
 dashd/dashd
+proxyd/proxyd
 webd/webd
 timed/timed
 teled/teled
@@ -38,3 +40,4 @@ emaid/emaid
 mastd/mastd
 bskyd/bskyd
 reditd/reditd
+*.py

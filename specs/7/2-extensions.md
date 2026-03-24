@@ -1,6 +1,6 @@
 # Extensions System
 
-**Status**: planning (updated 2026-03-10)
+**Status**: shipped (partial) — sidecars implemented, plugins deferred (updated 2026-03-24)
 
 Extension points and plugin architecture for arizuko.
 Goal: make the system extensible without modifying core code.
