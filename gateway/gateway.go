@@ -360,7 +360,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		}
 	}
 
-	routingTarget := resolveTarget(last, routes, group.Folder)
+	routingTarget := g.resolveTarget(last, routes, group.Folder)
 
 	if routingTarget != "" {
 		if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
@@ -720,8 +720,13 @@ func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolde
 	// 1. Check reply-chain routing first
 	if msg.ReplyToID != "" {
 		routedTo := g.store.RoutedToByMessageID(msg.ReplyToID)
-		if routedTo != "" && routedTo != selfFolder {
-			return routedTo
+		if routedTo != "" {
+			// Reply chain found - either route there or stay in current group
+			if routedTo != selfFolder {
+				return routedTo
+			}
+			// Reply chain points to self - stay in current group (no other routing)
+			return ""
 		}
 	}
 

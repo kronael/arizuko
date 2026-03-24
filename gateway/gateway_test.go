@@ -38,7 +38,7 @@ func (m *mockChannel) Owns(jid string) bool {
 	return false
 }
 
-func (m *mockChannel) Send(jid, text, _ string) (string, error) {
+func (m *mockChannel) Send(jid, text, _, _ string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sent = append(m.sent, sentMsg{jid, text})
@@ -225,29 +225,32 @@ func TestGroupForJid_LocalPrefix(t *testing.T) {
 }
 
 func TestResolveTarget_NoRoutes(t *testing.T) {
+	gw, _ := testGateway(t)
 	msg := core.Message{Content: "hello"}
-	if got := resolveTarget(msg, nil, "self"); got != "" {
+	if got := gw.resolveTarget(msg, nil, "self"); got != "" {
 		t.Errorf("resolveTarget = %q, want empty", got)
 	}
 }
 
 func TestResolveTarget_MatchingRoute(t *testing.T) {
+	gw, _ := testGateway(t)
 	routes := []core.Route{
 		{Type: "default", Target: "other"},
 	}
 	msg := core.Message{Content: "hello"}
-	got := resolveTarget(msg, routes, "self")
+	got := gw.resolveTarget(msg, routes, "self")
 	if got != "other" {
 		t.Errorf("resolveTarget = %q, want %q", got, "other")
 	}
 }
 
 func TestResolveTarget_SelfFolder(t *testing.T) {
+	gw, _ := testGateway(t)
 	routes := []core.Route{
 		{Type: "default", Target: "self"},
 	}
 	msg := core.Message{Content: "hello"}
-	got := resolveTarget(msg, routes, "self")
+	got := gw.resolveTarget(msg, routes, "self")
 	if got != "" {
 		t.Errorf("resolveTarget = %q, want empty (self)", got)
 	}
