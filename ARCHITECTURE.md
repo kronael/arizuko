@@ -1,14 +1,5 @@
 # Architecture
 
-## Overview
-
-Arizuko is a multitenant Claude agent router. External channel
-adapters register via HTTP, deliver inbound messages to the router
-API. Router routes to containerized Claude agents via docker and
-calls channels back to send replies.
-
-Go, SQLite (modernc.org/sqlite), Docker.
-
 ## Package Dependency Graph
 
 ```
@@ -341,7 +332,6 @@ messages to all tier-0 root JIDs.
 
 ## Scheduler (timed/)
 
-Standalone daemon. Single Go binary with its own `main()`.
 Reads `DATABASE` env for SQLite path. Polls `scheduled_tasks` every 60s.
 For each due task (status=active, next_run <= now):
 
@@ -385,16 +375,6 @@ Additional mounts validated against `~/.config/arizuko/mount-allowlist.json`:
 
 `container.hp()` translates local paths to host paths when gateway runs
 in docker. `HOST_DATA_DIR` env provides the host-side base.
-
-## Configuration
-
-All config via `.env` in data dir or env vars (`core.LoadConfig`).
-Key values: `ASSISTANT_NAME`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`,
-`MAX_CONCURRENT_CONTAINERS`, `HOST_DATA_DIR`, `HOST_APP_DIR`,
-`MEDIA_ENABLED`, `WHISPER_BASE_URL`, `API_PORT`, `CHANNEL_SECRET`,
-`ONBOARDING_ENABLED` (surfaces unrouted JIDs for onboarding handler).
-
-API server always starts (default port 8080).
 
 ## Repository Layout
 

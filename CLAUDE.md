@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## What is arizuko
 
 Nanoclaw fork — multitenant Claude agent router. External
@@ -27,10 +25,6 @@ Exception: `gated` requires `CGO_ENABLED=1` (see Makefile).
 Pre-commit hooks configured via `.pre-commit-config.yaml`.
 
 ## Architecture
-
-Go binary (router). Channels are external processes that register
-via HTTP; router polls stored messages, routes to containerized
-Claude agents via docker, streams output back to channels.
 
 **Flow**: Channel adapter → HTTP API → store.PutMessage →
 gateway.messageLoop polls → GroupQueue → container.Run (docker run)

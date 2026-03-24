@@ -57,8 +57,6 @@ by the `/facts` skill, not casually noted.
 
 # Development Wisdom
 
-**TL;DR**: boring code, minimal changes, cache external APIs, clean structure.
-
 ## Boring Code Philosophy
 
 **Write code simpler than you're capable of** — Debugging is 2x harder than
