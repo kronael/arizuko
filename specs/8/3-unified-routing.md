@@ -348,10 +348,33 @@ Populate for existing messages:
 
 ---
 
-## Open Questions
+## Implementation Details
 
-1. **Message status tracking** — add `processed_at`, `status` columns?
-2. **Performance** — polling vs notification for new messages?
-3. **Concurrent routing** — how to prevent double-processing?
-4. **Error handling** — dead letter queue for unroutable messages?
-5. **Attachments storage** — file paths vs blob storage vs external URLs?
+**Message status tracking:**
+
+```sql
+ALTER TABLE messages ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE messages ADD COLUMN processed_at TEXT;
+CREATE INDEX idx_messages_status ON messages(status, timestamp);
+```
+
+Status values: `pending` → `processing` → `completed` / `error`
+
+**Polling strategy:**
+
+```go
+SELECT * FROM messages
+WHERE status = 'pending'
+ORDER BY timestamp ASC
+LIMIT 1
+```
+
+Mark `processing` immediately, prevents concurrent double-processing. Update to `completed` when done.
+
+**Error handling:**
+
+Routing failures → `status='error'`. Retry logic optional (manual `/retry` command or scheduled task).
+
+**Attachments:**
+
+File paths stored as JSON array in `attachments` column. Files live in group workspace, accessed by container.
