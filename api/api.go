@@ -126,6 +126,7 @@ type messageReq struct {
 	Timestamp   int64  `json:"timestamp"`
 	IsGroup     bool   `json:"is_group"`
 	ReplyTo     string `json:"reply_to"`
+	Topic       string `json:"topic,omitempty"`
 	Attachments []struct {
 		Mime     string `json:"mime"`
 		Filename string `json:"filename"`
@@ -180,6 +181,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		Content:   req.Content,
 		Timestamp: ts,
 		ReplyToID: req.ReplyTo,
+		Topic:     req.Topic,
 	}
 
 	if err := s.store.PutMessage(msg); err != nil {

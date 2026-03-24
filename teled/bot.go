@@ -124,6 +124,11 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *routerClient) {
 		}
 	}
 
+	topic := ""
+	if msg.MessageThreadID != 0 {
+		topic = strconv.Itoa(msg.MessageThreadID)
+	}
+
 	err := rc.SendMessage(inboundMsg{
 		ID:         strconv.Itoa(msg.MessageID),
 		ChatJID:    jid,
@@ -132,6 +137,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *routerClient) {
 		Content:    content,
 		Timestamp:  int64(msg.Date),
 		IsGroup:    isGroup,
+		Topic:      topic,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)

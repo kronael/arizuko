@@ -21,6 +21,7 @@ type InboundMsg struct {
 	Content    string `json:"content"`
 	Timestamp  int64  `json:"timestamp"`
 	IsGroup    bool   `json:"is_group"`
+	Topic      string `json:"topic,omitempty"` // Thread/topic identifier
 }
 
 // RouterClient posts messages and manages channel registration with the router.
