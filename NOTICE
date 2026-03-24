@@ -1,14 +1,19 @@
 arizuko — by onvos
-Public domain (Unlicense). No restrictions.
+MIT License. © 2026 onvos. Keep the copyright notice.
 
-If you use arizuko — in a product, a service, a fork, or as
-inspiration — acknowledge it. The license doesn't require it.
-The work does.
+If you build on arizuko — say so:
+  Built on arizuko (https://github.com/onvos/arizuko) by onvos.
 
-Built on nanoclaw (qwibitai, MIT), kanipi (onvos, GPL v3),
-ElizaOS (elizaOS, MIT), smolagents (Hugging Face, Apache-2.0),
-OpenClaw (openclaw, MIT), NemoClaw (NVIDIA, Apache-2.0),
-Muaddib (Petr Baudis, MIT), Hermes (Nous Research, MIT),
-takopi (banteg, MIT), and Claude Code (Anthropic).
+Built on:
+  nanoclaw © 2026 Gavriel (MIT)
+  kanipi © 2026 onvos (MIT)
+  ElizaOS © 2026 Shaw Walters and elizaOS Contributors (MIT)
+  smolagents © Hugging Face (Apache-2.0)
+  OpenClaw © 2025 Peter Steinberger (MIT)
+  NemoClaw © NVIDIA Corporation (Apache-2.0)
+  Muaddib © 2025 Muaddib contributors (MIT)
+  Hermes © 2025 Nous Research (MIT)
+  takopi © 2025 banteg (MIT)
+  Claude Code © Anthropic PBC (Proprietary)
 
-See README.md § Acknowledgements for the full chain.
+See README.md § Thanks for the full chain.
