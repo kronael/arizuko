@@ -280,7 +280,7 @@ func (g *Gateway) pollOnce() {
 			}
 		}
 
-		routingTarget := resolveTarget(last, routes, group.Folder)
+		routingTarget := g.resolveTarget(last, routes, group.Folder)
 
 		if routingTarget != "" {
 			if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
@@ -387,7 +387,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 	savedTs := agentTs
 	isolated := strings.HasPrefix(last.Sender, "scheduler-isolated")
-	onOutput, hadOutput := g.makeOutputCallback(chatJid, "", last.ID)
+	onOutput, hadOutput := g.makeOutputCallback(chatJid, "", last.ID, group.Folder)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		onOutput, isolated, nil, "", last.ID)
 
@@ -451,7 +451,7 @@ func (g *Gateway) processWebTopics(
 			ch.Typing(chatJid, true)
 		}
 
-		onOutput, hadOutput := g.makeOutputCallback(chatJid, topic, last.ID)
+		onOutput, hadOutput := g.makeOutputCallback(chatJid, topic, last.ID, group.Folder)
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 			onOutput, false, nil, topic, last.ID)
 
@@ -486,7 +486,7 @@ func (g *Gateway) processWebTopics(
 	return true, nil
 }
 
-func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID string) (func(string, string), *bool) {
+func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder string) (func(string, string), *bool) {
 	var hadOutput bool
 	lastSentID := g.store.GetLastReplyID(chatJid, topic)
 	if lastSentID == "" {
@@ -505,6 +505,18 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID string) (func(st
 			if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID, topic); sentID != "" {
 				lastSentID = sentID
 				g.store.SetLastReplyID(chatJid, topic, sentID)
+				// Store bot message with routed_to for reply-chain routing
+				g.store.PutMessage(core.Message{
+					ID:       sentID,
+					ChatJID:  chatJid,
+					Sender:   g.cfg.Name,
+					Name:     g.cfg.Name,
+					Content:  clean,
+					Timestamp: time.Now(),
+					BotMsg:   true,
+					Topic:    topic,
+					RoutedTo: groupFolder,
+				})
 			}
 		}
 	}, &hadOutput
@@ -704,7 +716,16 @@ func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
 	return core.Group{}, false
 }
 
-func resolveTarget(msg core.Message, routes []core.Route, selfFolder string) string {
+func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolder string) string {
+	// 1. Check reply-chain routing first
+	if msg.ReplyToID != "" {
+		routedTo := g.store.RoutedToByMessageID(msg.ReplyToID)
+		if routedTo != "" && routedTo != selfFolder {
+			return routedTo
+		}
+	}
+
+	// 2. Fall back to standard route resolution
 	if len(routes) == 0 {
 		return ""
 	}

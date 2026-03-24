@@ -12,14 +12,14 @@ func (s *Store) PutMessage(m core.Message) error {
 		`INSERT OR IGNORE INTO messages
 		 (id, chat_jid, sender, sender_name, content, timestamp,
 		  is_from_me, is_bot_message, forwarded_from,
-		  reply_to_id, reply_to_text, reply_to_sender, topic)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatJID, m.Sender, m.Name, m.Content,
 		m.Timestamp.Format(time.RFC3339Nano),
 		btoi(m.FromMe), btoi(m.BotMsg),
 		nilIfEmpty(m.ForwardedFrom),
 		nilIfEmpty(m.ReplyToID), nilIfEmpty(m.ReplyToText), nilIfEmpty(m.ReplyToSender),
-		m.Topic,
+		m.Topic, m.RoutedTo,
 	)
 	return err
 }
@@ -59,7 +59,7 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to
 		 FROM messages
 		 WHERE chat_jid IN `+ph+`
 		   AND timestamp > ?
@@ -93,7 +93,7 @@ func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]co
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to
 		 FROM messages
 		 WHERE chat_jid = ?
 		   AND timestamp > ?
@@ -124,9 +124,9 @@ func scanMessage(r rowScanner) (core.Message, time.Time) {
 	var m core.Message
 	var ts string
 	var fromMe, botMsg int
-	var name, fwdFrom, replyID, replyText, replySender, topic *string
+	var name, fwdFrom, replyID, replyText, replySender, topic, routedTo *string
 	r.Scan(&m.ID, &m.ChatJID, &m.Sender, &name, &m.Content,
-		&ts, &fromMe, &botMsg, &fwdFrom, &replyID, &replyText, &replySender, &topic)
+		&ts, &fromMe, &botMsg, &fwdFrom, &replyID, &replyText, &replySender, &topic, &routedTo)
 	if name != nil {
 		m.Name = *name
 	}
@@ -144,6 +144,9 @@ func scanMessage(r rowScanner) (core.Message, time.Time) {
 	}
 	if topic != nil {
 		m.Topic = *topic
+	}
+	if routedTo != nil {
+		m.RoutedTo = *routedTo
 	}
 	m.FromMe = fromMe != 0
 	m.BotMsg = botMsg != 0
@@ -198,7 +201,7 @@ func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit in
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to
 		 FROM messages
 		 WHERE chat_jid = ? AND topic = ? AND timestamp < ?
 		 ORDER BY timestamp DESC
@@ -266,7 +269,7 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to
 		 FROM messages
 		 WHERE chat_jid = ? AND topic = ? AND timestamp > ?
 		 ORDER BY timestamp ASC
@@ -321,6 +324,14 @@ func (s *Store) SetLastReplyID(jid, topic, replyID string) {
 		 ON CONFLICT(jid, topic) DO UPDATE SET last_reply_id=excluded.last_reply_id`,
 		jid, topic, replyID,
 	)
+}
+
+// RoutedToByMessageID returns the routed_to folder for a message by its ID.
+func (s *Store) RoutedToByMessageID(id string) string {
+	var routedTo string
+	s.db.QueryRow(`SELECT COALESCE(routed_to,'') FROM messages WHERE id=? AND routed_to!=''`,
+		id).Scan(&routedTo)
+	return routedTo
 }
 
 func btoi(b bool) int {
