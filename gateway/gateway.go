@@ -361,34 +361,82 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return true, nil
 	}
 
+	// Per-sender batching: split messages by sender before dispatch.
+	// Each sender batch processes independently with correct reply threading.
+	senderBatches := groupBySender(msgs)
+	for _, batch := range senderBatches {
+		last := batch[len(batch)-1]
+
+		if pr := findPrefixRoute(routes, last); pr != nil {
+			if g.handlePrefixRoute(pr, last, group, chatJid) {
+				slog.Debug("process: routed via prefix", "jid", chatJid, "sender", last.Sender, "match", pr.Match)
+				continue
+			}
+		}
+
+		routingTarget := g.resolveTarget(last, routes, group.Folder)
+
+		if routingTarget != "" {
+			if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
+				slog.Debug("process: delegating to child",
+					"jid", chatJid, "sender", last.Sender, "target", routingTarget)
+				g.delegateToChild(routingTarget, last.Content, chatJid, 0, nil)
+				continue
+			}
+		}
+
+		// Process this sender's batch
+		if !g.processSenderBatch(group, chatJid, ch, batch, agentTs) {
+			g.advanceAgentCursor(chatJid, msgs)
+			return false, fmt.Errorf("sender batch failed: %s", last.Sender)
+		}
+	}
+
+	slog.Debug("process: completed all sender batches",
+		"jid", chatJid, "group", group.Folder, "batches", len(senderBatches))
+	g.advanceAgentCursor(chatJid, msgs)
+	g.store.ClearChatErrored(chatJid)
+	return true, nil
+}
+
+// groupBySender splits messages by sender while preserving order.
+// Returns batches in chronological order by first message.
+func groupBySender(msgs []core.Message) [][]core.Message {
+	if len(msgs) == 0 {
+		return nil
+	}
+	type batch struct {
+		sender   string
+		messages []core.Message
+	}
+	var batches []batch
+	senderIdx := make(map[string]int)
+
+	for _, m := range msgs {
+		idx, seen := senderIdx[m.Sender]
+		if !seen {
+			idx = len(batches)
+			senderIdx[m.Sender] = idx
+			batches = append(batches, batch{sender: m.Sender})
+		}
+		batches[idx].messages = append(batches[idx].messages, m)
+	}
+
+	result := make([][]core.Message, len(batches))
+	for i, b := range batches {
+		result[i] = b.messages
+	}
+	return result
+}
+
+// processSenderBatch processes a single sender's message batch.
+func (g *Gateway) processSenderBatch(
+	group core.Group, chatJid string, ch core.Channel, msgs []core.Message, agentTs time.Time,
+) bool {
 	last := msgs[len(msgs)-1]
 
-	if pr := findPrefixRoute(routes, last); pr != nil {
-		if g.handlePrefixRoute(pr, last, group, chatJid) {
-			slog.Debug("process: routed via prefix", "jid", chatJid, "match", pr.Match)
-			g.advanceAgentCursor(chatJid, msgs)
-			return true, nil
-		}
-	}
-
-	routingTarget := g.resolveTarget(last, routes, group.Folder)
-
-	if routingTarget != "" {
-		if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
-			slog.Debug("process: delegating to child",
-				"jid", chatJid, "target", routingTarget)
-			g.delegateToChild(routingTarget, last.Content, chatJid, 0, nil)
-			g.advanceAgentCursor(chatJid, msgs)
-			return true, nil
-		}
-	}
-
-	slog.Debug("process: running agent",
-		"jid", chatJid, "group", group.Folder, "msgs", len(msgs))
 	g.emitSystemEvents(group, chatJid)
-
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
-
 	prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n"
 	prompt += router.FormatMessages(msgs)
 
@@ -396,7 +444,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		ch.Typing(chatJid, true)
 	}
 
-	savedTs := agentTs
 	isolated := strings.HasPrefix(last.Sender, "scheduler-isolated")
 	topic := g.effectiveTopic(chatJid, last.Topic)
 	onOutput, hadOutput := g.makeOutputCallback(chatJid, topic, last.ID, group.Folder)
@@ -409,30 +456,25 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 	if out.Error != "" {
 		slog.Error("agent error",
-			"group", group.Folder, "err", out.Error)
+			"group", group.Folder, "sender", last.Sender, "err", out.Error)
 		if gp, err := g.folders.GroupPath(group.Folder); err == nil {
 			diary.WriteRecovery(gp, "error", out.Error)
 		}
 		if *hadOutput {
-			// Output was already delivered; treat as success so the circuit
-			// breaker does not fire and a duplicate error notification is not sent.
-			g.advanceAgentCursor(chatJid, msgs)
-			return true, nil
+			return true
 		}
-		g.store.SetAgentCursor(chatJid, savedTs)
+		g.store.SetAgentCursor(chatJid, agentTs)
 		g.sendMessage(chatJid,
 			"Failed: agent error, will retry on next message.")
 		g.store.MarkChatErrored(chatJid)
-		return false, fmt.Errorf("agent: %s", out.Error)
+		return false
 	}
 
 	if !*hadOutput {
 		slog.Warn("agent completed with no output delivered",
-			"jid", chatJid, "group", group.Folder)
+			"jid", chatJid, "group", group.Folder, "sender", last.Sender)
 	}
-	g.advanceAgentCursor(chatJid, msgs)
-	g.store.ClearChatErrored(chatJid)
-	return true, nil
+	return true
 }
 
 func (g *Gateway) processWebTopics(
