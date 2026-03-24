@@ -51,6 +51,7 @@ async function connect(): Promise<void> {
     printQRInTerminal: true,
     logger,
     browser: Browsers.macOS('Chrome'),
+    shouldSyncHistoryMessage: () => false,
   });
 
   sock.ev.on('creds.update', saveCreds);
