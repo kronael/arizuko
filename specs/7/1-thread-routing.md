@@ -119,28 +119,28 @@ the adapter maps Topic back to its own native thread concept on send.
 
 ---
 
-### 3. @-routing preserves thread context
+### 3. Reply-chain group routing
 
-Current @-routing: when the router matches an @-mention pattern and routes to
-group `target`, the reply comes from that group's agent with no thread context.
+When a user replies to a bot message that was produced by @subgroup routing,
+the reply should continue going to the same subgroup — not the default group.
 
-Fix: pass the original message's `ChatJID`, `Topic`, and `ReplyToID` through
-the routing context. The target group's output callback sends back to the
-_original_ JID+thread.
+**Minimal approach:** the router already resolves the target group. Add one
+more source to that resolution: the reply chain.
 
-```go
-// In gateway routing for @-mention:
-// instead of sending to the target group's JID, override the reply destination
-// to the source chatJID + topic.
-```
+Resolution order (first match wins):
 
-This requires a `SourceJID` + `SourceTopic` concept when doing cross-group
-routing. The target group agent runs, result is delivered back to `SourceJID`
-in `SourceTopic`.
+1. Inline `@name` in the message content → route to that group
+2. `ReplyToID` present → look up which group handled that message → route there
+3. Sticky group set for this chat → route there
+4. Default group for this JID
 
-The current routing model doesn't have this — the target group's `chatJid` is
-used for delivery. Extend `runAgentWithOpts` or the routing path to accept an
-optional `replyJID` + `replyTopic` override.
+For (2): when a bot message is stored, record `(msg_id, group_folder)` so the
+router can look it up. This is a small addition to the messages schema or a
+separate table.
+
+No SourceJID/SourceTopic override needed in the gateway. The router resolves
+the group; the gateway runs it and replies to the original chatJID+topic as
+always. Each component keeps its own concern.
 
 ---
 
@@ -177,16 +177,19 @@ mechanism.
    - `gateway.go`: restore from store in `makeOutputCallback`, pass topic
    - Migration: `ALTER TABLE chats ADD COLUMN last_reply_id TEXT NOT NULL DEFAULT ''`
 
-2. **Capture Telegram thread ID inbound** — teled only, no interface change.
-   - Store `MessageThreadID` as `Topic` on inbound messages
+2. **Map native thread IDs to Topic** — per adapter, one field.
+   - teled: `MessageThreadID` → `Topic`
+   - discd: thread/channel ID → `Topic`
+   - Gateway is already channel-agnostic once this is done
 
 3. **Thread-aware outbound** — Channel interface change, all adapters.
    - Add `threadID` param to `Channel.Send`
-   - teled sets `MessageThreadID` on outbound messages
-   - Gateway passes `topic` from last inbound message as thread ID
+   - Gateway passes `last.Topic` as `threadID` on every send
+   - Adapters that support threads use it; others ignore it
 
-4. **@-routing thread preservation** — requires (3) above.
-   - Add `replyJID`/`replyTopic` override to routing path
+4. **Reply-chain group routing** — router change only.
+   - Record `(msg_id, group_folder)` for each bot message sent
+   - Router resolution: inline @name → reply chain lookup → sticky → default
 
 ---
 
