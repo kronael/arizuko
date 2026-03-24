@@ -176,6 +176,34 @@ optional `replyJID` + `replyTopic` override.
 
 ---
 
+---
+
+### Reply-to context: session continuity is enough
+
+**Key insight (from takopi):** Per-thread session IDs are the reply context.
+
+takopi maps each `(chat_id, thread_id)` to a `TopicStateStore` which holds a
+session resume token per engine. Every message in that Telegram thread resumes
+the same Claude session. Claude's conversation history _is_ the thread context
+— no need to extract and re-inject `reply_to_text`. The resumed session already
+contains every prior exchange.
+
+Arizuko has the same mechanism: `store.GetSession(folder, topic)` returns a
+session ID per `(folder, topic)`. When `Topic` correctly maps to the inbound
+Telegram `MessageThreadID`, all messages in a forum thread share one session.
+Claude sees the full history on resume.
+
+**Consequence:** Step 2 (capture Telegram thread ID → `Topic`) is the critical
+piece. Once `Topic` = thread ID, session continuity handles reply context for
+free. Explicitly threading `reply_to_text` through the prompt is redundant.
+
+The `reply_to_text` field remains useful for non-sessionized cases (e.g., first
+message in a thread where no session exists yet, or cross-group routing where
+source context isn't in the target group's session). But it is not the primary
+mechanism.
+
+---
+
 ## Implementation order
 
 1. **Persist last-sent ID** — self-contained, fixes reply chaining now.
