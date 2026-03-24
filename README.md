@@ -194,8 +194,8 @@ If you build on arizuko, this is all we ask:
 
 > Built on [arizuko](https://github.com/onvos/arizuko) by onvos. © 2026 onvos (MIT)
 
-We think this is what attribution should look like: author, license, copyright, and
-what the work actually contributed — machine-readable, human-meaningful.
+We think this is what attribution should look like: author, license, copyright,
+and what the work actually contributed.
 
 ## License
 
