@@ -90,7 +90,9 @@ func (mc *mastoClient) handleMention(n *mastodon.Notification, rc *routerClient)
 
 	topic := ""
 	if n.Status.InReplyToID != nil {
-		topic = string(*n.Status.InReplyToID)
+		if replyID, ok := n.Status.InReplyToID.(string); ok {
+			topic = replyID
+		}
 	}
 
 	err := rc.SendMessage(inboundMsg{

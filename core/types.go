@@ -86,7 +86,7 @@ type Task struct {
 type Channel interface {
 	Name() string
 	Connect(ctx context.Context) error
-	Send(jid, text, replyTo string) (string, error)
+	Send(jid, text, replyTo, threadID string) (string, error)
 	SendFile(jid, path, name string) error
 	Owns(jid string) bool
 	Typing(jid string, on bool) error

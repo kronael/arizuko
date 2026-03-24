@@ -95,8 +95,11 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
-func (b *bot) send(jid, text, replyTo string) (string, error) {
+func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 	chID := strings.TrimPrefix(jid, "discord:")
+	if threadID != "" {
+		chID = threadID
+	}
 	chunks := chunk(text, 2000)
 	var firstID string
 	for i, c := range chunks {

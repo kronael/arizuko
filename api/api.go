@@ -110,7 +110,7 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ch := chanreg.NewHTTPChannel(entry, s.reg.Secret())
-	if _, err := ch.Send(req.JID, req.Text, ""); err != nil {
+	if _, err := ch.Send(req.JID, req.Text, "", ""); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}

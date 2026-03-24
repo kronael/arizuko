@@ -1,6 +1,17 @@
 import http from 'node:http';
 import type { WASocket } from '@whiskeysockets/baileys';
 
+interface SendReq {
+  chat_jid: string;
+  content: string;
+  thread_id?: string;
+}
+
+interface TypingReq {
+  chat_jid: string;
+  on: boolean;
+}
+
 function log(level: string, msg: string, attrs?: Record<string, unknown>) {
   const entry = { time: new Date().toISOString(), level, msg, ...attrs };
   process.stderr.write(JSON.stringify(entry) + '\n');
@@ -36,7 +47,7 @@ export function startServer(
     }
 
     if (req.method === 'POST' && req.url === '/send') {
-      const body = await readBody(req);
+      const body = (await readBody(req)) as SendReq;
       const s = sock();
       if (!s) {
         json(res, 502, { ok: false, error: 'not connected' });
@@ -52,7 +63,7 @@ export function startServer(
     }
 
     if (req.method === 'POST' && req.url === '/typing') {
-      const body = await readBody(req);
+      const body = (await readBody(req)) as TypingReq;
       const s = sock();
       if (s) {
         const status = body.on ? ('composing' as const) : ('paused' as const);

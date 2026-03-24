@@ -28,12 +28,13 @@ type HTTPChannel struct {
 }
 
 type outMsg struct {
-	JID     string
-	Content string
-	ReplyTo string
-	IsFile  bool
-	Path    string
-	Name    string
+	JID      string
+	Content  string
+	ReplyTo  string
+	ThreadID string
+	IsFile   bool
+	Path     string
+	Name     string
 }
 
 func NewHTTPChannel(e *Entry, secret string) *HTTPChannel {
@@ -57,7 +58,7 @@ func (h *HTTPChannel) Owns(jid string) bool {
 	return false
 }
 
-func (h *HTTPChannel) Send(jid, text, replyTo string) (string, error) {
+func (h *HTTPChannel) Send(jid, text, replyTo, threadID string) (string, error) {
 	if !h.entry.HasCap("send_text") {
 		return "", nil
 	}
@@ -68,6 +69,9 @@ func (h *HTTPChannel) Send(jid, text, replyTo string) (string, error) {
 	}
 	if replyTo != "" {
 		body["reply_to"] = replyTo
+	}
+	if threadID != "" {
+		body["thread_id"] = threadID
 	}
 	b, _ := json.Marshal(body)
 
@@ -83,7 +87,7 @@ func (h *HTTPChannel) Send(jid, text, replyTo string) (string, error) {
 		}
 		err = fmt.Errorf("status %d", httpResp.StatusCode)
 	}
-	h.enqueue(outMsg{JID: jid, Content: text, ReplyTo: replyTo})
+	h.enqueue(outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID})
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
@@ -167,7 +171,7 @@ func (h *HTTPChannel) DrainOutbox() {
 		if m.IsFile {
 			err = h.SendFile(m.JID, m.Path, m.Name)
 		} else {
-			_, err = h.Send(m.JID, m.Content, m.ReplyTo)
+			_, err = h.Send(m.JID, m.Content, m.ReplyTo, m.ThreadID)
 		}
 		if err != nil {
 			slog.Warn("outbox drain failed", "channel", h.entry.Name,

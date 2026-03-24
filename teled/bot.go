@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 )
 
 type bot struct {
@@ -144,7 +144,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *routerClient) {
 	}
 }
 
-func (b *bot) send(jid, text, replyTo string) (string, error) {
+func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 	id, err := parseChatID(jid)
 	if err != nil {
 		return "", err
@@ -153,6 +153,12 @@ func (b *bot) send(jid, text, replyTo string) (string, error) {
 	if replyTo != "" {
 		if n, err := strconv.ParseInt(replyTo, 10, 64); err == nil {
 			replyMsgID = int(n)
+		}
+	}
+	msgThreadID := 0
+	if threadID != "" {
+		if n, err := strconv.Atoi(threadID); err == nil {
+			msgThreadID = n
 		}
 	}
 	html := mdToHTML(text)
@@ -164,11 +170,17 @@ func (b *bot) send(jid, text, replyTo string) (string, error) {
 			m.ReplyToMessageID = replyMsgID
 			replyMsgID = 0 // only first chunk replies
 		}
+		if msgThreadID != 0 {
+			m.MessageThreadID = msgThreadID
+		}
 		sent, err := b.api.Send(m)
 		if err != nil {
 			if strings.Contains(err.Error(), "400") {
 				for _, p := range chunk(text, 4096) {
 					pm := tgbotapi.NewMessage(id, p)
+					if msgThreadID != 0 {
+						pm.MessageThreadID = msgThreadID
+					}
 					if s2, e2 := b.api.Send(pm); e2 != nil {
 						return "", fmt.Errorf("telegram send: %w", e2)
 					} else if firstID == "" {

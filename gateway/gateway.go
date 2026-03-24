@@ -83,7 +83,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 	g.gatedFns = ipc.GatedFns{
 		SendMessage: g.sendMessage,
 		SendReply: func(jid, text, replyTo string) error {
-			_, err := g.sendMessageReply(jid, text, replyTo)
+			_, err := g.sendMessageReply(jid, text, replyTo, "")
 			return err
 		},
 		SendDocument:     g.sendDocument,
@@ -502,7 +502,7 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID string) (func(st
 			g.sendMessage(chatJid, s)
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
-			if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID); sentID != "" {
+			if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID, topic); sentID != "" {
 				lastSentID = sentID
 				g.store.SetLastReplyID(chatJid, topic, sentID)
 			}
@@ -596,16 +596,16 @@ func (g *Gateway) findChannel(jid string) core.Channel {
 }
 
 func (g *Gateway) sendMessage(jid, text string) error {
-	_, err := g.sendMessageReply(jid, text, "")
+	_, err := g.sendMessageReply(jid, text, "", "")
 	return err
 }
 
-func (g *Gateway) sendMessageReply(jid, text, replyTo string) (string, error) {
+func (g *Gateway) sendMessageReply(jid, text, replyTo, threadID string) (string, error) {
 	ch := g.findChannel(jid)
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.Send(jid, text, replyTo)
+	return ch.Send(jid, text, replyTo, threadID)
 }
 
 func (g *Gateway) sendDocument(jid, path, name string) error {

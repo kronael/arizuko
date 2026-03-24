@@ -25,9 +25,10 @@ func (s *server) handler() http.Handler {
 
 func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ChatJID string `json:"chat_jid"`
-		Content string `json:"content"`
-		ReplyTo string `json:"reply_to"`
+		ChatJID  string `json:"chat_jid"`
+		Content  string `json:"content"`
+		ReplyTo  string `json:"reply_to"`
+		ThreadID string `json:"thread_id"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
 		chanlib.WriteErr(w, 400, "chat_jid and content required")
