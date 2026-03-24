@@ -49,6 +49,8 @@ type StoreFns struct {
 	DeleteRoute      func(id int64) error
 	GetRoute         func(id int64) (core.Route, bool)
 	StoreOutbound    func(entry core.OutboundEntry) error
+	GetLastReplyID   func(jid, topic string) string
+	SetLastReplyID   func(jid, topic, replyID string)
 	GetGrants        func(folder string) []string
 	SetGrants        func(folder string, rules []string) error
 }
@@ -190,6 +192,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err != nil {
 				return toolErr(err.Error())
 			}
+			// Update MCP reply chain state
+			if db.SetLastReplyID != nil && platformID != "" {
+				db.SetLastReplyID(jid, "", platformID)
+			}
 			if db.StoreOutbound != nil && platformID != "" {
 				db.StoreOutbound(core.OutboundEntry{
 					ChatJID:       jid,
@@ -220,9 +226,17 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			text := req.GetString("text", "")
 			replyToID := req.GetString("replyToId", "")
+			// Auto-inject replyTo from last MCP-sent message if not provided
+			if replyToID == "" && db.GetLastReplyID != nil {
+				replyToID = db.GetLastReplyID(jid, "")
+			}
 			platformID, err := gated.SendReply(jid, text, replyToID)
 			if err != nil {
 				return toolErr(err.Error())
+			}
+			// Update MCP reply chain state
+			if db.SetLastReplyID != nil && platformID != "" {
+				db.SetLastReplyID(jid, "", platformID)
 			}
 			if db.StoreOutbound != nil && platformID != "" {
 				db.StoreOutbound(core.OutboundEntry{

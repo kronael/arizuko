@@ -112,16 +112,18 @@ func (g *Gateway) Run(ctx context.Context) error {
 		UpdateTaskStatus: func(id, status string) error {
 			return g.store.UpdateTask(id, store.TaskPatch{Status: &status})
 		},
-		DeleteTask:    g.store.DeleteTask,
-		ListTasks:     g.store.ListTasks,
-		GetRoutes:     g.store.GetRoutes,
-		SetRoutes:     g.store.SetRoutes,
-		AddRoute:      g.store.AddRoute,
-		DeleteRoute:   g.store.DeleteRoute,
-		GetRoute:      g.store.GetRoute,
-		GetGrants:     g.store.GetGrants,
-		SetGrants:     g.store.SetGrants,
-		StoreOutbound: g.store.StoreOutbound,
+		DeleteTask:     g.store.DeleteTask,
+		ListTasks:      g.store.ListTasks,
+		GetRoutes:      g.store.GetRoutes,
+		SetRoutes:      g.store.SetRoutes,
+		AddRoute:       g.store.AddRoute,
+		DeleteRoute:    g.store.DeleteRoute,
+		GetRoute:       g.store.GetRoute,
+		GetGrants:      g.store.GetGrants,
+		SetGrants:      g.store.SetGrants,
+		StoreOutbound:  g.store.StoreOutbound,
+		GetLastReplyID: g.store.GetLastReplyID,
+		SetLastReplyID: g.store.SetLastReplyID,
 	}
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetNotifyErrorFn(func(jid string, err error) {
