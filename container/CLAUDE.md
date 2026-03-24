@@ -37,6 +37,11 @@ against the last diary entry date. If the gap is more than a few hours,
 the resumed session may be stale — don't assume you're continuing the
 same task. Greet naturally and let the user re-establish context.
 
+Each session is scoped to one chat + topic (thread). If the prompt contains
+messages from multiple senders, they are all part of the same thread —
+reply to all of them in that thread context. Do not cross-post to other
+threads or chats.
+
 # Tools
 
 When uncertain about your capabilities, MCP tools, or permission tier,

@@ -31,8 +31,10 @@ Add to store:
 ALTER TABLE chats ADD COLUMN last_reply_id TEXT NOT NULL DEFAULT '';
 ```
 
-`last_reply_id` is the Telegram message ID of the last bot reply to this chat
-(or chat+topic). On send: write. On next container spawn: read and pass in.
+`last_reply_id` is the message ID of the last message in this thread — either
+a bot reply or the most recent user message. On send: write the sent ID. On
+next container spawn: read and use as reply anchor. This keeps the reply chain
+continuous regardless of who sent last.
 
 Schema already has `topic` on messages — use `(chat_jid, topic)` as the key
 since each topic is an independent thread.
@@ -77,77 +79,43 @@ Pass `last.Topic` when calling `makeOutputCallback`.
 
 ---
 
-### 2. Telegram thread ID on outbound
+### 2. Thread ID as Topic — channel-agnostic
 
-Telegram threads: a supergroup topic has a `MessageThreadID` equal to the
-root message ID of that topic. To reply within a thread, set both:
+`Message.Topic` is the single thread identifier in the system. The gateway
+uses it uniformly for session scoping, reply tracking, and routing. Channels
+should not need special-casing anywhere in the gateway.
 
-- `m.ReplyToMessageID` (for reply chain)
-- `m.MessageThreadID` (to stay in the topic)
+**Contract for channel adapters:**
 
-`Channel.Send` signature is `Send(jid, text, replyTo string) (string, error)`.
+Each adapter maps its native threading concept to `Topic` on inbound messages.
+That is one field, set in one place per adapter:
 
-**Option A**: encode thread ID in the JID: `telegram:-1001234567890:42` where
-`42` is the thread ID. Pros: no interface change. Cons: JID semantics are
-muddied; all channel types must handle the suffix.
+| Adapter | Native concept       | → `Topic`                        |
+| ------- | -------------------- | -------------------------------- |
+| teled   | `MessageThreadID`    | `strconv.Itoa(threadID)` or `""` |
+| discd   | Discord thread/forum | channel ID of thread or `""`     |
+| whapd   | WhatsApp group topic | topic string or `""`             |
+| web     | URL topic slug       | already set correctly            |
 
-**Option B**: add `threadID` to the Channel interface:
+No gateway changes needed for inbound routing — it already keys sessions on
+`(folder, topic)`.
+
+**Outbound: keeping replies in the thread**
+
+`Topic` is stored on every message in the DB. The gateway already has
+`last.Topic` at reply time — it just needs to pass it to `Channel.Send`.
+
+Add `threadID` to `Channel.Send`:
 
 ```go
 Send(jid, text, replyTo, threadID string) (string, error)
 ```
 
-Pros: explicit. Cons: every channel adapter needs updating (discd, mastd, etc.
-can just ignore it).
-
-**Recommendation: Option B.** Cleaner. All current adapters set `threadID = ""`
-(no-op). Telegram uses it.
-
-#### teled change
-
-```go
-func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
-    // ...
-    m := tgbotapi.NewMessage(id, c)
-    if replyMsgID != 0 {
-        m.ReplyToMessageID = replyMsgID
-    }
-    if threadID != "" {
-        if tid, err := strconv.ParseInt(threadID, 10, 64); err == nil {
-            m.MessageThreadID = int(tid)
-        }
-    }
-    // ...
-}
-```
-
-#### Inbound thread ID capture
-
-In teled, on receive: capture `msg.MessageThreadID` and store as `Topic`.
-Currently `Topic` is set from another source — verify it's the Telegram thread
-ID or add a separate field.
-
-```go
-// teled/bot.go on message receive:
-topic := ""
-if msg.MessageThreadID != 0 {
-    topic = strconv.Itoa(msg.MessageThreadID)
-}
-```
-
-This is consistent with existing `Message.Topic` usage for web.
-
-#### Gateway outbound with thread
-
-When sending a reply, the gateway needs to know the thread ID. This comes from
-the inbound message's `Topic`. Pass it through to `sendMessageReply`:
-
-```go
-g.sendMessageReplyInThread(chatJid, clean, lastSentID, threadID)
-```
-
-Or encode into the JID (Option A above). Given Option B is selected, add
-`threadID` to the send path.
+The gateway passes `last.Topic` as `threadID`. Adapters that support
+threading use it (teled → `MessageThreadID`); others ignore it. Because
+`Topic` lives in the messages table, disparate sources (web, Telegram,
+WhatsApp) sharing a topic slug naturally land in the same logical thread —
+the adapter maps Topic back to its own native thread concept on send.
 
 ---
 
