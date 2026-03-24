@@ -387,7 +387,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 	savedTs := agentTs
 	isolated := strings.HasPrefix(last.Sender, "scheduler-isolated")
-	onOutput, hadOutput := g.makeOutputCallback(chatJid, last.ID)
+	onOutput, hadOutput := g.makeOutputCallback(chatJid, "", last.ID)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		onOutput, isolated, nil, "", last.ID)
 
@@ -451,7 +451,7 @@ func (g *Gateway) processWebTopics(
 			ch.Typing(chatJid, true)
 		}
 
-		onOutput, hadOutput := g.makeOutputCallback(chatJid, last.ID)
+		onOutput, hadOutput := g.makeOutputCallback(chatJid, topic, last.ID)
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 			onOutput, false, nil, topic, last.ID)
 
@@ -486,9 +486,12 @@ func (g *Gateway) processWebTopics(
 	return true, nil
 }
 
-func (g *Gateway) makeOutputCallback(chatJid, firstMsgID string) (func(string, string), *bool) {
+func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID string) (func(string, string), *bool) {
 	var hadOutput bool
-	lastSentID := firstMsgID
+	lastSentID := g.store.GetLastReplyID(chatJid, topic)
+	if lastSentID == "" {
+		lastSentID = firstMsgID
+	}
 	return func(text, _ string) {
 		if text == "" {
 			return
@@ -501,6 +504,7 @@ func (g *Gateway) makeOutputCallback(chatJid, firstMsgID string) (func(string, s
 		if clean := router.FormatOutbound(stripped); clean != "" {
 			if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID); sentID != "" {
 				lastSentID = sentID
+				g.store.SetLastReplyID(chatJid, topic, sentID)
 			}
 		}
 	}, &hadOutput

@@ -306,6 +306,23 @@ func (s *Store) ActiveWebJIDs(since time.Time) []string {
 	return jids
 }
 
+func (s *Store) GetLastReplyID(jid, topic string) string {
+	var id string
+	s.db.QueryRow(
+		`SELECT last_reply_id FROM chat_reply_state WHERE jid=? AND topic=?`,
+		jid, topic,
+	).Scan(&id)
+	return id
+}
+
+func (s *Store) SetLastReplyID(jid, topic, replyID string) {
+	s.db.Exec(
+		`INSERT INTO chat_reply_state (jid, topic, last_reply_id) VALUES (?,?,?)
+		 ON CONFLICT(jid, topic) DO UPDATE SET last_reply_id=excluded.last_reply_id`,
+		jid, topic, replyID,
+	)
+}
+
 func btoi(b bool) int {
 	if b {
 		return 1
