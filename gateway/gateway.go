@@ -80,6 +80,9 @@ func (g *Gateway) Run(ctx context.Context) error {
 
 	g.loadState()
 
+	// Register LocalChannel for agent-to-agent communication
+	g.AddChannel(NewLocalChannel(g.store))
+
 	g.gatedFns = ipc.GatedFns{
 		SendMessage: func(jid, text string) (string, error) {
 			return g.sendMessageReply(jid, text, "", "")
@@ -769,6 +772,55 @@ func (g *Gateway) groupByFolderLocked(folder string) (string, core.Group, bool) 
 	return "", core.Group{}, false
 }
 
+type escalationMetadata struct {
+	WorkerFolder string
+	OriginJID    string
+	ReplyTo      string
+}
+
+// parseEscalationOrigin extracts metadata from <escalation_origin> XML tag.
+// Format: <escalation_origin folder="world/support" jid="telegram:123" reply_to="567"/>
+func parseEscalationOrigin(prompt string) *escalationMetadata {
+	// Simple XML parsing - look for escalation_origin tag
+	start := strings.Index(prompt, "<escalation_origin")
+	if start == -1 {
+		return nil
+	}
+	end := strings.Index(prompt[start:], "/>")
+	if end == -1 {
+		return nil
+	}
+	tag := prompt[start : start+end+2]
+
+	var meta escalationMetadata
+	// Extract folder="..."
+	if idx := strings.Index(tag, `folder="`); idx != -1 {
+		rest := tag[idx+8:]
+		if endQuote := strings.Index(rest, `"`); endQuote != -1 {
+			meta.WorkerFolder = rest[:endQuote]
+		}
+	}
+	// Extract jid="..."
+	if idx := strings.Index(tag, `jid="`); idx != -1 {
+		rest := tag[idx+5:]
+		if endQuote := strings.Index(rest, `"`); endQuote != -1 {
+			meta.OriginJID = rest[:endQuote]
+		}
+	}
+	// Extract reply_to="..."
+	if idx := strings.Index(tag, `reply_to="`); idx != -1 {
+		rest := tag[idx+10:]
+		if endQuote := strings.Index(rest, `"`); endQuote != -1 {
+			meta.ReplyTo = rest[:endQuote]
+		}
+	}
+
+	if meta.WorkerFolder == "" || meta.OriginJID == "" {
+		return nil
+	}
+	return &meta
+}
+
 func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth int, rules []string) error {
 	return g.delegateToFolder("escalate", parentFolder, prompt, originJid, depth, rules)
 }
@@ -1016,6 +1068,16 @@ func (g *Gateway) delegateToFolder(
 		return fmt.Errorf("delegation depth exceeded")
 	}
 
+	// Parse escalation metadata if this is an escalation
+	var escalation *escalationMetadata
+	if label == "escalate" {
+		escalation = parseEscalationOrigin(prompt)
+		if escalation != nil {
+			// Route response to worker's local JID instead of original user
+			originJid = "local:" + escalation.WorkerFolder
+		}
+	}
+
 	g.mu.RLock()
 	targetJid, target, found := g.groupByFolderLocked(folder)
 	g.mu.RUnlock()
@@ -1045,6 +1107,11 @@ func (g *Gateway) delegateToFolder(
 					if text != "" {
 						clean := router.FormatOutbound(text)
 						if clean != "" {
+							// Wrap response with escalation metadata if applicable
+							if escalation != nil {
+								clean = fmt.Sprintf("<escalation_response origin_jid=%q origin_msg_id=%q>\n%s\n</escalation_response>",
+									escalation.OriginJID, escalation.ReplyTo, clean)
+							}
 							if sentID, _ := g.sendMessageReply(originJid, clean, "", ""); sentID != "" {
 								g.store.StoreOutbound(core.OutboundEntry{
 									ChatJID:       originJid,
