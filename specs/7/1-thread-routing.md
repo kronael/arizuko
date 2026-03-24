@@ -134,9 +134,14 @@ Resolution order (first match wins):
 3. Sticky group set for this chat → route there
 4. Default group for this JID
 
-For (2): when a bot message is stored, record `(msg_id, group_folder)` so the
-router can look it up. This is a small addition to the messages schema or a
-separate table.
+For (2): add `routed_to TEXT` to the `messages` table. When a bot message is
+stored (at send time), set `routed_to = groupFolder`. Router looks it up:
+
+```sql
+SELECT routed_to FROM messages WHERE id = ? AND routed_to != ''
+```
+
+No separate table — routing metadata lives on the message itself.
 
 No SourceJID/SourceTopic override needed in the gateway. The router resolves
 the group; the gateway runs it and replies to the original chatJID+topic as
