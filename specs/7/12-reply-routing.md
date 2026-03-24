@@ -112,4 +112,4 @@ LocalChannel.
 | C. MessageId through delegation        | shipped           | `msgID` param in `runAgentWithOpts`, passed to `ContainerInput.MessageID` |
 | D. MCP send_reply auto-injects replyTo | shipped (cc50def) | auto-injects replyTo from last MCP-sent ID when not provided explicitly   |
 | E. Per-sender batching                 | shipped (1fb565a) | `groupBySender` splits messages, each batch processes independently       |
-| F. Escalation reply threading          | not implemented   | `<escalation_response>` wrapping not in gateway.go                        |
+| F. Escalation reply threading          | shipped (29f1982) | `parseEscalationOrigin`, wrapped responses, LocalChannel for local: JIDs  |
