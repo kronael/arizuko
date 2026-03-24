@@ -47,7 +47,6 @@ func ClockXml(tz string) string {
 		now.Format("2006-01-02T15:04:05Z07:00"), loc.String())
 }
 
-// TimeAgo returns a human-friendly duration since t (e.g. "3m", "2h", "1d").
 func timeAgo(t time.Time) string {
 	d := time.Since(t)
 	switch {
@@ -164,7 +163,6 @@ var platformShort = map[string]string{
 	"email": "em", "web": "web",
 }
 
-// SenderToUserFileID converts "platform:id" to short file ID (e.g. "tg-123").
 func senderToUserFileID(sender string) string {
 	parts := strings.SplitN(sender, ":", 2)
 	if len(parts) != 2 {

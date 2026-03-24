@@ -216,8 +216,8 @@ func onbodService(app, flavor, dataDir string, env map[string]string) string {
 func dashdService(app, flavor, dataDir string, env map[string]string) string {
 	dashPort := envOr(env, "DASH_PORT", "8090")
 	environment := map[string]string{
-		"DATA_DIR": "/srv/app/home",
-		"DB_PATH":  "/srv/app/home/store/messages.db",
+		"DATA_DIR":  "/srv/app/home",
+		"DB_PATH":   "/srv/app/home/store/messages.db",
 		"DASH_PORT": dashPort,
 	}
 	if s := envOr(env, "AUTH_SECRET", ""); s != "" {

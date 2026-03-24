@@ -97,7 +97,6 @@ func (r *Registry) All() map[string]*Entry {
 
 func (r *Registry) Secret() string { return r.secret }
 
-// ForJID returns the first registered channel whose JID prefix matches jid.
 func (r *Registry) ForJID(jid string) *Entry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

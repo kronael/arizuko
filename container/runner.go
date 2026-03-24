@@ -153,10 +153,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	logsDir := filepath.Join(groupDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
 
-	sessionPresent := in.SessionID != ""
 	slog.Info("spawning container",
 		"group", in.Folder, "container", containerName,
-		"mounts", len(mounts), "root", root, "session", sessionPresent)
+		"mounts", len(mounts), "root", root, "session", in.SessionID != "")
 	slog.Debug("container args",
 		"group", in.Folder,
 		"args", strings.Join(args, " "))
@@ -300,12 +299,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 					continue
 				}
 
+				hadStreaming = true
 				if parsed.SessionID != "" {
 					newSessionID = parsed.SessionID
-				}
-				hadStreaming = true
-
-				if parsed.SessionID != "" {
 					timer.Reset(5 * time.Second)
 				} else {
 					timer.Reset(cfgTimeout)
@@ -682,7 +678,6 @@ func seedSettings(
 			}
 		}
 
-		settings["mcpServers"] = servers
 		settings["_managedSidecars"] = managed
 		if len(allowed) > 0 {
 			settings["allowedTools"] = allowed

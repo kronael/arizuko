@@ -27,8 +27,6 @@ func cmdText(raw string) string {
 	return t
 }
 
-// isGatewayCommand reports whether text (after stripping prefixes) is a
-// command handled by gated — not an agent message.
 func isGatewayCommand(raw string) bool {
 	t := cmdText(raw)
 	if !strings.HasPrefix(t, "/") {

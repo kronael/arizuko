@@ -60,18 +60,7 @@ func Authorize(id Identity, tool string, target AuthzTarget) error {
 			return fmt.Errorf("unauthorized")
 		}
 		return nil
-	case "schedule_task":
-		if id.Tier == 3 {
-			return fmt.Errorf("unauthorized")
-		}
-		if id.Tier == 2 && target.TaskOwner != id.Folder {
-			return fmt.Errorf("unauthorized")
-		}
-		if id.Tier == 1 && !isInWorld(id.Folder, target.TaskOwner) {
-			return fmt.Errorf("unauthorized")
-		}
-		return nil
-	case "pause_task", "resume_task", "cancel_task":
+	case "schedule_task", "pause_task", "resume_task", "cancel_task":
 		if id.Tier == 3 {
 			return fmt.Errorf("unauthorized")
 		}

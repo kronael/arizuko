@@ -14,16 +14,12 @@ import (
 
 var jidSanitizeRe = regexp.MustCompile(`[^a-z0-9_\-/]`)
 
-// spawnFolderName derives child folder from parentFolder and childJID.
-// Replaces ":" with "_", strips non-alphanumeric (except -_/), lowercases.
 func spawnFolderName(parentFolder, childJID string) string {
 	s := strings.ToLower(strings.ReplaceAll(childJID, ":", "_"))
 	s = jidSanitizeRe.ReplaceAllString(s, "")
 	return parentFolder + "/" + s
 }
 
-// spawnFromPrototype copies parent's prototype/ dir to child folder and registers child.
-// Returns error if prototype/ missing, max_children reached, or copy fails.
 func (g *Gateway) spawnFromPrototype(parentJID, parentFolder, childJID string) (core.Group, error) {
 	protoDir := filepath.Join(g.cfg.GroupsDir, parentFolder, "prototype")
 	if _, err := os.Stat(protoDir); err != nil {
@@ -34,16 +30,14 @@ func (g *Gateway) spawnFromPrototype(parentJID, parentFolder, childJID string) (
 		if parent.Config.MaxChildren == 0 {
 			return core.Group{}, fmt.Errorf("spawning disabled (max_children=0)")
 		}
-		if parent.Config.MaxChildren > 0 {
-			n := 0
-			for _, gr := range g.groups {
-				if gr.Parent == parentFolder {
-					n++
-				}
+		n := 0
+		for _, gr := range g.groups {
+			if gr.Parent == parentFolder {
+				n++
 			}
-			if n >= parent.Config.MaxChildren {
-				return core.Group{}, fmt.Errorf("max_children limit reached (%d)", parent.Config.MaxChildren)
-			}
+		}
+		if n >= parent.Config.MaxChildren {
+			return core.Group{}, fmt.Errorf("max_children limit reached (%d)", parent.Config.MaxChildren)
 		}
 	}
 
@@ -73,14 +67,13 @@ func (g *Gateway) spawnFromPrototype(parentJID, parentFolder, childJID string) (
 	return child, nil
 }
 
-// copyDirNoSymlinks recursively copies src to dst, skipping symlinks.
 func copyDirNoSymlinks(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.Type()&os.ModeSymlink != 0 {
-			return nil // skip symlinks
+			return nil
 		}
 		rel, _ := filepath.Rel(src, path)
 		target := filepath.Join(dst, rel)
