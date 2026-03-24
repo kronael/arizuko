@@ -176,8 +176,6 @@ optional `replyJID` + `replyTopic` override.
 
 ---
 
----
-
 ### Reply-to context: session continuity is enough
 
 **Key insight (from takopi):** Per-thread session IDs are the reply context.
