@@ -38,6 +38,8 @@ Current routing architecture conflates multiple concerns:
 
 **Distinction:** Presence of `:` character distinguishes channel JIDs from group folders.
 
+**Deprecation:** The `local:` prefix (e.g., `local:main`) is removed. It added no value — folder paths alone are unambiguous.
+
 ---
 
 ## Message Schema
@@ -289,30 +291,47 @@ func deriveTier2Rules(folderJIDs []string) []string {
 
 ## Migration Path
 
-**Phase 1: Add `` prefix support (non-breaking)**
+**Phase 1: Remove `local:` prefix (breaking change, simple)**
 
-- Router accepts both `main` and `main` formats
-- Store lookups try both formats
-- New messages written with `` prefix
-- Old code continues using folder paths
+Current code uses `local:folder` for internal group references. This is redundant.
 
-**Phase 2: Write agent outputs to messages table**
+Changes:
+
+- Remove `local:` prefix handling in `gateway.groupForJid()`
+- Direct folder path lookups: if no colon in JID → treat as folder → `groupByFolderLocked(jid)`
+- Update any code that constructs `local:` JIDs → use folder path directly
+- No backward compatibility needed (internal-only prefix)
+
+**Phase 2: Add `routed_to` column to messages**
+
+```sql
+ALTER TABLE messages ADD COLUMN routed_to TEXT NOT NULL DEFAULT '';
+```
+
+Populate for existing messages:
+
+- User messages: `routed_to = ''` (router decides)
+- No agent output messages exist yet (callbacks only)
+
+**Phase 3: Write agent outputs to messages table**
 
 - Keep current callback for delivery
-- Also write to messages table with `routed_to=chat_jid`
+- Also write agent output to messages: `{sender: folder, routed_to: chat_jid}`
 - Audit trail now complete
+- No behavior change (callbacks still deliver)
 
-**Phase 3: Route agent outputs through router**
+**Phase 4: Route agent outputs through router**
 
-- Remove direct callback delivery
-- Gateway polls agent output messages, routes to channels
-- Validate no behavior change
+- Remove `OnOutput` callback mechanism
+- Agent outputs written to DB only
+- Gateway polls, router resolves `routed_to`, delivers to channels
+- Validate no behavior change (messages still delivered)
 
-**Phase 4: Deprecate folder path addressing**
+**Phase 5: Add `attachments` column, unify send operations**
 
-- All new code uses `` prefix
-- Migration script updates existing messages
-- Remove legacy format support
+- Add `attachments TEXT` column (JSON array)
+- Update `send_file` to set `attachments` and `content` (caption) in one message
+- Deprecate separate `send_file` tool → becomes `send_message(..., files=[...])`
 
 ---
 
