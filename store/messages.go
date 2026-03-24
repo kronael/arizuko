@@ -334,6 +334,21 @@ func (s *Store) RoutedToByMessageID(id string) string {
 	return routedTo
 }
 
+// StoreOutbound records an outbound message sent by the system.
+// ID is auto-generated with "out-" prefix. Non-blocking: logs warning on failure.
+func (s *Store) StoreOutbound(entry core.OutboundEntry) error {
+	id := "out-" + entry.PlatformMsgID
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO messages
+		 (id, chat_jid, content, timestamp, is_from_me, is_bot_message,
+		  reply_to_id, source, group_folder)
+		 VALUES (?, ?, ?, ?, 1, 0, ?, ?, ?)`,
+		id, entry.ChatJID, entry.Content, time.Now().Format(time.RFC3339Nano),
+		nilIfEmpty(entry.ReplyToID), nilIfEmpty(entry.Source), nilIfEmpty(entry.GroupFolder),
+	)
+	return err
+}
+
 func btoi(b bool) int {
 	if b {
 		return 1

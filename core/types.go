@@ -22,6 +22,15 @@ type Message struct {
 	RoutedTo      string
 }
 
+type OutboundEntry struct {
+	ChatJID       string
+	Content       string
+	Source        string // "agent" | "mcp" | "scheduler" | "control" | "error"
+	GroupFolder   string
+	ReplyToID     string
+	PlatformMsgID string
+}
+
 type Group struct {
 	JID              string
 	Name             string

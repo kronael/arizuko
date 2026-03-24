@@ -81,10 +81,11 @@ func (g *Gateway) Run(ctx context.Context) error {
 	g.loadState()
 
 	g.gatedFns = ipc.GatedFns{
-		SendMessage: g.sendMessage,
-		SendReply: func(jid, text, replyTo string) error {
-			_, err := g.sendMessageReply(jid, text, replyTo, "")
-			return err
+		SendMessage: func(jid, text string) (string, error) {
+			return g.sendMessageReply(jid, text, "", "")
+		},
+		SendReply: func(jid, text, replyTo string) (string, error) {
+			return g.sendMessageReply(jid, text, replyTo, "")
 		},
 		SendDocument:     g.sendDocument,
 		ClearSession:     g.clearSession,
@@ -111,15 +112,16 @@ func (g *Gateway) Run(ctx context.Context) error {
 		UpdateTaskStatus: func(id, status string) error {
 			return g.store.UpdateTask(id, store.TaskPatch{Status: &status})
 		},
-		DeleteTask:  g.store.DeleteTask,
-		ListTasks:   g.store.ListTasks,
-		GetRoutes:   g.store.GetRoutes,
-		SetRoutes:   g.store.SetRoutes,
-		AddRoute:    g.store.AddRoute,
-		DeleteRoute: g.store.DeleteRoute,
-		GetRoute:    g.store.GetRoute,
-		GetGrants:   g.store.GetGrants,
-		SetGrants:   g.store.SetGrants,
+		DeleteTask:    g.store.DeleteTask,
+		ListTasks:     g.store.ListTasks,
+		GetRoutes:     g.store.GetRoutes,
+		SetRoutes:     g.store.SetRoutes,
+		AddRoute:      g.store.AddRoute,
+		DeleteRoute:   g.store.DeleteRoute,
+		GetRoute:      g.store.GetRoute,
+		GetGrants:     g.store.GetGrants,
+		SetGrants:     g.store.SetGrants,
+		StoreOutbound: g.store.StoreOutbound,
 	}
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetNotifyErrorFn(func(jid string, err error) {
@@ -508,7 +510,15 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 		hadOutput = true
 		stripped, statuses := router.ExtractStatusBlocks(text)
 		for _, s := range statuses {
-			g.sendMessage(chatJid, s)
+			if sentID, _ := g.sendMessageReply(chatJid, s, "", ""); sentID != "" {
+				g.store.StoreOutbound(core.OutboundEntry{
+					ChatJID:       chatJid,
+					Content:       s,
+					Source:        "agent",
+					GroupFolder:   groupFolder,
+					PlatformMsgID: sentID,
+				})
+			}
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
 			if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID, topic); sentID != "" {
@@ -516,15 +526,24 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 				g.store.SetLastReplyID(chatJid, topic, sentID)
 				// Store bot message with routed_to for reply-chain routing
 				g.store.PutMessage(core.Message{
-					ID:       sentID,
-					ChatJID:  chatJid,
-					Sender:   g.cfg.Name,
-					Name:     g.cfg.Name,
-					Content:  clean,
+					ID:        sentID,
+					ChatJID:   chatJid,
+					Sender:    g.cfg.Name,
+					Name:      g.cfg.Name,
+					Content:   clean,
 					Timestamp: time.Now(),
-					BotMsg:   true,
-					Topic:    topic,
-					RoutedTo: groupFolder,
+					BotMsg:    true,
+					Topic:     topic,
+					RoutedTo:  groupFolder,
+				})
+				// Audit trail
+				g.store.StoreOutbound(core.OutboundEntry{
+					ChatJID:       chatJid,
+					Content:       clean,
+					Source:        "agent",
+					GroupFolder:   groupFolder,
+					ReplyToID:     lastSentID,
+					PlatformMsgID: sentID,
 				})
 			}
 		}
@@ -982,7 +1001,15 @@ func (g *Gateway) delegateToFolder(
 					if text != "" {
 						clean := router.FormatOutbound(text)
 						if clean != "" {
-							g.sendMessage(originJid, clean)
+							if sentID, _ := g.sendMessageReply(originJid, clean, "", ""); sentID != "" {
+								g.store.StoreOutbound(core.OutboundEntry{
+									ChatJID:       originJid,
+									Content:       clean,
+									Source:        "agent",
+									GroupFolder:   folder,
+									PlatformMsgID: sentID,
+								})
+							}
 						}
 					}
 				}, false, rules, "", "")

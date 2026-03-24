@@ -23,8 +23,8 @@ import (
 )
 
 type GatedFns struct {
-	SendMessage      func(jid, text string) error
-	SendReply        func(jid, text, replyToId string) error
+	SendMessage      func(jid, text string) (string, error)
+	SendReply        func(jid, text, replyToId string) (string, error)
 	SendDocument     func(jid, path, filename string) error
 	ClearSession     func(folder string)
 	InjectMessage    func(jid, content, sender, senderName string) (string, error)
@@ -48,6 +48,7 @@ type StoreFns struct {
 	AddRoute         func(jid string, r core.Route) (int64, error)
 	DeleteRoute      func(id int64) error
 	GetRoute         func(id int64) (core.Route, bool)
+	StoreOutbound    func(entry core.OutboundEntry) error
 	GetGrants        func(folder string) []string
 	SetGrants        func(folder string, rules []string) error
 }
@@ -185,8 +186,18 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				snippet = snippet[:60]
 			}
 			slog.Info("send_message", "folder", folder, "jid", jid, "text", snippet)
-			if err := gated.SendMessage(jid, text); err != nil {
+			platformID, err := gated.SendMessage(jid, text)
+			if err != nil {
 				return toolErr(err.Error())
+			}
+			if db.StoreOutbound != nil && platformID != "" {
+				db.StoreOutbound(core.OutboundEntry{
+					ChatJID:       jid,
+					Content:       text,
+					Source:        "mcp",
+					GroupFolder:   folder,
+					PlatformMsgID: platformID,
+				})
 			}
 			return toolOK()
 		})
@@ -207,8 +218,21 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if gated.SendReply == nil {
 				return toolErr("send_reply not configured")
 			}
-			if err := gated.SendReply(jid, req.GetString("text", ""), req.GetString("replyToId", "")); err != nil {
+			text := req.GetString("text", "")
+			replyToID := req.GetString("replyToId", "")
+			platformID, err := gated.SendReply(jid, text, replyToID)
+			if err != nil {
 				return toolErr(err.Error())
+			}
+			if db.StoreOutbound != nil && platformID != "" {
+				db.StoreOutbound(core.OutboundEntry{
+					ChatJID:       jid,
+					Content:       text,
+					Source:        "mcp",
+					GroupFolder:   folder,
+					ReplyToID:     replyToID,
+					PlatformMsgID: platformID,
+				})
 			}
 			return toolOK()
 		})

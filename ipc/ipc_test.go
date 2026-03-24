@@ -9,7 +9,7 @@ import (
 
 func TestBuildMCPServer(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:   func(jid, text string) error { return nil },
+		SendMessage:   func(jid, text string) (string, error) { return "", nil },
 		SendDocument:  func(jid, path, fn string) error { return nil },
 		ClearSession:  func(f string) {},
 		GetGroups:     func() map[string]core.Group { return nil },
@@ -26,7 +26,7 @@ func TestBuildMCPServer(t *testing.T) {
 
 func TestBuildMCPServer_NoTools(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:   func(jid, text string) error { return nil },
+		SendMessage:   func(jid, text string) (string, error) { return "", nil },
 		SendDocument:  func(jid, path, fn string) error { return nil },
 		ClearSession:  func(f string) {},
 		GetGroups:     func() map[string]core.Group { return nil },
@@ -88,7 +88,7 @@ func TestGroupFolderByJid(t *testing.T) {
 
 func TestAllToolsRegistered(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:      func(jid, text string) error { return nil },
+		SendMessage:      func(jid, text string) (string, error) { return "", nil },
 		SendDocument:     func(jid, path, fn string) error { return nil },
 		ClearSession:     func(f string) {},
 		GetGroups:        func() map[string]core.Group { return nil },
@@ -130,13 +130,13 @@ func TestAllToolsRegistered(t *testing.T) {
 func TestSendReply(t *testing.T) {
 	var got struct{ jid, text, replyToId string }
 	gated := GatedFns{
-		SendMessage:  func(jid, text string) error { got.jid = jid; got.text = text; return nil },
+		SendMessage:  func(jid, text string) (string, error) { got.jid = jid; got.text = text; return "", nil },
 		SendDocument: func(jid, path, fn string) error { return nil },
-		SendReply: func(jid, text, rid string) error {
+		SendReply: func(jid, text, rid string) (string, error) {
 			got.jid = jid
 			got.text = text
 			got.replyToId = rid
-			return nil
+			return "", nil
 		},
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
@@ -154,7 +154,7 @@ func TestRefreshGroups(t *testing.T) {
 		"jid1": {Folder: "world/a", Name: "Group A"},
 	}
 	gated := GatedFns{
-		SendMessage:   func(jid, text string) error { return nil },
+		SendMessage:   func(jid, text string) (string, error) { return "", nil },
 		SendDocument:  func(jid, path, fn string) error { return nil },
 		GetGroups:     func() map[string]core.Group { return groups },
 		GroupsDir:     "/tmp/groups",
