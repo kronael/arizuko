@@ -457,8 +457,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr("unauthorized: no parent group")
 			}
 			parent := folder[:idx]
-			slog.Info("escalating to parent", "sourceGroup", folder, "parent", parent, "depth", depth)
-			wrapped := fmt.Sprintf("<escalation_origin folder=%q jid=%q/>\n%s", folder, chatJid, prompt)
+			// Get last reply ID for threading
+			var replyTo string
+			if db.GetLastReplyID != nil {
+				replyTo = db.GetLastReplyID(chatJid, "")
+			}
+			slog.Info("escalating to parent", "sourceGroup", folder, "parent", parent, "depth", depth, "replyTo", replyTo)
+			wrapped := fmt.Sprintf("<escalation_origin folder=%q jid=%q reply_to=%q/>\n%s", folder, chatJid, replyTo, prompt)
 			if err := gated.DelegateToParent(parent, wrapped, chatJid, depth+1, nil); err != nil {
 				return toolErr(err.Error())
 			}
