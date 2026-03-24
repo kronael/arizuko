@@ -1,9 +1,9 @@
-arizuko
-Copyright (C) 2026 onvos
+arizuko — by onvos
+Public domain (Unlicense). No restrictions.
 
 If you use arizuko — in a product, a service, a fork, or as
-inspiration — acknowledge it. Not because the license forces you to
-in every case, but because that's how this kind of work compounds.
+inspiration — acknowledge it. The license doesn't require it.
+The work does.
 
 Built on nanoclaw (qwibitai, MIT), kanipi (onvos, GPL v3),
 ElizaOS (elizaOS, MIT), smolagents (Hugging Face, Apache-2.0),

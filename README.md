@@ -193,12 +193,10 @@ If you use arizuko, acknowledge the chain.
 
 ## License
 
-[GPL v3](LICENSE). If you modify arizuko and ship it, share your source.
-If you build on it — say so. Attribution is a social contract, not just
-a legal one: acknowledge the work this stands on.
+[Unlicense](LICENSE) — public domain. Do whatever you want with it.
 
-Channel adapters and agents calling arizuko's HTTP/MCP API are unaffected —
-copyleft does not cross network API boundaries.
+If you build on arizuko — say so. Not because you have to.
+Because that's how good work compounds.
 
 ## Migrating from kanipi
 
