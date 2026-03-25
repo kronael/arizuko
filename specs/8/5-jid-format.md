@@ -4,10 +4,8 @@
 
 ## Problem
 
-Current JID format `platform:id` (e.g. `telegram:123456789`) cannot distinguish
-which account a message arrived through when multiple accounts of the same
-platform are running. Routing rules also can't express "this telegram bot" vs
-"that telegram bot".
+Current JID format `platform:id` cannot distinguish which account a message
+arrived through. Routing rules can't express "this telegram bot" vs "that one".
 
 ## New Format
 
@@ -15,105 +13,143 @@ platform are running. Routing rules also can't express "this telegram bot" vs
 platform:account/id
 ```
 
-| Segment    | Example     | Notes                                    |
-| ---------- | ----------- | ---------------------------------------- |
-| `platform` | `telegram`  | lowercase platform name                  |
-| `account`  | `mybot`     | platform-native account name (see below) |
-| `id`       | `123456789` | platform-native chat or user ID          |
+| Segment    | Example     | Notes                                |
+| ---------- | ----------- | ------------------------------------ |
+| `platform` | `telegram`  | lowercase, fixed per adapter type    |
+| `account`  | `mybot`     | resolved from platform after connect |
+| `id`       | `123456789` | platform-native chat or user ID      |
+
+`local:` JIDs are internal and have no account segment — they remain `local:folder`.
 
 ## Account Segment
 
-The account segment comes from the **platform itself**, resolved after auth.
-It is the human-readable name of the authenticated account:
+Resolved from the platform **after** connecting, not from config:
 
-| Adapter  | Account source                | Example                  |
-| -------- | ----------------------------- | ------------------------ |
-| `teled`  | `api.Self.UserName`           | `mybot`                  |
-| `discd`  | `session.State.User.Username` | `mybot`                  |
-| `mastd`  | `me.Acct`                     | `myacct@instance.social` |
-| `bskyd`  | `cfg.Identifier` (handle)     | `handle.bsky.social`     |
-| `reditd` | `cfg.Username`                | `myreddituser`           |
-| `emaid`  | `cfg.Account` (email addr)    | `bot@example.com`        |
+| Adapter  | Account source                | Example                |
+| -------- | ----------------------------- | ---------------------- |
+| `teled`  | `api.Self.UserName`           | `mybot`                |
+| `discd`  | `session.State.User.Username` | `mybot`                |
+| `mastd`  | `me.Acct`                     | `acct@instance.social` |
+| `bskyd`  | `cfg.Identifier` (handle)     | `handle.bsky.social`   |
+| `reditd` | `cfg.Username`                | `myuser`               |
+| `emaid`  | `cfg.Account` (email addr)    | `bot@example.com`      |
 
-`CHANNEL_ACCOUNT` env var overrides if set — useful when the platform name is
-too long, unstable, or you want a stable routing label independent of platform
-identity.
+`CHANNEL_ACCOUNT` env var overrides — use when the platform name is too long,
+changes, or you want a stable label. Not required.
 
-### Examples
+## Registration
 
-| Context       | JID                                      |
-| ------------- | ---------------------------------------- |
-| Telegram chat | `telegram:mybot/123456789`               |
-| Telegram user | `telegram:mybot/456`                     |
-| Discord chan  | `telegram:mybot/channel_id`              |
-| Mastodon      | `mastodon:acct@instance.social/12345`    |
-| Bluesky       | `bluesky:handle.bsky.social/did:plc:abc` |
-| Reddit        | `reddit:myuser/golang`                   |
-| Email         | `email:bot@example.com/deadbeef`         |
-| Local (agent) | `local:support` (unchanged, no account)  |
+Channels register with `platform` + `account`. The router derives the JID
+prefix `platform:account/` automatically — no `jid_prefixes` field needed.
 
-`local:` JIDs have no account concept — they remain `local:folder`.
-
-## Routing
-
-JID prefixes registered with the router include the account:
-
-```
-telegram:mybot/    →   root group
-telegram:support_bot/ →   support group
+```json
+POST /v1/channels/register
+{
+  "platform": "telegram",
+  "account":  "mybot",
+  "url":      "http://teled:9001",
+  "capabilities": { "send_text": true, "send_file": true, "typing": true }
+}
 ```
 
-Rules match by prefix — any chat on that account routes to the mapped group.
+Router key: `(platform, account)` — unique per authenticated account.
+
+## Multiple Daemons, Same Platform
+
+Each daemon connects as a different account → different `(platform, account)`
+tuple → separate registration, separate JID prefix, independent routing.
+
+```
+teled instance 1  platform=telegram  account=mybot      → telegram:mybot/*
+teled instance 2  platform=telegram  account=supportbot → telegram:supportbot/*
+```
+
+One TOML file per daemon in `services/`. No special config — the account
+comes from the bot token itself after auth.
+
+```toml
+# services/teled-support.toml
+image = "arizuko:latest"
+entrypoint = ["teled"]
+[environment]
+ROUTER_URL   = "http://gated:${API_PORT}"
+TELEGRAM_BOT_TOKEN = "${TELEGRAM_SUPPORT_BOT_TOKEN}"
+CHANNEL_SECRET     = "${CHANNEL_SECRET}"
+LISTEN_ADDR  = ":9002"
+LISTEN_URL   = "http://teled-support:9002"
+```
+
+Router registers both entries. Routing rules:
+
+```
+ROUTE_telegram:mybot/*      = root
+ROUTE_telegram:supportbot/* = support
+```
+
+## Channel Interface
+
+```go
+type Channel interface {
+    Platform() string  // "telegram" — fixed, declared by adapter
+    Account()  string  // "mybot" — resolved after Connect()
+    Connect(ctx context.Context) error
+    Owns(jid string) bool
+    Send(jid, text, replyTo, threadID string) (string, error)
+    SendFile(jid, path, name string) error
+    Typing(jid string, on bool) error
+    Disconnect() error
+}
+```
+
+`Owns` is derived: `strings.HasPrefix(jid, platform+":"+account+"/")`.
 
 ## Parsing Helpers
-
-Each adapter needs one helper to extract the native ID from a JID:
 
 ```go
 func nativeID(jid, platform, account string) string {
     return strings.TrimPrefix(jid, platform+":"+account+"/")
 }
-```
 
-For teled specifically, `parseChatID` becomes:
-
-```go
+// teled
 func parseChatID(jid, account string) (int64, error) {
     return strconv.ParseInt(nativeID(jid, "telegram", account), 10, 64)
 }
 ```
 
-The account is resolved at startup (after auth) and stored on the bot/client
-struct. All JID construction and parsing uses that value.
+Account is stored on the bot struct after `Connect()`. All JID construction
+and parsing reads from there.
 
 ## Migration
 
-No backward compatibility. Rebuild all adapters and restart. Update routing
-rules in `.env` from `telegram:` → `telegram:mybot/`.
+No backward compatibility. Rebuild all adapters and restart.
+Update routing rules: `telegram:` → `telegram:mybot/`.
 
 ## Changes Required
 
-| File                    | Change                                                 |
-| ----------------------- | ------------------------------------------------------ |
-| `teled/bot.go`          | account from `api.Self.UserName`; JID/sender format    |
-| `teled/main.go`         | pass account to bot; prefix `["telegram:<acct>/"]`     |
-| `teled/server.go`       | prefix in health response                              |
-| `discd/bot.go`          | account from `session.State.User.Username`; JID/sender |
-| `discd/main.go`         | pass account; prefix                                   |
-| `discd/server.go`       | prefix in health response                              |
-| `mastd/client.go`       | account from `me.Acct`; JID/sender format              |
-| `mastd/main.go`         | prefix                                                 |
-| `mastd/server.go`       | prefix in health response                              |
-| `bskyd/client.go`       | account from `cfg.Identifier`; JID/sender              |
-| `bskyd/main.go`         | prefix                                                 |
-| `bskyd/server.go`       | prefix in health response                              |
-| `reditd/client.go`      | account from `cfg.Username`; JID/sender                |
-| `reditd/main.go`        | prefix                                                 |
-| `reditd/server.go`      | prefix in health response                              |
-| `emaid/imap.go`         | account from `cfg.Account`; JID/sender                 |
-| `emaid/main.go`         | prefix                                                 |
-| `emaid/server.go`       | `TrimPrefix("email:")` → `nativeID`                    |
-| `gateway/gateway.go`    | `local:` prefix checks unchanged; escalation parse     |
-| `gateway/local_channel` | no change                                              |
-| `auth/oauth.go`         | `discord:sub` → `discord:<acct>/sub`                   |
-| `ipc/ipc.go`            | `whatsapp:` prefix check                               |
+| File                 | Change                                                                 |
+| -------------------- | ---------------------------------------------------------------------- |
+| `core/types.go`      | Add `Platform()`, `Account()` to `Channel` interface                   |
+| `chanreg/chanreg.go` | Key on `(platform, account)`; derive prefix; drop `jid_prefixes` field |
+| `api/api.go`         | Register endpoint: accept `platform`+`account`, not `jid_prefixes`     |
+| `teled/bot.go`       | Store account from `api.Self.UserName`; JID/sender format              |
+| `teled/main.go`      | Pass account to bot after auth; register with platform+account         |
+| `teled/server.go`    | Health: return `platform`+`account`, drop `jid_prefixes`               |
+| `discd/bot.go`       | Account from `session.State.User.Username`; JID/sender                 |
+| `discd/main.go`      | Register with platform+account                                         |
+| `discd/server.go`    | Health response                                                        |
+| `mastd/client.go`    | Account from `me.Acct`; JID/sender                                     |
+| `mastd/main.go`      | Register                                                               |
+| `mastd/server.go`    | Health                                                                 |
+| `bskyd/client.go`    | Account from `cfg.Identifier`; JID/sender                              |
+| `bskyd/main.go`      | Register                                                               |
+| `bskyd/server.go`    | Health                                                                 |
+| `reditd/client.go`   | Account from `cfg.Username`; JID/sender                                |
+| `reditd/main.go`     | Register                                                               |
+| `reditd/server.go`   | Health                                                                 |
+| `emaid/imap.go`      | Account from `cfg.Account`; JID/sender                                 |
+| `emaid/main.go`      | Register                                                               |
+| `emaid/server.go`    | Health; `TrimPrefix("email:")` → `nativeID`                            |
+| `chanlib/chanlib.go` | Registration helper: `platform`+`account` instead of `jid_prefixes`    |
+| `gateway/gateway.go` | `local:` prefix checks unchanged                                       |
+| `auth/oauth.go`      | `discord:sub` → `discord:<acct>/sub`                                   |
+| `ipc/ipc.go`         | `whatsapp:` prefix check → `whatsapp:<acct>/`                          |

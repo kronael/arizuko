@@ -21,17 +21,16 @@ image = "arizuko:latest"
 entrypoint = ["teled"]
 
 [environment]
-ROUTER_URL = "http://gated:${API_PORT}"
+ROUTER_URL         = "http://gated:${API_PORT}"
 TELEGRAM_BOT_TOKEN = "${TELEGRAM_SUPPORT_BOT_TOKEN}"
-CHANNEL_SECRET = "${CHANNEL_SECRET}"
-ASSISTANT_NAME = "${ASSISTANT_NAME}"
-CHANNEL_ACCOUNT = "support"
-LISTEN_ADDR = ":9002"
-LISTEN_URL = "http://teled-support:9002"
+CHANNEL_SECRET     = "${CHANNEL_SECRET}"
+LISTEN_ADDR        = ":9002"
+LISTEN_URL         = "http://teled-support:9002"
 ```
 
-Each instance sets `CHANNEL_ACCOUNT=support` so its JIDs become `telegram:support/<chat_id>`.
-Routing rules select group by JID prefix (e.g. `telegram:support/*` → support group).
+The account (`supportbot`) comes from the token after auth — no extra config.
+JIDs become `telegram:supportbot/<chat_id>`. Routing rules select group by
+JID prefix: `telegram:supportbot/*` → support group.
 
 ### Naming conventions
 
@@ -67,8 +66,8 @@ Nothing to implement. Pattern works today:
 1. Add `services/<adapter>-<label>.toml` with distinct port and credentials.
 2. Add env vars to `.env`.
 3. `arizuko generate <instance>` — new service appears in compose.
-4. Set `CHANNEL_ACCOUNT=<label>` in the service TOML environment.
-5. Add routing rule: `"<platform>:<label>/*" → <group_folder>` in `.env`.
+4. Add routing rule: `"<platform>:<account>/*" → <group_folder>` in `.env`.
+   Account name is whatever the bot token authenticates as.
 
 ## Future (if needed)
 

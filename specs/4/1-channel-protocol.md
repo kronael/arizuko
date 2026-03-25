@@ -43,9 +43,9 @@ POST /v1/channels/register
 Authorization: Bearer <shared-secret>
 
 {
-  "name": "telegram",
-  "url": "http://telegram:9001",
-  "jid_prefixes": ["telegram:mybot/"],
+  "platform": "telegram",
+  "account":  "mybot",
+  "url":      "http://telegram:9001",
   "capabilities": {
     "send_text": true,
     "send_file": true,
@@ -172,7 +172,7 @@ Fire-and-forget. Failure is not an error.
 ```
 GET /health
 
-→ 200 {"status": "ok", "name": "telegram", "jid_prefixes": ["telegram:mybot/"]}
+→ 200 {"status": "ok", "platform": "telegram", "account": "mybot"}
 ```
 
 Router calls every 30s. Three consecutive failures →
