@@ -108,10 +108,10 @@ func TestMiddlewarePassesWithJWT(t *testing.T) {
 func newTestServer(s *store.Store) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /auth/login", handleLoginPage(&core.Config{}))
-	mux.HandleFunc("POST /auth/login", handleLogin(s, testSecret))
+	mux.HandleFunc("POST /auth/login", handleLogin(s, testSecret, false))
 	mux.HandleFunc("POST /auth/refresh",
-		handleRefresh(s, testSecret))
-	mux.HandleFunc("POST /auth/logout", handleLogout(s))
+		handleRefresh(s, testSecret, false))
+	mux.HandleFunc("POST /auth/logout", handleLogout(s, false))
 	return httptest.NewServer(mux)
 }
 
@@ -419,19 +419,32 @@ func TestOAuthStateCookie(t *testing.T) {
 
 func TestTelegramWidgetVerify(t *testing.T) {
 	botToken := "123456:ABC-DEF"
+	authDate := fmt.Sprintf("%d", time.Now().Unix())
 	form := url.Values{
 		"id":         {"12345"},
 		"first_name": {"Test"},
-		"auth_date":  {"1234567890"},
+		"auth_date":  {authDate},
 	}
 	// compute valid hash
-	check := "auth_date=1234567890\nfirst_name=Test\nid=12345"
+	check := "auth_date=" + authDate + "\nfirst_name=Test\nid=12345"
 	secret := sha256sum([]byte(botToken))
 	h := hmacSHA256(secret[:], []byte(check))
 	form.Set("hash", h)
 
 	if !verifyTelegramWidget(form, botToken) {
 		t.Fatal("valid telegram widget should verify")
+	}
+	// stale auth_date should fail
+	staleForm := url.Values{
+		"id":         {"12345"},
+		"first_name": {"Test"},
+		"auth_date":  {"1234567890"},
+	}
+	staleCheck := "auth_date=1234567890\nfirst_name=Test\nid=12345"
+	staleH := hmacSHA256(secret[:], []byte(staleCheck))
+	staleForm.Set("hash", staleH)
+	if verifyTelegramWidget(staleForm, botToken) {
+		t.Fatal("stale auth_date should fail")
 	}
 	form.Set("hash", "invalid")
 	if verifyTelegramWidget(form, botToken) {

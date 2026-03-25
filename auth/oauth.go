@@ -24,13 +24,13 @@ const stateTTL = 10 * time.Minute
 var googleTokenURL    = "https://oauth2.googleapis.com/token"
 var googleUserinfoURL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
-func handleGitHubRedirect(cfg *core.Config, secret []byte) http.HandlerFunc {
+func handleGitHubRedirect(cfg *core.Config, secret []byte, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		state := signState(secret)
 		http.SetCookie(w, &http.Cookie{
 			Name: "oauth_state", Value: state, Path: "/",
 			MaxAge: int(stateTTL.Seconds()), HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
+			Secure: secure, SameSite: http.SameSiteLaxMode,
 		})
 		cb := authBaseURL(cfg) + "/auth/github/callback"
 		u := fmt.Sprintf(
@@ -43,7 +43,7 @@ func handleGitHubRedirect(cfg *core.Config, secret []byte) http.HandlerFunc {
 	}
 }
 
-func handleGitHubCallback(cfg *core.Config, s *store.Store, secret []byte) http.HandlerFunc {
+func handleGitHubCallback(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !verifyState(secret, r) {
 			http.Error(w, "invalid state", http.StatusForbidden)
@@ -72,17 +72,17 @@ func handleGitHubCallback(cfg *core.Config, s *store.Store, secret []byte) http.
 				return
 			}
 		}
-		createOAuthSession(w, s, secret, "github:"+sub, name)
+		createOAuthSession(w, s, secret, "github:"+sub, name, secure)
 	}
 }
 
-func handleDiscordRedirect(cfg *core.Config, secret []byte) http.HandlerFunc {
+func handleDiscordRedirect(cfg *core.Config, secret []byte, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		state := signState(secret)
 		http.SetCookie(w, &http.Cookie{
 			Name: "oauth_state", Value: state, Path: "/",
 			MaxAge: int(stateTTL.Seconds()), HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
+			Secure: secure, SameSite: http.SameSiteLaxMode,
 		})
 		cb := authBaseURL(cfg) + "/auth/discord/callback"
 		u := fmt.Sprintf(
@@ -95,7 +95,7 @@ func handleDiscordRedirect(cfg *core.Config, secret []byte) http.HandlerFunc {
 	}
 }
 
-func handleDiscordCallback(cfg *core.Config, s *store.Store, secret []byte) http.HandlerFunc {
+func handleDiscordCallback(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !verifyState(secret, r) {
 			http.Error(w, "invalid state", http.StatusForbidden)
@@ -118,16 +118,17 @@ func handleDiscordCallback(cfg *core.Config, s *store.Store, secret []byte) http
 			http.Error(w, "oauth failed", http.StatusBadGateway)
 			return
 		}
-		createOAuthSession(w, s, secret, "discord:"+sub, name)
+		createOAuthSession(w, s, secret, "discord:"+sub, name, secure)
 	}
 }
 
-func handleGoogleRedirect(cfg *core.Config, secret []byte) http.HandlerFunc {
+func handleGoogleRedirect(cfg *core.Config, secret []byte, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		state := signState(secret)
 		http.SetCookie(w, &http.Cookie{
 			Name: "oauth_state", Value: state, Path: "/",
-			MaxAge: int(stateTTL.Seconds()), HttpOnly: true, SameSite: http.SameSiteLaxMode,
+			MaxAge: int(stateTTL.Seconds()), HttpOnly: true,
+			Secure: secure, SameSite: http.SameSiteLaxMode,
 		})
 		cb := authBaseURL(cfg) + "/auth/google/callback"
 		u := fmt.Sprintf(
@@ -167,7 +168,7 @@ func googleWorkspaceHD(allowedEmails string) string {
 	return ""
 }
 
-func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte) http.HandlerFunc {
+func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !verifyState(secret, r) {
 			http.Error(w, "invalid state", http.StatusForbidden)
@@ -196,7 +197,7 @@ func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte) http.
 				return
 			}
 		}
-		createOAuthSession(w, s, secret, "google:"+sub, name)
+		createOAuthSession(w, s, secret, "google:"+sub, name, secure)
 	}
 }
 
@@ -271,7 +272,7 @@ func checkGitHubOrgMember(token, org, username string) bool {
 	return resp.StatusCode == http.StatusNoContent
 }
 
-func handleTelegram(cfg *core.Config, s *store.Store, secret []byte) http.HandlerFunc {
+func handleTelegram(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
 	botToken := cfg.TelegramToken
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
@@ -287,11 +288,11 @@ func handleTelegram(cfg *core.Config, s *store.Store, secret []byte) http.Handle
 		if ln := r.FormValue("last_name"); ln != "" {
 			name += " " + ln
 		}
-		createOAuthSession(w, s, secret, "telegram:"+sub, name)
+		createOAuthSession(w, s, secret, "telegram:"+sub, name, secure)
 	}
 }
 
-func createOAuthSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, name string) {
+func createOAuthSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, name string, secure bool) {
 	if _, ok := s.AuthUserBySub(sub); !ok {
 		username := sub
 		if err := s.CreateAuthUser(sub, username, "", name); err != nil {
@@ -300,7 +301,7 @@ func createOAuthSession(w http.ResponseWriter, s *store.Store, secret []byte, su
 			return
 		}
 	}
-	issueSession(w, s, secret, sub, name)
+	issueSession(w, s, secret, sub, name, secure)
 }
 
 // state cookie: timestamp.hmac(secret, timestamp)
@@ -339,6 +340,12 @@ func verifyState(secret []byte, r *http.Request) bool {
 func verifyTelegramWidget(form url.Values, botToken string) bool {
 	hash := form.Get("hash")
 	if hash == "" {
+		return false
+	}
+	// Reject stale auth data (replay protection: 5 minute window).
+	var authDate int64
+	fmt.Sscanf(form.Get("auth_date"), "%d", &authDate)
+	if authDate == 0 || time.Since(time.Unix(authDate, 0)) > 5*time.Minute {
 		return false
 	}
 	var keys []string

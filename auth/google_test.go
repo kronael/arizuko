@@ -17,7 +17,7 @@ func TestGoogleRedirect(t *testing.T) {
 	secret := []byte("testsecret")
 	req := httptest.NewRequest("GET", "/auth/google", nil)
 	rec := httptest.NewRecorder()
-	handleGoogleRedirect(cfg, secret).ServeHTTP(rec, req)
+	handleGoogleRedirect(cfg, secret, false).ServeHTTP(rec, req)
 	if rec.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("want 307, got %d", rec.Code)
 	}
@@ -43,7 +43,7 @@ func TestGoogleCallback_MissingCode(t *testing.T) {
 	req := httptest.NewRequest("GET", "/auth/google/callback?state="+url.QueryEscape(state), nil)
 	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
 	rec := httptest.NewRecorder()
-	handleGoogleCallback(cfg, s, secret).ServeHTTP(rec, req)
+	handleGoogleCallback(cfg, s, secret, false).ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", rec.Code)
 	}
@@ -61,7 +61,7 @@ func TestGoogleCallback_InvalidState(t *testing.T) {
 	req := httptest.NewRequest("GET", "/auth/google/callback?state=bad&code=x", nil)
 	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: "different"})
 	rec := httptest.NewRecorder()
-	handleGoogleCallback(cfg, s, secret).ServeHTTP(rec, req)
+	handleGoogleCallback(cfg, s, secret, false).ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("want 403, got %d", rec.Code)
 	}
@@ -102,7 +102,7 @@ func TestGoogleCallback_Success(t *testing.T) {
 	req := httptest.NewRequest("GET", "/auth/google/callback?state="+url.QueryEscape(state)+"&code=testcode", nil)
 	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
 	rec := httptest.NewRecorder()
-	handleGoogleCallback(cfg, s, secret).ServeHTTP(rec, req)
+	handleGoogleCallback(cfg, s, secret, false).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -190,7 +190,7 @@ func TestGoogleAllowlistBlock(t *testing.T) {
 		return http.ErrUseLastResponse
 	}}
 	_ = cl
-	handleGoogleCallback(cfg, s, secret).ServeHTTP(rec, req)
+	handleGoogleCallback(cfg, s, secret, false).ServeHTTP(rec, req)
 	if rec.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("want 307 redirect, got %d", rec.Code)
 	}

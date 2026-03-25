@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/onvos/arizuko/core"
@@ -21,6 +23,36 @@ const (
 	refreshTTL = 30 * 24 * time.Hour
 	cookieName = "refresh_token"
 )
+
+// loginLimiter rate-limits /auth/login: 5 attempts per 15 minutes per IP.
+var loginLimiter = &struct {
+	mu      sync.Mutex
+	buckets map[string][]time.Time
+}{buckets: make(map[string][]time.Time)}
+
+func loginAllowed(ip string) bool {
+	const limit = 5
+	window := 15 * time.Minute
+	loginLimiter.mu.Lock()
+	defer loginLimiter.mu.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-window)
+	hits := loginLimiter.buckets[ip]
+	n := 0
+	for _, t := range hits {
+		if t.After(cutoff) {
+			hits[n] = t
+			n++
+		}
+	}
+	hits = hits[:n]
+	if len(hits) >= limit {
+		loginLimiter.buckets[ip] = hits
+		return false
+	}
+	loginLimiter.buckets[ip] = append(hits, now)
+	return true
+}
 
 func handleLoginPage(cfg *core.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -48,8 +80,13 @@ h2{margin:0 0 1rem;text-align:center}
 	}
 }
 
-func handleLogin(s *store.Store, secret []byte) http.HandlerFunc {
+func handleLogin(s *store.Store, secret []byte, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if !loginAllowed(ip) {
+			http.Error(w, "too many attempts", http.StatusTooManyRequests)
+			return
+		}
 		username := r.FormValue("username")
 		password := r.FormValue("password")
 		if username == "" || password == "" {
@@ -65,11 +102,11 @@ func handleLogin(s *store.Store, secret []byte) http.HandlerFunc {
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
 			return
 		}
-		issueSession(w, s, secret, u.Sub, u.Name)
+		issueSession(w, s, secret, u.Sub, u.Name, secure)
 	}
 }
 
-func handleRefresh(s *store.Store, secret []byte) http.HandlerFunc {
+func handleRefresh(s *store.Store, secret []byte, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(cookieName)
 		if err != nil {
@@ -88,11 +125,11 @@ func handleRefresh(s *store.Store, secret []byte) http.HandlerFunc {
 			http.Error(w, "user not found", http.StatusUnauthorized)
 			return
 		}
-		issueSession(w, s, secret, u.Sub, u.Name)
+		issueSession(w, s, secret, u.Sub, u.Name, secure)
 	}
 }
 
-func handleLogout(s *store.Store) http.HandlerFunc {
+func handleLogout(s *store.Store, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(cookieName)
 		if err == nil {
@@ -100,13 +137,13 @@ func handleLogout(s *store.Store) http.HandlerFunc {
 		}
 		http.SetCookie(w, &http.Cookie{
 			Name: cookieName, Value: "", Path: "/",
-			MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+			MaxAge: -1, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
 		})
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 	}
 }
 
-func issueSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, name string) {
+func issueSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, name string, secure bool) {
 	groups := s.UserGroups(sub)
 	jwt := mintJWT(secret, sub, name, groups, jwtTTL)
 	refresh := genToken()
@@ -118,7 +155,7 @@ func issueSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, nam
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: cookieName, Value: refresh, Path: "/",
-		Expires: exp, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		Expires: exp, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
 	})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!DOCTYPE html><html><head><script>
