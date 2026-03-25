@@ -44,9 +44,13 @@ func Middleware(secret []byte, next http.Handler) http.Handler {
 			return
 		}
 
-		auth := r.Header.Get("Authorization")
-		token := strings.TrimPrefix(auth, "Bearer ")
-		if token == auth || token == "" {
+		hdr := r.Header.Get("Authorization")
+		if !strings.HasPrefix(hdr, "Bearer ") {
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+			return
+		}
+		token := hdr[len("Bearer "):]
+		if token == "" {
 			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 			return
 		}

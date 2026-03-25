@@ -7,9 +7,6 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// ImpulseCfg controls weight-based event batching per JID.
-// Events accumulate weight; the agent fires when threshold is reached
-// or max_hold elapses.
 type ImpulseCfg struct {
 	Threshold int            // total weight required to fire; default 100
 	Weights   map[string]int // verb → weight; default 100; 0 = never fire alone
@@ -33,10 +30,6 @@ type impulseJID struct {
 	lastEvent time.Time
 }
 
-// impulseGate is a per-JID weight accumulator.
-// Regular messages (verb="") have weight 100, hitting threshold immediately.
-// Social events like join/edit/delete have weight 0 — they batch until a
-// real message arrives or max_hold expires.
 type impulseGate struct {
 	cfg   ImpulseCfg
 	mu    sync.Mutex
@@ -94,11 +87,4 @@ func (g *impulseGate) flush() []string {
 		}
 	}
 	return jids
-}
-
-// reset removes state for a JID (not needed operationally, available for cleanup).
-func (g *impulseGate) reset(jid string) {
-	g.mu.Lock()
-	delete(g.state, jid)
-	g.mu.Unlock()
 }

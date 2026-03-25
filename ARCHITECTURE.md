@@ -131,6 +131,12 @@ Full protocol: `specs/6/3-chat-ui.md`.
   where `auth_date` is older than 5 minutes (guards against replay attacks on
   the Telegram Login Widget).
 
+- **OAuth providers**: Google (`GOOGLE_CLIENT_ID`), GitHub (`GITHUB_CLIENT_ID`,
+  optional `GITHUB_ALLOWED_ORG` for org membership gate), Discord
+  (`DISCORD_CLIENT_ID`). Login page shows provider buttons when the
+  corresponding env is set. All providers use the shared `createOAuthSession`
+  path in `auth/oauth.go`.
+
 ## Channel Protocol
 
 Channels are external processes that register with the router

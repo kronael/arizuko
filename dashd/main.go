@@ -369,10 +369,6 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 		fmt.Fprint(w, `<p>Invalid group path.</p>`)
 		return
 	}
-	if strings.Contains(folder, "..") {
-		fmt.Fprint(w, `<p>Invalid group path.</p>`)
-		return
-	}
 
 	fmt.Fprint(w, `<h2>MEMORY.md</h2>`)
 	memPath := filepath.Join(groupDir, "MEMORY.md")

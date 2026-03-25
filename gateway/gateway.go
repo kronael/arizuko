@@ -368,7 +368,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return true, nil
 	}
 
-	// web: JIDs carry a Topic per message — process each topic independently.
 	if strings.HasPrefix(chatJid, "web:") {
 		ok, err := g.processWebTopics(group, chatJid, ch, msgs)
 		if ok || err != nil {
@@ -378,8 +377,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return true, nil
 	}
 
-	// Per-sender batching: split messages by sender before dispatch.
-	// Each sender batch processes independently with correct reply threading.
 	senderBatches := groupBySender(msgs)
 	for _, batch := range senderBatches {
 		last := batch[len(batch)-1]
@@ -402,7 +399,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 			}
 		}
 
-		// Process this sender's batch
 		if !g.processSenderBatch(group, chatJid, ch, batch, agentTs) {
 			g.advanceAgentCursor(chatJid, msgs)
 			return false, fmt.Errorf("sender batch failed: %s", last.Sender)
@@ -416,8 +412,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	return true, nil
 }
 
-// groupBySender splits messages by sender while preserving order.
-// Returns batches in chronological order by first message.
 func groupBySender(msgs []core.Message) [][]core.Message {
 	if len(msgs) == 0 {
 		return nil
@@ -446,7 +440,6 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 	return result
 }
 
-// processSenderBatch processes a single sender's message batch.
 func (g *Gateway) processSenderBatch(
 	group core.Group, chatJid string, ch core.Channel, msgs []core.Message, agentTs time.Time,
 ) bool {
@@ -585,7 +578,6 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 			if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID, topic); sentID != "" {
 				lastSentID = sentID
 				g.store.SetLastReplyID(chatJid, topic, sentID)
-				// Store bot message with routed_to for reply-chain routing
 				g.store.PutMessage(core.Message{
 					ID:        sentID,
 					ChatJID:   chatJid,
@@ -597,8 +589,7 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 					Topic:     topic,
 					RoutedTo:  groupFolder,
 				})
-				// Audit trail
-				g.store.StoreOutbound(core.OutboundEntry{
+					g.store.StoreOutbound(core.OutboundEntry{
 					ChatJID:       chatJid,
 					Content:       clean,
 					Source:        "agent",
@@ -903,22 +894,15 @@ func isStickyCommand(content string) bool {
 	return !strings.Contains(t, " ")
 }
 
-// handleStickyCommand processes @/@name and #/#topic sticky routing commands.
-// Returns true if the message was a sticky command (handled or rejected).
 func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
-	if msg.BotMsg {
-		return false // Bots cannot set sticky state
-	}
-	if strings.HasPrefix(msg.Sender, "scheduler-") {
-		return false // Scheduled tasks don't use sticky
+	if msg.BotMsg || strings.HasPrefix(msg.Sender, "scheduler-") {
+		return false
 	}
 
 	content := strings.TrimSpace(msg.Content)
 	if !isStickyCommand(content) {
 		return false
 	}
-
-	ch := g.findChannel(chatJid)
 
 	switch {
 	case content == "@":
@@ -928,7 +912,6 @@ func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
 
 	case strings.HasPrefix(content, "@"):
 		name := content[1:]
-		// Validate group exists
 		g.mu.RLock()
 		_, _, ok := g.groupByFolderLocked(name)
 		g.mu.RUnlock()
@@ -953,7 +936,6 @@ func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
 		return true
 	}
 
-	_ = ch // suppress unused warning if needed
 	return false
 }
 

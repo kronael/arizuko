@@ -38,6 +38,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
     `Secure: true` when `WEB_HOST` (or `LISTEN_URL`) starts with `https://`.
   - Telegram replay protection: `auth_date` in widget payload must be within
     5 minutes of now; stale logins are rejected.
+  - GitHub OAuth (`GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`): login button
+    shown when configured; optional org membership check via `GITHUB_ALLOWED_ORG`.
+  - Discord OAuth (`DISCORD_CLIENT_ID`/`DISCORD_CLIENT_SECRET`): login button
+    shown when configured.
 
 ### Changed
 

@@ -142,30 +142,24 @@ func newServer(cfg config, st *store.Store, vh *vhosts) *server {
 		s.webdProxy = proxy(cfg.webdAddr)
 	}
 	if cfg.davAddr != "" {
-		s.davProxy = prefixStrippingProxy(cfg.davAddr, "/dav")
+		u, err := url.Parse(cfg.davAddr)
+		if err != nil {
+			slog.Error("invalid dav proxy target", "target", cfg.davAddr, "err", err)
+			os.Exit(1)
+		}
+		p := httputil.NewSingleHostReverseProxy(u)
+		orig := p.Director
+		p.Director = func(r *http.Request) {
+			orig(r)
+			r.URL.Path = strings.TrimPrefix(r.URL.Path, "/dav")
+			if r.URL.Path == "" {
+				r.URL.Path = "/"
+			}
+			r.URL.RawPath = strings.TrimPrefix(r.URL.RawPath, "/dav")
+		}
+		s.davProxy = p
 	}
 	return s
-}
-
-// prefixStrippingProxy creates a reverse proxy that strips a path prefix
-// before forwarding to the target.
-func prefixStrippingProxy(target, prefix string) *httputil.ReverseProxy {
-	u, err := url.Parse(target)
-	if err != nil {
-		slog.Error("invalid dav proxy target", "target", target, "err", err)
-		os.Exit(1)
-	}
-	p := httputil.NewSingleHostReverseProxy(u)
-	orig := p.Director
-	p.Director = func(r *http.Request) {
-		orig(r)
-		r.URL.Path = strings.TrimPrefix(r.URL.Path, prefix)
-		if r.URL.Path == "" {
-			r.URL.Path = "/"
-		}
-		r.URL.RawPath = strings.TrimPrefix(r.URL.RawPath, prefix)
-	}
-	return p
 }
 
 // rateLimiter is a simple sliding-window rate limiter keyed by IP.
@@ -278,7 +272,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. /slink/* — rate-limited; resolve token and inject group headers
+	// 5. /slink/* — rate-limited; resolve token and inject group headers
 	if strings.HasPrefix(r.URL.Path, "/slink/") {
 		remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 		if !s.slinkRL.allow(remoteIP) {
@@ -306,7 +300,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. /* — webd (if configured) or Vite, auth-gated unless WEB_PUBLIC=true
+	// 6. /* — webd (if configured) or Vite, auth-gated unless WEB_PUBLIC=true
 	upstream := s.viteProxy
 	if s.webdProxy != nil {
 		upstream = s.webdProxy
