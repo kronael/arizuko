@@ -9,6 +9,36 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **Impulse gate**: Weight-based event batching per JID before agent wake-up.
+  Messages accumulate weight; agent fires when threshold (default 100) is
+  reached or 5-minute max-hold timeout expires. Social verb events (join/edit/
+  delete) carry weight 0 so they don't trigger agents alone. Config via
+  `defaultImpulseCfg()` in `gateway/impulse.go`.
+
+- **Verb field on messages**: `core.Message` and `chanlib.InboundMsg` now carry
+  a `verb` field (`"join"`, `"edit"`, `"delete"`, etc.; default `""`).
+  Stored in SQLite via migration 0017. Channel adapters set `verb` on
+  non-standard events; the impulse gate weights by verb type.
+
+- **WebDAV via dufs**: `WEBDAV_ENABLED=true` in `.env` adds a `davd` service
+  (`sigoden/dufs:latest`) that mounts `groups/` read-only. `proxyd` exposes
+  `/dav/` as an auth-gated reverse proxy with path prefix stripping.
+  Controlled via `DAV_ADDR` env in proxyd and `WEBDAV_ENABLED` in compose.
+
+- **Social adapter service templates**: `template/services/mastd.toml`,
+  `bskyd.toml`, `reditd.toml` — drop-in service definitions for Mastodon
+  (port 9004), Bluesky (port 9005), and Reddit (port 9006) adapters.
+
+- **Auth hardening**:
+  - Login rate limiting: 5 attempts per 15 minutes per IP (sliding window,
+    in-memory, resets on restart).
+  - Secure cookie flag: `refresh_token` and OAuth state cookies set
+    `Secure: true` when `WEB_HOST` (or `LISTEN_URL`) starts with `https://`.
+  - Telegram replay protection: `auth_date` in widget payload must be within
+    5 minutes of now; stale logins are rejected.
+
 ### Changed
 
 - **License**: public domain (Unlicense). No restrictions. If you build on

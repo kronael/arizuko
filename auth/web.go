@@ -60,6 +60,12 @@ func handleLoginPage(cfg *core.Config) http.HandlerFunc {
 		if cfg.GoogleClientID != "" {
 			buttons += `<a href="/auth/google" class="oauth-btn">Sign in with Google</a>`
 		}
+		if cfg.GitHubClientID != "" {
+			buttons += `<a href="/auth/github" class="oauth-btn">Sign in with GitHub</a>`
+		}
+		if cfg.DiscordClientID != "" {
+			buttons += `<a href="/auth/discord" class="oauth-btn">Sign in with Discord</a>`
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, `<!DOCTYPE html>
 <html><head><title>Login</title>

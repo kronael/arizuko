@@ -255,7 +255,7 @@ func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, pageTop, "Activity", "Activity")
 	fmt.Fprint(w, `<table hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">
-<thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Group</th><th>Content</th></tr></thead>
+<thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Group</th><th>Verb</th><th>Content</th></tr></thead>
 <tbody>`)
 	writeActivityRows(d.db, w)
 	fmt.Fprint(w, `</tbody></table>`)
@@ -269,23 +269,24 @@ func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
 
 func writeActivityRows(db *sql.DB, w http.ResponseWriter) {
 	rows, err := db.Query(
-		`SELECT timestamp, source, chat_jid, sender, group_folder, substr(content,1,80)
+		`SELECT timestamp, source, chat_jid, sender, group_folder, verb, substr(content,1,80)
 		 FROM messages ORDER BY timestamp DESC LIMIT 50`)
 	if err != nil {
-		fmt.Fprintf(w, `<tr><td colspan=6>error: %s</td></tr>`, template.HTMLEscapeString(err.Error()))
+		fmt.Fprintf(w, `<tr><td colspan=7>error: %s</td></tr>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var ts, chatJID, sender, content string
-		var source, groupFolder sql.NullString
-		rows.Scan(&ts, &source, &chatJID, &sender, &groupFolder, &content)
-		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+		var source, groupFolder, verb sql.NullString
+		rows.Scan(&ts, &source, &chatJID, &sender, &groupFolder, &verb, &content)
+		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
 			template.HTMLEscapeString(ts),
 			template.HTMLEscapeString(nullStr(source)),
 			template.HTMLEscapeString(chatJID),
 			template.HTMLEscapeString(sender),
 			template.HTMLEscapeString(nullStr(groupFolder)),
+			template.HTMLEscapeString(nullStr(verb)),
 			template.HTMLEscapeString(content),
 		)
 	}

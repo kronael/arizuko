@@ -66,6 +66,8 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
   → gateway.messageLoop (polls every 2s)
   → store.NewMessages (unprocessed since lastTimestamp)
   → store.ActiveWebJIDs (web: JIDs with recent messages, polled same loop)
+  → impulseGate.accept(jid, msgs) — weight-based batching; skip JID if under
+    threshold (social verbs=0, default=100, max_hold=5min flush)
   → checkTrigger (direct mode or @name regex)
   → handleCommand (/new [#topic], /ping, /chatid, /stop)
   → prefix dispatch (@name → named group, #topic → topic session)
@@ -109,7 +111,25 @@ endpoints. Absent header = operator (no restriction).
 `groupForJid` in the gateway resolves `web:<folder>` by stripping the prefix
 and looking up the group by folder path, the same fallback used by `slink:`.
 
+**WebDAV** (`WEBDAV_ENABLED=true`): proxyd exposes `/dav/` as an auth-gated
+reverse proxy to a `davd` container (`sigoden/dufs:latest`) that mounts
+`groups/` read-only. Path prefix `/dav` is stripped before forwarding.
+
 Full protocol: `specs/6/3-chat-ui.md`.
+
+## Auth Hardening
+
+- **Secure cookies**: `refresh_token` and OAuth state cookies include
+  `Secure: true` when `authBaseURL(cfg)` starts with `https://`. Derived
+  once at route registration in `auth/middleware.go`.
+
+- **Login rate limiting**: `loginAllowed(ip)` in `auth/web.go` allows at most
+  5 POST `/auth/login` attempts per IP per 15-minute sliding window.
+  In-memory; resets on restart. Returns HTTP 429 on breach.
+
+- **Telegram replay protection**: `verifyTelegramWidget` rejects payloads
+  where `auth_date` is older than 5 minutes (guards against replay attacks on
+  the Telegram Login Widget).
 
 ## Channel Protocol
 
@@ -167,7 +187,7 @@ Full protocol: `specs/4/1-channel-protocol.md`.
 | Table               | Key columns                                                                                    |
 | ------------------- | ---------------------------------------------------------------------------------------------- |
 | `chats`             | jid (PK), name, channel, is_group, errored                                                     |
-| `messages`          | id (PK), chat_jid, sender, content, timestamp                                                  |
+| `messages`          | id (PK), chat_jid, sender, content, timestamp, verb                                            |
 | `registered_groups` | jid (PK), folder, trigger_word, requires_trigger, container_config (JSON), parent, slink_token |
 | `routes`            | id (auto), jid, seq, type, match, target                                                       |
 | `sessions`          | group_folder + topic (PK), session_id                                                          |
