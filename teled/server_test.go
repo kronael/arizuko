@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 // testHandler builds an HTTP handler with a mock bot for testing.
@@ -42,7 +44,7 @@ func stubHandler(secret string) (http.Handler, *stubBot) {
 			if secret != "" {
 				tok := r.Header.Get("Authorization")
 				if tok != "Bearer "+secret {
-					writeErr(w, 401, "invalid secret")
+					chanlib.WriteErr(w, 401, "invalid secret")
 					return
 				}
 			}
@@ -56,41 +58,41 @@ func stubHandler(secret string) (http.Handler, *stubBot) {
 			Content string `json:"content"`
 		}
 		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
-			writeErr(w, 400, "chat_jid and content required")
+			chanlib.WriteErr(w, 400, "chat_jid and content required")
 			return
 		}
 		sb.sent = append(sb.sent, stubSend{req.ChatJID, req.Content})
-		writeJSON(w, map[string]any{"ok": true})
+		chanlib.WriteJSON(w, map[string]any{"ok": true})
 	}))
 	mux.HandleFunc("POST /send-file", auth(func(w http.ResponseWriter, r *http.Request) {
 		if r.ParseMultipartForm(50<<20) != nil {
-			writeErr(w, 400, "invalid multipart")
+			chanlib.WriteErr(w, 400, "invalid multipart")
 			return
 		}
 		jid, name := r.FormValue("chat_jid"), r.FormValue("filename")
 		if jid == "" {
-			writeErr(w, 400, "chat_jid required")
+			chanlib.WriteErr(w, 400, "chat_jid required")
 			return
 		}
 		_, hdr, err := r.FormFile("file")
 		if err != nil {
-			writeErr(w, 400, "file required")
+			chanlib.WriteErr(w, 400, "file required")
 			return
 		}
 		if name == "" {
 			name = hdr.Filename
 		}
 		sb.files = append(sb.files, stubFile{jid, name})
-		writeJSON(w, map[string]any{"ok": true})
+		chanlib.WriteJSON(w, map[string]any{"ok": true})
 	}))
 	mux.HandleFunc("POST /typing", auth(func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ On bool `json:"on"` }
 		json.NewDecoder(r.Body).Decode(&req)
 		sb.typings = append(sb.typings, req.On)
-		writeJSON(w, map[string]any{"ok": true})
+		chanlib.WriteJSON(w, map[string]any{"ok": true})
 	}))
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{
+		chanlib.WriteJSON(w, map[string]any{
 			"status": "ok", "name": cfg.Name,
 			"jid_prefixes": []string{"telegram:"},
 		})

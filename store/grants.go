@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 )
 
-// GetGrants returns the grant rules for a folder, or nil if no override exists.
 func (s *Store) GetGrants(folder string) []string {
 	var raw string
 	err := s.db.QueryRow(`SELECT rules FROM grant_rules WHERE folder = ?`, folder).Scan(&raw)
@@ -22,7 +21,6 @@ func (s *Store) GetGrants(folder string) []string {
 	return rules
 }
 
-// SetGrants stores grant rules for a folder.
 func (s *Store) SetGrants(folder string, rules []string) error {
 	raw, err := json.Marshal(rules)
 	if err != nil {

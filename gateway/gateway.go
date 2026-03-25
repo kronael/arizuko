@@ -369,12 +369,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	}
 
 	if strings.HasPrefix(chatJid, "web:") {
-		ok, err := g.processWebTopics(group, chatJid, ch, msgs)
-		if ok || err != nil {
-			return ok, err
-		}
-		g.advanceAgentCursor(chatJid, all)
-		return true, nil
+		return g.processWebTopics(group, chatJid, ch, msgs)
 	}
 
 	senderBatches := groupBySender(msgs)
@@ -416,11 +411,7 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 	if len(msgs) == 0 {
 		return nil
 	}
-	type batch struct {
-		sender   string
-		messages []core.Message
-	}
-	var batches []batch
+	var batches [][]core.Message
 	senderIdx := make(map[string]int)
 
 	for _, m := range msgs {
@@ -428,16 +419,11 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 		if !seen {
 			idx = len(batches)
 			senderIdx[m.Sender] = idx
-			batches = append(batches, batch{sender: m.Sender})
+			batches = append(batches, nil)
 		}
-		batches[idx].messages = append(batches[idx].messages, m)
+		batches[idx] = append(batches[idx], m)
 	}
-
-	result := make([][]core.Message, len(batches))
-	for i, b := range batches {
-		result[i] = b.messages
-	}
-	return result
+	return batches
 }
 
 func (g *Gateway) processSenderBatch(
@@ -589,7 +575,7 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 					Topic:     topic,
 					RoutedTo:  groupFolder,
 				})
-					g.store.StoreOutbound(core.OutboundEntry{
+				g.store.StoreOutbound(core.OutboundEntry{
 					ChatJID:       chatJid,
 					Content:       clean,
 					Source:        "agent",
@@ -640,22 +626,22 @@ func (g *Gateway) runAgentWithOpts(
 		g.folders, group.Folder, isRoot, g.groupList())
 
 	input := container.Input{
-		Prompt:    prompt,
-		SessionID: sessionID,
-		ChatJID:   chatJid,
-		Folder:    group.Folder,
-		Topic:     topic,
-		GroupPath: groupPath,
-		Name:      cname,
-		Config:    group.Config,
+		Prompt:     prompt,
+		SessionID:  sessionID,
+		ChatJID:    chatJid,
+		Folder:     group.Folder,
+		Topic:      topic,
+		GroupPath:  groupPath,
+		Name:       cname,
+		Config:     group.Config,
 		SlinkToken: group.SlinkToken,
-		Channel:   channelName(g.findChannel(chatJid)),
-		MessageID: msgID,
-		Sender:    sender,
-		OnOutput:  onOutput,
-		Grants:    rules,
-		GatedFns:  g.gatedFns,
-		StoreFns:  g.storeFns,
+		Channel:    channelName(g.findChannel(chatJid)),
+		MessageID:  msgID,
+		Sender:     sender,
+		OnOutput:   onOutput,
+		Grants:     rules,
+		GatedFns:   g.gatedFns,
+		StoreFns:   g.storeFns,
 	}
 
 	out := container.Run(g.cfg, g.folders, input)
@@ -786,7 +772,6 @@ type escalationMetadata struct {
 // parseEscalationOrigin extracts metadata from <escalation_origin> XML tag.
 // Format: <escalation_origin folder="world/support" jid="telegram:123" reply_to="567"/>
 func parseEscalationOrigin(prompt string) *escalationMetadata {
-	// Simple XML parsing - look for escalation_origin tag
 	start := strings.Index(prompt, "<escalation_origin")
 	if start == -1 {
 		return nil
@@ -798,21 +783,18 @@ func parseEscalationOrigin(prompt string) *escalationMetadata {
 	tag := prompt[start : start+end+2]
 
 	var meta escalationMetadata
-	// Extract folder="..."
 	if idx := strings.Index(tag, `folder="`); idx != -1 {
 		rest := tag[idx+8:]
 		if endQuote := strings.Index(rest, `"`); endQuote != -1 {
 			meta.WorkerFolder = rest[:endQuote]
 		}
 	}
-	// Extract jid="..."
 	if idx := strings.Index(tag, `jid="`); idx != -1 {
 		rest := tag[idx+5:]
 		if endQuote := strings.Index(rest, `"`); endQuote != -1 {
 			meta.OriginJID = rest[:endQuote]
 		}
 	}
-	// Extract reply_to="..."
 	if idx := strings.Index(tag, `reply_to="`); idx != -1 {
 		rest := tag[idx+10:]
 		if endQuote := strings.Index(rest, `"`); endQuote != -1 {
@@ -846,30 +828,24 @@ func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
 }
 
 func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolder string) string {
-	// 1. Check reply-chain routing first (takes precedence over sticky)
 	if msg.ReplyToID != "" {
 		routedTo := g.store.RoutedToByMessageID(msg.ReplyToID)
 		if routedTo != "" {
-			// Reply chain found - either route there or stay in current group
 			if routedTo != selfFolder {
 				return routedTo
 			}
-			// Reply chain points to self - stay in current group (no other routing)
 			return ""
 		}
 	}
 
-	// 2. Check sticky group routing
 	stickyGroup := g.store.GetStickyGroup(msg.ChatJID)
 	if stickyGroup != "" {
 		if stickyGroup != selfFolder {
 			return stickyGroup
 		}
-		// Sticky points to self - stay in current group (no other routing)
 		return ""
 	}
 
-	// 3. Fall back to standard route resolution
 	if len(routes) == 0 {
 		return ""
 	}
@@ -890,7 +866,6 @@ func isStickyCommand(content string) bool {
 	if first != '@' && first != '#' {
 		return false
 	}
-	// Must be only @ or # followed by non-space chars, no spaces
 	return !strings.Contains(t, " ")
 }
 

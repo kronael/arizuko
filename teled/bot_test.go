@@ -2,6 +2,8 @@ package main
 
 import (
 	"testing"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 func TestParseChatID(t *testing.T) {
@@ -40,14 +42,14 @@ func TestMdToHTML(t *testing.T) {
 }
 
 func TestChunk(t *testing.T) {
-	c := chunk("abcdefgh", 3)
+	c := chanlib.Chunk("abcdefgh", 3)
 	if len(c) != 3 || c[0] != "abc" || c[1] != "def" || c[2] != "gh" {
 		t.Errorf("chunk = %v", c)
 	}
-	if s := chunk("ab", 10); len(s) != 1 || s[0] != "ab" {
+	if s := chanlib.Chunk("ab", 10); len(s) != 1 || s[0] != "ab" {
 		t.Errorf("single = %v", s)
 	}
-	if s := chunk("", 10); len(s) != 1 || s[0] != "" {
+	if s := chanlib.Chunk("", 10); len(s) != 1 || s[0] != "" {
 		t.Errorf("empty = %v", s)
 	}
 }

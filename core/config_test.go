@@ -64,18 +64,6 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	}
 }
 
-func TestLoadConfigEmailSMTPFallback(t *testing.T) {
-	os.Setenv("EMAIL_IMAP_HOST", "imap.example.com")
-	os.Unsetenv("EMAIL_SMTP_HOST")
-	defer os.Unsetenv("EMAIL_IMAP_HOST")
-
-	cfg, _ := LoadConfig()
-	if cfg.EmailSMTP != "smtp.example.com" {
-		t.Fatalf("expected smtp fallback, got %q", cfg.EmailSMTP)
-	}
-}
-
-
 func TestEnvHelpers(t *testing.T) {
 	os.Unsetenv("TEST_VAR")
 

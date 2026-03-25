@@ -234,7 +234,24 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	return g, true
 }
 
-// SetStickyGroup sets the sticky routing group for a chat (empty string clears).
+func (s *Store) GroupBySlinkToken(token string) (core.Group, bool) {
+	for _, g := range s.AllGroups() {
+		if g.SlinkToken == token {
+			return g, true
+		}
+	}
+	return core.Group{}, false
+}
+
+func (s *Store) GroupByFolder(folder string) (core.Group, bool) {
+	for _, g := range s.AllGroups() {
+		if g.Folder == folder {
+			return g, true
+		}
+	}
+	return core.Group{}, false
+}
+
 func (s *Store) SetStickyGroup(jid, folder string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO chats (jid, sticky_group) VALUES (?, ?)
@@ -244,7 +261,6 @@ func (s *Store) SetStickyGroup(jid, folder string) error {
 	return err
 }
 
-// GetStickyGroup returns the sticky routing group for a chat, or empty string.
 func (s *Store) GetStickyGroup(jid string) string {
 	var folder *string
 	s.db.QueryRow(`SELECT sticky_group FROM chats WHERE jid = ?`, jid).Scan(&folder)
@@ -254,7 +270,6 @@ func (s *Store) GetStickyGroup(jid string) string {
 	return *folder
 }
 
-// SetStickyTopic sets the sticky topic for a chat (empty string clears).
 func (s *Store) SetStickyTopic(jid, topic string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO chats (jid, sticky_topic) VALUES (?, ?)
@@ -264,7 +279,6 @@ func (s *Store) SetStickyTopic(jid, topic string) error {
 	return err
 }
 
-// GetStickyTopic returns the sticky topic for a chat, or empty string.
 func (s *Store) GetStickyTopic(jid string) string {
 	var topic *string
 	s.db.QueryRow(`SELECT sticky_topic FROM chats WHERE jid = ?`, jid).Scan(&topic)

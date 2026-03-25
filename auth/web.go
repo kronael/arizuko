@@ -212,7 +212,6 @@ func splitArgon2(encoded string) *argon2Params {
 	if n != 3 {
 		return nil
 	}
-	// find salt and hash after the params
 	idx := 0
 	dollars := 0
 	for i, c := range encoded {

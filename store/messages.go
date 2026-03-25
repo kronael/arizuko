@@ -220,27 +220,6 @@ func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit in
 	return msgs, rows.Err()
 }
 
-// GroupBySlinkToken finds a group by its slink token.
-func (s *Store) GroupBySlinkToken(token string) (core.Group, bool) {
-	for _, g := range s.AllGroups() {
-		if g.SlinkToken == token {
-			return g, true
-		}
-	}
-	return core.Group{}, false
-}
-
-// GroupByFolder finds a group by its folder path.
-func (s *Store) GroupByFolder(folder string) (core.Group, bool) {
-	for _, g := range s.AllGroups() {
-		if g.Folder == folder {
-			return g, true
-		}
-	}
-	return core.Group{}, false
-}
-
-// TopicByMessageID returns the topic of a message by its ID and chat JID.
 func (s *Store) TopicByMessageID(id, jid string) string {
 	var topic string
 	s.db.QueryRow(`SELECT COALESCE(topic,'') FROM messages WHERE id=? AND chat_jid=?`,
@@ -248,7 +227,6 @@ func (s *Store) TopicByMessageID(id, jid string) string {
 	return topic
 }
 
-// MessageTimestampByID returns the timestamp of a message by its ID and chat JID.
 func (s *Store) MessageTimestampByID(id, jid string) (time.Time, bool) {
 	var ts string
 	err := s.db.QueryRow(`SELECT timestamp FROM messages WHERE id=? AND chat_jid=?`,
@@ -260,7 +238,6 @@ func (s *Store) MessageTimestampByID(id, jid string) (time.Time, bool) {
 	return t, err == nil
 }
 
-// MessagesSinceTopic returns messages for a group/topic after a given time, oldest first.
 func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit int) ([]core.Message, error) {
 	jid := "web:" + folder
 	if limit <= 0 || limit > 100 {
@@ -288,8 +265,6 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	return msgs, rows.Err()
 }
 
-// ActiveWebJIDs returns distinct web: JIDs that have messages since `since`.
-// Used by the gateway poll loop to discover web chat conversations.
 func (s *Store) ActiveWebJIDs(since time.Time) []string {
 	rows, err := s.db.Query(
 		`SELECT DISTINCT chat_jid FROM messages
@@ -326,7 +301,6 @@ func (s *Store) SetLastReplyID(jid, topic, replyID string) {
 	)
 }
 
-// RoutedToByMessageID returns the routed_to folder for a message by its ID.
 func (s *Store) RoutedToByMessageID(id string) string {
 	var routedTo string
 	s.db.QueryRow(`SELECT COALESCE(routed_to,'') FROM messages WHERE id=? AND routed_to!=''`,
@@ -334,8 +308,6 @@ func (s *Store) RoutedToByMessageID(id string) string {
 	return routedTo
 }
 
-// StoreOutbound records an outbound message sent by the system.
-// ID is auto-generated with "out-" prefix. Non-blocking: logs warning on failure.
 func (s *Store) StoreOutbound(entry core.OutboundEntry) error {
 	id := "out-" + entry.PlatformMsgID
 	_, err := s.db.Exec(

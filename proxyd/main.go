@@ -59,6 +59,20 @@ func proxy(target string) *httputil.ReverseProxy {
 	return httputil.NewSingleHostReverseProxy(u)
 }
 
+func davProxy(target string) *httputil.ReverseProxy {
+	p := proxy(target)
+	orig := p.Director
+	p.Director = func(r *http.Request) {
+		orig(r)
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/dav")
+		if r.URL.Path == "" {
+			r.URL.Path = "/"
+		}
+		r.URL.RawPath = strings.TrimPrefix(r.URL.RawPath, "/dav")
+	}
+	return p
+}
+
 // vhosts manages hostname→world routing loaded from vhosts.json.
 type vhosts struct {
 	mu      sync.RWMutex
@@ -67,7 +81,14 @@ type vhosts struct {
 	mtime   time.Time
 }
 
-func newVhosts(p string) *vhosts { return &vhosts{path: p, entries: map[string]string{}} }
+func newVhosts(p string) *vhosts {
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		os.WriteFile(p, []byte("{}"), 0o644)
+	}
+	v := &vhosts{path: p, entries: map[string]string{}}
+	v.load()
+	return v
+}
 
 func (v *vhosts) load() {
 	info, err := os.Stat(v.path)
@@ -142,22 +163,7 @@ func newServer(cfg config, st *store.Store, vh *vhosts) *server {
 		s.webdProxy = proxy(cfg.webdAddr)
 	}
 	if cfg.davAddr != "" {
-		u, err := url.Parse(cfg.davAddr)
-		if err != nil {
-			slog.Error("invalid dav proxy target", "target", cfg.davAddr, "err", err)
-			os.Exit(1)
-		}
-		p := httputil.NewSingleHostReverseProxy(u)
-		orig := p.Director
-		p.Director = func(r *http.Request) {
-			orig(r)
-			r.URL.Path = strings.TrimPrefix(r.URL.Path, "/dav")
-			if r.URL.Path == "" {
-				r.URL.Path = "/"
-			}
-			r.URL.RawPath = strings.TrimPrefix(r.URL.RawPath, "/dav")
-		}
-		s.davProxy = p
+		s.davProxy = davProxy(cfg.davAddr)
 	}
 	return s
 }
@@ -320,26 +326,18 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		secret := []byte(s.cfg.authSecret)
 
-		token := ""
 		hdr := r.Header.Get("Authorization")
-		if strings.HasPrefix(hdr, "Bearer ") {
-			tok := strings.TrimPrefix(hdr, "Bearer ")
-			if tok == s.cfg.authSecret {
-				next(w, r)
-				return
-			}
-			token = tok
-		}
-		if token == "" {
-			if cookie, err := r.Cookie("session"); err == nil {
-				token = cookie.Value
-			}
-		}
-		if token == "" {
+		if !strings.HasPrefix(hdr, "Bearer ") {
 			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 			return
 		}
-		claims, err := auth.VerifyJWT(secret, token)
+		tok := strings.TrimPrefix(hdr, "Bearer ")
+		// raw secret allows operator tooling to bypass JWT
+		if tok == s.cfg.authSecret {
+			next(w, r)
+			return
+		}
+		claims, err := auth.VerifyJWT(secret, tok)
 		if err != nil {
 			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 			return
@@ -376,13 +374,8 @@ func main() {
 	}
 	defer st.Close()
 
-	vhostsPath := filepath.Join(coreCfg.WebDir, "vhosts.json")
 	os.MkdirAll(coreCfg.WebDir, 0o755)
-	if _, err := os.Stat(vhostsPath); os.IsNotExist(err) {
-		os.WriteFile(vhostsPath, []byte("{}"), 0o644)
-	}
-	vh := newVhosts(vhostsPath)
-	vh.load()
+	vh := newVhosts(filepath.Join(coreCfg.WebDir, "vhosts.json"))
 
 	s := newServer(cfg, st, vh)
 

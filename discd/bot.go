@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 type bot struct {
@@ -100,7 +102,7 @@ func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 	if threadID != "" {
 		chID = threadID
 	}
-	chunks := chunk(text, 2000)
+	chunks := chanlib.Chunk(text, 2000)
 	var firstID string
 	for i, c := range chunks {
 		var (
@@ -158,20 +160,4 @@ func (b *bot) typing(jid string, on bool) error {
 	}
 	chID := strings.TrimPrefix(jid, "discord:")
 	return b.session.ChannelTyping(chID)
-}
-
-func chunk(s string, max int) []string {
-	if len(s) <= max {
-		return []string{s}
-	}
-	var out []string
-	for len(s) > 0 {
-		end := max
-		if end > len(s) {
-			end = len(s)
-		}
-		out = append(out, s[:end])
-		s = s[end:]
-	}
-	return out
 }

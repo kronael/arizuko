@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -19,7 +18,6 @@ type Config struct {
 	MaxContainers int
 	PollInterval  time.Duration
 	Timezone      string
-	WebPort       int
 	AuthSecret      string
 	WebHost         string
 	AuthUsername    string
@@ -41,11 +39,6 @@ type Config struct {
 	DataDir         string
 	HostGroupsDir   string
 	WebDir          string
-
-	EmailIMAP     string
-	EmailSMTP     string
-	EmailAccount  string
-	EmailPassword string
 
 	APIPort           int
 	ChannelSecret     string
@@ -72,8 +65,6 @@ func LoadConfig() (*Config, error) {
 	appDir := envOr("HOST_APP_DIR", execDir())
 	name := envOr("ASSISTANT_NAME", "Andy")
 
-	webPort := envInt("WEB_PORT", 0)
-
 	c := &Config{
 		Name:          name,
 		TelegramToken: envOr("TELEGRAM_BOT_TOKEN", ""),
@@ -83,7 +74,6 @@ func LoadConfig() (*Config, error) {
 		MaxContainers: envInt("MAX_CONCURRENT_CONTAINERS", 5),
 		PollInterval:  2 * time.Second,
 		Timezone:      resolveTimezone(),
-		WebPort:       webPort,
 		AuthSecret:      envOr("AUTH_SECRET", ""),
 		WebHost:         envOr("WEB_HOST", ""),
 		AuthUsername:    envOr("AUTH_USERNAME", ""),
@@ -110,21 +100,12 @@ func LoadConfig() (*Config, error) {
 		ChannelSecret:     envOr("CHANNEL_SECRET", ""),
 		OnboardingEnabled: envOr("ONBOARDING_ENABLED", "false") == "true",
 
-		EmailIMAP:     envOr("EMAIL_IMAP_HOST", ""),
-		EmailSMTP:     envOr("EMAIL_SMTP_HOST", ""),
-		EmailAccount:  envOr("EMAIL_ACCOUNT", ""),
-		EmailPassword: envOr("EMAIL_PASSWORD", ""),
-
 		MediaEnabled:  envOr("MEDIA_ENABLED", "false") == "true",
 		MediaMaxBytes: int64(envInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
 		WhisperURL:    envOr("WHISPER_BASE_URL", "http://localhost:8080"),
 		VoiceEnabled:  envOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
 		VideoEnabled:  envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 		WhisperModel:  envOr("WHISPER_MODEL", "turbo"),
-	}
-
-	if c.EmailSMTP == "" && c.EmailIMAP != "" {
-		c.EmailSMTP = strings.Replace(c.EmailIMAP, "imap.", "smtp.", 1)
 	}
 
 	return c, nil

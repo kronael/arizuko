@@ -11,7 +11,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 type bot struct {
@@ -163,7 +166,7 @@ func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 	}
 	html := mdToHTML(text)
 	var firstID string
-	for _, c := range chunk(html, 4096) {
+	for _, c := range chanlib.Chunk(html, 4096) {
 		m := tgbotapi.NewMessage(id, c)
 		m.ParseMode = "HTML"
 		if replyMsgID != 0 {
@@ -176,7 +179,7 @@ func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 		sent, err := b.api.Send(m)
 		if err != nil {
 			if strings.Contains(err.Error(), "400") {
-				for _, p := range chunk(text, 4096) {
+				for _, p := range chanlib.Chunk(text, 4096) {
 					pm := tgbotapi.NewMessage(id, p)
 					if msgThreadID != 0 {
 						pm.MessageThreadID = msgThreadID
@@ -318,22 +321,6 @@ func mediaText(msg *tgbotapi.Message) string {
 		return "[Contact]"
 	}
 	return ""
-}
-
-func chunk(s string, max int) []string {
-	if len(s) <= max {
-		return []string{s}
-	}
-	var out []string
-	for len(s) > 0 {
-		end := max
-		if end > len(s) {
-			end = len(s)
-		}
-		out = append(out, s[:end])
-		s = s[end:]
-	}
-	return out
 }
 
 var (

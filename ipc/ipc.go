@@ -101,7 +101,7 @@ func toolOK() (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText("ok"), nil
 }
 
-// normalizeJID appends @s.whatsapp.net to bare WhatsApp IDs (B4).
+// normalizeJID appends @s.whatsapp.net to bare WhatsApp IDs.
 func normalizeJID(jid string) string {
 	if strings.HasPrefix(jid, "whatsapp:") && !strings.Contains(jid, "@") {
 		return jid + "@s.whatsapp.net"
@@ -153,10 +153,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 
 	grantedTools := []string{
 		"send_message", "send_reply", "send_file", "reset_session",
-		"inject_message", "register_group", "escalate_group",
-		"delegate_group", "get_routes", "set_routes", "add_route",
-		"delete_route", "schedule_task", "pause_task", "resume_task",
-		"cancel_task", "list_tasks",
+		"inject_message", "register_group", "escalate_group", "delegate_group",
+		"get_routes", "set_routes", "add_route", "delete_route",
+		"schedule_task", "pause_task", "resume_task", "cancel_task", "list_tasks",
 	}
 	var skipped []string
 	for _, t := range grantedTools {

@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// InboundMsg is the payload delivered to the router for each incoming message.
 type InboundMsg struct {
 	ID         string `json:"id"`
 	ChatJID    string `json:"chat_jid"`
@@ -25,7 +24,6 @@ type InboundMsg struct {
 	Verb       string `json:"verb,omitempty"`  // Event type: "join", "edit", "delete", etc.
 }
 
-// RouterClient posts messages and manages channel registration with the router.
 type RouterClient struct {
 	url, secret, Token string
 	client             *http.Client
@@ -111,21 +109,18 @@ func (r *RouterClient) Post(path string, body any, auth string, out any) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-// WriteJSON writes a 200 JSON response.
 func WriteJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
 }
 
-// WriteErr writes a JSON error response.
 func WriteErr(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": msg})
 }
 
-// Auth returns a middleware that validates the Bearer token against secret.
-// If secret is empty, all requests pass through.
+// Auth validates the Bearer token against secret; empty secret passes all.
 func Auth(secret string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if secret != "" {
@@ -139,7 +134,22 @@ func Auth(secret string, next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// EnvOr returns the env var k or fallback v.
+func Chunk(s string, max int) []string {
+	if len(s) <= max {
+		return []string{s}
+	}
+	var out []string
+	for len(s) > 0 {
+		end := max
+		if end > len(s) {
+			end = len(s)
+		}
+		out = append(out, s[:end])
+		s = s[end:]
+	}
+	return out
+}
+
 func EnvOr(k, v string) string {
 	if e := os.Getenv(k); e != "" {
 		return e
@@ -147,7 +157,6 @@ func EnvOr(k, v string) string {
 	return v
 }
 
-// MustEnv returns the env var k or exits with error.
 func MustEnv(k string) string {
 	if v := os.Getenv(k); v != "" {
 		return v

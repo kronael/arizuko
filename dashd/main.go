@@ -100,25 +100,14 @@ func (d *dash) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			next(w, r)
 			return
 		}
-		token := ""
 		hdr := r.Header.Get("Authorization")
-		if strings.HasPrefix(hdr, "Bearer ") {
-			token = strings.TrimPrefix(hdr, "Bearer ")
-		}
-		if token == "" {
-			cookie, err := r.Cookie("session")
-			if err == nil {
-				token = cookie.Value
-			}
-		}
-		if token == "" {
-			loginURL := d.webHost + "/auth/login"
-			http.Redirect(w, r, loginURL, http.StatusSeeOther)
+		if !strings.HasPrefix(hdr, "Bearer ") {
+			http.Redirect(w, r, d.webHost+"/auth/login", http.StatusSeeOther)
 			return
 		}
+		token := strings.TrimPrefix(hdr, "Bearer ")
 		if _, err := auth.VerifyJWT(d.secret, token); err != nil {
-			loginURL := d.webHost + "/auth/login"
-			http.Redirect(w, r, loginURL, http.StatusSeeOther)
+			http.Redirect(w, r, d.webHost+"/auth/login", http.StatusSeeOther)
 			return
 		}
 		next(w, r)
