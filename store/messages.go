@@ -12,14 +12,14 @@ func (s *Store) PutMessage(m core.Message) error {
 		`INSERT OR IGNORE INTO messages
 		 (id, chat_jid, sender, sender_name, content, timestamp,
 		  is_from_me, is_bot_message, forwarded_from,
-		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatJID, m.Sender, m.Name, m.Content,
 		m.Timestamp.Format(time.RFC3339Nano),
 		btoi(m.FromMe), btoi(m.BotMsg),
 		nilIfEmpty(m.ForwardedFrom),
 		nilIfEmpty(m.ReplyToID), nilIfEmpty(m.ReplyToText), nilIfEmpty(m.ReplyToSender),
-		m.Topic, m.RoutedTo,
+		m.Topic, m.RoutedTo, m.Verb,
 	)
 	return err
 }
@@ -59,7 +59,7 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb
 		 FROM messages
 		 WHERE chat_jid IN `+ph+`
 		   AND timestamp > ?
@@ -93,7 +93,7 @@ func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]co
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb
 		 FROM messages
 		 WHERE chat_jid = ?
 		   AND timestamp > ?
@@ -126,7 +126,7 @@ func scanMessage(r rowScanner) (core.Message, time.Time) {
 	var fromMe, botMsg int
 	var name, fwdFrom, replyID, replyText, replySender, topic, routedTo *string
 	r.Scan(&m.ID, &m.ChatJID, &m.Sender, &name, &m.Content,
-		&ts, &fromMe, &botMsg, &fwdFrom, &replyID, &replyText, &replySender, &topic, &routedTo)
+		&ts, &fromMe, &botMsg, &fwdFrom, &replyID, &replyText, &replySender, &topic, &routedTo, &m.Verb)
 	if name != nil {
 		m.Name = *name
 	}
@@ -201,7 +201,7 @@ func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit in
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb
 		 FROM messages
 		 WHERE chat_jid = ? AND topic = ? AND timestamp < ?
 		 ORDER BY timestamp DESC
@@ -269,7 +269,7 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb
 		 FROM messages
 		 WHERE chat_jid = ? AND topic = ? AND timestamp > ?
 		 ORDER BY timestamp ASC

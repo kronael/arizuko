@@ -20,6 +20,7 @@ type Message struct {
 	ReplyToSender string
 	Topic         string
 	RoutedTo      string
+	Verb          string // event type: "message" (default), "join", "edit", "delete", etc.
 }
 
 type OutboundEntry struct {

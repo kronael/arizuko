@@ -127,6 +127,7 @@ type messageReq struct {
 	IsGroup     bool   `json:"is_group"`
 	ReplyTo     string `json:"reply_to"`
 	Topic       string `json:"topic,omitempty"`
+	Verb        string `json:"verb,omitempty"` // event type: "join", "edit", "delete", etc.
 	Attachments []struct {
 		Mime     string `json:"mime"`
 		Filename string `json:"filename"`
@@ -182,6 +183,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		Timestamp: ts,
 		ReplyToID: req.ReplyTo,
 		Topic:     req.Topic,
+		Verb:      req.Verb,
 	}
 
 	if err := s.store.PutMessage(msg); err != nil {

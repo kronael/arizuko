@@ -40,6 +40,8 @@ type Gateway struct {
 	// lastTimestamp is persisted and queried as RFC3339Nano throughout to
 	// preserve nanosecond precision; seconds-only formats risk missed messages.
 	lastTimestamp time.Time
+
+	impulse *impulseGate
 }
 
 func New(cfg *core.Config, s *store.Store) *Gateway {
@@ -51,7 +53,8 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 			GroupsDir: cfg.GroupsDir,
 			DataDir:   cfg.DataDir,
 		},
-		groups: make(map[string]core.Group),
+		groups:  make(map[string]core.Group),
+		impulse: newImpulseGate(defaultImpulseCfg()),
 	}
 }
 
@@ -305,6 +308,11 @@ func (g *Gateway) pollOnce() {
 			}
 		}
 
+		if !g.impulse.accept(chatJid, chatMsgs) {
+			slog.Debug("poll: impulse hold", "jid", chatJid)
+			continue
+		}
+
 		if g.queue.SendMessage(chatJid, last.Content) {
 			slog.Debug("poll: enqueued message", "jid", chatJid)
 			g.store.ClearChatErrored(chatJid)
@@ -313,6 +321,12 @@ func (g *Gateway) pollOnce() {
 
 		slog.Debug("poll: enqueue check", "jid", chatJid)
 		g.queue.EnqueueMessageCheck(chatJid)
+	}
+
+	// Flush JIDs that have pending weight exceeding max_hold.
+	for _, jid := range g.impulse.flush() {
+		slog.Debug("poll: impulse timeout flush", "jid", jid)
+		g.queue.EnqueueMessageCheck(jid)
 	}
 
 	g.saveState()
