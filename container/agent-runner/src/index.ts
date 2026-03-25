@@ -597,8 +597,10 @@ async function main(): Promise<void> {
         break;
       }
 
-      // Emit session update so host can track it
-      writeOutput({ status: 'success', result: null, newSessionId: sessionId });
+      // Emit session update only when session is new
+      if (!containerInput.sessionId) {
+        writeOutput({ status: 'success', result: null, newSessionId: sessionId });
+      }
 
       log('Query ended, checking for next IPC message...');
 
