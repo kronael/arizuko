@@ -54,7 +54,7 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 			DataDir:   cfg.DataDir,
 		},
 		groups:  make(map[string]core.Group),
-		impulse: newImpulseGate(defaultImpulseCfg()),
+		impulse: newImpulseGate(),
 	}
 }
 
@@ -232,7 +232,11 @@ func (g *Gateway) pollOnce() {
 	g.mu.RUnlock()
 
 	if g.cfg.OnboardingEnabled {
-		jids = append(jids, g.store.UnroutedChatJIDs(since)...)
+		for _, jid := range g.store.UnroutedChatJIDs(since) {
+			if onboardingAllowed(jid, g.cfg.OnboardingPlatforms) {
+				jids = append(jids, jid)
+			}
+		}
 	}
 	jids = append(jids, g.store.ActiveWebJIDs(since)...)
 
@@ -264,7 +268,7 @@ func (g *Gateway) pollOnce() {
 		group, ok := g.groupForJid(chatJid)
 		g.mu.RUnlock()
 		if !ok {
-			if g.cfg.OnboardingEnabled {
+			if g.cfg.OnboardingEnabled && onboardingAllowed(chatJid, g.cfg.OnboardingPlatforms) {
 				last := chatMsgs[len(chatMsgs)-1]
 				ch := g.findChannel(chatJid)
 				if err := g.store.InsertOnboarding(chatJid, last.Sender, channelName(ch)); err != nil {
@@ -308,7 +312,8 @@ func (g *Gateway) pollOnce() {
 			}
 		}
 
-		if !g.impulse.accept(chatJid, chatMsgs) {
+		impCfg := ParseImpulseCfg(g.store.GetImpulseConfigJSON(chatJid))
+		if !g.impulse.accept(chatJid, chatMsgs, impCfg) {
 			slog.Debug("poll: impulse hold", "jid", chatJid)
 			continue
 		}
@@ -324,7 +329,9 @@ func (g *Gateway) pollOnce() {
 	}
 
 	// Flush JIDs that have pending weight exceeding max_hold.
-	for _, jid := range g.impulse.flush() {
+	for _, jid := range g.impulse.flush(func(jid string) ImpulseCfg {
+		return ParseImpulseCfg(g.store.GetImpulseConfigJSON(jid))
+	}) {
 		slog.Debug("poll: impulse timeout flush", "jid", jid)
 		g.queue.EnqueueMessageCheck(jid)
 	}
@@ -434,7 +441,8 @@ func (g *Gateway) processSenderBatch(
 	g.emitSystemEvents(group, chatJid)
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
 	prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n"
-	prompt += router.FormatMessages(msgs)
+	observed := g.store.ObservedMessagesSince(group.Folder, chatJid, agentTs.Format(time.RFC3339Nano))
+	prompt += router.FormatMessages(msgs, observed)
 
 	if ch != nil {
 		ch.Typing(chatJid, true)
@@ -1145,4 +1153,17 @@ func channelName(ch core.Channel) string {
 		return ""
 	}
 	return ch.Name()
+}
+
+func onboardingAllowed(jid string, platforms []string) bool {
+	if len(platforms) == 0 {
+		return true
+	}
+	p := strings.SplitN(jid, ":", 2)[0]
+	for _, allowed := range platforms {
+		if allowed == p {
+			return true
+		}
+	}
+	return false
 }

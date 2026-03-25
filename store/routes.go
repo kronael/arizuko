@@ -1,13 +1,26 @@
 package store
 
 import (
+	"strings"
+
 	"github.com/onvos/arizuko/core"
 )
 
+func platformPrefix(jid string) string {
+	i := strings.Index(jid, ":")
+	if i < 0 {
+		return jid
+	}
+	return jid[:i+1]
+}
+
 func (s *Store) GetRoutes(jid string) []core.Route {
+	prefix := platformPrefix(jid)
 	rows, err := s.db.Query(
 		`SELECT id, jid, seq, type, COALESCE(match, ''), target
-		 FROM routes WHERE jid = ? ORDER BY seq ASC`, jid)
+		 FROM routes WHERE jid = ? OR jid = ?
+		 ORDER BY CASE jid WHEN ? THEN 0 ELSE 1 END, seq ASC`,
+		jid, prefix, jid)
 	if err != nil {
 		return nil
 	}
@@ -76,6 +89,22 @@ func (s *Store) SetRoutes(jid string, routes []core.Route) error {
 func (s *Store) DeleteRoute(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM routes WHERE id = ?`, id)
 	return err
+}
+
+// GetImpulseConfigJSON returns the impulse_config JSON for jid (exact match
+// first, then platform prefix fallback). Returns "" if not found.
+func (s *Store) GetImpulseConfigJSON(jid string) string {
+	prefix := platformPrefix(jid)
+	var cfg string
+	s.db.QueryRow(
+		`SELECT COALESCE(impulse_config, '')
+		 FROM routes
+		 WHERE (jid = ? OR jid = ?) AND impulse_config IS NOT NULL
+		 ORDER BY CASE jid WHEN ? THEN 0 ELSE 1 END
+		 LIMIT 1`,
+		jid, prefix, jid,
+	).Scan(&cfg)
+	return cfg
 }
 
 // RouteSourceJIDsInWorld returns distinct source JIDs where target is

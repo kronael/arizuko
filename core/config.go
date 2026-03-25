@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -40,9 +41,10 @@ type Config struct {
 	HostGroupsDir   string
 	WebDir          string
 
-	APIPort           int
-	ChannelSecret     string
-	OnboardingEnabled bool
+	APIPort              int
+	ChannelSecret        string
+	OnboardingEnabled    bool
+	OnboardingPlatforms  []string
 
 	MediaEnabled  bool
 	MediaMaxBytes int64
@@ -96,9 +98,10 @@ func LoadConfig() (*Config, error) {
 		HostGroupsDir:   filepath.Join(hostRoot, "groups"),
 		WebDir:          filepath.Join(root, "web"),
 
-		APIPort:           envInt("API_PORT", 8080),
-		ChannelSecret:     envOr("CHANNEL_SECRET", ""),
-		OnboardingEnabled: envOr("ONBOARDING_ENABLED", "false") == "true",
+		APIPort:             envInt("API_PORT", 8080),
+		ChannelSecret:       envOr("CHANNEL_SECRET", ""),
+		OnboardingEnabled:   envOr("ONBOARDING_ENABLED", "false") == "true",
+		OnboardingPlatforms: parseCSV(envOr("ONBOARDING_PLATFORMS", "")),
 
 		MediaEnabled:  envOr("MEDIA_ENABLED", "false") == "true",
 		MediaMaxBytes: int64(envInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
@@ -164,4 +167,18 @@ func execDir() string {
 		return mustCwd()
 	}
 	return filepath.Dir(ex)
+}
+
+func parseCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

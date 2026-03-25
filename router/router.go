@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -61,15 +62,36 @@ func timeAgo(t time.Time) string {
 	}
 }
 
-func FormatMessages(msgs []core.Message) string {
+type taggedMsg struct {
+	msg core.Message
+	tag string
+}
+
+func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
+	tagged := make([]taggedMsg, 0, len(msgs))
+	for _, m := range msgs {
+		tagged = append(tagged, taggedMsg{m, "message"})
+	}
+	if len(observed) > 0 {
+		for _, m := range observed[0] {
+			tagged = append(tagged, taggedMsg{m, "observed"})
+		}
+	}
+	sort.Slice(tagged, func(i, j int) bool {
+		return tagged[i].msg.Timestamp.Before(tagged[j].msg.Timestamp)
+	})
+
 	var b strings.Builder
 	b.WriteString("<messages>\n")
-	for _, m := range msgs {
+	for _, tm := range tagged {
+		m := tm.msg
 		name := m.Name
 		if name == "" {
 			name = m.Sender
 		}
-		b.WriteString(`<message sender="`)
+		b.WriteString(`<`)
+		b.WriteString(tm.tag)
+		b.WriteString(` sender="`)
 		b.WriteString(escapeXml(name))
 		b.WriteString(`"`)
 		if m.Sender != "" && m.Sender != name {
@@ -85,6 +107,11 @@ func FormatMessages(msgs []core.Message) string {
 		if m.ReplyToID != "" {
 			b.WriteString(` reply_to="`)
 			b.WriteString(escapeXml(m.ReplyToID))
+			b.WriteString(`"`)
+		}
+		if tm.tag == "observed" && m.ChatJID != "" {
+			b.WriteString(` source="`)
+			b.WriteString(escapeXml(m.ChatJID))
 			b.WriteString(`"`)
 		}
 		b.WriteString(`>`)
@@ -104,7 +131,9 @@ func FormatMessages(msgs []core.Message) string {
 			b.WriteString("</reply_to>")
 		}
 		b.WriteString(escapeXml(m.Content))
-		b.WriteString("</message>\n")
+		b.WriteString("</")
+		b.WriteString(tm.tag)
+		b.WriteString(">\n")
 	}
 	b.WriteString("</messages>")
 	return b.String()

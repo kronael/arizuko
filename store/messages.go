@@ -265,6 +265,33 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	return msgs, rows.Err()
 }
 
+// ObservedMessagesSince returns recent non-bot messages from JIDs routed to
+// groupFolder (via routes) that are not excludeJid, since the given timestamp.
+func (s *Store) ObservedMessagesSince(groupFolder, excludeJid, since string) []core.Message {
+	rows, err := s.db.Query(
+		`SELECT DISTINCT m.id, m.chat_jid, m.sender, m.sender_name, m.content, m.timestamp,
+		        m.is_from_me, m.is_bot_message, m.forwarded_from,
+		        m.reply_to_id, m.reply_to_text, m.reply_to_sender, m.topic, m.routed_to, m.verb
+		 FROM messages m
+		 JOIN routes r ON (r.jid = m.chat_jid OR r.jid = substr(m.chat_jid, 1, instr(m.chat_jid, ':')))
+		 WHERE r.target = ? AND m.chat_jid != ? AND m.timestamp > ?
+		   AND m.is_bot_message = 0 AND m.content != '' AND m.content IS NOT NULL
+		 ORDER BY m.timestamp ASC
+		 LIMIT 100`,
+		groupFolder, excludeJid, since,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []core.Message
+	for rows.Next() {
+		m, _ := scanMessage(rows)
+		out = append(out, m)
+	}
+	return out
+}
+
 func (s *Store) ActiveWebJIDs(since time.Time) []string {
 	rows, err := s.db.Query(
 		`SELECT DISTINCT chat_jid FROM messages

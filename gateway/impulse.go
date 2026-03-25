@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -11,6 +12,34 @@ type ImpulseCfg struct {
 	Threshold int            // total weight required to fire; default 100
 	Weights   map[string]int // verb → weight; default 100; 0 = never fire alone
 	MaxHold   time.Duration  // max hold time before forced flush; default 5m
+}
+
+// ParseImpulseCfg parses raw JSON into ImpulseCfg, filling missing fields with defaults.
+func ParseImpulseCfg(raw string) ImpulseCfg {
+	cfg := defaultImpulseCfg()
+	if raw == "" {
+		return cfg
+	}
+	var partial struct {
+		Threshold *int            `json:"threshold"`
+		Weights   map[string]int  `json:"weights"`
+		MaxHold   *int            `json:"max_hold_ms"`
+	}
+	if err := json.Unmarshal([]byte(raw), &partial); err != nil {
+		return cfg
+	}
+	if partial.Threshold != nil {
+		cfg.Threshold = *partial.Threshold
+	}
+	if partial.Weights != nil {
+		for k, v := range partial.Weights {
+			cfg.Weights[k] = v
+		}
+	}
+	if partial.MaxHold != nil {
+		cfg.MaxHold = time.Duration(*partial.MaxHold) * time.Millisecond
+	}
+	return cfg
 }
 
 func defaultImpulseCfg() ImpulseCfg {
@@ -31,24 +60,23 @@ type impulseJID struct {
 }
 
 type impulseGate struct {
-	cfg   ImpulseCfg
 	mu    sync.Mutex
 	state map[string]*impulseJID
 }
 
-func newImpulseGate(cfg ImpulseCfg) *impulseGate {
-	return &impulseGate{cfg: cfg, state: make(map[string]*impulseJID)}
+func newImpulseGate() *impulseGate {
+	return &impulseGate{state: make(map[string]*impulseJID)}
 }
 
-func (g *impulseGate) weightFor(verb string) int {
-	if w, ok := g.cfg.Weights[verb]; ok {
+func weightFor(cfg ImpulseCfg, verb string) int {
+	if w, ok := cfg.Weights[verb]; ok {
 		return w
 	}
 	return 100
 }
 
 // accept adds messages for a JID and returns true if the agent should fire now.
-func (g *impulseGate) accept(jid string, msgs []core.Message) bool {
+func (g *impulseGate) accept(jid string, msgs []core.Message, cfg ImpulseCfg) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -59,12 +87,12 @@ func (g *impulseGate) accept(jid string, msgs []core.Message) bool {
 	}
 
 	for _, m := range msgs {
-		w := g.weightFor(m.Verb)
+		w := weightFor(cfg, m.Verb)
 		st.weight += w
 		st.lastEvent = time.Now()
 	}
 
-	if st.weight >= g.cfg.Threshold {
+	if st.weight >= cfg.Threshold {
 		st.weight = 0
 		st.lastEvent = time.Time{}
 		return true
@@ -73,14 +101,18 @@ func (g *impulseGate) accept(jid string, msgs []core.Message) bool {
 }
 
 // flush returns JIDs whose pending weight has exceeded max_hold and resets them.
-func (g *impulseGate) flush() []string {
+func (g *impulseGate) flush(cfgFor func(jid string) ImpulseCfg) []string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	cutoff := time.Now().Add(-g.cfg.MaxHold)
+	now := time.Now()
 	var jids []string
 	for jid, st := range g.state {
-		if st.weight > 0 && !st.lastEvent.IsZero() && st.lastEvent.Before(cutoff) {
+		if st.weight <= 0 || st.lastEvent.IsZero() {
+			continue
+		}
+		cfg := cfgFor(jid)
+		if st.lastEvent.Before(now.Add(-cfg.MaxHold)) {
 			st.weight = 0
 			st.lastEvent = time.Time{}
 			jids = append(jids, jid)
