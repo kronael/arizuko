@@ -1,10 +1,13 @@
 ## <!-- trimmed 2026-03-15: migration notes removed, rich facts only -->
 
-## status: shipped
+## status: superseded by specs/8/5-jid-format.md
 
 # JID Format Normalization
 
-All JIDs use `scheme:id`. WhatsApp keeps suffixes (collision-safe).
+All JIDs use `platform:account/id`. See specs/8/5-jid-format.md for full spec.
+`local:folder` has no account segment.
+
+~~Old format was `scheme:id` — no longer used.~~
 
 ## Clock Header
 
@@ -19,8 +22,8 @@ Only on initial prompt, not piped messages.
 ## Message XML Attributes
 
 ```xml
-<message sender="Alice" sender_id="telegram:REDACTED"
-         chat_id="telegram:-1001234567890" chat="Support"
+<message sender="Alice" sender_id="telegram:main/REDACTED"
+         chat_id="telegram:main/-1001234567890" chat="Support"
          platform="telegram" time="2026-03-11T14:00:00Z" ago="3h">
   Hello
 </message>
@@ -43,7 +46,7 @@ Prepend `<context>` block before `<messages>`:
 ```xml
 <context>
   <agent group="atlas/support" name="Atlas Support" tier="2" world="atlas"/>
-  <chat jid="telegram:-1001234567890" name="Support" platform="telegram" is_group="true"/>
+  <chat jid="telegram:main/-1001234567890" name="Support" platform="telegram" is_group="true"/>
 </context>
 ```
 

@@ -25,12 +25,13 @@ ROUTER_URL = "http://gated:${API_PORT}"
 TELEGRAM_BOT_TOKEN = "${TELEGRAM_SUPPORT_BOT_TOKEN}"
 CHANNEL_SECRET = "${CHANNEL_SECRET}"
 ASSISTANT_NAME = "${ASSISTANT_NAME}"
+CHANNEL_ACCOUNT = "support"
 LISTEN_ADDR = ":9002"
 LISTEN_URL = "http://teled-support:9002"
 ```
 
-Each instance registers with the router using its own bot/account identity as JID.
-Routing rules select group by JID prefix (e.g. `telegram:<bot2_id>:*` → support group).
+Each instance sets `CHANNEL_ACCOUNT=support` so its JIDs become `telegram:support/<chat_id>`.
+Routing rules select group by JID prefix (e.g. `telegram:support/*` → support group).
 
 ### Naming conventions
 
@@ -42,7 +43,7 @@ Routing rules select group by JID prefix (e.g. `telegram:<bot2_id>:*` → suppor
 
 ### Routing
 
-Inbound: each message carries the source JID (`telegram:bot2_id:chat_id`).
+Inbound: each message carries the source JID (`telegram:support/chat_id`).
 Routing rules map JID prefix → group folder as usual.
 
 Outbound: replies go back through the originating channel adapter (tracked via
@@ -66,7 +67,8 @@ Nothing to implement. Pattern works today:
 1. Add `services/<adapter>-<label>.toml` with distinct port and credentials.
 2. Add env vars to `.env`.
 3. `arizuko generate <instance>` — new service appears in compose.
-4. Add routing rule: `"<platform>:<account_id>:*" → <group_folder>`.
+4. Set `CHANNEL_ACCOUNT=<label>` in the service TOML environment.
+5. Add routing rule: `"<platform>:<label>/*" → <group_folder>` in `.env`.
 
 ## Future (if needed)
 

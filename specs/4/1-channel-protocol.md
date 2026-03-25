@@ -45,7 +45,7 @@ Authorization: Bearer <shared-secret>
 {
   "name": "telegram",
   "url": "http://telegram:9001",
-  "jid_prefixes": ["telegram:"],
+  "jid_prefixes": ["telegram:main/"],
   "capabilities": {
     "send_text": true,
     "send_file": true,
@@ -71,8 +71,8 @@ Authorization: Bearer <session-token>
 
 {
   "id": "msg-uuid",
-  "chat_jid": "telegram:-1001234567",
-  "sender": "telegram:12345",
+  "chat_jid": "telegram:main/-1001234567",
+  "sender": "telegram:main/12345",
   "sender_name": "Alice",
   "content": "hello",
   "timestamp": 1709942400,
@@ -101,7 +101,7 @@ POST /v1/chats
 Authorization: Bearer <session-token>
 
 {
-  "chat_jid": "telegram:-1001234567",
+  "chat_jid": "telegram:main/-1001234567",
   "name": "Dev Chat",
   "is_group": true
 }
@@ -129,7 +129,7 @@ POST /send
 Authorization: Bearer <shared-secret>
 
 {
-  "chat_jid": "telegram:-1001234567",
+  "chat_jid": "telegram:main/-1001234567",
   "content": "reply text",
   "reply_to": "msg-uuid",
   "format": "markdown"
@@ -160,7 +160,7 @@ Content-Type: multipart/form-data
 POST /typing
 Authorization: Bearer <shared-secret>
 
-{"chat_jid": "telegram:-1001234567", "on": true}
+{"chat_jid": "telegram:main/-1001234567", "on": true}
 
 → 200 {"ok": true}
 ```
@@ -172,7 +172,7 @@ Fire-and-forget. Failure is not an error.
 ```
 GET /health
 
-→ 200 {"status": "ok", "name": "telegram", "jid_prefixes": ["telegram:"]}
+→ 200 {"status": "ok", "name": "telegram", "jid_prefixes": ["telegram:main/"]}
 ```
 
 Router calls every 30s. Three consecutive failures →
@@ -298,5 +298,7 @@ router endpoint when needed. No generic `/v1/events`.
 
 ### Multiple instances of same channel
 
-Two telegram bots: each registers with different JID
-prefixes. Router routes by prefix. No conflict.
+Two telegram bots: each sets a different `CHANNEL_ACCOUNT` label
+(`main`, `support`, etc). JIDs become `telegram:main/<id>` vs
+`telegram:support/<id>`. Each registers with its own prefix.
+Router routes by prefix. No conflict. See specs/8/4-multi-account.md.
