@@ -1,0 +1,10 @@
+image = "arizuko:latest"
+entrypoint = ["mastd"]
+
+[environment]
+ROUTER_URL = "http://gated:${API_PORT}"
+MASTODON_INSTANCE_URL = "${MASTODON_INSTANCE_URL}"
+MASTODON_ACCESS_TOKEN = "${MASTODON_ACCESS_TOKEN}"
+CHANNEL_SECRET = "${CHANNEL_SECRET}"
+LISTEN_ADDR = ":9004"
+LISTEN_URL = "http://mastd:9004"

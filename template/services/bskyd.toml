@@ -1,0 +1,11 @@
+image = "arizuko:latest"
+entrypoint = ["bskyd"]
+
+[environment]
+ROUTER_URL = "http://gated:${API_PORT}"
+BLUESKY_IDENTIFIER = "${BLUESKY_IDENTIFIER}"
+BLUESKY_PASSWORD = "${BLUESKY_PASSWORD}"
+CHANNEL_SECRET = "${CHANNEL_SECRET}"
+LISTEN_ADDR = ":9005"
+LISTEN_URL = "http://bskyd:9005"
+DATA_DIR = "/srv/app/home"
