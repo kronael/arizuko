@@ -72,6 +72,9 @@ func Generate(dataDir string) (string, error) {
 	if webPort := envOr(env, "WEB_PORT", ""); webPort != "" {
 		b.WriteString(proxydService(app, flavor, dataDir, env))
 		b.WriteString(vitedService(app, flavor, dataDir, env))
+		if envOr(env, "WEBDAV_ENABLED", "") == "true" {
+			b.WriteString(davdService(app, flavor, dataDir, env))
+		}
 	}
 	if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
 		b.WriteString(onbodService(app, flavor, dataDir, env))
@@ -256,6 +259,10 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 	if r := envOr(env, "WEB_REDIRECTS", ""); r != "" {
 		environment["WEB_REDIRECTS"] = r
 	}
+	if envOr(env, "WEBDAV_ENABLED", "") == "true" {
+		davPort := envOr(env, "DAV_PORT", "8097")
+		environment["DAV_ADDR"] = "http://davd:" + davPort
+	}
 	return writeSvc(svcDef{
 		name:        "proxyd",
 		app:         app,
@@ -266,6 +273,22 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 		environment: environment,
 		dependsOn:   "gated, dashd",
 	})
+}
+
+func davdService(app, flavor, dataDir string, env map[string]string) string {
+	davPort := envOr(env, "DAV_PORT", "8097")
+	var b strings.Builder
+	fmt.Fprintf(&b, "  davd:\n")
+	fmt.Fprintf(&b, "    container_name: %s_davd_%s\n", app, flavor)
+	b.WriteString("    image: sigoden/dufs:latest\n")
+	fmt.Fprintf(&b, "    volumes:\n      - %s/groups:/data:ro\n", dataDir)
+	b.WriteString("    ports:\n")
+	fmt.Fprintf(&b, "      - '%s:%s'\n", davPort, davPort)
+	b.WriteString("    command:\n")
+	fmt.Fprintf(&b, "      - dufs\n      - --port\n      - '%s'\n      - /data\n", davPort)
+	b.WriteString("    depends_on: [gated]\n")
+	b.WriteString("    restart: on-failure\n")
+	return b.String()
 }
 
 func vitedService(app, flavor, dataDir string, env map[string]string) string {

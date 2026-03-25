@@ -28,6 +28,7 @@ type config struct {
 	port       string
 	dashAddr   string
 	webdAddr   string
+	davAddr    string
 	viteAddr   string
 	authSecret string
 	webPublic  bool
@@ -42,6 +43,7 @@ func loadConfig() config {
 		port:       port,
 		dashAddr:   chanlib.EnvOr("DASH_ADDR", "http://dashd:8091"),
 		webdAddr:   chanlib.EnvOr("WEBD_ADDR", ""),
+		davAddr:    chanlib.EnvOr("DAV_ADDR", ""),
 		viteAddr:   chanlib.EnvOr("VITE_ADDR", "http://localhost:8096"),
 		authSecret: os.Getenv("AUTH_SECRET"),
 		webPublic:  chanlib.EnvOr("WEB_PUBLIC", "false") == "true",
@@ -121,6 +123,7 @@ type server struct {
 	st        *store.Store
 	dashProxy *httputil.ReverseProxy
 	webdProxy *httputil.ReverseProxy
+	davProxy  *httputil.ReverseProxy
 	viteProxy *httputil.ReverseProxy
 	vh        *vhosts
 	slinkRL   *rateLimiter
@@ -138,7 +141,31 @@ func newServer(cfg config, st *store.Store, vh *vhosts) *server {
 	if cfg.webdAddr != "" {
 		s.webdProxy = proxy(cfg.webdAddr)
 	}
+	if cfg.davAddr != "" {
+		s.davProxy = prefixStrippingProxy(cfg.davAddr, "/dav")
+	}
 	return s
+}
+
+// prefixStrippingProxy creates a reverse proxy that strips a path prefix
+// before forwarding to the target.
+func prefixStrippingProxy(target, prefix string) *httputil.ReverseProxy {
+	u, err := url.Parse(target)
+	if err != nil {
+		slog.Error("invalid dav proxy target", "target", target, "err", err)
+		os.Exit(1)
+	}
+	p := httputil.NewSingleHostReverseProxy(u)
+	orig := p.Director
+	p.Director = func(r *http.Request) {
+		orig(r)
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, prefix)
+		if r.URL.Path == "" {
+			r.URL.Path = "/"
+		}
+		r.URL.RawPath = strings.TrimPrefix(r.URL.RawPath, prefix)
+	}
+	return p
 }
 
 // rateLimiter is a simple sliding-window rate limiter keyed by IP.
@@ -234,7 +261,17 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. /health — public
+	// 3. /dav/ — WebDAV via dufs, auth-gated
+	if strings.HasPrefix(r.URL.Path, "/dav/") || r.URL.Path == "/dav" {
+		if s.davProxy == nil {
+			http.Error(w, "WebDAV not configured", http.StatusNotFound)
+			return
+		}
+		s.requireAuth(s.davProxy.ServeHTTP)(w, r)
+		return
+	}
+
+	// 4. /health — public
 	if r.URL.Path == "/health" {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"ok":true}`))
