@@ -345,7 +345,12 @@ func main() {
 	}
 	defer st.Close()
 
-	vh := newVhosts(filepath.Join(coreCfg.WebDir, "vhosts.json"))
+	vhostsPath := filepath.Join(coreCfg.WebDir, "vhosts.json")
+	os.MkdirAll(coreCfg.WebDir, 0o755)
+	if _, err := os.Stat(vhostsPath); os.IsNotExist(err) {
+		os.WriteFile(vhostsPath, []byte("{}"), 0o644)
+	}
+	vh := newVhosts(vhostsPath)
 	vh.load()
 
 	s := newServer(cfg, st, vh)
