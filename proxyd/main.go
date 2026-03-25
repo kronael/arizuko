@@ -70,7 +70,7 @@ func newVhosts(p string) *vhosts { return &vhosts{path: p, entries: map[string]s
 func (v *vhosts) load() {
 	info, err := os.Stat(v.path)
 	if os.IsNotExist(err) {
-		slog.Info("vhosts.json not found, skipping", "path", v.path)
+		slog.Debug("vhosts.json not found, skipping", "path", v.path)
 		return
 	}
 	if err != nil {

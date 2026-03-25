@@ -302,10 +302,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 				hadStreaming = true
 				if parsed.SessionID != "" {
 					newSessionID = parsed.SessionID
-					timer.Reset(5 * time.Second)
-				} else {
-					timer.Reset(cfgTimeout)
 				}
+				timer.Reset(cfg.IdleTimeout)
 
 				if in.OnOutput != nil {
 					in.OnOutput(parsed.Result, parsed.Status)
