@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,8 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 	gomessage "github.com/emersion/go-message/mail"
 )
+
+var errIdleNotSupported = errors.New("IDLE not supported")
 
 type poller struct {
 	cfg config
@@ -28,10 +31,103 @@ func newPoller(cfg config, db *sql.DB) *poller {
 func (p *poller) run(ctx context.Context, rc *routerClient) {
 	backoff := time.Second
 	for {
+		if ctx.Err() != nil {
+			return
+		}
+		err := p.runIdle(ctx, rc)
+		if err == nil {
+			return
+		}
+		if errors.Is(err, errIdleNotSupported) {
+			slog.Info("imap: IDLE not supported, falling back to poll")
+			p.runPoll(ctx, rc)
+			return
+		}
+		slog.Error("imap idle error", "err", err)
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-time.After(backoff):
+		}
+		backoff = min(backoff*2, 60*time.Second)
+	}
+}
+
+func (p *poller) runIdle(ctx context.Context, rc *routerClient) error {
+	addr := p.cfg.IMAPHost + ":" + p.cfg.IMAPPort
+
+	exists := make(chan struct{}, 1)
+	opts := &imapclient.Options{
+		UnilateralDataHandler: &imapclient.UnilateralDataHandler{
+			Mailbox: func(data *imapclient.UnilateralDataMailbox) {
+				if data.NumMessages != nil {
+					select {
+					case exists <- struct{}{}:
+					default:
+					}
+				}
+			},
+		},
+	}
+
+	c, err := imapclient.DialTLS(addr, opts)
+	if err != nil {
+		return fmt.Errorf("dial: %w", err)
+	}
+	defer c.Logout()
+
+	if err := c.Login(p.cfg.Account, p.cfg.Password).Wait(); err != nil {
+		return fmt.Errorf("login: %w", err)
+	}
+
+	if _, err := c.Select("INBOX", nil).Wait(); err != nil {
+		return fmt.Errorf("select: %w", err)
+	}
+
+	if err := p.fetchUnseen(c, rc); err != nil {
+		return fmt.Errorf("initial fetch: %w", err)
+	}
+
+	idleCmd, err := c.Idle()
+	if err != nil {
+		return errIdleNotSupported
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			idleCmd.Close()
+			idleCmd.Wait() //nolint:errcheck
+			return nil
+		case <-exists:
+		}
+
+		if err := idleCmd.Close(); err != nil {
+			return fmt.Errorf("idle close: %w", err)
+		}
+		if err := idleCmd.Wait(); err != nil {
+			return fmt.Errorf("idle wait: %w", err)
+		}
+
+		if _, err := c.Select("INBOX", nil).Wait(); err != nil {
+			return fmt.Errorf("re-select: %w", err)
+		}
+		if err := p.fetchUnseen(c, rc); err != nil {
+			return fmt.Errorf("fetch: %w", err)
+		}
+
+		idleCmd, err = c.Idle()
+		if err != nil {
+			return fmt.Errorf("re-idle: %w", err)
+		}
+	}
+}
+
+func (p *poller) runPoll(ctx context.Context, rc *routerClient) {
+	backoff := time.Second
+	for {
+		if ctx.Err() != nil {
+			return
 		}
 		if err := p.poll(ctx, rc); err != nil {
 			slog.Error("imap poll error", "err", err)
@@ -52,7 +148,7 @@ func (p *poller) run(ctx context.Context, rc *routerClient) {
 	}
 }
 
-func (p *poller) poll(ctx context.Context, rc *routerClient) error {
+func (p *poller) poll(_ context.Context, rc *routerClient) error {
 	addr := p.cfg.IMAPHost + ":" + p.cfg.IMAPPort
 	c, err := imapclient.DialTLS(addr, nil)
 	if err != nil {
@@ -68,6 +164,10 @@ func (p *poller) poll(ctx context.Context, rc *routerClient) error {
 		return fmt.Errorf("select: %w", err)
 	}
 
+	return p.fetchUnseen(c, rc)
+}
+
+func (p *poller) fetchUnseen(c *imapclient.Client, rc *routerClient) error {
 	criteria := &imap.SearchCriteria{
 		NotFlag: []imap.Flag{imap.FlagSeen},
 	}
