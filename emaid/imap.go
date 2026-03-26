@@ -128,6 +128,12 @@ func (p *poller) runIdle(ctx context.Context, rc *routerClient) error {
 		if err != nil {
 			return fmt.Errorf("re-idle: %w", err)
 		}
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
 		idleTimer.Reset(28 * time.Minute)
 	}
 }
