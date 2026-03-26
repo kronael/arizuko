@@ -98,7 +98,6 @@ func (p *poller) runIdle(ctx context.Context, rc *routerClient) error {
 	defer idleTimer.Stop()
 
 	for {
-		var doFetch bool
 		select {
 		case <-ctx.Done():
 			idleCmd.Close() //nolint:errcheck
@@ -118,7 +117,6 @@ func (p *poller) runIdle(ctx context.Context, rc *routerClient) error {
 			}
 			return nil
 		case <-exists:
-			doFetch = true
 		case <-idleTimer.C:
 		}
 
@@ -129,13 +127,12 @@ func (p *poller) runIdle(ctx context.Context, rc *routerClient) error {
 			return fmt.Errorf("idle wait: %w", err)
 		}
 
-		if doFetch {
-			if _, err := c.Select("INBOX", nil).Wait(); err != nil {
-				return fmt.Errorf("re-select: %w", err)
-			}
-			if err := p.fetchUnseen(c, rc); err != nil {
-				return fmt.Errorf("fetch: %w", err)
-			}
+		// Always fetch — timer wakeup is a safety net for silently dropped EXISTS.
+		if _, err := c.Select("INBOX", nil).Wait(); err != nil {
+			return fmt.Errorf("re-select: %w", err)
+		}
+		if err := p.fetchUnseen(c, rc); err != nil {
+			return fmt.Errorf("fetch: %w", err)
 		}
 
 		idleCmd, err = c.Idle()
