@@ -37,6 +37,7 @@ const authDir = env(
 );
 
 let sock: WASocket | null = null;
+let currentQR: string | null = null;
 const rc = new RouterClient(routerURL, channelSecret);
 let reconnectAttempts = 0;
 
@@ -61,7 +62,8 @@ async function connect(): Promise<void> {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      log('info', 'scan QR code in terminal to authenticate');
+      currentQR = qr;
+      log('info', 'scan QR code at GET /qr to authenticate');
     }
 
     if (connection === 'close') {
@@ -102,6 +104,7 @@ async function connect(): Promise<void> {
 
     if (connection === 'open') {
       reconnectAttempts = 0;
+      currentQR = null;
       log('info', 'connected to whatsapp');
       sock!.sendPresenceUpdate('unavailable').catch(() => {});
     }
@@ -160,7 +163,12 @@ async function main() {
     process.exit(1);
   }
 
-  const srv = startServer(listenAddr, channelSecret, () => sock);
+  const srv = startServer(
+    listenAddr,
+    channelSecret,
+    () => sock,
+    () => currentQR,
+  );
 
   async function shutdown() {
     log('info', 'shutting down');
