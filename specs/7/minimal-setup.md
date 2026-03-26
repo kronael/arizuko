@@ -49,7 +49,8 @@ is an explicitness flag, not a behavior change for standard Telegram/Discord usa
 
 ```bash
 PROFILE=minimal   # gated only
-PROFILE=standard  # gated + timed + proxyd + dashd  (default if unset was full)
+PROFILE=web       # gated + proxyd + vited  (WEB_PORT required)
+PROFILE=standard  # gated + timed + proxyd + dashd
 PROFILE=full      # all built-ins + onbod/davd when enabled  ← current default
 ```
 
