@@ -31,11 +31,12 @@ type Gateway struct {
 	queue   *queue.GroupQueue
 	folders *groupfolder.Resolver
 
-	mu       sync.RWMutex
-	channels []core.Channel
-	groups   map[string]core.Group
-	gatedFns ipc.GatedFns
-	storeFns ipc.StoreFns
+	mu          sync.RWMutex
+	channels    []core.Channel
+	groups      map[string]core.Group
+	jidAdapters sync.Map // chatJID -> adapter name, recorded on inbound
+	gatedFns    ipc.GatedFns
+	storeFns    ipc.StoreFns
 
 	// lastTimestamp is persisted and queried as RFC3339Nano throughout to
 	// preserve nanosecond precision; seconds-only formats risk missed messages.
@@ -673,9 +674,24 @@ func (g *Gateway) runAgentWithOpts(
 	return out
 }
 
+// RecordJIDAdapter records which adapter last received a message from this JID,
+// so outbound replies go back via the correct adapter (not just prefix-matching).
+func (g *Gateway) RecordJIDAdapter(chatJID, adapterName string) {
+	g.jidAdapters.Store(chatJID, adapterName)
+}
+
 func (g *Gateway) findChannel(jid string) core.Channel {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+	// Prefer the adapter that last received a message from this JID — needed
+	// when multiple adapters share the same JID prefix (e.g. two teled bots).
+	if name, ok := g.jidAdapters.Load(jid); ok {
+		for _, ch := range g.channels {
+			if ch.Name() == name.(string) {
+				return ch
+			}
+		}
+	}
 	for _, ch := range g.channels {
 		if ch.Owns(jid) {
 			return ch

@@ -19,6 +19,7 @@ type Server struct {
 
 	onRegister   func(name string, ch *chanreg.HTTPChannel)
 	onDeregister func(name string)
+	onMessage    func(chatJID, adapterName string)
 }
 
 func New(reg *chanreg.Registry, s *store.Store) *Server {
@@ -27,6 +28,7 @@ func New(reg *chanreg.Registry, s *store.Store) *Server {
 
 func (s *Server) OnRegister(fn func(string, *chanreg.HTTPChannel)) { s.onRegister = fn }
 func (s *Server) OnDeregister(fn func(string))                     { s.onDeregister = fn }
+func (s *Server) OnMessage(fn func(chatJID, adapterName string))   { s.onMessage = fn }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -192,6 +194,10 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.onMessage != nil {
+		s.onMessage(req.ChatJID, entry.Name)
+	}
+
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -218,6 +224,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.store.PutChat(req.ChatJID, req.Name, entry.Name, req.IsGroup)
+	if s.onMessage != nil {
+		s.onMessage(req.ChatJID, entry.Name)
+	}
 	writeJSON(w, map[string]any{"ok": true})
 }
 
