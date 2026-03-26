@@ -685,10 +685,12 @@ func (g *Gateway) findChannel(jid string) core.Channel {
 	defer g.mu.RUnlock()
 	// Prefer the adapter that last received a message from this JID — needed
 	// when multiple adapters share the same JID prefix (e.g. two teled bots).
-	if name, ok := g.jidAdapters.Load(jid); ok {
-		for _, ch := range g.channels {
-			if ch.Name() == name.(string) {
-				return ch
+	if v, ok := g.jidAdapters.Load(jid); ok {
+		if name, ok := v.(string); ok {
+			for _, ch := range g.channels {
+				if ch.Name() == name {
+					return ch
+				}
 			}
 		}
 	}

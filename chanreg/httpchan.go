@@ -60,7 +60,7 @@ func (h *HTTPChannel) Owns(jid string) bool {
 
 func (h *HTTPChannel) Send(jid, text, replyTo, threadID string) (string, error) {
 	if !h.entry.HasCap("send_text") {
-		return "", nil
+		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
 	body := map[string]string{
 		"chat_jid": jid,
@@ -93,7 +93,7 @@ func (h *HTTPChannel) Send(jid, text, replyTo, threadID string) (string, error) 
 
 func (h *HTTPChannel) SendFile(jid, path, name string) error {
 	if !h.entry.HasCap("send_file") {
-		return nil
+		return fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
 
 	var buf bytes.Buffer

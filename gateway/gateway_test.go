@@ -381,6 +381,32 @@ func TestFindChannel(t *testing.T) {
 	}
 }
 
+func TestFindChannel_JIDAdapterPreference(t *testing.T) {
+	// Two channels both claiming the same JID (simulates two teled bots with shared prefix).
+	// RecordJIDAdapter must route to the correct adapter rather than first-registered.
+	gw, _ := testGateway(t)
+	ch1 := &mockChannel{name: "tg1", jids: []string{"telegram:100", "telegram:999"}}
+	ch2 := &mockChannel{name: "tg2", jids: []string{"telegram:100"}}
+	gw.AddChannel(ch1)
+	gw.AddChannel(ch2)
+
+	// Without recording, first registered wins for the shared JID.
+	if found := gw.findChannel("telegram:100"); found == nil || found.Name() != "tg1" {
+		t.Errorf("prefix fallback want tg1, got %v", found)
+	}
+
+	// After recording for tg2, adapter map takes precedence over first-registered.
+	gw.RecordJIDAdapter("telegram:100", "tg2")
+	if found := gw.findChannel("telegram:100"); found == nil || found.Name() != "tg2" {
+		t.Errorf("jidAdapters override want tg2, got %v", found)
+	}
+
+	// JID only owned by ch1 — still falls back correctly to prefix match.
+	if found := gw.findChannel("telegram:999"); found == nil || found.Name() != "tg1" {
+		t.Errorf("unrecorded JID want tg1 via owns, got %v", found)
+	}
+}
+
 func TestEmitSystemEvents_NewDay(t *testing.T) {
 	gw, s := testGateway(t)
 	grp := core.Group{Folder: "grp1", Name: "Test"}

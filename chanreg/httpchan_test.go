@@ -55,7 +55,7 @@ func TestHTTPChannelSend(t *testing.T) {
 	}
 }
 
-func TestHTTPChannelSendNoCapSkips(t *testing.T) {
+func TestHTTPChannelSendNoCapErrors(t *testing.T) {
 	e := &Entry{
 		Name:         "tg",
 		URL:          "http://should-not-be-called",
@@ -64,9 +64,10 @@ func TestHTTPChannelSendNoCapSkips(t *testing.T) {
 	}
 	ch := NewHTTPChannel(e, "secret")
 
-	// send_text not declared — should silently skip
-	if _, err := ch.Send("tg:123", "hello", "", ""); err != nil {
-		t.Fatal(err)
+	// send_text not declared — must return error so caller knows the send was skipped
+	_, err := ch.Send("tg:123", "hello", "", "")
+	if err == nil {
+		t.Fatal("expected error for missing send_text capability, got nil")
 	}
 }
 
