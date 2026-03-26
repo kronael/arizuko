@@ -1,7 +1,7 @@
 ---
 name: diary
 description: If anything worth noting happened since your last diary entry,
-  record it in /workspace/group/diary/YYYYMMDD.md.
+  record it in `~/diary/YYYYMMDD.md`.
 ---
 
 # Diary
@@ -12,7 +12,7 @@ persistent memory across sessions and compactions.
 ## Path
 
 ```
-/workspace/group/diary/YYYYMMDD.md
+~/diary/YYYYMMDD.md
 ```
 
 Create the file if it doesn't exist. Append to it if it does.
