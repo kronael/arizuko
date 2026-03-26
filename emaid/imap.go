@@ -93,13 +93,19 @@ func (p *poller) runIdle(ctx context.Context, rc *routerClient) error {
 		return errIdleNotSupported
 	}
 
+	idleTimer := time.NewTimer(28 * time.Minute)
+	defer idleTimer.Stop()
+
 	for {
+		var doFetch bool
 		select {
 		case <-ctx.Done():
 			idleCmd.Close()
 			idleCmd.Wait() //nolint:errcheck
 			return nil
 		case <-exists:
+			doFetch = true
+		case <-idleTimer.C:
 		}
 
 		if err := idleCmd.Close(); err != nil {
@@ -109,17 +115,20 @@ func (p *poller) runIdle(ctx context.Context, rc *routerClient) error {
 			return fmt.Errorf("idle wait: %w", err)
 		}
 
-		if _, err := c.Select("INBOX", nil).Wait(); err != nil {
-			return fmt.Errorf("re-select: %w", err)
-		}
-		if err := p.fetchUnseen(c, rc); err != nil {
-			return fmt.Errorf("fetch: %w", err)
+		if doFetch {
+			if _, err := c.Select("INBOX", nil).Wait(); err != nil {
+				return fmt.Errorf("re-select: %w", err)
+			}
+			if err := p.fetchUnseen(c, rc); err != nil {
+				return fmt.Errorf("fetch: %w", err)
+			}
 		}
 
 		idleCmd, err = c.Idle()
 		if err != nil {
 			return fmt.Errorf("re-idle: %w", err)
 		}
+		idleTimer.Reset(28 * time.Minute)
 	}
 }
 
