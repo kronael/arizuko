@@ -179,7 +179,7 @@ func (p *poller) runPoll(ctx context.Context, rc *routerClient) {
 
 func (p *poller) poll(_ context.Context, rc *routerClient) error {
 	addr := p.cfg.IMAPHost + ":" + p.cfg.IMAPPort
-	c, err := imapclient.DialTLS(addr, nil)
+	c, err := p.dialTLS(addr, nil)
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
 	}
