@@ -209,6 +209,10 @@ Full protocol: `specs/4/1-channel-protocol.md`.
 
 WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
 
+`messages` has `source` and `group_folder` columns for outbound audit trail
+(`is_from_me=1`). `StoreOutbound()` is not yet implemented — columns exist
+but are unpopulated. Full spec: `specs/7/22-audit-log.md`.
+
 ## Container Lifecycle
 
 1. `runtime.EnsureRunning()` — verify docker is reachable
@@ -356,7 +360,13 @@ On `/approve <jid>`: creates group dir, optionally copies prototype, inserts
 Operator must be a tier-0 group (no parent). Uses `notify` library to fan out
 messages to all tier-0 root JIDs.
 
+Prototype copy behavior: `CLAUDE.md` and `SOUL.md` are copied; session and
+memory are not. Agents can also spawn children directly via the
+`register_group` MCP tool with `fromPrototype=true`. Full spec: `specs/4/26-prototypes.md`.
+
 ## Scheduler (timed/)
+
+Full spec: `specs/4/8-scheduler-service.md`.
 
 Reads `DATABASE` env for SQLite path. Polls `scheduled_tasks` every 60s.
 For each due task (status=active, next_run <= now):
@@ -372,12 +382,37 @@ Own migration runner using shared `migrations` table (keyed by service
 name `"timed"`). Schema: `timed/migrations/0001-schema.sql`
 creates `scheduled_tasks` if not present (idempotent with store's copy).
 
+## Operator Dashboard (dashd/)
+
+Standalone read-only HTMX portal. Full spec: `specs/7/25-dashboards.md`.
+
+Serves on `DASH_PORT` (default 8090). Opens SQLite read-only (`?mode=ro`).
+Six views: portal (tile grid, 30s auto-refresh), status (channels, groups,
+containers, queue, errors), tasks (scheduled tasks + run history), activity
+(message flow, routing table), groups (hierarchy tree), memory (per-group
+knowledge browser). Auth via JWT cookie (imports `auth` library).
+
+URL convention: `/dash/` portal, `/dash/<name>/` page,
+`/dash/<name>/x/<fragment>` HTMX partial, `/dash/<name>/api/<path>` JSON API.
+
+dashd registers in the channels table as `receive_only: true`. The `/status`
+command routes to dashd via the routes table; dashd replies via `notify/`.
+Included in generated `docker-compose.yml` as `arizuko_dashd_<flavor>`.
+
 ## Diary System (diary package)
 
 `diary.Read(groupDir, max)` reads recent `.md` files from `group/diary/`.
 Extracts `summary:` from YAML frontmatter. Returns XML annotations
 with age labels (today, yesterday, N days/weeks ago). Prepended to
 agent prompt as `<knowledge layer="diary">`.
+
+Two-layer memory model: `MEMORY.md` for long-term knowledge, daily diary
+files for work log. Diary nudged by `/diary` skill, PreCompact hook, and
+every 100 turns. Full spec: `specs/1/L-memory-diary.md`.
+
+Episodes (compressed session transcripts) follow the same `summary:` format
+and are indexed by `/recall`. Compression hierarchy: daily → weekly → monthly.
+See `specs/4/24-recall.md` for the recall protocol and episode format.
 
 ## Error Handling
 

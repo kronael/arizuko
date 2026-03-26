@@ -45,6 +45,33 @@ arizuko group <instance> rm  <jid>          # unregister
 First group defaults to folder `main` with direct mode.
 Subsequent groups use trigger mode (`@assistant_name`).
 
+## Channels
+
+Channel adapters are standalone daemons that register over HTTP:
+
+- `teled` — Telegram (Go)
+- `discd` — Discord (Go)
+- `mastd` — Mastodon WebSocket + REST (Go)
+- `bskyd` — Bluesky AT Protocol polling (Go)
+- `reditd` — Reddit OAuth2 inbox/subreddit polling (Go)
+- `emaid` — Email IMAP/SMTP (Go)
+- `whapd` — WhatsApp (TypeScript)
+- `proxyd` — Web chat via SSE + slink token auth (Go)
+
+All Go adapters share `chanlib/` for router client, auth middleware, and inbound message types.
+
+## Agent capabilities
+
+Each group agent runs inside a Docker container with persistent file workspaces. Capabilities available to agents via MCP tools and skills:
+
+**Diary and memory** — two-layer system: `MEMORY.md` for long-term preferences and patterns (under 200 lines), daily diary entries in `diary/YYYYMMDD.md` for work log. Diary summaries from the last 14 days are injected into each new session as `<knowledge layer="diary">`. Episodes (compressed session transcripts) are injected alongside. See `specs/1/L-memory-diary.md`.
+
+**Knowledge retrieval** — `/recall` searches across knowledge stores (facts, diary, users, episodes) using LLM semantic grep over `summary:` frontmatter. Agent-initiated, read-only. See `specs/4/24-recall.md`.
+
+**Task scheduling** — `timed` daemon polls `scheduled_tasks` every 60s and inserts due tasks as messages into the shared DB. Agents create tasks via the `manage_tasks` MCP tool. Schedules support cron expressions, intervals, and one-shot runs.
+
+**Operator dashboard** — `dashd` serves a read-only HTMX portal at `/dash/` with six views: portal (tile grid), status (channels, groups, containers, queue, errors), tasks (scheduled tasks with run history), activity (message flow, routing table), groups (hierarchy tree), and memory (per-group knowledge browser). Auto-refresh via HTMX polling. See `specs/7/25-dashboards.md`.
+
 ## Development
 
 ```bash
