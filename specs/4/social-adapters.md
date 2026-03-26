@@ -27,7 +27,7 @@ See `specs/4/1-channel-protocol.md` for full HTTP protocol spec.
 | ------ | -------- | ----------- | ---- | ------- |
 | teled  | Telegram | `telegram:` | 9001 | shipped |
 | discd  | Discord  | `discord:`  | 9002 | shipped |
-| emaid  | Email    | `email:`    | 9003 | planned |
+| emaid  | Email    | `email:`    | 9003 | shipped |
 | mastd  | Mastodon | `mastodon:` | 9004 | shipped |
 | bskyd  | Bluesky  | `bluesky:`  | 9005 | shipped |
 | reditd | Reddit   | `reddit:`   | 9006 | shipped |
@@ -97,7 +97,9 @@ See `specs/4/1-channel-protocol.md` for full HTTP protocol spec.
 
 ## emaid
 
-IMAP TLS polling + SMTP STARTTLS replies. JID format: `email:<address>`.
+IMAP IDLE push + SMTP STARTTLS replies. JID format: `email:<address>`.
+Persistent TLS connection; server pushes EXISTS on new messages.
+Reconnects with exponential backoff on error.
 Config: `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_IMAP_PORT` (default 993),
 `EMAIL_SMTP_PORT` (default 587), `EMAIL_USER`, `EMAIL_PASS`.
 
