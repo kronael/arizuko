@@ -188,14 +188,16 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		Verb:      req.Verb,
 	}
 
+	// Record adapter BEFORE storing — gateway polls DB and must find the
+	// adapter mapping already set when the message becomes visible.
+	if s.onMessage != nil {
+		s.onMessage(req.ChatJID, entry.Name)
+	}
+
 	if err := s.store.PutMessage(msg); err != nil {
 		writeErr(w, http.StatusInternalServerError, "store failed")
 		slog.Error("store message failed", "err", err)
 		return
-	}
-
-	if s.onMessage != nil {
-		s.onMessage(req.ChatJID, entry.Name)
 	}
 
 	writeJSON(w, map[string]any{"ok": true})
@@ -223,10 +225,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.store.PutChat(req.ChatJID, req.Name, entry.Name, req.IsGroup)
 	if s.onMessage != nil {
 		s.onMessage(req.ChatJID, entry.Name)
 	}
+	s.store.PutChat(req.ChatJID, req.Name, entry.Name, req.IsGroup)
 	writeJSON(w, map[string]any{"ok": true})
 }
 
