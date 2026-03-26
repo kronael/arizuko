@@ -182,7 +182,7 @@ function createPreCompactHook(assistantName?: string): HookCallback {
       const summary = getSessionSummary(sessionId, transcriptPath);
       const name = summary ? sanitizeFilename(summary) : generateFallbackName();
 
-      const conversationsDir = '/workspace/group/conversations';
+      const conversationsDir = '/home/node/conversations';
       fs.mkdirSync(conversationsDir, { recursive: true });
 
       const date = new Date().toISOString().split('T')[0];
@@ -200,7 +200,7 @@ function createPreCompactHook(assistantName?: string): HookCallback {
     return {
       systemMessage:
         'Context is about to be compacted. Before compaction, update ' +
-        "today's diary entry (/workspace/group/diary/YYYYMMDD.md) with " +
+        "today's diary entry (~/diary/YYYYMMDD.md) with " +
         'key decisions, progress, and context that should persist across ' +
         'sessions. Use the /diary skill.',
     };
@@ -416,7 +416,7 @@ async function runQuery(
     for await (const message of query({
       prompt: stream,
       options: {
-        cwd: '/workspace/group',
+        cwd: '/home/node',
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
         resume: sessionId,
         resumeSessionAt: resumeAt,
@@ -513,7 +513,7 @@ async function runQuery(
     for await (const msg of query({
       prompt: 'You ran out of turns mid-task. Summarise concisely: what you accomplished, what is still pending. Then tell the user they can say "continue" to resume where you left off.',
       options: {
-        cwd: '/workspace/group',
+        cwd: '/home/node',
         maxTurns: 3,
         resume: newSessionId,
         permissionMode: 'bypassPermissions' as const,

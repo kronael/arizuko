@@ -159,8 +159,8 @@ RUN chown -R node:node /workspace && chmod 777 /home/node
 # Switch to non-root user (required for --dangerously-skip-permissions)
 USER node
 
-# Set working directory to group workspace
-WORKDIR /workspace/group
+# Set working directory to group home (mounted at /home/node)
+WORKDIR /home/node
 
 # Entry point reads JSON from stdin, outputs JSON to stdout
 ENTRYPOINT ["/app/entrypoint.sh"]

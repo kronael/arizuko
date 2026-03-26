@@ -120,7 +120,7 @@ func TestBuildArgs(t *testing.T) {
 		Image:    "arizuko-agent:test",
 	}
 	mounts := []VolumeMount{
-		{Host: "/h/group", Container: "/workspace/group"},
+		{Host: "/h/group", Container: "/home/node"},
 		{Host: "/h/app", Container: "/workspace/self", RO: true},
 	}
 
@@ -133,7 +133,7 @@ func TestBuildArgs(t *testing.T) {
 	if !strings.Contains(joined, "TZ=UTC") {
 		t.Error("missing timezone")
 	}
-	if !strings.Contains(joined, "-v /h/group:/workspace/group") {
+	if !strings.Contains(joined, "-v /h/group:/home/node") {
 		t.Error("missing rw mount")
 	}
 	if !strings.Contains(joined, "/h/app:/workspace/self:ro") {
