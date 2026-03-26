@@ -17,11 +17,14 @@
 - [7-user-context.md](7-user-context.md) — per-user memory files, gateway injection
 - [D-knowledge-system.md](D-knowledge-system.md) — push vs pull layers, injection pattern
 
+## Superseded
+
+- [4-dashboards.md](4-dashboards.md) — operator dashboard architecture (superseded by specs/7/25-dashboards.md)
+
 ## Planned
 
 - [1-atlas.md](1-atlas.md) — sandboxed support hierarchy
 - [3-support.md](3-support.md) — code researcher product pattern
-- [4-dashboards.md](4-dashboards.md) — operator dashboard architecture (superseded by specs/7/25-dashboards.md)
 - [6-session-recovery.md](6-session-recovery.md) — recovery note injection on abnormal end
 - [8-web-virtual-hosts.md](8-web-virtual-hosts.md) — per-world DNS hostname routing
 - [B-memory-episodic.md](B-memory-episodic.md) — time-hierarchy diary aggregation

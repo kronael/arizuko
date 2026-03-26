@@ -12,7 +12,7 @@ Libraries don't: `auth`, `ipc`, `grants`, `notify`.
 | `gated` | running | Gateway, routing, containers | `specs/4/9-gated.md`             |
 | `timed` | running | Cron poll, writes messages   | `specs/4/8-scheduler-service.md` |
 | `onbod` | running | Onboarding state machine     | `specs/4/21-onboarding.md`       |
-| `dashd` | running | Operator dashboards (HTMX)   | `specs/4/25-dashboards.md`       |
+| `dashd` | running | Operator dashboards (HTMX)   | `specs/7/25-dashboards.md`       |
 | `teled` | running | Telegram adapter             |                                  |
 | `discd` | running | Discord adapter              |                                  |
 | `whapd` | running | WhatsApp adapter             |                                  |
