@@ -95,10 +95,11 @@ See `specs/4/1-channel-protocol.md` for full HTTP protocol spec.
 | `REDDIT_SUBREDDITS`    | no (comma-separated) |
 | `REDDIT_USER_AGENT`    | no (`arizuko/1.0`)   |
 
-## emaid (planned)
+## emaid
 
-Email adapter using Gmail Pub/Sub or IMAP IDLE. JID format: `email:<address>`.
-Port 9003 reserved. Not yet implemented — see `specs/4/28-gmail.md` for design.
+IMAP TLS polling + SMTP STARTTLS replies. JID format: `email:<address>`.
+Config: `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_IMAP_PORT` (default 993),
+`EMAIL_SMTP_PORT` (default 587), `EMAIL_USER`, `EMAIL_PASS`.
 
 ## Layout
 
