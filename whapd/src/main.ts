@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  fetchLatestWaWebVersion,
   makeCacheableSignalKeyStore,
   useMultiFileAuthState,
   type WASocket,
@@ -27,25 +28,20 @@ function env(k: string, def?: string): string {
   return v;
 }
 
-const routerURL = env('ROUTER_URL');
-const channelSecret = env('CHANNEL_SECRET', '');
-const listenAddr = env('LISTEN_ADDR', ':9002');
-const listenURL = env('LISTEN_URL', 'http://whapd:9002');
 const dataDir = process.env['DATA_DIR'] ?? '';
 const authDir = env(
   'WHATSAPP_AUTH_DIR',
   dataDir ? `${dataDir}/store/whatsapp-auth` : '/srv/data/store/whatsapp-auth',
 );
 
-let sock: WASocket | null = null;
-const rc = new RouterClient(routerURL, channelSecret);
-let reconnectAttempts = 0;
-
-async function connect(): Promise<void> {
+async function makeSocket(): Promise<WASocket> {
   fs.mkdirSync(authDir, { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
-
-  sock = makeWASocket({
+  const { version } = await fetchLatestWaWebVersion({}).catch(() => ({
+    version: undefined,
+  }));
+  const s = makeWASocket({
+    version,
     auth: {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -55,8 +51,65 @@ async function connect(): Promise<void> {
     browser: Browsers.macOS('Chrome'),
     shouldSyncHistoryMessage: () => false,
   });
+  s.ev.on('creds.update', saveCreds);
+  return s;
+}
 
-  sock.ev.on('creds.update', saveCreds);
+// --pair <phone>: request pairing code, print it, exit once authenticated.
+async function pair(phone: string): Promise<void> {
+  process.stdout.write(`pairing whatsapp with phone ${phone}...\n`);
+  const s = await makeSocket();
+
+  // Request pairing code 3s after socket is ready (Baileys needs handshake first)
+  setTimeout(async () => {
+    try {
+      const code = await s.requestPairingCode(phone);
+      process.stdout.write(`\npairing code: ${code}\n\n`);
+      process.stdout.write(`  1. open WhatsApp on your phone\n`);
+      process.stdout.write(
+        `  2. tap Settings > Linked Devices > Link a Device\n`,
+      );
+      process.stdout.write(`  3. tap "Link with phone number instead"\n`);
+      process.stdout.write(`  4. enter: ${code}\n\n`);
+    } catch (e) {
+      process.stderr.write(`Failed to request pairing code: ${e}\n`);
+      process.exit(1);
+    }
+  }, 3000);
+
+  await new Promise<void>((resolve, reject) => {
+    s.ev.on('connection.update', (update) => {
+      const { connection, lastDisconnect } = update;
+      if (connection === 'open') {
+        process.stdout.write('authenticated — credentials saved\n');
+        s.end(undefined);
+        resolve();
+      }
+      if (connection === 'close') {
+        const code = (lastDisconnect?.error as any)?.output?.statusCode;
+        // 515 = restart required after pairing — reconnect once
+        if (code === 515) {
+          process.stdout.write('reconnecting after pairing...\n');
+          pair(phone).then(resolve).catch(reject);
+          return;
+        }
+        reject(new Error(`connection closed: ${code}`));
+      }
+    });
+  });
+}
+
+// Normal daemon mode
+let sock: WASocket | null = null;
+const routerURL = env('ROUTER_URL');
+const channelSecret = env('CHANNEL_SECRET', '');
+const listenAddr = env('LISTEN_ADDR', ':9002');
+const listenURL = env('LISTEN_URL', 'http://whapd:9002');
+const rc = new RouterClient(routerURL, channelSecret);
+let reconnectAttempts = 0;
+
+async function connect(): Promise<void> {
+  sock = await makeSocket();
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
@@ -76,7 +129,7 @@ async function connect(): Promise<void> {
       if (code === 405) {
         log(
           'error',
-          'session invalidated by server (405), delete auth dir and restart',
+          'session invalidated by server (405), delete auth dir and re-pair',
         );
         process.exit(1);
       }
@@ -154,6 +207,18 @@ async function connect(): Promise<void> {
 }
 
 async function main() {
+  // --pair <phone>: pair mode — print code and exit
+  const pairIdx = process.argv.indexOf('--pair');
+  if (pairIdx >= 0) {
+    const phone = process.argv[pairIdx + 1];
+    if (!phone) {
+      process.stderr.write('Usage: node dist/main.js --pair <phone>\n');
+      process.exit(1);
+    }
+    await pair(phone);
+    process.exit(0);
+  }
+
   await connect();
 
   try {
