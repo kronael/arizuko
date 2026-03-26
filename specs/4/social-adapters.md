@@ -98,7 +98,7 @@ See `specs/4/1-channel-protocol.md` for full HTTP protocol spec.
 ## emaid (planned)
 
 Email adapter using Gmail Pub/Sub or IMAP IDLE. JID format: `email:<address>`.
-Port 9003 reserved. Not yet implemented — see `specs/4/8-gmail.md` for design.
+Port 9003 reserved. Not yet implemented — see `specs/4/28-gmail.md` for design.
 
 ## Layout
 
