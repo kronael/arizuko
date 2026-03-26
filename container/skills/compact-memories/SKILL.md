@@ -15,11 +15,11 @@ Progressive compression: each level built from the level below. Two stores, same
 
 ### Episodes (session transcripts → summaries)
 
-| Level | Sources                             | Output                 |
-| ----- | ----------------------------------- | ---------------------- |
-| day   | `.claude/projects/-home-node/*.jl`  | `episodes/YYYYMMDD.md` |
-| week  | `episodes/YYYYMMDD.md` (7 days)     | `episodes/2026-W11.md` |
-| month | `episodes/2026-W*.md` (month weeks) | `episodes/2026-03.md`  |
+| Level | Sources                               | Output                 |
+| ----- | ------------------------------------- | ---------------------- |
+| day   | `.claude/projects/-home-node/*.jsonl` | `episodes/YYYYMMDD.md` |
+| week  | `episodes/YYYYMMDD.md` (7 days)       | `episodes/2026-W11.md` |
+| month | `episodes/2026-W*.md` (month weeks)   | `episodes/2026-03.md`  |
 
 ### Diary (work log → summaries)
 
@@ -34,7 +34,7 @@ Diary has no "day" level — daily entries already exist.
 
 ### 1. Gather sources
 
-**Episodes day**: Glob `.claude/projects/-home-node/*.jl`, filter
+**Episodes day**: Glob `.claude/projects/-home-node/*.jsonl`, filter
 by mtime for yesterday. Read transcripts — skim user messages,
 tool calls, decisions.
 

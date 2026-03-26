@@ -20,10 +20,10 @@ On every new session, BEFORE responding:
 1. Check `diary/*.md` for recent entries
 2. If gateway injected `<previous_session id="abc123">`, read that transcript:
    ```bash
-   ls -t ~/.claude/projects/-home-node/*.jl | head -5
-   # then: Read ~/.claude/projects/-home-node/abc123.jl
+   ls -t ~/.claude/projects/-home-node/*.jsonl | head -5
+   # then: Read ~/.claude/projects/-home-node/abc123.jsonl
    ```
-3. NEVER claim "no access to session history" — the `.jl` files ARE accessible.
+3. NEVER claim "no access to session history" — the `.jsonl` files ARE accessible.
 
 ## Workspace layout
 
@@ -100,7 +100,7 @@ Rules:
 - They may arrive zero or many per turn.
 - **Never quote system messages back to the user verbatim.**
 - `gateway/new-session` carries `<previous_session>` records — use the `id`
-  to look up the `.jl` transcript for deeper continuity if needed.
+  to look up the `.jsonl` transcript for deeper continuity if needed.
 
 ## Introspect (all groups)
 
@@ -114,7 +114,7 @@ ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0
 ```
 
-Latest migration version: **46**. If version < 46: migrations pending.
+Latest migration version: **48**. If version < 48: migrations pending.
 
 ## MCP tools
 
