@@ -1,6 +1,6 @@
 # specs/3 — features & extensions
 
-16 specs. Originally 25; 9 removed (shipped and self-evident).
+21 specs. Originally 25; 9 removed (shipped and self-evident).
 
 ## Shipped (trimmed to design decisions)
 
