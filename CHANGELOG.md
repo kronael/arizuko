@@ -9,6 +9,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+---
+
+## [v0.18.0] — 2026-03-26
+
 ### Added
 
 - **Impulse gate**: Weight-based event batching per JID before agent wake-up.
@@ -43,11 +47,29 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   - Discord OAuth (`DISCORD_CLIENT_ID`/`DISCORD_CLIENT_SECRET`): login button
     shown when configured.
 
+- **Voice synthesis spec**: `ttsd` daemon design and `send_voice` MCP tool
+  spec in `specs/8/6-voice-synthesis.md`. Open questions resolved.
+
+### Fixed
+
+- **Agent container CWD**: working directory changed from `/workspace/group`
+  to `/home/node` (the mounted group folder). Diary paths, conversation
+  archive paths, and `cwd` in agent queries all corrected.
+- **Diary skill path**: updated from `/workspace/group/diary/` to `~/diary/`
+  to match the corrected mount point.
+- **Dockerfile mkdir**: removed stale `/workspace/group` from `mkdir -p`
+  (no longer a mount target).
+
 ### Changed
 
+- **`containerHome` constant**: extracted `/home/node` to a named constant in
+  `container/runner.go` and `container/agent-runner/src/index.ts` to avoid
+  repeated string literals.
 - **License**: public domain (Unlicense). No restrictions. If you build on
   arizuko, acknowledge it — not because you have to, because that's how
   good work compounds.
+- **README**: removed Japanese subtitle, added "Why arizuko" section explaining
+  the real Claude Code CLI approach vs SDK wrappers.
 
 ---
 
