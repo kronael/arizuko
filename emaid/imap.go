@@ -20,12 +20,13 @@ import (
 var errIdleNotSupported = errors.New("IDLE not supported")
 
 type poller struct {
-	cfg config
-	db  *sql.DB
+	cfg     config
+	db      *sql.DB
+	dialTLS func(string, *imapclient.Options) (*imapclient.Client, error)
 }
 
 func newPoller(cfg config, db *sql.DB) *poller {
-	return &poller{cfg: cfg, db: db}
+	return &poller{cfg: cfg, db: db, dialTLS: imapclient.DialTLS}
 }
 
 func (p *poller) run(ctx context.Context, rc *routerClient) {
@@ -70,7 +71,7 @@ func (p *poller) runIdle(ctx context.Context, rc *routerClient) error {
 		},
 	}
 
-	c, err := imapclient.DialTLS(addr, opts)
+	c, err := p.dialTLS(addr, opts)
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
 	}
@@ -100,8 +101,21 @@ func (p *poller) runIdle(ctx context.Context, rc *routerClient) error {
 		var doFetch bool
 		select {
 		case <-ctx.Done():
-			idleCmd.Close()
-			idleCmd.Wait() //nolint:errcheck
+			idleCmd.Close() //nolint:errcheck
+			// idleCmd.Wait blocks on a server response after DONE is sent.
+			// If TCP is alive but unresponsive the read never returns, so we
+			// impose a 5-second backstop: close the connection to unblock it.
+			waitDone := make(chan struct{})
+			go func() {
+				idleCmd.Wait() //nolint:errcheck
+				close(waitDone)
+			}()
+			select {
+			case <-waitDone:
+			case <-time.After(5 * time.Second):
+				c.Close() //nolint:errcheck
+				<-waitDone
+			}
 			return nil
 		case <-exists:
 			doFetch = true
