@@ -24,7 +24,7 @@ func (s *server) handleGroupsPage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, htmlHead)
 	fmt.Fprintf(w, `<body>
 <header>
-  <span class="logo">arizuko</span>
+  <span class="logo">arizuko</span><span class="tagline">Claude agent gateway</span>
   <span class="user">%s</span>
   <form action="/auth/logout" method="POST" style="display:inline">
     <button type="submit">logout</button>

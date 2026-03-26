@@ -27,6 +27,7 @@ const (
 	outputStartMarker = "---ARIZUKO_OUTPUT_START---"
 	outputEndMarker   = "---ARIZUKO_OUTPUT_END---"
 	maxOutputSize     = 10 * 1024 * 1024 // 10MB
+	containerHome     = "/home/node"
 )
 
 var safeNameRe = regexp.MustCompile(`[^a-zA-Z0-9-]`)
@@ -438,7 +439,7 @@ func BuildMounts(
 
 	m = append(m, VolumeMount{
 		Host:      hp(cfg, groupDir),
-		Container: "/home/node",
+		Container: containerHome,
 	})
 	media := filepath.Join(groupDir, "media")
 	os.MkdirAll(media, 0o755)
@@ -466,7 +467,7 @@ func BuildMounts(
 	seedSkills(cfg, sessDir, in.Folder)
 	m = append(m, VolumeMount{
 		Host:      hp(cfg, sessDir),
-		Container: "/home/node/.claude",
+		Container: containerHome + "/.claude",
 	})
 
 	ipcDir, err := folders.IpcPath(in.Folder)
@@ -556,7 +557,7 @@ func buildArgs(
 	if uid > 0 && uid != 1000 {
 		args = append(args,
 			"--user", fmt.Sprintf("%d:%d", uid, gid),
-			"-e", "HOME=/home/node")
+			"-e", "HOME="+containerHome)
 	}
 
 	for _, m := range mounts {

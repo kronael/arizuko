@@ -1,10 +1,25 @@
 # arizuko
 
-Multitenant Claude agent gateway. Polls messaging channels,
-routes to containerized Claude agents via docker, streams
-responses back. Go, SQLite, Docker.
+Multitenant Claude agent gateway. Runs real Claude Code CLI inside Docker
+containers — not an SDK wrapper. Routes messages from channel adapters
+(Telegram, Discord, Mastodon, Bluesky, Reddit, WhatsApp, email, web) to
+per-group containerized agents, streams responses back.
 
-**蟻塚女** — _mistress of the ant hill._
+Go, SQLite, Docker.
+
+## Why arizuko
+
+- **Runs real Claude Code** — agents are Claude Code CLI in Docker. Full
+  tool use, subagents, MCP, hooks. Not a thin SDK wrapper with a subset of
+  capabilities.
+- **Channel-first** — adapters are independent daemons connecting over HTTP.
+  Add or swap a channel without touching the core.
+- **Multitenant by design** — one gateway, many groups, many channels.
+  Per-group agent containers, file workspaces, and MCP sidecars.
+- **Skills survive compaction** — agent skills and diary entries persist
+  across context resets and container restarts via `container/skills/`.
+- **Boring stack** — Go + SQLite (WAL mode) + Docker. No framework, no ORM,
+  no message queue. Schema is the contract.
 
 ## Quick Start
 

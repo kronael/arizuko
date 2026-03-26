@@ -52,7 +52,7 @@ type McpServerConfig = {
 };
 
 function loadAgentMcpServers(): Record<string, McpServerConfig> {
-  const settingsPath = '/home/node/.claude/settings.json';
+  const settingsPath = `${HOME}/.claude/settings.json`;
   try {
     if (!fs.existsSync(settingsPath)) return {};
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
@@ -67,6 +67,7 @@ function loadAgentMcpServers(): Record<string, McpServerConfig> {
   }
 }
 
+const HOME = '/home/node';
 const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
@@ -182,7 +183,7 @@ function createPreCompactHook(assistantName?: string): HookCallback {
       const summary = getSessionSummary(sessionId, transcriptPath);
       const name = summary ? sanitizeFilename(summary) : generateFallbackName();
 
-      const conversationsDir = '/home/node/conversations';
+      const conversationsDir = `${HOME}/conversations`;
       fs.mkdirSync(conversationsDir, { recursive: true });
 
       const date = new Date().toISOString().split('T')[0];
@@ -416,7 +417,7 @@ async function runQuery(
     for await (const message of query({
       prompt: stream,
       options: {
-        cwd: '/home/node',
+        cwd: HOME,
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
         resume: sessionId,
         resumeSessionAt: resumeAt,
@@ -513,7 +514,7 @@ async function runQuery(
     for await (const msg of query({
       prompt: 'You ran out of turns mid-task. Summarise concisely: what you accomplished, what is still pending. Then tell the user they can say "continue" to resume where you left off.',
       options: {
-        cwd: '/home/node',
+        cwd: HOME,
         maxTurns: 3,
         resume: newSessionId,
         permissionMode: 'bypassPermissions' as const,
