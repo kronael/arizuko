@@ -131,7 +131,9 @@ async function connect(): Promise<void> {
       const rawSender = msg.key.participant || jid;
       const senderName = msg.pushName || rawSender.split('@')[0];
 
-      rc.sendChat(chatJid, isGroup ? '' : senderName, isGroup);
+      await rc
+        .sendChat(chatJid, isGroup ? '' : senderName, isGroup)
+        .catch(() => {});
 
       try {
         await rc.sendMessage({

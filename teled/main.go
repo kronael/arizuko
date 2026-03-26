@@ -69,14 +69,15 @@ type config struct {
 
 func loadConfig() config {
 	dataDir := chanlib.EnvOr("DATA_DIR", "/srv/app/home")
+	name := chanlib.EnvOr("CHANNEL_NAME", "telegram")
 	return config{
-		Name:          chanlib.EnvOr("CHANNEL_NAME", "telegram"),
+		Name:          name,
 		TelegramToken: chanlib.MustEnv("TELEGRAM_BOT_TOKEN"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
 		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9001"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://telegram:9001"),
 		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
-		StateFile:     dataDir + "/teled-offset",
+		StateFile:     dataDir + "/teled-offset-" + name,
 	}
 }
