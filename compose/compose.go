@@ -31,6 +31,7 @@ func Generate(dataDir string) (string, error) {
 	for k, v := range map[string]string{
 		"API_PORT":       "8080",
 		"ASSISTANT_NAME": "arizuko",
+		"DATA_DIR":       dataDir, // host path; used in extra service volume strings
 	} {
 		if _, ok := env[k]; !ok {
 			env[k] = v
