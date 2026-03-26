@@ -78,12 +78,14 @@ func Generate(dataDir string) (string, error) {
 	}
 	if profile != "minimal" && profile != "web" {
 		b.WriteString(timedService(app, flavor, dataDir, env))
-		b.WriteString(dashdService(app, flavor, dataDir, env))
-		if webPort != "" && envOr(env, "WEBDAV_ENABLED", "") == "true" {
-			b.WriteString(davdService(app, flavor, dataDir, env))
-		}
-		if profile == "full" && envOr(env, "ONBOARDING_ENABLED", "") == "true" {
-			b.WriteString(onbodService(app, flavor, dataDir, env))
+		if profile == "full" {
+			b.WriteString(dashdService(app, flavor, dataDir, env))
+			if webPort != "" && envOr(env, "WEBDAV_ENABLED", "") == "true" {
+				b.WriteString(davdService(app, flavor, dataDir, env))
+			}
+			if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
+				b.WriteString(onbodService(app, flavor, dataDir, env))
+			}
 		}
 	}
 	for _, s := range services {

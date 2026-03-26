@@ -41,7 +41,7 @@ func loadConfig() config {
 	}
 	return config{
 		port:       port,
-		dashAddr:   chanlib.EnvOr("DASH_ADDR", "http://dashd:8091"),
+		dashAddr:   chanlib.EnvOr("DASH_ADDR", ""),
 		webdAddr:   chanlib.EnvOr("WEBD_ADDR", ""),
 		davAddr:    chanlib.EnvOr("DAV_ADDR", ""),
 		viteAddr:   chanlib.EnvOr("VITE_ADDR", "http://localhost:8096"),
@@ -154,10 +154,12 @@ func newServer(cfg config, st *store.Store, vh *vhosts) *server {
 	s := &server{
 		cfg:       cfg,
 		st:        st,
-		dashProxy: proxy(cfg.dashAddr),
 		viteProxy: proxy(cfg.viteAddr),
 		vh:        vh,
 		slinkRL:   newRateLimiter(10, time.Minute),
+	}
+	if cfg.dashAddr != "" {
+		s.dashProxy = proxy(cfg.dashAddr)
 	}
 	if cfg.webdAddr != "" {
 		s.webdProxy = proxy(cfg.webdAddr)
@@ -255,8 +257,12 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. /dash/ — always auth-gated
+	// 2. /dash/ — auth-gated, proxied to dashd (not available without dashd)
 	if strings.HasPrefix(r.URL.Path, "/dash/") {
+		if s.dashProxy == nil {
+			http.NotFound(w, r)
+			return
+		}
 		s.requireAuth(s.dashProxy.ServeHTTP)(w, r)
 		return
 	}
