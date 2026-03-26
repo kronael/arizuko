@@ -30,7 +30,7 @@ const routerURL = env('ROUTER_URL');
 const channelSecret = env('CHANNEL_SECRET', '');
 const listenAddr = env('LISTEN_ADDR', ':9002');
 const listenURL = env('LISTEN_URL', 'http://whapd:9002');
-const dataDir = env('DATA_DIR', '');
+const dataDir = process.env['DATA_DIR'] ?? '';
 const authDir = env(
   'WHATSAPP_AUTH_DIR',
   dataDir ? `${dataDir}/store/whatsapp-auth` : '/srv/data/store/whatsapp-auth',
@@ -38,6 +38,7 @@ const authDir = env(
 
 let sock: WASocket | null = null;
 const rc = new RouterClient(routerURL, channelSecret);
+let reconnectAttempts = 0;
 
 async function connect(): Promise<void> {
   fs.mkdirSync(authDir, { recursive: true });
@@ -69,18 +70,38 @@ async function connect(): Promise<void> {
         log('error', 'logged out, delete auth dir and restart');
         process.exit(1);
       }
-      log('info', 'disconnected, reconnecting', { code });
+      // 405: session terminated server-side — auth is invalid, no point retrying.
+      if (code === 405) {
+        log(
+          'error',
+          'session invalidated by server (405), delete auth dir and restart',
+        );
+        process.exit(1);
+      }
+      reconnectAttempts++;
+      const maxAttempts = 10;
+      if (reconnectAttempts > maxAttempts) {
+        log('error', 'max reconnect attempts reached, giving up');
+        process.exit(1);
+      }
+      const delay = Math.min(3000 * Math.pow(2, reconnectAttempts - 1), 60000);
+      log('info', 'disconnected, reconnecting', {
+        code,
+        attempt: reconnectAttempts,
+        delay,
+      });
       setTimeout(
         () =>
           connect().catch((e) => {
             log('error', 'reconnect failed', { err: String(e) });
             process.exit(1);
           }),
-        3000,
+        delay,
       );
     }
 
     if (connection === 'open') {
+      reconnectAttempts = 0;
       log('info', 'connected to whatsapp');
       sock!.sendPresenceUpdate('unavailable').catch(() => {});
     }
