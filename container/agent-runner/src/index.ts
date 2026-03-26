@@ -208,9 +208,8 @@ function createPreCompactHook(assistantName?: string): HookCallback {
   };
 }
 
-// Secrets to strip from Bash tool subprocess environments.
-// These are needed by claude-code for API auth but should never
-// be visible to commands Kit runs.
+// Strip secrets from Bash subprocess environments: needed by claude-code
+// for API auth but must never be visible to commands the agent runs.
 const SECRET_ENV_VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
 
 function createSanitizeBashHook(): HookCallback {
@@ -412,6 +411,7 @@ async function runQuery(
   }
 
   const heartbeat = setInterval(writeHeartbeat, HEARTBEAT_INTERVAL_MS);
+  const agentMcpServers = loadAgentMcpServers();
 
   try {
     for await (const message of query({
@@ -434,16 +434,14 @@ async function runQuery(
           'TodoWrite', 'ToolSearch', 'Skill',
           'NotebookEdit',
           'mcp__arizuko__*',
-          ...Object.keys(loadAgentMcpServers()).map(
-            (n) => `mcp__${n}__*`,
-          ),
+          ...Object.keys(agentMcpServers).map((n) => `mcp__${n}__*`),
         ],
         env: sdkEnv,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user'],
         mcpServers: {
-          ...loadAgentMcpServers(),
+          ...agentMcpServers,
           arizuko: {
             command: 'socat',
             args: ['STDIO', 'UNIX-CONNECT:/workspace/ipc/router.sock'],
