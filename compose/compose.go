@@ -63,21 +63,25 @@ func Generate(dataDir string) (string, error) {
 	project := filepath.Base(dataDir)
 	app, flavor, _ := strings.Cut(project, "_")
 
+	profile := envOr(env, "PROFILE", "full")
+
 	var b strings.Builder
 	fmt.Fprintf(&b, "name: %s\n", project)
 	b.WriteString("services:\n")
 	b.WriteString(gatedService(app, flavor, dataDir, env))
-	b.WriteString(timedService(app, flavor, dataDir, env))
-	b.WriteString(dashdService(app, flavor, dataDir, env))
-	if webPort := envOr(env, "WEB_PORT", ""); webPort != "" {
-		b.WriteString(proxydService(app, flavor, dataDir, env))
-		b.WriteString(vitedService(app, flavor, dataDir, env))
-		if envOr(env, "WEBDAV_ENABLED", "") == "true" {
-			b.WriteString(davdService(app, flavor, dataDir, env))
+	if profile != "minimal" {
+		b.WriteString(timedService(app, flavor, dataDir, env))
+		b.WriteString(dashdService(app, flavor, dataDir, env))
+		if webPort := envOr(env, "WEB_PORT", ""); webPort != "" {
+			b.WriteString(proxydService(app, flavor, dataDir, env))
+			b.WriteString(vitedService(app, flavor, dataDir, env))
+			if envOr(env, "WEBDAV_ENABLED", "") == "true" {
+				b.WriteString(davdService(app, flavor, dataDir, env))
+			}
 		}
-	}
-	if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
-		b.WriteString(onbodService(app, flavor, dataDir, env))
+		if profile == "full" && envOr(env, "ONBOARDING_ENABLED", "") == "true" {
+			b.WriteString(onbodService(app, flavor, dataDir, env))
+		}
 	}
 	for _, s := range services {
 		b.WriteString(renderService(app, flavor, s.name, s.cfg, env))

@@ -312,10 +312,12 @@ func (g *Gateway) pollOnce() {
 			}
 		}
 
-		impCfg := ParseImpulseCfg(g.store.GetImpulseConfigJSON(chatJid))
-		if !g.impulse.accept(chatJid, chatMsgs, impCfg) {
-			slog.Debug("poll: impulse hold", "jid", chatJid)
-			continue
+		if g.cfg.ImpulseEnabled {
+			impCfg := ParseImpulseCfg(g.store.GetImpulseConfigJSON(chatJid))
+			if !g.impulse.accept(chatJid, chatMsgs, impCfg) {
+				slog.Debug("poll: impulse hold", "jid", chatJid)
+				continue
+			}
 		}
 
 		if g.queue.SendMessage(chatJid, last.Content) {
@@ -328,12 +330,13 @@ func (g *Gateway) pollOnce() {
 		g.queue.EnqueueMessageCheck(chatJid)
 	}
 
-	// Flush JIDs that have pending weight exceeding max_hold.
-	for _, jid := range g.impulse.flush(func(jid string) ImpulseCfg {
-		return ParseImpulseCfg(g.store.GetImpulseConfigJSON(jid))
-	}) {
-		slog.Debug("poll: impulse timeout flush", "jid", jid)
-		g.queue.EnqueueMessageCheck(jid)
+	if g.cfg.ImpulseEnabled {
+		for _, jid := range g.impulse.flush(func(jid string) ImpulseCfg {
+			return ParseImpulseCfg(g.store.GetImpulseConfigJSON(jid))
+		}) {
+			slog.Debug("poll: impulse timeout flush", "jid", jid)
+			g.queue.EnqueueMessageCheck(jid)
+		}
 	}
 
 	g.saveState()
