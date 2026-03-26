@@ -7,6 +7,7 @@ import makeWASocket, {
   type WASocket,
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
+import qrcode from 'qrcode-terminal';
 import { RouterClient } from './client.js';
 import { startServer } from './server.js';
 
@@ -37,7 +38,6 @@ const authDir = env(
 );
 
 let sock: WASocket | null = null;
-let currentQR: string | null = null;
 const rc = new RouterClient(routerURL, channelSecret);
 let reconnectAttempts = 0;
 
@@ -50,7 +50,7 @@ async function connect(): Promise<void> {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(state.keys, logger),
     },
-    printQRInTerminal: true,
+    printQRInTerminal: false,
     logger,
     browser: Browsers.macOS('Chrome'),
     shouldSyncHistoryMessage: () => false,
@@ -62,8 +62,8 @@ async function connect(): Promise<void> {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      currentQR = qr;
-      log('info', 'scan QR code at GET /qr to authenticate');
+      log('info', 'scan QR code to authenticate');
+      qrcode.generate(qr, { small: true });
     }
 
     if (connection === 'close') {
@@ -104,7 +104,6 @@ async function connect(): Promise<void> {
 
     if (connection === 'open') {
       reconnectAttempts = 0;
-      currentQR = null;
       log('info', 'connected to whatsapp');
       sock!.sendPresenceUpdate('unavailable').catch(() => {});
     }
@@ -165,12 +164,7 @@ async function main() {
     process.exit(1);
   }
 
-  const srv = startServer(
-    listenAddr,
-    channelSecret,
-    () => sock,
-    () => currentQR,
-  );
+  const srv = startServer(listenAddr, channelSecret, () => sock);
 
   async function shutdown() {
     log('info', 'shutting down');

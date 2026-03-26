@@ -27,7 +27,6 @@ export function startServer(
   addr: string,
   secret: string,
   sock: () => WASocket | null,
-  qr: () => string | null,
 ): http.Server {
   const srv = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -36,21 +35,6 @@ export function startServer(
         name: 'whatsapp',
         jid_prefixes: ['whatsapp:'],
       });
-      return;
-    }
-
-    // Unauthenticated QR endpoint — needed during initial pairing.
-    if (req.method === 'GET' && req.url === '/qr') {
-      const code = qr();
-      if (!code) {
-        json(res, 404, {
-          ok: false,
-          error: 'no QR available (already paired or not ready)',
-        });
-        return;
-      }
-      // Return raw QR data so client can render it.
-      json(res, 200, { ok: true, qr: code });
       return;
     }
 
