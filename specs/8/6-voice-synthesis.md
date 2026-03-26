@@ -97,84 +97,90 @@ Same text + same voice = serve from cache. TTL: indefinite (content-addressed).
 
 ---
 
+## Design: separate `send_voice` MCP tool (resolved)
+
+Research across Telegram, Discord, WhatsApp, Email APIs confirms the
+**separate method per capability** pattern — each platform uses distinct
+calls for text, voice, and files. Arizuko's `Send()` / `SendFile()`
+split already matches this model. Adding `send_voice` as a third MCP
+tool (like `send_file`) is the natural fit.
+
+**Rejected alternative**: "unified message with optional voice field"
+(WhatsApp/email style). This would require changing `Channel.Send`,
+all adapter signatures, and `OutboundEntry` — too much churn for no gain.
+Telegram and Discord don't model voice this way either.
+
+**Consequence**: no changes to core types, Channel interface, or adapters.
+Voice is just another file (OGG audio) delivered through existing `SendFile`
+infrastructure. The gateway synthesizes and caches; adapters just receive a file.
+
+### Implementation sketch (~150 LOC)
+
+```go
+// ipc/ipc.go — add send_voice tool (like send_file)
+srv.AddTool("send_voice",
+    mcp.WithString("chatJid", mcp.Required()),
+    mcp.WithString("text", mcp.Required()),
+    mcp.WithString("voice"),  // optional: overrides TTS_VOICE
+)
+
+// gateway/gateway.go — synthesize + send
+func (g *Gateway) sendVoice(jid, text, voice string) error {
+    audioPath, err := g.synthesize(text, voice)  // calls ttsd, caches
+    if err != nil { return err }
+    return g.sendDocument(jid, audioPath, "voice.ogg")
+}
+
+func (g *Gateway) synthesize(text, voice string) (string, error) {
+    hash := sha256sum(text + voice)
+    cachePath := filepath.Join(g.cfg.DataDir, "tts", hash+".ogg")
+    if exists(cachePath) { return cachePath, nil }
+    audio, err := callTTSD(g.cfg.TTSBaseURL, text, voice)
+    os.WriteFile(cachePath, audio, 0644)
+    return cachePath, nil
+}
+```
+
+### Adapter changes
+
+**None required.** Audio is sent via existing `sendDocument` → `SendFile`
+path. Telegram's `sendFile` already dispatches `.ogg` as audio (see
+`teled/bot.go:219`). Discord sends as file attachment. WhatsApp `sendAudio`
+can be triggered if whapd gets a `/send-voice` endpoint (optional upgrade).
+
 ## Open questions
 
-### Q1: What triggers voice reply?
-
-Options:
-
-a) **Per-conversation**: if the last user message was a voice note, reply
-in voice. Simple and natural. Problem: agent always uses the same voice,
-can't adapt.
-
-b) **Per-route**: `voice_reply: true` in routes table for that JID.
-Operator controls. Problem: requires schema change + dashboard support.
-
-c) **Agent-controlled via MCP tool**: agent calls `send_voice(text)` instead
-of returning text. Agent decides when voice is appropriate. Most flexible.
-Problem: agent must know to use the tool; output pipeline changes.
-
-d) **Hybrid**: per-route default (opt-in voice mode), overridable by agent.
-Probably correct long-term.
-
-### Q2: How does the agent signal voice intent?
-
-If agent-controlled (Q1c or Q1d): does the agent call a new MCP tool,
-or does it emit a structured marker in its text output that the gateway
-intercepts?
-
-MCP tool approach:
-
-- `send_voice(text)` — clean, explicit, doesn't affect text reply path
-- Requires adapter to support receiving audio upload from gateway
-- Agent can mix text and voice in same turn
-
-Marker approach:
-
-- Agent wraps voice segment: `<speak>this will be synthesized</speak>`
-- Gateway strips it, synthesizes, sends audio + remaining text
-- No new MCP tool; works with existing send path
-
-### Q3: Voice selection
+### Q1: Voice selection
 
 Single global voice (configurable) vs per-group/per-persona voice?
 
-- Single voice: simplest. `TTS_VOICE=alloy` env var.
-- Per-group: routes table `voice_id` column. Complex.
+- **Single voice**: simplest. `TTS_VOICE=alloy` env var. Implement first.
 - Per-persona: SOUL.md includes `voice: nova` frontmatter. Agent reads it
-  and passes to `send_voice(text, voice="nova")`. Elegant but requires
-  agent skill update.
+  and passes to `send_voice(text, voice="nova")`. Elegant — no schema change.
+- Per-group: routes table `voice_id` column. Most complex.
 
-### Q4: Long messages
+### Q2: Long messages
 
 TTS APIs have limits (OpenAI: 4096 chars). Agent responses can be long.
-Options:
 
-- Truncate (bad)
-- Split into multiple audio files (complex, multiple sends)
-- Only synthesize short responses (< N chars), fall back to text otherwise
-- Agent is responsible for keeping voice replies short (instruction in CLAUDE.md)
+- Agent is responsible for keeping voice replies short (CLAUDE.md instruction)
+- Fallback: if text > N chars, gateway sends as text instead
 
-### Q5: Self-hosted vs managed
+### Q3: WhatsApp voice note vs audio file
 
-For minimal setup: no TTS service → text-only replies even when voice input.
-For full/platform profile: `ttsd` as opt-in service (like davd).
+WhatsApp distinguishes voice notes (`{ audio, ptt: true }`) from music
+(`{ audio, ptt: false }`). Should `/send-voice` endpoint in whapd set
+`ptt: true`? Probably yes for conversational voice replies.
 
-What's the default? `TTS_ENABLED=false`, only activates when
-`VOICE_SYNTHESIS_BASE_URL` is set? Or always attempt if voice input?
+### Q4: TTS cache scope
 
-### Q6: Where does synthesis happen?
+Cache key = hash(text + voice). Where does the cache live?
 
-a) In the gateway (before `channel.Send`) — gateway fetches audio, sends file
-b) In the adapter (adapter calls TTS before sending) — adapter knows channel format
-c) In a sidecar (MCP tool available to agent) — agent decides
+- Option A: `<data_dir>/tts/<hash>.ogg` — global cache, shared across groups
+- Option B: `<group_dir>/media/tts/<hash>.ogg` — per-group cache
 
-Option (a) keeps adapters simple. Option (c) is most flexible.
-Option (b) is an anti-pattern (adapter shouldn't talk to TTS).
-
-**Likely answer**: gateway or MCP sidecar. Leaning toward MCP sidecar
-(`send_voice` tool) so the agent controls it, consistent with how
-`send_file` works.
+Option A is simpler and avoids duplicate synthesis. Option B follows the
+per-group media pattern already used for whisper transcripts.
 
 ---
 
