@@ -713,11 +713,17 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 
 			var nextRun *time.Time
+			var cronStore string // value written to DB cron column
 			if cronExpr != "" {
 				// interval ms: pure integer string
 				if ms, err := strconv.ParseInt(cronExpr, 10, 64); err == nil && ms > 0 {
 					t := time.Now().Add(time.Duration(ms) * time.Millisecond)
 					nextRun = &t
+					cronStore = cronExpr
+				} else if t, err := time.Parse(time.RFC3339, cronExpr); err == nil {
+					// once: ISO 8601 timestamp → run once at that time
+					nextRun = &t
+					cronStore = "" // empty cron → timed marks completed after firing
 				} else {
 					p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 					sched, err := p.Parse(cronExpr)
@@ -726,13 +732,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 					}
 					t := sched.Next(time.Now())
 					nextRun = &t
+					cronStore = cronExpr
 				}
 			}
 
 			taskID := fmt.Sprintf("task-%d-%s", time.Now().UnixMilli(), uuid.New().String()[:8])
 			task := core.Task{
 				ID: taskID, Owner: targetFolder, ChatJID: targetJid,
-				Prompt: req.GetString("prompt", ""), Cron: cronExpr,
+				Prompt: req.GetString("prompt", ""), Cron: cronStore,
 				NextRun: nextRun, Status: core.TaskActive, Created: time.Now(),
 				ContextMode: contextMode,
 			}
