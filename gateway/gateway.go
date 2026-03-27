@@ -565,6 +565,10 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 			return
 		}
 		hadOutput = true
+		if !g.canSendToGroup(groupFolder) {
+			slog.Debug("send suppressed by SEND_DISABLED_GROUPS", "group", groupFolder)
+			return
+		}
 		stripped, statuses := router.ExtractStatusBlocks(text)
 		for _, s := range statuses {
 			if sentID, _ := g.sendMessageReply(chatJid, s, "", ""); sentID != "" {
@@ -720,7 +724,39 @@ func (g *Gateway) sendMessage(jid, text string) error {
 	return err
 }
 
+func (g *Gateway) canSendToJID(jid string) bool {
+	if len(g.cfg.SendDisabledChannels) == 0 {
+		return true
+	}
+	prefix := jid
+	if i := strings.Index(jid, ":"); i >= 0 {
+		prefix = jid[:i]
+	}
+	for _, ch := range g.cfg.SendDisabledChannels {
+		if strings.EqualFold(ch, prefix) {
+			return false
+		}
+	}
+	return true
+}
+
+func (g *Gateway) canSendToGroup(folder string) bool {
+	if len(g.cfg.SendDisabledGroups) == 0 {
+		return true
+	}
+	for _, gf := range g.cfg.SendDisabledGroups {
+		if strings.EqualFold(gf, folder) {
+			return false
+		}
+	}
+	return true
+}
+
 func (g *Gateway) sendMessageReply(jid, text, replyTo, threadID string) (string, error) {
+	if !g.canSendToJID(jid) {
+		slog.Debug("send suppressed by SEND_DISABLED_CHANNELS", "jid", jid)
+		return "", nil
+	}
 	ch := g.findChannel(jid)
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)

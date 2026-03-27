@@ -46,6 +46,8 @@ type Config struct {
 	OnboardingEnabled    bool
 	OnboardingPlatforms  []string
 	ImpulseEnabled       bool
+	SendDisabledChannels []string
+	SendDisabledGroups   []string
 
 	MediaEnabled  bool
 	MediaMaxBytes int64
@@ -101,9 +103,11 @@ func LoadConfig() (*Config, error) {
 
 		APIPort:             envInt("API_PORT", 8080),
 		ChannelSecret:       envOr("CHANNEL_SECRET", ""),
-		OnboardingEnabled:   envOr("ONBOARDING_ENABLED", "false") == "true",
-		OnboardingPlatforms: parseCSV(envOr("ONBOARDING_PLATFORMS", "")),
-		ImpulseEnabled:      envOr("IMPULSE_ENABLED", "true") == "true",
+		OnboardingEnabled:    envOr("ONBOARDING_ENABLED", "false") == "true",
+		OnboardingPlatforms:  parseCSV(envOr("ONBOARDING_PLATFORMS", "")),
+		ImpulseEnabled:       envOr("IMPULSE_ENABLED", "true") == "true",
+		SendDisabledChannels: parseCSV(envOr("SEND_DISABLED_CHANNELS", "")),
+		SendDisabledGroups:   parseCSV(envOr("SEND_DISABLED_GROUPS", "")),
 
 		MediaEnabled:  envOr("MEDIA_ENABLED", "false") == "true",
 		MediaMaxBytes: int64(envInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
