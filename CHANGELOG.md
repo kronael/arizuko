@@ -11,6 +11,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.19.2] — 2026-03-27
+
+### Added
+
+- **whapd: media inbound** — images, video, audio, voice notes, documents
+  downloaded via Baileys `downloadMediaMessage` and forwarded to router as
+  attachment fields. Media-only messages (no caption) deliver a description
+  (`[Image]`, `[Voice Note]`, `[File: name]`).
+- **whapd: LID→phone JID translation** — in-memory cache maps WhatsApp LID
+  format to phone-based JIDs; required for modern WA accounts.
+- **whapd: group metadata sync** — `groupFetchAllParticipating()` on connect
+  - 24h refresh; group names passed to router on `sendChat`.
+- **whapd: outbound message queue** — messages queued when disconnected,
+  flushed on reconnect; `/send` returns `{ queued: true }` instead of 502.
+- **whapd: `/send-file` endpoint** — send images, video, audio, documents
+  back to users; accepts base64 `data` + `mime` + optional `filename`/`caption`.
+
+---
+
 ## [v0.19.1] — 2026-03-27
 
 ### Fixed
