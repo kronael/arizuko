@@ -24,14 +24,31 @@ func readEpisodeSummary(path string) (summary, epType string) {
 		return "", ""
 	}
 	fm := content[3 : end+3]
-	for _, line := range strings.Split(fm, "\n") {
-		if strings.HasPrefix(line, "summary:") {
-			summary = strings.TrimSpace(strings.TrimPrefix(line, "summary:"))
-			summary = strings.Trim(summary, `"'`)
+	lines := strings.Split(fm, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "type:") {
+			epType = strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "type:")), `"'`)
 		}
-		if strings.HasPrefix(line, "type:") {
-			epType = strings.TrimSpace(strings.TrimPrefix(line, "type:"))
-			epType = strings.Trim(epType, `"'`)
+		if strings.HasPrefix(trimmed, "summary:") {
+			val := strings.TrimSpace(strings.TrimPrefix(trimmed, "summary:"))
+			if val != "" && val != "|" && val != ">" {
+				summary = strings.Trim(val, `"'`)
+				continue
+			}
+			// block scalar: collect indented continuation lines
+			var parts []string
+			for _, bl := range lines[i+1:] {
+				if len(bl) == 0 {
+					continue
+				}
+				if bl[0] == ' ' || bl[0] == '\t' {
+					parts = append(parts, strings.TrimSpace(bl))
+				} else {
+					break
+				}
+			}
+			summary = strings.Join(parts, " ")
 		}
 	}
 	return

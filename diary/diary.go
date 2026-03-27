@@ -109,14 +109,30 @@ func extractSummary(path string) string {
 		return ""
 	}
 	frontmatter := content[4 : 4+end]
-	for _, line := range strings.Split(frontmatter, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "summary:") {
-			val := strings.TrimPrefix(line, "summary:")
-			val = strings.TrimSpace(val)
-			val = strings.Trim(val, "\"'")
-			return val
+	lines := strings.Split(frontmatter, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "summary:") {
+			continue
 		}
+		val := strings.TrimSpace(strings.TrimPrefix(trimmed, "summary:"))
+		// inline value
+		if val != "" && val != "|" && val != ">" {
+			return strings.Trim(val, "\"'")
+		}
+		// block scalar: collect indented lines that follow
+		var parts []string
+		for _, bl := range lines[i+1:] {
+			if len(bl) == 0 {
+				continue
+			}
+			if bl[0] == ' ' || bl[0] == '\t' {
+				parts = append(parts, strings.TrimSpace(bl))
+			} else {
+				break
+			}
+		}
+		return strings.Join(parts, " ")
 	}
 	return ""
 }

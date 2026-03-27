@@ -138,4 +138,20 @@ func TestExtractSummary(t *testing.T) {
 	if got := extractSummary(filepath.Join(dir, "missing.md")); got != "" {
 		t.Fatalf("expected empty for missing file, got %q", got)
 	}
+
+	// Block scalar with | (literal)
+	p5 := filepath.Join(dir, "e.md")
+	os.WriteFile(p5, []byte("---\nsummary: |\n  line one\n  line two\n---\nbody"), 0o644)
+	got := extractSummary(p5)
+	if !strings.Contains(got, "line one") || !strings.Contains(got, "line two") {
+		t.Fatalf("expected block scalar lines, got %q", got)
+	}
+
+	// Block scalar with > (folded)
+	p6 := filepath.Join(dir, "f.md")
+	os.WriteFile(p6, []byte("---\nsummary: >\n  - item a\n  - item b\n---\nbody"), 0o644)
+	got = extractSummary(p6)
+	if !strings.Contains(got, "item a") || !strings.Contains(got, "item b") {
+		t.Fatalf("expected folded block scalar lines, got %q", got)
+	}
 }

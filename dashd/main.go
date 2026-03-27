@@ -382,27 +382,101 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 	diaryDir := filepath.Join(groupDir, "diary")
 	entries, err := os.ReadDir(diaryDir)
 	if err == nil {
-		fmt.Fprint(w, `<h2>Diary</h2><ul>`)
+		fmt.Fprint(w, `<h2>Diary</h2><details open><summary>entries</summary><ul>`)
 		// reverse (newest first)
 		for i := len(entries) - 1; i >= 0; i-- {
 			e := entries[i]
 			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 				continue
 			}
-			firstLine := ""
-			if data, err := os.ReadFile(filepath.Join(diaryDir, e.Name())); err == nil {
-				lines := strings.SplitN(string(data), "\n", 2)
-				if len(lines) > 0 {
-					firstLine = strings.TrimSpace(lines[0])
-				}
-			}
+			summary := mdSummary(filepath.Join(diaryDir, e.Name()))
 			fmt.Fprintf(w, `<li><b>%s</b> %s</li>`,
 				template.HTMLEscapeString(e.Name()),
-				template.HTMLEscapeString(firstLine),
+				template.HTMLEscapeString(summary),
 			)
 		}
-		fmt.Fprint(w, `</ul>`)
+		fmt.Fprint(w, `</ul></details>`)
 	}
+
+	renderMdDir(w, groupDir, "episodes", "Episodes")
+	renderMdDir(w, groupDir, "users", "Users")
+	renderMdDir(w, groupDir, "facts", "Facts")
+}
+
+// mdSummary extracts the summary frontmatter value or the first non-empty line.
+func mdSummary(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	content := string(data)
+	// try frontmatter summary
+	if strings.HasPrefix(content, "---\n") {
+		end := strings.Index(content[4:], "\n---")
+		if end >= 0 {
+			lines := strings.Split(content[4:4+end], "\n")
+			for i, line := range lines {
+				trimmed := strings.TrimSpace(line)
+				if !strings.HasPrefix(trimmed, "summary:") {
+					continue
+				}
+				val := strings.TrimSpace(strings.TrimPrefix(trimmed, "summary:"))
+				if val != "" && val != "|" && val != ">" {
+					return strings.Trim(val, `"'`)
+				}
+				var parts []string
+				for _, bl := range lines[i+1:] {
+					if len(bl) == 0 {
+						continue
+					}
+					if bl[0] == ' ' || bl[0] == '\t' {
+						parts = append(parts, strings.TrimSpace(bl))
+					} else {
+						break
+					}
+				}
+				return strings.Join(parts, " ")
+			}
+		}
+	}
+	// fallback: first non-empty line
+	for _, l := range strings.Split(content, "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" && l != "---" {
+			return l
+		}
+	}
+	return ""
+}
+
+// renderMdDir renders a collapsible list of *.md files from groupDir/<sub>.
+func renderMdDir(w http.ResponseWriter, groupDir, sub, title string) {
+	dir := filepath.Join(groupDir, sub)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	var mdFiles []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+			mdFiles = append(mdFiles, e)
+		}
+	}
+	if len(mdFiles) == 0 {
+		return
+	}
+	fmt.Fprintf(w, `<h2>%s</h2><details><summary>%d files</summary><ul>`,
+		template.HTMLEscapeString(title), len(mdFiles))
+	// newest first (reverse alphabetical — ISO names sort correctly)
+	for i := len(mdFiles) - 1; i >= 0; i-- {
+		e := mdFiles[i]
+		summary := mdSummary(filepath.Join(dir, e.Name()))
+		fmt.Fprintf(w, `<li><b>%s</b> %s</li>`,
+			template.HTMLEscapeString(e.Name()),
+			template.HTMLEscapeString(summary),
+		)
+	}
+	fmt.Fprint(w, `</ul></details>`)
 }
 
 func nullStr(n sql.NullString) string {

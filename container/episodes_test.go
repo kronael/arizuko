@@ -62,3 +62,18 @@ func TestReadRecentEpisodes_MalformedFrontmatter(t *testing.T) {
 		t.Errorf("expected good file in result, got %q", got)
 	}
 }
+
+func TestReadEpisodeSummary_BlockScalar(t *testing.T) {
+	dir := t.TempDir()
+
+	// block scalar with >
+	p := filepath.Join(dir, "ep.md")
+	os.WriteFile(p, []byte("---\nsummary: >\n  - shipped discord\n  - auth fix\ntype: week\n---\nbody"), 0o644)
+	summary, epType := readEpisodeSummary(p)
+	if epType != "week" {
+		t.Errorf("expected type=week, got %q", epType)
+	}
+	if !strings.Contains(summary, "shipped discord") {
+		t.Errorf("expected block scalar content, got %q", summary)
+	}
+}
