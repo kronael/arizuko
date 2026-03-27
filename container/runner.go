@@ -524,15 +524,6 @@ func BuildMounts(
 		})
 	}
 
-	if root {
-		sd := filepath.Join(cfg.DataDir, "sessions")
-		os.MkdirAll(sd, 0o755)
-		m = append(m, VolumeMount{
-			Host:      hp(cfg, sd),
-			Container: "/workspace/data/sessions",
-		})
-	}
-
 	return m
 }
 

@@ -1,5 +1,5 @@
 {
-  "name": "arizuko-agent-runner",
+  "name": "arizuko-ant",
   "version": "1.0.0",
   "type": "module",
   "description": "Container-side agent runner for Arizuko",

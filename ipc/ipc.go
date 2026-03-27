@@ -385,7 +385,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				}
 				if name != jid {
 					child.Name = name
-					gated.RegisterGroup(jid, child) //nolint
+					if err := gated.RegisterGroup(jid, child); err != nil {
+						slog.Warn("register_group: update name", "jid", jid, "err", err)
+					}
 				}
 				if gated.SeedGroupDir != nil {
 					if err := gated.SeedGroupDir(child.Folder); err != nil {
