@@ -11,6 +11,59 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.19.0] — 2026-03-27
+
+### Changed
+
+- **ant/ rename**: `container/agent-runner/` → `ant/`; `container/skills/` →
+  `ant/skills/`; `container/CLAUDE.md` → `ant/CLAUDE.md`. Go spawn code stays
+  in `container/`. The in-container agent is now called "ant".
+
+- **Image rename**: `arizuko-agent:latest` → `arizuko-ant:latest` throughout
+  config defaults, env.example, and generated `.env` on `arizuko create`.
+
+- **Sessions path collapsed**: `data/sessions/<folder>/.claude/` merged into
+  `groups/<folder>/.claude/`. Group folder mount at `/home/node` already covers
+  `.claude/`; separate mount removed. Matches kanipi model.
+
+- **SeedGroupDir at creation time**: Skills seeding (`seedSkills`) moved from
+  `container.Run()` (every message) to group creation. `container.SeedGroupDir()`
+  is now called from `arizuko group add`, `onbod /approve`, and the
+  `register_group` MCP tool. `seedSettings()` stays in `Run()` for runtime
+  values (grants, session ID, socat MCP config).
+
+- **Service catalog embedded**: `template/services/*.toml` now embedded in
+  `arizuko:latest` at `/opt/arizuko/template/services/`. Ansible extracts from
+  image — no duplicate TOML files in role.
+
+- **gated.sock**: MCP socket renamed from `router.sock` → `gated.sock`
+  throughout docs, specs, and skills.
+
+### Fixed
+
+- MCP socket permissions: `ipc.go` now sets mode `0666` so agent (uid=1000)
+  can connect without being blocked.
+- `RegisterGroup` error was silently dropped with `//nolint` in `ipc/ipc.go`;
+  now logged as warn.
+- Dead `sessions/` volume mount for root groups removed from `BuildMounts()`.
+- `cmdCreate` now calls `SeedGroupDir` instead of writing a static `CLAUDE.md`
+  that diverged from what `cmdGroup add` and onbod produce.
+- `groupRunnerDir` (copying `ant/src` on first run) removed — source is baked
+  into the container image.
+
+### Added
+
+- **emaid IMAP IDLE**: Replaced 30s poll loop with RFC 2177 IMAP IDLE push;
+  28-min safety timer for RFC-compliant reconnect. Eliminates latency and
+  reduces load.
+- **whapd**: `--pair <phone>` flag for phone-number pairing; QR via
+  `qrcode-terminal`; exponential backoff on reconnect; exit on 405.
+- **teled-REDACTED**: Service template for second Telegram bot in merged instance.
+- **ant/ant**: Standalone CLI script (like dockbox) wrapping `docker run
+arizuko-ant` with correct mounts for use outside arizuko.
+
+---
+
 ## [v0.18.0] — 2026-03-26
 
 ### Added
