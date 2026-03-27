@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -10,6 +12,20 @@ import (
 	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/core"
 )
+
+// anonSender derives a stable, privacy-preserving sender ID from client IP.
+// Format: "anon:<8-char hex prefix of sha256(ip)>"
+func anonSender(r *http.Request) string {
+	ip := r.Header.Get("X-Forwarded-For")
+	if ip == "" {
+		ip, _, _ = net.SplitHostPort(r.RemoteAddr)
+	}
+	if ip == "" {
+		ip = "unknown"
+	}
+	sum := sha256.Sum256([]byte(ip))
+	return fmt.Sprintf("anon:%x", sum[:4])
+}
 
 // handleSlinkPost accepts user messages via token-authenticated POST.
 // POST /slink/<token>   body: content=Hello&topic=abc123
@@ -38,7 +54,7 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	sender := userSub(r)
 	senderName := userName(r)
 	if sender == "" {
-		sender = "anon"
+		sender = anonSender(r)
 		senderName = "Anonymous"
 	}
 
