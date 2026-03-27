@@ -328,16 +328,16 @@ The `ipc` MCP manifest is filtered by grants so agents only see permitted tools.
    - `gated` (always), `timed`, `dashd` (profile=full), `proxyd`+`vited` (WEB_PORT set)
    - `onbod` when `ONBOARDING_ENABLED=true`
 
-2. **Service products** — TOML files dropped into `data/<flavor>/services/`.
+2. **Extra services** — TOML files dropped into `data/<flavor>/services/`.
    Each `.toml` declares one extra compose service (channel adapter or sidecar).
    `compose.Generate` reads them all and appends to the compose output.
 
-### Service product catalog (`template/services/`)
+### Service catalog (`template/services/`)
 
 Bundled products ship in the arizuko image at `/opt/arizuko/template/services/`.
 Ansible extracts them to `/srv/app/arizuko/template/services/` on deploy.
 
-| Product            | Image                     | Role                            |
+| Service            | Image                     | Role                            |
 | ------------------ | ------------------------- | ------------------------------- |
 | `teled.toml`       | `arizuko:latest`          | Telegram adapter (default)      |
 | `teled-REDACTED.toml` | `arizuko:latest`          | Second Telegram bot (port 9003) |
@@ -367,7 +367,7 @@ Prevents conflicts when multiple instances run on the same host.
 
 ### Enabling products per instance
 
-Operator copies (or symlinks) the desired product TOMLs into
+Operator copies the desired service TOMLs into
 `/srv/data/arizuko_<flavor>/services/` before starting the instance.
 Ansible automates this via `arizuko_instances[].extra_services`.
 
