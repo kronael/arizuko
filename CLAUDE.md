@@ -52,7 +52,9 @@ auth/              Identity, authorization, JWT, OAuth, middleware
 diary/             Diary annotations
 groupfolder/       Path validation
 mountsec/          Mount security
-template/          Instance seed files
+template/          Instance seed files and service product catalog
+  services/        Composable channel adapter TOMLs (teled, whapd, discd, …)
+  web/             Vite web app scaffold
 sidecar/           MCP server binaries
 gated/             Gateway daemon (standalone binary)
 timed/             Scheduler daemon (standalone binary)

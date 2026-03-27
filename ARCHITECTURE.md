@@ -320,16 +320,56 @@ Rule strings control which MCP tools and actions a group may use. Rule format:
 Rules are derived at container spawn time and injected into `start.json`.
 The `ipc` MCP manifest is filtered by grants so agents only see permitted tools.
 
-## Compose Container Naming
+## Compose Generation and Service Products
 
-`compose.Generate()` derives the project name from the data dir basename
-(`REDACTED` → app=`arizuko`, flavor=`REDACTED`). All containers get
-`container_name: <app>_<daemon>_<flavor>`:
+`compose.Generate(dataDir)` builds a `docker-compose.yml` from two sources:
 
-- Built-in: `arizuko_gated_REDACTED`, `arizuko_timed_REDACTED`, `arizuko_dashd_REDACTED`
-- User-defined (from `services/*.toml`): `arizuko_<name>_REDACTED`
+1. **Built-in services** — always emitted based on `.env` profile:
+   - `gated` (always), `timed`, `dashd` (profile=full), `proxyd`+`vited` (WEB_PORT set)
+   - `onbod` when `ONBOARDING_ENABLED=true`
 
-This naming prevents conflicts when multiple instances run on the same host.
+2. **Service products** — TOML files dropped into `data/<flavor>/services/`.
+   Each `.toml` declares one extra compose service (channel adapter or sidecar).
+   `compose.Generate` reads them all and appends to the compose output.
+
+### Service product catalog (`template/services/`)
+
+Bundled products ship in the arizuko image at `/opt/arizuko/template/services/`.
+Ansible extracts them to `/srv/app/arizuko/template/services/` on deploy.
+
+| Product            | Image                     | Role                            |
+| ------------------ | ------------------------- | ------------------------------- |
+| `teled.toml`       | `arizuko:latest`          | Telegram adapter (default)      |
+| `teled-REDACTED.toml` | `arizuko:latest`          | Second Telegram bot (port 9003) |
+| `whapd.toml`       | `arizuko-whatsapp:latest` | WhatsApp adapter                |
+| `discd.toml`       | `arizuko:latest`          | Discord adapter                 |
+| `bskyd.toml`       | `arizuko:latest`          | Bluesky adapter                 |
+| `mastd.toml`       | `arizuko:latest`          | Mastodon adapter                |
+| `reditd.toml`      | `arizuko:latest`          | Reddit adapter                  |
+
+### TOML format
+
+```toml
+image = "arizuko:latest"
+entrypoint = ["teled"]          # overrides image entrypoint
+depends_on = ["gated"]          # optional; defaults to [gated]
+volumes = ["${DATA_DIR}/..."]   # optional extra mounts; ${VAR} interpolated from .env
+
+[environment]
+ROUTER_URL = "http://gated:${API_PORT}"   # ${VAR} interpolated
+CHANNEL_SECRET = "${CHANNEL_SECRET}"
+```
+
+### Container naming
+
+All containers named `<app>_<service>_<flavor>` e.g. `arizuko_teled_REDACTED`.
+Prevents conflicts when multiple instances run on the same host.
+
+### Enabling products per instance
+
+Operator copies (or symlinks) the desired product TOMLs into
+`/srv/data/arizuko_<flavor>/services/` before starting the instance.
+Ansible automates this via `arizuko_instances[].extra_services`.
 
 `onbod` is auto-included in compose when `ONBOARDING_ENABLED=true`. Compose
 sets `ONBOD_LISTEN_ADDR=:8092` to avoid conflict with `dashd` (`:8090`).
@@ -482,6 +522,7 @@ whapd/              WhatsApp adapter (TypeScript)
 
 - `.env` — config
 - `store/` — SQLite DB (`messages.db`)
+- `services/` — enabled product TOMLs; `compose.Generate` reads all `*.toml` here
 - `groups/<folder>/` — group files, logs, diary, media
 - `groups/<world>/share/` — cross-group shared state
 - `data/ipc/<folder>/` — MCP unix sockets + sidecar sockets
