@@ -74,7 +74,7 @@ func (s *Store) FlushSysMsgs(folder string) string {
 		var origin, event, body string
 		rows.Scan(&id, &origin, &event, &body)
 		ids = append(ids, id)
-		fmt.Fprintf(&b, "<system_message origin=%q event=%q>%s</system_message>\n", origin, event, body)
+		fmt.Fprintf(&b, "<system origin=%q event=%q>%s</system>\n", origin, event, body)
 	}
 
 	if len(ids) > 0 {

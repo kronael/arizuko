@@ -1,6 +1,7 @@
 package store
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -129,6 +130,13 @@ func TestSystemMessages(t *testing.T) {
 	xml := s.FlushSysMsgs("main")
 	if xml == "" {
 		t.Fatal("expected non-empty XML")
+	}
+	// Spec Y-system-messages: tag must be <system>, not <system_message>
+	if !strings.Contains(xml, "<system ") {
+		t.Errorf("expected <system> tag, got: %s", xml)
+	}
+	if strings.Contains(xml, "<system_message") {
+		t.Errorf("unexpected <system_message> tag, got: %s", xml)
 	}
 
 	// Second flush should be empty
