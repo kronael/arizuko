@@ -171,6 +171,14 @@ func (bc *bskyClient) handleNotification(n notification, rc *routerClient) {
 		topic = n.Record.Reply.Parent.URI
 	}
 
+	verb := "message"
+	switch n.Reason {
+	case "reply":
+		verb = "reply"
+	case "mention":
+		verb = "message"
+	}
+
 	ts, _ := time.Parse(time.RFC3339, n.IndexedAt)
 	err := rc.SendMessage(inboundMsg{
 		ID:         uriToKey(n.URI),
@@ -181,6 +189,7 @@ func (bc *bskyClient) handleNotification(n notification, rc *routerClient) {
 		Timestamp:  ts.Unix(),
 		IsGroup:    false,
 		Topic:      topic,
+		Verb:       verb,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)

@@ -228,7 +228,7 @@ func (rc *redditClient) handleThing(t thing, key string, router *routerClient) {
 	isSubreddit := strings.HasPrefix(key, "sr:")
 	jid := sender
 	if isSubreddit {
-		jid = "reddit:" + d.Subreddit
+		jid = "reddit:r_" + d.Subreddit
 	}
 
 	content := d.Body
@@ -248,9 +248,25 @@ func (rc *redditClient) handleThing(t thing, key string, router *routerClient) {
 	}
 	_ = router.SendChat(jid, chatName, isSubreddit)
 
+	// Derive verb from thing kind and context.
+	// t1 = comment, t3 = link/post, t4 = message
+	verb := "message"
 	topic := ""
-	if d.ParentID != "" {
-		topic = d.ParentID
+	switch t.Kind {
+	case "t1": // comment
+		if d.ParentID != "" && strings.HasPrefix(d.ParentID, "t3_") {
+			// comment on a post
+			verb = "reply"
+			topic = d.LinkID
+		} else if d.ParentID != "" {
+			// reply to a comment
+			verb = "reply"
+			topic = d.ParentID
+		}
+	case "t3": // link/post (subreddit feed)
+		verb = "post"
+	case "t4": // private message
+		verb = "message"
 	}
 
 	err := router.SendMessage(inboundMsg{
@@ -262,6 +278,7 @@ func (rc *redditClient) handleThing(t thing, key string, router *routerClient) {
 		Timestamp:  int64(d.CreatedAt),
 		IsGroup:    isSubreddit,
 		Topic:      topic,
+		Verb:       verb,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)

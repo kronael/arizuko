@@ -226,6 +226,66 @@ func TestResolveRouteTemplate(t *testing.T) {
 	}
 }
 
+func TestRouteMatchVerb(t *testing.T) {
+	routes := []core.Route{
+		{Seq: 0, Type: "verb", Match: "react", Target: "reactions"},
+		{Seq: 1, Type: "verb", Match: "follow", Target: "followers"},
+		{Seq: 2, Type: "default", Target: "inbox"},
+	}
+	cases := []struct {
+		msg  core.Message
+		want string
+	}{
+		{core.Message{Verb: "react", Content: "❤️"}, "reactions"},
+		{core.Message{Verb: "follow", Content: "x followed you"}, "followers"},
+		{core.Message{Verb: "React", Content: "❤️"}, "reactions"}, // case-insensitive
+		{core.Message{Verb: "message", Content: "hi"}, "inbox"},
+	}
+	for _, tc := range cases {
+		got := ResolveRoute(tc.msg, routes)
+		if got != tc.want {
+			t.Fatalf("verb=%q: got %q, want %q", tc.msg.Verb, got, tc.want)
+		}
+	}
+}
+
+func TestFormatMessagesPlatformVerb(t *testing.T) {
+	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
+	msgs := []core.Message{
+		{ChatJID: "mastodon:123", Sender: "mastodon:123", Content: "liked", Verb: "react", Timestamp: ts},
+		{ChatJID: "reddit:456", Sender: "reddit:alice", Content: "followed", Verb: "follow", Timestamp: ts},
+		{ChatJID: "telegram:789", Sender: "telegram:789", Content: "hi", Verb: "message", Timestamp: ts},
+	}
+	got := FormatMessages(msgs)
+	if !strings.Contains(got, `platform="mastodon"`) {
+		t.Fatal("should include mastodon platform attr")
+	}
+	if !strings.Contains(got, `platform="reddit"`) {
+		t.Fatal("should include reddit platform attr")
+	}
+	if !strings.Contains(got, `verb="react"`) {
+		t.Fatal("should include react verb attr")
+	}
+	if !strings.Contains(got, `verb="follow"`) {
+		t.Fatal("should include follow verb attr")
+	}
+	// message verb is default; should NOT appear
+	if strings.Contains(got, `verb="message"`) {
+		t.Fatal("default message verb should be omitted")
+	}
+}
+
+func TestFormatMessagesThread(t *testing.T) {
+	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
+	msgs := []core.Message{
+		{ChatJID: "discord:ch1", Sender: "discord:u1", Content: "in thread", Topic: "thread-123", Timestamp: ts},
+	}
+	got := FormatMessages(msgs)
+	if !strings.Contains(got, `thread="thread-123"`) {
+		t.Fatalf("should include thread attr, got: %s", got)
+	}
+}
+
 func TestEscapeXml(t *testing.T) {
 	cases := []struct {
 		in, want string

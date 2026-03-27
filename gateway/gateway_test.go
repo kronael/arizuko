@@ -446,6 +446,54 @@ func TestEmitSystemEvents_NewSession(t *testing.T) {
 	}
 }
 
+func TestPreviousSessionXML_Empty(t *testing.T) {
+	if got := previousSessionXML(nil); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
+func TestPreviousSessionXML_WithRecord(t *testing.T) {
+	now := time.Now()
+	ended := now.Add(time.Minute)
+	rec := core.SessionRecord{
+		SessionID: "abc123def456",
+		StartedAt: now,
+		EndedAt:   &ended,
+		MsgCount:  7,
+		Result:    "ok",
+	}
+	got := previousSessionXML([]core.SessionRecord{rec})
+	if !strings.Contains(got, "previous_session") {
+		t.Errorf("expected previous_session tag, got %q", got)
+	}
+	if !strings.Contains(got, `msgs="7"`) {
+		t.Errorf("expected msgs=7, got %q", got)
+	}
+	if !strings.Contains(got, `result="ok"`) {
+		t.Errorf("expected result=ok, got %q", got)
+	}
+	// SessionID truncated to 8 chars
+	if !strings.Contains(got, `"abc123de"`) {
+		t.Errorf("expected truncated session id, got %q", got)
+	}
+}
+
+func TestPreviousSessionXML_NoEndedAt(t *testing.T) {
+	rec := core.SessionRecord{
+		SessionID: "xyz",
+		StartedAt: time.Now(),
+		Result:    "ok",
+	}
+	got := previousSessionXML([]core.SessionRecord{rec})
+	if !strings.Contains(got, "previous_session") {
+		t.Errorf("expected previous_session tag, got %q", got)
+	}
+	// ended should be empty string when EndedAt is nil
+	if !strings.Contains(got, `ended=""`) {
+		t.Errorf("expected empty ended, got %q", got)
+	}
+}
+
 func TestParsePrefix_AtStart(t *testing.T) {
 	name, rest, ok := parsePrefix("@alice hello world")
 	if !ok {

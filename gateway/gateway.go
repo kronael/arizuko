@@ -668,7 +668,15 @@ func (g *Gateway) runAgentWithOpts(
 	if out.NewSessionID != "" {
 		g.store.SetSession(group.Folder, topic, out.NewSessionID)
 		if sessionID == "" {
-			g.store.RecordSession(group.Folder, out.NewSessionID)
+			if rowID, err := g.store.RecordSession(group.Folder, out.NewSessionID); err == nil && rowID > 0 {
+				result := "ok"
+				errStr := ""
+				if out.Error != "" {
+					result = "error"
+					errStr = out.Error
+				}
+				g.store.EndSession(rowID, result, errStr, 0)
+			}
 		}
 	} else if out.Error != "" && !out.HadOutput {
 		g.store.DeleteSession(group.Folder, topic)
@@ -1043,6 +1051,35 @@ func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {
 	g.store.SetAgentCursor(chatJid, msgs[len(msgs)-1].Timestamp)
 }
 
+// previousSessionXML returns a <previous_session .../> element from the most
+// recently recorded session, or "" if none exists.
+func previousSessionXML(sessions []core.SessionRecord) string {
+	if len(sessions) == 0 {
+		return ""
+	}
+	s := sessions[0]
+	result := s.Result
+	if result == "" {
+		result = "unknown"
+	}
+	ended := ""
+	if s.EndedAt != nil {
+		ended = s.EndedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	sid := s.SessionID
+	if len(sid) > 8 {
+		sid = sid[:8]
+	}
+	return fmt.Sprintf(
+		`<previous_session id=%q started=%q ended=%q msgs="%d" result=%q/>`,
+		sid,
+		s.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ended,
+		s.MsgCount,
+		result,
+	)
+}
+
 func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
 	folder := group.Folder
 	today := time.Now().Format("2006-01-02")
@@ -1054,7 +1091,8 @@ func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
 	}
 
 	if id, ok := g.store.GetSession(folder, ""); !ok || id == "" {
-		g.store.EnqueueSysMsg(folder, "gateway", "new_session", "")
+		body := previousSessionXML(g.store.RecentSessions(folder, 1))
+		g.store.EnqueueSysMsg(folder, "gateway", "new_session", body)
 	}
 }
 

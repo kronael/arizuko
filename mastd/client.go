@@ -68,18 +68,13 @@ func (mc *mastoClient) streamOnce(ctx context.Context, rc *routerClient) error {
 				return fmt.Errorf("stream closed")
 			}
 			if ne, ok := ev.(*mastodon.NotificationEvent); ok {
-				if ne.Notification.Type == "mention" {
-					mc.handleMention(ne.Notification, rc)
-				}
+				mc.handleNotification(ne.Notification, rc)
 			}
 		}
 	}
 }
 
-func (mc *mastoClient) handleMention(n *mastodon.Notification, rc *routerClient) {
-	if n.Status == nil {
-		return
-	}
+func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *routerClient) {
 	acc := n.Account
 	jid := "mastodon:" + string(acc.ID)
 	name := acc.DisplayName
@@ -88,24 +83,82 @@ func (mc *mastoClient) handleMention(n *mastodon.Notification, rc *routerClient)
 	}
 	_ = rc.SendChat(jid, name, false)
 
-	topic := ""
-	if n.Status.InReplyToID != nil {
-		if replyID, ok := n.Status.InReplyToID.(string); ok {
-			topic = replyID
+	switch n.Type {
+	case "mention", "reply":
+		if n.Status == nil {
+			return
 		}
-	}
-
-	err := rc.SendMessage(inboundMsg{
-		ID:         string(n.Status.ID),
-		ChatJID:    jid,
-		Sender:     "mastodon:" + string(acc.ID),
-		SenderName: name,
-		Content:    stripHTML(n.Status.Content),
-		Timestamp:  n.Status.CreatedAt.Unix(),
-		Topic:      topic,
-	})
-	if err != nil {
-		slog.Error("deliver failed", "jid", jid, "err", err)
+		topic := ""
+		if n.Status.InReplyToID != nil {
+			if replyID, ok := n.Status.InReplyToID.(string); ok {
+				topic = replyID
+			}
+		}
+		verb := "message"
+		if n.Type == "reply" || topic != "" {
+			verb = "reply"
+		}
+		err := rc.SendMessage(inboundMsg{
+			ID:         string(n.Status.ID),
+			ChatJID:    jid,
+			Sender:     "mastodon:" + string(acc.ID),
+			SenderName: name,
+			Content:    stripHTML(n.Status.Content),
+			Timestamp:  n.Status.CreatedAt.Unix(),
+			Topic:      topic,
+			Verb:       verb,
+		})
+		if err != nil {
+			slog.Error("deliver failed", "jid", jid, "err", err)
+		}
+	case "favourite":
+		if n.Status == nil {
+			return
+		}
+		emoji := "❤️"
+		err := rc.SendMessage(inboundMsg{
+			ID:         "fav-" + string(n.Status.ID) + "-" + string(acc.ID),
+			ChatJID:    jid,
+			Sender:     "mastodon:" + string(acc.ID),
+			SenderName: name,
+			Content:    emoji,
+			Timestamp:  time.Now().Unix(),
+			Verb:       "react",
+		})
+		if err != nil {
+			slog.Error("deliver failed", "jid", jid, "err", err)
+		}
+	case "reblog":
+		if n.Status == nil {
+			return
+		}
+		err := rc.SendMessage(inboundMsg{
+			ID:         "reblog-" + string(n.Status.ID) + "-" + string(acc.ID),
+			ChatJID:    jid,
+			Sender:     "mastodon:" + string(acc.ID),
+			SenderName: name,
+			Content:    string(n.Status.ID),
+			Timestamp:  time.Now().Unix(),
+			Verb:       "repost",
+		})
+		if err != nil {
+			slog.Error("deliver failed", "jid", jid, "err", err)
+		}
+	case "follow":
+		err := rc.SendMessage(inboundMsg{
+			ID:         "follow-" + string(acc.ID),
+			ChatJID:    jid,
+			Sender:     "mastodon:" + string(acc.ID),
+			SenderName: name,
+			Content:    name + " followed you",
+			Timestamp:  time.Now().Unix(),
+			Verb:       "follow",
+		})
+		if err != nil {
+			slog.Error("deliver failed", "jid", jid, "err", err)
+		}
+	default:
+		slog.Debug("mastodon: unhandled notification type", "type", n.Type)
 	}
 }
 

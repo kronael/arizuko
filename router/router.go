@@ -104,6 +104,21 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 		b.WriteString(`" ago="`)
 		b.WriteString(timeAgo(m.Timestamp))
 		b.WriteString(`"`)
+		if p := jidPlatform(m.ChatJID); p != "" {
+			b.WriteString(` platform="`)
+			b.WriteString(p)
+			b.WriteString(`"`)
+		}
+		if m.Verb != "" && m.Verb != "message" {
+			b.WriteString(` verb="`)
+			b.WriteString(escapeXml(m.Verb))
+			b.WriteString(`"`)
+		}
+		if m.Topic != "" {
+			b.WriteString(` thread="`)
+			b.WriteString(escapeXml(m.Topic))
+			b.WriteString(`"`)
+		}
 		if m.ReplyToID != "" {
 			b.WriteString(` reply_to="`)
 			b.WriteString(escapeXml(m.ReplyToID))
@@ -192,6 +207,14 @@ var platformShort = map[string]string{
 	"email": "em", "web": "web",
 }
 
+// jidPlatform extracts the platform prefix from a JID (e.g. "telegram:123" → "telegram").
+func jidPlatform(jid string) string {
+	if i := strings.IndexByte(jid, ':'); i > 0 {
+		return jid[:i]
+	}
+	return ""
+}
+
 func senderToUserFileID(sender string) string {
 	parts := strings.SplitN(sender, ":", 2)
 	if len(parts) != 2 {
@@ -271,6 +294,8 @@ func routeMatches(r core.Route, msg core.Message) bool {
 	case "command":
 		t := strings.TrimSpace(msg.Content)
 		return r.Match != "" && (t == r.Match || strings.HasPrefix(t, r.Match+" "))
+	case "verb":
+		return r.Match != "" && strings.EqualFold(msg.Verb, r.Match)
 	case "pattern":
 		if r.Match == "" || len(r.Match) > 200 {
 			return false
