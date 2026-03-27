@@ -19,6 +19,7 @@ import (
 	"github.com/onvos/arizuko/core"
 	grantslib "github.com/onvos/arizuko/grants"
 	"github.com/onvos/arizuko/mountsec"
+	"github.com/onvos/arizuko/router"
 	"github.com/robfig/cron/v3"
 )
 
@@ -52,8 +53,10 @@ type StoreFns struct {
 	StoreOutbound    func(entry core.OutboundEntry) error
 	GetLastReplyID   func(jid, topic string) string
 	SetLastReplyID   func(jid, topic, replyID string)
-	GetGrants        func(folder string) []string
-	SetGrants        func(folder string, rules []string) error
+	GetGrants           func(folder string) []string
+	SetGrants           func(folder string, rules []string) error
+	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
+	JIDRoutedToFolder   func(jid, folder string) bool
 }
 
 func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string) (func(), error) {
@@ -894,6 +897,49 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			slog.Info("grants set", "folder", gf, "count", len(newRules), "sourceGroup", folder)
 			return toolJSON(map[string]any{"ok": true, "folder": gf, "count": len(newRules)})
+		})
+	}
+
+	// get_history — on-demand message history for agents needing older context
+	if db.MessagesBefore != nil {
+		srv.AddTool(mcp.NewTool("get_history",
+			mcp.WithDescription("Fetch message history for a chat. Returns XML same as injected <messages> block."),
+			mcp.WithString("chat_jid", mcp.Required()),
+			mcp.WithNumber("limit"),
+			mcp.WithString("before"),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chat_jid", "")
+			if jid == "" {
+				return toolErr("chat_jid required")
+			}
+			if id.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
+				return toolErr("access_denied: jid not routed to your group")
+			}
+			limitVal := req.GetInt("limit", 100)
+			if limitVal <= 0 || limitVal > 200 {
+				limitVal = 100
+			}
+			var before time.Time
+			if beforeStr := req.GetString("before", ""); beforeStr != "" {
+				t, err := time.Parse(time.RFC3339, beforeStr)
+				if err != nil {
+					return toolErr("invalid before timestamp: " + err.Error())
+				}
+				before = t
+			}
+			msgs, err := db.MessagesBefore(jid, before, limitVal)
+			if err != nil {
+				return toolErr("get_history: " + err.Error())
+			}
+			oldest := ""
+			if len(msgs) > 0 {
+				oldest = msgs[0].Timestamp.Format(time.RFC3339)
+			}
+			return toolJSON(map[string]any{
+				"messages": router.FormatMessages(msgs),
+				"count":    len(msgs),
+				"oldest":   oldest,
+			})
 		})
 	}
 

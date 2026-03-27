@@ -93,11 +93,15 @@ func isIntervalMs(cron string) (int64, bool) {
 	return v, true
 }
 
-func logRun(db *sql.DB, taskID, status string, durationMs int64) {
+func logRun(db *sql.DB, taskID, status, errText string, durationMs int64) {
+	var errVal *string
+	if errText != "" {
+		errVal = &errText
+	}
 	db.Exec(
-		`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status)
-		 VALUES (?, ?, ?, ?)`,
-		taskID, time.Now().Format(time.RFC3339), durationMs, status)
+		`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, error)
+		 VALUES (?, ?, ?, ?, ?)`,
+		taskID, time.Now().Format(time.RFC3339), durationMs, status, errVal)
 }
 
 func fire(db *sql.DB, tz string) {
@@ -140,7 +144,7 @@ func fire(db *sql.DB, tz string) {
 			id, t.jid, sender, t.prompt, start.Format(time.RFC3339))
 		if err != nil {
 			slog.Error("insert message", "task", t.id, "err", err)
-			logRun(db, t.id, "error", time.Since(start).Milliseconds())
+			logRun(db, t.id, "error", err.Error(), time.Since(start).Milliseconds())
 			continue
 		}
 
@@ -176,7 +180,7 @@ func fire(db *sql.DB, tz string) {
 			}
 		}
 
-		logRun(db, t.id, "success", time.Since(start).Milliseconds())
+		logRun(db, t.id, "success", "", time.Since(start).Milliseconds())
 		slog.Info("fired task",
 			"id", t.id, "jid", t.jid, "cron", cronVal,
 			"context_mode", t.contextMode, "next_run", nextRun)

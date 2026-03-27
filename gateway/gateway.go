@@ -129,11 +129,13 @@ func (g *Gateway) Run(ctx context.Context) error {
 		AddRoute:       g.store.AddRoute,
 		DeleteRoute:    g.store.DeleteRoute,
 		GetRoute:       g.store.GetRoute,
-		GetGrants:      g.store.GetGrants,
-		SetGrants:      g.store.SetGrants,
-		StoreOutbound:  g.store.StoreOutbound,
-		GetLastReplyID: g.store.GetLastReplyID,
-		SetLastReplyID: g.store.SetLastReplyID,
+		GetGrants:          g.store.GetGrants,
+		SetGrants:          g.store.SetGrants,
+		StoreOutbound:      g.store.StoreOutbound,
+		GetLastReplyID:     g.store.GetLastReplyID,
+		SetLastReplyID:     g.store.SetLastReplyID,
+		MessagesBefore:     g.store.MessagesBefore,
+		JIDRoutedToFolder:  g.store.JIDRoutedToFolder,
 	}
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetNotifyErrorFn(func(jid string, err error) {

@@ -354,3 +354,53 @@ func btoi(b bool) int {
 	}
 	return 0
 }
+
+// MessagesBefore returns up to limit inbound messages for a JID with
+// timestamp < before (or now if before is zero). Results are returned
+// in ascending timestamp order (oldest first after DESC query reversal).
+func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.Message, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	if before.IsZero() {
+		before = time.Now()
+	}
+	rows, err := s.db.Query(
+		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
+		        is_from_me, is_bot_message, forwarded_from,
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb
+		 FROM messages
+		 WHERE chat_jid = ? AND timestamp < ? AND is_bot_message = 0
+		 ORDER BY timestamp DESC
+		 LIMIT ?`,
+		jid, before.Format(time.RFC3339Nano), limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var msgs []core.Message
+	for rows.Next() {
+		m, _ := scanMessage(rows)
+		msgs = append(msgs, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// reverse to ascending order
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	return msgs, nil
+}
+
+// JIDRoutedToFolder returns true if there is any route with the given JID
+// targeting the given folder (or a sub-path of it).
+func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
+	var count int
+	s.db.QueryRow(
+		`SELECT COUNT(*) FROM routes WHERE jid = ? AND (target = ? OR target LIKE ?)`,
+		jid, folder, folder+"/%",
+	).Scan(&count)
+	return count > 0
+}
