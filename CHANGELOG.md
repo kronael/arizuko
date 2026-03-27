@@ -11,6 +11,33 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.20.0] — 2026-03-27
+
+### Fixed
+
+- **router**: `chat_id` attr missing from `<message>` XML (spec N-memory-messages)
+- **store**: `<system_message>` tag → `<system>` per spec Y-system-messages
+- **ipc**: `once`/ISO-8601 schedule type in `schedule_task` MCP tool was silently broken
+- **timed**: `task_run_logs.error` column never populated; `get_history` GetInt cast
+- **webd**: anon sender was literal `"anon"` — now `anon:<ip-hash>` per spec W-slink
+- **diary/episodes**: block-scalar YAML (`summary: |`, `summary: >`) parsed as empty — diary and episode context was silently dropped from agent prompts
+- **mastd**: `follow`/`favourite`/`reblog` notifications were dropped; now mapped to correct verbs
+- **bskyd**: all notifications delivered with empty verb; now set from `reason` field
+- **reditd**: verb and topic not set; subreddit JID prefix wrong (`reddit:golang` → `reddit:r_golang`)
+- **router**: `verb` route type never matched (missing `case "verb":` in routeMatches)
+- **gateway**: sticky commands with embedded newlines now rejected
+
+### Added
+
+- **router**: `platform`, `verb`, `thread` attrs in FormatMessages XML per spec i-social-events
+- **gateway**: `SEND_DISABLED_CHANNELS` / `SEND_DISABLED_GROUPS` env vars to suppress sends
+- **ant/CLAUDE.md**: `<observed>` message guidance — watch-only routing context
+- **dashd**: episodes, users, facts sections in memory dashboard
+- **core**: migration 049 documenting `get_history` MCP tool for agents
+- **specs**: phases 7+8 dissolved into correct phases; 88 files got frontmatter; LinkedIn channel specced
+
+---
+
 ## [v0.19.2] — 2026-03-27
 
 ### Added
