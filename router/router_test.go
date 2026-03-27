@@ -286,6 +286,17 @@ func TestFormatMessagesThread(t *testing.T) {
 	}
 }
 
+func TestFormatMessagesChatID(t *testing.T) {
+	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
+	msgs := []core.Message{
+		{ChatJID: "telegram:-100123", Sender: "telegram:111", Content: "hey", Timestamp: ts},
+	}
+	got := FormatMessages(msgs)
+	if !strings.Contains(got, `chat_id="telegram:-100123"`) {
+		t.Fatalf("should include chat_id attr, got: %s", got)
+	}
+}
+
 func TestEscapeXml(t *testing.T) {
 	cases := []struct {
 		in, want string
