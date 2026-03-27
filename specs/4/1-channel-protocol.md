@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Channel Adapter Protocol
 
 ## status: shipped

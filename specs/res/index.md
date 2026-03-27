@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # specs/res — research references
 
 6 files. External research and comparison material.

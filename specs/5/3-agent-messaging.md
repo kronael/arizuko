@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Agent-to-Agent Messaging (v3)
 
 ## status: planned

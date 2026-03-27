@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # JID Format: platform:account/id
 
 **Status**: planned (2026-03-25)

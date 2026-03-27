@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 ## <!-- trimmed 2026-03-15: TS migration removed, rich facts only -->
 
 ## status: planned

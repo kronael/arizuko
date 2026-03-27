@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 ## status: decided
 
 # Versioning & Persona Plugins

@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Crackbox QEMU Sandboxing for Arizuko Agents
 
 ## 1. Crackbox Summary

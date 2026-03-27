@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # specs/6 — web layer
 
 - [1-multi-agent-commits.md](1-multi-agent-commits.md) — git coordination, committer script, adopt/skip analysis

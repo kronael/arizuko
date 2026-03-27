@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # auth
 
 **Status**: shipped — `auth/` package (identity.go, policy.go, web.go, jwt.go, oauth.go, middleware.go)

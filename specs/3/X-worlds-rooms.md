@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Worlds, Rooms, and Threading — Research
 
 **Status**: not started

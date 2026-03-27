@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # XML vs JSON for LLM Prompts and Outputs
 
 Research document. Question: do LLMs (especially Claude) parse and reason about

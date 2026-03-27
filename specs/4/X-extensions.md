@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Extensions System
 
 **Status**: shipped (partial) — sidecars implemented, plugins deferred (updated 2026-03-24)

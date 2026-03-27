@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Multi-Account Channels
 
 **Status**: planned (2026-03-25)

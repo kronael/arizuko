@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Memory: Facts / Long-term — open (v2)
 
 **Status**: partial

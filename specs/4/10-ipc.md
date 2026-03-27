@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # ipc
 
 **Status**: shipped — `ipc/` package (ipc.go, all 20 tools, runtime auth via auth)

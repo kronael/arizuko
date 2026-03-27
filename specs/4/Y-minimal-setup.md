@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # minimal-setup — deployment profiles
 
 **Status**: implemented (`IMPULSE_ENABLED` in gated; `PROFILE` in compose generator)

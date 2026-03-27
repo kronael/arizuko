@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 ## <!-- trimmed 2026-03-15: migration notes removed, rich facts only -->
 
 ## status: superseded by specs/8/5-jid-format.md

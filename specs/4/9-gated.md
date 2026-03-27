@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # gated
 
 Gateway daemon. Message loop, route resolution, job queue,

@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Work — current task state
 
 **Status**: not started

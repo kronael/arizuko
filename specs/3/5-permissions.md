@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 ## <!-- trimmed 2026-03-15: TS removed, shipped items collapsed, rich facts only -->
 
 ## status: partial

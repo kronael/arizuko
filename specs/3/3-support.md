@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 ## <!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 ## status: spec

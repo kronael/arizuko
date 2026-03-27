@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Experiment 2 — Auto-compact session ID behavior — DONE
 
 **Question:** When Claude Code auto-compacts, does it create a new `.jl` file

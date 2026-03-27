@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Service Architecture
 
 ## Naming convention

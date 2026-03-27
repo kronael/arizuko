@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # CLI Chat Mode Spec
 
 `arizuko chat` — run an agent group interactively from the terminal,

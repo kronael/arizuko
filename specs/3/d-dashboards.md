@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Dashboards
 
 **Status**: shipped (partial) — basic dashboards implemented, advanced features pending (updated 2026-03-24)

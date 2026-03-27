@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # specs/1 — v1 core (trimmed)
 
 19 specs. Originally 37; 16 removed (TS-only, shipped and self-evident).

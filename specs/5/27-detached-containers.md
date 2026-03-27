@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Detached Containers
 
 **Status**: planned

@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Control Chat
 
 **Status**: shipped (partial)

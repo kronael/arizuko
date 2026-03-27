@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Agent Media Awareness
 
 **Status**: open

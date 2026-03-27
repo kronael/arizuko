@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # 6-voice-synthesis — TTS output from agent
 
 **Status**: planned (open questions)

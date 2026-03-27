@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Memory Skills — Standalone Distribution Spec
 
 ## Executive Summary

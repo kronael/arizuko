@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Recall — Knowledge Retrieval
 
 **Status**: shipped (v1 only; v2 planned)

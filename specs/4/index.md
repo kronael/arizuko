@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # specs/4 — shipped architecture
 
 Authoritative for the shipped Go codebase. All specs here describe

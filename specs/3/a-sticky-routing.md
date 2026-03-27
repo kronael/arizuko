@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Sticky Routing — @group and #topic commands
 
 ## Problem

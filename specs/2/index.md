@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # specs/2 — social channels (trimmed)
 
 3 specs. Originally 6; 3 removed (TS-shipped platform adapters).

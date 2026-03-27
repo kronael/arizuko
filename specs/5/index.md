@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # specs/5 — next / future
 
 Unshipped features, future designs, and deferred decisions.

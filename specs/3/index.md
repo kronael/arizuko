@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # specs/3 — features & extensions
 
 21 specs. Originally 25; 9 removed (shipped and self-evident).

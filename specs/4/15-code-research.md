@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 ## <!-- source: arizuko specs/3/3-code-research.md, synced 2026-03-15 -->
 
 ## status: shipped

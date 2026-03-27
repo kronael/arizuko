@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Session Recovery
 
 **Status**: not started

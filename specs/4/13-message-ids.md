@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 ## status: shipped
 
 # Message IDs: Reply and Forward Metadata
