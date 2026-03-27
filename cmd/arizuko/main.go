@@ -90,25 +90,9 @@ func cmdCreate(args []string) {
 	name := args[0]
 	dataDir := instanceDir(name)
 
-	for _, sub := range []string{"store", "groups/main/.claude", "groups/main/logs", "data", "web", "services"} {
+	for _, sub := range []string{"store", "groups/main/logs", "data", "web", "services"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: mkdir %s: %v\n", sub, err)
-			os.Exit(1)
-		}
-	}
-
-	claudeMd := filepath.Join(dataDir, "groups/main/.claude/CLAUDE.md")
-	if _, err := os.Stat(claudeMd); os.IsNotExist(err) {
-		content := `# Agent Instructions
-
-You operate inside a group chat where participants often talk to each other
-and may not be addressing you. Only respond when you are clearly being spoken
-to — by name, direct mention, or as the obvious recipient of a question or
-request. If the conversation is between users and does not involve you, stay
-silent.
-`
-		if err := os.WriteFile(claudeMd, []byte(content), 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed: write CLAUDE.md: %v\n", err)
 			os.Exit(1)
 		}
 	}
@@ -117,7 +101,8 @@ silent.
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
 		secret := make([]byte, 16)
 		rand.Read(secret)
-		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=arizuko-ant:latest\nAPI_PORT=8080\nCHANNEL_SECRET=%s\n", name, hex.EncodeToString(secret))
+		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=arizuko-ant:latest\nAPI_PORT=8080\nCHANNEL_SECRET=%s\n",
+			name, hex.EncodeToString(secret))
 		if err := os.WriteFile(envFile, []byte(content), 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: write .env: %v\n", err)
 			os.Exit(1)
@@ -142,6 +127,12 @@ silent.
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed: add default group: %v\n", err)
 		os.Exit(1)
+	}
+
+	if cfg, cfgErr := core.LoadConfigFrom(dataDir); cfgErr == nil {
+		if err := container.SeedGroupDir(cfg, "main"); err != nil {
+			slog.Warn("failed to seed group dir", "folder", "main", "err", err)
+		}
 	}
 
 	fmt.Printf("created instance %s at %s\n", name, dataDir)

@@ -476,17 +476,8 @@ func BuildMounts(
 		})
 	}
 
-	runnerSrc := filepath.Join(
-		cfg.HostAppDir, "ant", "src")
-	groupRunnerDir := filepath.Join(
-		cfg.DataDir, "groups", in.Folder, "agent-runner-src")
-	if _, err := os.Stat(groupRunnerDir); os.IsNotExist(err) {
-		if _, err := os.Stat(runnerSrc); err == nil {
-			cpDir(runnerSrc, groupRunnerDir)
-			chown(groupRunnerDir, 1000, 1000)
-		}
-	}
 	if os.Getenv("ARIZUKO_DEV") == "1" {
+		runnerSrc := filepath.Join(cfg.HostAppDir, "ant", "src")
 		if _, err := os.Stat(runnerSrc); err == nil {
 			m = append(m, VolumeMount{
 				Host:      hp(cfg, runnerSrc),
