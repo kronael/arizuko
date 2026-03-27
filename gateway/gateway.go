@@ -934,7 +934,8 @@ func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolde
 	return ""
 }
 
-// isStickyCommand returns true if content is exactly @, @name, #, or #topic.
+// isStickyCommand returns true if content is exactly @, @name, #, or #topic
+// (single token on a single line — no spaces or newlines).
 func isStickyCommand(content string) bool {
 	t := strings.TrimSpace(content)
 	if len(t) == 0 {
@@ -944,7 +945,7 @@ func isStickyCommand(content string) bool {
 	if first != '@' && first != '#' {
 		return false
 	}
-	return !strings.Contains(t, " ")
+	return !strings.Contains(t, " ") && !strings.Contains(t, "\n")
 }
 
 func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
