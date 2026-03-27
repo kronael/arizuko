@@ -14,7 +14,7 @@ make build    # go build → ./arizuko + all daemon binaries
 make lint     # go vet ./...
 make test     # go test ./... -count=1
 make images   # all docker images (router + adapters + agent)
-make agent    # agent docker image (make -C container image)
+make agent    # agent docker image (make -C ant image)
 
 # Run a single test package
 go test ./gateway/... -count=1 -run TestName
@@ -39,9 +39,9 @@ cmd/arizuko/       CLI entrypoint (generate, run, create, group, status)
 core/              Config, types, Channel interface
 store/             SQLite (messages.db)
 gateway/           Main loop + commands
-container/         Docker runner + sidecars + runtime
-  agent-runner/    In-container agent entrypoint
-  skills/          Agent-side skills
+container/         Docker runner + sidecars + runtime (Go package only)
+ant/               In-container agent (TypeScript entrypoint, skills, Dockerfile)
+  skills/          Agent-side skills seeded into ~/.claude/skills/
 queue/             Per-group concurrency
 router/            Message formatting + routing
 chanreg/           Channel registry + HTTP proxy
@@ -169,9 +169,9 @@ Key error emitters: `gateway/gateway.go` (message loop),
 ## Shipping changes
 
 1. Add entry to `CHANGELOG.md`
-2. Add migration file `container/skills/self/migrations/NNN-desc.md`
-3. Update `container/skills/self/MIGRATION_VERSION`
-4. Update `container/skills/self/SKILL.md`
+2. Add migration file `ant/skills/self/migrations/NNN-desc.md`
+3. Update `ant/skills/self/MIGRATION_VERSION`
+4. Update `ant/skills/self/SKILL.md`
 5. Rebuild agent image
 
 ## Tagging a new version

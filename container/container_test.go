@@ -597,7 +597,7 @@ func TestWriteLogTimeout(t *testing.T) {
 func TestSeedSkillsClaudeJSON(t *testing.T) {
 	claudeDir := t.TempDir()
 	appDir := t.TempDir()
-	os.MkdirAll(filepath.Join(appDir, "container", "skills"), 0o755)
+	os.MkdirAll(filepath.Join(appDir, "ant", "skills"), 0o755)
 	cfg := &core.Config{HostAppDir: appDir}
 
 	seedSkills(cfg, claudeDir, "mygroup")
@@ -630,7 +630,7 @@ func TestSeedSkillsClaudeJSON(t *testing.T) {
 func TestSeedSkillsClaudeJSON_Idempotent(t *testing.T) {
 	claudeDir := t.TempDir()
 	appDir := t.TempDir()
-	os.MkdirAll(filepath.Join(appDir, "container", "skills"), 0o755)
+	os.MkdirAll(filepath.Join(appDir, "ant", "skills"), 0o755)
 	cfg := &core.Config{HostAppDir: appDir}
 
 	seedSkills(cfg, claudeDir, "mygroup")
@@ -648,7 +648,7 @@ func TestSeedSkillsClaudeJSON_Idempotent(t *testing.T) {
 
 func TestSeedSkillsClaudeJSON_UserIDDerivedFromFolder(t *testing.T) {
 	appDir := t.TempDir()
-	os.MkdirAll(filepath.Join(appDir, "container", "skills"), 0o755)
+	os.MkdirAll(filepath.Join(appDir, "ant", "skills"), 0o755)
 	cfg := &core.Config{HostAppDir: appDir}
 
 	d1 := t.TempDir()

@@ -99,7 +99,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	appDir := cfg.HostAppDir
 	latest := migrationVersion(
-		filepath.Join(appDir, "container", "skills", "self", "MIGRATION_VERSION"))
+		filepath.Join(appDir, "ant", "skills", "self", "MIGRATION_VERSION"))
 	sessDir := filepath.Join(cfg.DataDir, "sessions", in.Folder, ".claude")
 	agent := migrationVersion(
 		filepath.Join(sessDir, "skills", "self", "MIGRATION_VERSION"))
@@ -483,7 +483,7 @@ func BuildMounts(
 	}
 
 	runnerSrc := filepath.Join(
-		cfg.HostAppDir, "container", "agent-runner", "src")
+		cfg.HostAppDir, "ant", "src")
 	groupRunnerDir := filepath.Join(
 		cfg.DataDir, "sessions", in.Folder, "agent-runner-src")
 	if _, err := os.Stat(groupRunnerDir); os.IsNotExist(err) {
@@ -688,7 +688,7 @@ func seedSettings(
 }
 
 func seedSkills(cfg *core.Config, claudeDir, folder string) {
-	src := filepath.Join(cfg.HostAppDir, "container", "skills")
+	src := filepath.Join(cfg.HostAppDir, "ant", "skills")
 	dst := filepath.Join(claudeDir, "skills")
 
 	entries, err := os.ReadDir(src)
@@ -714,7 +714,7 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 	}
 	chown(dst, 1000, 1000)
 
-	mdSrc := filepath.Join(cfg.HostAppDir, "container", "CLAUDE.md")
+	mdSrc := filepath.Join(cfg.HostAppDir, "ant", "CLAUDE.md")
 	mdDst := filepath.Join(claudeDir, "CLAUDE.md")
 	if _, err := os.Stat(mdDst); os.IsNotExist(err) {
 		if data, err := os.ReadFile(mdSrc); err == nil {

@@ -1,0 +1,64 @@
+#!/bin/bash
+# ant — run a Claude agent (ant) in a container
+# Standalone use: ant [options] <dir> [prompt]
+# With gated:     ant -g <socket> <dir> [prompt]
+set -euo pipefail
+
+IMAGE="${ANT_IMAGE:-arizuko-agent:latest}"
+DIR=""
+PROMPT=""
+GATED_SOCK=""
+SESSION_NAME=""
+
+usage() {
+    cat <<EOF
+Usage: ant [options] <dir> [prompt]
+
+Options:
+  -i image      Docker image (default: arizuko-agent:latest)
+  -g socket     Path to gated MCP socket (enables IPC bridge)
+  -s name       Session name for continuity
+  -h            Show this help
+
+Examples:
+  ant ~/project "summarize the codebase"
+  ant ~/project                        # interactive
+  ant -g /srv/data/REDACTED/data/ipc/root/gated.sock ~/project "task"
+EOF
+    exit 0
+}
+
+while getopts "i:g:s:h" opt; do
+    case $opt in
+        i) IMAGE="$OPTARG" ;;
+        g) GATED_SOCK="$OPTARG" ;;
+        s) SESSION_NAME="$OPTARG" ;;
+        h) usage ;;
+        *) usage ;;
+    esac
+done
+shift $((OPTIND-1))
+
+[[ $# -lt 1 ]] && usage
+DIR=$(realpath "$1"); shift
+PROMPT="${1:-}"
+
+NAME="ant-$(basename "$DIR")-$$"
+
+MOUNTS=(
+    "$DIR:/home/node:rw"
+)
+
+ENV_ARGS=()
+if [[ -n "$GATED_SOCK" ]]; then
+    MOUNTS+=("$(dirname "$GATED_SOCK"):/workspace/ipc:ro")
+    ENV_ARGS+=("-e" "GATED_SOCK=/workspace/ipc/$(basename "$GATED_SOCK")")
+fi
+
+docker run --rm -i \
+    --name "$NAME" \
+    "${MOUNTS[@]/#/--mount type=bind,src=}" \
+    "${ENV_ARGS[@]}" \
+    -e "HOME=/home/node" \
+    "$IMAGE" \
+    ${PROMPT:+--prompt "$PROMPT"}

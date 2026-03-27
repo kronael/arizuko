@@ -138,7 +138,7 @@ function writeHeartbeat(): void {
 }
 
 function log(message: string): void {
-  console.error(`[agent-runner] ${message}`);
+  console.error(`[ant] ${message}`);
 }
 
 function getSessionSummary(sessionId: string, transcriptPath: string): string | null {

@@ -131,13 +131,13 @@ RUN uv pip install --system --break-system-packages \
 WORKDIR /app
 
 # Copy package files first for better caching
-COPY agent-runner/package*.json ./
+COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
 # Copy source code
-COPY agent-runner/ ./
+COPY . ./
 
 # Bake per-channel output styles into agent image
 COPY output-styles/ /home/node/.claude/output-styles/

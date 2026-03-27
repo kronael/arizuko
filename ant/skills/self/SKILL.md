@@ -54,14 +54,14 @@ echo $ARIZUKO_TIER          # your permission tier (0=root, 1=world, 2=child, 3=
 
 On first container spawn, gateway copies:
 
-- `/workspace/self/container/skills/*` → `~/.claude/skills/` (one-time, agent can modify)
-- `/workspace/self/container/CLAUDE.md` → `~/.claude/CLAUDE.md` (one-time)
+- `/workspace/self/ant/skills/*` → `~/.claude/skills/` (one-time, agent can modify)
+- `/workspace/self/ant/CLAUDE.md` → `~/.claude/CLAUDE.md` (one-time)
 
-Canonical latest skills always at `/workspace/self/container/skills/`.
+Canonical latest skills always at `/workspace/self/ant/skills/`.
 
 ## Sync / migrate
 
-`/migrate` skill reads from `/workspace/self/container/skills/`, compares each
+`/migrate` skill reads from `/workspace/self/ant/skills/`, compares each
 skill's SKILL.md to `~/.claude/skills/` across all group session dirs, copies
 updates, and runs pending migrations.
 
@@ -202,7 +202,7 @@ On next session spawn, the new MCP tools will be available as
 ### Known limitation
 
 SDK hooks (PreCompact, PreToolUse) cannot be added by the agent.
-These are hardcoded in the agent-runner.
+These are hardcoded in ant.
 
 ## Root group only
 

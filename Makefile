@@ -22,13 +22,13 @@ images:
 	docker build -t arizuko-telegram -f teled/Dockerfile .
 	docker build -t arizuko-discord -f discd/Dockerfile .
 	docker build -t arizuko-whatsapp -f whapd/Dockerfile .
-	make -C container image
+	make -C ant image
 	make vite-image
 
 vite-image:
-	sudo docker build -f container/Dockerfile.vite -t arizuko-vite:latest .
+	sudo docker build -f ant/Dockerfile.vite -t arizuko-vite:latest .
 
 agent:
-	make -C container image
+	make -C ant image
 
 .PHONY: build lint test clean images agent vite-image

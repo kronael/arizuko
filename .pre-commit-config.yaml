@@ -18,7 +18,7 @@ repos:
     hooks:
       - id: prettier
         files: \.(ts|js|json|yaml|yml|md)$
-        exclude: ^(\.refs/|package-lock\.json|container/agent-runner/)
+        exclude: ^(\.refs/|package-lock\.json|ant/)
 
   - repo: local
     hooks:
@@ -28,10 +28,10 @@ repos:
         language: system
         pass_filenames: false
         files: \.ts$
-        exclude: ^(\.refs/|container/|whapd/)
+        exclude: ^(\.refs/|container/|ant/|whapd/)
       - id: typecheck-agent
         name: typecheck-agent
-        entry: bash -c 'cd container/agent-runner && npm install --silent && bunx tsc --noEmit'
+        entry: bash -c 'cd ant && npm install --silent && bunx tsc --noEmit'
         language: system
         pass_filenames: false
-        files: ^container/agent-runner/.*\.ts$
+        files: ^ant/src/.*\.ts$

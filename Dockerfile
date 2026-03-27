@@ -23,7 +23,7 @@ COPY --from=build /discd /usr/local/bin/discd
 COPY --from=build /onbod /usr/local/bin/onbod
 COPY --from=build /dashd /usr/local/bin/dashd
 COPY --from=build /proxyd /usr/local/bin/proxyd
-COPY --from=build /src/container/skills /opt/arizuko/container/skills
-COPY --from=build /src/container/CLAUDE.md /opt/arizuko/container/CLAUDE.md
+COPY --from=build /src/ant/skills /opt/arizuko/ant/skills
+COPY --from=build /src/ant/CLAUDE.md /opt/arizuko/ant/CLAUDE.md
 COPY --from=build /src/template/services /opt/arizuko/template/services
 WORKDIR /srv/app/home

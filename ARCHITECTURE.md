@@ -222,7 +222,7 @@ but are unpopulated. Full spec: `specs/7/22-audit-log.md`.
    - `BuildMounts()` — assemble volume mounts (group, media, self, share, session, ipc, web, extra)
    - `mountsec.ValidateAdditionalMounts()` — check against allowlist
    - `seedSettings()` — write `settings.json` to session `.claude/` dir (env vars, arizuko MCP via socat, sidecar MCP config)
-   - `seedSkills()` — copy `container/skills/` to session on first run; also seeds `.claude.json` if missing (SDK requires it; keyed by folder for stable userID hash)
+   - `seedSkills()` — copy `ant/skills/` to session on first run; also seeds `.claude.json` if missing (SDK requires it; keyed by folder for stable userID hash)
    - `StartSidecars()` — launch MCP sidecar containers (if configured)
    - Container name: `arizuko-<folder>-<timestamp_ms>` for regular runs;
      `arizuko-<folder>-task-<task_id>` for isolated scheduler tasks
@@ -487,9 +487,9 @@ api/                HTTP API server (channel protocol endpoints)
 auth/               Identity, authorization, JWT, OAuth, middleware
 chanreg/            Channel registry, health checks, HTTP channel proxy
 gateway/            Main loop, message routing, commands
-container/          Docker spawn, volume mounts, sidecars, runtime, skills seeding
-  agent-runner/     In-container agent entrypoint
-  skills/           Agent-side skills
+container/          Docker spawn, volume mounts, sidecars, runtime, skills seeding (Go)
+ant/                In-container agent (TypeScript entrypoint + skills)
+  skills/           Agent-side skills seeded into ~/.claude/skills/
 queue/              Per-group concurrency, stdin piping
 router/             Message formatting, routing rules
 compose/            Docker-compose generation from *.toml service configs
