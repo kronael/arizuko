@@ -320,7 +320,7 @@ Rule strings control which MCP tools and actions a group may use. Rule format:
 Rules are derived at container spawn time and injected into `start.json`.
 The `ipc` MCP manifest is filtered by grants so agents only see permitted tools.
 
-## Compose Generation and Service Products
+## Compose Containers
 
 `compose.Generate(dataDir)` builds a `docker-compose.yml` from two sources:
 
