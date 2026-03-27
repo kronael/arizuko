@@ -179,7 +179,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	var stopMCP func()
 	if ipcDir, err := folders.IpcPath(in.Folder); err == nil {
-		sockPath := filepath.Join(ipcDir, "router.sock")
+		sockPath := filepath.Join(ipcDir, "gated.sock")
 		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Grants); err != nil {
 			slog.Warn("failed to start MCP server", "group", in.Folder, "err", err)
 		} else {
@@ -643,7 +643,7 @@ func seedSettings(
 	}
 	servers["arizuko"] = map[string]any{
 		"command": "socat",
-		"args":    []string{"STDIO", "UNIX-CONNECT:/workspace/ipc/router.sock"},
+		"args":    []string{"STDIO", "UNIX-CONNECT:/workspace/ipc/gated.sock"},
 	}
 	settings["mcpServers"] = servers
 

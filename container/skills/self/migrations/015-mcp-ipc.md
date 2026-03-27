@@ -6,9 +6,9 @@ the router process.
 
 ## What changed
 
-- `arizuko` MCP server: `socat STDIO UNIX-CONNECT:/workspace/ipc/router.sock`
+- `arizuko` MCP server: `socat STDIO UNIX-CONNECT:/workspace/ipc/gated.sock`
 - IPC subdirs `messages/`, `tasks/`, `requests/`, `replies/` removed
-- `router.sock` created per-container-run in `/workspace/ipc/`
+- `gated.sock` created per-container-run in `/workspace/ipc/`
 - All actions (send_message, schedule_task, etc.) available as before
 
 ## Agent impact

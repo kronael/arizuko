@@ -13,8 +13,8 @@ the semantics are unchanged.
 The agent wrote JSON files; the gateway polled/inotify-drained them.
 
 arizuko replaces this with MCP over a unix socket at
-`data/ipc/<group>/router.sock`. Inside the container the socket is mounted at
-`/workspace/ipc/router.sock`. The agent connects to it via a socat bridge that
+`data/ipc/<group>/gated.sock`. Inside the container the socket is mounted at
+`/workspace/ipc/gated.sock`. The agent connects to it via a socat bridge that
 is injected into `.claude/settings.json` as an MCP server named `arizuko`.
 
 **What this means for agents:**
@@ -259,14 +259,14 @@ OAuth redirect URIs. arizuko prefers `AUTH_BASE_URL`; falls back to
 
 ## Agent Container Paths
 
-| Purpose           | kanipi               | arizuko                      |
-| ----------------- | -------------------- | ---------------------------- |
-| Group working dir | `/home/node`         | `/workspace/group`           |
-| Self/skills dir   | `/workspace/self`    | `/workspace/self`            |
-| Share dir         | `/workspace/share`   | `/workspace/share`           |
-| IPC dir           | `/workspace/ipc`     | `/workspace/ipc`             |
-| Web dir           | `/workspace/web`     | `/workspace/web`             |
-| MCP socket        | n/a (file-based IPC) | `/workspace/ipc/router.sock` |
+| Purpose           | kanipi               | arizuko                     |
+| ----------------- | -------------------- | --------------------------- |
+| Group working dir | `/home/node`         | `/workspace/group`          |
+| Self/skills dir   | `/workspace/self`    | `/workspace/self`           |
+| Share dir         | `/workspace/share`   | `/workspace/share`          |
+| IPC dir           | `/workspace/ipc`     | `/workspace/ipc`            |
+| Web dir           | `/workspace/web`     | `/workspace/web`            |
+| MCP socket        | n/a (file-based IPC) | `/workspace/ipc/gated.sock` |
 
 Skills or CLAUDE.md files that reference `/home/node` must be updated to
 `/workspace/group`.

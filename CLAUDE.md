@@ -154,7 +154,7 @@ sudo journalctl -u arizuko_<instance> --since "5 minutes ago" --no-pager \
 sudo docker ps --filter "name=arizuko-" --format "{{.Names}} {{.Status}}"
 
 # 5. MCP socket check
-ls /srv/data/arizuko_<instance>/data/ipc/*/router.sock 2>/dev/null
+ls /srv/data/arizuko_<instance>/data/ipc/*/gated.sock 2>/dev/null
 ```
 
 Red flags: `"error in message loop"`, `"container timeout"`,

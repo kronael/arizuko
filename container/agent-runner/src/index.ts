@@ -444,7 +444,7 @@ async function runQuery(
           ...agentMcpServers,
           arizuko: {
             command: 'socat',
-            args: ['STDIO', 'UNIX-CONNECT:/workspace/ipc/router.sock'],
+            args: ['STDIO', 'UNIX-CONNECT:/workspace/ipc/gated.sock'],
           },
         },
         hooks: {

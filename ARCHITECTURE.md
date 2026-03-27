@@ -243,7 +243,7 @@ cursor advances (partial work preserved).
 
 MCP server on unix socket (`mark3labs/mcp-go`). Gateway starts
 one `ipc` server per group before container spawn, listening on
-`data/ipc/<folder>/router.sock`. Tools registered from MCP manifest
+`data/ipc/<folder>/gated.sock`. Tools registered from MCP manifest
 filtered by grants rules for the caller's group; runtime auth via
 `auth.Authorize`. `set_grants`/`get_grants` tools allow agents to
 read and write grant rules. `delegate_group` calls `NarrowRules`

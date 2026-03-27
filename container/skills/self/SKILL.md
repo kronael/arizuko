@@ -33,7 +33,7 @@ On every new session, BEFORE responding:
 | `~/` (`/home/node`)        | home + cwd — group files, .claude/, diary, media         | read-write                                  |
 | `/workspace/share`         | shared global memory                                     | read-only for non-root, read-write for root |
 | `/workspace/web`           | vite web app directory                                   | read-write                                  |
-| `/workspace/ipc`           | gateway↔agent IPC (input/, router.sock MCP server)       | read-write                                  |
+| `/workspace/ipc`           | gateway↔agent IPC (input/, gated.sock MCP server)        | read-write                                  |
 | `/workspace/data/sessions` | all group session dirs (for migrate)                     | read-write, main only                       |
 | `/workspace/extra/<name>`  | operator-configured extra mounts                         | varies                                      |
 | `~/.claude`                | agent memory: skills, CLAUDE.md, sessions                | read-write                                  |
