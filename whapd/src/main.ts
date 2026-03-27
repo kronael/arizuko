@@ -34,7 +34,10 @@ const authDir = env(
   dataDir ? `${dataDir}/store/whatsapp-auth` : '/srv/data/store/whatsapp-auth',
 );
 
-async function makeSocket(): Promise<WASocket> {
+async function makeSocket(): Promise<{
+  s: WASocket;
+  saveCreds: () => Promise<void>;
+}> {
   fs.mkdirSync(authDir, { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const { version } = await fetchLatestWaWebVersion({}).catch(() => ({
@@ -52,13 +55,13 @@ async function makeSocket(): Promise<WASocket> {
     shouldSyncHistoryMessage: () => false,
   });
   s.ev.on('creds.update', saveCreds);
-  return s;
+  return { s, saveCreds };
 }
 
 // --pair <phone>: request pairing code, print it, exit once authenticated.
 async function pair(phone: string): Promise<void> {
   process.stdout.write(`pairing whatsapp with phone ${phone}...\n`);
-  const s = await makeSocket();
+  const { s, saveCreds } = await makeSocket();
 
   // Request pairing code 3s after socket is ready (Baileys needs handshake first)
   setTimeout(async () => {
@@ -81,9 +84,13 @@ async function pair(phone: string): Promise<void> {
     s.ev.on('connection.update', (update) => {
       const { connection, lastDisconnect } = update;
       if (connection === 'open') {
-        process.stdout.write('authenticated — credentials saved\n');
-        s.end(undefined);
-        resolve();
+        saveCreds()
+          .then(() => {
+            process.stdout.write('authenticated — credentials saved\n');
+            s.end(undefined);
+            resolve();
+          })
+          .catch(reject);
       }
       if (connection === 'close') {
         const code = (lastDisconnect?.error as any)?.output?.statusCode;
@@ -109,7 +116,7 @@ const rc = new RouterClient(routerURL, channelSecret);
 let reconnectAttempts = 0;
 
 async function connect(): Promise<void> {
-  sock = await makeSocket();
+  ({ s: sock } = await makeSocket());
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
