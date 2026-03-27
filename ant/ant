@@ -4,7 +4,7 @@
 # With gated:     ant -g <socket> <dir> [prompt]
 set -euo pipefail
 
-IMAGE="${ANT_IMAGE:-arizuko-agent:latest}"
+IMAGE="${ANT_IMAGE:-arizuko-ant:latest}"
 DIR=""
 PROMPT=""
 GATED_SOCK=""
@@ -15,7 +15,7 @@ usage() {
 Usage: ant [options] <dir> [prompt]
 
 Options:
-  -i image      Docker image (default: arizuko-agent:latest)
+  -i image      Docker image (default: arizuko-ant:latest)
   -g socket     Path to gated MCP socket (enables IPC bridge)
   -s name       Session name for continuity
   -h            Show this help

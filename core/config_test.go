@@ -22,7 +22,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.Name != "Andy" {
 		t.Fatalf("expected default name 'Andy', got %q", cfg.Name)
 	}
-	if cfg.Image != "arizuko-agent:latest" {
+	if cfg.Image != "arizuko-ant:latest" {
 		t.Fatalf("expected default image, got %q", cfg.Image)
 	}
 	if cfg.MaxContainers != 5 {

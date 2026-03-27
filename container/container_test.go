@@ -117,7 +117,7 @@ func TestHp(t *testing.T) {
 func TestBuildArgs(t *testing.T) {
 	cfg := &core.Config{
 		Timezone: "UTC",
-		Image:    "arizuko-agent:test",
+		Image:    "arizuko-ant:test",
 	}
 	mounts := []VolumeMount{
 		{Host: "/h/group", Container: "/home/node"},
@@ -141,7 +141,7 @@ func TestBuildArgs(t *testing.T) {
 	}
 
 	last := args[len(args)-1]
-	if last != "arizuko-agent:test" {
+	if last != "arizuko-ant:test" {
 		t.Errorf("last arg = %q, want image", last)
 	}
 

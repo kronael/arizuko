@@ -117,7 +117,7 @@ silent.
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
 		secret := make([]byte, 16)
 		rand.Read(secret)
-		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=arizuko-agent:latest\nAPI_PORT=8080\nCHANNEL_SECRET=%s\n", name, hex.EncodeToString(secret))
+		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=arizuko-ant:latest\nAPI_PORT=8080\nCHANNEL_SECRET=%s\n", name, hex.EncodeToString(secret))
 		if err := os.WriteFile(envFile, []byte(content), 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: write .env: %v\n", err)
 			os.Exit(1)

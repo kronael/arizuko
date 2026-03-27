@@ -179,7 +179,7 @@ Key error emitters: `gateway/gateway.go` (message loop),
 1. Update `CHANGELOG.md` — move [Unreleased] to `[vX.Y.Z] — YYYY-MM-DD`
 2. Update `README.md` and `ARCHITECTURE.md` if needed
 3. `git tag vX.Y.Z`
-4. Tag docker images: `docker tag arizuko:latest arizuko:vX.Y.Z` and same for `arizuko-agent`
+4. Tag docker images: `docker tag arizuko:latest arizuko:vX.Y.Z` and same for `arizuko-ant`
 5. Add `.diary/YYYYMMDD.md` entry
 
 ## Migrating from kanipi

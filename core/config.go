@@ -71,7 +71,7 @@ func LoadConfig() (*Config, error) {
 	c := &Config{
 		Name:          name,
 		TelegramToken: envOr("TELEGRAM_BOT_TOKEN", ""),
-		Image:         envOr("CONTAINER_IMAGE", "arizuko-agent:latest"),
+		Image:         envOr("CONTAINER_IMAGE", "arizuko-ant:latest"),
 		Timeout:       envDur("CONTAINER_TIMEOUT", 30*time.Minute),
 		IdleTimeout:   envDur("IDLE_TIMEOUT", 30*time.Minute),
 		MaxContainers: envInt("MAX_CONCURRENT_CONTAINERS", 5),
