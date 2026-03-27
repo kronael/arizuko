@@ -11,6 +11,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.19.1] — 2026-03-27
+
+### Fixed
+
+- **whapd**: `saveCreds()` now awaited before closing socket on pairing —
+  `creds.json` was 0 bytes on first pair, forcing repeated re-pair cycles.
+- **whapd**: Bot loop guard — skip inbound messages whose `pushName` matches
+  `ASSISTANT_NAME` (prevents agent self-reply loops in group chats).
+- **whapd**: Read receipts — mark messages read after delivery so users don't
+  see perpetual unread badges.
+- **whapd**: Markdown→WhatsApp formatting on outbound send — `**bold**` →
+  `*bold*`, `~~strike~~` → `~strike~`.
+- **whapd**: `makeSocket()` now returns `saveCreds` for callers that need explicit flush.
+
+---
+
 ## [v0.19.0] — 2026-03-27
 
 ### Changed
