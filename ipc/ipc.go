@@ -61,7 +61,7 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 	if err != nil {
 		return nil, err
 	}
-	os.Chmod(sockPath, 0600)
+	os.Chmod(sockPath, 0666) // agent container runs as uid=1000, gated as root
 	slog.Info("mcp server listening", "folder", folder, "sock", sockPath)
 
 	ctx, cancel := context.WithCancel(context.Background())
