@@ -82,8 +82,8 @@ func TestHp(t *testing.T) {
 		{
 			"no host root",
 			core.Config{DataDir: "/srv/data/inst/data"},
-			"/srv/data/inst/data/sessions/g",
-			"/srv/data/inst/data/sessions/g",
+			"/srv/data/inst/groups/g/.claude",
+			"/srv/data/inst/groups/g/.claude",
 		},
 		{
 			"with host root",
@@ -91,8 +91,8 @@ func TestHp(t *testing.T) {
 				HostProjectRoot: "/host/inst",
 				DataDir:         "/srv/data/inst/data",
 			},
-			"/srv/data/inst/data/sessions/g",
-			"/host/inst/data/sessions/g",
+			"/srv/data/inst/groups/g/.claude",
+			"/host/inst/groups/g/.claude",
 		},
 		{
 			"path outside project",

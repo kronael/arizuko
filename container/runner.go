@@ -100,7 +100,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	appDir := cfg.HostAppDir
 	latest := migrationVersion(
 		filepath.Join(appDir, "ant", "skills", "self", "MIGRATION_VERSION"))
-	sessDir := filepath.Join(cfg.DataDir, "sessions", in.Folder, ".claude")
+	sessDir := filepath.Join(cfg.DataDir, "groups", in.Folder, ".claude")
 	agent := migrationVersion(
 		filepath.Join(sessDir, "skills", "self", "MIGRATION_VERSION"))
 	if agent < latest {
@@ -459,16 +459,11 @@ func BuildMounts(
 		RO:        !root,
 	})
 
-	sessDir := filepath.Join(
-		cfg.DataDir, "sessions", in.Folder, ".claude")
+	sessDir := filepath.Join(cfg.DataDir, "groups", in.Folder, ".claude")
 	os.MkdirAll(sessDir, 0o755)
 	chown(sessDir, 1000, 1000)
 	seedSettings(sessDir, cfg, in, root)
 	seedSkills(cfg, sessDir, in.Folder)
-	m = append(m, VolumeMount{
-		Host:      hp(cfg, sessDir),
-		Container: containerHome + "/.claude",
-	})
 
 	ipcDir, err := folders.IpcPath(in.Folder)
 	if err == nil {
@@ -485,7 +480,7 @@ func BuildMounts(
 	runnerSrc := filepath.Join(
 		cfg.HostAppDir, "ant", "src")
 	groupRunnerDir := filepath.Join(
-		cfg.DataDir, "sessions", in.Folder, "agent-runner-src")
+		cfg.DataDir, "groups", in.Folder, "agent-runner-src")
 	if _, err := os.Stat(groupRunnerDir); os.IsNotExist(err) {
 		if _, err := os.Stat(runnerSrc); err == nil {
 			cpDir(runnerSrc, groupRunnerDir)
