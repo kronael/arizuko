@@ -7,6 +7,15 @@ interface SendReq {
   thread_id?: string;
 }
 
+interface SendFileReq {
+  chat_jid: string;
+  // base64-encoded file bytes
+  data: string;
+  mime: string;
+  filename?: string;
+  caption?: string;
+}
+
 interface TypingReq {
   chat_jid: string;
   on: boolean;
@@ -30,10 +39,21 @@ function toWaJid(jid: string): string {
   return `${bare}@s.whatsapp.net`;
 }
 
+function mimeToMediaType(
+  mime: string,
+): 'image' | 'video' | 'audio' | 'document' {
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  return 'document';
+}
+
 export function startServer(
   addr: string,
   secret: string,
   sock: () => WASocket | null,
+  isConnected: () => boolean,
+  queueOutbound: (jid: string, text: string) => void,
 ): http.Server {
   const srv = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -55,15 +75,63 @@ export function startServer(
 
     if (req.method === 'POST' && req.url === '/send') {
       const body = (await readBody(req)) as SendReq;
+      const waJid = toWaJid(body.chat_jid);
+      const text = mdToWa(body.content);
       const s = sock();
-      if (!s) {
+      if (!s || !isConnected()) {
+        // Queue for delivery on reconnect
+        queueOutbound(waJid, text);
+        json(res, 200, { ok: true, queued: true });
+        return;
+      }
+      try {
+        await s.sendMessage(waJid, { text });
+        json(res, 200, { ok: true });
+      } catch (e: unknown) {
+        // Fallback: queue if send fails mid-connection
+        queueOutbound(waJid, text);
+        json(res, 200, { ok: true, queued: true });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/send-file') {
+      const body = (await readBody(req)) as SendFileReq;
+      const s = sock();
+      if (!s || !isConnected()) {
         json(res, 502, { ok: false, error: 'not connected' });
         return;
       }
       try {
-        await s.sendMessage(toWaJid(body.chat_jid), {
-          text: mdToWa(body.content),
-        });
+        const waJid = toWaJid(body.chat_jid);
+        const buf = Buffer.from(body.data, 'base64');
+        const mediaType = mimeToMediaType(body.mime);
+
+        if (mediaType === 'image') {
+          await s.sendMessage(waJid, {
+            image: buf,
+            mimetype: body.mime,
+            caption: body.caption,
+          });
+        } else if (mediaType === 'video') {
+          await s.sendMessage(waJid, {
+            video: buf,
+            mimetype: body.mime,
+            caption: body.caption,
+          });
+        } else if (mediaType === 'audio') {
+          await s.sendMessage(waJid, {
+            audio: buf,
+            mimetype: body.mime,
+          });
+        } else {
+          await s.sendMessage(waJid, {
+            document: buf,
+            mimetype: body.mime,
+            fileName: body.filename || 'file',
+            caption: body.caption,
+          });
+        }
         json(res, 200, { ok: true });
       } catch (e: unknown) {
         json(res, 502, { ok: false, error: String(e) });
