@@ -28,6 +28,7 @@ function env(k: string, def?: string): string {
   return v;
 }
 
+const assistantName = (process.env['ASSISTANT_NAME'] ?? '').toLowerCase();
 const dataDir = process.env['DATA_DIR'] ?? '';
 const authDir = env(
   'WHATSAPP_AUTH_DIR',
@@ -185,6 +186,10 @@ async function connect(): Promise<void> {
         '';
       if (!content) continue;
 
+      // Skip messages from the bot itself (loop guard for group chats)
+      if (assistantName && (msg.pushName || '').toLowerCase() === assistantName)
+        continue;
+
       const isGroup = jid.endsWith('@g.us');
       const chatJid = `whatsapp:${jid}`;
       const rawSender = msg.key.participant || jid;
@@ -193,6 +198,8 @@ async function connect(): Promise<void> {
       await rc
         .sendChat(chatJid, isGroup ? '' : senderName, isGroup)
         .catch(() => {});
+
+      sock!.readMessages([msg.key]).catch(() => {});
 
       try {
         await rc.sendMessage({
@@ -204,7 +211,7 @@ async function connect(): Promise<void> {
           timestamp:
             Number(msg.messageTimestamp) || Math.floor(Date.now() / 1000),
           is_group: isGroup,
-          topic: '', // WhatsApp has no native threading support
+          topic: '',
         });
       } catch (e) {
         log('error', 'deliver failed', { jid: chatJid, err: String(e) });

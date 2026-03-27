@@ -17,6 +17,13 @@ function log(level: string, msg: string, attrs?: Record<string, unknown>) {
   process.stderr.write(JSON.stringify(entry) + '\n');
 }
 
+// Convert markdown to WhatsApp formatting
+function mdToWa(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '*$1*') // **bold** → *bold*
+    .replace(/~~(.*?)~~/g, '~$1~'); // ~~strike~~ → ~strike~
+}
+
 function toWaJid(jid: string): string {
   const bare = jid.replace(/^whatsapp:/, '');
   if (bare.includes('@')) return bare;
@@ -54,7 +61,9 @@ export function startServer(
         return;
       }
       try {
-        await s.sendMessage(toWaJid(body.chat_jid), { text: body.content });
+        await s.sendMessage(toWaJid(body.chat_jid), {
+          text: mdToWa(body.content),
+        });
         json(res, 200, { ok: true });
       } catch (e: unknown) {
         json(res, 502, { ok: false, error: String(e) });
