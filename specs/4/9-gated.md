@@ -162,7 +162,7 @@ Runs on `API_PORT` (default 8080).
 - Session ID stored in `sessions` table
 - On error: evict session, start fresh
 - Session state lives in container volume
-  (`/srv/data/.../data/sessions/<folder>/.claude/`)
+  (`/srv/data/.../groups/<folder>/.claude/`)
 
 ## MCP tool handling
 

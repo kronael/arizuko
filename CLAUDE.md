@@ -88,7 +88,7 @@ cfg/               Instance config files (per-deploy .env snapshots)
 - `store/` — SQLite DB
 - `groups/<folder>/` — group files, logs, diary
 - `data/ipc/<folder>/` — MCP unix sockets
-- `data/sessions/<folder>/.claude/` — agent session state
+- `groups/<folder>/.claude/` — agent session state (skills, settings, CLAUDE.md)
 
 ## Config
 

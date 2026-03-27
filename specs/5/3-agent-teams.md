@@ -40,7 +40,7 @@ status: planned
    or channel reply from a teammate is silently dropped.
 
 4. **Path problem** — `~/.claude/teams/` and `~/.claude/tasks/` resolve to
-   `/home/node/.claude/` inside the container, mounted from `/data/sessions/{group}/.claude/`.
+   `/home/node/.claude/` inside the container, mounted from `groups/{group}/.claude/`.
    This is scoped per-group — correct for a single agent session, wrong for multi-teammate
    coordination across the team lifecycle (teams persist, containers don't).
 

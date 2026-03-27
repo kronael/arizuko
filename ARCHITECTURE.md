@@ -221,7 +221,7 @@ but are unpopulated. Full spec: `specs/7/22-audit-log.md`.
    - Resolve group path via `groupfolder.Resolver`
    - `BuildMounts()` — assemble volume mounts (group, media, self, share, session, ipc, web, extra)
    - `mountsec.ValidateAdditionalMounts()` — check against allowlist
-   - `seedSettings()` — write `settings.json` to session `.claude/` dir (env vars, arizuko MCP via socat, sidecar MCP config)
+   - `seedSettings()` — write `settings.json` to `groups/<folder>/.claude/` (env vars, arizuko MCP via socat, sidecar MCP config)
    - `seedSkills()` — copy `ant/skills/` to session on first run; also seeds `.claude.json` if missing (SDK requires it; keyed by folder for stable userID hash)
    - `StartSidecars()` — launch MCP sidecar containers (if configured)
    - Container name: `arizuko-<folder>-<timestamp_ms>` for regular runs;
@@ -526,5 +526,5 @@ whapd/              WhatsApp adapter (TypeScript)
 - `groups/<folder>/` — group files, logs, diary, media
 - `groups/<world>/share/` — cross-group shared state
 - `data/ipc/<folder>/` — MCP unix sockets + sidecar sockets
-- `data/sessions/<folder>/.claude/` — agent session (settings, skills, CLAUDE.md)
+- `groups/<folder>/.claude/` — agent session state (settings, skills, CLAUDE.md)
 - `web/` — vite web app

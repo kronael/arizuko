@@ -314,7 +314,9 @@ From `.kanipi-delta.md` and code inspection:
 
 ## Data Directory Layout
 
-No change to the top-level layout (`store/`, `groups/`, `data/`, `data/ipc/`,
-`data/sessions/`). The instance root convention changed: kanipi used `DATA_DIR`
-pointing at cwd; arizuko names instances as `arizuko_<name>` under
-`/srv/data/` by convention but still reads `DATA_DIR` from `.env`.
+No change to the top-level layout (`store/`, `groups/`, `data/`, `data/ipc/`).
+Agent session state (`.claude/`) now lives inside the group folder at
+`groups/<folder>/.claude/` — there is no separate `data/sessions/` tree.
+The instance root convention changed: kanipi used `DATA_DIR` pointing at cwd;
+arizuko names instances as `arizuko_<name>` under `/srv/data/` by convention
+but still reads `DATA_DIR` from `.env`.

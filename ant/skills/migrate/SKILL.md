@@ -34,10 +34,10 @@ Merge rules:
 Use Task tool with general-purpose agent to perform migration for each group:
 
 ```
-For each session in /workspace/data/sessions/*/:
+For each group in /workspace/data/groups/*/:
   - Spawn agent with migration task
-  - Agent reads source: /workspace/self/container/
-  - Agent reads dest: /workspace/data/sessions/{group}/
+  - Agent reads source: /workspace/self/ant/
+  - Agent reads dest: /workspace/data/groups/{group}/
   - Agent performs intelligent merge:
     * Skills: Compare SKILL.md files, merge if both changed
     * Web files: Preserve local edits
@@ -96,9 +96,9 @@ When both source and dest have changes:
 For each group session, check MIGRATION_VERSION and run missing migrations.
 
 ```bash
-src=/workspace/self/container/skills/self/migrations
+src=/workspace/self/ant/skills/self/migrations
 
-for session in /workspace/data/sessions/*/; do
+for session in /workspace/data/groups/*/; do
   skills_dir="$session/.claude/skills/self"
   test -d "$skills_dir" || continue
   group=$(basename "$session")
@@ -142,7 +142,7 @@ from `/workspace/self/templates/<name>/`.
 ```bash
 src_templates=/workspace/self/templates
 
-for session in /workspace/data/sessions/*/; do
+for session in /workspace/data/groups/*/; do
   self_dir="$session/.claude/skills/self"
   tfile="$self_dir/TEMPLATES"
   test -f "$tfile" || continue

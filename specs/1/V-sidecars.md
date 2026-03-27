@@ -10,7 +10,7 @@ gateway-managed (operator config) and agent-requested (IPC action).
 Three paths for the same unix socket:
 
 ```
-Host:    data/sessions/<group>/.claude/sidecars/<name>.sock
+Host:    data/groups/<group>/.claude/sidecars/<name>.sock
 Agent:   /workspace/ipc/sidecars/<name>.sock
 Sidecar: /run/socks/<name>.sock
 ```

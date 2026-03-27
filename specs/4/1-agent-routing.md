@@ -23,7 +23,7 @@ Each worker has:
 - A name / trigger pattern (keyword, command, or ML-routed)
 - Its own container image (or inherits the group default)
 - Its own session (separate session ID, separate JSONL transcript)
-- Its own CLAUDE.md / skills (in `data/sessions/<folder>/<worker>/`)
+- Its own CLAUDE.md / skills (in `groups/<folder>/.claude/`)
 - Its own IPC channel
 
 Workers are still sequential per worker slot — one active container
