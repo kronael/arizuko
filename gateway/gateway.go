@@ -99,8 +99,11 @@ func (g *Gateway) Run(ctx context.Context) error {
 		GroupsDir:        g.cfg.GroupsDir,
 		HostGroupsDir:    g.cfg.HostGroupsDir,
 		InjectMessage:    g.injectMessage,
-		RegisterGroup:    g.registerGroupIPC,
-		GetGroups:        g.getGroups,
+		RegisterGroup: g.registerGroupIPC,
+		SeedGroupDir: func(folder string) error {
+			return container.SeedGroupDir(g.cfg, folder)
+		},
+		GetGroups: g.getGroups,
 		DelegateToChild:  g.delegateToChild,
 		DelegateToParent: g.delegateToParent,
 		SpawnGroup: func(parentJID, childJID string) (core.Group, error) {

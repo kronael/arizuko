@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/onvos/arizuko/container"
+	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/notify"
 	_ "modernc.org/sqlite"
 )
@@ -318,6 +320,12 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 		VALUES (?, ?, ?, ?)`,
 		targetJID, worldName, worldName, now); err != nil {
 		slog.Error("approve: insert registered_groups", "err", err)
+	}
+
+	if cfg, err := core.LoadConfig(); err == nil {
+		if err := container.SeedGroupDir(cfg, worldName); err != nil {
+			slog.Warn("approve: seed group dir", "folder", worldName, "err", err)
+		}
 	}
 
 	if _, err := db.Exec(`

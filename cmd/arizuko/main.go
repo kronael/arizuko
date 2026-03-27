@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/onvos/arizuko/compose"
+	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
 )
@@ -196,6 +198,12 @@ func cmdGroup(args []string) {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: add group: %v\n", err)
 			os.Exit(1)
+		}
+		cfg, cfgErr := core.LoadConfigFrom(dataDir)
+		if cfgErr == nil {
+			if err := container.SeedGroupDir(cfg, folder); err != nil {
+				slog.Warn("failed to seed group dir", "folder", folder, "err", err)
+			}
 		}
 		fmt.Printf("added group %s (%s) -> %s\n", name, jid, folder)
 

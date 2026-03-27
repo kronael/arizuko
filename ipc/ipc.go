@@ -29,6 +29,7 @@ type GatedFns struct {
 	ClearSession     func(folder string)
 	InjectMessage    func(jid, content, sender, senderName string) (string, error)
 	RegisterGroup    func(jid string, group core.Group) error
+	SeedGroupDir     func(folder string) error
 	GetGroups        func() map[string]core.Group
 	DelegateToChild  func(folder, prompt, jid string, depth int, rules []string) error
 	DelegateToParent func(folder, prompt, jid string, depth int, rules []string) error
@@ -386,6 +387,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 					child.Name = name
 					gated.RegisterGroup(jid, child) //nolint
 				}
+				if gated.SeedGroupDir != nil {
+					if err := gated.SeedGroupDir(child.Folder); err != nil {
+						slog.Warn("register_group: seed group dir", "folder", child.Folder, "err", err)
+					}
+				}
 				slog.Info("group registered from prototype", "jid", jid, "folder", child.Folder, "sourceGroup", folder)
 				return toolJSON(map[string]any{"registered": true, "folder": child.Folder, "jid": child.JID})
 			}
@@ -425,6 +431,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			if err := gated.RegisterGroup(jid, gr); err != nil {
 				return toolErr(err.Error())
+			}
+			if gated.SeedGroupDir != nil {
+				if err := gated.SeedGroupDir(gfld); err != nil {
+					slog.Warn("register_group: seed group dir", "folder", gfld, "err", err)
+				}
 			}
 			slog.Info("group registered", "jid", jid, "folder", gfld, "sourceGroup", folder)
 			return toolJSON(map[string]any{"registered": true, "folder": gfld, "jid": jid})

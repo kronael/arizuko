@@ -463,7 +463,6 @@ func BuildMounts(
 	os.MkdirAll(sessDir, 0o755)
 	chown(sessDir, 1000, 1000)
 	seedSettings(sessDir, cfg, in, root)
-	seedSkills(cfg, sessDir, in.Folder)
 
 	ipcDir, err := folders.IpcPath(in.Folder)
 	if err == nil {
@@ -680,6 +679,18 @@ func seedSettings(
 	data, _ := json.MarshalIndent(settings, "", "  ")
 	os.WriteFile(fp, append(data, '\n'), 0o644)
 	slog.Debug("settings seeded", "path", fp, "sidecars", len(in.Config.Sidecars))
+}
+
+// SeedGroupDir initializes the agent session directory for a newly created group.
+// Called once at group creation time by group add, onbod, and register_group MCP tool.
+func SeedGroupDir(cfg *core.Config, folder string) error {
+	claudeDir := filepath.Join(cfg.DataDir, "groups", folder, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		return err
+	}
+	chown(claudeDir, 1000, 1000)
+	seedSkills(cfg, claudeDir, folder)
+	return nil
 }
 
 func seedSkills(cfg *core.Config, claudeDir, folder string) {
