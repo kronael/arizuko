@@ -360,7 +360,7 @@ async function runQuery(
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
-): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
+): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; sessionError: boolean }> {
   const stream = new MessageStream();
   stream.push(prompt);
 
@@ -396,6 +396,7 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
   let maxTurnsHit = false;
+  let sessionError = false;
 
   // Additional dirs: their CLAUDE.md files are auto-loaded by the SDK
   const extraDirs: string[] = [];
@@ -485,6 +486,9 @@ async function runQuery(
         log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
         if (message.subtype === 'error_max_turns') {
           maxTurnsHit = true;
+        } else if (message.subtype === 'error_during_execution') {
+          log('Session error, will retry without session');
+          sessionError = true;
         } else {
           writeOutput({ status: 'success', result: textResult || null, newSessionId });
         }
@@ -526,7 +530,7 @@ async function runQuery(
     }
   }
 
-  return { newSessionId, lastAssistantUuid, closedDuringQuery };
+  return { newSessionId, lastAssistantUuid, closedDuringQuery, sessionError };
 }
 
 async function main(): Promise<void> {
@@ -581,6 +585,12 @@ async function main(): Promise<void> {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
       const queryResult = await runQuery(prompt, sessionId, containerInput, sdkEnv, resumeAt);
+      if (queryResult.sessionError && sessionId) {
+        log(`Session error on resume, retrying with fresh session (was: ${sessionId})`);
+        sessionId = undefined;
+        resumeAt = undefined;
+        continue;
+      }
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }
