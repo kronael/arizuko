@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/onvos/arizuko/chanlib"
 )
 
 type stubBot struct {
@@ -20,71 +18,25 @@ type stubBot struct {
 type stubSend struct{ JID, Content string }
 type stubFile struct{ JID, Name string }
 
+func (sb *stubBot) send(jid, content, _, _ string) (string, error) {
+	sb.sent = append(sb.sent, stubSend{jid, content})
+	return "stub-id", nil
+}
+
+func (sb *stubBot) sendFile(jid, _, name string) error {
+	sb.files = append(sb.files, stubFile{jid, name})
+	return nil
+}
+
+func (sb *stubBot) typing(_ string, on bool) error {
+	sb.typings = append(sb.typings, on)
+	return nil
+}
+
 func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}
 	cfg := config{Name: "discord", ChannelSecret: secret}
-	mux := http.NewServeMux()
-
-	auth := func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if secret != "" {
-				tok := r.Header.Get("Authorization")
-				if tok != "Bearer "+secret {
-					chanlib.WriteErr(w, 401, "invalid secret")
-					return
-				}
-			}
-			next(w, r)
-		}
-	}
-
-	mux.HandleFunc("POST /send", auth(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ChatJID string `json:"chat_jid"`
-			Content string `json:"content"`
-		}
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
-			chanlib.WriteErr(w, 400, "chat_jid and content required")
-			return
-		}
-		sb.sent = append(sb.sent, stubSend{req.ChatJID, req.Content})
-		chanlib.WriteJSON(w, map[string]any{"ok": true})
-	}))
-	mux.HandleFunc("POST /send-file", auth(func(w http.ResponseWriter, r *http.Request) {
-		if r.ParseMultipartForm(50<<20) != nil {
-			chanlib.WriteErr(w, 400, "invalid multipart")
-			return
-		}
-		jid, name := r.FormValue("chat_jid"), r.FormValue("filename")
-		if jid == "" {
-			chanlib.WriteErr(w, 400, "chat_jid required")
-			return
-		}
-		_, hdr, err := r.FormFile("file")
-		if err != nil {
-			chanlib.WriteErr(w, 400, "file required")
-			return
-		}
-		if name == "" {
-			name = hdr.Filename
-		}
-		sb.files = append(sb.files, stubFile{jid, name})
-		chanlib.WriteJSON(w, map[string]any{"ok": true})
-	}))
-	mux.HandleFunc("POST /typing", auth(func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ On bool `json:"on"` }
-		json.NewDecoder(r.Body).Decode(&req)
-		sb.typings = append(sb.typings, req.On)
-		chanlib.WriteJSON(w, map[string]any{"ok": true})
-	}))
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		chanlib.WriteJSON(w, map[string]any{
-			"status": "ok", "name": cfg.Name,
-			"jid_prefixes": []string{"discord:"},
-		})
-	})
-
-	return mux, sb
+	return newServer(cfg, sb).handler(), sb
 }
 
 func TestServerSend(t *testing.T) {

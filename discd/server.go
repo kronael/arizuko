@@ -10,12 +10,18 @@ import (
 	"github.com/onvos/arizuko/chanlib"
 )
 
-type server struct {
-	cfg config
-	bot *bot
+type botIface interface {
+	send(jid, content, replyTo, threadID string) (string, error)
+	sendFile(jid, path, name string) error
+	typing(jid string, on bool) error
 }
 
-func newServer(cfg config, b *bot) *server { return &server{cfg: cfg, bot: b} }
+type server struct {
+	cfg config
+	bot botIface
+}
+
+func newServer(cfg config, b botIface) *server { return &server{cfg: cfg, bot: b} }
 
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
