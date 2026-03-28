@@ -42,6 +42,11 @@ type Gateway struct {
 	// preserve nanosecond precision; seconds-only formats risk missed messages.
 	lastTimestamp time.Time
 
+	// agentCursors caches per-JID cursor values in memory. If the DB write
+	// fails (e.g. disk full), the in-memory value still advances so the
+	// current process does not reprocess the same messages.
+	agentCursors map[string]time.Time
+
 	impulse *impulseGate
 }
 
@@ -54,8 +59,9 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 			GroupsDir: cfg.GroupsDir,
 			DataDir:   cfg.DataDir,
 		},
-		groups:  make(map[string]core.Group),
-		impulse: newImpulseGate(),
+		groups:       make(map[string]core.Group),
+		agentCursors: make(map[string]time.Time),
+		impulse:      newImpulseGate(),
 	}
 }
 
@@ -191,6 +197,7 @@ func (g *Gateway) loadState() {
 		if json.Unmarshal([]byte(raw), &m) == nil {
 			for k, v := range m {
 				if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
+					g.agentCursors[k] = t
 					g.store.SetAgentCursor(k, t)
 				}
 			}
@@ -356,7 +363,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return false, fmt.Errorf("group not registered: %s", chatJid)
 	}
 
-	agentTs := g.store.GetAgentCursor(chatJid)
+	agentTs := g.getAgentCursor(chatJid)
 
 	ch := g.findChannel(chatJid)
 
@@ -476,6 +483,9 @@ func (g *Gateway) processSenderBatch(
 		if *hadOutput {
 			return true
 		}
+		g.mu.Lock()
+		g.agentCursors[chatJid] = agentTs
+		g.mu.Unlock()
 		g.store.SetAgentCursor(chatJid, agentTs)
 		g.sendMessage(chatJid,
 			"Failed: agent error, will retry on next message.")
@@ -1087,7 +1097,21 @@ func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {
 	if len(msgs) == 0 {
 		return
 	}
-	g.store.SetAgentCursor(chatJid, msgs[len(msgs)-1].Timestamp)
+	ts := msgs[len(msgs)-1].Timestamp
+	g.mu.Lock()
+	g.agentCursors[chatJid] = ts
+	g.mu.Unlock()
+	g.store.SetAgentCursor(chatJid, ts)
+}
+
+func (g *Gateway) getAgentCursor(chatJid string) time.Time {
+	g.mu.RLock()
+	if ts, ok := g.agentCursors[chatJid]; ok {
+		g.mu.RUnlock()
+		return ts
+	}
+	g.mu.RUnlock()
+	return g.store.GetAgentCursor(chatJid)
 }
 
 // previousSessionXML returns a <previous_session .../> element from the most
@@ -1123,7 +1147,7 @@ func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
 	folder := group.Folder
 	today := time.Now().Format("2006-01-02")
 
-	cursor := g.store.GetAgentCursor(chatJid)
+	cursor := g.getAgentCursor(chatJid)
 	if !cursor.IsZero() && cursor.Format("2006-01-02") != today {
 		g.store.EnqueueSysMsg(folder, "gateway", "new_day",
 			fmt.Sprintf("Date changed to %s", today))
@@ -1225,7 +1249,7 @@ func (g *Gateway) groupJIDs() []string {
 
 func (g *Gateway) recoverPendingMessages() {
 	for _, jid := range g.groupJIDs() {
-		agentTs := g.store.GetAgentCursor(jid)
+		agentTs := g.getAgentCursor(jid)
 		msgs, err := g.store.MessagesSince(jid, agentTs, g.cfg.Name)
 		if err != nil {
 			slog.Error("recovery query failed", "jid", jid, "err", err)
