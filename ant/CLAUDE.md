@@ -161,9 +161,9 @@ NEVER describe or inline file contents in your text response.
 Call `send_file` with the absolute path of any file under `~/` (`/home/node/`).
 The home directory is the group directory, shared with the gateway.
 Use `~/tmp/` for temporary output files.
-Do NOT send a follow-up text message describing what you sent — the
-file speaks for itself. Only add text if there's something to explain
-beyond what the file shows.
+Use the `caption` parameter to include a message with the file — do NOT call
+`send_message` separately after `send_file`. File and caption are delivered
+together as a single attachment.
 
 ## User Interface
 

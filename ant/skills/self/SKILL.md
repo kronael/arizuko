@@ -148,6 +148,10 @@ The home directory is the group directory, shared with the gateway.
 Use `~/tmp/` for temporary output files.
 Paths under `/tmp` are container-only and will be rejected.
 
+Parameters: `filepath` (required), `filename` (display name), `caption` (message
+text shown alongside the file). Use `caption` instead of a separate `send_message`
+call — file and text are delivered together.
+
 ## Group configuration files
 
 Files you can create/edit in `~/` to configure gateway behaviour:
