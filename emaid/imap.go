@@ -299,6 +299,7 @@ func (p *poller) handleMsg(
 		IsGroup:    false,
 	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
+		return nil
 	}
 
 	// Pass UIDSet to Store — the library detects UIDSet and issues UID STORE.

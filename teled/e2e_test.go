@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 func TestE2EOutboundFlow(t *testing.T) {
@@ -33,10 +35,10 @@ func TestE2EInboundFlow(t *testing.T) {
 	mr := newMockRouter("")
 	defer mr.close()
 
-	rc := newRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
 	rc.Token = "test-token"
 
-	err := rc.SendMessage(inboundMsg{
+	err := rc.SendMessage(chanlib.InboundMsg{
 		ID: "42", ChatJID: "telegram:-1001234567890",
 		Sender: "telegram:12345", SenderName: "Alice",
 		Content: "Hello from telegram", Timestamp: 1709942400, IsGroup: true,
@@ -59,7 +61,7 @@ func TestE2ERegistrationAndDeregistration(t *testing.T) {
 	mr := newMockRouter("secret")
 	defer mr.close()
 
-	rc := newRouterClient(mr.srv.URL, "secret")
+	rc := chanlib.NewRouterClient(mr.srv.URL, "secret")
 	token, err := rc.Register("telegram", "http://telegram:9001",
 		[]string{"telegram:"}, map[string]bool{"send_text": true})
 	if err != nil {
@@ -70,7 +72,7 @@ func TestE2ERegistrationAndDeregistration(t *testing.T) {
 	}
 
 	rc.Token = token
-	if err := rc.SendMessage(inboundMsg{ChatJID: "telegram:123", Content: "test"}); err != nil {
+	if err := rc.SendMessage(chanlib.InboundMsg{ChatJID: "telegram:123", Content: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := rc.Deregister(); err != nil {
@@ -103,7 +105,7 @@ func TestE2EChatMetadata(t *testing.T) {
 	mr := newMockRouter("")
 	defer mr.close()
 
-	rc := newRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
 	rc.Token = "test-token"
 	if err := rc.SendChat("telegram:-100123", "Dev Chat", true); err != nil {
 		t.Fatal(err)
@@ -120,10 +122,10 @@ func TestE2EMultipleMessages(t *testing.T) {
 	mr := newMockRouter("")
 	defer mr.close()
 
-	rc := newRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
 	rc.Token = "test-token"
 	for i := 0; i < 5; i++ {
-		rc.SendMessage(inboundMsg{ChatJID: "telegram:123", Content: "msg"})
+		rc.SendMessage(chanlib.InboundMsg{ChatJID: "telegram:123", Content: "msg"})
 	}
 	mr.mu.Lock()
 	if len(mr.messages) != 5 {

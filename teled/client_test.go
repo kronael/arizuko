@@ -6,12 +6,14 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 type mockRouter struct {
 	mu           sync.Mutex
 	registered   map[string]any
-	messages     []inboundMsg
+	messages     []chanlib.InboundMsg
 	chats        []map[string]any
 	deregistered bool
 	srv          *httptest.Server
@@ -39,7 +41,7 @@ func newMockRouter(secret string) *mockRouter {
 			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "bad token"})
 			return
 		}
-		var msg inboundMsg
+		var msg chanlib.InboundMsg
 		json.NewDecoder(r.Body).Decode(&msg)
 		m.mu.Lock()
 		m.messages = append(m.messages, msg)
@@ -70,7 +72,7 @@ func TestRouterClientRegister(t *testing.T) {
 	mr := newMockRouter("secret")
 	defer mr.close()
 
-	rc := newRouterClient(mr.srv.URL, "secret")
+	rc := chanlib.NewRouterClient(mr.srv.URL, "secret")
 	token, err := rc.Register("telegram", "http://tg:9001",
 		[]string{"telegram:"}, map[string]bool{"send_text": true})
 
@@ -89,7 +91,7 @@ func TestRouterClientRegisterBadSecret(t *testing.T) {
 	mr := newMockRouter("secret")
 	defer mr.close()
 
-	rc := newRouterClient(mr.srv.URL, "wrong")
+	rc := chanlib.NewRouterClient(mr.srv.URL, "wrong")
 	_, err := rc.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
 
 	if err == nil {
@@ -101,10 +103,10 @@ func TestRouterClientSendMessage(t *testing.T) {
 	mr := newMockRouter("")
 	defer mr.close()
 
-	rc := newRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
 	rc.Token = "test-token"
 
-	err := rc.SendMessage(inboundMsg{
+	err := rc.SendMessage(chanlib.InboundMsg{
 		ID:         "123",
 		ChatJID:    "telegram:-100123",
 		Sender:     "telegram:456",
@@ -134,7 +136,7 @@ func TestRouterClientSendChat(t *testing.T) {
 	mr := newMockRouter("")
 	defer mr.close()
 
-	rc := newRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
 	rc.Token = "test-token"
 
 	err := rc.SendChat("telegram:-100123", "Dev Chat", true)
@@ -156,7 +158,7 @@ func TestRouterClientDeregister(t *testing.T) {
 	mr := newMockRouter("")
 	defer mr.close()
 
-	rc := newRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
 	rc.Token = "test-token"
 
 	if err := rc.Deregister(); err != nil {
@@ -171,10 +173,10 @@ func TestRouterClientBadToken(t *testing.T) {
 	mr := newMockRouter("")
 	defer mr.close()
 
-	rc := newRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
 	rc.Token = "bad-token"
 
-	err := rc.SendMessage(inboundMsg{
+	err := rc.SendMessage(chanlib.InboundMsg{
 		ChatJID: "telegram:123",
 		Content: "hello",
 	})

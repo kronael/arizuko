@@ -33,7 +33,7 @@ func main() {
 		syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
+	rc := chanlib.NewRouterClient(cfg.RouterURL, cfg.ChannelSecret)
 	token, err := rc.Register(cfg.Name, cfg.ListenURL,
 		[]string{"email:"}, map[string]bool{"send_text": true})
 	if err != nil {
