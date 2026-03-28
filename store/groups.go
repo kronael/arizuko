@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/onvos/arizuko/core"
@@ -146,10 +147,17 @@ func (s *Store) GetAgentCursor(jid string) time.Time {
 }
 
 func (s *Store) SetAgentCursor(jid string, ts time.Time) {
-	s.db.Exec(
+	res, err := s.db.Exec(
 		`UPDATE registered_groups SET agent_cursor = ? WHERE jid = ?`,
 		ts.Format(time.RFC3339Nano), jid,
 	)
+	if err != nil {
+		slog.Error("SetAgentCursor failed", "jid", jid, "ts", ts, "err", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		slog.Warn("SetAgentCursor matched no rows", "jid", jid, "ts", ts)
+	}
 }
 
 func (s *Store) AllAgentCursors() map[string]time.Time {
