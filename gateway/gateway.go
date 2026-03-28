@@ -457,7 +457,7 @@ func (g *Gateway) processSenderBatch(
 		ch.Typing(chatJid, true)
 	}
 
-	isolated := strings.HasPrefix(last.Sender, "scheduler-isolated")
+	isolated := strings.HasPrefix(last.Sender, "timed-isolated")
 	topic := g.effectiveTopic(chatJid, last.Topic)
 	onOutput, hadOutput := g.makeOutputCallback(chatJid, topic, last.ID, group.Folder)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
@@ -632,7 +632,7 @@ func (g *Gateway) runAgentWithOpts(
 
 	sanitized := container.SanitizeFolder(group.Folder)
 	var cname string
-	if taskID := strings.TrimPrefix(sender, "scheduler-isolated:"); taskID != sender {
+	if taskID := strings.TrimPrefix(sender, "timed-isolated:"); taskID != sender {
 		cname = fmt.Sprintf("arizuko-%s-task-%s", sanitized, container.SanitizeFolder(taskID))
 	} else {
 		cname = fmt.Sprintf("arizuko-%s-%d", sanitized, time.Now().UnixMilli())
@@ -949,7 +949,7 @@ func isStickyCommand(content string) bool {
 }
 
 func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
-	if msg.BotMsg || strings.HasPrefix(msg.Sender, "scheduler-") {
+	if msg.BotMsg || strings.HasPrefix(msg.Sender, "timed-") {
 		return false
 	}
 

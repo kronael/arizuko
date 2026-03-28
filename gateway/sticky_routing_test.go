@@ -389,7 +389,7 @@ func TestHandleStickyCommand_SchedulerIgnored(t *testing.T) {
 	msg := core.Message{
 		Content: "@agent",
 		ChatJID: jid,
-		Sender:  "scheduler-isolated-1",
+		Sender:  "timed-isolated-1",
 		BotMsg:  false,
 	}
 

@@ -34,7 +34,7 @@ const timedFireSQL = `SELECT id, chat_jid, prompt, cron FROM scheduled_tasks
 
 // timedInsertMsg is the exact INSERT timed uses to produce messages.
 const timedInsertMsg = `INSERT INTO messages (id, chat_jid, sender, content, timestamp)
- VALUES (?, ?, 'scheduler', ?, ?)`
+ VALUES (?, ?, 'timed', ?, ?)`
 
 // openSharedDB creates an in-memory SQLite DB with WAL mode, runs store
 // (gated) migrations, then returns both the Store and raw *sql.DB handle.
@@ -201,8 +201,8 @@ func TestMicroservice_TimedInsertReadableByStore(t *testing.T) {
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
 	}
-	if msgs[0].Sender != "scheduler" {
-		t.Errorf("sender = %q, want 'scheduler'", msgs[0].Sender)
+	if msgs[0].Sender != "timed" {
+		t.Errorf("sender = %q, want 'timed'", msgs[0].Sender)
 	}
 	if msgs[0].Content != "daily report" {
 		t.Errorf("content = %q, want 'daily report'", msgs[0].Content)
@@ -250,16 +250,16 @@ func TestMicroservice_TimedMessageNullableFieldsOK(t *testing.T) {
 func TestMicroservice_TimedMessagesNotFilteredAsBot(t *testing.T) {
 	s, db := openSharedDB(t)
 
-	// timed sets sender='scheduler'. gated filters sender LIKE 'BotName%'.
-	// Verify scheduler messages pass through the filter.
+	// timed sets sender='timed'. gated filters sender LIKE 'BotName%'.
+	// Verify timed messages pass through the filter.
 	ts := time.Now().Format(time.RFC3339)
 	db.Exec(timedInsertMsg, "sched-f1", "tg:300", "scheduled msg", ts)
 
-	// with different bot names — scheduler should never match
-	for _, botName := range []string{"Bot", "Arizuko", "Assistant", "scheduler-bot"} {
+	// with different bot names — timed should never match
+	for _, botName := range []string{"Bot", "Arizuko", "Assistant", "timed-bot"} {
 		msgs, _, _ := s.NewMessages([]string{"tg:300"}, time.Time{}, botName)
 		if len(msgs) != 1 {
-			t.Errorf("botName=%q: expected 1 msg, got %d (scheduler filtered out!)", botName, len(msgs))
+			t.Errorf("botName=%q: expected 1 msg, got %d (timed filtered out!)", botName, len(msgs))
 		}
 	}
 }

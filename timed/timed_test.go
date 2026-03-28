@@ -131,8 +131,8 @@ func TestFireCronTask(t *testing.T) {
 
 	var content, sender string
 	db.QueryRow("SELECT sender, content FROM messages").Scan(&sender, &content)
-	if sender != "scheduler" {
-		t.Fatal("expected sender=scheduler, got", sender)
+	if sender != "timed" {
+		t.Fatal("expected sender=timed, got", sender)
 	}
 	if content != "hello" {
 		t.Fatal("expected content=hello, got", content)
@@ -370,8 +370,8 @@ func TestContextModeIsolated(t *testing.T) {
 
 	var sender string
 	db.QueryRow("SELECT sender FROM messages WHERE content='isolated-task'").Scan(&sender)
-	if !strings.HasPrefix(sender, "scheduler-isolated:") {
-		t.Fatalf("expected sender=scheduler-isolated:<id>, got %q", sender)
+	if !strings.HasPrefix(sender, "timed-isolated:") {
+		t.Fatalf("expected sender=timed-isolated:<id>, got %q", sender)
 	}
 }
 

@@ -133,9 +133,9 @@ func fire(db *sql.DB, tz string) {
 
 	for _, t := range due {
 		start := time.Now()
-		sender := "scheduler"
+		sender := "timed"
 		if t.contextMode == "isolated" {
-			sender = "scheduler-isolated:" + t.id
+			sender = "timed-isolated:" + t.id
 		}
 		id := fmt.Sprintf("sched-%s-%d", t.id, start.UnixNano())
 		_, err := db.Exec(
