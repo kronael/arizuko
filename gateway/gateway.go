@@ -774,12 +774,12 @@ func (g *Gateway) sendMessageReply(jid, text, replyTo, threadID string) (string,
 	return ch.Send(jid, text, replyTo, threadID)
 }
 
-func (g *Gateway) sendDocument(jid, path, name string) error {
+func (g *Gateway) sendDocument(jid, path, name, caption string) error {
 	ch := g.findChannel(jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.SendFile(jid, path, name)
+	return ch.SendFile(jid, path, name, caption)
 }
 
 func (g *Gateway) clearSession(folder string) {

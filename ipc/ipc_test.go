@@ -10,7 +10,7 @@ import (
 func TestBuildMCPServer(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn string) error { return nil },
+		SendDocument:  func(jid, path, fn, caption string) error { return nil },
 		ClearSession:  func(f string) {},
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
@@ -27,7 +27,7 @@ func TestBuildMCPServer(t *testing.T) {
 func TestBuildMCPServer_NoTools(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn string) error { return nil },
+		SendDocument:  func(jid, path, fn, caption string) error { return nil },
 		ClearSession:  func(f string) {},
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
@@ -89,7 +89,7 @@ func TestGroupFolderByJid(t *testing.T) {
 func TestAllToolsRegistered(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:      func(jid, text string) (string, error) { return "", nil },
-		SendDocument:     func(jid, path, fn string) error { return nil },
+		SendDocument:     func(jid, path, fn, caption string) error { return nil },
 		ClearSession:     func(f string) {},
 		GetGroups:        func() map[string]core.Group { return nil },
 		DelegateToChild:  func(f, p, j string, d int, r []string) error { return nil },
@@ -131,7 +131,7 @@ func TestSendReply(t *testing.T) {
 	var got struct{ jid, text, replyToId string }
 	gated := GatedFns{
 		SendMessage:  func(jid, text string) (string, error) { got.jid = jid; got.text = text; return "", nil },
-		SendDocument: func(jid, path, fn string) error { return nil },
+		SendDocument: func(jid, path, fn, caption string) error { return nil },
 		SendReply: func(jid, text, rid string) (string, error) {
 			got.jid = jid
 			got.text = text
@@ -155,7 +155,7 @@ func TestRefreshGroups(t *testing.T) {
 	}
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn string) error { return nil },
+		SendDocument:  func(jid, path, fn, caption string) error { return nil },
 		GetGroups:     func() map[string]core.Group { return groups },
 		GroupsDir:     "/tmp/groups",
 		HostGroupsDir: "/tmp/groups",

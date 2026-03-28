@@ -44,6 +44,7 @@ function mimeToMediaType(
 function parseMultipart(req: http.IncomingMessage): Promise<{
   chatJid: string;
   filename: string;
+  caption: string;
   fileBytes: Buffer | null;
 }> {
   return new Promise((resolve, reject) => {
@@ -60,6 +61,7 @@ function parseMultipart(req: http.IncomingMessage): Promise<{
       resolve({
         chatJid: fields['chat_jid'] ?? '',
         filename: fields['filename'] ?? '',
+        caption: fields['caption'] ?? '',
         fileBytes: chunks.length > 0 ? Buffer.concat(chunks) : null,
       }),
     );
@@ -141,7 +143,8 @@ export function startServer(
         return;
       }
       try {
-        const { chatJid, filename, fileBytes } = await parseMultipart(req);
+        const { chatJid, filename, caption, fileBytes } =
+          await parseMultipart(req);
         if (!chatJid) {
           json(res, 400, { ok: false, error: 'chat_jid required' });
           return;
@@ -154,9 +157,17 @@ export function startServer(
         const mime = extToMime(filename || 'file.bin');
         const mediaType = mimeToMediaType(mime);
         if (mediaType === 'image') {
-          await s.sendMessage(waJid, { image: fileBytes, mimetype: mime });
+          await s.sendMessage(waJid, {
+            image: fileBytes,
+            mimetype: mime,
+            caption: caption || undefined,
+          });
         } else if (mediaType === 'video') {
-          await s.sendMessage(waJid, { video: fileBytes, mimetype: mime });
+          await s.sendMessage(waJid, {
+            video: fileBytes,
+            mimetype: mime,
+            caption: caption || undefined,
+          });
         } else if (mediaType === 'audio') {
           await s.sendMessage(waJid, { audio: fileBytes, mimetype: mime });
         } else {
@@ -164,6 +175,7 @@ export function startServer(
             document: fileBytes,
             mimetype: mime,
             fileName: filename || 'file',
+            caption: caption || undefined,
           });
         }
         json(res, 200, { ok: true });

@@ -23,7 +23,7 @@ func (sb *stubBot) send(jid, content, _, _ string) (string, error) {
 	return "stub-id", nil
 }
 
-func (sb *stubBot) sendFile(jid, _, name string) error {
+func (sb *stubBot) sendFile(jid, _, name, _ string) error {
 	sb.files = append(sb.files, stubFile{jid, name})
 	return nil
 }

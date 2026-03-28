@@ -26,7 +26,7 @@ import (
 type GatedFns struct {
 	SendMessage      func(jid, text string) (string, error)
 	SendReply        func(jid, text, replyToId string) (string, error)
-	SendDocument     func(jid, path, filename string) error
+	SendDocument     func(jid, path, filename, caption string) error
 	ClearSession     func(folder string)
 	InjectMessage    func(jid, content, sender, senderName string) (string, error)
 	RegisterGroup    func(jid string, group core.Group) error
@@ -262,6 +262,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("filepath", mcp.Required()),
 			mcp.WithString("filename"),
+			mcp.WithString("caption"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
 			if !grantslib.CheckAction(rules, "send_file", map[string]string{"jid": jid}) {
@@ -272,6 +273,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			fp := req.GetString("filepath", "")
 			name := req.GetString("filename", "")
+			caption := req.GetString("caption", "")
 			rel, err := workspaceRel(fp)
 			if err != nil {
 				return toolErr(err.Error())
@@ -285,7 +287,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr("path outside group dir")
 			}
 			slog.Info("send_file", "folder", folder, "jid", jid, "path", localPath)
-			if err := gated.SendDocument(jid, localPath, name); err != nil {
+			if err := gated.SendDocument(jid, localPath, name, caption); err != nil {
 				return toolErr(err.Error())
 			}
 			return toolOK()

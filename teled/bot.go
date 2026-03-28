@@ -201,7 +201,7 @@ func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 	return firstID, nil
 }
 
-func (b *bot) sendFile(jid, path, name string) error {
+func (b *bot) sendFile(jid, path, name, caption string) error {
 	id, err := parseChatID(jid)
 	if err != nil {
 		return err
@@ -211,15 +211,15 @@ func (b *bot) sendFile(jid, path, name string) error {
 	var m tgbotapi.Chattable
 	switch ext {
 	case ".png", ".jpg", ".jpeg", ".webp":
-		p := tgbotapi.NewPhoto(id, f); p.Caption = name; m = p
+		p := tgbotapi.NewPhoto(id, f); p.Caption = caption; m = p
 	case ".mp4", ".mov":
-		v := tgbotapi.NewVideo(id, f); v.Caption = name; m = v
+		v := tgbotapi.NewVideo(id, f); v.Caption = caption; m = v
 	case ".gif":
-		a := tgbotapi.NewAnimation(id, f); a.Caption = name; m = a
+		a := tgbotapi.NewAnimation(id, f); a.Caption = caption; m = a
 	case ".mp3", ".ogg":
-		a := tgbotapi.NewAudio(id, f); a.Caption = name; m = a
+		a := tgbotapi.NewAudio(id, f); a.Caption = caption; m = a
 	default:
-		d := tgbotapi.NewDocument(id, f); d.Caption = name; m = d
+		d := tgbotapi.NewDocument(id, f); d.Caption = caption; m = d
 	}
 	if _, err := b.api.Send(m); err != nil {
 		return fmt.Errorf("telegram sendfile: %w", err)

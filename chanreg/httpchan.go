@@ -35,6 +35,7 @@ type outMsg struct {
 	IsFile   bool
 	Path     string
 	Name     string
+	Caption  string
 }
 
 func NewHTTPChannel(e *Entry, secret string) *HTTPChannel {
@@ -91,7 +92,7 @@ func (h *HTTPChannel) Send(jid, text, replyTo, threadID string) (string, error) 
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
-func (h *HTTPChannel) SendFile(jid, path, name string) error {
+func (h *HTTPChannel) SendFile(jid, path, name, caption string) error {
 	if !h.entry.HasCap("send_file") {
 		return fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
@@ -100,6 +101,9 @@ func (h *HTTPChannel) SendFile(jid, path, name string) error {
 	w := multipart.NewWriter(&buf)
 	w.WriteField("chat_jid", jid)
 	w.WriteField("filename", name)
+	if caption != "" {
+		w.WriteField("caption", caption)
+	}
 
 	fw, err := w.CreateFormFile("file", filepath.Base(path))
 	if err != nil {
@@ -131,7 +135,7 @@ func (h *HTTPChannel) SendFile(jid, path, name string) error {
 		}
 		err = fmt.Errorf("status %d", resp.StatusCode)
 	}
-	h.enqueue(outMsg{JID: jid, IsFile: true, Path: path, Name: name})
+	h.enqueue(outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption})
 	return fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
 }
 
@@ -169,7 +173,7 @@ func (h *HTTPChannel) DrainOutbox() {
 	for _, m := range q {
 		var err error
 		if m.IsFile {
-			err = h.SendFile(m.JID, m.Path, m.Name)
+			err = h.SendFile(m.JID, m.Path, m.Name, m.Caption)
 		} else {
 			_, err = h.Send(m.JID, m.Content, m.ReplyTo, m.ThreadID)
 		}

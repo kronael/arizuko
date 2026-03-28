@@ -50,7 +50,7 @@ func (s *server) handleSendFile(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, 400, "invalid multipart")
 		return
 	}
-	jid, name := r.FormValue("chat_jid"), r.FormValue("filename")
+	jid, name, caption := r.FormValue("chat_jid"), r.FormValue("filename"), r.FormValue("caption")
 	if jid == "" {
 		chanlib.WriteErr(w, 400, "chat_jid required")
 		return
@@ -72,7 +72,7 @@ func (s *server) handleSendFile(w http.ResponseWriter, r *http.Request) {
 	defer os.Remove(tmp.Name())
 	io.Copy(tmp, file)
 	tmp.Close()
-	if err := s.bot.sendFile(jid, tmp.Name(), name); err != nil {
+	if err := s.bot.sendFile(jid, tmp.Name(), name, caption); err != nil {
 		chanlib.WriteErr(w, 502, err.Error())
 		return
 	}

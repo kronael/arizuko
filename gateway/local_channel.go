@@ -65,7 +65,7 @@ func (c *LocalChannel) Send(jid, text, replyTo, threadID string) (string, error)
 	return msgID, nil
 }
 
-func (c *LocalChannel) SendFile(jid, path, name string) error {
+func (c *LocalChannel) SendFile(jid, path, name, caption string) error {
 	return fmt.Errorf("local channel does not support file sending")
 }
 

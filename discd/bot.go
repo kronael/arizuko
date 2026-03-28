@@ -137,7 +137,7 @@ func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 	return firstID, nil
 }
 
-func (b *bot) sendFile(jid, path, name string) error {
+func (b *bot) sendFile(jid, path, name, _ string) error {
 	chID := strings.TrimPrefix(jid, "discord:")
 	f, err := os.Open(path)
 	if err != nil {

@@ -98,7 +98,7 @@ type Channel interface {
 	Name() string
 	Connect(ctx context.Context) error
 	Send(jid, text, replyTo, threadID string) (string, error)
-	SendFile(jid, path, name string) error
+	SendFile(jid, path, name, caption string) error
 	Owns(jid string) bool
 	Typing(jid string, on bool) error
 	Disconnect() error
