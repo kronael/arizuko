@@ -6,11 +6,15 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/emersion/go-imap/v2/imapclient"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 // threadIDFromMsgID mirrors the inline logic in handleMsg.
@@ -105,6 +109,110 @@ func TestRunIdle_ContextCancel_DeadTCP(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("runIdle hung: idleCmd.Wait() blocked on dead TCP")
+	}
+}
+
+// TestFetchUnseen_RouterFailure_NotMarkedSeen verifies that when SendMessage
+// fails, the SEEN flag is not set on the IMAP server. The next poll will
+// re-fetch the same UID via the NotFlag:FlagSeen filter, providing retry.
+func TestFetchUnseen_RouterFailure_NotMarkedSeen(t *testing.T) {
+	// Router always returns 500 — simulates transient delivery failure.
+	failSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer failSrv.Close()
+	rc := chanlib.NewRouterClient(failSrv.URL, "")
+
+	serverConn, clientConn := net.Pipe()
+	storeCalled := make(chan struct{}, 1)
+	go serveMsgIMAP(t, serverConn, storeCalled)
+
+	p := &poller{
+		cfg: config{IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass"},
+		db:  newTestDB(t),
+		dialTLS: func(_ string, opts *imapclient.Options) (*imapclient.Client, error) {
+			return imapclient.New(clientConn, opts), nil
+		},
+	}
+
+	if err := p.poll(context.Background(), rc); err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+
+	select {
+	case <-storeCalled:
+		t.Error("UID STORE \\Seen was issued despite router failure — message will not be retried")
+	default:
+		// Good: SEEN not set; next poll re-fetches via NotFlag:FlagSeen.
+	}
+}
+
+// serveMsgIMAP is a minimal IMAP server with one unseen message (UID 1).
+// It signals storeCalled if the client issues a UID STORE command.
+func serveMsgIMAP(t *testing.T, conn net.Conn, storeCalled chan<- struct{}) {
+	t.Helper()
+	defer conn.Close()
+
+	br := bufio.NewReader(conn)
+	bw := bufio.NewWriter(conn)
+	flush := func(s string) {
+		bw.WriteString(s) //nolint:errcheck
+		bw.Flush()        //nolint:errcheck
+	}
+
+	flush("* OK [CAPABILITY IMAP4rev1] ready\r\n")
+
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return
+		}
+		line = strings.TrimRight(line, "\r\n")
+		parts := strings.SplitN(line, " ", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		tag, cmd := parts[0], strings.ToUpper(parts[1])
+
+		switch cmd {
+		case "LOGIN":
+			flush(tag + " OK logged in\r\n")
+		case "SELECT":
+			flush("* 1 EXISTS\r\n* 0 RECENT\r\n")
+			flush(tag + " OK [READ-WRITE] SELECT completed\r\n")
+		case "UID":
+			if len(parts) < 3 {
+				flush(tag + " BAD missing args\r\n")
+				continue
+			}
+			sub := strings.ToUpper(strings.Fields(parts[2])[0])
+			switch sub {
+			case "SEARCH":
+				flush("* SEARCH 1\r\n")
+				flush(tag + " OK SEARCH completed\r\n")
+			case "FETCH":
+				body := "hello"
+				env := `(NIL "Test" (("Alice" NIL "alice" "example.com")) NIL NIL ` +
+					`(("Bob" NIL "bob" "example.com")) NIL NIL NIL "<test@example.com>")`
+				resp := fmt.Sprintf("* 1 FETCH (UID 1 ENVELOPE %s BODY[] {%d}\r\n%s)\r\n",
+					env, len(body), body)
+				flush(resp)
+				flush(tag + " OK FETCH completed\r\n")
+			case "STORE":
+				select {
+				case storeCalled <- struct{}{}:
+				default:
+				}
+				flush(tag + " OK STORE completed\r\n")
+			default:
+				flush(tag + " BAD unknown UID subcommand\r\n")
+			}
+		case "LOGOUT":
+			flush("* BYE\r\n" + tag + " OK LOGOUT completed\r\n")
+			return
+		default:
+			flush(tag + " BAD unknown command\r\n")
+		}
 	}
 }
 
