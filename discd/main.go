@@ -31,7 +31,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
+	rc := chanlib.NewRouterClient(cfg.RouterURL, cfg.ChannelSecret)
 	token, err := rc.Register(cfg.Name, cfg.ListenURL,
 		[]string{"discord:"}, map[string]bool{
 			"send_text": true, "send_file": true, "typing": true,

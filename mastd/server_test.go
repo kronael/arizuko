@@ -2,15 +2,20 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"testing"
 )
 
+type stubPoster struct{ err error }
+
+func (s *stubPoster) postStatus(_ context.Context, _, _ string) error { return s.err }
+
 func testMastServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "mastodon", ChannelSecret: secret}
-	// mc is nil; tests that exercise postStatus must stub via a mock server
 	return newServer(cfg, nil)
 }
 
@@ -119,5 +124,28 @@ func TestMastAuthNoSecret(t *testing.T) {
 	// typing handler always returns 200
 	if w.Code != 200 {
 		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestMastSendError(t *testing.T) {
+	s := newServer(config{Name: "mastodon"}, &stubPoster{err: errors.New("boom")})
+	body, _ := json.Marshal(map[string]string{"chat_jid": "mastodon:1", "content": "hi"})
+	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 502 {
+		t.Errorf("want 502, got %d", w.Code)
+	}
+}
+
+func TestMastSendMalformedJSON(t *testing.T) {
+	s := testMastServer(t, "")
+	req := httptest.NewRequest("POST", "/send", bytes.NewReader([]byte("{invalid")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("want 400, got %d", w.Code)
 	}
 }

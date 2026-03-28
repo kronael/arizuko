@@ -8,12 +8,16 @@ import (
 	"github.com/onvos/arizuko/chanlib"
 )
 
-type server struct {
-	cfg config
-	mc  *mastoClient
+type poster interface {
+	postStatus(ctx context.Context, text, replyToID string) error
 }
 
-func newServer(cfg config, mc *mastoClient) *server { return &server{cfg: cfg, mc: mc} }
+type server struct {
+	cfg config
+	mc  poster
+}
+
+func newServer(cfg config, mc poster) *server { return &server{cfg: cfg, mc: mc} }
 
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
@@ -25,10 +29,9 @@ func (s *server) handler() http.Handler {
 
 func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ChatJID  string `json:"chat_jid"`
-		Content  string `json:"content"`
-		ReplyTo  string `json:"reply_to"`
-		ThreadID string `json:"thread_id"`
+		ChatJID string `json:"chat_jid"`
+		Content string `json:"content"`
+		ReplyTo string `json:"reply_to"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
 		chanlib.WriteErr(w, 400, "chat_jid and content required")

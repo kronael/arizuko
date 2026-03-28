@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +41,25 @@ func newRedditClient(cfg config) (*redditClient, error) {
 		return nil, err
 	}
 	return rc, nil
+}
+
+func (rc *redditClient) loadCursors() {
+	b, err := os.ReadFile(filepath.Join(rc.cfg.DataDir, "cursors.json"))
+	if err != nil {
+		return
+	}
+	if err := json.Unmarshal(b, &rc.cursors); err != nil {
+		slog.Warn("cursors.json parse failed, starting fresh", "err", err)
+	}
+}
+
+func (rc *redditClient) saveCursors() {
+	b, err := json.Marshal(rc.cursors)
+	if err != nil {
+		return
+	}
+	os.MkdirAll(rc.cfg.DataDir, 0o755)
+	os.WriteFile(filepath.Join(rc.cfg.DataDir, "cursors.json"), b, 0o600)
 }
 
 func (rc *redditClient) refreshToken() error {
@@ -189,9 +210,10 @@ func (rc *redditClient) pollOnce(router *routerClient) {
 }
 
 func (rc *redditClient) pollSource(key, path string, router *routerClient) {
+	prevCursor := rc.cursors[key]
 	params := map[string]string{"limit": "25"}
-	if before := rc.cursors[key]; before != "" {
-		params["before"] = before
+	if prevCursor != "" {
+		params["before"] = prevCursor
 	}
 
 	resp, err := rc.get(path, params)
@@ -209,9 +231,11 @@ func (rc *redditClient) pollSource(key, path string, router *routerClient) {
 
 	if len(l.Data.Children) > 0 {
 		rc.cursors[key] = l.Data.Children[0].Data.Name
+		rc.saveCursors()
 	}
 
-	if !rc.skipFirst[key] {
+	// Skip first poll for new sources (no persisted cursor) to avoid replaying history.
+	if prevCursor == "" && !rc.skipFirst[key] {
 		rc.skipFirst[key] = true
 		return
 	}

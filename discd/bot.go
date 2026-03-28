@@ -16,7 +16,7 @@ import (
 type bot struct {
 	session *discordgo.Session
 	cfg     config
-	rc      *routerClient
+	rc      *chanlib.RouterClient
 }
 
 func newBot(cfg config) (*bot, error) {
@@ -30,7 +30,7 @@ func newBot(cfg config) (*bot, error) {
 	return &bot{session: s, cfg: cfg}, nil
 }
 
-func (b *bot) start(rc *routerClient) error {
+func (b *bot) start(rc *chanlib.RouterClient) error {
 	b.rc = rc
 	b.session.AddHandler(b.onMessage)
 	if err := b.session.Open(); err != nil {
@@ -82,7 +82,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		topic = m.ChannelID
 	}
 
-	err = b.rc.SendMessage(inboundMsg{
+	err = b.rc.SendMessage(chanlib.InboundMsg{
 		ID:         m.ID,
 		ChatJID:    jid,
 		Sender:     "discord:" + m.Author.ID,

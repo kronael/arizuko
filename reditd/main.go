@@ -31,6 +31,7 @@ func main() {
 		slog.Error("reddit auth failed", "err", err)
 		os.Exit(1)
 	}
+	rc2.loadCursors()
 
 	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
 	token, err := rc.Register(cfg.Name, cfg.ListenURL,
@@ -71,6 +72,7 @@ type config struct {
 	ChannelSecret string
 	ListenAddr    string
 	ListenURL     string
+	DataDir       string
 }
 
 func loadConfig() config {
@@ -94,5 +96,6 @@ func loadConfig() config {
 		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9006"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://reditd:9006"),
+		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/reditd"),
 	}
 }

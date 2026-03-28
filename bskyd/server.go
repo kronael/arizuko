@@ -8,12 +8,16 @@ import (
 	"github.com/onvos/arizuko/chanlib"
 )
 
-type server struct {
-	cfg config
-	bc  *bskyClient
+type creator interface {
+	createPost(ctx context.Context, text, replyParentURI string) error
 }
 
-func newServer(cfg config, bc *bskyClient) *server { return &server{cfg: cfg, bc: bc} }
+type server struct {
+	cfg config
+	bc  creator
+}
+
+func newServer(cfg config, bc creator) *server { return &server{cfg: cfg, bc: bc} }
 
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
@@ -25,10 +29,9 @@ func (s *server) handler() http.Handler {
 
 func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ChatJID  string `json:"chat_jid"`
-		Content  string `json:"content"`
-		ReplyTo  string `json:"reply_to"`
-		ThreadID string `json:"thread_id"`
+		ChatJID string `json:"chat_jid"`
+		Content string `json:"content"`
+		ReplyTo string `json:"reply_to"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
 		chanlib.WriteErr(w, 400, "chat_jid and content required")

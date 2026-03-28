@@ -57,7 +57,7 @@ func (b *bot) saveOffset(offset int) {
 	os.WriteFile(b.cfg.StateFile, []byte(strconv.Itoa(offset)), 0o644)
 }
 
-func (b *bot) poll(ctx context.Context, rc *routerClient) {
+func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
 	offset := b.loadOffset()
 	uc := tgbotapi.NewUpdate(offset)
 	uc.Timeout = 30
@@ -92,7 +92,7 @@ func (b *bot) stop() {
 	b.api.StopReceivingUpdates()
 }
 
-func (b *bot) handle(msg *tgbotapi.Message, rc *routerClient) {
+func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
 	if msg.From != nil && msg.From.IsBot {
 		return
 	}
@@ -132,7 +132,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *routerClient) {
 		topic = strconv.Itoa(msg.MessageThreadID)
 	}
 
-	err := rc.SendMessage(inboundMsg{
+	err := rc.SendMessage(chanlib.InboundMsg{
 		ID:         strconv.Itoa(msg.MessageID),
 		ChatJID:    jid,
 		Sender:     "telegram:" + userID(msg.From),

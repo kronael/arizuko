@@ -2,15 +2,20 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"testing"
 )
 
+type stubCreator struct{ err error }
+
+func (s *stubCreator) createPost(_ context.Context, _, _ string) error { return s.err }
+
 func testBskyServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "bluesky", ChannelSecret: secret}
-	// bc is nil; tests that exercise createPost require a mock HTTP server
 	return newServer(cfg, nil)
 }
 
@@ -117,5 +122,28 @@ func TestBskyAuthNoSecret(t *testing.T) {
 
 	if w.Code != 200 {
 		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestBskySendError(t *testing.T) {
+	s := newServer(config{Name: "bluesky"}, &stubCreator{err: errors.New("boom")})
+	body, _ := json.Marshal(map[string]string{"chat_jid": "bluesky:1", "content": "hi"})
+	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 502 {
+		t.Errorf("want 502, got %d", w.Code)
+	}
+}
+
+func TestBskySendMalformedJSON(t *testing.T) {
+	s := testBskyServer(t, "")
+	req := httptest.NewRequest("POST", "/send", bytes.NewReader([]byte("{invalid")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("want 400, got %d", w.Code)
 	}
 }

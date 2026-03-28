@@ -7,12 +7,17 @@ import (
 	"github.com/onvos/arizuko/chanlib"
 )
 
-type server struct {
-	cfg config
-	rc  *redditClient
+type sender interface {
+	comment(thingID, text string) error
+	submit(text string) error
 }
 
-func newServer(cfg config, rc *redditClient) *server { return &server{cfg: cfg, rc: rc} }
+type server struct {
+	cfg config
+	rc  sender
+}
+
+func newServer(cfg config, rc sender) *server { return &server{cfg: cfg, rc: rc} }
 
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()

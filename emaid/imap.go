@@ -15,6 +15,8 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 	gomessage "github.com/emersion/go-message/mail"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 var errIdleNotSupported = errors.New("IDLE not supported")
@@ -29,7 +31,7 @@ func newPoller(cfg config, db *sql.DB) *poller {
 	return &poller{cfg: cfg, db: db, dialTLS: imapclient.DialTLS}
 }
 
-func (p *poller) run(ctx context.Context, rc *routerClient) {
+func (p *poller) run(ctx context.Context, rc *chanlib.RouterClient) {
 	backoff := time.Second
 	for {
 		if ctx.Err() != nil {
@@ -54,7 +56,7 @@ func (p *poller) run(ctx context.Context, rc *routerClient) {
 	}
 }
 
-func (p *poller) runIdle(ctx context.Context, rc *routerClient) error {
+func (p *poller) runIdle(ctx context.Context, rc *chanlib.RouterClient) error {
 	addr := p.cfg.IMAPHost + ":" + p.cfg.IMAPPort
 
 	exists := make(chan struct{}, 1)
@@ -149,7 +151,7 @@ func (p *poller) runIdle(ctx context.Context, rc *routerClient) error {
 	}
 }
 
-func (p *poller) runPoll(ctx context.Context, rc *routerClient) {
+func (p *poller) runPoll(ctx context.Context, rc *chanlib.RouterClient) {
 	backoff := time.Second
 	for {
 		if ctx.Err() != nil {
@@ -174,7 +176,7 @@ func (p *poller) runPoll(ctx context.Context, rc *routerClient) {
 	}
 }
 
-func (p *poller) poll(_ context.Context, rc *routerClient) error {
+func (p *poller) poll(_ context.Context, rc *chanlib.RouterClient) error {
 	addr := p.cfg.IMAPHost + ":" + p.cfg.IMAPPort
 	c, err := p.dialTLS(addr, nil)
 	if err != nil {
@@ -193,7 +195,7 @@ func (p *poller) poll(_ context.Context, rc *routerClient) error {
 	return p.fetchUnseen(c, rc)
 }
 
-func (p *poller) fetchUnseen(c *imapclient.Client, rc *routerClient) error {
+func (p *poller) fetchUnseen(c *imapclient.Client, rc *chanlib.RouterClient) error {
 	criteria := &imap.SearchCriteria{
 		NotFlag: []imap.Flag{imap.FlagSeen},
 	}
@@ -231,7 +233,7 @@ func (p *poller) fetchUnseen(c *imapclient.Client, rc *routerClient) error {
 func (p *poller) handleMsg(
 	c *imapclient.Client,
 	msg *imapclient.FetchMessageBuffer,
-	rc *routerClient,
+	rc *chanlib.RouterClient,
 ) error {
 	if msg.Envelope == nil {
 		return nil
@@ -287,7 +289,7 @@ func (p *poller) handleMsg(
 	jid := "email:" + threadID
 	_ = rc.SendChat(jid, fromName+" ("+fromAddr+")", false)
 
-	if err := rc.SendMessage(inboundMsg{
+	if err := rc.SendMessage(chanlib.InboundMsg{
 		ID:         msgID,
 		ChatJID:    jid,
 		Sender:     "email:" + fromAddr,
