@@ -484,6 +484,7 @@ async function runQuery(
         resultCount++;
         const textResult = 'result' in message ? (message as { result?: string }).result : null;
         log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+        stream.end(); // terminate SDK iterator after result; outer loop handles follow-ups
         if (message.subtype === 'error_max_turns') {
           maxTurnsHit = true;
         } else if (message.subtype === 'error_during_execution') {
