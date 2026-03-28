@@ -40,4 +40,5 @@ emaid/emaid
 mastd/mastd
 bskyd/bskyd
 reditd/reditd
+reditd/cursors.json
 *.py
