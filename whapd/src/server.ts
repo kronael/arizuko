@@ -1,19 +1,11 @@
 import http from 'node:http';
+import Busboy from 'busboy';
 import type { WASocket } from '@whiskeysockets/baileys';
 
 interface SendReq {
   chat_jid: string;
   content: string;
   thread_id?: string;
-}
-
-interface SendFileReq {
-  chat_jid: string;
-  // base64-encoded file bytes
-  data: string;
-  mime: string;
-  filename?: string;
-  caption?: string;
 }
 
 interface TypingReq {
@@ -46,6 +38,53 @@ function mimeToMediaType(
   if (mime.startsWith('video/')) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
   return 'document';
+}
+
+// Parse multipart/form-data, return fields and file bytes.
+function parseMultipart(req: http.IncomingMessage): Promise<{
+  chatJid: string;
+  filename: string;
+  fileBytes: Buffer | null;
+}> {
+  return new Promise((resolve, reject) => {
+    const bb = Busboy({ headers: req.headers as Record<string, string> });
+    const fields: Record<string, string> = {};
+    const chunks: Buffer[] = [];
+    bb.on('field', (name, val) => {
+      fields[name] = val;
+    });
+    bb.on('file', (_name, stream) => {
+      stream.on('data', (d: Buffer) => chunks.push(d));
+    });
+    bb.on('finish', () =>
+      resolve({
+        chatJid: fields['chat_jid'] ?? '',
+        filename: fields['filename'] ?? '',
+        fileBytes: chunks.length > 0 ? Buffer.concat(chunks) : null,
+      }),
+    );
+    bb.on('error', reject);
+    req.pipe(bb);
+  });
+}
+
+// Derive MIME type from filename extension.
+function extToMime(filename: string): string {
+  const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
+  const m: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime',
+    '.mp3': 'audio/mpeg',
+    '.ogg': 'audio/ogg',
+    '.m4a': 'audio/mp4',
+    '.pdf': 'application/pdf',
+  };
+  return m[ext] ?? 'application/octet-stream';
 }
 
 export function startServer(
@@ -96,40 +135,35 @@ export function startServer(
     }
 
     if (req.method === 'POST' && req.url === '/send-file') {
-      const body = (await readBody(req)) as SendFileReq;
       const s = sock();
       if (!s || !isConnected()) {
         json(res, 502, { ok: false, error: 'not connected' });
         return;
       }
       try {
-        const waJid = toWaJid(body.chat_jid);
-        const buf = Buffer.from(body.data, 'base64');
-        const mediaType = mimeToMediaType(body.mime);
-
+        const { chatJid, filename, fileBytes } = await parseMultipart(req);
+        if (!chatJid) {
+          json(res, 400, { ok: false, error: 'chat_jid required' });
+          return;
+        }
+        if (!fileBytes) {
+          json(res, 400, { ok: false, error: 'file required' });
+          return;
+        }
+        const waJid = toWaJid(chatJid);
+        const mime = extToMime(filename || 'file.bin');
+        const mediaType = mimeToMediaType(mime);
         if (mediaType === 'image') {
-          await s.sendMessage(waJid, {
-            image: buf,
-            mimetype: body.mime,
-            caption: body.caption,
-          });
+          await s.sendMessage(waJid, { image: fileBytes, mimetype: mime });
         } else if (mediaType === 'video') {
-          await s.sendMessage(waJid, {
-            video: buf,
-            mimetype: body.mime,
-            caption: body.caption,
-          });
+          await s.sendMessage(waJid, { video: fileBytes, mimetype: mime });
         } else if (mediaType === 'audio') {
-          await s.sendMessage(waJid, {
-            audio: buf,
-            mimetype: body.mime,
-          });
+          await s.sendMessage(waJid, { audio: fileBytes, mimetype: mime });
         } else {
           await s.sendMessage(waJid, {
-            document: buf,
-            mimetype: body.mime,
-            fileName: body.filename || 'file',
-            caption: body.caption,
+            document: fileBytes,
+            mimetype: mime,
+            fileName: filename || 'file',
           });
         }
         json(res, 200, { ok: true });

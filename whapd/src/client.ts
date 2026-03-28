@@ -23,7 +23,7 @@ export class RouterClient {
         name,
         url: listenURL,
         jid_prefixes: ['whatsapp:'],
-        capabilities: { send_text: true, typing: true },
+        capabilities: { send_text: true, send_file: true, typing: true },
       },
       this.secret,
     );
