@@ -20,7 +20,8 @@ type Message struct {
 	ReplyToSender string
 	Topic         string
 	RoutedTo      string
-	Verb          string // event type: "message" (default), "join", "edit", "delete", etc.
+	Verb        string // event type: "message" (default), "join", "edit", "delete", etc.
+	Attachments string // JSON-encoded []chanlib.InboundAttachment
 }
 
 type OutboundEntry struct {

@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/onvos/arizuko/chanlib"
 )
@@ -22,6 +24,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /send", chanlib.Auth(s.cfg.ChannelSecret, s.handleSend))
 	mux.HandleFunc("POST /send-file", chanlib.Auth(s.cfg.ChannelSecret, s.handleSendFile))
 	mux.HandleFunc("POST /typing", chanlib.Auth(s.cfg.ChannelSecret, s.handleTyping))
+	mux.HandleFunc("GET /files/", s.handleFile)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	return mux
 }
@@ -87,6 +90,47 @@ func (s *server) handleTyping(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 	s.bot.typing(req.ChatJID, req.On)
 	chanlib.WriteJSON(w, map[string]any{"ok": true})
+}
+
+func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
+	fileID := strings.TrimPrefix(r.URL.Path, "/files/")
+	if fileID == "" {
+		chanlib.WriteErr(w, 400, "file_id required")
+		return
+	}
+	token := s.cfg.TelegramToken
+	// Step 1: resolve file_path via Telegram getFile API
+	resp, err := http.Get(fmt.Sprintf(
+		"https://api.telegram.org/bot%s/getFile?file_id=%s", token, fileID))
+	if err != nil || resp.StatusCode != 200 {
+		chanlib.WriteErr(w, 502, "getFile failed")
+		return
+	}
+	defer resp.Body.Close()
+	var apiResp struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			FilePath string `json:"file_path"`
+		} `json:"result"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&apiResp) != nil || !apiResp.OK {
+		chanlib.WriteErr(w, 502, "getFile parse failed")
+		return
+	}
+	// Step 2: proxy the file bytes
+	cdnURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", token, apiResp.Result.FilePath)
+	fileResp, err := http.Get(cdnURL)
+	if err != nil || fileResp.StatusCode != 200 {
+		chanlib.WriteErr(w, 502, "file download failed")
+		return
+	}
+	defer fileResp.Body.Close()
+	if ct := fileResp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(apiResp.Result.FilePath)))
+	io.Copy(w, fileResp.Body)
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {

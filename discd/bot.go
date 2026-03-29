@@ -61,8 +61,15 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	b.rc.SendChat(jid, name, isGroup)
 
 	content := m.Content
+	var inboundAtts []chanlib.InboundAttachment
 	for _, att := range m.Attachments {
 		content += fmt.Sprintf(" [Attachment: %s]", att.Filename)
+		inboundAtts = append(inboundAtts, chanlib.InboundAttachment{
+			Mime:     att.ContentType,
+			Filename: att.Filename,
+			URL:      att.URL,
+			Size:     int64(att.Size),
+		})
 	}
 	if content == "" {
 		return
@@ -83,14 +90,15 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	err = b.rc.SendMessage(chanlib.InboundMsg{
-		ID:         m.ID,
-		ChatJID:    jid,
-		Sender:     "discord:" + m.Author.ID,
-		SenderName: m.Author.Username,
-		Content:    content,
-		Timestamp:  m.Timestamp.Unix(),
-		IsGroup:    isGroup,
-		Topic:      topic,
+		ID:          m.ID,
+		ChatJID:     jid,
+		Sender:      "discord:" + m.Author.ID,
+		SenderName:  m.Author.Username,
+		Content:     content,
+		Timestamp:   m.Timestamp.Unix(),
+		IsGroup:     isGroup,
+		Topic:       topic,
+		Attachments: inboundAtts,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)

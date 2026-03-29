@@ -1,10 +1,14 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"mime"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +18,7 @@ import (
 	"time"
 
 	"github.com/onvos/arizuko/auth"
+	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/diary"
@@ -454,6 +459,10 @@ func (g *Gateway) processSenderBatch(
 ) bool {
 	last := msgs[len(msgs)-1]
 
+	for i := range msgs {
+		g.enrichAttachments(&msgs[i], group.Folder)
+	}
+
 	g.emitSystemEvents(group, chatJid)
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
 	prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n"
@@ -801,6 +810,167 @@ func (g *Gateway) injectMessage(jid, content, sender, senderName string) (string
 	}
 	g.store.ClearChatErrored(jid)
 	return id, nil
+}
+
+// enrichAttachments downloads attachment files before the agent runs.
+// Saves to groups/<folder>/media/<YYYYMMDD>/<msgID>-<idx>.<ext>.
+// Appends <attachment .../> XML to msg.Content and updates the DB.
+func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
+	if !g.cfg.MediaEnabled || msg.Attachments == "" {
+		return
+	}
+	var atts []chanlib.InboundAttachment
+	if err := json.Unmarshal([]byte(msg.Attachments), &atts); err != nil || len(atts) == 0 {
+		return
+	}
+
+	groupPath, err := g.folders.GroupPath(folder)
+	if err != nil {
+		slog.Warn("enrich: group path", "folder", folder, "err", err)
+		return
+	}
+	day := time.Now().Format("20060102")
+	mediaDir := filepath.Join(groupPath, "media", day)
+	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+		slog.Warn("enrich: mkdir", "dir", mediaDir, "err", err)
+		return
+	}
+
+	extra := ""
+	for i, att := range atts {
+		if att.URL == "" {
+			continue
+		}
+		ext := extFromMime(att.Mime, att.Filename)
+		fname := fmt.Sprintf("%s-%d%s", msg.ID, i, ext)
+		dest := filepath.Join(mediaDir, fname)
+
+		if err := downloadFile(att.URL, dest, g.cfg.MediaMaxBytes); err != nil {
+			slog.Warn("enrich: download failed", "url", att.URL, "err", err)
+			continue
+		}
+
+		displayName := att.Filename
+		if displayName == "" {
+			displayName = fname
+		}
+
+		// voice transcription
+		transcript := ""
+		if g.cfg.VoiceEnabled && g.cfg.WhisperURL != "" && isVoiceMime(att.Mime) {
+			transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, dest)
+		}
+
+		if transcript != "" {
+			extra += fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q transcript=%q/>",
+				dest, att.Mime, displayName, transcript)
+		} else {
+			extra += fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q/>",
+				dest, att.Mime, displayName)
+		}
+	}
+
+	if extra == "" {
+		return
+	}
+
+	enriched := msg.Content + extra
+	msg.Content = enriched
+	msg.Attachments = ""
+	if err := g.store.EnrichMessage(msg.ID, enriched); err != nil {
+		slog.Warn("enrich: store update failed", "id", msg.ID, "err", err)
+	}
+}
+
+func downloadFile(url, dest string, maxBytes int64) error {
+	resp, err := http.Get(url) //nolint:noctx
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	r := io.Reader(resp.Body)
+	if maxBytes > 0 {
+		r = io.LimitReader(resp.Body, maxBytes)
+	}
+	_, err = io.Copy(f, r)
+	return err
+}
+
+func whisperTranscribe(baseURL, model, path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return ""
+	}
+	reqBody, _ := json.Marshal(map[string]string{
+		"model": model,
+		"file":  filepath.Base(path),
+	})
+	_ = reqBody
+
+	// POST multipart to /v1/audio/transcriptions (OpenAI-compatible whisper)
+	var buf bytes.Buffer
+	buf.Write(data)
+	req, err := http.NewRequest("POST", baseURL+"/v1/audio/transcriptions", &buf)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	q := req.URL.Query()
+	q.Set("model", model)
+	req.URL.RawQuery = q.Encode()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		return ""
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Text string `json:"text"`
+	}
+	json.NewDecoder(resp.Body).Decode(&out)
+	return strings.TrimSpace(out.Text)
+}
+
+func extFromMime(mimeType, filename string) string {
+	if filename != "" {
+		if ext := filepath.Ext(filename); ext != "" {
+			return strings.ToLower(ext)
+		}
+	}
+	exts, _ := mime.ExtensionsByType(mimeType)
+	if len(exts) > 0 {
+		return exts[0]
+	}
+	// fallbacks for common types
+	switch {
+	case strings.HasPrefix(mimeType, "image/jpeg"):
+		return ".jpg"
+	case strings.HasPrefix(mimeType, "image/"):
+		return "." + strings.TrimPrefix(mimeType, "image/")
+	case strings.HasPrefix(mimeType, "video/"):
+		return "." + strings.TrimPrefix(mimeType, "video/")
+	case strings.HasPrefix(mimeType, "audio/ogg"):
+		return ".ogg"
+	case strings.HasPrefix(mimeType, "audio/"):
+		return ".mp3"
+	}
+	return ".bin"
+}
+
+func isVoiceMime(m string) bool {
+	return strings.HasPrefix(m, "audio/")
 }
 
 func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {

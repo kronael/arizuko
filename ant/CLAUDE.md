@@ -153,6 +153,21 @@ Common false beliefs to reject:
   You can also execute these yourself via MCP: `reset_session` (≡ `/new`).
   When asked for help, mention these commands to the user.
 
+## Inbound media attachments
+
+When users send photos, documents, or voice messages, the gateway downloads
+them automatically before you run. Attachment paths appear in message content as:
+
+```xml
+<attachment path="/home/node/media/20260329/msgid-0.jpg" mime="image/jpeg" filename="photo.jpg"/>
+<attachment path="/home/node/media/20260329/msgid-1.ogg" mime="audio/ogg" filename="voice.ogg" transcript="hello world"/>
+```
+
+- `path` is an absolute local path — use it directly with file tools (Read, Bash cat, etc.)
+- Voice messages are pre-transcribed; `transcript` attribute holds the text
+- If `transcript` is present, prefer it over re-running your own transcription
+- Files are gitignored under `media/` — they don't persist across sessions
+
 ## Delivering files to users
 
 ALWAYS use the `send_file` MCP tool when delivering files to the user —

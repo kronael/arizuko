@@ -12,16 +12,24 @@ import (
 	"time"
 )
 
+type InboundAttachment struct {
+	Mime     string `json:"mime"`
+	Filename string `json:"filename"`
+	URL      string `json:"url"`  // channel proxy URL e.g. http://teled:9001/files/<id>
+	Size     int64  `json:"size"` // 0 if unknown
+}
+
 type InboundMsg struct {
-	ID         string `json:"id"`
-	ChatJID    string `json:"chat_jid"`
-	Sender     string `json:"sender"`
-	SenderName string `json:"sender_name"`
-	Content    string `json:"content"`
-	Timestamp  int64  `json:"timestamp"`
-	IsGroup    bool   `json:"is_group"`
-	Topic      string `json:"topic,omitempty"` // Thread/topic identifier
-	Verb       string `json:"verb,omitempty"`  // Event type: "join", "edit", "delete", etc.
+	ID          string               `json:"id"`
+	ChatJID     string               `json:"chat_jid"`
+	Sender      string               `json:"sender"`
+	SenderName  string               `json:"sender_name"`
+	Content     string               `json:"content"`
+	Timestamp   int64                `json:"timestamp"`
+	IsGroup     bool                 `json:"is_group"`
+	Topic       string               `json:"topic,omitempty"`       // Thread/topic identifier
+	Verb        string               `json:"verb,omitempty"`        // Event type: "join", "edit", "delete", etc.
+	Attachments []InboundAttachment  `json:"attachments,omitempty"`
 }
 
 type RouterClient struct {

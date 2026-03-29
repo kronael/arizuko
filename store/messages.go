@@ -12,14 +12,23 @@ func (s *Store) PutMessage(m core.Message) error {
 		`INSERT OR IGNORE INTO messages
 		 (id, chat_jid, sender, sender_name, content, timestamp,
 		  is_from_me, is_bot_message, forwarded_from,
-		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatJID, m.Sender, m.Name, m.Content,
 		m.Timestamp.Format(time.RFC3339Nano),
 		btoi(m.FromMe), btoi(m.BotMsg),
 		nilIfEmpty(m.ForwardedFrom),
 		nilIfEmpty(m.ReplyToID), nilIfEmpty(m.ReplyToText), nilIfEmpty(m.ReplyToSender),
-		m.Topic, m.RoutedTo, m.Verb,
+		m.Topic, m.RoutedTo, m.Verb, m.Attachments,
+	)
+	return err
+}
+
+// EnrichMessage updates a message's content and clears attachments (already consumed).
+func (s *Store) EnrichMessage(id, content string) error {
+	_, err := s.db.Exec(
+		`UPDATE messages SET content=?, attachments='' WHERE id=?`,
+		content, id,
 	)
 	return err
 }
@@ -59,7 +68,7 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments
 		 FROM messages
 		 WHERE chat_jid IN `+ph+`
 		   AND timestamp > ?
@@ -93,7 +102,7 @@ func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]co
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments
 		 FROM messages
 		 WHERE chat_jid = ?
 		   AND timestamp > ?
@@ -126,7 +135,8 @@ func scanMessage(r rowScanner) (core.Message, time.Time) {
 	var fromMe, botMsg int
 	var name, fwdFrom, replyID, replyText, replySender, topic, routedTo *string
 	r.Scan(&m.ID, &m.ChatJID, &m.Sender, &name, &m.Content,
-		&ts, &fromMe, &botMsg, &fwdFrom, &replyID, &replyText, &replySender, &topic, &routedTo, &m.Verb)
+		&ts, &fromMe, &botMsg, &fwdFrom, &replyID, &replyText, &replySender, &topic, &routedTo, &m.Verb,
+		&m.Attachments)
 	if name != nil {
 		m.Name = *name
 	}
@@ -201,7 +211,7 @@ func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit in
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments
 		 FROM messages
 		 WHERE chat_jid = ? AND topic = ? AND timestamp < ?
 		 ORDER BY timestamp DESC
@@ -246,7 +256,7 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments
 		 FROM messages
 		 WHERE chat_jid = ? AND topic = ? AND timestamp > ?
 		 ORDER BY timestamp ASC
@@ -271,7 +281,7 @@ func (s *Store) ObservedMessagesSince(groupFolder, excludeJid, since string) []c
 	rows, err := s.db.Query(
 		`SELECT DISTINCT m.id, m.chat_jid, m.sender, m.sender_name, m.content, m.timestamp,
 		        m.is_from_me, m.is_bot_message, m.forwarded_from,
-		        m.reply_to_id, m.reply_to_text, m.reply_to_sender, m.topic, m.routed_to, m.verb
+		        m.reply_to_id, m.reply_to_text, m.reply_to_sender, m.topic, m.routed_to, m.verb, m.attachments
 		 FROM messages m
 		 JOIN routes r ON (r.jid = m.chat_jid OR r.jid = substr(m.chat_jid, 1, instr(m.chat_jid, ':')))
 		 WHERE r.target = ? AND m.chat_jid != ? AND m.timestamp > ?
@@ -368,7 +378,7 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 	rows, err := s.db.Query(
 		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb
+		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments
 		 FROM messages
 		 WHERE chat_jid = ? AND timestamp < ? AND is_bot_message = 0
 		 ORDER BY timestamp DESC

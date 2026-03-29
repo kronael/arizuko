@@ -176,16 +176,23 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		ts = time.Unix(req.Timestamp, 0)
 	}
 
+	var attsJSON string
+	if len(req.Attachments) > 0 {
+		if b, err := json.Marshal(req.Attachments); err == nil {
+			attsJSON = string(b)
+		}
+	}
 	msg := core.Message{
-		ID:        req.ID,
-		ChatJID:   req.ChatJID,
-		Sender:    req.Sender,
-		Name:      req.SenderName,
-		Content:   req.Content,
-		Timestamp: ts,
-		ReplyToID: req.ReplyTo,
-		Topic:     req.Topic,
-		Verb:      req.Verb,
+		ID:          req.ID,
+		ChatJID:     req.ChatJID,
+		Sender:      req.Sender,
+		Name:        req.SenderName,
+		Content:     req.Content,
+		Timestamp:   ts,
+		ReplyToID:   req.ReplyTo,
+		Topic:       req.Topic,
+		Verb:        req.Verb,
+		Attachments: attsJSON,
 	}
 
 	// Record adapter BEFORE storing — gateway polls DB and must find the

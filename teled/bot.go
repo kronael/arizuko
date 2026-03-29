@@ -105,7 +105,8 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
 	}
 	rc.SendChat(jid, name, isGroup)
 
-	content := mediaText(msg)
+	res := extractMedia(msg, b.cfg.ListenURL)
+	content := res.content
 	if content == "" {
 		content = msg.Text
 		if content == "" {
@@ -133,14 +134,15 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
 	}
 
 	err := rc.SendMessage(chanlib.InboundMsg{
-		ID:         strconv.Itoa(msg.MessageID),
-		ChatJID:    jid,
-		Sender:     "telegram:" + userID(msg.From),
-		SenderName: userName(msg.From),
-		Content:    content,
-		Timestamp:  int64(msg.Date),
-		IsGroup:    isGroup,
-		Topic:      topic,
+		ID:          strconv.Itoa(msg.MessageID),
+		ChatJID:     jid,
+		Sender:      "telegram:" + userID(msg.From),
+		SenderName:  userName(msg.From),
+		Content:     content,
+		Timestamp:   int64(msg.Date),
+		IsGroup:     isGroup,
+		Topic:       topic,
+		Attachments: res.attachments,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
@@ -293,34 +295,65 @@ func entity(text string, e tgbotapi.MessageEntity) string {
 	return string(r[e.Offset:end])
 }
 
-func mediaText(msg *tgbotapi.Message) string {
+type mediaResult struct {
+	content     string
+	attachments []chanlib.InboundAttachment
+}
+
+func extractMedia(msg *tgbotapi.Message, listenURL string) mediaResult {
 	cap := ""
 	if msg.Caption != "" {
 		cap = " " + msg.Caption
 	}
+	att := func(fileID, mime, filename string, size int64) mediaResult {
+		url := ""
+		if listenURL != "" && fileID != "" {
+			url = listenURL + "/files/" + fileID
+		}
+		return mediaResult{
+			attachments: []chanlib.InboundAttachment{
+				{Mime: mime, Filename: filename, URL: url, Size: size},
+			},
+		}
+	}
 	switch {
 	case msg.Photo != nil:
-		return "[Photo]" + cap
+		best := msg.Photo[len(msg.Photo)-1]
+		r := att(best.FileID, "image/jpeg", best.FileID+".jpg", int64(best.FileSize))
+		r.content = "[Photo]" + cap
+		return r
 	case msg.Video != nil:
-		return "[Video]" + cap
+		r := att(msg.Video.FileID, "video/mp4", msg.Video.FileID+".mp4", msg.Video.FileSize)
+		r.content = "[Video]" + cap
+		return r
 	case msg.Voice != nil:
-		return "[Voice message]" + cap
+		r := att(msg.Voice.FileID, "audio/ogg", msg.Voice.FileID+".ogg", int64(msg.Voice.FileSize))
+		r.content = "[Voice message]" + cap
+		return r
 	case msg.Audio != nil:
-		return "[Audio]" + cap
-	case msg.Document != nil:
-		n := "file"
-		if msg.Document.FileName != "" {
-			n = msg.Document.FileName
+		fname := msg.Audio.FileName
+		if fname == "" {
+			fname = msg.Audio.FileID + ".mp3"
 		}
-		return fmt.Sprintf("[Document: %s]%s", n, cap)
+		r := att(msg.Audio.FileID, "audio/mpeg", fname, msg.Audio.FileSize)
+		r.content = "[Audio]" + cap
+		return r
+	case msg.Document != nil:
+		n := msg.Document.FileName
+		if n == "" {
+			n = msg.Document.FileID
+		}
+		r := att(msg.Document.FileID, msg.Document.MimeType, n, msg.Document.FileSize)
+		r.content = fmt.Sprintf("[Document: %s]%s", n, cap)
+		return r
 	case msg.Sticker != nil:
-		return fmt.Sprintf("[Sticker %s]", msg.Sticker.Emoji)
+		return mediaResult{content: fmt.Sprintf("[Sticker %s]", msg.Sticker.Emoji)}
 	case msg.Location != nil:
-		return "[Location]"
+		return mediaResult{content: "[Location]"}
 	case msg.Contact != nil:
-		return "[Contact]"
+		return mediaResult{content: "[Contact]"}
 	}
-	return ""
+	return mediaResult{}
 }
 
 var (
