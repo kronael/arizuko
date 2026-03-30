@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/chanreg"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
@@ -130,12 +131,7 @@ type messageReq struct {
 	ReplyTo     string `json:"reply_to"`
 	Topic       string `json:"topic,omitempty"`
 	Verb        string `json:"verb,omitempty"` // event type: "join", "edit", "delete", etc.
-	Attachments []struct {
-		Mime     string `json:"mime"`
-		Filename string `json:"filename"`
-		URL      string `json:"url"`
-		Size     int64  `json:"size"`
-	} `json:"attachments"`
+	Attachments []chanlib.InboundAttachment `json:"attachments"`
 }
 
 func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {

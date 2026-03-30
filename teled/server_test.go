@@ -196,6 +196,17 @@ func TestServerHealth(t *testing.T) {
 	}
 }
 
+func TestServerFileEmptyID(t *testing.T) {
+	// /files/ with no file_id returns 400
+	h, _ := testHandler("secret")
+	req := httptest.NewRequest("GET", "/files/", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for empty file_id", w.Code)
+	}
+}
+
 func TestServerNoSecret(t *testing.T) {
 	h, sb := stubHandler("")
 	body, _ := json.Marshal(map[string]string{"chat_jid": "telegram:123", "content": "hi"})

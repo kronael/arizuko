@@ -471,6 +471,58 @@ func TestUnroutedChatJIDs_ExcludesBotMessages(t *testing.T) {
 	}
 }
 
+func TestPutMessageAttachmentsRoundTrip(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	atts := `[{"mime":"image/jpeg","filename":"photo.jpg","url":"http://teled:9001/files/abc","size":1024}]`
+	now := time.Now()
+	if err := s.PutMessage(core.Message{
+		ID: "att1", ChatJID: "tg:1", Sender: "user",
+		Content: "look at this", Timestamp: now, Attachments: atts,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, _, err := s.NewMessages([]string{"tg:1"}, now.Add(-time.Second), "Bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Attachments != atts {
+		t.Errorf("attachments = %q, want %q", msgs[0].Attachments, atts)
+	}
+}
+
+func TestEnrichMessage(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	atts := `[{"mime":"audio/ogg","filename":"voice.ogg","url":"http://teled:9001/files/xyz","size":512}]`
+	now := time.Now()
+	s.PutMessage(core.Message{
+		ID: "enr1", ChatJID: "tg:1", Sender: "user",
+		Content: "[Voice message]", Timestamp: now, Attachments: atts,
+	})
+
+	if err := s.EnrichMessage("enr1", "[Voice message]\n<attachment path=\"/groups/main/media/voice.ogg\" mime=\"audio/ogg\" filename=\"voice.ogg\" transcript=\"hello world\"/>"); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, _, _ := s.NewMessages([]string{"tg:1"}, now.Add(-time.Second), "Bot")
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Attachments != "" {
+		t.Errorf("attachments should be cleared after enrich, got %q", msgs[0].Attachments)
+	}
+	if !strings.Contains(msgs[0].Content, "<attachment") {
+		t.Errorf("enriched content should contain attachment XML, got %q", msgs[0].Content)
+	}
+}
+
 func TestUnroutedChatJIDs_SinceFilter(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()

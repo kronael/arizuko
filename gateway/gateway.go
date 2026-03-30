@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -898,7 +897,7 @@ func downloadFile(url, dest string, maxBytes int64) error {
 	defer f.Close()
 	r := io.Reader(resp.Body)
 	if maxBytes > 0 {
-		r = io.LimitReader(resp.Body, maxBytes)
+		r = io.LimitReader(r, maxBytes)
 	}
 	_, err = io.Copy(f, r)
 	return err
@@ -910,20 +909,9 @@ func whisperTranscribe(baseURL, model, path string) string {
 		return ""
 	}
 	defer f.Close()
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return ""
-	}
-	reqBody, _ := json.Marshal(map[string]string{
-		"model": model,
-		"file":  filepath.Base(path),
-	})
-	_ = reqBody
 
 	// POST multipart to /v1/audio/transcriptions (OpenAI-compatible whisper)
-	var buf bytes.Buffer
-	buf.Write(data)
-	req, err := http.NewRequest("POST", baseURL+"/v1/audio/transcriptions", &buf)
+	req, err := http.NewRequest("POST", baseURL+"/v1/audio/transcriptions", f)
 	if err != nil {
 		return ""
 	}

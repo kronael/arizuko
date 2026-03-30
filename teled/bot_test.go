@@ -1,7 +1,10 @@
 package main
 
 import (
+	"strings"
 	"testing"
+
+	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
 	"github.com/onvos/arizuko/chanlib"
 )
@@ -38,6 +41,96 @@ func TestMdToHTML(t *testing.T) {
 		if got := mdToHTML(tt.in); got != tt.want {
 			t.Errorf("mdToHTML(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestExtractMedia_Photo(t *testing.T) {
+	msg := &tgbotapi.Message{
+		Photo:   []tgbotapi.PhotoSize{{FileID: "abc", FileSize: 1024}},
+		Caption: "nice shot",
+	}
+	r := extractMedia(msg, "http://teled:9001")
+	if r.content != "[Photo] nice shot" {
+		t.Errorf("content = %q", r.content)
+	}
+	if len(r.attachments) != 1 {
+		t.Fatalf("attachments = %d, want 1", len(r.attachments))
+	}
+	att := r.attachments[0]
+	if att.Mime != "image/jpeg" {
+		t.Errorf("mime = %q, want image/jpeg", att.Mime)
+	}
+	if !strings.HasSuffix(att.URL, "/files/abc") {
+		t.Errorf("URL = %q, want suffix /files/abc", att.URL)
+	}
+}
+
+func TestExtractMedia_Voice(t *testing.T) {
+	msg := &tgbotapi.Message{
+		Voice: &tgbotapi.Voice{FileID: "xyz", FileSize: 512},
+	}
+	r := extractMedia(msg, "http://teled:9001")
+	if r.content != "[Voice message]" {
+		t.Errorf("content = %q", r.content)
+	}
+	if len(r.attachments) != 1 {
+		t.Fatalf("attachments = %d, want 1", len(r.attachments))
+	}
+	if r.attachments[0].Mime != "audio/ogg" {
+		t.Errorf("mime = %q, want audio/ogg", r.attachments[0].Mime)
+	}
+}
+
+func TestExtractMedia_Document(t *testing.T) {
+	msg := &tgbotapi.Message{
+		Document: &tgbotapi.Document{FileID: "docid", FileName: "report.pdf", MimeType: "application/pdf"},
+	}
+	r := extractMedia(msg, "http://teled:9001")
+	if !strings.Contains(r.content, "report.pdf") {
+		t.Errorf("content = %q, want to contain filename", r.content)
+	}
+	if len(r.attachments) != 1 {
+		t.Fatalf("attachments = %d, want 1", len(r.attachments))
+	}
+	if r.attachments[0].Filename != "report.pdf" {
+		t.Errorf("filename = %q, want report.pdf", r.attachments[0].Filename)
+	}
+}
+
+func TestExtractMedia_NoListenURL(t *testing.T) {
+	msg := &tgbotapi.Message{
+		Photo: []tgbotapi.PhotoSize{{FileID: "abc", FileSize: 1024}},
+	}
+	r := extractMedia(msg, "")
+	if len(r.attachments) != 1 {
+		t.Fatalf("attachments = %d, want 1", len(r.attachments))
+	}
+	if r.attachments[0].URL != "" {
+		t.Errorf("URL should be empty when listenURL is empty, got %q", r.attachments[0].URL)
+	}
+}
+
+func TestExtractMedia_Sticker(t *testing.T) {
+	msg := &tgbotapi.Message{
+		Sticker: &tgbotapi.Sticker{Emoji: "🔥"},
+	}
+	r := extractMedia(msg, "http://teled:9001")
+	if !strings.Contains(r.content, "Sticker") {
+		t.Errorf("content = %q", r.content)
+	}
+	if len(r.attachments) != 0 {
+		t.Errorf("sticker should have no attachments, got %d", len(r.attachments))
+	}
+}
+
+func TestExtractMedia_NoMedia(t *testing.T) {
+	msg := &tgbotapi.Message{Text: "plain text"}
+	r := extractMedia(msg, "http://teled:9001")
+	if r.content != "" {
+		t.Errorf("content = %q, want empty for plain text message", r.content)
+	}
+	if len(r.attachments) != 0 {
+		t.Errorf("attachments = %d, want 0", len(r.attachments))
 	}
 }
 

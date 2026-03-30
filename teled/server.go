@@ -102,11 +102,15 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 	// Step 1: resolve file_path via Telegram getFile API
 	resp, err := http.Get(fmt.Sprintf(
 		"https://api.telegram.org/bot%s/getFile?file_id=%s", token, fileID))
-	if err != nil || resp.StatusCode != 200 {
+	if err != nil {
 		chanlib.WriteErr(w, 502, "getFile failed")
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		chanlib.WriteErr(w, 502, "getFile failed")
+		return
+	}
 	var apiResp struct {
 		OK     bool `json:"ok"`
 		Result struct {
@@ -120,11 +124,15 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 	// Step 2: proxy the file bytes
 	cdnURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", token, apiResp.Result.FilePath)
 	fileResp, err := http.Get(cdnURL)
-	if err != nil || fileResp.StatusCode != 200 {
+	if err != nil {
 		chanlib.WriteErr(w, 502, "file download failed")
 		return
 	}
 	defer fileResp.Body.Close()
+	if fileResp.StatusCode != 200 {
+		chanlib.WriteErr(w, 502, "file download failed")
+		return
+	}
 	if ct := fileResp.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}

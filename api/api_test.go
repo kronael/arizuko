@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/chanreg"
 	"github.com/onvos/arizuko/store"
 )
@@ -260,6 +262,45 @@ func TestRegisterCallbackCreatesChannel(t *testing.T) {
 	}
 	if registeredName != "telegram" {
 		t.Errorf("registered = %q", registeredName)
+	}
+}
+
+func TestDeliverMessageWithAttachments(t *testing.T) {
+	srv, reg, s := setup(t)
+	h := srv.Handler()
+
+	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+
+	body := messageReq{
+		ChatJID:    "tg:123",
+		Sender:     "tg:456",
+		SenderName: "Alice",
+		Content:    "[Photo]",
+		Timestamp:  1709942400,
+		Attachments: []chanlib.InboundAttachment{
+			{Mime: "image/jpeg", Filename: "photo.jpg", URL: "http://teled:9001/files/abc123", Size: 2048},
+		},
+	}
+	w := postJSON(h, "/v1/messages", body, token)
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	msgs, _, err := s.NewMessages([]string{"tg:123"}, time.Time{}, "bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %d, want 1", len(msgs))
+	}
+	if msgs[0].Attachments == "" {
+		t.Error("attachments should be stored, got empty")
+	}
+	if !strings.Contains(msgs[0].Attachments, "image/jpeg") {
+		t.Errorf("attachments JSON missing mime type, got %q", msgs[0].Attachments)
+	}
+	if !strings.Contains(msgs[0].Attachments, "teled:9001") {
+		t.Errorf("attachments JSON missing URL, got %q", msgs[0].Attachments)
 	}
 }
 

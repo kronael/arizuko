@@ -3,6 +3,8 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -554,6 +556,138 @@ func TestParsePrefix_Empty(t *testing.T) {
 	_, _, ok := parsePrefix("")
 	if ok {
 		t.Error("expected ok=false for empty string")
+	}
+}
+
+func TestExtFromMime(t *testing.T) {
+	// filename takes priority over mime detection
+	if got := extFromMime("image/jpeg", "photo.jpg"); got != ".jpg" {
+		t.Errorf("extFromMime with filename = %q, want .jpg", got)
+	}
+	if got := extFromMime("image/jpeg", "photo.JPEG"); got != ".jpeg" {
+		t.Errorf("extFromMime with uppercase ext = %q, want .jpeg", got)
+	}
+
+	// fallback for unknown mime
+	if got := extFromMime("application/octet-stream", "noext"); got != ".bin" {
+		t.Errorf("extFromMime bin fallback = %q, want .bin", got)
+	}
+
+	// result is non-empty for common audio/image/video types
+	for _, m := range []string{"image/jpeg", "image/png", "audio/ogg", "audio/mpeg", "video/mp4"} {
+		got := extFromMime(m, "")
+		if got == "" {
+			t.Errorf("extFromMime(%q, \"\") returned empty", m)
+		}
+		if got[0] != '.' {
+			t.Errorf("extFromMime(%q, \"\") = %q, want leading dot", m, got)
+		}
+	}
+}
+
+func TestIsVoiceMime(t *testing.T) {
+	if !isVoiceMime("audio/ogg") {
+		t.Error("audio/ogg should be voice")
+	}
+	if !isVoiceMime("audio/mpeg") {
+		t.Error("audio/mpeg should be voice")
+	}
+	if isVoiceMime("image/jpeg") {
+		t.Error("image/jpeg should not be voice")
+	}
+	if isVoiceMime("video/mp4") {
+		t.Error("video/mp4 should not be voice")
+	}
+}
+
+func TestEnrichAttachments_MediaDisabled(t *testing.T) {
+	gw, _ := testGateway(t)
+	// MediaEnabled is false by default in testGateway
+
+	msg := core.Message{
+		ID:          "m1",
+		Content:     "[Photo]",
+		Attachments: `[{"mime":"image/jpeg","filename":"photo.jpg","url":"http://teled:9001/files/abc","size":1024}]`,
+	}
+	gw.enrichAttachments(&msg, "grp")
+
+	// with MediaEnabled=false, nothing should change
+	if msg.Content != "[Photo]" {
+		t.Errorf("content changed when MediaEnabled=false: %q", msg.Content)
+	}
+	if msg.Attachments == "" {
+		t.Error("attachments should not be cleared when MediaEnabled=false")
+	}
+}
+
+func TestEnrichAttachments_DownloadsFile(t *testing.T) {
+	// Serve a fake file via httptest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte("JFIF...fake image data"))
+	}))
+	defer srv.Close()
+
+	gw, s := testGateway(t)
+	gw.cfg.MediaEnabled = true
+	gw.cfg.MediaMaxBytes = 10 * 1024 * 1024
+
+	grp := core.Group{Folder: "grp", Name: "Test"}
+	s.PutGroup("jid1", grp)
+	gw.groups["jid1"] = grp
+
+	atts := `[{"mime":"image/jpeg","filename":"photo.jpg","url":"` + srv.URL + `/photo.jpg","size":22}]`
+	msg := core.Message{
+		ID:          "m-enrich",
+		ChatJID:     "jid1",
+		Sender:      "user",
+		Content:     "[Photo]",
+		Timestamp:   time.Now(),
+		Attachments: atts,
+	}
+	s.PutMessage(msg)
+
+	gw.enrichAttachments(&msg, "grp")
+
+	if !strings.Contains(msg.Content, "<attachment") {
+		t.Errorf("enriched content should contain attachment XML, got %q", msg.Content)
+	}
+	if msg.Attachments != "" {
+		t.Errorf("attachments should be cleared after enrich, got %q", msg.Attachments)
+	}
+
+	// Verify DB was updated
+	msgs, _, _ := s.NewMessages([]string{"jid1"}, time.Time{}, "bot")
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Content, "<attachment") {
+		t.Errorf("DB content should contain attachment XML, got %q", msgs[0].Content)
+	}
+}
+
+func TestEnrichAttachments_SkipsEmptyURL(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.MediaEnabled = true
+
+	grp := core.Group{Folder: "grp2", Name: "Test"}
+	s.PutGroup("jid2", grp)
+	gw.groups["jid2"] = grp
+
+	// attachment with no URL
+	atts := `[{"mime":"image/jpeg","filename":"photo.jpg","url":"","size":0}]`
+	msg := core.Message{
+		ID: "m-nurl", ChatJID: "jid2", Sender: "user",
+		Content: "[Photo]", Timestamp: time.Now(), Attachments: atts,
+	}
+	s.PutMessage(msg)
+
+	gw.enrichAttachments(&msg, "grp2")
+
+	// No URL to download — content should be unchanged, attachments cleared or still set
+	// The function returns early if no extra XML was produced, so content stays unchanged
+	if strings.Contains(msg.Content, "<attachment") {
+		t.Error("should not add attachment XML when URL is empty")
 	}
 }
 
