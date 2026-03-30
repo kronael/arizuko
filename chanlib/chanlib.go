@@ -17,6 +17,7 @@ type InboundAttachment struct {
 	Filename string `json:"filename"`
 	URL      string `json:"url"`
 	Size     int64  `json:"size"`
+	Data     string `json:"data,omitempty"` // base64 inline content (whapd)
 }
 
 type InboundMsg struct {

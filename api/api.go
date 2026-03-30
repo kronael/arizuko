@@ -132,6 +132,10 @@ type messageReq struct {
 	Topic       string `json:"topic,omitempty"`
 	Verb        string `json:"verb,omitempty"` // event type: "join", "edit", "delete", etc.
 	Attachments []chanlib.InboundAttachment `json:"attachments"`
+	// WhatsApp flat fields (whapd sends these instead of attachments array)
+	Attachment     string `json:"attachment,omitempty"`      // base64
+	AttachmentMime string `json:"attachment_mime,omitempty"`
+	AttachmentName string `json:"attachment_name,omitempty"`
 }
 
 func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +175,13 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		ts = time.Unix(req.Timestamp, 0)
 	}
 
+	if req.Attachment != "" {
+		req.Attachments = append([]chanlib.InboundAttachment{{
+			Mime:     req.AttachmentMime,
+			Filename: req.AttachmentName,
+			Data:     req.Attachment,
+		}}, req.Attachments...)
+	}
 	var attsJSON string
 	if len(req.Attachments) > 0 {
 		if b, err := json.Marshal(req.Attachments); err == nil {

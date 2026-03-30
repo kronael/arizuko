@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -832,18 +833,31 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 		return
 	}
 
+	langs := readWhisperLanguages(groupPath)
 	extra := ""
 	for i, att := range atts {
-		if att.URL == "" {
-			continue
-		}
 		ext := extFromMime(att.Mime, att.Filename)
 		fname := fmt.Sprintf("%s-%d%s", msg.ID, i, ext)
 		dest := filepath.Join(mediaDir, fname)
 
-		if err := downloadFile(att.URL, dest, g.cfg.MediaMaxBytes); err != nil {
-			slog.Warn("enrich: download failed", "url", att.URL, "err", err)
-			continue
+		if att.URL == "" {
+			if att.Data == "" {
+				continue
+			}
+			raw, err := base64.StdEncoding.DecodeString(att.Data)
+			if err != nil {
+				slog.Warn("enrich: base64 decode", "err", err)
+				continue
+			}
+			if err := os.WriteFile(dest, raw, 0o644); err != nil {
+				slog.Warn("enrich: write base64", "dest", dest, "err", err)
+				continue
+			}
+		} else {
+			if err := downloadFile(att.URL, dest, g.cfg.MediaMaxBytes); err != nil {
+				slog.Warn("enrich: download failed", "url", att.URL, "err", err)
+				continue
+			}
 		}
 
 		displayName := att.Filename
@@ -851,8 +865,15 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 			displayName = fname
 		}
 		transcript := ""
-		if g.cfg.VoiceEnabled && g.cfg.WhisperURL != "" && isVoiceMime(att.Mime) {
-			transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, dest)
+		if g.cfg.VoiceEnabled && g.cfg.WhisperURL != "" {
+			if isVoiceMime(att.Mime) {
+				transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, dest, langs)
+			} else if strings.HasPrefix(att.Mime, "video/") {
+				if audioPath := extractVideoAudio(dest); audioPath != "" {
+					transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, audioPath, langs)
+					os.Remove(audioPath)
+				}
+			}
 		}
 		containerPath := "/home/node/media/" + day + "/" + fname
 		if transcript != "" {
@@ -897,34 +918,77 @@ func downloadFile(url, dest string, maxBytes int64) error {
 	return err
 }
 
-func whisperTranscribe(baseURL, model, path string) string {
+// whisperTranscribe transcribes a voice file via OpenAI-compatible whisper API.
+// langs is optional; if empty, auto-detect is used. If multiple, tries each and returns all.
+func whisperTranscribe(baseURL, model, path string, langs []string) string {
+	if len(langs) == 0 {
+		langs = []string{""}
+	}
+	var results []string
+	for _, lang := range langs {
+		if t := transcribeOnce(baseURL, model, path, lang); t != "" {
+			results = append(results, t)
+		}
+	}
+	return strings.Join(results, "\n")
+}
+
+func transcribeOnce(baseURL, model, path, lang string) string {
 	f, err := os.Open(path)
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
 
-	req, err := http.NewRequest("POST", baseURL+"/v1/audio/transcriptions", f)
+	url := baseURL + "/v1/audio/transcriptions"
+	req, err := http.NewRequest("POST", url, f)
 	if err != nil {
 		return ""
 	}
-	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Type", "audio/ogg")
 	q := req.URL.Query()
 	q.Set("model", model)
+	if lang != "" {
+		q.Set("language", lang)
+	}
 	req.URL.RawQuery = q.Encode()
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	if err != nil || resp.StatusCode != 200 {
 		return ""
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return ""
-	}
 	var out struct {
 		Text string `json:"text"`
 	}
 	json.NewDecoder(resp.Body).Decode(&out)
 	return strings.TrimSpace(out.Text)
+}
+
+// readWhisperLanguages reads language codes from <groupPath>/.whisper-language,
+// one code per line. Returns nil if the file is absent.
+func readWhisperLanguages(groupPath string) []string {
+	data, err := os.ReadFile(filepath.Join(groupPath, ".whisper-language"))
+	if err != nil {
+		return nil
+	}
+	var langs []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if l := strings.TrimSpace(line); l != "" {
+			langs = append(langs, l)
+		}
+	}
+	return langs
+}
+
+// extractVideoAudio extracts audio from a video file using ffmpeg.
+// Returns path to the extracted audio file, or "" if ffmpeg unavailable or fails.
+func extractVideoAudio(videoPath string) string {
+	audioPath := strings.TrimSuffix(videoPath, filepath.Ext(videoPath)) + "-audio.mp3"
+	cmd := exec.Command("ffmpeg", "-y", "-i", videoPath, "-vn", "-acodec", "libmp3lame", "-q:a", "4", audioPath)
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+	return audioPath
 }
 
 func extFromMime(mimeType, filename string) string {
