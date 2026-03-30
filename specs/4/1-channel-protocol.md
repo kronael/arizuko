@@ -153,6 +153,7 @@ Authorization: Bearer <shared-secret>
 Content-Type: multipart/form-data
 - chat_jid: "telegram:mybot/-1001234567"
 - filename: "report.pdf"
+- caption:  "optional caption text"   (optional)
 - file: <binary>
 
 → 200 {"ok": true, "message_id": "telegram-msg-457"}
@@ -283,17 +284,15 @@ toward this now, but the design is compatible.
 
 ### Large file delivery
 
-**Inbound**: `POST /v1/files` multipart upload is not yet
-implemented — gated has no `/v1/files` endpoint. Channel
-adapters serve files on their own HTTP server and reference
-file URLs directly in the attachment object. Router fetches
-if needed for agent context.
+**Inbound**: Channel adapters serve files on their own HTTP server and
+reference file URLs in the `attachments` array. The gateway enricher
+fetches them and writes to `groups/<folder>/media/<YYYYMMDD>/` before
+agent spawn. teled serves `GET /files/{fileID}` as a proxy to the
+Telegram CDN (Telegram file URLs require a bot token and are ephemeral).
+discd uses direct CDN URLs.
 
-**Outbound**: router sends file via multipart POST to
-channel's `/send-file` endpoint. Unchanged.
-
-**Outbound**: router sends file via multipart POST to
-channel's `/send-file` endpoint. Unchanged.
+**Outbound**: router sends file via multipart POST to channel's
+`/send-file` endpoint with optional `caption` form field.
 
 ### Event types beyond messages
 

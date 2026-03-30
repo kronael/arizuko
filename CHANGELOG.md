@@ -9,6 +9,23 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **ipc/send_file**: `caption` param on `send_file` MCP tool; teled sends as native caption,
+  whapd passes through, discd ignores
+- **core**: `Channel.SendFile` takes `caption string` param (migration 050)
+- **gateway**: inbound media attachment pipeline — enricher downloads attachments to
+  `groups/<folder>/media/<YYYYMMDD>/` before container spawn; voice transcribed via Whisper
+  when `VOICE_ENABLED=true` and `WHISPER_URL` set
+- **chanlib**: `InboundAttachment` struct; channel adapters populate `Attachments` field in
+  inbound messages
+- **teled**: serves `GET /files/{fileID}` proxy to Telegram CDN for attachment downloads
+- **discd**: extracts attachment metadata from Discord message events
+- **store**: migration 0019 adds `attachments TEXT` column to `messages`; `EnrichMessage(id, content)`
+  updates content and clears attachments after enrichment
+- **agent**: sees attachments as `<attachment path="..." mime="..." filename="..."/>` XML in
+  message content (path is container-side `/home/node/media/...`)
+
 ---
 
 ## [v0.20.0] — 2026-03-27

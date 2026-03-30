@@ -87,6 +87,7 @@ cfg/               Instance config files (per-deploy .env snapshots)
 - `.env` — config (gateway reads from cwd)
 - `store/` — SQLite DB
 - `groups/<folder>/` — group files, logs, diary
+- `groups/<folder>/media/<YYYYMMDD>/` — downloaded inbound attachments
 - `data/ipc/<folder>/` — MCP unix sockets
 - `groups/<folder>/.claude/` — agent session state (skills, settings, CLAUDE.md)
 
@@ -95,7 +96,7 @@ cfg/               Instance config files (per-deploy .env snapshots)
 All config via `.env` in data dir or env vars (`core.LoadConfig`).
 Key values: `ASSISTANT_NAME`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`,
 `MAX_CONCURRENT_CONTAINERS`, `API_PORT`, `CHANNEL_SECRET`,
-`ONBOARDING_ENABLED`.
+`ONBOARDING_ENABLED`, `VOICE_ENABLED`, `WHISPER_URL`.
 
 `HOST_DATA_DIR` and `HOST_APP_DIR` for docker-in-docker path translation.
 API server always starts (default port 8080).

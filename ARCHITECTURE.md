@@ -56,7 +56,7 @@ grants/              (library)
   └── CheckAction, NarrowRules, MatchingRules, DeriveRules
 
 chanlib/             (library)
-  └── RouterClient, InboundMsg, Auth middleware — shared by all channel adapters
+  └── RouterClient, InboundMsg, InboundAttachment, Auth middleware — shared by all channel adapters
 ```
 
 ## Message Flow
@@ -76,6 +76,8 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
   → queue.EnqueueMessageCheck → processGroupMessages
     → web: JID → processWebTopics (per-topic agent run)
     → filter out gateway commands (isGatewayCommand — not forwarded to agent)
+    → enricher: download attachments → groups/<folder>/media/<YYYYMMDD>/ (voice → Whisper)
+    → store.EnrichMessage (update content with <attachment> XML, clear attachments column)
     → store.MessagesSince (per-chat agent cursor)
     → store.FlushSysMsgs (XML system events prepended)
     → router.FormatMessages (XML message batch)
@@ -175,25 +177,47 @@ and auth middleware.
 
 Full protocol: `specs/4/1-channel-protocol.md`.
 
+## Inbound Media Pipeline
+
+When a user sends a photo, voice message, or document:
+
+1. Channel adapter (teled, discd) extracts file metadata and populates
+   `Attachments []InboundAttachment` in the `POST /v1/messages` body.
+2. `store.PutMessage` stores the attachment JSON in `messages.attachments`.
+3. Before agent spawn, the gateway enricher fetches each attachment URL,
+   writes the file to `groups/<folder>/media/<YYYYMMDD>/<filename>`, and
+   calls `store.EnrichMessage` to prepend `<attachment path="..." mime="..." filename="..."/>`
+   XML into the message content and clear the `attachments` column.
+4. Voice files (`audio/*`, `video/ogg`) are sent to Whisper (`WHISPER_URL`) for
+   transcription when `VOICE_ENABLED=true`; transcript appended to the attachment tag.
+5. Agent sees attachment XML inline in message content. Container path is
+   `/home/node/media/...` (bound from `groups/<folder>/media/`).
+
+teled serves `GET /files/{fileID}` as a proxy to the Telegram CDN, since
+Telegram file URLs are ephemeral and require a bot token. discd uses
+direct CDN URLs (no proxy needed).
+
+**Config**: `VOICE_ENABLED=true`, `WHISPER_URL=http://...` (e.g. OpenAI Whisper container).
+
 ## Key Types (core package)
 
-| Type            | Purpose                                                                                        |
-| --------------- | ---------------------------------------------------------------------------------------------- |
-| `Config`        | All settings from `.env` + env vars                                                            |
-| `Message`       | Incoming message (sender, content, reply context)                                              |
-| `Group`         | Registered group (folder, trigger, config)                                                     |
-| `GroupConfig`   | Per-group: mounts, timeout, sidecars                                                           |
-| `Route`         | Flat routing table entry (type, match, target)                                                 |
-| `Task`          | Scheduled task (cron, prompt, status)                                                          |
-| `Channel`       | Interface: Connect, `Send(jid, text, replyTo) (id, error)`, SendFile, Owns, Typing, Disconnect |
-| `SessionRecord` | Session log entry                                                                              |
+| Type            | Purpose                                                                                                              |
+| --------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `Config`        | All settings from `.env` + env vars                                                                                  |
+| `Message`       | Incoming message (sender, content, reply context)                                                                    |
+| `Group`         | Registered group (folder, trigger, config)                                                                           |
+| `GroupConfig`   | Per-group: mounts, timeout, sidecars                                                                                 |
+| `Route`         | Flat routing table entry (type, match, target)                                                                       |
+| `Task`          | Scheduled task (cron, prompt, status)                                                                                |
+| `Channel`       | Interface: Connect, `Send(jid, text, replyTo) (id, error)`, `SendFile(jid, path, caption)`, Owns, Typing, Disconnect |
+| `SessionRecord` | Session log entry                                                                                                    |
 
 ## SQLite Schema
 
 | Table               | Key columns                                                                                    |
 | ------------------- | ---------------------------------------------------------------------------------------------- |
 | `chats`             | jid (PK), name, channel, is_group, errored                                                     |
-| `messages`          | id (PK), chat_jid, sender, content, timestamp, verb                                            |
+| `messages`          | id (PK), chat_jid, sender, content, timestamp, verb, attachments (JSON, cleared after enrich)  |
 | `registered_groups` | jid (PK), folder, trigger_word, requires_trigger, container_config (JSON), parent, slink_token |
 | `routes`            | id (auto), jid, seq, type, match, target                                                       |
 | `sessions`          | group_folder + topic (PK), session_id                                                          |
