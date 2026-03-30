@@ -860,12 +860,14 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 			transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, dest)
 		}
 
+		// Absolute path inside the agent container (/home/node = group dir mount).
+		containerPath := "/home/node/media/" + day + "/" + fname
 		if transcript != "" {
 			extra += fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q transcript=%q/>",
-				dest, att.Mime, displayName, transcript)
+				containerPath, att.Mime, displayName, transcript)
 		} else {
 			extra += fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q/>",
-				dest, att.Mime, displayName)
+				containerPath, att.Mime, displayName)
 		}
 	}
 
@@ -873,10 +875,9 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 		return
 	}
 
-	enriched := msg.Content + extra
-	msg.Content = enriched
+	msg.Content += extra
 	msg.Attachments = ""
-	if err := g.store.EnrichMessage(msg.ID, enriched); err != nil {
+	if err := g.store.EnrichMessage(msg.ID, msg.Content); err != nil {
 		slog.Warn("enrich: store update failed", "id", msg.ID, "err", err)
 	}
 }
@@ -895,11 +896,11 @@ func downloadFile(url, dest string, maxBytes int64) error {
 		return err
 	}
 	defer f.Close()
-	r := io.Reader(resp.Body)
+	src := io.Reader(resp.Body)
 	if maxBytes > 0 {
-		r = io.LimitReader(r, maxBytes)
+		src = io.LimitReader(resp.Body, maxBytes)
 	}
-	_, err = io.Copy(f, r)
+	_, err = io.Copy(f, src)
 	return err
 }
 
