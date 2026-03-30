@@ -188,8 +188,8 @@ When a user sends a photo, voice message, or document:
    writes the file to `groups/<folder>/media/<YYYYMMDD>/<filename>`, and
    calls `store.EnrichMessage` to prepend `<attachment path="..." mime="..." filename="..."/>`
    XML into the message content and clear the `attachments` column.
-4. Voice files (`audio/*`, `video/ogg`) are sent to Whisper (`WHISPER_URL`) for
-   transcription when `VOICE_ENABLED=true`; transcript appended to the attachment tag.
+4. Voice files (`audio/*`) are sent to Whisper for transcription when
+   `VOICE_TRANSCRIPTION_ENABLED=true`; transcript appended to the attachment tag.
 5. Agent sees attachment XML inline in message content. Container path is
    `/home/node/media/...` (bound from `groups/<folder>/media/`).
 
@@ -197,7 +197,8 @@ teled serves `GET /files/{fileID}` as a proxy to the Telegram CDN, since
 Telegram file URLs are ephemeral and require a bot token. discd uses
 direct CDN URLs (no proxy needed).
 
-**Config**: `VOICE_ENABLED=true`, `WHISPER_URL=http://...` (e.g. OpenAI Whisper container).
+**Config**: `MEDIA_ENABLED=true` (required to activate enricher), `VOICE_TRANSCRIPTION_ENABLED=true`,
+`WHISPER_BASE_URL=http://...` (e.g. OpenAI Whisper container), `WHISPER_MODEL=turbo` (default).
 
 ## Key Types (core package)
 

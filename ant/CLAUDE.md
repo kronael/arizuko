@@ -166,7 +166,7 @@ them automatically before you run. Attachment paths appear in message content as
 - `path` is an absolute local path — use it directly with file tools (Read, Bash cat, etc.)
 - Voice messages are pre-transcribed; `transcript` attribute holds the text
 - If `transcript` is present, prefer it over re-running your own transcription
-- Files are gitignored under `media/` — they don't persist across sessions
+- Files live in the data dir outside the project repo and are not cleaned up automatically
 
 ## Delivering files to users
 

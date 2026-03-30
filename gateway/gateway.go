@@ -811,9 +811,6 @@ func (g *Gateway) injectMessage(jid, content, sender, senderName string) (string
 	return id, nil
 }
 
-// enrichAttachments downloads attachment files before the agent runs.
-// Saves to groups/<folder>/media/<YYYYMMDD>/<msgID>-<idx>.<ext>.
-// Appends <attachment .../> XML to msg.Content and updates the DB.
 func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 	if !g.cfg.MediaEnabled || msg.Attachments == "" {
 		return
@@ -853,14 +850,10 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 		if displayName == "" {
 			displayName = fname
 		}
-
-		// voice transcription
 		transcript := ""
 		if g.cfg.VoiceEnabled && g.cfg.WhisperURL != "" && isVoiceMime(att.Mime) {
 			transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, dest)
 		}
-
-		// Absolute path inside the agent container (/home/node = group dir mount).
 		containerPath := "/home/node/media/" + day + "/" + fname
 		if transcript != "" {
 			extra += fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q transcript=%q/>",
@@ -904,6 +897,7 @@ func downloadFile(url, dest string, maxBytes int64) error {
 	return err
 }
 
+
 func whisperTranscribe(baseURL, model, path string) string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -911,7 +905,6 @@ func whisperTranscribe(baseURL, model, path string) string {
 	}
 	defer f.Close()
 
-	// POST multipart to /v1/audio/transcriptions (OpenAI-compatible whisper)
 	req, err := http.NewRequest("POST", baseURL+"/v1/audio/transcriptions", f)
 	if err != nil {
 		return ""
@@ -942,16 +935,11 @@ func extFromMime(mimeType, filename string) string {
 	if len(exts) > 0 {
 		return exts[0]
 	}
-	// fallbacks for common types
 	switch {
-	case strings.HasPrefix(mimeType, "image/jpeg"):
-		return ".jpg"
 	case strings.HasPrefix(mimeType, "image/"):
 		return "." + strings.TrimPrefix(mimeType, "image/")
 	case strings.HasPrefix(mimeType, "video/"):
 		return "." + strings.TrimPrefix(mimeType, "video/")
-	case strings.HasPrefix(mimeType, "audio/ogg"):
-		return ".ogg"
 	case strings.HasPrefix(mimeType, "audio/"):
 		return ".mp3"
 	}

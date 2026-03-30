@@ -16,7 +16,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **core**: `Channel.SendFile` takes `caption string` param (migration 050)
 - **gateway**: inbound media attachment pipeline — enricher downloads attachments to
   `groups/<folder>/media/<YYYYMMDD>/` before container spawn; voice transcribed via Whisper
-  when `VOICE_ENABLED=true` and `WHISPER_URL` set
+  when `VOICE_TRANSCRIPTION_ENABLED=true` and `WHISPER_BASE_URL` set
 - **chanlib**: `InboundAttachment` struct; channel adapters populate `Attachments` field in
   inbound messages
 - **teled**: serves `GET /files/{fileID}` proxy to Telegram CDN for attachment downloads
