@@ -99,7 +99,6 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := s.cfg.TelegramToken
-	// Step 1: resolve file_path via Telegram getFile API
 	resp, err := http.Get(fmt.Sprintf(
 		"https://api.telegram.org/bot%s/getFile?file_id=%s", token, fileID))
 	if err != nil {
@@ -121,7 +120,6 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, 502, "getFile parse failed")
 		return
 	}
-	// Step 2: proxy the file bytes
 	cdnURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", token, apiResp.Result.FilePath)
 	fileResp, err := http.Get(cdnURL)
 	if err != nil {

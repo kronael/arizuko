@@ -110,6 +110,32 @@ func TestExtractMedia_NoListenURL(t *testing.T) {
 	}
 }
 
+func TestExtractMedia_Audio(t *testing.T) {
+	// audio with explicit filename
+	msg := &tgbotapi.Message{
+		Audio: &tgbotapi.Audio{FileID: "aud1", FileName: "track.mp3", FileSize: 2048},
+	}
+	r := extractMedia(msg, "http://teled:9001")
+	if r.content != "[Audio]" {
+		t.Errorf("content = %q, want [Audio]", r.content)
+	}
+	if len(r.attachments) != 1 {
+		t.Fatalf("attachments = %d, want 1", len(r.attachments))
+	}
+	if r.attachments[0].Filename != "track.mp3" {
+		t.Errorf("filename = %q, want track.mp3", r.attachments[0].Filename)
+	}
+
+	// audio with no filename falls back to fileID.mp3
+	msg2 := &tgbotapi.Message{
+		Audio: &tgbotapi.Audio{FileID: "aud2", FileSize: 512},
+	}
+	r2 := extractMedia(msg2, "http://teled:9001")
+	if r2.attachments[0].Filename != "aud2.mp3" {
+		t.Errorf("fallback filename = %q, want aud2.mp3", r2.attachments[0].Filename)
+	}
+}
+
 func TestExtractMedia_Sticker(t *testing.T) {
 	msg := &tgbotapi.Message{
 		Sticker: &tgbotapi.Sticker{Emoji: "🔥"},

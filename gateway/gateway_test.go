@@ -652,6 +652,9 @@ func TestEnrichAttachments_DownloadsFile(t *testing.T) {
 	if !strings.Contains(msg.Content, "<attachment") {
 		t.Errorf("enriched content should contain attachment XML, got %q", msg.Content)
 	}
+	if !strings.Contains(msg.Content, "/home/node/media/") {
+		t.Errorf("attachment path should be container-absolute (/home/node/media/...), got %q", msg.Content)
+	}
 	if msg.Attachments != "" {
 		t.Errorf("attachments should be cleared after enrich, got %q", msg.Attachments)
 	}
