@@ -15,8 +15,8 @@ import (
 type InboundAttachment struct {
 	Mime     string `json:"mime"`
 	Filename string `json:"filename"`
-	URL      string `json:"url"`  // channel proxy URL e.g. http://teled:9001/files/<id>
-	Size     int64  `json:"size"` // 0 if unknown
+	URL      string `json:"url"`
+	Size     int64  `json:"size"`
 }
 
 type InboundMsg struct {
@@ -27,9 +27,9 @@ type InboundMsg struct {
 	Content     string              `json:"content"`
 	Timestamp   int64               `json:"timestamp"`
 	IsGroup     bool                `json:"is_group"`
-	Topic       string              `json:"topic,omitempty"`       // Thread/topic identifier
-	Verb        string              `json:"verb,omitempty"`        // Event type: "join", "edit", "delete", etc.
-	Attachments []InboundAttachment `json:"attachments,omitempty"` // Files attached to this message
+	Topic       string              `json:"topic,omitempty"`
+	Verb        string              `json:"verb,omitempty"`
+	Attachments []InboundAttachment `json:"attachments,omitempty"`
 }
 
 type RouterClient struct {

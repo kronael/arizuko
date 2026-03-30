@@ -897,7 +897,6 @@ func downloadFile(url, dest string, maxBytes int64) error {
 	return err
 }
 
-
 func whisperTranscribe(baseURL, model, path string) string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -914,10 +913,13 @@ func whisperTranscribe(baseURL, model, path string) string {
 	q.Set("model", model)
 	req.URL.RawQuery = q.Encode()
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil || resp.StatusCode != 200 {
+	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return ""
+	}
 	var out struct {
 		Text string `json:"text"`
 	}

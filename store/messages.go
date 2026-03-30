@@ -24,7 +24,6 @@ func (s *Store) PutMessage(m core.Message) error {
 	return err
 }
 
-// EnrichMessage updates a message's content and clears attachments (already consumed).
 func (s *Store) EnrichMessage(id, content string) error {
 	_, err := s.db.Exec(
 		`UPDATE messages SET content=?, attachments='' WHERE id=?`,
