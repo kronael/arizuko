@@ -29,3 +29,5 @@ implemented, running code.
 - [24-recall.md](24-recall.md) — knowledge retrieval: v1 LLM grep (shipped), v2 FTS5+sqlite-vec (planned)
 - [social-adapters.md](social-adapters.md) — teled, discd, emaid, bskyd, mastd, reditd
 - [task-logs.md](task-logs.md) — task_run_logs table: schema and timed population
+- [chanlib-refactor.md](chanlib-refactor.md) — inter-service comm simplification; 6 chanlib helpers, ~203 LOC reduction
+- [e2e-tests.md](e2e-tests.md) — E2E integration test strategy; real containers, smoke tests
