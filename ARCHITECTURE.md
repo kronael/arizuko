@@ -95,17 +95,32 @@ active `web:` JIDs via `store.ActiveWebJIDs(since)` and routes them like any
 other channel. Each web message carries a topic; `processWebTopics` in the
 gateway splits messages by topic and runs one agent per topic.
 
-**Auth planes** (both resolved at proxyd before forwarding to webd):
+**Path model**:
 
-- **JWT plane**: user logs in via `/auth/`, proxyd validates the JWT and
-  injects `X-User-Sub` and optionally `X-User-Groups` (JSON array of folder
-  names). `groups: null` in the JWT = operator (unrestricted); `groups: []` =
-  no access; `groups: ["folder"]` = specific folders. Group list is read from
-  `user_groups` table at login time and embedded in the JWT.
+- `/pub/*` — public, no auth required
+- `/health` — public health check
+- `/slink/*` — rate-limited (10 req/min per IP); token resolved against
+  `registered_groups.slink_token`, injects `X-Folder`, `X-Group-Name`,
+  `X-Slink-Token`, then proxies to webd (or vite if no webd)
+- `/dash/*` — auth-gated, proxied to dashd
+- `/dav/*` — auth-gated, proxied to dufs WebDAV container (strips `/dav` prefix)
+- `/*` — everything else auth-gated
 
-- **Slink plane**: proxyd resolves the slink token against
-  `registered_groups.slink_token` and injects `X-Folder`, `X-Group-Name`, and
-  `X-Slink-Token`. Rate-limited at 10 req/min per IP.
+**Auth resolution** in `requireAuth`:
+
+1. `Authorization: Bearer <jwt>` — validates JWT, injects `X-User-Sub`,
+   `X-User-Name`, optionally `X-User-Groups` (JSON array). Raw `AUTH_SECRET`
+   value accepted as a bypass token for operator tooling.
+2. `refresh_token` cookie — fallback for browser navigation without JS Bearer
+   header. Looks up session by `auth.HashToken(cookie)`, injects `X-User-Sub`
+   and `X-User-Name`.
+3. Redirects to `/auth/login` if neither check passes.
+
+**JWT plane**: user logs in via `/auth/`, proxyd validates the JWT and injects
+`X-User-Sub` and optionally `X-User-Groups` (JSON array of folder names).
+`groups: null` in the JWT = operator (unrestricted); `groups: []` = no access;
+`groups: ["folder"]` = specific folders. Group list is read from `user_groups`
+table at login time and embedded in the JWT.
 
 `webd.requireFolder` middleware checks `X-User-Groups` on folder-specific
 endpoints. Absent header = operator (no restriction).
@@ -113,9 +128,11 @@ endpoints. Absent header = operator (no restriction).
 `groupForJid` in the gateway resolves `web:<folder>` by stripping the prefix
 and looking up the group by folder path, the same fallback used by `slink:`.
 
-**WebDAV** (`WEBDAV_ENABLED=true`): proxyd exposes `/dav/` as an auth-gated
-reverse proxy to a `davd` container (`sigoden/dufs:latest`) that mounts
-`groups/` read-only. Path prefix `/dav` is stripped before forwarding.
+WebDAV at `/dav/` requires `DAV_ADDR` configured; the backing container
+(`sigoden/dufs:latest`) mounts `groups/` read-only.
+
+proxyd receives `DATA_DIR` from compose to locate `web/vhosts.json` (reloaded
+every 5s without restart).
 
 Full protocol: `specs/6/3-chat-ui.md`.
 

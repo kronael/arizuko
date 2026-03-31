@@ -338,7 +338,7 @@ func TestRefreshExpiredSession(t *testing.T) {
 
 	// create session with past expiry
 	token := "expired-refresh-token"
-	h := hashToken(token)
+	h := HashToken(token)
 	past := time.Now().Add(-time.Hour)
 	if err := s.CreateAuthSession(h, "local:admin", past); err != nil {
 		t.Fatal(err)

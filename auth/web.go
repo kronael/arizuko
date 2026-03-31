@@ -119,7 +119,7 @@ func handleRefresh(s *store.Store, secret []byte, secure bool) http.HandlerFunc 
 			http.Error(w, "no refresh token", http.StatusUnauthorized)
 			return
 		}
-		h := hashToken(cookie.Value)
+		h := HashToken(cookie.Value)
 		sess, ok := s.AuthSession(h)
 		if !ok || time.Now().After(sess.ExpiresAt) {
 			http.Error(w, "invalid session", http.StatusUnauthorized)
@@ -139,7 +139,7 @@ func handleLogout(s *store.Store, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(cookieName)
 		if err == nil {
-			s.DeleteAuthSession(hashToken(cookie.Value))
+			s.DeleteAuthSession(HashToken(cookie.Value))
 		}
 		http.SetCookie(w, &http.Cookie{
 			Name: cookieName, Value: "", Path: "/",
@@ -154,7 +154,7 @@ func issueSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, nam
 	jwt := mintJWT(secret, sub, name, groups, jwtTTL)
 	refresh := genToken()
 	exp := time.Now().Add(refreshTTL)
-	if err := s.CreateAuthSession(hashToken(refresh), sub, exp); err != nil {
+	if err := s.CreateAuthSession(HashToken(refresh), sub, exp); err != nil {
 		slog.Error("create session failed", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -180,8 +180,6 @@ func HashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
 }
-
-func hashToken(token string) string { return HashToken(token) }
 
 func verifyArgon2(encoded, password string) bool {
 	// format: $argon2id$v=19$m=65536,t=3,p=4$salt$hash
