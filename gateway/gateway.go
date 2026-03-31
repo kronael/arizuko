@@ -469,8 +469,10 @@ func (g *Gateway) processSenderBatch(
 	observed := g.store.ObservedMessagesSince(group.Folder, chatJid, agentTs.Format(time.RFC3339Nano))
 	prompt += router.FormatMessages(msgs, observed)
 
+	var cancelTyping context.CancelFunc
 	if ch != nil {
 		ch.Typing(chatJid, true)
+		cancelTyping = keepTyping(ch, chatJid)
 	}
 
 	isolated := strings.HasPrefix(last.Sender, "timed-isolated")
@@ -479,6 +481,9 @@ func (g *Gateway) processSenderBatch(
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		onOutput, isolated, nil, topic, last.ID)
 
+	if cancelTyping != nil {
+		cancelTyping()
+	}
 	if ch != nil {
 		ch.Typing(chatJid, false)
 	}
@@ -533,8 +538,10 @@ func (g *Gateway) processWebTopics(
 		prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n"
 		prompt += router.FormatMessages(topicMsgs)
 
+		var cancelTyping context.CancelFunc
 		if ch != nil {
 			ch.Typing(chatJid, true)
+			cancelTyping = keepTyping(ch, chatJid)
 		}
 
 		effectiveTopic := g.effectiveTopic(chatJid, topic)
@@ -542,6 +549,9 @@ func (g *Gateway) processWebTopics(
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 			onOutput, false, nil, effectiveTopic, last.ID)
 
+		if cancelTyping != nil {
+			cancelTyping()
+		}
 		if ch != nil {
 			ch.Typing(chatJid, false)
 		}
@@ -712,6 +722,25 @@ func (g *Gateway) runAgentWithOpts(
 
 // RecordJIDAdapter records which adapter last received a message from this JID,
 // so outbound replies go back via the correct adapter (not just prefix-matching).
+// keepTyping sends typing=true every 6s until the returned cancel is called.
+// WhatsApp clients expire the typing indicator after ~8s without a refresh.
+func keepTyping(ch core.Channel, jid string) context.CancelFunc {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		t := time.NewTicker(6 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				ch.Typing(jid, true)
+			}
+		}
+	}()
+	return cancel
+}
+
 func (g *Gateway) RecordJIDAdapter(chatJID, adapterName string) {
 	g.jidAdapters.Store(chatJID, adapterName)
 }
