@@ -100,12 +100,9 @@ it just writes files. The redirect serves them at `{world}.{domain}`.
   atomically under `sync.RWMutex`. Redirect runs before auth check.
 - `core.Config.WebDir` = `DATA_DIR/web`; vhosts path =
   `filepath.Join(cfg.WebDir, "vhosts.json")`
-- `container/runner.go` mounts `cfg.WebDir/web` (the vite serving root,
-  where `vite.config.ts` lives) at `/workspace/web`. Not `cfg.WebDir`
-  itself — that holds `vhosts.json` and other host metadata.
-- `vited` mounts `DATA_DIR/web:/web` and serves from `/web/web/`
-  (where `vite.config.ts` is). So agent `/workspace/web/<app>/` =
-  vite serves at `/<app>/`.
+- `container/runner.go` mounts `cfg.WebDir` at `/workspace/web`.
+- `vited` mounts `DATA_DIR/web:/web` and serves from `/web/` (WEB_ROOT default).
+  Agent writes `/workspace/web/<app>/index.html` → vite serves at `/<app>/`.
 
 ## Related
 
