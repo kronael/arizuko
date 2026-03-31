@@ -190,7 +190,15 @@ export function startServer(
       const s = sock();
       if (s) {
         const status = body.on ? ('composing' as const) : ('paused' as const);
-        s.sendPresenceUpdate(status, toWaJid(body.chat_jid)).catch(() => {});
+        const waJid = toWaJid(body.chat_jid);
+        log('debug', 'typing', { jid: waJid, status });
+        s.sendPresenceUpdate(status, waJid).catch((e) =>
+          log('warn', 'presence update failed', {
+            jid: waJid,
+            status,
+            err: String(e),
+          }),
+        );
       }
       json(res, 200, { ok: true });
       return;
