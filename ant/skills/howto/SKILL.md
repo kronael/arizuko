@@ -14,8 +14,8 @@ from scratch — do not copy a template.
 ## Step 1 — Read the specs
 
 ```bash
-cat /workspace/self/container/skills/web/template/pub/howto/CONTENT.md
-cat /workspace/self/container/skills/web/template/pub/howto/STYLE.md
+cat /workspace/self/ant/skills/web/template/pub/howto/CONTENT.md
+cat /workspace/self/ant/skills/web/template/pub/howto/STYLE.md
 ```
 
 ## Step 2 — Pick a style
@@ -38,7 +38,7 @@ Write a complete, self-contained HTML file from CONTENT.md using your chosen sty
 - TLDR grid at top (one card per section)
 - All 20 sections as full cards with prose + code blocks
 - Remove sections for unconfigured features (voice if no voice channel, onboarding if `ONBOARDING_ENABLED` is not set)
-- Replace `kanipi agent` / `arizuko agent` in title and h1 with `$ASSISTANT_NAME`
+- Replace `$ASSISTANT_NAME agent` in title and h1 with `$ASSISTANT_NAME`
 - Replace `bot.example.com` with `$WEB_HOST` (skip link if empty)
 - Dark mode toggle (fixed, top-right)
 - Mobile-responsive

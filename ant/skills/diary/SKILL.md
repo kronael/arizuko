@@ -22,7 +22,7 @@ Create the file if it doesn't exist. Append to it if it does.
 ```markdown
 ---
 summary: |
-  Working on kanipi gateway. Alice is the main user.
+  Working on arizuko gateway. Alice is the main user.
   - auth: OAuth flow design, provider TBD
   - deploy: REDACTED done
   - ipc: two file-sending bugs open

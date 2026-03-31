@@ -26,7 +26,7 @@ NEVER write to `/workspace/web/<app>/` directly (requires auth).
 
 - Vite MPA (no build step needed)
 - Vanilla HTML + CSS + JS/TS
-- Shared assets in `/home/node/web/pub/assets/` (hub.css, hub.js)
+- Shared assets in `/workspace/web/pub/assets/` (hub.css, hub.js)
 
 ## Styling
 
@@ -37,7 +37,7 @@ For richer apps: Tailwind CSS via CDN, Alpine.js via CDN.
 
 ## Hub page
 
-Root `/home/node/web/pub/index.html` lists all deployed apps.
+Root `/workspace/web/pub/index.html` lists all deployed apps.
 Update it when adding/removing apps.
 Never list placeholders or examples.
 
