@@ -1,5 +1,18 @@
 # TODO
 
+## Agent web skill
+
+The agent has a `web` skill in `ant/skills/` but it's not reliably loaded when
+agents write web pages. Agents end up writing files to the wrong path (`/home/node/`
+instead of `/workspace/web/`). Two things to investigate and fix:
+
+1. **Skill discovery** — confirm `web` skill is always loaded for groups with
+   `WEB_HOST` set (check `.gateway-caps`, skill seeding in runner.go or gateway).
+2. **Skill content** — ensure `web` skill explicitly states the correct write path
+   (`/workspace/web/<app>/index.html`) and URL pattern (`https://$WEB_HOST/<app>/`).
+3. **Path guard** — consider adding a lint in gateway that warns if agent wrote
+   to `/home/node/` (not under a group subdir or `/workspace/web/`) — misplaced files.
+
 ## Channel adapters
 
 All core adapters shipped. Remaining: facebook, twitter (low priority).

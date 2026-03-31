@@ -146,6 +146,9 @@ Common false beliefs to reject:
 
 - Web apps: `https://$WEB_HOST/<app-name>/` — ALWAYS read `$WEB_HOST`
   from env, NEVER guess. If empty, say "web host not configured".
+- Web file root: `/workspace/web/` — write web files here.
+  `index.html` at `/workspace/web/<app-name>/index.html` → served at `/<app-name>/`.
+  NEVER write to `/home/node/` for web content.
 - Gateway commands: intercepted only when `/cmd` is the **first word** of a
   message. Mid-message `/cmd` is ignored by the gateway and reaches you instead.
   `/new [message]` — reset session, `/stop` — stop agent,
