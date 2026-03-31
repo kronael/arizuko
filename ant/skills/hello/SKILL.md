@@ -72,13 +72,13 @@ Adapt this list to what you actually know is available. For example:
 ```bash
 GROUP_FOLDER=$ARIZUKO_GROUP_FOLDER
 if [ "$ARIZUKO_IS_ROOT" = "1" ] || [ "$ARIZUKO_IS_WORLD_ADMIN" = "1" ]; then
-  WEB_DIR="/workspace/web"
+  WEB_DIR="/workspace/web/pub"
 else
   WEB_SUB=$(basename "$GROUP_FOLDER")
-  WEB_DIR="/workspace/web/$WEB_SUB"
+  WEB_DIR="/workspace/web/pub/$WEB_SUB"
 fi
-WEB_PREFIX="$GROUP_FOLDER"
-[ "$ARIZUKO_IS_ROOT" = "1" ] && WEB_PREFIX=""
+WEB_PREFIX="pub"
+[ "$ARIZUKO_IS_ROOT" = "1" ] || WEB_PREFIX="pub/$GROUP_FOLDER"
 ```
 
 Howto URL: `https://$WEB_HOST/$WEB_PREFIX/howto/`
@@ -140,7 +140,7 @@ Commands
   /chatid — show JID    /status — gateway health
 
 Tell me what you need.
-Getting started: https://REDACTED/howto/
+Getting started: https://REDACTED/pub/howto/
 ```
 
 Non-root group:
@@ -164,11 +164,11 @@ Memory
   /recall-memories to search all knowledge
 
 Web
-  Apps and pages at REDACTED/myai/
+  Apps and pages at REDACTED/pub/myai/
 
 Commands
   /new — fresh session  /stop — halt  /ping — status
 
 Tell me what you need.
-Getting started: https://REDACTED/myai/howto/
+Getting started: https://REDACTED/pub/myai/howto/
 ```

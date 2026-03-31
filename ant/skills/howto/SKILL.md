@@ -48,9 +48,9 @@ Write a complete, self-contained HTML file from CONTENT.md using your chosen sty
 ```bash
 # resolve web dir
 if [ "$ARIZUKO_IS_ROOT" = "1" ] || [ "$ARIZUKO_IS_WORLD_ADMIN" = "1" ]; then
-  WEB_DIR="/workspace/web"
+  WEB_DIR="/workspace/web/pub"
 else
-  WEB_DIR="/workspace/web/$(basename $ARIZUKO_GROUP_FOLDER)"
+  WEB_DIR="/workspace/web/pub/$(basename $ARIZUKO_GROUP_FOLDER)"
 fi
 mkdir -p "$WEB_DIR/howto"
 
@@ -60,7 +60,7 @@ mkdir -p "$WEB_DIR/howto"
 [ -f "$WEB_DIR/index.html" ] || echo '<a href="howto/">Getting Started →</a>' > "$WEB_DIR/index.html"
 
 # verify
-[ -n "$WEB_HOST" ] && curl -sL -o /dev/null -w '%{http_code}' "https://$WEB_HOST/howto/"
+[ -n "$WEB_HOST" ] && curl -sL -o /dev/null -w '%{http_code}' "https://$WEB_HOST/pub/howto/"
 ```
 
 Tell the user the URL and which style was chosen.

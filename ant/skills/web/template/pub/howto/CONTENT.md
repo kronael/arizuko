@@ -196,11 +196,11 @@ agent Found 3 matches: diary/20250310.md, facts/backend.md,
 
 **TLDR:** Ask the agent to build an app — it deploys to your web host URL live.
 
-The agent writes files into `/workspace/web/`, served live at your group's URL. Files under `pub/` are public; `priv/` requires login. Send follow-ups to iterate — the agent edits in place and changes appear immediately.
+The agent writes files into `/workspace/web/pub/`, served live at your group's URL. All files under `pub/` are public. Send follow-ups to iterate — the agent edits in place and changes appear immediately.
 
 ```
 you   build a todo app with dark mode
-agent Done. Live at: https://bot.example.com/mygroup/todo/
+agent Done. Live at: https://bot.example.com/pub/mygroup/todo/
 
 you   add a due-date field
 agent Updated — reload the page.

@@ -25,14 +25,12 @@ import (
 )
 
 type config struct {
-	port            string
-	dashAddr        string
-	webdAddr        string
-	davAddr         string
-	viteAddr        string
-	authSecret      string
-	webPublic       bool
-	privatePrefixes []string // paths that require auth even when WEB_PUBLIC=true
+	port       string
+	dashAddr   string
+	webdAddr   string
+	davAddr    string
+	viteAddr   string
+	authSecret string
 }
 
 func loadConfig() config {
@@ -40,23 +38,13 @@ func loadConfig() config {
 	if !strings.HasPrefix(port, ":") {
 		port = ":" + port
 	}
-	var priv []string
-	if raw := chanlib.EnvOr("WEB_PRIVATE_PATHS", ""); raw != "" {
-		for _, p := range strings.Split(raw, ",") {
-			if p = strings.TrimSpace(p); p != "" {
-				priv = append(priv, p)
-			}
-		}
-	}
 	return config{
-		port:            port,
-		dashAddr:        chanlib.EnvOr("DASH_ADDR", ""),
-		webdAddr:        chanlib.EnvOr("WEBD_ADDR", ""),
-		davAddr:         chanlib.EnvOr("DAV_ADDR", ""),
-		viteAddr:        chanlib.EnvOr("VITE_ADDR", "http://localhost:8096"),
-		authSecret:      os.Getenv("AUTH_SECRET"),
-		webPublic:       chanlib.EnvOr("WEB_PUBLIC", "false") == "true",
-		privatePrefixes: priv,
+		port:       port,
+		dashAddr:   chanlib.EnvOr("DASH_ADDR", ""),
+		webdAddr:   chanlib.EnvOr("WEBD_ADDR", ""),
+		davAddr:    chanlib.EnvOr("DAV_ADDR", ""),
+		viteAddr:   chanlib.EnvOr("VITE_ADDR", "http://localhost:8096"),
+		authSecret: os.Getenv("AUTH_SECRET"),
 	}
 }
 
@@ -322,24 +310,16 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 6. /* — webd (if configured) or Vite, auth-gated unless WEB_PUBLIC=true
+	// 6. /pub/ — explicitly public, no auth
+	// 7. /* — everything else auth-gated
 	upstream := s.viteProxy
 	if s.webdProxy != nil {
 		upstream = s.webdProxy
 	}
-	needsAuth := !s.cfg.webPublic
-	if !needsAuth {
-		for _, pfx := range s.cfg.privatePrefixes {
-			if strings.HasPrefix(r.URL.Path, pfx) {
-				needsAuth = true
-				break
-			}
-		}
-	}
-	if needsAuth {
-		s.requireAuth(upstream.ServeHTTP)(w, r)
-	} else {
+	if strings.HasPrefix(r.URL.Path, "/pub/") {
 		upstream.ServeHTTP(w, r)
+	} else {
+		s.requireAuth(upstream.ServeHTTP)(w, r)
 	}
 }
 

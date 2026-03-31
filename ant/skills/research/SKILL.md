@@ -66,8 +66,8 @@ Single-page HTML with all research organized into sections:
 
 ### 6. Deploy
 
-Drop `index.html` into `/workspace/web/<name>/`.
-Available at `https://$WEB_HOST/<name>/`.
+Drop `index.html` into `/workspace/web/pub/<name>/`.
+Available at `https://$WEB_HOST/pub/<name>/`.
 
 ## Page Design
 
