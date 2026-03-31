@@ -33,6 +33,7 @@ function env(k: string, def?: string): string {
 
 const assistantName = (process.env['ASSISTANT_NAME'] ?? '').toLowerCase();
 const dataDir = process.env['DATA_DIR'] ?? '';
+
 const authDir = env(
   'WHATSAPP_AUTH_DIR',
   dataDir ? `${dataDir}/store/whatsapp-auth` : '/srv/data/store/whatsapp-auth',
@@ -334,6 +335,27 @@ async function connect(): Promise<void> {
         }
       }
 
+      // Seed LID map from contacts store (available after connection)
+      try {
+        const contacts = (sock as any).contacts as Record<string, any>;
+        if (contacts) {
+          for (const [id, c] of Object.entries(contacts)) {
+            const lid = c?.lid as string | undefined;
+            if (lid) {
+              const lidUser = lid.split(':')[0].split('@')[0];
+              const phoneJid =
+                id.split(':')[0].split('@')[0] + '@s.whatsapp.net';
+              lidToPhoneMap[lidUser] = phoneJid;
+            }
+          }
+          log('info', 'seeded lid map from contacts', {
+            count: Object.keys(lidToPhoneMap).length,
+          });
+        }
+      } catch (e) {
+        log('debug', 'contacts seed failed', { err: String(e) });
+      }
+
       // Flush queued outbound messages
       flushOutboundQueue().catch((e) =>
         log('error', 'queue flush failed', { err: String(e) }),
@@ -350,6 +372,18 @@ async function connect(): Promise<void> {
             log('error', 'periodic group sync failed', { err: String(e) }),
           );
         }, GROUP_SYNC_INTERVAL_MS);
+      }
+    }
+  });
+
+  // Build LID→phone map from contact updates
+  sock.ev.on('contacts.upsert', (contacts) => {
+    for (const c of contacts) {
+      const lid = (c as any).lid as string | undefined;
+      if (lid && c.id) {
+        const lidUser = lid.split(':')[0].split('@')[0];
+        const phoneJid = c.id.split(':')[0].split('@')[0] + '@s.whatsapp.net';
+        lidToPhoneMap[lidUser] = phoneJid;
       }
     }
   });
