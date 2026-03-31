@@ -20,7 +20,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|status|pair> ...")
+		fmt.Println("usage: arizuko <run|create|group|status|pair|generate> ...")
 		os.Exit(1)
 	}
 
@@ -226,12 +226,12 @@ func cmdGroup(args []string) {
 }
 
 func cmdPair(args []string) {
-	if len(args) < 1 {
-		fmt.Println("usage: arizuko pair <instance> [phone]")
-		fmt.Println("  phone: required on first pair; omit if creds already exist")
+	if len(args) < 2 {
+		fmt.Println("usage: arizuko pair <instance> <service> [args...]")
 		os.Exit(1)
 	}
 	name := args[0]
+	service := args[1]
 	dataDir := instanceDir(name)
 	composePath := filepath.Join(dataDir, "docker-compose.yml")
 	if _, err := os.Stat(composePath); err != nil {
@@ -239,49 +239,14 @@ func cmdPair(args []string) {
 		os.Exit(1)
 	}
 
-	phone := ""
-	if len(args) >= 2 {
-		phone = args[1]
-	} else {
-		phone = whatsappPhone(dataDir)
-	}
-	if phone == "" {
-		fmt.Fprintf(os.Stderr, "Failed: phone number required (or run once with phone to save creds)\n")
-		os.Exit(1)
-	}
-
-	cmd := exec.Command("docker", "compose", "-f", composePath,
-		"run", "--rm", "whapd", "node", "dist/main.js", "--pair", phone)
+	cmdArgs := append([]string{"compose", "-f", composePath, "run", "--rm", service}, args[2:]...)
+	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-// whatsappPhone reads the linked phone from an existing whatsapp-auth/creds.json.
-func whatsappPhone(dataDir string) string {
-	data, err := os.ReadFile(filepath.Join(dataDir, "store/whatsapp-auth/creds.json"))
-	if err != nil {
-		return ""
-	}
-	var creds struct {
-		Me struct{ ID string `json:"id"` } `json:"me"`
-	}
-	if err := json.Unmarshal(data, &creds); err != nil {
-		return ""
-	}
-	// id format: "REDACTED:16@s.whatsapp.net" — take the part before ":"
-	id := creds.Me.ID
-	if i := len(id); i > 0 {
-		for j, c := range id {
-			if c == ':' {
-				return id[:j]
-			}
-		}
-	}
-	return id
 }
 
 func cmdStatus(args []string) {
