@@ -312,9 +312,6 @@ func vitedService(app, flavor, dataDir string, env map[string]string) string {
 	fmt.Fprintf(&b, "    volumes:\n      - %s/web:/web\n", dataDir)
 	b.WriteString("    environment:\n")
 	fmt.Fprintf(&b, "      VITE_PORT: '%s'\n", vitePort)
-	if webRoot := envOr(env, "WEB_ROOT", ""); webRoot != "" {
-		fmt.Fprintf(&b, "      WEB_ROOT: '%s'\n", webRoot)
-	}
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }

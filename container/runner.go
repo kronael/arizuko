@@ -507,13 +507,10 @@ func BuildMounts(
 		}
 	}
 
-	// Mount WebDir/web (vite serving root) — not WebDir itself, which holds
-	// vhosts.json and host metadata the agent does not need.
-	webRoot := filepath.Join(cfg.WebDir, "web")
-	if fi, err := os.Stat(webRoot); err == nil && fi.IsDir() {
-		chown(webRoot, 1000, 1000)
+	if fi, err := os.Stat(cfg.WebDir); err == nil && fi.IsDir() {
+		chown(cfg.WebDir, 1000, 1000)
 		m = append(m, VolumeMount{
-			Host:      hp(cfg, webRoot),
+			Host:      hp(cfg, cfg.WebDir),
 			Container: "/workspace/web",
 		})
 	}
