@@ -25,13 +25,14 @@ import (
 )
 
 type config struct {
-	port       string
-	dashAddr   string
-	webdAddr   string
-	davAddr    string
-	viteAddr   string
-	authSecret string
-	webPublic  bool
+	port            string
+	dashAddr        string
+	webdAddr        string
+	davAddr         string
+	viteAddr        string
+	authSecret      string
+	webPublic       bool
+	privatePrefixes []string // paths that require auth even when WEB_PUBLIC=true
 }
 
 func loadConfig() config {
@@ -39,14 +40,23 @@ func loadConfig() config {
 	if !strings.HasPrefix(port, ":") {
 		port = ":" + port
 	}
+	var priv []string
+	if raw := chanlib.EnvOr("WEB_PRIVATE_PATHS", ""); raw != "" {
+		for _, p := range strings.Split(raw, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				priv = append(priv, p)
+			}
+		}
+	}
 	return config{
-		port:       port,
-		dashAddr:   chanlib.EnvOr("DASH_ADDR", ""),
-		webdAddr:   chanlib.EnvOr("WEBD_ADDR", ""),
-		davAddr:    chanlib.EnvOr("DAV_ADDR", ""),
-		viteAddr:   chanlib.EnvOr("VITE_ADDR", "http://localhost:8096"),
-		authSecret: os.Getenv("AUTH_SECRET"),
-		webPublic:  chanlib.EnvOr("WEB_PUBLIC", "false") == "true",
+		port:            port,
+		dashAddr:        chanlib.EnvOr("DASH_ADDR", ""),
+		webdAddr:        chanlib.EnvOr("WEBD_ADDR", ""),
+		davAddr:         chanlib.EnvOr("DAV_ADDR", ""),
+		viteAddr:        chanlib.EnvOr("VITE_ADDR", "http://localhost:8096"),
+		authSecret:      os.Getenv("AUTH_SECRET"),
+		webPublic:       chanlib.EnvOr("WEB_PUBLIC", "false") == "true",
+		privatePrefixes: priv,
 	}
 }
 
@@ -317,10 +327,19 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	if s.webdProxy != nil {
 		upstream = s.webdProxy
 	}
-	if s.cfg.webPublic {
-		upstream.ServeHTTP(w, r)
-	} else {
+	needsAuth := !s.cfg.webPublic
+	if !needsAuth {
+		for _, pfx := range s.cfg.privatePrefixes {
+			if strings.HasPrefix(r.URL.Path, pfx) {
+				needsAuth = true
+				break
+			}
+		}
+	}
+	if needsAuth {
 		s.requireAuth(upstream.ServeHTTP)(w, r)
+	} else {
+		upstream.ServeHTTP(w, r)
 	}
 }
 
@@ -332,31 +351,49 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		secret := []byte(s.cfg.authSecret)
 
+		// Check Authorization: Bearer <jwt>
 		hdr := r.Header.Get("Authorization")
-		if !strings.HasPrefix(hdr, "Bearer ") {
-			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		if strings.HasPrefix(hdr, "Bearer ") {
+			tok := strings.TrimPrefix(hdr, "Bearer ")
+			// raw secret allows operator tooling to bypass JWT
+			if tok == s.cfg.authSecret {
+				next(w, r)
+				return
+			}
+			claims, err := auth.VerifyJWT(secret, tok)
+			if err != nil {
+				http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+				return
+			}
+			r2 := r.Clone(r.Context())
+			r2.Header.Set("X-User-Sub", claims.Sub)
+			r2.Header.Set("X-User-Name", claims.Name)
+			if claims.Groups != nil {
+				if b, err := json.Marshal(claims.Groups); err == nil {
+					r2.Header.Set("X-User-Groups", string(b))
+				}
+			}
+			next(w, r2)
 			return
 		}
-		tok := strings.TrimPrefix(hdr, "Bearer ")
-		// raw secret allows operator tooling to bypass JWT
-		if tok == s.cfg.authSecret {
-			next(w, r)
-			return
-		}
-		claims, err := auth.VerifyJWT(secret, tok)
-		if err != nil {
-			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
-			return
-		}
-		r2 := r.Clone(r.Context())
-		r2.Header.Set("X-User-Sub", claims.Sub)
-		r2.Header.Set("X-User-Name", claims.Name)
-		if claims.Groups != nil {
-			if b, err := json.Marshal(claims.Groups); err == nil {
-				r2.Header.Set("X-User-Groups", string(b))
+
+		// Fall back to refresh cookie for browser navigation (no JS Bearer header)
+		if s.st != nil {
+			if cookie, err := r.Cookie("refresh_token"); err == nil {
+				h := auth.HashToken(cookie.Value)
+				if sess, ok := s.st.AuthSession(h); ok && time.Now().Before(sess.ExpiresAt) {
+					if u, ok := s.st.AuthUserBySub(sess.UserSub); ok {
+						r2 := r.Clone(r.Context())
+						r2.Header.Set("X-User-Sub", u.Sub)
+						r2.Header.Set("X-User-Name", u.Name)
+						next(w, r2)
+						return
+					}
+				}
 			}
 		}
-		next(w, r2)
+
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 	}
 }
 

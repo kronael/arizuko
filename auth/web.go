@@ -175,10 +175,13 @@ func genToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-func hashToken(token string) string {
+// HashToken hashes a refresh token for DB storage/lookup.
+func HashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
 }
+
+func hashToken(token string) string { return HashToken(token) }
 
 func verifyArgon2(encoded, password string) bool {
 	// format: $argon2id$v=19$m=65536,t=3,p=4$salt$hash
