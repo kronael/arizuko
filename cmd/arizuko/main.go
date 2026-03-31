@@ -81,11 +81,14 @@ func generateCompose(dataDir string) string {
 }
 
 func instanceDir(name string) string {
-	base := os.Getenv("ARIZUKO_DATA_DIR")
-	if base == "" {
-		base = "/srv/data"
+	if base := os.Getenv("ARIZUKO_DATA_DIR"); base != "" {
+		return filepath.Join(base, "arizuko_"+name)
 	}
-	return filepath.Join(base, "arizuko_"+name)
+	prefix := os.Getenv("PREFIX")
+	if prefix == "" {
+		prefix = "/srv"
+	}
+	return filepath.Join(prefix, "data", "arizuko_"+name)
 }
 
 func cmdCreate(args []string) {
