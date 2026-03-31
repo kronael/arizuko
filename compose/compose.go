@@ -256,6 +256,7 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 	vitePort := vitePortFrom(webPort)
 	dashAddr := envOr(env, "DASH_ADDR", "http://dashd:"+dashPort)
 	environment := map[string]string{
+		"DATA_DIR":  "/srv/app/home",
 		"WEB_PORT":  webPort,
 		"DASH_ADDR": dashAddr,
 		"VITE_ADDR": "http://vited:" + vitePort,
