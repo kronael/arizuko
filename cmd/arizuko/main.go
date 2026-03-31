@@ -20,7 +20,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|status> ...")
+		fmt.Println("usage: arizuko <run|create|group|status|pair> ...")
 		os.Exit(1)
 	}
 
@@ -35,6 +35,8 @@ func main() {
 		cmdGroup(os.Args[2:])
 	case "status":
 		cmdStatus(os.Args[2:])
+	case "pair":
+		cmdPair(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		os.Exit(1)
@@ -79,7 +81,11 @@ func generateCompose(dataDir string) string {
 }
 
 func instanceDir(name string) string {
-	return fmt.Sprintf("/srv/data/arizuko_%s", name)
+	base := os.Getenv("ARIZUKO_DATA_DIR")
+	if base == "" {
+		base = "/srv/data"
+	}
+	return filepath.Join(base, "arizuko_"+name)
 }
 
 func cmdCreate(args []string) {
@@ -214,6 +220,65 @@ func cmdGroup(args []string) {
 		fmt.Fprintf(os.Stderr, "unknown group action: %s\n", action)
 		os.Exit(1)
 	}
+}
+
+func cmdPair(args []string) {
+	if len(args) < 1 {
+		fmt.Println("usage: arizuko pair <instance> [phone]")
+		fmt.Println("  phone: required on first pair; omit if creds already exist")
+		os.Exit(1)
+	}
+	name := args[0]
+	dataDir := instanceDir(name)
+	composePath := filepath.Join(dataDir, "docker-compose.yml")
+	if _, err := os.Stat(composePath); err != nil {
+		fmt.Fprintf(os.Stderr, "no compose file at %s — run 'arizuko generate %s' first\n", composePath, name)
+		os.Exit(1)
+	}
+
+	phone := ""
+	if len(args) >= 2 {
+		phone = args[1]
+	} else {
+		phone = whatsappPhone(dataDir)
+	}
+	if phone == "" {
+		fmt.Fprintf(os.Stderr, "Failed: phone number required (or run once with phone to save creds)\n")
+		os.Exit(1)
+	}
+
+	cmd := exec.Command("docker", "compose", "-f", composePath,
+		"run", "--rm", "whapd", "node", "dist/main.js", "--pair", phone)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// whatsappPhone reads the linked phone from an existing whatsapp-auth/creds.json.
+func whatsappPhone(dataDir string) string {
+	data, err := os.ReadFile(filepath.Join(dataDir, "store/whatsapp-auth/creds.json"))
+	if err != nil {
+		return ""
+	}
+	var creds struct {
+		Me struct{ ID string `json:"id"` } `json:"me"`
+	}
+	if err := json.Unmarshal(data, &creds); err != nil {
+		return ""
+	}
+	// id format: "REDACTED:16@s.whatsapp.net" — take the part before ":"
+	id := creds.Me.ID
+	if i := len(id); i > 0 {
+		for j, c := range id {
+			if c == ':' {
+				return id[:j]
+			}
+		}
+	}
+	return id
 }
 
 func cmdStatus(args []string) {
