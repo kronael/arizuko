@@ -6,7 +6,7 @@ description: Send a welcome message to introduce yourself and explain what you c
 # Hello
 
 If `SOUL.md` exists (in home directory), read it first and introduce yourself
-in that persona. Otherwise use `$ASSISTANT_NAME`.
+in that persona. Otherwise use `$ARIZUKO_ASSISTANT_NAME`.
 
 Write a welcome message with two parts:
 
@@ -70,15 +70,14 @@ Adapt this list to what you actually know is available. For example:
 ## Web prefix
 
 ```bash
-GROUP_FOLDER=$ARIZUKO_GROUP_FOLDER
 if [ "$ARIZUKO_IS_ROOT" = "1" ] || [ "$ARIZUKO_IS_WORLD_ADMIN" = "1" ]; then
   WEB_DIR="/workspace/web/pub"
+  WEB_PREFIX="pub"
 else
-  WEB_SUB=$(basename "$GROUP_FOLDER")
+  WEB_SUB=$(basename "$HOME")
   WEB_DIR="/workspace/web/pub/$WEB_SUB"
+  WEB_PREFIX="pub/$WEB_SUB"
 fi
-WEB_PREFIX="pub"
-[ "$ARIZUKO_IS_ROOT" = "1" ] || WEB_PREFIX="pub/$GROUP_FOLDER"
 ```
 
 Howto URL: `https://$WEB_HOST/$WEB_PREFIX/howto/`

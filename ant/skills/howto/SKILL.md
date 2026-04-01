@@ -38,7 +38,7 @@ Write a complete, self-contained HTML file from CONTENT.md using your chosen sty
 - TLDR grid at top (one card per section)
 - All 20 sections as full cards with prose + code blocks
 - Remove sections for unconfigured features (voice if no voice channel, onboarding if `ONBOARDING_ENABLED` is not set)
-- Replace `$ASSISTANT_NAME agent` in title and h1 with `$ASSISTANT_NAME`
+- Replace `$ASSISTANT_NAME agent` in title and h1 with `$ARIZUKO_ASSISTANT_NAME`
 - Replace `bot.example.com` with `$WEB_HOST` (skip link if empty)
 - Dark mode toggle (fixed, top-right)
 - Mobile-responsive
@@ -50,7 +50,7 @@ Write a complete, self-contained HTML file from CONTENT.md using your chosen sty
 if [ "$ARIZUKO_IS_ROOT" = "1" ] || [ "$ARIZUKO_IS_WORLD_ADMIN" = "1" ]; then
   WEB_DIR="/workspace/web/pub"
 else
-  WEB_DIR="/workspace/web/pub/$(basename $ARIZUKO_GROUP_FOLDER)"
+  WEB_DIR="/workspace/web/pub/$(basename "$HOME")"
 fi
 mkdir -p "$WEB_DIR/howto"
 

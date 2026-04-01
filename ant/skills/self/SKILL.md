@@ -46,8 +46,8 @@ The gateway mounts your group folder as `~` inside the container. Everything you
 
 ```bash
 echo ~                       # /home/node
-echo $ARIZUKO_GROUP_FOLDER  # your group folder path
-echo $ARIZUKO_TIER          # your permission tier (0=root, 1=world, 2=child, 3=read-only)
+echo $ARIZUKO_ASSISTANT_NAME # instance name
+echo $ARIZUKO_IS_ROOT        # "1" if root group, "" otherwise
 ```
 
 ## Skill seeding

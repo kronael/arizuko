@@ -123,7 +123,7 @@ for this group. Call `schedule_task` for each level:
 | `/compact-memories diary month`    | `0 4 1 * *` | 1st of month 04:00 |
 
 All tasks use `context_mode: 'isolated'` (fresh container, no session
-history). `targetFolder` = `$ARIZUKO_GROUP_FOLDER`.
+history). `targetFolder` = `$(basename "$HOME")` (leaf name of your home dir).
 
 Example — set up all five:
 

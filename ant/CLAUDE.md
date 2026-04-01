@@ -131,7 +131,7 @@ Before saying you cannot do something:
 
 1. **Look at your live MCP tool list** — tools are injected at session start
    and callable right now. You do not need to read any skill to discover them.
-2. **Check your tier**: `echo $ARIZUKO_TIER` — most tools work at tier 0–1.
+2. **Check root status**: `echo $ARIZUKO_IS_ROOT` — "1" = root, "" = non-root. Most tools work regardless.
 
 Common false beliefs to reject:
 
