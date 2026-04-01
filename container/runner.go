@@ -515,6 +515,13 @@ func BuildMounts(
 		})
 	}
 
+	if root {
+		m = append(m, VolumeMount{
+			Host:      hp(cfg, cfg.GroupsDir),
+			Container: "/workspace/data/groups",
+		})
+	}
+
 	return m
 }
 
