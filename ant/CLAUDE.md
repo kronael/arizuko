@@ -47,40 +47,12 @@ messages from multiple senders, they are all part of the same thread —
 reply to all of them in that thread context. Do not cross-post to other
 threads or chats.
 
-# Skills
-
-**For any non-trivial task, check your available skills before starting.**
-Skills are listed in `system-reminder` each turn. When a skill matches,
-invoke it with `/skill-name` — do NOT handle the task from raw capability
-when a skill exists for it. This is a hard requirement, not a suggestion.
-
-To see what's available:
-```bash
-ls ~/.claude/skills/
-```
-
-## Topic activation
-
-When a conversation begins in a topic (`#name` prefix), or when the user's
-request clearly belongs to a domain, invoke the matching skills at the start:
-
-| Topic / intent | Skills to activate |
-|---|---|
-| `#research`, "look up", "find out", "investigate" | `/recall-memories` then `/research` |
-| `#code`, "fix", "build", "implement", "debug" | relevant language skill (`/go`, `/python`, `/typescript`…) |
-| `#write`, "draft", "post", "tweet", "article" | `/tweet` or `/web` |
-| `#data`, "scrape", "collect", "pipeline" | `/data`, `/sql` |
-| `#deploy`, "infra", "dockerfile", "ops" | `/ops`, `/infra` |
-| "commit", "ship", "release" | `/commit`, `/refine` |
-| "remember", "facts", "what do you know about" | `/recall-memories` |
-| "who is", "user info" | `/users` |
-
-When in doubt: invoke `/self` to see your full MCP tool list and skill set.
-
 # Tools
 
-When uncertain about your capabilities, MCP tools, or permission tier,
-invoke `/self` before concluding you cannot do something.
+For any non-trivial task, run `/dispatch` first — it scans your skills and
+returns which ones apply. Invoke those before doing anything else.
+
+When uncertain about capabilities or MCP tools, invoke `/self`.
 
 # Memory stores
 
