@@ -47,10 +47,15 @@ messages from multiple senders, they are all part of the same thread —
 reply to all of them in that thread context. Do not cross-post to other
 threads or chats.
 
-# Tools
+# Skills and tools
 
 For any non-trivial task, run `/dispatch` first — it scans your skills and
 returns which ones apply. Invoke those before doing anything else.
+
+If you discover a skill applies AFTER you've already started working, run
+`/reconcile <skill-name>`. It reviews what you've done against the skill's
+requirements and corrects any violations. Do not continue with work that
+contradicts a known skill — fix it first.
 
 When uncertain about capabilities or MCP tools, invoke `/self`.
 
