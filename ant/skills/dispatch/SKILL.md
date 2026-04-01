@@ -1,15 +1,15 @@
 ---
 name: dispatch
 description: >
-  Find skills relevant to the current task. Run at the start of any
-  non-trivial request to discover which skills apply. If work has already
-  been done, trigger /reconcile for applicable skills.
+  Find skills relevant to the current task and invoke them. If work has
+  already been done without a matching skill, retroactively correct prior
+  outputs against the skill's requirements.
 user-invocable: false
 ---
 
 # Dispatch
 
-Scan available skills and match them to the current task.
+Scan available skills, match to the current task, invoke or reconcile.
 
 ## Scan
 
@@ -21,15 +21,25 @@ for d in ~/.claude/skills/*/; do
 done
 ```
 
+Read the output. Identify every skill that matches the current task.
+
 ## Act
 
-Read the output. For each skill that matches the current task:
+For each matching skill:
 
-**If no work has been done yet** → invoke `/skill-name` before proceeding.
+**No work done yet** → invoke `/skill-name` before proceeding.
 
-**If work has already been done** → invoke `/reconcile` with that skill name.
-The reconcile skill will review prior outputs and correct them to match the
-skill's requirements.
+**Work already done** → reconcile:
+
+1. Read the skill: `cat ~/.claude/skills/<name>/SKILL.md`
+2. Extract requirements, conventions, output formats, constraints
+3. Review the conversation from where the task started — identify outputs
+   you produced: files, messages, decisions, code
+4. Diff each output against the skill's requirements
+5. Correct violations: edit files, redo decisions, fix formats
+6. If redoing work is expensive (long research, large generation), ask user first
+7. If a skill contradicts what the user explicitly asked, preserve the user's
+   instruction and note the conflict
 
 ## Core skills (always active)
 

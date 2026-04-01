@@ -49,13 +49,9 @@ threads or chats.
 
 # Skills and tools
 
-For any non-trivial task, run `/dispatch` first — it scans your skills and
-returns which ones apply. Invoke those before doing anything else.
-
-If you discover a skill applies AFTER you've already started working, run
-`/reconcile <skill-name>`. It reviews what you've done against the skill's
-requirements and corrects any violations. Do not continue with work that
-contradicts a known skill — fix it first.
+For any non-trivial task, run `/dispatch` first — it scans your skills,
+returns which ones apply, and if work was already done without the matching
+skill, reconciles prior outputs against the skill's requirements.
 
 When uncertain about capabilities or MCP tools, invoke `/self`.
 
