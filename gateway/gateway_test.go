@@ -3,6 +3,8 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/router"
 	"github.com/onvos/arizuko/store"
 )
 
@@ -750,5 +753,218 @@ func TestFindPrefixRoute_NonPrefixTypeIgnored(t *testing.T) {
 	r := findPrefixRoute(routes, msg)
 	if r != nil {
 		t.Error("findPrefixRoute should ignore non-prefix type routes")
+	}
+}
+
+// --- delivery pipeline test helpers ---
+
+type testChannel struct {
+	name    string
+	jids    []string
+	mu      sync.Mutex
+	sent    []testSentMsg
+	sendErr error
+	sendID  string
+	counter int
+}
+
+type testSentMsg struct {
+	jid      string
+	text     string
+	replyTo  string
+	threadID string
+}
+
+func (c *testChannel) Name() string                    { return c.name }
+func (c *testChannel) Connect(_ context.Context) error { return nil }
+func (c *testChannel) Disconnect() error               { return nil }
+func (c *testChannel) Typing(_ string, _ bool) error   { return nil }
+func (c *testChannel) SendFile(_, _, _, _ string) error { return nil }
+func (c *testChannel) Owns(jid string) bool {
+	for _, j := range c.jids {
+		if strings.HasPrefix(jid, j) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *testChannel) Send(jid, text, replyTo, threadID string) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sendErr != nil {
+		return "", c.sendErr
+	}
+	c.sent = append(c.sent, testSentMsg{jid, text, replyTo, threadID})
+	c.counter++
+	if c.sendID != "" {
+		return c.sendID, nil
+	}
+	return fmt.Sprintf("sent-%d", c.counter), nil
+}
+
+func (c *testChannel) getSent() []testSentMsg {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cp := make([]testSentMsg, len(c.sent))
+	copy(cp, c.sent)
+	return cp
+}
+
+// --- delivery pipeline tests ---
+
+func TestMakeOutputCallback_SendsReply(t *testing.T) {
+	gw, s := testGateway(t)
+	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
+	gw.AddChannel(ch)
+	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+
+	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
+	cb("Hello from agent", "")
+
+	if !*hadOutput {
+		t.Error("hadOutput should be true")
+	}
+	sent := ch.getSent()
+	if len(sent) != 1 {
+		t.Fatalf("sent count = %d, want 1", len(sent))
+	}
+	if sent[0].text != "Hello from agent" {
+		t.Errorf("sent text = %q, want %q", sent[0].text, "Hello from agent")
+	}
+	if sent[0].replyTo != "msg-1" {
+		t.Errorf("replyTo = %q, want %q", sent[0].replyTo, "msg-1")
+	}
+
+	replyID := s.GetLastReplyID("jid1", "")
+	if replyID == "" {
+		t.Error("last reply ID not stored in DB")
+	}
+}
+
+func TestMakeOutputCallback_SendError(t *testing.T) {
+	gw, _ := testGateway(t)
+	ch := &testChannel{name: "tc", jids: []string{"jid1"}, sendErr: errors.New("network down")}
+	gw.AddChannel(ch)
+	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+
+	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
+	cb("Error test", "")
+
+	if !*hadOutput {
+		t.Error("hadOutput should be true even on send error")
+	}
+	sent := ch.getSent()
+	if len(sent) != 0 {
+		t.Errorf("sent count = %d, want 0 (error path)", len(sent))
+	}
+}
+
+func TestMakeOutputCallback_EmptySentID(t *testing.T) {
+	gw, s := testGateway(t)
+	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
+	gw.AddChannel(ch)
+	gw.cfg.SendDisabledChannels = []string{"jid1"}
+	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+
+	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
+	cb("Suppressed message", "")
+
+	if !*hadOutput {
+		t.Error("hadOutput should be true even when send suppressed")
+	}
+	msgs, _, _ := s.NewMessages([]string{"jid1"}, time.Time{}, "bot")
+	for _, m := range msgs {
+		if m.Content == "Suppressed message" {
+			t.Error("suppressed message should not be stored")
+		}
+	}
+}
+
+func TestMakeOutputCallback_StripsThinksAndStatus(t *testing.T) {
+	gw, _ := testGateway(t)
+	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
+	gw.AddChannel(ch)
+	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+
+	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
+	cb("<think>internal thought</think>Visible reply<status>Working on it</status>", "")
+
+	if !*hadOutput {
+		t.Error("hadOutput should be true")
+	}
+	sent := ch.getSent()
+	if len(sent) != 2 {
+		t.Fatalf("sent count = %d, want 2 (status + reply)", len(sent))
+	}
+	if sent[0].text != "Working on it" {
+		t.Errorf("status text = %q, want %q", sent[0].text, "Working on it")
+	}
+	if sent[1].text != "Visible reply" {
+		t.Errorf("reply text = %q, want %q", sent[1].text, "Visible reply")
+	}
+}
+
+func TestMakeOutputCallback_ThreadID(t *testing.T) {
+	gw, _ := testGateway(t)
+	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
+	gw.AddChannel(ch)
+	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+
+	cb, _ := gw.makeOutputCallback("jid1", "#general", "msg-1", "grp")
+	cb("Threaded reply", "")
+
+	sent := ch.getSent()
+	if len(sent) != 1 {
+		t.Fatalf("sent count = %d, want 1", len(sent))
+	}
+	if sent[0].threadID != "#general" {
+		t.Errorf("threadID = %q, want %q", sent[0].threadID, "#general")
+	}
+}
+
+func TestSendMessageReply_NoChannel(t *testing.T) {
+	gw, _ := testGateway(t)
+
+	_, err := gw.sendMessageReply("unknown-jid", "hello", "", "")
+	if err == nil {
+		t.Error("expected error for unknown JID")
+	}
+	if !strings.Contains(err.Error(), "no channel") {
+		t.Errorf("error = %q, want 'no channel' message", err.Error())
+	}
+}
+
+func TestSendMessageReply_ChannelSendDisabled(t *testing.T) {
+	gw, _ := testGateway(t)
+	ch := &testChannel{name: "tc", jids: []string{"telegram"}}
+	gw.AddChannel(ch)
+	gw.cfg.SendDisabledChannels = []string{"telegram"}
+
+	id, err := gw.sendMessageReply("telegram:12345", "hello", "", "")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if id != "" {
+		t.Errorf("sentID = %q, want empty", id)
+	}
+	sent := ch.getSent()
+	if len(sent) != 0 {
+		t.Error("message should not have been sent to disabled channel")
+	}
+}
+
+func TestFormatOutbound_ThinkOnlyProducesEmpty(t *testing.T) {
+	cases := []string{
+		"<think>only thoughts</think>",
+		"<think>first</think><think>second</think>",
+		"<think>nested <think>deep</think> thought</think>",
+		"  <think>whitespace around</think>  ",
+	}
+	for _, tc := range cases {
+		got := router.FormatOutbound(tc)
+		if got != "" {
+			t.Errorf("FormatOutbound(%q) = %q, want empty", tc, got)
+		}
 	}
 }

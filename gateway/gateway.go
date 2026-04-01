@@ -597,6 +597,9 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 			if err != nil {
 				slog.Warn("send status failed",
 					"jid", chatJid, "group", groupFolder, "err", err)
+			} else if sentID == "" {
+				slog.Debug("send status returned no ID",
+					"jid", chatJid, "group", groupFolder)
 			}
 			if sentID != "" {
 				g.store.StoreOutbound(core.OutboundEntry{
@@ -613,6 +616,9 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 			if err != nil {
 				slog.Warn("send reply failed",
 					"jid", chatJid, "group", groupFolder, "err", err)
+			} else if sentID == "" {
+				slog.Debug("send reply returned no ID",
+					"jid", chatJid, "group", groupFolder)
 			}
 			if sentID != "" {
 				lastSentID = sentID
@@ -1323,7 +1329,10 @@ func (g *Gateway) handlePrefixRoute(
 						if text != "" {
 							clean := router.FormatOutbound(text)
 							if clean != "" {
-								g.sendMessage(chatJid, clean)
+									if err := g.sendMessage(chatJid, clean); err != nil {
+									slog.Warn("topic send failed",
+										"jid", chatJid, "err", err)
+								}
 							}
 						}
 					}, false, nil, topic, "")
@@ -1461,7 +1470,12 @@ func (g *Gateway) delegateToFolder(
 								clean = fmt.Sprintf("<escalation_response origin_jid=%q origin_msg_id=%q>\n%s\n</escalation_response>",
 									escalation.OriginJID, escalation.ReplyTo, clean)
 							}
-							if sentID, _ := g.sendMessageReply(originJid, clean, "", ""); sentID != "" {
+							sentID, err := g.sendMessageReply(originJid, clean, "", "")
+							if err != nil {
+								slog.Warn("delegate send failed",
+									"jid", originJid, "folder", folder, "err", err)
+							}
+							if sentID != "" {
 								g.store.StoreOutbound(core.OutboundEntry{
 									ChatJID:       originJid,
 									Content:       clean,
