@@ -2,6 +2,8 @@ FROM node:22-alpine
 WORKDIR /web
 # Install vite globally so it's available without package.json
 RUN npm install -g vite
+# Default config allows all hosts (Vite 6+ blocks unknown hosts)
+RUN echo 'export default { server: { allowedHosts: true } }' > /etc/vite.config.js
 # Expose vite port (overridden by VITE_PORT env)
 EXPOSE 8096
-CMD sh -c "cd ${WEB_ROOT:-/web} && vite --host 0.0.0.0 --port ${VITE_PORT:-8096} --allowedHosts all"
+CMD sh -c "cd ${WEB_ROOT:-/web} && vite --config /etc/vite.config.js --host 0.0.0.0 --port ${VITE_PORT:-8096}"
