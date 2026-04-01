@@ -30,8 +30,12 @@ func EnsureRunning() error {
 	return nil
 }
 
-func CleanupOrphans(image string) {
-	filters := []string{"name=arizuko-"}
+func CleanupOrphans(instance, image string) {
+	prefix := "arizuko-"
+	if instance != "" {
+		prefix = "arizuko-" + instance + "-"
+	}
+	filters := []string{"name=" + prefix}
 	if image != "" {
 		filters = append(filters, "ancestor="+image)
 	}

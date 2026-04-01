@@ -146,7 +146,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	if containerName == "" {
 		safe := safeNameRe.ReplaceAllString(in.Folder, "-")
 		containerName = fmt.Sprintf(
-			"arizuko-%s-%d", safe, time.Now().UnixMilli())
+			"arizuko-%s-%s-%d", cfg.Name, safe, time.Now().UnixMilli())
 	}
 
 	args := buildArgs(cfg, mounts, containerName)

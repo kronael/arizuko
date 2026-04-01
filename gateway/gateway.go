@@ -91,7 +91,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 	if err := container.EnsureRunning(); err != nil {
 		return fmt.Errorf("runtime check failed: %w", err)
 	}
-	container.CleanupOrphans(g.cfg.Image)
+	container.CleanupOrphans(g.cfg.Name, g.cfg.Image)
 
 	g.loadState()
 
