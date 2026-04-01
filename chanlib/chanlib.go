@@ -77,20 +77,19 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 		OK    bool   `json:"ok"`
 		Error string `json:"error"`
 	}
-	var err error
-	for attempt := range 2 {
-		if attempt > 0 {
-			time.Sleep(500 * time.Millisecond)
-		}
-		err = r.Post("/v1/messages", msg, r.Token, &resp)
-		if err == nil && resp.OK {
-			return nil
-		}
+	err := r.Post("/v1/messages", msg, r.Token, &resp)
+	if err == nil && resp.OK {
+		return nil
 	}
+	time.Sleep(500 * time.Millisecond)
+	err = r.Post("/v1/messages", msg, r.Token, &resp)
 	if err != nil {
 		return err
 	}
-	return fmt.Errorf("deliver: %s", resp.Error)
+	if !resp.OK {
+		return fmt.Errorf("deliver: %s", resp.Error)
+	}
+	return nil
 }
 
 func (r *RouterClient) SendChat(jid, name string, isGroup bool) error {
@@ -175,5 +174,5 @@ func MustEnv(k string) string {
 	}
 	slog.Error("required env var missing", "key", k)
 	os.Exit(1)
-	return ""
+	return "" // unreachable, satisfies compiler
 }

@@ -227,14 +227,7 @@ func (g *Gateway) saveState() {
 
 func (g *Gateway) messageLoop(ctx context.Context) {
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
 		g.pollOnce()
-
 		select {
 		case <-ctx.Done():
 			return

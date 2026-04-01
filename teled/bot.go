@@ -18,9 +18,10 @@ import (
 )
 
 type bot struct {
-	api    *tgbotapi.BotAPI
-	cfg    config
-	cancel context.CancelFunc
+	api       *tgbotapi.BotAPI
+	cfg       config
+	cancel    context.CancelFunc
+	mentionRe *regexp.Regexp
 
 	typingMu     sync.Mutex
 	typingCancel map[string]context.CancelFunc
@@ -32,7 +33,12 @@ func newBot(cfg config) (*bot, error) {
 		return nil, fmt.Errorf("telegram auth: %w", err)
 	}
 	slog.Info("telegram connected", "username", api.Self.UserName)
-	return &bot{api: api, cfg: cfg, typingCancel: make(map[string]context.CancelFunc)}, nil
+	b := &bot{api: api, cfg: cfg, typingCancel: make(map[string]context.CancelFunc)}
+	if cfg.AssistantName != "" {
+		b.mentionRe = regexp.MustCompile(
+			fmt.Sprintf(`(?i)^@%s\b`, regexp.QuoteMeta(cfg.AssistantName)))
+	}
+	return b, nil
 }
 
 func (b *bot) loadOffset() int {
@@ -117,11 +123,10 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
 		return
 	}
 
-	if b.cfg.AssistantName != "" && b.api.Self.UserName != "" && msg.Entities != nil {
-		re := regexp.MustCompile(fmt.Sprintf(`(?i)^@%s\b`, regexp.QuoteMeta(b.cfg.AssistantName)))
+	if b.mentionRe != nil && b.api.Self.UserName != "" && msg.Entities != nil {
 		mention := "@" + b.api.Self.UserName
 		for _, e := range msg.Entities {
-			if e.Type == "mention" && strings.EqualFold(entity(msg.Text, e), mention) && !re.MatchString(content) {
+			if e.Type == "mention" && strings.EqualFold(entity(msg.Text, e), mention) && !b.mentionRe.MatchString(content) {
 				content = "@" + b.cfg.AssistantName + " " + content
 				break
 			}
