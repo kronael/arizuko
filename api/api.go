@@ -121,17 +121,19 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 }
 
 type messageReq struct {
-	ID          string `json:"id"`
-	ChatJID     string `json:"chat_jid"`
-	Sender      string `json:"sender"`
-	SenderName  string `json:"sender_name"`
-	Content     string `json:"content"`
-	Timestamp   int64  `json:"timestamp"`
-	IsGroup     bool   `json:"is_group"`
-	ReplyTo     string `json:"reply_to"`
-	Topic       string `json:"topic,omitempty"`
-	Verb        string `json:"verb,omitempty"` // event type: "join", "edit", "delete", etc.
-	Attachments []chanlib.InboundAttachment `json:"attachments"`
+	ID            string `json:"id"`
+	ChatJID       string `json:"chat_jid"`
+	Sender        string `json:"sender"`
+	SenderName    string `json:"sender_name"`
+	Content       string `json:"content"`
+	Timestamp     int64  `json:"timestamp"`
+	IsGroup       bool   `json:"is_group"`
+	ReplyTo       string `json:"reply_to"`
+	ReplyToText   string `json:"reply_to_text"`
+	ReplyToSender string `json:"reply_to_sender"`
+	Topic         string `json:"topic,omitempty"`
+	Verb          string `json:"verb,omitempty"`
+	Attachments   []chanlib.InboundAttachment `json:"attachments"`
 	// WhatsApp flat fields (whapd sends these instead of attachments array)
 	Attachment     string `json:"attachment,omitempty"`      // base64
 	AttachmentMime string `json:"attachment_mime,omitempty"`
@@ -189,16 +191,18 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	msg := core.Message{
-		ID:          req.ID,
-		ChatJID:     req.ChatJID,
-		Sender:      req.Sender,
-		Name:        req.SenderName,
-		Content:     req.Content,
-		Timestamp:   ts,
-		ReplyToID:   req.ReplyTo,
-		Topic:       req.Topic,
-		Verb:        req.Verb,
-		Attachments: attsJSON,
+		ID:            req.ID,
+		ChatJID:       req.ChatJID,
+		Sender:        req.Sender,
+		Name:          req.SenderName,
+		Content:       req.Content,
+		Timestamp:     ts,
+		ReplyToID:     req.ReplyTo,
+		ReplyToText:   req.ReplyToText,
+		ReplyToSender: req.ReplyToSender,
+		Topic:         req.Topic,
+		Verb:          req.Verb,
+		Attachments:   attsJSON,
 	}
 
 	// Record adapter BEFORE storing — gateway polls DB and must find the

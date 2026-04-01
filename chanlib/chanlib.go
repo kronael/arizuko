@@ -21,16 +21,19 @@ type InboundAttachment struct {
 }
 
 type InboundMsg struct {
-	ID          string              `json:"id"`
-	ChatJID     string              `json:"chat_jid"`
-	Sender      string              `json:"sender"`
-	SenderName  string              `json:"sender_name"`
-	Content     string              `json:"content"`
-	Timestamp   int64               `json:"timestamp"`
-	IsGroup     bool                `json:"is_group"`
-	Topic       string              `json:"topic,omitempty"`
-	Verb        string              `json:"verb,omitempty"`
-	Attachments []InboundAttachment `json:"attachments,omitempty"`
+	ID            string              `json:"id"`
+	ChatJID       string              `json:"chat_jid"`
+	Sender        string              `json:"sender"`
+	SenderName    string              `json:"sender_name"`
+	Content       string              `json:"content"`
+	Timestamp     int64               `json:"timestamp"`
+	IsGroup       bool                `json:"is_group"`
+	Topic         string              `json:"topic,omitempty"`
+	Verb          string              `json:"verb,omitempty"`
+	ReplyTo       string              `json:"reply_to,omitempty"`
+	ReplyToText   string              `json:"reply_to_text,omitempty"`
+	ReplyToSender string              `json:"reply_to_sender,omitempty"`
+	Attachments   []InboundAttachment `json:"attachments,omitempty"`
 }
 
 type RouterClient struct {

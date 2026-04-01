@@ -600,7 +600,12 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 		}
 		stripped, statuses := router.ExtractStatusBlocks(text)
 		for _, s := range statuses {
-			if sentID, _ := g.sendMessageReply(chatJid, s, "", ""); sentID != "" {
+			sentID, err := g.sendMessageReply(chatJid, s, "", "")
+			if err != nil {
+				slog.Warn("send status failed",
+					"jid", chatJid, "group", groupFolder, "err", err)
+			}
+			if sentID != "" {
 				g.store.StoreOutbound(core.OutboundEntry{
 					ChatJID:       chatJid,
 					Content:       s,
@@ -611,7 +616,12 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 			}
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
-			if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID, topic); sentID != "" {
+			sentID, err := g.sendMessageReply(chatJid, clean, lastSentID, topic)
+			if err != nil {
+				slog.Warn("send reply failed",
+					"jid", chatJid, "group", groupFolder, "err", err)
+			}
+			if sentID != "" {
 				lastSentID = sentID
 				g.store.SetLastReplyID(chatJid, topic, sentID)
 				g.store.PutMessage(core.Message{

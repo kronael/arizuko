@@ -133,7 +133,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
 		topic = strconv.Itoa(msg.MessageThreadID)
 	}
 
-	err := rc.SendMessage(chanlib.InboundMsg{
+	im := chanlib.InboundMsg{
 		ID:          strconv.Itoa(msg.MessageID),
 		ChatJID:     jid,
 		Sender:      "telegram:" + userID(msg.From),
@@ -143,7 +143,16 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
 		IsGroup:     isGroup,
 		Topic:       topic,
 		Attachments: res.attachments,
-	})
+	}
+	if r := msg.ReplyToMessage; r != nil {
+		im.ReplyTo = strconv.Itoa(r.MessageID)
+		im.ReplyToSender = userName(r.From)
+		im.ReplyToText = r.Text
+		if im.ReplyToText == "" {
+			im.ReplyToText = r.Caption
+		}
+	}
+	err := rc.SendMessage(im)
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 	}
