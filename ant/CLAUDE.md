@@ -49,9 +49,7 @@ threads or chats.
 
 # Skills and tools
 
-For any non-trivial task, run `/dispatch` first — it scans your skills,
-returns which ones apply, and if work was already done without the matching
-skill, reconciles prior outputs against the skill's requirements.
+Run `/dispatch` at the start of any non-trivial task.
 
 When uncertain about capabilities or MCP tools, invoke `/self`.
 
