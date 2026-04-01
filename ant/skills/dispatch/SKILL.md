@@ -45,6 +45,14 @@ For each matching skill:
 
 `self`, `diary`, `info`, `recall-memories` — do not need dispatch.
 
+## When a skill itself requires reconciliation
+
+Some skills have strict conventions (output format, naming, commit style,
+file paths). When you invoke ANY skill and it has requirements that conflict
+with work already done in this conversation — reconcile that work immediately.
+Do not wait for dispatch to tell you. Reading a skill's requirements IS the
+trigger to check prior work against them.
+
 ## Skip dispatch for
 
 - Simple questions, greetings, status checks
