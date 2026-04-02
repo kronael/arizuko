@@ -37,9 +37,8 @@ Write a complete, self-contained HTML file from CONTENT.md using your chosen sty
 
 - TLDR grid at top (one card per section)
 - All 20 sections as full cards with prose + code blocks
-- Remove sections for unconfigured features (voice if no voice channel, onboarding if `ONBOARDING_ENABLED` is not set)
 - Replace `$ASSISTANT_NAME agent` in title and h1 with `$ARIZUKO_ASSISTANT_NAME`
-- Replace `bot.example.com` with `$WEB_HOST` (skip link if empty)
+- Replace `bot.example.com` with `$WEB_HOST`
 - Dark mode toggle (fixed, top-right)
 - Mobile-responsive
 
@@ -56,11 +55,8 @@ mkdir -p "$WEB_DIR/howto"
 
 # write generated HTML to $WEB_DIR/howto/index.html
 
-# link from index if missing
-[ -f "$WEB_DIR/index.html" ] || echo '<a href="howto/">Getting Started →</a>' > "$WEB_DIR/index.html"
-
 # verify
-[ -n "$WEB_HOST" ] && curl -sL -o /dev/null -w '%{http_code}' "https://$WEB_HOST/pub/howto/"
+curl -sL -o /dev/null -w '%{http_code}' "https://$WEB_HOST/pub/howto/"
 ```
 
 Tell the user the URL and which style was chosen.

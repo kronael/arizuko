@@ -11,39 +11,26 @@ Search chat message history for past conversations. Use for "what did X say",
 "did we discuss Y", decisions made in conversation.
 NEVER use for stored knowledge (facts/diary/episodes) — use `/recall-memories` for those.
 
-## v1 Protocol
+## Protocol
 
-Explore subagent greps message history files. No vector search, no FTS.
-
-### Step 1 — Fetch message history
-
-Use the `get_history` MCP tool:
+### 1. Fetch message history
 
 ```
 get_history({ chat_jid: "<jid from message context>", limit: 200 })
 ```
 
 Optional `before` param (ISO 8601 timestamp) for pagination.
+Write the result to `~/tmp/messages.json` for the Explore subagent.
 
-The tool returns messages as an array with `id`, `sender`, `content`, `timestamp`.
-
-Write the result to `~/tmp/messages.json` for the Explore subagent to scan.
-
-If `get_history` is not available, explain to the user that
-message history retrieval is not supported in this environment.
-
-### Step 2 — Spawn Explore subagent
-
-Launch an Explore subagent with the question and the path to `~/tmp/messages.json`:
+### 2. Spawn Explore subagent
 
 > Search `~/tmp/messages.json` for messages related to: `<question>`.
 > Return matching messages with sender, timestamp, and content.
 > Summarize what you found and how it relates to the question.
 
-### Step 3 — Report
+### 3. Report
 
-Summarize the findings. If nothing relevant found, say so clearly.
-Do NOT fabricate matches or infer from partial text.
+Summarize the findings. Do NOT fabricate matches or infer from partial text.
 
 ## Pagination
 

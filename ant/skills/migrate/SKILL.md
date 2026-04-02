@@ -26,13 +26,8 @@ fi
 
 ## Group discovery
 
-ALWAYS discover groups via MCP first, then verify on filesystem:
-
 1. Call `refresh_groups` MCP tool — returns registered groups with jid, folder, name
-2. Verify each group exists at `/workspace/data/groups/<folder>/`
-3. If the filesystem path is empty but MCP lists groups, warn: "groups mount
-   may be misconfigured (HOST_DATA_DIR missing from .env?)"
-4. Use the MCP list as the authoritative group roster
+2. Each group lives at `/workspace/data/groups/<folder>/`
 
 ## Migration strategy
 
@@ -49,65 +44,18 @@ Merge rules:
 
 ## Implementation
 
-Use Task tool with general-purpose agent to perform migration for each group:
-
-```
-For each group in /workspace/data/groups/*/:
-  - Spawn agent with migration task
-  - Agent reads source: /workspace/self/ant/
-  - Agent reads dest: /workspace/data/groups/{group}/
-  - Agent performs intelligent merge:
-    * Skills: Compare SKILL.md files, merge if both changed
-    * Web files: Preserve local edits
-    * Config: Merge CLAUDE.md sections intelligently
-  - Agent reports: files updated, conflicts resolved, files preserved
-```
-
-## Agent prompt template
-
-```
-Migrate {source} to {dest} intelligently:
-
-1. List all files in source and dest
-2. For each file:
-   - New in source? → Copy
-   - Deleted in source but modified in dest? → Keep and warn
-   - Changed in source only? → Update
-   - Changed in dest only? → Preserve
-   - Changed in both? → 3-way merge or ask user
-3. Report summary:
-   - Copied: {count}
-   - Updated: {count}
-   - Preserved: {count}
-   - Conflicts: {list}
-```
+Spawn a Task agent per group to merge `/workspace/self/ant/` into
+`/workspace/data/groups/{group}/`. Agent compares, merges, reports.
 
 ## Conflict resolution rules
 
 When both source and dest have changes:
 
-**SKILL.md files**:
+**SKILL.md**: merge YAML frontmatter (prefer source description), add new rules from source, preserve local additions.
 
-- If description/frontmatter changed: merge YAML frontmatter, prefer source description
-- If content rules changed: add new rules from source, preserve local additions
-- If examples changed: merge examples, prefer more comprehensive version
+**CLAUDE.md**: merge sections additively, preserve local sections, update global wisdom from source.
 
-**Web files**:
-
-- If file has local customizations → preserve (detect by comparing with previous version if available)
-- Otherwise → update from source
-
-**CLAUDE.md**:
-
-- Merge sections additively
-- Preserve local project-specific sections
-- Update global wisdom sections from source
-
-**Code files (main, scripts)**:
-
-- If dest has been modified → preserve and warn
-- If dest is unchanged → update from source
-- NEVER overwrite local code changes
+**Web / code files**: preserve local modifications, update unchanged files from source.
 
 ## b) Run pending migrations
 
@@ -118,24 +66,20 @@ src=/workspace/self/ant/skills/self/migrations
 
 for session in /workspace/data/groups/*/; do
   skills_dir="$session/.claude/skills/self"
-  test -d "$skills_dir" || continue
   group=$(basename "$session")
-  current=$(cat "$skills_dir/MIGRATION_VERSION" 2>/dev/null || echo 0)
-  pending=$(ls "$src"/*.md 2>/dev/null \
+  current=$(cat "$skills_dir/MIGRATION_VERSION")
+  pending=$(ls "$src"/*.md \
     | grep -oP '/(\d+)-' | grep -oP '\d+' | sort -n \
     | awk -v v="$current" '$1 > v')
   if test -z "$pending"; then
-    echo "$group: no pending migrations (version $current)"
+    echo "$group: up to date (version $current)"
     continue
   fi
   echo "$group: running migrations: $pending"
   for n in $pending; do
-    f=$(ls "$src"/$(printf '%03d' $n)-*.md 2>/dev/null | head -1)
-    test -f "$f" || continue
+    f=$(ls "$src"/$(printf '%03d' $n)-*.md | head -1)
     echo "  → migration $n: $f"
-    # Print migration instructions for the agent to follow
     cat "$f"
-    # After agent executes steps, update version:
     echo "$n" > "$skills_dir/MIGRATION_VERSION"
   done
 done
@@ -170,10 +114,6 @@ for session in /workspace/data/groups/*/; do
     name=$(echo "$name" | tr -d '[:space:]')
     [ -z "$name" ] && continue
     tdir="$src_templates/$name"
-    if [ ! -d "$tdir" ]; then
-      echo "  $group: warning: template '$name' not found, skipping"
-      continue
-    fi
 
     [ -f "$tdir/SOUL.md" ]   && cp "$tdir/SOUL.md"   "$session/SOUL.md"   && echo "$group: $name: SOUL.md"
     [ -f "$tdir/SYSTEM.md" ] && cp "$tdir/SYSTEM.md" "$session/SYSTEM.md" && echo "$group: $name: SYSTEM.md"

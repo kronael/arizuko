@@ -44,11 +44,8 @@ Never list placeholders or examples.
 ## Vite restart
 
 Vite runs in a separate `vited` Docker container with `restart: on-failure`.
-You cannot restart it from inside the agent container. If vite is down,
-inform the operator to restart the `vited` service from the host.
+Restart from the host if needed.
 
 ## Post-deploy validation
 
-1. Fetch the affected URL (WebFetch or curl)
-2. If error or timeout: inform the operator
-3. Verify the response before reporting done
+Fetch the affected URL (WebFetch or curl) to verify before reporting done.

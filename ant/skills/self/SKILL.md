@@ -23,7 +23,6 @@ On every new session, BEFORE responding:
    ls -t ~/.claude/projects/-home-node/*.jsonl | head -5
    # then: Read ~/.claude/projects/-home-node/abc123.jsonl
    ```
-3. NEVER claim "no access to session history" — the `.jsonl` files ARE accessible.
 
 ## Workspace layout
 
@@ -107,11 +106,11 @@ Rules:
 ```bash
 echo "name: $ARIZUKO_ASSISTANT_NAME"
 echo "web:  ${WEB_HOST:-(not set)}"
-cat /workspace/web/.layout 2>/dev/null || echo legacy
+cat /workspace/web/.layout
 ls ~/.claude/skills/
 env | grep -E '(TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN)' | sed 's/=.*/=<set>/'
 ls /workspace/web/
-cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0
+cat ~/.claude/skills/self/MIGRATION_VERSION
 ```
 
 Latest migration version: **51**. If version < 51: migrations pending.
@@ -148,14 +147,12 @@ any skill or reading any file first.
 
 ### send_file usage
 
-Call `send_file` with the absolute path of any file under `~/` (`/home/node/`).
-The home directory is the group directory, shared with the gateway.
+Call `send_file` with the absolute path of any file under `~/`.
 Use `~/tmp/` for temporary output files.
-Paths under `/tmp` are container-only and will be rejected.
 
 Parameters: `filepath` (required), `filename` (display name), `caption` (message
 text shown alongside the file). Use `caption` instead of a separate `send_message`
-call — file and text are delivered together.
+call.
 
 ## Group configuration files
 
@@ -166,7 +163,6 @@ Files you can create/edit in `~/` to configure gateway behaviour:
 | `.whisper-language` | One ISO-639-1 code per line (e.g. `cs`, `ru`). Gateway runs   |
 |                     | one forced transcription pass per language in addition to the |
 |                     | auto-detect pass. Output labelled `[voice/cs: ...]` etc.      |
-|                     | Leave absent or empty for auto-detect only.                   |
 
 Example — transcribe in Czech and Russian as well as auto-detect:
 

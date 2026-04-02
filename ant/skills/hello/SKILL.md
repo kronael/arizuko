@@ -61,11 +61,8 @@ Commands (gateway-level, always available)
   /status — gateway health      /file — file transfer
 ```
 
-Adapt this list to what you actually know is available. For example:
-
-- If `$WEB_HOST` is set, include the Web section with the actual URL
-- If you see skills in `~/.claude/skills/`, mention the skill system
-- Drop sections that don't apply to your instance
+Adapt to your instance: use `$WEB_HOST` for web URLs, drop sections
+that don't apply.
 
 ## Web prefix
 
@@ -81,12 +78,6 @@ fi
 ```
 
 Howto URL: `https://$WEB_HOST/$WEB_PREFIX/howto/`
-
-Check it exists before linking:
-
-```bash
-ls "$WEB_DIR/howto/index.html" 2>/dev/null
-```
 
 ## Formatting Rules
 

@@ -24,19 +24,13 @@ The gateway reloads vhosts.json automatically (5s mtime check).
 
 ## DNS Verification
 
-Before assigning a hostname, verify it resolves:
-
 ```bash
 dig +short hostname.example.com
 ```
 
-Must return the instance's public IP. If not, the hostname
-won't work until DNS propagates.
-
 ## SSL/TLS
 
-- TLS terminated by reverse proxy (Caddy/nginx) — not by arizuko
-- Caddy auto-provisions Let's Encrypt certs for configured domains
+TLS terminated by reverse proxy (Caddy) with auto Let's Encrypt.
 
 ## Web Directory Structure
 
