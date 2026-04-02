@@ -12,6 +12,7 @@
     "@types/qrcode-terminal": "^0.12.2",
     "@whiskeysockets/baileys": "^6.7.16",
     "busboy": "^1.6.0",
+    "link-preview-js": "^3.0.5",
     "pino": "^9.6.0",
     "qrcode-terminal": "^0.12.0"
   },
