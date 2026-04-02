@@ -9,6 +9,37 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- **container**: parseBuf unbounded growth; large agent output could OOM the gateway
+- **container**: seedSettings race condition; concurrent spawns for the same group could corrupt
+  settings files
+- **container**: copyFile did not check close error; silent data loss on full disk
+- **container**: stdin.Write error swallowed; container could run with no/partial input
+- **chanlib**: Chunk byte-split broke multi-byte Unicode sequences at chunk boundaries
+- **auth**: extractBearer accepted any Authorization scheme, not just Bearer
+- **store**: scanMessage ignored Scan errors, returning zero-value messages
+- **onbod**: approve/reject not transactional; crash mid-operation left inconsistent state
+- **timed**: fire race condition allowed duplicate task execution
+- **store**: FlushSysMsgs not atomic; crash mid-flush could lose messages
+- **teled**: `/files` endpoint had no auth; anyone could proxy Telegram files
+- **gateway**: downloadFile had no HTTP timeout; slow upstream blocked enricher
+- **chanreg**: All() returned shared pointers; callers could mutate registry state (data race)
+- **proxyd**: per-IP rate limiter entries never evicted; memory leak over time
+- **discd**: dropped attachment captions; made per-message API call instead of batching
+- **router**: mdToHTML did not escape HTML entities; user input could inject HTML
+
+### Changed
+
+- **timed**: added SIGTERM handler for graceful shutdown
+- **dashd**: added SIGTERM handler for graceful shutdown
+- **proxyd**: added SIGTERM handler for graceful shutdown
+
+### Removed
+
+- **store**: dead code — `UnroutedMessages`, `RecentMessages`, `GroupMessages`,
+  `SetMessageStatus` (unused)
+
 ---
 
 ## [v0.20.2] — 2026-04-02
