@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -10,10 +11,12 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -185,6 +188,15 @@ func (rl *rateLimiter) allow(key string) bool {
 	defer rl.mu.Unlock()
 	now := time.Now()
 	cutoff := now.Add(-rl.window)
+
+	if len(rl.buckets) > 10000 {
+		for k, hits := range rl.buckets {
+			if len(hits) == 0 || hits[len(hits)-1].Before(cutoff) {
+				delete(rl.buckets, k)
+			}
+		}
+	}
+
 	hits := rl.buckets[key]
 	n := 0
 	for _, t := range hits {
@@ -416,6 +428,16 @@ func main() {
 		Addr:    cfg.port,
 		Handler: s.handler(st, coreCfg),
 	}
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-stop
+		slog.Info("proxyd stopping")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
+	}()
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("proxyd failed", "err", err)

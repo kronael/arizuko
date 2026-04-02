@@ -150,13 +150,19 @@ func Chunk(s string, max int) []string {
 		return []string{s}
 	}
 	var out []string
-	for len(s) > 0 {
-		end := max
-		if end > len(s) {
-			end = len(s)
+	var cur []byte
+	for _, r := range s {
+		rb := []byte(string(r))
+		if len(cur)+len(rb) > max {
+			if len(cur) > 0 {
+				out = append(out, string(cur))
+				cur = cur[:0]
+			}
 		}
-		out = append(out, s[:end])
-		s = s[end:]
+		cur = append(cur, rb...)
+	}
+	if len(cur) > 0 {
+		out = append(out, string(cur))
 	}
 	return out
 }

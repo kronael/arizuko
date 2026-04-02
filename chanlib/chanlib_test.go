@@ -23,7 +23,7 @@ func TestChunk(t *testing.T) {
 		{"two_chunks", "abcdef", 3, []string{"abc", "def"}},
 		{"three_chunks", "abcdefgh", 3, []string{"abc", "def", "gh"}},
 		{"one_char", "abcdef", 1, []string{"a", "b", "c", "d", "e", "f"}},
-		{"unicode_bytes", "aaaa\U0001F600", 5, []string{"aaaa\xf0", "\x9f\x98\x80"}},
+		{"unicode_bytes", "aaaa\U0001F600", 5, []string{"aaaa", "\U0001F600"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

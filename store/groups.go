@@ -78,37 +78,6 @@ func (s *Store) PutGroup(jid string, g core.Group) error {
 	return err
 }
 
-func (s *Store) MarkGroupClosed(folder string) error {
-	_, err := s.db.Exec(
-		`UPDATE registered_groups SET state='closed', updated_at=? WHERE folder=?`,
-		time.Now().Format(time.RFC3339), folder,
-	)
-	return err
-}
-
-func (s *Store) GroupsToArchive(minClosedAge time.Duration) []core.Group {
-	cutoff := time.Now().Add(-minClosedAge).Format(time.RFC3339)
-	rows, err := s.db.Query(
-		`SELECT jid, name, folder, added_at, container_config, slink_token, parent,
-		        state, spawn_ttl_days, archive_closed_days
-		 FROM registered_groups
-		 WHERE state='closed' AND updated_at < ?`,
-		cutoff,
-	)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []core.Group
-	for rows.Next() {
-		g, ok := scanGroupFull(rows)
-		if ok {
-			out = append(out, g)
-		}
-	}
-	return out
-}
-
 func (s *Store) DeleteGroup(jid string) error {
 	_, err := s.db.Exec(`DELETE FROM registered_groups WHERE jid = ?`, jid)
 	return err
@@ -158,24 +127,6 @@ func (s *Store) SetAgentCursor(jid string, ts time.Time) {
 	if n, _ := res.RowsAffected(); n == 0 {
 		slog.Warn("SetAgentCursor matched no rows", "jid", jid, "ts", ts)
 	}
-}
-
-func (s *Store) AllAgentCursors() map[string]time.Time {
-	rows, err := s.db.Query(
-		`SELECT jid, agent_cursor FROM registered_groups WHERE agent_cursor IS NOT NULL`)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	out := make(map[string]time.Time)
-	for rows.Next() {
-		var jid, raw string
-		rows.Scan(&jid, &raw)
-		if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-			out[jid] = t
-		}
-	}
-	return out
 }
 
 // UnroutedChatJIDs returns distinct chat JIDs that have messages since `since`
@@ -243,21 +194,19 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 }
 
 func (s *Store) GroupBySlinkToken(token string) (core.Group, bool) {
-	for _, g := range s.AllGroups() {
-		if g.SlinkToken == token {
-			return g, true
-		}
-	}
-	return core.Group{}, false
+	row := s.db.QueryRow(
+		`SELECT jid, name, folder, added_at, container_config, slink_token, parent,
+		        state, spawn_ttl_days, archive_closed_days
+		 FROM registered_groups WHERE slink_token = ? LIMIT 1`, token)
+	return scanGroupFull(row)
 }
 
 func (s *Store) GroupByFolder(folder string) (core.Group, bool) {
-	for _, g := range s.AllGroups() {
-		if g.Folder == folder {
-			return g, true
-		}
-	}
-	return core.Group{}, false
+	row := s.db.QueryRow(
+		`SELECT jid, name, folder, added_at, container_config, slink_token, parent,
+		        state, spawn_ttl_days, archive_closed_days
+		 FROM registered_groups WHERE folder = ? LIMIT 1`, folder)
+	return scanGroupFull(row)
 }
 
 func (s *Store) SetStickyGroup(jid, folder string) error {

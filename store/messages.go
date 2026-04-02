@@ -39,14 +39,6 @@ func nilIfEmpty(s string) *string {
 	return &s
 }
 
-func (s *Store) AppendContent(id, suffix string) error {
-	_, err := s.db.Exec(
-		`UPDATE messages SET content = content || ? WHERE id = ?`,
-		suffix, id,
-	)
-	return err
-}
-
 func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]core.Message, time.Time, error) {
 	if len(jids) == 0 {
 		return nil, since, nil
@@ -85,7 +77,10 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 	var msgs []core.Message
 	var hi time.Time
 	for rows.Next() {
-		m, ts := scanMessage(rows)
+		m, ts, err := scanMessage(rows)
+		if err != nil {
+			return nil, since, err
+		}
 		msgs = append(msgs, m)
 		if ts.After(hi) {
 			hi = ts
@@ -118,7 +113,10 @@ func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]co
 
 	var msgs []core.Message
 	for rows.Next() {
-		m, _ := scanMessage(rows)
+		m, _, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
@@ -128,14 +126,16 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanMessage(r rowScanner) (core.Message, time.Time) {
+func scanMessage(r rowScanner) (core.Message, time.Time, error) {
 	var m core.Message
 	var ts string
 	var fromMe, botMsg int
 	var name, fwdFrom, replyID, replyText, replySender, topic, routedTo *string
-	r.Scan(&m.ID, &m.ChatJID, &m.Sender, &name, &m.Content,
+	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &name, &m.Content,
 		&ts, &fromMe, &botMsg, &fwdFrom, &replyID, &replyText, &replySender, &topic, &routedTo, &m.Verb,
-		&m.Attachments)
+		&m.Attachments); err != nil {
+		return m, time.Time{}, err
+	}
 	if name != nil {
 		m.Name = *name
 	}
@@ -160,7 +160,7 @@ func scanMessage(r rowScanner) (core.Message, time.Time) {
 	m.FromMe = fromMe != 0
 	m.BotMsg = botMsg != 0
 	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
-	return m, m.Timestamp
+	return m, m.Timestamp, nil
 }
 
 // TopicSummary is a topic with its last message time and preview.
@@ -223,7 +223,10 @@ func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit in
 	defer rows.Close()
 	var msgs []core.Message
 	for rows.Next() {
-		m, _ := scanMessage(rows)
+		m, _, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
@@ -268,7 +271,10 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	defer rows.Close()
 	var msgs []core.Message
 	for rows.Next() {
-		m, _ := scanMessage(rows)
+		m, _, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
@@ -295,7 +301,10 @@ func (s *Store) ObservedMessagesSince(groupFolder, excludeJid, since string) []c
 	defer rows.Close()
 	var out []core.Message
 	for rows.Next() {
-		m, _ := scanMessage(rows)
+		m, _, err := scanMessage(rows)
+		if err != nil {
+			continue
+		}
 		out = append(out, m)
 	}
 	return out
@@ -390,7 +399,10 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 	defer rows.Close()
 	var msgs []core.Message
 	for rows.Next() {
-		m, _ := scanMessage(rows)
+		m, _, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
 		msgs = append(msgs, m)
 	}
 	if err := rows.Err(); err != nil {

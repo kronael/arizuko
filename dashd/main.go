@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	_ "modernc.org/sqlite"
 
@@ -60,7 +61,7 @@ func main() {
 	srv := &http.Server{Addr: port, Handler: mux}
 
 	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-stop
 		slog.Info("dashd stopped")

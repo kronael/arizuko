@@ -197,13 +197,24 @@ func TestServerHealth(t *testing.T) {
 }
 
 func TestServerFileEmptyID(t *testing.T) {
-	// /files/ with no file_id returns 400
+	// /files/ with no file_id returns 400 (after auth)
 	h, _ := testHandler("secret")
 	req := httptest.NewRequest("GET", "/files/", nil)
+	req.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != 400 {
 		t.Errorf("status = %d, want 400 for empty file_id", w.Code)
+	}
+}
+
+func TestServerFileNoAuth(t *testing.T) {
+	h, _ := testHandler("secret")
+	req := httptest.NewRequest("GET", "/files/abc123", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401 for missing auth", w.Code)
 	}
 }
 

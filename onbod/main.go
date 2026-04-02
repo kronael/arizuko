@@ -314,21 +314,29 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 	}
 
 	now := time.Now().Format(time.RFC3339)
+	welcomeID := fmt.Sprintf("onboard-welcome-%s-%d", targetJID, time.Now().UnixNano())
+	welcomeBody := fmt.Sprintf(
+		`<system_event type="onboard_welcome">Your workspace %s is ready. Welcome!</system_event>`,
+		worldName)
 
-	if _, err := db.Exec(`
+	tx, err := db.Begin()
+	if err != nil {
+		slog.Error("approve: begin tx", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
 		INSERT OR IGNORE INTO registered_groups (jid, name, folder, added_at)
 		VALUES (?, ?, ?, ?)`,
 		targetJID, worldName, worldName, now); err != nil {
 		slog.Error("approve: insert registered_groups", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 
-	if cfg, err := core.LoadConfig(); err == nil {
-		if err := container.SeedGroupDir(cfg, worldName); err != nil {
-			slog.Warn("approve: seed group dir", "folder", worldName, "err", err)
-		}
-	}
-
-	if _, err := db.Exec(`
+	if _, err := tx.Exec(`
 		INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
 		VALUES (?, 0, 'default', NULL, ?),
 		       (?, -2, 'prefix', '@', ?),
@@ -337,25 +345,39 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 		targetJID, worldName,
 		targetJID, worldName); err != nil {
 		slog.Error("approve: insert routes", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 
-	welcomeID := fmt.Sprintf("onboard-welcome-%s-%d", targetJID, time.Now().UnixNano())
-	welcomeBody := fmt.Sprintf(
-		`<system_event type="onboard_welcome">Your workspace %s is ready. Welcome!</system_event>`,
-		worldName)
-	if _, err := db.Exec(`
+	if _, err := tx.Exec(`
 		INSERT INTO messages
 		  (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
 		VALUES (?, ?, 'system', ?, ?, 1, 1, 'onboarding', '')`,
 		welcomeID, targetJID, welcomeBody, time.Now().Format(time.RFC3339Nano)); err != nil {
 		slog.Error("approve: insert welcome message", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 
-	if _, err := db.Exec(`UPDATE onboarding SET status = 'approved' WHERE jid = ?`, targetJID); err != nil {
+	if _, err := tx.Exec(`UPDATE onboarding SET status = 'approved' WHERE jid = ?`, targetJID); err != nil {
 		slog.Error("approve: update onboarding status", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 
-	seedDefaultTasks(db, worldName, targetJID)
+	seedDefaultTasksTx(tx, worldName, targetJID)
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("approve: commit tx", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if coreCfg, err := core.LoadConfig(); err == nil {
+		if err := container.SeedGroupDir(coreCfg, worldName); err != nil {
+			slog.Warn("approve: seed group dir", "folder", worldName, "err", err)
+		}
+	}
 
 	roots := rootJIDs(db)
 	msg := "Approved: " + targetJID + " -> " + worldName + "/"
@@ -588,11 +610,11 @@ var defaultTasks = [][2]string{
 	{"/compact-memories diary month", "0 4 1 * *"},
 }
 
-func seedDefaultTasks(db *sql.DB, folder, chatJID string) {
+func seedDefaultTasksTx(tx *sql.Tx, folder, chatJID string) {
 	now := time.Now().Format(time.RFC3339)
 	for i, t := range defaultTasks {
 		id := fmt.Sprintf("%s-mem-%d", folder, i)
-		db.Exec(`INSERT OR IGNORE INTO scheduled_tasks
+		tx.Exec(`INSERT OR IGNORE INTO scheduled_tasks
 			(id,owner,chat_jid,prompt,cron,next_run,status,created_at,context_mode)
 			VALUES (?,?,?,?,?,?,?,?,?)`,
 			id, folder, chatJID, t[0], t[1], now, "active", now, "isolated")

@@ -8,9 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/onvos/arizuko/chanlib"
 )
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type server struct {
 	cfg config
@@ -24,7 +27,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /send", chanlib.Auth(s.cfg.ChannelSecret, s.handleSend))
 	mux.HandleFunc("POST /send-file", chanlib.Auth(s.cfg.ChannelSecret, s.handleSendFile))
 	mux.HandleFunc("POST /typing", chanlib.Auth(s.cfg.ChannelSecret, s.handleTyping))
-	mux.HandleFunc("GET /files/", s.handleFile)
+	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))
 	mux.HandleFunc("GET /health", s.handleHealth)
 	return mux
 }
@@ -99,7 +102,7 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := s.cfg.TelegramToken
-	resp, err := http.Get(fmt.Sprintf(
+	resp, err := httpClient.Get(fmt.Sprintf(
 		"https://api.telegram.org/bot%s/getFile?file_id=%s", token, fileID))
 	if err != nil {
 		chanlib.WriteErr(w, 502, "getFile failed")
@@ -121,7 +124,7 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cdnURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", token, apiResp.Result.FilePath)
-	fileResp, err := http.Get(cdnURL)
+	fileResp, err := httpClient.Get(cdnURL)
 	if err != nil {
 		chanlib.WriteErr(w, 502, "file download failed")
 		return

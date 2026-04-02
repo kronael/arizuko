@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -63,7 +64,7 @@ func main() {
 	slog.Info("scheduler started", "db", dsn, "tz", tz)
 
 	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	tick := time.NewTicker(60 * time.Second)
 	defer tick.Stop()
@@ -108,12 +109,20 @@ func fire(db *sql.DB, tz string) {
 	now := time.Now()
 	slog.Debug("poll tasks", "at", now.Format(time.RFC3339))
 
+	// Atomic claim: mark due tasks as 'firing' so concurrent polls skip them.
+	if _, err := db.Exec(
+		`UPDATE scheduled_tasks SET status = 'firing'
+		 WHERE status = 'active' AND next_run <= ?`,
+		now.Format(time.RFC3339)); err != nil {
+		slog.Error("claim due tasks", "err", err)
+		return
+	}
+
 	rows, err := db.Query(
 		`SELECT id, chat_jid, prompt, cron, context_mode FROM scheduled_tasks
-		 WHERE status = 'active' AND next_run <= ?`,
-		now.Format(time.RFC3339))
+		 WHERE status = 'firing'`)
 	if err != nil {
-		slog.Error("query due tasks", "err", err)
+		slog.Error("query claimed tasks", "err", err)
 		return
 	}
 	defer rows.Close()
@@ -145,6 +154,8 @@ func fire(db *sql.DB, tz string) {
 		if err != nil {
 			slog.Error("insert message", "task", t.id, "err", err)
 			logRun(db, t.id, "error", err.Error(), time.Since(start).Milliseconds())
+			// Restore to active so it can be retried.
+			db.Exec(`UPDATE scheduled_tasks SET status = 'active' WHERE id = ?`, t.id)
 			continue
 		}
 
@@ -157,7 +168,8 @@ func fire(db *sql.DB, tz string) {
 		if ms, ok := isIntervalMs(cronVal); ok {
 			next := time.Now().Add(time.Duration(ms) * time.Millisecond)
 			nextRun = next.Format(time.RFC3339)
-			if _, err := db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`,
+			if _, err := db.Exec(
+				`UPDATE scheduled_tasks SET status = 'active', next_run = ? WHERE id = ?`,
 				nextRun, t.id); err != nil {
 				slog.Warn("update task next_run", "task", t.id, "err", err)
 			}
@@ -165,9 +177,11 @@ func fire(db *sql.DB, tz string) {
 			next, err := nextCron(cronVal, tz)
 			if err != nil {
 				slog.Warn("parse cron expr", "task", t.id, "cron", cronVal, "err", err)
+				db.Exec(`UPDATE scheduled_tasks SET status = 'active' WHERE id = ?`, t.id)
 			} else {
 				nextRun = next.Format(time.RFC3339)
-				if _, err := db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`,
+				if _, err := db.Exec(
+					`UPDATE scheduled_tasks SET status = 'active', next_run = ? WHERE id = ?`,
 					nextRun, t.id); err != nil {
 					slog.Warn("update task next_run", "task", t.id, "err", err)
 				}

@@ -90,7 +90,8 @@ func (r *Registry) All() map[string]*Entry {
 	defer r.mu.RUnlock()
 	cp := make(map[string]*Entry, len(r.entries))
 	for k, v := range r.entries {
-		cp[k] = v
+		clone := *v
+		cp[k] = &clone
 	}
 	return cp
 }

@@ -55,6 +55,8 @@ type Gateway struct {
 	impulse *impulseGate
 }
 
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
 func New(cfg *core.Config, s *store.Store) *Gateway {
 	return &Gateway{
 		cfg:   cfg,
@@ -935,7 +937,7 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 }
 
 func downloadFile(url, dest string, maxBytes int64) error {
-	resp, err := http.Get(url) //nolint:noctx
+	resp, err := httpClient.Get(url) //nolint:noctx
 	if err != nil {
 		return err
 	}

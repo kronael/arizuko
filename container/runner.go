@@ -198,7 +198,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	in.AsstName = cfg.Name
 	payload, _ := json.Marshal(in)
 	in.Secrets = nil
-	stdin.Write(payload)
+	if _, err := stdin.Write(payload); err != nil {
+		slog.Error("stdin write failed", "group", in.Folder, "err", err)
+	}
 	stdin.Close()
 
 	var stderrBuf strings.Builder
@@ -267,7 +269,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 				}
 			}
 
-			parseBuf.WriteString(chunk)
+			if parseBuf.Len() < maxOutputSize {
+				parseBuf.WriteString(chunk)
+			}
 			for {
 				s := parseBuf.String()
 				si := strings.Index(s, outputStartMarker)
@@ -666,7 +670,14 @@ func seedSettings(
 	}
 
 	data, _ := json.MarshalIndent(settings, "", "  ")
-	os.WriteFile(fp, append(data, '\n'), 0o644)
+	tmp := fp + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+		slog.Warn("failed to write settings tmp", "path", tmp, "err", err)
+		return
+	}
+	if err := os.Rename(tmp, fp); err != nil {
+		slog.Warn("failed to rename settings", "from", tmp, "to", fp, "err", err)
+	}
 	slog.Debug("settings seeded", "path", fp, "sidecars", len(in.Config.Sidecars))
 }
 
@@ -767,15 +778,24 @@ func migrationVersion(path string) int {
 }
 
 func cpDir(src, dst string) {
-	os.MkdirAll(dst, 0o755)
-	entries, _ := os.ReadDir(src)
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		slog.Warn("cpDir: mkdir failed", "path", dst, "err", err)
+		return
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		slog.Warn("cpDir: readdir failed", "path", src, "err", err)
+		return
+	}
 	for _, e := range entries {
 		sp := filepath.Join(src, e.Name())
 		dp := filepath.Join(dst, e.Name())
 		if e.IsDir() {
 			cpDir(sp, dp)
-		} else if data, err := os.ReadFile(sp); err == nil {
-			os.WriteFile(dp, data, 0o644)
+		} else if data, err := os.ReadFile(sp); err != nil {
+			slog.Warn("cpDir: read failed", "path", sp, "err", err)
+		} else if err := os.WriteFile(dp, data, 0o644); err != nil {
+			slog.Warn("cpDir: write failed", "path", dp, "err", err)
 		}
 	}
 }

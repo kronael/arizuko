@@ -118,7 +118,7 @@ func writeEnv(b *strings.Builder, env map[string]string) {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		fmt.Fprintf(b, "      %s: '%s'\n", k, env[k])
+		fmt.Fprintf(b, "      %s: '%s'\n", k, strings.ReplaceAll(env[k], "'", "''"))
 	}
 }
 

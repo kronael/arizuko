@@ -145,7 +145,7 @@ func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 	return firstID, nil
 }
 
-func (b *bot) sendFile(jid, path, name, _ string) error {
+func (b *bot) sendFile(jid, path, name, caption string) error {
 	chID := strings.TrimPrefix(jid, "discord:")
 	f, err := os.Open(path)
 	if err != nil {
@@ -155,7 +155,10 @@ func (b *bot) sendFile(jid, path, name, _ string) error {
 	if name == "" {
 		name = filepath.Base(path)
 	}
-	_, err = b.session.ChannelFileSend(chID, name, f)
+	_, err = b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
+		Content: caption,
+		Files:   []*discordgo.File{{Name: name, Reader: f}},
+	})
 	if err != nil {
 		return fmt.Errorf("discord sendfile: %w", err)
 	}

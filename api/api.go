@@ -57,17 +57,17 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	var req registerReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		chanlib.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	if req.Name == "" || req.URL == "" || len(req.JIDPrefixes) == 0 {
-		writeErr(w, http.StatusBadRequest, "name, url, jid_prefixes required")
+		chanlib.WriteErr(w, http.StatusBadRequest, "name, url, jid_prefixes required")
 		return
 	}
 
 	token, err := s.reg.Register(req.Name, req.URL, req.JIDPrefixes, req.Capabilities)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		chanlib.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -78,7 +78,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("channel registered",
 		"name", req.Name, "url", req.URL, "prefixes", req.JIDPrefixes)
-	writeJSON(w, map[string]any{"ok": true, "token": token})
+	chanlib.WriteJSON(w, map[string]any{"ok": true, "token": token})
 }
 
 func (s *Server) handleDeregister(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +92,7 @@ func (s *Server) handleDeregister(w http.ResponseWriter, r *http.Request) {
 		s.onDeregister(entry.Name)
 	}
 	slog.Info("channel deregistered", "name", entry.Name)
-	writeJSON(w, map[string]any{"ok": true})
+	chanlib.WriteJSON(w, map[string]any{"ok": true})
 }
 
 func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
@@ -104,20 +104,20 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 		Text string `json:"text"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.JID == "" || req.Text == "" {
-		writeErr(w, http.StatusBadRequest, "jid and text required")
+		chanlib.WriteErr(w, http.StatusBadRequest, "jid and text required")
 		return
 	}
 	entry := s.reg.ForJID(req.JID)
 	if entry == nil {
-		writeErr(w, http.StatusNotFound, "no channel for jid")
+		chanlib.WriteErr(w, http.StatusNotFound, "no channel for jid")
 		return
 	}
 	ch := chanreg.NewHTTPChannel(entry, s.reg.Secret())
 	if _, err := ch.Send(req.JID, req.Text, "", ""); err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		chanlib.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true})
+	chanlib.WriteJSON(w, map[string]any{"ok": true})
 }
 
 type messageReq struct {
@@ -148,11 +148,11 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 	var req messageReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		chanlib.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	if req.ChatJID == "" || req.Content == "" {
-		writeErr(w, http.StatusBadRequest, "chat_jid and content required")
+		chanlib.WriteErr(w, http.StatusBadRequest, "chat_jid and content required")
 		return
 	}
 
@@ -164,7 +164,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !jidOK {
-		writeErr(w, http.StatusBadRequest, "jid prefix mismatch")
+		chanlib.WriteErr(w, http.StatusBadRequest, "jid prefix mismatch")
 		return
 	}
 
@@ -212,12 +212,12 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.PutMessage(msg); err != nil {
-		writeErr(w, http.StatusInternalServerError, "store failed")
+		chanlib.WriteErr(w, http.StatusInternalServerError, "store failed")
 		slog.Error("store message failed", "err", err)
 		return
 	}
 
-	writeJSON(w, map[string]any{"ok": true})
+	chanlib.WriteJSON(w, map[string]any{"ok": true})
 }
 
 type chatReq struct {
@@ -234,11 +234,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	var req chatReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		chanlib.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	if req.ChatJID == "" {
-		writeErr(w, http.StatusBadRequest, "chat_jid required")
+		chanlib.WriteErr(w, http.StatusBadRequest, "chat_jid required")
 		return
 	}
 
@@ -246,7 +246,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		s.onMessage(req.ChatJID, entry.Name)
 	}
 	s.store.PutChat(req.ChatJID, req.Name, entry.Name, req.IsGroup)
-	writeJSON(w, map[string]any{"ok": true})
+	chanlib.WriteJSON(w, map[string]any{"ok": true})
 }
 
 func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
@@ -266,16 +266,16 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 			"registered_at": e.RegisteredAt.Unix(),
 		})
 	}
-	writeJSON(w, map[string]any{"ok": true, "channels": out})
+	chanlib.WriteJSON(w, map[string]any{"ok": true, "channels": out})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, map[string]any{"status": "ok"})
+	chanlib.WriteJSON(w, map[string]any{"status": "ok"})
 }
 
 func (s *Server) checkSecret(w http.ResponseWriter, r *http.Request) bool {
 	if s := s.reg.Secret(); s != "" && extractBearer(r) != s {
-		writeErr(w, http.StatusUnauthorized, "invalid secret")
+		chanlib.WriteErr(w, http.StatusUnauthorized, "invalid secret")
 		return false
 	}
 	return true
@@ -284,27 +284,20 @@ func (s *Server) checkSecret(w http.ResponseWriter, r *http.Request) bool {
 func (s *Server) checkToken(w http.ResponseWriter, r *http.Request) *chanreg.Entry {
 	token := extractBearer(r)
 	if token == "" {
-		writeErr(w, http.StatusUnauthorized, "missing token")
+		chanlib.WriteErr(w, http.StatusUnauthorized, "missing token")
 		return nil
 	}
 	if e := s.reg.ByToken(token); e != nil {
 		return e
 	}
-	writeErr(w, http.StatusUnauthorized, "invalid token")
+	chanlib.WriteErr(w, http.StatusUnauthorized, "invalid token")
 	return nil
 }
 
 func extractBearer(r *http.Request) string {
-	return strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": msg})
+	h := r.Header.Get("Authorization")
+	if !strings.HasPrefix(h, "Bearer ") {
+		return ""
+	}
+	return h[7:]
 }
