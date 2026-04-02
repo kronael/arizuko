@@ -101,7 +101,7 @@ func TestStripThinkBlocks(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := stripThinkBlocks(tc.in)
+			got := StripThinkBlocks(tc.in)
 			if got != tc.want {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}

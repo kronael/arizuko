@@ -164,7 +164,7 @@ var statusRe = regexp.MustCompile(`(?s)<status>(.*?)</status>`)
 
 func FormatOutbound(raw string) string {
 	s := internalRe.ReplaceAllString(raw, "")
-	s = stripThinkBlocks(s)
+	s = StripThinkBlocks(s)
 	s = statusRe.ReplaceAllString(s, "")
 	return strings.TrimSpace(s)
 }
@@ -186,7 +186,7 @@ func ExtractStatusBlocks(s string) (string, []string) {
 }
 
 // StripThinkBlocks removes <think>...</think> blocks including nested ones.
-func stripThinkBlocks(s string) string {
+func StripThinkBlocks(s string) string {
 	var b strings.Builder
 	depth := 0
 	i := 0

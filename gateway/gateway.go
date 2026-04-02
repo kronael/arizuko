@@ -569,7 +569,7 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 			slog.Debug("send suppressed by SEND_DISABLED_GROUPS", "group", groupFolder)
 			return
 		}
-		stripped, statuses := router.ExtractStatusBlocks(text)
+		stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
 		for _, s := range statuses {
 			sentID, err := g.sendMessageReply(chatJid, s, "", "")
 			if err != nil {
