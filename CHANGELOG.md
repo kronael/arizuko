@@ -11,6 +11,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.21.1] — 2026-04-02
+
+### Refactored
+
+- **layout**: flattened `data/ipc/` to `ipc/` at project root; removed `DataDir`, added `IpcDir`
+- **ipc**: removed legacy `/workspace/group/` path support (pre-v1, no compat needed)
+- **gateway**: removed old cursor format migration in `loadState`
+- **container**: removed NANOCLAW\_ env var cleanup loop (no old vars exist)
+- **core**: removed dead `AuthUsername` config field
+
+### Removed
+
+- 7 nanoclaw/kanipi name references across Dockerfile, DEV.md, CLAUDE.md, TODO.md, docs
+- TODO.md "remaining kanipi ports" section (all features already implemented)
+
+### Changed
+
+- **skills**: synced latest skills + CLAUDE.md to all deployed groups (REDACTED 5 + REDACTED 1)
+- **docs**: updated ARCHITECTURE.md, MIGRATION.md, specs for new layout
+
+---
+
 ## [v0.21.0] — 2026-04-02
 
 Full daemon audit: 50+ bugs found and fixed across 25+ files. Skills audit and simplification.
