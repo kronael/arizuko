@@ -17,21 +17,19 @@ Explore subagent greps message history files. No vector search, no FTS.
 
 ### Step 1 — Fetch message history
 
-Request older messages via the `get_history` IPC action:
+Use the `get_history` MCP tool:
 
-```json
-{ "type": "get_history", "before": "<ISO timestamp or null>", "limit": 200 }
+```
+get_history({ chat_jid: "<jid from message context>", limit: 200 })
 ```
 
-The gateway returns messages as an array:
+Optional `before` param (ISO 8601 timestamp) for pagination.
 
-```json
-[{ "id": "...", "sender": "Alice", "content": "...", "timestamp": "..." }, ...]
-```
+The tool returns messages as an array with `id`, `sender`, `content`, `timestamp`.
 
 Write the result to `~/tmp/messages.json` for the Explore subagent to scan.
 
-If `get_history` is not available (IPC error), explain to the user that
+If `get_history` is not available, explain to the user that
 message history retrieval is not supported in this environment.
 
 ### Step 2 — Spawn Explore subagent

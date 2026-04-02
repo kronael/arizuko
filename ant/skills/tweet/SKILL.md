@@ -44,10 +44,9 @@ user-invocable: true
 
 ## Process
 
-1. Read examples in `examples/` directory for voice calibration
-2. Identify the single core value proposition
-3. Write hook: value prop + link + "Why?"
-4. Write 2-3 body tweets: motivation, use cases, capabilities
-5. Write closer: one punchy line + "back to kroning."
-6. Verify each tweet is under 280 chars
-7. Read aloud -- if it sounds like a pitch deck, rewrite
+1. Identify the single core value proposition
+2. Write hook: value prop + link + "Why?"
+3. Write 2-3 body tweets: motivation, use cases, capabilities
+4. Write closer: one punchy line + "back to kroning."
+5. Verify each tweet is under 280 chars
+6. Read aloud -- if it sounds like a pitch deck, rewrite

@@ -50,4 +50,4 @@ won't work until DNS propagates.
 ```
 
 Each world's web content is served at `https://hostname/`
-via 301 redirect from web-proxy.
+via internal path rewrite by proxyd.

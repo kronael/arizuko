@@ -122,17 +122,17 @@ for this group. Call `schedule_task` for each level:
 | `/compact-memories diary week`     | `0 3 * * 1` | Monday 03:00       |
 | `/compact-memories diary month`    | `0 4 1 * *` | 1st of month 04:00 |
 
-All tasks use `context_mode: 'isolated'` (fresh container, no session
-history). `targetFolder` = `$(basename "$HOME")` (leaf name of your home dir).
+All tasks use `contextMode: "isolated"` (fresh container, no session history).
+`targetJid` = the chat JID that should trigger this group.
 
 Example — set up all five:
 
 ```
-schedule_task({ targetFolder: "<group>", prompt: "/compact-memories episodes day", schedule_type: "cron", schedule_value: "0 2 * * *", context_mode: "isolated" })
-schedule_task({ targetFolder: "<group>", prompt: "/compact-memories episodes week", schedule_type: "cron", schedule_value: "0 3 * * 1", context_mode: "isolated" })
-schedule_task({ targetFolder: "<group>", prompt: "/compact-memories episodes month", schedule_type: "cron", schedule_value: "0 4 1 * *", context_mode: "isolated" })
-schedule_task({ targetFolder: "<group>", prompt: "/compact-memories diary week", schedule_type: "cron", schedule_value: "0 3 * * 1", context_mode: "isolated" })
-schedule_task({ targetFolder: "<group>", prompt: "/compact-memories diary month", schedule_type: "cron", schedule_value: "0 4 1 * *", context_mode: "isolated" })
+schedule_task({ targetJid: "<group-jid>", prompt: "/compact-memories episodes day", cron: "0 2 * * *", contextMode: "isolated" })
+schedule_task({ targetJid: "<group-jid>", prompt: "/compact-memories episodes week", cron: "0 3 * * 1", contextMode: "isolated" })
+schedule_task({ targetJid: "<group-jid>", prompt: "/compact-memories episodes month", cron: "0 4 1 * *", contextMode: "isolated" })
+schedule_task({ targetJid: "<group-jid>", prompt: "/compact-memories diary week", cron: "0 3 * * 1", contextMode: "isolated" })
+schedule_task({ targetJid: "<group-jid>", prompt: "/compact-memories diary month", cron: "0 4 1 * *", contextMode: "isolated" })
 ```
 
 Check existing tasks first — don't create duplicates.

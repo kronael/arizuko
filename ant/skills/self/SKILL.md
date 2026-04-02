@@ -127,19 +127,24 @@ any skill or reading any file first.
 | `send_message`   | Send a text message to a chat (use jid param to target)                   |
 | `send_reply`     | Reply to current conversation (auto-injects replyTo); returns `messageId` |
 | `send_file`      | Send a file from workspace to user as document attachment                 |
+| `inject_message` | Inject a message into the store for a chat (system-generated)             |
 | `schedule_task`  | Schedule recurring or one-time agent task                                 |
 | `pause_task`     | Pause a scheduled task                                                    |
 | `resume_task`    | Resume a paused task                                                      |
 | `cancel_task`    | Cancel and delete a scheduled task                                        |
-| `register_group` | Register new WhatsApp group (root only)                                   |
-| `refresh_groups` | Sync group metadata from channel (root only)                              |
+| `list_tasks`     | List scheduled tasks visible to this group                                |
+| `register_group` | Register new agent group                                                  |
+| `refresh_groups` | Reload registered groups list (tier ≤ 2)                                  |
 | `delegate_group` | Forward a message to a child group for processing                         |
 | `escalate_group` | Escalate a task to the parent group                                       |
 | `set_routes`     | Replace all routes for a JID                                              |
 | `add_route`      | Add a single route for a JID                                              |
 | `get_routes`     | Get routes for a JID                                                      |
 | `delete_route`   | Delete a route by ID                                                      |
+| `get_history`    | Fetch message history for a chat (paginated)                              |
 | `reset_session`  | Clear this group's session and start fresh                                |
+| `get_grants`     | Get grant rules for a folder (tier 0-1 only)                              |
+| `set_grants`     | Set grant rules for a folder (tier 0-1 only)                              |
 
 ### send_file usage
 

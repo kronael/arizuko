@@ -41,18 +41,14 @@ Root `/workspace/web/pub/index.html` lists all deployed apps.
 Update it when adding/removing apps.
 Never list placeholders or examples.
 
-## Restart vite
+## Vite restart
 
-If vite crashes or needs restart:
-
-```bash
-kill $(cat /srv/app/tmp/vite.pid)
-```
-
-The entrypoint auto-restarts vite within ~1s.
+Vite runs in a separate `vited` Docker container with `restart: on-failure`.
+You cannot restart it from inside the agent container. If vite is down,
+inform the operator to restart the `vited` service from the host.
 
 ## Post-deploy validation
 
 1. Fetch the affected URL (WebFetch or curl)
-2. If error or timeout: kill vite PID
-3. Wait 2s, verify again before reporting done
+2. If error or timeout: inform the operator
+3. Verify the response before reporting done

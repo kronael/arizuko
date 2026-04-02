@@ -13,4 +13,4 @@ Display information about the current arizuko instance.
 2. Available skills: `ls ~/.claude/skills/`
 3. Uptime: `cat /proc/uptime | awk '{print $1}'`
 4. Migration version: `cat ~/.claude/skills/self/MIGRATION_VERSION 2>/dev/null || echo 0`
-   Latest: **1** — if version < 1, warn "migrations pending — run /migrate"
+   Latest: **51** — if version < 51, warn "migrations pending — run /migrate"

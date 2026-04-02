@@ -38,7 +38,7 @@ Run `yt-dlp --list-extractors` to check.
 Transcribe via `$WHISPER_BASE_URL`:
 
 ```bash
-curl -s -F "file=@~/tmp/audio.mp3" \
+curl -s -F "file=@$HOME/tmp/audio.mp3" \
   -F "model=turbo" \
   "$WHISPER_BASE_URL/inference" | jq -r '.text'
 ```
@@ -58,7 +58,7 @@ Claude reads images natively via Read tool:
 curl -o ~/tmp/img.jpg '<url>'
 ```
 
-Then `Read("~/tmp/img.jpg")` — works for photos, charts, screenshots, PDFs.
+Then read it with the Read tool — works for photos, charts, screenshots, PDFs.
 
 ## Web content
 

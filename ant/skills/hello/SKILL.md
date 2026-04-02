@@ -70,7 +70,7 @@ Adapt this list to what you actually know is available. For example:
 ## Web prefix
 
 ```bash
-if [ "$ARIZUKO_IS_ROOT" = "1" ] || [ "$ARIZUKO_IS_WORLD_ADMIN" = "1" ]; then
+if [ "$ARIZUKO_IS_ROOT" = "1" ]; then
   WEB_DIR="/workspace/web/pub"
   WEB_PREFIX="pub"
 else

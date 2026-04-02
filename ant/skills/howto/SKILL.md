@@ -47,7 +47,7 @@ Write a complete, self-contained HTML file from CONTENT.md using your chosen sty
 
 ```bash
 # resolve web dir
-if [ "$ARIZUKO_IS_ROOT" = "1" ] || [ "$ARIZUKO_IS_WORLD_ADMIN" = "1" ]; then
+if [ "$ARIZUKO_IS_ROOT" = "1" ]; then
   WEB_DIR="/workspace/web/pub"
 else
   WEB_DIR="/workspace/web/pub/$(basename "$HOME")"
