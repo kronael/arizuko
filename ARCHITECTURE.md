@@ -109,8 +109,7 @@ gateway splits messages by topic and runs one agent per topic.
 **Auth resolution** in `requireAuth`:
 
 1. `Authorization: Bearer <jwt>` — validates JWT, injects `X-User-Sub`,
-   `X-User-Name`, optionally `X-User-Groups` (JSON array). Raw `AUTH_SECRET`
-   value accepted as a bypass token for operator tooling.
+   `X-User-Name`, optionally `X-User-Groups` (JSON array).
 2. `refresh_token` cookie — fallback for browser navigation without JS Bearer
    header. Looks up session by `auth.HashToken(cookie)`, injects `X-User-Sub`
    and `X-User-Name`.

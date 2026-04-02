@@ -8,60 +8,6 @@ import (
 	"github.com/onvos/arizuko/store"
 )
 
-var publicPrefixes = []string{
-	"/auth/",
-	"/pub/",
-	"/slink/",
-}
-
-var publicExact = []string{
-	"/favicon.ico",
-	"/robots.txt",
-}
-
-func Middleware(secret []byte, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := r.URL.Path
-		for _, pre := range publicPrefixes {
-			if strings.HasPrefix(p, pre) {
-				next.ServeHTTP(w, r)
-				return
-			}
-		}
-		for _, exact := range publicExact {
-			if p == exact {
-				next.ServeHTTP(w, r)
-				return
-			}
-		}
-		ext := ""
-		if i := strings.LastIndex(p, "."); i >= 0 {
-			ext = p[i:]
-		}
-		switch ext {
-		case ".css", ".js", ".png", ".ico", ".svg", ".woff", ".woff2":
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		hdr := r.Header.Get("Authorization")
-		if !strings.HasPrefix(hdr, "Bearer ") {
-			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
-			return
-		}
-		token := hdr[len("Bearer "):]
-		if token == "" {
-			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
-			return
-		}
-		if _, err := VerifyJWT(secret, token); err != nil {
-			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 func RegisterRoutes(mux *http.ServeMux, s *store.Store, cfg *core.Config) {
 	secret := []byte(cfg.AuthSecret)
 	secure := strings.HasPrefix(authBaseURL(cfg), "https://")

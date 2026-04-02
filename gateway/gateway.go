@@ -597,26 +597,24 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 		for _, s := range statuses {
 			sentID, err := g.sendMessageReply(chatJid, s, "", "")
 			if err != nil {
-				slog.Warn("send status failed",
+				slog.Error("send status failed",
 					"jid", chatJid, "group", groupFolder, "err", err)
 			} else if sentID == "" {
 				slog.Debug("send status returned no ID",
 					"jid", chatJid, "group", groupFolder)
 			}
-			if sentID != "" {
-				g.store.StoreOutbound(core.OutboundEntry{
-					ChatJID:       chatJid,
-					Content:       s,
-					Source:        "agent",
-					GroupFolder:   groupFolder,
-					PlatformMsgID: sentID,
-				})
-			}
+			g.store.StoreOutbound(core.OutboundEntry{
+				ChatJID:       chatJid,
+				Content:       s,
+				Source:        "agent",
+				GroupFolder:   groupFolder,
+				PlatformMsgID: sentID,
+			})
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
 			sentID, err := g.sendMessageReply(chatJid, clean, lastSentID, topic)
 			if err != nil {
-				slog.Warn("send reply failed",
+				slog.Error("send reply failed",
 					"jid", chatJid, "group", groupFolder, "err", err)
 			} else if sentID == "" {
 				slog.Debug("send reply returned no ID",
@@ -625,26 +623,30 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 			if sentID != "" {
 				lastSentID = sentID
 				g.store.SetLastReplyID(chatJid, topic, sentID)
-				g.store.PutMessage(core.Message{
-					ID:        sentID,
-					ChatJID:   chatJid,
-					Sender:    g.cfg.Name,
-					Name:      g.cfg.Name,
-					Content:   clean,
-					Timestamp: time.Now(),
-					BotMsg:    true,
-					Topic:     topic,
-					RoutedTo:  groupFolder,
-				})
-				g.store.StoreOutbound(core.OutboundEntry{
-					ChatJID:       chatJid,
-					Content:       clean,
-					Source:        "agent",
-					GroupFolder:   groupFolder,
-					ReplyToID:     lastSentID,
-					PlatformMsgID: sentID,
-				})
 			}
+			msgID := sentID
+			if msgID == "" {
+				msgID = fmt.Sprintf("unsent-%d", time.Now().UnixNano())
+			}
+			g.store.PutMessage(core.Message{
+				ID:        msgID,
+				ChatJID:   chatJid,
+				Sender:    g.cfg.Name,
+				Name:      g.cfg.Name,
+				Content:   clean,
+				Timestamp: time.Now(),
+				BotMsg:    true,
+				Topic:     topic,
+				RoutedTo:  groupFolder,
+			})
+			g.store.StoreOutbound(core.OutboundEntry{
+				ChatJID:       chatJid,
+				Content:       clean,
+				Source:        "agent",
+				GroupFolder:   groupFolder,
+				ReplyToID:     lastSentID,
+				PlatformMsgID: sentID,
+			})
 		}
 	}, &hadOutput
 }

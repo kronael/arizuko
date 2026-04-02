@@ -62,7 +62,7 @@ func TestProxydRequireAuthNoSecret(t *testing.T) {
 	}
 }
 
-func TestProxydRequireAuthRawSecret(t *testing.T) {
+func TestProxydRequireAuthRawSecretRejected(t *testing.T) {
 	s := &server{cfg: config{authSecret: "rawsecret"}, slinkRL: newRateLimiter(10, time.Minute)}
 	called := false
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -73,8 +73,11 @@ func TestProxydRequireAuthRawSecret(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer rawsecret")
 	w := httptest.NewRecorder()
 	h(w, req)
-	if !called {
-		t.Error("handler not called with raw secret")
+	if called {
+		t.Error("handler should not be called with raw secret (signing key must not be accepted as credential)")
+	}
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303 redirect to login", w.Code)
 	}
 }
 

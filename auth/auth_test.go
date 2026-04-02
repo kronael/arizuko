@@ -65,46 +65,6 @@ func TestJWTBadSignature(t *testing.T) {
 	}
 }
 
-func TestMiddlewarePublicPaths(t *testing.T) {
-	h := Middleware(testSecret, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-	}))
-	for _, p := range []string{"/auth/login", "/pub/index.html", "/slink/api", "/favicon.ico", "/robots.txt", "/style.css"} {
-		r := httptest.NewRequest("GET", p, nil)
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		if w.Code == http.StatusSeeOther {
-			t.Errorf("path %s was redirected, should be public", p)
-		}
-	}
-}
-
-func TestMiddlewareBlocksUnauthenticated(t *testing.T) {
-	h := Middleware(testSecret, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-	}))
-	r := httptest.NewRequest("GET", "/dashboard", nil)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-	if w.Code != http.StatusSeeOther {
-		t.Fatalf("got %d, want 303 redirect", w.Code)
-	}
-}
-
-func TestMiddlewarePassesWithJWT(t *testing.T) {
-	h := Middleware(testSecret, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-	}))
-	token := mintJWT(testSecret, "user1", "Test", nil, time.Hour)
-	r := httptest.NewRequest("GET", "/dashboard", nil)
-	r.Header.Set("Authorization", "Bearer "+token)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-	if w.Code != 200 {
-		t.Fatalf("got %d, want 200", w.Code)
-	}
-}
-
 func newTestServer(s *store.Store) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /auth/login", handleLoginPage(&core.Config{}))
@@ -253,46 +213,6 @@ func TestFullLoginRefreshLogout(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("post-logout refresh: got %d, want 401",
 			resp.StatusCode)
-	}
-}
-
-func TestMiddlewareExpiredJWT(t *testing.T) {
-	h := Middleware(testSecret, http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(200)
-		}))
-	token := mintJWT(testSecret, "u", "U", nil, -time.Hour)
-	r := httptest.NewRequest("GET", "/dashboard", nil)
-	r.Header.Set("Authorization", "Bearer "+token)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-	if w.Code != http.StatusSeeOther {
-		t.Fatalf("expired jwt: got %d, want 303", w.Code)
-	}
-}
-
-func TestMiddlewareMalformedAuth(t *testing.T) {
-	h := Middleware(testSecret, http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(200)
-		}))
-
-	cases := []struct {
-		name string
-		hdr  string
-	}{
-		{"no prefix", "Token abc123"},
-		{"empty bearer", "Bearer "},
-		{"basic auth", "Basic dXNlcjpwYXNz"},
-	}
-	for _, tc := range cases {
-		r := httptest.NewRequest("GET", "/dashboard", nil)
-		r.Header.Set("Authorization", tc.hdr)
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		if w.Code != http.StatusSeeOther {
-			t.Errorf("%s: got %d, want 303", tc.name, w.Code)
-		}
 	}
 }
 

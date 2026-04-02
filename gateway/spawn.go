@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/core"
 )
 
@@ -27,14 +28,14 @@ func (g *Gateway) spawnFromPrototype(parentJID, parentFolder, childJID string) (
 	}
 
 	g.mu.Lock()
-	if parent, ok := g.groups[parentJID]; ok {
+	if parent, ok := g.groups[parentJID]; ok && parent.Config.MaxChildren >= 0 {
 		if parent.Config.MaxChildren == 0 {
 			g.mu.Unlock()
 			return core.Group{}, fmt.Errorf("spawning disabled (max_children=0)")
 		}
 		n := 0
 		for _, gr := range g.groups {
-			if gr.Parent == parentFolder {
+			if auth.IsDirectChild(parentFolder, gr.Folder) {
 				n++
 			}
 		}

@@ -355,11 +355,6 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		hdr := r.Header.Get("Authorization")
 		if strings.HasPrefix(hdr, "Bearer ") {
 			tok := strings.TrimPrefix(hdr, "Bearer ")
-			// raw secret allows operator tooling to bypass JWT
-			if tok == s.cfg.authSecret {
-				next(w, r)
-				return
-			}
 			claims, err := auth.VerifyJWT(secret, tok)
 			if err != nil {
 				http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
