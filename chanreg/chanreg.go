@@ -100,14 +100,20 @@ func (r *Registry) Secret() string { return r.secret }
 func (r *Registry) ForJID(jid string) *Entry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	var first *Entry
 	for _, e := range r.entries {
 		for _, p := range e.JIDPrefixes {
 			if strings.HasPrefix(jid, p) {
-				return e
+				if !strings.Contains(e.Name, "-") {
+					return e // prefer the primary adapter (no suffix)
+				}
+				if first == nil {
+					first = e
+				}
 			}
 		}
 	}
-	return nil
+	return first
 }
 
 func (r *Registry) RecordHealthFail(name string) int {
