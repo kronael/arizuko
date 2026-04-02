@@ -401,3 +401,59 @@ func TestNarrowRules_NilParentDoesNotWidenToStar(t *testing.T) {
 		}
 	}
 }
+
+// --- share_mount grant ---
+
+func TestShareMount_Tier0(t *testing.T) {
+	rules := DeriveRules(nil, "root", 0, "root")
+	if !CheckAction(rules, "share_mount", map[string]string{"readonly": "false"}) {
+		t.Error("tier 0 should allow share_mount RW via wildcard")
+	}
+	if !CheckAction(rules, "share_mount", map[string]string{"readonly": "true"}) {
+		t.Error("tier 0 should allow share_mount RO via wildcard")
+	}
+}
+
+func TestShareMount_Tier1(t *testing.T) {
+	s := openTestStore(t)
+	addRoute(t, s, "telegram:100", "main")
+	rules := DeriveRules(s, "main", 1, "main")
+	if !CheckAction(rules, "share_mount", map[string]string{"readonly": "false"}) {
+		t.Error("tier 1 should allow share_mount RW")
+	}
+	if CheckAction(rules, "share_mount", map[string]string{"readonly": "true"}) {
+		t.Error("tier 1 should NOT match share_mount RO (only RW rule)")
+	}
+}
+
+func TestShareMount_Tier2(t *testing.T) {
+	s := openTestStore(t)
+	addRoute(t, s, "telegram:100", "main/child")
+	rules := DeriveRules(s, "main/child", 2, "main")
+	if !CheckAction(rules, "share_mount", map[string]string{"readonly": "true"}) {
+		t.Error("tier 2 should allow share_mount RO")
+	}
+	if CheckAction(rules, "share_mount", map[string]string{"readonly": "false"}) {
+		t.Error("tier 2 should NOT allow share_mount RW")
+	}
+}
+
+func TestShareMount_Tier3(t *testing.T) {
+	rules := DeriveRules(nil, "deep/group/leaf", 3, "deep")
+	if CheckAction(rules, "share_mount", map[string]string{"readonly": "true"}) {
+		t.Error("tier 3 should NOT have share_mount")
+	}
+	if CheckAction(rules, "share_mount", map[string]string{"readonly": "false"}) {
+		t.Error("tier 3 should NOT have share_mount")
+	}
+}
+
+func TestShareMount_DenyOverride(t *testing.T) {
+	s := openTestStore(t)
+	addRoute(t, s, "telegram:100", "main")
+	rules := DeriveRules(s, "main", 1, "main")
+	allRules := append(rules, "!share_mount")
+	if CheckAction(allRules, "share_mount", map[string]string{"readonly": "false"}) {
+		t.Error("!share_mount override should block share_mount RW")
+	}
+}

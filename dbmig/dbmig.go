@@ -52,8 +52,18 @@ func Run(db *sql.DB, fsys embed.FS, dir, service string) error {
 			return err
 		}
 		defer tx.Rollback()
-		if _, err := tx.Exec(string(raw)); err != nil {
-			return fmt.Errorf("%s: %w", f, err)
+		stmts := strings.Split(string(raw), ";")
+		for _, stmt := range stmts {
+			stmt = strings.TrimSpace(stmt)
+			if stmt == "" {
+				continue
+			}
+			if _, err := tx.Exec(stmt); err != nil {
+				if strings.Contains(err.Error(), "duplicate column name") {
+					continue
+				}
+				return fmt.Errorf("%s: %w", f, err)
+			}
 		}
 		if _, err := tx.Exec(
 			"INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",

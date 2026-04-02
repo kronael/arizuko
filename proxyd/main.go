@@ -285,13 +285,13 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. /dav/ — WebDAV via dufs, auth-gated
+	// 3. /dav/ — WebDAV via dufs, auth-gated with per-group ACL
 	if strings.HasPrefix(r.URL.Path, "/dav/") || r.URL.Path == "/dav" {
 		if s.davProxy == nil {
 			http.Error(w, "WebDAV not configured", http.StatusNotFound)
 			return
 		}
-		s.requireAuth(s.davProxy.ServeHTTP)(w, r)
+		s.requireAuth(s.davRoute)(w, r)
 		return
 	}
 
@@ -343,6 +343,54 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// davRoute handles /dav requests with per-group ACL.
+// Called after requireAuth — X-User-Sub and optionally X-User-Groups are set.
+func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
+	// /dav or /dav/ with no group → redirect to first allowed group
+	rest := strings.TrimPrefix(r.URL.Path, "/dav")
+	rest = strings.TrimPrefix(rest, "/")
+	if rest == "" {
+		group := "root"
+		groupsHdr := r.Header.Get("X-User-Groups")
+		if groupsHdr != "" {
+			var allowed []string
+			if err := json.Unmarshal([]byte(groupsHdr), &allowed); err == nil && len(allowed) > 0 {
+				group = allowed[0]
+			}
+		}
+		http.Redirect(w, r, "/dav/"+group+"/", http.StatusFound)
+		return
+	}
+
+	// Extract group: first path segment after /dav/
+	group := strings.SplitN(rest, "/", 2)[0]
+
+	// Check per-group ACL via X-User-Groups (set by requireAuth)
+	groupsHdr := r.Header.Get("X-User-Groups")
+	if groupsHdr != "" {
+		var allowed []string
+		if err := json.Unmarshal([]byte(groupsHdr), &allowed); err != nil {
+			// Fail closed on parse error
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		ok := false
+		for _, f := range allowed {
+			if f == group || strings.HasPrefix(group, f+"/") {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+	}
+	// groupsHdr empty = operator (unrestricted)
+
+	s.davProxy.ServeHTTP(w, r)
+}
+
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.authSecret == "" {
@@ -381,6 +429,11 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 						r2 := r.Clone(r.Context())
 						r2.Header.Set("X-User-Sub", u.Sub)
 						r2.Header.Set("X-User-Name", u.Name)
+						if groups := s.st.UserGroups(u.Sub); groups != nil {
+							if b, err := json.Marshal(groups); err == nil {
+								r2.Header.Set("X-User-Groups", string(b))
+							}
+						}
 						next(w, r2)
 						return
 					}

@@ -211,11 +211,15 @@ func platformRules(jids []string) []string {
 }
 
 func deriveTier1Rules(jids []string) []string {
-	return append(platformRules(jids), tier1FixedActions...)
+	r := append(platformRules(jids), tier1FixedActions...)
+	r = append(r, "share_mount(readonly=false)")
+	return r
 }
 
 func deriveTier2Rules(jids []string) []string {
-	return append([]string{"send_message", "send_reply"}, platformRules(jids)...)
+	r := append([]string{"send_message", "send_reply"}, platformRules(jids)...)
+	r = append(r, "share_mount(readonly=true)")
+	return r
 }
 
 func extractPlatforms(jids []string) []string {

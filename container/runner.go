@@ -17,6 +17,7 @@ import (
 
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/diary"
+	"github.com/onvos/arizuko/grants"
 	"github.com/onvos/arizuko/groupfolder"
 	"github.com/onvos/arizuko/ipc"
 	"github.com/onvos/arizuko/mountsec"
@@ -454,13 +455,17 @@ func BuildMounts(
 	})
 
 	world := strings.SplitN(in.Folder, "/", 2)[0]
-	share := filepath.Join(cfg.GroupsDir, world, "share")
-	os.MkdirAll(share, 0o755)
-	m = append(m, VolumeMount{
-		Host:      hp(cfg, share),
-		Container: "/workspace/share",
-		RO:        !root,
-	})
+	shareRw := grants.CheckAction(in.Grants, "share_mount", map[string]string{"readonly": "false"})
+	shareRo := !shareRw && grants.CheckAction(in.Grants, "share_mount", map[string]string{"readonly": "true"})
+	if shareRw || shareRo {
+		share := filepath.Join(cfg.GroupsDir, world, "share")
+		os.MkdirAll(share, 0o755)
+		m = append(m, VolumeMount{
+			Host:      hp(cfg, share),
+			Container: "/workspace/share",
+			RO:        !shareRw,
+		})
+	}
 
 	claudeDir := filepath.Join(groupDir, ".claude")
 	os.MkdirAll(claudeDir, 0o755)
@@ -511,11 +516,24 @@ func BuildMounts(
 	}
 
 	if fi, err := os.Stat(cfg.WebDir); err == nil && fi.IsDir() {
-		chown(cfg.WebDir, 1000, 1000)
-		m = append(m, VolumeMount{
-			Host:      hp(cfg, cfg.WebDir),
-			Container: "/workspace/web",
-		})
+		tier := strings.Count(in.Folder, "/")
+		if tier > 2 {
+			// tier 3+: no web mount
+		} else if root {
+			chown(cfg.WebDir, 1000, 1000)
+			m = append(m, VolumeMount{
+				Host:      hp(cfg, cfg.WebDir),
+				Container: "/workspace/web",
+			})
+		} else {
+			worldDir := filepath.Join(cfg.WebDir, world)
+			os.MkdirAll(worldDir, 0o755)
+			chown(worldDir, 1000, 1000)
+			m = append(m, VolumeMount{
+				Host:      hp(cfg, worldDir),
+				Container: "/workspace/web",
+			})
+		}
 	}
 
 	if root {
