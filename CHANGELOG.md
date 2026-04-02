@@ -11,6 +11,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.20.2] — 2026-04-02
+
+### Added
+
+- **agent**: auto-recall on ambiguous tasks — agents run `/recall-memories` to disambiguate
+  unclear references before asking the user to clarify
+
+---
+
 ## [v0.20.1] — 2026-04-02
 
 ### Added
