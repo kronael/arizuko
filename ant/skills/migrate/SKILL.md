@@ -7,6 +7,14 @@ description: Intelligently sync skills and files across groups with conflict res
 
 Sync skills and config across groups. Merges upstream changes, preserves local edits.
 
+## Container paths
+
+Inside the container, the relevant mounts are:
+
+- `/workspace/self/` — app source (read-only), skills source at `ant/skills/`
+- `/workspace/data/groups/` — all group directories (root only)
+- `/home/node/` — current group's home directory (`~`)
+
 ## Root-only check
 
 ```bash
@@ -137,10 +145,10 @@ Read the output and follow any new instructions immediately.
 ## d) Apply template overlays
 
 For each group with `~/.claude/skills/self/TEMPLATES`, apply named overlays
-from `/workspace/self/templates/<name>/`.
+from `/workspace/self/template/<name>/`.
 
 ```bash
-src_templates=/workspace/self/templates
+src_templates=/workspace/self/template
 
 for session in /workspace/data/groups/*/; do
   self_dir="$session/.claude/skills/self"

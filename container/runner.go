@@ -100,9 +100,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	appDir := cfg.HostAppDir
 	latest := migrationVersion(
 		filepath.Join(appDir, "ant", "skills", "self", "MIGRATION_VERSION"))
-	sessDir := filepath.Join(cfg.DataDir, "groups", in.Folder, ".claude")
 	agent := migrationVersion(
-		filepath.Join(sessDir, "skills", "self", "MIGRATION_VERSION"))
+		filepath.Join(groupDir, ".claude", "skills", "self", "MIGRATION_VERSION"))
 	if agent < latest {
 		in.Annotations = append(in.Annotations, fmt.Sprintf(
 			"[pending migration] Skills version %d < %d. "+
@@ -463,10 +462,10 @@ func BuildMounts(
 		RO:        !root,
 	})
 
-	sessDir := filepath.Join(cfg.DataDir, "groups", in.Folder, ".claude")
-	os.MkdirAll(sessDir, 0o755)
-	chown(sessDir, 1000, 1000)
-	seedSettings(sessDir, cfg, in, root)
+	claudeDir := filepath.Join(groupDir, ".claude")
+	os.MkdirAll(claudeDir, 0o755)
+	chown(claudeDir, 1000, 1000)
+	seedSettings(claudeDir, cfg, in, root)
 
 	ipcDir, err := folders.IpcPath(in.Folder)
 	if err == nil {
@@ -691,7 +690,7 @@ func seedSettings(
 // SeedGroupDir initializes the agent session directory for a newly created group.
 // Called once at group creation time by group add, onbod, and register_group MCP tool.
 func SeedGroupDir(cfg *core.Config, folder string) error {
-	claudeDir := filepath.Join(cfg.DataDir, "groups", folder, ".claude")
+	claudeDir := filepath.Join(cfg.GroupsDir, folder, ".claude")
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
 		return err
 	}
