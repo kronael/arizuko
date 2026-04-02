@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/onvos/arizuko/dbmig"
 	_ "modernc.org/sqlite"
 )
 
@@ -68,7 +69,7 @@ func countMessages(t *testing.T, db *sql.DB) int {
 
 func TestMigrateCreatesTable(t *testing.T) {
 	db := openTestDB(t)
-	if err := migrate(db); err != nil {
+	if err := dbmig.Run(db, migrationFS, "migrations", serviceName); err != nil {
 		t.Fatal(err)
 	}
 	var n int
@@ -83,10 +84,10 @@ func TestMigrateCreatesTable(t *testing.T) {
 
 func TestMigrateIdempotent(t *testing.T) {
 	db := openTestDB(t)
-	if err := migrate(db); err != nil {
+	if err := dbmig.Run(db, migrationFS, "migrations", serviceName); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrate(db); err != nil {
+	if err := dbmig.Run(db, migrationFS, "migrations", serviceName); err != nil {
 		t.Fatal("second migrate failed:", err)
 	}
 	entries, _ := migrationFS.ReadDir("migrations")
@@ -105,7 +106,7 @@ func TestMigrateIdempotent(t *testing.T) {
 
 func TestFireNoDueTasks(t *testing.T) {
 	db := openTestDB(t)
-	migrate(db)
+	dbmig.Run(db, migrationFS, "migrations", serviceName)
 	setupMessages(t, db)
 
 	fire(db, "UTC")
@@ -116,7 +117,7 @@ func TestFireNoDueTasks(t *testing.T) {
 
 func TestFireCronTask(t *testing.T) {
 	db := openTestDB(t)
-	migrate(db)
+	dbmig.Run(db, migrationFS, "migrations", serviceName)
 	setupMessages(t, db)
 
 	cron := "0 9 * * *"
@@ -154,7 +155,7 @@ func TestFireCronTask(t *testing.T) {
 
 func TestFireOneShotTask(t *testing.T) {
 	db := openTestDB(t)
-	migrate(db)
+	dbmig.Run(db, migrationFS, "migrations", serviceName)
 	setupMessages(t, db)
 
 	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
@@ -179,7 +180,7 @@ func TestFireOneShotTask(t *testing.T) {
 
 func TestFireMultipleDueTasks(t *testing.T) {
 	db := openTestDB(t)
-	migrate(db)
+	dbmig.Run(db, migrationFS, "migrations", serviceName)
 	setupMessages(t, db)
 
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
@@ -196,7 +197,7 @@ func TestFireMultipleDueTasks(t *testing.T) {
 
 func TestFireSkipsPausedTasks(t *testing.T) {
 	db := openTestDB(t)
-	migrate(db)
+	dbmig.Run(db, migrationFS, "migrations", serviceName)
 	setupMessages(t, db)
 
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
@@ -211,7 +212,7 @@ func TestFireSkipsPausedTasks(t *testing.T) {
 
 func TestFireSkipsFutureNextRun(t *testing.T) {
 	db := openTestDB(t)
-	migrate(db)
+	dbmig.Run(db, migrationFS, "migrations", serviceName)
 	setupMessages(t, db)
 
 	future := time.Now().Add(time.Hour).Format(time.RFC3339)
@@ -281,7 +282,7 @@ func TestNextCronInvalidTimezoneDefaultsUTC(t *testing.T) {
 
 func TestFireInvalidCronStillFiresButNoUpdate(t *testing.T) {
 	db := openTestDB(t)
-	migrate(db)
+	dbmig.Run(db, migrationFS, "migrations", serviceName)
 	setupMessages(t, db)
 
 	bad := "not valid"
@@ -304,7 +305,7 @@ func TestFireInvalidCronStillFiresButNoUpdate(t *testing.T) {
 
 func TestLogTaskRun(t *testing.T) {
 	db := openTestDB(t)
-	migrate(db)
+	dbmig.Run(db, migrationFS, "migrations", serviceName)
 
 	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
 	insertTask(t, db, "log1", "chat1", "ping", "active", past, nil)
@@ -327,7 +328,7 @@ func TestLogTaskRun(t *testing.T) {
 
 func TestIntervalMode(t *testing.T) {
 	db := openTestDB(t)
-	migrate(db)
+	dbmig.Run(db, migrationFS, "migrations", serviceName)
 	setupMessages(t, db)
 
 	intervalMs := "5000"
@@ -356,7 +357,7 @@ func TestIntervalMode(t *testing.T) {
 
 func TestContextModeIsolated(t *testing.T) {
 	db := openTestDB(t)
-	migrate(db)
+	dbmig.Run(db, migrationFS, "migrations", serviceName)
 	setupMessages(t, db)
 
 	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
@@ -398,7 +399,7 @@ func TestIsIntervalMs(t *testing.T) {
 
 func TestConcurrentFireNoDuplicates(t *testing.T) {
 	db := openTestDB(t)
-	migrate(db)
+	dbmig.Run(db, migrationFS, "migrations", serviceName)
 	setupMessages(t, db)
 
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
