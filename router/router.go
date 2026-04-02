@@ -109,7 +109,7 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 			b.WriteString(escapeXml(m.ChatJID))
 			b.WriteString(`"`)
 		}
-		if p := jidPlatform(m.ChatJID); p != "" {
+		if p := core.JidPlatform(m.ChatJID); p != "" {
 			b.WriteString(` platform="`)
 			b.WriteString(p)
 			b.WriteString(`"`)
@@ -212,13 +212,6 @@ var platformShort = map[string]string{
 	"email": "em", "web": "web",
 }
 
-// jidPlatform extracts the platform prefix from a JID (e.g. "telegram:123" → "telegram").
-func jidPlatform(jid string) string {
-	if i := strings.IndexByte(jid, ':'); i > 0 {
-		return jid[:i]
-	}
-	return ""
-}
 
 func senderToUserFileID(sender string) string {
 	parts := strings.SplitN(sender, ":", 2)

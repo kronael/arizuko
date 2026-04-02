@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -114,4 +115,12 @@ type SessionRecord struct {
 	Result    string
 	Error     string
 	MsgCount  int
+}
+
+// JidPlatform extracts the platform prefix from a JID (e.g. "telegram:123" -> "telegram").
+func JidPlatform(jid string) string {
+	if i := strings.IndexByte(jid, ':'); i > 0 {
+		return jid[:i]
+	}
+	return ""
 }
