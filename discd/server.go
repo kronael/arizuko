@@ -1,11 +1,7 @@
 package main
 
 import (
-	"encoding/json"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/onvos/arizuko/chanlib"
 )
@@ -16,6 +12,18 @@ type botIface interface {
 	typing(jid string, on bool) error
 }
 
+type botAdapter struct{ b botIface }
+
+func (a *botAdapter) Send(req chanlib.SendRequest) (string, error) {
+	return a.b.send(req.ChatJID, req.Content, req.ReplyTo, req.ThreadID)
+}
+
+func (a *botAdapter) SendFile(jid, path, name, caption string) error {
+	return a.b.sendFile(jid, path, name, caption)
+}
+
+func (a *botAdapter) Typing(jid string, on bool) { a.b.typing(jid, on) }
+
 type server struct {
 	cfg config
 	bot botIface
@@ -24,80 +32,6 @@ type server struct {
 func newServer(cfg config, b botIface) *server { return &server{cfg: cfg, bot: b} }
 
 func (s *server) handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /send", chanlib.Auth(s.cfg.ChannelSecret, s.handleSend))
-	mux.HandleFunc("POST /send-file", chanlib.Auth(s.cfg.ChannelSecret, s.handleSendFile))
-	mux.HandleFunc("POST /typing", chanlib.Auth(s.cfg.ChannelSecret, s.handleTyping))
-	mux.HandleFunc("GET /health", s.handleHealth)
-	return mux
-}
-
-func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ChatJID  string `json:"chat_jid"`
-		Content  string `json:"content"`
-		ReplyTo  string `json:"reply_to"`
-		ThreadID string `json:"thread_id"`
-	}
-	if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
-		chanlib.WriteErr(w, 400, "chat_jid and content required")
-		return
-	}
-	sentID, err := s.bot.send(req.ChatJID, req.Content, req.ReplyTo, req.ThreadID)
-	if err != nil {
-		chanlib.WriteErr(w, 502, err.Error())
-		return
-	}
-	chanlib.WriteJSON(w, map[string]any{"ok": true, "id": sentID})
-}
-
-func (s *server) handleSendFile(w http.ResponseWriter, r *http.Request) {
-	if r.ParseMultipartForm(50<<20) != nil {
-		chanlib.WriteErr(w, 400, "invalid multipart")
-		return
-	}
-	jid, name, caption := r.FormValue("chat_jid"), r.FormValue("filename"), r.FormValue("caption")
-	if jid == "" {
-		chanlib.WriteErr(w, 400, "chat_jid required")
-		return
-	}
-	file, hdr, err := r.FormFile("file")
-	if err != nil {
-		chanlib.WriteErr(w, 400, "file required")
-		return
-	}
-	defer file.Close()
-	if name == "" {
-		name = hdr.Filename
-	}
-	tmp, err := os.CreateTemp("", "dc-*"+filepath.Ext(name))
-	if err != nil {
-		chanlib.WriteErr(w, 500, "temp file failed")
-		return
-	}
-	defer os.Remove(tmp.Name())
-	io.Copy(tmp, file)
-	tmp.Close()
-	if err := s.bot.sendFile(jid, tmp.Name(), name, caption); err != nil {
-		chanlib.WriteErr(w, 502, err.Error())
-		return
-	}
-	chanlib.WriteJSON(w, map[string]any{"ok": true})
-}
-
-func (s *server) handleTyping(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ChatJID string `json:"chat_jid"`
-		On      bool   `json:"on"`
-	}
-	json.NewDecoder(r.Body).Decode(&req)
-	s.bot.typing(req.ChatJID, req.On)
-	chanlib.WriteJSON(w, map[string]any{"ok": true})
-}
-
-func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	chanlib.WriteJSON(w, map[string]any{
-		"status": "ok", "name": s.cfg.Name,
-		"jid_prefixes": []string{"discord:"},
-	})
+	return chanlib.NewAdapterMux(
+		s.cfg.Name, s.cfg.ChannelSecret, []string{"discord:"}, &botAdapter{s.bot})
 }

@@ -11,12 +11,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
+	"github.com/onvos/arizuko/dbmig"
 	"github.com/robfig/cron/v3"
 	_ "modernc.org/sqlite"
 )
@@ -56,7 +55,7 @@ func main() {
 		slog.Warn("set WAL mode", "err", err)
 	}
 
-	if err := migrate(db); err != nil {
+	if err := dbmig.Run(db, migrationFS, "migrations", serviceName); err != nil {
 		slog.Error("migrate", "err", err)
 		os.Exit(1)
 	}
@@ -212,65 +211,6 @@ func nextCron(expr, tz string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return s.Next(time.Now().In(loc)), nil
-}
-
-func migrate(db *sql.DB) error {
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
-		service TEXT NOT NULL, version INTEGER NOT NULL, applied_at TEXT NOT NULL,
-		PRIMARY KEY (service, version))`); err != nil {
-		return fmt.Errorf("create migrations table: %w", err)
-	}
-
-	var max int
-	if err := db.QueryRow("SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?",
-		serviceName).Scan(&max); err != nil {
-		return fmt.Errorf("read migration version: %w", err)
-	}
-
-	entries, _ := migrationFS.ReadDir("migrations")
-	var files []string
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".sql") {
-			files = append(files, e.Name())
-		}
-	}
-	sort.Strings(files)
-
-	for _, f := range files {
-		ver, _ := strconv.Atoi(f[:4])
-		if ver <= max {
-			continue
-		}
-		if ver != max+1 {
-			return fmt.Errorf("migration gap: expected %d, got %d", max+1, ver)
-		}
-		if err := runMigration(db, f, ver); err != nil {
-			return err
-		}
-		max = ver
-	}
-	return nil
-}
-
-func runMigration(db *sql.DB, f string, ver int) error {
-	raw, err := migrationFS.ReadFile("migrations/" + f)
-	if err != nil {
-		return fmt.Errorf("%s: read: %w", f, err)
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(string(raw)); err != nil {
-		return fmt.Errorf("%s: %w", f, err)
-	}
-	if _, err := tx.Exec(
-		"INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",
-		serviceName, ver, time.Now().Format(time.RFC3339)); err != nil {
-		return fmt.Errorf("%s: record: %w", f, err)
-	}
-	return tx.Commit()
 }
 
 func cleanupSpawns(db *sql.DB, groupsDir string) {

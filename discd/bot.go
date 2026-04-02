@@ -78,14 +78,8 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if b.cfg.AssistantName != "" && b.session.State.User != nil {
-		mention := "<@" + b.session.State.User.ID + ">"
-		mentionNick := "<@!" + b.session.State.User.ID + ">"
-		if strings.Contains(content, mention) || strings.Contains(content, mentionNick) {
-			content = strings.ReplaceAll(content, mention, "@"+b.cfg.AssistantName)
-			content = strings.ReplaceAll(content, mentionNick, "@"+b.cfg.AssistantName)
-		}
-	}
+	content = replaceMentions(content, b.cfg.AssistantName,
+		b.session.State.User)
 
 	topic := ""
 	if isThread {
@@ -174,4 +168,17 @@ func (b *bot) typing(jid string, on bool) error {
 	}
 	chID := strings.TrimPrefix(jid, "discord:")
 	return b.session.ChannelTyping(chID)
+}
+
+func replaceMentions(content, assistantName string, user *discordgo.User) string {
+	if assistantName == "" || user == nil {
+		return content
+	}
+	mention := "<@" + user.ID + ">"
+	mentionNick := "<@!" + user.ID + ">"
+	if strings.Contains(content, mention) || strings.Contains(content, mentionNick) {
+		content = strings.ReplaceAll(content, mention, "@"+assistantName)
+		content = strings.ReplaceAll(content, mentionNick, "@"+assistantName)
+	}
+	return content
 }
