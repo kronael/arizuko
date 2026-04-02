@@ -231,9 +231,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 
 	var timedOut atomic.Bool
-	timer := time.AfterFunc(cfgTimeout, func() {
+	stopContainer := func(reason string) {
 		timedOut.Store(true)
-		slog.Info("container timeout, stopping",
+		slog.Info("container "+reason+", stopping",
 			"group", in.Folder, "container", containerName)
 		stop := exec.Command(
 			Bin, StopContainerArgs(containerName)...)
@@ -242,6 +242,15 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 				"group", in.Folder, "container", containerName)
 			cmd.Process.Kill()
 		}
+	}
+	// Hard deadline — absolute wall-clock limit, never resets.
+	// Prevents runaway containers when heartbeats keep the idle timer alive.
+	deadline := time.AfterFunc(cfgTimeout, func() {
+		stopContainer("hard deadline")
+	})
+	// Idle timer — resets on each output (including heartbeats).
+	timer := time.AfterFunc(cfg.IdleTimeout, func() {
+		stopContainer("idle timeout")
 	})
 
 	var (
@@ -322,6 +331,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	exitErr := cmd.Wait()
 	timer.Stop()
+	deadline.Stop()
 
 	if stopMCP != nil {
 		stopMCP()
