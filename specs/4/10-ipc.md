@@ -28,7 +28,7 @@ Each agent container connects from a known group folder.
 ipc resolves identity from the socket path:
 
 ```
-/data/ipc/<folder>/router.sock → folder = <folder>
+/ipc/<folder>/gated.sock → folder = <folder>
 ```
 
 Tier is computed from folder depth (slash count):
@@ -93,7 +93,7 @@ registering. Merges the former `spawn_group` tool.
 
 ```
 agent calls send_message("hello")
-  → ipc receives on /data/ipc/andy/research/router.sock
+  → ipc receives on /ipc/andy-research/gated.sock
   → resolves: folder=andy/research, tier=1
   → calls auth.Authorize: can tier=1 from andy/research do send_message?
   → auth: allow (tier 1 ≤ min tier 3)

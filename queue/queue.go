@@ -46,14 +46,14 @@ type GroupQueue struct {
 	processMessages processMessagesFn
 	notifyError     notifyErrorFn
 	shuttingDown    bool
-	dataDir         string
+	ipcDir          string
 }
 
-func New(maxConcurrent int, dataDir string) *GroupQueue {
+func New(maxConcurrent int, ipcDir string) *GroupQueue {
 	return &GroupQueue{
 		groups:        make(map[string]*groupState),
 		maxConcurrent: maxConcurrent,
-		dataDir:       dataDir,
+		ipcDir:        ipcDir,
 	}
 }
 
@@ -194,7 +194,7 @@ func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 	container := s.containerName
 	q.mu.Unlock()
 
-	inputDir := filepath.Join(q.dataDir, "ipc", folder, "input")
+	inputDir := filepath.Join(q.ipcDir, folder, "input")
 	if err := os.MkdirAll(inputDir, 0o755); err != nil {
 		return false
 	}
@@ -224,7 +224,7 @@ func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 }
 
 func (q *GroupQueue) closeStdinLocked(s *groupState) {
-	inputDir := filepath.Join(q.dataDir, "ipc", s.groupFolder, "input")
+	inputDir := filepath.Join(q.ipcDir, s.groupFolder, "input")
 	_ = os.MkdirAll(inputDir, 0o755)
 	_ = os.WriteFile(filepath.Join(inputDir, "_close"), nil, 0o644)
 	if s.containerName != "" {

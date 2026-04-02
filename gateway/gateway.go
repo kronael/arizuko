@@ -61,10 +61,10 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 	return &Gateway{
 		cfg:   cfg,
 		store: s,
-		queue: queue.New(cfg.MaxContainers, cfg.DataDir),
+		queue: queue.New(cfg.MaxContainers, cfg.IpcDir),
 		folders: &groupfolder.Resolver{
 			GroupsDir: cfg.GroupsDir,
-			DataDir:   cfg.DataDir,
+			IpcDir:    cfg.IpcDir,
 		},
 		groups:       make(map[string]core.Group),
 		agentCursors: make(map[string]time.Time),

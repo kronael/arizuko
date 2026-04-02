@@ -14,7 +14,7 @@ var reservedFolders = map[string]bool{"share": true}
 
 type Resolver struct {
 	GroupsDir string
-	DataDir   string
+	IpcDir    string
 }
 
 func isValidFolder(folder string) bool {
@@ -61,7 +61,7 @@ func (r *Resolver) IpcPath(folder string) (string, error) {
 	if !isValidFolder(folder) {
 		return "", fmt.Errorf("invalid group folder %q", folder)
 	}
-	base := filepath.Join(r.DataDir, "ipc")
+	base := r.IpcDir
 	p := filepath.Join(base, folder)
 	if err := ensureWithinBase(base, p); err != nil {
 		return "", err

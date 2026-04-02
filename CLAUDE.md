@@ -69,7 +69,9 @@ mastd/             Mastodon adapter (Go)
 bskyd/             Bluesky adapter (Go)
 reditd/            Reddit adapter (Go)
 whapd/             WhatsApp adapter (TypeScript)
+emaid/             Email adapter (IMAP/SMTP, Go)
 proxyd/            Web proxy daemon (/pub/ public, /* auth-gated)
+dbmig/             Shared migration framework (library)
 cfg/               Instance config files (per-deploy .env snapshots)
 ```
 
@@ -88,7 +90,7 @@ cfg/               Instance config files (per-deploy .env snapshots)
 - `store/` — SQLite DB
 - `groups/<folder>/` — group files, logs, diary
 - `groups/<folder>/media/<YYYYMMDD>/` — downloaded inbound attachments
-- `data/ipc/<folder>/` — MCP unix sockets
+- `ipc/<folder>/` — MCP unix sockets + sidecar sockets
 - `groups/<folder>/.claude/` — agent session state (skills, settings, CLAUDE.md)
 
 ## Config
@@ -109,7 +111,7 @@ API server always starts (default port 8080).
 `arizuko group <instance> list|add|rm` — manage registered groups.
 `arizuko status <instance>` — show compose services and registered channels.
 
-Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`, `mastd`, `bskyd`, `reditd`, `onbod`, `dashd`. Each in `<name>/main.go`.
+Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`, `mastd`, `bskyd`, `reditd`, `emaid`, `onbod`, `dashd`. Each in `<name>/main.go`.
 
 ## Service Architecture
 
@@ -126,6 +128,7 @@ Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 | `grants`  | library | Grant rule engine                                                     |
 | `notify`  | library | Operator notifications                                                |
 | `chanlib` | library | Shared HTTP + auth primitives for channel adapters                    |
+| `dbmig`   | library | Shared SQLite migration framework                                     |
 | `teled`   | daemon  | Telegram adapter (Go)                                                 |
 | `discd`   | daemon  | Discord adapter (Go)                                                  |
 | `mastd`   | daemon  | Mastodon adapter (Go)                                                 |
@@ -137,7 +140,7 @@ Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 | `emaid`   | daemon  | Email adapter (IMAP/SMTP, Go)                                         |
 
 Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
-Libraries: `ipc/`, `auth/`, `chanlib/`. Host CLI: `cmd/arizuko/main.go`.
+Libraries: `ipc/`, `auth/`, `chanlib/`, `dbmig/`. Host CLI: `cmd/arizuko/main.go`.
 
 ## Operational check (post-deploy)
 
@@ -157,7 +160,7 @@ sudo journalctl -u arizuko_<instance> --since "5 minutes ago" --no-pager \
 sudo docker ps --filter "name=arizuko-" --format "{{.Names}} {{.Status}}"
 
 # 5. MCP socket check
-ls /srv/data/arizuko_<instance>/data/ipc/*/gated.sock 2>/dev/null
+ls /srv/data/arizuko_<instance>/ipc/*/gated.sock 2>/dev/null
 ```
 
 Red flags: `"error in message loop"`, `"container timeout"`,

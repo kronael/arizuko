@@ -42,7 +42,7 @@ func TestEnsureWithinBase(t *testing.T) {
 
 func TestResolverGroupPath(t *testing.T) {
 	dir := t.TempDir()
-	r := &Resolver{GroupsDir: dir, DataDir: dir}
+	r := &Resolver{GroupsDir: dir, IpcDir: filepath.Join(dir, "ipc")}
 
 	p, err := r.GroupPath("main")
 	if err != nil {
@@ -65,7 +65,7 @@ func TestResolverGroupPath(t *testing.T) {
 
 func TestResolverIpcPath(t *testing.T) {
 	dir := t.TempDir()
-	r := &Resolver{GroupsDir: dir, DataDir: dir}
+	r := &Resolver{GroupsDir: dir, IpcDir: filepath.Join(dir, "ipc")}
 
 	p, err := r.IpcPath("main")
 	if err != nil {
@@ -97,7 +97,7 @@ func TestIsRoot(t *testing.T) {
 func TestResolverPathTraversal(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "groups"), 0o755)
-	r := &Resolver{GroupsDir: filepath.Join(dir, "groups"), DataDir: dir}
+	r := &Resolver{GroupsDir: filepath.Join(dir, "groups"), IpcDir: filepath.Join(dir, "ipc")}
 
 	attacks := []string{
 		"../../../etc/passwd",

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -71,7 +72,7 @@ func testGateway(t *testing.T) (*Gateway, *store.Store) {
 	cfg := &core.Config{
 		Name:          "test",
 		MaxContainers: 2,
-		DataDir:       dir,
+		IpcDir:        filepath.Join(dir, "ipc"),
 		GroupsDir:     dir,
 	}
 	gw := New(cfg, s)

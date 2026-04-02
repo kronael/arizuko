@@ -16,9 +16,9 @@ across folders. All I/O via IPC files. File deletion = acknowledgment.
 Folder path encoded: `/` -> `-`, `-` -> `--`.
 
 ```
-root           -> /data/ipc/root/
-atlas/support  -> /data/ipc/atlas-support/
-atlas-v2       -> /data/ipc/atlas--v2/
+root           -> /ipc/root/
+atlas/support  -> /ipc/atlas-support/
+atlas-v2       -> /ipc/atlas--v2/
 ```
 
 ## Delivery Guarantees

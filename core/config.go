@@ -37,7 +37,7 @@ type Config struct {
 	HostAppDir      string
 	StoreDir        string
 	GroupsDir       string
-	DataDir         string
+	IpcDir          string
 	HostGroupsDir   string
 	WebDir          string
 
@@ -97,7 +97,7 @@ func LoadConfig() (*Config, error) {
 		HostAppDir:      appDir,
 		StoreDir:        filepath.Join(root, "store"),
 		GroupsDir:       filepath.Join(root, "groups"),
-		DataDir:         filepath.Join(root, "data"),
+		IpcDir:          filepath.Join(root, "ipc"),
 		HostGroupsDir:   filepath.Join(hostRoot, "groups"),
 		WebDir:          filepath.Join(root, "web"),
 

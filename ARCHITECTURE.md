@@ -56,7 +56,10 @@ grants/              (library)
   └── CheckAction, NarrowRules, MatchingRules, DeriveRules
 
 chanlib/             (library)
-  └── RouterClient, InboundMsg, InboundAttachment, Auth middleware — shared by all channel adapters
+  └── RouterClient, InboundMsg, InboundAttachment, NewAdapterMux — shared by all channel adapters
+
+dbmig/               (library)
+  └── Shared SQLite migration framework (keyed by service name)
 ```
 
 ## Message Flow
@@ -284,7 +287,7 @@ cursor advances (partial work preserved).
 
 MCP server on unix socket (`mark3labs/mcp-go`). Gateway starts
 one `ipc` server per group before container spawn, listening on
-`data/ipc/<folder>/gated.sock`. Tools registered from MCP manifest
+`ipc/<folder>/gated.sock`. Tools registered from MCP manifest
 filtered by grants rules for the caller's group; runtime auth via
 `auth.Authorize`. `set_grants`/`get_grants` tools allow agents to
 read and write grant rules. `delegate_group` calls `NarrowRules`
@@ -541,6 +544,7 @@ mountsec/           Mount allowlist validation
 template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
 chanlib/            Shared HTTP + auth primitives for channel adapters
+dbmig/              Shared SQLite migration framework
 grants/             Grant rule engine
 notify/             Operator notification fan-out (library)
 gated/              Gateway daemon
@@ -566,6 +570,6 @@ whapd/              WhatsApp adapter (TypeScript)
 - `services/` — enabled product TOMLs; `compose.Generate` reads all `*.toml` here
 - `groups/<folder>/` — group files, logs, diary, media
 - `groups/<world>/share/` — cross-group shared state
-- `data/ipc/<folder>/` — MCP unix sockets + sidecar sockets
+- `ipc/<folder>/` — MCP unix sockets + sidecar sockets
 - `groups/<folder>/.claude/` — agent session state (settings, skills, CLAUDE.md)
 - `web/` — vite web app

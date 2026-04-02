@@ -564,11 +564,10 @@ func hp(cfg *core.Config, local string) string {
 	if cfg.HostProjectRoot == "" {
 		return local
 	}
-	projRoot := filepath.Dir(cfg.DataDir)
-	if !strings.HasPrefix(local, projRoot) {
+	if !strings.HasPrefix(local, cfg.ProjectRoot) {
 		return local
 	}
-	rel, _ := filepath.Rel(projRoot, local)
+	rel, _ := filepath.Rel(cfg.ProjectRoot, local)
 	return filepath.Join(cfg.HostProjectRoot, rel)
 }
 

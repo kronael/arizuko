@@ -99,7 +99,7 @@ func cmdCreate(args []string) {
 	name := args[0]
 	dataDir := instanceDir(name)
 
-	for _, sub := range []string{"store", "groups/main/logs", "data", "web", "services"} {
+	for _, sub := range []string{"store", "groups/main/logs", "ipc", "web", "services"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: mkdir %s: %v\n", sub, err)
 			os.Exit(1)

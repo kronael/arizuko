@@ -82,7 +82,7 @@ for working on host projects.
 | Session state  | `groups/<folder>/.claude/`    | `/home/node/.claude`     | rw — settings.json, skills, memory |
 | App source     | `cfg.HostAppDir`              | `/workspace/self`        | ro — agent can read own code       |
 | Share          | `groups/<world>/share/`       | `/workspace/share`       | rw for root, ro for non-root       |
-| IPC dir        | `data/ipc/<folder>/`          | `/workspace/ipc`         | rw — MCP socket + IPC file drop    |
+| IPC dir        | `ipc/<folder>/`               | `/workspace/ipc`         | rw — MCP socket                    |
 | Groups dir     | `data/groups/`                | `/workspace/data/groups` | root group only                    |
 | Web dir        | `cfg.WebDir`                  | `/workspace/web`         | if exists                          |
 | Dev runner src | `container/agent-runner/src/` | `/app/src`               | only when `ARIZUKO_DEV=1`          |
@@ -107,7 +107,7 @@ Direct docker env args:
 
 ### MCP server (IPC)
 
-Host starts a unix socket server at `data/ipc/<folder>/router.sock` before
+Host starts a unix socket server at `ipc/<folder>/gated.sock` before
 `docker run`. The socket is bridged into the container via socat:
 
 ```

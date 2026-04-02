@@ -13,7 +13,7 @@ the semantics are unchanged.
 The agent wrote JSON files; the gateway polled/inotify-drained them.
 
 arizuko replaces this with MCP over a unix socket at
-`data/ipc/<group>/gated.sock`. Inside the container the socket is mounted at
+`ipc/<group>/gated.sock`. Inside the container the socket is mounted at
 `/workspace/ipc/gated.sock`. The agent connects to it via a socat bridge that
 is injected into `.claude/settings.json` as an MCP server named `arizuko`.
 
@@ -98,15 +98,15 @@ If your instance uses a root folder named something other than `root` (e.g.
 
 ### Removed from arizuko
 
-| Var                                                                                    | Notes                                                                                                                                     |
-| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `ASSISTANT_HAS_OWN_NUMBER`                                                             | WhatsApp-specific, removed with monolithic channel model.                                                                                 |
-| `VITE_PORT`                                                                            | Accepted as alias for `WEB_PORT` in kanipi. arizuko only reads `WEB_PORT`; use `VITE_PORT_INTERNAL` for the internal Vite port.           |
-| `SLINK_ANON_RPM` / `SLINK_AUTH_RPM`                                                    | Slink rate limits were per-instance vars. In arizuko slink tokens are stored on groups but slink rate limiting is not yet ported (dashd). |
-| `WEB_PUBLIC`                                                                           | Controls public access to the web UI. Not implemented in arizuko yet.                                                                     |
-| `WEBDAV_ENABLED` / `WEBDAV_URL`                                                        | WebDAV integration not ported.                                                                                                            |
-| `FILE_TRANSFER_ENABLED` / `FILE_DENY_GLOBS` / `FILE_MAX_*`                             | File command surface not ported to arizuko.                                                                                               |
-| Social channel vars (`MASTODON_*`, `BLUESKY_*`, `REDDIT_*`, `TWITTER_*`, `FACEBOOK_*`) | Social channels are TypeScript-specific; not ported.                                                                                      |
+| Var                                                        | Notes                                                                                                                                     |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `ASSISTANT_HAS_OWN_NUMBER`                                 | WhatsApp-specific, removed with monolithic channel model.                                                                                 |
+| `VITE_PORT`                                                | Accepted as alias for `WEB_PORT` in kanipi. arizuko only reads `WEB_PORT`; use `VITE_PORT_INTERNAL` for the internal Vite port.           |
+| `SLINK_ANON_RPM` / `SLINK_AUTH_RPM`                        | Slink rate limits were per-instance vars. In arizuko slink tokens are stored on groups but slink rate limiting is not yet ported (dashd). |
+| `WEB_PUBLIC`                                               | Replaced by `/pub/` path convention in proxyd. No env var needed.                                                                         |
+| `WEBDAV_ENABLED` / `WEBDAV_URL`                            | Replaced by `DAV_ADDR` — proxyd proxies `/dav/` to a dufs container.                                                                      |
+| `FILE_TRANSFER_ENABLED` / `FILE_DENY_GLOBS` / `FILE_MAX_*` | File command surface not ported to arizuko.                                                                                               |
+| Social channel vars (`TWITTER_*`, `FACEBOOK_*`)            | Twitter and Facebook not ported. Mastodon, Bluesky, Reddit are separate Go daemons with own env vars (see service TOMLs).                 |
 
 ### Behaviorally different
 
@@ -247,7 +247,7 @@ or be re-created.
 
 - GitHub: shipped in both. Callback URL: `/auth/github/callback`.
 - Discord: shipped in both. Callback URL: `/auth/discord/callback`.
-- Google: shipped in kanipi, **not ported** to arizuko.
+- Google: shipped in both. Callback URL: `/auth/google/callback`.
 - Telegram widget: shipped in arizuko (`POST /auth/telegram`), not in kanipi.
 
 **`AUTH_BASE_URL` vs `WEB_HOST`:** kanipi used `WEB_HOST` to construct
@@ -298,23 +298,23 @@ start from the standard template.
 
 From `.kanipi-delta.md` and code inspection:
 
-| Feature                              | Notes                                                                  |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| `refresh_groups` IPC action          | No equivalent; channel adapters sync state via HTTP registration       |
-| Social channels                      | Twitter, Bluesky, Mastodon, Reddit, Facebook — TS-specific, not ported |
-| `prototype/.claude/` seed            | Skills seeding path changed; prototype concept removed                 |
-| WebDAV integration                   | `WEBDAV_ENABLED` / `WEBDAV_URL` ignored                                |
-| File transfer commands               | `/file put\|get\|list` — not ported                                    |
-| Per-group web prefix / virtual hosts | Not implemented                                                        |
-| MIME enrichment via Whisper sidecar  | Whisper still requires a standalone service; sidecar wiring not ported |
-| Cross-channel preemption             | Not implemented                                                        |
-| SSE stream                           | kanipi had `/_REDACTED/stream`; arizuko uses `/slink/stream`              |
+| Feature                              | Notes                                                            |
+| ------------------------------------ | ---------------------------------------------------------------- |
+| `refresh_groups` IPC action          | No equivalent; channel adapters sync state via HTTP registration |
+| Twitter / Facebook channels          | Not ported (Bluesky, Mastodon, Reddit are now native Go daemons) |
+| `prototype/.claude/` seed            | Skills seeding path changed; prototype concept removed           |
+| File transfer commands               | `/file put\|get\|list` — not ported                              |
+| Per-group web prefix / virtual hosts | Not implemented                                                  |
+| Cross-channel preemption             | Not implemented                                                  |
 
 ---
 
 ## Data Directory Layout
 
-No change to the top-level layout (`store/`, `groups/`, `data/`, `data/ipc/`).
+Top-level layout changed: kanipi used `data/ipc/<group>/` for IPC sockets;
+arizuko uses `ipc/<group>/` (no `data/` prefix). The `data/` directory no
+longer exists. Config field `DataDir` was replaced with `IpcDir`.
+
 Agent session state (`.claude/`) now lives inside the group folder at
 `groups/<folder>/.claude/` — there is no separate `data/sessions/` tree.
 The instance root convention changed: kanipi used `DATA_DIR` pointing at cwd;

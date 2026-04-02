@@ -229,14 +229,14 @@ Each agent container gets these mounts:
 | `groups/<folder>/`                            | `/home/node`             | rw                       |
 | `<app-dir>/`                                  | `/workspace/self`        | ro                       |
 | `groups/<world>/share/`                       | `/workspace/share`       | rw (root only), ro (sub) |
-| `data/ipc/<folder>/`                          | `/workspace/ipc`         | rw                       |
+| `ipc/<folder>/`                               | `/workspace/ipc`         | rw                       |
 | `data/groups/`                                | `/workspace/data/groups` | rw (root group only)     |
 | Optional: `cfg.WebDir`                        | `/workspace/web`         | rw                       |
 | Optional: additional mounts from group config | various                  | as configured            |
 
 ### MCP IPC
 
-- Host creates a unix socket at `data/ipc/<folder>/router.sock`
+- Host creates a unix socket at `ipc/<folder>/gated.sock`
 - `ipc.ServeMCP()` listens on it before container start
 - Container's `~/.claude/settings.json` is seeded with:
   ```json
@@ -385,8 +385,8 @@ mount only the specific group subdirectories, not the whole data dir.
 The MCP unix socket (`router.sock`) is the most architecturally critical IPC
 path. Currently:
 
-1. Host creates unix socket at `data/ipc/<folder>/router.sock`
-2. Container mounts `data/ipc/<folder>/` at `/workspace/ipc`
+1. Host creates unix socket at `ipc/<folder>/gated.sock`
+2. Container mounts `ipc/<folder>/` at `/workspace/ipc`
 3. Agent in container connects via `socat STDIO UNIX-CONNECT:/workspace/ipc/router.sock`
 
 **In a VM, the socket does not cross the VM boundary automatically.** Options:

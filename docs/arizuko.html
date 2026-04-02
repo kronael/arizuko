@@ -286,7 +286,7 @@ Channel adapter &rarr; <span class="fn">POST /v1/messages</span> (api) &rarr; st
     &rarr; stream output &rarr; router.<span class="fn">FormatOutbound</span>
     &rarr; HTTPChannel.<span class="fn">Send</span> &rarr; <span class="fn">POST /send</span> to channel adapter</pre></div>
 
-<p style="font-size: 0.85em; color: var(--dim);">Each agent runs in its own docker container. The gateway mounts group folders, IPC dirs, and session state. Agent reads a JSON prompt from stdin, writes JSON to stdout delimited by <code>---ARIZUKO_OUTPUT_START---</code> / <code>---ARIZUKO_OUTPUT_END---</code>. MCP tools available over a unix socket (<code>data/ipc/&lt;folder&gt;/router.sock</code>) bridged in via socat.</p>
+<p style="font-size: 0.85em; color: var(--dim);">Each agent runs in its own docker container. The gateway mounts group folders, IPC dirs, and session state. Agent reads a JSON prompt from stdin, writes JSON to stdout delimited by <code>---ARIZUKO_OUTPUT_START---</code> / <code>---ARIZUKO_OUTPUT_END---</code>. MCP tools available over a unix socket (<code>ipc/&lt;folder&gt;/gated.sock</code>) bridged in via socat.</p>
 
 <h3>Impulse Gate</h3>
 <p style="font-size: 0.85em; color: var(--dim);">
@@ -305,7 +305,7 @@ Channel adapter &rarr; <span class="fn">POST /v1/messages</span> (api) &rarr; st
 <h3>IPC: MCP over Unix Socket</h3>
 <p style="font-size: 0.85em; color: var(--dim);">
   The <code>ipc/</code> package starts one MCP server per group before container spawn, listening on
-  <code>data/ipc/&lt;folder&gt;/router.sock</code> (mark3labs/mcp-go library).
+  <code>ipc/&lt;folder&gt;/gated.sock</code> (mark3labs/mcp-go library).
   socat bridges the socket into the container. Agent-runner configures the <code>arizuko</code> MCP server
   (<code>mcp__arizuko__*</code> tool names) in <code>settings.json</code>. Tools exposed are filtered by
   the grants engine for the caller's group. Socket is cleaned up after the container exits.
@@ -329,8 +329,8 @@ Channel adapter &rarr; <span class="fn">POST /v1/messages</span> (api) &rarr; st
     <tr><td><code>media</code></td><td><code>/workspace/media</code></td><td>media files (rw)</td></tr>
     <tr><td><code>self</code></td><td><code>/workspace/self</code></td><td>arizuko source (ro, tier-0 only)</td></tr>
     <tr><td><code>share</code></td><td><code>groups/&lt;world&gt;/share/</code></td><td>cross-group shared state (rw root/world, ro agent/worker)</td></tr>
-    <tr><td><code>session</code></td><td><code>data/sessions/&lt;folder&gt;/.claude/</code></td><td>agent session, skills, CLAUDE.md (rw, ro for tier 2+)</td></tr>
-    <tr><td><code>ipc</code></td><td><code>data/ipc/&lt;folder&gt;/</code></td><td>MCP unix socket, sidecar sockets (rw)</td></tr>
+    <tr><td><code>session</code></td><td><code>groups/&lt;folder&gt;/.claude/</code></td><td>agent session, skills, CLAUDE.md (rw, ro for tier 2+)</td></tr>
+    <tr><td><code>ipc</code></td><td><code>ipc/&lt;folder&gt;/</code></td><td>MCP unix socket, sidecar sockets (rw)</td></tr>
     <tr><td><code>web</code></td><td><code>/workspace/web</code></td><td>web output (rw, root/world only)</td></tr>
     <tr><td><code>extra</code></td><td><code>/workspace/extra/...</code></td><td>additional mounts (ro, validated by mountsec)</td></tr>
   </table>
@@ -513,7 +513,7 @@ Channel adapter &rarr; <span class="fn">POST /v1/messages</span> (api) &rarr; st
   <div class="comp-card">
     <div class="comp-name">ipc</div>
     <div class="comp-desc">MCP server library. One unix socket per group per container run.</div>
-    <div class="comp-detail">mark3labs/mcp-go. Socket at <code>data/ipc/&lt;folder&gt;/router.sock</code>. Tools registered from MCP manifest, filtered by grants rules for the caller's group. <code>set_grants</code>/<code>get_grants</code> tools allow agents to read/write their own grant rules. <code>delegate_group</code> calls <code>NarrowRules</code> before persisting.</div>
+    <div class="comp-detail">mark3labs/mcp-go. Socket at <code>ipc/&lt;folder&gt;/gated.sock</code>. Tools registered from MCP manifest, filtered by grants rules for the caller's group. <code>set_grants</code>/<code>get_grants</code> tools allow agents to read/write their own grant rules. <code>delegate_group</code> calls <code>NarrowRules</code> before persisting.</div>
   </div>
 
   <div class="comp-card">
@@ -737,7 +737,7 @@ gated/main
       threshold 100, social verbs=0, max_hold=5min, per-JID config in routes.impulse_config JSON column,
       platform wildcard e.g. discord: applies to all Discord JIDs) → routing → queue → container.Run.
       Non-trigger JIDs routed to same group appear as &lt;observed&gt; in agent prompt (enables cross-channel watch patterns).
-      IPC: MCP over unix socket (mark3labs/mcp-go). One server per group at data/ipc/&lt;folder&gt;/router.sock.
+      IPC: MCP over unix socket (mark3labs/mcp-go). One server per group at ipc/&lt;folder&gt;/gated.sock.
       socat bridges socket into container. Tool names: mcp__arizuko__*. Tools filtered by grants engine per caller group.
       Grants: rule strings [!]action[(param=glob,...)] last-match-wins; no match=deny. NarrowRules for delegation.
       DeriveRules by tier: tier-0 *, tier-1 platform sends + management, tier-2 send only, deeper send_reply only.
@@ -781,7 +781,7 @@ chanlib: shared go library (RouterClient, InboundMsg with verb, auth middleware)
 verb-field: core.Message.Verb + chanlib.InboundMsg.Verb; social events set join/edit/delete; stored in sqlite
 impulse-gate: weight-based batching per JID; threshold 100; social verbs=0; max_hold=5min; per-JID config in routes.impulse_config JSON; platform wildcard (discord: applies to all discord JIDs)
 observed-messages: non-trigger JIDs routed to same group appear as <observed> in prompt; merged by timestamp
-ipc: MCP over unix socket (mark3labs/mcp-go); data/ipc/<folder>/router.sock; socat bridge into container; tools mcp__arizuko__*; filtered by grants
+ipc: MCP over unix socket (mark3labs/mcp-go); ipc/<folder>/gated.sock; socat bridge into container; tools mcp__arizuko__*; filtered by grants
 grants: rule format [!]action[(param=glob,...)]; last-match-wins; CheckAction NarrowRules MatchingRules DeriveRules; tier-0 * tier-1 platform-sends tier-2 send-only deeper send_reply-only; injected into start.json
 auth: JWT + 30-day rotating refresh tokens; OAuth google(hd= hint) github(org gate) discord; telegram login widget (5min replay protection); rate limit 5/15min/IP; secure cookies from https url
 web-channel: web:<folder> JIDs via proxyd; per-topic agent runs; slink tokens 10req/min/IP

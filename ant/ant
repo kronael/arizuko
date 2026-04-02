@@ -23,7 +23,7 @@ Options:
 Examples:
   ant ~/project "summarize the codebase"
   ant ~/project                        # interactive
-  ant -g /srv/data/REDACTED/data/ipc/root/gated.sock ~/project "task"
+  ant -g /srv/data/REDACTED/ipc/root/gated.sock ~/project "task"
 EOF
     exit 0
 }
