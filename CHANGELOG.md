@@ -9,7 +9,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-### Fixed
+---
+
+## [v0.21.0] — 2026-04-02
+
+Full daemon audit: 50+ bugs found and fixed across 25+ files. Skills audit and simplification.
+
+### Fixed — Audit rounds 1-3
 
 - **container**: parseBuf unbounded growth; large agent output could OOM the gateway
 - **container**: seedSettings race condition; concurrent spawns for the same group could corrupt
@@ -28,17 +34,69 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **proxyd**: per-IP rate limiter entries never evicted; memory leak over time
 - **discd**: dropped attachment captions; made per-message API call instead of batching
 - **router**: mdToHTML did not escape HTML entities; user input could inject HTML
+- **gateway/spawn**: data race in spawnFromPrototype; `g.groups` map read without mutex
+- **emaid**: SMTP header injection via unsanitized CRLF in `to` and `rootMsgID`
+- **auth**: JWT injected into script tag without escaping (`%s` → `%q`)
+- **gateway**: downloadFile leaves orphan file on error; also checked close error
+- **emaid**: IMAP Store command result never awaited; `\Seen` flag could fail silently
+- **auth**: loginLimiter memory leak; per-IP entries never evicted (added 10K cap)
+- **compose**: yamlList doesn't escape single quotes; could produce invalid docker-compose.yml
+- **emaid**: upsertThread tx.Exec errors discarded silently
+
+### Fixed — Audit round 4
+
+- **gateway**: silent delivery failure drops agent responses; now stores response on send error
+- **proxyd**: raw AUTH_SECRET bypass removed; only JWTs accepted
+- **gateway/spawn**: MaxChildren semantics unified with auth.IsDirectChild
+- **container**: seedSettings wrote to wrong path (DataDir instead of GroupsDir); root agent
+  never saw ARIZUKO_IS_ROOT
+- **container**: stale NANOCLAW\_ env vars cleaned from settings.json on every spawn
+- **proxyd**: vhosts rewrite path internally instead of 301 redirect; redirect caused infinite
+  loop because browser keeps Host header
+
+### Fixed — Skills audit (11 bugs across 9 skills)
+
+- **skills/info**: migration version hardcoded as 1 instead of 51
+- **skills/self**: MCP tools table missing 5 tools
+- **skills/hello**: ARIZUKO_IS_WORLD_ADMIN env var never set by runner
+- **skills/howto**: same ARIZUKO_IS_WORLD_ADMIN issue
+- **skills/reload**: description said "gateway process" but kills container PID 1
+- **skills/recall-messages**: get_history described as raw JSON IPC, is MCP tool
+- **skills/compact-memories**: schedule_task examples used wrong param names
+- **skills/web**: vite restart section referenced PID file inside another container
+- **skills/infra**: referenced 301 redirect, now internal path rewrite
+- **skills/acquire**: tilde in curl -F doesn't expand; relative Read path
+- **skills/tweet**: referenced nonexistent examples/ directory
+
+### Added
+
+- **chanlib**: `NewAdapterMux` — shared adapter HTTP server (send, send-file, typing, health)
+- **dbmig**: shared SQL migration framework extracted from onbod + timed
+- **chanlib**: 13 handler tests
+- **chanreg**: health endpoint test
+- **discd**: bot/mentions tests
+- **gateway**: impulse test, 8 makeOutputCallback/sendMessageReply tests
+- **store**: sessions test
+- **skills/migrate**: group discovery via `refresh_groups` MCP tool
 
 ### Changed
 
 - **timed**: added SIGTERM handler for graceful shutdown
 - **dashd**: added SIGTERM handler for graceful shutdown
 - **proxyd**: added SIGTERM handler for graceful shutdown
+- **teled, discd, mastd, bskyd, reditd**: converted to use `chanlib.NewAdapterMux`
+- **grants**: uses `core.JidPlatform`, removed local duplicate
+
+### Refined
+
+- **skills**: 9 skills simplified — removed defensive checks, assume consistent state
+  (recall-memories, recall-messages, self, info, hello, migrate, howto, web, infra)
 
 ### Removed
 
 - **store**: dead code — `UnroutedMessages`, `RecentMessages`, `GroupMessages`,
   `SetMessageStatus` (unused)
+- **auth**: dead code — `Middleware` function, `publicPrefixes`, `publicExact`
 
 ---
 
