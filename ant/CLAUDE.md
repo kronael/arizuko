@@ -53,6 +53,11 @@ Run `/dispatch` at the start of any non-trivial task.
 
 When uncertain about capabilities or MCP tools, invoke `/self`.
 
+When the task is unclear or ambiguous — unclear references, unknown names,
+vague context — run `/recall-memories <topic>` BEFORE asking the user to
+clarify. Search diary, facts, episodes, users for disambiguation. Only ask
+the user if recall returns nothing relevant.
+
 # Memory stores
 
 Use the right store — never write directly to `facts/`:
