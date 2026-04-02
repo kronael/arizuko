@@ -609,6 +609,13 @@ func seedSettings(
 		}
 	}
 
+	// Remove stale NANOCLAW_ keys from pre-rename era.
+	for k := range env {
+		if strings.HasPrefix(k, "NANOCLAW_") {
+			delete(env, k)
+		}
+	}
+
 	env["WEB_HOST"] = cfg.WebHost
 	env["ARIZUKO_ASSISTANT_NAME"] = cfg.Name
 	env["ARIZUKO_IS_ROOT"] = ""
