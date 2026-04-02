@@ -9,6 +9,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+---
+
+## [v0.20.1] — 2026-04-02
+
 ### Added
 
 - **ipc/send_file**: `caption` param on `send_file` MCP tool; teled sends as native caption,
@@ -25,6 +29,24 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   updates content and clears attachments after enrichment
 - **agent**: sees attachments as `<attachment path="..." mime="..." filename="..."/>` XML in
   message content (path is container-side `/home/node/media/...`)
+- **skills**: `/dispatch` skill for task-level skill discovery and reconciliation
+- **chanlib**: 17 tests covering RouterClient, Auth, Chunk, WriteJSON, WriteErr
+
+### Fixed
+
+- **container**: scope orphan cleanup and container names to instance; multi-instance deployments
+  were killing each other's containers on startup
+- **container**: mount GroupsDir at `/workspace/data/groups` for root containers; migrate skill
+  was broken because path was never mounted
+- **gateway**: log errors in `delegateToFolder` and `handlePrefixRoute` send paths; delivery
+  callback tests added
+- **gateway**: simplify message loop, retry logic, cache mention regex
+- **gateway**: log `sendMessageReply` errors instead of discarding them
+- **teled**: remove duplicate typing loop; gateway `keepTyping` already refreshes every 6s
+- **teled**: capture reply-to threading from Telegram
+- **vite**: bake `allowedHosts` config into Dockerfile; CLI flag not supported in Vite 8
+- **skills**: remove dead `ARIZUKO_GROUP_FOLDER`/`TIER`/`CHAT_JID` env vars; fix NANOCLAW→ARIZUKO
+  naming in skill files
 
 ---
 
