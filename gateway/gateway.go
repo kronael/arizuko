@@ -571,7 +571,7 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 		}
 		stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
 		for _, s := range statuses {
-			sentID, err := g.sendMessageReply(chatJid, s, "", "")
+			sentID, err := g.sendMessageReply(chatJid, "⏳ "+s, "", "")
 			if err != nil {
 				slog.Error("send status failed",
 					"jid", chatJid, "group", groupFolder, "err", err)

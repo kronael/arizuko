@@ -872,8 +872,8 @@ func TestMakeOutputCallback_StripsThinksAndStatus(t *testing.T) {
 	if len(sent) != 2 {
 		t.Fatalf("sent count = %d, want 2 (status + reply)", len(sent))
 	}
-	if sent[0].text != "Working on it" {
-		t.Errorf("status text = %q, want %q", sent[0].text, "Working on it")
+	if sent[0].text != "⏳ Working on it" {
+		t.Errorf("status text = %q, want %q", sent[0].text, "⏳ Working on it")
 	}
 	if sent[1].text != "Visible reply" {
 		t.Errorf("reply text = %q, want %q", sent[1].text, "Visible reply")
