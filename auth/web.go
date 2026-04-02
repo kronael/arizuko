@@ -51,6 +51,13 @@ func loginAllowed(ip string) bool {
 		return false
 	}
 	loginLimiter.buckets[ip] = append(hits, now)
+	if len(loginLimiter.buckets) > 10000 {
+		for k, v := range loginLimiter.buckets {
+			if len(v) == 0 {
+				delete(loginLimiter.buckets, k)
+			}
+		}
+	}
 	return true
 }
 
@@ -165,7 +172,7 @@ func issueSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, nam
 	})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!DOCTYPE html><html><head><script>
-localStorage.setItem('jwt','%s');window.location='/';
+localStorage.setItem('jwt',%q);window.location='/';
 </script></head><body></body></html>`, jwt)
 }
 

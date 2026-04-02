@@ -949,13 +949,18 @@ func downloadFile(url, dest string, maxBytes int64) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	src := io.Reader(resp.Body)
 	if maxBytes > 0 {
 		src = io.LimitReader(resp.Body, maxBytes)
 	}
-	_, err = io.Copy(f, src)
-	return err
+	_, cpErr := io.Copy(f, src)
+	if closeErr := f.Close(); cpErr == nil {
+		cpErr = closeErr
+	}
+	if cpErr != nil {
+		os.Remove(dest)
+	}
+	return cpErr
 }
 
 // whisperTranscribe transcribes a voice file via OpenAI-compatible whisper API.

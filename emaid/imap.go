@@ -303,10 +303,13 @@ func (p *poller) handleMsg(
 	}
 
 	// Pass UIDSet to Store — the library detects UIDSet and issues UID STORE.
-	c.Store(imap.UIDSetNum(msg.UID), &imap.StoreFlags{
+	cmd := c.Store(imap.UIDSetNum(msg.UID), &imap.StoreFlags{
 		Op:    imap.StoreFlagsAdd,
 		Flags: []imap.Flag{imap.FlagSeen},
 	}, nil)
+	if err := cmd.Close(); err != nil {
+		slog.Warn("mark seen failed", "uid", msg.UID, "err", err)
+	}
 
 	return nil
 }

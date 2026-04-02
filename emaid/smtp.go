@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+func sanitizeHeader(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\n", "")
+	return s
+}
+
 func sendReply(cfg config, to, rootMsgID, text string) error {
 	addr := cfg.SMTPHost + ":" + cfg.SMTPPort
 	c, err := smtp.Dial(addr)
@@ -40,11 +46,12 @@ func sendReply(cfg config, to, rootMsgID, text string) error {
 
 	msgIDRef := ""
 	if rootMsgID != "" {
-		msgIDRef = "<" + strings.Trim(rootMsgID, "<>") + ">"
+		msgIDRef = "<" + sanitizeHeader(strings.Trim(rootMsgID, "<>")) + ">"
 	}
 	date := time.Now().Format(time.RFC1123Z)
+	safeTo := sanitizeHeader(to)
 
-	fmt.Fprintf(wc, "From: %s\r\nTo: %s\r\nSubject: Re: (arizuko)\r\nDate: %s\r\n", cfg.Account, to, date)
+	fmt.Fprintf(wc, "From: %s\r\nTo: %s\r\nSubject: Re: (arizuko)\r\nDate: %s\r\n", cfg.Account, safeTo, date)
 	if msgIDRef != "" {
 		fmt.Fprintf(wc, "In-Reply-To: %s\r\nReferences: %s\r\n", msgIDRef, msgIDRef)
 	}

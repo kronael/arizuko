@@ -403,7 +403,7 @@ func envOr(env map[string]string, key, fallback string) string {
 func yamlList(items []string) string {
 	quoted := make([]string, len(items))
 	for i, s := range items {
-		quoted[i] = "'" + s + "'"
+		quoted[i] = "'" + strings.ReplaceAll(s, "'", "''") + "'"
 	}
 	return "[" + strings.Join(quoted, ", ") + "]"
 }

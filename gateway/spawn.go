@@ -26,8 +26,10 @@ func (g *Gateway) spawnFromPrototype(parentJID, parentFolder, childJID string) (
 		return core.Group{}, fmt.Errorf("no prototype dir: %w", err)
 	}
 
+	g.mu.Lock()
 	if parent, ok := g.groups[parentJID]; ok {
 		if parent.Config.MaxChildren == 0 {
+			g.mu.Unlock()
 			return core.Group{}, fmt.Errorf("spawning disabled (max_children=0)")
 		}
 		n := 0
@@ -37,9 +39,11 @@ func (g *Gateway) spawnFromPrototype(parentJID, parentFolder, childJID string) (
 			}
 		}
 		if n >= parent.Config.MaxChildren {
+			g.mu.Unlock()
 			return core.Group{}, fmt.Errorf("max_children limit reached (%d)", parent.Config.MaxChildren)
 		}
 	}
+	g.mu.Unlock()
 
 	childFolder := spawnFolderName(parentFolder, childJID)
 	childDir := filepath.Join(g.cfg.GroupsDir, childFolder)

@@ -57,11 +57,15 @@ func upsertThread(db *sql.DB, msgID, threadID, fromAddress, rootMsgID string) {
 		return
 	}
 	defer tx.Rollback()
-	tx.Exec(
+	if _, err = tx.Exec(
 		`INSERT OR IGNORE INTO email_threads (thread_id, from_address, root_msg_id) VALUES (?,?,?)`,
-		threadID, fromAddress, rootMsgID)
-	tx.Exec(
+		threadID, fromAddress, rootMsgID); err != nil {
+		return
+	}
+	if _, err = tx.Exec(
 		`INSERT OR IGNORE INTO email_msg_ids (msg_id, thread_id) VALUES (?,?)`,
-		msgID, threadID)
+		msgID, threadID); err != nil {
+		return
+	}
 	tx.Commit()
 }
