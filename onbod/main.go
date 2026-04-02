@@ -358,9 +358,17 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 	seedDefaultTasks(db, worldName, targetJID)
 
 	roots := rootJIDs(db)
-	notify.Send(roots, "Approved: "+targetJID+" -> "+worldName+"/",
-		func(jid, text string) error { sendReply(cfg, jid, text); return nil })
+	msg := "Approved: " + targetJID + " -> " + worldName + "/"
+	notify.Send(roots, msg,
+		func(jid, text string) error {
+			if jid == senderJID {
+				return nil // don't double-notify the approver
+			}
+			sendReply(cfg, jid, text)
+			return nil
+		})
 
+	sendReply(cfg, senderJID, msg)
 	slog.Info("approved", "jid", targetJID, "world", worldName)
 	w.WriteHeader(http.StatusOK)
 }
@@ -375,9 +383,17 @@ func handleReject(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targ
 	db.Exec(`UPDATE onboarding SET status = 'rejected' WHERE jid = ?`, targetJID)
 
 	roots := rootJIDs(db)
-	notify.Send(roots, "Rejected: "+targetJID,
-		func(jid, text string) error { sendReply(cfg, jid, text); return nil })
+	msg := "Rejected: " + targetJID
+	notify.Send(roots, msg,
+		func(jid, text string) error {
+			if jid == senderJID {
+				return nil
+			}
+			sendReply(cfg, jid, text)
+			return nil
+		})
 
+	sendReply(cfg, senderJID, msg)
 	slog.Info("rejected", "jid", targetJID)
 	w.WriteHeader(http.StatusOK)
 }
