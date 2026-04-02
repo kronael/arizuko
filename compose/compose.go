@@ -209,6 +209,7 @@ func onbodService(app, flavor, dataDir string, env map[string]string) string {
 		"DATA_DIR":           "/srv/app/home",
 		"ONBOARDING_ENABLED": "true",
 		"ONBOD_LISTEN_ADDR":  envOr(env, "ONBOD_LISTEN_ADDR", ":8092"),
+		"API_PORT":           envOr(env, "API_PORT", "8080"),
 	}
 	if p := envOr(env, "ONBOARDING_PROTOTYPE", ""); p != "" {
 		environment["ONBOARDING_PROTOTYPE"] = p
