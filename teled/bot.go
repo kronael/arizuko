@@ -9,8 +9,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
@@ -22,9 +20,6 @@ type bot struct {
 	cfg       config
 	cancel    context.CancelFunc
 	mentionRe *regexp.Regexp
-
-	typingMu     sync.Mutex
-	typingCancel map[string]context.CancelFunc
 }
 
 func newBot(cfg config) (*bot, error) {
@@ -33,7 +28,7 @@ func newBot(cfg config) (*bot, error) {
 		return nil, fmt.Errorf("telegram auth: %w", err)
 	}
 	slog.Info("telegram connected", "username", api.Self.UserName)
-	b := &bot{api: api, cfg: cfg, typingCancel: make(map[string]context.CancelFunc)}
+	b := &bot{api: api, cfg: cfg}
 	if cfg.AssistantName != "" {
 		b.mentionRe = regexp.MustCompile(
 			fmt.Sprintf(`(?i)^@%s\b`, regexp.QuoteMeta(cfg.AssistantName)))
@@ -89,12 +84,6 @@ func (b *bot) stop() {
 	if b.cancel != nil {
 		b.cancel()
 	}
-	b.typingMu.Lock()
-	for jid, cancel := range b.typingCancel {
-		cancel()
-		delete(b.typingCancel, jid)
-	}
-	b.typingMu.Unlock()
 	b.api.StopReceivingUpdates()
 }
 
@@ -244,34 +233,14 @@ func (b *bot) sendFile(jid, path, name, caption string) error {
 }
 
 func (b *bot) typing(jid string, on bool) error {
+	if !on {
+		return nil
+	}
 	id, err := parseChatID(jid)
 	if err != nil {
 		return err
 	}
-	b.typingMu.Lock()
-	defer b.typingMu.Unlock()
-	if cancel, ok := b.typingCancel[jid]; ok {
-		cancel()
-		delete(b.typingCancel, jid)
-	}
-	if !on {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	b.typingCancel[jid] = cancel
-	go func() {
-		b.api.Send(tgbotapi.NewChatAction(id, tgbotapi.ChatTyping))
-		t := time.NewTicker(4 * time.Second)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				b.api.Send(tgbotapi.NewChatAction(id, tgbotapi.ChatTyping))
-			}
-		}
-	}()
+	b.api.Send(tgbotapi.NewChatAction(id, tgbotapi.ChatTyping))
 	return nil
 }
 
