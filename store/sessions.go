@@ -59,7 +59,13 @@ func (s *Store) EnqueueSysMsg(folder, origin, event, body string) error {
 }
 
 func (s *Store) FlushSysMsgs(folder string) string {
-	rows, err := s.db.Query(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return ""
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(
 		`SELECT id, origin, event, body FROM system_messages
 		 WHERE group_id = ? ORDER BY id ASC`, folder)
 	if err != nil {
@@ -84,9 +90,10 @@ func (s *Store) FlushSysMsgs(folder string) string {
 		for i, id := range ids {
 			args[i] = id
 		}
-		s.db.Exec(`DELETE FROM system_messages WHERE id IN (`+ph+`)`, args...)
+		tx.Exec(`DELETE FROM system_messages WHERE id IN (`+ph+`)`, args...)
 	}
 
+	tx.Commit()
 	return b.String()
 }
 
