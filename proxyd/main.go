@@ -258,18 +258,20 @@ func (s *server) handler(st *store.Store, cfg *core.Config) http.Handler {
 }
 
 func (s *server) route(w http.ResponseWriter, r *http.Request) {
-	// 1. vhosts hostname match → 301 redirect to /<world><path>
+	// 1. vhosts hostname match → rewrite path to /<world><path> and serve via vite
 	if world, ok := s.vh.match(r.Host); ok {
 		rawPath := r.URL.Path
 		if strings.Contains(rawPath, "..") {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		target := path.Clean("/" + world + "/" + strings.TrimPrefix(rawPath, "/"))
-		if r.URL.RawQuery != "" {
-			target += "?" + r.URL.RawQuery
+		r.URL.Path = path.Clean("/" + world + "/" + strings.TrimPrefix(rawPath, "/"))
+		r.URL.RawPath = ""
+		if s.viteProxy != nil {
+			s.viteProxy.ServeHTTP(w, r)
+		} else {
+			http.NotFound(w, r)
 		}
-		http.Redirect(w, r, target, http.StatusMovedPermanently)
 		return
 	}
 

@@ -123,19 +123,16 @@ func TestProxydDashNilProxy(t *testing.T) {
 	}
 }
 
-func TestProxydVhostsRedirect(t *testing.T) {
+func TestProxydVhostsRewrite(t *testing.T) {
 	vh := &vhosts{entries: map[string]string{"test.example.com": "myworld"}}
+	// vhost rewrite serves via vite proxy; with no proxy configured → 404
 	s := &server{cfg: config{}, vh: vh, slinkRL: newRateLimiter(10, time.Minute)}
 	req := httptest.NewRequest("GET", "/some/path", nil)
 	req.Host = "test.example.com"
 	w := httptest.NewRecorder()
 	s.route(w, req)
-	if w.Code != http.StatusMovedPermanently {
-		t.Errorf("status = %d, want 301", w.Code)
-	}
-	loc := w.Header().Get("Location")
-	if loc != "/myworld/some/path" {
-		t.Errorf("Location = %q, want /myworld/some/path", loc)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404 (no vite proxy)", w.Code)
 	}
 }
 
