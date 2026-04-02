@@ -366,13 +366,13 @@ Channel adapter &rarr; <span class="fn">POST /v1/messages</span> (api) &rarr; st
 <p>Three deployment profiles from smallest to full. All share the same SQLite DB and docker infrastructure.</p>
 
 <div class="path-box">
-  <div class="path-title">Profile 1 — Nanoclaw mode</div>
+  <div class="path-title">Profile 1 — Minimal mode</div>
   <div class="path-step">
     <div class="path-num">1</div>
     <div class="path-content">
       <div class="path-action">gated only — one bot, one agent, one channel</div>
       <div class="path-detail">
-        Closest to the original nanoclaw: no compose, no dashboard, no auth gate.
+        Simplest deployment: no compose, no dashboard, no auth gate.
         Run the <code>gated</code> binary directly with Telegram configured.
         One group, direct mode, agent responds to all messages.<br><br>
         <strong>Required env:</strong>
@@ -684,13 +684,6 @@ gated/main
 <div class="jump-box">
   <div class="jump-title">Related</div>
   <div class="jump-grid">
-    <a href="/kanipi/" class="jump-link">
-      <span class="jump-icon">&#x1F4DC;</span>
-      <span class="jump-text">
-        <span class="jump-text-main">Kanipi</span>
-        <span class="jump-text-sub">TypeScript predecessor</span>
-      </span>
-    </a>
     <a href="/agents/architecture-comparison/" class="jump-link">
       <span class="jump-icon">&#x1F50D;</span>
       <span class="jump-text">
@@ -769,7 +762,7 @@ gated/main
 type: product
 name: arizuko
 repo: github.com/REDACTED/arizuko
-base: nanoclaw (via kanipi)
+base: go rewrite of kanipi (typescript proof-of-concept)
 language: go (daemons) + typescript (whapd)
 architecture: microservices — 12 daemons, shared sqlite wal
 required: gated + at least one channel adapter

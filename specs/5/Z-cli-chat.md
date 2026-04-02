@@ -83,7 +83,7 @@ for working on host projects.
 | App source     | `cfg.HostAppDir`              | `/workspace/self`        | ro — agent can read own code       |
 | Share          | `groups/<world>/share/`       | `/workspace/share`       | rw for root, ro for non-root       |
 | IPC dir        | `ipc/<folder>/`               | `/workspace/ipc`         | rw — MCP socket                    |
-| Groups dir     | `data/groups/`                | `/workspace/data/groups` | root group only                    |
+| Groups dir     | `groups/`                     | `/workspace/data/groups` | root group only                    |
 | Web dir        | `cfg.WebDir`                  | `/workspace/web`         | if exists                          |
 | Dev runner src | `container/agent-runner/src/` | `/app/src`               | only when `ARIZUKO_DEV=1`          |
 

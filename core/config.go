@@ -21,7 +21,6 @@ type Config struct {
 	Timezone      string
 	AuthSecret      string
 	WebHost         string
-	AuthUsername    string
 	AuthBaseURL     string
 	GitHubClientID  string
 	GitHubSecret    string
@@ -81,7 +80,6 @@ func LoadConfig() (*Config, error) {
 		Timezone:      resolveTimezone(),
 		AuthSecret:      envOr("AUTH_SECRET", ""),
 		WebHost:         envOr("WEB_HOST", ""),
-		AuthUsername:    envOr("AUTH_USERNAME", ""),
 		AuthBaseURL:     envOr("AUTH_BASE_URL", ""),
 		GitHubClientID:  envOr("GITHUB_CLIENT_ID", ""),
 		GitHubSecret:    envOr("GITHUB_CLIENT_SECRET", ""),

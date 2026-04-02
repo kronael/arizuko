@@ -2,7 +2,7 @@
 
 ## What is arizuko
 
-Nanoclaw fork — multitenant Claude agent router. External
+Multitenant Claude agent router. External
 channel adapters register via HTTP; router routes messages
 to containerized Claude agents. Docker compose orchestration,
 MCP sidecar extensibility.

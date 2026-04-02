@@ -2,7 +2,7 @@
 
 The seeded `~/.claude/CLAUDE.md` is missing the Soul, Knowledge,
 and Greetings sections. The hello skill has a stale version that
-hardcodes "I'm a Kanipi agent" instead of reading SOUL.md.
+hardcodes a stale identity instead of reading SOUL.md.
 
 ## Check
 

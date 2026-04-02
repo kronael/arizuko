@@ -372,7 +372,7 @@ The `ipc` MCP manifest is filtered by grants so agents only see permitted tools.
    - `gated` (always), `timed`, `dashd` (profile=full), `proxyd`+`vited` (WEB_PORT set)
    - `onbod` when `ONBOARDING_ENABLED=true`
 
-2. **Extra services** — TOML files dropped into `data/<flavor>/services/`.
+2. **Extra services** — TOML files dropped into `<dataDir>/services/`.
    Each `.toml` declares one extra compose service (channel adapter or sidecar).
    `compose.Generate` reads them all and appends to the compose output.
 

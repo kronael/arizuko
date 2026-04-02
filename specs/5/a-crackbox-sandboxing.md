@@ -230,7 +230,7 @@ Each agent container gets these mounts:
 | `<app-dir>/`                                  | `/workspace/self`        | ro                       |
 | `groups/<world>/share/`                       | `/workspace/share`       | rw (root only), ro (sub) |
 | `ipc/<folder>/`                               | `/workspace/ipc`         | rw                       |
-| `data/groups/`                                | `/workspace/data/groups` | rw (root group only)     |
+| `groups/`                                     | `/workspace/data/groups` | rw (root group only)     |
 | Optional: `cfg.WebDir`                        | `/workspace/web`         | rw                       |
 | Optional: additional mounts from group config | various                  | as configured            |
 

@@ -198,20 +198,6 @@ func (g *Gateway) loadState() {
 		g.lastTimestamp, _ = time.Parse(time.RFC3339Nano, raw)
 	}
 
-	raw = g.store.GetState("last_agent_timestamp")
-	if raw != "" {
-		var m map[string]string
-		if json.Unmarshal([]byte(raw), &m) == nil {
-			for k, v := range m {
-				if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
-					g.agentCursors[k] = t
-					g.store.SetAgentCursor(k, t)
-				}
-			}
-		}
-		g.store.SetState("last_agent_timestamp", "")
-	}
-
 	g.groups = g.store.AllGroups()
 	if g.groups == nil {
 		g.groups = make(map[string]core.Group)

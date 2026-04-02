@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -274,31 +273,6 @@ func TestLoadState_LoadsGroups(t *testing.T) {
 	}
 	if gw.groups["jid1"].Folder != "alpha" {
 		t.Error("group jid1 not loaded correctly")
-	}
-}
-
-func TestLoadState_MigratesOldCursors(t *testing.T) {
-	gw, s := testGateway(t)
-	s.PutGroup("jid1", core.Group{Folder: "grp"})
-
-	ts := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
-	old := map[string]string{
-		"jid1": ts.Format(time.RFC3339Nano),
-	}
-	raw, _ := json.Marshal(old)
-	s.SetState("last_agent_timestamp", string(raw))
-
-	gw.loadState()
-
-	got := s.GetAgentCursor("jid1")
-	if got.IsZero() {
-		t.Fatal("agent cursor not migrated")
-	}
-	if !got.Equal(ts) {
-		t.Errorf("cursor = %v, want %v", got, ts)
-	}
-	if s.GetState("last_agent_timestamp") != "" {
-		t.Error("old cursor key not cleared")
 	}
 }
 

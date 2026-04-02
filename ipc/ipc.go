@@ -138,17 +138,13 @@ func toolDesc(base string, rules []string, action string) string {
 	return base + "\ngrants: " + string(data)
 }
 
-// workspaceRel translates /home/node/... (or legacy /workspace/group/...) to
-// a relative path under the group dir. Returns an error for other prefixes.
+// workspaceRel translates /home/node/... to a relative path under the
+// group dir. Returns an error for other prefixes.
 func workspaceRel(fp string) (string, error) {
-	switch {
-	case strings.HasPrefix(fp, "/home/node/"):
+	if strings.HasPrefix(fp, "/home/node/") {
 		return strings.TrimPrefix(fp, "/home/node/"), nil
-	case strings.HasPrefix(fp, "/workspace/group/"):
-		return strings.TrimPrefix(fp, "/workspace/group/"), nil
-	default:
-		return "", fmt.Errorf("filepath must be under ~/  (/home/node) or /workspace/group")
 	}
+	return "", fmt.Errorf("filepath must be under ~/ (/home/node)")
 }
 
 func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) *server.MCPServer {

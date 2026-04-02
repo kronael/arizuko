@@ -48,14 +48,6 @@ front (nginx/Caddy). Once infra exists the code change is straightforward.
 
 - [ ] Add webhook handler + remove polling once HTTPS infra is confirmed
 
-## Remaining kanipi feature ports
-
-| Feature            | Where     | Notes                    |
-| ------------------ | --------- | ------------------------ |
-| prototype spawning | container | clone group on missing   |
-| reply-to outbound  | chanreg   | Channel interface change |
-| whisper pipeline   | mime      | voice/video transcribe   |
-
 ## Container tooling
 
 Already in container: git, bun, go, rust, python+uv, chromium, ffmpeg, ripgrep, fd,
