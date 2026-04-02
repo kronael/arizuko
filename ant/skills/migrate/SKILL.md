@@ -24,6 +24,16 @@ if [ "$ARIZUKO_IS_ROOT" != "1" ]; then
 fi
 ```
 
+## Group discovery
+
+ALWAYS discover groups via MCP first, then verify on filesystem:
+
+1. Call `refresh_groups` MCP tool — returns registered groups with jid, folder, name
+2. Verify each group exists at `/workspace/data/groups/<folder>/`
+3. If the filesystem path is empty but MCP lists groups, warn: "groups mount
+   may be misconfigured (HOST_DATA_DIR missing from .env?)"
+4. Use the MCP list as the authoritative group roster
+
 ## Migration strategy
 
 - NEVER use simple cp/rsync
