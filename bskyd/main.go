@@ -32,13 +32,12 @@ func main() {
 	}
 
 	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	token, err := rc.Register(cfg.Name, cfg.ListenURL,
+	_, err = rc.Register(cfg.Name, cfg.ListenURL,
 		[]string{"bluesky:"}, map[string]bool{"send_text": true})
 	if err != nil {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)
 	}
-	rc.Token = token
 	slog.Info("registered with router", "url", cfg.RouterURL)
 
 	go bc.poll(ctx, rc)

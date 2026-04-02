@@ -1110,6 +1110,8 @@ type escalationMetadata struct {
 	ReplyTo      string
 }
 
+var escAttrRe = regexp.MustCompile(`(\w+)="([^"]*)"`)
+
 // parseEscalationOrigin extracts metadata from <escalation_origin> XML tag.
 // Format: <escalation_origin folder="world/support" jid="telegram:123" reply_to="567"/>
 func parseEscalationOrigin(prompt string) *escalationMetadata {
@@ -1123,26 +1125,16 @@ func parseEscalationOrigin(prompt string) *escalationMetadata {
 	}
 	tag := prompt[start : start+end+2]
 
-	var meta escalationMetadata
-	if idx := strings.Index(tag, `folder="`); idx != -1 {
-		rest := tag[idx+8:]
-		if endQuote := strings.Index(rest, `"`); endQuote != -1 {
-			meta.WorkerFolder = rest[:endQuote]
-		}
-	}
-	if idx := strings.Index(tag, `jid="`); idx != -1 {
-		rest := tag[idx+5:]
-		if endQuote := strings.Index(rest, `"`); endQuote != -1 {
-			meta.OriginJID = rest[:endQuote]
-		}
-	}
-	if idx := strings.Index(tag, `reply_to="`); idx != -1 {
-		rest := tag[idx+10:]
-		if endQuote := strings.Index(rest, `"`); endQuote != -1 {
-			meta.ReplyTo = rest[:endQuote]
-		}
+	attrs := map[string]string{}
+	for _, m := range escAttrRe.FindAllStringSubmatch(tag, -1) {
+		attrs[m[1]] = m[2]
 	}
 
+	meta := escalationMetadata{
+		WorkerFolder: attrs["folder"],
+		OriginJID:    attrs["jid"],
+		ReplyTo:      attrs["reply_to"],
+	}
 	if meta.WorkerFolder == "" || meta.OriginJID == "" {
 		return nil
 	}

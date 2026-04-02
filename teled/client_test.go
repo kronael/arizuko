@@ -104,7 +104,7 @@ func TestRouterClientSendMessage(t *testing.T) {
 	defer mr.close()
 
 	rc := chanlib.NewRouterClient(mr.srv.URL, "")
-	rc.Token = "test-token"
+	rc.SetToken("test-token")
 
 	err := rc.SendMessage(chanlib.InboundMsg{
 		ID:         "123",
@@ -137,7 +137,7 @@ func TestRouterClientSendChat(t *testing.T) {
 	defer mr.close()
 
 	rc := chanlib.NewRouterClient(mr.srv.URL, "")
-	rc.Token = "test-token"
+	rc.SetToken("test-token")
 
 	err := rc.SendChat("telegram:-100123", "Dev Chat", true)
 	if err != nil {
@@ -159,7 +159,7 @@ func TestRouterClientDeregister(t *testing.T) {
 	defer mr.close()
 
 	rc := chanlib.NewRouterClient(mr.srv.URL, "")
-	rc.Token = "test-token"
+	rc.SetToken("test-token")
 
 	if err := rc.Deregister(); err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestRouterClientBadToken(t *testing.T) {
 	defer mr.close()
 
 	rc := chanlib.NewRouterClient(mr.srv.URL, "")
-	rc.Token = "bad-token"
+	rc.SetToken("bad-token")
 
 	err := rc.SendMessage(chanlib.InboundMsg{
 		ChatJID: "telegram:123",

@@ -29,12 +29,11 @@ func main() {
 	}
 
 	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	token, err := rc.Register(cfg.Name, cfg.ListenURL, []string{"mastodon:"}, map[string]bool{"send_text": true})
+	_, err = rc.Register(cfg.Name, cfg.ListenURL, []string{"mastodon:"}, map[string]bool{"send_text": true})
 	if err != nil {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)
 	}
-	rc.Token = token
 	slog.Info("registered with router", "url", cfg.RouterURL)
 
 	go mc.stream(ctx, rc)

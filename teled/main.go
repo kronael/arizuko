@@ -32,7 +32,7 @@ func main() {
 	}
 
 	rc := chanlib.NewRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	token, err := rc.Register(cfg.Name, cfg.ListenURL,
+	_, err = rc.Register(cfg.Name, cfg.ListenURL,
 		[]string{"telegram:"}, map[string]bool{
 			"send_text": true, "send_file": true, "typing": true,
 		})
@@ -40,7 +40,6 @@ func main() {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)
 	}
-	rc.Token = token
 	slog.Info("registered with router", "url", cfg.RouterURL)
 
 	go bot.poll(ctx, rc)

@@ -449,8 +449,12 @@ func promptNew(db *sql.DB, cfg config) {
 
 type onboardRow struct{ jid, promptedAt string }
 
-func queryOnboarding(db *sql.DB, where string) ([]onboardRow, error) {
-	rows, err := db.Query(`SELECT jid, prompted_at FROM onboarding WHERE ` + where)
+func queryOnboarding(db *sql.DB, status string, promptedNotNull bool) ([]onboardRow, error) {
+	q := `SELECT jid, prompted_at FROM onboarding WHERE status = ?`
+	if promptedNotNull {
+		q += ` AND prompted_at IS NOT NULL`
+	}
+	rows, err := db.Query(q, status)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +469,7 @@ func queryOnboarding(db *sql.DB, where string) ([]onboardRow, error) {
 }
 
 func checkNameResponse(db *sql.DB, cfg config) {
-	pending, err := queryOnboarding(db, "status = 'awaiting_name' AND prompted_at IS NOT NULL")
+	pending, err := queryOnboarding(db, "awaiting_name", true)
 	if err != nil {
 		slog.Error("checkNameResponse query", "err", err)
 		return
@@ -514,7 +518,7 @@ func checkNameResponse(db *sql.DB, cfg config) {
 }
 
 func checkPendingMessages(db *sql.DB, cfg config) {
-	pending, err := queryOnboarding(db, "status = 'pending' AND prompted_at IS NOT NULL")
+	pending, err := queryOnboarding(db, "pending", true)
 	if err != nil {
 		slog.Error("checkPendingMessages query", "err", err)
 		return
@@ -566,6 +570,8 @@ func rootJIDs(db *sql.DB) []string {
 	return jids
 }
 
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
 func sendReply(cfg config, jid, text string) {
 	body, _ := json.Marshal(map[string]string{"jid": jid, "text": text})
 	req, _ := http.NewRequest("POST", cfg.gatedURL+"/v1/outbound", bytes.NewReader(body))
@@ -573,12 +579,15 @@ func sendReply(cfg config, jid, text string) {
 	if cfg.secret != "" {
 		req.Header.Set("Authorization", "Bearer "+cfg.secret)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		slog.Warn("send reply failed", "jid", jid, "err", err)
 		return
 	}
 	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.Warn("send reply non-2xx", "jid", jid, "status", resp.StatusCode)
+	}
 }
 
 func copyDir(src, dst string) error {

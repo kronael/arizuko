@@ -50,7 +50,10 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	jid := "discord:" + m.ChannelID
-	ch, err := b.session.Channel(m.ChannelID)
+	ch, err := b.session.State.Channel(m.ChannelID)
+	if err != nil {
+		ch, err = b.session.Channel(m.ChannelID)
+	}
 	isGroup := err == nil && ch.Type == discordgo.ChannelTypeGuildText
 	isThread := err == nil && (ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread)
 

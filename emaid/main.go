@@ -34,13 +34,12 @@ func main() {
 	defer cancel()
 
 	rc := chanlib.NewRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	token, err := rc.Register(cfg.Name, cfg.ListenURL,
+	_, err = rc.Register(cfg.Name, cfg.ListenURL,
 		[]string{"email:"}, map[string]bool{"send_text": true})
 	if err != nil {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)
 	}
-	rc.Token = token
 	slog.Info("registered with router", "url", cfg.RouterURL)
 
 	poller := newPoller(cfg, db)

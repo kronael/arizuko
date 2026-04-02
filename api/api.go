@@ -274,7 +274,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) checkSecret(w http.ResponseWriter, r *http.Request) bool {
-	if s := s.reg.Secret(); s != "" && extractBearer(r) != s {
+	if sec := s.reg.Secret(); sec != "" && extractBearer(r) != sec {
 		chanlib.WriteErr(w, http.StatusUnauthorized, "invalid secret")
 		return false
 	}

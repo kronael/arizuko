@@ -36,7 +36,7 @@ func TestE2EInboundFlow(t *testing.T) {
 	defer mr.close()
 
 	rc := chanlib.NewRouterClient(mr.srv.URL, "")
-	rc.Token = "test-token"
+	rc.SetToken("test-token")
 
 	err := rc.SendMessage(chanlib.InboundMsg{
 		ID: "42", ChatJID: "telegram:-1001234567890",
@@ -71,7 +71,6 @@ func TestE2ERegistrationAndDeregistration(t *testing.T) {
 		t.Fatal("expected token")
 	}
 
-	rc.Token = token
 	if err := rc.SendMessage(chanlib.InboundMsg{ChatJID: "telegram:123", Content: "test"}); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +105,7 @@ func TestE2EChatMetadata(t *testing.T) {
 	defer mr.close()
 
 	rc := chanlib.NewRouterClient(mr.srv.URL, "")
-	rc.Token = "test-token"
+	rc.SetToken("test-token")
 	if err := rc.SendChat("telegram:-100123", "Dev Chat", true); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +122,7 @@ func TestE2EMultipleMessages(t *testing.T) {
 	defer mr.close()
 
 	rc := chanlib.NewRouterClient(mr.srv.URL, "")
-	rc.Token = "test-token"
+	rc.SetToken("test-token")
 	for i := 0; i < 5; i++ {
 		rc.SendMessage(chanlib.InboundMsg{ChatJID: "telegram:123", Content: "msg"})
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -183,7 +184,8 @@ func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 		}
 		sent, err := b.api.Send(m)
 		if err != nil {
-			if strings.Contains(err.Error(), "400") {
+			var tgErr *tgbotapi.Error
+			if errors.As(err, &tgErr) && tgErr.Code == 400 {
 				for _, p := range chanlib.Chunk(text, 4096) {
 					pm := tgbotapi.NewMessage(id, p)
 					if msgThreadID != 0 {
@@ -348,6 +350,9 @@ var (
 )
 
 func mdToHTML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
 	s = reCodeBlock.ReplaceAllString(s, "<pre>$1</pre>")
 	s = reInlineCode.ReplaceAllString(s, "<code>$1</code>")
 	s = reBold.ReplaceAllString(s, "<b>$1</b>")

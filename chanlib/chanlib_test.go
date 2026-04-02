@@ -285,7 +285,7 @@ func TestSendMessageSuccessFirstTry(t *testing.T) {
 	defer srv.Close()
 
 	rc := NewRouterClient(srv.URL, "s")
-	rc.Token = "tok"
+	rc.SetToken("tok")
 	err := rc.SendMessage(InboundMsg{ID: "1", Content: "hi"})
 	if err != nil {
 		t.Fatalf("send: %v", err)
@@ -308,7 +308,7 @@ func TestSendMessageRetrySuccess(t *testing.T) {
 	defer srv.Close()
 
 	rc := NewRouterClient(srv.URL, "s")
-	rc.Token = "tok"
+	rc.SetToken("tok")
 	err := rc.SendMessage(InboundMsg{ID: "1", Content: "hi"})
 	if err != nil {
 		t.Fatalf("send: %v", err)
@@ -325,7 +325,7 @@ func TestSendMessageBothFail(t *testing.T) {
 	defer srv.Close()
 
 	rc := NewRouterClient(srv.URL, "s")
-	rc.Token = "tok"
+	rc.SetToken("tok")
 	err := rc.SendMessage(InboundMsg{ID: "1"})
 	if err == nil {
 		t.Fatal("expected error when both attempts fail")
@@ -356,7 +356,7 @@ func TestSendChat(t *testing.T) {
 	defer srv.Close()
 
 	rc := NewRouterClient(srv.URL, "s")
-	rc.Token = "tok"
+	rc.SetToken("tok")
 	err := rc.SendChat("jid1", "General", true)
 	if err != nil {
 		t.Fatalf("send chat: %v", err)

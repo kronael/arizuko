@@ -37,13 +37,16 @@ type InboundMsg struct {
 }
 
 type RouterClient struct {
-	url, secret, Token string
+	url, secret, token string
 	client             *http.Client
 }
 
 func NewRouterClient(url, secret string) *RouterClient {
 	return &RouterClient{url: url, secret: secret, client: &http.Client{Timeout: 10 * time.Second}}
 }
+
+// SetToken overrides the auth token (for tests that skip Register).
+func (r *RouterClient) SetToken(t string) { r.token = t }
 
 func (r *RouterClient) Register(name, url string, prefixes []string, caps map[string]bool) (string, error) {
 	slog.Info("registering channel", "name", name, "url", url)
@@ -63,13 +66,14 @@ func (r *RouterClient) Register(name, url string, prefixes []string, caps map[st
 		slog.Error("channel registration rejected", "name", name, "reason", resp.Error)
 		return "", fmt.Errorf("register: %s", resp.Error)
 	}
+	r.token = resp.Token
 	slog.Info("channel registered", "name", name)
 	return resp.Token, nil
 }
 
 func (r *RouterClient) Deregister() error {
 	var resp struct{ OK bool }
-	return r.Post("/v1/channels/deregister", nil, r.Token, &resp)
+	return r.Post("/v1/channels/deregister", nil, r.token, &resp)
 }
 
 func (r *RouterClient) SendMessage(msg InboundMsg) error {
@@ -77,12 +81,17 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 		OK    bool   `json:"ok"`
 		Error string `json:"error"`
 	}
-	err := r.Post("/v1/messages", msg, r.Token, &resp)
+	err := r.Post("/v1/messages", msg, r.token, &resp)
 	if err == nil && resp.OK {
 		return nil
 	}
+	firstErr := err
+	if firstErr == nil {
+		firstErr = fmt.Errorf("deliver: %s", resp.Error)
+	}
+	slog.Warn("send retry", "err", firstErr)
 	time.Sleep(500 * time.Millisecond)
-	err = r.Post("/v1/messages", msg, r.Token, &resp)
+	err = r.Post("/v1/messages", msg, r.token, &resp)
 	if err != nil {
 		return err
 	}
@@ -96,11 +105,14 @@ func (r *RouterClient) SendChat(jid, name string, isGroup bool) error {
 	var resp struct{ OK bool }
 	return r.Post("/v1/chats", map[string]any{
 		"chat_jid": jid, "name": name, "is_group": isGroup,
-	}, r.Token, &resp)
+	}, r.token, &resp)
 }
 
 func (r *RouterClient) Post(path string, body any, auth string, out any) error {
-	b, _ := json.Marshal(body)
+	b, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
 	req, err := http.NewRequest("POST", r.url+path, bytes.NewReader(b))
 	if err != nil {
 		return err

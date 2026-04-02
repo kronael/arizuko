@@ -60,14 +60,13 @@ func main() {
 	hub := newHub()
 
 	rc := chanlib.NewRouterClient(cfg.routerURL, cfg.channelSecret)
-	token, err := rc.Register("web", cfg.listenURL,
+	_, err = rc.Register("web", cfg.listenURL,
 		[]string{"web:"}, map[string]bool{"send_text": true, "typing": true},
 	)
 	if err != nil {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)
 	}
-	rc.Token = token
 	slog.Info("registered with router", "url", cfg.routerURL)
 
 	ctx, cancel := signal.NotifyContext(context.Background(),
