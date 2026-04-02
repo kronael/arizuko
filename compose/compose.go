@@ -275,13 +275,22 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 		davPort := envOr(env, "DAV_PORT", "8097")
 		environment["DAV_ADDR"] = "http://davd:" + davPort
 	}
+	ports := []string{webPort + ":" + webPort}
+	if aliases := envOr(env, "WEB_PORT_ALIASES", ""); aliases != "" {
+		for _, a := range strings.Split(aliases, ",") {
+			a = strings.TrimSpace(a)
+			if a != "" {
+				ports = append(ports, a+":"+webPort)
+			}
+		}
+	}
 	return writeSvc(svcDef{
 		name:        "proxyd",
 		app:         app,
 		flavor:      flavor,
 		entrypoint:  "proxyd",
 		dataDir:     dataDir,
-		ports:       []string{webPort + ":" + webPort},
+		ports:       ports,
 		environment: environment,
 		dependsOn:   "gated, dashd",
 	})
