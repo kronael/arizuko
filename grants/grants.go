@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
 )
 
@@ -220,7 +221,7 @@ func deriveTier2Rules(jids []string) []string {
 func extractPlatforms(jids []string) []string {
 	seen := map[string]bool{}
 	for _, jid := range jids {
-		if p := jidPlatform(jid); p != "" {
+		if p := core.JidPlatform(jid); p != "" {
 			seen[p] = true
 		}
 	}
@@ -230,11 +231,4 @@ func extractPlatforms(jids []string) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-func jidPlatform(jid string) string {
-	if i := strings.IndexByte(jid, ':'); i > 0 {
-		return jid[:i]
-	}
-	return ""
 }
