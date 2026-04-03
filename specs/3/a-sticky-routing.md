@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 # Sticky Routing — @group and #topic commands

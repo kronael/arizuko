@@ -8,10 +8,13 @@ Day 1 lays out the concrete picture. Rest go deep on one problem each.
 
 ## Day 1 — The picture
 
-arizuko: Claude Code agent on Telegram, WhatsApp, Discord, email,
-web — all at once. Topic threads, persistent memory, permission
-hierarchy, scheduled tasks. Each piece works independently. No
-all-or-nothing. Use what you need to build your agent.
+arizuko: multitenant Claude agent router. Telegram, WhatsApp,
+Discord, email, web — all route to containerized Claude Code
+agents. Auth, permissions, routing, memory, scheduling as
+independent components. Add a platform without touching agent
+code. The infrastructure grows with you.
+
+github.com/onvos/arizuko
 
 ---
 

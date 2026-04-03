@@ -1,10 +1,10 @@
 ---
-status: draft
+status: shipped
 ---
 
 # Audit Log
 
-**Status**: design (columns only)
+**Status**: shipped
 
 Record every outbound message the gateway sends. Covers agent
 replies, MCP actions (send_message, send_reply, send_file),
@@ -12,10 +12,9 @@ scheduler output, and control chat notifications. Uses existing
 `messages` table with `is_from_me=1` — same structure, filtered
 by existing queries (`is_bot_message=0`).
 
-Implementation state: schema columns (`source`, `group_folder`) are present
-in migrations. `StoreOutbound()` is NOT implemented. Integration points
-(gateway, ipc, timed) do NOT call StoreOutbound. Audit trail is NOT yet
-functional — columns exist but are unpopulated.
+Implementation: `StoreOutbound()` in store/messages.go. Called from
+gateway (agent output + status messages) and ipc (send_message, send_reply).
+Timed scheduler output not yet audited (minor gap).
 
 ## Schema
 

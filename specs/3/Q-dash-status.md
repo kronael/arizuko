@@ -1,5 +1,5 @@
 ---
-status: planned
+status: superseded
 ---
 
 # Dashboard: Status & Health

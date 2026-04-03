@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 ## status: shipped (partial)
