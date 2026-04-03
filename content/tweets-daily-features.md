@@ -114,6 +114,22 @@ the agent. Start from working infrastructure, not a blank page.
 
 ---
 
+## Thread replies (posted as replies to Day 1)
+
+### Reply 1 — Research product
+
+Problem: you researched something last month. It's gone — scattered
+across chats and tabs you closed.
+
+arizuko agents build a knowledge base that persists. /facts
+researches a topic, verifies it, stores it with timestamps.
+/recall-memories searches everything. Deploy findings as a web
+page with OAuth. Your research compounds.
+
+github.com/onvos/arizuko
+
+---
+
 ## Notes
 
 - Each tweet standalone, assumes reader saw previous ones
