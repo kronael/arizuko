@@ -333,8 +333,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
-	rest := strings.TrimPrefix(r.URL.Path, "/dav")
-	rest = strings.TrimPrefix(rest, "/")
+	rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/dav"), "/")
 	if rest == "" {
 		group := "root"
 		groupsHdr := r.Header.Get("X-User-Groups")

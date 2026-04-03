@@ -478,7 +478,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr("unauthorized: no parent group")
 			}
 			parent := folder[:idx]
-			// Get last reply ID for threading
 			var replyTo string
 			if db.GetLastReplyID != nil {
 				replyTo = db.GetLastReplyID(chatJid, "")

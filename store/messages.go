@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/onvos/arizuko/core"
@@ -108,8 +109,15 @@ func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]co
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	return collectMessages(rows)
+}
 
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func collectMessages(rows *sql.Rows) ([]core.Message, error) {
+	defer rows.Close()
 	var msgs []core.Message
 	for rows.Next() {
 		m, _, err := scanMessage(rows)
@@ -119,10 +127,6 @@ func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]co
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
-}
-
-type rowScanner interface {
-	Scan(dest ...any) error
 }
 
 func scanMessage(r rowScanner) (core.Message, time.Time, error) {
@@ -216,16 +220,7 @@ func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit in
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var msgs []core.Message
-	for rows.Next() {
-		m, _, err := scanMessage(rows)
-		if err != nil {
-			return nil, err
-		}
-		msgs = append(msgs, m)
-	}
-	return msgs, rows.Err()
+	return collectMessages(rows)
 }
 
 func (s *Store) TopicByMessageID(id, jid string) string {
@@ -264,16 +259,7 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var msgs []core.Message
-	for rows.Next() {
-		m, _, err := scanMessage(rows)
-		if err != nil {
-			return nil, err
-		}
-		msgs = append(msgs, m)
-	}
-	return msgs, rows.Err()
+	return collectMessages(rows)
 }
 
 func (s *Store) ObservedMessagesSince(groupFolder, excludeJid, since string) []core.Message {
@@ -387,16 +373,8 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var msgs []core.Message
-	for rows.Next() {
-		m, _, err := scanMessage(rows)
-		if err != nil {
-			return nil, err
-		}
-		msgs = append(msgs, m)
-	}
-	if err := rows.Err(); err != nil {
+	msgs, err := collectMessages(rows)
+	if err != nil {
 		return nil, err
 	}
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {

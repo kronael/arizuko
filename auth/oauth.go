@@ -24,7 +24,7 @@ const stateTTL = 10 * time.Minute
 var googleTokenURL    = "https://oauth2.googleapis.com/token"
 var googleUserinfoURL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
-func oauthRedirect(cfg *core.Config, secret []byte, secure bool, authURL string) http.HandlerFunc {
+func oauthRedirect(secret []byte, secure bool, authURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		state := signState(secret)
 		http.SetCookie(w, &http.Cookie{
@@ -41,7 +41,7 @@ func handleGitHubRedirect(cfg *core.Config, secret []byte, secure bool) http.Han
 	u := fmt.Sprintf(
 		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=read:user",
 		url.QueryEscape(cfg.GitHubClientID), url.QueryEscape(cb))
-	return oauthRedirect(cfg, secret, secure, u)
+	return oauthRedirect(secret, secure, u)
 }
 
 func oauthCallbackCode(secret []byte, w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -90,7 +90,7 @@ func handleDiscordRedirect(cfg *core.Config, secret []byte, secure bool) http.Ha
 	u := fmt.Sprintf(
 		"https://discord.com/api/oauth2/authorize?client_id=%s&redirect_uri=%s&response_type=code&scope=identify",
 		url.QueryEscape(cfg.DiscordClientID), url.QueryEscape(cb))
-	return oauthRedirect(cfg, secret, secure, u)
+	return oauthRedirect(secret, secure, u)
 }
 
 func handleDiscordCallback(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
@@ -121,7 +121,7 @@ func handleGoogleRedirect(cfg *core.Config, secret []byte, secure bool) http.Han
 		"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email%%20profile%s",
 		url.QueryEscape(cfg.GoogleClientID), url.QueryEscape(cb),
 		googleWorkspaceHD(cfg.GoogleAllowedEmails))
-	return oauthRedirect(cfg, secret, secure, u)
+	return oauthRedirect(secret, secure, u)
 }
 
 func googleWorkspaceHD(allowedEmails string) string {

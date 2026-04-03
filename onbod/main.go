@@ -251,56 +251,8 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 		`<system_event type="onboard_welcome">Your workspace %s is ready. Welcome!</system_event>`,
 		worldName)
 
-	tx, err := db.Begin()
-	if err != nil {
-		slog.Error("approve: begin tx", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`
-		INSERT OR IGNORE INTO registered_groups (jid, name, folder, added_at)
-		VALUES (?, ?, ?, ?)`,
-		targetJID, worldName, worldName, now); err != nil {
-		slog.Error("approve: insert registered_groups", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	if _, err := tx.Exec(`
-		INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
-		VALUES (?, 0, 'default', NULL, ?),
-		       (?, -2, 'prefix', '@', ?),
-		       (?, -1, 'prefix', '#', ?)`,
-		targetJID, worldName,
-		targetJID, worldName,
-		targetJID, worldName); err != nil {
-		slog.Error("approve: insert routes", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	if _, err := tx.Exec(`
-		INSERT INTO messages
-		  (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
-		VALUES (?, ?, 'system', ?, ?, 1, 1, 'onboarding', '')`,
-		welcomeID, targetJID, welcomeBody, time.Now().Format(time.RFC3339Nano)); err != nil {
-		slog.Error("approve: insert welcome message", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	if _, err := tx.Exec(`UPDATE onboarding SET status = 'approved' WHERE jid = ?`, targetJID); err != nil {
-		slog.Error("approve: update onboarding status", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	seedDefaultTasksTx(tx, worldName, targetJID)
-
-	if err := tx.Commit(); err != nil {
-		slog.Error("approve: commit tx", "err", err)
+	if err := approveInTx(db, targetJID, worldName, now, welcomeID, welcomeBody); err != nil {
+		slog.Error("approve tx", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -315,6 +267,37 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 	notifyRoots(db, cfg, senderJID, msg)
 	slog.Info("approved", "jid", targetJID, "world", worldName)
 	w.WriteHeader(http.StatusOK)
+}
+
+func approveInTx(db *sql.DB, jid, world, now, welcomeID, welcomeBody string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT OR IGNORE INTO registered_groups (jid, name, folder, added_at) VALUES (?, ?, ?, ?)`,
+			[]any{jid, world, world, now}},
+		{`INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
+		  VALUES (?, 0, 'default', NULL, ?), (?, -2, 'prefix', '@', ?), (?, -1, 'prefix', '#', ?)`,
+			[]any{jid, world, jid, world, jid, world}},
+		{`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
+		  VALUES (?, ?, 'system', ?, ?, 1, 1, 'onboarding', '')`,
+			[]any{welcomeID, jid, welcomeBody, time.Now().Format(time.RFC3339Nano)}},
+		{`UPDATE onboarding SET status = 'approved' WHERE jid = ?`,
+			[]any{jid}},
+	} {
+		if _, err := tx.Exec(q.sql, q.args...); err != nil {
+			return err
+		}
+	}
+
+	seedDefaultTasksTx(tx, world, jid)
+	return tx.Commit()
 }
 
 func handleReject(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targetJID string) {

@@ -1388,7 +1388,7 @@ func (g *Gateway) delegateToFolder(
 					if text != "" {
 						clean := router.FormatOutbound(text)
 						if clean != "" {
-									if escalation != nil {
+							if escalation != nil {
 								clean = fmt.Sprintf("<escalation_response origin_jid=%q origin_msg_id=%q>\n%s\n</escalation_response>",
 									escalation.OriginJID, escalation.ReplyTo, clean)
 							}
