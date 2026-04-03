@@ -31,3 +31,4 @@ implemented, running code.
 - [task-logs.md](task-logs.md) — task_run_logs table: schema and timed population
 - [chanlib-refactor.md](chanlib-refactor.md) — inter-service comm simplification; 6 chanlib helpers, ~203 LOC reduction
 - [e2e-tests.md](e2e-tests.md) — E2E integration test strategy; real containers, smoke tests
+- [products.md](products.md) — agent personality templates: 8 curated products (assistant, developer, researcher, writer, trader, ops, support, companion)
