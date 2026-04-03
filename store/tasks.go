@@ -96,6 +96,12 @@ func (s *Store) DeleteTask(id string) error {
 	return err
 }
 
+func (s *Store) CountActiveTasks() int {
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM scheduled_tasks WHERE status = ?`, core.TaskActive).Scan(&n)
+	return n
+}
+
 func scanTask(r rowScanner) (core.Task, bool) {
 	var t core.Task
 	var cron, nextRun *string

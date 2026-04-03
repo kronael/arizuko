@@ -111,6 +111,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		ClearSession:     g.clearSession,
 		GroupsDir:        g.cfg.GroupsDir,
 		HostGroupsDir:    g.cfg.HostGroupsDir,
+		WebDir:           g.cfg.WebDir,
 		InjectMessage:    g.injectMessage,
 		RegisterGroup: g.registerGroupIPC,
 		SeedGroupDir: func(folder string) error {

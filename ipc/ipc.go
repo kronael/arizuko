@@ -37,6 +37,7 @@ type GatedFns struct {
 	SpawnGroup       func(parentJID, childJID string) (core.Group, error)
 	GroupsDir        string
 	HostGroupsDir    string
+	WebDir           string
 }
 
 type StoreFns struct {
@@ -148,6 +149,33 @@ func workspaceRel(fp string) (string, error) {
 	return "", fmt.Errorf("filepath must be under ~/ (/home/node)")
 }
 
+func readVhosts(webDir string) (map[string]string, error) {
+	p := filepath.Join(webDir, "vhosts.json")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]string), nil
+		}
+		return nil, err
+	}
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func writeVhosts(webDir string, m map[string]string) error {
+	if err := os.MkdirAll(webDir, 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(webDir, "vhosts.json"), data, 0644)
+}
+
 func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) *server.MCPServer {
 	id := auth.Resolve(folder)
 	srv := server.NewMCPServer("arizuko", "1.0")
@@ -157,6 +185,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		"inject_message", "register_group", "escalate_group", "delegate_group",
 		"get_routes", "list_routes", "set_routes", "add_route", "delete_route",
 		"schedule_task", "pause_task", "resume_task", "cancel_task", "list_tasks",
+		"set_web_host", "get_web_host",
 	}
 	var skipped []string
 	for _, t := range grantedTools {
@@ -954,6 +983,73 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				"count":    len(msgs),
 				"oldest":   oldest,
 			})
+		})
+	}
+
+	// set_web_host — tier 0 only
+	if id.Tier == 0 && len(grantslib.MatchingRules(rules, "set_web_host")) > 0 {
+		srv.AddTool(mcp.NewTool("set_web_host",
+			mcp.WithDescription(toolDesc("Set a virtual host mapping (hostname → folder)", rules, "set_web_host")),
+			mcp.WithString("hostname", mcp.Required()),
+			mcp.WithString("folder", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !grantslib.CheckAction(rules, "set_web_host", nil) {
+				return toolErr("set_web_host: not permitted")
+			}
+			hostname := req.GetString("hostname", "")
+			targetFolder := req.GetString("folder", "")
+			if hostname == "" {
+				return toolErr("hostname required")
+			}
+			if strings.Contains(hostname, "/") || strings.Contains(hostname, "://") {
+				return toolErr("hostname must not contain scheme or path")
+			}
+			if targetFolder == "" {
+				return toolErr("folder required")
+			}
+			groupDir := filepath.Join(gated.GroupsDir, targetFolder)
+			if fi, err := os.Stat(groupDir); err != nil || !fi.IsDir() {
+				return toolErr("folder does not exist: " + targetFolder)
+			}
+			vhosts, err := readVhosts(gated.WebDir)
+			if err != nil {
+				return toolErr("read vhosts: " + err.Error())
+			}
+			vhosts[hostname] = targetFolder
+			if err := writeVhosts(gated.WebDir, vhosts); err != nil {
+				return toolErr("write vhosts: " + err.Error())
+			}
+			slog.Info("set_web_host", "hostname", hostname, "folder", targetFolder, "sourceGroup", folder)
+			return toolJSON(vhosts)
+		})
+	}
+
+	// get_web_host — tier 0-1
+	if id.Tier <= 1 && len(grantslib.MatchingRules(rules, "get_web_host")) > 0 {
+		srv.AddTool(mcp.NewTool("get_web_host",
+			mcp.WithDescription(toolDesc("Get virtual host mapping for a folder", rules, "get_web_host")),
+			mcp.WithString("folder"),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !grantslib.CheckAction(rules, "get_web_host", nil) {
+				return toolErr("get_web_host: not permitted")
+			}
+			targetFolder := req.GetString("folder", folder)
+			if targetFolder == "" {
+				targetFolder = folder
+			}
+			if id.Tier > 0 && targetFolder != folder {
+				return toolErr("get_web_host: can only query own folder")
+			}
+			vhosts, err := readVhosts(gated.WebDir)
+			if err != nil {
+				return toolErr("read vhosts: " + err.Error())
+			}
+			for h, f := range vhosts {
+				if f == targetFolder {
+					return toolJSON(map[string]any{"hostname": h, "folder": f})
+				}
+			}
+			return toolJSON(map[string]any{"hostname": "", "folder": targetFolder})
 		})
 	}
 

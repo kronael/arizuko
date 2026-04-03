@@ -38,6 +38,12 @@ func (s *Store) IsChatErrored(jid string) bool {
 	return errored != 0
 }
 
+func (s *Store) CountErroredChats() int {
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE errored = 1`).Scan(&n)
+	return n
+}
+
 func (s *Store) PutGroup(jid string, g core.Group) error {
 	cfgJSON, _ := json.Marshal(g.Config)
 

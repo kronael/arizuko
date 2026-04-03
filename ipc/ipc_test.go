@@ -15,6 +15,7 @@ func TestBuildMCPServer(t *testing.T) {
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
 		HostGroupsDir: "/tmp/groups",
+		WebDir:        "/tmp/web",
 	}
 	db := StoreFns{}
 	// tier-0 gets all tools via ["*"] rules
@@ -32,6 +33,7 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
 		HostGroupsDir: "/tmp/groups",
+		WebDir:        "/tmp/web",
 	}
 	db := StoreFns{}
 	// empty rules → no tools registered (except get/set_grants for tier 0-1)
@@ -98,6 +100,7 @@ func TestAllToolsRegistered(t *testing.T) {
 		RegisterGroup:    func(j string, g core.Group) error { return nil },
 		GroupsDir:        "/tmp/groups",
 		HostGroupsDir:    "/tmp/groups",
+		WebDir:           "/tmp/web",
 	}
 	db := StoreFns{
 		CreateTask:       func(t core.Task) error { return nil },
@@ -142,6 +145,7 @@ func TestSendReply(t *testing.T) {
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
 		HostGroupsDir: "/tmp/groups",
+		WebDir:        "/tmp/web",
 	}
 	db := StoreFns{}
 	srv := buildMCPServer(gated, db, "world", []string{"send_reply"})
@@ -160,6 +164,7 @@ func TestRefreshGroups(t *testing.T) {
 		GetGroups:     func() map[string]core.Group { return groups },
 		GroupsDir:     "/tmp/groups",
 		HostGroupsDir: "/tmp/groups",
+		WebDir:        "/tmp/web",
 	}
 	db := StoreFns{}
 	// tier ≤ 2 gets refresh_groups

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/core"
 )
 
@@ -34,7 +35,7 @@ func isGatewayCommand(raw string) bool {
 	}
 	word := strings.ToLower(strings.SplitN(t[1:], " ", 2)[0])
 	switch word {
-	case "new", "ping", "chatid", "stop":
+	case "new", "ping", "chatid", "stop", "status":
 		return true
 	}
 	return false
@@ -62,6 +63,8 @@ func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
 		return g.cmdChatID(msg.ChatJID)
 	case "/stop":
 		return g.cmdStop(msg.ChatJID, group)
+	case "/status":
+		return g.cmdStatus(msg.ChatJID, group)
 	default:
 		return false
 	}
@@ -141,5 +144,28 @@ func (g *Gateway) cmdStop(chatJid string, group core.Group) bool {
 	} else {
 		g.sendMessage(chatJid, "No active container for this chat.")
 	}
+	return true
+}
+
+func (g *Gateway) cmdStatus(chatJid string, group core.Group) bool {
+	id := auth.Resolve(group.Folder)
+	if id.Tier != 0 {
+		g.sendMessage(chatJid, "Permission denied: root only.")
+		return true
+	}
+
+	g.mu.RLock()
+	nGroups := len(g.groups)
+	nChannels := len(g.channels)
+	g.mu.RUnlock()
+
+	active := g.queue.ActiveCount()
+	errored := g.store.CountErroredChats()
+	tasks := g.store.CountActiveTasks()
+
+	reply := fmt.Sprintf(
+		"status\nchannels: %d\ngroups: %d\nactive containers: %d\nerrored chats: %d\nactive tasks: %d",
+		nChannels, nGroups, active, errored, tasks)
+	g.sendMessage(chatJid, reply)
 	return true
 }
