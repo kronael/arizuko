@@ -304,6 +304,7 @@ func (g *Gateway) pollOnce() {
 				slog.Debug("poll: delegating to child",
 					"jid", chatJid, "target", routingTarget)
 				g.delegateToChild(routingTarget, last.Content, chatJid, 0, nil)
+				g.advanceAgentCursor(chatJid, chatMsgs)
 				continue
 			}
 		}
