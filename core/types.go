@@ -70,12 +70,13 @@ type Sidecar struct {
 }
 
 type Route struct {
-	ID     int64
-	JID    string
-	Seq    int
-	Type   string // command|verb|pattern|keyword|sender|default
-	Match  string
-	Target string
+	ID            int64  `json:"id"`
+	JID           string `json:"jid,omitempty"`
+	Seq           int    `json:"seq"`
+	Type          string `json:"type"`   // command|verb|pattern|keyword|sender|default
+	Match         string `json:"match"`
+	Target        string `json:"target"`
+	ImpulseConfig string `json:"impulse_config,omitempty"`
 }
 
 const (

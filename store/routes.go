@@ -17,7 +17,7 @@ func platformPrefix(jid string) string {
 func (s *Store) GetRoutes(jid string) []core.Route {
 	prefix := platformPrefix(jid)
 	rows, err := s.db.Query(
-		`SELECT id, jid, seq, type, COALESCE(match, ''), target
+		`SELECT id, jid, seq, type, COALESCE(match, ''), target, COALESCE(impulse_config, '')
 		 FROM routes WHERE jid = ? OR jid = ?
 		 ORDER BY CASE jid WHEN ? THEN 0 ELSE 1 END, seq ASC`,
 		jid, prefix, jid)
@@ -28,7 +28,7 @@ func (s *Store) GetRoutes(jid string) []core.Route {
 	var out []core.Route
 	for rows.Next() {
 		var r core.Route
-		rows.Scan(&r.ID, &r.JID, &r.Seq, &r.Type, &r.Match, &r.Target)
+		rows.Scan(&r.ID, &r.JID, &r.Seq, &r.Type, &r.Match, &r.Target, &r.ImpulseConfig)
 		out = append(out, r)
 	}
 	return out
@@ -37,15 +37,15 @@ func (s *Store) GetRoutes(jid string) []core.Route {
 func (s *Store) GetRoute(id int64) (core.Route, bool) {
 	var r core.Route
 	err := s.db.QueryRow(
-		`SELECT id, jid, seq, type, COALESCE(match, ''), target FROM routes WHERE id = ?`, id,
-	).Scan(&r.ID, &r.JID, &r.Seq, &r.Type, &r.Match, &r.Target)
+		`SELECT id, jid, seq, type, COALESCE(match, ''), target, COALESCE(impulse_config, '') FROM routes WHERE id = ?`, id,
+	).Scan(&r.ID, &r.JID, &r.Seq, &r.Type, &r.Match, &r.Target, &r.ImpulseConfig)
 	return r, err == nil
 }
 
 func (s *Store) AddRoute(jid string, r core.Route) (int64, error) {
 	res, err := s.db.Exec(
-		`INSERT INTO routes (jid, seq, type, match, target) VALUES (?, ?, ?, ?, ?)`,
-		jid, r.Seq, r.Type, nilIfEmpty(r.Match), r.Target,
+		`INSERT INTO routes (jid, seq, type, match, target, impulse_config) VALUES (?, ?, ?, ?, ?, ?)`,
+		jid, r.Seq, r.Type, nilIfEmpty(r.Match), r.Target, nilIfEmpty(r.ImpulseConfig),
 	)
 	if err != nil {
 		return 0, err
@@ -77,8 +77,8 @@ func (s *Store) SetRoutes(jid string, routes []core.Route) error {
 	}
 	for _, r := range routes {
 		if _, err := tx.Exec(
-			`INSERT INTO routes (jid, seq, type, match, target) VALUES (?, ?, ?, ?, ?)`,
-			jid, r.Seq, r.Type, nilIfEmpty(r.Match), r.Target,
+			`INSERT INTO routes (jid, seq, type, match, target, impulse_config) VALUES (?, ?, ?, ?, ?, ?)`,
+			jid, r.Seq, r.Type, nilIfEmpty(r.Match), r.Target, nilIfEmpty(r.ImpulseConfig),
 		); err != nil {
 			return err
 		}

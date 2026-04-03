@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: shipped
 ---
 
 # Message Scoping + Impulse Gate

@@ -47,6 +47,21 @@ Section names: `fix`, `feat`, `refactor`, `docs`, `test`, `chore`, `perf`, `styl
    ```
 9. Run `git status` to verify success
 
+## Group repo conventions
+
+Your home directory (`~/`) is a git repo. Use `git -C ~` for all operations.
+
+**Versioned**: CLAUDE.md, SOUL.md, SYSTEM.md, facts/*.md, config files
+**Gitignored**: diary/, episodes/, users/, logs/, media/, tmp/, *.jl
+Child group subdirectories are gitignored — each child has its own repo.
+
+**When to commit**:
+- After updating facts: `[fact] add validator bond info`
+- After editing CLAUDE.md/SOUL.md: `[config] update instructions`
+- After significant work sessions
+
+**Never commit** diary/, episodes/, users/ — runtime state.
+
 ## Rules
 
 - ALWAYS commit when explicitly invoked by user
