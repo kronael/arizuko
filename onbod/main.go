@@ -159,8 +159,6 @@ func loadConfig() (config, error) {
 	return cfg, nil
 }
 
-// --- Startup ---
-
 func seedRoutes(db *sql.DB) error {
 	_, err := db.Exec(`
 		INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
@@ -177,8 +175,6 @@ func registerSelf(db *sql.DB, listenAddr string) error {
 		url, caps)
 	return err
 }
-
-// --- HTTP /send endpoint ---
 
 func handleSend(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
 	auth := r.Header.Get("Authorization")
@@ -209,8 +205,6 @@ func handleSend(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) 
 		http.Error(w, "unknown command", http.StatusBadRequest)
 	}
 }
-
-// --- Command handlers ---
 
 func isTier0(db *sql.DB, senderJID string) bool {
 	var parent *string
@@ -317,18 +311,8 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 		}
 	}
 
-	roots := rootJIDs(db)
 	msg := "Approved: " + targetJID + " -> " + worldName + "/"
-	notify.Send(roots, msg,
-		func(jid, text string) error {
-			if jid == senderJID {
-				return nil // don't double-notify the approver
-			}
-			sendReply(cfg, jid, text)
-			return nil
-		})
-
-	sendReply(cfg, senderJID, msg)
+	notifyRoots(db, cfg, senderJID, msg)
 	slog.Info("approved", "jid", targetJID, "world", worldName)
 	w.WriteHeader(http.StatusOK)
 }
@@ -342,23 +326,11 @@ func handleReject(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targ
 
 	db.Exec(`UPDATE onboarding SET status = 'rejected' WHERE jid = ?`, targetJID)
 
-	roots := rootJIDs(db)
 	msg := "Rejected: " + targetJID
-	notify.Send(roots, msg,
-		func(jid, text string) error {
-			if jid == senderJID {
-				return nil
-			}
-			sendReply(cfg, jid, text)
-			return nil
-		})
-
-	sendReply(cfg, senderJID, msg)
+	notifyRoots(db, cfg, senderJID, msg)
 	slog.Info("rejected", "jid", targetJID)
 	w.WriteHeader(http.StatusOK)
 }
-
-// --- Poll loop ---
 
 func poll(db *sql.DB, cfg config) {
 	promptNew(db, cfg)
@@ -478,7 +450,15 @@ func checkPendingMessages(db *sql.DB, cfg config) {
 	}
 }
 
-// --- Helpers ---
+func notifyRoots(db *sql.DB, cfg config, senderJID, msg string) {
+	notify.Send(rootJIDs(db), msg, func(jid, text string) error {
+		if jid != senderJID {
+			sendReply(cfg, jid, text)
+		}
+		return nil
+	})
+	sendReply(cfg, senderJID, msg)
+}
 
 func nameTaken(db *sql.DB, name, excludeJID string) bool {
 	var n int

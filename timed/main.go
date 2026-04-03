@@ -165,32 +165,30 @@ func fire(db *sql.DB, tz string) {
 
 		var nextRun string
 		if ms, ok := isIntervalMs(cronVal); ok {
-			next := time.Now().Add(time.Duration(ms) * time.Millisecond)
-			nextRun = next.Format(time.RFC3339)
+			nextRun = time.Now().Add(time.Duration(ms) * time.Millisecond).Format(time.RFC3339)
+		} else if cronVal != "" {
+			next, err := nextCron(cronVal, tz)
+			if err != nil {
+				slog.Warn("parse cron expr", "task", t.id, "cron", cronVal, "err", err)
+			} else {
+				nextRun = next.Format(time.RFC3339)
+			}
+		}
+
+		if nextRun != "" {
 			if _, err := db.Exec(
 				`UPDATE scheduled_tasks SET status = 'active', next_run = ? WHERE id = ?`,
 				nextRun, t.id); err != nil {
 				slog.Warn("update task next_run", "task", t.id, "err", err)
 			}
-		} else if cronVal != "" {
-			next, err := nextCron(cronVal, tz)
-			if err != nil {
-				slog.Warn("parse cron expr", "task", t.id, "cron", cronVal, "err", err)
-				db.Exec(`UPDATE scheduled_tasks SET status = 'active' WHERE id = ?`, t.id)
-			} else {
-				nextRun = next.Format(time.RFC3339)
-				if _, err := db.Exec(
-					`UPDATE scheduled_tasks SET status = 'active', next_run = ? WHERE id = ?`,
-					nextRun, t.id); err != nil {
-					slog.Warn("update task next_run", "task", t.id, "err", err)
-				}
-			}
-		} else {
+		} else if cronVal == "" {
 			if _, err := db.Exec(
-				`UPDATE scheduled_tasks SET status = 'completed', next_run = NULL WHERE id = ?`, t.id,
-			); err != nil {
+				`UPDATE scheduled_tasks SET status = 'completed', next_run = NULL WHERE id = ?`,
+				t.id); err != nil {
 				slog.Warn("complete task", "task", t.id, "err", err)
 			}
+		} else {
+			db.Exec(`UPDATE scheduled_tasks SET status = 'active' WHERE id = ?`, t.id)
 		}
 
 		logRun(db, t.id, "success", "", time.Since(start).Milliseconds())

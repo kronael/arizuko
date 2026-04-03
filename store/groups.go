@@ -135,9 +135,6 @@ func (s *Store) SetAgentCursor(jid string, ts time.Time) {
 	}
 }
 
-// UnroutedChatJIDs returns distinct chat JIDs that have messages since `since`
-// but have no entry in the routes table. Used by gated when onboarding is enabled
-// to surface new users to the onboarding handler.
 func (s *Store) UnroutedChatJIDs(since time.Time) []string {
 	rows, err := s.db.Query(
 		`SELECT DISTINCT chat_jid FROM messages

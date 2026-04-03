@@ -74,7 +74,6 @@ func davProxy(target string) *httputil.ReverseProxy {
 	return p
 }
 
-// vhosts manages hostname→world routing loaded from vhosts.json.
 type vhosts struct {
 	mu      sync.RWMutex
 	entries map[string]string
@@ -121,7 +120,6 @@ func (v *vhosts) load() {
 	slog.Info("vhosts loaded", "count", len(m))
 }
 
-// match returns the world folder for the given host, or ("", false).
 func (v *vhosts) match(host string) (string, bool) {
 	// strip port
 	if h, _, err := net.SplitHostPort(host); err == nil {
@@ -171,7 +169,6 @@ func newServer(cfg config, st *store.Store, vh *vhosts) *server {
 	return s
 }
 
-// rateLimiter is a simple sliding-window rate limiter keyed by IP.
 type rateLimiter struct {
 	mu      sync.Mutex
 	limit   int
@@ -258,7 +255,6 @@ func (s *server) handler(st *store.Store, cfg *core.Config) http.Handler {
 }
 
 func (s *server) route(w http.ResponseWriter, r *http.Request) {
-	// 1. vhosts hostname match → rewrite path to /<world><path> and serve via vite
 	if world, ok := s.vh.match(r.Host); ok {
 		rawPath := r.URL.Path
 		if strings.Contains(rawPath, "..") {
@@ -275,7 +271,6 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. /dash/ — auth-gated, proxied to dashd (not available without dashd)
 	if strings.HasPrefix(r.URL.Path, "/dash/") {
 		if s.dashProxy == nil {
 			http.NotFound(w, r)
@@ -285,7 +280,6 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. /dav/ — WebDAV via dufs, auth-gated with per-group ACL
 	if strings.HasPrefix(r.URL.Path, "/dav/") || r.URL.Path == "/dav" {
 		if s.davProxy == nil {
 			http.Error(w, "WebDAV not configured", http.StatusNotFound)
@@ -295,14 +289,12 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. /health — public
 	if r.URL.Path == "/health" {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"ok":true}`))
 		return
 	}
 
-	// 5. /slink/* — rate-limited; resolve token and inject group headers
 	if strings.HasPrefix(r.URL.Path, "/slink/") {
 		remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 		if !s.slinkRL.allow(remoteIP) {
@@ -313,7 +305,6 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		if upstream == nil {
 			upstream = s.viteProxy
 		}
-		// Extract token: first path segment after /slink/
 		rest := strings.TrimPrefix(r.URL.Path, "/slink/")
 		token := strings.SplitN(rest, "/", 2)[0]
 		if token != "" && s.st != nil {
@@ -330,8 +321,6 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 6. /pub/ — explicitly public, no auth
-	// 7. /* — everything else auth-gated
 	upstream := s.viteProxy
 	if s.webdProxy != nil {
 		upstream = s.webdProxy
@@ -343,10 +332,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// davRoute handles /dav requests with per-group ACL.
-// Called after requireAuth — X-User-Sub and optionally X-User-Groups are set.
 func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
-	// /dav or /dav/ with no group → redirect to first allowed group
 	rest := strings.TrimPrefix(r.URL.Path, "/dav")
 	rest = strings.TrimPrefix(rest, "/")
 	if rest == "" {
@@ -362,10 +348,7 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract group: first path segment after /dav/
 	group := strings.SplitN(rest, "/", 2)[0]
-
-	// Check per-group ACL via X-User-Groups (set by requireAuth)
 	groupsHdr := r.Header.Get("X-User-Groups")
 	if groupsHdr != "" {
 		var allowed []string
@@ -386,9 +369,19 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// groupsHdr empty = operator (unrestricted)
-
 	s.davProxy.ServeHTTP(w, r)
+}
+
+func setUserHeaders(r *http.Request, sub, name string, groups *[]string) *http.Request {
+	r2 := r.Clone(r.Context())
+	r2.Header.Set("X-User-Sub", sub)
+	r2.Header.Set("X-User-Name", name)
+	if groups != nil {
+		if b, err := json.Marshal(groups); err == nil {
+			r2.Header.Set("X-User-Groups", string(b))
+		}
+	}
+	return r2
 }
 
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -399,42 +392,22 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		secret := []byte(s.cfg.authSecret)
 
-		// Check Authorization: Bearer <jwt>
-		hdr := r.Header.Get("Authorization")
-		if strings.HasPrefix(hdr, "Bearer ") {
-			tok := strings.TrimPrefix(hdr, "Bearer ")
-			claims, err := auth.VerifyJWT(secret, tok)
+		if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
+			claims, err := auth.VerifyJWT(secret, strings.TrimPrefix(hdr, "Bearer "))
 			if err != nil {
 				http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 				return
 			}
-			r2 := r.Clone(r.Context())
-			r2.Header.Set("X-User-Sub", claims.Sub)
-			r2.Header.Set("X-User-Name", claims.Name)
-			if claims.Groups != nil {
-				if b, err := json.Marshal(claims.Groups); err == nil {
-					r2.Header.Set("X-User-Groups", string(b))
-				}
-			}
-			next(w, r2)
+			next(w, setUserHeaders(r, claims.Sub, claims.Name, claims.Groups))
 			return
 		}
 
-		// Fall back to refresh cookie for browser navigation (no JS Bearer header)
 		if s.st != nil {
 			if cookie, err := r.Cookie("refresh_token"); err == nil {
 				h := auth.HashToken(cookie.Value)
 				if sess, ok := s.st.AuthSession(h); ok && time.Now().Before(sess.ExpiresAt) {
 					if u, ok := s.st.AuthUserBySub(sess.UserSub); ok {
-						r2 := r.Clone(r.Context())
-						r2.Header.Set("X-User-Sub", u.Sub)
-						r2.Header.Set("X-User-Name", u.Name)
-						if groups := s.st.UserGroups(u.Sub); groups != nil {
-							if b, err := json.Marshal(groups); err == nil {
-								r2.Header.Set("X-User-Groups", string(b))
-							}
-						}
-						next(w, r2)
+						next(w, setUserHeaders(r, u.Sub, u.Name, s.st.UserGroups(u.Sub)))
 						return
 					}
 				}

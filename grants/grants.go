@@ -61,7 +61,6 @@ func ParseRule(r string) Rule {
 	return rule
 }
 
-// matchGlob: * matches word chars only ([a-zA-Z0-9_]).
 func matchGlob(pat, s string) bool {
 	for {
 		if pat == "" {
@@ -87,7 +86,6 @@ func matchGlob(pat, s string) bool {
 	}
 }
 
-// matchValueGlob: * matches any char except , and ).
 func matchValueGlob(pat, s string) bool {
 	for {
 		if pat == "" {
@@ -134,8 +132,6 @@ func ruleMatchesParams(rule Rule, params map[string]string) bool {
 	return true
 }
 
-// CheckAction returns true if the action+params are allowed by rules.
-// Last match wins; no match = deny.
 func CheckAction(rules []string, action string, params map[string]string) bool {
 	result, matched := false, false
 	for _, r := range rules {
@@ -148,7 +144,6 @@ func CheckAction(rules []string, action string, params map[string]string) bool {
 	return matched && result
 }
 
-// MatchingRules returns the rules (unparsed) that match the given action name.
 func MatchingRules(rules []string, action string) []string {
 	var out []string
 	for _, r := range rules {
@@ -159,8 +154,6 @@ func MatchingRules(rules []string, action string) []string {
 	return out
 }
 
-// NarrowRules merges parent+child. Child can only narrow, never widen.
-// Deny rules are always kept; allow rules only if parent already allows them.
 func NarrowRules(parent, child []string) []string {
 	out := append([]string(nil), parent...)
 	for _, r := range child {
@@ -180,7 +173,6 @@ var tier1FixedActions = []string{
 	"list_tasks", "pause_task", "resume_task", "cancel_task",
 }
 
-// DeriveRules returns default rules for folder+tier. DB overrides appended by caller.
 func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []string {
 	jidsIn := func(scope string) []string {
 		if s == nil {

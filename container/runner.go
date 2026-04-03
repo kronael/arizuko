@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,7 +32,10 @@ const (
 	containerHome     = "/home/node"
 )
 
-var safeNameRe = regexp.MustCompile(`[^a-zA-Z0-9-]`)
+var (
+	safeNameRe   = regexp.MustCompile(`[^a-zA-Z0-9-]`)
+	skillNameRe  = regexp.MustCompile(`^[a-z0-9-]+$`)
+)
 
 func SanitizeFolder(folder string) string {
 	s := strings.ReplaceAll(folder, "/", "-")
@@ -243,12 +247,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			cmd.Process.Kill()
 		}
 	}
-	// Hard deadline — absolute wall-clock limit, never resets.
-	// Prevents runaway containers when heartbeats keep the idle timer alive.
 	deadline := time.AfterFunc(cfgTimeout, func() {
 		stopContainer("hard deadline")
 	})
-	// Idle timer — resets on each output (including heartbeats).
 	timer := time.AfterFunc(cfg.IdleTimeout, func() {
 		stopContainer("idle timeout")
 	})
@@ -505,45 +506,29 @@ func BuildMounts(
 	}
 
 	if len(in.Config.Mounts) > 0 {
-		var add []mountsec.AdditionalMount
-		for _, cm := range in.Config.Mounts {
+		add := make([]mountsec.AdditionalMount, len(in.Config.Mounts))
+		for i, cm := range in.Config.Mounts {
 			ro := cm.RO
-			add = append(add, mountsec.AdditionalMount{
-				HostPath:      cm.Host,
-				ContainerPath: cm.Container,
-				Readonly:      &ro,
-			})
+			add[i] = mountsec.AdditionalMount{
+				HostPath: cm.Host, ContainerPath: cm.Container, Readonly: &ro,
+			}
 		}
-		for _, v := range mountsec.ValidateAdditionalMounts(
-			add, in.Folder, root, mountsec.Allowlist{},
-		) {
-			m = append(m, VolumeMount{
-				Host:      v.HostPath,
-				Container: v.ContainerPath,
-				RO:        v.Readonly,
-			})
+		for _, v := range mountsec.ValidateAdditionalMounts(add, in.Folder, root, mountsec.Allowlist{}) {
+			m = append(m, VolumeMount{Host: v.HostPath, Container: v.ContainerPath, RO: v.Readonly})
 		}
 	}
 
-	if fi, err := os.Stat(cfg.WebDir); err == nil && fi.IsDir() {
-		tier := strings.Count(in.Folder, "/")
-		if tier > 2 {
-			// tier 3+: no web mount
-		} else if root {
-			chown(cfg.WebDir, 1000, 1000)
-			m = append(m, VolumeMount{
-				Host:      hp(cfg, cfg.WebDir),
-				Container: "/workspace/web",
-			})
-		} else {
-			worldDir := filepath.Join(cfg.WebDir, world)
-			os.MkdirAll(worldDir, 0o755)
-			chown(worldDir, 1000, 1000)
-			m = append(m, VolumeMount{
-				Host:      hp(cfg, worldDir),
-				Container: "/workspace/web",
-			})
+	if fi, err := os.Stat(cfg.WebDir); err == nil && fi.IsDir() && strings.Count(in.Folder, "/") <= 2 {
+		webHost := cfg.WebDir
+		if !root {
+			webHost = filepath.Join(cfg.WebDir, world)
+			os.MkdirAll(webHost, 0o755)
 		}
+		chown(webHost, 1000, 1000)
+		m = append(m, VolumeMount{
+			Host:      hp(cfg, webHost),
+			Container: "/workspace/web",
+		})
 	}
 
 	if root {
@@ -641,7 +626,7 @@ func seedSettings(
 	if root {
 		env["ARIZUKO_IS_ROOT"] = "1"
 	}
-	env["ARIZUKO_DELEGATE_DEPTH"] = fmt.Sprintf("%d", in.Depth)
+	env["ARIZUKO_DELEGATE_DEPTH"] = strconv.Itoa(in.Depth)
 	if in.Channel != "" {
 		settings["outputStyle"] = in.Channel
 	}
@@ -679,13 +664,7 @@ func seedSettings(
 			managed = append(managed, name)
 
 			for _, tool := range spec.Tools {
-				if tool == "*" {
-					allowed = append(allowed,
-						"mcp__"+name+"__*")
-				} else {
-					allowed = append(allowed,
-						"mcp__"+name+"__"+tool)
-				}
+				allowed = append(allowed, "mcp__"+name+"__"+tool)
 			}
 		}
 
@@ -708,7 +687,6 @@ func seedSettings(
 }
 
 // SeedGroupDir initializes the agent session directory for a newly created group.
-// Called once at group creation time by group add, onbod, and register_group MCP tool.
 func SeedGroupDir(cfg *core.Config, folder string) error {
 	claudeDir := filepath.Join(cfg.GroupsDir, folder, ".claude")
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
@@ -728,12 +706,11 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 		return
 	}
 
-	nameRe := regexp.MustCompile(`^[a-z0-9-]+$`)
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		if !nameRe.MatchString(e.Name()) {
+		if !skillNameRe.MatchString(e.Name()) {
 			slog.Warn("skipping skill with invalid name",
 				"name", e.Name())
 			continue
@@ -754,7 +731,6 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 		}
 	}
 
-	// Seed .claude.json if missing — SDK silently returns 0 messages without it.
 	jsonDst := filepath.Join(claudeDir, ".claude.json")
 	if _, err := os.Stat(jsonDst); os.IsNotExist(err) {
 		userID := fmt.Sprintf("%x", sha256.Sum256([]byte("arizuko:"+folder)))

@@ -10,8 +10,6 @@ import (
 	"github.com/onvos/arizuko/store"
 )
 
-// LocalChannel handles agent-to-agent communication via the messages table.
-// Messages to local:folder are stored as if they came from an external channel.
 type LocalChannel struct {
 	store *store.Store
 	name  string
@@ -41,10 +39,7 @@ func (c *LocalChannel) Send(jid, text, replyTo, threadID string) (string, error)
 		return "", fmt.Errorf("local channel does not own jid: %s", jid)
 	}
 
-	// Generate message ID
 	msgID := fmt.Sprintf("local-%d", time.Now().UnixNano())
-
-	// Store as inbound message so the target agent sees it
 	msg := core.Message{
 		ID:        msgID,
 		ChatJID:   jid,

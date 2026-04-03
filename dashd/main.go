@@ -90,7 +90,6 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/activity/", d.requireAuth(d.handleActivity))
 	mux.HandleFunc("GET /dash/groups/", d.requireAuth(d.handleGroups))
 	mux.HandleFunc("GET /dash/memory/", d.requireAuth(d.handleMemory))
-	// HTMX partials
 	mux.HandleFunc("GET /dash/tasks/x/list", d.requireAuth(d.handleTasksPartial))
 	mux.HandleFunc("GET /dash/activity/x/recent", d.requireAuth(d.handleActivityPartial))
 }
@@ -404,7 +403,6 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, pageTop, "Memory", "Memory")
 
-	// group dropdown
 	rows, err := d.db.Query(`SELECT folder FROM registered_groups ORDER BY folder`)
 	if err == nil {
 		defer rows.Close()
@@ -466,7 +464,6 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 	entries, err := os.ReadDir(diaryDir)
 	if err == nil {
 		fmt.Fprint(w, `<h2>Diary</h2><details open><summary>entries</summary><ul>`)
-		// reverse (newest first)
 		for i := len(entries) - 1; i >= 0; i-- {
 			e := entries[i]
 			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
@@ -486,14 +483,12 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 	renderMdDir(w, groupDir, "facts", "Facts")
 }
 
-// mdSummary extracts the summary frontmatter value or the first non-empty line.
 func mdSummary(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
 	content := string(data)
-	// try frontmatter summary
 	if strings.HasPrefix(content, "---\n") {
 		end := strings.Index(content[4:], "\n---")
 		if end >= 0 {
@@ -522,7 +517,6 @@ func mdSummary(path string) string {
 			}
 		}
 	}
-	// fallback: first non-empty line
 	for _, l := range strings.Split(content, "\n") {
 		l = strings.TrimSpace(l)
 		if l != "" && l != "---" {
@@ -532,7 +526,6 @@ func mdSummary(path string) string {
 	return ""
 }
 
-// renderMdDir renders a collapsible list of *.md files from groupDir/<sub>.
 func renderMdDir(w http.ResponseWriter, groupDir, sub, title string) {
 	dir := filepath.Join(groupDir, sub)
 	entries, err := os.ReadDir(dir)
@@ -550,7 +543,6 @@ func renderMdDir(w http.ResponseWriter, groupDir, sub, title string) {
 	}
 	fmt.Fprintf(w, `<h2>%s</h2><details><summary>%d files</summary><ul>`,
 		template.HTMLEscapeString(title), len(mdFiles))
-	// newest first (reverse alphabetical — ISO names sort correctly)
 	for i := len(mdFiles) - 1; i >= 0; i-- {
 		e := mdFiles[i]
 		summary := mdSummary(filepath.Join(dir, e.Name()))

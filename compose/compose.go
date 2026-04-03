@@ -71,11 +71,9 @@ func Generate(dataDir string) (string, error) {
 	b.WriteString("services:\n")
 	b.WriteString(gatedService(app, flavor, dataDir, env))
 	webPort := envOr(env, "WEB_PORT", "")
-	if profile == "web" || (profile != "minimal" && webPort != "") {
-		if webPort != "" {
-			b.WriteString(proxydService(app, flavor, dataDir, env))
-			b.WriteString(vitedService(app, flavor, dataDir, env))
-		}
+	if webPort != "" && profile != "minimal" {
+		b.WriteString(proxydService(app, flavor, dataDir, env))
+		b.WriteString(vitedService(app, flavor, dataDir, env))
 	}
 	if profile != "minimal" && profile != "web" {
 		b.WriteString(timedService(app, flavor, dataDir, env))
@@ -167,10 +165,8 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 		}
 	}
 
-	ports := []string{apiPort + ":" + apiPort}
-
 	var b strings.Builder
-	fmt.Fprintf(&b, "  gated:\n")
+	b.WriteString("  gated:\n")
 	fmt.Fprintf(&b, "    container_name: %s_gated_%s\n", app, flavor)
 	b.WriteString("    image: arizuko:latest\n")
 	b.WriteString("    entrypoint: ['gated']\n")
@@ -181,9 +177,7 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 		fmt.Fprintf(&b, "      - %s:/srv/app/arizuko:ro\n", hostApp)
 	}
 	b.WriteString("    ports:\n")
-	for _, p := range ports {
-		fmt.Fprintf(&b, "      - '%s'\n", p)
-	}
+	fmt.Fprintf(&b, "      - '%s:%s'\n", apiPort, apiPort)
 	b.WriteString("    environment:\n")
 	writeEnv(&b, environment)
 	b.WriteString("    restart: on-failure\n")
@@ -299,7 +293,7 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 func davdService(app, flavor, dataDir string, env map[string]string) string {
 	davPort := envOr(env, "DAV_PORT", "8097")
 	var b strings.Builder
-	fmt.Fprintf(&b, "  davd:\n")
+	b.WriteString("  davd:\n")
 	fmt.Fprintf(&b, "    container_name: %s_davd_%s\n", app, flavor)
 	b.WriteString("    image: sigoden/dufs:latest\n")
 	fmt.Fprintf(&b, "    volumes:\n      - %s/groups:/data:ro\n", dataDir)
@@ -317,7 +311,7 @@ func vitedService(app, flavor, dataDir string, env map[string]string) string {
 	vitePort := vitePortFrom(webPort)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "  vited:\n")
+	b.WriteString("  vited:\n")
 	fmt.Fprintf(&b, "    container_name: %s_vited_%s\n", app, flavor)
 	b.WriteString("    image: arizuko-vite:latest\n")
 	fmt.Fprintf(&b, "    volumes:\n      - %s/web:/web\n", dataDir)

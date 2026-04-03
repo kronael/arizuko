@@ -53,11 +53,6 @@ func (s *Store) AddRoute(jid string, r core.Route) (int64, error) {
 	return res.LastInsertId()
 }
 
-// InsertPrefixRoutes inserts @ (seq=-2) and # (seq=-1) prefix routes for jid
-// pointing at folder. Negative seq ensures they evaluate before default (seq=0).
-// Uses INSERT OR IGNORE to skip duplicates.
-// Error is intentionally ignored: prefix routes are a convenience inserted by
-// convention and can be added manually if needed. Non-fatal.
 func (s *Store) InsertPrefixRoutes(jid, folder string) {
 	s.db.Exec(
 		`INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
@@ -91,8 +86,6 @@ func (s *Store) DeleteRoute(id int64) error {
 	return err
 }
 
-// ListRoutes returns routes visible to folder. Root sees all; others see
-// routes targeting their folder or any subfolder.
 func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
 	var q string
 	var args []any
@@ -119,8 +112,6 @@ func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
 	return out
 }
 
-// GetImpulseConfigJSON returns the impulse_config JSON for jid (exact match
-// first, then platform prefix fallback). Returns "" if not found.
 func (s *Store) GetImpulseConfigJSON(jid string) string {
 	prefix := platformPrefix(jid)
 	var cfg string
@@ -135,8 +126,6 @@ func (s *Store) GetImpulseConfigJSON(jid string) string {
 	return cfg
 }
 
-// RouteSourceJIDsInWorld returns distinct source JIDs where target is
-// worldFolder or any subfolder of it.
 func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string {
 	rows, err := s.db.Query(
 		`SELECT DISTINCT jid FROM routes

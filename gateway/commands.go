@@ -9,8 +9,7 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// cmdText strips media placeholder and routing prefix before command detection.
-// "[Doc: f.txt] @root /stop" → "/stop"
+// cmdText strips media placeholder and routing prefix: "[Doc: f.txt] @root /stop" → "/stop"
 func cmdText(raw string) string {
 	t := strings.TrimSpace(raw)
 	if strings.HasPrefix(t, "[") {
@@ -73,7 +72,6 @@ func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
 func (g *Gateway) cmdNew(chatJid string, group core.Group, arg string) bool {
 	g.store.ClearChatErrored(chatJid)
 
-	// /new #topic [msg] — reset named topic session
 	if strings.HasPrefix(arg, "#") {
 		name, rest, _ := parsePrefix(arg)
 		topic := "#" + name

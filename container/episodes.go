@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-// readEpisodeSummary extracts the `summary:` and `type:` values from a markdown file's
-// YAML frontmatter. Returns empty strings if not found.
 func readEpisodeSummary(path string) (summary, epType string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -54,8 +52,6 @@ func readEpisodeSummary(path string) (summary, epType string) {
 	return
 }
 
-// ReadRecentEpisodes reads episodes from groupDir/episodes/, returns XML annotation.
-// Returns "" if directory missing or empty.
 func ReadRecentEpisodes(groupDir string) string {
 	dir := filepath.Join(groupDir, "episodes")
 	entries, err := os.ReadDir(dir)
@@ -86,19 +82,14 @@ func ReadRecentEpisodes(groupDir string) string {
 		return ""
 	}
 
-	// sort each type descending by filename (ISO date format sorts correctly)
 	var all []ep
 	for _, eps := range byType {
 		sort.Slice(eps, func(i, j int) bool { return eps[i].key > eps[j].key })
-		limit := 3
-		if len(eps) < limit {
-			limit = len(eps)
-		}
-		all = append(all, eps[:limit]...)
+		all = append(all, eps[:min(3, len(eps))]...)
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "<episodes count=%q>\n", len(all))
+	fmt.Fprintf(&b, "<episodes count=\"%d\">\n", len(all))
 	for _, e := range all {
 		fmt.Fprintf(&b, "  <entry key=%q type=%q>%s</entry>\n", e.key, e.epType, e.summary)
 	}

@@ -47,10 +47,7 @@ type Gateway struct {
 	// preserve nanosecond precision; seconds-only formats risk missed messages.
 	lastTimestamp time.Time
 
-	// agentCursors caches per-JID cursor values in memory. If the DB write
-	// fails (e.g. disk full), the in-memory value still advances so the
-	// current process does not reprocess the same messages.
-	agentCursors map[string]time.Time
+	agentCursors map[string]time.Time // in-memory cache; advances even if DB write fails
 
 	impulse *impulseGate
 }
@@ -97,7 +94,6 @@ func (g *Gateway) Run(ctx context.Context) error {
 
 	g.loadState()
 
-	// Register LocalChannel for agent-to-agent communication
 	g.AddChannel(NewLocalChannel(g.store))
 
 	g.gatedFns = ipc.GatedFns{
@@ -284,7 +280,6 @@ func (g *Gateway) pollOnce() {
 
 		last := chatMsgs[len(chatMsgs)-1]
 
-		// Handle sticky routing commands (@, @name, #, #topic)
 		if g.handleStickyCommand(chatJid, last) {
 			slog.Debug("poll: handled sticky command", "jid", chatJid)
 			continue
@@ -602,12 +597,12 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 				lastSentID = sentID
 				g.store.SetLastReplyID(chatJid, topic, sentID)
 			}
-			msgID := sentID
-			if msgID == "" {
-				msgID = fmt.Sprintf("unsent-%d", time.Now().UnixNano())
+			storeID := sentID
+			if storeID == "" {
+				storeID = fmt.Sprintf("unsent-%d", time.Now().UnixNano())
 			}
 			g.store.PutMessage(core.Message{
-				ID:        msgID,
+				ID:        storeID,
 				ChatJID:   chatJid,
 				Sender:    g.cfg.Name,
 				Name:      g.cfg.Name,
@@ -718,8 +713,6 @@ func (g *Gateway) RecordJIDAdapter(chatJID, adapterName string) {
 func (g *Gateway) findChannel(jid string) core.Channel {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	// Prefer the adapter that last received a message from this JID — needed
-	// when multiple adapters share the same JID prefix (e.g. two teled bots).
 	if v, ok := g.jidAdapters.Load(jid); ok {
 		if name, ok := v.(string); ok {
 			for _, ch := range g.channels {
@@ -865,7 +858,7 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 		}
 		transcript := ""
 		if g.cfg.VoiceEnabled && g.cfg.WhisperURL != "" {
-			if isVoiceMime(att.Mime) {
+			if strings.HasPrefix(att.Mime, "audio/") {
 				transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, dest, langs)
 			} else if strings.HasPrefix(att.Mime, "video/") {
 				if audioPath := extractVideoAudio(dest); audioPath != "" {
@@ -922,8 +915,6 @@ func downloadFile(url, dest string, maxBytes int64) error {
 	return cpErr
 }
 
-// whisperTranscribe transcribes a voice file via OpenAI-compatible whisper API.
-// langs is optional; if empty, auto-detect is used. If multiple, tries each and returns all.
 func whisperTranscribe(baseURL, model, path string, langs []string) string {
 	if len(langs) == 0 {
 		langs = []string{""}
@@ -968,8 +959,6 @@ func transcribeOnce(baseURL, model, path, lang string) string {
 	return strings.TrimSpace(out.Text)
 }
 
-// readWhisperLanguages reads language codes from <groupPath>/.whisper-language,
-// one code per line. Returns nil if the file is absent.
 func readWhisperLanguages(groupPath string) []string {
 	data, err := os.ReadFile(filepath.Join(groupPath, ".whisper-language"))
 	if err != nil {
@@ -984,8 +973,6 @@ func readWhisperLanguages(groupPath string) []string {
 	return langs
 }
 
-// extractVideoAudio extracts audio from a video file using ffmpeg.
-// Returns path to the extracted audio file, or "" if ffmpeg unavailable or fails.
 func extractVideoAudio(videoPath string) string {
 	audioPath := strings.TrimSuffix(videoPath, filepath.Ext(videoPath)) + "-audio.mp3"
 	cmd := exec.Command("ffmpeg", "-y", "-i", videoPath, "-vn", "-acodec", "libmp3lame", "-q:a", "4", audioPath)
@@ -1016,9 +1003,7 @@ func extFromMime(mimeType, filename string) string {
 	return ".bin"
 }
 
-func isVoiceMime(m string) bool {
-	return strings.HasPrefix(m, "audio/")
-}
+func isVoiceMime(m string) bool { return strings.HasPrefix(m, "audio/") }
 
 func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
 	g.mu.Lock()
@@ -1076,8 +1061,6 @@ type escalationMetadata struct {
 
 var escAttrRe = regexp.MustCompile(`(\w+)="([^"]*)"`)
 
-// parseEscalationOrigin extracts metadata from <escalation_origin> XML tag.
-// Format: <escalation_origin folder="world/support" jid="telegram:123" reply_to="567"/>
 func parseEscalationOrigin(prompt string) *escalationMetadata {
 	start := strings.Index(prompt, "<escalation_origin")
 	if start == -1 {
@@ -1153,18 +1136,12 @@ func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolde
 	return ""
 }
 
-// isStickyCommand returns true if content is exactly @, @name, #, or #topic
-// (single token on a single line — no spaces or newlines).
 func isStickyCommand(content string) bool {
 	t := strings.TrimSpace(content)
-	if len(t) == 0 {
+	if len(t) == 0 || (t[0] != '@' && t[0] != '#') {
 		return false
 	}
-	first := t[0]
-	if first != '@' && first != '#' {
-		return false
-	}
-	return !strings.Contains(t, " ") && !strings.Contains(t, "\n")
+	return !strings.ContainsAny(t, " \n")
 }
 
 func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
@@ -1212,7 +1189,6 @@ func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
 	return false
 }
 
-// effectiveTopic returns the sticky topic if set, otherwise the message topic.
 func (g *Gateway) effectiveTopic(chatJid, msgTopic string) string {
 	stickyTopic := g.store.GetStickyTopic(chatJid)
 	if stickyTopic != "" {
@@ -1326,18 +1302,15 @@ func (g *Gateway) getAgentCursor(chatJid string) time.Time {
 	return g.store.GetAgentCursor(chatJid)
 }
 
-// previousSessionXML returns a <previous_session .../> element from the most
-// recently recorded session, or "" if none exists.
 func previousSessionXML(sessions []core.SessionRecord) string {
 	if len(sessions) == 0 {
 		return ""
 	}
 	s := sessions[0]
-	result := s.Result
+	result, ended := s.Result, ""
 	if result == "" {
 		result = "unknown"
 	}
-	ended := ""
 	if s.EndedAt != nil {
 		ended = s.EndedAt.Format("2006-01-02T15:04:05Z07:00")
 	}
@@ -1347,12 +1320,7 @@ func previousSessionXML(sessions []core.SessionRecord) string {
 	}
 	return fmt.Sprintf(
 		`<previous_session id=%q started=%q ended=%q msgs="%d" result=%q/>`,
-		sid,
-		s.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
-		ended,
-		s.MsgCount,
-		result,
-	)
+		sid, s.StartedAt.Format("2006-01-02T15:04:05Z07:00"), ended, s.MsgCount, result)
 }
 
 func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
@@ -1384,12 +1352,10 @@ func (g *Gateway) delegateToFolder(
 		return fmt.Errorf("delegation depth exceeded")
 	}
 
-	// Parse escalation metadata if this is an escalation
 	var escalation *escalationMetadata
 	if label == "escalate" {
 		escalation = parseEscalationOrigin(prompt)
 		if escalation != nil {
-			// Route response to worker's local JID instead of original user
 			originJid = "local:" + escalation.WorkerFolder
 		}
 	}
@@ -1398,7 +1364,6 @@ func (g *Gateway) delegateToFolder(
 	targetJid, target, found := g.groupByFolderLocked(folder)
 	g.mu.RUnlock()
 	if !found {
-		// attempt prototype spawn when target has a parent prefix
 		sep := strings.LastIndex(folder, "/")
 		if sep > 0 {
 			parentFolder := folder[:sep]
@@ -1423,8 +1388,7 @@ func (g *Gateway) delegateToFolder(
 					if text != "" {
 						clean := router.FormatOutbound(text)
 						if clean != "" {
-							// Wrap response with escalation metadata if applicable
-							if escalation != nil {
+									if escalation != nil {
 								clean = fmt.Sprintf("<escalation_response origin_jid=%q origin_msg_id=%q>\n%s\n</escalation_response>",
 									escalation.OriginJID, escalation.ReplyTo, clean)
 							}

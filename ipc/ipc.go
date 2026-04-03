@@ -107,7 +107,21 @@ func toolOK() (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText("ok"), nil
 }
 
-// normalizeJID appends @s.whatsapp.net to bare WhatsApp IDs.
+func recordOutbound(db StoreFns, jid, text, replyToID, platformID, folder string) {
+	if platformID == "" {
+		return
+	}
+	if db.SetLastReplyID != nil {
+		db.SetLastReplyID(jid, "", platformID)
+	}
+	if db.StoreOutbound != nil {
+		db.StoreOutbound(core.OutboundEntry{
+			ChatJID: jid, Content: text, Source: "mcp",
+			GroupFolder: folder, ReplyToID: replyToID, PlatformMsgID: platformID,
+		})
+	}
+}
+
 func normalizeJID(jid string) string {
 	if strings.HasPrefix(jid, "whatsapp:") && !strings.Contains(jid, "@") {
 		return jid + "@s.whatsapp.net"
@@ -130,7 +144,6 @@ func groupFolderByJid(groups map[string]core.Group, jid string) string {
 	return ""
 }
 
-// toolDesc appends matching rules to a description for manifest clarity.
 func toolDesc(base string, rules []string, action string) string {
 	matching := grantslib.MatchingRules(rules, action)
 	if len(matching) == 0 {
@@ -140,8 +153,6 @@ func toolDesc(base string, rules []string, action string) string {
 	return base + "\ngrants: " + string(data)
 }
 
-// workspaceRel translates /home/node/... to a relative path under the
-// group dir. Returns an error for other prefixes.
 func workspaceRel(fp string) (string, error) {
 	if strings.HasPrefix(fp, "/home/node/") {
 		return strings.TrimPrefix(fp, "/home/node/"), nil
@@ -197,7 +208,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		slog.Debug("mcp tools not registered (no grant match)", "folder", folder, "tools", skipped)
 	}
 
-	// send_message
 	if len(grantslib.MatchingRules(rules, "send_message")) > 0 {
 		srv.AddTool(mcp.NewTool("send_message",
 			mcp.WithDescription(toolDesc("Send a text message to a chat", rules, "send_message")),
@@ -221,24 +231,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err != nil {
 				return toolErr(err.Error())
 			}
-			// Update MCP reply chain state
-			if db.SetLastReplyID != nil && platformID != "" {
-				db.SetLastReplyID(jid, "", platformID)
-			}
-			if db.StoreOutbound != nil && platformID != "" {
-				db.StoreOutbound(core.OutboundEntry{
-					ChatJID:       jid,
-					Content:       text,
-					Source:        "mcp",
-					GroupFolder:   folder,
-					PlatformMsgID: platformID,
-				})
-			}
+			recordOutbound(db, jid, text, "", platformID, folder)
 			return toolOK()
 		})
 	}
 
-	// send_reply
 	if len(grantslib.MatchingRules(rules, "send_reply")) > 0 {
 		srv.AddTool(mcp.NewTool("send_reply",
 			mcp.WithDescription(toolDesc("Send a reply to a chat, optionally threading to a message", rules, "send_reply")),
@@ -255,7 +252,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			text := req.GetString("text", "")
 			replyToID := req.GetString("replyToId", "")
-			// Auto-inject replyTo from last MCP-sent message if not provided
 			if replyToID == "" && db.GetLastReplyID != nil {
 				replyToID = db.GetLastReplyID(jid, "")
 			}
@@ -263,25 +259,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err != nil {
 				return toolErr(err.Error())
 			}
-			// Update MCP reply chain state
-			if db.SetLastReplyID != nil && platformID != "" {
-				db.SetLastReplyID(jid, "", platformID)
-			}
-			if db.StoreOutbound != nil && platformID != "" {
-				db.StoreOutbound(core.OutboundEntry{
-					ChatJID:       jid,
-					Content:       text,
-					Source:        "mcp",
-					GroupFolder:   folder,
-					ReplyToID:     replyToID,
-					PlatformMsgID: platformID,
-				})
-			}
+			recordOutbound(db, jid, text, replyToID, platformID, folder)
 			return toolOK()
 		})
 	}
 
-	// send_file
 	if len(grantslib.MatchingRules(rules, "send_file")) > 0 {
 		srv.AddTool(mcp.NewTool("send_file",
 			mcp.WithDescription(toolDesc("Send a file to a chat", rules, "send_file")),
@@ -320,7 +302,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// reset_session
 	if len(grantslib.MatchingRules(rules, "reset_session")) > 0 {
 		srv.AddTool(mcp.NewTool("reset_session",
 			mcp.WithDescription(toolDesc("Clear the agent session for a group", rules, "reset_session")),
@@ -345,7 +326,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// inject_message
 	if len(grantslib.MatchingRules(rules, "inject_message")) > 0 {
 		srv.AddTool(mcp.NewTool("inject_message",
 			mcp.WithDescription(toolDesc("Inject a message into the store for a chat", rules, "inject_message")),
@@ -361,11 +341,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr("inject_message not configured")
 			}
 			jid := req.GetString("chatJid", "")
-			sender := req.GetString("sender", "system")
+			sender := req.GetString("sender", "")
 			if sender == "" {
 				sender = "system"
 			}
-			senderName := req.GetString("senderName", "system")
+			senderName := req.GetString("senderName", "")
 			if senderName == "" {
 				senderName = "system"
 			}
@@ -378,7 +358,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// register_group
 	if len(grantslib.MatchingRules(rules, "register_group")) > 0 {
 		srv.AddTool(mcp.NewTool("register_group",
 			mcp.WithDescription(toolDesc(
@@ -475,7 +454,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// escalate_group
 	if len(grantslib.MatchingRules(rules, "escalate_group")) > 0 {
 		srv.AddTool(mcp.NewTool("escalate_group",
 			mcp.WithDescription(toolDesc("Escalate a task to the parent group", rules, "escalate_group")),
@@ -514,7 +492,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// refresh_groups — tier ≤ 2
 	if id.Tier <= 2 {
 		srv.AddTool(mcp.NewTool("refresh_groups",
 			mcp.WithDescription("Reload the list of registered groups"),
@@ -537,7 +514,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// delegate_group
 	if len(grantslib.MatchingRules(rules, "delegate_group")) > 0 {
 		srv.AddTool(mcp.NewTool("delegate_group",
 			mcp.WithDescription(toolDesc("Delegate a task to a child group", rules, "delegate_group")),
@@ -581,7 +557,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// get_routes
 	if len(grantslib.MatchingRules(rules, "get_routes")) > 0 {
 		srv.AddTool(mcp.NewTool("get_routes",
 			mcp.WithDescription(toolDesc("Get routes for a JID", rules, "get_routes")),
@@ -605,7 +580,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// list_routes
 	if len(grantslib.MatchingRules(rules, "list_routes")) > 0 {
 		srv.AddTool(mcp.NewTool("list_routes",
 			mcp.WithDescription(toolDesc("List all routes visible to this group", rules, "list_routes")),
@@ -620,7 +594,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// set_routes
 	if len(grantslib.MatchingRules(rules, "set_routes")) > 0 {
 		srv.AddTool(mcp.NewTool("set_routes",
 			mcp.WithDescription(toolDesc("Replace all routes for a JID", rules, "set_routes")),
@@ -653,7 +626,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// add_route
 	if len(grantslib.MatchingRules(rules, "add_route")) > 0 {
 		srv.AddTool(mcp.NewTool("add_route",
 			mcp.WithDescription(toolDesc("Add a single route for a JID", rules, "add_route")),
@@ -692,7 +664,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// delete_route
 	if len(grantslib.MatchingRules(rules, "delete_route")) > 0 {
 		srv.AddTool(mcp.NewTool("delete_route",
 			mcp.WithDescription(toolDesc("Delete a route by ID", rules, "delete_route")),
@@ -723,7 +694,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// schedule_task
 	if len(grantslib.MatchingRules(rules, "schedule_task")) > 0 {
 		srv.AddTool(mcp.NewTool("schedule_task",
 			mcp.WithDescription(toolDesc(
@@ -798,91 +768,49 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// pause_task
-	if len(grantslib.MatchingRules(rules, "pause_task")) > 0 {
-		srv.AddTool(mcp.NewTool("pause_task",
-			mcp.WithDescription(toolDesc("Pause a scheduled task", rules, "pause_task")),
+	taskOps := []struct {
+		name string
+		desc string
+		exec func(taskID string) error
+	}{
+		{"pause_task", "Pause a scheduled task", func(tid string) error {
+			return db.UpdateTaskStatus(tid, core.TaskPaused)
+		}},
+		{"resume_task", "Resume a paused scheduled task", func(tid string) error {
+			return db.UpdateTaskStatus(tid, core.TaskActive)
+		}},
+		{"cancel_task", "Cancel and delete a scheduled task", func(tid string) error {
+			return db.DeleteTask(tid)
+		}},
+	}
+	for _, op := range taskOps {
+		op := op
+		if len(grantslib.MatchingRules(rules, op.name)) == 0 || db.GetTask == nil {
+			continue
+		}
+		srv.AddTool(mcp.NewTool(op.name,
+			mcp.WithDescription(toolDesc(op.desc, rules, op.name)),
 			mcp.WithString("taskId", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "pause_task", nil) {
-				return toolErr("pause_task: not permitted")
-			}
-			if db.GetTask == nil || db.UpdateTaskStatus == nil {
-				return toolErr("pause_task not configured")
+			if !grantslib.CheckAction(rules, op.name, nil) {
+				return toolErr(op.name + ": not permitted")
 			}
 			taskID := req.GetString("taskId", "")
 			task, ok := db.GetTask(taskID)
 			if !ok {
 				return toolErr("task not found")
 			}
-			if err := auth.Authorize(id, "pause_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
+			if err := auth.Authorize(id, op.name, auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
 				return toolErr(err.Error())
 			}
-			if err := db.UpdateTaskStatus(taskID, core.TaskPaused); err != nil {
+			if err := op.exec(taskID); err != nil {
 				return toolErr(err.Error())
 			}
-			slog.Info("task paused via mcp", "taskId", taskID, "sourceGroup", folder)
+			slog.Info("task "+op.name+" via mcp", "taskId", taskID, "sourceGroup", folder)
 			return toolJSON(map[string]any{"ok": true})
 		})
 	}
 
-	// resume_task
-	if len(grantslib.MatchingRules(rules, "resume_task")) > 0 {
-		srv.AddTool(mcp.NewTool("resume_task",
-			mcp.WithDescription(toolDesc("Resume a paused scheduled task", rules, "resume_task")),
-			mcp.WithString("taskId", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "resume_task", nil) {
-				return toolErr("resume_task: not permitted")
-			}
-			if db.GetTask == nil || db.UpdateTaskStatus == nil {
-				return toolErr("resume_task not configured")
-			}
-			taskID := req.GetString("taskId", "")
-			task, ok := db.GetTask(taskID)
-			if !ok {
-				return toolErr("task not found")
-			}
-			if err := auth.Authorize(id, "resume_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
-				return toolErr(err.Error())
-			}
-			if err := db.UpdateTaskStatus(taskID, core.TaskActive); err != nil {
-				return toolErr(err.Error())
-			}
-			slog.Info("task resumed via mcp", "taskId", taskID, "sourceGroup", folder)
-			return toolJSON(map[string]any{"ok": true})
-		})
-	}
-
-	// cancel_task
-	if len(grantslib.MatchingRules(rules, "cancel_task")) > 0 {
-		srv.AddTool(mcp.NewTool("cancel_task",
-			mcp.WithDescription(toolDesc("Cancel and delete a scheduled task", rules, "cancel_task")),
-			mcp.WithString("taskId", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "cancel_task", nil) {
-				return toolErr("cancel_task: not permitted")
-			}
-			if db.GetTask == nil || db.DeleteTask == nil {
-				return toolErr("cancel_task not configured")
-			}
-			taskID := req.GetString("taskId", "")
-			task, ok := db.GetTask(taskID)
-			if !ok {
-				return toolErr("task not found")
-			}
-			if err := auth.Authorize(id, "cancel_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
-				return toolErr(err.Error())
-			}
-			if err := db.DeleteTask(taskID); err != nil {
-				return toolErr(err.Error())
-			}
-			slog.Info("task cancelled via mcp", "taskId", taskID, "sourceGroup", folder)
-			return toolJSON(map[string]any{"ok": true})
-		})
-	}
-
-	// list_tasks
 	if len(grantslib.MatchingRules(rules, "list_tasks")) > 0 {
 		srv.AddTool(mcp.NewTool("list_tasks",
 			mcp.WithDescription(toolDesc("List scheduled tasks visible to this group", rules, "list_tasks")),
@@ -897,7 +825,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// get_grants / set_grants — tier 0-1 only
 	if id.Tier <= 1 {
 		srv.AddTool(mcp.NewTool("get_grants",
 			mcp.WithDescription("Get grant rules for a folder (tier 0-1 only)"),
@@ -943,7 +870,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// get_history — on-demand message history for agents needing older context
 	if db.MessagesBefore != nil {
 		srv.AddTool(mcp.NewTool("get_history",
 			mcp.WithDescription("Fetch message history for a chat. Returns XML same as injected <messages> block."),
@@ -986,7 +912,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// set_web_host — tier 0 only
 	if id.Tier == 0 && len(grantslib.MatchingRules(rules, "set_web_host")) > 0 {
 		srv.AddTool(mcp.NewTool("set_web_host",
 			mcp.WithDescription(toolDesc("Set a virtual host mapping (hostname → folder)", rules, "set_web_host")),
@@ -1024,7 +949,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	// get_web_host — tier 0-1
 	if id.Tier <= 1 && len(grantslib.MatchingRules(rules, "get_web_host")) > 0 {
 		srv.AddTool(mcp.NewTool("get_web_host",
 			mcp.WithDescription(toolDesc("Get virtual host mapping for a folder", rules, "get_web_host")),

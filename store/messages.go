@@ -7,7 +7,6 @@ import (
 )
 
 func (s *Store) PutMessage(m core.Message) error {
-	// INSERT OR IGNORE: same message ID from same platform is idempotent.
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO messages
 		 (id, chat_jid, sender, sender_name, content, timestamp,
@@ -163,7 +162,6 @@ func scanMessage(r rowScanner) (core.Message, time.Time, error) {
 	return m, m.Timestamp, nil
 }
 
-// TopicSummary is a topic with its last message time and preview.
 type TopicSummary struct {
 	ID           string
 	Preview      string
@@ -171,7 +169,6 @@ type TopicSummary struct {
 	MessageCount int
 }
 
-// Topics returns all topics for a group folder, newest first.
 func (s *Store) Topics(folder string) ([]TopicSummary, error) {
 	jid := "web:" + folder
 	rows, err := s.db.Query(
@@ -201,7 +198,6 @@ func (s *Store) Topics(folder string) ([]TopicSummary, error) {
 	return out, rows.Err()
 }
 
-// MessagesByTopic returns messages for a group/topic cursor-paginated, newest first.
 func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit int) ([]core.Message, error) {
 	jid := "web:" + folder
 	if limit <= 0 || limit > 100 {
@@ -280,8 +276,6 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	return msgs, rows.Err()
 }
 
-// ObservedMessagesSince returns recent non-bot messages from JIDs routed to
-// groupFolder (via routes) that are not excludeJid, since the given timestamp.
 func (s *Store) ObservedMessagesSince(groupFolder, excludeJid, since string) []core.Message {
 	rows, err := s.db.Query(
 		`SELECT DISTINCT m.id, m.chat_jid, m.sender, m.sender_name, m.content, m.timestamp,
@@ -373,9 +367,6 @@ func btoi(b bool) int {
 	return 0
 }
 
-// MessagesBefore returns up to limit inbound messages for a JID with
-// timestamp < before (or now if before is zero). Results are returned
-// in ascending timestamp order (oldest first after DESC query reversal).
 func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 100
@@ -408,15 +399,12 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	// reverse to ascending order
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
 	return msgs, nil
 }
 
-// JIDRoutedToFolder returns true if there is any route with the given JID
-// targeting the given folder (or a sub-path of it).
 func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
 	var count int
 	s.db.QueryRow(

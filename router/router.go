@@ -35,7 +35,6 @@ func escapeXml(s string) string {
 	return s
 }
 
-// ClockXml returns a <clock> tag with current time and timezone.
 func ClockXml(tz string) string {
 	loc := time.UTC
 	if tz != "" {
@@ -169,7 +168,6 @@ func FormatOutbound(raw string) string {
 	return strings.TrimSpace(s)
 }
 
-// ExtractStatusBlocks removes <status> blocks and returns them separately.
 func ExtractStatusBlocks(s string) (string, []string) {
 	var statuses []string
 	cleaned := statusRe.ReplaceAllStringFunc(s, func(m string) string {
@@ -185,11 +183,9 @@ func ExtractStatusBlocks(s string) (string, []string) {
 	return cleaned, statuses
 }
 
-// StripThinkBlocks removes <think>...</think> blocks including nested ones.
 func StripThinkBlocks(s string) string {
 	var b strings.Builder
-	depth := 0
-	i := 0
+	depth, i := 0, 0
 	for i < len(s) {
 		if strings.HasPrefix(s[i:], "<think>") {
 			depth++
@@ -197,10 +193,10 @@ func StripThinkBlocks(s string) string {
 		} else if strings.HasPrefix(s[i:], "</think>") && depth > 0 {
 			depth--
 			i += 8
-		} else if depth == 0 {
-			b.WriteByte(s[i])
+		} else if depth > 0 {
 			i++
 		} else {
+			b.WriteByte(s[i])
 			i++
 		}
 	}
@@ -211,7 +207,6 @@ var platformShort = map[string]string{
 	"telegram": "tg", "whatsapp": "wa", "discord": "dc",
 	"email": "em", "web": "web",
 }
-
 
 func senderToUserFileID(sender string) string {
 	parts := strings.SplitN(sender, ":", 2)
@@ -231,8 +226,6 @@ func senderToUserFileID(sender string) string {
 
 var nameRe = regexp.MustCompile(`(?m)^name:\s*(.+)$`)
 
-// UserContextXml returns a <user> tag for the sender, or "" if no sender.
-// Reads user file from groupDir/users/<id>.md for name lookup.
 func UserContextXml(sender, groupDir string) string {
 	if sender == "" || sender == "system" {
 		return ""
@@ -255,8 +248,6 @@ func UserContextXml(sender, groupDir string) string {
 	return "<user " + strings.Join(attrs, " ") + " />"
 }
 
-// IsAuthorizedRoutingTarget returns true if source may delegate to target.
-// Root world can delegate to any folder; otherwise same world + descendant.
 func IsAuthorizedRoutingTarget(source, target string) bool {
 	srcRoot := strings.SplitN(source, "/", 2)[0]
 	if srcRoot == "root" {
@@ -274,8 +265,6 @@ func IsAuthorizedRoutingTarget(source, target string) bool {
 		strings.IndexByte(suffix[1:], '/') == -1
 }
 
-// ExpandTarget performs RFC 6570 Level 1 template expansion on a route target.
-// Only {sender} is supported — expands to senderToUserFileID(msg.Sender).
 func expandTarget(target string, msg core.Message) string {
 	if !strings.Contains(target, "{") {
 		return target
@@ -327,8 +316,6 @@ func routeMatches(r core.Route, msg core.Message) bool {
 	return false
 }
 
-// ResolveRoute evaluates flat routes sequentially (first match wins).
-// Template targets are expanded per-message. Returns target folder or "".
 func ResolveRoute(msg core.Message, routes []core.Route) string {
 	for _, r := range routes {
 		if !routeMatches(r, msg) {

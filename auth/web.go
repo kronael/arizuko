@@ -182,7 +182,6 @@ func genToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// HashToken hashes a refresh token for DB storage/lookup.
 func HashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
@@ -213,7 +212,6 @@ type argon2Params struct {
 }
 
 func splitArgon2(encoded string) *argon2Params {
-	// $argon2id$v=19$m=65536,t=3,p=4$salt$hash
 	var p argon2Params
 	n, _ := fmt.Sscanf(encoded, "$argon2id$v=19$m=%d,t=%d,p=%d$",
 		&p.memory, &p.time, &p.threads)
