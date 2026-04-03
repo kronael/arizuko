@@ -136,12 +136,15 @@ any skill or reading any file first.
 | `refresh_groups` | Reload registered groups list (tier ≤ 2)                                  |
 | `delegate_group` | Forward a message to a child group for processing                         |
 | `escalate_group` | Escalate a task to the parent group                                       |
+| `list_routes`    | List all routes visible to this group                                     |
 | `set_routes`     | Replace all routes for a JID                                              |
 | `add_route`      | Add a single route for a JID                                              |
 | `get_routes`     | Get routes for a JID                                                      |
 | `delete_route`   | Delete a route by ID                                                      |
 | `get_history`    | Fetch message history for a chat (paginated)                              |
 | `reset_session`  | Clear this group's session and start fresh                                |
+| `get_web_host`   | Get web hostname for a vhost (tier 0-1 only)                              |
+| `set_web_host`   | Set web hostname mapping in vhosts.json (tier 0 only)                     |
 | `get_grants`     | Get grant rules for a folder (tier 0-1 only)                              |
 | `set_grants`     | Set grant rules for a folder (tier 0-1 only)                              |
 
