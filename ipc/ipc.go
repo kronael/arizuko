@@ -46,6 +46,7 @@ type StoreFns struct {
 	DeleteTask       func(id string) error
 	ListTasks        func(folder string, isRoot bool) []core.Task
 	GetRoutes        func(jid string) []core.Route
+	ListRoutes       func(folder string, isRoot bool) []core.Route
 	SetRoutes        func(jid string, routes []core.Route) error
 	AddRoute         func(jid string, r core.Route) (int64, error)
 	DeleteRoute      func(id int64) error
@@ -154,7 +155,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	grantedTools := []string{
 		"send_message", "send_reply", "send_file", "reset_session",
 		"inject_message", "register_group", "escalate_group", "delegate_group",
-		"get_routes", "set_routes", "add_route", "delete_route",
+		"get_routes", "list_routes", "set_routes", "add_route", "delete_route",
 		"schedule_task", "pause_task", "resume_task", "cancel_task", "list_tasks",
 	}
 	var skipped []string
@@ -572,6 +573,21 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr(err.Error())
 			}
 			return toolJSON(map[string]any{"jid": jid, "routes": db.GetRoutes(jid)})
+		})
+	}
+
+	// list_routes
+	if len(grantslib.MatchingRules(rules, "list_routes")) > 0 {
+		srv.AddTool(mcp.NewTool("list_routes",
+			mcp.WithDescription(toolDesc("List all routes visible to this group", rules, "list_routes")),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !grantslib.CheckAction(rules, "list_routes", nil) {
+				return toolErr("list_routes: not permitted")
+			}
+			if db.ListRoutes == nil {
+				return toolErr("list_routes not configured")
+			}
+			return toolJSON(map[string]any{"routes": db.ListRoutes(folder, id.Tier == 0)})
 		})
 	}
 

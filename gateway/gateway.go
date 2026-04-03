@@ -138,6 +138,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		DeleteTask:     g.store.DeleteTask,
 		ListTasks:      g.store.ListTasks,
 		GetRoutes:      g.store.GetRoutes,
+		ListRoutes:     g.store.ListRoutes,
 		SetRoutes:      g.store.SetRoutes,
 		AddRoute:       g.store.AddRoute,
 		DeleteRoute:    g.store.DeleteRoute,

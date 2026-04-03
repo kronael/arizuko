@@ -91,6 +91,34 @@ func (s *Store) DeleteRoute(id int64) error {
 	return err
 }
 
+// ListRoutes returns routes visible to folder. Root sees all; others see
+// routes targeting their folder or any subfolder.
+func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
+	var q string
+	var args []any
+	if isRoot {
+		q = `SELECT id, jid, seq, type, COALESCE(match,''), target, COALESCE(impulse_config,'')
+		     FROM routes ORDER BY jid, seq`
+	} else {
+		q = `SELECT id, jid, seq, type, COALESCE(match,''), target, COALESCE(impulse_config,'')
+		     FROM routes WHERE target = ? OR target LIKE ?||'/%'
+		     ORDER BY jid, seq`
+		args = []any{folder, folder}
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []core.Route
+	for rows.Next() {
+		var r core.Route
+		rows.Scan(&r.ID, &r.JID, &r.Seq, &r.Type, &r.Match, &r.Target, &r.ImpulseConfig)
+		out = append(out, r)
+	}
+	return out
+}
+
 // GetImpulseConfigJSON returns the impulse_config JSON for jid (exact match
 // first, then platform prefix fallback). Returns "" if not found.
 func (s *Store) GetImpulseConfigJSON(jid string) string {

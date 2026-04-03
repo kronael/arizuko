@@ -106,6 +106,7 @@ func TestAllToolsRegistered(t *testing.T) {
 		DeleteTask:       func(id string) error { return nil },
 		ListTasks:        func(f string, r bool) []core.Task { return nil },
 		GetRoutes:        func(j string) []core.Route { return nil },
+		ListRoutes:       func(f string, r bool) []core.Route { return nil },
 		SetRoutes:        func(j string, r []core.Route) error { return nil },
 		AddRoute:         func(j string, r core.Route) (int64, error) { return 0, nil },
 		DeleteRoute:      func(id int64) error { return nil },
