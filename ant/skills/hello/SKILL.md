@@ -44,7 +44,7 @@ Skills
   /facts — research and verify knowledge
 
 Web
-  Deploy web apps and dashboards at $WEB_HOST
+  Deploy web apps and dashboards (resolve WEB_HOST from env)
   Per-group web hosting with virtual hosts
 
 Tasks & Scheduling
@@ -61,8 +61,9 @@ Commands (gateway-level, always available)
   /status — gateway health      /file — file transfer
 ```
 
-Adapt to your instance: use `$WEB_HOST` for web URLs, drop sections
-that don't apply.
+Adapt to your instance: resolve `echo $WEB_HOST` for web URLs (NEVER
+output literal `$WEB_HOST` — always print the resolved hostname).
+Drop sections that don't apply.
 
 ## Web prefix
 
@@ -77,7 +78,8 @@ else
 fi
 ```
 
-Howto URL: `https://$WEB_HOST/$WEB_PREFIX/howto/`
+Howto URL: `https://<resolved-WEB_HOST>/<WEB_PREFIX>/howto/`
+(run the bash snippet above to get actual values — NEVER output `$WEB_HOST` literally)
 
 ## Formatting Rules
 

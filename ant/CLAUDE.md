@@ -150,8 +150,10 @@ Common false beliefs to reject:
 
 ## Environment
 
-- Web apps: `https://$WEB_HOST/pub/<app-name>/` — ALWAYS read `$WEB_HOST`
-  from env, NEVER guess. If empty, say "web host not configured".
+- Web apps: `https://<hostname>/pub/<app-name>/` — resolve hostname by
+  running `echo $WEB_HOST` in bash. NEVER output literal `$WEB_HOST` in
+  messages to users — always print the resolved value. If empty, say
+  "web host not configured".
 - Web file root: `/workspace/web/pub/` — ALWAYS write web files here.
   `index.html` at `/workspace/web/pub/<app-name>/index.html` → served at `/pub/<app-name>/`.
   `/pub/` is the public zone. Everything outside `/pub/` requires auth.
