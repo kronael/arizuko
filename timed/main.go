@@ -212,7 +212,6 @@ func nextCron(expr, tz string) (time.Time, error) {
 }
 
 func cleanupSpawns(db *sql.DB, groupsDir string) {
-	// 1. Close active spawns with no recent messages past their TTL
 	rows, err := db.Query(
 		`SELECT g.folder, g.spawn_ttl_days
 		 FROM registered_groups g
@@ -246,7 +245,6 @@ func cleanupSpawns(db *sql.DB, groupsDir string) {
 	}
 	slog.Debug("cleanup spawns: checked active", "count", checkedSpawns)
 
-	// 2. Archive closed groups past their archive_closed_days threshold
 	rows2, err := db.Query(
 		`SELECT folder, parent, archive_closed_days, updated_at
 		 FROM registered_groups WHERE state = 'closed'`)
