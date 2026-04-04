@@ -386,7 +386,11 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
 	var count int
 	s.db.QueryRow(
-		`SELECT COUNT(*) FROM routes WHERE jid = ? AND (target = ? OR target LIKE ?)`,
+		`SELECT COUNT(*) FROM registered_groups WHERE jid = ? AND (folder = ? OR folder LIKE ?)
+		 UNION ALL
+		 SELECT COUNT(*) FROM routes WHERE jid = ? AND (target = ? OR target LIKE ?)
+		 LIMIT 1`,
+		jid, folder, folder+"/%",
 		jid, folder, folder+"/%",
 	).Scan(&count)
 	return count > 0
