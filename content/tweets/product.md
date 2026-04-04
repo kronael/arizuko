@@ -1,4 +1,4 @@
-# Daily Feature Tweets — arizuko
+# Product Tweets — arizuko
 
 12 standalone tweets, one per day. Each names a specific problem
 people hit building agents and shows how arizuko solves it.
