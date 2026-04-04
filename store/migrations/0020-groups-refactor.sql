@@ -32,15 +32,16 @@ CREATE TABLE groups (
   updated_at          TEXT
 );
 
--- 5. Populate groups from registered_groups
+-- 5. Populate groups from registered_groups (deduplicate: multiple JIDs may share one folder)
 INSERT INTO groups (folder, name, added_at, container_config, slink_token, parent,
                     state, spawn_ttl_days, archive_closed_days, updated_at)
-  SELECT folder, name, added_at, container_config, slink_token, parent,
-         COALESCE(state, 'active'),
-         COALESCE(spawn_ttl_days, 7),
-         COALESCE(archive_closed_days, 1),
-         updated_at
-  FROM registered_groups;
+  SELECT folder, MAX(name), MAX(added_at), MAX(container_config), MAX(slink_token), MAX(parent),
+         COALESCE(MAX(state), 'active'),
+         COALESCE(MAX(spawn_ttl_days), 7),
+         COALESCE(MAX(archive_closed_days), 1),
+         MAX(updated_at)
+  FROM registered_groups
+  GROUP BY folder;
 
 -- 6. Drop old table
 DROP TABLE registered_groups;
