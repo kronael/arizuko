@@ -430,7 +430,7 @@ If told to stop → STOP
 Otherwise → IGNORE
 ```
 
-**Kanipi equivalent**: `trigger_pattern` in `registered_groups` table.
+**Kanipi equivalent**: `trigger_pattern` in `groups` table.
 Gateway handles this at routing level — agent never sees messages it
 shouldn't respond to. Simpler and more reliable.
 

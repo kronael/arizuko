@@ -50,7 +50,7 @@ to the channel.
 ## Worker setup
 
 Workers are configured per group. Configuration stored in
-`registered_groups.workers` (JSON column or separate table).
+`groups.workers` (JSON column or separate table).
 
 A worker definition:
 

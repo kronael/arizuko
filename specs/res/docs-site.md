@@ -284,7 +284,7 @@ Links to each subsystem page.
 
 Package: `gateway/`, `queue/`, `router/`
 Entrypoint daemon: `gated/`
-Tables owned: `routes`, `registered_groups`, `router_state`,
+Tables owned: `routes`, `groups`, `router_state`,
 `sessions`, `session_log`, `system_messages`
 
 Content:
@@ -514,7 +514,7 @@ Content:
 - Auth planes: JWT plane (X-User-Sub, X-User-Groups) and slink plane
   (X-Folder, X-Group-Name, X-Slink-Token)
 - Web JIDs: `web:<folder>` format, processWebTopics per-topic agent runs
-- Slink tokens: registered_groups.slink_token, rate-limited 10 req/min per IP
+- Slink tokens: groups.slink_token, rate-limited 10 req/min per IP
 - user_groups table: restricts web user to specific folder list, embedded in JWT
 - WebDAV: WEBDAV_ENABLED=true, /dav/ → dufs container, read-only groups/ mount
 - vited: Vite dev server fallback when WEBD_ADDR not set
@@ -1225,7 +1225,7 @@ and an unrouted JID sends a message, the gateway inserts a row into the
 container. `onbod`'s 10-second poll loop finds those rows, sends
 prompts via its own outbound `/send` endpoint, and runs the state
 machine: `awaiting_name` → `pending` → `approved`. Approval creates the
-group directory, inserts the `registered_groups` row, and seeds the
+group directory, inserts the `groups` row, and seeds the
 routes. The gateway code was not changed.
 
 **Before/after**: Before: onboarding logic lives inside the router.

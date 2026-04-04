@@ -64,9 +64,9 @@ When reached, new targets route to the prototype
 instead (fallback, not error). Prevents runaway from
 config errors.
 
-```typescript
-// registered_groups
-max_children?: number;  // default: 50, 0 = no spawning
+```sql
+-- groups table
+max_children INTEGER DEFAULT 50  -- 0 = no spawning
 ```
 
 ## Filesystem
@@ -104,10 +104,10 @@ new messages — events route to the prototype instead.
 
 Daily cleanup job removes inactive thread groups.
 
-```typescript
-// registered_groups
-spawn_ttl_days?: number;     // delete after N days inactive (default: 7)
-archive_closed_days?: number; // archive closed threads after N days (default: 1)
+```sql
+-- groups table
+spawn_ttl_days INTEGER NOT NULL DEFAULT 7      -- close after N days inactive
+archive_closed_days INTEGER NOT NULL DEFAULT 1  -- archive closed threads after N days
 ```
 
 Three states:

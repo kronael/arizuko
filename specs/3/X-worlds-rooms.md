@@ -344,10 +344,11 @@ jid TEXT PRIMARY KEY    -- e.g. "tg:-100123456" | "wa:+1234@g.us" | "dc:chan:gui
 channel TEXT            -- "telegram" | "whatsapp" | "discord" | "email"
 is_group INTEGER
 
--- registered_groups table
-jid TEXT PRIMARY KEY        -- prefix or exact JID
-group_folder TEXT NOT NULL  -- maps to filesystem path (groups/<folder>/)
-requires_trigger INTEGER
+-- groups table (keyed by folder, not JID)
+folder TEXT PRIMARY KEY     -- maps to filesystem path (groups/<folder>/)
+name TEXT NOT NULL
+-- JID→folder mapping lives in routes table:
+-- routes: jid TEXT, type='default', target=folder
 
 -- messages table
 chat_jid TEXT               -- FK to chats
@@ -365,8 +366,8 @@ private groups = new Map<string, GroupState>();
 **What exists:**
 
 - `chat_jid` — channel-native ID prefixed with platform (`tg:`, `wa:`, `dc:`)
-- `group_folder` — agent group that handles this JID
-- `registered_groups` — JID prefix → group_folder routing table
+- `groups` — agent groups keyed by folder
+- `routes` — JID → group folder routing table (type='default' for primary mapping)
 
 **What does not exist:**
 
@@ -434,7 +435,7 @@ should become `jid + thread_id` rather than plain `jid`.
 
 ### 6.3 Per-room history size (adopt from muaddib)
 
-The `registered_groups` table or a new `room_config` table should store:
+The `groups` table or a new `room_config` table should store:
 
 ```sql
 CREATE TABLE room_config (
@@ -524,12 +525,12 @@ not in the room/session model. Do not add embeddings to the messages table.
 4. **Context window management**: kanipi currently passes all recent messages to
    the container agent. There is no cap. For high-volume rooms this will eventually
    hit token limits. muaddib's `historySize` config + LLM reducer is the right
-   pattern. A simpler first step: add `history_size` to `registered_groups` and
+   pattern. A simpler first step: add `history_size` to `groups` and
    truncate message history in `container-runner.ts`.
 
 5. **Arc format migration**: changing `chat_jid` format is a breaking change for
    existing instances. A migration that re-prefixes existing JIDs (e.g.
-   `tg:-100123456` → `tg:direct#-100123456`) needs to handle `registered_groups`,
+   `tg:-100123456` → `tg:direct#-100123456`) needs to handle `groups`, `routes`,
    `messages`, `sessions`, and `scheduled_tasks` tables atomically.
 
 ---

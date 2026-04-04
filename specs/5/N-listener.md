@@ -29,10 +29,10 @@ agent on a schedule, let the agent decide what is worth reporting.
 
 ### Group mode field
 
-Add `mode` to `registered_groups`:
+Add `mode` to `groups`:
 
 ```sql
-ALTER TABLE registered_groups ADD COLUMN mode TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE groups ADD COLUMN mode TEXT NOT NULL DEFAULT 'active';
 -- 'active'   — current behaviour, agent runs per message batch
 -- 'listener' — no per-message agent runs; messages accumulate
 ```
@@ -95,13 +95,13 @@ Two mechanisms:
    the processed messages. Messages before the cursor are already processed;
    they are retained by normal store retention (same as active groups).
 
-2. **Store-level TTL**: add a `message_ttl_days` column to `registered_groups`
+2. **Store-level TTL**: add a `message_ttl_days` column to `groups`
    (default NULL = no TTL). A periodic cleanup job (daily, in `timed`) deletes
    messages older than TTL for groups that have it set. This is a separate
    concern from digest cadence.
 
 ```sql
-ALTER TABLE registered_groups ADD COLUMN message_ttl_days INTEGER;
+ALTER TABLE groups ADD COLUMN message_ttl_days INTEGER;
 ```
 
 Cleanup query (run daily in `timed`):
@@ -109,10 +109,10 @@ Cleanup query (run daily in `timed`):
 ```sql
 DELETE FROM messages
 WHERE chat_jid IN (
-    SELECT jid FROM registered_groups WHERE message_ttl_days IS NOT NULL
+    SELECT jid FROM groups WHERE message_ttl_days IS NOT NULL
 )
 AND timestamp < datetime('now', '-' || (
-    SELECT message_ttl_days FROM registered_groups WHERE jid = messages.chat_jid
+    SELECT message_ttl_days FROM groups WHERE jid = messages.chat_jid
 ) || ' days');
 ```
 
@@ -128,7 +128,7 @@ The prompt drives the behaviour; the tools are already there.
 ### Configuration
 
 Listener group created via `arizuko group` CLI or directly in
-`registered_groups`:
+`groups`:
 
 ```
 mode          = "listener"
@@ -148,8 +148,8 @@ prompt    = "<digest><dest>tg:123456789</dest>Daily market digest...</dest>"
 ## Schema changes
 
 ```sql
-ALTER TABLE registered_groups ADD COLUMN mode TEXT NOT NULL DEFAULT 'active';
-ALTER TABLE registered_groups ADD COLUMN message_ttl_days INTEGER;
+ALTER TABLE groups ADD COLUMN mode TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE groups ADD COLUMN message_ttl_days INTEGER;
 ```
 
 No new tables. No migration to existing `scheduled_tasks`.

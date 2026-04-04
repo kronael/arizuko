@@ -20,14 +20,14 @@ container runner, HTTP API, session management.
 
 ## Tables owned
 
-| Table               | Purpose                              |
-| ------------------- | ------------------------------------ |
-| `routes`            | JID prefix → group mapping           |
-| `registered_groups` | known groups and their config        |
-| `router_state`      | daemon state (last poll cursor)      |
-| `sessions`          | active agent sessions per group      |
-| `session_log`       | session history (start, end, reason) |
-| `system_messages`   | system-generated messages            |
+| Table             | Purpose                              |
+| ----------------- | ------------------------------------ |
+| `routes`          | JID → group folder mapping           |
+| `groups`          | known groups and their config        |
+| `router_state`    | daemon state (last poll cursor)      |
+| `sessions`        | active agent sessions per group      |
+| `session_log`     | session history (start, end, reason) |
+| `system_messages` | system-generated messages            |
 
 Shared tables (read/write): `messages`, `chats`.
 Migration service name: `gated`.

@@ -190,13 +190,17 @@ structural differences:
 - arizuko adds `reply_to_id TEXT` (migration 0003), `source TEXT`,
   `group_folder TEXT` (migration 0005), `topic TEXT` (migration 0008).
 
-### `registered_groups` / `groups`
+### `groups`
 
-- kanipi: table was renamed from `registered_groups` → `groups` (kanipi
-  migration 0004). arizuko kept the name `registered_groups`.
-- kanipi `groups` has: `max_children`, `world`. arizuko `registered_groups`
-  does not have `world`; `max_children` lives in `container_config` JSON blob.
-- arizuko adds `agent_cursor TEXT` (migration 0004) for per-group message cursor.
+- Both kanipi and arizuko now use the table name `groups`.
+- kanipi: renamed from `registered_groups` → `groups` (migration 0004).
+  arizuko: renamed from `registered_groups` → `groups` (migration 0020),
+  rekeyed by `folder` (PK) instead of `jid`. JID→folder mappings moved to
+  `routes` table as `type='default'` entries.
+- kanipi `groups` has: `max_children`, `world`. arizuko `groups` has:
+  `spawn_ttl_days`, `archive_closed_days`, `state`; `max_children` lives
+  in `container_config` JSON blob; no `world` column.
+- arizuko `agent_cursor` moved from groups to `chats` table (migration 0020).
 
 ### `scheduled_tasks`
 

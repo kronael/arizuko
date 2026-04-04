@@ -32,11 +32,11 @@ that bridges monitoring events into that channel with judgment.
 
 ### Operator group
 
-The operator group is a regular `registered_groups` row at tier-0 (no
+The operator group is a regular `groups` row at tier-0 (no
 parent). It is distinguished by a config flag, not a separate table:
 
 ```sql
-ALTER TABLE registered_groups ADD COLUMN is_operator BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE groups ADD COLUMN is_operator BOOLEAN NOT NULL DEFAULT false;
 ```
 
 Only one operator group per instance. The operator agent's system prompt
@@ -152,7 +152,7 @@ Both can be used together: `notify.Send` for immediate raw notification,
 `arizuko create <name>` seeds an operator group if none exists:
 
 1. Creates `groups/operator/` folder
-2. Inserts `registered_groups` row with `is_operator=true`, `mode=active`
+2. Inserts `groups` row with `is_operator=true`, `mode=active`
 3. Writes default `SOUL.md` (brief, proactive, no filler)
 4. Stores JID in `router_state` key `operator_jid`
 5. Registers a default hourly health-check task
@@ -164,7 +164,7 @@ Operator can disable health checks by pausing the task.
 ## Schema changes
 
 ```sql
-ALTER TABLE registered_groups ADD COLUMN is_operator BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE groups ADD COLUMN is_operator BOOLEAN NOT NULL DEFAULT false;
 -- operator_jid stored in router_state (existing key-value table)
 ```
 

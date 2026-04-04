@@ -33,12 +33,12 @@ Each tier 1 world can have one DNS hostname assigned to it. Requests
 to that hostname are routed to `groups/<world>/web/`.
 
 ```sql
-ALTER TABLE registered_groups ADD COLUMN web_host TEXT;
+ALTER TABLE groups ADD COLUMN web_host TEXT;
 ```
 
 Proxy logic:
 
-1. Match `Host` header against `registered_groups.web_host`
+1. Match `Host` header against `groups.web_host`
 2. If matched → serve from `groups/<folder>/web/`
 3. If no match → serve from instance `web/`
 
@@ -82,7 +82,7 @@ vite if needed) is left to the world itself. Not specified here.
 
 ## Implementation order
 
-1. Add `web_host` column to `registered_groups`
+1. Add `web_host` column to `groups`
 2. Web proxy routes by `Host` header to `groups/<folder>/web/`
 3. Static file serving for matched hosts
 4. CLI: `group set-web-host <folder> <host>`

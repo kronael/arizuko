@@ -103,7 +103,7 @@ gateway splits messages by topic and runs one agent per topic.
 - `/pub/*` — public, no auth required
 - `/health` — public health check
 - `/slink/*` — rate-limited (10 req/min per IP); token resolved against
-  `registered_groups.slink_token`, injects `X-Folder`, `X-Group-Name`,
+  `groups.slink_token`, injects `X-Folder`, `X-Group-Name`,
   `X-Slink-Token`, then proxies to webd (or vite if no webd)
 - `/dash/*` — auth-gated, proxied to dashd
 - `/dav/*` — auth-gated, proxied to dufs WebDAV container (strips `/dav` prefix)
@@ -234,22 +234,22 @@ direct CDN URLs (no proxy needed).
 
 ## SQLite Schema
 
-| Table               | Key columns                                                                                    |
-| ------------------- | ---------------------------------------------------------------------------------------------- |
-| `chats`             | jid (PK), name, channel, is_group, errored                                                     |
-| `messages`          | id (PK), chat_jid, sender, content, timestamp, verb, attachments (JSON, cleared after enrich)  |
-| `registered_groups` | jid (PK), folder, trigger_word, requires_trigger, container_config (JSON), parent, slink_token |
-| `routes`            | id (auto), jid, seq, type, match, target                                                       |
-| `sessions`          | group_folder + topic (PK), session_id                                                          |
-| `session_log`       | id (auto), group_folder, session_id, started_at, ended_at, result, error                       |
-| `system_messages`   | id (auto), group_id, origin, event, body                                                       |
-| `scheduled_tasks`   | id (PK), owner, chat_jid, prompt, cron, next_run, status, created_at                           |
-| `router_state`      | key (PK), value — persists lastTimestamp, lastAgentTimestamp                                   |
-| `auth_users`        | sub (unique), username (unique), hash                                                          |
-| `auth_sessions`     | token_hash (PK), user_sub, expires_at                                                          |
-| `user_groups`       | user_sub + folder (PK) — restricts web user to specific group folders                          |
-| `email_threads`     | thread_id (PK), chat_jid, subject                                                              |
-| `onboarding`        | jid (PK), status, world_name, prompted_at                                                      |
+| Table             | Key columns                                                                                                           |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `chats`           | jid (PK), name, channel, is_group, errored, agent_cursor                                                              |
+| `messages`        | id (PK), chat_jid, sender, content, timestamp, verb, attachments (JSON, cleared after enrich)                         |
+| `groups`          | folder (PK), name, added_at, container_config (JSON), slink_token, parent, state, spawn_ttl_days, archive_closed_days |
+| `routes`          | id (auto), jid, seq, type, match, target                                                                              |
+| `sessions`        | group_folder + topic (PK), session_id                                                                                 |
+| `session_log`     | id (auto), group_folder, session_id, started_at, ended_at, result, error                                              |
+| `system_messages` | id (auto), group_id, origin, event, body                                                                              |
+| `scheduled_tasks` | id (PK), owner, chat_jid, prompt, cron, next_run, status, created_at                                                  |
+| `router_state`    | key (PK), value — persists lastTimestamp, lastAgentTimestamp                                                          |
+| `auth_users`      | sub (unique), username (unique), hash                                                                                 |
+| `auth_sessions`   | token_hash (PK), user_sub, expires_at                                                                                 |
+| `user_groups`     | user_sub + folder (PK) — restricts web user to specific group folders                                                 |
+| `email_threads`   | thread_id (PK), chat_jid, subject                                                                                     |
+| `onboarding`      | jid (PK), status, world_name, prompted_at                                                                             |
 
 WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
 
@@ -439,7 +439,7 @@ Poll loop (every 10s):
 3. Respond to pending users who send messages: "Still waiting for approval"
 
 On `/approve <jid>`: creates group dir, optionally copies prototype, inserts
-`registered_groups` row and default routes, sends welcome system event message.
+`groups` row and default route in `routes` table, sends welcome system event message.
 Operator must be a tier-0 group (no parent). Uses `notify` library to fan out
 messages to all tier-0 root JIDs.
 

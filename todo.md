@@ -2,7 +2,7 @@
 
 ## memory
 
-- collapse `sessions` table into `registered_groups.session_id` column (see specs/1/7-db-bootstrap.md)
+- collapse `sessions` table into `groups.session_id` column (see specs/1/7-db-bootstrap.md)
 - test SDK resume failure: send bad session ID to container, observe whether SDK throws / errors / silently starts fresh — record result in specs/1/P-memory-session.md open item 1
 
 - rename product: cheerleader → evangelist, evangelist → support

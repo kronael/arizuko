@@ -303,7 +303,7 @@ Hello skill already reads SOUL.md for persona. Add:
 ### Store changes
 
 ```sql
-ALTER TABLE registered_groups ADD COLUMN product TEXT DEFAULT 'assistant';
+ALTER TABLE groups ADD COLUMN product TEXT DEFAULT 'assistant';
 ```
 
 Exposed via `get_routes` / group listing in dashd.
@@ -377,7 +377,7 @@ ant/
 3. Write SYSTEM.md for researcher and support
 4. Modify `SeedGroupDir` to accept product parameter
 5. Add `--product` flag to `arizuko create`
-6. Add product column to `registered_groups`
+6. Add product column to `groups`
 7. Wire onboarding product selection
 8. Update dashd to show product per group
 9. Write tasks.toml for companion (daily check-in)

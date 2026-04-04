@@ -25,8 +25,8 @@ Key design points:
 - Parent group's agent can delegate to child groups via IPC
   (`type:'delegate'` with `{group, prompt}`)
 - Child groups have their own session, CLAUDE.md, skills, memory
-- Router config stored in `registered_groups` table (new columns or
-  JSON config column)
+- Router config stored in `groups` table (new columns or
+  JSON config column); JID→folder mapping in `routes` table
 - Routing evaluation order: exact command → pattern match → parent default
 
 Reference patterns:
@@ -53,7 +53,7 @@ Write concrete examples showing:
 3. A parent group's agent delegates dynamically via IPC
 
 Include a section on what changes in gateway code (router.ts, group-queue.ts,
-registered_groups schema).
+groups + routes schema).
 
 ## Deliverable 2: `specs/1/h-isolation.md`
 
@@ -97,7 +97,7 @@ Write concrete examples showing:
 
 1. A web-search MCP sidecar with network access but no filesystem
 2. A code-execution MCP sidecar with filesystem but no network
-3. Per-group sidecar configuration in `.env` or registered_groups
+3. Per-group sidecar configuration in `.env` or groups table
 
 Include a section on the sidecar lifecycle (start, health check, stop)
 and how this relates to the existing whisper sidecar.

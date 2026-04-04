@@ -126,8 +126,8 @@ onbod receives the sender's `chat_jid` in the HTTP POST payload.
 It verifies root-only access by querying the routes table:
 `SELECT target FROM routes WHERE jid = ? AND seq = 0 LIMIT 1`
 to find the target folder for the sender's JID, then checks
-`SELECT parent FROM registered_groups WHERE folder = ?`
-(SQLite table name: `registered_groups`) — if `parent IS NULL`,
+`SELECT parent FROM groups WHERE folder = ?`
+(SQLite table name: `groups`) — if `parent IS NULL`,
 the sender is tier 0 (root). Otherwise reject with "Permission denied."
 
 ### /approve <jid>
@@ -233,7 +233,7 @@ deliver inbound messages from a user platform.
 ## Notifications
 
 onbod determines root JIDs by querying:
-`SELECT jid FROM routes WHERE target = (SELECT folder FROM registered_groups WHERE parent IS NULL LIMIT 1) AND seq = 0`
+`SELECT DISTINCT r.jid FROM routes r JOIN groups g ON g.folder = r.target WHERE g.parent IS NULL OR g.parent = ''`
 then calls `notify.Send(jids, text, sendFn)` from the `notify/` library.
 
 ## Welcome message enqueue

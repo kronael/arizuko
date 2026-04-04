@@ -185,7 +185,7 @@ Tags: [TEST-GAP] [DEAD-CODE] [REDUNDANT] [BOUNDARY-LEAK]
 **[BOUNDARY-LEAK]** `timed/main.go`:
 
 - Spawn archiving/TTL management (main.go:262-341) — gateway/lifecycle concern, not scheduler
-- Direct query of `registered_groups` config fields (main.go:265) — group config concern
+- Direct query of `groups` config fields (main.go:265) — group config concern
 
 ### onbod
 
@@ -200,7 +200,7 @@ Tags: [TEST-GAP] [DEAD-CODE] [REDUNDANT] [BOUNDARY-LEAK]
 
 **[BOUNDARY-LEAK]** `onbod/main.go`:
 
-- Direct DB writes to `registered_groups` (line 318-323) — gateway owns group creation
+- Direct DB writes to `groups` (line 318-323) — gateway owns group creation
 - Direct route seeding into `routes` table (line 226-231, 331-340) — router/gateway
 - Direct call to `container.SeedGroupDir` (line 326) — gateway method
 - Permission check via direct DB query (line 279-283) — belongs in auth/
