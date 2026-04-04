@@ -1039,8 +1039,6 @@ func extFromMime(mimeType, filename string) string {
 	return ".bin"
 }
 
-func isVoiceMime(m string) bool { return strings.HasPrefix(m, "audio/") }
-
 func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
 	g.mu.Lock()
 	g.groups[group.Folder] = group
@@ -1080,11 +1078,6 @@ func (g *Gateway) getGroups() map[string]core.Group {
 		cp[k] = v
 	}
 	return cp
-}
-
-func (g *Gateway) groupByFolderLocked(folder string) (core.Group, bool) {
-	gr, ok := g.groups[folder]
-	return gr, ok
 }
 
 type escalationMetadata struct {
@@ -1128,10 +1121,12 @@ func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth
 
 func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
 	if strings.HasPrefix(jid, "local:") {
-		return g.groupByFolderLocked(jid[6:])
+		gr, ok := g.groups[jid[6:]]
+		return gr, ok
 	}
 	if strings.HasPrefix(jid, "web:") {
-		return g.groupByFolderLocked(jid[4:])
+		gr, ok := g.groups[jid[4:]]
+		return gr, ok
 	}
 	if folder, ok := g.jidToFolder[jid]; ok {
 		if gr, ok := g.groups[folder]; ok {
@@ -1197,7 +1192,7 @@ func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
 	case strings.HasPrefix(content, "@"):
 		name := content[1:]
 		g.mu.RLock()
-		_, ok := g.groupByFolderLocked(name)
+		_, ok := g.groups[name]
 		g.mu.RUnlock()
 
 		if ok {
@@ -1279,7 +1274,7 @@ func (g *Gateway) handlePrefixRoute(
 		}
 		childFolder := r.Target + "/" + name
 		g.mu.RLock()
-		_, exists := g.groupByFolderLocked(childFolder)
+		_, exists := g.groups[childFolder]
 		g.mu.RUnlock()
 		if !exists {
 			slog.Warn("@prefix: child group not found", "child", childFolder)
@@ -1395,14 +1390,14 @@ func (g *Gateway) delegateToFolder(
 	}
 
 	g.mu.RLock()
-	target, found := g.groupByFolderLocked(folder)
+	target, found := g.groups[folder]
 	g.mu.RUnlock()
 	if !found {
 		sep := strings.LastIndex(folder, "/")
 		if sep > 0 {
 			parentFolder := folder[:sep]
 			g.mu.RLock()
-			_, parentOK := g.groupByFolderLocked(parentFolder)
+			_, parentOK := g.groups[parentFolder]
 			g.mu.RUnlock()
 			if parentOK {
 				spawned, err := g.spawnFromPrototype(parentFolder, originJid)

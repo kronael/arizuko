@@ -89,11 +89,11 @@ func (s *Store) DeleteGroup(folder string) error {
 	return err
 }
 
+const groupCols = `folder, name, added_at, container_config, slink_token, parent,
+		        state, spawn_ttl_days, archive_closed_days`
+
 func (s *Store) AllGroups() map[string]core.Group {
-	rows, err := s.db.Query(
-		`SELECT folder, name, added_at, container_config, slink_token, parent,
-		        state, spawn_ttl_days, archive_closed_days
-		 FROM groups`)
+	rows, err := s.db.Query(`SELECT ` + groupCols + ` FROM groups`)
 	if err != nil {
 		return nil
 	}
@@ -157,7 +157,6 @@ func (s *Store) UnroutedChatJIDs(since time.Time) []string {
 	return jids
 }
 
-// JIDFolderMap returns all JID→folder mappings from default routes.
 func (s *Store) JIDFolderMap() map[string]string {
 	rows, err := s.db.Query(
 		`SELECT jid, target FROM routes WHERE type = 'default' AND (match IS NULL OR match = '')`)
@@ -174,20 +173,6 @@ func (s *Store) JIDFolderMap() map[string]string {
 	return out
 }
 
-func derefStr(p *string) string {
-	if p != nil {
-		return *p
-	}
-	return ""
-}
-
-func derefInt(p *int) int {
-	if p != nil {
-		return *p
-	}
-	return 0
-}
-
 func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string
@@ -200,33 +185,35 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	}
 
 	g.AddedAt, _ = time.Parse(time.RFC3339, addedAt)
-	g.SlinkToken = derefStr(slinkToken)
-	g.Parent = derefStr(parent)
-	g.SpawnTTLDays = derefInt(spawnTTL)
-	g.ArchiveClosedDays = derefInt(archiveDays)
+	if slinkToken != nil {
+		g.SlinkToken = *slinkToken
+	}
+	if parent != nil {
+		g.Parent = *parent
+	}
+	if spawnTTL != nil {
+		g.SpawnTTLDays = *spawnTTL
+	}
+	if archiveDays != nil {
+		g.ArchiveClosedDays = *archiveDays
+	}
 	if cfgJSON != nil {
 		json.Unmarshal([]byte(*cfgJSON), &g.Config)
 	}
-	g.State = derefStr(state)
-	if g.State == "" {
-		g.State = "active"
+	g.State = "active"
+	if state != nil && *state != "" {
+		g.State = *state
 	}
 	return g, true
 }
 
 func (s *Store) GroupBySlinkToken(token string) (core.Group, bool) {
-	row := s.db.QueryRow(
-		`SELECT folder, name, added_at, container_config, slink_token, parent,
-		        state, spawn_ttl_days, archive_closed_days
-		 FROM groups WHERE slink_token = ? LIMIT 1`, token)
+	row := s.db.QueryRow(`SELECT `+groupCols+` FROM groups WHERE slink_token = ? LIMIT 1`, token)
 	return scanGroupFull(row)
 }
 
 func (s *Store) GroupByFolder(folder string) (core.Group, bool) {
-	row := s.db.QueryRow(
-		`SELECT folder, name, added_at, container_config, slink_token, parent,
-		        state, spawn_ttl_days, archive_closed_days
-		 FROM groups WHERE folder = ?`, folder)
+	row := s.db.QueryRow(`SELECT `+groupCols+` FROM groups WHERE folder = ?`, folder)
 	return scanGroupFull(row)
 }
 

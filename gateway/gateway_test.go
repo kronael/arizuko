@@ -561,21 +561,6 @@ func TestExtFromMime(t *testing.T) {
 	}
 }
 
-func TestIsVoiceMime(t *testing.T) {
-	if !isVoiceMime("audio/ogg") {
-		t.Error("audio/ogg should be voice")
-	}
-	if !isVoiceMime("audio/mpeg") {
-		t.Error("audio/mpeg should be voice")
-	}
-	if isVoiceMime("image/jpeg") {
-		t.Error("image/jpeg should not be voice")
-	}
-	if isVoiceMime("video/mp4") {
-		t.Error("video/mp4 should not be voice")
-	}
-}
-
 func TestEnrichAttachments_MediaDisabled(t *testing.T) {
 	gw, _ := testGateway(t)
 
