@@ -381,15 +381,14 @@ The `ipc` MCP manifest is filtered by grants so agents only see permitted tools.
 Bundled products ship in the arizuko image at `/opt/arizuko/template/services/`.
 Ansible extracts them to `/srv/app/arizuko/template/services/` on deploy.
 
-| Service            | Image                     | Role                            |
-| ------------------ | ------------------------- | ------------------------------- |
-| `teled.toml`       | `arizuko:latest`          | Telegram adapter (default)      |
-| `teled-REDACTED.toml` | `arizuko:latest`          | Second Telegram bot (port 9003) |
-| `whapd.toml`       | `arizuko-whatsapp:latest` | WhatsApp adapter                |
-| `discd.toml`       | `arizuko:latest`          | Discord adapter                 |
-| `bskyd.toml`       | `arizuko:latest`          | Bluesky adapter                 |
-| `mastd.toml`       | `arizuko:latest`          | Mastodon adapter                |
-| `reditd.toml`      | `arizuko:latest`          | Reddit adapter                  |
+| Service       | Image                     | Role                       |
+| ------------- | ------------------------- | -------------------------- |
+| `teled.toml`  | `arizuko:latest`          | Telegram adapter (default) |
+| `whapd.toml`  | `arizuko-whatsapp:latest` | WhatsApp adapter           |
+| `discd.toml`  | `arizuko:latest`          | Discord adapter            |
+| `bskyd.toml`  | `arizuko:latest`          | Bluesky adapter            |
+| `mastd.toml`  | `arizuko:latest`          | Mastodon adapter           |
+| `reditd.toml` | `arizuko:latest`          | Reddit adapter             |
 
 ### TOML format
 

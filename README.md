@@ -1,6 +1,6 @@
 # arizuko
 
-Multitenant Claude agent gateway. Runs real Claude Code CLI inside Docker
+Multitenant Claude agent router. Runs real Claude Code CLI inside Docker
 containers — not an SDK wrapper. Routes messages from channel adapters
 (Telegram, Discord, Mastodon, Bluesky, Reddit, WhatsApp, email, web) to
 per-group containerized agents, streams responses back.

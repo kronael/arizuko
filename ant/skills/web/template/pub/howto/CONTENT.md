@@ -26,7 +26,7 @@ you:  actually focus only on liability clauses
 
 ---
 
-## 02 — Gateway Commands
+## 02 — Commands
 
 **TLDR:** Slash commands at the start of a message are intercepted before the agent sees them.
 
@@ -38,7 +38,6 @@ These commands are handled by the gateway — the agent never receives them. The
 | `/stop`      | Halt the active container immediately.                                                          |
 | `/ping`      | Check the gateway is alive — responds with pong.                                                |
 | `/chatid`    | Returns your current chat ID.                                                                   |
-| `/status`    | Show whether a container is currently running.                                                  |
 | `/file`      | `put` upload, `get` download, `ls` list workspace.                                              |
 
 ```
@@ -50,149 +49,69 @@ can you explain /new session handling?
 
 ---
 
-## 03 — Topic Sessions
+## 03 — Topics & Routing
 
-**TLDR:** `#topic` in your message routes to a named session — separate context, same agent.
+**TLDR:** `#topic` for parallel threads, `@name` for child agents.
 
-Any message containing `#word` anywhere routes to that topic's dedicated session. The agent only sees the history for that topic — your main session stays untouched. Use this to run parallel work streams without contexts bleeding into each other.
+Any message containing `#word` routes to that topic's dedicated session. The agent only sees the history for that topic — your main session stays untouched. Use this to run parallel work streams without contexts bleeding into each other. Reset a single topic with `/new #topic`.
 
-Reset a single topic with `/new #topic` — clears only that thread.
+Put `@name` anywhere in your message to address a specific child agent — `@support`, `@code`, `@research`. Each child has its own personality, instructions, and conversation history. The routing token is stripped before the agent sees your message.
 
 ```
 #research start digging into WASM runtimes
 #deploy any issues with last night's rollout?
-#research what have you found so far?
+@support I have a billing question
+# support agent receives: "I have a billing question"
 /new #deploy   # reset only the deploy thread
 ```
 
 ---
 
-## 04 — Agent Routing
+## 04 — Files & Media
 
-**TLDR:** `@name` in your message routes to a child agent named `name`.
+**TLDR:** Send files directly — images, PDFs, voice, documents. The agent reads them all.
 
-Put `@name` anywhere in your message to address a specific child agent — `@support`, `@code`, `@research`. Each child agent has its own personality, instructions, and conversation history. The routing token is stripped before the agent sees your message. If the named child doesn't exist, the message falls back to your default agent.
+Attach files directly to your message — images seen natively, PDFs extracted, documents read as text. No special command: just attach and ask. Voice messages (WhatsApp, Telegram, Discord) are automatically transcribed before the agent sees them.
 
-```
-@support I have a billing question
-# support agent receives: "I have a billing question"
-
-hey @code can you review this snippet?
-```
-
----
-
-## 05 — Files & Attachments
-
-**TLDR:** Send files directly — the agent reads them. Get files back via `/file` or as attachments.
-
-Attach files directly to your message — images seen natively, PDFs extracted, documents read as text. No special command: just attach and ask. To retrieve files the agent produced, use `/file get ~/path` or ask the agent to send it. The agent's writable area is `~/tmp/`.
+To retrieve files the agent produced, use `/file get ~/path` or ask the agent to send it. The agent's writable area is `~/tmp/`.
 
 ```
 here's the report [report.pdf] — pull out the key metrics
 /file put data.csv
-/file ls
 /file get ~/tmp/summary.md
 send me the output as a file
+
+# voice messages arrive as text:
+You  [voice: can you summarise the last three tickets?]
 ```
 
 ---
 
-## 06 — Voice Messages
+## 05 — Memory
 
-**TLDR:** Voice messages are automatically transcribed — the agent gets the text.
+**TLDR:** The agent remembers across sessions — diary, facts, user preferences, compressed history.
 
-WhatsApp voice notes, Telegram voice messages, and Discord audio are all supported. Transcription happens before the agent processes the message — no action needed. The agent never receives the audio file, only the transcription text. Your operator can configure additional language passes for multilingual accuracy.
+The agent maintains several knowledge layers that persist between sessions:
 
-```
-# what the agent sees
-You  [voice/auto→en: can you summarise the last three tickets?]
+- **Diary** — daily work log (`diary/YYYYMMDD.md`), written at session end, surfaced at next session start. Last 14 days injected automatically.
+- **Facts** — researched knowledge with verification timestamps. The agent checks facts before answering and refreshes stale entries (>14 days) automatically.
+- **User context** — per-user preferences, role, and history stored in `users/<id>.md`. The agent adapts without you repeating yourself.
+- **Episodes** — compressed session summaries (daily → weekly → monthly). The agent remembers month-old work without re-reading everything.
 
-# multi-language (operator configured Czech)
-You  [voice/auto→cs: potřebuji pomoc s nasazením]
-```
-
----
-
-## 07 — Memory & Diary
-
-**TLDR:** The agent keeps a daily diary and persistent memory — it remembers across sessions.
-
-The diary (`diary/YYYYMMDD.md`) is written at the end of each session and surfaced at the start of the next. `MEMORY.md` holds stable facts — preferences, ongoing projects, decisions — and is always loaded. To influence memory, tell the agent something important and ask it to remember. Clearing a session with `/new` resets the conversation but does not wipe memory.
+Tell the agent to remember something and it picks the right store. Ask "what do you know about X?" and it searches all layers at once.
 
 ```
 you    remember I prefer TypeScript for all new projects
-agent  Got it — noted in MEMORY.md. I'll default to TypeScript.
+agent  Got it — noted. I'll default to TypeScript.
+
+you    search your memory for anything about the API migration
+agent  Found 3 matches across diary and facts. Migration moved
+       auth to /v2/token, complete as of March 10.
 ```
 
 ---
 
-## 08 — User Context
-
-**TLDR:** The agent tracks per-user context — your preferences, role, and history.
-
-Each user gets a file at `users/<your-id>.md` in the agent's workspace. The agent reads and updates it each session, storing your role, expertise level, ongoing work, and stated preferences — without you having to repeat yourself.
-
-```
-## Role
-Backend developer — Go preferred.
-
-## Active work
-- Auth service migration (started 2025-06-10)
-
-## Preferences
-- Concise answers, no preamble
-- Show diffs, not full file rewrites
-```
-
----
-
-## 09 — Facts System
-
-**TLDR:** `/facts` creates verified knowledge entries the agent checks before answering.
-
-When you ask something factual, the agent runs `/recall-memories` first. If no fresh match exists, it uses `/facts` to research and write a new entry. Facts live in `facts/*.md` with YAML frontmatter and go stale after 14 days — the agent refreshes them automatically. You can seed facts manually: "create a fact about our deployment process."
-
-```yaml
----
-summary: Deploy uses make deploy → ansible → systemd restart
-verified_at: 2025-06-11
----
-Run `make deploy`. Ansible pushes image, restarts service.
-```
-
----
-
-## 10 — Episodes & Compression
-
-**TLDR:** Long sessions get compressed into episode summaries — the agent remembers month-old work without re-reading everything.
-
-The `/compact-memories` skill rolls up raw session transcripts: daily sessions → weekly episodes → monthly. The gateway injects these summaries as context at every new session start — so the agent arrives knowing what you worked on last month.
-
-```
-/compact-memories episodes day   # compress yesterday's sessions
-/compact-memories episodes week  # roll up daily → weekly
-/compact-memories diary week     # compress diary entries
-```
-
----
-
-## 11 — Recall Search
-
-**TLDR:** `/recall-memories` searches all knowledge stores at once — diary, facts, episodes, memory, user context.
-
-The agent runs this proactively before answering questions that touch long-term context. Matching uses `summary:` frontmatter in each file. If a match looks stale the agent refreshes it before responding. You can also ask naturally: "what do you know about project Y?"
-
-```
-you   search your memory for anything about the API migration
-agent Found 3 matches: diary/20250310.md, facts/backend.md,
-      episodes/2025-W10.md. Migration moved auth to /v2/token,
-      complete as of March 10.
-```
-
----
-
-## 12 — Web Apps
+## 06 — Web Apps
 
 **TLDR:** Ask the agent to build an app — it deploys to your web host URL live.
 
@@ -208,7 +127,7 @@ agent Updated — reload the page.
 
 ---
 
-## 13 — Scheduling
+## 07 — Scheduling
 
 **TLDR:** Ask the agent to schedule recurring tasks — it sets up cron jobs that run automatically.
 
@@ -224,35 +143,16 @@ agent Cancelled.
 
 ---
 
-## 14 — Dashboard
+## 08 — Skills
 
-**TLDR:** The `/dash/` portal shows gateway status, tasks, groups, memory, and activity — no CLI needed.
+**TLDR:** Skills are slash commands that extend what the agent can do — and it can create new ones.
 
-Log in with your operator password. Pause or cancel tasks, edit `MEMORY.md` and `CLAUDE.md` directly in the browser, and approve onboarding requests — all from one place.
-
-```
-https://bot.example.com/dash/
-
-Status      container uptime · error counts · last activity
-Tasks       scheduled jobs · next run · pause / cancel
-Groups      routing table · group config · tiers
-Memory      edit MEMORY.md · CLAUDE.md per group
-Activity    last 50 messages · routing decisions
-Onboarding  approve / reject new user requests
-```
-
----
-
-## 15 — Skills
-
-**TLDR:** Skills are slash commands that extend what the agent can do.
-
-Type `/skill-name` at the start of your message to invoke one. The agent can also create new skills itself by writing a `SKILL.md` — capabilities extend across sessions. Run `/migrate` to push the latest skills to all groups.
+Type `/skill-name` at the start of your message to invoke one. The agent can also create new skills by writing a `SKILL.md` file — capabilities persist across sessions. Ask "what skills do you have?" to see the full list.
 
 ```
 /hello  /self  /facts  /recall-memories
 /compact-memories  /diary  /web  /howto
-/users  /migrate  /info  /git-repo
+/users  /migrate  /info  /commit
 
 you   what skills do you have?
 agent Running /self… [lists all loaded skills]
@@ -260,39 +160,28 @@ agent Running /self… [lists all loaded skills]
 
 ---
 
-## 16 — Research & Web
+## 09 — Research & Data
 
-**TLDR:** The agent can browse the web, read pages, download videos, and extract text from any document.
+**TLDR:** The agent browses the web, analyzes data, and produces charts and reports.
 
-Ask it to research any topic and it runs live searches, opens pages, and returns a summary. For complex sites it uses the browser to interact with forms and take screenshots. Video and audio URLs are handled with yt-dlp; transcription via Whisper. PDFs and DOCXs convert to readable text via pandoc.
+Ask it to research any topic — it runs live searches, opens pages, and returns a summary with sources. For complex sites it uses a browser to interact with forms and take screenshots. Video and audio URLs are handled with yt-dlp; transcription via Whisper.
+
+Send data and the agent analyzes it: CSV, Excel, or paste numbers directly. It produces charts (matplotlib, plotly), Excel files (openpyxl), PowerPoint decks (python-pptx), and PDF reports (weasyprint).
 
 ```
 research the latest on quantum error correction
 download and transcribe https://youtu.be/abc123
-summarize the PDF I just sent
-```
-
----
-
-## 17 — Data & Visualization
-
-**TLDR:** Send data — the agent analyzes it and sends charts back as files.
-
-Attach a CSV or Excel file (or paste numbers directly) and tell the agent what you want. It uses pandas, numpy, matplotlib, and plotly to produce charts, then sends the image back. Beyond charts: Excel via openpyxl, PowerPoint decks via python-pptx, PDF reports via weasyprint.
-
-```
 analyze this CSV and plot monthly totals
-make a bar chart of these numbers: 12, 45, 38, 72
 turn this data into a PowerPoint slide deck
 ```
 
 ---
 
-## 18 — Coding & Dev
+## 10 — Coding
 
 **TLDR:** The agent codes in any language, runs it, and sends back results.
 
-The container ships with Node/Bun, Python 3/uv, Go 1.24, and Rust/Cargo. The agent writes code, installs packages, runs it, and iterates until it works — then sends you the output or the file. Linting built in: biome, ruff, prettier.
+The container ships with Node/Bun, Python 3/uv, Go 1.24, and Rust/Cargo. The agent writes code, installs packages, runs it, and iterates until it works — then sends you the output or the file. Also available: SQLite, DuckDB, PostgreSQL client, Redis client, GraphViz, pandoc, imagemagick, ffmpeg.
 
 ```
 write a Go HTTP server that returns JSON health
@@ -302,31 +191,37 @@ convert this video to mp3 and send it back
 
 ---
 
-## 19 — Groups & Tiers
+## 11 — Dashboard
 
-**TLDR:** Groups are nested — worlds contain children which contain grandchildren.
+**TLDR:** The `/dash/` portal shows gateway status, tasks, groups, memory, and activity.
 
-Every group lives at a tier: root (system), world admin, child, or grandchild. All groups sharing the same first path segment belong to the same world and share `/workspace/share`. With template routing, a message from an unknown user automatically spawns a dedicated child group — giving each user their own isolated agent.
+Log in via OAuth (Google, GitHub, Discord) or Telegram login. Pause or cancel tasks, browse per-group memory and configuration, and approve onboarding requests — all from one place.
 
 ```
-atlas/             # tier 1 — world admin
-atlas/support      # tier 2 — child group
-atlas/support/ops  # tier 3 — grandchild
+https://bot.example.com/dash/
+
+Status      channels · groups · active containers · errors
+Tasks       scheduled jobs · run history · pause / cancel
+Groups      routing table · group config · message counts
+Memory      browse MEMORY.md · CLAUDE.md per group
+Activity    last 50 messages · routing decisions
+Onboarding  approve / reject new user requests
 ```
 
 ---
 
-## 20 — Onboarding
+## 12 — Getting Your Own Agent
 
-**TLDR:** New users request a world with `/request` — operators approve with `/approve`.
+**TLDR:** Message the gateway and request a world — the operator approves and you get your own agent.
 
-When an unrecognized user messages the gateway, they are prompted to run `/request myworld`. The root operator receives a notification and can approve or reject from any channel. Pending requests appear in `/dash/onboarding/` with copyable commands. On approval, a world is created from the root prototype. Requires `ONBOARDING_ENABLED=1` in the gateway config.
+When an instance has onboarding enabled, messaging the gateway as an unrecognized user starts a setup flow. Pick a name for your world, wait for operator approval, and you get a dedicated agent with its own workspace, memory, and web space. Your agent is isolated — separate sessions, separate files, separate personality.
 
 ```
-# user
-/request myworld
+you       (first message to the gateway)
+gateway   Welcome! Pick a name for your world.
+you       myworld
+gateway   Request submitted. Waiting for approval.
 
-# operator
-/approve telegram:-123456789
-/reject  telegram:-123456789
+# operator approves — you get a welcome message
+agent     I'm myworld — your dedicated agent. Tell me what you need.
 ```
