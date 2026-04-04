@@ -830,8 +830,15 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 	extra := ""
 	for i, att := range atts {
 		ext := extFromMime(att.Mime, att.Filename)
-		fname := fmt.Sprintf("%s-%d%s", msg.ID, i, ext)
+		fname := sanitizeFilename(att.Filename)
+		if fname == "" {
+			fname = fmt.Sprintf("%s-%d%s", msg.ID, i, ext)
+		}
 		dest := filepath.Join(mediaDir, fname)
+		if _, err := os.Stat(dest); err == nil {
+			fname = fmt.Sprintf("%s-%d%s", msg.ID, i, ext)
+			dest = filepath.Join(mediaDir, fname)
+		}
 
 		if att.URL == "" {
 			if att.Data == "" {
@@ -981,6 +988,27 @@ func extractVideoAudio(videoPath string) string {
 		return ""
 	}
 	return audioPath
+}
+
+func sanitizeFilename(name string) string {
+	name = filepath.Base(name)
+	if name == "." || name == "/" {
+		return ""
+	}
+	// Strip characters unsafe for filesystems
+	var b strings.Builder
+	for _, r := range name {
+		if r == '/' || r == '\\' || r == '\x00' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	s := b.String()
+	if len(s) > 200 {
+		ext := filepath.Ext(s)
+		s = s[:200-len(ext)] + ext
+	}
+	return s
 }
 
 func extFromMime(mimeType, filename string) string {
