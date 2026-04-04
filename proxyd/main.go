@@ -325,6 +325,10 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	if s.webdProxy != nil {
 		upstream = s.webdProxy
 	}
+	if r.URL.Path == "/" {
+		http.Redirect(w, r, "/pub/", http.StatusFound)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/pub/") {
 		upstream.ServeHTTP(w, r)
 	} else {
@@ -385,8 +389,11 @@ func setUserHeaders(r *http.Request, sub, name string, groups *[]string) *http.R
 
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// No auth secret configured = nobody can authenticate. Fail closed:
+		// private routes are simply unreachable. /pub/* and /auth/* still
+		// route normally (they don't go through requireAuth).
 		if s.cfg.authSecret == "" {
-			next(w, r)
+			http.NotFound(w, r)
 			return
 		}
 		secret := []byte(s.cfg.authSecret)

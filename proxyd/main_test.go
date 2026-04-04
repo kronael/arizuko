@@ -48,6 +48,8 @@ func TestProxydHealth(t *testing.T) {
 }
 
 func TestProxydRequireAuthNoSecret(t *testing.T) {
+	// No auth secret = nobody can authenticate = private routes are unreachable.
+	// Fail closed with 404 rather than bouncing to a login that can't work.
 	s := testServer()
 	called := false
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -57,8 +59,11 @@ func TestProxydRequireAuthNoSecret(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
 	h(w, req)
-	if !called {
-		t.Error("handler not called when no secret")
+	if called {
+		t.Error("handler should not be called when no auth secret is set")
+	}
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
 	}
 }
 
