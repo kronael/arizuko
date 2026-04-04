@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/onvos/arizuko/core"
@@ -335,11 +336,14 @@ func (s *Store) RoutedToByMessageID(id string) string {
 
 func (s *Store) StoreOutbound(entry core.OutboundEntry) error {
 	id := "out-" + entry.PlatformMsgID
+	if entry.PlatformMsgID == "" {
+		id = fmt.Sprintf("out-unsent-%d", time.Now().UnixNano())
+	}
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO messages
-		 (id, chat_jid, content, timestamp, is_from_me, is_bot_message,
+		 (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message,
 		  reply_to_id, source, group_folder)
-		 VALUES (?, ?, ?, ?, 1, 0, ?, ?, ?)`,
+		 VALUES (?, ?, 'bot', ?, ?, 1, 0, ?, ?, ?)`,
 		id, entry.ChatJID, entry.Content, time.Now().Format(time.RFC3339Nano),
 		nilIfEmpty(entry.ReplyToID), nilIfEmpty(entry.Source), nilIfEmpty(entry.GroupFolder),
 	)

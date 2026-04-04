@@ -538,3 +538,31 @@ func TestUnroutedChatJIDs_SinceFilter(t *testing.T) {
 		t.Fatalf("expected 0 (message before since), got %v", jids)
 	}
 }
+
+func TestStoreOutbound_EmptyPlatformMsgIDNoCollision(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	// Two unsent outbound entries (empty PlatformMsgID) must both persist;
+	// prior bug synthesized a single "out-" PK for every empty id.
+	for i, body := range []string{"first", "second"} {
+		err := s.StoreOutbound(core.OutboundEntry{
+			ChatJID: "tg:1", Content: body,
+			Source: "agent", GroupFolder: "main",
+		})
+		if err != nil {
+			t.Fatalf("StoreOutbound #%d: %v", i, err)
+		}
+	}
+
+	var n int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM messages WHERE chat_jid = ? AND id LIKE 'out-unsent-%'`,
+		"tg:1",
+	).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 unsent rows, got %d", n)
+	}
+}
