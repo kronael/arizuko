@@ -9,6 +9,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- **gateway**: advance agent cursor after prefix-route handoff so `@nobody` and
+  other non-matching prefix routes no longer get reprocessed on restart.
+- **store**: `StoreOutbound` no longer silently fails on NOT NULL `sender`
+  constraint — outbound audit log rows now actually persist. Also synthesize a
+  unique `out-unsent-<nano>` ID when `PlatformMsgID` is empty so multiple failed
+  sends no longer collide on the `out-` primary key.
+- **gateway/store**: `session_log` now records every container run. `RecordSession`
+  takes a caller-provided start time (true duration), `EndSession` always runs
+  (not gated on new session id), and continued sessions log per-run rows with
+  COALESCE backfill for session id learned mid-run.
+
 ---
 
 ## [v0.22.0] — 2026-04-04
