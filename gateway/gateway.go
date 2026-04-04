@@ -300,6 +300,7 @@ func (g *Gateway) pollOnce() {
 		if pr := findPrefixRoute(routes, last); pr != nil {
 			if g.handlePrefixRoute(pr, last, group, chatJid) {
 				slog.Debug("poll: routed via prefix", "jid", chatJid, "match", pr.Match)
+				g.advanceAgentCursor(chatJid, chatMsgs)
 				continue
 			}
 		}

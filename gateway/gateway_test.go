@@ -335,6 +335,34 @@ func TestAdvanceAgentCursor_Empty(t *testing.T) {
 	}
 }
 
+// Regression: pollOnce must advance the agent cursor after handlePrefixRoute
+// absorbs a message. Otherwise messages are re-processed on every restart.
+func TestPollOnce_PrefixRouteAdvancesCursor(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.MaxContainers = 0 // queue tasks without running them
+
+	jid := "telegram:1"
+	setGroup(gw, jid, core.Group{Folder: "grp", Name: "Group"})
+
+	// @prefix route points at the group itself; @unknown child absorbs silently.
+	s.InsertPrefixRoutes(jid, "grp")
+
+	ts := time.Now().UTC()
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: jid, Sender: "user", Name: "User",
+		Content: "@nobody hello", Timestamp: ts,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.pollOnce()
+
+	got := s.GetAgentCursor(jid)
+	if got.IsZero() || got.Before(ts) {
+		t.Errorf("cursor = %v, want >= %v (prefix-route path must advance cursor)", got, ts)
+	}
+}
+
 func TestAddRemoveChannel(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch1 := &mockChannel{name: "ch1", jids: []string{"j1"}}
