@@ -325,7 +325,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	if s.webdProxy != nil {
 		upstream = s.webdProxy
 	}
-	if r.URL.Path == "/" {
+	if r.URL.Path == "/" || r.URL.Path == "/pub" {
 		http.Redirect(w, r, "/pub/", http.StatusFound)
 		return
 	}
