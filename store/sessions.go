@@ -97,11 +97,11 @@ func (s *Store) FlushSysMsgs(folder string) string {
 	return b.String()
 }
 
-func (s *Store) RecordSession(folder, sessionID string) (int64, error) {
+func (s *Store) RecordSession(folder, sessionID string, startedAt time.Time) (int64, error) {
 	r, err := s.db.Exec(
 		`INSERT INTO session_log (group_folder, session_id, started_at)
 		 VALUES (?, ?, ?)`,
-		folder, sessionID, time.Now().Format(time.RFC3339),
+		folder, sessionID, startedAt.Format(time.RFC3339),
 	)
 	if err != nil {
 		return 0, err
@@ -109,11 +109,13 @@ func (s *Store) RecordSession(folder, sessionID string) (int64, error) {
 	return r.LastInsertId()
 }
 
-func (s *Store) EndSession(rowID int64, result, errStr string, msgs int) error {
+func (s *Store) EndSession(rowID int64, sessionID, result, errStr string, msgs int) error {
 	_, err := s.db.Exec(
-		`UPDATE session_log SET ended_at = ?, result = ?, error = ?, message_count = ?
+		`UPDATE session_log SET ended_at = ?,
+		        session_id = COALESCE(NULLIF(?, ''), session_id),
+		        result = ?, error = ?, message_count = ?
 		 WHERE id = ?`,
-		time.Now().Format(time.RFC3339), result, errStr, msgs, rowID,
+		time.Now().Format(time.RFC3339), sessionID, result, errStr, msgs, rowID,
 	)
 	return err
 }

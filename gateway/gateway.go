@@ -464,7 +464,7 @@ func (g *Gateway) processSenderBatch(
 	topic := g.effectiveTopic(chatJid, last.Topic)
 	onOutput, hadOutput := g.makeOutputCallback(chatJid, topic, last.ID, group.Folder)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
-		onOutput, isolated, nil, topic, last.ID)
+		onOutput, isolated, nil, topic, last.ID, len(msgs))
 
 	if ch != nil {
 		ch.Typing(chatJid, false)
@@ -527,7 +527,7 @@ func (g *Gateway) processWebTopics(
 		effectiveTopic := g.effectiveTopic(chatJid, topic)
 		onOutput, hadOutput := g.makeOutputCallback(chatJid, effectiveTopic, last.ID, group.Folder)
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
-			onOutput, false, nil, effectiveTopic, last.ID)
+			onOutput, false, nil, effectiveTopic, last.ID, len(topicMsgs))
 
 		if ch != nil {
 			ch.Typing(chatJid, false)
@@ -636,11 +636,16 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 func (g *Gateway) runAgentWithOpts(
 	group core.Group, prompt, chatJid, sender string,
 	onOutput func(string, string), isolated bool,
-	rules []string, topic string, msgID string,
+	rules []string, topic string, msgID string, msgCount int,
 ) container.Output {
 	var sessionID string
 	if !isolated {
 		sessionID, _ = g.store.GetSession(group.Folder, topic)
+	}
+
+	var logRowID int64
+	if !isolated {
+		logRowID, _ = g.store.RecordSession(group.Folder, sessionID, time.Now())
 	}
 
 	if rules == nil {
@@ -695,19 +700,28 @@ func (g *Gateway) runAgentWithOpts(
 		return out
 	}
 
+	result := "ok"
+	errStr := ""
+	switch {
+	case out.Error != "" && strings.Contains(out.Error, "timed out"):
+		result = "timeout"
+		errStr = out.Error
+	case out.Error != "":
+		result = "error"
+		errStr = out.Error
+	}
+	effectiveSID := out.NewSessionID
+	if effectiveSID == "" {
+		effectiveSID = sessionID
+	}
+	if logRowID > 0 {
+		if err := g.store.EndSession(logRowID, effectiveSID, result, errStr, msgCount); err != nil {
+			slog.Warn("end session log failed", "group", group.Folder, "err", err)
+		}
+	}
+
 	if out.NewSessionID != "" {
 		g.store.SetSession(group.Folder, topic, out.NewSessionID)
-		if sessionID == "" {
-			if rowID, err := g.store.RecordSession(group.Folder, out.NewSessionID); err == nil && rowID > 0 {
-				result := "ok"
-				errStr := ""
-				if out.Error != "" {
-					result = "error"
-					errStr = out.Error
-				}
-				g.store.EndSession(rowID, result, errStr, 0)
-			}
-		}
 	} else if out.Error != "" && !out.HadOutput {
 		g.store.DeleteSession(group.Folder, topic)
 	}
@@ -1299,7 +1313,7 @@ func (g *Gateway) handlePrefixRoute(
 								}
 							}
 						}
-					}, false, nil, topic, "")
+					}, false, nil, topic, "", 1)
 				if out.Error != "" {
 					return fmt.Errorf("topic agent: %s", out.Error)
 				}
@@ -1438,7 +1452,7 @@ func (g *Gateway) delegateToFolder(
 							}
 						}
 					}
-				}, false, rules, "", "")
+				}, false, rules, "", "", 1)
 			if out.Error != "" {
 				return fmt.Errorf("%s agent: %s", label, out.Error)
 			}

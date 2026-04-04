@@ -3,6 +3,7 @@ package store
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFlushSysMsgs_AllPresent(t *testing.T) {
@@ -97,5 +98,124 @@ func TestFlushSysMsgs_OrderPreserved(t *testing.T) {
 	if iFirst >= iSecond || iSecond >= iThird {
 		t.Errorf("events not in insertion order; positions: first=%d second=%d third=%d",
 			iFirst, iSecond, iThird)
+	}
+}
+
+func TestRecordSession_StartTimeIsCallerProvided(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	t0 := time.Now().Add(-5 * time.Minute).Truncate(time.Second)
+	rowID, err := s.RecordSession("grp", "sid-1", t0)
+	if err != nil || rowID == 0 {
+		t.Fatalf("RecordSession failed: rowID=%d err=%v", rowID, err)
+	}
+	if err := s.EndSession(rowID, "sid-1", "ok", "", 1); err != nil {
+		t.Fatal(err)
+	}
+
+	recs := s.RecentSessions("grp", 1)
+	if len(recs) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(recs))
+	}
+	if !recs[0].StartedAt.Equal(t0) {
+		t.Errorf("started_at = %v, want %v", recs[0].StartedAt, t0)
+	}
+	if recs[0].EndedAt == nil {
+		t.Error("ended_at should be set")
+	}
+}
+
+func TestEndSession_SetsEndedAtAndFields(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	start := time.Now().Add(-1 * time.Minute).Truncate(time.Second)
+	rowID, _ := s.RecordSession("grp", "sid-1", start)
+	s.EndSession(rowID, "sid-1", "ok", "", 3)
+
+	recs := s.RecentSessions("grp", 1)
+	if len(recs) != 1 {
+		t.Fatalf("expected 1 record")
+	}
+	r := recs[0]
+	if r.EndedAt == nil || !r.EndedAt.After(r.StartedAt) {
+		t.Errorf("ended_at should be after started_at; got started=%v ended=%v",
+			r.StartedAt, r.EndedAt)
+	}
+	if r.Result != "ok" || r.MsgCount != 3 {
+		t.Errorf("result=%q msgCount=%d, want ok/3", r.Result, r.MsgCount)
+	}
+}
+
+func TestEndSession_BackfillsSessionID(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	rowID, _ := s.RecordSession("grp", "", time.Now())
+	s.EndSession(rowID, "sid-learned", "ok", "", 1)
+
+	recs := s.RecentSessions("grp", 1)
+	if len(recs) != 1 || recs[0].SessionID != "sid-learned" {
+		t.Errorf("session id not backfilled; got %+v", recs)
+	}
+}
+
+func TestEndSession_PreservesSessionIDWhenEmpty(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	rowID, _ := s.RecordSession("grp", "sid-orig", time.Now())
+	// Unclean exit: no new session id learned, but error reported.
+	s.EndSession(rowID, "", "error", "container crashed", 0)
+
+	recs := s.RecentSessions("grp", 1)
+	if len(recs) != 1 {
+		t.Fatalf("expected 1 record")
+	}
+	if recs[0].SessionID != "sid-orig" {
+		t.Errorf("session id clobbered; got %q want sid-orig", recs[0].SessionID)
+	}
+	if recs[0].EndedAt == nil {
+		t.Error("ended_at should be set even on unclean exit")
+	}
+	if recs[0].Result != "error" || recs[0].Error != "container crashed" {
+		t.Errorf("result=%q err=%q, want error/container crashed", recs[0].Result, recs[0].Error)
+	}
+}
+
+func TestRecordSession_PerRunRows(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// Three runs of the same continued session.
+	for i := 0; i < 3; i++ {
+		rowID, _ := s.RecordSession("grp", "sid-1", time.Now())
+		s.EndSession(rowID, "sid-1", "ok", "", 1)
+	}
+
+	recs := s.RecentSessions("grp", 10)
+	if len(recs) != 3 {
+		t.Fatalf("expected 3 rows for continued session, got %d", len(recs))
+	}
+	for _, r := range recs {
+		if r.SessionID != "sid-1" {
+			t.Errorf("row has session_id=%q, want sid-1", r.SessionID)
+		}
 	}
 }
