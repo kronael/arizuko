@@ -73,12 +73,11 @@ func TestGroupCRUD(t *testing.T) {
 	defer s.Close()
 
 	g := core.Group{
-		JID:     "tg:123",
 		Name:    "Test",
 		Folder:  "main",
 		AddedAt: time.Now(),
 	}
-	if err := s.PutGroup("tg:123", g); err != nil {
+	if err := s.PutGroup(g); err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,12 +85,12 @@ func TestGroupCRUD(t *testing.T) {
 	if len(all) != 1 {
 		t.Fatalf("expected 1 group, got %d", len(all))
 	}
-	got, ok := all["tg:123"]
+	got, ok := all["main"]
 	if !ok {
-		t.Fatal("group not found")
+		t.Fatal("group not found by folder key")
 	}
-	if got.Folder != "main" {
-		t.Fatalf("expected folder 'main', got %q", got.Folder)
+	if got.Name != "Test" {
+		t.Fatalf("expected name 'Test', got %q", got.Name)
 	}
 }
 

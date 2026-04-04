@@ -22,8 +22,8 @@ func testDB(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	for _, q := range []string{
-		`CREATE TABLE registered_groups (
-			jid TEXT PRIMARY KEY, name TEXT, folder TEXT, trigger_word TEXT,
+		`CREATE TABLE groups (
+			folder TEXT PRIMARY KEY, name TEXT,
 			added_at TEXT, parent TEXT, state TEXT NOT NULL DEFAULT 'active')`,
 		`CREATE TABLE sessions (group_folder TEXT PRIMARY KEY, session_id TEXT)`,
 		`CREATE TABLE channels (name TEXT, url TEXT)`,

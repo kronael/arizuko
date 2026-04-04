@@ -126,8 +126,7 @@ func cmdCreate(args []string) {
 		os.Exit(1)
 	}
 
-	err = s.PutGroup("main", core.Group{
-		JID:     "main",
+	err = s.PutGroup(core.Group{
 		Name:    name,
 		Folder:  "main",
 		AddedAt: time.Now(),
@@ -167,7 +166,7 @@ func cmdGroup(args []string) {
 	case "list":
 		groups := s.AllGroups()
 		for _, g := range groups {
-			fmt.Printf("%s\t%s\t%s\n", g.JID, g.Name, g.Folder)
+			fmt.Printf("%s\t%s\n", g.Folder, g.Name)
 		}
 
 	case "add":
@@ -177,7 +176,7 @@ func cmdGroup(args []string) {
 		}
 		jid := args[2]
 		name := args[3]
-		folder := "main"
+		folder := name
 		if len(args) > 4 {
 			folder = args[4]
 		}
@@ -189,8 +188,7 @@ func cmdGroup(args []string) {
 		}
 		exec.Command("git", "init", groupDir).Run()
 
-		err := s.PutGroup(jid, core.Group{
-			JID:     jid,
+		err := s.PutGroup(core.Group{
 			Name:    name,
 			Folder:  folder,
 			AddedAt: time.Now(),
@@ -199,6 +197,7 @@ func cmdGroup(args []string) {
 			fmt.Fprintf(os.Stderr, "Failed: add group: %v\n", err)
 			os.Exit(1)
 		}
+		s.AddRoute(jid, core.Route{Seq: 0, Type: "default", Target: folder})
 		cfg, cfgErr := core.LoadConfigFrom(dataDir)
 		if cfgErr == nil {
 			if err := container.SeedGroupDir(cfg, folder); err != nil {
@@ -209,15 +208,15 @@ func cmdGroup(args []string) {
 
 	case "rm":
 		if len(args) < 3 {
-			fmt.Println("usage: arizuko group <instance> rm <jid>")
+			fmt.Println("usage: arizuko group <instance> rm <folder>")
 			os.Exit(1)
 		}
-		jid := args[2]
-		if err := s.DeleteGroup(jid); err != nil {
+		folder := args[2]
+		if err := s.DeleteGroup(folder); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed: remove group: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("removed group %s\n", jid)
+		fmt.Printf("removed group %s\n", folder)
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown group action: %s\n", action)

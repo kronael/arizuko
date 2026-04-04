@@ -210,7 +210,7 @@ func isTier0(db *sql.DB, senderJID string) bool {
 	var parent *string
 	err := db.QueryRow(`
 		SELECT rg.parent FROM routes r
-		JOIN registered_groups rg ON rg.folder = r.target
+		JOIN groups rg ON rg.folder = r.target
 		WHERE r.jid = ? AND r.seq = 0 LIMIT 1`, senderJID).Scan(&parent)
 	return err == nil && parent == nil
 }
@@ -280,8 +280,8 @@ func approveInTx(db *sql.DB, jid, world, now, welcomeID, welcomeBody string) err
 		sql  string
 		args []any
 	}{
-		{`INSERT OR IGNORE INTO registered_groups (jid, name, folder, added_at) VALUES (?, ?, ?, ?)`,
-			[]any{jid, world, world, now}},
+		{`INSERT OR IGNORE INTO groups (folder, name, added_at) VALUES (?, ?, ?)`,
+			[]any{world, world, now}},
 		{`INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
 		  VALUES (?, 0, 'default', NULL, ?), (?, -2, 'prefix', '@', ?), (?, -1, 'prefix', '#', ?)`,
 			[]any{jid, world, jid, world, jid, world}},
@@ -445,7 +445,7 @@ func notifyRoots(db *sql.DB, cfg config, senderJID, msg string) {
 
 func nameTaken(db *sql.DB, name, excludeJID string) bool {
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM registered_groups WHERE folder = ?`, name).Scan(&n)
+	db.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = ?`, name).Scan(&n)
 	if n > 0 {
 		return true
 	}
@@ -457,7 +457,10 @@ func nameTaken(db *sql.DB, name, excludeJID string) bool {
 }
 
 func rootJIDs(db *sql.DB) []string {
-	rows, err := db.Query(`SELECT jid FROM registered_groups WHERE parent IS NULL`)
+	rows, err := db.Query(
+		`SELECT DISTINCT r.jid FROM routes r
+		 JOIN groups g ON g.folder = r.target
+		 WHERE g.parent IS NULL OR g.parent = ''`)
 	if err != nil {
 		return nil
 	}

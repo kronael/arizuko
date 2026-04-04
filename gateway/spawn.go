@@ -21,14 +21,14 @@ func spawnFolderName(parentFolder, childJID string) string {
 	return parentFolder + "/" + s
 }
 
-func (g *Gateway) spawnFromPrototype(parentJID, parentFolder, childJID string) (core.Group, error) {
+func (g *Gateway) spawnFromPrototype(parentFolder, childJID string) (core.Group, error) {
 	protoDir := filepath.Join(g.cfg.GroupsDir, parentFolder, "prototype")
 	if _, err := os.Stat(protoDir); err != nil {
 		return core.Group{}, fmt.Errorf("no prototype dir: %w", err)
 	}
 
 	g.mu.Lock()
-	if parent, ok := g.groups[parentJID]; ok && parent.Config.MaxChildren >= 0 {
+	if parent, ok := g.groups[parentFolder]; ok && parent.Config.MaxChildren >= 0 {
 		if parent.Config.MaxChildren == 0 {
 			g.mu.Unlock()
 			return core.Group{}, fmt.Errorf("spawning disabled (max_children=0)")
@@ -56,18 +56,19 @@ func (g *Gateway) spawnFromPrototype(parentJID, parentFolder, childJID string) (
 	}
 
 	child := core.Group{
-		JID:     childJID,
 		Name:    childJID,
 		Folder:  childFolder,
 		Parent:  parentFolder,
 		AddedAt: time.Now(),
 		State:   "active",
 	}
-	if err := g.store.PutGroup(childJID, child); err != nil {
+	if err := g.store.PutGroup(child); err != nil {
 		return core.Group{}, err
 	}
+	g.store.AddRoute(childJID, core.Route{Seq: 0, Type: "default", Target: childFolder})
 	g.mu.Lock()
-	g.groups[childJID] = child
+	g.groups[childFolder] = child
+	g.jidToFolder[childJID] = childFolder
 	g.mu.Unlock()
 	return child, nil
 }

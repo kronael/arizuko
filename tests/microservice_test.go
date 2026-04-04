@@ -99,7 +99,7 @@ func TestMicroservice_MigrationCompatibility(t *testing.T) {
 	tables := map[string]bool{
 		"messages":        false,
 		"scheduled_tasks": false,
-		"registered_groups": false,
+		"groups": false,
 		"migrations":      false,
 	}
 	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table'")
@@ -418,7 +418,7 @@ func TestMicroservice_TimedWriteScope(t *testing.T) {
 
 	// verify timed does NOT need to touch gated-only tables
 	gatedOnly := []string{
-		"chats", "registered_groups", "sessions", "session_log",
+		"chats", "groups", "sessions", "session_log",
 		"system_messages", "router_state", "auth_users",
 		"auth_sessions", "email_threads", "routes",
 	}

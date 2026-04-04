@@ -33,20 +33,18 @@ func TestSpawnFromPrototype_NoPrototype(t *testing.T) {
 	defer s.Close()
 
 	cfg := &core.Config{GroupsDir: dir}
-	gw := &Gateway{cfg: cfg, store: s, groups: make(map[string]core.Group)}
+	gw := &Gateway{cfg: cfg, store: s, groups: make(map[string]core.Group), jidToFolder: make(map[string]string)}
 
-	parentJID := "parent@test"
 	parentFolder := "main"
 	os.MkdirAll(filepath.Join(dir, parentFolder), 0o755)
-	// no prototype/ subdir
-	s.PutGroup(parentJID, core.Group{
-		JID: parentJID, Name: "main", Folder: parentFolder,
+	s.PutGroup(core.Group{
+		Name: "main", Folder: parentFolder,
 		AddedAt: time.Now(), State: "active",
 		Config: core.GroupConfig{MaxChildren: 5},
 	})
-	gw.groups[parentJID] = s.AllGroups()[parentJID]
+	gw.groups[parentFolder] = s.AllGroups()[parentFolder]
 
-	_, err = gw.spawnFromPrototype(parentJID, parentFolder, "child@test")
+	_, err = gw.spawnFromPrototype(parentFolder, "child@test")
 	if err == nil {
 		t.Fatal("expected error for missing prototype dir")
 	}
@@ -61,49 +59,45 @@ func TestSpawnFromPrototype_Success(t *testing.T) {
 	defer s.Close()
 
 	cfg := &core.Config{GroupsDir: dir}
-	gw := &Gateway{cfg: cfg, store: s, groups: make(map[string]core.Group)}
+	gw := &Gateway{cfg: cfg, store: s, groups: make(map[string]core.Group), jidToFolder: make(map[string]string)}
 
-	parentJID := "parent@test"
 	parentFolder := "main"
 	protoDir := filepath.Join(dir, parentFolder, "prototype")
 	os.MkdirAll(protoDir, 0o755)
 	os.WriteFile(filepath.Join(protoDir, "CLAUDE.md"), []byte("# proto"), 0o644)
 
 	parent := core.Group{
-		JID: parentJID, Name: "main", Folder: parentFolder,
+		Name: "main", Folder: parentFolder,
 		AddedAt: time.Now(), State: "active",
 		Config: core.GroupConfig{MaxChildren: 5},
 	}
-	s.PutGroup(parentJID, parent)
-	gw.groups[parentJID] = parent
+	s.PutGroup(parent)
+	gw.groups[parentFolder] = parent
 
 	childJID := "telegram:99999"
-	child, err := gw.spawnFromPrototype(parentJID, parentFolder, childJID)
+	child, err := gw.spawnFromPrototype(parentFolder, childJID)
 	if err != nil {
 		t.Fatalf("spawnFromPrototype: %v", err)
 	}
 
-	// child folder should be main/telegram_99999
 	wantFolder := "main/telegram_99999"
 	if child.Folder != wantFolder {
 		t.Errorf("child.Folder = %q, want %q", child.Folder, wantFolder)
 	}
 
-	// CLAUDE.md should exist in child dir
 	claudePath := filepath.Join(dir, wantFolder, "CLAUDE.md")
 	if _, err := os.Stat(claudePath); err != nil {
 		t.Errorf("CLAUDE.md not found in child dir: %v", err)
 	}
 
-	// logs dir should exist
 	logsPath := filepath.Join(dir, wantFolder, "logs")
 	if _, err := os.Stat(logsPath); err != nil {
 		t.Errorf("logs dir not found in child dir: %v", err)
 	}
 
-	// child should be in store
+	// child should be in store (keyed by folder)
 	all := s.AllGroups()
-	stored, ok := all[childJID]
+	stored, ok := all[wantFolder]
 	if !ok {
 		t.Fatal("child group not found in store")
 	}
@@ -114,11 +108,19 @@ func TestSpawnFromPrototype_Success(t *testing.T) {
 		t.Errorf("stored.State = %q, want active", stored.State)
 	}
 
-	// child should be in gw.groups
+	// child should be in gw.groups (by folder)
 	gw.mu.RLock()
-	_, inMem := gw.groups[childJID]
+	_, inMem := gw.groups[wantFolder]
 	gw.mu.RUnlock()
 	if !inMem {
 		t.Error("child group not found in gateway groups map")
+	}
+
+	// jidToFolder should map childJID -> childFolder
+	gw.mu.RLock()
+	mappedFolder := gw.jidToFolder[childJID]
+	gw.mu.RUnlock()
+	if mappedFolder != wantFolder {
+		t.Errorf("jidToFolder[%q] = %q, want %q", childJID, mappedFolder, wantFolder)
 	}
 }

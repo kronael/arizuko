@@ -188,12 +188,12 @@ func TestHandleStickyCommand_SetGroup(t *testing.T) {
 	gw, s := testGateway(t)
 	jid := "tg:123"
 
-	// Create a group
-	s.PutGroup("local:test-group", core.Group{
-		JID:    "local:test-group",
+	// Create a group and its default route
+	s.PutGroup(core.Group{
 		Name:   "Test Group",
 		Folder: "test-group",
 	})
+	s.AddRoute("local:test-group", core.Route{Type: "default", Target: "test-group"})
 	gw.loadState()
 
 	// Create mock channel

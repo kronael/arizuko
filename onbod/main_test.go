@@ -20,7 +20,7 @@ func testDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { db.Close() })
 	_, err = db.Exec(`
 		CREATE TABLE routes (jid TEXT, seq INTEGER, type TEXT, match TEXT, target TEXT);
-		CREATE TABLE registered_groups (folder TEXT PRIMARY KEY, parent TEXT, jid TEXT);
+		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT);
 		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, world_name TEXT, prompted_at TEXT);
 	`)
 	if err != nil {
@@ -49,7 +49,7 @@ func TestNameREInvalid(t *testing.T) {
 
 func TestIsTier0True(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO registered_groups (folder, parent) VALUES ('main', NULL)`)
+	db.Exec(`INSERT INTO groups (folder, parent) VALUES ('main', NULL)`)
 	db.Exec(`INSERT INTO routes (jid, seq, type, target) VALUES ('telegram:123', 0, 'default', 'main')`)
 	if !isTier0(db, "telegram:123") {
 		t.Error("expected isTier0=true for root group sender")
@@ -58,7 +58,7 @@ func TestIsTier0True(t *testing.T) {
 
 func TestIsTier0False(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO registered_groups (folder, parent) VALUES ('sub', 'main')`)
+	db.Exec(`INSERT INTO groups (folder, parent) VALUES ('sub', 'main')`)
 	db.Exec(`INSERT INTO routes (jid, seq, type, target) VALUES ('telegram:456', 0, 'default', 'sub')`)
 	if isTier0(db, "telegram:456") {
 		t.Error("expected isTier0=false for child group sender")

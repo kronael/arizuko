@@ -209,7 +209,7 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, pageTop, "Status", "Status")
 
 	var groupCount, sessionCount, chanCount, erroredCount int
-	d.db.QueryRow(`SELECT COUNT(*) FROM registered_groups`).Scan(&groupCount)
+	d.db.QueryRow(`SELECT COUNT(*) FROM groups`).Scan(&groupCount)
 	d.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessionCount)
 	d.db.QueryRow(`SELECT COUNT(*) FROM channels`).Scan(&chanCount)
 	d.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE errored=1`).Scan(&erroredCount)
@@ -327,7 +327,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, pageTop, "Groups", "Groups")
 
-	rows, err := d.db.Query(`SELECT folder, parent, name, state FROM registered_groups ORDER BY folder`)
+	rows, err := d.db.Query(`SELECT folder, parent, name, state FROM groups ORDER BY folder`)
 	if err != nil {
 		fmt.Fprintf(w, `<p>error: %s</p>`, template.HTMLEscapeString(err.Error()))
 		fmt.Fprint(w, pageBot)
@@ -403,7 +403,7 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, pageTop, "Memory", "Memory")
 
-	rows, err := d.db.Query(`SELECT folder FROM registered_groups ORDER BY folder`)
+	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder`)
 	if err == nil {
 		defer rows.Close()
 		fmt.Fprint(w, `<form method="get">

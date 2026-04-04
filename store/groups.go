@@ -44,7 +44,7 @@ func (s *Store) CountErroredChats() int {
 	return n
 }
 
-func (s *Store) PutGroup(jid string, g core.Group) error {
+func (s *Store) PutGroup(g core.Group) error {
 	cfgJSON, _ := json.Marshal(g.Config)
 
 	state := g.State
@@ -61,12 +61,12 @@ func (s *Store) PutGroup(jid string, g core.Group) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO registered_groups
-		 (jid, name, folder, added_at, container_config, slink_token, parent,
+		`INSERT INTO groups
+		 (folder, name, added_at, container_config, slink_token, parent,
 		  state, spawn_ttl_days, archive_closed_days, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(jid) DO UPDATE SET
-		   name=excluded.name, folder=excluded.folder,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(folder) DO UPDATE SET
+		   name=excluded.name,
 		   container_config=excluded.container_config,
 		   slink_token=excluded.slink_token,
 		   parent=excluded.parent,
@@ -74,7 +74,7 @@ func (s *Store) PutGroup(jid string, g core.Group) error {
 		   spawn_ttl_days=excluded.spawn_ttl_days,
 		   archive_closed_days=excluded.archive_closed_days,
 		   updated_at=excluded.updated_at`,
-		jid, g.Name, g.Folder,
+		g.Folder, g.Name,
 		g.AddedAt.Format(time.RFC3339),
 		string(cfgJSON), g.SlinkToken,
 		g.Parent,
@@ -84,16 +84,16 @@ func (s *Store) PutGroup(jid string, g core.Group) error {
 	return err
 }
 
-func (s *Store) DeleteGroup(jid string) error {
-	_, err := s.db.Exec(`DELETE FROM registered_groups WHERE jid = ?`, jid)
+func (s *Store) DeleteGroup(folder string) error {
+	_, err := s.db.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
 	return err
 }
 
 func (s *Store) AllGroups() map[string]core.Group {
 	rows, err := s.db.Query(
-		`SELECT jid, name, folder, added_at, container_config, slink_token, parent,
+		`SELECT folder, name, added_at, container_config, slink_token, parent,
 		        state, spawn_ttl_days, archive_closed_days
-		 FROM registered_groups`)
+		 FROM groups`)
 	if err != nil {
 		return nil
 	}
@@ -103,7 +103,7 @@ func (s *Store) AllGroups() map[string]core.Group {
 	for rows.Next() {
 		g, ok := scanGroupFull(rows)
 		if ok {
-			out[g.JID] = g
+			out[g.Folder] = g
 		}
 	}
 	return out
@@ -112,7 +112,7 @@ func (s *Store) AllGroups() map[string]core.Group {
 func (s *Store) GetAgentCursor(jid string) time.Time {
 	var raw *string
 	s.db.QueryRow(
-		`SELECT agent_cursor FROM registered_groups WHERE jid = ?`, jid,
+		`SELECT agent_cursor FROM chats WHERE jid = ?`, jid,
 	).Scan(&raw)
 	if raw == nil || *raw == "" {
 		return time.Time{}
@@ -123,8 +123,9 @@ func (s *Store) GetAgentCursor(jid string) time.Time {
 
 func (s *Store) SetAgentCursor(jid string, ts time.Time) {
 	res, err := s.db.Exec(
-		`UPDATE registered_groups SET agent_cursor = ? WHERE jid = ?`,
-		ts.Format(time.RFC3339Nano), jid,
+		`INSERT INTO chats (jid, agent_cursor) VALUES (?, ?)
+		 ON CONFLICT(jid) DO UPDATE SET agent_cursor = excluded.agent_cursor`,
+		jid, ts.Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		slog.Error("SetAgentCursor failed", "jid", jid, "ts", ts, "err", err)
@@ -156,6 +157,23 @@ func (s *Store) UnroutedChatJIDs(since time.Time) []string {
 	return jids
 }
 
+// JIDFolderMap returns all JID→folder mappings from default routes.
+func (s *Store) JIDFolderMap() map[string]string {
+	rows, err := s.db.Query(
+		`SELECT jid, target FROM routes WHERE type = 'default' AND (match IS NULL OR match = '')`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := make(map[string]string)
+	for rows.Next() {
+		var jid, target string
+		rows.Scan(&jid, &target)
+		out[jid] = target
+	}
+	return out
+}
+
 func derefStr(p *string) string {
 	if p != nil {
 		return *p
@@ -176,7 +194,7 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var cfgJSON, slinkToken, parent, state *string
 	var spawnTTL, archiveDays *int
 
-	if err := r.Scan(&g.JID, &g.Name, &g.Folder, &addedAt, &cfgJSON, &slinkToken, &parent,
+	if err := r.Scan(&g.Folder, &g.Name, &addedAt, &cfgJSON, &slinkToken, &parent,
 		&state, &spawnTTL, &archiveDays); err != nil {
 		return g, false
 	}
@@ -198,17 +216,17 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 
 func (s *Store) GroupBySlinkToken(token string) (core.Group, bool) {
 	row := s.db.QueryRow(
-		`SELECT jid, name, folder, added_at, container_config, slink_token, parent,
+		`SELECT folder, name, added_at, container_config, slink_token, parent,
 		        state, spawn_ttl_days, archive_closed_days
-		 FROM registered_groups WHERE slink_token = ? LIMIT 1`, token)
+		 FROM groups WHERE slink_token = ? LIMIT 1`, token)
 	return scanGroupFull(row)
 }
 
 func (s *Store) GroupByFolder(folder string) (core.Group, bool) {
 	row := s.db.QueryRow(
-		`SELECT jid, name, folder, added_at, container_config, slink_token, parent,
+		`SELECT folder, name, added_at, container_config, slink_token, parent,
 		        state, spawn_ttl_days, archive_closed_days
-		 FROM registered_groups WHERE folder = ? LIMIT 1`, folder)
+		 FROM groups WHERE folder = ?`, folder)
 	return scanGroupFull(row)
 }
 

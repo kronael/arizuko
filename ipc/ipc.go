@@ -382,14 +382,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				if gated.SpawnGroup == nil {
 					return toolErr("register_group: fromPrototype not configured")
 				}
-				parentJID := ""
-				for pjid, g := range gated.GetGroups() {
-					if g.Folder == folder {
-						parentJID = pjid
-						break
-					}
-				}
-				child, err := gated.SpawnGroup(parentJID, jid)
+				// SpawnGroup resolves parentJID→folder internally
+				child, err := gated.SpawnGroup(jid, jid)
 				if err != nil {
 					return toolErr(err.Error())
 				}
@@ -405,7 +399,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 					}
 				}
 				slog.Info("group registered from prototype", "jid", jid, "folder", child.Folder, "sourceGroup", folder)
-				return toolJSON(map[string]any{"registered": true, "folder": child.Folder, "jid": child.JID})
+				return toolJSON(map[string]any{"registered": true, "folder": child.Folder, "jid": jid})
 			}
 
 			gfld := req.GetString("folder", "")
@@ -417,9 +411,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			groups := gated.GetGroups()
 			parent := folder
-			if p, ok := groups[jid]; ok {
-				parent = p.Folder
-			}
 			if pg, ok := groups[parent]; ok && pg.Config.MaxChildren >= 0 {
 				if pg.Config.MaxChildren == 0 {
 					return toolErr("spawning disabled for this group")
@@ -435,7 +426,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				}
 			}
 			gr := core.Group{
-				JID:     jid,
 				Name:    name,
 				Folder:  gfld,
 				AddedAt: time.Now(),

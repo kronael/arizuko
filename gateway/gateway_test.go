@@ -78,6 +78,12 @@ func testGateway(t *testing.T) (*Gateway, *store.Store) {
 	return gw, s
 }
 
+// setGroup is a test helper that registers a group in both maps.
+func setGroup(gw *Gateway, jid string, g core.Group) {
+	gw.groups[g.Folder] = g
+	gw.jidToFolder[jid] = g.Folder
+}
+
 func TestCmdText(t *testing.T) {
 	cases := []struct {
 		in, want string
@@ -133,12 +139,12 @@ func TestHandleCommand_RecognizedCommands(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &mockChannel{name: "test", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
 	cmds := []string{"/new", "/ping", "/chatid", "/stop"}
 	for _, c := range cmds {
 		msg := core.Message{ChatJID: "jid1", Content: c}
-		grp := gw.groups["jid1"]
+		grp := gw.groups["grp"]
 		if !gw.handleCommand(msg, grp) {
 			t.Errorf("handleCommand(%q) = false, want true", c)
 		}
@@ -147,15 +153,15 @@ func TestHandleCommand_RecognizedCommands(t *testing.T) {
 
 func TestHandleCommand_NonCommand(t *testing.T) {
 	gw, _ := testGateway(t)
-	gw.groups["jid1"] = core.Group{Folder: "grp"}
+	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
 	msg := core.Message{ChatJID: "jid1", Content: "hello world"}
-	if gw.handleCommand(msg, gw.groups["jid1"]) {
+	if gw.handleCommand(msg, gw.groups["grp"]) {
 		t.Error("handleCommand returned true for non-command")
 	}
 
 	msg.Content = "/unknown"
-	if gw.handleCommand(msg, gw.groups["jid1"]) {
+	if gw.handleCommand(msg, gw.groups["grp"]) {
 		t.Error("handleCommand returned true for unknown command")
 	}
 }
@@ -164,7 +170,7 @@ func TestCmdNew_ClearsSession(t *testing.T) {
 	gw, s := testGateway(t)
 	ch := &mockChannel{name: "test", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
 	s.SetSession("grp", "", "sess-123")
 	if id, ok := s.GetSession("grp", ""); !ok || id == "" {
@@ -172,7 +178,7 @@ func TestCmdNew_ClearsSession(t *testing.T) {
 	}
 
 	msg := core.Message{ChatJID: "jid1", Content: "/new"}
-	gw.handleCommand(msg, gw.groups["jid1"])
+	gw.handleCommand(msg, gw.groups["grp"])
 
 	if id, _ := s.GetSession("grp", ""); id != "" {
 		t.Error("session not cleared after /new")
@@ -183,10 +189,10 @@ func TestCmdChatID_SendsJID(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &mockChannel{name: "test", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	gw.groups["jid1"] = core.Group{Folder: "grp"}
+	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
 	msg := core.Message{ChatJID: "jid1", Content: "/chatid"}
-	gw.handleCommand(msg, gw.groups["jid1"])
+	gw.handleCommand(msg, gw.groups["grp"])
 
 	if got := ch.lastSent(); got != "jid1" {
 		t.Errorf("chatid sent %q, want %q", got, "jid1")
@@ -195,7 +201,7 @@ func TestCmdChatID_SendsJID(t *testing.T) {
 
 func TestGroupForJid_Found(t *testing.T) {
 	gw, _ := testGateway(t)
-	gw.groups["jid1"] = core.Group{Folder: "alpha", Name: "Alpha"}
+	setGroup(gw, "jid1", core.Group{Folder: "alpha", Name: "Alpha"})
 
 	gr, ok := gw.groupForJid("jid1")
 	if !ok {
@@ -208,7 +214,7 @@ func TestGroupForJid_Found(t *testing.T) {
 
 func TestGroupForJid_NotFound(t *testing.T) {
 	gw, _ := testGateway(t)
-	gw.groups["jid1"] = core.Group{Folder: "alpha"}
+	setGroup(gw, "jid1", core.Group{Folder: "alpha"})
 
 	_, ok := gw.groupForJid("jid999")
 	if ok {
@@ -218,7 +224,7 @@ func TestGroupForJid_NotFound(t *testing.T) {
 
 func TestGroupForJid_LocalPrefix(t *testing.T) {
 	gw, _ := testGateway(t)
-	gw.groups["jid1"] = core.Group{Folder: "beta", Name: "Beta"}
+	gw.groups["beta"] = core.Group{Folder: "beta", Name: "Beta"}
 
 	gr, ok := gw.groupForJid("local:beta")
 	if !ok {
@@ -263,16 +269,21 @@ func TestResolveTarget_SelfFolder(t *testing.T) {
 
 func TestLoadState_LoadsGroups(t *testing.T) {
 	gw, s := testGateway(t)
-	s.PutGroup("jid1", core.Group{Folder: "alpha", Name: "Alpha"})
-	s.PutGroup("jid2", core.Group{Folder: "beta", Name: "Beta"})
+	s.PutGroup(core.Group{Folder: "alpha", Name: "Alpha"})
+	s.PutGroup(core.Group{Folder: "beta", Name: "Beta"})
+	s.AddRoute("jid1", core.Route{Type: "default", Target: "alpha"})
+	s.AddRoute("jid2", core.Route{Type: "default", Target: "beta"})
 
 	gw.loadState()
 
 	if len(gw.groups) != 2 {
 		t.Errorf("groups count = %d, want 2", len(gw.groups))
 	}
-	if gw.groups["jid1"].Folder != "alpha" {
-		t.Error("group jid1 not loaded correctly")
+	if gw.groups["alpha"].Name != "Alpha" {
+		t.Error("group alpha not loaded correctly")
+	}
+	if gw.jidToFolder["jid1"] != "alpha" {
+		t.Errorf("jidToFolder[jid1] = %q, want alpha", gw.jidToFolder["jid1"])
 	}
 }
 
@@ -295,7 +306,6 @@ func TestSaveState_PersistsTimestamp(t *testing.T) {
 
 func TestAdvanceAgentCursor(t *testing.T) {
 	gw, s := testGateway(t)
-	s.PutGroup("jid1", core.Group{Folder: "grp"})
 
 	t1 := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
 	t2 := time.Date(2025, 6, 15, 11, 0, 0, 0, time.UTC)
@@ -314,7 +324,6 @@ func TestAdvanceAgentCursor(t *testing.T) {
 
 func TestAdvanceAgentCursor_Empty(t *testing.T) {
 	gw, s := testGateway(t)
-	s.PutGroup("jid1", core.Group{Folder: "grp"})
 	prev := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	s.SetAgentCursor("jid1", prev)
 
@@ -362,26 +371,21 @@ func TestFindChannel(t *testing.T) {
 }
 
 func TestFindChannel_JIDAdapterPreference(t *testing.T) {
-	// Two channels both claiming the same JID (simulates two teled bots with shared prefix).
-	// RecordJIDAdapter must route to the correct adapter rather than first-registered.
 	gw, _ := testGateway(t)
 	ch1 := &mockChannel{name: "tg1", jids: []string{"telegram:100", "telegram:999"}}
 	ch2 := &mockChannel{name: "tg2", jids: []string{"telegram:100"}}
 	gw.AddChannel(ch1)
 	gw.AddChannel(ch2)
 
-	// Without recording, first registered wins for the shared JID.
 	if found := gw.findChannel("telegram:100"); found == nil || found.Name() != "tg1" {
 		t.Errorf("prefix fallback want tg1, got %v", found)
 	}
 
-	// After recording for tg2, adapter map takes precedence over first-registered.
 	gw.RecordJIDAdapter("telegram:100", "tg2")
 	if found := gw.findChannel("telegram:100"); found == nil || found.Name() != "tg2" {
 		t.Errorf("jidAdapters override want tg2, got %v", found)
 	}
 
-	// JID only owned by ch1 — still falls back correctly to prefix match.
 	if found := gw.findChannel("telegram:999"); found == nil || found.Name() != "tg1" {
 		t.Errorf("unrecorded JID want tg1 via owns, got %v", found)
 	}
@@ -390,8 +394,7 @@ func TestFindChannel_JIDAdapterPreference(t *testing.T) {
 func TestEmitSystemEvents_NewDay(t *testing.T) {
 	gw, s := testGateway(t)
 	grp := core.Group{Folder: "grp1", Name: "Test"}
-	s.PutGroup("jid1", grp)
-	gw.groups["jid1"] = grp
+	setGroup(gw, "jid1", grp)
 
 	yesterday := time.Now().AddDate(0, 0, -1)
 	s.SetAgentCursor("jid1", yesterday)
@@ -411,7 +414,7 @@ func TestEmitSystemEvents_NewDay(t *testing.T) {
 func TestEmitSystemEvents_NewSession(t *testing.T) {
 	gw, s := testGateway(t)
 	grp := core.Group{Folder: "grp2", Name: "Test"}
-	gw.groups["jid2"] = grp
+	gw.groups["grp2"] = grp
 
 	s.SetAgentCursor("jid2", time.Now())
 
@@ -452,7 +455,6 @@ func TestPreviousSessionXML_WithRecord(t *testing.T) {
 	if !strings.Contains(got, `result="ok"`) {
 		t.Errorf("expected result=ok, got %q", got)
 	}
-	// SessionID truncated to 8 chars
 	if !strings.Contains(got, `"abc123de"`) {
 		t.Errorf("expected truncated session id, got %q", got)
 	}
@@ -468,7 +470,6 @@ func TestPreviousSessionXML_NoEndedAt(t *testing.T) {
 	if !strings.Contains(got, "previous_session") {
 		t.Errorf("expected previous_session tag, got %q", got)
 	}
-	// ended should be empty string when EndedAt is nil
 	if !strings.Contains(got, `ended=""`) {
 		t.Errorf("expected empty ended, got %q", got)
 	}
@@ -538,7 +539,6 @@ func TestParsePrefix_Empty(t *testing.T) {
 }
 
 func TestExtFromMime(t *testing.T) {
-	// filename takes priority over mime detection
 	if got := extFromMime("image/jpeg", "photo.jpg"); got != ".jpg" {
 		t.Errorf("extFromMime with filename = %q, want .jpg", got)
 	}
@@ -546,12 +546,10 @@ func TestExtFromMime(t *testing.T) {
 		t.Errorf("extFromMime with uppercase ext = %q, want .jpeg", got)
 	}
 
-	// fallback for unknown mime
 	if got := extFromMime("application/octet-stream", "noext"); got != ".bin" {
 		t.Errorf("extFromMime bin fallback = %q, want .bin", got)
 	}
 
-	// result is non-empty for common audio/image/video types
 	for _, m := range []string{"image/jpeg", "image/png", "audio/ogg", "audio/mpeg", "video/mp4"} {
 		got := extFromMime(m, "")
 		if got == "" {
@@ -580,7 +578,6 @@ func TestIsVoiceMime(t *testing.T) {
 
 func TestEnrichAttachments_MediaDisabled(t *testing.T) {
 	gw, _ := testGateway(t)
-	// MediaEnabled is false by default in testGateway
 
 	msg := core.Message{
 		ID:          "m1",
@@ -589,7 +586,6 @@ func TestEnrichAttachments_MediaDisabled(t *testing.T) {
 	}
 	gw.enrichAttachments(&msg, "grp")
 
-	// with MediaEnabled=false, nothing should change
 	if msg.Content != "[Photo]" {
 		t.Errorf("content changed when MediaEnabled=false: %q", msg.Content)
 	}
@@ -599,7 +595,6 @@ func TestEnrichAttachments_MediaDisabled(t *testing.T) {
 }
 
 func TestEnrichAttachments_DownloadsFile(t *testing.T) {
-	// Serve a fake file via httptest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.Write([]byte("JFIF...fake image data"))
@@ -611,8 +606,7 @@ func TestEnrichAttachments_DownloadsFile(t *testing.T) {
 	gw.cfg.MediaMaxBytes = 10 * 1024 * 1024
 
 	grp := core.Group{Folder: "grp", Name: "Test"}
-	s.PutGroup("jid1", grp)
-	gw.groups["jid1"] = grp
+	setGroup(gw, "jid1", grp)
 
 	atts := `[{"mime":"image/jpeg","filename":"photo.jpg","url":"` + srv.URL + `/photo.jpg","size":22}]`
 	msg := core.Message{
@@ -637,7 +631,6 @@ func TestEnrichAttachments_DownloadsFile(t *testing.T) {
 		t.Errorf("attachments should be cleared after enrich, got %q", msg.Attachments)
 	}
 
-	// Verify DB was updated
 	msgs, _, _ := s.NewMessages([]string{"jid1"}, time.Time{}, "bot")
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
@@ -652,10 +645,8 @@ func TestEnrichAttachments_SkipsEmptyURL(t *testing.T) {
 	gw.cfg.MediaEnabled = true
 
 	grp := core.Group{Folder: "grp2", Name: "Test"}
-	s.PutGroup("jid2", grp)
-	gw.groups["jid2"] = grp
+	setGroup(gw, "jid2", grp)
 
-	// attachment with no URL
 	atts := `[{"mime":"image/jpeg","filename":"photo.jpg","url":"","size":0}]`
 	msg := core.Message{
 		ID: "m-nurl", ChatJID: "jid2", Sender: "user",
@@ -665,8 +656,6 @@ func TestEnrichAttachments_SkipsEmptyURL(t *testing.T) {
 
 	gw.enrichAttachments(&msg, "grp2")
 
-	// No URL to download — content should be unchanged, attachments cleared or still set
-	// The function returns early if no extra XML was produced, so content stays unchanged
 	if strings.Contains(msg.Content, "<attachment") {
 		t.Error("should not add attachment XML when URL is empty")
 	}
@@ -792,7 +781,7 @@ func TestMakeOutputCallback_SendsReply(t *testing.T) {
 	gw, s := testGateway(t)
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
 	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
 	cb("Hello from agent", "")
@@ -821,7 +810,7 @@ func TestMakeOutputCallback_SendError(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}, sendErr: errors.New("network down")}
 	gw.AddChannel(ch)
-	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
 	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
 	cb("Error test", "")
@@ -840,7 +829,7 @@ func TestMakeOutputCallback_EmptySentID(t *testing.T) {
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
 	gw.cfg.SendDisabledChannels = []string{"jid1"}
-	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
 	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
 	cb("Suppressed message", "")
@@ -860,7 +849,7 @@ func TestMakeOutputCallback_StripsThinksAndStatus(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
 	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
 	cb("<think>internal thought</think>Visible reply<status>Working on it</status>", "")
@@ -884,7 +873,7 @@ func TestMakeOutputCallback_ThreadID(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	gw.groups["jid1"] = core.Group{Folder: "grp", Name: "Test"}
+	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
 	cb, _ := gw.makeOutputCallback("jid1", "#general", "msg-1", "grp")
 	cb("Threaded reply", "")

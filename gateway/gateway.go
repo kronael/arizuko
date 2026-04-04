@@ -38,8 +38,9 @@ type Gateway struct {
 
 	mu          sync.RWMutex
 	channels    []core.Channel
-	groups      map[string]core.Group
-	jidAdapters sync.Map // chatJID -> adapter name, recorded on inbound
+	groups      map[string]core.Group  // folder → Group
+	jidToFolder map[string]string      // JID → folder (from default routes)
+	jidAdapters sync.Map               // chatJID -> adapter name, recorded on inbound
 	gatedFns    ipc.GatedFns
 	storeFns    ipc.StoreFns
 
@@ -64,6 +65,7 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 			IpcDir:    cfg.IpcDir,
 		},
 		groups:       make(map[string]core.Group),
+		jidToFolder:  make(map[string]string),
 		agentCursors: make(map[string]time.Time),
 		impulse:      newImpulseGate(),
 	}
@@ -118,12 +120,13 @@ func (g *Gateway) Run(ctx context.Context) error {
 		DelegateToParent: g.delegateToParent,
 		SpawnGroup: func(parentJID, childJID string) (core.Group, error) {
 			g.mu.RLock()
-			parent, ok := g.groups[parentJID]
+			parentFolder := g.jidToFolder[parentJID]
+			parent, ok := g.groups[parentFolder]
 			g.mu.RUnlock()
 			if !ok {
 				return core.Group{}, fmt.Errorf("parent group not found: %s", parentJID)
 			}
-			return g.spawnFromPrototype(parentJID, parent.Folder, childJID)
+			return g.spawnFromPrototype(parent.Folder, childJID)
 		},
 	}
 	g.storeFns = ipc.StoreFns{
@@ -200,8 +203,12 @@ func (g *Gateway) loadState() {
 	if g.groups == nil {
 		g.groups = make(map[string]core.Group)
 	}
+	g.jidToFolder = g.store.JIDFolderMap()
+	if g.jidToFolder == nil {
+		g.jidToFolder = make(map[string]string)
+	}
 
-	slog.Info("state loaded", "groups", len(g.groups))
+	slog.Info("state loaded", "groups", len(g.groups), "jid_routes", len(g.jidToFolder))
 }
 
 func (g *Gateway) saveState() {
@@ -1036,11 +1043,13 @@ func isVoiceMime(m string) bool { return strings.HasPrefix(m, "audio/") }
 
 func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
 	g.mu.Lock()
-	g.groups[jid] = group
+	g.groups[group.Folder] = group
+	g.jidToFolder[jid] = group.Folder
 	g.mu.Unlock()
-	if err := g.store.PutGroup(jid, group); err != nil {
+	if err := g.store.PutGroup(group); err != nil {
 		return err
 	}
+	g.store.AddRoute(jid, core.Route{Seq: 0, Type: "default", Target: group.Folder})
 	if auth.Resolve(group.Folder).Tier <= 2 {
 		g.store.InsertPrefixRoutes(jid, group.Folder)
 	}
@@ -1073,13 +1082,9 @@ func (g *Gateway) getGroups() map[string]core.Group {
 	return cp
 }
 
-func (g *Gateway) groupByFolderLocked(folder string) (string, core.Group, bool) {
-	for jid, gr := range g.groups {
-		if gr.Folder == folder {
-			return jid, gr, true
-		}
-	}
-	return "", core.Group{}, false
+func (g *Gateway) groupByFolderLocked(folder string) (core.Group, bool) {
+	gr, ok := g.groups[folder]
+	return gr, ok
 }
 
 type escalationMetadata struct {
@@ -1122,16 +1127,16 @@ func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth
 }
 
 func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
-	if gr, ok := g.groups[jid]; ok {
-		return gr, true
-	}
 	if strings.HasPrefix(jid, "local:") {
-		_, gr, ok := g.groupByFolderLocked(jid[6:])
-		return gr, ok
+		return g.groupByFolderLocked(jid[6:])
 	}
 	if strings.HasPrefix(jid, "web:") {
-		_, gr, ok := g.groupByFolderLocked(jid[4:])
-		return gr, ok
+		return g.groupByFolderLocked(jid[4:])
+	}
+	if folder, ok := g.jidToFolder[jid]; ok {
+		if gr, ok := g.groups[folder]; ok {
+			return gr, true
+		}
 	}
 	return core.Group{}, false
 }
@@ -1192,7 +1197,7 @@ func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
 	case strings.HasPrefix(content, "@"):
 		name := content[1:]
 		g.mu.RLock()
-		_, _, ok := g.groupByFolderLocked(name)
+		_, ok := g.groupByFolderLocked(name)
 		g.mu.RUnlock()
 
 		if ok {
@@ -1274,7 +1279,7 @@ func (g *Gateway) handlePrefixRoute(
 		}
 		childFolder := r.Target + "/" + name
 		g.mu.RLock()
-		_, _, exists := g.groupByFolderLocked(childFolder)
+		_, exists := g.groupByFolderLocked(childFolder)
 		g.mu.RUnlock()
 		if !exists {
 			slog.Warn("@prefix: child group not found", "child", childFolder)
@@ -1390,17 +1395,17 @@ func (g *Gateway) delegateToFolder(
 	}
 
 	g.mu.RLock()
-	targetJid, target, found := g.groupByFolderLocked(folder)
+	target, found := g.groupByFolderLocked(folder)
 	g.mu.RUnlock()
 	if !found {
 		sep := strings.LastIndex(folder, "/")
 		if sep > 0 {
 			parentFolder := folder[:sep]
 			g.mu.RLock()
-			parentJID, _, parentOK := g.groupByFolderLocked(parentFolder)
+			_, parentOK := g.groupByFolderLocked(parentFolder)
 			g.mu.RUnlock()
 			if parentOK {
-				spawned, err := g.spawnFromPrototype(parentJID, parentFolder, originJid)
+				spawned, err := g.spawnFromPrototype(parentFolder, originJid)
 				if err == nil {
 					return g.delegateToFolder(label, spawned.Folder, prompt, originJid, depth+1, rules)
 				}
@@ -1409,7 +1414,7 @@ func (g *Gateway) delegateToFolder(
 		return fmt.Errorf("%s target not found: %s", label, folder)
 	}
 
-	g.queue.EnqueueTask(targetJid, fmt.Sprintf("%s-%s-%d",
+	g.queue.EnqueueTask("local:"+folder, fmt.Sprintf("%s-%s-%d",
 		label, folder, time.Now().UnixMilli()),
 		func() error {
 			out := g.runAgentWithOpts(target, prompt, originJid, "",
@@ -1450,8 +1455,8 @@ func (g *Gateway) delegateToFolder(
 func (g *Gateway) groupJIDs() []string {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	jids := make([]string, 0, len(g.groups))
-	for jid := range g.groups {
+	jids := make([]string, 0, len(g.jidToFolder))
+	for jid := range g.jidToFolder {
 		jids = append(jids, jid)
 	}
 	return jids

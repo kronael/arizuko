@@ -214,7 +214,7 @@ func nextCron(expr, tz string) (time.Time, error) {
 func cleanupSpawns(db *sql.DB, groupsDir string) {
 	rows, err := db.Query(
 		`SELECT g.folder, g.spawn_ttl_days
-		 FROM registered_groups g
+		 FROM groups g
 		 WHERE g.parent IS NOT NULL AND g.parent != '' AND g.state = 'active'`)
 	if err != nil {
 		return
@@ -229,7 +229,7 @@ func cleanupSpawns(db *sql.DB, groupsDir string) {
 		rows.Scan(&folder, &ttlDays)
 		var lastMsg string
 		db.QueryRow(`SELECT MAX(timestamp) FROM messages WHERE chat_jid IN (
-			SELECT jid FROM registered_groups WHERE folder = ?)`, folder).Scan(&lastMsg)
+			SELECT jid FROM routes WHERE target = ? AND type = 'default')`, folder).Scan(&lastMsg)
 		if lastMsg == "" {
 			continue // never had messages, don't close
 		}
@@ -238,7 +238,7 @@ func cleanupSpawns(db *sql.DB, groupsDir string) {
 			continue
 		}
 		if now.Sub(t) > time.Duration(ttlDays)*24*time.Hour {
-			db.Exec(`UPDATE registered_groups SET state='closed', updated_at=? WHERE folder=?`,
+			db.Exec(`UPDATE groups SET state='closed', updated_at=? WHERE folder=?`,
 				now.Format(time.RFC3339), folder)
 			slog.Info("closed idle spawn", "folder", folder)
 		}
@@ -247,7 +247,7 @@ func cleanupSpawns(db *sql.DB, groupsDir string) {
 
 	rows2, err := db.Query(
 		`SELECT folder, parent, archive_closed_days, updated_at
-		 FROM registered_groups WHERE state = 'closed'`)
+		 FROM groups WHERE state = 'closed'`)
 	if err != nil {
 		return
 	}
@@ -285,7 +285,7 @@ func archiveSpawn(db *sql.DB, groupsDir, folder, parent string) {
 		slog.Error("archive spawn", "folder", folder, "err", err)
 		return
 	}
-	db.Exec(`DELETE FROM registered_groups WHERE folder = ?`, folder)
+	db.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
 	os.RemoveAll(srcDir)
 	slog.Info("archived spawn", "folder", folder, "archive", archivePath)
 }
