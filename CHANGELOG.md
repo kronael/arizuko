@@ -11,6 +11,33 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.22.0] — 2026-04-04
+
+### Changed
+
+- **schema**: `registered_groups` table renamed to `groups`, rekeyed by `folder` (PK) instead of `jid`. Migration 0020 handles the transform automatically.
+- **schema**: `agent_cursor` moved from groups to `chats` table (per-JID, not per-folder)
+- **schema**: all JID→folder mappings now stored as `type='default'` entries in `routes` table
+- **gateway**: dual-map architecture (`groups` + `jidToFolder`) for folder-keyed group lookup with JID resolution via routes
+- **cli**: `group rm` now takes folder (was JID); `group list` shows `folder\tname`
+
+### Fixed
+
+- **media**: use original filename for downloaded attachments when available
+- **gateway**: `get_history` now checks routes table for JID→folder access (was checking only registered_groups which no longer has JID)
+- **gateway**: advance agent cursor after delegation to prevent message replay on restart
+
+### Refactored
+
+- **store/groups.go**: full rewrite for folder-keyed CRUD, `JIDFolderMap()` for route-based JID resolution
+- **gateway**: removed dead `isVoiceMime`, inlined `groupByFolderLocked` at 7 call sites, extracted `groupCols` const
+- **onbod**: SQL updated for `groups` table; `isTier0` checks routes+groups join
+- **timed**: `cleanupSpawns` queries routes for JIDs instead of groups table
+- **dashd**: all queries updated for `groups` table
+- **docs**: 20+ spec/architecture files updated for consistent `groups` naming
+
+---
+
 ## [v0.21.1] — 2026-04-02
 
 ### Refactored
