@@ -11,94 +11,35 @@ import (
 	"github.com/onvos/arizuko/chanlib"
 )
 
-// testHandler builds an HTTP handler with a mock bot for testing.
-// Uses the same server struct but bot methods are never called
-// (telegram API not available), so we test the HTTP layer only.
-// For bot integration we use e2e_test.go with the router mock.
+type stubSend struct{ JID, Content string }
+type stubFile struct{ JID, Name string }
 
-func testHandler(secret string) (http.Handler, *server) {
-	cfg := config{Name: "telegram", ChannelSecret: secret}
-	// bot is nil — handlers will panic if they reach telegram API,
-	// which is correct: server_test only tests HTTP validation/auth.
-	s := &server{cfg: cfg, bot: nil}
-	return s.handler(), s
-}
-
-// stubServer creates a handler that intercepts before calling bot methods.
 type stubBot struct {
 	sent    []stubSend
 	files   []stubFile
 	typings []bool
 }
 
-type stubSend struct{ JID, Content string }
-type stubFile struct{ JID, Name string }
+func (b *stubBot) Send(req chanlib.SendRequest) (string, error) {
+	b.sent = append(b.sent, stubSend{req.ChatJID, req.Content})
+	return "", nil
+}
+
+func (b *stubBot) SendFile(jid, _, name, _ string) error {
+	b.files = append(b.files, stubFile{jid, name})
+	return nil
+}
+
+func (b *stubBot) Typing(_ string, on bool) { b.typings = append(b.typings, on) }
 
 func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}
-	cfg := config{Name: "telegram", ChannelSecret: secret}
-	mux := http.NewServeMux()
+	return newServer(config{Name: "telegram", ChannelSecret: secret}, sb).handler(), sb
+}
 
-	auth := func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if secret != "" {
-				tok := r.Header.Get("Authorization")
-				if tok != "Bearer "+secret {
-					chanlib.WriteErr(w, 401, "invalid secret")
-					return
-				}
-			}
-			next(w, r)
-		}
-	}
-
-	mux.HandleFunc("POST /send", auth(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ChatJID string `json:"chat_jid"`
-			Content string `json:"content"`
-		}
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
-			chanlib.WriteErr(w, 400, "chat_jid and content required")
-			return
-		}
-		sb.sent = append(sb.sent, stubSend{req.ChatJID, req.Content})
-		chanlib.WriteJSON(w, map[string]any{"ok": true})
-	}))
-	mux.HandleFunc("POST /send-file", auth(func(w http.ResponseWriter, r *http.Request) {
-		if r.ParseMultipartForm(50<<20) != nil {
-			chanlib.WriteErr(w, 400, "invalid multipart")
-			return
-		}
-		jid, name := r.FormValue("chat_jid"), r.FormValue("filename")
-		if jid == "" {
-			chanlib.WriteErr(w, 400, "chat_jid required")
-			return
-		}
-		_, hdr, err := r.FormFile("file")
-		if err != nil {
-			chanlib.WriteErr(w, 400, "file required")
-			return
-		}
-		if name == "" {
-			name = hdr.Filename
-		}
-		sb.files = append(sb.files, stubFile{jid, name})
-		chanlib.WriteJSON(w, map[string]any{"ok": true})
-	}))
-	mux.HandleFunc("POST /typing", auth(func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ On bool `json:"on"` }
-		json.NewDecoder(r.Body).Decode(&req)
-		sb.typings = append(sb.typings, req.On)
-		chanlib.WriteJSON(w, map[string]any{"ok": true})
-	}))
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		chanlib.WriteJSON(w, map[string]any{
-			"status": "ok", "name": cfg.Name,
-			"jid_prefixes": []string{"telegram:"},
-		})
-	})
-
-	return mux, sb
+func testHandler(secret string) (http.Handler, *server) {
+	s := newServer(config{Name: "telegram", ChannelSecret: secret}, &stubBot{})
+	return s.handler(), s
 }
 
 func TestServerSend(t *testing.T) {

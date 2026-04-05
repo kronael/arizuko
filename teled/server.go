@@ -16,10 +16,10 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type server struct {
 	cfg config
-	bot *bot
+	bot chanlib.BotHandler
 }
 
-func newServer(cfg config, b *bot) *server { return &server{cfg: cfg, bot: b} }
+func newServer(cfg config, b chanlib.BotHandler) *server { return &server{cfg: cfg, bot: b} }
 
 func (s *server) handler() http.Handler {
 	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"telegram:"}, s.bot)
