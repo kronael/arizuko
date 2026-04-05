@@ -109,16 +109,12 @@ func loadConfig() (config, error) {
 		pollInterval: 10 * time.Second,
 	}
 
-	cfg.dsn = os.Getenv("DATABASE")
-	if cfg.dsn == "" {
-		dataDir := os.Getenv("DATA_DIR")
-		if dataDir == "" {
-			return cfg, fmt.Errorf("DATABASE or DATA_DIR env required")
-		}
-		cfg.dsn = filepath.Join(dataDir, "store", "messages.db")
-		cfg.groupsDir = filepath.Join(dataDir, "groups")
+	dataDir := os.Getenv("DATA_DIR")
+	if dataDir == "" {
+		return cfg, fmt.Errorf("DATA_DIR env required")
 	}
-
+	cfg.dsn = filepath.Join(dataDir, "store", "messages.db")
+	cfg.groupsDir = filepath.Join(dataDir, "groups")
 	cfg.secret = os.Getenv("CHANNEL_SECRET")
 	cfg.prototype = os.Getenv("ONBOARDING_PROTOTYPE")
 
@@ -128,9 +124,6 @@ func loadConfig() (config, error) {
 	}
 	cfg.gatedURL = "http://gated:" + apiPort
 
-	if g := os.Getenv("GROUPS_DIR"); g != "" {
-		cfg.groupsDir = g
-	}
 	if addr := os.Getenv("ONBOD_LISTEN_ADDR"); addr != "" {
 		cfg.listenAddr = addr
 	}
@@ -138,10 +131,6 @@ func loadConfig() (config, error) {
 		if d, err := time.ParseDuration(iv); err == nil {
 			cfg.pollInterval = d
 		}
-	}
-
-	if cfg.groupsDir == "" {
-		return cfg, fmt.Errorf("groups dir not set (set DATA_DIR or GROUPS_DIR)")
 	}
 
 	return cfg, nil
@@ -330,12 +319,10 @@ func promptNew(db *sql.DB, cfg config) {
 
 type onboardRow struct{ jid, promptedAt, channel string }
 
-func queryOnboarding(db *sql.DB, status string, promptedNotNull bool) ([]onboardRow, error) {
-	q := `SELECT jid, prompted_at, channel FROM onboarding WHERE status = ?`
-	if promptedNotNull {
-		q += ` AND prompted_at IS NOT NULL`
-	}
-	rows, err := db.Query(q, status)
+func queryOnboarding(db *sql.DB, status string) ([]onboardRow, error) {
+	rows, err := db.Query(
+		`SELECT jid, prompted_at, channel FROM onboarding
+		 WHERE status = ? AND prompted_at IS NOT NULL`, status)
 	if err != nil {
 		return nil, err
 	}
@@ -350,7 +337,7 @@ func queryOnboarding(db *sql.DB, status string, promptedNotNull bool) ([]onboard
 }
 
 func checkNameResponse(db *sql.DB, cfg config) {
-	pending, err := queryOnboarding(db, "awaiting_name", true)
+	pending, err := queryOnboarding(db, "awaiting_name")
 	if err != nil {
 		slog.Error("checkNameResponse query", "err", err)
 		return
@@ -399,7 +386,7 @@ func checkNameResponse(db *sql.DB, cfg config) {
 }
 
 func checkPendingMessages(db *sql.DB, cfg config) {
-	pending, err := queryOnboarding(db, "pending", true)
+	pending, err := queryOnboarding(db, "pending")
 	if err != nil {
 		slog.Error("checkPendingMessages query", "err", err)
 		return
