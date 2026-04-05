@@ -13,8 +13,6 @@ import (
 	"syscall"
 
 	_ "modernc.org/sqlite"
-
-	"github.com/onvos/arizuko/auth"
 )
 
 func main() {
@@ -42,9 +40,6 @@ func main() {
 		port = ":" + port
 	}
 
-	authSecret := os.Getenv("AUTH_SECRET")
-	webHost := os.Getenv("WEB_HOST")
-
 	db, err := sql.Open("sqlite", dsn+"?mode=ro&_busy_timeout=5000")
 	if err != nil {
 		slog.Error("open db", "err", err)
@@ -55,7 +50,7 @@ func main() {
 	slog.Info("dashd started", "db", dsn, "port", port)
 
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbPath: dsn, groupsDir: groupsDir, secret: []byte(authSecret), webHost: webHost}
+	d := &dash{db: db, dbPath: dsn, groupsDir: groupsDir}
 	d.registerRoutes(mux)
 
 	srv := &http.Server{Addr: port, Handler: mux}
@@ -78,40 +73,18 @@ type dash struct {
 	db        *sql.DB
 	dbPath    string
 	groupsDir string
-	secret    []byte
-	webHost   string
 }
 
 func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", d.handleHealth)
-	mux.HandleFunc("GET /dash/", d.requireAuth(d.handlePortal))
-	mux.HandleFunc("GET /dash/status/", d.requireAuth(d.handleStatus))
-	mux.HandleFunc("GET /dash/tasks/", d.requireAuth(d.handleTasks))
-	mux.HandleFunc("GET /dash/activity/", d.requireAuth(d.handleActivity))
-	mux.HandleFunc("GET /dash/groups/", d.requireAuth(d.handleGroups))
-	mux.HandleFunc("GET /dash/memory/", d.requireAuth(d.handleMemory))
-	mux.HandleFunc("GET /dash/tasks/x/list", d.requireAuth(d.handleTasksPartial))
-	mux.HandleFunc("GET /dash/activity/x/recent", d.requireAuth(d.handleActivityPartial))
-}
-
-func (d *dash) requireAuth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if len(d.secret) == 0 {
-			next(w, r)
-			return
-		}
-		hdr := r.Header.Get("Authorization")
-		if !strings.HasPrefix(hdr, "Bearer ") {
-			http.Redirect(w, r, d.webHost+"/auth/login", http.StatusSeeOther)
-			return
-		}
-		token := strings.TrimPrefix(hdr, "Bearer ")
-		if _, err := auth.VerifyJWT(d.secret, token); err != nil {
-			http.Redirect(w, r, d.webHost+"/auth/login", http.StatusSeeOther)
-			return
-		}
-		next(w, r)
-	}
+	mux.HandleFunc("GET /dash/", d.handlePortal)
+	mux.HandleFunc("GET /dash/status/", d.handleStatus)
+	mux.HandleFunc("GET /dash/tasks/", d.handleTasks)
+	mux.HandleFunc("GET /dash/activity/", d.handleActivity)
+	mux.HandleFunc("GET /dash/groups/", d.handleGroups)
+	mux.HandleFunc("GET /dash/memory/", d.handleMemory)
+	mux.HandleFunc("GET /dash/tasks/x/list", d.handleTasksPartial)
+	mux.HandleFunc("GET /dash/activity/x/recent", d.handleActivityPartial)
 }
 
 func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {

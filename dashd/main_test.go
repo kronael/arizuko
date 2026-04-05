@@ -1,16 +1,11 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -48,21 +43,10 @@ func testDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func mintTestJWT(secret []byte, sub string) string {
-	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	c := fmt.Sprintf(`{"sub":%q,"name":"test","exp":%d,"iat":%d}`,
-		sub, time.Now().Add(time.Hour).Unix(), time.Now().Unix())
-	body := base64.RawURLEncoding.EncodeToString([]byte(c))
-	h := hmac.New(sha256.New, secret)
-	h.Write([]byte(hdr + "." + body))
-	sig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
-	return hdr + "." + body + "." + sig
-}
-
 func TestDashHealth(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, secret: nil}
+	d := &dash{db: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -79,82 +63,10 @@ func TestDashHealth(t *testing.T) {
 	}
 }
 
-func TestDashRequireAuthNoSecret(t *testing.T) {
-	db := testDB(t)
-	defer db.Close()
-	d := &dash{db: db, secret: nil}
-	called := false
-	h := d.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(200)
-	})
-	req := httptest.NewRequest("GET", "/dash/", nil)
-	w := httptest.NewRecorder()
-	h(w, req)
-	if !called {
-		t.Error("handler not called when no secret")
-	}
-}
-
-func TestDashRequireAuthNoToken(t *testing.T) {
-	db := testDB(t)
-	defer db.Close()
-	d := &dash{db: db, secret: []byte("secret"), webHost: "http://test"}
-	called := false
-	h := d.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(200)
-	})
-	req := httptest.NewRequest("GET", "/dash/", nil)
-	w := httptest.NewRecorder()
-	h(w, req)
-	if called {
-		t.Error("handler called despite missing token")
-	}
-	if w.Code != http.StatusSeeOther {
-		t.Errorf("status = %d, want 303", w.Code)
-	}
-}
-
-func TestDashRequireAuthBadToken(t *testing.T) {
-	db := testDB(t)
-	defer db.Close()
-	secret := []byte("secret")
-	d := &dash{db: db, secret: secret, webHost: "http://test"}
-	h := d.requireAuth(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	req := httptest.NewRequest("GET", "/dash/", nil)
-	req.Header.Set("Authorization", "Bearer badtoken")
-	w := httptest.NewRecorder()
-	h(w, req)
-	if w.Code != http.StatusSeeOther {
-		t.Errorf("status = %d, want 303", w.Code)
-	}
-}
-
-func TestDashRequireAuthValidJWT(t *testing.T) {
-	db := testDB(t)
-	defer db.Close()
-	secret := []byte("secret")
-	d := &dash{db: db, secret: secret}
-	called := false
-	h := d.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(200)
-	})
-	tok := mintTestJWT(secret, "user1")
-	req := httptest.NewRequest("GET", "/dash/", nil)
-	req.Header.Set("Authorization", "Bearer "+tok)
-	w := httptest.NewRecorder()
-	h(w, req)
-	if !called {
-		t.Error("handler not called with valid JWT")
-	}
-}
-
 func TestDashPortal(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, secret: nil}
+	d := &dash{db: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -172,7 +84,7 @@ func TestDashPortal(t *testing.T) {
 func TestDashStatus(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, secret: nil, dbPath: ":memory:"}
+	d := &dash{db: db, dbPath: ":memory:"}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -187,7 +99,7 @@ func TestDashStatus(t *testing.T) {
 func TestDashTasks(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, secret: nil}
+	d := &dash{db: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
