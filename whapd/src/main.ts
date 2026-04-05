@@ -465,7 +465,6 @@ async function connect(): Promise<void> {
           timestamp:
             Number(msg.messageTimestamp) || Math.floor(Date.now() / 1000),
           is_group: isGroup,
-          topic: '',
           ...(mediaBuffer
             ? {
                 attachment: mediaBuffer.toString('base64'),

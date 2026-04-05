@@ -5,7 +5,6 @@ import type { WASocket } from '@whiskeysockets/baileys';
 interface SendReq {
   chat_jid: string;
   content: string;
-  thread_id?: string;
 }
 
 interface TypingReq {

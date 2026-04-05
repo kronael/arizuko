@@ -45,7 +45,6 @@ export class RouterClient {
     content: string;
     timestamp: number;
     is_group: boolean;
-    topic?: string;
   }): Promise<void> {
     const r = await this.post<MsgResp>('/v1/messages', msg, this.token);
     if (!r.ok) throw new Error(`deliver: ${r.error}`);
