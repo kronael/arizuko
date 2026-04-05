@@ -28,7 +28,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
+	rc := chanlib.NewRouterClient(cfg.RouterURL, cfg.ChannelSecret)
 	_, err = rc.Register(cfg.Name, cfg.ListenURL, []string{"mastodon:"}, map[string]bool{"send_text": true})
 	if err != nil {
 		slog.Error("router registration failed", "err", err)

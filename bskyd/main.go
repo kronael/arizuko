@@ -31,7 +31,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
+	rc := chanlib.NewRouterClient(cfg.RouterURL, cfg.ChannelSecret)
 	_, err = rc.Register(cfg.Name, cfg.ListenURL,
 		[]string{"bluesky:"}, map[string]bool{"send_text": true})
 	if err != nil {

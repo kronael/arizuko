@@ -33,7 +33,7 @@ func main() {
 	}
 	rc2.loadCursors()
 
-	rc := newRouterClient(cfg.RouterURL, cfg.ChannelSecret)
+	rc := chanlib.NewRouterClient(cfg.RouterURL, cfg.ChannelSecret)
 	_, err = rc.Register(cfg.Name, cfg.ListenURL,
 		[]string{"reddit:"}, map[string]bool{"send_text": true})
 	if err != nil {

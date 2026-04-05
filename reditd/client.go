@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 type tokenResp struct {
@@ -189,7 +191,7 @@ type listing struct {
 	} `json:"data"`
 }
 
-func (rc *redditClient) poll(ctx context.Context, router *routerClient) {
+func (rc *redditClient) poll(ctx context.Context, router *chanlib.RouterClient) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -202,14 +204,14 @@ func (rc *redditClient) poll(ctx context.Context, router *routerClient) {
 	}
 }
 
-func (rc *redditClient) pollOnce(router *routerClient) {
+func (rc *redditClient) pollOnce(router *chanlib.RouterClient) {
 	rc.pollSource("inbox", "/message/inbox.json", router)
 	for _, sr := range rc.cfg.Subreddits {
 		rc.pollSource("sr:"+sr, "/r/"+sr+"/new.json", router)
 	}
 }
 
-func (rc *redditClient) pollSource(key, path string, router *routerClient) {
+func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClient) {
 	prevCursor := rc.cursors[key]
 	params := map[string]string{"limit": "25"}
 	if prevCursor != "" {
@@ -245,7 +247,7 @@ func (rc *redditClient) pollSource(key, path string, router *routerClient) {
 	}
 }
 
-func (rc *redditClient) handleThing(t thing, key string, router *routerClient) {
+func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterClient) {
 	d := t.Data
 	sender := "reddit:" + d.Author
 
@@ -293,7 +295,7 @@ func (rc *redditClient) handleThing(t thing, key string, router *routerClient) {
 		verb = "message"
 	}
 
-	err := router.SendMessage(inboundMsg{
+	err := router.SendMessage(chanlib.InboundMsg{
 		ID:         d.Name,
 		ChatJID:    jid,
 		Sender:     sender,

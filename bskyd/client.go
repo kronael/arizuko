@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 type session struct {
@@ -98,7 +100,7 @@ func (bc *bskyClient) refreshSession(refreshJwt string) error {
 	return nil
 }
 
-func (bc *bskyClient) poll(ctx context.Context, rc *routerClient) {
+func (bc *bskyClient) poll(ctx context.Context, rc *chanlib.RouterClient) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -132,7 +134,7 @@ type notification struct {
 	} `json:"record"`
 }
 
-func (bc *bskyClient) fetchNotifications(rc *routerClient) error {
+func (bc *bskyClient) fetchNotifications(rc *chanlib.RouterClient) error {
 	var result struct {
 		Notifications []notification `json:"notifications"`
 	}
@@ -158,7 +160,7 @@ func (bc *bskyClient) fetchNotifications(rc *routerClient) error {
 	return nil
 }
 
-func (bc *bskyClient) handleNotification(n notification, rc *routerClient) {
+func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClient) {
 	jid := "bluesky:" + n.Author.DID
 	name := n.Author.DisplayName
 	if name == "" {
@@ -180,7 +182,7 @@ func (bc *bskyClient) handleNotification(n notification, rc *routerClient) {
 	}
 
 	ts, _ := time.Parse(time.RFC3339, n.IndexedAt)
-	err := rc.SendMessage(inboundMsg{
+	err := rc.SendMessage(chanlib.InboundMsg{
 		ID:         uriToKey(n.URI),
 		ChatJID:    jid,
 		Sender:     "bluesky:" + n.Author.DID,

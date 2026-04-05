@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/mattn/go-mastodon"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 type mastoClient struct {
@@ -31,7 +33,7 @@ func newMastoClient(cfg config) (*mastoClient, error) {
 	return &mastoClient{cfg: cfg, client: c, me: me}, nil
 }
 
-func (mc *mastoClient) stream(ctx context.Context, rc *routerClient) {
+func (mc *mastoClient) stream(ctx context.Context, rc *chanlib.RouterClient) {
 	backoff := time.Second
 	for {
 		select {
@@ -53,7 +55,7 @@ func (mc *mastoClient) stream(ctx context.Context, rc *routerClient) {
 	}
 }
 
-func (mc *mastoClient) streamOnce(ctx context.Context, rc *routerClient) error {
+func (mc *mastoClient) streamOnce(ctx context.Context, rc *chanlib.RouterClient) error {
 	wsc := mc.client.NewWSClient()
 	events, err := wsc.StreamingWSUser(ctx)
 	if err != nil {
@@ -74,7 +76,7 @@ func (mc *mastoClient) streamOnce(ctx context.Context, rc *routerClient) error {
 	}
 }
 
-func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *routerClient) {
+func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *chanlib.RouterClient) {
 	acc := n.Account
 	jid := "mastodon:" + string(acc.ID)
 	name := acc.DisplayName
@@ -98,7 +100,7 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *routerCl
 		if n.Type == "reply" || topic != "" {
 			verb = "reply"
 		}
-		err := rc.SendMessage(inboundMsg{
+		err := rc.SendMessage(chanlib.InboundMsg{
 			ID:         string(n.Status.ID),
 			ChatJID:    jid,
 			Sender:     "mastodon:" + string(acc.ID),
@@ -116,7 +118,7 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *routerCl
 			return
 		}
 		emoji := "❤️"
-		err := rc.SendMessage(inboundMsg{
+		err := rc.SendMessage(chanlib.InboundMsg{
 			ID:         "fav-" + string(n.Status.ID) + "-" + string(acc.ID),
 			ChatJID:    jid,
 			Sender:     "mastodon:" + string(acc.ID),
@@ -132,7 +134,7 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *routerCl
 		if n.Status == nil {
 			return
 		}
-		err := rc.SendMessage(inboundMsg{
+		err := rc.SendMessage(chanlib.InboundMsg{
 			ID:         "reblog-" + string(n.Status.ID) + "-" + string(acc.ID),
 			ChatJID:    jid,
 			Sender:     "mastodon:" + string(acc.ID),
@@ -145,7 +147,7 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *routerCl
 			slog.Error("deliver failed", "jid", jid, "err", err)
 		}
 	case "follow":
-		err := rc.SendMessage(inboundMsg{
+		err := rc.SendMessage(chanlib.InboundMsg{
 			ID:         "follow-" + string(acc.ID),
 			ChatJID:    jid,
 			Sender:     "mastodon:" + string(acc.ID),
