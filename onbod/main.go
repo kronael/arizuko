@@ -18,7 +18,6 @@ import (
 
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/notify"
 	_ "modernc.org/sqlite"
 )
 
@@ -374,12 +373,12 @@ func checkNameResponse(db *sql.DB, cfg config) {
 			`UPDATE onboarding SET status = 'pending', world_name = ?, prompted_at = ? WHERE jid = ?`,
 			name, time.Now().Format(time.RFC3339), r.jid)
 
-		roots := rootJIDs(db)
 		msg := fmt.Sprintf(
 			"New onboarding request: %s wants world %q. Send /approve %s or /reject %s",
 			r.jid, name, r.jid, r.jid)
-		notify.Send(roots, msg,
-			func(jid2, text string) error { sendReply(cfg, jid2, text); return nil })
+		for _, root := range rootJIDs(db) {
+			sendReply(cfg, root, msg)
+		}
 
 		slog.Info("onboarding pending", "jid", r.jid, "world", name)
 	}
@@ -409,12 +408,11 @@ func checkPendingMessages(db *sql.DB, cfg config) {
 }
 
 func notifyRoots(db *sql.DB, cfg config, senderJID, msg string) {
-	notify.Send(rootJIDs(db), msg, func(jid, text string) error {
+	for _, jid := range rootJIDs(db) {
 		if jid != senderJID {
-			sendReply(cfg, jid, text)
+			sendReply(cfg, jid, msg)
 		}
-		return nil
-	})
+	}
 	sendReply(cfg, senderJID, msg)
 }
 
