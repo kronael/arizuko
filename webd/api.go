@@ -74,10 +74,9 @@ func (s *server) handleAPITyping(w http.ResponseWriter, r *http.Request) {
 }
 
 type groupOut struct {
-	Folder      string `json:"folder"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Active      bool   `json:"active"`
+	Folder string `json:"folder"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
 }
 
 func (s *server) groupList() []groupOut {

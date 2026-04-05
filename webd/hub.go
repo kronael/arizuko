@@ -16,12 +16,10 @@ func newHub() *hub {
 	return &hub{subs: make(map[string][]chan string)}
 }
 
-func hubKey(folder, topic string) string { return folder + "/" + topic }
-
 // subscribe registers a new listener and returns a channel + unsubscribe func.
 func (h *hub) subscribe(folder, topic string) (<-chan string, func()) {
 	ch := make(chan string, 16)
-	k := hubKey(folder, topic)
+	k := folder + "/" + topic
 	h.mu.Lock()
 	h.subs[k] = append(h.subs[k], ch)
 	h.mu.Unlock()
@@ -45,7 +43,7 @@ func (h *hub) subscribe(folder, topic string) (<-chan string, func()) {
 
 // publish sends an SSE event to all subscribers of folder/topic.
 func (h *hub) publish(folder, topic, event, data string) {
-	k := hubKey(folder, topic)
+	k := folder + "/" + topic
 	h.mu.Lock()
 	list := make([]chan string, len(h.subs[k]))
 	copy(list, h.subs[k])

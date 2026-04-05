@@ -24,19 +24,19 @@ func (s *server) handleXGroups(w http.ResponseWriter, r *http.Request) {
 // GET /x/groups/<folder>/topics
 func (s *server) handleXTopics(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
-	topics, err := s.st.Topics(folder)
+	topics, _ := s.st.Topics(folder)
 	w.Header().Set("Content-Type", "text/html")
-	if err != nil || len(topics) == 0 {
-		fmt.Fprint(w, `<option value="">+ new conversation</option>`)
-		return
-	}
 	for _, t := range topics {
 		label := t.LastAt.Format("Jan 2")
 		if time.Since(t.LastAt) < 24*time.Hour {
 			label = t.LastAt.Format("15:04")
 		}
+		preview := strings.TrimSpace(t.Preview)
+		if len(preview) > 40 {
+			preview = preview[:40] + "…"
+		}
 		fmt.Fprintf(w, `<option value="%s">%s — %s</option>`,
-			htmlEscape(t.ID), label, htmlEscape(truncate(t.Preview, 40)))
+			htmlEscape(t.ID), label, htmlEscape(preview))
 	}
 	fmt.Fprint(w, `<option value="">+ new conversation</option>`)
 }
@@ -62,12 +62,4 @@ func (s *server) handleXMessages(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<div class="msg %s" id="msg-%s"><p>%s</p><time>%s</time></div>`,
 			cls, m.ID, htmlEscape(m.Content), m.Timestamp.Format("15:04"))
 	}
-}
-
-func truncate(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }

@@ -21,7 +21,7 @@ const htmlHead = `<!DOCTYPE html>
 func (s *server) handleGroupsPage(w http.ResponseWriter, r *http.Request) {
 	name := userName(r)
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, htmlHead)
+	fmt.Fprint(w, htmlHead)
 	fmt.Fprintf(w, `<body>
 <header>
   <span class="logo">arizuko</span><span class="tagline">Claude agent gateway</span>
@@ -50,7 +50,7 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, htmlHead)
+	fmt.Fprint(w, htmlHead)
 	fmt.Fprintf(w, `<body>
 <header>
   <a href="/">&#8592; arizuko</a>
