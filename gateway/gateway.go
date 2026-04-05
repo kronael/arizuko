@@ -207,6 +207,13 @@ func (g *Gateway) loadState() {
 		g.jidToFolder = make(map[string]string)
 	}
 
+	// Seed adapter pinning cache from chats.channel. Without this, the
+	// first outbound after a restart falls back to random prefix-match
+	// and may pick an adapter not a member of the target chat.
+	for jid, name := range g.store.ChatChannels() {
+		g.jidAdapters.Store(jid, name)
+	}
+
 	slog.Info("state loaded", "groups", len(g.groups), "jid_routes", len(g.jidToFolder))
 }
 
@@ -729,7 +736,15 @@ func (g *Gateway) runAgentWithOpts(
 }
 
 func (g *Gateway) RecordJIDAdapter(chatJID, adapterName string) {
+	if prev, ok := g.jidAdapters.Load(chatJID); ok {
+		if prev.(string) == adapterName {
+			return
+		}
+	}
 	g.jidAdapters.Store(chatJID, adapterName)
+	if err := g.store.SetChatChannel(chatJID, adapterName); err != nil {
+		slog.Debug("persist chat channel", "jid", chatJID, "ch", adapterName, "err", err)
+	}
 }
 
 func (g *Gateway) findChannel(jid string) core.Channel {

@@ -157,6 +157,32 @@ func (s *Store) UnroutedChatJIDs(since time.Time) []string {
 	return jids
 }
 
+func (s *Store) ChatChannels() map[string]string {
+	rows, err := s.db.Query(
+		`SELECT jid, channel FROM chats WHERE channel IS NOT NULL AND channel != ''`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := make(map[string]string)
+	for rows.Next() {
+		var jid, ch string
+		rows.Scan(&jid, &ch)
+		out[jid] = ch
+	}
+	return out
+}
+
+func (s *Store) SetChatChannel(jid, ch string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO chats (jid, channel) VALUES (?, ?)
+		 ON CONFLICT(jid) DO UPDATE SET channel = excluded.channel
+		 WHERE chats.channel IS NULL OR chats.channel = '' OR chats.channel != excluded.channel`,
+		jid, ch,
+	)
+	return err
+}
+
 func (s *Store) JIDFolderMap() map[string]string {
 	rows, err := s.db.Query(
 		`SELECT jid, target FROM routes WHERE type = 'default' AND (match IS NULL OR match = '')`)
