@@ -107,37 +107,28 @@ func (rc *redditClient) ensureToken() error {
 	return nil
 }
 
-func (rc *redditClient) get(path string, params map[string]string) (*http.Response, error) {
+func (rc *redditClient) do(method, path string, params map[string]string, form url.Values) (*http.Response, error) {
 	if err := rc.ensureToken(); err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest("GET", "https://oauth.reddit.com"+path, nil)
+	var body io.Reader
+	if form != nil {
+		body = strings.NewReader(form.Encode())
+	}
+	req, err := http.NewRequest(method, "https://oauth.reddit.com"+path, body)
 	if err != nil {
 		return nil, err
 	}
-	q := req.URL.Query()
-	for k, v := range params {
-		q.Set(k, v)
+	if form != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
-	req.URL.RawQuery = q.Encode()
-	rc.mu.Lock()
-	tok := rc.token
-	rc.mu.Unlock()
-	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("User-Agent", rc.cfg.UserAgent)
-	return rc.doWithRetry(req)
-}
-
-func (rc *redditClient) post(path string, data url.Values) (*http.Response, error) {
-	if err := rc.ensureToken(); err != nil {
-		return nil, err
+	if len(params) > 0 {
+		q := req.URL.Query()
+		for k, v := range params {
+			q.Set(k, v)
+		}
+		req.URL.RawQuery = q.Encode()
 	}
-	req, err := http.NewRequest("POST", "https://oauth.reddit.com"+path,
-		strings.NewReader(data.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rc.mu.Lock()
 	tok := rc.token
 	rc.mu.Unlock()
@@ -219,7 +210,7 @@ func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClien
 		params["before"] = prevCursor
 	}
 
-	resp, err := rc.get(path, params)
+	resp, err := rc.do("GET", path, params, nil)
 	if err != nil {
 		slog.Error("reddit get failed", "path", path, "err", err)
 		return
@@ -327,7 +318,7 @@ func (rc *redditClient) Send(req chanlib.SendRequest) (string, error) {
 			"text":  {req.Content},
 		}
 	}
-	resp, err := rc.post(path, data)
+	resp, err := rc.do("POST", path, nil, data)
 	if err != nil {
 		return "", err
 	}
