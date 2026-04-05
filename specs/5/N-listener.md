@@ -104,15 +104,24 @@ Two mechanisms:
 ALTER TABLE groups ADD COLUMN message_ttl_days INTEGER;
 ```
 
-Cleanup query (run daily in `timed`):
+Cleanup query (run daily in `timed`). `groups` is keyed by `folder`; JID→folder
+mappings live in `routes` (type='default'), so the query joins through
+`routes` to resolve each listener folder's source JIDs:
 
 ```sql
 DELETE FROM messages
 WHERE chat_jid IN (
-    SELECT jid FROM groups WHERE message_ttl_days IS NOT NULL
+    SELECT r.jid
+    FROM routes r
+    JOIN groups g ON g.folder = r.target
+    WHERE r.type = 'default' AND g.message_ttl_days IS NOT NULL
 )
 AND timestamp < datetime('now', '-' || (
-    SELECT message_ttl_days FROM groups WHERE jid = messages.chat_jid
+    SELECT g.message_ttl_days
+    FROM routes r
+    JOIN groups g ON g.folder = r.target
+    WHERE r.type = 'default' AND r.jid = messages.chat_jid
+    LIMIT 1
 ) || ' days');
 ```
 

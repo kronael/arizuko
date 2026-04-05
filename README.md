@@ -37,9 +37,9 @@ arizuko run foo                         # generate + docker compose up
 ## Group Management
 
 ```bash
-arizuko group <instance> list               # registered + discovered
-arizuko group <instance> add <jid> <name> [folder] # register group
-arizuko group <instance> rm  <jid>          # unregister
+arizuko group <instance> list                       # registered groups (folder\tname)
+arizuko group <instance> add <jid> <name> [folder]  # register group + default route
+arizuko group <instance> rm  <folder>               # unregister by folder
 ```
 
 First group defaults to folder `main` with direct mode.
