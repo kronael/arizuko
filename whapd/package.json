@@ -12,15 +12,12 @@
     "@types/qrcode-terminal": "^0.12.2",
     "@whiskeysockets/baileys": "^6.7.16",
     "busboy": "^1.6.0",
-    "link-preview-js": "^3.0.5",
     "pino": "^9.6.0",
     "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
     "@types/busboy": "^1.5.4",
     "@types/node": "^22.0.0",
-    "@types/form-data": "^2.5.0",
-    "form-data": "^4.0.0",
     "typescript": "^5.7.0"
   }
 }
