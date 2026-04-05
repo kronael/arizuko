@@ -327,8 +327,11 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 			template.HTMLEscapeString(nullStr(parent)),
 		)
 		d.writeGroupRoutes(w, folder)
-		d.writeGroupMessageCount(w, folder)
-		fmt.Fprint(w, `</div></details>`)
+		var msgCount int
+		d.db.QueryRow(
+			`SELECT COUNT(*) FROM messages WHERE group_folder=? AND timestamp > datetime('now','-1 day')`,
+			folder).Scan(&msgCount)
+		fmt.Fprintf(w, `<p>Messages (24h): %d</p></div></details>`, msgCount)
 	}
 	fmt.Fprint(w, pageBot)
 }
@@ -360,14 +363,6 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 	} else {
 		fmt.Fprint(w, `<p><em>no routes</em></p>`)
 	}
-}
-
-func (d *dash) writeGroupMessageCount(w http.ResponseWriter, folder string) {
-	var count int
-	d.db.QueryRow(
-		`SELECT COUNT(*) FROM messages WHERE group_folder=? AND timestamp > datetime('now','-1 day')`,
-		folder).Scan(&count)
-	fmt.Fprintf(w, `<p>Messages (24h): %d</p>`, count)
 }
 
 func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
