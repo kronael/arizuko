@@ -252,24 +252,26 @@ func approveInTx(db *sql.DB, jid, world, now, welcomeID, welcomeBody string) err
 	}
 	defer tx.Rollback()
 
-	for _, q := range []struct {
-		sql  string
-		args []any
-	}{
-		{`INSERT OR IGNORE INTO groups (folder, name, added_at) VALUES (?, ?, ?)`,
-			[]any{world, world, now}},
-		{`INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
-		  VALUES (?, 0, 'default', NULL, ?), (?, -2, 'prefix', '@', ?), (?, -1, 'prefix', '#', ?)`,
-			[]any{jid, world, jid, world, jid, world}},
-		{`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
-		  VALUES (?, ?, 'system', ?, ?, 1, 1, 'onboarding', '')`,
-			[]any{welcomeID, jid, welcomeBody, time.Now().Format(time.RFC3339Nano)}},
-		{`UPDATE onboarding SET status = 'approved' WHERE jid = ?`,
-			[]any{jid}},
-	} {
-		if _, err := tx.Exec(q.sql, q.args...); err != nil {
-			return err
-		}
+	if _, err := tx.Exec(
+		`INSERT OR IGNORE INTO groups (folder, name, added_at) VALUES (?, ?, ?)`,
+		world, world, now); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
+		 VALUES (?, 0, 'default', NULL, ?), (?, -2, 'prefix', '@', ?), (?, -1, 'prefix', '#', ?)`,
+		jid, world, jid, world, jid, world); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
+		 VALUES (?, ?, 'system', ?, ?, 1, 1, 'onboarding', '')`,
+		welcomeID, jid, welcomeBody, time.Now().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`UPDATE onboarding SET status = 'approved' WHERE jid = ?`, jid); err != nil {
+		return err
 	}
 
 	seedDefaultTasksTx(tx, world, jid)
@@ -335,6 +337,11 @@ func queryOnboarding(db *sql.DB, status string) ([]onboardRow, error) {
 	return out, nil
 }
 
+func touchPrompted(db *sql.DB, jid string) {
+	db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`,
+		time.Now().Format(time.RFC3339), jid)
+}
+
 func checkNameResponse(db *sql.DB, cfg config) {
 	pending, err := queryOnboarding(db, "awaiting_name")
 	if err != nil {
@@ -356,16 +363,13 @@ func checkNameResponse(db *sql.DB, cfg config) {
 		name := strings.TrimSpace(content)
 		if !nameRE.MatchString(name) {
 			sendReply(cfg, r.jid, "Invalid name. Use lowercase letters, numbers, and hyphens only. Try again:", r.channel)
-
-			db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`,
-				time.Now().Format(time.RFC3339), r.jid)
+			touchPrompted(db, r.jid)
 			continue
 		}
 
 		if nameTaken(db, name, r.jid) {
 			sendReply(cfg, r.jid, "That name is already taken. Try another:", r.channel)
-			db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`,
-				time.Now().Format(time.RFC3339), r.jid)
+			touchPrompted(db, r.jid)
 			continue
 		}
 
