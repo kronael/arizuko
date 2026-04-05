@@ -105,17 +105,17 @@ func (g *Gateway) Run(ctx context.Context) error {
 		SendReply: func(jid, text, replyTo string) (string, error) {
 			return g.sendMessageReply(jid, text, replyTo, "")
 		},
-		SendDocument:     g.sendDocument,
-		ClearSession:     g.clearSession,
-		GroupsDir:        g.cfg.GroupsDir,
-		HostGroupsDir:    g.cfg.HostGroupsDir,
-		WebDir:           g.cfg.WebDir,
-		InjectMessage:    g.injectMessage,
+		SendDocument:  g.sendDocument,
+		ClearSession:  g.clearSession,
+		GroupsDir:     g.cfg.GroupsDir,
+		HostGroupsDir: g.cfg.HostGroupsDir,
+		WebDir:        g.cfg.WebDir,
+		InjectMessage: g.injectMessage,
 		RegisterGroup: g.registerGroupIPC,
 		SeedGroupDir: func(folder string) error {
 			return container.SeedGroupDir(g.cfg, folder)
 		},
-		GetGroups: g.getGroups,
+		GetGroups:        g.getGroups,
 		DelegateToChild:  g.delegateToChild,
 		DelegateToParent: g.delegateToParent,
 		SpawnGroup: func(parentFolder, childJID string) (core.Group, error) {
@@ -134,21 +134,21 @@ func (g *Gateway) Run(ctx context.Context) error {
 		UpdateTaskStatus: func(id, status string) error {
 			return g.store.UpdateTask(id, store.TaskPatch{Status: &status})
 		},
-		DeleteTask:     g.store.DeleteTask,
-		ListTasks:      g.store.ListTasks,
-		GetRoutes:      g.store.GetRoutes,
-		ListRoutes:     g.store.ListRoutes,
-		SetRoutes:      g.store.SetRoutes,
-		AddRoute:       g.store.AddRoute,
-		DeleteRoute:    g.store.DeleteRoute,
-		GetRoute:       g.store.GetRoute,
-		GetGrants:          g.store.GetGrants,
-		SetGrants:          g.store.SetGrants,
-		StoreOutbound:      g.store.StoreOutbound,
-		GetLastReplyID:     g.store.GetLastReplyID,
-		SetLastReplyID:     g.store.SetLastReplyID,
-		MessagesBefore:     g.store.MessagesBefore,
-		JIDRoutedToFolder:  g.store.JIDRoutedToFolder,
+		DeleteTask:        g.store.DeleteTask,
+		ListTasks:         g.store.ListTasks,
+		GetRoutes:         g.store.GetRoutes,
+		ListRoutes:        g.store.ListRoutes,
+		SetRoutes:         g.store.SetRoutes,
+		AddRoute:          g.store.AddRoute,
+		DeleteRoute:       g.store.DeleteRoute,
+		GetRoute:          g.store.GetRoute,
+		GetGrants:         g.store.GetGrants,
+		SetGrants:         g.store.SetGrants,
+		StoreOutbound:     g.store.StoreOutbound,
+		GetLastReplyID:    g.store.GetLastReplyID,
+		SetLastReplyID:    g.store.SetLastReplyID,
+		MessagesBefore:    g.store.MessagesBefore,
+		JIDRoutedToFolder: g.store.JIDRoutedToFolder,
 	}
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetNotifyErrorFn(func(jid string, err error) {
@@ -763,32 +763,25 @@ func (g *Gateway) sendMessage(jid, text string) error {
 	return err
 }
 
+func containsFold(list []string, s string) bool {
+	for _, x := range list {
+		if strings.EqualFold(x, s) {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *Gateway) canSendToJID(jid string) bool {
 	if len(g.cfg.SendDisabledChannels) == 0 {
 		return true
 	}
-	prefix := jid
-	if i := strings.Index(jid, ":"); i >= 0 {
-		prefix = jid[:i]
-	}
-	for _, ch := range g.cfg.SendDisabledChannels {
-		if strings.EqualFold(ch, prefix) {
-			return false
-		}
-	}
-	return true
+	prefix, _, _ := strings.Cut(jid, ":")
+	return !containsFold(g.cfg.SendDisabledChannels, prefix)
 }
 
 func (g *Gateway) canSendToGroup(folder string) bool {
-	if len(g.cfg.SendDisabledGroups) == 0 {
-		return true
-	}
-	for _, gf := range g.cfg.SendDisabledGroups {
-		if strings.EqualFold(gf, folder) {
-			return false
-		}
-	}
-	return true
+	return !containsFold(g.cfg.SendDisabledGroups, folder)
 }
 
 func (g *Gateway) sendMessageReply(jid, text, replyTo, threadID string) (string, error) {
@@ -1339,11 +1332,11 @@ func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {
 
 func (g *Gateway) getAgentCursor(chatJid string) time.Time {
 	g.mu.RLock()
-	if ts, ok := g.agentCursors[chatJid]; ok {
-		g.mu.RUnlock()
+	ts, ok := g.agentCursors[chatJid]
+	g.mu.RUnlock()
+	if ok {
 		return ts
 	}
-	g.mu.RUnlock()
 	return g.store.GetAgentCursor(chatJid)
 }
 
