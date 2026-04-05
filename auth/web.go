@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,32 +33,30 @@ var loginLimiter = &struct {
 
 func loginAllowed(ip string) bool {
 	const limit = 5
-	window := 15 * time.Minute
+	const window = 15 * time.Minute
 	loginLimiter.mu.Lock()
 	defer loginLimiter.mu.Unlock()
 	now := time.Now()
 	cutoff := now.Add(-window)
-	hits := loginLimiter.buckets[ip]
-	n := 0
-	for _, t := range hits {
+	hits := loginLimiter.buckets[ip][:0:0]
+	for _, t := range loginLimiter.buckets[ip] {
 		if t.After(cutoff) {
-			hits[n] = t
-			n++
+			hits = append(hits, t)
 		}
 	}
-	hits = hits[:n]
+	// Opportunistic eviction when the map grows large: drop any stale IPs.
+	if len(loginLimiter.buckets) > 10000 {
+		for k, v := range loginLimiter.buckets {
+			if len(v) == 0 || !v[len(v)-1].After(cutoff) {
+				delete(loginLimiter.buckets, k)
+			}
+		}
+	}
 	if len(hits) >= limit {
 		loginLimiter.buckets[ip] = hits
 		return false
 	}
 	loginLimiter.buckets[ip] = append(hits, now)
-	if len(loginLimiter.buckets) > 10000 {
-		for k, v := range loginLimiter.buckets {
-			if len(v) == 0 {
-				delete(loginLimiter.buckets, k)
-			}
-		}
-	}
 	return true
 }
 
@@ -212,30 +211,17 @@ type argon2Params struct {
 }
 
 func splitArgon2(encoded string) *argon2Params {
+	// $argon2id$v=19$m=..,t=..,p=..$salt$hash → 6 parts (leading empty)
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 6 || parts[1] != "argon2id" {
+		return nil
+	}
 	var p argon2Params
-	n, _ := fmt.Sscanf(encoded, "$argon2id$v=19$m=%d,t=%d,p=%d$",
-		&p.memory, &p.time, &p.threads)
+	n, _ := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &p.memory, &p.time, &p.threads)
 	if n != 3 {
 		return nil
 	}
-	idx := 0
-	dollars := 0
-	for i, c := range encoded {
-		if c == '$' {
-			dollars++
-			if dollars == 4 {
-				idx = i + 1
-				break
-			}
-		}
-	}
-	rest := encoded[idx:]
-	for i, c := range rest {
-		if c == '$' {
-			p.salt = rest[:i]
-			p.hash = rest[i+1:]
-			return &p
-		}
-	}
-	return nil
+	p.salt = parts[4]
+	p.hash = parts[5]
+	return &p
 }
