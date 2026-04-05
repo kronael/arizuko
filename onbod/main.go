@@ -193,7 +193,7 @@ func isTier0(db *sql.DB, senderJID string) bool {
 
 func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targetJID string) {
 	if !isTier0(db, senderJID) {
-		sendReply(cfg, senderJID, "Permission denied.")
+		sendReply(cfg, senderJID, "Permission denied.", "")
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -280,7 +280,7 @@ func approveInTx(db *sql.DB, jid, world, now, welcomeID, welcomeBody string) err
 
 func handleReject(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targetJID string) {
 	if !isTier0(db, senderJID) {
-		sendReply(cfg, senderJID, "Permission denied.")
+		sendReply(cfg, senderJID, "Permission denied.", "")
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -337,11 +337,6 @@ func queryOnboarding(db *sql.DB, status string) ([]onboardRow, error) {
 	return out, nil
 }
 
-func touchPrompted(db *sql.DB, jid string) {
-	db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`,
-		time.Now().Format(time.RFC3339), jid)
-}
-
 func checkNameResponse(db *sql.DB, cfg config) {
 	pending, err := queryOnboarding(db, "awaiting_name")
 	if err != nil {
@@ -360,22 +355,23 @@ func checkNameResponse(db *sql.DB, cfg config) {
 			continue
 		}
 
+		now := time.Now().Format(time.RFC3339)
 		name := strings.TrimSpace(content)
 		if !nameRE.MatchString(name) || nameTaken(db, name, r.jid) {
 			sendReply(cfg, r.jid, "Invalid name. Use lowercase letters, numbers, and hyphens only. Try again:", r.channel)
-			touchPrompted(db, r.jid)
+			db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`, now, r.jid)
 			continue
 		}
 
 		db.Exec(
 			`UPDATE onboarding SET status = 'pending', world_name = ?, prompted_at = ? WHERE jid = ?`,
-			name, time.Now().Format(time.RFC3339), r.jid)
+			name, now, r.jid)
 
 		msg := fmt.Sprintf(
 			"New onboarding request: %s wants world %q. Send /approve %s or /reject %s",
 			r.jid, name, r.jid, r.jid)
 		for _, root := range rootJIDs(db) {
-			sendReply(cfg, root, msg)
+			sendReply(cfg, root, msg, "")
 		}
 
 		slog.Info("onboarding pending", "jid", r.jid, "world", name)
@@ -408,10 +404,10 @@ func checkPendingMessages(db *sql.DB, cfg config) {
 func notifyRoots(db *sql.DB, cfg config, senderJID, msg string) {
 	for _, jid := range rootJIDs(db) {
 		if jid != senderJID {
-			sendReply(cfg, jid, msg)
+			sendReply(cfg, jid, msg, "")
 		}
 	}
-	sendReply(cfg, senderJID, msg)
+	sendReply(cfg, senderJID, msg, "")
 }
 
 func nameTaken(db *sql.DB, name, excludeJID string) bool {
@@ -447,10 +443,10 @@ func rootJIDs(db *sql.DB) []string {
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func sendReply(cfg config, jid, text string, channel ...string) {
+func sendReply(cfg config, jid, text, channel string) {
 	payload := map[string]string{"jid": jid, "text": text}
-	if len(channel) > 0 && channel[0] != "" {
-		payload["channel"] = channel[0]
+	if channel != "" {
+		payload["channel"] = channel
 	}
 	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", cfg.gatedURL+"/v1/outbound", bytes.NewReader(body))
