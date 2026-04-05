@@ -47,12 +47,47 @@ interface OutboundMsg {
   text: string;
 }
 
+// Guard against Baileys' non-atomic creds.json writes: if the file is empty
+// (truncated by a prior crash/restart mid-write), restore from backup.
+function recoverCredsIfEmpty(dir: string): void {
+  const creds = `${dir}/creds.json`;
+  const backup = `${dir}/creds.json.bak`;
+  try {
+    const s = fs.statSync(creds);
+    if (s.size === 0 && fs.existsSync(backup)) {
+      const bs = fs.statSync(backup);
+      if (bs.size > 0) {
+        fs.copyFileSync(backup, creds);
+        log('warn', 'restored creds.json from backup', { size: bs.size });
+      }
+    }
+  } catch {
+    // creds.json missing — fresh auth, nothing to recover
+  }
+}
+
+function backupCreds(dir: string): void {
+  const creds = `${dir}/creds.json`;
+  const backup = `${dir}/creds.json.bak`;
+  try {
+    const s = fs.statSync(creds);
+    if (s.size > 0) fs.copyFileSync(creds, backup);
+  } catch {
+    // ignore
+  }
+}
+
 async function makeSocket(): Promise<{
   s: WASocket;
   saveCreds: () => Promise<void>;
 }> {
   fs.mkdirSync(authDir, { recursive: true });
-  const { state, saveCreds } = await useMultiFileAuthState(authDir);
+  recoverCredsIfEmpty(authDir);
+  const { state, saveCreds: rawSave } = await useMultiFileAuthState(authDir);
+  const saveCreds = async () => {
+    await rawSave();
+    backupCreds(authDir);
+  };
   const { version } = await fetchLatestWaWebVersion({}).catch(() => ({
     version: undefined,
   }));
@@ -462,6 +497,26 @@ export function queueOutbound(jid: string, text: string): void {
   });
 }
 
+async function registerWithRetry(): Promise<void> {
+  let attempt = 0;
+  while (true) {
+    try {
+      await rc.register('whatsapp', listenURL);
+      log('info', 'registered with router', { url: routerURL, attempt });
+      return;
+    } catch (e) {
+      attempt++;
+      const delay = Math.min(2000 * attempt, 30000);
+      log('warn', 'router registration failed, retrying', {
+        attempt,
+        delay,
+        err: String(e),
+      });
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
 async function main() {
   // --pair <phone>: pair mode — print code and exit
   const pairIdx = process.argv.indexOf('--pair');
@@ -477,13 +532,10 @@ async function main() {
 
   await connect();
 
-  try {
-    await rc.register('whatsapp', listenURL);
-    log('info', 'registered with router', { url: routerURL });
-  } catch (e) {
-    log('error', 'router registration failed', { err: String(e) });
-    process.exit(1);
-  }
+  // Retry registration with backoff. Do NOT exit on failure — exiting causes
+  // docker compose restart cycles that race with Baileys' non-atomic creds
+  // writes and corrupt the session. Stay up; gated will eventually come up.
+  registerWithRetry();
 
   const srv = startServer(
     listenAddr,
