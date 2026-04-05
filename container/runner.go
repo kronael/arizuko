@@ -101,43 +101,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	writeGatewayCaps(groupDir, cfg)
 
 	mounts := buildMounts(cfg, in, groupDir, root, folders)
-
-	appDir := cfg.HostAppDir
-	latest := migrationVersion(
-		filepath.Join(appDir, "ant", "skills", "self", "MIGRATION_VERSION"))
-	agent := migrationVersion(
-		filepath.Join(groupDir, ".claude", "skills", "self", "MIGRATION_VERSION"))
-	if agent < latest {
-		in.Annotations = append(in.Annotations, fmt.Sprintf(
-			"[pending migration] Skills version %d < %d. "+
-				"Run /migrate (main group) to sync all groups.",
-			agent, latest))
-	}
-
-	if in.Topic != "" {
-		in.Annotations = append(in.Annotations,
-			"Topic session: "+in.Topic)
-	}
-
-	if ep := ReadRecentEpisodes(groupDir); ep != "" {
-		in.Annotations = append(in.Annotations, ep)
-	}
-
-	if d := diary.Read(groupDir, 14); d != "" {
-		in.Annotations = append(in.Annotations, d)
-	}
-
-	if uc := router.UserContextXml(in.Sender, groupDir); uc != "" {
-		in.Annotations = append(in.Annotations, uc)
-	}
-
-	in.Soul = readOptional(filepath.Join(groupDir, "SOUL.md"))
-	in.SystemMd = readOptional(filepath.Join(groupDir, "SYSTEM.md"))
-
-	if len(in.Annotations) > 0 {
-		in.Prompt = strings.Join(in.Annotations, "\n") +
-			"\n\n" + in.Prompt
-	}
+	in = prepareInput(cfg, in, groupDir)
 
 	var sidecarNames []string
 	if len(in.Config.Sidecars) > 0 {
@@ -257,7 +221,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	var (
 		parseBuf     strings.Builder
 		fullBuf      strings.Builder
-		hadStreaming  bool
+		hadStreaming bool
 		newSessionID string
 	)
 
@@ -419,8 +383,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	si := strings.LastIndex(allStdout, outputStartMarker)
 	ei := strings.LastIndex(allStdout, outputEndMarker)
 	if si != -1 && ei > si {
-		js := strings.TrimSpace(
-			allStdout[si+len(outputStartMarker) : ei])
+		js := strings.TrimSpace(allStdout[si+len(outputStartMarker) : ei])
 		var out Output
 		if json.Unmarshal([]byte(js), &out) == nil {
 			slog.Info("container completed",
@@ -431,18 +394,43 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		}
 	}
 
-	lines := strings.Split(strings.TrimSpace(allStdout), "\n")
-	if len(lines) > 0 {
-		var out Output
-		if json.Unmarshal([]byte(lines[len(lines)-1]), &out) == nil {
-			return out
-		}
-	}
-
 	return Output{
 		Status: "error",
 		Error:  "no parseable output from container",
 	}
+}
+
+func prepareInput(cfg *core.Config, in Input, groupDir string) Input {
+	latest := migrationVersion(
+		filepath.Join(cfg.HostAppDir, "ant", "skills", "self", "MIGRATION_VERSION"))
+	agent := migrationVersion(
+		filepath.Join(groupDir, ".claude", "skills", "self", "MIGRATION_VERSION"))
+	if agent < latest {
+		in.Annotations = append(in.Annotations, fmt.Sprintf(
+			"[pending migration] Skills version %d < %d. "+
+				"Run /migrate (main group) to sync all groups.",
+			agent, latest))
+	}
+	if in.Topic != "" {
+		in.Annotations = append(in.Annotations, "Topic session: "+in.Topic)
+	}
+	if ep := ReadRecentEpisodes(groupDir); ep != "" {
+		in.Annotations = append(in.Annotations, ep)
+	}
+	if d := diary.Read(groupDir, 14); d != "" {
+		in.Annotations = append(in.Annotations, d)
+	}
+	if uc := router.UserContextXml(in.Sender, groupDir); uc != "" {
+		in.Annotations = append(in.Annotations, uc)
+	}
+
+	in.Soul = readOptional(filepath.Join(groupDir, "SOUL.md"))
+	in.SystemMd = readOptional(filepath.Join(groupDir, "SYSTEM.md"))
+
+	if len(in.Annotations) > 0 {
+		in.Prompt = strings.Join(in.Annotations, "\n") + "\n\n" + in.Prompt
+	}
+	return in
 }
 
 func buildMounts(
