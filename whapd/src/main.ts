@@ -98,6 +98,33 @@ async function makeSocket(): Promise<{
   return { s, saveCreds };
 }
 
+async function reconnectOnly(): Promise<void> {
+  const { s, saveCreds } = await makeSocket();
+  await new Promise<void>((resolve, reject) => {
+    s.ev.on('connection.update', (update) => {
+      const { connection, lastDisconnect } = update;
+      if (connection === 'open') {
+        saveCreds()
+          .then(() => {
+            process.stdout.write('authenticated — credentials saved\n');
+            s.end(undefined);
+            resolve();
+          })
+          .catch(reject);
+      }
+      if (connection === 'close') {
+        const code = (lastDisconnect?.error as any)?.output?.statusCode;
+        if (code === 515) {
+          process.stdout.write('reconnecting after pairing (retry)...\n');
+          reconnectOnly().then(resolve).catch(reject);
+          return;
+        }
+        reject(new Error(`connection closed: ${code}`));
+      }
+    });
+  });
+}
+
 async function pair(phone: string): Promise<void> {
   process.stdout.write(`pairing whatsapp with phone ${phone}...\n`);
   const { s, saveCreds } = await makeSocket();
@@ -133,10 +160,11 @@ async function pair(phone: string): Promise<void> {
       }
       if (connection === 'close') {
         const code = (lastDisconnect?.error as any)?.output?.statusCode;
-        // 515 = restart required after pairing; one reconnect finalises the session.
+        // 515 = restart required after pairing; reconnect WITHOUT re-requesting
+        // a new pair code (that confuses the server and invalidates the session).
         if (code === 515) {
           process.stdout.write('reconnecting after pairing...\n');
-          pair(phone).then(resolve).catch(reject);
+          reconnectOnly().then(resolve).catch(reject);
           return;
         }
         reject(new Error(`connection closed: ${code}`));
