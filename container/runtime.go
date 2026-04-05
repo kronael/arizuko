@@ -11,10 +11,6 @@ import (
 
 const Bin = "docker"
 
-func ReadonlyMountArgs(hostPath, containerPath string) []string {
-	return []string{"-v", hostPath + ":" + containerPath + ":ro"}
-}
-
 func StopContainerArgs(name string) []string {
 	return []string{"stop", name}
 }

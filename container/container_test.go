@@ -35,19 +35,6 @@ func TestSanitizeFolder(t *testing.T) {
 	}
 }
 
-func TestReadonlyMountArgs(t *testing.T) {
-	got := ReadonlyMountArgs("/host/path", "/container/path")
-	want := []string{"-v", "/host/path:/container/path:ro"}
-	if len(got) != len(want) {
-		t.Fatalf("len = %d, want %d", len(got), len(want))
-	}
-	for i := range got {
-		if got[i] != want[i] {
-			t.Errorf("[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-}
-
 func TestStopContainerArgs(t *testing.T) {
 	got := StopContainerArgs("arizuko-test-123")
 	if got[0] != "stop" || got[1] != "arizuko-test-123" {
@@ -119,7 +106,7 @@ func TestBuildArgs(t *testing.T) {
 		Timezone: "UTC",
 		Image:    "arizuko-ant:test",
 	}
-	mounts := []VolumeMount{
+	mounts := []volumeMount{
 		{Host: "/h/group", Container: "/home/node"},
 		{Host: "/h/app", Container: "/workspace/self", RO: true},
 	}
@@ -546,7 +533,7 @@ func TestWriteLog(t *testing.T) {
 		Folder:    "g1",
 		SessionID: "s1",
 	}
-	mounts := []VolumeMount{
+	mounts := []volumeMount{
 		{Host: "/h", Container: "/c"},
 		{Host: "/h2", Container: "/c2", RO: true},
 	}

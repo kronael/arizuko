@@ -83,7 +83,7 @@ type Output struct {
 
 type OnOutputFn func(result, status string)
 
-type VolumeMount struct {
+type volumeMount struct {
 	Host      string
 	Container string
 	RO        bool
@@ -100,7 +100,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	chown(groupDir, 1000, 1000)
 	writeGatewayCaps(groupDir, cfg)
 
-	mounts := BuildMounts(cfg, in, groupDir, root, folders)
+	mounts := buildMounts(cfg, in, groupDir, root, folders)
 
 	appDir := cfg.HostAppDir
 	latest := migrationVersion(
@@ -445,21 +445,21 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 }
 
-func BuildMounts(
+func buildMounts(
 	cfg *core.Config, in Input,
 	groupDir string, root bool,
 	folders *groupfolder.Resolver,
-) []VolumeMount {
-	var m []VolumeMount
+) []volumeMount {
+	var m []volumeMount
 
-	m = append(m, VolumeMount{
+	m = append(m, volumeMount{
 		Host:      hp(cfg, groupDir),
 		Container: containerHome,
 	})
 	media := filepath.Join(groupDir, "media")
 	os.MkdirAll(media, 0o755)
 
-	m = append(m, VolumeMount{
+	m = append(m, volumeMount{
 		Host:      cfg.HostAppDir,
 		Container: "/workspace/self",
 		RO:        true,
@@ -471,7 +471,7 @@ func BuildMounts(
 	if shareRw || shareRo {
 		share := filepath.Join(cfg.GroupsDir, world, "share")
 		os.MkdirAll(share, 0o755)
-		m = append(m, VolumeMount{
+		m = append(m, volumeMount{
 			Host:      hp(cfg, share),
 			Container: "/workspace/share",
 			RO:        !shareRw,
@@ -489,7 +489,7 @@ func BuildMounts(
 			os.MkdirAll(filepath.Join(ipcDir, sub), 0o755)
 		}
 		chown(ipcDir, 1000, 1000)
-		m = append(m, VolumeMount{
+		m = append(m, volumeMount{
 			Host:      hp(cfg, ipcDir),
 			Container: "/workspace/ipc",
 		})
@@ -498,7 +498,7 @@ func BuildMounts(
 	if os.Getenv("ARIZUKO_DEV") == "1" {
 		runnerSrc := filepath.Join(cfg.HostAppDir, "ant", "src")
 		if _, err := os.Stat(runnerSrc); err == nil {
-			m = append(m, VolumeMount{
+			m = append(m, volumeMount{
 				Host:      hp(cfg, runnerSrc),
 				Container: "/app/src",
 			})
@@ -514,7 +514,7 @@ func BuildMounts(
 			}
 		}
 		for _, v := range mountsec.ValidateAdditionalMounts(add, in.Folder, root, mountsec.Allowlist{}) {
-			m = append(m, VolumeMount{Host: v.HostPath, Container: v.ContainerPath, RO: v.Readonly})
+			m = append(m, volumeMount{Host: v.HostPath, Container: v.ContainerPath, RO: v.Readonly})
 		}
 	}
 
@@ -525,14 +525,14 @@ func BuildMounts(
 			os.MkdirAll(webHost, 0o755)
 		}
 		chown(webHost, 1000, 1000)
-		m = append(m, VolumeMount{
+		m = append(m, volumeMount{
 			Host:      hp(cfg, webHost),
 			Container: "/workspace/web",
 		})
 	}
 
 	if root {
-		m = append(m, VolumeMount{
+		m = append(m, volumeMount{
 			Host:      hp(cfg, cfg.GroupsDir),
 			Container: "/workspace/data/groups",
 		})
@@ -542,7 +542,7 @@ func BuildMounts(
 }
 
 func buildArgs(
-	cfg *core.Config, mounts []VolumeMount, name string,
+	cfg *core.Config, mounts []volumeMount, name string,
 ) []string {
 	args := []string{
 		"run", "-i", "--rm",
@@ -560,13 +560,11 @@ func buildArgs(
 	}
 
 	for _, m := range mounts {
+		spec := m.Host + ":" + m.Container
 		if m.RO {
-			args = append(args,
-				ReadonlyMountArgs(m.Host, m.Container)...)
-		} else {
-			args = append(args,
-				"-v", m.Host+":"+m.Container)
+			spec += ":ro"
 		}
+		args = append(args, "-v", spec)
 	}
 
 	args = append(args, cfg.Image)
@@ -817,7 +815,7 @@ func writeLog(
 	cname string, dur time.Duration,
 	code int, timedOut, hadOutput bool,
 	stdout, stderr string,
-	mounts []VolumeMount,
+	mounts []volumeMount,
 ) {
 	isErr := code != 0 || timedOut
 	lvl := os.Getenv("LOG_LEVEL")
