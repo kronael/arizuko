@@ -1,7 +1,6 @@
 package mountsec
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -58,40 +57,6 @@ func ValidateFilePath(path, root string) (string, error) {
 		return "", fmt.Errorf("blocked path pattern %q", pat)
 	}
 	return real, nil
-}
-
-func LoadAllowlist(path string) Allowlist {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			slog.Warn("mount allowlist not found, additional mounts blocked", "path", path)
-		} else {
-			slog.Error("failed to read mount allowlist", "path", path, "err", err)
-		}
-		return Allowlist{}
-	}
-
-	var al Allowlist
-	if err := json.Unmarshal(data, &al); err != nil {
-		slog.Error("failed to parse mount allowlist", "path", path, "err", err)
-		return Allowlist{}
-	}
-
-	seen := map[string]bool{}
-	merged := make([]string, 0, len(defaultBlocked)+len(al.BlockedPatterns))
-	for _, p := range append(defaultBlocked, al.BlockedPatterns...) {
-		if !seen[p] {
-			seen[p] = true
-			merged = append(merged, p)
-		}
-	}
-	al.BlockedPatterns = merged
-
-	slog.Info("mount allowlist loaded",
-		"path", path,
-		"allowedRoots", len(al.AllowedRoots),
-		"blockedPatterns", len(al.BlockedPatterns))
-	return al
 }
 
 func ValidateAdditionalMounts(
