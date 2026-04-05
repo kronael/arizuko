@@ -75,16 +75,26 @@ func TestIsRouteTypeValid(t *testing.T) {
 	}
 }
 
-func TestGroupFolderByJid(t *testing.T) {
-	groups := map[string]core.Group{
-		"jid1": {Folder: "world/a"},
-		"jid2": {Folder: "world/b"},
+func TestFolderForJid(t *testing.T) {
+	db := StoreFns{
+		GetRoutes: func(jid string) []core.Route {
+			if jid == "tg:1" {
+				return []core.Route{
+					{Type: "command", Target: "world/a", Match: "/help"},
+					{Type: "default", Target: "world/a"},
+				}
+			}
+			return nil
+		},
 	}
-	if f := groupFolderByJid(groups, "jid1"); f != "world/a" {
+	if f := folderForJid(db, "tg:1"); f != "world/a" {
 		t.Errorf("got %q, want world/a", f)
 	}
-	if f := groupFolderByJid(groups, "missing"); f != "" {
+	if f := folderForJid(db, "missing"); f != "" {
 		t.Errorf("got %q, want empty", f)
+	}
+	if f := folderForJid(StoreFns{}, "anything"); f != "" {
+		t.Errorf("nil GetRoutes: got %q, want empty", f)
 	}
 }
 
@@ -156,7 +166,7 @@ func TestSendReply(t *testing.T) {
 
 func TestRefreshGroups(t *testing.T) {
 	groups := map[string]core.Group{
-		"jid1": {Folder: "world/a", Name: "Group A"},
+		"world/a": {Folder: "world/a", Name: "Group A"},
 	}
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },

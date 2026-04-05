@@ -137,9 +137,14 @@ func isRouteTypeValid(t string) bool {
 	return false
 }
 
-func groupFolderByJid(groups map[string]core.Group, jid string) string {
-	if g, ok := groups[jid]; ok {
-		return g.Folder
+func folderForJid(db StoreFns, jid string) string {
+	if db.GetRoutes == nil {
+		return ""
+	}
+	for _, r := range db.GetRoutes(jid) {
+		if r.Type == "default" {
+			return r.Target
+		}
 	}
 	return ""
 }
@@ -361,7 +366,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	if len(grantslib.MatchingRules(rules, "register_group")) > 0 {
 		srv.AddTool(mcp.NewTool("register_group",
 			mcp.WithDescription(toolDesc(
-				"Register a new agent group. Set fromPrototype=true to copy this group's prototype/ directory into a new child folder (folder derived from jid); otherwise provide an explicit folder.",
+				"Register a new agent group at an explicit folder and add a default route from jid to that folder. Set fromPrototype=true to also copy this group's prototype/ directory into the child.",
 				rules, "register_group")),
 			mcp.WithString("jid", mcp.Required()),
 			mcp.WithString("name"),
@@ -490,14 +495,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			groups := gated.GetGroups()
 			type groupInfo struct {
-				JID    string `json:"jid"`
 				Folder string `json:"folder"`
 				Name   string `json:"name"`
 				Parent string `json:"parent,omitempty"`
 			}
 			out := make([]groupInfo, 0, len(groups))
-			for jid, g := range groups {
-				out = append(out, groupInfo{JID: jid, Folder: g.Folder, Name: g.Name, Parent: g.Parent})
+			for _, g := range groups {
+				out = append(out, groupInfo{Folder: g.Folder, Name: g.Name, Parent: g.Parent})
 			}
 			return toolJSON(out)
 		})
@@ -554,14 +558,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if !grantslib.CheckAction(rules, "get_routes", nil) {
 				return toolErr("get_routes: not permitted")
 			}
-			if db.GetRoutes == nil || gated.GetGroups == nil {
+			if db.GetRoutes == nil {
 				return toolErr("get_routes not configured")
 			}
 			jid := req.GetString("jid", "")
 			if jid == "" {
 				return toolErr("jid required")
 			}
-			tf := groupFolderByJid(gated.GetGroups(), jid)
+			tf := folderForJid(db, jid)
 			if err := auth.Authorize(id, "get_routes", auth.AuthzTarget{RouteTarget: tf}); err != nil {
 				return toolErr(err.Error())
 			}
@@ -592,14 +596,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if !grantslib.CheckAction(rules, "set_routes", nil) {
 				return toolErr("set_routes: not permitted")
 			}
-			if db.SetRoutes == nil || gated.GetGroups == nil {
+			if db.SetRoutes == nil {
 				return toolErr("set_routes not configured")
 			}
 			jid := req.GetString("jid", "")
 			if jid == "" {
 				return toolErr("jid required")
 			}
-			tf := groupFolderByJid(gated.GetGroups(), jid)
+			tf := folderForJid(db, jid)
 			if err := auth.Authorize(id, "set_routes", auth.AuthzTarget{RouteTarget: tf}); err != nil {
 				return toolErr(err.Error())
 			}
@@ -624,7 +628,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if !grantslib.CheckAction(rules, "add_route", nil) {
 				return toolErr("add_route: not permitted")
 			}
-			if db.AddRoute == nil || gated.GetGroups == nil {
+			if db.AddRoute == nil {
 				return toolErr("add_route not configured")
 			}
 			jid := normalizeJID(req.GetString("jid", ""))
@@ -696,7 +700,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if !grantslib.CheckAction(rules, "schedule_task", nil) {
 				return toolErr("schedule_task: not permitted")
 			}
-			if db.CreateTask == nil || gated.GetGroups == nil {
+			if db.CreateTask == nil {
 				return toolErr("schedule_task not configured")
 			}
 			targetJid := req.GetString("targetJid", "")
@@ -706,12 +710,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				contextMode = "group"
 			}
 
-			groups := gated.GetGroups()
-			targetGroup, ok := groups[targetJid]
-			if !ok {
+			targetFolder := folderForJid(db, targetJid)
+			if targetFolder == "" {
 				return toolErr("target group not registered")
 			}
-			targetFolder := targetGroup.Folder
 
 			if err := auth.Authorize(id, "schedule_task", auth.AuthzTarget{TaskOwner: targetFolder}); err != nil {
 				return toolErr(err.Error())
