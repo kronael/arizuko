@@ -611,6 +611,25 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err := json.Unmarshal([]byte(req.GetString("routes", "")), &routes); err != nil {
 				return toolErr("invalid routes json: " + err.Error())
 			}
+			// Self-harm guard: if the caller's own default route for this
+			// jid exists and is being removed from the new list, refuse.
+			if db.GetRoutes != nil {
+				for _, old := range db.GetRoutes(jid) {
+					if old.Type != "default" || old.Target != id.Folder {
+						continue
+					}
+					kept := false
+					for _, n := range routes {
+						if n.Type == "default" && n.Target == id.Folder {
+							kept = true
+							break
+						}
+					}
+					if !kept {
+						return toolErr("cannot remove own default route via set_routes")
+					}
+				}
+			}
 			if err := db.SetRoutes(jid, routes); err != nil {
 				return toolErr(err.Error())
 			}
@@ -675,6 +694,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			route, ok := db.GetRoute(rid)
 			if !ok {
 				return toolErr(fmt.Sprintf("route not found: %d", rid))
+			}
+			if route.Type == "default" && route.Target == id.Folder {
+				return toolErr("cannot delete own default route")
 			}
 			if err := auth.Authorize(id, "delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
 				return toolErr(err.Error())
