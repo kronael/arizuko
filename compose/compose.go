@@ -141,12 +141,11 @@ func writeSvc(def svcDef) string {
 
 func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	apiPort := envOr(env, "API_PORT", "8080")
-	hostData := envOr(env, "HOST_DATA_DIR", dataDir)
 	hostApp := envOr(env, "HOST_APP_DIR", "")
 
-	environment := map[string]string{"API_PORT": apiPort}
-	if hostData != "" {
-		environment["HOST_DATA_DIR"] = hostData
+	environment := map[string]string{
+		"API_PORT":      apiPort,
+		"HOST_DATA_DIR": envOr(env, "HOST_DATA_DIR", dataDir),
 	}
 	if hostApp != "" {
 		environment["HOST_APP_DIR"] = hostApp
