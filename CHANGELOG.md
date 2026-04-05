@@ -9,18 +9,122 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+---
+
+## [v0.23.0] — 2026-04-05
+
 ### Fixed
 
-- **gateway**: advance agent cursor after prefix-route handoff so `@nobody` and
-  other non-matching prefix routes no longer get reprocessed on restart.
-- **store**: `StoreOutbound` no longer silently fails on NOT NULL `sender`
-  constraint — outbound audit log rows now actually persist. Also synthesize a
-  unique `out-unsent-<nano>` ID when `PlatformMsgID` is empty so multiple failed
-  sends no longer collide on the `out-` primary key.
-- **gateway/store**: `session_log` now records every container run. `RecordSession`
-  takes a caller-provided start time (true duration), `EndSession` always runs
-  (not gated on new session id), and continued sessions log per-run rows with
-  COALESCE backfill for session id learned mid-run.
+- **store**: `StoreOutbound` now sets `is_bot_message=1`. Commit 6cf0f10 added
+  `sender='bot'` but left the flag at 0, so `MessagesSince`'s
+  `is_bot_message=0 AND sender NOT LIKE botName%` filter kept matching the
+  agent's own output — every agent reply was re-ingested as inbound, producing
+  a self-reply loop across REDACTED and REDACTED. 71 poisoned rows repaired in-place.
+  Regression test `TestStoreOutbound_ExcludedFromMessagesSince` pins the fix.
+- **gateway**: `downloadFile` now sends `Authorization: Bearer <CHANNEL_SECRET>`
+  when fetching attachments. teled `/files/` is wrapped in `chanlib.Auth`, so
+  unauthenticated downloads 401'd silently; `enrichAttachments` swallowed the
+  error and the agent received the raw `[Document: …]` placeholder, leading to
+  hallucinated "I can't access the document" responses.
+- **onbod**: `/v1/outbound` accepts an optional `channel` field and onbod
+  threads `onboarding.channel` through every `sendReply` call site (prompt,
+  invalid, taken, waiting). Fixes the REDACTED 502 where messages arriving via
+  `telegram-REDACTED` were routed via `reg.ForJID` to primary `telegram`, which
+  wasn't a member of that chat.
+- **onbod**: name-taken branch no longer leaks an enumeration oracle for
+  registered worlds; collapsed into the invalid-name path.
+- **proxyd**: logging middleware now wraps the whole mux. Previously only `/`
+  was wrapped, so `/auth/*` and `/pub/*` routes bypassed logging entirely.
+- **ipc**: `register_group fromPrototype` now passes the parent folder instead
+  of the child JID. The child's JID was unregistered so `SpawnGroup(jid, jid)`
+  always returned "parent group not found". Contract updated to
+  `SpawnGroup(parentFolder, childJID)`.
+- **ipc**: guard against deleting a tier-0 default route from under a running
+  agent.
+- **gateway**: persist and seed adapter pinning from `chats.channel` so
+  cross-adapter replies keep flowing through the originating adapter.
+- **gateway**: advance agent cursor after prefix-route handoff — `@nobody` and
+  other non-matching prefix routes no longer reprocess on restart.
+- **gateway/store**: `session_log` now records every container run.
+  `RecordSession` takes a caller-provided start time for true duration,
+  `EndSession` always runs (not gated on a new session id), and continued
+  sessions log per-run rows with COALESCE backfill when the session id is
+  learned mid-run.
+- **store**: `StoreOutbound` no longer silently drops rows on the NOT NULL
+  `sender` constraint; synthesizes a unique `out-unsent-<nano>` ID when
+  `PlatformMsgID` is empty so failed sends don't collide on the `out-` PK.
+- **whapd**: `registerWithRetry` with backoff instead of `process.exit(1)` on
+  router register failure. Also `recoverCredsIfEmpty` + atomic `backupCreds`
+  so Baileys' non-atomic `writeFile` can no longer corrupt `creds.json` across
+  restart loops.
+- **proxyd**: fail closed on empty `AUTH_SECRET`; redirect bare `/` to `/pub/`
+  and bare `/pub` → `/pub/` so trailing-slash is optional.
+- **vited**: bake MPA mode + trailing-slash 301 plugin into the image.
+- **auth**: add policy case for `get_grants`/`set_grants`.
+
+### Added
+
+- **chanlib**: `TypingRefresher` wired into teled (4s refresh) and discd (8s
+  refresh) via `BotHandler.Typing` → `typing.Set`. Telegram/Discord native
+  typing expires in 5–10s, so long agent runs were losing the indicator.
+- **auth**: `CheckSpawnAllowed(parent, groups)` helper unifies `MaxChildren`
+  enforcement across `gateway/spawn.go` and `ipc/ipc.go` (logic was literally
+  duplicated across two buckets).
+- **tests**: 15 new regression tests. 9 in `chanreg` covering
+  `ForJID`/`Resolve`/`Entry.Owns` (primary-over-variant preference, fallback
+  chain, multi-prefix, no-match) and 6 in `api` covering `/v1/outbound`
+  (channel-pinned regression test, ForJID fallback, stale-channel fallback,
+  404, validation, auth). Plus `TestStoreOutbound_ExcludedFromMessagesSince`.
+- **specs/6**: `6-workflows.md` (workflowd — declarative flows reading the
+  shared SQLite bus) and HITL firewall + authoring product drafts.
+
+### Refactored
+
+Full refinement pass across 10 subsystem buckets. 58 `[refined]` commits,
+~-155 LOC net. Selected highlights:
+
+- **store**: `msgCols` constant + `scanMessage`, `routeCols` + `scanRoute`,
+  COALESCE-flattened nullable scans, removed kanipi-era `seedFromPragma` shim,
+  dropped unused `TaskCompleted`/`SpawnTTL`/`ArchiveDays` fields.
+- **gateway**: `tryExternalRoute` dedupes poll/process routing, `logAgentError`
+  flattens callbacks, `containsFold` helper, `strings.Cut` for command
+  parsing, consolidated `cmdNew` branches.
+- **container**: extracted `prepareInput`, unexported `BuildMounts`/
+  `VolumeMount`/`ReadonlyMountArgs`, dropped dead last-line output fallback.
+- **queue**: removed dead `idleWaiting` field and `closeStdinLocked` helper.
+- **ipc**: `granted()` wrapper dedupes tool registration, folded `CheckAction`
+  nil-gate into it, dropped `groupFolderByJid` (use `folderForJid` via routes
+  table).
+- **auth**: inlined single-use `getTier`, simplified `splitArgon2`, fixed
+  login limiter eviction.
+- **grants**: unified `matchGlob`/`matchValueGlob` via boundary function.
+- **chanreg/api**: deduped auth + JID-owns checks, deduped `HealthCheck`.
+- **chanlib**: `Run` helper collapses main.go boilerplate across adapters;
+  adapters implement `BotHandler` directly, wrapper layer removed.
+- **adapters**: bskyd/mastd/reditd dropped `router_client.go` alias wrappers;
+  reditd merged `get`/`post` into single `do`; bskyd merged
+  `xrpcAuth`/`xrpcWithAuth` and inlined `createSession`; teled replaced
+  `stubHandler` reimpl with real handler + stub bot; whapd dropped unused
+  `link-preview-js`/`form-data`/`thread_id`/`topic` fields.
+- **onbod**: delegated schema to gated (dropped own migrations + `dbmig`
+  dep); `sendReply` takes required channel; `approveInTx` owns timestamp +
+  welcome construction; inlined `notify` (single-caller library removed).
+- **dashd**: trust proxyd identity headers (dropped JWT reverify); `dash`
+  methods own writer helpers; inlined single-use `writeGroupMessageCount`.
+- **timed**: dropped `checkedSpawns` debug counter; `cleanupSpawns` via
+  routes table.
+- **proxyd/webd**: `davRoute` shares `X-User-Groups` parse; dropped dead
+  `Description` field, trivial comments, and `fmt` dep for single Hijack
+  error; simplified `XTopics`, inlined `hubKey`.
+- **cmd/arizuko**: `die` helper, extracted `seedGroupDir` and
+  `requireCompose`.
+- **compose**: inlined `namedService`, moved `CHANNEL_SECRET` into
+  `routerEnvKeys`, dropped dead `HOST_DATA_DIR` empty check.
+- **template**: dropped unused `REDACTED_USERS` from `env.example`.
+- **groupfolder**: unified `GroupPath` and `IpcPath` via `resolve` helper.
+- **mountsec**: dropped `LoadAllowlist` and tests — `container/runner.go`
+  always passes empty `Allowlist{}`, so the file loader was dead on arrival.
+  ARCHITECTURE.md section corrected.
 
 ---
 
