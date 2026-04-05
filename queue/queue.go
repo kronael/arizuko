@@ -25,7 +25,6 @@ type queuedTask struct {
 
 type groupState struct {
 	active              bool
-	idleWaiting         bool
 	isTaskContainer     bool
 	pendingMessages     bool
 	pendingTasks        []queuedTask
@@ -112,7 +111,6 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 	}
 
 	s.active = true
-	s.idleWaiting = false
 	s.isTaskContainer = false
 	s.pendingMessages = false
 	q.activeCount++
@@ -143,9 +141,6 @@ func (q *GroupQueue) EnqueueTask(groupJid, taskID string, fn taskFn) {
 
 	if s.active {
 		s.pendingTasks = append(s.pendingTasks, task)
-		if s.idleWaiting {
-			q.closeStdinLocked(s)
-		}
 		slog.Debug("container active, task queued",
 			"groupJid", groupJid, "taskId", taskID)
 		q.mu.Unlock()
@@ -164,7 +159,6 @@ func (q *GroupQueue) EnqueueTask(groupJid, taskID string, fn taskFn) {
 	}
 
 	s.active = true
-	s.idleWaiting = false
 	s.isTaskContainer = true
 	q.activeCount++
 	q.mu.Unlock()
@@ -189,9 +183,8 @@ func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 		q.mu.Unlock()
 		return false
 	}
-	s.idleWaiting = false
 	folder := s.groupFolder
-	container := s.containerName
+	cname := s.containerName
 	q.mu.Unlock()
 
 	inputDir := filepath.Join(q.ipcDir, folder, "input")
@@ -214,22 +207,13 @@ func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 		return false
 	}
 
-	if container != "" {
-		signalContainer(container)
+	if cname != "" {
+		signalContainer(cname)
 	}
 	q.mu.Lock()
 	q.getGroup(groupJid).pendingMessages = true
 	q.mu.Unlock()
 	return true
-}
-
-func (q *GroupQueue) closeStdinLocked(s *groupState) {
-	inputDir := filepath.Join(q.ipcDir, s.groupFolder, "input")
-	_ = os.MkdirAll(inputDir, 0o755)
-	_ = os.WriteFile(filepath.Join(inputDir, "_close"), nil, 0o644)
-	if s.containerName != "" {
-		signalContainer(s.containerName)
-	}
 }
 
 func (q *GroupQueue) Shutdown() {
@@ -319,13 +303,13 @@ func (q *GroupQueue) startGroupLocked(jid string) bool {
 	if len(s.pendingTasks) > 0 {
 		task := s.pendingTasks[0]
 		s.pendingTasks = s.pendingTasks[1:]
-		s.active, s.idleWaiting, s.isTaskContainer = true, false, true
+		s.active, s.isTaskContainer = true, true
 		q.activeCount++
 		go q.runTask(jid, task)
 		return true
 	}
 	if s.pendingMessages {
-		s.active, s.idleWaiting, s.isTaskContainer = true, false, false
+		s.active, s.isTaskContainer = true, false
 		s.pendingMessages = false
 		q.activeCount++
 		go q.runForGroup(jid, "drain")
