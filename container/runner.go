@@ -106,7 +106,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	var sidecarNames []string
 	if len(in.Config.Sidecars) > 0 {
 		ipcDir, _ := folders.IpcPath(in.Folder)
-		sidecarNames = StartSidecars(
+		sidecarNames = startSidecars(
 			cfg, in.Folder, in.Config.Sidecars, ipcDir)
 	}
 
@@ -302,7 +302,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		stopMCP()
 	}
 	if len(sidecarNames) > 0 {
-		StopSidecars(sidecarNames)
+		stopSidecars(sidecarNames)
 	}
 
 	elapsed := time.Since(start)
@@ -672,7 +672,6 @@ func seedSettings(
 	slog.Debug("settings seeded", "path", fp, "sidecars", len(in.Config.Sidecars))
 }
 
-// SeedGroupDir initializes the agent session directory for a newly created group.
 func SeedGroupDir(cfg *core.Config, folder string) error {
 	claudeDir := filepath.Join(cfg.GroupsDir, folder, ".claude")
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {

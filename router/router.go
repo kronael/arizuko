@@ -270,7 +270,7 @@ func expandTarget(target string, msg core.Message) string {
 		return target
 	}
 	id := senderToUserFileID(msg.Sender)
-	if id == "" || id == "-" || id == "-unknown" {
+	if id == "" {
 		return ""
 	}
 	return strings.ReplaceAll(target, "{sender}", id)

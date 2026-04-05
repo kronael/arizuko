@@ -10,7 +10,7 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-func StartSidecars(
+func startSidecars(
 	cfg *core.Config, folder string,
 	sidecars map[string]core.Sidecar,
 	ipcDir string,
@@ -77,7 +77,7 @@ func StartSidecars(
 	return names
 }
 
-func StopSidecars(names []string) {
+func stopSidecars(names []string) {
 	for _, name := range names {
 		cmd := exec.Command(
 			Bin, StopContainerArgs(name)...)
