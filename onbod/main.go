@@ -361,14 +361,8 @@ func checkNameResponse(db *sql.DB, cfg config) {
 		}
 
 		name := strings.TrimSpace(content)
-		if !nameRE.MatchString(name) {
+		if !nameRE.MatchString(name) || nameTaken(db, name, r.jid) {
 			sendReply(cfg, r.jid, "Invalid name. Use lowercase letters, numbers, and hyphens only. Try again:", r.channel)
-			touchPrompted(db, r.jid)
-			continue
-		}
-
-		if nameTaken(db, name, r.jid) {
-			sendReply(cfg, r.jid, "That name is already taken. Try another:", r.channel)
 			touchPrompted(db, r.jid)
 			continue
 		}
