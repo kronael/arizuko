@@ -41,24 +41,24 @@ type GatedFns struct {
 }
 
 type StoreFns struct {
-	CreateTask       func(t core.Task) error
-	GetTask          func(id string) (core.Task, bool)
-	UpdateTaskStatus func(id, status string) error
-	DeleteTask       func(id string) error
-	ListTasks        func(folder string, isRoot bool) []core.Task
-	GetRoutes        func(jid string) []core.Route
-	ListRoutes       func(folder string, isRoot bool) []core.Route
-	SetRoutes        func(jid string, routes []core.Route) error
-	AddRoute         func(jid string, r core.Route) (int64, error)
-	DeleteRoute      func(id int64) error
-	GetRoute         func(id int64) (core.Route, bool)
-	StoreOutbound    func(entry core.OutboundEntry) error
-	GetLastReplyID   func(jid, topic string) string
-	SetLastReplyID   func(jid, topic, replyID string)
-	GetGrants           func(folder string) []string
-	SetGrants           func(folder string, rules []string) error
-	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
-	JIDRoutedToFolder   func(jid, folder string) bool
+	CreateTask        func(t core.Task) error
+	GetTask           func(id string) (core.Task, bool)
+	UpdateTaskStatus  func(id, status string) error
+	DeleteTask        func(id string) error
+	ListTasks         func(folder string, isRoot bool) []core.Task
+	GetRoutes         func(jid string) []core.Route
+	ListRoutes        func(folder string, isRoot bool) []core.Route
+	SetRoutes         func(jid string, routes []core.Route) error
+	AddRoute          func(jid string, r core.Route) (int64, error)
+	DeleteRoute       func(id int64) error
+	GetRoute          func(id int64) (core.Route, bool)
+	StoreOutbound     func(entry core.OutboundEntry) error
+	GetLastReplyID    func(jid, topic string) string
+	SetLastReplyID    func(jid, topic, replyID string)
+	GetGrants         func(folder string) []string
+	SetGrants         func(folder string, rules []string) error
+	MessagesBefore    func(jid string, before time.Time, limit int) ([]core.Message, error)
+	JIDRoutedToFolder func(jid, folder string) bool
 }
 
 func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string) (func(), error) {
@@ -196,29 +196,23 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	id := auth.Resolve(folder)
 	srv := server.NewMCPServer("arizuko", "1.0")
 
-	grantedTools := []string{
-		"send_message", "send_reply", "send_file", "reset_session",
-		"inject_message", "register_group", "escalate_group", "delegate_group",
-		"get_routes", "list_routes", "set_routes", "add_route", "delete_route",
-		"schedule_task", "pause_task", "resume_task", "cancel_task", "list_tasks",
-		"set_web_host", "get_web_host",
-	}
-	var skipped []string
-	for _, t := range grantedTools {
-		if len(grantslib.MatchingRules(rules, t)) == 0 {
-			skipped = append(skipped, t)
+	// granted registers a tool only if at least one rule references its action.
+	// The description is auto-annotated with matching grants. Runtime param
+	// checks (CheckAction with params) stay inside the handler.
+	granted := func(name, desc string, opts []mcp.ToolOption, h server.ToolHandlerFunc) {
+		if len(grantslib.MatchingRules(rules, name)) == 0 {
+			return
 		}
-	}
-	if len(skipped) > 0 {
-		slog.Debug("mcp tools not registered (no grant match)", "folder", folder, "tools", skipped)
+		all := append([]mcp.ToolOption{mcp.WithDescription(toolDesc(desc, rules, name))}, opts...)
+		srv.AddTool(mcp.NewTool(name, all...), h)
 	}
 
-	if len(grantslib.MatchingRules(rules, "send_message")) > 0 {
-		srv.AddTool(mcp.NewTool("send_message",
-			mcp.WithDescription(toolDesc("Send a text message to a chat", rules, "send_message")),
+	granted("send_message", "Send a text message to a chat",
+		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
 			if !grantslib.CheckAction(rules, "send_message", map[string]string{"jid": jid}) {
 				return toolErr("send_message: not permitted")
@@ -239,15 +233,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			recordOutbound(db, jid, text, "", platformID, folder)
 			return toolOK()
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "send_reply")) > 0 {
-		srv.AddTool(mcp.NewTool("send_reply",
-			mcp.WithDescription(toolDesc("Send a reply to a chat, optionally threading to a message", rules, "send_reply")),
+	granted("send_reply", "Send a reply to a chat, optionally threading to a message",
+		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
 			mcp.WithString("replyToId"),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
 			if !grantslib.CheckAction(rules, "send_reply", map[string]string{"jid": jid}) {
 				return toolErr("send_reply: not permitted")
@@ -267,16 +260,15 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			recordOutbound(db, jid, text, replyToID, platformID, folder)
 			return toolOK()
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "send_file")) > 0 {
-		srv.AddTool(mcp.NewTool("send_file",
-			mcp.WithDescription(toolDesc("Send a file to a chat", rules, "send_file")),
+	granted("send_file", "Send a file to a chat",
+		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("filepath", mcp.Required()),
 			mcp.WithString("filename"),
 			mcp.WithString("caption"),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
 			if !grantslib.CheckAction(rules, "send_file", map[string]string{"jid": jid}) {
 				return toolErr("send_file: not permitted")
@@ -305,13 +297,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			return toolOK()
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "reset_session")) > 0 {
-		srv.AddTool(mcp.NewTool("reset_session",
-			mcp.WithDescription(toolDesc("Clear the agent session for a group", rules, "reset_session")),
-			mcp.WithString("groupFolder", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	granted("reset_session", "Clear the agent session for a group",
+		[]mcp.ToolOption{mcp.WithString("groupFolder", mcp.Required())},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			gf := req.GetString("groupFolder", "")
 			if gf == "" {
 				return toolErr("missing groupFolder")
@@ -329,16 +318,15 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			gated.ClearSession(gf)
 			return toolOK()
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "inject_message")) > 0 {
-		srv.AddTool(mcp.NewTool("inject_message",
-			mcp.WithDescription(toolDesc("Inject a message into the store for a chat", rules, "inject_message")),
+	granted("inject_message", "Inject a message into the store for a chat",
+		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("content", mcp.Required()),
 			mcp.WithString("sender"),
 			mcp.WithString("senderName"),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !grantslib.CheckAction(rules, "inject_message", nil) {
 				return toolErr("inject_message: not permitted")
 			}
@@ -361,19 +349,17 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			slog.Info("message injected", "id", mid, "chatJid", jid, "sourceGroup", folder)
 			return toolJSON(map[string]any{"injected": true, "id": mid})
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "register_group")) > 0 {
-		srv.AddTool(mcp.NewTool("register_group",
-			mcp.WithDescription(toolDesc(
-				"Register a new agent group at an explicit folder and add a default route from jid to that folder. Set fromPrototype=true to also copy this group's prototype/ directory into the child.",
-				rules, "register_group")),
+	granted("register_group",
+		"Register a new agent group at an explicit folder and add a default route from jid to that folder. Set fromPrototype=true to also copy this group's prototype/ directory into the child.",
+		[]mcp.ToolOption{
 			mcp.WithString("jid", mcp.Required()),
 			mcp.WithString("name"),
 			mcp.WithBoolean("fromPrototype"),
 			mcp.WithString("folder"),
 			mcp.WithString("parent"),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if gated.RegisterGroup == nil {
 				return toolErr("register_group not configured")
 			}
@@ -447,15 +433,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			slog.Info("group registered", "jid", jid, "folder", gfld, "sourceGroup", folder)
 			return toolJSON(map[string]any{"registered": true, "folder": gfld, "jid": jid})
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "escalate_group")) > 0 {
-		srv.AddTool(mcp.NewTool("escalate_group",
-			mcp.WithDescription(toolDesc("Escalate a task to the parent group", rules, "escalate_group")),
+	granted("escalate_group", "Escalate a task to the parent group",
+		[]mcp.ToolOption{
 			mcp.WithString("prompt", mcp.Required()),
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithNumber("depth"),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !grantslib.CheckAction(rules, "escalate_group", nil) {
 				return toolErr("escalate_group: not permitted")
 			}
@@ -484,7 +469,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			return toolJSON(map[string]any{"queued": true, "parent": parent})
 		})
-	}
 
 	if id.Tier <= 2 {
 		srv.AddTool(mcp.NewTool("refresh_groups",
@@ -507,15 +491,15 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	if len(grantslib.MatchingRules(rules, "delegate_group")) > 0 {
-		srv.AddTool(mcp.NewTool("delegate_group",
-			mcp.WithDescription(toolDesc("Delegate a task to a child group", rules, "delegate_group")),
+	granted("delegate_group", "Delegate a task to a child group",
+		[]mcp.ToolOption{
 			mcp.WithString("group", mcp.Required()),
 			mcp.WithString("prompt", mcp.Required()),
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithNumber("depth"),
 			mcp.WithString("grants"),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			target := req.GetString("group", "")
 			if !grantslib.CheckAction(rules, "delegate_group", nil) {
 				return toolErr("delegate_group: not permitted")
@@ -548,13 +532,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			return toolJSON(map[string]any{"queued": true})
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "get_routes")) > 0 {
-		srv.AddTool(mcp.NewTool("get_routes",
-			mcp.WithDescription(toolDesc("Get routes for a JID", rules, "get_routes")),
-			mcp.WithString("jid", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	granted("get_routes", "Get routes for a JID",
+		[]mcp.ToolOption{mcp.WithString("jid", mcp.Required())},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !grantslib.CheckAction(rules, "get_routes", nil) {
 				return toolErr("get_routes: not permitted")
 			}
@@ -571,12 +552,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			return toolJSON(map[string]any{"jid": jid, "routes": db.GetRoutes(jid)})
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "list_routes")) > 0 {
-		srv.AddTool(mcp.NewTool("list_routes",
-			mcp.WithDescription(toolDesc("List all routes visible to this group", rules, "list_routes")),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	granted("list_routes", "List all routes visible to this group", nil,
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !grantslib.CheckAction(rules, "list_routes", nil) {
 				return toolErr("list_routes: not permitted")
 			}
@@ -585,14 +563,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			return toolJSON(map[string]any{"routes": db.ListRoutes(folder, id.Tier == 0)})
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "set_routes")) > 0 {
-		srv.AddTool(mcp.NewTool("set_routes",
-			mcp.WithDescription(toolDesc("Replace all routes for a JID", rules, "set_routes")),
+	granted("set_routes", "Replace all routes for a JID",
+		[]mcp.ToolOption{
 			mcp.WithString("jid", mcp.Required()),
 			mcp.WithString("routes", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !grantslib.CheckAction(rules, "set_routes", nil) {
 				return toolErr("set_routes: not permitted")
 			}
@@ -636,14 +613,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			slog.Info("routes set", "jid", jid, "count", len(routes))
 			return toolJSON(map[string]any{"updated": true, "count": len(routes)})
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "add_route")) > 0 {
-		srv.AddTool(mcp.NewTool("add_route",
-			mcp.WithDescription(toolDesc("Add a single route for a JID", rules, "add_route")),
+	granted("add_route", "Add a single route for a JID",
+		[]mcp.ToolOption{
 			mcp.WithString("jid", mcp.Required()),
 			mcp.WithString("route", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !grantslib.CheckAction(rules, "add_route", nil) {
 				return toolErr("add_route: not permitted")
 			}
@@ -674,13 +650,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			slog.Info("route added", "jid", jid, "id", rid, "type", route.Type)
 			return toolJSON(map[string]any{"id": rid, "jid": jid})
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "delete_route")) > 0 {
-		srv.AddTool(mcp.NewTool("delete_route",
-			mcp.WithDescription(toolDesc("Delete a route by ID", rules, "delete_route")),
-			mcp.WithNumber("id", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	granted("delete_route", "Delete a route by ID",
+		[]mcp.ToolOption{mcp.WithNumber("id", mcp.Required())},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !grantslib.CheckAction(rules, "delete_route", nil) {
 				return toolErr("delete_route: not permitted")
 			}
@@ -707,18 +680,16 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			slog.Info("route deleted", "id", rid)
 			return toolJSON(map[string]any{"deleted": true, "id": rid})
 		})
-	}
 
-	if len(grantslib.MatchingRules(rules, "schedule_task")) > 0 {
-		srv.AddTool(mcp.NewTool("schedule_task",
-			mcp.WithDescription(toolDesc(
-				"Schedule a recurring or one-time task. cron: cron expression or interval in ms",
-				rules, "schedule_task")),
+	granted("schedule_task",
+		"Schedule a recurring or one-time task. cron: cron expression or interval in ms",
+		[]mcp.ToolOption{
 			mcp.WithString("targetJid", mcp.Required()),
 			mcp.WithString("prompt", mcp.Required()),
 			mcp.WithString("cron"),
 			mcp.WithString("contextMode"),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !grantslib.CheckAction(rules, "schedule_task", nil) {
 				return toolErr("schedule_task: not permitted")
 			}
@@ -779,7 +750,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				"targetFolder", targetFolder, "contextMode", contextMode)
 			return toolJSON(map[string]any{"taskId": taskID})
 		})
-	}
 
 	taskOps := []struct {
 		name string
@@ -798,36 +768,33 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	}
 	for _, op := range taskOps {
 		op := op
-		if len(grantslib.MatchingRules(rules, op.name)) == 0 || db.GetTask == nil {
+		if db.GetTask == nil {
 			continue
 		}
-		srv.AddTool(mcp.NewTool(op.name,
-			mcp.WithDescription(toolDesc(op.desc, rules, op.name)),
-			mcp.WithString("taskId", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, op.name, nil) {
-				return toolErr(op.name + ": not permitted")
-			}
-			taskID := req.GetString("taskId", "")
-			task, ok := db.GetTask(taskID)
-			if !ok {
-				return toolErr("task not found")
-			}
-			if err := auth.Authorize(id, op.name, auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
-				return toolErr(err.Error())
-			}
-			if err := op.exec(taskID); err != nil {
-				return toolErr(err.Error())
-			}
-			slog.Info("task "+op.name+" via mcp", "taskId", taskID, "sourceGroup", folder)
-			return toolJSON(map[string]any{"ok": true})
-		})
+		granted(op.name, op.desc,
+			[]mcp.ToolOption{mcp.WithString("taskId", mcp.Required())},
+			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				if !grantslib.CheckAction(rules, op.name, nil) {
+					return toolErr(op.name + ": not permitted")
+				}
+				taskID := req.GetString("taskId", "")
+				task, ok := db.GetTask(taskID)
+				if !ok {
+					return toolErr("task not found")
+				}
+				if err := auth.Authorize(id, op.name, auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
+					return toolErr(err.Error())
+				}
+				if err := op.exec(taskID); err != nil {
+					return toolErr(err.Error())
+				}
+				slog.Info("task "+op.name+" via mcp", "taskId", taskID, "sourceGroup", folder)
+				return toolJSON(map[string]any{"ok": true})
+			})
 	}
 
-	if len(grantslib.MatchingRules(rules, "list_tasks")) > 0 {
-		srv.AddTool(mcp.NewTool("list_tasks",
-			mcp.WithDescription(toolDesc("List scheduled tasks visible to this group", rules, "list_tasks")),
-		), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	granted("list_tasks", "List scheduled tasks visible to this group", nil,
+		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !grantslib.CheckAction(rules, "list_tasks", nil) {
 				return toolErr("list_tasks: not permitted")
 			}
@@ -836,7 +803,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			return toolJSON(db.ListTasks(folder, id.Tier == 0))
 		})
-	}
 
 	if id.Tier <= 1 {
 		srv.AddTool(mcp.NewTool("get_grants",
@@ -925,69 +891,69 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	if id.Tier == 0 && len(grantslib.MatchingRules(rules, "set_web_host")) > 0 {
-		srv.AddTool(mcp.NewTool("set_web_host",
-			mcp.WithDescription(toolDesc("Set a virtual host mapping (hostname → folder)", rules, "set_web_host")),
-			mcp.WithString("hostname", mcp.Required()),
-			mcp.WithString("folder", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "set_web_host", nil) {
-				return toolErr("set_web_host: not permitted")
-			}
-			hostname := req.GetString("hostname", "")
-			targetFolder := req.GetString("folder", "")
-			if hostname == "" {
-				return toolErr("hostname required")
-			}
-			if strings.Contains(hostname, "/") || strings.Contains(hostname, "://") {
-				return toolErr("hostname must not contain scheme or path")
-			}
-			if targetFolder == "" {
-				return toolErr("folder required")
-			}
-			groupDir := filepath.Join(gated.GroupsDir, targetFolder)
-			if fi, err := os.Stat(groupDir); err != nil || !fi.IsDir() {
-				return toolErr("folder does not exist: " + targetFolder)
-			}
-			vhosts, err := readVhosts(gated.WebDir)
-			if err != nil {
-				return toolErr("read vhosts: " + err.Error())
-			}
-			vhosts[hostname] = targetFolder
-			if err := writeVhosts(gated.WebDir, vhosts); err != nil {
-				return toolErr("write vhosts: " + err.Error())
-			}
-			slog.Info("set_web_host", "hostname", hostname, "folder", targetFolder, "sourceGroup", folder)
-			return toolJSON(vhosts)
-		})
+	if id.Tier == 0 {
+		granted("set_web_host", "Set a virtual host mapping (hostname → folder)",
+			[]mcp.ToolOption{
+				mcp.WithString("hostname", mcp.Required()),
+				mcp.WithString("folder", mcp.Required()),
+			},
+			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				if !grantslib.CheckAction(rules, "set_web_host", nil) {
+					return toolErr("set_web_host: not permitted")
+				}
+				hostname := req.GetString("hostname", "")
+				targetFolder := req.GetString("folder", "")
+				if hostname == "" {
+					return toolErr("hostname required")
+				}
+				if strings.Contains(hostname, "/") || strings.Contains(hostname, "://") {
+					return toolErr("hostname must not contain scheme or path")
+				}
+				if targetFolder == "" {
+					return toolErr("folder required")
+				}
+				groupDir := filepath.Join(gated.GroupsDir, targetFolder)
+				if fi, err := os.Stat(groupDir); err != nil || !fi.IsDir() {
+					return toolErr("folder does not exist: " + targetFolder)
+				}
+				vhosts, err := readVhosts(gated.WebDir)
+				if err != nil {
+					return toolErr("read vhosts: " + err.Error())
+				}
+				vhosts[hostname] = targetFolder
+				if err := writeVhosts(gated.WebDir, vhosts); err != nil {
+					return toolErr("write vhosts: " + err.Error())
+				}
+				slog.Info("set_web_host", "hostname", hostname, "folder", targetFolder, "sourceGroup", folder)
+				return toolJSON(vhosts)
+			})
 	}
 
-	if id.Tier <= 1 && len(grantslib.MatchingRules(rules, "get_web_host")) > 0 {
-		srv.AddTool(mcp.NewTool("get_web_host",
-			mcp.WithDescription(toolDesc("Get virtual host mapping for a folder", rules, "get_web_host")),
-			mcp.WithString("folder"),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "get_web_host", nil) {
-				return toolErr("get_web_host: not permitted")
-			}
-			targetFolder := req.GetString("folder", folder)
-			if targetFolder == "" {
-				targetFolder = folder
-			}
-			if id.Tier > 0 && targetFolder != folder {
-				return toolErr("get_web_host: can only query own folder")
-			}
-			vhosts, err := readVhosts(gated.WebDir)
-			if err != nil {
-				return toolErr("read vhosts: " + err.Error())
-			}
-			for h, f := range vhosts {
-				if f == targetFolder {
-					return toolJSON(map[string]any{"hostname": h, "folder": f})
+	if id.Tier <= 1 {
+		granted("get_web_host", "Get virtual host mapping for a folder",
+			[]mcp.ToolOption{mcp.WithString("folder")},
+			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				if !grantslib.CheckAction(rules, "get_web_host", nil) {
+					return toolErr("get_web_host: not permitted")
 				}
-			}
-			return toolJSON(map[string]any{"hostname": "", "folder": targetFolder})
-		})
+				targetFolder := req.GetString("folder", folder)
+				if targetFolder == "" {
+					targetFolder = folder
+				}
+				if id.Tier > 0 && targetFolder != folder {
+					return toolErr("get_web_host: can only query own folder")
+				}
+				vhosts, err := readVhosts(gated.WebDir)
+				if err != nil {
+					return toolErr("read vhosts: " + err.Error())
+				}
+				for h, f := range vhosts {
+					if f == targetFolder {
+						return toolJSON(map[string]any{"hostname": h, "folder": f})
+					}
+				}
+				return toolJSON(map[string]any{"hostname": "", "folder": targetFolder})
+			})
 	}
 
 	return srv
