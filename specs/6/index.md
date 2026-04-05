@@ -7,3 +7,5 @@ status: draft
 - [1-multi-agent-commits.md](1-multi-agent-commits.md) — git coordination, committer script, adopt/skip analysis
 - [2-proxyd.md](2-proxyd.md) `shipped` — proxyd daemon, auth at perimeter, routing to dashd/webd/vited
 - [3-chat-ui.md](3-chat-ui.md) `shipped` — webd channel adapter, HTMX UI, slink/SSE, auth planes, JID model
+- [4-hitl-firewall.md](4-hitl-firewall.md) `draft` — human-in-the-loop MCP firewall, pending_actions queue, /dash/review
+- [5-authoring-product.md](5-authoring-product.md) `draft` — author agent product template (SOUL + skills + system prompt), builds on HITL
