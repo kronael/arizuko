@@ -69,7 +69,6 @@ func (s *Store) migrate() error {
 	s.db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
 		service TEXT NOT NULL, version INTEGER NOT NULL, applied_at TEXT NOT NULL,
 		PRIMARY KEY (service, version))`)
-	s.seedFromPragma()
 
 	var max int
 	s.db.QueryRow("SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?",
@@ -118,27 +117,4 @@ func (s *Store) runMigration(f string, ver int) error {
 		return fmt.Errorf("%s: record: %w", f, err)
 	}
 	return tx.Commit()
-}
-
-func (s *Store) seedFromPragma() {
-	var n int
-	s.db.QueryRow("SELECT COUNT(*) FROM migrations WHERE service=?", serviceName).Scan(&n)
-	if n > 0 {
-		return
-	}
-	var ver int
-	s.db.QueryRow("PRAGMA user_version").Scan(&ver)
-	if ver == 0 {
-		return
-	}
-	m := map[int]int{1: 2, 2: 3, 3: 3, 4: 4, 5: 5}
-	maxMig := m[ver]
-	if maxMig == 0 {
-		maxMig = 5
-	}
-	now := time.Now().Format(time.RFC3339)
-	for i := 1; i <= maxMig; i++ {
-		s.db.Exec("INSERT OR IGNORE INTO migrations (service,version,applied_at) VALUES (?,?,?)",
-			serviceName, i, now)
-	}
 }
