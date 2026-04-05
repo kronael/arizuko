@@ -47,21 +47,17 @@ func ensureWithinBase(base, resolved string) error {
 }
 
 func (r *Resolver) GroupPath(folder string) (string, error) {
-	if !isValidFolder(folder) {
-		return "", fmt.Errorf("invalid group folder %q", folder)
-	}
-	p := filepath.Join(r.GroupsDir, folder)
-	if err := ensureWithinBase(r.GroupsDir, p); err != nil {
-		return "", err
-	}
-	return p, nil
+	return resolve(r.GroupsDir, folder)
 }
 
 func (r *Resolver) IpcPath(folder string) (string, error) {
+	return resolve(r.IpcDir, folder)
+}
+
+func resolve(base, folder string) (string, error) {
 	if !isValidFolder(folder) {
 		return "", fmt.Errorf("invalid group folder %q", folder)
 	}
-	base := r.IpcDir
 	p := filepath.Join(base, folder)
 	if err := ensureWithinBase(base, p); err != nil {
 		return "", err
