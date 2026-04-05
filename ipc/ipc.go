@@ -402,19 +402,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr(err.Error())
 			}
 			groups := gated.GetGroups()
-			parent := folder
-			if pg, ok := groups[parent]; ok && pg.Config.MaxChildren >= 0 {
-				if pg.Config.MaxChildren == 0 {
-					return toolErr("spawning disabled for this group")
-				}
-				n := 0
-				for _, g := range groups {
-					if auth.IsDirectChild(parent, g.Folder) {
-						n++
-					}
-				}
-				if n >= pg.Config.MaxChildren {
-					return toolErr(fmt.Sprintf("max_children limit reached (%d)", pg.Config.MaxChildren))
+			if pg, ok := groups[folder]; ok {
+				if err := auth.CheckSpawnAllowed(pg, groups); err != nil {
+					return toolErr(err.Error())
 				}
 			}
 			gr := core.Group{

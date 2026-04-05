@@ -1,6 +1,11 @@
 package auth
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/onvos/arizuko/core"
+)
 
 type Identity struct {
 	Folder string
@@ -32,4 +37,26 @@ func IsDirectChild(parent, child string) bool {
 		return false
 	}
 	return !strings.Contains(child[len(parent)+1:], "/")
+}
+
+// CheckSpawnAllowed enforces parent.Config.MaxChildren for a spawn attempt.
+// MaxChildren < 0 means unlimited, 0 disables spawning, otherwise direct
+// children in groups are counted.
+func CheckSpawnAllowed(parent core.Group, groups map[string]core.Group) error {
+	if parent.Config.MaxChildren < 0 {
+		return nil
+	}
+	if parent.Config.MaxChildren == 0 {
+		return fmt.Errorf("spawning disabled (max_children=0)")
+	}
+	n := 0
+	for _, g := range groups {
+		if IsDirectChild(parent.Folder, g.Folder) {
+			n++
+		}
+	}
+	if n >= parent.Config.MaxChildren {
+		return fmt.Errorf("max_children limit reached (%d)", parent.Config.MaxChildren)
+	}
+	return nil
 }

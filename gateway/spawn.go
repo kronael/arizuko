@@ -28,20 +28,10 @@ func (g *Gateway) spawnFromPrototype(parentFolder, childJID string) (core.Group,
 	}
 
 	g.mu.Lock()
-	if parent, ok := g.groups[parentFolder]; ok && parent.Config.MaxChildren >= 0 {
-		if parent.Config.MaxChildren == 0 {
+	if parent, ok := g.groups[parentFolder]; ok {
+		if err := auth.CheckSpawnAllowed(parent, g.groups); err != nil {
 			g.mu.Unlock()
-			return core.Group{}, fmt.Errorf("spawning disabled (max_children=0)")
-		}
-		n := 0
-		for _, gr := range g.groups {
-			if auth.IsDirectChild(parentFolder, gr.Folder) {
-				n++
-			}
-		}
-		if n >= parent.Config.MaxChildren {
-			g.mu.Unlock()
-			return core.Group{}, fmt.Errorf("max_children limit reached (%d)", parent.Config.MaxChildren)
+			return core.Group{}, err
 		}
 	}
 	g.mu.Unlock()
