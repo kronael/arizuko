@@ -507,13 +507,11 @@ See `specs/4/24-recall.md` for the recall protocol and episode format.
 
 ## Mount Security (mountsec package)
 
-Additional mounts validated against `~/.config/arizuko/mount-allowlist.json`:
-
-- Path must be absolute, resolve symlinks, exist on host
-- Must be under an `AllowedRoot`
-- Blocked patterns: `.ssh`, `.gnupg`, `.env`, credentials, private keys
-- Non-root groups forced read-only when `NonMainReadOnly` is set
-- Container path: `/workspace/extra/<name>`
+`ValidateAdditionalMounts` validates group-configured extra mounts against
+a caller-supplied `Allowlist`. `ValidateFilePath` guards inbound file paths
+(e.g. MCP tool arguments) against symlink escapes and a default blocklist
+(`.ssh`, `.gnupg`, `.env`, credentials, private keys). Container path for
+validated mounts: `/workspace/extra/<name>`.
 
 ## Docker-in-Docker Path Translation
 
