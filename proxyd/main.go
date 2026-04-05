@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -225,7 +225,7 @@ func (sw *statusWriter) Flush() {
 func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	h, ok := sw.ResponseWriter.(http.Hijacker)
 	if !ok {
-		return nil, nil, fmt.Errorf("ResponseWriter does not implement http.Hijacker")
+		return nil, nil, errors.New("ResponseWriter does not implement http.Hijacker")
 	}
 	return h.Hijack()
 }
