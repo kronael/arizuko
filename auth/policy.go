@@ -71,6 +71,14 @@ func Authorize(id Identity, tool string, target AuthzTarget) error {
 			return fmt.Errorf("unauthorized")
 		}
 		return nil
+	case "get_grants", "set_grants":
+		if id.Tier > 1 {
+			return fmt.Errorf("unauthorized: tier %d cannot manage grants", id.Tier)
+		}
+		if id.Tier == 1 && !isInWorld(id.Folder, target.TargetFolder) {
+			return fmt.Errorf("unauthorized: can only manage grants in own world")
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown tool: %s", tool)
 	}
