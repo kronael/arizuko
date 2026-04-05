@@ -11,13 +11,9 @@ type Identity struct {
 func Resolve(folder string) Identity {
 	return Identity{
 		Folder: folder,
-		Tier:   getTier(folder),
+		Tier:   min(strings.Count(folder, "/"), 3),
 		World:  WorldOf(folder),
 	}
-}
-
-func getTier(folder string) int {
-	return min(strings.Count(folder, "/"), 3)
 }
 
 func WorldOf(folder string) string {
