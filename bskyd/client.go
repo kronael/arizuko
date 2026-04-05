@@ -69,10 +69,24 @@ func (bc *bskyClient) saveSession() {
 }
 
 func (bc *bskyClient) createSession() error {
-	body := map[string]string{"identifier": bc.cfg.Identifier, "password": bc.cfg.Password}
-	var s session
-	if err := bc.xrpcWithAuth("POST", "com.atproto.server.createSession", nil, body, &s, ""); err != nil {
+	body, _ := json.Marshal(map[string]string{
+		"identifier": bc.cfg.Identifier, "password": bc.cfg.Password,
+	})
+	req, _ := http.NewRequest("POST",
+		bc.cfg.Service+"/xrpc/com.atproto.server.createSession", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := bc.http.Do(req)
+	if err != nil {
 		return fmt.Errorf("createSession: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("createSession: status %d: %s", resp.StatusCode, string(b))
+	}
+	var s session
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		return err
 	}
 	bc.session = s
 	bc.saveSession()
@@ -140,7 +154,7 @@ func (bc *bskyClient) fetchNotifications(rc *chanlib.RouterClient) error {
 		Notifications []notification `json:"notifications"`
 	}
 	params := map[string]string{"reasons": "mention,reply", "limit": "25"}
-	if err := bc.xrpcWithAuth("GET", "app.bsky.notification.listNotifications", params, nil, &result, bc.session.AccessJwt); err != nil {
+	if err := bc.xrpc("GET", "app.bsky.notification.listNotifications", params, nil, &result); err != nil {
 		return err
 	}
 
@@ -155,8 +169,8 @@ func (bc *bskyClient) fetchNotifications(rc *chanlib.RouterClient) error {
 	}
 
 	if processed > 0 {
-		bc.xrpcWithAuth("POST", "app.bsky.notification.updateSeen", nil,
-			map[string]string{"seenAt": now}, nil, bc.session.AccessJwt)
+		bc.xrpc("POST", "app.bsky.notification.updateSeen", nil,
+			map[string]string{"seenAt": now}, nil)
 	}
 	return nil
 }
@@ -218,7 +232,7 @@ func (bc *bskyClient) Send(req chanlib.SendRequest) (string, error) {
 		"collection": "app.bsky.feed.post",
 		"record":     record,
 	}
-	return "", bc.xrpcAuth("POST", "com.atproto.repo.createRecord", nil, body, nil)
+	return "", bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, nil)
 }
 
 func (bc *bskyClient) Typing(string, bool) {}
@@ -237,63 +251,54 @@ func (bc *bskyClient) getPostCID(uri string) (string, error) {
 	var result struct {
 		CID string `json:"cid"`
 	}
-	if err := bc.xrpcAuth("GET", "com.atproto.repo.getRecord", params, nil, &result); err != nil {
+	if err := bc.xrpc("GET", "com.atproto.repo.getRecord", params, nil, &result); err != nil {
 		return "", err
 	}
 	return result.CID, nil
 }
 
-func (bc *bskyClient) xrpcAuth(method, nsid string, params map[string]string, body any, out any) error {
-	err := bc.xrpcWithAuth(method, nsid, params, body, out, bc.session.AccessJwt)
+func (bc *bskyClient) xrpc(method, nsid string, params map[string]string, body, out any) error {
+	do := func() error {
+		var r io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			r = bytes.NewReader(b)
+		}
+		req, err := http.NewRequest(method, bc.cfg.Service+"/xrpc/"+nsid, r)
+		if err != nil {
+			return err
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		req.Header.Set("Authorization", "Bearer "+bc.session.AccessJwt)
+		q := req.URL.Query()
+		for k, v := range params {
+			q.Set(k, v)
+		}
+		req.URL.RawQuery = q.Encode()
+		resp, err := bc.http.Do(req)
+		if err != nil {
+			return fmt.Errorf("xrpc %s: %w", nsid, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			b, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("xrpc %s: status %d: %s", nsid, resp.StatusCode, string(b))
+		}
+		if out != nil {
+			return json.NewDecoder(resp.Body).Decode(out)
+		}
+		return nil
+	}
+	err := do()
 	if err != nil && strings.Contains(err.Error(), "401") {
 		if rerr := bc.refreshSession(bc.session.RefreshJwt); rerr != nil {
 			bc.createSession()
 		}
-		return bc.xrpcWithAuth(method, nsid, params, body, out, bc.session.AccessJwt)
+		return do()
 	}
 	return err
-}
-
-func (bc *bskyClient) xrpcWithAuth(method, nsid string, params map[string]string, body any, out any, jwt string) error {
-	url := bc.cfg.Service + "/xrpc/" + nsid
-
-	var bodyReader io.Reader
-	if body != nil {
-		b, _ := json.Marshal(body)
-		bodyReader = bytes.NewReader(b)
-	}
-
-	req, err := http.NewRequest(method, url, bodyReader)
-	if err != nil {
-		return err
-	}
-
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if jwt != "" {
-		req.Header.Set("Authorization", "Bearer "+jwt)
-	}
-
-	q := req.URL.Query()
-	for k, v := range params {
-		q.Set(k, v)
-	}
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := bc.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("xrpc %s: %w", nsid, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("xrpc %s: status %d: %s", nsid, resp.StatusCode, string(b))
-	}
-	if out != nil {
-		return json.NewDecoder(resp.Body).Decode(out)
-	}
-	return nil
 }
 
 func uriToKey(uri string) string {
