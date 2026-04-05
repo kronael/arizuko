@@ -743,28 +743,26 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return db.DeleteTask(tid)
 		}},
 	}
-	for _, op := range taskOps {
-		op := op
-		if db.GetTask == nil {
-			continue
+	if db.GetTask != nil {
+		for _, op := range taskOps {
+			granted(op.name, op.desc,
+				[]mcp.ToolOption{mcp.WithString("taskId", mcp.Required())},
+				func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+					taskID := req.GetString("taskId", "")
+					task, ok := db.GetTask(taskID)
+					if !ok {
+						return toolErr("task not found")
+					}
+					if err := auth.Authorize(id, op.name, auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
+						return toolErr(err.Error())
+					}
+					if err := op.exec(taskID); err != nil {
+						return toolErr(err.Error())
+					}
+					slog.Info("task "+op.name+" via mcp", "taskId", taskID, "sourceGroup", folder)
+					return toolJSON(map[string]any{"ok": true})
+				})
 		}
-		granted(op.name, op.desc,
-			[]mcp.ToolOption{mcp.WithString("taskId", mcp.Required())},
-			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				taskID := req.GetString("taskId", "")
-				task, ok := db.GetTask(taskID)
-				if !ok {
-					return toolErr("task not found")
-				}
-				if err := auth.Authorize(id, op.name, auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
-					return toolErr(err.Error())
-				}
-				if err := op.exec(taskID); err != nil {
-					return toolErr(err.Error())
-				}
-				slog.Info("task "+op.name+" via mcp", "taskId", taskID, "sourceGroup", folder)
-				return toolJSON(map[string]any{"ok": true})
-			})
 	}
 
 	granted("list_tasks", "List scheduled tasks visible to this group", nil,
