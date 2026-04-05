@@ -33,8 +33,8 @@ const (
 )
 
 var (
-	safeNameRe   = regexp.MustCompile(`[^a-zA-Z0-9-]`)
-	skillNameRe  = regexp.MustCompile(`^[a-z0-9-]+$`)
+	safeNameRe  = regexp.MustCompile(`[^a-zA-Z0-9-]`)
+	skillNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 )
 
 func SanitizeFolder(folder string) string {
