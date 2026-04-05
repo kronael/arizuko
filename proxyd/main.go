@@ -82,9 +82,6 @@ type vhosts struct {
 }
 
 func newVhosts(p string) *vhosts {
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		os.WriteFile(p, []byte("{}"), 0o644)
-	}
 	v := &vhosts{path: p, entries: map[string]string{}}
 	v.load()
 	return v
@@ -93,7 +90,6 @@ func newVhosts(p string) *vhosts {
 func (v *vhosts) load() {
 	info, err := os.Stat(v.path)
 	if os.IsNotExist(err) {
-		slog.Debug("vhosts.json not found, skipping", "path", v.path)
 		return
 	}
 	if err != nil {
@@ -235,23 +231,22 @@ func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return h.Hijack()
 }
 
-func (s *server) handler(st *store.Store, cfg *core.Config) http.Handler {
+func (s *server) handler(cfg *core.Config) http.Handler {
 	mux := http.NewServeMux()
-	auth.RegisterRoutes(mux, st, cfg)
+	auth.RegisterRoutes(mux, s.st, cfg)
+	mux.HandleFunc("/", s.route)
+	return logging(mux)
+}
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+func logging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, code: 200}
-		s.route(sw, r)
+		next.ServeHTTP(sw, r)
 		slog.Info("request",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", sw.code,
-			"dur", time.Since(start).String(),
-		)
+			"method", r.Method, "path", r.URL.Path,
+			"status", sw.code, "dur", time.Since(start).String())
 	})
-
-	return mux
 }
 
 func (s *server) route(w http.ResponseWriter, r *http.Request) {
@@ -295,36 +290,30 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	upstream := s.viteProxy
+	if s.webdProxy != nil {
+		upstream = s.webdProxy
+	}
+
 	if strings.HasPrefix(r.URL.Path, "/slink/") {
 		remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 		if !s.slinkRL.allow(remoteIP) {
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
-		upstream := s.webdProxy
-		if upstream == nil {
-			upstream = s.viteProxy
-		}
-		rest := strings.TrimPrefix(r.URL.Path, "/slink/")
-		token := strings.SplitN(rest, "/", 2)[0]
+		token := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/slink/"), "/", 2)[0]
 		if token != "" && s.st != nil {
 			if group, ok := s.st.GroupBySlinkToken(token); ok {
-				r2 := r.Clone(r.Context())
-				r2.Header.Set("X-Folder", group.Folder)
-				r2.Header.Set("X-Group-Name", group.Name)
-				r2.Header.Set("X-Slink-Token", token)
-				upstream.ServeHTTP(w, r2)
-				return
+				r = r.Clone(r.Context())
+				r.Header.Set("X-Folder", group.Folder)
+				r.Header.Set("X-Group-Name", group.Name)
+				r.Header.Set("X-Slink-Token", token)
 			}
 		}
 		upstream.ServeHTTP(w, r)
 		return
 	}
 
-	upstream := s.viteProxy
-	if s.webdProxy != nil {
-		upstream = s.webdProxy
-	}
 	if r.URL.Path == "/" || r.URL.Path == "/pub" {
 		http.Redirect(w, r, "/pub/", http.StatusFound)
 		return
@@ -338,13 +327,14 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/dav"), "/")
+	hdr := r.Header.Get("X-User-Groups")
+
 	if rest == "" {
 		group := "root"
-		groupsHdr := r.Header.Get("X-User-Groups")
-		if groupsHdr != "" {
-			var allowed []string
-			if err := json.Unmarshal([]byte(groupsHdr), &allowed); err == nil && len(allowed) > 0 {
-				group = allowed[0]
+		if hdr != "" {
+			var gs []string
+			if err := json.Unmarshal([]byte(hdr), &gs); err == nil && len(gs) > 0 {
+				group = gs[0]
 			}
 		}
 		http.Redirect(w, r, "/dav/"+group+"/", http.StatusFound)
@@ -352,25 +342,20 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	group := strings.SplitN(rest, "/", 2)[0]
-	groupsHdr := r.Header.Get("X-User-Groups")
-	if groupsHdr != "" {
-		var allowed []string
-		if err := json.Unmarshal([]byte(groupsHdr), &allowed); err != nil {
-			// Fail closed on parse error
+	if hdr != "" {
+		var gs []string
+		if err := json.Unmarshal([]byte(hdr), &gs); err != nil {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
-		ok := false
-		for _, f := range allowed {
+		for _, f := range gs {
 			if f == group || strings.HasPrefix(group, f+"/") {
-				ok = true
-				break
+				s.davProxy.ServeHTTP(w, r)
+				return
 			}
 		}
-		if !ok {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
 	}
 	s.davProxy.ServeHTTP(w, r)
 }
@@ -457,11 +442,12 @@ func main() {
 		}
 	}()
 
-	slog.Info("proxyd starting", "port", cfg.port, "dash", cfg.dashAddr, "webd", cfg.webdAddr, "vite", cfg.viteAddr)
+	slog.Info("proxyd starting",
+		"port", cfg.port, "dash", cfg.dashAddr, "webd", cfg.webdAddr, "vite", cfg.viteAddr)
 
 	srv := &http.Server{
 		Addr:    cfg.port,
-		Handler: s.handler(st, coreCfg),
+		Handler: s.handler(coreCfg),
 	}
 
 	stop := make(chan os.Signal, 1)
