@@ -314,6 +314,10 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.URL.Path == "/" || r.URL.Path == "/pub" {
+		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			upstream.ServeHTTP(w, r)
+			return
+		}
 		http.Redirect(w, r, "/pub/", http.StatusFound)
 		return
 	}
