@@ -21,6 +21,8 @@ type Entry struct {
 
 func (e *Entry) HasCap(cap string) bool { return e.Capabilities[cap] }
 
+func (e *Entry) Owns(jid string) bool { return ownsJID(e, jid) }
+
 type Registry struct {
 	mu      sync.RWMutex
 	entries map[string]*Entry // keyed by name
@@ -97,6 +99,17 @@ func (r *Registry) All() map[string]*Entry {
 }
 
 func (r *Registry) Secret() string { return r.secret }
+
+// Resolve looks up the adapter pinned by name, falling back to ForJID when
+// name is empty or the named adapter is gone. Returns nil if no match.
+func (r *Registry) Resolve(name, jid string) *Entry {
+	if name != "" {
+		if e := r.Get(name); e != nil {
+			return e
+		}
+	}
+	return r.ForJID(jid)
+}
 
 // ForJID returns an adapter that owns jid. When multiple adapters share a
 // prefix, prefers the primary (bare name) over suffixed variants

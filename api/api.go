@@ -32,13 +32,16 @@ func (s *Server) OnDeregister(fn func(string))                     { s.onDeregis
 func (s *Server) OnMessage(fn func(chatJID, adapterName string))   { s.onMessage = fn }
 
 func (s *Server) Handler() http.Handler {
+	auth := func(h http.HandlerFunc) http.HandlerFunc {
+		return chanlib.Auth(s.reg.Secret(), h)
+	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/channels/register", s.handleRegister)
+	mux.HandleFunc("POST /v1/channels/register", auth(s.handleRegister))
 	mux.HandleFunc("POST /v1/channels/deregister", s.handleDeregister)
-	mux.HandleFunc("POST /v1/outbound", s.handleOutbound)
+	mux.HandleFunc("POST /v1/outbound", auth(s.handleOutbound))
 	mux.HandleFunc("POST /v1/messages", s.handleMessage)
 	mux.HandleFunc("POST /v1/chats", s.handleChat)
-	mux.HandleFunc("GET /v1/channels", s.handleListChannels)
+	mux.HandleFunc("GET /v1/channels", auth(s.handleListChannels))
 	mux.HandleFunc("GET /health", s.handleHealth)
 	return mux
 }
@@ -51,10 +54,6 @@ type registerReq struct {
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
-	if !s.checkSecret(w, r) {
-		return
-	}
-
 	var req registerReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		chanlib.WriteErr(w, http.StatusBadRequest, "invalid json")
@@ -72,8 +71,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.onRegister != nil {
-		entry := s.reg.Get(req.Name)
-		s.onRegister(req.Name, chanreg.NewHTTPChannel(entry, s.reg.Secret()))
+		s.onRegister(req.Name, chanreg.NewHTTPChannel(s.reg.Get(req.Name), s.reg.Secret()))
 	}
 
 	slog.Info("channel registered",
@@ -96,9 +94,6 @@ func (s *Server) handleDeregister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
-	if !s.checkSecret(w, r) {
-		return
-	}
 	var req struct {
 		JID     string `json:"jid"`
 		Text    string `json:"text"`
@@ -108,13 +103,7 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, http.StatusBadRequest, "jid and text required")
 		return
 	}
-	var entry *chanreg.Entry
-	if req.Channel != "" {
-		entry = s.reg.Get(req.Channel)
-	}
-	if entry == nil {
-		entry = s.reg.ForJID(req.JID)
-	}
+	entry := s.reg.Resolve(req.Channel, req.JID)
 	if entry == nil {
 		chanlib.WriteErr(w, http.StatusNotFound, "no channel for jid")
 		return
@@ -163,14 +152,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var jidOK bool
-	for _, p := range entry.JIDPrefixes {
-		if strings.HasPrefix(req.ChatJID, p) {
-			jidOK = true
-			break
-		}
-	}
-	if !jidOK {
+	if !entry.Owns(req.ChatJID) {
 		chanlib.WriteErr(w, http.StatusBadRequest, "jid prefix mismatch")
 		return
 	}
@@ -257,10 +239,6 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
-	if !s.checkSecret(w, r) {
-		return
-	}
-
 	entries := s.reg.All()
 	out := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
@@ -280,31 +258,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	chanlib.WriteJSON(w, map[string]any{"status": "ok"})
 }
 
-func (s *Server) checkSecret(w http.ResponseWriter, r *http.Request) bool {
-	if sec := s.reg.Secret(); sec != "" && extractBearer(r) != sec {
-		chanlib.WriteErr(w, http.StatusUnauthorized, "invalid secret")
-		return false
-	}
-	return true
-}
-
 func (s *Server) checkToken(w http.ResponseWriter, r *http.Request) *chanreg.Entry {
-	token := extractBearer(r)
-	if token == "" {
-		chanlib.WriteErr(w, http.StatusUnauthorized, "missing token")
-		return nil
-	}
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if e := s.reg.ByToken(token); e != nil {
 		return e
 	}
 	chanlib.WriteErr(w, http.StatusUnauthorized, "invalid token")
 	return nil
-}
-
-func extractBearer(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	if !strings.HasPrefix(h, "Bearer ") {
-		return ""
-	}
-	return h[7:]
 }
