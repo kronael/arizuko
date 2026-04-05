@@ -15,6 +15,7 @@ import (
 )
 
 type mastoClient struct {
+	chanlib.NoFileSender
 	cfg    config
 	client *mastodon.Client
 	me     *mastodon.Account
@@ -164,14 +165,16 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *chanlib.
 	}
 }
 
-func (mc *mastoClient) postStatus(ctx context.Context, text, replyToID string) error {
-	toot := &mastodon.Toot{Status: text}
-	if replyToID != "" {
-		toot.InReplyToID = mastodon.ID(replyToID)
+func (mc *mastoClient) Send(req chanlib.SendRequest) (string, error) {
+	toot := &mastodon.Toot{Status: req.Content}
+	if req.ReplyTo != "" {
+		toot.InReplyToID = mastodon.ID(req.ReplyTo)
 	}
-	_, err := mc.client.PostStatus(ctx, toot)
-	return err
+	_, err := mc.client.PostStatus(context.Background(), toot)
+	return "", err
 }
+
+func (mc *mastoClient) Typing(string, bool) {}
 
 var reTag = regexp.MustCompile(`<[^>]+>`)
 

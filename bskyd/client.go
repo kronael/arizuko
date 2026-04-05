@@ -23,6 +23,7 @@ type session struct {
 }
 
 type bskyClient struct {
+	chanlib.NoFileSender
 	cfg     config
 	session session
 	http    *http.Client
@@ -198,29 +199,29 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 	}
 }
 
-func (bc *bskyClient) createPost(ctx context.Context, text, replyParentURI string) error {
+func (bc *bskyClient) Send(req chanlib.SendRequest) (string, error) {
 	record := map[string]any{
 		"$type":     "app.bsky.feed.post",
-		"text":      text,
+		"text":      req.Content,
 		"createdAt": time.Now().UTC().Format(time.RFC3339),
 	}
-
-	if replyParentURI != "" {
-		cid, err := bc.getPostCID(replyParentURI)
+	if req.ReplyTo != "" {
+		cid, err := bc.getPostCID(req.ReplyTo)
 		if err != nil {
-			return fmt.Errorf("get parent cid: %w", err)
+			return "", fmt.Errorf("get parent cid: %w", err)
 		}
-		ref := map[string]string{"uri": replyParentURI, "cid": cid}
+		ref := map[string]string{"uri": req.ReplyTo, "cid": cid}
 		record["reply"] = map[string]any{"root": ref, "parent": ref}
 	}
-
 	body := map[string]any{
 		"repo":       bc.session.DID,
 		"collection": "app.bsky.feed.post",
 		"record":     record,
 	}
-	return bc.xrpcAuth("POST", "com.atproto.repo.createRecord", nil, body, nil)
+	return "", bc.xrpcAuth("POST", "com.atproto.repo.createRecord", nil, body, nil)
 }
+
+func (bc *bskyClient) Typing(string, bool) {}
 
 func (bc *bskyClient) getPostCID(uri string) (string, error) {
 	// at://did/collection/rkey

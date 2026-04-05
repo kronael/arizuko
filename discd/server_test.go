@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 type stubBot struct {
@@ -18,19 +20,18 @@ type stubBot struct {
 type stubSend struct{ JID, Content string }
 type stubFile struct{ JID, Name string }
 
-func (sb *stubBot) send(jid, content, _, _ string) (string, error) {
-	sb.sent = append(sb.sent, stubSend{jid, content})
+func (sb *stubBot) Send(req chanlib.SendRequest) (string, error) {
+	sb.sent = append(sb.sent, stubSend{req.ChatJID, req.Content})
 	return "stub-id", nil
 }
 
-func (sb *stubBot) sendFile(jid, _, name, _ string) error {
+func (sb *stubBot) SendFile(jid, _, name, _ string) error {
 	sb.files = append(sb.files, stubFile{jid, name})
 	return nil
 }
 
-func (sb *stubBot) typing(_ string, on bool) error {
+func (sb *stubBot) Typing(_ string, on bool) {
 	sb.typings = append(sb.typings, on)
-	return nil
 }
 
 func stubHandler(secret string) (http.Handler, *stubBot) {

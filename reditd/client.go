@@ -23,6 +23,7 @@ type tokenResp struct {
 }
 
 type redditClient struct {
+	chanlib.NoFileSender
 	cfg       config
 	http      *http.Client
 	mu        sync.Mutex
@@ -311,30 +312,27 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 	}
 }
 
-func (rc *redditClient) comment(thingID, text string) error {
-	data := url.Values{
-		"thing_id": {thingID},
-		"text":     {text},
+func (rc *redditClient) Send(req chanlib.SendRequest) (string, error) {
+	var data url.Values
+	var path string
+	if req.ReplyTo != "" {
+		path = "/api/comment"
+		data = url.Values{"thing_id": {req.ReplyTo}, "text": {req.Content}}
+	} else {
+		path = "/api/submit"
+		data = url.Values{
+			"kind":  {"self"},
+			"sr":    {"u_" + rc.cfg.Username},
+			"title": {"arizuko"},
+			"text":  {req.Content},
+		}
 	}
-	resp, err := rc.post("/api/comment", data)
+	resp, err := rc.post(path, data)
 	if err != nil {
-		return err
+		return "", err
 	}
 	resp.Body.Close()
-	return nil
+	return "", nil
 }
 
-func (rc *redditClient) submit(text string) error {
-	data := url.Values{
-		"kind":  {"self"},
-		"sr":    {"u_" + rc.cfg.Username},
-		"title": {"arizuko"},
-		"text":  {text},
-	}
-	resp, err := rc.post("/api/submit", data)
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	return nil
-}
+func (rc *redditClient) Typing(string, bool) {}

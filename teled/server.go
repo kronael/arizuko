@@ -14,18 +14,6 @@ import (
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-type botAdapter struct{ b *bot }
-
-func (a *botAdapter) Send(req chanlib.SendRequest) (string, error) {
-	return a.b.send(req.ChatJID, req.Content, req.ReplyTo, req.ThreadID)
-}
-
-func (a *botAdapter) SendFile(jid, path, name, caption string) error {
-	return a.b.sendFile(jid, path, name, caption)
-}
-
-func (a *botAdapter) Typing(jid string, on bool) { a.b.typing(jid, on) }
-
 type server struct {
 	cfg config
 	bot *bot
@@ -34,8 +22,7 @@ type server struct {
 func newServer(cfg config, b *bot) *server { return &server{cfg: cfg, bot: b} }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(
-		s.cfg.Name, s.cfg.ChannelSecret, []string{"telegram:"}, &botAdapter{s.bot})
+	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"telegram:"}, s.bot)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))
 	return mux
 }

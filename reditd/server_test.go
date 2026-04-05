@@ -6,22 +6,32 @@ import (
 	"errors"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 type stubSender struct {
+	chanlib.NoFileSender
 	commented []string
 	submitted []string
 	err       error
 }
 
-func (s *stubSender) comment(id, _ string) error { s.commented = append(s.commented, id); return s.err }
-func (s *stubSender) submit(_ string) error      { s.submitted = append(s.submitted, "x"); return s.err }
+func (s *stubSender) Send(req chanlib.SendRequest) (string, error) {
+	if req.ReplyTo != "" {
+		s.commented = append(s.commented, req.ReplyTo)
+	} else {
+		s.submitted = append(s.submitted, "x")
+	}
+	return "", s.err
+}
+
+func (s *stubSender) Typing(string, bool) {}
 
 func testReditServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "reddit", ChannelSecret: secret}
-	// rc is nil; tests that exercise comment/submit require a stub reddit client
-	return newServer(cfg, nil)
+	return newServer(cfg, &stubSender{})
 }
 
 func TestReditHealth(t *testing.T) {

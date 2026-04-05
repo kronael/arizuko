@@ -153,23 +153,24 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
 	}
 }
 
-func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
-	id, err := parseChatID(jid)
+func (b *bot) Send(req chanlib.SendRequest) (string, error) {
+	id, err := parseChatID(req.ChatJID)
 	if err != nil {
 		return "", err
 	}
 	replyMsgID := 0
-	if replyTo != "" {
-		if n, err := strconv.ParseInt(replyTo, 10, 64); err == nil {
+	if req.ReplyTo != "" {
+		if n, err := strconv.ParseInt(req.ReplyTo, 10, 64); err == nil {
 			replyMsgID = int(n)
 		}
 	}
 	msgThreadID := 0
-	if threadID != "" {
-		if n, err := strconv.Atoi(threadID); err == nil {
+	if req.ThreadID != "" {
+		if n, err := strconv.Atoi(req.ThreadID); err == nil {
 			msgThreadID = n
 		}
 	}
+	text := req.Content
 	html := mdToHTML(text)
 	var firstID string
 	for _, c := range chanlib.Chunk(html, 4096) {
@@ -208,7 +209,7 @@ func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 	return firstID, nil
 }
 
-func (b *bot) sendFile(jid, path, name, caption string) error {
+func (b *bot) SendFile(jid, path, name, caption string) error {
 	id, err := parseChatID(jid)
 	if err != nil {
 		return err
@@ -234,16 +235,15 @@ func (b *bot) sendFile(jid, path, name, caption string) error {
 	return nil
 }
 
-func (b *bot) typing(jid string, on bool) error {
+func (b *bot) Typing(jid string, on bool) {
 	if !on {
-		return nil
+		return
 	}
 	id, err := parseChatID(jid)
 	if err != nil {
-		return err
+		return
 	}
 	b.api.Send(tgbotapi.NewChatAction(id, tgbotapi.ChatTyping))
-	return nil
 }
 
 func parseChatID(jid string) (int64, error) {

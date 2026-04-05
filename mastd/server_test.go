@@ -2,21 +2,26 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
-type stubPoster struct{ err error }
+type stubPoster struct {
+	chanlib.NoFileSender
+	err error
+}
 
-func (s *stubPoster) postStatus(_ context.Context, _, _ string) error { return s.err }
+func (s *stubPoster) Send(chanlib.SendRequest) (string, error) { return "", s.err }
+func (s *stubPoster) Typing(string, bool)                      {}
 
 func testMastServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "mastodon", ChannelSecret: secret}
-	return newServer(cfg, nil)
+	return newServer(cfg, &stubPoster{})
 }
 
 func TestMastHealth(t *testing.T) {

@@ -102,12 +102,12 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
-func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
-	chID := strings.TrimPrefix(jid, "discord:")
-	if threadID != "" {
-		chID = threadID
+func (b *bot) Send(req chanlib.SendRequest) (string, error) {
+	chID := strings.TrimPrefix(req.ChatJID, "discord:")
+	if req.ThreadID != "" {
+		chID = req.ThreadID
 	}
-	chunks := chanlib.Chunk(text, 2000)
+	chunks := chanlib.Chunk(req.Content, 2000)
 	var firstID string
 	for i, c := range chunks {
 		var (
@@ -115,8 +115,8 @@ func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 			err error
 		)
 		for attempt := 0; attempt < 3; attempt++ {
-			if replyTo != "" && i == 0 {
-				ref := &discordgo.MessageReference{MessageID: replyTo}
+			if req.ReplyTo != "" && i == 0 {
+				ref := &discordgo.MessageReference{MessageID: req.ReplyTo}
 				msg, err = b.session.ChannelMessageSendReply(chID, c, ref)
 			} else {
 				msg, err = b.session.ChannelMessageSend(chID, c)
@@ -142,7 +142,7 @@ func (b *bot) send(jid, text, replyTo, threadID string) (string, error) {
 	return firstID, nil
 }
 
-func (b *bot) sendFile(jid, path, name, caption string) error {
+func (b *bot) SendFile(jid, path, name, caption string) error {
 	chID := strings.TrimPrefix(jid, "discord:")
 	f, err := os.Open(path)
 	if err != nil {
@@ -162,12 +162,12 @@ func (b *bot) sendFile(jid, path, name, caption string) error {
 	return nil
 }
 
-func (b *bot) typing(jid string, on bool) error {
+func (b *bot) Typing(jid string, on bool) {
 	if !on {
-		return nil
+		return
 	}
 	chID := strings.TrimPrefix(jid, "discord:")
-	return b.session.ChannelTyping(chID)
+	b.session.ChannelTyping(chID)
 }
 
 func replaceMentions(content, assistantName string, user *discordgo.User) string {

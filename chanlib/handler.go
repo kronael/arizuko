@@ -2,6 +2,7 @@ package chanlib
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -28,13 +29,9 @@ type BotHandler interface {
 // NoFileSender is an embeddable stub for adapters that don't support file sending.
 type NoFileSender struct{}
 
-func (NoFileSender) SendFile(_, _, _, _ string) error {
-	return &errNotSupported{"send-file not supported"}
-}
+func (NoFileSender) SendFile(_, _, _, _ string) error { return errSendFile }
 
-type errNotSupported struct{ msg string }
-
-func (e *errNotSupported) Error() string { return e.msg }
+var errSendFile = errors.New("send-file not supported")
 
 // NewAdapterMux creates an http.ServeMux with the standard adapter routes:
 // POST /send, POST /send-file, POST /typing, GET /health.

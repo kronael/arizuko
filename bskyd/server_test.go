@@ -2,21 +2,26 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
-type stubCreator struct{ err error }
+type stubCreator struct {
+	chanlib.NoFileSender
+	err error
+}
 
-func (s *stubCreator) createPost(_ context.Context, _, _ string) error { return s.err }
+func (s *stubCreator) Send(chanlib.SendRequest) (string, error) { return "", s.err }
+func (s *stubCreator) Typing(string, bool)                      {}
 
 func testBskyServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "bluesky", ChannelSecret: secret}
-	return newServer(cfg, nil)
+	return newServer(cfg, &stubCreator{})
 }
 
 func TestBskyHealth(t *testing.T) {
