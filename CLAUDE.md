@@ -1,5 +1,12 @@
 # CLAUDE.md
 
+## Response Style
+
+Be terse. Lead with the answer, skip preamble, skip trailing summaries
+of what you just did. One-sentence replies are fine. Exceptions only
+when explicitly asked or the task requires it: generating content
+(specs, docs, prose), multi-step plans, root-cause walkthroughs.
+
 ## What is arizuko
 
 Multitenant Claude agent router. External
