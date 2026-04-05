@@ -447,6 +447,14 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 	return batches
 }
 
+// logAgentError writes the error to slog and to the group's recovery diary.
+func (g *Gateway) logAgentError(group core.Group, key, value, errStr string) {
+	slog.Error("agent error", "group", group.Folder, key, value, "err", errStr)
+	if gp, err := g.folders.GroupPath(group.Folder); err == nil {
+		diary.WriteRecovery(gp, "error", errStr)
+	}
+}
+
 func (g *Gateway) processSenderBatch(
 	group core.Group, chatJid string, ch core.Channel, msgs []core.Message, agentTs time.Time,
 ) bool {
@@ -458,9 +466,8 @@ func (g *Gateway) processSenderBatch(
 
 	g.emitSystemEvents(group, chatJid)
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
-	prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n"
 	observed := g.store.ObservedMessagesSince(group.Folder, chatJid, agentTs.Format(time.RFC3339Nano))
-	prompt += router.FormatMessages(msgs, observed)
+	prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n" + router.FormatMessages(msgs, observed)
 
 	if ch != nil {
 		ch.Typing(chatJid, true)
@@ -477,11 +484,7 @@ func (g *Gateway) processSenderBatch(
 	}
 
 	if out.Error != "" {
-		slog.Error("agent error",
-			"group", group.Folder, "sender", last.Sender, "err", out.Error)
-		if gp, err := g.folders.GroupPath(group.Folder); err == nil {
-			diary.WriteRecovery(gp, "error", out.Error)
-		}
+		g.logAgentError(group, "sender", last.Sender, out.Error)
 		if *hadOutput {
 			return true
 		}
@@ -489,8 +492,7 @@ func (g *Gateway) processSenderBatch(
 		g.agentCursors[chatJid] = agentTs
 		g.mu.Unlock()
 		g.store.SetAgentCursor(chatJid, agentTs)
-		g.sendMessage(chatJid,
-			"Failed: agent error, will retry on next message.")
+		g.sendMessage(chatJid, "Failed: agent error, will retry on next message.")
 		g.store.MarkChatErrored(chatJid)
 		return false
 	}
@@ -523,8 +525,7 @@ func (g *Gateway) processWebTopics(
 		last := topicMsgs[len(topicMsgs)-1]
 
 		sysMsgs := g.store.FlushSysMsgs(group.Folder)
-		prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n"
-		prompt += router.FormatMessages(topicMsgs)
+		prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n" + router.FormatMessages(topicMsgs)
 
 		if ch != nil {
 			ch.Typing(chatJid, true)
@@ -540,17 +541,12 @@ func (g *Gateway) processWebTopics(
 		}
 
 		if out.Error != "" {
-			slog.Error("agent error",
-				"group", group.Folder, "topic", topic, "err", out.Error)
-			if gp, err := g.folders.GroupPath(group.Folder); err == nil {
-				diary.WriteRecovery(gp, "error", out.Error)
-			}
+			g.logAgentError(group, "topic", topic, out.Error)
 			if *hadOutput {
 				g.advanceAgentCursor(chatJid, topicMsgs)
 				return true, nil
 			}
-			g.sendMessage(chatJid,
-				"Failed: agent error, will retry on next message.")
+			g.sendMessage(chatJid, "Failed: agent error, will retry on next message.")
 			g.store.MarkChatErrored(chatJid)
 			return false, fmt.Errorf("agent: %s", out.Error)
 		}
@@ -1149,18 +1145,15 @@ func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth
 }
 
 func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
-	if strings.HasPrefix(jid, "local:") {
-		gr, ok := g.groups[jid[6:]]
-		return gr, ok
-	}
-	if strings.HasPrefix(jid, "web:") {
-		gr, ok := g.groups[jid[4:]]
-		return gr, ok
+	for _, prefix := range []string{"local:", "web:"} {
+		if folder, ok := strings.CutPrefix(jid, prefix); ok {
+			gr, ok := g.groups[folder]
+			return gr, ok
+		}
 	}
 	if folder, ok := g.jidToFolder[jid]; ok {
-		if gr, ok := g.groups[folder]; ok {
-			return gr, true
-		}
+		gr, ok := g.groups[folder]
+		return gr, ok
 	}
 	return core.Group{}, false
 }
@@ -1316,18 +1309,17 @@ func (g *Gateway) handlePrefixRoute(
 		g.queue.EnqueueTask(chatJid,
 			fmt.Sprintf("topic-%s-%s-%d", group.Folder, name, time.Now().UnixMilli()),
 			func() error {
+				onOutput := func(text, _ string) {
+					clean := router.FormatOutbound(text)
+					if clean == "" {
+						return
+					}
+					if err := g.sendMessage(chatJid, clean); err != nil {
+						slog.Warn("topic send failed", "jid", chatJid, "err", err)
+					}
+				}
 				out := g.runAgentWithOpts(group, stripped, chatJid, "",
-					func(text, status string) {
-						if text != "" {
-							clean := router.FormatOutbound(text)
-							if clean != "" {
-									if err := g.sendMessage(chatJid, clean); err != nil {
-									slog.Warn("topic send failed",
-										"jid", chatJid, "err", err)
-								}
-							}
-						}
-					}, false, nil, topic, "", 1)
+					onOutput, false, nil, topic, "", 1)
 				if out.Error != "" {
 					return fmt.Errorf("topic agent: %s", out.Error)
 				}
@@ -1441,32 +1433,32 @@ func (g *Gateway) delegateToFolder(
 	g.queue.EnqueueTask("local:"+folder, fmt.Sprintf("%s-%s-%d",
 		label, folder, time.Now().UnixMilli()),
 		func() error {
+			onOutput := func(text, _ string) {
+				clean := router.FormatOutbound(text)
+				if clean == "" {
+					return
+				}
+				if escalation != nil {
+					clean = fmt.Sprintf("<escalation_response origin_jid=%q origin_msg_id=%q>\n%s\n</escalation_response>",
+						escalation.OriginJID, escalation.ReplyTo, clean)
+				}
+				sentID, err := g.sendMessageReply(originJid, clean, "", "")
+				if err != nil {
+					slog.Warn("delegate send failed",
+						"jid", originJid, "folder", folder, "err", err)
+				}
+				if sentID != "" {
+					g.store.StoreOutbound(core.OutboundEntry{
+						ChatJID:       originJid,
+						Content:       clean,
+						Source:        "agent",
+						GroupFolder:   folder,
+						PlatformMsgID: sentID,
+					})
+				}
+			}
 			out := g.runAgentWithOpts(target, prompt, originJid, "",
-				func(text, status string) {
-					if text != "" {
-						clean := router.FormatOutbound(text)
-						if clean != "" {
-							if escalation != nil {
-								clean = fmt.Sprintf("<escalation_response origin_jid=%q origin_msg_id=%q>\n%s\n</escalation_response>",
-									escalation.OriginJID, escalation.ReplyTo, clean)
-							}
-							sentID, err := g.sendMessageReply(originJid, clean, "", "")
-							if err != nil {
-								slog.Warn("delegate send failed",
-									"jid", originJid, "folder", folder, "err", err)
-							}
-							if sentID != "" {
-								g.store.StoreOutbound(core.OutboundEntry{
-									ChatJID:       originJid,
-									Content:       clean,
-									Source:        "agent",
-									GroupFolder:   folder,
-									PlatformMsgID: sentID,
-								})
-							}
-						}
-					}
-				}, false, rules, "", "", 1)
+				onOutput, false, rules, "", "", 1)
 			if out.Error != "" {
 				return fmt.Errorf("%s agent: %s", label, out.Error)
 			}

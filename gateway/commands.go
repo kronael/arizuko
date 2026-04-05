@@ -61,7 +61,7 @@ func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
 	case "/chatid":
 		return g.cmdChatID(msg.ChatJID)
 	case "/stop":
-		return g.cmdStop(msg.ChatJID, group)
+		return g.cmdStop(msg.ChatJID)
 	case "/status":
 		return g.cmdStatus(msg.ChatJID, group)
 	default:
@@ -135,9 +135,8 @@ func (g *Gateway) cmdChatID(chatJid string) bool {
 	return true
 }
 
-func (g *Gateway) cmdStop(chatJid string, group core.Group) bool {
-	stopped := g.queue.StopProcess(chatJid)
-	if stopped {
+func (g *Gateway) cmdStop(chatJid string) bool {
+	if g.queue.StopProcess(chatJid) {
 		g.sendMessage(chatJid, "Container stopped.")
 	} else {
 		g.sendMessage(chatJid, "No active container for this chat.")
