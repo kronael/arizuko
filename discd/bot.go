@@ -17,6 +17,7 @@ type bot struct {
 	session *discordgo.Session
 	cfg     config
 	rc      *chanlib.RouterClient
+	typing  *chanlib.TypingRefresher
 }
 
 func newBot(cfg config) (*bot, error) {
@@ -27,7 +28,9 @@ func newBot(cfg config) (*bot, error) {
 	s.Identify.Intents = discordgo.IntentsGuildMessages |
 		discordgo.IntentsDirectMessages |
 		discordgo.IntentMessageContent
-	return &bot{session: s, cfg: cfg}, nil
+	b := &bot{session: s, cfg: cfg}
+	b.typing = chanlib.NewTypingRefresher(8*time.Second, 10*time.Minute, b.sendTyping, nil)
+	return b, nil
 }
 
 func (b *bot) start(rc *chanlib.RouterClient) error {
@@ -41,6 +44,7 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 }
 
 func (b *bot) stop() {
+	b.typing.Stop()
 	b.session.Close()
 }
 
@@ -162,10 +166,9 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	return nil
 }
 
-func (b *bot) Typing(jid string, on bool) {
-	if !on {
-		return
-	}
+func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
+
+func (b *bot) sendTyping(jid string) {
 	chID := strings.TrimPrefix(jid, "discord:")
 	b.session.ChannelTyping(chID)
 }

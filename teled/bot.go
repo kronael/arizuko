@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
@@ -21,6 +22,7 @@ type bot struct {
 	cfg       config
 	cancel    context.CancelFunc
 	mentionRe *regexp.Regexp
+	typing    *chanlib.TypingRefresher
 }
 
 func newBot(cfg config) (*bot, error) {
@@ -30,6 +32,7 @@ func newBot(cfg config) (*bot, error) {
 	}
 	slog.Info("telegram connected", "username", api.Self.UserName)
 	b := &bot{api: api, cfg: cfg}
+	b.typing = chanlib.NewTypingRefresher(4*time.Second, 10*time.Minute, b.sendTyping, nil)
 	if cfg.AssistantName != "" {
 		b.mentionRe = regexp.MustCompile(
 			fmt.Sprintf(`(?i)^@%s\b`, regexp.QuoteMeta(cfg.AssistantName)))
@@ -85,6 +88,7 @@ func (b *bot) stop() {
 	if b.cancel != nil {
 		b.cancel()
 	}
+	b.typing.Stop()
 	b.api.StopReceivingUpdates()
 }
 
@@ -235,10 +239,9 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	return nil
 }
 
-func (b *bot) Typing(jid string, on bool) {
-	if !on {
-		return
-	}
+func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
+
+func (b *bot) sendTyping(jid string) {
 	id, err := parseChatID(jid)
 	if err != nil {
 		return
