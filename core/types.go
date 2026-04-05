@@ -21,8 +21,8 @@ type Message struct {
 	ReplyToSender string
 	Topic         string
 	RoutedTo      string
-	Verb        string // event type: "message" (default), "join", "edit", "delete", etc.
-	Attachments string // JSON-encoded []chanlib.InboundAttachment
+	Verb          string // event type: "message" (default), "join", "edit", "delete", etc.
+	Attachments   string // JSON-encoded []chanlib.InboundAttachment
 }
 
 type OutboundEntry struct {
@@ -70,7 +70,7 @@ type Route struct {
 	ID            int64  `json:"id"`
 	JID           string `json:"jid,omitempty"`
 	Seq           int    `json:"seq"`
-	Type          string `json:"type"`   // command|verb|pattern|keyword|sender|default
+	Type          string `json:"type"` // command|verb|pattern|keyword|sender|default
 	Match         string `json:"match"`
 	Target        string `json:"target"`
 	ImpulseConfig string `json:"impulse_config,omitempty"`

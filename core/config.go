@@ -11,21 +11,21 @@ import (
 )
 
 type Config struct {
-	Name          string
-	TelegramToken string
-	Image         string
-	Timeout       time.Duration
-	IdleTimeout   time.Duration
-	MaxContainers int
-	PollInterval  time.Duration
-	Timezone      string
-	AuthSecret      string
-	WebHost         string
-	AuthBaseURL     string
-	GitHubClientID  string
-	GitHubSecret    string
-	DiscordClientID string
-	DiscordSecret   string
+	Name                string
+	TelegramToken       string
+	Image               string
+	Timeout             time.Duration
+	IdleTimeout         time.Duration
+	MaxContainers       int
+	PollInterval        time.Duration
+	Timezone            string
+	AuthSecret          string
+	WebHost             string
+	AuthBaseURL         string
+	GitHubClientID      string
+	GitHubSecret        string
+	DiscordClientID     string
+	DiscordSecret       string
 	GoogleClientID      string
 	GoogleSecret        string
 	GoogleAllowedEmails string
@@ -70,21 +70,21 @@ func LoadConfig() (*Config, error) {
 	name := envOr("ASSISTANT_NAME", "Andy")
 
 	c := &Config{
-		Name:          name,
-		TelegramToken: envOr("TELEGRAM_BOT_TOKEN", ""),
-		Image:         envOr("CONTAINER_IMAGE", "arizuko-ant:latest"),
-		Timeout:       envDur("CONTAINER_TIMEOUT", 30*time.Minute),
-		IdleTimeout:   envDur("IDLE_TIMEOUT", 30*time.Minute),
-		MaxContainers: envInt("MAX_CONCURRENT_CONTAINERS", 5),
-		PollInterval:  2 * time.Second,
-		Timezone:      resolveTimezone(),
-		AuthSecret:      envOr("AUTH_SECRET", ""),
-		WebHost:         envOr("WEB_HOST", ""),
-		AuthBaseURL:     envOr("AUTH_BASE_URL", ""),
-		GitHubClientID:  envOr("GITHUB_CLIENT_ID", ""),
-		GitHubSecret:    envOr("GITHUB_CLIENT_SECRET", ""),
-		DiscordClientID: envOr("DISCORD_CLIENT_ID", ""),
-		DiscordSecret:   envOr("DISCORD_CLIENT_SECRET", ""),
+		Name:                name,
+		TelegramToken:       envOr("TELEGRAM_BOT_TOKEN", ""),
+		Image:               envOr("CONTAINER_IMAGE", "arizuko-ant:latest"),
+		Timeout:             envDur("CONTAINER_TIMEOUT", 30*time.Minute),
+		IdleTimeout:         envDur("IDLE_TIMEOUT", 30*time.Minute),
+		MaxContainers:       envInt("MAX_CONCURRENT_CONTAINERS", 5),
+		PollInterval:        2 * time.Second,
+		Timezone:            resolveTimezone(),
+		AuthSecret:          envOr("AUTH_SECRET", ""),
+		WebHost:             envOr("WEB_HOST", ""),
+		AuthBaseURL:         envOr("AUTH_BASE_URL", ""),
+		GitHubClientID:      envOr("GITHUB_CLIENT_ID", ""),
+		GitHubSecret:        envOr("GITHUB_CLIENT_SECRET", ""),
+		DiscordClientID:     envOr("DISCORD_CLIENT_ID", ""),
+		DiscordSecret:       envOr("DISCORD_CLIENT_SECRET", ""),
 		GoogleClientID:      envOr("GOOGLE_CLIENT_ID", ""),
 		GoogleSecret:        envOr("GOOGLE_CLIENT_SECRET", ""),
 		GoogleAllowedEmails: envOr("GOOGLE_ALLOWED_EMAILS", ""),
@@ -99,8 +99,8 @@ func LoadConfig() (*Config, error) {
 		HostGroupsDir:   filepath.Join(hostRoot, "groups"),
 		WebDir:          filepath.Join(root, "web"),
 
-		APIPort:             envInt("API_PORT", 8080),
-		ChannelSecret:       envOr("CHANNEL_SECRET", ""),
+		APIPort:              envInt("API_PORT", 8080),
+		ChannelSecret:        envOr("CHANNEL_SECRET", ""),
 		OnboardingEnabled:    envOr("ONBOARDING_ENABLED", "false") == "true",
 		OnboardingPlatforms:  parseCSV(envOr("ONBOARDING_PLATFORMS", "")),
 		ImpulseEnabled:       envOr("IMPULSE_ENABLED", "true") == "true",
