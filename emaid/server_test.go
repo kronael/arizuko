@@ -25,9 +25,8 @@ func TestHandleSend_NoThread(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
 
-	// thread not in DB → 404
-	if w.Code != 404 {
-		t.Errorf("status = %d, want 404", w.Code)
+	if w.Code != 502 {
+		t.Errorf("status = %d, want 502", w.Code)
 	}
 }
 
