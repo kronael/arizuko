@@ -17,29 +17,15 @@ function log(level: string, msg: string, attrs?: Record<string, unknown>) {
   process.stderr.write(JSON.stringify(entry) + '\n');
 }
 
-// Convert markdown to WhatsApp formatting
 function mdToWa(text: string): string {
-  return text
-    .replace(/\*\*(.*?)\*\*/g, '*$1*') // **bold** → *bold*
-    .replace(/~~(.*?)~~/g, '~$1~'); // ~~strike~~ → ~strike~
+  return text.replace(/\*\*(.*?)\*\*/g, '*$1*').replace(/~~(.*?)~~/g, '~$1~');
 }
 
 function toWaJid(jid: string): string {
   const bare = jid.replace(/^whatsapp:/, '');
-  if (bare.includes('@')) return bare;
-  return `${bare}@s.whatsapp.net`;
+  return bare.includes('@') ? bare : `${bare}@s.whatsapp.net`;
 }
 
-function mimeToMediaType(
-  mime: string,
-): 'image' | 'video' | 'audio' | 'document' {
-  if (mime.startsWith('image/')) return 'image';
-  if (mime.startsWith('video/')) return 'video';
-  if (mime.startsWith('audio/')) return 'audio';
-  return 'document';
-}
-
-// Parse multipart/form-data, return fields and file bytes.
 function parseMultipart(req: http.IncomingMessage): Promise<{
   chatJid: string;
   filename: string;
@@ -69,7 +55,6 @@ function parseMultipart(req: http.IncomingMessage): Promise<{
   });
 }
 
-// Derive MIME type from filename extension.
 function extToMime(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
   const m: Record<string, string> = {
@@ -119,7 +104,6 @@ export function startServer(
       const text = mdToWa(body.content);
       const s = sock();
       if (!s || !isConnected()) {
-        // Queue for delivery on reconnect
         queueOutbound(waJid, text);
         json(res, 200, { ok: true, queued: true });
         return;
@@ -127,8 +111,7 @@ export function startServer(
       try {
         await s.sendMessage(waJid, { text });
         json(res, 200, { ok: true });
-      } catch (e: unknown) {
-        // Fallback: queue if send fails mid-connection
+      } catch {
         queueOutbound(waJid, text);
         json(res, 200, { ok: true, queued: true });
       }
@@ -154,29 +137,22 @@ export function startServer(
         }
         const waJid = toWaJid(chatJid);
         const mime = extToMime(filename || 'file.bin');
-        const mediaType = mimeToMediaType(mime);
-        if (mediaType === 'image') {
-          await s.sendMessage(waJid, {
-            image: fileBytes,
-            mimetype: mime,
-            caption: caption || undefined,
-          });
-        } else if (mediaType === 'video') {
-          await s.sendMessage(waJid, {
-            video: fileBytes,
-            mimetype: mime,
-            caption: caption || undefined,
-          });
-        } else if (mediaType === 'audio') {
-          await s.sendMessage(waJid, { audio: fileBytes, mimetype: mime });
+        const cap = caption || undefined;
+        const content: Record<string, unknown> = { mimetype: mime };
+        if (mime.startsWith('image/')) {
+          content['image'] = fileBytes;
+          content['caption'] = cap;
+        } else if (mime.startsWith('video/')) {
+          content['video'] = fileBytes;
+          content['caption'] = cap;
+        } else if (mime.startsWith('audio/')) {
+          content['audio'] = fileBytes;
         } else {
-          await s.sendMessage(waJid, {
-            document: fileBytes,
-            mimetype: mime,
-            fileName: filename || 'file',
-            caption: caption || undefined,
-          });
+          content['document'] = fileBytes;
+          content['fileName'] = filename || 'file';
+          content['caption'] = cap;
         }
+        await s.sendMessage(waJid, content as any);
         json(res, 200, { ok: true });
       } catch (e: unknown) {
         json(res, 502, { ok: false, error: String(e) });
