@@ -44,22 +44,22 @@ func Generate(dataDir string) (string, error) {
 		return "", fmt.Errorf("read services/: %w", err)
 	}
 
-	var services []namedService
+	type svc struct {
+		name string
+		cfg  ServiceConfig
+	}
+	var services []svc
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
 			continue
 		}
-		name := strings.TrimSuffix(e.Name(), ".toml")
 		var cfg ServiceConfig
 		if _, err := toml.DecodeFile(filepath.Join(servicesDir, e.Name()), &cfg); err != nil {
 			return "", fmt.Errorf("parse %s: %w", e.Name(), err)
 		}
-		services = append(services, namedService{name, cfg})
+		services = append(services, svc{strings.TrimSuffix(e.Name(), ".toml"), cfg})
 	}
-
-	sort.Slice(services, func(i, j int) bool {
-		return services[i].name < services[j].name
-	})
+	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
 	project := filepath.Base(dataDir)
 	app, flavor, _ := strings.Cut(project, "_")
@@ -91,11 +91,6 @@ func Generate(dataDir string) (string, error) {
 		b.WriteString(renderService(app, flavor, s.name, s.cfg, env))
 	}
 	return b.String(), nil
-}
-
-type namedService struct {
-	name string
-	cfg  ServiceConfig
 }
 
 type svcDef struct {
@@ -150,9 +145,6 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	hostApp := envOr(env, "HOST_APP_DIR", "")
 
 	environment := map[string]string{"API_PORT": apiPort}
-	if secret := envOr(env, "CHANNEL_SECRET", ""); secret != "" {
-		environment["CHANNEL_SECRET"] = secret
-	}
 	if hostData != "" {
 		environment["HOST_DATA_DIR"] = hostData
 	}
@@ -331,14 +323,15 @@ func vitePortFrom(webPort string) string {
 
 var routerEnvKeys = []string{
 	"ASSISTANT_NAME",
+	"AUTH_SECRET",
+	"CHANNEL_SECRET",
 	"CONTAINER_IMAGE",
 	"CONTAINER_TIMEOUT",
 	"IDLE_TIMEOUT",
 	"MAX_CONCURRENT_CONTAINERS",
-	"AUTH_SECRET",
-	"WEB_HOST",
 	"MEDIA_ENABLED",
 	"VOICE_TRANSCRIPTION_ENABLED",
+	"WEB_HOST",
 	"WHISPER_BASE_URL",
 }
 
