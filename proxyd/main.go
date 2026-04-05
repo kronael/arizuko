@@ -117,7 +117,6 @@ func (v *vhosts) load() {
 }
 
 func (v *vhosts) match(host string) (string, bool) {
-	// strip port
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}

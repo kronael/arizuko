@@ -78,7 +78,6 @@ func (s *server) requireFolder(next http.HandlerFunc) http.HandlerFunc {
 	return s.requireUser(func(w http.ResponseWriter, r *http.Request) {
 		groupsHdr := r.Header.Get("X-User-Groups")
 		if groupsHdr == "" {
-			// operator — unrestricted
 			next(w, r)
 			return
 		}
@@ -101,7 +100,6 @@ func (s *server) requireFolder(next http.HandlerFunc) http.HandlerFunc {
 func userSub(r *http.Request) string  { return r.Header.Get("X-User-Sub") }
 func userName(r *http.Request) string { return r.Header.Get("X-User-Name") }
 
-// folderParam extracts a multi-segment folder from {folder...} pattern.
 func folderParam(r *http.Request) string {
 	return strings.TrimPrefix(r.PathValue("folder"), "/")
 }
