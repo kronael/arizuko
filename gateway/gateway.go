@@ -303,24 +303,9 @@ func (g *Gateway) pollOnce() {
 			continue
 		}
 
-		if pr := findPrefixRoute(routes, last); pr != nil {
-			if g.handlePrefixRoute(pr, last, group, chatJid) {
-				slog.Debug("poll: routed via prefix", "jid", chatJid, "match", pr.Match)
-				g.advanceAgentCursor(chatJid, chatMsgs)
-				continue
-			}
-		}
-
-		routingTarget := g.resolveTarget(last, routes, group.Folder)
-
-		if routingTarget != "" {
-			if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
-				slog.Debug("poll: delegating to child",
-					"jid", chatJid, "target", routingTarget)
-				g.delegateToChild(routingTarget, last.Content, chatJid, 0, nil)
-				g.advanceAgentCursor(chatJid, chatMsgs)
-				continue
-			}
+		if g.tryExternalRoute(routes, last, group, chatJid, "poll") {
+			g.advanceAgentCursor(chatJid, chatMsgs)
+			continue
 		}
 
 		if g.cfg.ImpulseEnabled {
@@ -397,22 +382,8 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	for _, batch := range senderBatches {
 		last := batch[len(batch)-1]
 
-		if pr := findPrefixRoute(routes, last); pr != nil {
-			if g.handlePrefixRoute(pr, last, group, chatJid) {
-				slog.Debug("process: routed via prefix", "jid", chatJid, "sender", last.Sender, "match", pr.Match)
-				continue
-			}
-		}
-
-		routingTarget := g.resolveTarget(last, routes, group.Folder)
-
-		if routingTarget != "" {
-			if router.IsAuthorizedRoutingTarget(group.Folder, routingTarget) {
-				slog.Debug("process: delegating to child",
-					"jid", chatJid, "sender", last.Sender, "target", routingTarget)
-				g.delegateToChild(routingTarget, last.Content, chatJid, 0, nil)
-				continue
-			}
+		if g.tryExternalRoute(routes, last, group, chatJid, "process") {
+			continue
 		}
 
 		if !g.processSenderBatch(group, chatJid, ch, batch, agentTs) {
@@ -445,6 +416,30 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 		batches[idx] = append(batches[idx], m)
 	}
 	return batches
+}
+
+// tryExternalRoute checks prefix routes and resolved routing targets for a message.
+// Returns true if the message was absorbed (routed to prefix target or delegated
+// to a sibling folder), meaning the caller should skip further processing for it.
+func (g *Gateway) tryExternalRoute(
+	routes []core.Route, msg core.Message, group core.Group, chatJid, phase string,
+) bool {
+	if pr := findPrefixRoute(routes, msg); pr != nil {
+		if g.handlePrefixRoute(pr, msg, group, chatJid) {
+			slog.Debug(phase+": routed via prefix",
+				"jid", chatJid, "sender", msg.Sender, "match", pr.Match)
+			return true
+		}
+	}
+
+	target := g.resolveTarget(msg, routes, group.Folder)
+	if target != "" && router.IsAuthorizedRoutingTarget(group.Folder, target) {
+		slog.Debug(phase+": delegating to child",
+			"jid", chatJid, "sender", msg.Sender, "target", target)
+		g.delegateToChild(target, msg.Content, chatJid, 0, nil)
+		return true
+	}
+	return false
 }
 
 // logAgentError writes the error to slog and to the group's recovery diary.
