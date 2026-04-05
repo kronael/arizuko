@@ -9,3 +9,4 @@ status: draft
 - [3-chat-ui.md](3-chat-ui.md) `shipped` — webd channel adapter, HTMX UI, slink/SSE, auth planes, JID model
 - [4-hitl-firewall.md](4-hitl-firewall.md) `draft` — human-in-the-loop MCP firewall, pending_actions queue, /dash/review
 - [5-authoring-product.md](5-authoring-product.md) `draft` — author agent product template (SOUL + skills + system prompt), builds on HITL
+- [6-workflows.md](6-workflows.md) `draft` — workflowd daemon, declarative flow files, trigger/step model over shared SQLite bus
