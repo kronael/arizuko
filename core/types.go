@@ -32,6 +32,7 @@ type OutboundEntry struct {
 	GroupFolder   string
 	ReplyToID     string
 	PlatformMsgID string
+	Topic         string
 }
 
 type Group struct {

@@ -589,3 +589,28 @@ func TestStoreOutbound_ExcludedFromMessagesSince(t *testing.T) {
 		t.Fatalf("StoreOutbound row leaked into MessagesSince: %+v", msgs)
 	}
 }
+
+// Regression: StoreOutbound must populate topic + routed_to so web-chat
+// topic queries find bot replies. Before unification the gateway wrote these
+// fields via a separate PutMessage call, producing two rows per reply and
+// leaving StoreOutbound rows invisible to MessagesByTopic.
+func TestStoreOutbound_WritesTopicAndRoutedTo(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	if err := s.StoreOutbound(core.OutboundEntry{
+		ChatJID: "web:main", Content: "hi",
+		Source: "agent", GroupFolder: "main",
+		Topic: "t1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, err := s.MessagesByTopic("main", "t1", time.Now(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].Topic != "t1" || msgs[0].RoutedTo != "main" {
+		t.Fatalf("StoreOutbound row missing topic/routed_to: %+v", msgs)
+	}
+}
