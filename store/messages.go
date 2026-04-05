@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/onvos/arizuko/core"
@@ -49,17 +50,12 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 	if len(jids) == 0 {
 		return nil, since, nil
 	}
-	ph := "("
 	args := make([]any, 0, len(jids)+2)
-	for i, jid := range jids {
-		if i > 0 {
-			ph += ","
-		}
-		ph += "?"
+	for _, jid := range jids {
 		args = append(args, jid)
 	}
-	ph += ")"
 	args = append(args, since.Format(time.RFC3339Nano), botName+"%")
+	ph := "(" + strings.TrimSuffix(strings.Repeat("?,", len(jids)), ",") + ")"
 
 	rows, err := s.db.Query(
 		`SELECT `+msgCols+` FROM messages

@@ -66,33 +66,22 @@ func (s *Store) FlushSysMsgs(folder string) string {
 	defer tx.Rollback()
 
 	rows, err := tx.Query(
-		`SELECT id, origin, event, body FROM system_messages
+		`SELECT origin, event, body FROM system_messages
 		 WHERE group_id = ? ORDER BY id ASC`, folder)
 	if err != nil {
 		return ""
 	}
-	defer rows.Close()
-
 	var b strings.Builder
-	var ids []int64
 	for rows.Next() {
-		var id int64
 		var origin, event, body string
-		rows.Scan(&id, &origin, &event, &body)
-		ids = append(ids, id)
+		rows.Scan(&origin, &event, &body)
 		fmt.Fprintf(&b, "<system origin=%q event=%q>%s</system>\n", origin, event, body)
 	}
+	rows.Close()
 
-	if len(ids) > 0 {
-		ph := strings.Repeat("?,", len(ids))
-		ph = ph[:len(ph)-1]
-		args := make([]any, len(ids))
-		for i, id := range ids {
-			args[i] = id
-		}
-		tx.Exec(`DELETE FROM system_messages WHERE id IN (`+ph+`)`, args...)
+	if b.Len() > 0 {
+		tx.Exec(`DELETE FROM system_messages WHERE group_id = ?`, folder)
 	}
-
 	tx.Commit()
 	return b.String()
 }
