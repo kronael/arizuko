@@ -38,9 +38,13 @@ func main() {
 	case "pair":
 		cmdPair(os.Args[2:])
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
-		os.Exit(1)
+		die("unknown command: %s", os.Args[1])
 	}
+}
+
+func die(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(1)
 }
 
 func cmdRun(args []string) {
@@ -53,8 +57,7 @@ func cmdRun(args []string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: docker compose: %v\n", err)
-		os.Exit(1)
+		die("Failed: docker compose: %v", err)
 	}
 }
 
@@ -69,13 +72,11 @@ func cmdGenerate(args []string) {
 func generateCompose(dataDir string) string {
 	yml, err := compose.Generate(dataDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: %v\n", err)
-		os.Exit(1)
+		die("Failed: %v", err)
 	}
 	outPath := filepath.Join(dataDir, "docker-compose.yml")
 	if err := os.WriteFile(outPath, []byte(yml), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: write compose: %v\n", err)
-		os.Exit(1)
+		die("Failed: write compose: %v", err)
 	}
 	return outPath
 }
@@ -101,8 +102,7 @@ func cmdCreate(args []string) {
 
 	for _, sub := range []string{"store", "groups/main/logs", "ipc", "web", "services"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed: mkdir %s: %v\n", sub, err)
-			os.Exit(1)
+			die("Failed: mkdir %s: %v", sub, err)
 		}
 	}
 
@@ -113,8 +113,7 @@ func cmdCreate(args []string) {
 		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=arizuko-ant:latest\nAPI_PORT=8080\nCHANNEL_SECRET=%s\n",
 			name, hex.EncodeToString(secret))
 		if err := os.WriteFile(envFile, []byte(content), 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed: write .env: %v\n", err)
-			os.Exit(1)
+			die("Failed: write .env: %v", err)
 		}
 	}
 
@@ -122,28 +121,26 @@ func cmdCreate(args []string) {
 
 	s, err := store.Open(filepath.Join(dataDir, "store"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: open db: %v\n", err)
-		os.Exit(1)
+		die("Failed: open db: %v", err)
 	}
-
-	err = s.PutGroup(core.Group{
-		Name:    name,
-		Folder:  "main",
-		AddedAt: time.Now(),
-	})
+	err = s.PutGroup(core.Group{Name: name, Folder: "main", AddedAt: time.Now()})
 	s.Close()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: add default group: %v\n", err)
-		os.Exit(1)
+		die("Failed: add default group: %v", err)
 	}
 
-	if cfg, cfgErr := core.LoadConfigFrom(dataDir); cfgErr == nil {
-		if err := container.SeedGroupDir(cfg, "main"); err != nil {
-			slog.Warn("failed to seed group dir", "folder", "main", "err", err)
-		}
-	}
-
+	seedGroupDir(dataDir, "main")
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
+}
+
+func seedGroupDir(dataDir, folder string) {
+	cfg, err := core.LoadConfigFrom(dataDir)
+	if err != nil {
+		return
+	}
+	if err := container.SeedGroupDir(cfg, folder); err != nil {
+		slog.Warn("failed to seed group dir", "folder", folder, "err", err)
+	}
 }
 
 func cmdGroup(args []string) {
@@ -157,8 +154,7 @@ func cmdGroup(args []string) {
 	dataDir := instanceDir(instance)
 	s, err := store.Open(filepath.Join(dataDir, "store"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: open db: %v\n", err)
-		os.Exit(1)
+		die("Failed: open db: %v", err)
 	}
 	defer s.Close()
 
@@ -183,27 +179,15 @@ func cmdGroup(args []string) {
 
 		groupDir := filepath.Join(dataDir, "groups", folder)
 		if err := os.MkdirAll(filepath.Join(groupDir, "logs"), 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed: mkdir group dir: %v\n", err)
-			os.Exit(1)
+			die("Failed: mkdir group dir: %v", err)
 		}
 		exec.Command("git", "init", groupDir).Run()
 
-		err := s.PutGroup(core.Group{
-			Name:    name,
-			Folder:  folder,
-			AddedAt: time.Now(),
-		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed: add group: %v\n", err)
-			os.Exit(1)
+		if err := s.PutGroup(core.Group{Name: name, Folder: folder, AddedAt: time.Now()}); err != nil {
+			die("Failed: add group: %v", err)
 		}
 		s.AddRoute(jid, core.Route{Seq: 0, Type: "default", Target: folder})
-		cfg, cfgErr := core.LoadConfigFrom(dataDir)
-		if cfgErr == nil {
-			if err := container.SeedGroupDir(cfg, folder); err != nil {
-				slog.Warn("failed to seed group dir", "folder", folder, "err", err)
-			}
-		}
+		seedGroupDir(dataDir, folder)
 		fmt.Printf("added group %s (%s) -> %s\n", name, jid, folder)
 
 	case "rm":
@@ -213,14 +197,12 @@ func cmdGroup(args []string) {
 		}
 		folder := args[2]
 		if err := s.DeleteGroup(folder); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed: remove group: %v\n", err)
-			os.Exit(1)
+			die("Failed: remove group: %v", err)
 		}
 		fmt.Printf("removed group %s\n", folder)
 
 	default:
-		fmt.Fprintf(os.Stderr, "unknown group action: %s\n", action)
-		os.Exit(1)
+		die("unknown group action: %s", action)
 	}
 }
 
@@ -232,20 +214,23 @@ func cmdPair(args []string) {
 	name := args[0]
 	service := args[1]
 	dataDir := instanceDir(name)
-	composePath := filepath.Join(dataDir, "docker-compose.yml")
-	if _, err := os.Stat(composePath); err != nil {
-		fmt.Fprintf(os.Stderr, "no compose file at %s — run 'arizuko generate %s' first\n", composePath, name)
-		os.Exit(1)
-	}
+	composePath := requireCompose(dataDir, name)
 
 	cmdArgs := append([]string{"compose", "-f", composePath, "run", "--rm", service}, args[2:]...)
 	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed: %v\n", err)
-		os.Exit(1)
+		die("Failed: %v", err)
 	}
+}
+
+func requireCompose(dataDir, name string) string {
+	p := filepath.Join(dataDir, "docker-compose.yml")
+	if _, err := os.Stat(p); err != nil {
+		die("no compose file at %s — run 'arizuko generate %s' first", p, name)
+	}
+	return p
 }
 
 func cmdStatus(args []string) {
@@ -255,12 +240,7 @@ func cmdStatus(args []string) {
 	}
 	name := args[0]
 	dataDir := instanceDir(name)
-	composePath := filepath.Join(dataDir, "docker-compose.yml")
-
-	if _, err := os.Stat(composePath); err != nil {
-		fmt.Fprintf(os.Stderr, "no compose file at %s — run 'arizuko generate %s' first\n", composePath, name)
-		os.Exit(1)
-	}
+	composePath := requireCompose(dataDir, name)
 
 	cmd := exec.Command("docker", "compose", "-f", composePath, "ps", "--format",
 		"table {{.Name}}\t{{.Status}}\t{{.Ports}}")
