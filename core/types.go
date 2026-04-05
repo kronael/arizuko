@@ -35,15 +35,13 @@ type OutboundEntry struct {
 }
 
 type Group struct {
-	Name              string
-	Folder            string
-	AddedAt           time.Time
-	Config            GroupConfig
-	SlinkToken        string
-	Parent            string
-	State             string // "active" | "closed" | "archived"; default "active"
-	SpawnTTLDays      int    // days before inactive spawn is closed; default 7
-	ArchiveClosedDays int    // days closed before archival; default 1
+	Name       string
+	Folder     string
+	AddedAt    time.Time
+	Config     GroupConfig
+	SlinkToken string
+	Parent     string
+	State      string // "active" | "closed" | "archived"; default "active"
 }
 
 type GroupConfig struct {
@@ -79,9 +77,8 @@ type Route struct {
 }
 
 const (
-	TaskActive    = "active"
-	TaskPaused    = "paused"
-	TaskCompleted = "completed"
+	TaskActive = "active"
+	TaskPaused = "paused"
 )
 
 type Task struct {
@@ -91,7 +88,7 @@ type Task struct {
 	Prompt      string
 	Cron        string // cron expr, interval ms, or empty for one-shot
 	NextRun     *time.Time
-	Status      string // TaskActive | TaskPaused | TaskCompleted
+	Status      string // TaskActive | TaskPaused
 	Created     time.Time
 	ContextMode string // "group" | "isolated"; default "group"
 }

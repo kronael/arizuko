@@ -51,34 +51,23 @@ func (s *Store) PutGroup(g core.Group) error {
 	if state == "" {
 		state = "active"
 	}
-	ttl := g.SpawnTTLDays
-	if ttl == 0 {
-		ttl = 7
-	}
-	archiveDays := g.ArchiveClosedDays
-	if archiveDays == 0 {
-		archiveDays = 1
-	}
 
 	_, err := s.db.Exec(
 		`INSERT INTO groups
-		 (folder, name, added_at, container_config, slink_token, parent,
-		  state, spawn_ttl_days, archive_closed_days, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 (folder, name, added_at, container_config, slink_token, parent, state, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(folder) DO UPDATE SET
 		   name=excluded.name,
 		   container_config=excluded.container_config,
 		   slink_token=excluded.slink_token,
 		   parent=excluded.parent,
 		   state=excluded.state,
-		   spawn_ttl_days=excluded.spawn_ttl_days,
-		   archive_closed_days=excluded.archive_closed_days,
 		   updated_at=excluded.updated_at`,
 		g.Folder, g.Name,
 		g.AddedAt.Format(time.RFC3339),
 		string(cfgJSON), g.SlinkToken,
 		g.Parent,
-		state, ttl, archiveDays,
+		state,
 		time.Now().Format(time.RFC3339),
 	)
 	return err
@@ -89,8 +78,7 @@ func (s *Store) DeleteGroup(folder string) error {
 	return err
 }
 
-const groupCols = `folder, name, added_at, container_config, slink_token, parent,
-		        state, spawn_ttl_days, archive_closed_days`
+const groupCols = `folder, name, added_at, container_config, slink_token, parent, state`
 
 func (s *Store) AllGroups() map[string]core.Group {
 	rows, err := s.db.Query(`SELECT ` + groupCols + ` FROM groups`)
@@ -203,10 +191,8 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string
 	var cfgJSON, slinkToken, parent, state *string
-	var spawnTTL, archiveDays *int
 
-	if err := r.Scan(&g.Folder, &g.Name, &addedAt, &cfgJSON, &slinkToken, &parent,
-		&state, &spawnTTL, &archiveDays); err != nil {
+	if err := r.Scan(&g.Folder, &g.Name, &addedAt, &cfgJSON, &slinkToken, &parent, &state); err != nil {
 		return g, false
 	}
 
@@ -216,12 +202,6 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	}
 	if parent != nil {
 		g.Parent = *parent
-	}
-	if spawnTTL != nil {
-		g.SpawnTTLDays = *spawnTTL
-	}
-	if archiveDays != nil {
-		g.ArchiveClosedDays = *archiveDays
 	}
 	if cfgJSON != nil {
 		json.Unmarshal([]byte(*cfgJSON), &g.Config)
