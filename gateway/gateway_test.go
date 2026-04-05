@@ -587,6 +587,23 @@ func TestExtFromMime(t *testing.T) {
 			t.Errorf("extFromMime(%q, \"\") = %q, want leading dot", m, got)
 		}
 	}
+
+	// Regression: WhatsApp photos arrive with mime=image/jpeg and no filename.
+	// Go's mime.ExtensionsByType returns `.jfif` (Debian) or `.jpe` (musl)
+	// first; Claude's Read tool only recognizes `.jpg`/`.jpeg`. Pin canonical
+	// extensions for the common types.
+	canonical := map[string]string{
+		"image/jpeg": ".jpg",
+		"image/png":  ".png",
+		"image/gif":  ".gif",
+		"image/webp": ".webp",
+		"audio/ogg":  ".ogg",
+	}
+	for m, want := range canonical {
+		if got := extFromMime(m, ""); got != want {
+			t.Errorf("extFromMime(%q, \"\") = %q, want %q", m, got, want)
+		}
+	}
 }
 
 func TestEnrichAttachments_MediaDisabled(t *testing.T) {

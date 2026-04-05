@@ -603,21 +603,6 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 				lastSentID = sentID
 				g.store.SetLastReplyID(chatJid, topic, sentID)
 			}
-			storeID := sentID
-			if storeID == "" {
-				storeID = fmt.Sprintf("unsent-%d", time.Now().UnixNano())
-			}
-			g.store.PutMessage(core.Message{
-				ID:        storeID,
-				ChatJID:   chatJid,
-				Sender:    g.cfg.Name,
-				Name:      g.cfg.Name,
-				Content:   clean,
-				Timestamp: time.Now(),
-				BotMsg:    true,
-				Topic:     topic,
-				RoutedTo:  groupFolder,
-			})
 			g.store.StoreOutbound(core.OutboundEntry{
 				ChatJID:       chatJid,
 				Content:       clean,
@@ -625,6 +610,7 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 				GroupFolder:   groupFolder,
 				ReplyToID:     lastSentID,
 				PlatformMsgID: sentID,
+				Topic:         topic,
 			})
 		}
 	}, &hadOutput
@@ -1032,11 +1018,29 @@ func sanitizeFilename(name string) string {
 	return s
 }
 
+// preferredExts pins canonical extensions so agents see file types Claude's
+// Read tool recognizes. Without this, `mime.ExtensionsByType("image/jpeg")`
+// picks `.jfif` or `.jpe` depending on the host's /etc/mime.types, and Claude
+// can't natively load those.
+var preferredExts = map[string]string{
+	"image/jpeg": ".jpg",
+	"image/png":  ".png",
+	"image/gif":  ".gif",
+	"image/webp": ".webp",
+	"audio/ogg":  ".ogg",
+	"audio/mpeg": ".mp3",
+	"audio/mp4":  ".m4a",
+	"video/mp4":  ".mp4",
+}
+
 func extFromMime(mimeType, filename string) string {
 	if filename != "" {
 		if ext := filepath.Ext(filename); ext != "" {
 			return strings.ToLower(ext)
 		}
+	}
+	if ext, ok := preferredExts[mimeType]; ok {
+		return ext
 	}
 	exts, _ := mime.ExtensionsByType(mimeType)
 	if len(exts) > 0 {
