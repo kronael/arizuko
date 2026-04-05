@@ -100,14 +100,21 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		JID  string `json:"jid"`
-		Text string `json:"text"`
+		JID     string `json:"jid"`
+		Text    string `json:"text"`
+		Channel string `json:"channel,omitempty"` // optional: pin to specific adapter
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.JID == "" || req.Text == "" {
 		chanlib.WriteErr(w, http.StatusBadRequest, "jid and text required")
 		return
 	}
-	entry := s.reg.ForJID(req.JID)
+	var entry *chanreg.Entry
+	if req.Channel != "" {
+		entry = s.reg.Get(req.Channel)
+	}
+	if entry == nil {
+		entry = s.reg.ForJID(req.JID)
+	}
 	if entry == nil {
 		chanlib.WriteErr(w, http.StatusNotFound, "no channel for jid")
 		return

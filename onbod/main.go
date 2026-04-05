@@ -311,7 +311,7 @@ func poll(db *sql.DB, cfg config) {
 
 func promptNew(db *sql.DB, cfg config) {
 	rows, err := db.Query(
-		`SELECT jid FROM onboarding WHERE status = 'awaiting_name' AND prompted_at IS NULL`)
+		`SELECT jid, channel FROM onboarding WHERE status = 'awaiting_name' AND prompted_at IS NULL`)
 	if err != nil {
 		slog.Error("promptNew query", "err", err)
 		return
@@ -320,18 +320,18 @@ func promptNew(db *sql.DB, cfg config) {
 
 	now := time.Now().Format(time.RFC3339)
 	for rows.Next() {
-		var jid string
-		rows.Scan(&jid)
-		sendReply(cfg, jid, "Pick a name for your workspace:")
+		var jid, channel string
+		rows.Scan(&jid, &channel)
+		sendReply(cfg, jid, "Pick a name for your workspace:", channel)
 		db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`, now, jid)
-		slog.Info("prompted new user", "jid", jid)
+		slog.Info("prompted new user", "jid", jid, "channel", channel)
 	}
 }
 
-type onboardRow struct{ jid, promptedAt string }
+type onboardRow struct{ jid, promptedAt, channel string }
 
 func queryOnboarding(db *sql.DB, status string, promptedNotNull bool) ([]onboardRow, error) {
-	q := `SELECT jid, prompted_at FROM onboarding WHERE status = ?`
+	q := `SELECT jid, prompted_at, channel FROM onboarding WHERE status = ?`
 	if promptedNotNull {
 		q += ` AND prompted_at IS NOT NULL`
 	}
@@ -343,7 +343,7 @@ func queryOnboarding(db *sql.DB, status string, promptedNotNull bool) ([]onboard
 	var out []onboardRow
 	for rows.Next() {
 		var r onboardRow
-		rows.Scan(&r.jid, &r.promptedAt)
+		rows.Scan(&r.jid, &r.promptedAt, &r.channel)
 		out = append(out, r)
 	}
 	return out, nil
@@ -369,7 +369,7 @@ func checkNameResponse(db *sql.DB, cfg config) {
 
 		name := strings.TrimSpace(content)
 		if !nameRE.MatchString(name) {
-			sendReply(cfg, r.jid, "Invalid name. Use lowercase letters, numbers, and hyphens only. Try again:")
+			sendReply(cfg, r.jid, "Invalid name. Use lowercase letters, numbers, and hyphens only. Try again:", r.channel)
 
 			db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`,
 				time.Now().Format(time.RFC3339), r.jid)
@@ -377,7 +377,7 @@ func checkNameResponse(db *sql.DB, cfg config) {
 		}
 
 		if nameTaken(db, name, r.jid) {
-			sendReply(cfg, r.jid, "That name is already taken. Try another:")
+			sendReply(cfg, r.jid, "That name is already taken. Try another:", r.channel)
 			db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`,
 				time.Now().Format(time.RFC3339), r.jid)
 			continue
@@ -415,7 +415,7 @@ func checkPendingMessages(db *sql.DB, cfg config) {
 			continue
 		}
 
-		sendReply(cfg, r.jid, "Still waiting for approval.")
+		sendReply(cfg, r.jid, "Still waiting for approval.", r.channel)
 		db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`,
 			time.Now().Format(time.RFC3339), r.jid)
 	}
@@ -464,8 +464,12 @@ func rootJIDs(db *sql.DB) []string {
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func sendReply(cfg config, jid, text string) {
-	body, _ := json.Marshal(map[string]string{"jid": jid, "text": text})
+func sendReply(cfg config, jid, text string, channel ...string) {
+	payload := map[string]string{"jid": jid, "text": text}
+	if len(channel) > 0 && channel[0] != "" {
+		payload["channel"] = channel[0]
+	}
+	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", cfg.gatedURL+"/v1/outbound", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if cfg.secret != "" {
