@@ -34,7 +34,7 @@ type GatedFns struct {
 	GetGroups        func() map[string]core.Group
 	DelegateToChild  func(folder, prompt, jid string, depth int, rules []string) error
 	DelegateToParent func(folder, prompt, jid string, depth int, rules []string) error
-	SpawnGroup       func(parentJID, childJID string) (core.Group, error)
+	SpawnGroup       func(parentFolder, childJID string) (core.Group, error)
 	GroupsDir        string
 	HostGroupsDir    string
 	WebDir           string
@@ -387,8 +387,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				if gated.SpawnGroup == nil {
 					return toolErr("register_group: fromPrototype not configured")
 				}
-				// SpawnGroup resolves parentJID→folder internally
-				child, err := gated.SpawnGroup(jid, jid)
+				// Parent is the calling agent's own folder
+				child, err := gated.SpawnGroup(folder, jid)
 				if err != nil {
 					return toolErr(err.Error())
 				}

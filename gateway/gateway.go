@@ -118,15 +118,14 @@ func (g *Gateway) Run(ctx context.Context) error {
 		GetGroups: g.getGroups,
 		DelegateToChild:  g.delegateToChild,
 		DelegateToParent: g.delegateToParent,
-		SpawnGroup: func(parentJID, childJID string) (core.Group, error) {
+		SpawnGroup: func(parentFolder, childJID string) (core.Group, error) {
 			g.mu.RLock()
-			parentFolder := g.jidToFolder[parentJID]
-			parent, ok := g.groups[parentFolder]
+			_, ok := g.groups[parentFolder]
 			g.mu.RUnlock()
 			if !ok {
-				return core.Group{}, fmt.Errorf("parent group not found: %s", parentJID)
+				return core.Group{}, fmt.Errorf("parent group not found: %s", parentFolder)
 			}
-			return g.spawnFromPrototype(parent.Folder, childJID)
+			return g.spawnFromPrototype(parentFolder, childJID)
 		},
 	}
 	g.storeFns = ipc.StoreFns{
