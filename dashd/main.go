@@ -221,18 +221,18 @@ func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<table hx-get="/dash/tasks/x/list" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">
 <thead><tr><th>ID</th><th>Group</th><th>Cron</th><th>Status</th><th>Created</th><th>Next Run</th></tr></thead>
 <tbody>`)
-	writeTaskRows(d.db, w)
+	d.writeTaskRows(w)
 	fmt.Fprint(w, `</tbody></table>`)
 	fmt.Fprint(w, pageBot)
 }
 
 func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	writeTaskRows(d.db, w)
+	d.writeTaskRows(w)
 }
 
-func writeTaskRows(db *sql.DB, w http.ResponseWriter) {
-	rows, err := db.Query(
+func (d *dash) writeTaskRows(w http.ResponseWriter) {
+	rows, err := d.db.Query(
 		`SELECT id, owner, cron, status, created_at, next_run
 		 FROM scheduled_tasks ORDER BY owner, id`)
 	if err != nil {
@@ -261,18 +261,18 @@ func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<table hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">
 <thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Group</th><th>Verb</th><th>Content</th></tr></thead>
 <tbody>`)
-	writeActivityRows(d.db, w)
+	d.writeActivityRows(w)
 	fmt.Fprint(w, `</tbody></table>`)
 	fmt.Fprint(w, pageBot)
 }
 
 func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	writeActivityRows(d.db, w)
+	d.writeActivityRows(w)
 }
 
-func writeActivityRows(db *sql.DB, w http.ResponseWriter) {
-	rows, err := db.Query(
+func (d *dash) writeActivityRows(w http.ResponseWriter) {
+	rows, err := d.db.Query(
 		`SELECT timestamp, source, chat_jid, sender, group_folder, verb, substr(content,1,80)
 		 FROM messages ORDER BY timestamp DESC LIMIT 50`)
 	if err != nil {
