@@ -30,9 +30,33 @@ one place to change policy.
 
 1. `WEB_REDIRECTS` — JSON prefix map to arbitrary upstreams
 2. `/auth/*` — handled locally (login, OAuth, logout, refresh)
-3. `/dash/*` → `DASH_ADDR` (dashd), auth-gated
-4. `/slink/*` → `WEBD_ADDR`, public (slink token resolved at proxyd)
-5. `/*` → `WEBD_ADDR` (or `VITE_ADDR` fallback), auth-gated unless `WEB_PUBLIC=true`
+3. `/pub/*` → `WEBD_ADDR` (or `VITE_ADDR` fallback), **public** (no auth)
+4. `/dash/*` → `DASH_ADDR` (dashd), auth-gated
+5. `/slink/*` → `WEBD_ADDR`, public (slink token resolved at proxyd)
+6. `/*` → auth-gated; on unauth, redirects to `/auth/login` (NOT a 404)
+
+**`/pub/` is the public zone.** Agent-generated websites live under
+`/workspace/web/pub/<app-name>/index.html` (host:
+`<DATA_DIR>/groups/<folder>/web/pub/<app-name>/`) and are served
+without auth. Everything outside `/pub/` requires a valid JWT or
+refresh-token cookie.
+
+**Fail-closed on missing `AUTH_SECRET`.** When `AUTH_SECRET` is
+empty, `requireAuth` short-circuits to `http.NotFound` — private
+routes become unreachable by anyone. `/pub/*` and `/auth/*` still
+route normally so the public zone and login page remain available.
+This is deliberately fail-closed: earlier logic silently accepted
+any token when the secret was empty.
+
+**Root redirect.** `GET /` and `GET /pub` both redirect to `/pub/`
+(302 Found). Anonymous visitors landing on `https://<host>/` see
+the public zone instead of a redirect loop or login wall.
+
+**Vhosts take precedence.** If `Host` matches an entry in
+`vhosts.json` (hot-reloaded every 5s), the request is rewritten to
+`/<world>/<path>` and proxied to `viteProxy` regardless of
+`/pub/` vs auth-gated path prefixes. Used to mount a whole group's
+web dir at a custom hostname.
 
 **Web channel.** Implemented as a separate channel adapter (`webd/`)
 registered via chanreg — consistent with teled, discd, etc. proxyd

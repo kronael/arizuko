@@ -210,6 +210,37 @@ No JID prefixes — router sends to them only when a route rule
 targets their service name. See individual service specs for
 their registration details.
 
+### Outbound via router (`/v1/outbound`)
+
+Internal services (onbod, timed, dashd) send outbound messages
+through the router rather than POSTing adapter `/send` endpoints
+directly. This lets the router resolve the correct adapter by
+JID prefix and enforce auth:
+
+```
+POST /v1/outbound
+Authorization: Bearer <CHANNEL_SECRET>
+
+{
+  "jid":     "<chat_jid>",
+  "text":    "<reply text>",
+  "channel": "telegram-REDACTED"   // optional: pin to a specific adapter
+}
+
+→ 200 {"ok": true}
+```
+
+**Adapter pinning (`channel` field).** When multiple adapters share
+the same JID prefix (e.g. primary `telegram` + `telegram-REDACTED` both
+handle `telegram:`), `reg.ForJID` would pick whichever registered
+first — which may not be a member of the chat. The optional `channel`
+field pins delivery to a specific adapter name. If the named adapter
+isn't registered, the router falls back to prefix matching.
+
+onbod reads `onboarding.channel` (set when the user's first message
+was ingested) and threads it through every `sendReply` call. This
+avoids 502s when the conversation started on a non-primary adapter.
+
 ## Route targets
 
 A route target is either:

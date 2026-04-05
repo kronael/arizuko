@@ -35,6 +35,7 @@ See `specs/4/1-channel-protocol.md` for full HTTP protocol spec.
 | mastd  | Mastodon | `mastodon:` | 9004 | shipped |
 | bskyd  | Bluesky  | `bluesky:`  | 9005 | shipped |
 | reditd | Reddit   | `reddit:`   | 9006 | shipped |
+| whapd  | WhatsApp | `whatsapp:` | 9007 | shipped |
 
 ## Capabilities
 
@@ -45,6 +46,7 @@ See `specs/4/1-channel-protocol.md` for full HTTP protocol spec.
 | mastd   | yes       | —         | —      |
 | bskyd   | yes       | —         | —      |
 | reditd  | yes       | —         | —      |
+| whapd   | yes       | yes       | yes    |
 
 ## Environment variables
 
@@ -106,6 +108,27 @@ Persistent TLS connection; server pushes EXISTS on new messages.
 Reconnects with exponential backoff on error.
 Config: `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_IMAP_PORT` (default 993),
 `EMAIL_SMTP_PORT` (default 587), `EMAIL_USER`, `EMAIL_PASS`.
+
+## whapd
+
+WhatsApp adapter written in TypeScript using Baileys. JID format:
+`whatsapp:<phone>` for DMs, `whatsapp:<group-id>@g.us` for groups.
+Credentials stored under `DATA_DIR/baileys/` via Baileys
+`useMultiFileAuthState`. Pairing uses QR code on first run.
+
+**Registration resilience.** Router registration is retried with
+exponential backoff — whapd never calls `process.exit()` on
+register failure. The prior behavior caused a restart loop that
+truncated `creds.json` mid-write during the next container kill,
+because Baileys' `writeFile` is non-atomic.
+
+**Credential recovery.** On startup whapd calls `recoverCredsIfEmpty`
+to restore from `creds.json.bak` if the live file is 0 bytes, and
+`backupCreds` before any rewrite. Stale backups (>3 days) require a
+manual QR re-pair.
+
+Config: `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_URL` (default
+`http://whapd:9007`), `DATA_DIR` (default `/data`).
 
 ## Layout
 

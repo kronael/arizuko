@@ -89,6 +89,31 @@ functions are injected as callbacks at server creation time.
 copies the caller's `prototype/` directory into the new child folder before
 registering. Merges the former `spawn_group` tool.
 
+### SpawnGroup contract
+
+The gated callback is `SpawnGroup(parentFolder, childJID string)`.
+The caller passes **its own folder** as `parentFolder` rather than a
+JID to look up — earlier versions took `(parentJID, childJID)` and
+resolved `parentJID → folder` via the routes table, which silently
+failed when the child agent's own JID had no default route (the
+common case, because the child only learns about itself through
+its socket path).
+
+### Route mutation safety
+
+`delete_route` and `set_routes` MUST refuse to remove a caller's own
+tier-0 default route. The guard protects against self-harm: an agent
+chasing adapter-routing 502s once deleted its own default route on
+REDACTED, leaving its JID unrouted and triggering onboarding again.
+
+```go
+if route.Type == "default" && route.Target == folder {
+    return toolErr("cannot delete own default route")
+}
+```
+
+Root-tier callers retain the ability to delete routes they don't own.
+
 ## Request flow
 
 ```

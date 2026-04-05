@@ -34,15 +34,31 @@ status: draft
 
 ### Groups
 
-| Action              | MCP | Input                                                                                        |
-| ------------------- | --- | -------------------------------------------------------------------------------------------- |
-| `refresh_groups`    | yes | --                                                                                           |
-| `register_group`    | yes | `{ jid, name, folder, trigger, requiresTrigger?, containerConfig?, parent?, routingRules? }` |
-| `delegate_group`    | yes | `{ group, prompt, chatJid, depth? }`                                                         |
-| `set_routing_rules` | yes | `{ folder, rules }`                                                                          |
+| Action           | MCP | Input                                                                               |
+| ---------------- | --- | ----------------------------------------------------------------------------------- |
+| `refresh_groups` | yes | --                                                                                  |
+| `register_group` | yes | `{ jid, name?, folder?, fromPrototype?, containerConfig?, parent?, routingRules? }` |
+| `delegate_group` | yes | `{ group, prompt, chatJid, depth? }`                                                |
+| `escalate_group` | yes | `{ prompt, chatJid, depth? }`                                                       |
 
 `register_group` requires root. `delegate_group` authorized by
 `isAuthorizedRoutingTarget(sourceGroup, group)`; `depth` max 3.
+`fromPrototype=true` copies the caller's `prototype/` into the new
+child folder and spawns the group via gated (see specs/4/10-ipc.md
+for the `SpawnGroup(parentFolder, childJID)` contract).
+
+### Routes
+
+| Action         | MCP | Input                                |
+| -------------- | --- | ------------------------------------ |
+| `get_routes`   | yes | `{ jid }`                            |
+| `list_routes`  | yes | `{ folder? }`                        |
+| `set_routes`   | yes | `{ jid, routes[] }`                  |
+| `add_route`    | yes | `{ jid, type, seq, match?, target }` |
+| `delete_route` | yes | `{ id }`                             |
+
+`delete_route` and `set_routes` refuse to remove the caller's own
+tier-0 default route (self-harm guard).
 
 ### Sidecars (not yet implemented)
 
