@@ -221,13 +221,7 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 		}
 	}
 
-	now := time.Now().Format(time.RFC3339)
-	welcomeID := fmt.Sprintf("onboard-welcome-%s-%d", targetJID, time.Now().UnixNano())
-	welcomeBody := fmt.Sprintf(
-		`<system_event type="onboard_welcome">Your workspace %s is ready. Welcome!</system_event>`,
-		worldName)
-
-	if err := approveInTx(db, targetJID, worldName, now, welcomeID, welcomeBody); err != nil {
+	if err := approveInTx(db, targetJID, worldName); err != nil {
 		slog.Error("approve tx", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -245,13 +239,14 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 	w.WriteHeader(http.StatusOK)
 }
 
-func approveInTx(db *sql.DB, jid, world, now, welcomeID, welcomeBody string) error {
+func approveInTx(db *sql.DB, jid, world string) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
+	now := time.Now().Format(time.RFC3339)
 	if _, err := tx.Exec(
 		`INSERT OR IGNORE INTO groups (folder, name, added_at) VALUES (?, ?, ?)`,
 		world, world, now); err != nil {
@@ -263,6 +258,10 @@ func approveInTx(db *sql.DB, jid, world, now, welcomeID, welcomeBody string) err
 		jid, world, jid, world, jid, world); err != nil {
 		return err
 	}
+	welcomeID := fmt.Sprintf("onboard-welcome-%s-%d", jid, time.Now().UnixNano())
+	welcomeBody := fmt.Sprintf(
+		`<system_event type="onboard_welcome">Your workspace %s is ready. Welcome!</system_event>`,
+		world)
 	if _, err := tx.Exec(
 		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
 		 VALUES (?, ?, 'system', ?, ?, 1, 1, 'onboarding', '')`,
