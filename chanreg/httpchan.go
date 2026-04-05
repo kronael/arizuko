@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
@@ -50,14 +49,7 @@ func (h *HTTPChannel) Name() string { return h.entry.Name }
 
 func (h *HTTPChannel) Connect(_ context.Context) error { return nil }
 
-func (h *HTTPChannel) Owns(jid string) bool {
-	for _, p := range h.entry.JIDPrefixes {
-		if strings.HasPrefix(jid, p) {
-			return true
-		}
-	}
-	return false
-}
+func (h *HTTPChannel) Owns(jid string) bool { return ownsJID(h.entry, jid) }
 
 func (h *HTTPChannel) Send(jid, text, replyTo, threadID string) (string, error) {
 	if !h.entry.HasCap("send_text") {
@@ -152,17 +144,7 @@ func (h *HTTPChannel) Typing(jid string, on bool) error {
 
 func (h *HTTPChannel) Disconnect() error { return nil }
 
-func (h *HTTPChannel) HealthCheck() error {
-	resp, err := h.client.Get(h.entry.URL + "/health")
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health: status %d", resp.StatusCode)
-	}
-	return nil
-}
+func (h *HTTPChannel) HealthCheck() error { return healthPing(h.client, h.entry.URL) }
 
 func (h *HTTPChannel) DrainOutbox() {
 	h.mu.Lock()

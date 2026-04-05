@@ -98,23 +98,35 @@ func (r *Registry) All() map[string]*Entry {
 
 func (r *Registry) Secret() string { return r.secret }
 
+// ForJID returns an adapter that owns jid. When multiple adapters share a
+// prefix, prefers the primary (bare name) over suffixed variants
+// (e.g. "telegram" over "telegram-REDACTED"). Callers needing exact routing
+// should pass the adapter name explicitly.
 func (r *Registry) ForJID(jid string) *Entry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var first *Entry
+	var fallback *Entry
 	for _, e := range r.entries {
-		for _, p := range e.JIDPrefixes {
-			if strings.HasPrefix(jid, p) {
-				if !strings.Contains(e.Name, "-") {
-					return e // prefer the primary adapter (no suffix)
-				}
-				if first == nil {
-					first = e
-				}
-			}
+		if !ownsJID(e, jid) {
+			continue
+		}
+		if !strings.Contains(e.Name, "-") {
+			return e
+		}
+		if fallback == nil {
+			fallback = e
 		}
 	}
-	return first
+	return fallback
+}
+
+func ownsJID(e *Entry, jid string) bool {
+	for _, p := range e.JIDPrefixes {
+		if strings.HasPrefix(jid, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Registry) RecordHealthFail(name string) int {
