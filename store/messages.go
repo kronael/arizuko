@@ -40,9 +40,10 @@ func nilIfEmpty(s string) *string {
 	return &s
 }
 
-const msgCols = `id, chat_jid, sender, sender_name, content, timestamp,
-	is_from_me, is_bot_message, forwarded_from,
-	reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments`
+const msgCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp,
+	is_from_me, is_bot_message, COALESCE(forwarded_from,''),
+	COALESCE(reply_to_id,''), COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''),
+	topic, routed_to, verb, attachments`
 
 func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]core.Message, time.Time, error) {
 	if len(jids) == 0 {
@@ -131,32 +132,11 @@ func scanMessage(r rowScanner) (core.Message, time.Time, error) {
 	var m core.Message
 	var ts string
 	var fromMe, botMsg int
-	var name, fwdFrom, replyID, replyText, replySender, topic, routedTo *string
-	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &name, &m.Content,
-		&ts, &fromMe, &botMsg, &fwdFrom, &replyID, &replyText, &replySender, &topic, &routedTo, &m.Verb,
-		&m.Attachments); err != nil {
+	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content,
+		&ts, &fromMe, &botMsg, &m.ForwardedFrom,
+		&m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
+		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments); err != nil {
 		return m, time.Time{}, err
-	}
-	if name != nil {
-		m.Name = *name
-	}
-	if fwdFrom != nil {
-		m.ForwardedFrom = *fwdFrom
-	}
-	if replyID != nil {
-		m.ReplyToID = *replyID
-	}
-	if replyText != nil {
-		m.ReplyToText = *replyText
-	}
-	if replySender != nil {
-		m.ReplyToSender = *replySender
-	}
-	if topic != nil {
-		m.Topic = *topic
-	}
-	if routedTo != nil {
-		m.RoutedTo = *routedTo
 	}
 	m.FromMe = fromMe != 0
 	m.BotMsg = botMsg != 0
