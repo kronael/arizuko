@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"strings"
 
 	"github.com/onvos/arizuko/core"
@@ -14,11 +15,18 @@ func platformPrefix(jid string) string {
 	return jid[:i+1]
 }
 
+const routeCols = `id, jid, seq, type, COALESCE(match,''), target, COALESCE(impulse_config,'')`
+
+func scanRoute(r rowScanner) (core.Route, error) {
+	var rt core.Route
+	err := r.Scan(&rt.ID, &rt.JID, &rt.Seq, &rt.Type, &rt.Match, &rt.Target, &rt.ImpulseConfig)
+	return rt, err
+}
+
 func (s *Store) GetRoutes(jid string) []core.Route {
 	prefix := platformPrefix(jid)
 	rows, err := s.db.Query(
-		`SELECT id, jid, seq, type, COALESCE(match, ''), target, COALESCE(impulse_config, '')
-		 FROM routes WHERE jid = ? OR jid = ?
+		`SELECT `+routeCols+` FROM routes WHERE jid = ? OR jid = ?
 		 ORDER BY CASE jid WHEN ? THEN 0 ELSE 1 END, seq ASC`,
 		jid, prefix, jid)
 	if err != nil {
@@ -27,18 +35,15 @@ func (s *Store) GetRoutes(jid string) []core.Route {
 	defer rows.Close()
 	var out []core.Route
 	for rows.Next() {
-		var r core.Route
-		rows.Scan(&r.ID, &r.JID, &r.Seq, &r.Type, &r.Match, &r.Target, &r.ImpulseConfig)
-		out = append(out, r)
+		if r, err := scanRoute(rows); err == nil {
+			out = append(out, r)
+		}
 	}
 	return out
 }
 
 func (s *Store) GetRoute(id int64) (core.Route, bool) {
-	var r core.Route
-	err := s.db.QueryRow(
-		`SELECT id, jid, seq, type, COALESCE(match, ''), target, COALESCE(impulse_config, '') FROM routes WHERE id = ?`, id,
-	).Scan(&r.ID, &r.JID, &r.Seq, &r.Type, &r.Match, &r.Target, &r.ImpulseConfig)
+	r, err := scanRoute(s.db.QueryRow(`SELECT ` + routeCols + ` FROM routes WHERE id = ?`, id))
 	return r, err == nil
 }
 
@@ -87,27 +92,25 @@ func (s *Store) DeleteRoute(id int64) error {
 }
 
 func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
-	var q string
-	var args []any
+	var rows *sql.Rows
+	var err error
 	if isRoot {
-		q = `SELECT id, jid, seq, type, COALESCE(match,''), target, COALESCE(impulse_config,'')
-		     FROM routes ORDER BY jid, seq`
+		rows, err = s.db.Query(`SELECT ` + routeCols + ` FROM routes ORDER BY jid, seq`)
 	} else {
-		q = `SELECT id, jid, seq, type, COALESCE(match,''), target, COALESCE(impulse_config,'')
-		     FROM routes WHERE target = ? OR target LIKE ?||'/%'
-		     ORDER BY jid, seq`
-		args = []any{folder, folder}
+		rows, err = s.db.Query(
+			`SELECT `+routeCols+` FROM routes
+			 WHERE target = ? OR target LIKE ?||'/%'
+			 ORDER BY jid, seq`, folder, folder)
 	}
-	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
 	var out []core.Route
 	for rows.Next() {
-		var r core.Route
-		rows.Scan(&r.ID, &r.JID, &r.Seq, &r.Type, &r.Match, &r.Target, &r.ImpulseConfig)
-		out = append(out, r)
+		if r, err := scanRoute(rows); err == nil {
+			out = append(out, r)
+		}
 	}
 	return out
 }
