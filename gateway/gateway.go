@@ -636,12 +636,9 @@ func (g *Gateway) runAgentWithOpts(
 	rules []string, topic string, msgID string, msgCount int,
 ) container.Output {
 	var sessionID string
-	if !isolated {
-		sessionID, _ = g.store.GetSession(group.Folder, topic)
-	}
-
 	var logRowID int64
 	if !isolated {
+		sessionID, _ = g.store.GetSession(group.Folder, topic)
 		logRowID, _ = g.store.RecordSession(group.Folder, sessionID, time.Now())
 	}
 
@@ -698,21 +695,18 @@ func (g *Gateway) runAgentWithOpts(
 	}
 
 	result := "ok"
-	errStr := ""
-	switch {
-	case out.Error != "" && strings.Contains(out.Error, "timed out"):
-		result = "timeout"
-		errStr = out.Error
-	case out.Error != "":
+	if out.Error != "" {
 		result = "error"
-		errStr = out.Error
+		if strings.Contains(out.Error, "timed out") {
+			result = "timeout"
+		}
 	}
 	effectiveSID := out.NewSessionID
 	if effectiveSID == "" {
 		effectiveSID = sessionID
 	}
 	if logRowID > 0 {
-		if err := g.store.EndSession(logRowID, effectiveSID, result, errStr, msgCount); err != nil {
+		if err := g.store.EndSession(logRowID, effectiveSID, result, out.Error, msgCount); err != nil {
 			slog.Warn("end session log failed", "group", group.Folder, "err", err)
 		}
 	}

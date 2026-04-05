@@ -72,40 +72,32 @@ func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
 func (g *Gateway) cmdNew(chatJid string, group core.Group, arg string) bool {
 	g.store.ClearChatErrored(chatJid)
 
+	label := "Session cleared."
+	followup := ""
 	if strings.HasPrefix(arg, "#") {
+		label = "Topic session cleared."
 		name, rest, _ := parsePrefix(arg)
-		topic := "#" + name
-		g.store.DeleteSession(group.Folder, topic)
+		g.store.DeleteSession(group.Folder, "#"+name)
 		if rest != "" {
-			g.store.PutMessage(core.Message{
-				ID:        fmt.Sprintf("cmd-new-%d", time.Now().UnixNano()),
-				ChatJID:   chatJid,
-				Sender:    "user",
-				Content:   "#" + name + " " + rest,
-				Timestamp: time.Now(),
-			})
-			g.queue.EnqueueMessageCheck(chatJid)
-			g.sendMessage(chatJid, "Topic session cleared. Processing your message...")
-		} else {
-			g.sendMessage(chatJid, "Topic session cleared.")
+			followup = "#" + name + " " + rest
 		}
-		return true
+	} else {
+		g.clearSession(group.Folder)
+		followup = arg
 	}
 
-	g.clearSession(group.Folder)
-
-	if arg != "" {
+	if followup != "" {
 		g.store.PutMessage(core.Message{
 			ID:        fmt.Sprintf("cmd-new-%d", time.Now().UnixNano()),
 			ChatJID:   chatJid,
 			Sender:    "user",
-			Content:   arg,
+			Content:   followup,
 			Timestamp: time.Now(),
 		})
 		g.queue.EnqueueMessageCheck(chatJid)
-		g.sendMessage(chatJid, "Session cleared. Processing your message...")
+		g.sendMessage(chatJid, label+" Processing your message...")
 	} else {
-		g.sendMessage(chatJid, "Session cleared.")
+		g.sendMessage(chatJid, label)
 	}
 	return true
 }
