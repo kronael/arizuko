@@ -868,7 +868,7 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 				continue
 			}
 		} else {
-			if err := downloadFile(att.URL, dest, g.cfg.MediaMaxBytes); err != nil {
+			if err := downloadFile(att.URL, dest, g.cfg.ChannelSecret, g.cfg.MediaMaxBytes); err != nil {
 				slog.Warn("enrich: download failed", "url", att.URL, "err", err)
 				continue
 			}
@@ -910,8 +910,15 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 	}
 }
 
-func downloadFile(url, dest string, maxBytes int64) error {
-	resp, err := httpClient.Get(url) //nolint:noctx
+func downloadFile(url, dest, secret string, maxBytes int64) error {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	if secret != "" {
+		req.Header.Set("Authorization", "Bearer "+secret)
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
