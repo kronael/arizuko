@@ -40,6 +40,10 @@ func nilIfEmpty(s string) *string {
 	return &s
 }
 
+const msgCols = `id, chat_jid, sender, sender_name, content, timestamp,
+	is_from_me, is_bot_message, forwarded_from,
+	reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments`
+
 func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]core.Message, time.Time, error) {
 	if len(jids) == 0 {
 		return nil, since, nil
@@ -54,14 +58,10 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 		args = append(args, jid)
 	}
 	ph += ")"
-	sinceStr := since.Format(time.RFC3339Nano)
-	args = append(args, sinceStr, botName+"%")
+	args = append(args, since.Format(time.RFC3339Nano), botName+"%")
 
 	rows, err := s.db.Query(
-		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
-		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments
-		 FROM messages
+		`SELECT `+msgCols+` FROM messages
 		 WHERE chat_jid IN `+ph+`
 		   AND timestamp > ?
 		   AND is_bot_message = 0
@@ -95,10 +95,7 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 
 func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]core.Message, error) {
 	rows, err := s.db.Query(
-		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
-		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments
-		 FROM messages
+		`SELECT `+msgCols+` FROM messages
 		 WHERE chat_jid = ?
 		   AND timestamp > ?
 		   AND is_bot_message = 0
@@ -209,10 +206,7 @@ func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit in
 		limit = 50
 	}
 	rows, err := s.db.Query(
-		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
-		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments
-		 FROM messages
+		`SELECT `+msgCols+` FROM messages
 		 WHERE chat_jid = ? AND topic = ? AND timestamp < ?
 		 ORDER BY timestamp DESC
 		 LIMIT ?`,
@@ -248,10 +242,7 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 		limit = 50
 	}
 	rows, err := s.db.Query(
-		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
-		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments
-		 FROM messages
+		`SELECT `+msgCols+` FROM messages
 		 WHERE chat_jid = ? AND topic = ? AND timestamp > ?
 		 ORDER BY timestamp ASC
 		 LIMIT ?`,
@@ -265,14 +256,11 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 
 func (s *Store) ObservedMessagesSince(groupFolder, excludeJid, since string) []core.Message {
 	rows, err := s.db.Query(
-		`SELECT DISTINCT m.id, m.chat_jid, m.sender, m.sender_name, m.content, m.timestamp,
-		        m.is_from_me, m.is_bot_message, m.forwarded_from,
-		        m.reply_to_id, m.reply_to_text, m.reply_to_sender, m.topic, m.routed_to, m.verb, m.attachments
-		 FROM messages m
-		 JOIN routes r ON (r.jid = m.chat_jid OR r.jid = substr(m.chat_jid, 1, instr(m.chat_jid, ':')))
-		 WHERE r.target = ? AND m.chat_jid != ? AND m.timestamp > ?
-		   AND m.is_bot_message = 0 AND m.content != '' AND m.content IS NOT NULL
-		 ORDER BY m.timestamp ASC
+		`SELECT DISTINCT `+msgCols+` FROM messages
+		 JOIN routes r ON (r.jid = messages.chat_jid OR r.jid = substr(messages.chat_jid, 1, instr(messages.chat_jid, ':')))
+		 WHERE r.target = ? AND messages.chat_jid != ? AND messages.timestamp > ?
+		   AND messages.is_bot_message = 0 AND messages.content != '' AND messages.content IS NOT NULL
+		 ORDER BY messages.timestamp ASC
 		 LIMIT 100`,
 		groupFolder, excludeJid, since,
 	)
@@ -365,10 +353,7 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 		before = time.Now()
 	}
 	rows, err := s.db.Query(
-		`SELECT id, chat_jid, sender, sender_name, content, timestamp,
-		        is_from_me, is_bot_message, forwarded_from,
-		        reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments
-		 FROM messages
+		`SELECT `+msgCols+` FROM messages
 		 WHERE chat_jid = ? AND timestamp < ? AND is_bot_message = 0
 		 ORDER BY timestamp DESC
 		 LIMIT ?`,
