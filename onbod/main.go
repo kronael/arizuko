@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"database/sql"
-	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -19,15 +18,9 @@ import (
 
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/dbmig"
 	"github.com/onvos/arizuko/notify"
 	_ "modernc.org/sqlite"
 )
-
-//go:embed migrations/*.sql
-var migrationFS embed.FS
-
-const serviceName = "onbod"
 
 var nameRE = regexp.MustCompile(`^[a-z0-9-]+$`)
 
@@ -66,11 +59,6 @@ func main() {
 
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		slog.Warn("set WAL mode", "err", err)
-	}
-
-	if err := dbmig.Run(db, migrationFS, "migrations", serviceName); err != nil {
-		slog.Error("migrate", "err", err)
-		os.Exit(1)
 	}
 
 	if err := seedRoutes(db); err != nil {
