@@ -28,6 +28,10 @@ function trailingSlash() {
 
 export default {
   appType: 'mpa',
-  server: { allowedHosts: true },
+  server: {
+    allowedHosts: true,
+    watch: { usePolling: true, interval: 500 },
+    hmr: { clientPort: 443, protocol: 'wss' },
+  },
   plugins: [trailingSlash()],
 };
