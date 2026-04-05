@@ -196,18 +196,28 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	id := auth.Resolve(folder)
 	srv := server.NewMCPServer("arizuko", "1.0")
 
-	// granted registers a tool only if at least one rule references its action.
-	// The description is auto-annotated with matching grants. Runtime param
-	// checks (CheckAction with params) stay inside the handler.
-	granted := func(name, desc string, opts []mcp.ToolOption, h server.ToolHandlerFunc) {
+	// register adds a tool if any rule references it, auto-annotates the
+	// description with matching grants, and wraps the handler with a runtime
+	// CheckAction(nil-params) gate. For tools with per-param grants (send_*),
+	// the handler does its own param-aware CheckAction and registerRaw skips
+	// the wrapper.
+	registerRaw := func(name, desc string, opts []mcp.ToolOption, h server.ToolHandlerFunc) {
 		if len(grantslib.MatchingRules(rules, name)) == 0 {
 			return
 		}
 		all := append([]mcp.ToolOption{mcp.WithDescription(toolDesc(desc, rules, name))}, opts...)
 		srv.AddTool(mcp.NewTool(name, all...), h)
 	}
+	granted := func(name, desc string, opts []mcp.ToolOption, h server.ToolHandlerFunc) {
+		registerRaw(name, desc, opts, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !grantslib.CheckAction(rules, name, nil) {
+				return toolErr(name + ": not permitted")
+			}
+			return h(ctx, req)
+		})
+	}
 
-	granted("send_message", "Send a text message to a chat",
+	registerRaw("send_message", "Send a text message to a chat",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -234,7 +244,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	granted("send_reply", "Send a reply to a chat, optionally threading to a message",
+	registerRaw("send_reply", "Send a reply to a chat, optionally threading to a message",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -261,7 +271,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	granted("send_file", "Send a file to a chat",
+	registerRaw("send_file", "Send a file to a chat",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("filepath", mcp.Required()),
@@ -305,9 +315,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if gf == "" {
 				return toolErr("missing groupFolder")
 			}
-			if !grantslib.CheckAction(rules, "reset_session", nil) {
-				return toolErr("reset_session: not permitted")
-			}
 			if gated.ClearSession == nil {
 				return toolErr("reset_session not configured")
 			}
@@ -327,9 +334,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("senderName"),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "inject_message", nil) {
-				return toolErr("inject_message: not permitted")
-			}
 			if gated.InjectMessage == nil {
 				return toolErr("inject_message not configured")
 			}
@@ -362,9 +366,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if gated.RegisterGroup == nil {
 				return toolErr("register_group not configured")
-			}
-			if !grantslib.CheckAction(rules, "register_group", nil) {
-				return toolErr("register_group: not permitted")
 			}
 			jid := req.GetString("jid", "")
 			name := req.GetString("name", jid)
@@ -441,9 +442,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithNumber("depth"),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "escalate_group", nil) {
-				return toolErr("escalate_group: not permitted")
-			}
 			if gated.DelegateToParent == nil {
 				return toolErr("escalate_group not configured")
 			}
@@ -501,9 +499,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			target := req.GetString("group", "")
-			if !grantslib.CheckAction(rules, "delegate_group", nil) {
-				return toolErr("delegate_group: not permitted")
-			}
 			if err := auth.Authorize(id, "delegate_group", auth.AuthzTarget{TargetFolder: target}); err != nil {
 				return toolErr(err.Error())
 			}
@@ -536,9 +531,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	granted("get_routes", "Get routes for a JID",
 		[]mcp.ToolOption{mcp.WithString("jid", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "get_routes", nil) {
-				return toolErr("get_routes: not permitted")
-			}
 			if db.GetRoutes == nil {
 				return toolErr("get_routes not configured")
 			}
@@ -555,9 +547,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 
 	granted("list_routes", "List all routes visible to this group", nil,
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "list_routes", nil) {
-				return toolErr("list_routes: not permitted")
-			}
 			if db.ListRoutes == nil {
 				return toolErr("list_routes not configured")
 			}
@@ -570,9 +559,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("routes", mcp.Required()),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "set_routes", nil) {
-				return toolErr("set_routes: not permitted")
-			}
 			if db.SetRoutes == nil {
 				return toolErr("set_routes not configured")
 			}
@@ -620,9 +606,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("route", mcp.Required()),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "add_route", nil) {
-				return toolErr("add_route: not permitted")
-			}
 			if db.AddRoute == nil {
 				return toolErr("add_route not configured")
 			}
@@ -654,9 +637,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	granted("delete_route", "Delete a route by ID",
 		[]mcp.ToolOption{mcp.WithNumber("id", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "delete_route", nil) {
-				return toolErr("delete_route: not permitted")
-			}
 			if db.DeleteRoute == nil || db.GetRoute == nil {
 				return toolErr("delete_route not configured")
 			}
@@ -690,9 +670,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("contextMode"),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "schedule_task", nil) {
-				return toolErr("schedule_task: not permitted")
-			}
 			if db.CreateTask == nil {
 				return toolErr("schedule_task not configured")
 			}
@@ -774,9 +751,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		granted(op.name, op.desc,
 			[]mcp.ToolOption{mcp.WithString("taskId", mcp.Required())},
 			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				if !grantslib.CheckAction(rules, op.name, nil) {
-					return toolErr(op.name + ": not permitted")
-				}
 				taskID := req.GetString("taskId", "")
 				task, ok := db.GetTask(taskID)
 				if !ok {
@@ -795,9 +769,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 
 	granted("list_tasks", "List scheduled tasks visible to this group", nil,
 		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, "list_tasks", nil) {
-				return toolErr("list_tasks: not permitted")
-			}
 			if db.ListTasks == nil {
 				return toolErr("list_tasks not configured")
 			}
@@ -898,9 +869,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				mcp.WithString("folder", mcp.Required()),
 			},
 			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				if !grantslib.CheckAction(rules, "set_web_host", nil) {
-					return toolErr("set_web_host: not permitted")
-				}
 				hostname := req.GetString("hostname", "")
 				targetFolder := req.GetString("folder", "")
 				if hostname == "" {
@@ -933,9 +901,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		granted("get_web_host", "Get virtual host mapping for a folder",
 			[]mcp.ToolOption{mcp.WithString("folder")},
 			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				if !grantslib.CheckAction(rules, "get_web_host", nil) {
-					return toolErr("get_web_host: not permitted")
-				}
 				targetFolder := req.GetString("folder", folder)
 				if targetFolder == "" {
 					targetFolder = folder
