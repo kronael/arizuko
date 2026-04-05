@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -301,6 +302,154 @@ func TestDeliverMessageWithAttachments(t *testing.T) {
 	}
 	if !strings.Contains(msgs[0].Attachments, "teled:9001") {
 		t.Errorf("attachments JSON missing URL, got %q", msgs[0].Attachments)
+	}
+}
+
+// fakeAdapter spins up an httptest.Server that records /send calls so
+// outbound routing tests can assert which adapter URL was hit.
+type fakeAdapter struct {
+	name string
+	srv  *httptest.Server
+	mu   sync.Mutex
+	hits []string
+}
+
+func newFakeAdapter(t *testing.T, name string) *fakeAdapter {
+	t.Helper()
+	a := &fakeAdapter{name: name}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		a.mu.Lock()
+		a.hits = append(a.hits, body["chat_jid"].(string))
+		a.mu.Unlock()
+		chanlib.WriteJSON(w, map[string]any{"ok": true, "id": "sent-1"})
+	})
+	a.srv = httptest.NewServer(mux)
+	t.Cleanup(a.srv.Close)
+	return a
+}
+
+func (a *fakeAdapter) hitCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.hits)
+}
+
+func TestOutboundRoutesByChannelName(t *testing.T) {
+	srv, reg, _ := setup(t)
+	h := srv.Handler()
+
+	primary := newFakeAdapter(t, "telegram")
+	variant := newFakeAdapter(t, "telegram-REDACTED")
+	reg.Register("telegram", primary.srv.URL, []string{"telegram:"},
+		map[string]bool{"send_text": true})
+	reg.Register("telegram-REDACTED", variant.srv.URL, []string{"telegram:"},
+		map[string]bool{"send_text": true})
+
+	// Regression: onbod 502 on REDACTED. A message from telegram-REDACTED went
+	// back through /v1/outbound without specifying channel, so ForJID picked
+	// the primary telegram adapter (bot not in the group → 502). Fix: thread
+	// onboarding.channel through /v1/outbound's "channel" field.
+	w := postJSON(h, "/v1/outbound", map[string]string{
+		"jid": "telegram:-123", "text": "hi", "channel": "telegram-REDACTED",
+	}, "test-secret")
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if variant.hitCount() != 1 || primary.hitCount() != 0 {
+		t.Errorf("pinned variant: primary=%d variant=%d, want 0/1",
+			primary.hitCount(), variant.hitCount())
+	}
+}
+
+func TestOutboundFallsBackToJIDWhenChannelEmpty(t *testing.T) {
+	srv, reg, _ := setup(t)
+	h := srv.Handler()
+
+	primary := newFakeAdapter(t, "telegram")
+	variant := newFakeAdapter(t, "telegram-REDACTED")
+	reg.Register("telegram-REDACTED", variant.srv.URL, []string{"telegram:"},
+		map[string]bool{"send_text": true})
+	reg.Register("telegram", primary.srv.URL, []string{"telegram:"},
+		map[string]bool{"send_text": true})
+
+	// No channel field → Resolve falls back to ForJID → prefers primary.
+	w := postJSON(h, "/v1/outbound", map[string]string{
+		"jid": "telegram:-123", "text": "hi",
+	}, "test-secret")
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if primary.hitCount() != 1 || variant.hitCount() != 0 {
+		t.Errorf("primary=%d variant=%d, want 1/0",
+			primary.hitCount(), variant.hitCount())
+	}
+}
+
+func TestOutboundUnknownChannelFallsBackToJID(t *testing.T) {
+	srv, reg, _ := setup(t)
+	h := srv.Handler()
+
+	primary := newFakeAdapter(t, "telegram")
+	reg.Register("telegram", primary.srv.URL, []string{"telegram:"},
+		map[string]bool{"send_text": true})
+
+	// Stale channel name (e.g. adapter was restarted) → Resolve falls back
+	// to ForJID instead of failing outright.
+	w := postJSON(h, "/v1/outbound", map[string]string{
+		"jid": "telegram:-123", "text": "hi", "channel": "telegram-gone",
+	}, "test-secret")
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if primary.hitCount() != 1 {
+		t.Errorf("primary hits = %d, want 1", primary.hitCount())
+	}
+}
+
+func TestOutboundNoMatchingAdapter(t *testing.T) {
+	srv, reg, _ := setup(t)
+	h := srv.Handler()
+
+	primary := newFakeAdapter(t, "telegram")
+	reg.Register("telegram", primary.srv.URL, []string{"telegram:"},
+		map[string]bool{"send_text": true})
+
+	w := postJSON(h, "/v1/outbound", map[string]string{
+		"jid": "whatsapp:456", "text": "hi",
+	}, "test-secret")
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestOutboundMissingFields(t *testing.T) {
+	srv, _, _ := setup(t)
+	h := srv.Handler()
+
+	for _, body := range []map[string]string{
+		{"jid": "tg:1"},           // missing text
+		{"text": "hi"},            // missing jid
+		{},                        // both missing
+	} {
+		w := postJSON(h, "/v1/outbound", body, "test-secret")
+		if w.Code != 400 {
+			t.Errorf("body=%v status=%d, want 400", body, w.Code)
+		}
+	}
+}
+
+func TestOutboundBadAuth(t *testing.T) {
+	srv, _, _ := setup(t)
+	h := srv.Handler()
+
+	w := postJSON(h, "/v1/outbound", map[string]string{
+		"jid": "tg:1", "text": "hi",
+	}, "wrong-secret")
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401", w.Code)
 	}
 }
 

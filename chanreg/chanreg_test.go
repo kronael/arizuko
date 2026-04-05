@@ -115,3 +115,111 @@ func TestHealthFailNonexistent(t *testing.T) {
 		t.Errorf("fails = %d for nonexistent", f)
 	}
 }
+
+func TestForJIDSingleAdapter(t *testing.T) {
+	r := New("s")
+	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+
+	e := r.ForJID("telegram:123")
+	if e == nil || e.Name != "telegram" {
+		t.Fatalf("ForJID = %+v, want telegram", e)
+	}
+}
+
+func TestForJIDNoMatch(t *testing.T) {
+	r := New("s")
+	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+
+	if e := r.ForJID("whatsapp:456"); e != nil {
+		t.Errorf("ForJID = %+v, want nil", e)
+	}
+	if e := r.ForJID(""); e != nil {
+		t.Errorf("ForJID empty = %+v, want nil", e)
+	}
+}
+
+// Regression: the onbod 502 bug on REDACTED was caused by ForJID picking the
+// primary telegram adapter for a message that arrived via telegram-REDACTED.
+// ForJID must prefer the bare name over suffixed variants when multiple
+// adapters share a prefix; callers needing exact routing must pass name.
+func TestForJIDPrefersPrimaryOverVariant(t *testing.T) {
+	r := New("s")
+	r.Register("telegram-REDACTED", "http://REDACTED:9001", []string{"telegram:"}, nil)
+	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+
+	e := r.ForJID("telegram:123")
+	if e == nil || e.Name != "telegram" {
+		t.Fatalf("ForJID = %+v, want telegram (primary)", e)
+	}
+}
+
+func TestForJIDFallsBackToVariant(t *testing.T) {
+	r := New("s")
+	r.Register("telegram-REDACTED", "http://REDACTED:9001", []string{"telegram:"}, nil)
+
+	e := r.ForJID("telegram:123")
+	if e == nil || e.Name != "telegram-REDACTED" {
+		t.Fatalf("ForJID = %+v, want telegram-REDACTED fallback", e)
+	}
+}
+
+func TestForJIDMultiplePrefixes(t *testing.T) {
+	r := New("s")
+	r.Register("multi", "http://m:9001", []string{"a:", "b:", "c:"}, nil)
+
+	for _, jid := range []string{"a:1", "b:2", "c:3"} {
+		if e := r.ForJID(jid); e == nil || e.Name != "multi" {
+			t.Errorf("ForJID(%q) = %+v, want multi", jid, e)
+		}
+	}
+	if e := r.ForJID("d:4"); e != nil {
+		t.Errorf("ForJID(d:4) = %+v, want nil", e)
+	}
+}
+
+func TestResolveByName(t *testing.T) {
+	r := New("s")
+	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+	r.Register("telegram-REDACTED", "http://REDACTED:9001", []string{"telegram:"}, nil)
+
+	e := r.Resolve("telegram-REDACTED", "telegram:123")
+	if e == nil || e.Name != "telegram-REDACTED" {
+		t.Fatalf("Resolve = %+v, want telegram-REDACTED by name", e)
+	}
+}
+
+func TestResolveMissingNameFallsBack(t *testing.T) {
+	r := New("s")
+	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+
+	e := r.Resolve("nonexistent", "telegram:123")
+	if e == nil || e.Name != "telegram" {
+		t.Fatalf("Resolve = %+v, want telegram fallback by jid", e)
+	}
+}
+
+func TestResolveEmptyName(t *testing.T) {
+	r := New("s")
+	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+
+	e := r.Resolve("", "telegram:123")
+	if e == nil || e.Name != "telegram" {
+		t.Fatalf("Resolve = %+v, want telegram via jid", e)
+	}
+}
+
+func TestEntryOwns(t *testing.T) {
+	e := &Entry{JIDPrefixes: []string{"telegram:", "tg:"}}
+	if !e.Owns("telegram:123") {
+		t.Error("expected Owns(telegram:123) = true")
+	}
+	if !e.Owns("tg:456") {
+		t.Error("expected Owns(tg:456) = true")
+	}
+	if e.Owns("whatsapp:789") {
+		t.Error("expected Owns(whatsapp:789) = false")
+	}
+	if e.Owns("") {
+		t.Error("expected Owns(empty) = false")
+	}
+}
