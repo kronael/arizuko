@@ -32,8 +32,8 @@ func isGatewayCommand(raw string) bool {
 	if !strings.HasPrefix(t, "/") {
 		return false
 	}
-	word := strings.ToLower(strings.SplitN(t[1:], " ", 2)[0])
-	switch word {
+	word, _, _ := strings.Cut(t[1:], " ")
+	switch strings.ToLower(word) {
 	case "new", "ping", "chatid", "stop", "status":
 		return true
 	}
@@ -46,14 +46,8 @@ func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
 		return false
 	}
 
-	parts := strings.SplitN(text, " ", 2)
-	cmd := strings.ToLower(parts[0])
-	arg := ""
-	if len(parts) > 1 {
-		arg = parts[1]
-	}
-
-	switch cmd {
+	head, arg, _ := strings.Cut(text, " ")
+	switch strings.ToLower(head) {
 	case "/new":
 		return g.cmdNew(msg.ChatJID, group, arg)
 	case "/ping":

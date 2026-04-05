@@ -1497,7 +1497,7 @@ func onboardingAllowed(jid string, platforms []string) bool {
 	if len(platforms) == 0 {
 		return true
 	}
-	p := strings.SplitN(jid, ":", 2)[0]
+	p, _, _ := strings.Cut(jid, ":")
 	for _, allowed := range platforms {
 		if allowed == p {
 			return true
