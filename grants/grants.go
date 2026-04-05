@@ -61,7 +61,10 @@ func ParseRule(r string) Rule {
 	return rule
 }
 
-func matchGlob(pat, s string) bool {
+// matchWith is a glob matcher where `*` does not cross a boundary byte
+// for which stop returns true. Used for both action names (stop at
+// non-word chars) and param values (stop at ',' or ')').
+func matchWith(pat, s string, stop func(byte) bool) bool {
 	for {
 		if pat == "" {
 			return s == ""
@@ -69,10 +72,10 @@ func matchGlob(pat, s string) bool {
 		if pat[0] == '*' {
 			pat = pat[1:]
 			for i := 0; i <= len(s); i++ {
-				if matchGlob(pat, s[i:]) {
+				if matchWith(pat, s[i:], stop) {
 					return true
 				}
-				if i < len(s) && !isWordChar(s[i]) {
+				if i < len(s) && stop(s[i]) {
 					break
 				}
 			}
@@ -86,34 +89,15 @@ func matchGlob(pat, s string) bool {
 	}
 }
 
-func matchValueGlob(pat, s string) bool {
-	for {
-		if pat == "" {
-			return s == ""
-		}
-		if pat[0] == '*' {
-			pat = pat[1:]
-			for i := 0; i <= len(s); i++ {
-				if matchValueGlob(pat, s[i:]) {
-					return true
-				}
-				if i < len(s) && (s[i] == ',' || s[i] == ')') {
-					break
-				}
-			}
-			return false
-		}
-		if s == "" || pat[0] != s[0] {
-			return false
-		}
-		pat = pat[1:]
-		s = s[1:]
-	}
+func matchGlob(pat, s string) bool { return matchWith(pat, s, notWordChar) }
+
+func matchValueGlob(pat, s string) bool { return matchWith(pat, s, isValueDelim) }
+
+func notWordChar(c byte) bool {
+	return !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')
 }
 
-func isWordChar(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
-}
+func isValueDelim(c byte) bool { return c == ',' || c == ')' }
 
 func ruleMatchesParams(rule Rule, params map[string]string) bool {
 	if rule.Params == nil {
