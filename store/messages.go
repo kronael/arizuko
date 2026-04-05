@@ -307,7 +307,7 @@ func (s *Store) StoreOutbound(entry core.OutboundEntry) error {
 		`INSERT OR IGNORE INTO messages
 		 (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message,
 		  reply_to_id, source, group_folder)
-		 VALUES (?, ?, 'bot', ?, ?, 1, 0, ?, ?, ?)`,
+		 VALUES (?, ?, 'bot', ?, ?, 1, 1, ?, ?, ?)`,
 		id, entry.ChatJID, entry.Content, time.Now().Format(time.RFC3339Nano),
 		nilIfEmpty(entry.ReplyToID), nilIfEmpty(entry.Source), nilIfEmpty(entry.GroupFolder),
 	)

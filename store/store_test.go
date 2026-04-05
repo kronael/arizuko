@@ -566,3 +566,26 @@ func TestStoreOutbound_EmptyPlatformMsgIDNoCollision(t *testing.T) {
 		t.Errorf("expected 2 unsent rows, got %d", n)
 	}
 }
+
+// Regression: StoreOutbound rows must be is_bot_message=1 so MessagesSince
+// excludes them. A prior fix left the flag at 0, which fed the agent's own
+// output back as inbound and caused a self-reply loop.
+func TestStoreOutbound_ExcludedFromMessagesSince(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	if err := s.StoreOutbound(core.OutboundEntry{
+		ChatJID: "tg:1", Content: "bot reply",
+		Source: "agent", GroupFolder: "main",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, err := s.MessagesSince("tg:1", time.Time{}, "REDACTED")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("StoreOutbound row leaked into MessagesSince: %+v", msgs)
+	}
+}
