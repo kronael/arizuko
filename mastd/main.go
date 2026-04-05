@@ -3,54 +3,31 @@ package main
 import (
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/onvos/arizuko/chanlib"
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
-
 	cfg := loadConfig()
-	if cfg.ChannelSecret == "" {
-		slog.Warn("CHANNEL_SECRET not set; HTTP endpoints unauthenticated")
-	}
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
-
-	mc, err := newMastoClient(cfg)
-	if err != nil {
-		slog.Error("mastodon connect failed", "err", err)
-		os.Exit(1)
-	}
-
-	rc := chanlib.NewRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	_, err = rc.Register(cfg.Name, cfg.ListenURL, []string{"mastodon:"}, map[string]bool{"send_text": true})
-	if err != nil {
-		slog.Error("router registration failed", "err", err)
-		os.Exit(1)
-	}
-	slog.Info("registered with router", "url", cfg.RouterURL)
-
-	go mc.stream(ctx, rc)
-
-	ln, err := net.Listen("tcp", cfg.ListenAddr)
-	if err != nil {
-		slog.Error("listen failed", "addr", cfg.ListenAddr, "err", err)
-		os.Exit(1)
-	}
-	slog.Info("http server starting", "addr", cfg.ListenAddr)
-	srv := &http.Server{Handler: newServer(cfg, mc).handler()}
-	go srv.Serve(ln)
-
-	<-ctx.Done()
-	slog.Info("shutting down")
-	rc.Deregister()
-	srv.Close()
+	chanlib.Run(chanlib.RunOpts{
+		Name:          cfg.Name,
+		RouterURL:     cfg.RouterURL,
+		ChannelSecret: cfg.ChannelSecret,
+		ListenAddr:    cfg.ListenAddr,
+		ListenURL:     cfg.ListenURL,
+		Prefixes:      []string{"mastodon:"},
+		Caps:          map[string]bool{"send_text": true},
+		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
+			mc, err := newMastoClient(cfg)
+			if err != nil {
+				slog.Error("mastodon connect failed", "err", err)
+				return nil, nil, err
+			}
+			go mc.stream(ctx, rc)
+			return newServer(cfg, mc).handler(), nil, nil
+		},
+	})
 }
 
 type config struct {

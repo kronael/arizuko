@@ -3,67 +3,37 @@ package main
 import (
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/onvos/arizuko/chanlib"
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
-
 	cfg := loadConfig()
-	if cfg.ChannelSecret == "" {
-		slog.Warn("CHANNEL_SECRET not set; HTTP endpoints unauthenticated")
-	}
-	ctx, cancel := signal.NotifyContext(context.Background(),
-		syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
-
-	bot, err := newBot(cfg)
-	if err != nil {
-		slog.Error("telegram auth failed", "err", err)
-		os.Exit(1)
-	}
-
-	rc := chanlib.NewRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	_, err = rc.Register(cfg.Name, cfg.ListenURL,
-		[]string{"telegram:"}, map[string]bool{
-			"send_text": true, "send_file": true, "typing": true,
-		})
-	if err != nil {
-		slog.Error("router registration failed", "err", err)
-		os.Exit(1)
-	}
-	slog.Info("registered with router", "url", cfg.RouterURL)
-
-	go bot.poll(ctx, rc)
-
-	ln, err := net.Listen("tcp", cfg.ListenAddr)
-	if err != nil {
-		slog.Error("listen failed", "addr", cfg.ListenAddr, "err", err)
-		os.Exit(1)
-	}
-	slog.Info("http server starting", "addr", cfg.ListenAddr)
-	srv := &http.Server{Handler: newServer(cfg, bot).handler()}
-	go srv.Serve(ln)
-
-	<-ctx.Done()
-	slog.Info("shutting down")
-	rc.Deregister()
-	bot.stop()
-	srv.Close()
+	chanlib.Run(chanlib.RunOpts{
+		Name:          cfg.Name,
+		RouterURL:     cfg.RouterURL,
+		ChannelSecret: cfg.ChannelSecret,
+		ListenAddr:    cfg.ListenAddr,
+		ListenURL:     cfg.ListenURL,
+		Prefixes:      []string{"telegram:"},
+		Caps:          map[string]bool{"send_text": true, "send_file": true, "typing": true},
+		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
+			b, err := newBot(cfg)
+			if err != nil {
+				slog.Error("telegram auth failed", "err", err)
+				return nil, nil, err
+			}
+			go b.poll(ctx, rc)
+			return newServer(cfg, b).handler(), b.stop, nil
+		},
+	})
 }
 
 type config struct {
 	Name, TelegramToken, RouterURL, ChannelSecret string
-	ListenAddr, ListenURL, AssistantName           string
-	StateFile                                      string
+	ListenAddr, ListenURL, AssistantName          string
+	StateFile                                     string
 }
 
 func loadConfig() config {

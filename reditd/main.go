@@ -3,60 +3,33 @@ package main
 import (
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
-	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 
 	"github.com/onvos/arizuko/chanlib"
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
-
 	cfg := loadConfig()
-	if cfg.ChannelSecret == "" {
-		slog.Warn("CHANNEL_SECRET not set; HTTP endpoints unauthenticated")
-	}
-	ctx, cancel := signal.NotifyContext(context.Background(),
-		syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
-
-	rc2, err := newRedditClient(cfg)
-	if err != nil {
-		slog.Error("reddit auth failed", "err", err)
-		os.Exit(1)
-	}
-	rc2.loadCursors()
-
-	rc := chanlib.NewRouterClient(cfg.RouterURL, cfg.ChannelSecret)
-	_, err = rc.Register(cfg.Name, cfg.ListenURL,
-		[]string{"reddit:"}, map[string]bool{"send_text": true})
-	if err != nil {
-		slog.Error("router registration failed", "err", err)
-		os.Exit(1)
-	}
-	slog.Info("registered with router", "url", cfg.RouterURL)
-
-	go rc2.poll(ctx, rc)
-
-	ln, err := net.Listen("tcp", cfg.ListenAddr)
-	if err != nil {
-		slog.Error("listen failed", "addr", cfg.ListenAddr, "err", err)
-		os.Exit(1)
-	}
-	slog.Info("http server starting", "addr", cfg.ListenAddr)
-	srv := &http.Server{Handler: newServer(cfg, rc2).handler()}
-	go srv.Serve(ln)
-
-	<-ctx.Done()
-	slog.Info("shutting down")
-	rc.Deregister()
-	srv.Close()
+	chanlib.Run(chanlib.RunOpts{
+		Name:          cfg.Name,
+		RouterURL:     cfg.RouterURL,
+		ChannelSecret: cfg.ChannelSecret,
+		ListenAddr:    cfg.ListenAddr,
+		ListenURL:     cfg.ListenURL,
+		Prefixes:      []string{"reddit:"},
+		Caps:          map[string]bool{"send_text": true},
+		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
+			rc2, err := newRedditClient(cfg)
+			if err != nil {
+				slog.Error("reddit auth failed", "err", err)
+				return nil, nil, err
+			}
+			rc2.loadCursors()
+			go rc2.poll(ctx, rc)
+			return newServer(cfg, rc2).handler(), nil, nil
+		},
+	})
 }
 
 type config struct {
