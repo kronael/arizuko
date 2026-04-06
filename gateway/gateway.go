@@ -784,7 +784,7 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 		return
 	}
 	day := time.Now().Format("20060102")
-	mediaDir := filepath.Join(groupPath, "media", day)
+	mediaDir := groupfolder.GroupMediaDir(groupPath, day)
 	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
 		slog.Warn("enrich: mkdir", "dir", mediaDir, "err", err)
 		return

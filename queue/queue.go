@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/onvos/arizuko/container"
+	"github.com/onvos/arizuko/groupfolder"
 )
 
 const circuitBreakerThreshold = 3
@@ -187,7 +188,7 @@ func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 	cname := s.containerName
 	q.mu.Unlock()
 
-	inputDir := filepath.Join(q.ipcDir, folder, "input")
+	inputDir := groupfolder.IpcInputDir(filepath.Join(q.ipcDir, folder))
 	if err := os.MkdirAll(inputDir, 0o755); err != nil {
 		return false
 	}

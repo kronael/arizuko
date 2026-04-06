@@ -147,7 +147,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	var stopMCP func()
 	if ipcDir, err := folders.IpcPath(in.Folder); err == nil {
-		sockPath := filepath.Join(ipcDir, "gated.sock")
+		sockPath := groupfolder.IpcSocket(ipcDir)
 		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Grants); err != nil {
 			slog.Warn("failed to start MCP server", "group", in.Folder, "err", err)
 		} else {
@@ -473,9 +473,8 @@ func buildMounts(
 
 	ipcDir, err := folders.IpcPath(in.Folder)
 	if err == nil {
-		for _, sub := range []string{"input", "sidecars"} {
-			os.MkdirAll(filepath.Join(ipcDir, sub), 0o755)
-		}
+		os.MkdirAll(groupfolder.IpcInputDir(ipcDir), 0o755)
+		os.MkdirAll(groupfolder.IpcSidecars(ipcDir), 0o755)
 		chown(ipcDir, 1000, 1000)
 		m = append(m, volumeMount{
 			Host:      hp(cfg, ipcDir),

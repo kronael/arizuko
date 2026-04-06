@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/groupfolder"
 )
 
 func startSidecars(
@@ -19,7 +20,7 @@ func startSidecars(
 		return nil
 	}
 
-	sockDir := filepath.Join(ipcDir, "sidecars")
+	sockDir := groupfolder.IpcSidecars(ipcDir)
 	os.MkdirAll(sockDir, 0o755)
 
 	var names []string
