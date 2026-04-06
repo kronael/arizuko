@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
@@ -21,15 +22,47 @@ import (
 
 var errIdleNotSupported = errors.New("IDLE not supported")
 
+// attMeta holds attachment metadata recorded during MIME parsing.
+// No data bytes are stored -- the file proxy re-fetches from IMAP on demand.
+type attMeta struct {
+	Mime     string
+	Filename string
+	Size     int64
+	Part     []int // IMAP BODY section path (1-indexed)
+}
+
+// attRegistry is a transitory in-memory map of "uid-partIdx" -> metadata.
+type attRegistry struct {
+	mu sync.RWMutex
+	m  map[string]attMeta
+}
+
+func newAttRegistry() *attRegistry {
+	return &attRegistry{m: make(map[string]attMeta)}
+}
+
+func (r *attRegistry) put(key string, meta attMeta) {
+	r.mu.Lock()
+	r.m[key] = meta
+	r.mu.Unlock()
+}
+
+func (r *attRegistry) get(key string) (attMeta, bool) {
+	r.mu.RLock()
+	v, ok := r.m[key]
+	r.mu.RUnlock()
+	return v, ok
+}
+
 type poller struct {
 	cfg     config
 	db      *sql.DB
 	dialTLS func(string, *imapclient.Options) (*imapclient.Client, error)
-	files   *attachCache
+	reg     *attRegistry
 }
 
-func newPoller(cfg config, db *sql.DB, files *attachCache) *poller {
-	return &poller{cfg: cfg, db: db, dialTLS: imapclient.DialTLS, files: files}
+func newPoller(cfg config, db *sql.DB, reg *attRegistry) *poller {
+	return &poller{cfg: cfg, db: db, dialTLS: imapclient.DialTLS, reg: reg}
 }
 
 func (p *poller) run(ctx context.Context, rc *chanlib.RouterClient) {
@@ -276,7 +309,7 @@ func (p *poller) handleMsg(
 	body := ""
 	var atts []chanlib.InboundAttachment
 	if bodyRaw != nil {
-		body, atts = extractContent(bytes.NewReader(bodyRaw), msg.UID, p.cfg.ListenURL, p.files)
+		body, atts = extractContent(bytes.NewReader(bodyRaw), msg.UID, p.cfg.ListenURL, p.reg)
 	}
 
 	subject := env.Subject
@@ -326,7 +359,7 @@ func extractPlainText(r io.Reader) string {
 	return text
 }
 
-func extractContent(r io.Reader, uid imap.UID, listenURL string, fc *attachCache) (string, []chanlib.InboundAttachment) {
+func extractContent(r io.Reader, uid imap.UID, listenURL string, reg *attRegistry) (string, []chanlib.InboundAttachment) {
 	mr, err := gomessage.CreateReader(r)
 	if err != nil {
 		b, _ := io.ReadAll(r)
@@ -353,18 +386,22 @@ func extractContent(r io.Reader, uid imap.UID, listenURL string, fc *attachCache
 			if fname == "" {
 				fname = fmt.Sprintf("attachment-%d", partIdx)
 			}
-			data, err := io.ReadAll(p.Body)
-			if err != nil {
-				continue
-			}
+			// Read body only to measure size -- data is NOT stored.
+			n, _ := io.Copy(io.Discard, p.Body)
 			att := chanlib.InboundAttachment{
 				Mime:     ct,
 				Filename: fname,
-				Size:     int64(len(data)),
+				Size:     n,
 			}
-			if fc != nil && listenURL != "" {
+			if reg != nil && listenURL != "" {
 				key := fmt.Sprintf("%d-%d", uid, partIdx)
-				fc.Put(key, data, ct, fname)
+				// IMAP BODY section parts are 1-indexed.
+				reg.put(key, attMeta{
+					Mime:     ct,
+					Filename: fname,
+					Size:     n,
+					Part:     []int{partIdx + 1},
+				})
 				att.URL = fmt.Sprintf("%s/files/%d/%d", listenURL, uid, partIdx)
 			}
 			atts = append(atts, att)

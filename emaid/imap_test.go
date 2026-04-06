@@ -70,7 +70,7 @@ func TestExtractPlainText_Empty(t *testing.T) {
 	}
 }
 
-// TestExtractContent_WithAttachment verifies attachment extraction from multipart MIME.
+// TestExtractContent_WithAttachment verifies attachment metadata extraction from multipart MIME.
 func TestExtractContent_WithAttachment(t *testing.T) {
 	body := "--boundary\r\n" +
 		"Content-Type: text/plain\r\n\r\nplain body\r\n" +
@@ -81,8 +81,8 @@ func TestExtractContent_WithAttachment(t *testing.T) {
 		"--boundary--\r\n"
 	mime := "Content-Type: multipart/mixed; boundary=boundary\r\n\r\n" + body
 
-	fc := newAttachCache(100)
-	text, atts := extractContent(strings.NewReader(mime), 42, "http://emaid:9003", fc)
+	reg := newAttRegistry()
+	text, atts := extractContent(strings.NewReader(mime), 42, "http://emaid:9003", reg)
 
 	if !strings.Contains(text, "plain body") {
 		t.Errorf("text = %q", text)
@@ -103,20 +103,23 @@ func TestExtractContent_WithAttachment(t *testing.T) {
 		t.Errorf("size = %d", atts[0].Size)
 	}
 
-	// verify cache contains the data
-	a, ok := fc.Get("42-0")
+	// verify metadata in registry, NOT on disk
+	meta, ok := reg.get("42-0")
 	if !ok {
-		t.Fatal("attachment not in cache")
+		t.Fatal("metadata not in registry")
 	}
-	if string(a.Data) != "pdfdata" {
-		t.Errorf("cached data = %q", a.Data)
+	if meta.Mime != "application/pdf" {
+		t.Errorf("registry mime = %q", meta.Mime)
+	}
+	if meta.Filename != "doc.pdf" {
+		t.Errorf("registry filename = %q", meta.Filename)
 	}
 }
 
 // TestExtractContent_NoAttachments verifies text-only emails return no attachments.
 func TestExtractContent_NoAttachments(t *testing.T) {
 	raw := "Content-Type: text/plain\r\n\r\njust text"
-	text, atts := extractContent(strings.NewReader(raw), 1, "http://emaid:9003", newAttachCache(10))
+	text, atts := extractContent(strings.NewReader(raw), 1, "http://emaid:9003", newAttRegistry())
 	if !strings.Contains(text, "just text") {
 		t.Errorf("text = %q", text)
 	}
@@ -140,8 +143,8 @@ func TestExtractContent_MultipleAttachments(t *testing.T) {
 		"--boundary--\r\n"
 	mime := "Content-Type: multipart/mixed; boundary=boundary\r\n\r\n" + body
 
-	fc := newAttachCache(100)
-	_, atts := extractContent(strings.NewReader(mime), 99, "http://emaid:9003", fc)
+	reg := newAttRegistry()
+	_, atts := extractContent(strings.NewReader(mime), 99, "http://emaid:9003", reg)
 
 	if len(atts) != 2 {
 		t.Fatalf("got %d attachments, want 2", len(atts))
@@ -157,6 +160,14 @@ func TestExtractContent_MultipleAttachments(t *testing.T) {
 	}
 	if atts[1].URL != "http://emaid:9003/files/99/1" {
 		t.Errorf("att[1] url = %q", atts[1].URL)
+	}
+
+	// verify metadata in registry, not on disk
+	if _, ok := reg.get("99-0"); !ok {
+		t.Error("att[0] not in registry")
+	}
+	if _, ok := reg.get("99-1"); !ok {
+		t.Error("att[1] not in registry")
 	}
 }
 
@@ -175,8 +186,8 @@ func TestRunIdle_ContextCancel_DeadTCP(t *testing.T) {
 			Account:  "user",
 			Password: "pass",
 		},
-		db:    newTestDB(t),
-		files: newAttachCache(100),
+		db:  newTestDB(t),
+		reg: newAttRegistry(),
 		dialTLS: func(_ string, opts *imapclient.Options) (*imapclient.Client, error) {
 			return imapclient.New(clientConn, opts), nil
 		},
@@ -219,9 +230,9 @@ func TestFetchUnseen_RouterFailure_NotMarkedSeen(t *testing.T) {
 	go serveMsgIMAP(t, serverConn, storeCalled)
 
 	p := &poller{
-		cfg:   config{IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass"},
-		db:    newTestDB(t),
-		files: newAttachCache(100),
+		cfg: config{IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass"},
+		db:  newTestDB(t),
+		reg: newAttRegistry(),
 		dialTLS: func(_ string, opts *imapclient.Options) (*imapclient.Client, error) {
 			return imapclient.New(clientConn, opts), nil
 		},

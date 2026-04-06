@@ -1,18 +1,24 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/emersion/go-imap/v2/imapclient"
 )
 
 func testServer(t *testing.T, secret string) (*server, *sql.DB) {
 	t.Helper()
 	db := newTestDB(t)
-	cfg := config{Name: "email", ChannelSecret: secret}
-	return newServer(cfg, db, newAttachCache(100)), db
+	cfg := config{Name: "email", ChannelSecret: secret, DataDir: t.TempDir()}
+	return newServer(cfg, db, newAttRegistry()), db
 }
 
 func TestHandleSend_NoThread(t *testing.T) {
@@ -96,22 +102,33 @@ func TestAuthPassthrough(t *testing.T) {
 	}
 }
 
+// TestFileProxy verifies that the file proxy re-fetches from IMAP on demand.
 func TestFileProxy(t *testing.T) {
-	db := newTestDB(t)
-	fc := newAttachCache(100)
-	fc.Put("42-0", []byte("hello pdf"), "application/pdf", "doc.pdf")
+	reg := newAttRegistry()
+	reg.put("42-0", attMeta{Mime: "application/pdf", Filename: "doc.pdf", Size: 9, Part: []int{2}})
 
-	s := newServer(config{Name: "email"}, db, fc)
+	serverConn, clientConn := net.Pipe()
+	go serveAttachmentIMAP(t, serverConn, []int{2}, []byte("hello pdf"))
+
+	db := newTestDB(t)
+	s := &server{
+		cfg:     config{Name: "email", IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass"},
+		db:      db,
+		reg:     reg,
+		dialTLS: func(_ string, _ *imapclient.Options) (*imapclient.Client, error) {
+			return imapclient.New(clientConn, nil), nil
+		},
+	}
 
 	req := httptest.NewRequest("GET", "/files/42/0", nil)
 	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
+	s.handleFile(w, req)
 
 	if w.Code != 200 {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	if w.Header().Get("Content-Type") != "application/pdf" {
-		t.Errorf("content-type = %q", w.Header().Get("Content-Type"))
+	if ct := w.Header().Get("Content-Type"); ct != "application/pdf" {
+		t.Errorf("content-type = %q", ct)
 	}
 	if w.Body.String() != "hello pdf" {
 		t.Errorf("body = %q", w.Body.String())
@@ -142,15 +159,139 @@ func TestFileProxyBadPath(t *testing.T) {
 }
 
 func TestFileProxyAuthRequired(t *testing.T) {
+	reg := newAttRegistry()
+	reg.put("1-0", attMeta{Mime: "text/plain", Filename: "file.txt", Size: 4, Part: []int{1}})
+
 	db := newTestDB(t)
-	fc := newAttachCache(100)
-	fc.Put("1-0", []byte("data"), "text/plain", "file.txt")
-	s := newServer(config{Name: "email", ChannelSecret: "secret123"}, db, fc)
+	s := newServer(config{Name: "email", ChannelSecret: "secret123", DataDir: t.TempDir()}, db, reg)
 
 	req := httptest.NewRequest("GET", "/files/1/0", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
 	if w.Code != 401 {
 		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+// TestFileProxyIMAPError verifies 502 when IMAP re-fetch fails.
+func TestFileProxyIMAPError(t *testing.T) {
+	reg := newAttRegistry()
+	reg.put("10-0", attMeta{Mime: "image/png", Filename: "img.png", Size: 5, Part: []int{1}})
+
+	db := newTestDB(t)
+	s := &server{
+		cfg: config{Name: "email", IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass"},
+		db:  db,
+		reg: reg,
+		dialTLS: func(_ string, _ *imapclient.Options) (*imapclient.Client, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	}
+
+	req := httptest.NewRequest("GET", "/files/10/0", nil)
+	w := httptest.NewRecorder()
+	s.handleFile(w, req)
+
+	if w.Code != 502 {
+		t.Errorf("status = %d, want 502", w.Code)
+	}
+}
+
+// serveAttachmentIMAP is a minimal IMAP server that serves a specific BODY section.
+func serveAttachmentIMAP(t *testing.T, conn net.Conn, section []int, data []byte) {
+	t.Helper()
+	defer conn.Close()
+
+	br := bufio.NewReader(conn)
+	bw := bufio.NewWriter(conn)
+	flush := func(s string) {
+		bw.WriteString(s) //nolint:errcheck
+		bw.Flush()        //nolint:errcheck
+	}
+
+	flush("* OK [CAPABILITY IMAP4rev1] ready\r\n")
+
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return
+		}
+		line = strings.TrimRight(line, "\r\n")
+		parts := strings.SplitN(line, " ", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		tag, cmd := parts[0], strings.ToUpper(parts[1])
+
+		switch cmd {
+		case "LOGIN":
+			flush(tag + " OK logged in\r\n")
+		case "SELECT":
+			flush("* 1 EXISTS\r\n* 0 RECENT\r\n")
+			flush(tag + " OK [READ-WRITE] SELECT completed\r\n")
+		case "UID":
+			if len(parts) < 3 {
+				flush(tag + " BAD missing args\r\n")
+				continue
+			}
+			sub := strings.ToUpper(strings.Fields(parts[2])[0])
+			switch sub {
+			case "FETCH":
+				// Build section string like "2" or "1.2"
+				sectionParts := make([]string, len(section))
+				for i, s := range section {
+					sectionParts[i] = fmt.Sprintf("%d", s)
+				}
+				sectionStr := strings.Join(sectionParts, ".")
+				resp := fmt.Sprintf("* 1 FETCH (UID 42 BODY[%s] {%d}\r\n%s)\r\n",
+					sectionStr, len(data), data)
+				flush(resp)
+				flush(tag + " OK FETCH completed\r\n")
+			default:
+				flush(tag + " BAD unknown UID subcommand\r\n")
+			}
+		case "LOGOUT":
+			flush("* BYE\r\n" + tag + " OK LOGOUT completed\r\n")
+			return
+		default:
+			flush(tag + " BAD unknown command\r\n")
+		}
+	}
+}
+
+// TestFileProxy_MetadataRecordedDuringExtract verifies end-to-end: extractContent records
+// metadata in the registry, and the server can look it up for re-fetch.
+func TestFileProxy_MetadataRecordedDuringExtract(t *testing.T) {
+	body := "--boundary\r\n" +
+		"Content-Type: text/plain\r\n\r\ntext\r\n" +
+		"--boundary\r\n" +
+		"Content-Type: image/jpeg\r\n" +
+		"Content-Disposition: attachment; filename=\"photo.jpg\"\r\n\r\n" +
+		"jpegdata\r\n" +
+		"--boundary--\r\n"
+	mime := "Content-Type: multipart/mixed; boundary=boundary\r\n\r\n" + body
+
+	reg := newAttRegistry()
+	_, atts := extractContent(strings.NewReader(mime), 7, "http://emaid:9003", reg)
+
+	if len(atts) != 1 {
+		t.Fatalf("got %d attachments, want 1", len(atts))
+	}
+	if atts[0].URL != "http://emaid:9003/files/7/0" {
+		t.Errorf("url = %q", atts[0].URL)
+	}
+
+	meta, ok := reg.get("7-0")
+	if !ok {
+		t.Fatal("metadata not registered after extractContent")
+	}
+	if meta.Mime != "image/jpeg" {
+		t.Errorf("meta.Mime = %q", meta.Mime)
+	}
+	if meta.Filename != "photo.jpg" {
+		t.Errorf("meta.Filename = %q", meta.Filename)
+	}
+	if len(meta.Part) != 1 || meta.Part[0] != 1 {
+		t.Errorf("meta.Part = %v, want [1]", meta.Part)
 	}
 }
