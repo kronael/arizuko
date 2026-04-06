@@ -326,28 +326,10 @@ Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
 - `drainGroupLocked` — after completion, run pending tasks then messages then waiting groups
 - `SendMessage` — write to IPC input dir for live stdin piping
 
-## Routing Rules (router package)
+## Routing
 
-`ResolveRoutingTarget(msg, rules)` evaluates in tier order:
-
-1. **command** — exact prefix match (e.g. `/code`)
-2. **prefix** — `@name` or `#topic` prefix routing
-3. **pattern** — regex match on content (max 200 chars)
-4. **keyword** — case-insensitive substring
-5. **sender** — regex on sender name
-6. **trigger** — trigger word match (group activation)
-7. **default** — always matches
-
-`IsAuthorizedRoutingTarget` — target must be direct child of source
-within same world (root segment). Max delegation depth: 3.
-
-## Topic Sessions
-
-`/new #topic` resets the session for a named topic within a group, leaving
-other topics unaffected. Prefix dispatch in the message loop routes messages
-prefixed with `#topic` to the matching topic session and `@name` to a named
-group. `store.GetSession`/`SetSession`/`DeleteSession` take a `topic` param;
-the `sessions` table has a composite PK of `(group_folder, topic)`.
+Route table, route types, topic routing, reply routing, sticky routing,
+and full message flow examples: **`docs/routing.md`**.
 
 ## Grants Engine (grants package)
 
