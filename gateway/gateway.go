@@ -279,10 +279,14 @@ func (g *Gateway) pollOnce() {
 		g.mu.RUnlock()
 		if !ok {
 			if g.cfg.OnboardingEnabled && onboardingAllowed(chatJid, g.cfg.OnboardingPlatforms) {
-				last := chatMsgs[len(chatMsgs)-1]
-				ch := g.findChannel(chatJid)
-				if err := g.store.InsertOnboarding(chatJid, last.Sender, channelName(ch)); err != nil {
-					slog.Warn("insert onboarding", "jid", chatJid, "err", err)
+				if routes := g.store.GetRoutes(chatJid); hasDefaultRoute(routes) {
+					slog.Info("poll: stale map, route exists in DB", "jid", chatJid)
+				} else {
+					last := chatMsgs[len(chatMsgs)-1]
+					ch := g.findChannel(chatJid)
+					if err := g.store.InsertOnboarding(chatJid, last.Sender, channelName(ch)); err != nil {
+						slog.Warn("insert onboarding", "jid", chatJid, "err", err)
+					}
 				}
 			}
 			slog.Debug("poll: no group for jid", "jid", chatJid)
@@ -1149,6 +1153,15 @@ func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
 		return gr, ok
 	}
 	return core.Group{}, false
+}
+
+func hasDefaultRoute(routes []core.Route) bool {
+	for _, r := range routes {
+		if r.Type == "default" {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolder string) string {
