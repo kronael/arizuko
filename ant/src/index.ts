@@ -200,10 +200,14 @@ function createPreCompactHook(assistantName?: string): HookCallback {
 
     return {
       systemMessage:
-        'Context is about to be compacted. Before compaction, update ' +
-        "today's diary entry (~/diary/YYYYMMDD.md) with " +
-        'key decisions, progress, and context that should persist across ' +
-        'sessions. Use the /diary skill.',
+        'Context is about to be compacted. Invoke /diary before continuing.\n\n' +
+        'Preserve references to these in the summary:\n' +
+        '- SOUL.md (your identity and persona)\n' +
+        '- CLAUDE.md (project instructions)\n' +
+        '- diary/ entries (recent decisions and progress)\n' +
+        '- facts/ (researched knowledge)\n' +
+        '- users/ (user profiles and preferences)\n' +
+        '- Any open tasks, pending work, or unresolved questions',
     };
   };
 }
