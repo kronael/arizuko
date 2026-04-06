@@ -146,7 +146,29 @@ type notification struct {
 				URI string `json:"uri"`
 			} `json:"parent"`
 		} `json:"reply,omitempty"`
+		Embed *embedRecord `json:"embed,omitempty"`
 	} `json:"record"`
+}
+
+type embedRecord struct {
+	Type   string       `json:"$type"`
+	Images []embedImage `json:"images,omitempty"`
+}
+
+type embedImage struct {
+	Alt   string    `json:"alt"`
+	Image blobRef   `json:"image"`
+}
+
+type blobRef struct {
+	Type     string      `json:"$type"`
+	Ref      blobRefLink `json:"ref"`
+	MimeType string      `json:"mimeType"`
+	Size     int64       `json:"size"`
+}
+
+type blobRefLink struct {
+	Link string `json:"$link"`
 }
 
 func (bc *bskyClient) fetchNotifications(rc *chanlib.RouterClient) error {
@@ -196,20 +218,69 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		verb = "message"
 	}
 
+	atts := bc.extractAttachments(n)
+	content := n.Record.Text
+	for _, a := range atts {
+		content += fmt.Sprintf(" [Image: %s]", a.Filename)
+	}
+
 	ts, _ := time.Parse(time.RFC3339, n.IndexedAt)
 	err := rc.SendMessage(chanlib.InboundMsg{
-		ID:         uriToKey(n.URI),
-		ChatJID:    jid,
-		Sender:     "bluesky:" + n.Author.DID,
-		SenderName: name,
-		Content:    n.Record.Text,
-		Timestamp:  ts.Unix(),
-		IsGroup:    false,
-		Topic:      topic,
-		Verb:       verb,
+		ID:          uriToKey(n.URI),
+		ChatJID:     jid,
+		Sender:      "bluesky:" + n.Author.DID,
+		SenderName:  name,
+		Content:     content,
+		Timestamp:   ts.Unix(),
+		IsGroup:     false,
+		Topic:       topic,
+		Verb:        verb,
+		Attachments: atts,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
+	}
+}
+
+func (bc *bskyClient) extractAttachments(n notification) []chanlib.InboundAttachment {
+	if n.Record.Embed == nil || n.Record.Embed.Type != "app.bsky.embed.images" {
+		return nil
+	}
+	did := n.Author.DID
+	var atts []chanlib.InboundAttachment
+	for i, img := range n.Record.Embed.Images {
+		cid := img.Image.Ref.Link
+		if cid == "" {
+			continue
+		}
+		ext := blobExt(img.Image.MimeType)
+		fname := fmt.Sprintf("image_%d%s", i, ext)
+		url := ""
+		if bc.cfg.ListenURL != "" {
+			url = bc.cfg.ListenURL + "/files/" + did + "/" + cid
+		}
+		atts = append(atts, chanlib.InboundAttachment{
+			Mime:     img.Image.MimeType,
+			Filename: fname,
+			URL:      url,
+			Size:     img.Image.Size,
+		})
+	}
+	return atts
+}
+
+func blobExt(mime string) string {
+	switch mime {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/webp":
+		return ".webp"
+	case "image/gif":
+		return ".gif"
+	default:
+		return ".bin"
 	}
 }
 

@@ -18,6 +18,7 @@ type bot struct {
 	cfg     config
 	rc      *chanlib.RouterClient
 	typing  *chanlib.TypingRefresher
+	files   *fileCache
 }
 
 func newBot(cfg config) (*bot, error) {
@@ -71,10 +72,11 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	var inboundAtts []chanlib.InboundAttachment
 	for _, att := range m.Attachments {
 		content += fmt.Sprintf(" [Attachment: %s]", att.Filename)
+		proxyID := b.files.Put(att.URL)
 		inboundAtts = append(inboundAtts, chanlib.InboundAttachment{
 			Mime:     att.ContentType,
 			Filename: att.Filename,
-			URL:      att.URL,
+			URL:      fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, proxyID),
 			Size:     int64(att.Size),
 		})
 	}

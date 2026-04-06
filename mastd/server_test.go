@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -18,10 +20,17 @@ type stubPoster struct {
 func (s *stubPoster) Send(chanlib.SendRequest) (string, error) { return "", s.err }
 func (s *stubPoster) Typing(string, bool)                      {}
 
+type stubFiles struct{ urls map[string]string }
+
+func (s *stubFiles) FileURL(id string) (string, bool) {
+	u, ok := s.urls[id]
+	return u, ok
+}
+
 func testMastServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "mastodon", ChannelSecret: secret}
-	return newServer(cfg, &stubPoster{})
+	return newServer(cfg, &stubPoster{}, &stubFiles{})
 }
 
 func TestMastHealth(t *testing.T) {
@@ -76,7 +85,6 @@ func TestMastAuthWrongToken(t *testing.T) {
 
 func TestMastSend_MissingFields(t *testing.T) {
 	s := testMastServer(t, "")
-	// missing content → 400 (validation happens before mc is called)
 	body, _ := json.Marshal(map[string]string{"chat_jid": "mastodon:123"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -119,21 +127,19 @@ func TestMastTyping(t *testing.T) {
 }
 
 func TestMastAuthNoSecret(t *testing.T) {
-	// when ChannelSecret is empty, any request passes through
 	s := testMastServer(t, "")
 	body, _ := json.Marshal(map[string]string{"content": "hello"})
 	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
 
-	// typing handler always returns 200
 	if w.Code != 200 {
 		t.Errorf("status = %d, want 200", w.Code)
 	}
 }
 
 func TestMastSendError(t *testing.T) {
-	s := newServer(config{Name: "mastodon"}, &stubPoster{err: errors.New("boom")})
+	s := newServer(config{Name: "mastodon"}, &stubPoster{err: errors.New("boom")}, &stubFiles{})
 	body, _ := json.Marshal(map[string]string{"chat_jid": "mastodon:1", "content": "hi"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -152,5 +158,141 @@ func TestMastSendMalformedJSON(t *testing.T) {
 	s.handler().ServeHTTP(w, req)
 	if w.Code != 400 {
 		t.Errorf("want 400, got %d", w.Code)
+	}
+}
+
+func TestMastFileProxy(t *testing.T) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte("fake-image-data"))
+	}))
+	defer cdn.Close()
+
+	fr := &stubFiles{urls: map[string]string{"att123": cdn.URL + "/media/att123.jpg"}}
+	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr)
+
+	req := httptest.NewRequest("GET", "/files/att123", nil)
+	req.Header.Set("Authorization", "Bearer sec")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if w.Header().Get("Content-Type") != "image/jpeg" {
+		t.Errorf("content-type = %q", w.Header().Get("Content-Type"))
+	}
+	body, _ := io.ReadAll(w.Body)
+	if string(body) != "fake-image-data" {
+		t.Errorf("body = %q", string(body))
+	}
+}
+
+func TestMastFileProxyNotFound(t *testing.T) {
+	fr := &stubFiles{urls: map[string]string{}}
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr)
+
+	req := httptest.NewRequest("GET", "/files/unknown", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestMastFileProxyNoAuth(t *testing.T) {
+	fr := &stubFiles{urls: map[string]string{"att1": "http://cdn/x"}}
+	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr)
+
+	req := httptest.NewRequest("GET", "/files/att1", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestMastFileProxyEmptyID(t *testing.T) {
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, &stubFiles{})
+
+	req := httptest.NewRequest("GET", "/files/", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestMastFileProxyCDNError(t *testing.T) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer cdn.Close()
+
+	fr := &stubFiles{urls: map[string]string{"att1": cdn.URL + "/x"}}
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr)
+
+	req := httptest.NewRequest("GET", "/files/att1", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+
+	if w.Code != 502 {
+		t.Errorf("status = %d, want 502", w.Code)
+	}
+}
+
+func TestExtractAttachments(t *testing.T) {
+	mc := &mastoClient{cfg: config{ListenURL: "http://mastd:9004"}}
+	// Simulate calling extractAttachments by storing + retrieving
+	mc.files.Store("img1", "https://cdn.example.com/media/img1.jpg")
+	u, ok := mc.FileURL("img1")
+	if !ok {
+		t.Fatal("FileURL not found")
+	}
+	if u != "https://cdn.example.com/media/img1.jpg" {
+		t.Errorf("url = %q", u)
+	}
+	_, ok = mc.FileURL("missing")
+	if ok {
+		t.Error("expected not found for missing key")
+	}
+}
+
+func TestMediaMime(t *testing.T) {
+	cases := []struct {
+		typ  string
+		want string
+	}{
+		{"image", "image/jpeg"},
+		{"video", "video/mp4"},
+		{"audio", "audio/mpeg"},
+		{"gifv", "video/mp4"},
+		{"unknown", "application/octet-stream"},
+	}
+	for _, tc := range cases {
+		got := mediaMime(tc.typ)
+		if got != tc.want {
+			t.Errorf("mediaMime(%q) = %q, want %q", tc.typ, got, tc.want)
+		}
+	}
+}
+
+func TestMimeExt(t *testing.T) {
+	cases := []struct {
+		mime string
+		want string
+	}{
+		{"image/jpeg", ".jpg"},
+		{"video/mp4", ".mp4"},
+		{"audio/mpeg", ".mp3"},
+	}
+	for _, tc := range cases {
+		got := mimeExt(tc.mime)
+		if got != tc.want {
+			t.Errorf("mimeExt(%q) = %q, want %q", tc.mime, got, tc.want)
+		}
 	}
 }

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,6 +33,7 @@ type redditClient struct {
 	expiresAt time.Time
 	cursors   map[string]string
 	skipFirst map[string]bool
+	files     *fileCache
 }
 
 func newRedditClient(cfg config) (*redditClient, error) {
@@ -39,6 +42,7 @@ func newRedditClient(cfg config) (*redditClient, error) {
 		http:      &http.Client{Timeout: 15 * time.Second},
 		cursors:   map[string]string{},
 		skipFirst: map[string]bool{},
+		files:     newFileCache(1000),
 	}
 	if err := rc.refreshToken(); err != nil {
 		return nil, err
@@ -159,6 +163,20 @@ func (rc *redditClient) doWithRetry(req *http.Request) (*http.Response, error) {
 	return nil, fmt.Errorf("rate limited after 3 retries")
 }
 
+type mediaMetaItem struct {
+	Status string `json:"status"`
+	Mime   string `json:"m"`
+	S      struct {
+		U string `json:"u"`
+		X int    `json:"x"`
+		Y int    `json:"y"`
+	} `json:"s"`
+}
+
+type galleryItem struct {
+	MediaID string `json:"media_id"`
+}
+
 type thing struct {
 	Kind string `json:"kind"`
 	Data struct {
@@ -172,6 +190,18 @@ type thing struct {
 		ParentID  string  `json:"parent_id"`
 		LinkID    string  `json:"link_id"`
 		Subreddit string  `json:"subreddit"`
+		URL       string  `json:"url"`
+		PostHint  string  `json:"post_hint"`
+		IsGallery bool    `json:"is_gallery"`
+		Media     *struct {
+			RedditVideo *struct {
+				FallbackURL string `json:"fallback_url"`
+			} `json:"reddit_video"`
+		} `json:"media"`
+		GalleryData *struct {
+			Items []galleryItem `json:"items"`
+		} `json:"gallery_data"`
+		MediaMetadata map[string]mediaMetaItem `json:"media_metadata"`
 	} `json:"data"`
 }
 
@@ -287,16 +317,22 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 		verb = "message"
 	}
 
+	atts := rc.extractAttachments(t)
+	for _, a := range atts {
+		content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
+	}
+
 	err := router.SendMessage(chanlib.InboundMsg{
-		ID:         d.Name,
-		ChatJID:    jid,
-		Sender:     sender,
-		SenderName: d.Author,
-		Content:    content,
-		Timestamp:  int64(d.CreatedAt),
-		IsGroup:    isSubreddit,
-		Topic:      topic,
-		Verb:       verb,
+		ID:          d.Name,
+		ChatJID:     jid,
+		Sender:      sender,
+		SenderName:  d.Author,
+		Content:     content,
+		Timestamp:   int64(d.CreatedAt),
+		IsGroup:     isSubreddit,
+		Topic:       topic,
+		Verb:        verb,
+		Attachments: atts,
 	})
 	if err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
@@ -327,3 +363,140 @@ func (rc *redditClient) Send(req chanlib.SendRequest) (string, error) {
 }
 
 func (rc *redditClient) Typing(string, bool) {}
+
+func (rc *redditClient) extractAttachments(t thing) []chanlib.InboundAttachment {
+	d := t.Data
+	var atts []chanlib.InboundAttachment
+
+	// Video posts.
+	if d.Media != nil && d.Media.RedditVideo != nil && d.Media.RedditVideo.FallbackURL != "" {
+		u := d.Media.RedditVideo.FallbackURL
+		atts = append(atts, rc.makeAttachment(u, "video/mp4", "video.mp4"))
+		return atts
+	}
+
+	// Gallery posts.
+	if d.IsGallery && d.GalleryData != nil && d.MediaMetadata != nil {
+		for _, item := range d.GalleryData.Items {
+			meta, ok := d.MediaMetadata[item.MediaID]
+			if !ok || meta.Status != "valid" || meta.S.U == "" {
+				continue
+			}
+			imgURL := strings.ReplaceAll(meta.S.U, "&amp;", "&")
+			ext := extFromRedditMime(meta.Mime)
+			fname := item.MediaID + ext
+			atts = append(atts, rc.makeAttachment(imgURL, meta.Mime, fname))
+		}
+		return atts
+	}
+
+	// Image posts (i.redd.it or post_hint:image).
+	if d.URL != "" && isRedditImageURL(d.URL, d.PostHint) {
+		mime := mimeFromExt(d.URL)
+		fname := filenameFromURL(d.URL)
+		atts = append(atts, rc.makeAttachment(d.URL, mime, fname))
+	}
+
+	return atts
+}
+
+func (rc *redditClient) makeAttachment(rawURL, mime, fname string) chanlib.InboundAttachment {
+	id := rc.files.Put(rawURL)
+	proxyURL := rc.cfg.ListenURL + "/files/" + id
+	return chanlib.InboundAttachment{
+		Mime:     mime,
+		Filename: fname,
+		URL:      proxyURL,
+	}
+}
+
+func isRedditImageURL(u, hint string) bool {
+	if hint == "image" {
+		return true
+	}
+	if strings.Contains(u, "i.redd.it") {
+		return true
+	}
+	lower := strings.ToLower(u)
+	for _, ext := range []string{".jpg", ".jpeg", ".png", ".gif", ".webp"} {
+		if strings.HasSuffix(lower, ext) || strings.Contains(lower, ext+"?") {
+			return true
+		}
+	}
+	return false
+}
+
+func mimeFromExt(u string) string {
+	lower := strings.ToLower(u)
+	switch {
+	case strings.Contains(lower, ".png"):
+		return "image/png"
+	case strings.Contains(lower, ".gif"):
+		return "image/gif"
+	case strings.Contains(lower, ".webp"):
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
+}
+
+func filenameFromURL(u string) string {
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return "image.jpg"
+	}
+	base := filepath.Base(parsed.Path)
+	if base == "" || base == "." || base == "/" {
+		return "image.jpg"
+	}
+	return base
+}
+
+func extFromRedditMime(m string) string {
+	switch m {
+	case "image/png":
+		return ".png"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".jpg"
+	}
+}
+
+// fileCache maps short IDs to original URLs for the file proxy.
+type fileCache struct {
+	mu      sync.Mutex
+	ids     map[string]string // id -> URL
+	order   []string          // eviction order
+	maxSize int
+}
+
+func newFileCache(max int) *fileCache {
+	return &fileCache{ids: map[string]string{}, maxSize: max}
+}
+
+func (fc *fileCache) Put(rawURL string) string {
+	h := sha256.Sum256([]byte(rawURL))
+	id := hex.EncodeToString(h[:8])
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	if _, ok := fc.ids[id]; !ok {
+		fc.ids[id] = rawURL
+		fc.order = append(fc.order, id)
+		for len(fc.ids) > fc.maxSize {
+			oldest := fc.order[0]
+			fc.order = fc.order[1:]
+			delete(fc.ids, oldest)
+		}
+	}
+	return id
+}
+
+func (fc *fileCache) Get(id string) (string, bool) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	u, ok := fc.ids[id]
+	return u, ok
+}

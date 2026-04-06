@@ -25,10 +25,11 @@ type poller struct {
 	cfg     config
 	db      *sql.DB
 	dialTLS func(string, *imapclient.Options) (*imapclient.Client, error)
+	files   *attachCache
 }
 
-func newPoller(cfg config, db *sql.DB) *poller {
-	return &poller{cfg: cfg, db: db, dialTLS: imapclient.DialTLS}
+func newPoller(cfg config, db *sql.DB, files *attachCache) *poller {
+	return &poller{cfg: cfg, db: db, dialTLS: imapclient.DialTLS, files: files}
 }
 
 func (p *poller) run(ctx context.Context, rc *chanlib.RouterClient) {
@@ -273,8 +274,9 @@ func (p *poller) handleMsg(
 
 	bodyRaw := msg.FindBodySection(&imap.FetchItemBodySection{})
 	body := ""
+	var atts []chanlib.InboundAttachment
 	if bodyRaw != nil {
-		body = extractPlainText(bytes.NewReader(bodyRaw))
+		body, atts = extractContent(bytes.NewReader(bodyRaw), msg.UID, p.cfg.ListenURL, p.files)
 	}
 
 	subject := env.Subject
@@ -286,17 +288,22 @@ func (p *poller) handleMsg(
 	content := fmt.Sprintf("From: %s <%s>\nSubject: %s\nDate: %s\nTo: %s\n\n%s",
 		fromName, fromAddr, subject, env.Date.Format(time.RFC1123Z), toAddr, body)
 
+	for _, a := range atts {
+		content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
+	}
+
 	jid := "email:" + threadID
 	_ = rc.SendChat(jid, fromName+" ("+fromAddr+")", false)
 
 	if err := rc.SendMessage(chanlib.InboundMsg{
-		ID:         msgID,
-		ChatJID:    jid,
-		Sender:     "email:" + fromAddr,
-		SenderName: fromName,
-		Content:    content,
-		Timestamp:  ts,
-		IsGroup:    false,
+		ID:          msgID,
+		ChatJID:     jid,
+		Sender:      "email:" + fromAddr,
+		SenderName:  fromName,
+		Content:     content,
+		Timestamp:   ts,
+		IsGroup:     false,
+		Attachments: atts,
 	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 		return nil
@@ -315,23 +322,54 @@ func (p *poller) handleMsg(
 }
 
 func extractPlainText(r io.Reader) string {
+	text, _ := extractContent(r, 0, "", nil)
+	return text
+}
+
+func extractContent(r io.Reader, uid imap.UID, listenURL string, fc *attachCache) (string, []chanlib.InboundAttachment) {
 	mr, err := gomessage.CreateReader(r)
 	if err != nil {
 		b, _ := io.ReadAll(r)
-		return string(b)
+		return string(b), nil
 	}
+	var text string
+	var atts []chanlib.InboundAttachment
+	partIdx := 0
 	for {
 		p, err := mr.NextPart()
 		if err != nil {
 			break
 		}
-		if ih, ok := p.Header.(*gomessage.InlineHeader); ok {
-			ct, _, _ := ih.ContentType()
-			if ct == "text/plain" {
+		switch h := p.Header.(type) {
+		case *gomessage.InlineHeader:
+			ct, _, _ := h.ContentType()
+			if ct == "text/plain" && text == "" {
 				b, _ := io.ReadAll(p.Body)
-				return string(b)
+				text = string(b)
 			}
+		case *gomessage.AttachmentHeader:
+			ct, _, _ := h.ContentType()
+			fname, _ := h.Filename()
+			if fname == "" {
+				fname = fmt.Sprintf("attachment-%d", partIdx)
+			}
+			data, err := io.ReadAll(p.Body)
+			if err != nil {
+				continue
+			}
+			att := chanlib.InboundAttachment{
+				Mime:     ct,
+				Filename: fname,
+				Size:     int64(len(data)),
+			}
+			if fc != nil && listenURL != "" {
+				key := fmt.Sprintf("%d-%d", uid, partIdx)
+				fc.Put(key, data, ct, fname)
+				att.URL = fmt.Sprintf("%s/files/%d/%d", listenURL, uid, partIdx)
+			}
+			atts = append(atts, att)
+			partIdx++
 		}
 	}
-	return ""
+	return text, atts
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ func makeRedditClient(t *testing.T, srv *httptest.Server) *redditClient {
 		skipFirst: map[string]bool{},
 		token:     "test-token",
 		expiresAt: time.Now().Add(time.Hour),
+		files:     newFileCache(100),
 		http: &http.Client{
 			Transport: &hostRewrite{target: srv.Listener.Addr().String()},
 			Timeout:   5 * time.Second,
@@ -40,27 +42,13 @@ func (h *hostRewrite) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func listingWithItem(name, author, body string) []byte {
+	t := thing{Kind: "t4"}
+	t.Data.Name = name
+	t.Data.Author = author
+	t.Data.Body = body
+	t.Data.ID = "x1"
 	l := listing{}
-	l.Data.Children = []thing{{
-		Kind: "t4",
-		Data: struct {
-			Name      string  `json:"name"`
-			Author    string  `json:"author"`
-			Body      string  `json:"body"`
-			Selftext  string  `json:"selftext"`
-			Title     string  `json:"title"`
-			CreatedAt float64 `json:"created_utc"`
-			ID        string  `json:"id"`
-			ParentID  string  `json:"parent_id"`
-			LinkID    string  `json:"link_id"`
-			Subreddit string  `json:"subreddit"`
-		}{
-			Name:   name,
-			Author: author,
-			Body:   body,
-			ID:     "x1",
-		},
-	}}
+	l.Data.Children = []thing{t}
 	b, _ := json.Marshal(l)
 	return b
 }
@@ -190,6 +178,130 @@ func TestTokenExpiry(t *testing.T) {
 	}
 	if rc.token != "new-token" {
 		t.Errorf("token = %q, want new-token", rc.token)
+	}
+}
+
+// TestExtractAttachments_ImagePost verifies attachment extraction from an image post.
+func TestExtractAttachments_ImagePost(t *testing.T) {
+	rc := makeRedditClient(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
+	rc.cfg.ListenURL = "http://reditd:9006"
+
+	th := thing{Kind: "t3"}
+	th.Data.URL = "https://i.redd.it/abc123.jpg"
+	th.Data.PostHint = "image"
+
+	atts := rc.extractAttachments(th)
+	if len(atts) != 1 {
+		t.Fatalf("got %d attachments, want 1", len(atts))
+	}
+	if atts[0].Mime != "image/jpeg" {
+		t.Errorf("mime = %q, want image/jpeg", atts[0].Mime)
+	}
+	if atts[0].Filename != "abc123.jpg" {
+		t.Errorf("filename = %q", atts[0].Filename)
+	}
+	if !strings.HasPrefix(atts[0].URL, "http://reditd:9006/files/") {
+		t.Errorf("url = %q, expected proxy URL", atts[0].URL)
+	}
+}
+
+// TestExtractAttachments_Video verifies attachment extraction from a video post.
+func TestExtractAttachments_Video(t *testing.T) {
+	rc := makeRedditClient(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
+	rc.cfg.ListenURL = "http://reditd:9006"
+
+	th := thing{Kind: "t3"}
+	th.Data.Media = &struct {
+		RedditVideo *struct {
+			FallbackURL string `json:"fallback_url"`
+		} `json:"reddit_video"`
+	}{
+		RedditVideo: &struct {
+			FallbackURL string `json:"fallback_url"`
+		}{FallbackURL: "https://v.redd.it/abc/DASH_720.mp4"},
+	}
+
+	atts := rc.extractAttachments(th)
+	if len(atts) != 1 {
+		t.Fatalf("got %d attachments, want 1", len(atts))
+	}
+	if atts[0].Mime != "video/mp4" {
+		t.Errorf("mime = %q", atts[0].Mime)
+	}
+}
+
+// TestExtractAttachments_Gallery verifies gallery post extraction.
+func TestExtractAttachments_Gallery(t *testing.T) {
+	rc := makeRedditClient(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
+	rc.cfg.ListenURL = "http://reditd:9006"
+
+	th := thing{Kind: "t3"}
+	th.Data.IsGallery = true
+	th.Data.GalleryData = &struct {
+		Items []galleryItem `json:"items"`
+	}{
+		Items: []galleryItem{{MediaID: "img1"}, {MediaID: "img2"}},
+	}
+	th.Data.MediaMetadata = map[string]mediaMetaItem{
+		"img1": {Status: "valid", Mime: "image/png", S: struct {
+			U string `json:"u"`
+			X int    `json:"x"`
+			Y int    `json:"y"`
+		}{U: "https://preview.redd.it/img1.png"}},
+		"img2": {Status: "valid", Mime: "image/jpeg", S: struct {
+			U string `json:"u"`
+			X int    `json:"x"`
+			Y int    `json:"y"`
+		}{U: "https://preview.redd.it/img2.jpg"}},
+	}
+
+	atts := rc.extractAttachments(th)
+	if len(atts) != 2 {
+		t.Fatalf("got %d attachments, want 2", len(atts))
+	}
+	if atts[0].Filename != "img1.png" {
+		t.Errorf("first filename = %q", atts[0].Filename)
+	}
+	if atts[1].Filename != "img2.jpg" {
+		t.Errorf("second filename = %q", atts[1].Filename)
+	}
+}
+
+// TestExtractAttachments_NoMedia verifies no attachments for text-only posts.
+func TestExtractAttachments_NoMedia(t *testing.T) {
+	rc := makeRedditClient(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
+	th := thing{Kind: "t4"}
+	th.Data.Body = "just text"
+	atts := rc.extractAttachments(th)
+	if len(atts) != 0 {
+		t.Errorf("got %d attachments, want 0", len(atts))
+	}
+}
+
+// TestFileCache verifies put/get and eviction.
+func TestFileCache(t *testing.T) {
+	fc := newFileCache(3)
+	id1 := fc.Put("https://example.com/1.jpg")
+	id2 := fc.Put("https://example.com/2.jpg")
+
+	if u, ok := fc.Get(id1); !ok || u != "https://example.com/1.jpg" {
+		t.Errorf("get id1: ok=%v url=%q", ok, u)
+	}
+	if u, ok := fc.Get(id2); !ok || u != "https://example.com/2.jpg" {
+		t.Errorf("get id2: ok=%v url=%q", ok, u)
+	}
+
+	// same URL returns same ID
+	id1b := fc.Put("https://example.com/1.jpg")
+	if id1b != id1 {
+		t.Errorf("duplicate URL got different ID: %q vs %q", id1, id1b)
+	}
+
+	// eviction: add 2 more to exceed max of 3
+	fc.Put("https://example.com/3.jpg")
+	fc.Put("https://example.com/4.jpg")
+	if _, ok := fc.Get(id1); ok {
+		t.Error("id1 should have been evicted")
 	}
 }
 

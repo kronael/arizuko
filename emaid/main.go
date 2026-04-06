@@ -24,8 +24,9 @@ func main() {
 				slog.Error("db open failed", "err", err)
 				return nil, nil, err
 			}
-			go newPoller(cfg, db).run(ctx, rc)
-			return newServer(cfg, db).handler(), func() { db.Close() }, nil
+			files := newAttachCache(1000)
+			go newPoller(cfg, db, files).run(ctx, rc)
+			return newServer(cfg, db, files).handler(), func() { db.Close() }, nil
 		},
 	})
 }

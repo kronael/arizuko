@@ -12,7 +12,7 @@ func testServer(t *testing.T, secret string) (*server, *sql.DB) {
 	t.Helper()
 	db := newTestDB(t)
 	cfg := config{Name: "email", ChannelSecret: secret}
-	return newServer(cfg, db), db
+	return newServer(cfg, db, newAttachCache(100)), db
 }
 
 func TestHandleSend_NoThread(t *testing.T) {
@@ -93,5 +93,64 @@ func TestAuthPassthrough(t *testing.T) {
 
 	if w.Code != 200 {
 		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestFileProxy(t *testing.T) {
+	db := newTestDB(t)
+	fc := newAttachCache(100)
+	fc.Put("42-0", []byte("hello pdf"), "application/pdf", "doc.pdf")
+
+	s := newServer(config{Name: "email"}, db, fc)
+
+	req := httptest.NewRequest("GET", "/files/42/0", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if w.Header().Get("Content-Type") != "application/pdf" {
+		t.Errorf("content-type = %q", w.Header().Get("Content-Type"))
+	}
+	if w.Body.String() != "hello pdf" {
+		t.Errorf("body = %q", w.Body.String())
+	}
+	if w.Header().Get("Content-Disposition") != `attachment; filename="doc.pdf"` {
+		t.Errorf("disposition = %q", w.Header().Get("Content-Disposition"))
+	}
+}
+
+func TestFileProxyNotFound(t *testing.T) {
+	s, _ := testServer(t, "")
+	req := httptest.NewRequest("GET", "/files/999/0", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestFileProxyBadPath(t *testing.T) {
+	s, _ := testServer(t, "")
+	req := httptest.NewRequest("GET", "/files/notanumber/0", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestFileProxyAuthRequired(t *testing.T) {
+	db := newTestDB(t)
+	fc := newAttachCache(100)
+	fc.Put("1-0", []byte("data"), "text/plain", "file.txt")
+	s := newServer(config{Name: "email", ChannelSecret: "secret123"}, db, fc)
+
+	req := httptest.NewRequest("GET", "/files/1/0", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401", w.Code)
 	}
 }

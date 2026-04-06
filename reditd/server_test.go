@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -31,7 +32,7 @@ func (s *stubSender) Typing(string, bool) {}
 func testReditServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "reddit", ChannelSecret: secret}
-	return newServer(cfg, &stubSender{})
+	return newServer(cfg, &stubSender{}, newFileCache(100))
 }
 
 func TestReditHealth(t *testing.T) {
@@ -142,7 +143,7 @@ func TestReditAuthNoSecret(t *testing.T) {
 
 func TestReditSendComment(t *testing.T) {
 	stub := &stubSender{}
-	s := newServer(config{Name: "reddit"}, stub)
+	s := newServer(config{Name: "reddit"}, stub, newFileCache(100))
 	body, _ := json.Marshal(map[string]string{"chat_jid": "reddit:1", "content": "reply", "reply_to": "t3_abc"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -161,7 +162,7 @@ func TestReditSendComment(t *testing.T) {
 
 func TestReditSendSubmit(t *testing.T) {
 	stub := &stubSender{}
-	s := newServer(config{Name: "reddit"}, stub)
+	s := newServer(config{Name: "reddit"}, stub, newFileCache(100))
 	body, _ := json.Marshal(map[string]string{"chat_jid": "reddit:1", "content": "post"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -180,7 +181,7 @@ func TestReditSendSubmit(t *testing.T) {
 
 func TestReditSendError(t *testing.T) {
 	stub := &stubSender{err: errors.New("boom")}
-	s := newServer(config{Name: "reddit"}, stub)
+	s := newServer(config{Name: "reddit"}, stub, newFileCache(100))
 	body, _ := json.Marshal(map[string]string{"chat_jid": "reddit:1", "content": "hi"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -199,5 +200,54 @@ func TestReditSendMalformedJSON(t *testing.T) {
 	s.handler().ServeHTTP(w, req)
 	if w.Code != 400 {
 		t.Errorf("want 400, got %d", w.Code)
+	}
+}
+
+func TestReditFileProxy(t *testing.T) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte("fakejpeg"))
+	}))
+	defer cdn.Close()
+
+	fc := newFileCache(100)
+	id := fc.Put(cdn.URL + "/image.jpg")
+	s := newServer(config{Name: "reddit"}, &stubSender{}, fc)
+
+	req := httptest.NewRequest("GET", "/files/"+id, nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if w.Header().Get("Content-Type") != "image/jpeg" {
+		t.Errorf("content-type = %q", w.Header().Get("Content-Type"))
+	}
+	if w.Body.String() != "fakejpeg" {
+		t.Errorf("body = %q", w.Body.String())
+	}
+}
+
+func TestReditFileProxyNotFound(t *testing.T) {
+	s := testReditServer(t, "")
+	req := httptest.NewRequest("GET", "/files/nonexistent", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestReditFileProxyAuthRequired(t *testing.T) {
+	fc := newFileCache(100)
+	fc.Put("https://example.com/img.jpg")
+	s := newServer(config{Name: "reddit", ChannelSecret: "secret123"}, &stubSender{}, fc)
+
+	req := httptest.NewRequest("GET", "/files/someid", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401", w.Code)
 	}
 }

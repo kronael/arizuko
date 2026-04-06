@@ -27,7 +27,7 @@ func main() {
 			}
 			rc2.loadCursors()
 			go rc2.poll(ctx, rc)
-			return newServer(cfg, rc2).handler(), nil, nil
+			return newServer(cfg, rc2, rc2.files).handler(), nil, nil
 		},
 	})
 }

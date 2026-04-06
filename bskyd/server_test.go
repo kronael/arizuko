@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -118,7 +120,6 @@ func TestBskyTyping(t *testing.T) {
 }
 
 func TestBskyAuthNoSecret(t *testing.T) {
-	// when ChannelSecret is empty, any request passes auth middleware
 	s := testBskyServer(t, "")
 	body, _ := json.Marshal(map[string]any{})
 	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
@@ -150,5 +151,168 @@ func TestBskySendMalformedJSON(t *testing.T) {
 	s.handler().ServeHTTP(w, req)
 	if w.Code != 400 {
 		t.Errorf("want 400, got %d", w.Code)
+	}
+}
+
+func TestBskyFileProxy(t *testing.T) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("did") != "did:plc:abc" || r.URL.Query().Get("cid") != "bafkrei123" {
+			w.WriteHeader(400)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte("blob-data"))
+	}))
+	defer cdn.Close()
+
+	s := newServer(config{Name: "bluesky", ChannelSecret: "sec", Service: cdn.URL}, &stubCreator{})
+
+	req := httptest.NewRequest("GET", "/files/did:plc:abc/bafkrei123", nil)
+	req.Header.Set("Authorization", "Bearer sec")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if w.Header().Get("Content-Type") != "image/jpeg" {
+		t.Errorf("content-type = %q", w.Header().Get("Content-Type"))
+	}
+	body, _ := io.ReadAll(w.Body)
+	if string(body) != "blob-data" {
+		t.Errorf("body = %q", string(body))
+	}
+}
+
+func TestBskyFileProxyMissingParts(t *testing.T) {
+	cases := []struct {
+		path string
+		desc string
+	}{
+		{"/files/", "empty path"},
+		{"/files/did:plc:abc", "missing cid"},
+		{"/files/did:plc:abc/", "empty cid"},
+	}
+	for _, tc := range cases {
+		s := newServer(config{Name: "bluesky"}, &stubCreator{})
+		req := httptest.NewRequest("GET", tc.path, nil)
+		w := httptest.NewRecorder()
+		s.handler().ServeHTTP(w, req)
+		if w.Code != 400 {
+			t.Errorf("%s: status = %d, want 400", tc.desc, w.Code)
+		}
+	}
+}
+
+func TestBskyFileProxyNoAuth(t *testing.T) {
+	s := newServer(config{Name: "bluesky", ChannelSecret: "sec"}, &stubCreator{})
+	req := httptest.NewRequest("GET", "/files/did:plc:abc/bafkrei123", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestBskyFileProxyCDNError(t *testing.T) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer cdn.Close()
+
+	s := newServer(config{Name: "bluesky", Service: cdn.URL}, &stubCreator{})
+	req := httptest.NewRequest("GET", "/files/did:plc:abc/bafkrei123", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 502 {
+		t.Errorf("status = %d, want 502", w.Code)
+	}
+}
+
+func TestBlobExt(t *testing.T) {
+	cases := []struct {
+		mime string
+		want string
+	}{
+		{"image/jpeg", ".jpg"},
+		{"image/png", ".png"},
+		{"image/webp", ".webp"},
+		{"image/gif", ".gif"},
+		{"application/octet-stream", ".bin"},
+	}
+	for _, tc := range cases {
+		got := blobExt(tc.mime)
+		if got != tc.want {
+			t.Errorf("blobExt(%q) = %q, want %q", tc.mime, got, tc.want)
+		}
+	}
+}
+
+func TestExtractAttachments(t *testing.T) {
+	bc := &bskyClient{cfg: config{ListenURL: "http://bskyd:9005"}}
+	n := notification{}
+	n.Author.DID = "did:plc:abc"
+	n.Record.Embed = &embedRecord{
+		Type: "app.bsky.embed.images",
+		Images: []embedImage{
+			{
+				Alt: "a photo",
+				Image: blobRef{
+					Ref:      blobRefLink{Link: "bafkrei123"},
+					MimeType: "image/jpeg",
+					Size:     5000,
+				},
+			},
+			{
+				Alt: "another",
+				Image: blobRef{
+					Ref:      blobRefLink{Link: "bafkrei456"},
+					MimeType: "image/png",
+					Size:     3000,
+				},
+			},
+		},
+	}
+
+	atts := bc.extractAttachments(n)
+	if len(atts) != 2 {
+		t.Fatalf("got %d attachments, want 2", len(atts))
+	}
+	if atts[0].URL != "http://bskyd:9005/files/did:plc:abc/bafkrei123" {
+		t.Errorf("att[0].URL = %q", atts[0].URL)
+	}
+	if atts[0].Mime != "image/jpeg" {
+		t.Errorf("att[0].Mime = %q", atts[0].Mime)
+	}
+	if atts[0].Size != 5000 {
+		t.Errorf("att[0].Size = %d", atts[0].Size)
+	}
+	if atts[0].Filename != "image_0.jpg" {
+		t.Errorf("att[0].Filename = %q", atts[0].Filename)
+	}
+	if atts[1].URL != "http://bskyd:9005/files/did:plc:abc/bafkrei456" {
+		t.Errorf("att[1].URL = %q", atts[1].URL)
+	}
+	if atts[1].Mime != "image/png" {
+		t.Errorf("att[1].Mime = %q", atts[1].Mime)
+	}
+}
+
+func TestExtractAttachments_NoEmbed(t *testing.T) {
+	bc := &bskyClient{cfg: config{ListenURL: "http://bskyd:9005"}}
+	n := notification{}
+	atts := bc.extractAttachments(n)
+	if atts != nil {
+		t.Errorf("expected nil, got %v", atts)
+	}
+}
+
+func TestExtractAttachments_WrongEmbedType(t *testing.T) {
+	bc := &bskyClient{cfg: config{ListenURL: "http://bskyd:9005"}}
+	n := notification{}
+	n.Record.Embed = &embedRecord{Type: "app.bsky.embed.external"}
+	atts := bc.extractAttachments(n)
+	if atts != nil {
+		t.Errorf("expected nil, got %v", atts)
 	}
 }

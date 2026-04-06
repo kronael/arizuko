@@ -25,7 +25,7 @@ func main() {
 				return nil, nil, err
 			}
 			go mc.stream(ctx, rc)
-			return newServer(cfg, mc).handler(), nil, nil
+			return newServer(cfg, mc, mc).handler(), nil, nil
 		},
 	})
 }

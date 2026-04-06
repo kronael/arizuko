@@ -148,3 +148,69 @@ func TestServerNoSecret(t *testing.T) {
 		t.Errorf("sent = %d", len(sb.sent))
 	}
 }
+
+func TestServerFileProxy(t *testing.T) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write([]byte("pngdata"))
+	}))
+	defer cdn.Close()
+
+	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{})
+	id := srv.files.Put(cdn.URL + "/image.png")
+	h := srv.handler()
+
+	req := httptest.NewRequest("GET", "/files/"+id, nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if w.Body.String() != "pngdata" {
+		t.Errorf("body = %q", w.Body.String())
+	}
+	if w.Header().Get("Content-Type") != "image/png" {
+		t.Errorf("ct = %q", w.Header().Get("Content-Type"))
+	}
+}
+
+func TestServerFileProxyNotFound(t *testing.T) {
+	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{})
+	h := srv.handler()
+	req := httptest.NewRequest("GET", "/files/missing", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d", w.Code)
+	}
+}
+
+func TestServerFileProxyAuth(t *testing.T) {
+	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{})
+	srv.files.Put("http://example.com/img.jpg")
+	h := srv.handler()
+	req := httptest.NewRequest("GET", "/files/abc", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Errorf("status = %d", w.Code)
+	}
+}
+
+func TestFileCachePutGet(t *testing.T) {
+	var fc fileCache
+	id := fc.Put("https://cdn.example.com/file.png")
+	if id == "" {
+		t.Fatal("empty id")
+	}
+	url, ok := fc.Get(id)
+	if !ok || url != "https://cdn.example.com/file.png" {
+		t.Errorf("got %q, ok=%v", url, ok)
+	}
+	_, ok = fc.Get("missing")
+	if ok {
+		t.Error("expected not found")
+	}
+}

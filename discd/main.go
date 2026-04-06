@@ -28,7 +28,9 @@ func main() {
 				slog.Error("discord connect failed", "err", err)
 				return nil, nil, err
 			}
-			return newServer(cfg, b).handler(), b.stop, nil
+			srv := newServer(cfg, b)
+			b.files = &srv.files
+			return srv.handler(), b.stop, nil
 		},
 	})
 }
