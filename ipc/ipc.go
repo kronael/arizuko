@@ -271,12 +271,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	registerRaw("send_file", "Send a file to a chat",
+	registerRaw("send_file", "Send a file to a chat. Use caption as the message text — do not send a separate text message when sending a file.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("filepath", mcp.Required()),
 			mcp.WithString("filename"),
-			mcp.WithString("caption"),
+			mcp.WithString("caption", mcp.Description("Message text to accompany the file. This IS the message — do not output separate text.")),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")

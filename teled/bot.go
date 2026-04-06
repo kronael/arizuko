@@ -219,19 +219,32 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 		return err
 	}
 	f := tgbotapi.FilePath(path)
-	ext := strings.ToLower(filepath.Ext(path))
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == "" {
+		ext = strings.ToLower(filepath.Ext(path))
+	}
 	var m tgbotapi.Chattable
 	switch ext {
 	case ".png", ".jpg", ".jpeg", ".webp":
-		p := tgbotapi.NewPhoto(id, f); p.Caption = caption; m = p
+		p := tgbotapi.NewPhoto(id, f)
+		p.Caption = caption
+		m = p
 	case ".mp4", ".mov":
-		v := tgbotapi.NewVideo(id, f); v.Caption = caption; m = v
+		v := tgbotapi.NewVideo(id, f)
+		v.Caption = caption
+		m = v
 	case ".gif":
-		a := tgbotapi.NewAnimation(id, f); a.Caption = caption; m = a
+		a := tgbotapi.NewAnimation(id, f)
+		a.Caption = caption
+		m = a
 	case ".mp3", ".ogg":
-		a := tgbotapi.NewAudio(id, f); a.Caption = caption; m = a
+		a := tgbotapi.NewAudio(id, f)
+		a.Caption = caption
+		m = a
 	default:
-		d := tgbotapi.NewDocument(id, f); d.Caption = caption; m = d
+		d := tgbotapi.NewDocument(id, f)
+		d.Caption = caption
+		m = d
 	}
 	if _, err := b.api.Send(m); err != nil {
 		return fmt.Errorf("telegram sendfile: %w", err)

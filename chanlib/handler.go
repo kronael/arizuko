@@ -85,15 +85,21 @@ func handleSendFile(bot BotHandler) http.HandlerFunc {
 		if name == "" {
 			name = hdr.Filename
 		}
-		tmp, err := os.CreateTemp("", "chan-*"+filepath.Ext(name))
+		dir, err := os.MkdirTemp("", "chan-")
+		if err != nil {
+			WriteErr(w, 500, "temp dir failed")
+			return
+		}
+		defer os.RemoveAll(dir)
+		localPath := filepath.Join(dir, name)
+		tmp, err := os.Create(localPath)
 		if err != nil {
 			WriteErr(w, 500, "temp file failed")
 			return
 		}
-		defer os.Remove(tmp.Name())
 		io.Copy(tmp, file)
 		tmp.Close()
-		if err := bot.SendFile(jid, tmp.Name(), name, caption); err != nil {
+		if err := bot.SendFile(jid, localPath, name, caption); err != nil {
 			WriteErr(w, 502, err.Error())
 			return
 		}
