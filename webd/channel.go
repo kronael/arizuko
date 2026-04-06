@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -26,7 +25,7 @@ func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 	folder := strings.TrimPrefix(req.ChatJID, "web:")
 	topic := s.st.TopicByMessageID(req.ReplyTo, req.ChatJID)
 
-	id := fmt.Sprintf("bot-%d", time.Now().UnixNano())
+	id := core.MsgID("bot")
 	m := core.Message{
 		ID:        id,
 		ChatJID:   req.ChatJID,

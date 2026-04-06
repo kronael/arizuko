@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -113,6 +114,11 @@ type SessionRecord struct {
 	Result    string
 	Error     string
 	MsgCount  int
+}
+
+// MsgID returns a unique message ID with the given prefix (e.g. "inject", "cmd-new").
+func MsgID(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
 // JidPlatform extracts the platform prefix from a JID (e.g. "telegram:123" -> "telegram").

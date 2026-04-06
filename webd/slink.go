@@ -58,7 +58,7 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		senderName = "Anonymous"
 	}
 
-	id := fmt.Sprintf("msg-%d", time.Now().UnixNano())
+	id := core.MsgID("msg")
 	m := core.Message{
 		ID:        id,
 		ChatJID:   "web:" + g.Folder,

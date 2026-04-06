@@ -82,7 +82,7 @@ func (g *Gateway) cmdNew(chatJid string, group core.Group, arg string) bool {
 
 	if followup != "" {
 		g.store.PutMessage(core.Message{
-			ID:        fmt.Sprintf("cmd-new-%d", time.Now().UnixNano()),
+			ID:        core.MsgID("cmd-new"),
 			ChatJID:   chatJid,
 			Sender:    "user",
 			Content:   followup,

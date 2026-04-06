@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -158,7 +157,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ID == "" {
-		req.ID = fmt.Sprintf("%s-%d", entry.Name, time.Now().UnixNano())
+		req.ID = core.MsgID(entry.Name)
 	}
 
 	ts := time.Now()

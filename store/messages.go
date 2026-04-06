@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"fmt"
 	"strings"
 	"time"
 
@@ -301,7 +300,7 @@ func (s *Store) RoutedToByMessageID(id string) string {
 func (s *Store) StoreOutbound(entry core.OutboundEntry) error {
 	id := "out-" + entry.PlatformMsgID
 	if entry.PlatformMsgID == "" {
-		id = fmt.Sprintf("out-unsent-%d", time.Now().UnixNano())
+		id = core.MsgID("out-unsent")
 	}
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO messages

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/dbmig"
 	"github.com/robfig/cron/v3"
 	_ "modernc.org/sqlite"
@@ -142,7 +143,7 @@ func fire(db *sql.DB, tz string) {
 		if t.contextMode == "isolated" {
 			sender = "timed-isolated:" + t.id
 		}
-		id := fmt.Sprintf("sched-%s-%d", t.id, start.UnixNano())
+		id := core.MsgID("sched-" + t.id)
 		_, err := db.Exec(
 			`INSERT INTO messages (id, chat_jid, sender, content, timestamp)
 			 VALUES (?, ?, ?, ?, ?)`,

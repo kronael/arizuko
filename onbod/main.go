@@ -262,7 +262,7 @@ func approveInTx(db *sql.DB, jid, folder string) error {
 		jid, folder, jid, folder, jid, folder); err != nil {
 		return err
 	}
-	welcomeID := fmt.Sprintf("onboard-welcome-%s-%d", jid, time.Now().UnixNano())
+	welcomeID := core.MsgID("onboard-welcome")
 	welcomeBody := fmt.Sprintf(
 		`<system_event type="onboard_welcome">Your room %s is ready. Welcome!</system_event>`,
 		folder)

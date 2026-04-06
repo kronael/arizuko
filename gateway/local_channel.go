@@ -39,7 +39,7 @@ func (c *LocalChannel) Send(jid, text, replyTo, threadID string) (string, error)
 		return "", fmt.Errorf("local channel does not own jid: %s", jid)
 	}
 
-	msgID := fmt.Sprintf("local-%d", time.Now().UnixNano())
+	msgID := core.MsgID("local")
 	msg := core.Message{
 		ID:        msgID,
 		ChatJID:   jid,

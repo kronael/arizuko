@@ -753,7 +753,7 @@ func (g *Gateway) clearSession(folder string) {
 }
 
 func (g *Gateway) injectMessage(jid, content, sender, senderName string) (string, error) {
-	id := fmt.Sprintf("inject-%d", time.Now().UnixNano())
+	id := core.MsgID("inject")
 	msg := core.Message{
 		ID:        id,
 		ChatJID:   jid,
