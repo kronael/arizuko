@@ -529,23 +529,16 @@ func (g *Gateway) processWebTopics(
 
 func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID, groupFolder string) (func(string, string), *bool) {
 	var hadOutput bool
-	lastSentID := firstMsgID
+	replyTo := firstMsgID
 
-	replyTarget := func() string {
-		if id := g.store.GetLastReplyID(chatJid, topic); id != "" {
-			return id
-		}
-		return lastSentID
-	}
-
-	send := func(text, replyTo, threadID string) (string, error) {
+	sendOnce := func(text, replyToID, threadID string) (string, error) {
 		if !g.canSendToJID(chatJid) {
 			return "", nil
 		}
 		if ch == nil {
 			return "", fmt.Errorf("no channel for jid %s", chatJid)
 		}
-		return ch.Send(chatJid, text, replyTo, threadID)
+		return ch.Send(chatJid, text, replyToID, threadID)
 	}
 
 	return func(text, _ string) {
@@ -559,7 +552,7 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 		}
 		stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
 		for _, s := range statuses {
-			sentID, err := send("⏳ "+s, "", "")
+			sentID, err := sendOnce("⏳ "+s, "", "")
 			if err != nil {
 				slog.Error("send status failed",
 					"jid", chatJid, "group", groupFolder, "err", err)
@@ -573,13 +566,13 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 			})
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
-			sentID, err := send(clean, replyTarget(), topic)
+			sentID, err := sendOnce(clean, replyTo, topic)
 			if err != nil {
 				slog.Error("send reply failed",
 					"jid", chatJid, "group", groupFolder, "err", err)
 			}
 			if sentID != "" {
-				lastSentID = sentID
+				replyTo = sentID
 				g.store.SetLastReplyID(chatJid, topic, sentID)
 			}
 			g.store.StoreOutbound(core.OutboundEntry{
@@ -587,7 +580,7 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 				Content:       clean,
 				Source:        "agent",
 				GroupFolder:   groupFolder,
-				ReplyToID:     lastSentID,
+				ReplyToID:     replyTo,
 				PlatformMsgID: sentID,
 				Topic:         topic,
 			})
