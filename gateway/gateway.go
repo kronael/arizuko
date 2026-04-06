@@ -528,10 +528,7 @@ func (g *Gateway) processWebTopics(
 
 func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID, groupFolder string) (func(string, string), *bool) {
 	var hadOutput bool
-	lastSentID := g.store.GetLastReplyID(chatJid, topic)
-	if lastSentID == "" {
-		lastSentID = firstMsgID
-	}
+	lastSentID := firstMsgID
 
 	send := func(text, replyTo, threadID string) (string, error) {
 		if !g.canSendToJID(chatJid) {
