@@ -291,7 +291,8 @@ func (g *Gateway) pollOnce() {
 		}
 
 		if g.queue.SendMessage(chatJid, last.Content) {
-			slog.Debug("poll: enqueued message", "jid", chatJid)
+			slog.Debug("poll: steered message into running container", "jid", chatJid)
+			g.store.SetLastReplyID(chatJid, g.effectiveTopic(chatJid, last.Topic), last.ID)
 			g.store.ClearChatErrored(chatJid)
 			continue
 		}
@@ -530,6 +531,13 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 	var hadOutput bool
 	lastSentID := firstMsgID
 
+	replyTarget := func() string {
+		if id := g.store.GetLastReplyID(chatJid, topic); id != "" {
+			return id
+		}
+		return lastSentID
+	}
+
 	send := func(text, replyTo, threadID string) (string, error) {
 		if !g.canSendToJID(chatJid) {
 			return "", nil
@@ -565,7 +573,7 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 			})
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
-			sentID, err := send(clean, lastSentID, topic)
+			sentID, err := send(clean, replyTarget(), topic)
 			if err != nil {
 				slog.Error("send reply failed",
 					"jid", chatJid, "group", groupFolder, "err", err)

@@ -53,33 +53,36 @@ GetLastReplyID(chatJID, topic string) string
 
 #### Gateway changes
 
-In `makeOutputCallback`, restore `lastSentID` from store instead of starting
-from `firstMsgID`:
+`makeOutputCallback` initializes `lastSentID` to `firstMsgID` (the user
+message that triggered the agent run). Before each send, it re-reads
+`GetLastReplyID` from the store — if a steering message arrived mid-run,
+the store will have the steering message's ID, and the next bot chunk
+replies to that instead.
+
+When `queue.SendMessage` succeeds (steering a follow-up into a running
+container), the gateway immediately calls `SetLastReplyID` with the
+steering message's ID. This way the output callback picks up the new
+reply target on its next chunk.
 
 ```go
-func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID string) (func(string, string), *bool) {
-    var hadOutput bool
-    // Restore from store; fall back to user's message if none
-    lastSentID := g.store.GetLastReplyID(chatJid, topic)
-    if lastSentID == "" {
-        lastSentID = firstMsgID
+// Poll loop — steering path
+if g.queue.SendMessage(chatJid, last.Content) {
+    g.store.SetLastReplyID(chatJid, topic, last.ID)
+    ...
+}
+
+// Output callback — reads latest reply target before each send
+replyTarget := func() string {
+    if id := g.store.GetLastReplyID(chatJid, topic); id != "" {
+        return id
     }
-    return func(text, _ string) {
-        if text == "" { return }
-        hadOutput = true
-        stripped, statuses := router.ExtractStatusBlocks(text)
-        for _, s := range statuses { g.sendMessage(chatJid, s) }
-        if clean := router.FormatOutbound(stripped); clean != "" {
-            if sentID, _ := g.sendMessageReply(chatJid, clean, lastSentID); sentID != "" {
-                lastSentID = sentID
-                g.store.SetLastReplyID(chatJid, topic, sentID)
-            }
-        }
-    }, &hadOutput
+    return lastSentID
 }
 ```
 
-Pass `last.Topic` when calling `makeOutputCallback`.
+After each successful bot send, `SetLastReplyID` is updated to the
+bot's sent message ID, so IPC tool calls and subsequent chunks chain
+correctly.
 
 ---
 

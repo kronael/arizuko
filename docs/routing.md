@@ -252,9 +252,14 @@ Bot:  "I can help with..."     (reply_to=201, sent_id=202)
 ```
 
 `store.GetLastReplyID(jid, topic)` provides the anchor for the next
-reply. `store.SetLastReplyID(jid, topic, sentID)` updates it after each
-send. On a fresh conversation (no stored ID), the first user message ID
-is used as the anchor.
+reply. Updated in three cases:
+
+1. **Bot sends a chunk** — `SetLastReplyID` to the bot's sent message ID
+2. **Steering message** — when a follow-up is injected into a running
+   container, the gateway sets `lastReplyID` to the steering message's ID
+3. **New agent run** — starts from `firstMsgID` (triggering user message),
+   then re-reads `GetLastReplyID` before each chunk to pick up mid-run
+   steering updates
 
 ## Sticky Routing
 
