@@ -7,6 +7,47 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.24.0] — 2026-04-06
+
+### Fixed
+
+- **gateway**: reply-to always targets triggering user message, not stale bot
+  reply from previous run. Steering messages (follow-ups mid-run) now update
+  reply-to target so subsequent bot chunks reply to the latest user message.
+- **file send**: preserve original filename through temp dir + chanreg multipart
+  header. MCP `send_file` tool description updated — caption IS the message.
+- **teled**: log typing API errors at warn level instead of silently swallowing.
+- **whapd**: resolve LID JIDs via `WHATSAPP_LID_MAP` env + `onWhatsApp` fallback.
+- **chanreg**: `CreateFormFile` uses `name` param when non-empty instead of
+  `filepath.Base(path)` which sent temp filenames.
+
+### Changed
+
+- **onbod**: simplified from 4-step hierarchical flow to 2-step — greeting +
+  leave message, admin picks folder on `/approve <jid> <folder>`.
+  `ONBOARDING_GREETING` env var added to compose + all instance configs.
+- **gateway**: output callback takes channel directly, eliminating duplicate
+  `findChannel` per output chunk. `replyTo` is a local var, no DB read per
+  chunk. `SetLastReplyID` persists for IPC consumers only.
+- **emaid**: re-fetch attachments from IMAP on demand, no local storage.
+- **adapters**: all 6 channels now have consistent file proxy (`GET /files/{id}`
+  auth-gated) and inbound media extraction.
+
+### Refactored
+
+- **core**: `MsgID(prefix)` utility replaces 9 scattered `fmt.Sprintf` ID
+  generation patterns across 8 packages.
+- **groupfolder**: `IpcInputDir`, `IpcSocket`, `IpcSidecars`, `GroupMediaDir`
+  helpers replace hardcoded path joins across container/queue/gateway.
+
+### Docs
+
+- Updated stale onboarding refs in ARCHITECTURE.md, specs/4/21-onboarding.md,
+  docs/arizuko.html. Routing guide added to docs/routing.md. History backfill
+  spec added.
+
+---
+
 ## [v0.23.2] — 2026-04-06
 
 ### Changed
