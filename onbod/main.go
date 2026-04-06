@@ -239,7 +239,7 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 	w.WriteHeader(http.StatusOK)
 }
 
-func approveInTx(db *sql.DB, jid, world string) error {
+func approveInTx(db *sql.DB, jid, folder string) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -247,21 +247,32 @@ func approveInTx(db *sql.DB, jid, world string) error {
 	defer tx.Rollback()
 
 	now := time.Now().Format(time.RFC3339)
-	if _, err := tx.Exec(
-		`INSERT OR IGNORE INTO groups (folder, name, added_at) VALUES (?, ?, ?)`,
-		world, world, now); err != nil {
-		return err
+
+	// Create parent groups if they don't exist (world, world/house)
+	parts := strings.Split(folder, "/")
+	for i := range parts {
+		parent := ""
+		if i > 0 {
+			parent = strings.Join(parts[:i], "/")
+		}
+		seg := strings.Join(parts[:i+1], "/")
+		if _, err := tx.Exec(
+			`INSERT OR IGNORE INTO groups (folder, name, parent, added_at) VALUES (?, ?, ?, ?)`,
+			seg, parts[i], nilStr(parent), now); err != nil {
+			return err
+		}
 	}
+
 	if _, err := tx.Exec(
 		`INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
 		 VALUES (?, 0, 'default', NULL, ?), (?, -2, 'prefix', '@', ?), (?, -1, 'prefix', '#', ?)`,
-		jid, world, jid, world, jid, world); err != nil {
+		jid, folder, jid, folder, jid, folder); err != nil {
 		return err
 	}
 	welcomeID := fmt.Sprintf("onboard-welcome-%s-%d", jid, time.Now().UnixNano())
 	welcomeBody := fmt.Sprintf(
-		`<system_event type="onboard_welcome">Your workspace %s is ready. Welcome!</system_event>`,
-		world)
+		`<system_event type="onboard_welcome">Your room %s is ready. Welcome!</system_event>`,
+		folder)
 	if _, err := tx.Exec(
 		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
 		 VALUES (?, ?, 'system', ?, ?, 1, 1, 'onboarding', '')`,
@@ -273,8 +284,15 @@ func approveInTx(db *sql.DB, jid, world string) error {
 		return err
 	}
 
-	seedDefaultTasksTx(tx, world, jid)
+	seedDefaultTasksTx(tx, folder, jid)
 	return tx.Commit()
+}
+
+func nilStr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func handleReject(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targetJID string) {
@@ -292,36 +310,44 @@ func handleReject(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targ
 	w.WriteHeader(http.StatusOK)
 }
 
+var steps = []struct{ status, prompt, next string }{
+	{"awaiting_world", "Pick a world:", "awaiting_building"},
+	{"awaiting_building", "Pick a house:", "awaiting_room"},
+	{"awaiting_room", "Pick a room:", "awaiting_message"},
+	{"awaiting_message", "Leave a message for the admin (anything goes):", "pending"},
+}
+
 func poll(db *sql.DB, cfg config) {
-	promptNew(db, cfg)
-	checkNameResponse(db, cfg)
+	promptUnprompted(db, cfg)
+	checkResponses(db, cfg)
 	checkPendingMessages(db, cfg)
 }
 
-func promptNew(db *sql.DB, cfg config) {
-	rows, err := db.Query(
-		`SELECT jid, channel FROM onboarding WHERE status = 'awaiting_name' AND prompted_at IS NULL`)
-	if err != nil {
-		slog.Error("promptNew query", "err", err)
-		return
-	}
-	defer rows.Close()
-
-	now := time.Now().Format(time.RFC3339)
-	for rows.Next() {
-		var jid, channel string
-		rows.Scan(&jid, &channel)
-		sendReply(cfg, jid, "Pick a name for your workspace:", channel)
-		db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`, now, jid)
-		slog.Info("prompted new user", "jid", jid, "channel", channel)
+func promptUnprompted(db *sql.DB, cfg config) {
+	for _, s := range steps {
+		rows, err := db.Query(
+			`SELECT jid, channel FROM onboarding WHERE status = ? AND prompted_at IS NULL`, s.status)
+		if err != nil {
+			slog.Error("promptUnprompted query", "err", err, "status", s.status)
+			continue
+		}
+		now := time.Now().Format(time.RFC3339)
+		for rows.Next() {
+			var jid, channel string
+			rows.Scan(&jid, &channel)
+			sendReply(cfg, jid, s.prompt, channel)
+			db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`, now, jid)
+			slog.Info("prompted user", "jid", jid, "status", s.status)
+		}
+		rows.Close()
 	}
 }
 
-type onboardRow struct{ jid, promptedAt, channel string }
+type onboardRow struct{ jid, promptedAt, channel, worldName string }
 
 func queryOnboarding(db *sql.DB, status string) ([]onboardRow, error) {
 	rows, err := db.Query(
-		`SELECT jid, prompted_at, channel FROM onboarding
+		`SELECT jid, prompted_at, channel, COALESCE(world_name,'') FROM onboarding
 		 WHERE status = ? AND prompted_at IS NOT NULL`, status)
 	if err != nil {
 		return nil, err
@@ -330,51 +356,73 @@ func queryOnboarding(db *sql.DB, status string) ([]onboardRow, error) {
 	var out []onboardRow
 	for rows.Next() {
 		var r onboardRow
-		rows.Scan(&r.jid, &r.promptedAt, &r.channel)
+		rows.Scan(&r.jid, &r.promptedAt, &r.channel, &r.worldName)
 		out = append(out, r)
 	}
 	return out, nil
 }
 
-func checkNameResponse(db *sql.DB, cfg config) {
-	pending, err := queryOnboarding(db, "awaiting_name")
-	if err != nil {
-		slog.Error("checkNameResponse query", "err", err)
-		return
-	}
-
-	for _, r := range pending {
-		var content string
-		err := db.QueryRow(`
-			SELECT content FROM messages
-			WHERE chat_jid = ? AND timestamp > ? AND is_bot_message = 0
-			ORDER BY timestamp DESC LIMIT 1`,
-			r.jid, r.promptedAt).Scan(&content)
+func checkResponses(db *sql.DB, cfg config) {
+	for _, s := range steps {
+		pending, err := queryOnboarding(db, s.status)
 		if err != nil {
+			slog.Error("checkResponses query", "err", err, "status", s.status)
 			continue
 		}
+		for _, r := range pending {
+			var content string
+			err := db.QueryRow(`
+				SELECT content FROM messages
+				WHERE chat_jid = ? AND timestamp > ? AND is_bot_message = 0
+				ORDER BY timestamp DESC LIMIT 1`,
+				r.jid, r.promptedAt).Scan(&content)
+			if err != nil {
+				continue
+			}
+			now := time.Now().Format(time.RFC3339)
 
-		now := time.Now().Format(time.RFC3339)
-		name := strings.TrimSpace(content)
-		if !nameRE.MatchString(name) || nameTaken(db, name, r.jid) {
-			sendReply(cfg, r.jid, "Invalid name. Use lowercase letters, numbers, and hyphens only. Try again:", r.channel)
-			db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`, now, r.jid)
-			continue
+			// Message step: any text, no name validation
+			if s.status == "awaiting_message" {
+				db.Exec(`UPDATE onboarding SET status = 'pending', prompted_at = ? WHERE jid = ?`, now, r.jid)
+				submitForApproval(db, cfg, r, strings.TrimSpace(content))
+				continue
+			}
+
+			name := strings.TrimSpace(strings.ToLower(content))
+			if !nameRE.MatchString(name) {
+				sendReply(cfg, r.jid, "Invalid name. Use lowercase letters, numbers, and hyphens only. Try again:", r.channel)
+				db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`, now, r.jid)
+				continue
+			}
+
+			folder := name
+			if r.worldName != "" {
+				folder = r.worldName + "/" + name
+			}
+			if nameTaken(db, folder, r.jid) {
+				sendReply(cfg, r.jid, "That name is taken. Try again:", r.channel)
+				db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`, now, r.jid)
+				continue
+			}
+
+			db.Exec(`UPDATE onboarding SET status = ?, world_name = ?, prompted_at = NULL WHERE jid = ?`,
+				s.next, folder, r.jid)
+			slog.Info("onboarding step", "jid", r.jid, "status", s.next, "folder", folder)
 		}
-
-		db.Exec(
-			`UPDATE onboarding SET status = 'pending', world_name = ?, prompted_at = ? WHERE jid = ?`,
-			name, now, r.jid)
-
-		msg := fmt.Sprintf(
-			"New onboarding request: %s wants world %q. Send /approve %s or /reject %s",
-			r.jid, name, r.jid, r.jid)
-		for _, root := range rootJIDs(db) {
-			sendReply(cfg, root, msg, "")
-		}
-
-		slog.Info("onboarding pending", "jid", r.jid, "world", name)
 	}
+}
+
+func submitForApproval(db *sql.DB, cfg config, r onboardRow, userMsg string) {
+	msg := fmt.Sprintf(
+		"New onboarding request: %s wants %q.", r.jid, r.worldName)
+	if userMsg != "" {
+		msg += fmt.Sprintf("\nMessage: %s", userMsg)
+	}
+	msg += fmt.Sprintf("\nSend /approve %s or /reject %s", r.jid, r.jid)
+	for _, root := range rootJIDs(db) {
+		sendReply(cfg, root, msg, "")
+	}
+	slog.Info("onboarding pending", "jid", r.jid, "folder", r.worldName)
 }
 
 func checkPendingMessages(db *sql.DB, cfg config) {
