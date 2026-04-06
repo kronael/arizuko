@@ -249,13 +249,13 @@ direct CDN URLs (no proxy needed).
 | `auth_sessions`   | token_hash (PK), user_sub, expires_at                                                                                 |
 | `user_groups`     | user_sub + folder (PK) — restricts web user to specific group folders                                                 |
 | `email_threads`   | thread_id (PK), chat_jid, subject                                                                                     |
-| `onboarding`      | jid (PK), status, world_name, prompted_at                                                                             |
+| `onboarding`      | jid (PK), status, prompted_at                                                                                         |
 
 WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
 
 `messages` has `source` and `group_folder` columns for outbound audit trail
-(`is_from_me=1`). `StoreOutbound()` is not yet implemented — columns exist
-but are unpopulated. Full spec: `specs/7/22-audit-log.md`.
+(`is_from_me=1`). `StoreOutbound()` records every outbound message with topic
+and routed_to metadata. Full spec: `specs/7/22-audit-log.md`.
 
 ## Container Lifecycle
 
@@ -409,21 +409,19 @@ and `/reject` command routes in the `routes` table on startup.
 State machine per JID (`onboarding` table):
 
 ```
-awaiting_name → (user sends name) → pending → (operator /approve) → approved
-                                             → (operator /reject)  → rejected
+awaiting_message → (greeting + user leaves message) → pending → (admin approves from dashboard, picks folder) → approved
+                                                               → (admin rejects)                               → rejected
 ```
 
 Poll loop (every 10s):
 
-1. Prompt unanswered `awaiting_name` records
-2. Validate name response (lowercase, no collision) → transition to `pending`,
-   notify tier-0 JIDs
+1. Prompt unanswered `awaiting_message` records
+2. User leaves a message → transition to `pending`, notify tier-0 JIDs
 3. Respond to pending users who send messages: "Still waiting for approval"
 
-On `/approve <jid>`: creates group dir, optionally copies prototype, inserts
+On approve: creates group dir, optionally copies prototype, inserts
 `groups` row and default route in `routes` table, sends welcome system event message.
-Operator must be a tier-0 group (no parent). Uses `notify` library to fan out
-messages to all tier-0 root JIDs.
+Uses `notify` library to fan out messages to all tier-0 root JIDs.
 
 Prototype copy behavior: `CLAUDE.md` and `SOUL.md` are copied; session and
 memory are not. Agents can also spawn children directly via the

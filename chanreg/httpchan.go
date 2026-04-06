@@ -97,7 +97,11 @@ func (h *HTTPChannel) SendFile(jid, path, name, caption string) error {
 		w.WriteField("caption", caption)
 	}
 
-	fw, err := w.CreateFormFile("file", filepath.Base(path))
+	formName := name
+	if formName == "" {
+		formName = filepath.Base(path)
+	}
+	fw, err := w.CreateFormFile("file", formName)
 	if err != nil {
 		return fmt.Errorf("create form file: %w", err)
 	}

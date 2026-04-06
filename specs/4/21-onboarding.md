@@ -13,21 +13,21 @@ like timed — reads/writes shared SQLite DB, no gateway code.
 ## User journey
 
 1. User finds the bot, sends "hello"
-2. No route exists — gated inserts into onboarding table (status: awaiting_name)
-3. onbod picks it up, replies: "Pick a name for your workspace:"
-4. User types: "alice-studio"
-5. onbod validates, stores, notifies root
+2. No route exists — gated inserts into onboarding table (status: awaiting_message)
+3. onbod picks it up, replies: ONBOARDING_GREETING + "Leave a message for the admin:"
+4. User replies with a message
+5. onbod stores message, sets status=pending, notifies root JIDs
 6. onbod replies: "Got it! Waiting for approval."
-7. Operator approves — world created, route added
+7. Operator approves with `/approve <jid> <folder>` — world created, route added
 8. User sends next message — routes to their world
 9. Agent wakes with welcome system message
 
 ## Admin journey
 
 1. Enable: `ONBOARDING_ENABLED=1` in `.env`
-2. Root gets notification: "alice wants 'alice-studio'
-   — `/approve telegram:-12345`"
-3. `/approve telegram:-12345` — creates world, routes JID
+2. Root gets notification: "alice left a message
+   — `/approve telegram:-12345 alice-studio`"
+3. `/approve telegram:-12345 alice-studio` — creates world, routes JID
 4. `/reject telegram:-12345` — suppresses forever
 
 ## Gateway hook
@@ -56,22 +56,19 @@ to find the latest user message for each onboarding JID.
 onbod polls onboarding table every `ONBOARD_POLL_INTERVAL` (default 10s).
 
 ```
-awaiting_name, prompted_at IS NULL:
-  -> send "Pick a name for your workspace:"
+awaiting_message, prompted_at IS NULL:
+  -> send ONBOARDING_GREETING + "Leave a message for the admin:"
   -> SET prompted_at = now
 
-awaiting_name, prompted_at IS NOT NULL:
+awaiting_message, prompted_at IS NOT NULL:
   -> query latest user message: SELECT content FROM messages
        WHERE chat_jid = jid AND is_bot_message = 0
        AND timestamp > prompted_at ORDER BY timestamp DESC LIMIT 1
   -> no message yet: skip
   -> message found:
-     -> validate (a-z0-9-, not taken, not reserved)
-     -> invalid: send "Try again — lowercase letters, numbers, hyphens only"
-                 SET prompted_at = now (re-prompt)
-     -> valid:   SET status=pending, world_name=<input>
-                 notify() root: "<jid> wants '<world_name>' — /approve <jid>"
-                 send "Got it! Waiting for approval."
+     -> SET status=pending
+     -> notify() root: "<jid> left a message — /approve <jid> <folder>"
+     -> send "Got it! Waiting for approval."
 
 pending (on every new message from this jid while status = pending):
   -> query: SELECT content FROM messages WHERE chat_jid = jid
@@ -95,7 +92,7 @@ approved:
 ```sql
 CREATE TABLE onboarding (
   jid         TEXT PRIMARY KEY,
-  status      TEXT NOT NULL,  -- awaiting_name | pending | approved | rejected
+  status      TEXT NOT NULL,  -- awaiting_message | pending | approved | rejected
   sender      TEXT,
   channel     TEXT,
   world_name  TEXT,
@@ -130,11 +127,11 @@ to find the target folder for the sender's JID, then checks
 (SQLite table name: `groups`) — if `parent IS NULL`,
 the sender is tier 0 (root). Otherwise reject with "Permission denied."
 
-### /approve <jid>
+### /approve <jid> <folder>
 
 - Root-only (tier 0)
-- Reads `world_name` from onboarding table
-- Creates world folder: `groups/<world_name>/`
+- `<folder>` is admin-provided (not from onboarding table)
+- Creates world folder: `groups/<folder>/`
 - Copies prototype from `groups/root/prototype/` if `ONBOARDING_PROTOTYPE` set,
   or from `ONBOARDING_PROTOTYPE` path if configured
 - Inserts group in DB (tier 1)
@@ -199,7 +196,7 @@ onbod uses the `notify/` library (`notify.Send(jids, text, sendFn)`)
 for operator notifications. `sendFn` has type `func(jid, text string) error`
 and wraps the outbound POST above.
 Notifications sent via `notify.Send(jids, text, sendFn)` only — no
-outbound audit log. `store.StoreOutbound` is not implemented.
+outbound audit log (onbod does not call `store.StoreOutbound`).
 
 ## Target routing (onbod as a channel service)
 
@@ -258,7 +255,7 @@ VALUES (
 If `ONBOARDING_PROTOTYPE` is set, onbod copies the directory at that
 path into the new group folder using recursive file copy
 (`filepath.WalkDir` + `os.ReadFile`/`os.WriteFile`). Destination:
-`<DATA_DIR>/groups/<world_name>/`. Symlinks are not followed.
+`<DATA_DIR>/groups/<folder>/`. Symlinks are not followed.
 
 ## Config
 

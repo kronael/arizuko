@@ -507,7 +507,7 @@ Channel adapter &rarr; <span class="fn">POST /v1/messages</span> (api) &rarr; st
   <div class="comp-card">
     <div class="comp-name">onbod</div>
     <div class="comp-desc">Onboarding daemon. State machine for new user registration.</div>
-    <div class="comp-detail">Auto-included in compose when <code>ONBOARDING_ENABLED=true</code>. State machine: <code>awaiting_name → pending → approved/rejected</code>. Operator <code>/approve</code> creates group + routes + welcome message, seeds default compact-memories cron tasks. Notifies tier-0 JIDs. Filtered by <code>ONBOARDING_PLATFORMS</code> env.</div>
+    <div class="comp-detail">Auto-included in compose when <code>ONBOARDING_ENABLED=true</code>. State machine: <code>awaiting_message → pending → approved/rejected</code>. Greeting → leave message → pending → admin approves (picks folder from dashboard), seeds default compact-memories cron tasks. Notifies tier-0 JIDs. Filtered by <code>ONBOARDING_PLATFORMS</code> env.</div>
   </div>
 
   <div class="comp-card">
@@ -739,14 +739,14 @@ gated/main
       Web channel: web:&lt;folder&gt; JIDs via proxyd (HTTP/SSE). Per-topic agent runs. Slink tokens (10 req/min/IP).
       WebDAV (WEBDAV_ENABLED=true): /dav/ → auth-gated dufs container (groups/ read-only).
       Dashd: HTMX operator dashboard. Pages: status, tasks, activity, groups, memory browser. 10s auto-refresh.
-      Onbod (ONBOARDING_ENABLED=true): state machine awaiting_name→pending→approved/rejected. /approve creates group.
+      Onbod (ONBOARDING_ENABLED=true): state machine awaiting_message→pending→approved/rejected. Admin approves from dashboard.
       ONBOARDING_PLATFORMS filters which platforms trigger onboarding (empty=all).
       Timed: scheduler daemon, polls scheduled_tasks every 60s, inserts messages (sender: scheduler) into shared DB.
       Compose: arizuko generate writes docker-compose.yml. Container naming arizuko_&lt;daemon&gt;_&lt;flavor&gt;.
       Services from template/services/*.toml + instance services/*.toml.
       Workspace mounts: group(rw), media(rw), self(ro tier-0), share(rw root/world ro agent/worker),
       session(rw ro tier2+), ipc(rw), web(rw root/world), extra(ro allowlisted by mountsec).
-      Skills seeded from container/skills/ per group. MIGRATION_VERSION + migrations/ dir; /migrate skill syncs groups.
+      Skills seeded from ant/skills/ per group. MIGRATION_VERSION + migrations/ dir; /migrate skill syncs groups.
       Circuit breaker: 3 consecutive failures, reset by new user message.
       Topic sessions: /new #topic resets topic only; sessions table PK is (group_folder, topic).
       Routing rules: 7 tiers (command/prefix/@name/#topic/pattern/keyword/sender/default), max delegation depth 3.
@@ -780,11 +780,11 @@ auth: JWT + 30-day rotating refresh tokens; OAuth google(hd= hint) github(org ga
 web-channel: web:<folder> JIDs via proxyd; per-topic agent runs; slink tokens 10req/min/IP
 webdav: WEBDAV_ENABLED=true; /dav/ → dufs container; groups/ read-only
 dashd: HTMX; pages portal/status/tasks/activity/groups/memory; 10s auto-refresh; activity shows verb field
-onbod: ONBOARDING_ENABLED=true auto-includes in compose; state machine awaiting_name→pending→approved/rejected; ONBOARDING_PLATFORMS filter
+onbod: ONBOARDING_ENABLED=true auto-includes in compose; state machine awaiting_message→pending→approved/rejected; ONBOARDING_PLATFORMS filter
 timed: scheduler daemon; polls scheduled_tasks 60s; inserts messages sender=scheduler; own migration runner
 compose: arizuko generate writes docker-compose.yml; container naming arizuko_<daemon>_<flavor>; template/services/*.toml + instance services/*.toml
 workspace: group(rw) media(rw) self(ro tier-0) share(rw root/world ro agent/worker) session(rw ro tier2+) ipc(rw) web(rw root/world) extra(ro allowlisted)
-skills: container/skills/ seeded to ~/.claude/skills/ per group; MIGRATION_VERSION + migrations/; /migrate syncs groups
+skills: ant/skills/ seeded to ~/.claude/skills/ per group; MIGRATION_VERSION + migrations/; /migrate syncs groups
 circuit-breaker: 3 consecutive failures; reset by new user message
 topic-sessions: /new #topic; sessions table PK (group_folder, topic); #topic prefix routing
 routing: 7 tiers (command/prefix/pattern/keyword/sender/trigger/default); max depth 3; platform wildcard JIDs
