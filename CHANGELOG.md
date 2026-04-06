@@ -7,7 +7,31 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
-## [Unreleased]
+## [v0.23.1] — 2026-04-06
+
+### Fixed
+
+- **gateway**: canonical file extensions for inbound attachments — pin `.jpg`,
+  `.png`, `.gif`, `.webp`, `.ogg`, `.mp3`, `.m4a`, `.mp4` so agents can read
+  photos regardless of OS mime table (`mime.ExtensionsByType` returned `.jfif`
+  on Debian, breaking Claude Read).
+- **gateway**: single-write agent output — `makeOutputCallback` no longer
+  dual-writes `unsent-*` + `out-unsent-*` rows; `StoreOutbound` now carries
+  `topic` + `routed_to` so `MessagesByTopic` finds bot replies.
+- **proxyd**: forward WebSocket upgrades on `/` to vited instead of 302
+  redirecting to `/pub/` — Vite HMR client opens `wss://host/` for live reload.
+- **vite**: enable `watch.usePolling` (docker bind-mount inotify unreliable)
+  and `hmr.clientPort: 443, protocol: 'wss'` for proxy setup.
+- **gateway**: onboarding no longer triggers for JIDs that already have a
+  default route in the DB.
+
+### Changed
+
+- **gateway**: removed all 4 in-memory DB caches (`groups`, `jidToFolder`,
+  `jidAdapters`, `agentCursors`). All lookups now query SQLite directly.
+  Route/group changes take effect on next poll cycle without restart. -99 LOC.
+- **ant**: added tenancy model section to CLAUDE.md — tier 0 root, tier 1
+  world, tier 2 building, tier 3 room, isolation boundaries, threads.
 
 ---
 
