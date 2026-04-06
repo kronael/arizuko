@@ -145,20 +145,16 @@ func (s *Store) UnroutedChatJIDs(since time.Time) []string {
 	return jids
 }
 
-func (s *Store) ChatChannels() map[string]string {
-	rows, err := s.db.Query(
-		`SELECT jid, channel FROM chats WHERE channel IS NOT NULL AND channel != ''`)
-	if err != nil {
-		return nil
+func (s *Store) GetChatChannel(jid string) string {
+	var ch *string
+	s.db.QueryRow(
+		`SELECT channel FROM chats WHERE jid = ? AND channel IS NOT NULL AND channel != ''`,
+		jid,
+	).Scan(&ch)
+	if ch == nil {
+		return ""
 	}
-	defer rows.Close()
-	out := make(map[string]string)
-	for rows.Next() {
-		var jid, ch string
-		rows.Scan(&jid, &ch)
-		out[jid] = ch
-	}
-	return out
+	return *ch
 }
 
 func (s *Store) SetChatChannel(jid, ch string) error {
@@ -171,20 +167,29 @@ func (s *Store) SetChatChannel(jid, ch string) error {
 	return err
 }
 
-func (s *Store) JIDFolderMap() map[string]string {
+func (s *Store) DefaultRouteJIDs() []string {
 	rows, err := s.db.Query(
-		`SELECT jid, target FROM routes WHERE type = 'default' AND (match IS NULL OR match = '')`)
+		`SELECT DISTINCT jid FROM routes WHERE type = 'default' AND (match IS NULL OR match = '')`)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
-	out := make(map[string]string)
+	var out []string
 	for rows.Next() {
-		var jid, target string
-		rows.Scan(&jid, &target)
-		out[jid] = target
+		var jid string
+		rows.Scan(&jid)
+		out = append(out, jid)
 	}
 	return out
+}
+
+func (s *Store) DefaultFolderForJID(jid string) string {
+	var folder string
+	s.db.QueryRow(
+		`SELECT target FROM routes WHERE jid = ? AND type = 'default' AND (match IS NULL OR match = '')
+		 LIMIT 1`, jid,
+	).Scan(&folder)
+	return folder
 }
 
 func scanGroupFull(r rowScanner) (core.Group, bool) {

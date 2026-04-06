@@ -78,10 +78,10 @@ func testGateway(t *testing.T) (*Gateway, *store.Store) {
 	return gw, s
 }
 
-// setGroup is a test helper that registers a group in both maps.
+// setGroup is a test helper that registers a group in the DB.
 func setGroup(gw *Gateway, jid string, g core.Group) {
-	gw.groups[g.Folder] = g
-	gw.jidToFolder[jid] = g.Folder
+	gw.store.PutGroup(g)
+	gw.store.AddRoute(jid, core.Route{Seq: 0, Type: "default", Target: g.Folder})
 }
 
 func TestCmdText(t *testing.T) {
@@ -144,7 +144,7 @@ func TestHandleCommand_RecognizedCommands(t *testing.T) {
 	cmds := []string{"/new", "/ping", "/chatid", "/stop"}
 	for _, c := range cmds {
 		msg := core.Message{ChatJID: "jid1", Content: c}
-		grp := gw.groups["grp"]
+		grp, _ := gw.store.GroupByFolder("grp")
 		if !gw.handleCommand(msg, grp) {
 			t.Errorf("handleCommand(%q) = false, want true", c)
 		}
@@ -155,13 +155,14 @@ func TestHandleCommand_NonCommand(t *testing.T) {
 	gw, _ := testGateway(t)
 	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
+	grp, _ := gw.store.GroupByFolder("grp")
 	msg := core.Message{ChatJID: "jid1", Content: "hello world"}
-	if gw.handleCommand(msg, gw.groups["grp"]) {
+	if gw.handleCommand(msg, grp) {
 		t.Error("handleCommand returned true for non-command")
 	}
 
 	msg.Content = "/unknown"
-	if gw.handleCommand(msg, gw.groups["grp"]) {
+	if gw.handleCommand(msg, grp) {
 		t.Error("handleCommand returned true for unknown command")
 	}
 }
@@ -177,8 +178,9 @@ func TestCmdNew_ClearsSession(t *testing.T) {
 		t.Fatal("session not set")
 	}
 
+	grp, _ := gw.store.GroupByFolder("grp")
 	msg := core.Message{ChatJID: "jid1", Content: "/new"}
-	gw.handleCommand(msg, gw.groups["grp"])
+	gw.handleCommand(msg, grp)
 
 	if id, _ := s.GetSession("grp", ""); id != "" {
 		t.Error("session not cleared after /new")
@@ -191,8 +193,9 @@ func TestCmdChatID_SendsJID(t *testing.T) {
 	gw.AddChannel(ch)
 	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
+	grp, _ := gw.store.GroupByFolder("grp")
 	msg := core.Message{ChatJID: "jid1", Content: "/chatid"}
-	gw.handleCommand(msg, gw.groups["grp"])
+	gw.handleCommand(msg, grp)
 
 	if got := ch.lastSent(); got != "jid1" {
 		t.Errorf("chatid sent %q, want %q", got, "jid1")
@@ -223,8 +226,8 @@ func TestGroupForJid_NotFound(t *testing.T) {
 }
 
 func TestGroupForJid_LocalPrefix(t *testing.T) {
-	gw, _ := testGateway(t)
-	gw.groups["beta"] = core.Group{Folder: "beta", Name: "Beta"}
+	gw, s := testGateway(t)
+	s.PutGroup(core.Group{Folder: "beta", Name: "Beta"})
 
 	gr, ok := gw.groupForJid("local:beta")
 	if !ok {
@@ -276,14 +279,15 @@ func TestLoadState_LoadsGroups(t *testing.T) {
 
 	gw.loadState()
 
-	if len(gw.groups) != 2 {
-		t.Errorf("groups count = %d, want 2", len(gw.groups))
+	groups := s.AllGroups()
+	if len(groups) != 2 {
+		t.Errorf("groups count = %d, want 2", len(groups))
 	}
-	if gw.groups["alpha"].Name != "Alpha" {
+	if groups["alpha"].Name != "Alpha" {
 		t.Error("group alpha not loaded correctly")
 	}
-	if gw.jidToFolder["jid1"] != "alpha" {
-		t.Errorf("jidToFolder[jid1] = %q, want alpha", gw.jidToFolder["jid1"])
+	if folder := s.DefaultFolderForJID("jid1"); folder != "alpha" {
+		t.Errorf("DefaultFolderForJID(jid1) = %q, want alpha", folder)
 	}
 }
 
@@ -442,7 +446,7 @@ func TestEmitSystemEvents_NewDay(t *testing.T) {
 func TestEmitSystemEvents_NewSession(t *testing.T) {
 	gw, s := testGateway(t)
 	grp := core.Group{Folder: "grp2", Name: "Test"}
-	gw.groups["grp2"] = grp
+	s.PutGroup(grp)
 
 	s.SetAgentCursor("jid2", time.Now())
 

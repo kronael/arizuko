@@ -36,19 +36,14 @@ type Gateway struct {
 	queue   *queue.GroupQueue
 	folders *groupfolder.Resolver
 
-	mu          sync.RWMutex
-	channels    []core.Channel
-	groups      map[string]core.Group  // folder → Group
-	jidToFolder map[string]string      // JID → folder (from default routes)
-	jidAdapters sync.Map               // chatJID -> adapter name, recorded on inbound
-	gatedFns    ipc.GatedFns
-	storeFns    ipc.StoreFns
+	mu       sync.RWMutex
+	channels []core.Channel
+	gatedFns ipc.GatedFns
+	storeFns ipc.StoreFns
 
 	// lastTimestamp is persisted and queried as RFC3339Nano throughout to
 	// preserve nanosecond precision; seconds-only formats risk missed messages.
 	lastTimestamp time.Time
-
-	agentCursors map[string]time.Time // in-memory cache; advances even if DB write fails
 
 	impulse *impulseGate
 }
@@ -64,10 +59,7 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 			GroupsDir: cfg.GroupsDir,
 			IpcDir:    cfg.IpcDir,
 		},
-		groups:       make(map[string]core.Group),
-		jidToFolder:  make(map[string]string),
-		agentCursors: make(map[string]time.Time),
-		impulse:      newImpulseGate(),
+		impulse: newImpulseGate(),
 	}
 }
 
@@ -119,10 +111,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		DelegateToChild:  g.delegateToChild,
 		DelegateToParent: g.delegateToParent,
 		SpawnGroup: func(parentFolder, childJID string) (core.Group, error) {
-			g.mu.RLock()
-			_, ok := g.groups[parentFolder]
-			g.mu.RUnlock()
-			if !ok {
+			if _, ok := g.store.GroupByFolder(parentFolder); !ok {
 				return core.Group{}, fmt.Errorf("parent group not found: %s", parentFolder)
 			}
 			return g.spawnFromPrototype(parentFolder, childJID)
@@ -170,9 +159,10 @@ func (g *Gateway) Run(ctx context.Context) error {
 
 	g.recoverPendingMessages()
 
+	groups := g.store.AllGroups()
 	slog.Info("arizuko running",
 		"name", g.cfg.Name,
-		"groups", len(g.groups),
+		"groups", len(groups),
 		"image", g.cfg.Image,
 	)
 
@@ -198,23 +188,9 @@ func (g *Gateway) loadState() {
 		g.lastTimestamp, _ = time.Parse(time.RFC3339Nano, raw)
 	}
 
-	g.groups = g.store.AllGroups()
-	if g.groups == nil {
-		g.groups = make(map[string]core.Group)
-	}
-	g.jidToFolder = g.store.JIDFolderMap()
-	if g.jidToFolder == nil {
-		g.jidToFolder = make(map[string]string)
-	}
-
-	// Seed adapter pinning cache from chats.channel. Without this, the
-	// first outbound after a restart falls back to random prefix-match
-	// and may pick an adapter not a member of the target chat.
-	for jid, name := range g.store.ChatChannels() {
-		g.jidAdapters.Store(jid, name)
-	}
-
-	slog.Info("state loaded", "groups", len(g.groups), "jid_routes", len(g.jidToFolder))
+	groups := g.store.AllGroups()
+	jids := g.store.DefaultRouteJIDs()
+	slog.Info("state loaded", "groups", len(groups), "jid_routes", len(jids))
 }
 
 func (g *Gateway) saveState() {
@@ -274,19 +250,13 @@ func (g *Gateway) pollOnce() {
 	}
 
 	for chatJid, chatMsgs := range byChat {
-		g.mu.RLock()
 		group, ok := g.groupForJid(chatJid)
-		g.mu.RUnlock()
 		if !ok {
 			if g.cfg.OnboardingEnabled && onboardingAllowed(chatJid, g.cfg.OnboardingPlatforms) {
-				if routes := g.store.GetRoutes(chatJid); hasDefaultRoute(routes) {
-					slog.Info("poll: stale map, route exists in DB", "jid", chatJid)
-				} else {
-					last := chatMsgs[len(chatMsgs)-1]
-					ch := g.findChannel(chatJid)
-					if err := g.store.InsertOnboarding(chatJid, last.Sender, channelName(ch)); err != nil {
-						slog.Warn("insert onboarding", "jid", chatJid, "err", err)
-					}
+				last := chatMsgs[len(chatMsgs)-1]
+				ch := g.findChannel(chatJid)
+				if err := g.store.InsertOnboarding(chatJid, last.Sender, channelName(ch)); err != nil {
+					slog.Warn("insert onboarding", "jid", chatJid, "err", err)
 				}
 			}
 			slog.Debug("poll: no group for jid", "jid", chatJid)
@@ -343,9 +313,7 @@ func (g *Gateway) pollOnce() {
 }
 
 func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
-	g.mu.RLock()
 	group, ok := g.groupForJid(chatJid)
-	g.mu.RUnlock()
 	if !ok {
 		return false, fmt.Errorf("group not registered: %s", chatJid)
 	}
@@ -487,9 +455,6 @@ func (g *Gateway) processSenderBatch(
 		if *hadOutput {
 			return true
 		}
-		g.mu.Lock()
-		g.agentCursors[chatJid] = agentTs
-		g.mu.Unlock()
 		g.store.SetAgentCursor(chatJid, agentTs)
 		g.sendMessage(chatJid, "Failed: agent error, will retry on next message.")
 		g.store.MarkChatErrored(chatJid)
@@ -711,12 +676,6 @@ func (g *Gateway) runAgentWithOpts(
 }
 
 func (g *Gateway) RecordJIDAdapter(chatJID, adapterName string) {
-	if prev, ok := g.jidAdapters.Load(chatJID); ok {
-		if prev.(string) == adapterName {
-			return
-		}
-	}
-	g.jidAdapters.Store(chatJID, adapterName)
 	if err := g.store.SetChatChannel(chatJID, adapterName); err != nil {
 		slog.Debug("persist chat channel", "jid", chatJID, "ch", adapterName, "err", err)
 	}
@@ -725,12 +684,10 @@ func (g *Gateway) RecordJIDAdapter(chatJID, adapterName string) {
 func (g *Gateway) findChannel(jid string) core.Channel {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	if v, ok := g.jidAdapters.Load(jid); ok {
-		if name, ok := v.(string); ok {
-			for _, ch := range g.channels {
-				if ch.Name() == name {
-					return ch
-				}
+	if name := g.store.GetChatChannel(jid); name != "" {
+		for _, ch := range g.channels {
+			if ch.Name() == name {
+				return ch
 			}
 		}
 	}
@@ -1062,10 +1019,6 @@ func extFromMime(mimeType, filename string) string {
 }
 
 func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
-	g.mu.Lock()
-	g.groups[group.Folder] = group
-	g.jidToFolder[jid] = group.Folder
-	g.mu.Unlock()
 	if err := g.store.PutGroup(group); err != nil {
 		return err
 	}
@@ -1093,13 +1046,7 @@ func ensureGroupGitRepo(groupDir string) {
 }
 
 func (g *Gateway) getGroups() map[string]core.Group {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	cp := make(map[string]core.Group, len(g.groups))
-	for k, v := range g.groups {
-		cp[k] = v
-	}
-	return cp
+	return g.store.AllGroups()
 }
 
 type escalationMetadata struct {
@@ -1144,24 +1091,13 @@ func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth
 func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
 	for _, prefix := range []string{"local:", "web:"} {
 		if folder, ok := strings.CutPrefix(jid, prefix); ok {
-			gr, ok := g.groups[folder]
-			return gr, ok
+			return g.store.GroupByFolder(folder)
 		}
 	}
-	if folder, ok := g.jidToFolder[jid]; ok {
-		gr, ok := g.groups[folder]
-		return gr, ok
+	if folder := g.store.DefaultFolderForJID(jid); folder != "" {
+		return g.store.GroupByFolder(folder)
 	}
 	return core.Group{}, false
-}
-
-func hasDefaultRoute(routes []core.Route) bool {
-	for _, r := range routes {
-		if r.Type == "default" {
-			return true
-		}
-	}
-	return false
 }
 
 func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolder string) string {
@@ -1219,9 +1155,7 @@ func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
 
 	case strings.HasPrefix(content, "@"):
 		name := content[1:]
-		g.mu.RLock()
-		_, ok := g.groups[name]
-		g.mu.RUnlock()
+		_, ok := g.store.GroupByFolder(name)
 
 		if ok {
 			g.store.SetStickyGroup(chatJid, name)
@@ -1301,9 +1235,7 @@ func (g *Gateway) handlePrefixRoute(
 			return false
 		}
 		childFolder := r.Target + "/" + name
-		g.mu.RLock()
-		_, exists := g.groups[childFolder]
-		g.mu.RUnlock()
+		_, exists := g.store.GroupByFolder(childFolder)
 		if !exists {
 			slog.Warn("@prefix: child group not found", "child", childFolder)
 			return true
@@ -1341,20 +1273,10 @@ func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {
 	if len(msgs) == 0 {
 		return
 	}
-	ts := msgs[len(msgs)-1].Timestamp
-	g.mu.Lock()
-	g.agentCursors[chatJid] = ts
-	g.mu.Unlock()
-	g.store.SetAgentCursor(chatJid, ts)
+	g.store.SetAgentCursor(chatJid, msgs[len(msgs)-1].Timestamp)
 }
 
 func (g *Gateway) getAgentCursor(chatJid string) time.Time {
-	g.mu.RLock()
-	ts, ok := g.agentCursors[chatJid]
-	g.mu.RUnlock()
-	if ok {
-		return ts
-	}
 	return g.store.GetAgentCursor(chatJid)
 }
 
@@ -1416,17 +1338,12 @@ func (g *Gateway) delegateToFolder(
 		}
 	}
 
-	g.mu.RLock()
-	target, found := g.groups[folder]
-	g.mu.RUnlock()
+	target, found := g.store.GroupByFolder(folder)
 	if !found {
 		sep := strings.LastIndex(folder, "/")
 		if sep > 0 {
 			parentFolder := folder[:sep]
-			g.mu.RLock()
-			_, parentOK := g.groups[parentFolder]
-			g.mu.RUnlock()
-			if parentOK {
+			if _, parentOK := g.store.GroupByFolder(parentFolder); parentOK {
 				spawned, err := g.spawnFromPrototype(parentFolder, originJid)
 				if err == nil {
 					return g.delegateToFolder(label, spawned.Folder, prompt, originJid, depth+1, rules)
@@ -1475,13 +1392,7 @@ func (g *Gateway) delegateToFolder(
 }
 
 func (g *Gateway) groupJIDs() []string {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	jids := make([]string, 0, len(g.jidToFolder))
-	for jid := range g.jidToFolder {
-		jids = append(jids, jid)
-	}
-	return jids
+	return g.store.DefaultRouteJIDs()
 }
 
 func (g *Gateway) recoverPendingMessages() {
@@ -1501,10 +1412,9 @@ func (g *Gateway) recoverPendingMessages() {
 }
 
 func (g *Gateway) groupList() []core.Group {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	out := make([]core.Group, 0, len(g.groups))
-	for _, gr := range g.groups {
+	groups := g.store.AllGroups()
+	out := make([]core.Group, 0, len(groups))
+	for _, gr := range groups {
 		out = append(out, gr)
 	}
 	return out

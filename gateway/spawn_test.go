@@ -33,7 +33,7 @@ func TestSpawnFromPrototype_NoPrototype(t *testing.T) {
 	defer s.Close()
 
 	cfg := &core.Config{GroupsDir: dir}
-	gw := &Gateway{cfg: cfg, store: s, groups: make(map[string]core.Group), jidToFolder: make(map[string]string)}
+	gw := &Gateway{cfg: cfg, store: s}
 
 	parentFolder := "main"
 	os.MkdirAll(filepath.Join(dir, parentFolder), 0o755)
@@ -42,7 +42,6 @@ func TestSpawnFromPrototype_NoPrototype(t *testing.T) {
 		AddedAt: time.Now(), State: "active",
 		Config: core.GroupConfig{MaxChildren: 5},
 	})
-	gw.groups[parentFolder] = s.AllGroups()[parentFolder]
 
 	_, err = gw.spawnFromPrototype(parentFolder, "child@test")
 	if err == nil {
@@ -59,7 +58,7 @@ func TestSpawnFromPrototype_Success(t *testing.T) {
 	defer s.Close()
 
 	cfg := &core.Config{GroupsDir: dir}
-	gw := &Gateway{cfg: cfg, store: s, groups: make(map[string]core.Group), jidToFolder: make(map[string]string)}
+	gw := &Gateway{cfg: cfg, store: s}
 
 	parentFolder := "main"
 	protoDir := filepath.Join(dir, parentFolder, "prototype")
@@ -72,7 +71,6 @@ func TestSpawnFromPrototype_Success(t *testing.T) {
 		Config: core.GroupConfig{MaxChildren: 5},
 	}
 	s.PutGroup(parent)
-	gw.groups[parentFolder] = parent
 
 	childJID := "telegram:99999"
 	child, err := gw.spawnFromPrototype(parentFolder, childJID)
@@ -108,19 +106,13 @@ func TestSpawnFromPrototype_Success(t *testing.T) {
 		t.Errorf("stored.State = %q, want active", stored.State)
 	}
 
-	// child should be in gw.groups (by folder)
-	gw.mu.RLock()
-	_, inMem := gw.groups[wantFolder]
-	gw.mu.RUnlock()
-	if !inMem {
-		t.Error("child group not found in gateway groups map")
+	// child should be resolvable via DB
+	if _, ok := s.GroupByFolder(wantFolder); !ok {
+		t.Error("child group not found in DB")
 	}
 
-	// jidToFolder should map childJID -> childFolder
-	gw.mu.RLock()
-	mappedFolder := gw.jidToFolder[childJID]
-	gw.mu.RUnlock()
-	if mappedFolder != wantFolder {
-		t.Errorf("jidToFolder[%q] = %q, want %q", childJID, mappedFolder, wantFolder)
+	// DefaultFolderForJID should map childJID -> childFolder
+	if mappedFolder := s.DefaultFolderForJID(childJID); mappedFolder != wantFolder {
+		t.Errorf("DefaultFolderForJID(%q) = %q, want %q", childJID, mappedFolder, wantFolder)
 	}
 }

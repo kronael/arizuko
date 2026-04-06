@@ -27,14 +27,11 @@ func (g *Gateway) spawnFromPrototype(parentFolder, childJID string) (core.Group,
 		return core.Group{}, fmt.Errorf("no prototype dir: %w", err)
 	}
 
-	g.mu.Lock()
-	if parent, ok := g.groups[parentFolder]; ok {
-		if err := auth.CheckSpawnAllowed(parent, g.groups); err != nil {
-			g.mu.Unlock()
+	if parent, ok := g.store.GroupByFolder(parentFolder); ok {
+		if err := auth.CheckSpawnAllowed(parent, g.store.AllGroups()); err != nil {
 			return core.Group{}, err
 		}
 	}
-	g.mu.Unlock()
 
 	childFolder := spawnFolderName(parentFolder, childJID)
 	childDir := filepath.Join(g.cfg.GroupsDir, childFolder)
@@ -56,10 +53,6 @@ func (g *Gateway) spawnFromPrototype(parentFolder, childJID string) (core.Group,
 		return core.Group{}, err
 	}
 	g.store.AddRoute(childJID, core.Route{Seq: 0, Type: "default", Target: childFolder})
-	g.mu.Lock()
-	g.groups[childFolder] = child
-	g.jidToFolder[childJID] = childFolder
-	g.mu.Unlock()
 	return child, nil
 }
 
