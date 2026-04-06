@@ -246,7 +246,9 @@ func (b *bot) sendTyping(jid string) {
 	if err != nil {
 		return
 	}
-	b.api.Send(tgbotapi.NewChatAction(id, tgbotapi.ChatTyping))
+	if _, err := b.api.Send(tgbotapi.NewChatAction(id, tgbotapi.ChatTyping)); err != nil {
+		slog.Debug("typing failed", "jid", jid, "err", err)
+	}
 }
 
 func parseChatID(jid string) (int64, error) {
