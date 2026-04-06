@@ -12,6 +12,7 @@ import makeWASocket, {
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { RouterClient } from './client.js';
+import { seedLid, parseLidMapEnv, translateJid, getLidMap } from './lid.js';
 import { startServer } from './server.js';
 
 const logger = pino({ level: 'warn' });
@@ -182,40 +183,9 @@ const rc = new RouterClient(routerURL, channelSecret);
 let reconnectAttempts = 0;
 let connected = false;
 
-const lidToPhoneMap: Record<string, string> = {};
 const groupNameCache: Record<string, string> = {};
 const outboundQueue: OutboundMsg[] = [];
 let flushing = false;
-
-function seedLid(
-  id: string | undefined | null,
-  lid: string | undefined | null,
-): void {
-  if (!id || !lid) return;
-  const lidUser = lid.split(':')[0].split('@')[0];
-  const phoneJid = id.split(':')[0].split('@')[0] + '@s.whatsapp.net';
-  lidToPhoneMap[lidUser] = phoneJid;
-}
-
-async function translateJid(jid: string): Promise<string> {
-  if (!jid.endsWith('@lid')) return jid;
-  const lidUser = jid.split('@')[0].split(':')[0];
-  const cached = lidToPhoneMap[lidUser];
-  if (cached) return cached;
-  try {
-    const repo = sock!.signalRepository as any;
-    const pn = await repo?.lidMapping?.getPNForLID(jid);
-    if (pn) {
-      const phoneJid = `${pn.split('@')[0].split(':')[0]}@s.whatsapp.net`;
-      lidToPhoneMap[lidUser] = phoneJid;
-      log('info', 'translated lid jid', { lid: jid, phone: phoneJid });
-      return phoneJid;
-    }
-  } catch (e) {
-    log('debug', 'lid translate failed', { jid, err: String(e) });
-  }
-  return jid;
-}
 
 async function syncGroupMetadata(): Promise<void> {
   if (!sock) return;
@@ -367,7 +337,7 @@ async function connect(): Promise<void> {
         if (contacts) {
           for (const [id, c] of Object.entries(contacts)) seedLid(id, c?.lid);
           log('info', 'seeded lid map from contacts', {
-            count: Object.keys(lidToPhoneMap).length,
+            count: Object.keys(getLidMap()).length,
           });
         }
       } catch (e) {
@@ -387,6 +357,10 @@ async function connect(): Promise<void> {
     for (const c of contacts) seedLid(c.id, (c as any).lid);
   });
 
+  sock.ev.on('contacts.update', (contacts) => {
+    for (const c of contacts) seedLid(c.id, (c as any).lid);
+  });
+
   sock.ev.on('messages.upsert', async ({ messages }) => {
     for (const msg of messages) {
       if (!msg.message) continue;
@@ -394,7 +368,7 @@ async function connect(): Promise<void> {
       if (!rawJid || rawJid === 'status@broadcast') continue;
       if (msg.key.fromMe) continue;
 
-      const jid = await translateJid(rawJid);
+      const jid = await translateJid(rawJid, sock);
       const isGroup = jid.endsWith('@g.us');
       const chatJid = `whatsapp:${jid}`;
       const rawSender = msg.key.participant || jid;
@@ -486,6 +460,10 @@ async function main() {
     await pair(phone);
     process.exit(0);
   }
+
+  parseLidMapEnv(process.env['WHATSAPP_LID_MAP']);
+  const lidCount = Object.keys(getLidMap()).length;
+  if (lidCount > 0) log('info', 'loaded lid map from env', { count: lidCount });
 
   await connect();
 
