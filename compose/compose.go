@@ -199,6 +199,9 @@ func onbodService(app, flavor, dataDir string, env map[string]string) string {
 	if p := envOr(env, "ONBOARDING_PROTOTYPE", ""); p != "" {
 		environment["ONBOARDING_PROTOTYPE"] = p
 	}
+	if g := envOr(env, "ONBOARDING_GREETING", ""); g != "" {
+		environment["ONBOARDING_GREETING"] = g
+	}
 	if s := envOr(env, "CHANNEL_SECRET", ""); s != "" {
 		environment["CHANNEL_SECRET"] = s
 	}
