@@ -21,30 +21,13 @@ func testDB(t *testing.T) *sql.DB {
 	_, err = db.Exec(`
 		CREATE TABLE routes (jid TEXT, seq INTEGER, type TEXT, match TEXT, target TEXT);
 		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT);
-		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, world_name TEXT, prompted_at TEXT);
+		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, sender TEXT, channel TEXT, world_name TEXT, prompted_at TEXT, created TEXT);
+		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT, group_folder TEXT);
 	`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return db
-}
-
-func TestNameREValid(t *testing.T) {
-	valid := []string{"hello", "my-workspace", "abc123", "a", "test-1-2-3", "123", "-hyphened"}
-	for _, v := range valid {
-		if !nameRE.MatchString(v) {
-			t.Errorf("nameRE rejected valid name %q", v)
-		}
-	}
-}
-
-func TestNameREInvalid(t *testing.T) {
-	invalid := []string{"Hello", "my workspace", "abc!", "ABC", "", "has/slash", "has.dot", "CamelCase"}
-	for _, v := range invalid {
-		if nameRE.MatchString(v) {
-			t.Errorf("nameRE accepted invalid name %q", v)
-		}
-	}
 }
 
 func TestIsTier0True(t *testing.T) {
@@ -86,7 +69,7 @@ func TestHandleSendMalformedJSON(t *testing.T) {
 func TestHandleSendBadAuth(t *testing.T) {
 	db := testDB(t)
 	cfg := config{secret: "sekret"}
-	body, _ := json.Marshal(map[string]string{"jid": "x", "text": "/approve y"})
+	body, _ := json.Marshal(map[string]string{"jid": "x", "text": "/approve y z"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer wrong")
 	w := httptest.NewRecorder()
@@ -110,12 +93,74 @@ func TestHandleSendUnknownCommand(t *testing.T) {
 
 func TestHandleSendApproveNotTier0(t *testing.T) {
 	db := testDB(t)
-	cfg := config{} // empty gatedURL: sendReply fails silently, 403 still written
-	body, _ := json.Marshal(map[string]string{"jid": "telegram:1", "text": "/approve somename"})
+	cfg := config{}
+	body, _ := json.Marshal(map[string]string{"jid": "telegram:1", "text": "/approve somejid somefolder"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	handleSend(w, req, db, cfg)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("want 403, got %d", w.Code)
+	}
+}
+
+func TestHandleSendApproveMissingFolder(t *testing.T) {
+	db := testDB(t)
+	cfg := config{}
+	body, _ := json.Marshal(map[string]string{"jid": "telegram:1", "text": "/approve somejid"})
+	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handleSend(w, req, db, cfg)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("want 400, got %d", w.Code)
+	}
+}
+
+func TestPromptUnprompted(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, channel, created) VALUES ('telegram:1', 'awaiting_message', 'teled', '2026-01-01')`)
+
+	// sendReply will fail silently (no gatedURL), but we can check prompted_at was set
+	cfg := config{greeting: "Welcome to our server!"}
+	promptUnprompted(db, cfg)
+
+	var prompted sql.NullString
+	db.QueryRow(`SELECT prompted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&prompted)
+	if !prompted.Valid {
+		t.Error("expected prompted_at to be set")
+	}
+}
+
+func TestCheckResponsesTransitionsToPending(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, channel, prompted_at, created)
+		VALUES ('telegram:1', 'awaiting_message', 'teled', '2026-01-01T00:00:00Z', '2026-01-01')`)
+	db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
+		VALUES ('msg1', 'telegram:1', 'user', 'Hello admin!', '2026-01-01T00:01:00Z', 0, 0, 'telegram', '')`)
+
+	cfg := config{}
+	checkResponses(db, cfg)
+
+	var status string
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)
+	if status != "pending" {
+		t.Errorf("want pending, got %s", status)
+	}
+}
+
+func TestCheckResponsesIgnoresOldMessages(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, channel, prompted_at, created)
+		VALUES ('telegram:1', 'awaiting_message', 'teled', '2026-01-01T00:05:00Z', '2026-01-01')`)
+	// Message is before prompted_at
+	db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
+		VALUES ('msg1', 'telegram:1', 'user', 'old msg', '2026-01-01T00:00:00Z', 0, 0, 'telegram', '')`)
+
+	cfg := config{}
+	checkResponses(db, cfg)
+
+	var status string
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)
+	if status != "awaiting_message" {
+		t.Errorf("want awaiting_message, got %s", status)
 	}
 }
