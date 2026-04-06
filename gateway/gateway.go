@@ -442,7 +442,7 @@ func (g *Gateway) processSenderBatch(
 
 	isolated := strings.HasPrefix(last.Sender, "timed-isolated")
 	topic := g.effectiveTopic(chatJid, last.Topic)
-	onOutput, hadOutput := g.makeOutputCallback(chatJid, topic, last.ID, group.Folder)
+	onOutput, hadOutput := g.makeOutputCallback(ch, chatJid, topic, last.ID, group.Folder)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		onOutput, isolated, nil, topic, last.ID, len(msgs))
 
@@ -496,7 +496,7 @@ func (g *Gateway) processWebTopics(
 		}
 
 		effectiveTopic := g.effectiveTopic(chatJid, topic)
-		onOutput, hadOutput := g.makeOutputCallback(chatJid, effectiveTopic, last.ID, group.Folder)
+		onOutput, hadOutput := g.makeOutputCallback(ch, chatJid, effectiveTopic, last.ID, group.Folder)
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 			onOutput, false, nil, effectiveTopic, last.ID, len(topicMsgs))
 
@@ -526,12 +526,23 @@ func (g *Gateway) processWebTopics(
 	return true, nil
 }
 
-func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder string) (func(string, string), *bool) {
+func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID, groupFolder string) (func(string, string), *bool) {
 	var hadOutput bool
 	lastSentID := g.store.GetLastReplyID(chatJid, topic)
 	if lastSentID == "" {
 		lastSentID = firstMsgID
 	}
+
+	send := func(text, replyTo, threadID string) (string, error) {
+		if !g.canSendToJID(chatJid) {
+			return "", nil
+		}
+		if ch == nil {
+			return "", fmt.Errorf("no channel for jid %s", chatJid)
+		}
+		return ch.Send(chatJid, text, replyTo, threadID)
+	}
+
 	return func(text, _ string) {
 		if text == "" {
 			return
@@ -543,13 +554,10 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 		}
 		stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
 		for _, s := range statuses {
-			sentID, err := g.sendMessageReply(chatJid, "⏳ "+s, "", "")
+			sentID, err := send("⏳ "+s, "", "")
 			if err != nil {
 				slog.Error("send status failed",
 					"jid", chatJid, "group", groupFolder, "err", err)
-			} else if sentID == "" {
-				slog.Debug("send status returned no ID",
-					"jid", chatJid, "group", groupFolder)
 			}
 			g.store.StoreOutbound(core.OutboundEntry{
 				ChatJID:       chatJid,
@@ -560,13 +568,10 @@ func (g *Gateway) makeOutputCallback(chatJid, topic, firstMsgID, groupFolder str
 			})
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
-			sentID, err := g.sendMessageReply(chatJid, clean, lastSentID, topic)
+			sentID, err := send(clean, lastSentID, topic)
 			if err != nil {
 				slog.Error("send reply failed",
 					"jid", chatJid, "group", groupFolder, "err", err)
-			} else if sentID == "" {
-				slog.Debug("send reply returned no ID",
-					"jid", chatJid, "group", groupFolder)
 			}
 			if sentID != "" {
 				lastSentID = sentID

@@ -136,10 +136,13 @@ func (h *HTTPChannel) Typing(jid string, on bool) error {
 		return nil
 	}
 	b, _ := json.Marshal(map[string]any{"chat_jid": jid, "on": on})
-	if resp, err := h.post("/typing", b); err == nil {
-		resp.Body.Close()
+	resp, err := h.post("/typing", b)
+	if err != nil {
+		slog.Warn("typing request failed", "channel", h.entry.Name, "jid", jid, "err", err)
+		return nil
 	}
-	return nil // fire-and-forget
+	resp.Body.Close()
+	return nil
 }
 
 func (h *HTTPChannel) Disconnect() error { return nil }

@@ -817,7 +817,7 @@ func TestMakeOutputCallback_SendsReply(t *testing.T) {
 	gw.AddChannel(ch)
 	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
-	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
+	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
 	cb("Hello from agent", "")
 
 	if !*hadOutput {
@@ -846,7 +846,7 @@ func TestMakeOutputCallback_SendError(t *testing.T) {
 	gw.AddChannel(ch)
 	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
-	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
+	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
 	cb("Error test", "")
 
 	if !*hadOutput {
@@ -865,7 +865,7 @@ func TestMakeOutputCallback_EmptySentID(t *testing.T) {
 	gw.cfg.SendDisabledChannels = []string{"jid1"}
 	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
-	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
+	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
 	cb("Suppressed message", "")
 
 	if !*hadOutput {
@@ -885,7 +885,7 @@ func TestMakeOutputCallback_StripsThinksAndStatus(t *testing.T) {
 	gw.AddChannel(ch)
 	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
-	cb, hadOutput := gw.makeOutputCallback("jid1", "", "msg-1", "grp")
+	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
 	cb("<think>internal thought</think>Visible reply<status>Working on it</status>", "")
 
 	if !*hadOutput {
@@ -909,7 +909,7 @@ func TestMakeOutputCallback_ThreadID(t *testing.T) {
 	gw.AddChannel(ch)
 	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
-	cb, _ := gw.makeOutputCallback("jid1", "#general", "msg-1", "grp")
+	cb, _ := gw.makeOutputCallback(ch, "jid1", "#general", "msg-1", "grp")
 	cb("Threaded reply", "")
 
 	sent := ch.getSent()
