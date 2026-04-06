@@ -49,3 +49,4 @@ status: active
 - [W-work.md](W-work.md) — ephemeral active-task file
 - [X-worlds-rooms.md](X-worlds-rooms.md) — room model research, comparative analysis
 - [l-linkedin.md](l-linkedin.md) — LinkedIn channel adapter
+- [G-history-backfill.md](G-history-backfill.md) — adapter history backfill on startup (WhatsApp excepted)
