@@ -672,7 +672,23 @@ func seedSettings(
 	slog.Debug("settings seeded", "path", fp, "sidecars", len(in.Config.Sidecars))
 }
 
-func SeedGroupDir(cfg *core.Config, folder string) error {
+func SetupGroup(cfg *core.Config, folder, prototype string) error {
+	groupDir := filepath.Join(cfg.GroupsDir, folder)
+	if err := os.MkdirAll(groupDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir group: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(groupDir, "logs"), 0o755); err != nil {
+		return fmt.Errorf("mkdir logs: %w", err)
+	}
+	if prototype != "" {
+		if err := copyDirNoSymlinks(prototype, groupDir); err != nil {
+			slog.Warn("setup group: copy prototype", "folder", folder, "err", err)
+		}
+	}
+	return seedGroupDir(cfg, folder)
+}
+
+func seedGroupDir(cfg *core.Config, folder string) error {
 	claudeDir := filepath.Join(cfg.GroupsDir, folder, ".claude")
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
 		return err
@@ -680,6 +696,27 @@ func SeedGroupDir(cfg *core.Config, folder string) error {
 	chown(claudeDir, 1000, 1000)
 	seedSkills(cfg, claudeDir, folder)
 	return nil
+}
+
+func copyDirNoSymlinks(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		rel, _ := filepath.Rel(src, path)
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
 }
 
 func seedSkills(cfg *core.Config, claudeDir, folder string) {

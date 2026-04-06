@@ -100,7 +100,7 @@ func cmdCreate(args []string) {
 	name := args[0]
 	dataDir := instanceDir(name)
 
-	for _, sub := range []string{"store", "groups/main/logs", "ipc", "web", "services"} {
+	for _, sub := range []string{"store", "groups", "ipc", "web", "services"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
 			die("Failed: mkdir %s: %v", sub, err)
 		}
@@ -117,8 +117,6 @@ func cmdCreate(args []string) {
 		}
 	}
 
-	exec.Command("git", "init", filepath.Join(dataDir, "groups/main")).Run()
-
 	s, err := store.Open(filepath.Join(dataDir, "store"))
 	if err != nil {
 		die("Failed: open db: %v", err)
@@ -129,18 +127,15 @@ func cmdCreate(args []string) {
 		die("Failed: add default group: %v", err)
 	}
 
-	seedGroupDir(dataDir, "main")
-	fmt.Printf("created instance %s at %s\n", name, dataDir)
-}
-
-func seedGroupDir(dataDir, folder string) {
 	cfg, err := core.LoadConfigFrom(dataDir)
 	if err != nil {
-		return
+		die("Failed: load config: %v", err)
 	}
-	if err := container.SeedGroupDir(cfg, folder); err != nil {
-		slog.Warn("failed to seed group dir", "folder", folder, "err", err)
+	if err := container.SetupGroup(cfg, "main", ""); err != nil {
+		slog.Warn("failed to setup group dir", "folder", "main", "err", err)
 	}
+	exec.Command("git", "init", filepath.Join(dataDir, "groups/main")).Run()
+	fmt.Printf("created instance %s at %s\n", name, dataDir)
 }
 
 func cmdGroup(args []string) {
@@ -177,17 +172,20 @@ func cmdGroup(args []string) {
 			folder = args[4]
 		}
 
-		groupDir := filepath.Join(dataDir, "groups", folder)
-		if err := os.MkdirAll(filepath.Join(groupDir, "logs"), 0o755); err != nil {
-			die("Failed: mkdir group dir: %v", err)
+		cfg, err := core.LoadConfigFrom(dataDir)
+		if err != nil {
+			die("Failed: load config: %v", err)
 		}
+		if err := container.SetupGroup(cfg, folder, ""); err != nil {
+			die("Failed: setup group dir: %v", err)
+		}
+		groupDir := filepath.Join(dataDir, "groups", folder)
 		exec.Command("git", "init", groupDir).Run()
 
 		if err := s.PutGroup(core.Group{Name: name, Folder: folder, AddedAt: time.Now()}); err != nil {
 			die("Failed: add group: %v", err)
 		}
 		s.AddRoute(jid, core.Route{Seq: 0, Type: "default", Target: folder})
-		seedGroupDir(dataDir, folder)
 		fmt.Printf("added group %s (%s) -> %s\n", name, jid, folder)
 
 	case "rm":

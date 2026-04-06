@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -30,7 +29,6 @@ type config struct {
 	gatedURL     string
 	pollInterval time.Duration
 	prototype    string
-	groupsDir    string
 }
 
 func main() {
@@ -113,7 +111,6 @@ func loadConfig() (config, error) {
 		return cfg, fmt.Errorf("DATA_DIR env required")
 	}
 	cfg.dsn = filepath.Join(dataDir, "store", "messages.db")
-	cfg.groupsDir = filepath.Join(dataDir, "groups")
 	cfg.secret = os.Getenv("CHANNEL_SECRET")
 	cfg.prototype = os.Getenv("ONBOARDING_PROTOTYPE")
 
@@ -208,29 +205,22 @@ func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, tar
 		return
 	}
 
-	groupDir := filepath.Join(cfg.groupsDir, worldName)
-	if err := os.MkdirAll(groupDir, 0755); err != nil {
-		slog.Error("approve: mkdir", "dir", groupDir, "err", err)
+	coreCfg, err := core.LoadConfig()
+	if err != nil {
+		slog.Error("approve: load config", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-
-	if cfg.prototype != "" {
-		if err := copyDir(cfg.prototype, groupDir); err != nil {
-			slog.Warn("approve: copy prototype", "err", err)
-		}
+	if err := container.SetupGroup(coreCfg, worldName, cfg.prototype); err != nil {
+		slog.Error("approve: setup group", "folder", worldName, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 
 	if err := approveInTx(db, targetJID, worldName); err != nil {
 		slog.Error("approve tx", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
-	}
-
-	if coreCfg, err := core.LoadConfig(); err == nil {
-		if err := container.SeedGroupDir(coreCfg, worldName); err != nil {
-			slog.Warn("approve: seed group dir", "folder", worldName, "err", err)
-		}
 	}
 
 	msg := "Approved: " + targetJID + " -> " + worldName + "/"
@@ -510,27 +500,6 @@ func sendReply(cfg config, jid, text, channel string) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		slog.Warn("send reply non-2xx", "jid", jid, "status", resp.StatusCode)
 	}
-}
-
-func copyDir(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.Type()&fs.ModeSymlink != 0 {
-			return nil
-		}
-		rel, _ := filepath.Rel(src, path)
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0755)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, data, 0644)
-	})
 }
 
 var defaultTasks = [][2]string{

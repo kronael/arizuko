@@ -104,8 +104,8 @@ func (g *Gateway) Run(ctx context.Context) error {
 		WebDir:        g.cfg.WebDir,
 		InjectMessage: g.injectMessage,
 		RegisterGroup: g.registerGroupIPC,
-		SeedGroupDir: func(folder string) error {
-			return container.SeedGroupDir(g.cfg, folder)
+		SetupGroup: func(folder string) error {
+			return container.SetupGroup(g.cfg, folder, "")
 		},
 		GetGroups:        g.getGroups,
 		DelegateToChild:  g.delegateToChild,

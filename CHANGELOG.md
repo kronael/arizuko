@@ -7,6 +7,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.23.2] — 2026-04-06
+
+### Changed
+
+- **onbod**: redesigned onboarding from single "pick a workspace" to 4-step
+  hierarchical flow: pick a world → pick a house → pick a room → leave a
+  message for the admin. Name steps validate `[a-z0-9_-]`, message step
+  accepts any text. `approveInTx` auto-creates parent groups in the
+  hierarchy.
+- **container**: unified group filesystem setup into `container.SetupGroup`.
+  CLI, IPC, and onbod all use one function for mkdir + prototype copy + seed.
+  Removed duplicate `copyDir` from onbod, dead `seedGroupDir` helper from CLI.
+
+---
+
 ## [v0.23.1] — 2026-04-06
 
 ### Fixed
