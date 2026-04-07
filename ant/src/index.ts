@@ -124,7 +124,7 @@ async function readStdin(): Promise<string> {
 const OUTPUT_START_MARKER = '---ARIZUKO_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---ARIZUKO_OUTPUT_END---';
 const HEARTBEAT_INTERVAL_MS = 30_000;
-const PROGRESS_INTERVAL_MS = 5 * 60_000;
+const PROGRESS_INTERVAL_MS = 10 * 60_000;
 
 function writeOutput(output: ContainerOutput): void {
   console.log(OUTPUT_START_MARKER);
