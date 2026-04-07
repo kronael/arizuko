@@ -124,6 +124,7 @@ async function readStdin(): Promise<string> {
 const OUTPUT_START_MARKER = '---ARIZUKO_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---ARIZUKO_OUTPUT_END---';
 const HEARTBEAT_INTERVAL_MS = 30_000;
+const PROGRESS_INTERVAL_MS = 5 * 60_000;
 
 function writeOutput(output: ContainerOutput): void {
   console.log(OUTPUT_START_MARKER);
@@ -401,6 +402,7 @@ async function runQuery(
   let resultCount = 0;
   let maxTurnsHit = false;
   let sessionError = false;
+  let lastProgressAt = Date.now();
 
   // Additional dirs: their CLAUDE.md files are auto-loaded by the SDK
   const extraDirs: string[] = [];
@@ -469,9 +471,14 @@ async function runQuery(
         if (m.uuid) lastAssistantUuid = m.uuid;
       }
 
-      if (messageCount > 0 && messageCount % 100 === 0) {
+      const now = Date.now();
+      const timeTriggered = now - lastProgressAt >= PROGRESS_INTERVAL_MS;
+      const countTriggered = messageCount > 0 && messageCount % 100 === 0;
+      if (timeTriggered || countTriggered) {
         const snippet = lastAssistantText?.slice(0, 280) ?? `${messageCount} messages processed`;
-        writeOutput({ status: 'success', result: `⏳ still working… ${snippet}`, newSessionId });
+        const mins = Math.round((now - lastProgressAt) / 60_000);
+        writeOutput({ status: 'success', result: `⏳ still working (${mins}m, ${messageCount} msgs)… ${snippet}`, newSessionId });
+        lastProgressAt = now;
       }
 
       if (message.type === 'system' && message.subtype === 'init') {
