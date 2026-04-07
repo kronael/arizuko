@@ -214,6 +214,35 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	deadline := time.AfterFunc(cfgTimeout, func() {
 		stopContainer("hard deadline")
 	})
+
+	var softDeadline *time.Timer
+	if cfgTimeout > 2*time.Minute {
+		softDeadline = time.AfterFunc(cfgTimeout-2*time.Minute, func() {
+			if timedOut.Load() {
+				return
+			}
+			slog.Info("soft deadline firing, warning agent",
+				"group", in.Folder, "container", containerName)
+			if ipcDir, err := folders.IpcPath(in.Folder); err == nil {
+				inputDir := groupfolder.IpcInputDir(ipcDir)
+				os.MkdirAll(inputDir, 0o755)
+				name := fmt.Sprintf("%d-deadline.json", time.Now().UnixMilli())
+				fp := filepath.Join(inputDir, name)
+				tmp := fp + ".tmp"
+				payload, _ := json.Marshal(map[string]string{
+					"type": "message",
+					"text": "\u26a0\ufe0f SYSTEM: You have ~2 minutes before this session is forcefully terminated. Wrap up NOW: summarize what you accomplished, what is still pending, and deliver your response to the user.",
+				})
+				if err := os.WriteFile(tmp, payload, 0o644); err == nil {
+					if err := os.Rename(tmp, fp); err != nil {
+						os.Remove(tmp)
+					}
+				}
+			}
+			exec.Command(Bin, "kill", "--signal=SIGUSR1", containerName).Run()
+		})
+	}
+
 	timer := time.AfterFunc(cfg.IdleTimeout, func() {
 		stopContainer("idle timeout")
 	})
@@ -297,6 +326,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	exitErr := cmd.Wait()
 	timer.Stop()
 	deadline.Stop()
+	if softDeadline != nil {
+		softDeadline.Stop()
+	}
 
 	if stopMCP != nil {
 		stopMCP()
