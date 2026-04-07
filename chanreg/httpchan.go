@@ -137,6 +137,7 @@ func (h *HTTPChannel) SendFile(jid, path, name, caption string) error {
 
 func (h *HTTPChannel) Typing(jid string, on bool) error {
 	if !h.entry.HasCap("typing") {
+		slog.Info("typing: no cap", "channel", h.entry.Name)
 		return nil
 	}
 	b, _ := json.Marshal(map[string]any{"chat_jid": jid, "on": on})
@@ -145,6 +146,7 @@ func (h *HTTPChannel) Typing(jid string, on bool) error {
 		slog.Warn("typing request failed", "channel", h.entry.Name, "jid", jid, "err", err)
 		return nil
 	}
+	slog.Info("typing: posted", "channel", h.entry.Name, "jid", jid, "on", on, "status", resp.StatusCode)
 	resp.Body.Close()
 	return nil
 }

@@ -438,7 +438,10 @@ func (g *Gateway) processSenderBatch(
 	prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n" + router.FormatMessages(msgs, observed)
 
 	if ch != nil {
+		slog.Info("typing start", "jid", chatJid, "channel", ch.Name())
 		ch.Typing(chatJid, true)
+	} else {
+		slog.Warn("typing skip: no channel", "jid", chatJid)
 	}
 
 	isolated := strings.HasPrefix(last.Sender, "timed-isolated")
@@ -448,6 +451,7 @@ func (g *Gateway) processSenderBatch(
 		onOutput, isolated, nil, topic, last.ID, len(msgs))
 
 	if ch != nil {
+		slog.Info("typing stop", "jid", chatJid, "channel", ch.Name())
 		ch.Typing(chatJid, false)
 	}
 
