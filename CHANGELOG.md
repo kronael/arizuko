@@ -7,6 +7,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.24.2] — 2026-04-07
+
+### Fixed
+
+- **ant**: output style (e.g. telegram.md) now injected into custom system
+  prompts — SDK only injects it for the preset prompt, which we don't use.
+- **ant**: progress interval 5min → 10min to reduce noise.
+
+### Changed
+
+- **queue**: DB-implicit pending — removed in-memory `pendingMessages` boolean,
+  drain now queries `store.HasPendingMessages` via callback. SendMessage race
+  fixed (single lock).
+- **container**: hard deadline 30min → 60min; soft deadline warns agent 2min
+  before kill via IPC message + SIGUSR1.
+- **ant**: time-based progress updates — agent sends status every 10min or 100
+  SDK messages, whichever first.
+
+---
+
 ## [v0.24.1] — 2026-04-07
 
 ### Fixed
