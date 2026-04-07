@@ -47,22 +47,21 @@ func TestEnqueueMessageCheckQueuesWhenActive(t *testing.T) {
 		}
 		return true, nil
 	})
+	// DB says there are pending messages — drain should re-process
+	q.SetHasPendingFn(func(jid string) bool { return true })
 
 	q.EnqueueMessageCheck("g1")
 	<-started
 
-	// Second enqueue while active should queue
+	// Second enqueue while active — no flag, but hasPending will trigger drain
 	q.EnqueueMessageCheck("g1")
-
-	q.mu.Lock()
-	pending := q.groups["g1"].pendingMessages
-	q.mu.Unlock()
-	if !pending {
-		t.Fatal("expected pending messages flag")
-	}
 
 	close(block)
 	time.Sleep(100 * time.Millisecond)
+
+	if calls.Load() < 2 {
+		t.Fatalf("expected >= 2 calls (initial + drain), got %d", calls.Load())
+	}
 }
 
 func TestConcurrencyLimit(t *testing.T) {
@@ -204,19 +203,20 @@ func TestDrainPrioritizesTasksOverMessages(t *testing.T) {
 		mu.Unlock()
 		return true, nil
 	})
+	// DB says pending — drain path will find messages
+	q.SetHasPendingFn(func(jid string) bool { return true })
 
 	// Start first container
 	q.EnqueueMessageCheck("g1")
 	time.Sleep(50 * time.Millisecond)
 
-	// Queue both task and message while active
+	// Queue task while active — task should drain before messages
 	q.EnqueueTask("g1", "t1", func() error {
 		mu.Lock()
 		order = append(order, "task")
 		mu.Unlock()
 		return nil
 	})
-	q.EnqueueMessageCheck("g1") // sets pendingMessages
 
 	close(block)
 	time.Sleep(200 * time.Millisecond)

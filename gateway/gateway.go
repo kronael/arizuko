@@ -140,6 +140,12 @@ func (g *Gateway) Run(ctx context.Context) error {
 		JIDRoutedToFolder: g.store.JIDRoutedToFolder,
 	}
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
+	g.queue.SetHasPendingFn(func(jid string) bool {
+		if g.store.IsChatErrored(jid) {
+			return false
+		}
+		return g.store.HasPendingMessages(jid, g.cfg.Name)
+	})
 	g.queue.SetNotifyErrorFn(func(jid string, err error) {
 		msg := fmt.Sprintf("⚠️ Agent error: %v\n\nSend another message to retry.", err)
 		g.sendMessage(jid, msg)

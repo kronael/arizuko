@@ -27,7 +27,6 @@ type queuedTask struct {
 type groupState struct {
 	active              bool
 	isTaskContainer     bool
-	pendingMessages     bool
 	pendingTasks        []queuedTask
 	containerName       string
 	groupFolder         string
@@ -35,6 +34,7 @@ type groupState struct {
 }
 
 type processMessagesFn func(groupJid string) (bool, error)
+type hasPendingFn func(groupJid string) bool
 type notifyErrorFn func(groupJid string, err error)
 
 type GroupQueue struct {
@@ -44,6 +44,7 @@ type GroupQueue struct {
 	maxConcurrent   int
 	waitingGroups   []string
 	processMessages processMessagesFn
+	hasPending      hasPendingFn
 	notifyError     notifyErrorFn
 	shuttingDown    bool
 	ipcDir          string
@@ -72,6 +73,12 @@ func (q *GroupQueue) SetProcessMessagesFn(fn processMessagesFn) {
 	q.processMessages = fn
 }
 
+func (q *GroupQueue) SetHasPendingFn(fn hasPendingFn) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.hasPending = fn
+}
+
 func (q *GroupQueue) SetNotifyErrorFn(fn notifyErrorFn) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -94,18 +101,16 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 	}
 
 	if s.active {
-		s.pendingMessages = true
-		slog.Debug("container active, message queued", "groupJid", groupJid)
+		slog.Debug("container active, will drain after", "groupJid", groupJid)
 		q.mu.Unlock()
 		return
 	}
 
 	if q.activeCount >= q.maxConcurrent {
-		s.pendingMessages = true
 		if !q.hasWaiting(groupJid) {
 			q.waitingGroups = append(q.waitingGroups, groupJid)
 		}
-		slog.Debug("at concurrency limit, message queued",
+		slog.Debug("at concurrency limit, queued for drain",
 			"groupJid", groupJid, "activeCount", q.activeCount)
 		q.mu.Unlock()
 		return
@@ -113,7 +118,6 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 
 	s.active = true
 	s.isTaskContainer = false
-	s.pendingMessages = false
 	q.activeCount++
 	q.mu.Unlock()
 
@@ -188,33 +192,34 @@ func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 	cname := s.containerName
 	q.mu.Unlock()
 
-	inputDir := groupfolder.IpcInputDir(filepath.Join(q.ipcDir, folder))
-	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+	if err := writeIpcFile(filepath.Join(q.ipcDir, folder), text); err != nil {
 		return false
 	}
+	if cname != "" {
+		signalContainer(cname)
+	}
+	return true
+}
 
+func writeIpcFile(ipcFolder, text string) error {
+	inputDir := groupfolder.IpcInputDir(ipcFolder)
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		return err
+	}
 	ts := time.Now().UnixMilli()
 	r := rand.IntN(1679616) // 36^4
 	name := fmt.Sprintf("%d-%s.json", ts, base36(r))
 	fp := filepath.Join(inputDir, name)
 	tmp := fp + ".tmp"
-
 	payload, _ := json.Marshal(map[string]string{"type": "message", "text": text})
 	if err := os.WriteFile(tmp, payload, 0o644); err != nil {
-		return false
+		return err
 	}
 	if err := os.Rename(tmp, fp); err != nil {
 		os.Remove(tmp)
-		return false
+		return err
 	}
-
-	if cname != "" {
-		signalContainer(cname)
-	}
-	q.mu.Lock()
-	q.getGroup(groupJid).pendingMessages = true
-	q.mu.Unlock()
-	return true
+	return nil
 }
 
 func (q *GroupQueue) Shutdown() {
@@ -309,9 +314,8 @@ func (q *GroupQueue) startGroupLocked(jid string) bool {
 		go q.runTask(jid, task)
 		return true
 	}
-	if s.pendingMessages {
+	if q.hasPending != nil && q.hasPending(jid) {
 		s.active, s.isTaskContainer = true, false
-		s.pendingMessages = false
 		q.activeCount++
 		go q.runForGroup(jid, "drain")
 		return true

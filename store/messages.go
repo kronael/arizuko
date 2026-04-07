@@ -89,6 +89,18 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 	return msgs, hi, rows.Err()
 }
 
+func (s *Store) HasPendingMessages(jid, botName string) bool {
+	cursor := s.GetAgentCursor(jid)
+	var n int
+	s.db.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM messages
+		 WHERE chat_jid = ? AND timestamp > ? AND is_bot_message = 0
+		   AND sender NOT LIKE ?)`,
+		jid, cursor.Format(time.RFC3339Nano), botName+"%",
+	).Scan(&n)
+	return n == 1
+}
+
 func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]core.Message, error) {
 	rows, err := s.db.Query(
 		`SELECT `+msgCols+` FROM messages
