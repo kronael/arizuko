@@ -7,6 +7,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.24.1] — 2026-04-07
+
+### Fixed
+
+- **teled**: use `Request` instead of `Send` for `sendChatAction` — Telegram
+  returns `bool`, not `Message`. Was spamming WARN every 4s on every active chat.
+- **migration**: onboarding simplification migration now skips JIDs that already
+  have routes, preventing re-onboarding of existing users.
+
+### Changed
+
+- **ant**: PreCompact hook names vital files (SOUL.md, CLAUDE.md, diary/, facts/,
+  users/) by reference so the summarizer preserves them across compaction.
+
+---
+
 ## [v0.24.0] — 2026-04-06
 
 ### Fixed
