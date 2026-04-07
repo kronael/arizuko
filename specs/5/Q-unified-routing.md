@@ -302,83 +302,38 @@ func deriveTier2Rules(folderJIDs []string) []string {
 
 ---
 
-## Migration Path
+## Implementation Status
 
-**Phase 1: Remove `local:` prefix**
+**Completed (v0.25):**
 
-Remove `local:` prefix handling — it was never actually used. Direct folder path lookups: if no colon in JID → treat as folder.
+1. **Agent outputs written to messages table** — `makeOutputCallback` writes
+   via `PutMessage` with `sender=groupFolder, is_from_me=1, is_bot_message=1,
+routed_to=chatJid`. Callback still delivers immediately for low latency.
+2. **Delegation as messages** — `delegateViaMessage` writes a message to
+   `local:targetFolder` with `forwarded_from=originJid` as return address.
+   `processSenderBatch` checks `forwarded_from` to route output back.
+3. **Escalation as messages** — same path as delegation. `<escalation_origin>`
+   tag parsed to extract worker folder as return address.
+4. **Removed `EnqueueTask`** — no more closure-based task queue. Delegation
+   and `#topic` prefix both use `PutMessage` + `EnqueueMessageCheck`.
+5. **Removed `OutboundEntry`/`StoreOutbound`** — unified into messages table.
+6. **MCP tools** — `delegate_group`/`escalate_group` write messages directly.
+   `send_message`/`send_reply` record via `PutMessage`.
 
-**Phase 2: Add `routed_to` column to messages**
+**Future (not yet implemented):**
 
-```sql
-ALTER TABLE messages ADD COLUMN routed_to TEXT NOT NULL DEFAULT '';
-```
-
-Populate for existing messages:
-
-- User messages: `routed_to = ''` (router decides)
-- No agent output messages exist yet (callbacks only)
-
-**Phase 3: Write agent outputs to messages table**
-
-- Keep current callback for delivery
-- Also write agent output to messages: `{sender: folder, routed_to: chat_jid}`
-- Audit trail now complete
-- No behavior change (callbacks still deliver)
-
-**Phase 4: Route agent outputs through router**
-
-- Remove `OnOutput` callback mechanism
-- Agent outputs written to DB only
-- Gateway polls, router resolves `routed_to`, delivers to channels
-- Validate no behavior change (messages still delivered)
-
-**Phase 5: Add `attachments` column, unify send operations**
-
-- Add `attachments TEXT` column (JSON array)
-- Update `send_file` to set `attachments` and `content` (caption) in one message
-- Deprecate separate `send_file` tool → becomes `send_message(..., files=[...])`
+- Remove `local:` prefix — use bare folder paths for inter-group routing
+- Poll-based outbound delivery — remove callback, gateway delivers from DB
+- `status` column for message processing state tracking
+- Unify `send_file` into `send_message(..., files=[...])`
 
 ---
 
 ## Benefits
 
 1. **Audit trail** — all messages in DB, complete conversation history
-2. **Uniform flow** — one routing algorithm, no special cases
-3. **Testable** — router is pure function, no side effects
-4. **Debuggable** — inspect `routed_to` in DB to understand message flow
-5. **Secure** — no routing bypass via content parsing for agents
+2. **Crash recovery** — delegation messages survive restarts (DB-persisted)
+3. **No closures** — no captured state lost on crash
+4. **Debuggable** — inspect `forwarded_from` and `routed_to` in DB
+5. **Simpler queue** — no task/message priority, just messages
 6. **Extensible** — new channel types just add prefix case in router
-
----
-
-## Implementation Details
-
-**Message status tracking:**
-
-```sql
-ALTER TABLE messages ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';
-ALTER TABLE messages ADD COLUMN processed_at TEXT;
-CREATE INDEX idx_messages_status ON messages(status, timestamp);
-```
-
-Status values: `pending` → `processing` → `completed` / `error`
-
-**Polling strategy:**
-
-```go
-SELECT * FROM messages
-WHERE status = 'pending'
-ORDER BY timestamp ASC
-LIMIT 1
-```
-
-Mark `processing` immediately, prevents concurrent double-processing. Update to `completed` when done.
-
-**Error handling:**
-
-Routing failures → `status='error'`. Retry logic optional (manual `/retry` command or scheduled task).
-
-**Attachments:**
-
-File paths stored as JSON array in `attachments` column. Files live in group workspace, accessed by container.

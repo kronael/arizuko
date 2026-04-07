@@ -107,9 +107,8 @@ func (g *Gateway) Run(ctx context.Context) error {
 		SetupGroup: func(folder string) error {
 			return container.SetupGroup(g.cfg, folder, "")
 		},
-		GetGroups:        g.getGroups,
-		DelegateToChild:  g.delegateToChild,
-		DelegateToParent: g.delegateToParent,
+		GetGroups:           g.getGroups,
+		EnqueueMessageCheck: g.queue.EnqueueMessageCheck,
 		SpawnGroup: func(parentFolder, childJID string) (core.Group, error) {
 			if _, ok := g.store.GroupByFolder(parentFolder); !ok {
 				return core.Group{}, fmt.Errorf("parent group not found: %s", parentFolder)
@@ -133,7 +132,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		GetRoute:          g.store.GetRoute,
 		GetGrants:         g.store.GetGrants,
 		SetGrants:         g.store.SetGrants,
-		StoreOutbound:     g.store.StoreOutbound,
+		PutMessage:        g.store.PutMessage,
 		GetLastReplyID:    g.store.GetLastReplyID,
 		SetLastReplyID:    g.store.SetLastReplyID,
 		MessagesBefore:    g.store.MessagesBefore,
@@ -415,7 +414,7 @@ func (g *Gateway) tryExternalRoute(
 	if target != "" && router.IsAuthorizedRoutingTarget(group.Folder, target) {
 		slog.Debug(phase+": delegating to child",
 			"jid", chatJid, "sender", msg.Sender, "target", target)
-		g.delegateToChild(target, msg.Content, chatJid, 0, nil)
+		g.delegateViaMessage(target, msg.Content, chatJid, 0)
 		return true
 	}
 	return false
@@ -438,27 +437,35 @@ func (g *Gateway) processSenderBatch(
 		g.enrichAttachments(&msgs[i], group.Folder)
 	}
 
+	// Determine delivery target: forwarded_from overrides chatJid (delegation return path)
+	deliverTo := chatJid
+	deliverCh := ch
+	if last.ForwardedFrom != "" {
+		deliverTo = last.ForwardedFrom
+		deliverCh = g.findChannel(deliverTo)
+	}
+
 	g.emitSystemEvents(group, chatJid)
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
 	observed := g.store.ObservedMessagesSince(group.Folder, chatJid, agentTs.Format(time.RFC3339Nano))
 	prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n" + router.FormatMessages(msgs, observed)
 
-	if ch != nil {
-		slog.Info("typing start", "jid", chatJid, "channel", ch.Name())
-		ch.Typing(chatJid, true)
+	if deliverCh != nil {
+		slog.Info("typing start", "jid", deliverTo, "channel", deliverCh.Name())
+		deliverCh.Typing(deliverTo, true)
 	} else {
-		slog.Warn("typing skip: no channel", "jid", chatJid)
+		slog.Warn("typing skip: no channel", "jid", deliverTo)
 	}
 
 	isolated := strings.HasPrefix(last.Sender, "timed-isolated")
 	topic := g.effectiveTopic(chatJid, last.Topic)
-	onOutput, hadOutput := g.makeOutputCallback(ch, chatJid, topic, last.ID, group.Folder)
+	onOutput, hadOutput := g.makeOutputCallback(deliverCh, deliverTo, topic, last.ID, group.Folder)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		onOutput, isolated, nil, topic, last.ID, len(msgs))
 
-	if ch != nil {
-		slog.Info("typing stop", "jid", chatJid, "channel", ch.Name())
-		ch.Typing(chatJid, false)
+	if deliverCh != nil {
+		slog.Info("typing stop", "jid", deliverTo, "channel", deliverCh.Name())
+		deliverCh.Typing(deliverTo, false)
 	}
 
 	if out.Error != "" {
@@ -467,14 +474,14 @@ func (g *Gateway) processSenderBatch(
 			return true
 		}
 		g.store.SetAgentCursor(chatJid, agentTs)
-		g.sendMessage(chatJid, "Failed: agent error, will retry on next message.")
+		g.sendMessage(deliverTo, "Failed: agent error, will retry on next message.")
 		g.store.MarkChatErrored(chatJid)
 		return false
 	}
 
 	if !*hadOutput {
 		slog.Warn("agent completed with no output delivered",
-			"jid", chatJid, "group", group.Folder, "sender", last.Sender)
+			"jid", deliverTo, "group", group.Folder, "sender", last.Sender)
 	}
 	return true
 }
@@ -567,12 +574,17 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 				slog.Error("send status failed",
 					"jid", chatJid, "group", groupFolder, "err", err)
 			}
-			g.store.StoreOutbound(core.OutboundEntry{
-				ChatJID:       chatJid,
-				Content:       s,
-				Source:        "agent",
-				GroupFolder:   groupFolder,
-				PlatformMsgID: sentID,
+			g.store.PutMessage(core.Message{
+				ID:        core.MsgID("out"),
+				ChatJID:   chatJid,
+				Sender:    groupFolder,
+				Content:   s,
+				Timestamp: time.Now(),
+				FromMe:    true,
+				BotMsg:    true,
+				RoutedTo:  chatJid,
+				Topic:     topic,
+				ReplyToID: sentID,
 			})
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
@@ -585,14 +597,17 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 				replyTo = sentID
 				g.store.SetLastReplyID(chatJid, topic, sentID)
 			}
-			g.store.StoreOutbound(core.OutboundEntry{
-				ChatJID:       chatJid,
-				Content:       clean,
-				Source:        "agent",
-				GroupFolder:   groupFolder,
-				ReplyToID:     replyTo,
-				PlatformMsgID: sentID,
-				Topic:         topic,
+			g.store.PutMessage(core.Message{
+				ID:        core.MsgID("out"),
+				ChatJID:   chatJid,
+				Sender:    groupFolder,
+				Content:   clean,
+				Timestamp: time.Now(),
+				FromMe:    true,
+				BotMsg:    true,
+				ReplyToID: sentID,
+				RoutedTo:  chatJid,
+				Topic:     topic,
 			})
 		}
 	}, &hadOutput
@@ -1097,10 +1112,6 @@ func parseEscalationOrigin(prompt string) *escalationMetadata {
 	return &meta
 }
 
-func (g *Gateway) delegateToParent(parentFolder, prompt, originJid string, depth int, rules []string) error {
-	return g.delegateToFolder("escalate", parentFolder, prompt, originJid, depth, rules)
-}
-
 func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
 	for _, prefix := range []string{"local:", "web:"} {
 		if folder, ok := strings.CutPrefix(jid, prefix); ok {
@@ -1253,30 +1264,20 @@ func (g *Gateway) handlePrefixRoute(
 			slog.Warn("@prefix: child group not found", "child", childFolder)
 			return true
 		}
-		g.delegateToFolder("route", childFolder, stripped, chatJid, 0, nil)
+		g.delegateViaMessage(childFolder, stripped, chatJid, 0)
 		return true
 	case "#":
 		topic := "#" + name
-		g.queue.EnqueueTask(chatJid,
-			fmt.Sprintf("topic-%s-%s-%d", group.Folder, name, time.Now().UnixMilli()),
-			func() error {
-				onOutput := func(text, _ string) {
-					clean := router.FormatOutbound(text)
-					if clean == "" {
-						return
-					}
-					if err := g.sendMessage(chatJid, clean); err != nil {
-						slog.Warn("topic send failed", "jid", chatJid, "err", err)
-					}
-				}
-				out := g.runAgentWithOpts(group, stripped, chatJid, "",
-					onOutput, false, nil, topic, "", 1)
-				if out.Error != "" {
-					return fmt.Errorf("topic agent: %s", out.Error)
-				}
-				return nil
-			},
-		)
+		g.store.PutMessage(core.Message{
+			ID:        core.MsgID("topic"),
+			ChatJID:   chatJid,
+			Sender:    msg.Sender,
+			Name:      msg.Name,
+			Content:   stripped,
+			Topic:     topic,
+			Timestamp: time.Now(),
+		})
+		g.queue.EnqueueMessageCheck(chatJid)
 		return true
 	}
 	return false
@@ -1330,77 +1331,45 @@ func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
 	}
 }
 
-func (g *Gateway) delegateToChild(
-	childFolder, prompt, originJid string, depth int, rules []string,
-) error {
-	return g.delegateToFolder("delegate", childFolder, prompt, originJid, depth, rules)
-}
-
-func (g *Gateway) delegateToFolder(
-	label, folder, prompt, originJid string, depth int, rules []string,
+// delegateViaMessage writes a delegation message to the target group and
+// triggers the queue. The child agent's output will be routed back to
+// forwardedFrom (the return address carried via the message).
+func (g *Gateway) delegateViaMessage(
+	targetFolder, prompt, originJid string, depth int,
 ) error {
 	if depth > 1 {
 		return fmt.Errorf("delegation depth exceeded")
 	}
 
-	var escalation *escalationMetadata
-	if label == "escalate" {
-		escalation = parseEscalationOrigin(prompt)
-		if escalation != nil {
-			originJid = "local:" + escalation.WorkerFolder
-		}
+	// For escalation, override return address to go back to the child
+	fwdFrom := originJid
+	if esc := parseEscalationOrigin(prompt); esc != nil && esc.WorkerFolder != "" {
+		fwdFrom = "local:" + esc.WorkerFolder
 	}
 
-	target, found := g.store.GroupByFolder(folder)
-	if !found {
-		sep := strings.LastIndex(folder, "/")
+	if _, found := g.store.GroupByFolder(targetFolder); !found {
+		sep := strings.LastIndex(targetFolder, "/")
 		if sep > 0 {
-			parentFolder := folder[:sep]
+			parentFolder := targetFolder[:sep]
 			if _, parentOK := g.store.GroupByFolder(parentFolder); parentOK {
 				spawned, err := g.spawnFromPrototype(parentFolder, originJid)
 				if err == nil {
-					return g.delegateToFolder(label, spawned.Folder, prompt, originJid, depth+1, rules)
+					return g.delegateViaMessage(spawned.Folder, prompt, originJid, depth+1)
 				}
 			}
 		}
-		return fmt.Errorf("%s target not found: %s", label, folder)
+		return fmt.Errorf("delegate target not found: %s", targetFolder)
 	}
 
-	g.queue.EnqueueTask("local:"+folder, fmt.Sprintf("%s-%s-%d",
-		label, folder, time.Now().UnixMilli()),
-		func() error {
-			onOutput := func(text, _ string) {
-				clean := router.FormatOutbound(text)
-				if clean == "" {
-					return
-				}
-				if escalation != nil {
-					clean = fmt.Sprintf("<escalation_response origin_jid=%q origin_msg_id=%q>\n%s\n</escalation_response>",
-						escalation.OriginJID, escalation.ReplyTo, clean)
-				}
-				sentID, err := g.sendMessageReply(originJid, clean, "", "")
-				if err != nil {
-					slog.Warn("delegate send failed",
-						"jid", originJid, "folder", folder, "err", err)
-				}
-				if sentID != "" {
-					g.store.StoreOutbound(core.OutboundEntry{
-						ChatJID:       originJid,
-						Content:       clean,
-						Source:        "agent",
-						GroupFolder:   folder,
-						PlatformMsgID: sentID,
-					})
-				}
-			}
-			out := g.runAgentWithOpts(target, prompt, originJid, "",
-				onOutput, false, rules, "", "", 1)
-			if out.Error != "" {
-				return fmt.Errorf("%s agent: %s", label, out.Error)
-			}
-			return nil
-		},
-	)
+	g.store.PutMessage(core.Message{
+		ID:            core.MsgID("delegate"),
+		ChatJID:       "local:" + targetFolder,
+		Sender:        "delegate",
+		Content:       prompt,
+		Timestamp:     time.Now(),
+		ForwardedFrom: fwdFrom,
+	})
+	g.queue.EnqueueMessageCheck("local:" + targetFolder)
 	return nil
 }
 

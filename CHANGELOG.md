@@ -7,6 +7,32 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **gateway**: unified inbound/outbound message paths — agent output now written
+  to messages table via `PutMessage` instead of separate `StoreOutbound`.
+- **gateway**: delegation is now message-based — `delegateViaMessage` writes to
+  `local:targetFolder` with `forwarded_from` as return address. No more closures.
+- **gateway**: `#topic` prefix route converted from `EnqueueTask` closure to
+  `PutMessage` + `EnqueueMessageCheck`.
+- **ipc**: `delegate_group` and `escalate_group` write messages to DB directly
+  instead of calling gateway closures.
+- **ipc**: `send_message`/`send_reply` record output via `PutMessage` to unified
+  messages table.
+- **queue**: removed `EnqueueTask`, `taskFn`, `queuedTask`, `runTask` — all work
+  flows through messages, no more task closures.
+
+### Removed
+
+- **core**: `OutboundEntry` type.
+- **store**: `StoreOutbound()` function.
+- **ipc**: `DelegateToChild`/`DelegateToParent` from `GatedFns`.
+- **ipc**: `StoreOutbound` from `StoreFns`.
+
+---
+
 ## [v0.24.2] — 2026-04-07
 
 ### Fixed

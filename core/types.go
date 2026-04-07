@@ -26,16 +26,6 @@ type Message struct {
 	Attachments   string // JSON-encoded []chanlib.InboundAttachment
 }
 
-type OutboundEntry struct {
-	ChatJID       string
-	Content       string
-	Source        string // "agent" | "mcp" | "scheduler" | "control" | "error"
-	GroupFolder   string
-	ReplyToID     string
-	PlatformMsgID string
-	Topic         string
-}
-
 type Group struct {
 	Name       string
 	Folder     string

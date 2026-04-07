@@ -1,7 +1,6 @@
 package queue
 
 import (
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -135,39 +134,6 @@ func TestCircuitBreaker(t *testing.T) {
 	}
 }
 
-func TestEnqueueTaskDedup(t *testing.T) {
-	q := New(5, t.TempDir())
-
-	block := make(chan struct{})
-	q.SetProcessMessagesFn(func(jid string) (bool, error) {
-		<-block
-		return true, nil
-	})
-
-	// Make group active first
-	q.EnqueueMessageCheck("g1")
-	time.Sleep(50 * time.Millisecond)
-
-	var taskCalls atomic.Int32
-	fn := func() error {
-		taskCalls.Add(1)
-		return nil
-	}
-
-	q.EnqueueTask("g1", "t1", fn)
-	q.EnqueueTask("g1", "t1", fn) // dupe
-
-	q.mu.Lock()
-	pending := len(q.groups["g1"].pendingTasks)
-	q.mu.Unlock()
-	if pending != 1 {
-		t.Fatalf("expected 1 pending task (dedup), got %d", pending)
-	}
-
-	close(block)
-	time.Sleep(100 * time.Millisecond)
-}
-
 func TestShutdownBlocksEnqueue(t *testing.T) {
 	q := New(5, t.TempDir())
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
@@ -186,51 +152,6 @@ func TestShutdownBlocksEnqueue(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if called.Load() {
 		t.Fatal("should not process after shutdown")
-	}
-}
-
-func TestDrainPrioritizesTasksOverMessages(t *testing.T) {
-	q := New(5, t.TempDir())
-
-	var order []string
-	var mu sync.Mutex
-
-	block := make(chan struct{})
-	q.SetProcessMessagesFn(func(jid string) (bool, error) {
-		<-block
-		mu.Lock()
-		order = append(order, "messages")
-		mu.Unlock()
-		return true, nil
-	})
-	// DB says pending — drain path will find messages
-	q.SetHasPendingFn(func(jid string) bool { return true })
-
-	// Start first container
-	q.EnqueueMessageCheck("g1")
-	time.Sleep(50 * time.Millisecond)
-
-	// Queue task while active — task should drain before messages
-	q.EnqueueTask("g1", "t1", func() error {
-		mu.Lock()
-		order = append(order, "task")
-		mu.Unlock()
-		return nil
-	})
-
-	close(block)
-	time.Sleep(200 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(order) < 2 {
-		t.Fatalf("expected >= 2 operations, got %d", len(order))
-	}
-	if order[0] != "messages" {
-		t.Fatalf("first should be initial messages run, got %q", order[0])
-	}
-	if order[1] != "task" {
-		t.Fatalf("second should be task (priority), got %q", order[1])
 	}
 }
 

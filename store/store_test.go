@@ -539,44 +539,15 @@ func TestUnroutedChatJIDs_SinceFilter(t *testing.T) {
 	}
 }
 
-func TestStoreOutbound_EmptyPlatformMsgIDNoCollision(t *testing.T) {
+// Agent output messages (is_bot_message=1) must not leak into MessagesSince.
+func TestAgentOutput_ExcludedFromMessagesSince(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	// Two unsent outbound entries (empty PlatformMsgID) must both persist;
-	// prior bug synthesized a single "out-" PK for every empty id.
-	for i, body := range []string{"first", "second"} {
-		err := s.StoreOutbound(core.OutboundEntry{
-			ChatJID: "tg:1", Content: body,
-			Source: "agent", GroupFolder: "main",
-		})
-		if err != nil {
-			t.Fatalf("StoreOutbound #%d: %v", i, err)
-		}
-	}
-
-	var n int
-	if err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM messages WHERE chat_jid = ? AND id LIKE 'out-unsent-%'`,
-		"tg:1",
-	).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 2 {
-		t.Errorf("expected 2 unsent rows, got %d", n)
-	}
-}
-
-// Regression: StoreOutbound rows must be is_bot_message=1 so MessagesSince
-// excludes them. A prior fix left the flag at 0, which fed the agent's own
-// output back as inbound and caused a self-reply loop.
-func TestStoreOutbound_ExcludedFromMessagesSince(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	if err := s.StoreOutbound(core.OutboundEntry{
-		ChatJID: "tg:1", Content: "bot reply",
-		Source: "agent", GroupFolder: "main",
+	if err := s.PutMessage(core.Message{
+		ID: "out-1", ChatJID: "tg:1", Sender: "main",
+		Content: "bot reply", Timestamp: time.Now(),
+		FromMe: true, BotMsg: true, RoutedTo: "tg:1",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -586,21 +557,19 @@ func TestStoreOutbound_ExcludedFromMessagesSince(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(msgs) != 0 {
-		t.Fatalf("StoreOutbound row leaked into MessagesSince: %+v", msgs)
+		t.Fatalf("agent output leaked into MessagesSince: %+v", msgs)
 	}
 }
 
-// Regression: StoreOutbound must populate topic + routed_to so web-chat
-// topic queries find bot replies. Before unification the gateway wrote these
-// fields via a separate PutMessage call, producing two rows per reply and
-// leaving StoreOutbound rows invisible to MessagesByTopic.
-func TestStoreOutbound_WritesTopicAndRoutedTo(t *testing.T) {
+// Agent output with topic must appear in MessagesByTopic for web-chat history.
+func TestAgentOutput_WritesTopicAndRoutedTo(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	if err := s.StoreOutbound(core.OutboundEntry{
-		ChatJID: "web:main", Content: "hi",
-		Source: "agent", GroupFolder: "main",
+	if err := s.PutMessage(core.Message{
+		ID: "out-t1", ChatJID: "web:main", Sender: "main",
+		Content: "hi", Timestamp: time.Now(),
+		FromMe: true, BotMsg: true, RoutedTo: "web:main",
 		Topic: "t1",
 	}); err != nil {
 		t.Fatal(err)
@@ -610,7 +579,7 @@ func TestStoreOutbound_WritesTopicAndRoutedTo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) != 1 || msgs[0].Topic != "t1" || msgs[0].RoutedTo != "main" {
-		t.Fatalf("StoreOutbound row missing topic/routed_to: %+v", msgs)
+	if len(msgs) != 1 || msgs[0].Topic != "t1" || msgs[0].RoutedTo != "web:main" {
+		t.Fatalf("agent output missing topic/routed_to: %+v", msgs)
 	}
 }

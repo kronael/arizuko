@@ -17,17 +17,8 @@ import (
 
 const circuitBreakerThreshold = 3
 
-type taskFn func() error
-
-type queuedTask struct {
-	ID string
-	Fn taskFn
-}
-
 type groupState struct {
 	active              bool
-	isTaskContainer     bool
-	pendingTasks        []queuedTask
 	containerName       string
 	groupFolder         string
 	consecutiveFailures int
@@ -117,58 +108,10 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 	}
 
 	s.active = true
-	s.isTaskContainer = false
 	q.activeCount++
 	q.mu.Unlock()
 
 	go q.runForGroup(groupJid, "messages")
-}
-
-func (q *GroupQueue) EnqueueTask(groupJid, taskID string, fn taskFn) {
-	q.mu.Lock()
-	if q.shuttingDown {
-		q.mu.Unlock()
-		return
-	}
-
-	s := q.getGroup(groupJid)
-
-	for _, t := range s.pendingTasks {
-		if t.ID == taskID {
-			slog.Debug("task already queued, skipping",
-				"groupJid", groupJid, "taskId", taskID)
-			q.mu.Unlock()
-			return
-		}
-	}
-
-	task := queuedTask{ID: taskID, Fn: fn}
-
-	if s.active {
-		s.pendingTasks = append(s.pendingTasks, task)
-		slog.Debug("container active, task queued",
-			"groupJid", groupJid, "taskId", taskID)
-		q.mu.Unlock()
-		return
-	}
-
-	if q.activeCount >= q.maxConcurrent {
-		s.pendingTasks = append(s.pendingTasks, task)
-		if !q.hasWaiting(groupJid) {
-			q.waitingGroups = append(q.waitingGroups, groupJid)
-		}
-		slog.Debug("at concurrency limit, task queued",
-			"groupJid", groupJid, "taskId", taskID, "activeCount", q.activeCount)
-		q.mu.Unlock()
-		return
-	}
-
-	s.active = true
-	s.isTaskContainer = true
-	q.activeCount++
-	q.mu.Unlock()
-
-	go q.runTask(groupJid, task)
 }
 
 func (q *GroupQueue) RegisterProcess(groupJid, containerName, groupFolder string) {
@@ -184,7 +127,7 @@ func (q *GroupQueue) RegisterProcess(groupJid, containerName, groupFolder string
 func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 	q.mu.Lock()
 	s := q.getGroup(groupJid)
-	if !s.active || s.groupFolder == "" || s.isTaskContainer {
+	if !s.active || s.groupFolder == "" {
 		q.mu.Unlock()
 		return false
 	}
@@ -283,39 +226,10 @@ func (q *GroupQueue) runForGroup(groupJid, reason string) {
 	q.mu.Unlock()
 }
 
-func (q *GroupQueue) runTask(groupJid string, task queuedTask) {
-	slog.Debug("running queued task",
-		"groupJid", groupJid, "taskId", task.ID, "activeCount", q.activeCount)
-
-	err := task.Fn()
-	if err != nil {
-		slog.Error("error running task",
-			"groupJid", groupJid, "taskId", task.ID, "err", err)
-	}
-
-	q.mu.Lock()
-	s := q.getGroup(groupJid)
-	s.active = false
-	s.isTaskContainer = false
-	s.containerName = ""
-	s.groupFolder = ""
-	q.activeCount--
-	q.drainGroupLocked(groupJid)
-	q.mu.Unlock()
-}
-
 func (q *GroupQueue) startGroupLocked(jid string) bool {
-	s := q.getGroup(jid)
-	if len(s.pendingTasks) > 0 {
-		task := s.pendingTasks[0]
-		s.pendingTasks = s.pendingTasks[1:]
-		s.active, s.isTaskContainer = true, true
-		q.activeCount++
-		go q.runTask(jid, task)
-		return true
-	}
 	if q.hasPending != nil && q.hasPending(jid) {
-		s.active, s.isTaskContainer = true, false
+		s := q.getGroup(jid)
+		s.active = true
 		q.activeCount++
 		go q.runForGroup(jid, "drain")
 		return true

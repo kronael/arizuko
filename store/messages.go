@@ -309,23 +309,6 @@ func (s *Store) RoutedToByMessageID(id string) string {
 	return routedTo
 }
 
-func (s *Store) StoreOutbound(entry core.OutboundEntry) error {
-	id := "out-" + entry.PlatformMsgID
-	if entry.PlatformMsgID == "" {
-		id = core.MsgID("out-unsent")
-	}
-	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO messages
-		 (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message,
-		  reply_to_id, source, group_folder, topic, routed_to)
-		 VALUES (?, ?, 'bot', ?, ?, 1, 1, ?, ?, ?, ?, ?)`,
-		id, entry.ChatJID, entry.Content, time.Now().Format(time.RFC3339Nano),
-		nilIfEmpty(entry.ReplyToID), nilIfEmpty(entry.Source), nilIfEmpty(entry.GroupFolder),
-		entry.Topic, entry.GroupFolder,
-	)
-	return err
-}
-
 func btoi(b bool) int {
 	if b {
 		return 1

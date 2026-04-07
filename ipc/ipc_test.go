@@ -100,17 +100,16 @@ func TestFolderForJid(t *testing.T) {
 
 func TestAllToolsRegistered(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:      func(jid, text string) (string, error) { return "", nil },
-		SendDocument:     func(jid, path, fn, caption string) error { return nil },
-		ClearSession:     func(f string) {},
-		GetGroups:        func() map[string]core.Group { return nil },
-		DelegateToChild:  func(f, p, j string, d int, r []string) error { return nil },
-		DelegateToParent: func(f, p, j string, d int, r []string) error { return nil },
-		InjectMessage:    func(j, c, s, n string) (string, error) { return "", nil },
-		RegisterGroup:    func(j string, g core.Group) error { return nil },
-		GroupsDir:        "/tmp/groups",
-		HostGroupsDir:    "/tmp/groups",
-		WebDir:           "/tmp/web",
+		SendMessage:         func(jid, text string) (string, error) { return "", nil },
+		SendDocument:        func(jid, path, fn, caption string) error { return nil },
+		ClearSession:        func(f string) {},
+		GetGroups:           func() map[string]core.Group { return nil },
+		EnqueueMessageCheck: func(jid string) {},
+		InjectMessage:       func(j, c, s, n string) (string, error) { return "", nil },
+		RegisterGroup:       func(j string, g core.Group) error { return nil },
+		GroupsDir:           "/tmp/groups",
+		HostGroupsDir:       "/tmp/groups",
+		WebDir:              "/tmp/web",
 	}
 	db := StoreFns{
 		CreateTask:       func(t core.Task) error { return nil },

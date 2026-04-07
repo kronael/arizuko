@@ -24,20 +24,19 @@ import (
 )
 
 type GatedFns struct {
-	SendMessage      func(jid, text string) (string, error)
-	SendReply        func(jid, text, replyToId string) (string, error)
-	SendDocument     func(jid, path, filename, caption string) error
-	ClearSession     func(folder string)
-	InjectMessage    func(jid, content, sender, senderName string) (string, error)
-	RegisterGroup    func(jid string, group core.Group) error
-	SetupGroup       func(folder string) error
-	GetGroups        func() map[string]core.Group
-	DelegateToChild  func(folder, prompt, jid string, depth int, rules []string) error
-	DelegateToParent func(folder, prompt, jid string, depth int, rules []string) error
-	SpawnGroup       func(parentFolder, childJID string) (core.Group, error)
-	GroupsDir        string
-	HostGroupsDir    string
-	WebDir           string
+	SendMessage         func(jid, text string) (string, error)
+	SendReply           func(jid, text, replyToId string) (string, error)
+	SendDocument        func(jid, path, filename, caption string) error
+	ClearSession        func(folder string)
+	InjectMessage       func(jid, content, sender, senderName string) (string, error)
+	RegisterGroup       func(jid string, group core.Group) error
+	SetupGroup          func(folder string) error
+	GetGroups           func() map[string]core.Group
+	EnqueueMessageCheck func(jid string)
+	SpawnGroup          func(parentFolder, childJID string) (core.Group, error)
+	GroupsDir           string
+	HostGroupsDir       string
+	WebDir              string
 }
 
 type StoreFns struct {
@@ -52,7 +51,7 @@ type StoreFns struct {
 	AddRoute          func(jid string, r core.Route) (int64, error)
 	DeleteRoute       func(id int64) error
 	GetRoute          func(id int64) (core.Route, bool)
-	StoreOutbound     func(entry core.OutboundEntry) error
+	PutMessage        func(m core.Message) error
 	GetLastReplyID    func(jid, topic string) string
 	SetLastReplyID    func(jid, topic, replyID string)
 	GetGrants         func(folder string) []string
@@ -107,17 +106,22 @@ func toolOK() (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText("ok"), nil
 }
 
-func recordOutbound(db StoreFns, jid, text, replyToID, platformID, folder string) {
-	if platformID == "" {
-		return
+func recordOutbound(db StoreFns, jid, text, replyToID, platformID, folder, topic string) {
+	if platformID != "" && db.SetLastReplyID != nil {
+		db.SetLastReplyID(jid, topic, platformID)
 	}
-	if db.SetLastReplyID != nil {
-		db.SetLastReplyID(jid, "", platformID)
-	}
-	if db.StoreOutbound != nil {
-		db.StoreOutbound(core.OutboundEntry{
-			ChatJID: jid, Content: text, Source: "mcp",
-			GroupFolder: folder, ReplyToID: replyToID, PlatformMsgID: platformID,
+	if db.PutMessage != nil {
+		db.PutMessage(core.Message{
+			ID:        core.MsgID("mcp"),
+			ChatJID:   jid,
+			Sender:    folder,
+			Content:   text,
+			Timestamp: time.Now(),
+			FromMe:    true,
+			BotMsg:    true,
+			ReplyToID: platformID,
+			RoutedTo:  jid,
+			Topic:     topic,
 		})
 	}
 }
@@ -240,7 +244,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err != nil {
 				return toolErr(err.Error())
 			}
-			recordOutbound(db, jid, text, "", platformID, folder)
+			recordOutbound(db, jid, text, "", platformID, folder, "")
 			return toolOK()
 		})
 
@@ -267,7 +271,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err != nil {
 				return toolErr(err.Error())
 			}
-			recordOutbound(db, jid, text, replyToID, platformID, folder)
+			recordOutbound(db, jid, text, replyToID, platformID, folder, "")
 			return toolOK()
 		})
 
@@ -432,7 +436,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithNumber("depth"),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.DelegateToParent == nil {
+			if db.PutMessage == nil || gated.EnqueueMessageCheck == nil {
 				return toolErr("escalate_group not configured")
 			}
 			prompt := req.GetString("prompt", "")
@@ -452,9 +456,19 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			slog.Info("escalating to parent", "sourceGroup", folder, "parent", parent, "depth", depth, "replyTo", replyTo)
 			wrapped := fmt.Sprintf("<escalation_origin folder=%q jid=%q reply_to=%q/>\n%s", folder, chatJid, replyTo, prompt)
-			if err := gated.DelegateToParent(parent, wrapped, chatJid, depth+1, nil); err != nil {
+			// Return address: response goes back to this child via local channel
+			fwdFrom := "local:" + folder
+			if err := db.PutMessage(core.Message{
+				ID:            core.MsgID("escalate"),
+				ChatJID:       "local:" + parent,
+				Sender:        "escalate",
+				Content:       wrapped,
+				Timestamp:     time.Now(),
+				ForwardedFrom: fwdFrom,
+			}); err != nil {
 				return toolErr(err.Error())
 			}
+			gated.EnqueueMessageCheck("local:" + parent)
 			return toolJSON(map[string]any{"queued": true, "parent": parent})
 		})
 
@@ -485,14 +499,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithString("prompt", mcp.Required()),
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithNumber("depth"),
-			mcp.WithString("grants"),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			target := req.GetString("group", "")
 			if err := auth.Authorize(id, "delegate_group", auth.AuthzTarget{TargetFolder: target}); err != nil {
 				return toolErr(err.Error())
 			}
-			if gated.DelegateToChild == nil {
+			if db.PutMessage == nil || gated.EnqueueMessageCheck == nil {
 				return toolErr("delegate_group not configured")
 			}
 			prompt := req.GetString("prompt", "")
@@ -502,19 +515,18 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr(fmt.Sprintf("delegation depth %d exceeds limit 1", depth))
 			}
 
-			var delegateRules []string
-			if grantStr := req.GetString("grants", ""); grantStr != "" {
-				var requested []string
-				if err := json.Unmarshal([]byte(grantStr), &requested); err != nil {
-					return toolErr("invalid grants json: " + err.Error())
-				}
-				delegateRules = grantslib.NarrowRules(rules, requested)
-			}
-
 			slog.Info("delegating to child", "sourceGroup", folder, "child", target, "depth", depth)
-			if err := gated.DelegateToChild(target, prompt, chatJid, depth+1, delegateRules); err != nil {
+			if err := db.PutMessage(core.Message{
+				ID:            core.MsgID("delegate"),
+				ChatJID:       "local:" + target,
+				Sender:        "delegate",
+				Content:       prompt,
+				Timestamp:     time.Now(),
+				ForwardedFrom: chatJid,
+			}); err != nil {
 				return toolErr(err.Error())
 			}
+			gated.EnqueueMessageCheck("local:" + target)
 			return toolJSON(map[string]any{"queued": true})
 		})
 
