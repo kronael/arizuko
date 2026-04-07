@@ -67,6 +67,36 @@ function loadAgentMcpServers(): Record<string, McpServerConfig> {
   }
 }
 
+function buildSystemPrompt(ci: ContainerInput):
+    string | { type: 'preset'; preset: 'claude_code' } {
+  const parts: string[] = [];
+  if (ci.systemMd) parts.push(ci.systemMd);
+  if (ci.soul) parts.push(ci.soul);
+  // SDK only injects output styles into the preset system prompt.
+  // When we provide a custom string, load the style file ourselves.
+  const style = readOutputStyle();
+  if (style) parts.push(style);
+  if (parts.length > 0) return parts.join('\n\n');
+  return { type: 'preset' as const, preset: 'claude_code' as const };
+}
+
+function readOutputStyle(): string | null {
+  const settingsPath = `${HOME}/.claude/settings.json`;
+  try {
+    if (!fs.existsSync(settingsPath)) return null;
+    const s = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    const name = s.outputStyle;
+    if (!name || name === 'default') return null;
+    const fp = `${HOME}/.claude/output-styles/${name}.md`;
+    if (!fs.existsSync(fp)) return null;
+    const raw = fs.readFileSync(fp, 'utf-8');
+    // Strip YAML frontmatter
+    return raw.replace(/^---\n[\s\S]*?\n---\n*/, '').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 const HOME = '/home/node';
 const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
@@ -428,11 +458,7 @@ async function runQuery(
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
         resume: sessionId,
         resumeSessionAt: resumeAt,
-        systemPrompt: containerInput.systemMd
-          ? (containerInput.soul
-              ? containerInput.systemMd + '\n\n' + containerInput.soul
-              : containerInput.systemMd)
-          : { type: 'preset' as const, preset: 'claude_code' as const },
+        systemPrompt: buildSystemPrompt(containerInput),
         allowedTools: [
           'Bash',
           'Read', 'Write', 'Edit', 'Glob', 'Grep',
