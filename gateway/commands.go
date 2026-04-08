@@ -33,42 +33,65 @@ func cmdText(raw string) string {
 	return t
 }
 
-func isGatewayCommand(raw string) bool {
+// gatewayCommand is a single registration table entry: the name (including
+// the leading "/") plus a handler. To add a command, add one entry here.
+// Both isGatewayCommand and handleCommand consult this table, so there is
+// no second place to update.
+type gatewayCommand struct {
+	name    string
+	handler func(g *Gateway, msg core.Message, group core.Group, arg string) bool
+}
+
+var gatewayCommands = []gatewayCommand{
+	{"/new", func(g *Gateway, m core.Message, gr core.Group, arg string) bool {
+		return g.cmdNew(m.ChatJID, gr, arg)
+	}},
+	{"/ping", func(g *Gateway, m core.Message, gr core.Group, _ string) bool {
+		return g.cmdPing(m.ChatJID, gr)
+	}},
+	{"/chatid", func(g *Gateway, m core.Message, _ core.Group, _ string) bool {
+		return g.cmdChatID(m.ChatJID)
+	}},
+	{"/stop", func(g *Gateway, m core.Message, _ core.Group, _ string) bool {
+		return g.cmdStop(m.ChatJID)
+	}},
+	{"/status", func(g *Gateway, m core.Message, gr core.Group, _ string) bool {
+		return g.cmdStatus(m.ChatJID, gr)
+	}},
+	{"/approve", func(g *Gateway, m core.Message, _ core.Group, _ string) bool {
+		return g.cmdOnbod(m.ChatJID, cmdText(m.Content))
+	}},
+	{"/reject", func(g *Gateway, m core.Message, _ core.Group, _ string) bool {
+		return g.cmdOnbod(m.ChatJID, cmdText(m.Content))
+	}},
+}
+
+func lookupCommand(raw string) *gatewayCommand {
 	t := cmdText(raw)
 	if !strings.HasPrefix(t, "/") {
-		return false
+		return nil
 	}
-	word, _, _ := strings.Cut(t[1:], " ")
-	switch strings.ToLower(word) {
-	case "new", "ping", "chatid", "stop", "status", "approve", "reject":
-		return true
+	head, _, _ := strings.Cut(t, " ")
+	head = strings.ToLower(head)
+	for i := range gatewayCommands {
+		if gatewayCommands[i].name == head {
+			return &gatewayCommands[i]
+		}
 	}
-	return false
+	return nil
+}
+
+func isGatewayCommand(raw string) bool {
+	return lookupCommand(raw) != nil
 }
 
 func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
-	text := cmdText(msg.Content)
-	if !strings.HasPrefix(text, "/") {
+	cmd := lookupCommand(msg.Content)
+	if cmd == nil {
 		return false
 	}
-
-	head, arg, _ := strings.Cut(text, " ")
-	switch strings.ToLower(head) {
-	case "/new":
-		return g.cmdNew(msg.ChatJID, group, arg)
-	case "/ping":
-		return g.cmdPing(msg.ChatJID, group)
-	case "/chatid":
-		return g.cmdChatID(msg.ChatJID)
-	case "/stop":
-		return g.cmdStop(msg.ChatJID)
-	case "/status":
-		return g.cmdStatus(msg.ChatJID, group)
-	case "/approve", "/reject":
-		return g.cmdOnbod(msg.ChatJID, text)
-	default:
-		return false
-	}
+	_, arg, _ := strings.Cut(cmdText(msg.Content), " ")
+	return cmd.handler(g, msg, group, arg)
 }
 
 // cmdOnbod forwards /approve and /reject to the onbod daemon over HTTP.

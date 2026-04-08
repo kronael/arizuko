@@ -56,11 +56,6 @@ func main() {
 		slog.Warn("set WAL mode", "err", err)
 	}
 
-	if err := seedRoutes(db); err != nil {
-		slog.Error("seed routes", "err", err)
-		os.Exit(1)
-	}
-
 	if err := registerSelf(db, cfg.listenAddr); err != nil {
 		slog.Error("register channel", "err", err)
 		os.Exit(1)
@@ -129,14 +124,6 @@ func loadConfig() (config, error) {
 	}
 
 	return cfg, nil
-}
-
-func seedRoutes(db *sql.DB) error {
-	_, err := db.Exec(`
-		INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
-		VALUES ('*', -10, 'command', '/approve', 'onbod'),
-		       ('*', -10, 'command', '/reject',  'onbod')`)
-	return err
 }
 
 func registerSelf(db *sql.DB, listenAddr string) error {
