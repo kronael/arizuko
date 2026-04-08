@@ -236,10 +236,10 @@ direct CDN URLs (no proxy needed).
 
 | Table             | Key columns                                                                                                           |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `chats`           | jid (PK), name, channel, is_group, errored, agent_cursor                                                              |
-| `messages`        | id (PK), chat_jid, sender, content, timestamp, verb, attachments (JSON, cleared after enrich)                         |
+| `chats`           | jid (PK), errored, agent_cursor, sticky_group, sticky_topic                                                           |
+| `messages`        | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments (JSON, cleared after enrich)                 |
 | `groups`          | folder (PK), name, added_at, container_config (JSON), slink_token, parent, state, spawn_ttl_days, archive_closed_days |
-| `routes`          | id (auto), jid, seq, type, match, target                                                                              |
+| `routes`          | id (auto), seq, match, target, impulse_config                                                                         |
 | `sessions`        | group_folder + topic (PK), session_id                                                                                 |
 | `session_log`     | id (auto), group_folder, session_id, started_at, ended_at, result, error                                              |
 | `system_messages` | id (auto), group_id, origin, event, body                                                                              |
@@ -250,6 +250,11 @@ direct CDN URLs (no proxy needed).
 | `user_groups`     | user_sub + folder (PK) — restricts web user to specific group folders                                                 |
 | `email_threads`   | thread_id (PK), chat_jid, subject                                                                                     |
 | `onboarding`      | jid (PK), status, prompted_at                                                                                         |
+
+`messages.source` is the canonical "adapter-of-record" stamped by
+`api.handleMessage` on every inbound delivery. Outbound resolution
+reads `store.LatestSource(jid)` to pick the return adapter — see
+`specs/4/1-channel-protocol.md`.
 
 WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
 

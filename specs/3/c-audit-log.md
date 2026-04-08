@@ -19,29 +19,36 @@ path replaced the earlier `StoreOutbound`/`OutboundEntry` split in v0.25.
 
 ## Schema
 
-Migration adds columns to `messages`:
+Migration 0005 added `source TEXT` to `messages`. Migration 0023
+dropped the unused `group_folder TEXT` column and repurposed `source`
+as the canonical adapter-of-record per message.
 
-```sql
-ALTER TABLE messages ADD COLUMN source TEXT;
-ALTER TABLE messages ADD COLUMN group_folder TEXT;
-```
+`source` values:
 
-`source` values: `agent`, `mcp`, `scheduler`, `control`, `error`.
+- **inbound**: registered adapter name (e.g. `telegram`,
+  `telegram-REDACTED`, `discord`). Stamped by `api.handleMessage`
+  on every `/v1/messages` delivery.
+- **outbound**: empty string (the producer is implied by
+  `is_from_me=1`, `is_bot_message=1`, and `sender`).
+
+The producer-category model (agent/mcp/scheduler/control/error)
+was abandoned because callers already mark outbound rows via
+`is_from_me`/`is_bot_message`, and the column was needed to break
+adapter ambiguity for shared JID prefixes.
 
 ## API
 
 Outbound messages are written via the unified `PutMessage` path:
 
 ```go
-store.PutMessage(store.Message{
-    ChatJID:      chatJid,
-    Content:      text,
-    Sender:       groupFolder,
-    Source:       "agent",      // agent | mcp | scheduler | control | error
-    GroupFolder:  groupFolder,
-    ReplyToID:    parentMsgID,
-    IsFromMe:     true,
-    IsBotMessage: true,
+store.PutMessage(core.Message{
+    ChatJID:   chatJid,
+    Content:   text,
+    Sender:    groupFolder,
+    RoutedTo:  chatJid,
+    ReplyToID: parentMsgID,
+    FromMe:    true,
+    BotMsg:    true,
 })
 ```
 
@@ -50,7 +57,7 @@ ID prefixed `out-` to avoid PK collision with inbound.
 
 ## Integration points
 
-| Source    | File               | What                     |
+| Producer  | File               | What                     |
 | --------- | ------------------ | ------------------------ |
 | agent     | gateway/gateway.go | streaming agent output   |
 | agent     | gateway/gateway.go | delegate/escalate output |
@@ -58,6 +65,10 @@ ID prefixed `out-` to avoid PK collision with inbound.
 | mcp       | ipc/ipc.go         | send_file tool           |
 | scheduler | timed/main.go      | scheduler messages       |
 | control   | gateway/notify.go  | operator notifications   |
+| adapter   | api/api.go         | inbound /v1/messages     |
+
+Inbound rows have `source = <adapter-name>`, `is_from_me = 0`.
+Outbound rows have `source = ''`, `is_from_me = 1`, `is_bot_message = 1`.
 
 ## Queries
 
@@ -69,9 +80,10 @@ SELECT * FROM messages WHERE chat_jid = ? ORDER BY timestamp;
 SELECT * FROM messages
 WHERE chat_jid = ? AND is_from_me = 1 ORDER BY timestamp;
 
--- Outbound by source
-SELECT * FROM messages
-WHERE source = 'agent' AND timestamp > datetime('now', '-1 day');
+-- Latest receiving adapter for a chat (used by outbound routing)
+SELECT source FROM messages
+WHERE chat_jid = ? AND source != '' AND is_bot_message = 0
+ORDER BY timestamp DESC LIMIT 1;
 ```
 
 ## Not in scope

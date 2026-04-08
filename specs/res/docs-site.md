@@ -314,8 +314,10 @@ Content:
 - Full schema table (all 13 tables, key columns, purpose)
 - Migration pattern: each daemon owns a service name, runs its own
   migrations at startup
-- Outbound audit trail: source/group_folder columns in messages
-  populated by `PutMessage` (unified inbound/outbound, v0.25)
+- Audit trail: `messages.source` is the canonical adapter-of-record
+  per inbound message (stamped by `api.handleMessage`); outbound rows
+  carry `is_from_me=1 is_bot_message=1` and an empty source.
+  `LatestSource(jid)` drives outbound adapter resolution.
 - Outbound writes: agents, MCP, scheduler, control all flow through
   `PutMessage` with `is_bot_message=1`
 

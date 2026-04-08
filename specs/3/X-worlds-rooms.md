@@ -334,26 +334,36 @@ memory spaces.
 
 ---
 
-## 4. kanipi current model
+## 4. arizuko current model
 
-kanipi uses a flat JID-centric model:
+arizuko (kanipi's successor) uses a flat JID-centric model with the
+adapter-of-record stamped on every message:
 
 ```sql
--- chats table
-jid TEXT PRIMARY KEY    -- e.g. "tg:-100123456" | "wa:+1234@g.us" | "dc:chan:guild"
-channel TEXT            -- "telegram" | "whatsapp" | "discord" | "email"
-is_group INTEGER
+-- chats table (post-0023; just sticky/error state, no metadata)
+jid TEXT PRIMARY KEY    -- e.g. "telegram:main/-100123456"
+errored INTEGER
+agent_cursor TEXT
+sticky_group TEXT
+sticky_topic TEXT
 
 -- groups table (keyed by folder, not JID)
 folder TEXT PRIMARY KEY     -- maps to filesystem path (groups/<folder>/)
 name TEXT NOT NULL
--- JID→folder mapping lives in routes table:
--- routes: jid TEXT, type='default', target=folder
+-- JID→folder mapping lives in routes table (collapsed model):
+-- routes: id, seq, match TEXT, target TEXT, impulse_config TEXT
 
 -- messages table
 chat_jid TEXT               -- FK to chats
 sender, content, timestamp, ...
+source TEXT                 -- adapter that received the message
+                            -- (canonical "adapter-of-record" per message)
 ```
+
+The receive identity is a property of the message (`source`), not
+the chat — two adapters can deliver the same JID and each inbound
+records which one received it. Outbound routing reads
+`store.LatestSource(jid)` to pick the return adapter.
 
 The `GroupQueue` maintains in-memory state keyed by JID:
 

@@ -27,7 +27,7 @@ Only on initial prompt, not piped messages.
 
 ```xml
 <message sender="Alice" sender_id="telegram:main/REDACTED"
-         chat_id="telegram:main/-1001234567890" chat="Support"
+         chat_id="telegram:main/-1001234567890"
          platform="telegram" time="2026-03-11T14:00:00Z" ago="3h">
   Hello
 </message>
@@ -38,7 +38,6 @@ Only on initial prompt, not piped messages.
 | `sender`    | sender_name col   | always (falls back to sender ID) |
 | `sender_id` | messages.sender   | always                           |
 | `chat_id`   | messages.chat_jid | always                           |
-| `chat`      | chats.name        | when is_group                    |
 | `platform`  | platform          | always                           |
 | `time`      | timestamp         | always                           |
 | `ago`       | computed          | always                           |
@@ -50,7 +49,7 @@ Prepend `<context>` block before `<messages>`:
 ```xml
 <context>
   <agent group="atlas/support" name="Atlas Support" tier="2" world="atlas"/>
-  <chat jid="telegram:main/-1001234567890" name="Support" platform="telegram" is_group="true"/>
+  <chat jid="telegram:main/-1001234567890" platform="telegram"/>
 </context>
 ```
 
@@ -68,6 +67,4 @@ Prepend `<context>` block before `<messages>`:
 | Attribute  | Source               |
 | ---------- | -------------------- |
 | `jid`      | ARIZUKO_CHAT_JID     |
-| `name`     | chats.name           |
 | `platform` | platformFromJid(jid) |
-| `is_group` | chats.is_group       |

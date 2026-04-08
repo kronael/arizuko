@@ -73,8 +73,7 @@ CREATE TABLE messages (
   forwarded_from TEXT,
   reply_to_text TEXT,
   reply_to_sender TEXT,
-  source TEXT,
-  group_folder TEXT,              -- DEPRECATED: use sender/routed_to instead
+  source TEXT,                    -- adapter-of-record (inbound only)
   attachments TEXT                -- JSON array of file paths
 );
 ```

@@ -80,7 +80,6 @@ Authorization: Bearer <session-token>
   "sender_name": "Alice",
   "content": "hello",
   "timestamp": 1709942400,
-  "is_group": true,
   "reply_to": "msg-prev-uuid",
   "attachments": [
     {
@@ -98,20 +97,10 @@ Authorization: Bearer <session-token>
 Attachments: channel serves files on its own HTTP server.
 Router fetches if needed for agent context.
 
-#### Chat metadata
-
-```
-POST /v1/chats
-Authorization: Bearer <session-token>
-
-{
-  "chat_jid": "telegram:mybot/-1001234567",
-  "name": "Dev Chat",
-  "is_group": true
-}
-
-→ 200 {"ok": true}
-```
+The router stamps `messages.source` with the registered adapter
+name on every inbound delivery. This is the canonical record of
+which adapter received the message and is what outbound routing
+uses to pick a return adapter.
 
 #### Deregister
 
@@ -230,16 +219,19 @@ Authorization: Bearer <CHANNEL_SECRET>
 → 200 {"ok": true}
 ```
 
-**Adapter pinning (`channel` field).** When multiple adapters share
-the same JID prefix (e.g. primary `telegram` + `telegram-REDACTED` both
-handle `telegram:`), `reg.ForJID` would pick whichever registered
-first — which may not be a member of the chat. The optional `channel`
-field pins delivery to a specific adapter name. If the named adapter
-isn't registered, the router falls back to prefix matching.
+**Adapter resolution.** When multiple adapters share the same JID
+prefix (e.g. primary `telegram` + `telegram-REDACTED` both handle
+`telegram:`), the router resolves the return adapter in this order:
 
-onbod reads `onboarding.channel` (set when the user's first message
-was ingested) and threads it through every `sendReply` call. This
-avoids 502s when the conversation started on a non-primary adapter.
+1. Explicit `channel` field on `/v1/outbound`, if registered.
+2. `messages.source` of the latest non-bot inbound on this chat
+   (`store.LatestSource`).
+3. `chanreg.ForJID(jid)` — first owner found by prefix.
+
+`messages.source` is stamped at inbound delivery, so the second
+step always succeeds when the chat has any prior inbound. Internal
+producers (onbod, timed) pass `channel: "onboarding"` etc. via
+`/v1/outbound` only when they need to override the inbound source.
 
 ## Route targets
 

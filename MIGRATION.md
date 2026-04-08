@@ -148,13 +148,13 @@ every re-registration.
   "sender_name": "Alice",
   "content": "hello",
   "timestamp": 1710000000,
-  "is_group": false,
   "reply_to": "",
   "attachments": []
 }
 ```
 
-`id` is optional — gateway generates one if absent.
+`id` is optional — gateway generates one if absent. The router stamps
+`messages.source` with the registered adapter name on each delivery.
 
 **Outbound messages** (gateway calls adapter): `POST <url>/send`
 
@@ -187,8 +187,24 @@ structural differences:
 
 - kanipi: composite PK `(id, chat_jid)` + FK to chats.
 - arizuko: PK on `id` alone, no FK.
-- arizuko adds `reply_to_id TEXT` (migration 0003), `source TEXT`,
-  `group_folder TEXT` (migration 0005), `topic TEXT` (migration 0008).
+- arizuko adds `reply_to_id TEXT` (migration 0003), `source TEXT`
+  (migration 0005, repurposed in 0023 as the canonical adapter-of-record
+  per message), `topic TEXT` (migration 0008). The unused
+  `group_folder TEXT` column was dropped in migration 0023.
+
+### `chats` table
+
+- kanipi: `(jid, name, channel, is_group, errored, agent_cursor)`.
+- arizuko (post-0023): `(jid, errored, agent_cursor, sticky_group,
+sticky_topic)` — all chat metadata (`name`, `channel`, `is_group`,
+  `last_message_time`) was dropped. Receive identity moved to
+  `messages.source`.
+
+### `onboarding` table
+
+- kanipi: stored `sender` and `world_name`.
+- arizuko (post-0023): just `(jid, status, prompted_at)` — sender/world
+  context is recoverable from `messages` joined on `jid`.
 
 ### `groups`
 
