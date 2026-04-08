@@ -12,7 +12,6 @@ import makeWASocket, {
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { RouterClient } from './client.js';
-import { seedLid, parseLidMapEnv, translateJid, getLidMap } from './lid.js';
 import { startServer } from './server.js';
 
 const logger = pino({ level: 'warn' });
@@ -328,22 +327,6 @@ async function connect(): Promise<void> {
       log('info', 'connected to whatsapp');
       sock!.sendPresenceUpdate('unavailable').catch(() => {});
 
-      if (sock!.user) seedLid(sock!.user.id, sock!.user.lid);
-
-      try {
-        const contacts = (sock as any).contacts as
-          | Record<string, any>
-          | undefined;
-        if (contacts) {
-          for (const [id, c] of Object.entries(contacts)) seedLid(id, c?.lid);
-          log('info', 'seeded lid map from contacts', {
-            count: Object.keys(getLidMap()).length,
-          });
-        }
-      } catch (e) {
-        log('debug', 'contacts seed failed', { err: String(e) });
-      }
-
       flushOutboundQueue().catch((e) =>
         log('error', 'queue flush failed', { err: String(e) }),
       );
@@ -353,22 +336,13 @@ async function connect(): Promise<void> {
     }
   });
 
-  sock.ev.on('contacts.upsert', (contacts) => {
-    for (const c of contacts) seedLid(c.id, (c as any).lid);
-  });
-
-  sock.ev.on('contacts.update', (contacts) => {
-    for (const c of contacts) seedLid(c.id, (c as any).lid);
-  });
-
   sock.ev.on('messages.upsert', async ({ messages }) => {
     for (const msg of messages) {
       if (!msg.message) continue;
-      const rawJid = msg.key.remoteJid;
-      if (!rawJid || rawJid === 'status@broadcast') continue;
+      const jid = msg.key.remoteJid;
+      if (!jid || jid === 'status@broadcast') continue;
       if (msg.key.fromMe) continue;
 
-      const jid = await translateJid(rawJid, sock);
       const isGroup = jid.endsWith('@g.us');
       const chatJid = `whatsapp:${jid}`;
       const rawSender = msg.key.participant || jid;
@@ -460,10 +434,6 @@ async function main() {
     await pair(phone);
     process.exit(0);
   }
-
-  parseLidMapEnv(process.env['WHATSAPP_LID_MAP']);
-  const lidCount = Object.keys(getLidMap()).length;
-  if (lidCount > 0) log('info', 'loaded lid map from env', { count: lidCount });
 
   await connect();
 

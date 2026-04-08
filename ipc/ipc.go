@@ -126,13 +126,6 @@ func recordOutbound(db StoreFns, jid, text, replyToID, platformID, folder, topic
 	}
 }
 
-func normalizeJID(jid string) string {
-	if strings.HasPrefix(jid, "whatsapp:") && !strings.Contains(jid, "@") {
-		return jid + "@s.whatsapp.net"
-	}
-	return jid
-}
-
 func folderForJid(db StoreFns, jid string) string {
 	if db.DefaultFolderForJID == nil {
 		return ""
