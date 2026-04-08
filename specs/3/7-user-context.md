@@ -14,7 +14,7 @@ One file per user, managed by the agent:
 ~/users/<channel>-<id>.md
 ```
 
-Examples: `tg-123456.md`, `wa-5551234.md`, `dc-789.md`
+Examples: `tg-123456.md`, `wa-REDACTED@lid.md`, `dc-789.md`
 
 ### File format
 

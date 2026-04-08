@@ -30,7 +30,7 @@ A `<clock>` tag is injected before messages on each agent invocation:
 All senders now use `platform:id`:
 
 - `telegram:REDACTED`
-- `whatsapp:972501234567@s.whatsapp.net` (suffixes preserved)
+- `whatsapp:REDACTED@lid` (WhatsApp uses opaque LID identifiers)
 - `discord:9876543210`
 - `email:user@example.com`
 - `web:anonymous`

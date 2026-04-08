@@ -27,12 +27,12 @@ Current routing architecture conflates multiple concerns:
 
 **Channels use JID format** (`prefix:identifier`):
 
-| Type            | Format                 | Example                        |
-| --------------- | ---------------------- | ------------------------------ |
-| Telegram chat   | `telegram:<chat_id>`   | `telegram:-1001234`            |
-| Discord channel | `discord:<channel_id>` | `discord:9876543`              |
-| Web session     | `web:<user@domain>`    | `web:alice@example.com`        |
-| WhatsApp        | `whatsapp:<jid>`       | `whatsapp:1234@s.whatsapp.net` |
+| Type            | Format                 | Example                       |
+| --------------- | ---------------------- | ----------------------------- |
+| Telegram chat   | `telegram:<chat_id>`   | `telegram:-1001234`           |
+| Discord channel | `discord:<channel_id>` | `discord:9876543`             |
+| Web session     | `web:<user@domain>`    | `web:alice@example.com`       |
+| WhatsApp        | `whatsapp:<jid>`       | `whatsapp:REDACTED@lid` |
 
 **Groups use folder paths** (no prefix):
 

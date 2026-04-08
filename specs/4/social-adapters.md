@@ -112,7 +112,9 @@ Config: `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_IMAP_PORT` (default 993),
 ## whapd
 
 WhatsApp adapter written in TypeScript using Baileys. JID format:
-`whatsapp:<phone>` for DMs, `whatsapp:<group-id>@g.us` for groups.
+`whatsapp:<lid>@lid` for DMs (Baileys' opaque LID identifier),
+`whatsapp:<group-id>@g.us` for groups. LIDs are opaque and stable per
+account; arizuko does not translate them to phone numbers.
 Credentials stored under `DATA_DIR/baileys/` via Baileys
 `useMultiFileAuthState`. Pairing uses QR code on first run.
 

@@ -72,7 +72,7 @@ Output files have a `summary:` frontmatter bullet list (used by
 run on cron via `schedule_task` MCP tool.
 
 **`users`** — Per-user memory. Files named by platform + ID (`tg-123456.md`,
-`wa-5551234.md`). YAML frontmatter: `name`, `first_seen`, `summary`. Profile
+`wa-REDACTED@lid.md`). YAML frontmatter: `name`, `first_seen`, `summary`. Profile
 section (stable: role, expertise, preferences) + Recent section (interaction
 log, ~50 lines max, oldest dropped). When the gateway injects `<user
 id="..." name="..." memory="~/users/tg-123456.md" />`, the agent reads that
