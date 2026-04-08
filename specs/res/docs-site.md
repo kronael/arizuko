@@ -314,9 +314,10 @@ Content:
 - Full schema table (all 13 tables, key columns, purpose)
 - Migration pattern: each daemon owns a service name, runs its own
   migrations at startup
-- Outbound audit trail: source/group_folder columns in messages exist
-  but are unpopulated (StoreOutbound not yet implemented)
-- StoreOutbound: columns exist, implementation pending
+- Outbound audit trail: source/group_folder columns in messages
+  populated by `PutMessage` (unified inbound/outbound, v0.25)
+- Outbound writes: agents, MCP, scheduler, control all flow through
+  `PutMessage` with `is_bot_message=1`
 
 Note: link to ARCHITECTURE.md §SQLite Schema for column details.
 
@@ -767,7 +768,6 @@ Specifically:
 
 - get_history IPC action: called by recall-messages skill, not in ipc.go
 - recall binary (v2): referenced in skill, not in container image
-- StoreOutbound: columns in messages table exist, function not called
 
 ---
 

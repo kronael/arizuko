@@ -9,12 +9,13 @@ status: shipped
 Record every outbound message the gateway sends. Covers agent
 replies, MCP actions (send_message, send_reply, send_file),
 scheduler output, and control chat notifications. Uses existing
-`messages` table with `is_from_me=1` — same structure, filtered
-by existing queries (`is_bot_message=0`).
+`messages` table with `is_from_me=1` and `is_bot_message=1` —
+inbound and outbound share one row shape, distinguished by flags.
 
-Implementation: `StoreOutbound()` in store/messages.go. Called from
-gateway (agent output + status messages) and ipc (send_message, send_reply).
-Timed scheduler output not yet audited (minor gap).
+Implementation: `store.PutMessage()` in store/messages.go. Called
+from gateway (agent output + status messages), ipc (send_message,
+send_reply, send_file), and timed scheduler. Unified inbound/outbound
+path replaced the earlier `StoreOutbound`/`OutboundEntry` split in v0.25.
 
 ## Schema
 
@@ -29,17 +30,19 @@ ALTER TABLE messages ADD COLUMN group_folder TEXT;
 
 ## API
 
+Outbound messages are written via the unified `PutMessage` path:
+
 ```go
-// store/ (not yet implemented)
-type OutboundEntry struct {
-    ChatJID       string
-    Content       string
-    Source        string
-    GroupFolder   string
-    ReplyToID     string
-    PlatformMsgID string
-}
-func (s *Store) StoreOutbound(entry OutboundEntry) error
+store.PutMessage(store.Message{
+    ChatJID:      chatJid,
+    Content:      text,
+    Sender:       groupFolder,
+    Source:       "agent",      // agent | mcp | scheduler | control | error
+    GroupFolder:  groupFolder,
+    ReplyToID:    parentMsgID,
+    IsFromMe:     true,
+    IsBotMessage: true,
+})
 ```
 
 Non-blocking: log warning on failure, never propagate error.

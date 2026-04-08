@@ -85,8 +85,8 @@ A target containing `{sender}` expands per-message to
 `<base>/<sender-file-id>` via `router.SenderToUserFileID`.
 
 ```
-seq=0  type=default  target=atlas/{sender}
-seq=1  type=default  target=atlas/support
+seq=0  match=  target=atlas/{sender}
+seq=1  match=  target=atlas/support
 ```
 
 Non-existent targets are auto-created from the hub's
@@ -98,7 +98,7 @@ atlas/              routing hub
   prototype/        seed files for auto-created children
   support/          fallback group (tier 2)
   tg-123456/        per-user, auto-created (tier 2)
-  wa-5551234/       per-user, auto-created (tier 2)
+  wa-REDACTED@lid/  per-user, auto-created (tier 2)
 ```
 
 All children are siblings at the same tier. No sibling
@@ -110,8 +110,8 @@ Template variables: `{sender}` only for now. Future:
 
 Folder names use sender IDs directly — `@`, `.` etc
 are valid Unix filenames. `SenderToUserFileID` converts
-`telegram:123` to `tg-123`, `whatsapp:5551234` to
-`wa-5551234`.
+`telegram:123` to `tg-123`, `whatsapp:REDACTED@lid` to
+`wa-REDACTED@lid`.
 
 Implementation: `router.SenderToUserFileID` in
 `router/router.go`. Auto-creation via `groupfolder`

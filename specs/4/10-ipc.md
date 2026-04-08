@@ -107,10 +107,14 @@ chasing adapter-routing 502s once deleted its own default route on
 REDACTED, leaving its JID unrouted and triggering onboarding again.
 
 ```go
-if route.Type == "default" && route.Target == folder {
+if route.Seq == 0 && route.Target == folder {
     return toolErr("cannot delete own default route")
 }
 ```
+
+`Seq == 0` is the convention for a folder's primary inbound route in the
+collapsed routes table; matching is done via the route's `match` expression
+rather than a `type` column.
 
 Root-tier callers retain the ability to delete routes they don't own.
 

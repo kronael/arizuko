@@ -105,25 +105,30 @@ ALTER TABLE groups ADD COLUMN message_ttl_days INTEGER;
 ```
 
 Cleanup query (run daily in `timed`). `groups` is keyed by `folder`; JID→folder
-mappings live in `routes` (type='default'), so the query joins through
-`routes` to resolve each listener folder's source JIDs:
+mappings live in `routes` keyed by match expression, so the query joins through
+`routes` to resolve each listener folder's source JIDs. The default route is
+the first row by `seq` for a target folder; cleanup walks every chat_jid that
+the route table maps to a TTL-bearing folder via the runtime resolver.
 
 ```sql
 DELETE FROM messages
 WHERE chat_jid IN (
-    SELECT r.jid
-    FROM routes r
-    JOIN groups g ON g.folder = r.target
-    WHERE r.type = 'default' AND g.message_ttl_days IS NOT NULL
+    SELECT m.chat_jid
+    FROM messages m
+    JOIN groups g ON g.folder = arizuko_resolve_folder(m.chat_jid)
+    WHERE g.message_ttl_days IS NOT NULL
+    GROUP BY m.chat_jid
 )
 AND timestamp < datetime('now', '-' || (
     SELECT g.message_ttl_days
-    FROM routes r
-    JOIN groups g ON g.folder = r.target
-    WHERE r.type = 'default' AND r.jid = messages.chat_jid
+    FROM groups g
+    WHERE g.folder = arizuko_resolve_folder(messages.chat_jid)
     LIMIT 1
 ) || ' days');
 ```
+
+`arizuko_resolve_folder` is a Go-side helper that walks the `routes` table
+in `seq` order, evaluating each `match` expression against the chat JID.
 
 ### MCP tools — no new tools needed
 

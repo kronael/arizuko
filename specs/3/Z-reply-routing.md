@@ -51,9 +51,11 @@ each subsequent uses the returned ID from previous send.
 
 ### C. MessageId through delegation
 
-`delegateToChild`, `delegateToParent`, `delegateToGroup`
-carry `messageId`. Streaming callback uses it as initial
-`replyTo`. Flows into `ContainerInput` for agent visibility.
+`delegate_group` and `escalate_group` MCP tools carry
+`messageId` via `forwarded_from` and `reply_to_id` on the
+delegated message row. Streaming callback uses it as
+initial `replyTo`. Flows into `ContainerInput` for agent
+visibility.
 
 ### D. MCP send_reply auto-injects replyTo
 

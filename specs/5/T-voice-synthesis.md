@@ -111,8 +111,8 @@ tool (like `send_file`) is the natural fit.
 
 **Rejected alternative**: "unified message with optional voice field"
 (WhatsApp/email style). This would require changing `Channel.Send`,
-all adapter signatures, and `OutboundEntry` — too much churn for no gain.
-Telegram and Discord don't model voice this way either.
+all adapter signatures, and the `messages` row shape — too much
+churn for no gain. Telegram and Discord don't model voice this way either.
 
 **Consequence**: no changes to core types, Channel interface, or adapters.
 Voice is just another file (OGG audio) delivered through existing `SendFile`

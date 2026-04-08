@@ -25,7 +25,7 @@ messages proceed to root agent normally.
 `notify/` package. Any service imports it to send operator
 messages to root's JIDs. Looks up root's JIDs from routes
 table, sends via channel adapter HTTP API, records via
-`store.StoreOutbound(source: "control")`.
+`store.PutMessage` with `source: "control"` and `is_bot_message=1`.
 
 Note: `notify/` package ships in `notify/notify.go`.
 
