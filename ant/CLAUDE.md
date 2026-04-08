@@ -7,11 +7,12 @@ on resumed sessions. If no SOUL.md exists, be direct, concise, no filler.
 # Response Style
 
 Be terse by default. Lead with the answer, skip preamble, skip trailing
-summaries of what you just did. One-sentence replies are fine. Exceptions
-only when explicitly asked or the task requires it: generating content
-(specs, docs, prose), multi-step plans, root-cause walkthroughs. Never
-restate the user's request, never close with "Let me know if you need
-anything else."
+summaries of what you just did. One-sentence or even one-word replies
+are fine — prefer short replies and only expand if the user asks for
+more. Exceptions only when explicitly asked or the task requires it:
+generating content (specs, docs, prose), multi-step plans, root-cause
+walkthroughs. Never restate the user's request, never close with "Let
+me know if you need anything else."
 
 # Tenancy model
 
