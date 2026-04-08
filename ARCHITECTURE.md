@@ -253,9 +253,11 @@ direct CDN URLs (no proxy needed).
 
 WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
 
-`messages` has `source` and `group_folder` columns for outbound audit trail
-(`is_from_me=1`). `StoreOutbound()` records every outbound message with topic
-and routed_to metadata. Full spec: `specs/7/22-audit-log.md`.
+Agent output, delegation, and escalation all flow through a single
+`PutMessage()` path into the `messages` table. Bot-authored rows are
+marked `is_from_me=1 is_bot_message=1` and filtered out of the inbound
+polling query. `topic` and `routed_to` capture audit metadata. Full spec:
+`specs/7/22-audit-log.md`.
 
 ## Container Lifecycle
 
@@ -319,12 +321,17 @@ Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
 `GroupQueue` serializes agent invocations per group:
 
 - `maxConcurrent` global limit (default 5)
-- Per-group state: active flag, pending messages/tasks, container name
+- Per-group state: active flag, container name
 - Circuit breaker: 3 consecutive failures opens breaker (reset by new message)
-- `EnqueueMessageCheck` → `runForGroup` → `processMessages` callback
-- `EnqueueTask` → `runTask` → task function
-- `drainGroupLocked` — after completion, run pending tasks then messages then waiting groups
+- `EnqueueMessageCheck(jid)` — signal-only; queue calls back into
+  `HasPendingMessages`/`processMessages` to read pending work from the DB
+- `drainGroupLocked` — on completion, checks DB for more pending messages,
+  starts next waiting group if capacity allows
 - `SendMessage` — write to IPC input dir for live stdin piping
+
+Delegation, escalation, and `#topic` routing are not special queue
+operations — each writes a row via `PutMessage` and calls
+`EnqueueMessageCheck`. There is no closure-based task machinery.
 
 ## Routing
 

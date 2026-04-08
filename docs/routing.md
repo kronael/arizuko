@@ -193,11 +193,14 @@ points elsewhere.
 Every outbound bot message records which group produced it:
 
 ```go
-// In StoreOutbound, called after every agent response:
-store.StoreOutbound(OutboundEntry{
-    ChatJID:     chatJid,
-    GroupFolder:  groupFolder,  // ← saved as routed_to
-    Topic:       topic,
+// Every agent reply goes through the same PutMessage path:
+store.PutMessage(core.Message{
+    ChatJID:   chatJid,
+    Sender:    groupFolder,
+    RoutedTo:  groupFolder,
+    Topic:     topic,
+    FromMe:    true,
+    BotMsg:    true,
     ...
 })
 ```
@@ -339,7 +342,7 @@ Routes:
    - container.Run(atlas, prompt, ...) → docker run
    - Agent processes, produces output
    - makeOutputCallback sends reply via ch.Send("telegram:12345", text, replyTo, topic)
-   - store.StoreOutbound records the reply with routed_to=atlas
+     and records it via store.PutMessage (is_bot_message=1, routed_to=atlas)
    - store.SetLastReplyID("telegram:12345", "", sentMsgID)
 5. teled receives POST /send, delivers to Telegram API
 ```
@@ -352,11 +355,14 @@ Routes:
    - findPrefixRoute → matches @ prefix route
    - parsePrefix("@content write about cats") → name="content", rest="write about cats"
    - handlePrefixRoute: child = atlas/content, exists
-   - delegateToChild("atlas/content", "write about cats", "telegram:12345")
-4. delegateToFolder:
-   - queue.EnqueueTask("local:atlas/content", ...)
-   - container.Run(atlas/content, "write about cats", ...)
-   - Reply sent back to telegram:12345 with routed_to=atlas/content
+   - delegateViaMessage("atlas/content", "write about cats", "telegram:12345")
+4. delegateViaMessage:
+   - store.PutMessage({chat_jid:"local:atlas/content",
+       forwarded_from:"telegram:12345", content:"write about cats", ...})
+   - queue.EnqueueMessageCheck("local:atlas/content")
+   - Child agent runs, produces output
+   - processSenderBatch sees forwarded_from → routes reply back to
+     telegram:12345 with routed_to=atlas/content
 ```
 
 ### User replies to that bot message with "shorter please"
@@ -370,7 +376,7 @@ Routes:
        - msg.ReplyToID set → store.RoutedToByMessageID → "atlas/content"
        - atlas/content != atlas (self) → return "atlas/content"
      - IsAuthorizedRoutingTarget("atlas", "atlas/content") → true
-     - delegateToChild("atlas/content", "shorter please", ...)
+     - delegateViaMessage("atlas/content", "shorter please", "telegram:12345")
 ```
 
 ## Multi-Group Chat
