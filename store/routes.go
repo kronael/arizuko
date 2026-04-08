@@ -2,33 +2,24 @@ package store
 
 import (
 	"database/sql"
-	"strings"
 
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/router"
 )
 
-func platformPrefix(jid string) string {
-	i := strings.Index(jid, ":")
-	if i < 0 {
-		return jid
-	}
-	return jid[:i+1]
-}
-
-const routeCols = `id, jid, seq, type, COALESCE(match,''), target, COALESCE(impulse_config,'')`
+const routeCols = `id, seq, match, target, COALESCE(impulse_config,'')`
 
 func scanRoute(r rowScanner) (core.Route, error) {
 	var rt core.Route
-	err := r.Scan(&rt.ID, &rt.JID, &rt.Seq, &rt.Type, &rt.Match, &rt.Target, &rt.ImpulseConfig)
+	err := r.Scan(&rt.ID, &rt.Seq, &rt.Match, &rt.Target, &rt.ImpulseConfig)
 	return rt, err
 }
 
-func (s *Store) GetRoutes(jid string) []core.Route {
-	prefix := platformPrefix(jid)
-	rows, err := s.db.Query(
-		`SELECT `+routeCols+` FROM routes WHERE jid = ? OR jid = ?
-		 ORDER BY CASE jid WHEN ? THEN 0 ELSE 1 END, seq ASC`,
-		jid, prefix, jid)
+// AllRoutes returns every row in the routes table, ordered by seq ASC.
+// The gateway fetches this once per poll and walks it against each
+// incoming message.
+func (s *Store) AllRoutes() []core.Route {
+	rows, err := s.db.Query(`SELECT ` + routeCols + ` FROM routes ORDER BY seq ASC, id ASC`)
 	if err != nil {
 		return nil
 	}
@@ -43,14 +34,14 @@ func (s *Store) GetRoutes(jid string) []core.Route {
 }
 
 func (s *Store) GetRoute(id int64) (core.Route, bool) {
-	r, err := scanRoute(s.db.QueryRow(`SELECT ` + routeCols + ` FROM routes WHERE id = ?`, id))
+	r, err := scanRoute(s.db.QueryRow(`SELECT `+routeCols+` FROM routes WHERE id = ?`, id))
 	return r, err == nil
 }
 
-func (s *Store) AddRoute(jid string, r core.Route) (int64, error) {
+func (s *Store) AddRoute(r core.Route) (int64, error) {
 	res, err := s.db.Exec(
-		`INSERT INTO routes (jid, seq, type, match, target, impulse_config) VALUES (?, ?, ?, ?, ?, ?)`,
-		jid, r.Seq, r.Type, nilIfEmpty(r.Match), r.Target, nilIfEmpty(r.ImpulseConfig),
+		`INSERT INTO routes (seq, match, target, impulse_config) VALUES (?, ?, ?, ?)`,
+		r.Seq, r.Match, r.Target, nilIfEmpty(r.ImpulseConfig),
 	)
 	if err != nil {
 		return 0, err
@@ -58,27 +49,25 @@ func (s *Store) AddRoute(jid string, r core.Route) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *Store) InsertPrefixRoutes(jid, folder string) {
-	s.db.Exec(
-		`INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
-		 VALUES (?, -2, 'prefix', '@', ?), (?, -1, 'prefix', '#', ?)`,
-		jid, folder, jid, folder,
-	)
-}
-
-func (s *Store) SetRoutes(jid string, routes []core.Route) error {
+// SetRoutes replaces the routes whose target is exactly `folder` or falls
+// under `folder/`. Used by the agent IPC set_routes tool so an agent can
+// bulk-replace its own routes without touching siblings.
+func (s *Store) SetRoutes(folder string, routes []core.Route) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM routes WHERE jid = ?`, jid); err != nil {
+	if _, err := tx.Exec(
+		`DELETE FROM routes WHERE target = ? OR target LIKE ?||'/%'`,
+		folder, folder,
+	); err != nil {
 		return err
 	}
 	for _, r := range routes {
 		if _, err := tx.Exec(
-			`INSERT INTO routes (jid, seq, type, match, target, impulse_config) VALUES (?, ?, ?, ?, ?, ?)`,
-			jid, r.Seq, r.Type, nilIfEmpty(r.Match), r.Target, nilIfEmpty(r.ImpulseConfig),
+			`INSERT INTO routes (seq, match, target, impulse_config) VALUES (?, ?, ?, ?)`,
+			r.Seq, r.Match, r.Target, nilIfEmpty(r.ImpulseConfig),
 		); err != nil {
 			return err
 		}
@@ -95,12 +84,12 @@ func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
 	var rows *sql.Rows
 	var err error
 	if isRoot {
-		rows, err = s.db.Query(`SELECT ` + routeCols + ` FROM routes ORDER BY jid, seq`)
+		rows, err = s.db.Query(`SELECT ` + routeCols + ` FROM routes ORDER BY seq, id`)
 	} else {
 		rows, err = s.db.Query(
 			`SELECT `+routeCols+` FROM routes
 			 WHERE target = ? OR target LIKE ?||'/%'
-			 ORDER BY jid, seq`, folder, folder)
+			 ORDER BY seq, id`, folder, folder)
 	}
 	if err != nil {
 		return nil
@@ -115,34 +104,16 @@ func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
 	return out
 }
 
-func (s *Store) GetImpulseConfigJSON(jid string) string {
-	prefix := platformPrefix(jid)
-	var cfg string
-	s.db.QueryRow(
-		`SELECT COALESCE(impulse_config, '')
-		 FROM routes
-		 WHERE (jid = ? OR jid = ?) AND impulse_config IS NOT NULL
-		 ORDER BY CASE jid WHEN ? THEN 0 ELSE 1 END
-		 LIMIT 1`,
-		jid, prefix, jid,
-	).Scan(&cfg)
-	return cfg
-}
-
-func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string {
-	rows, err := s.db.Query(
-		`SELECT DISTINCT jid FROM routes
-		 WHERE target = ? OR target LIKE ?||'/%'`,
-		worldFolder, worldFolder)
-	if err != nil {
-		return nil
+// GetImpulseConfigJSON walks routes in seq order and returns the first
+// non-empty impulse_config whose match expression evaluates true for msg.
+func (s *Store) GetImpulseConfigJSON(msg core.Message) string {
+	for _, r := range s.AllRoutes() {
+		if r.ImpulseConfig == "" {
+			continue
+		}
+		if router.RouteMatches(r, msg) {
+			return r.ImpulseConfig
+		}
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var jid string
-		rows.Scan(&jid)
-		out = append(out, jid)
-	}
-	return out
+	return ""
 }

@@ -45,27 +45,39 @@ const msgCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timest
 	COALESCE(reply_to_id,''), COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''),
 	topic, routed_to, verb, attachments`
 
+// NewMessages returns new inbound messages since `since`. If jids is empty,
+// no chat_jid filter is applied (all new messages from all chats).
 func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]core.Message, time.Time, error) {
+	var rows *sql.Rows
+	var err error
 	if len(jids) == 0 {
-		return nil, since, nil
+		rows, err = s.db.Query(
+			`SELECT `+msgCols+` FROM messages
+			 WHERE timestamp > ?
+			   AND is_bot_message = 0
+			   AND sender NOT LIKE ?
+			 ORDER BY timestamp ASC
+			 LIMIT 200`,
+			since.Format(time.RFC3339Nano), botName+"%",
+		)
+	} else {
+		args := make([]any, 0, len(jids)+2)
+		for _, jid := range jids {
+			args = append(args, jid)
+		}
+		args = append(args, since.Format(time.RFC3339Nano), botName+"%")
+		ph := "(" + strings.TrimSuffix(strings.Repeat("?,", len(jids)), ",") + ")"
+		rows, err = s.db.Query(
+			`SELECT `+msgCols+` FROM messages
+			 WHERE chat_jid IN `+ph+`
+			   AND timestamp > ?
+			   AND is_bot_message = 0
+			   AND sender NOT LIKE ?
+			 ORDER BY timestamp ASC
+			 LIMIT 200`,
+			args...,
+		)
 	}
-	args := make([]any, 0, len(jids)+2)
-	for _, jid := range jids {
-		args = append(args, jid)
-	}
-	args = append(args, since.Format(time.RFC3339Nano), botName+"%")
-	ph := "(" + strings.TrimSuffix(strings.Repeat("?,", len(jids)), ",") + ")"
-
-	rows, err := s.db.Query(
-		`SELECT `+msgCols+` FROM messages
-		 WHERE chat_jid IN `+ph+`
-		   AND timestamp > ?
-		   AND is_bot_message = 0
-		   AND sender NOT LIKE ?
-		 ORDER BY timestamp ASC
-		 LIMIT 200`,
-		args...,
-	)
 	if err != nil {
 		return nil, since, err
 	}

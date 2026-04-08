@@ -60,12 +60,19 @@ type Sidecar struct {
 
 type Route struct {
 	ID            int64  `json:"id"`
-	JID           string `json:"jid,omitempty"`
 	Seq           int    `json:"seq"`
-	Type          string `json:"type"` // command|verb|pattern|keyword|sender|default
 	Match         string `json:"match"`
 	Target        string `json:"target"`
 	ImpulseConfig string `json:"impulse_config,omitempty"`
+}
+
+// JidRoom extracts the post-colon portion of a JID (e.g. "telegram:-123" -> "-123").
+// If the JID has no colon, the whole string is returned.
+func JidRoom(jid string) string {
+	if i := strings.IndexByte(jid, ':'); i >= 0 {
+		return jid[i+1:]
+	}
+	return jid
 }
 
 const (

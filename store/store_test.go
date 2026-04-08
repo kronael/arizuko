@@ -446,7 +446,7 @@ func TestUnroutedChatJIDs_ExcludesRouted(t *testing.T) {
 	})
 
 	// route tg:1 → should be excluded
-	s.AddRoute("tg:1", core.Route{Type: "default", Target: "main"})
+	s.AddRoute(core.Route{Match: "platform=tg room=1", Target: "root"})
 
 	jids := s.UnroutedChatJIDs(now.Add(-time.Second))
 	if len(jids) != 1 || jids[0] != "tg:2" {

@@ -3,9 +3,11 @@ package store
 import (
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/router"
 )
 
 func (s *Store) PutChat(jid, name, ch string, group bool) error {
@@ -124,23 +126,33 @@ func (s *Store) SetAgentCursor(jid string, ts time.Time) {
 	}
 }
 
+// UnroutedChatJIDs returns JIDs with recent user messages that do not
+// map to any group via the routes table. Used by the onboarding hook.
 func (s *Store) UnroutedChatJIDs(since time.Time) []string {
+	routes := s.AllRoutes()
 	rows, err := s.db.Query(
 		`SELECT DISTINCT chat_jid FROM messages
 		 WHERE timestamp > ?
-		   AND is_bot_message = 0
-		   AND chat_jid NOT IN (SELECT jid FROM routes)`,
+		   AND is_bot_message = 0`,
 		since.Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
-	var jids []string
+	var candidates []string
 	for rows.Next() {
 		var jid string
-		rows.Scan(&jid)
-		jids = append(jids, jid)
+		if err := rows.Scan(&jid); err == nil {
+			candidates = append(candidates, jid)
+		}
+	}
+	var jids []string
+	for _, jid := range candidates {
+		msg := core.Message{ChatJID: jid, Verb: "message"}
+		if router.ResolveRoute(msg, routes) == "" {
+			jids = append(jids, jid)
+		}
 	}
 	return jids
 }
@@ -167,29 +179,64 @@ func (s *Store) SetChatChannel(jid, ch string) error {
 	return err
 }
 
-func (s *Store) DefaultRouteJIDs() []string {
-	rows, err := s.db.Query(
-		`SELECT DISTINCT jid FROM routes WHERE type = 'default' AND (match IS NULL OR match = '')`)
-	if err != nil {
-		return nil
+// routeSourceJIDs reconstructs "platform:room" JIDs from a route's match.
+// Requires both platform and room literals (no globs) to be present.
+// When platform is missing, the room literal alone is returned.
+func routeSourceJIDs(match string) []string {
+	var platform string
+	var rooms []string
+	for _, tok := range strings.Fields(match) {
+		k, v, ok := strings.Cut(tok, "=")
+		if !ok || v == "" || strings.ContainsAny(v, "*?[") {
+			continue
+		}
+		switch k {
+		case "platform":
+			platform = v
+		case "room":
+			rooms = append(rooms, v)
+		case "chat_jid":
+			rooms = append(rooms, v)
+			return rooms
+		}
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var jid string
-		rows.Scan(&jid)
-		out = append(out, jid)
+	if platform == "" {
+		return rooms
+	}
+	out := make([]string, len(rooms))
+	for i, r := range rooms {
+		out[i] = platform + ":" + r
 	}
 	return out
 }
 
+// RouteSourceJIDsInWorld returns the distinct inbound JIDs owned by
+// routes whose target falls under `worldFolder`. Used by grants derivation
+// to extract platforms visible to a tier-1/tier-2 group.
+func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, r := range s.AllRoutes() {
+		if r.Target != worldFolder && !strings.HasPrefix(r.Target, worldFolder+"/") {
+			continue
+		}
+		for _, jid := range routeSourceJIDs(r.Match) {
+			if _, dup := seen[jid]; dup {
+				continue
+			}
+			seen[jid] = struct{}{}
+			out = append(out, jid)
+		}
+	}
+	return out
+}
+
+// DefaultFolderForJID resolves the owning folder for a given source JID
+// by running the routes table against a skeletal message. Empty string
+// if no route matches.
 func (s *Store) DefaultFolderForJID(jid string) string {
-	var folder string
-	s.db.QueryRow(
-		`SELECT target FROM routes WHERE jid = ? AND type = 'default' AND (match IS NULL OR match = '')
-		 LIMIT 1`, jid,
-	).Scan(&folder)
-	return folder
+	msg := core.Message{ChatJID: jid, Verb: "message"}
+	return router.ResolveRoute(msg, s.AllRoutes())
 }
 
 func scanGroupFull(r rowScanner) (core.Group, bool) {
