@@ -386,38 +386,46 @@ func TestAddRemoveChannel(t *testing.T) {
 	}
 }
 
-func TestFindChannel(t *testing.T) {
+func TestFindChannelForJID(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &mockChannel{name: "tg", jids: []string{"jid1", "jid2"}}
 	gw.AddChannel(ch)
 
-	found := gw.findChannel("jid1")
+	found := gw.findChannelForJID("jid1")
 	if found == nil || found.Name() != "tg" {
-		t.Error("findChannel did not return owning channel")
+		t.Error("findChannelForJID did not return owning channel")
 	}
 
-	if gw.findChannel("jid999") != nil {
-		t.Error("findChannel returned non-nil for unknown jid")
+	if gw.findChannelForJID("jid999") != nil {
+		t.Error("findChannelForJID returned non-nil for unknown jid")
 	}
 }
 
-func TestFindChannel_JIDAdapterPreference(t *testing.T) {
-	gw, _ := testGateway(t)
+func TestFindChannelForJID_LatestSourceWins(t *testing.T) {
+	gw, s := testGateway(t)
 	ch1 := &mockChannel{name: "tg1", jids: []string{"telegram:100", "telegram:999"}}
 	ch2 := &mockChannel{name: "tg2", jids: []string{"telegram:100"}}
 	gw.AddChannel(ch1)
 	gw.AddChannel(ch2)
 
-	if found := gw.findChannel("telegram:100"); found == nil || found.Name() != "tg1" {
+	// No prior message: prefix fallback chooses first owner.
+	if found := gw.findChannelForJID("telegram:100"); found == nil || found.Name() != "tg1" {
 		t.Errorf("prefix fallback want tg1, got %v", found)
 	}
 
-	gw.RecordJIDAdapter("telegram:100", "tg2")
-	if found := gw.findChannel("telegram:100"); found == nil || found.Name() != "tg2" {
-		t.Errorf("jidAdapters override want tg2, got %v", found)
+	// Record an inbound message via tg2 → outbound should follow source.
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: "telegram:100", Sender: "u",
+		Content: "hi", Timestamp: time.Now(), Source: "tg2",
+	}); err != nil {
+		t.Fatalf("PutMessage: %v", err)
+	}
+	if found := gw.findChannelForJID("telegram:100"); found == nil || found.Name() != "tg2" {
+		t.Errorf("latest source want tg2, got %v", found)
 	}
 
-	if found := gw.findChannel("telegram:999"); found == nil || found.Name() != "tg1" {
+	// Unrecorded JID still resolves via owns().
+	if found := gw.findChannelForJID("telegram:999"); found == nil || found.Name() != "tg1" {
 		t.Errorf("unrecorded JID want tg1 via owns, got %v", found)
 	}
 }

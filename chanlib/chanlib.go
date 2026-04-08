@@ -27,7 +27,6 @@ type InboundMsg struct {
 	SenderName    string              `json:"sender_name"`
 	Content       string              `json:"content"`
 	Timestamp     int64               `json:"timestamp"`
-	IsGroup       bool                `json:"is_group"`
 	Topic         string              `json:"topic,omitempty"`
 	Verb          string              `json:"verb,omitempty"`
 	ReplyTo       string              `json:"reply_to,omitempty"`
@@ -99,13 +98,6 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 		return fmt.Errorf("deliver: %s", resp.Error)
 	}
 	return nil
-}
-
-func (r *RouterClient) SendChat(jid, name string, isGroup bool) error {
-	var resp struct{ OK bool }
-	return r.Post("/v1/chats", map[string]any{
-		"chat_jid": jid, "name": name, "is_group": isGroup,
-	}, r.token, &resp)
 }
 
 func (r *RouterClient) Post(path string, body any, auth string, out any) error {

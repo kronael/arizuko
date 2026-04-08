@@ -111,26 +111,18 @@ func (r *Registry) Resolve(name, jid string) *Entry {
 	return r.ForJID(jid)
 }
 
-// ForJID returns an adapter that owns jid. When multiple adapters share a
-// prefix, prefers the primary (bare name) over suffixed variants
-// (e.g. "telegram" over "telegram-REDACTED"). Callers needing exact routing
-// should pass the adapter name explicitly.
+// ForJID returns the first adapter that owns jid. Used as a fallback when
+// no per-message source is available; callers wanting exact routing must
+// pass the adapter name explicitly.
 func (r *Registry) ForJID(jid string) *Entry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var fallback *Entry
 	for _, e := range r.entries {
-		if !ownsJID(e, jid) {
-			continue
-		}
-		if !strings.Contains(e.Name, "-") {
+		if ownsJID(e, jid) {
 			return e
 		}
-		if fallback == nil {
-			fallback = e
-		}
 	}
-	return fallback
+	return nil
 }
 
 func ownsJID(e *Entry, jid string) bool {

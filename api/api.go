@@ -19,7 +19,6 @@ type Server struct {
 
 	onRegister   func(name string, ch *chanreg.HTTPChannel)
 	onDeregister func(name string)
-	onMessage    func(chatJID, adapterName string)
 }
 
 func New(reg *chanreg.Registry, s *store.Store) *Server {
@@ -28,7 +27,6 @@ func New(reg *chanreg.Registry, s *store.Store) *Server {
 
 func (s *Server) OnRegister(fn func(string, *chanreg.HTTPChannel)) { s.onRegister = fn }
 func (s *Server) OnDeregister(fn func(string))                     { s.onDeregister = fn }
-func (s *Server) OnMessage(fn func(chatJID, adapterName string))   { s.onMessage = fn }
 
 func (s *Server) Handler() http.Handler {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
@@ -39,7 +37,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/channels/deregister", s.handleDeregister)
 	mux.HandleFunc("POST /v1/outbound", auth(s.handleOutbound))
 	mux.HandleFunc("POST /v1/messages", s.handleMessage)
-	mux.HandleFunc("POST /v1/chats", s.handleChat)
 	mux.HandleFunc("GET /v1/channels", auth(s.handleListChannels))
 	mux.HandleFunc("GET /health", s.handleHealth)
 	return mux
@@ -96,13 +93,18 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		JID     string `json:"jid"`
 		Text    string `json:"text"`
-		Channel string `json:"channel,omitempty"` // optional: pin to specific adapter
+		Channel string `json:"channel,omitempty"` // optional: explicit adapter override
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.JID == "" || req.Text == "" {
 		chanlib.WriteErr(w, http.StatusBadRequest, "jid and text required")
 		return
 	}
-	entry := s.reg.Resolve(req.Channel, req.JID)
+	// Resolution order: explicit channel → latest inbound source for jid → ForJID.
+	name := req.Channel
+	if name == "" {
+		name = s.store.LatestSource(req.JID)
+	}
+	entry := s.reg.Resolve(name, req.JID)
 	if entry == nil {
 		chanlib.WriteErr(w, http.StatusNotFound, "no channel for jid")
 		return
@@ -122,7 +124,6 @@ type messageReq struct {
 	SenderName    string `json:"sender_name"`
 	Content       string `json:"content"`
 	Timestamp     int64  `json:"timestamp"`
-	IsGroup       bool   `json:"is_group"`
 	ReplyTo       string `json:"reply_to"`
 	ReplyToText   string `json:"reply_to_text"`
 	ReplyToSender string `json:"reply_to_sender"`
@@ -195,12 +196,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		Topic:         req.Topic,
 		Verb:          verb,
 		Attachments:   attsJSON,
-	}
-
-	// Record adapter BEFORE storing — gateway polls DB and must find the
-	// adapter mapping already set when the message becomes visible.
-	if s.onMessage != nil {
-		s.onMessage(req.ChatJID, entry.Name)
+		Source:        entry.Name,
 	}
 
 	if err := s.store.PutMessage(msg); err != nil {
@@ -209,35 +205,6 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chanlib.WriteJSON(w, map[string]any{"ok": true})
-}
-
-type chatReq struct {
-	ChatJID string `json:"chat_jid"`
-	Name    string `json:"name"`
-	IsGroup bool   `json:"is_group"`
-}
-
-func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
-	entry := s.checkToken(w, r)
-	if entry == nil {
-		return
-	}
-
-	var req chatReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		chanlib.WriteErr(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	if req.ChatJID == "" {
-		chanlib.WriteErr(w, http.StatusBadRequest, "chat_jid required")
-		return
-	}
-
-	if s.onMessage != nil {
-		s.onMessage(req.ChatJID, entry.Name)
-	}
-	s.store.PutChat(req.ChatJID, req.Name, entry.Name, req.IsGroup)
 	chanlib.WriteJSON(w, map[string]any{"ok": true})
 }
 

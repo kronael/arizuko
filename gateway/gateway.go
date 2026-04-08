@@ -250,9 +250,7 @@ func (g *Gateway) pollOnce() {
 		group, ok := g.groupForJid(chatJid)
 		if !ok {
 			if g.cfg.OnboardingEnabled && onboardingAllowed(chatJid, g.cfg.OnboardingPlatforms) {
-				last := chatMsgs[len(chatMsgs)-1]
-				ch := g.findChannel(chatJid)
-				if err := g.store.InsertOnboarding(chatJid, last.Sender, channelName(ch)); err != nil {
+				if err := g.store.InsertOnboarding(chatJid); err != nil {
 					slog.Warn("insert onboarding", "jid", chatJid, "err", err)
 				}
 			}
@@ -316,8 +314,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 
 	agentTs := g.getAgentCursor(chatJid)
 
-	ch := g.findChannel(chatJid)
-
 	msgs, err := g.store.MessagesSince(chatJid, agentTs, g.cfg.Name)
 	if err != nil {
 		return false, fmt.Errorf("query messages: %w", err)
@@ -343,7 +339,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	}
 
 	if strings.HasPrefix(chatJid, "web:") {
-		return g.processWebTopics(group, chatJid, ch, msgs)
+		return g.processWebTopics(group, chatJid, msgs)
 	}
 
 	senderBatches := groupBySender(msgs)
@@ -354,7 +350,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 			continue
 		}
 
-		if !g.processSenderBatch(group, chatJid, ch, batch, agentTs) {
+		if !g.processSenderBatch(group, chatJid, batch, agentTs) {
 			g.advanceAgentCursor(chatJid, msgs)
 			return false, fmt.Errorf("sender batch failed: %s", last.Sender)
 		}
@@ -417,7 +413,7 @@ func (g *Gateway) logAgentError(group core.Group, key, value, errStr string) {
 }
 
 func (g *Gateway) processSenderBatch(
-	group core.Group, chatJid string, ch core.Channel, msgs []core.Message, agentTs time.Time,
+	group core.Group, chatJid string, msgs []core.Message, agentTs time.Time,
 ) bool {
 	last := msgs[len(msgs)-1]
 
@@ -427,10 +423,13 @@ func (g *Gateway) processSenderBatch(
 
 	// Determine delivery target: forwarded_from overrides chatJid (delegation return path)
 	deliverTo := chatJid
-	deliverCh := ch
+	deliverCh := g.findChannelByName(last.Source)
+	if deliverCh == nil {
+		deliverCh = g.findChannelForJID(chatJid)
+	}
 	if last.ForwardedFrom != "" {
 		deliverTo = last.ForwardedFrom
-		deliverCh = g.findChannel(deliverTo)
+		deliverCh = g.findChannelForJID(deliverTo)
 	}
 
 	g.emitSystemEvents(group, chatJid)
@@ -475,8 +474,9 @@ func (g *Gateway) processSenderBatch(
 }
 
 func (g *Gateway) processWebTopics(
-	group core.Group, chatJid string, ch core.Channel, msgs []core.Message,
+	group core.Group, chatJid string, msgs []core.Message,
 ) (bool, error) {
+	ch := g.findChannelForJID(chatJid)
 	byTopic := make(map[string][]core.Message)
 	var topicOrder []string
 	for _, m := range msgs {
@@ -650,7 +650,7 @@ func (g *Gateway) runAgentWithOpts(
 		Name:       cname,
 		Config:     group.Config,
 		SlinkToken: group.SlinkToken,
-		Channel:    channelName(g.findChannel(chatJid)),
+		Channel:    channelName(g.findChannelForJID(chatJid)),
 		MessageID:  msgID,
 		Sender:     sender,
 		OnOutput:   onOutput,
@@ -691,22 +691,30 @@ func (g *Gateway) runAgentWithOpts(
 	return out
 }
 
-func (g *Gateway) RecordJIDAdapter(chatJID, adapterName string) {
-	if err := g.store.SetChatChannel(chatJID, adapterName); err != nil {
-		slog.Debug("persist chat channel", "jid", chatJID, "ch", adapterName, "err", err)
+// findChannelByName returns the channel registered under name, or nil.
+func (g *Gateway) findChannelByName(name string) core.Channel {
+	if name == "" {
+		return nil
 	}
-}
-
-func (g *Gateway) findChannel(jid string) core.Channel {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	if name := g.store.GetChatChannel(jid); name != "" {
-		for _, ch := range g.channels {
-			if ch.Name() == name {
-				return ch
-			}
+	for _, ch := range g.channels {
+		if ch.Name() == name {
+			return ch
 		}
 	}
+	return nil
+}
+
+// findChannelForJID picks an outbound channel for jid by looking up the
+// most recent inbound message's source. Falls back to a prefix match if
+// no source is recorded (e.g. local: / web: JIDs that bypass adapters).
+func (g *Gateway) findChannelForJID(jid string) core.Channel {
+	if ch := g.findChannelByName(g.store.LatestSource(jid)); ch != nil {
+		return ch
+	}
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	for _, ch := range g.channels {
 		if ch.Owns(jid) {
 			return ch
@@ -746,7 +754,7 @@ func (g *Gateway) sendMessageReply(jid, text, replyTo, threadID string) (string,
 		slog.Debug("send suppressed by SEND_DISABLED_CHANNELS", "jid", jid)
 		return "", nil
 	}
-	ch := g.findChannel(jid)
+	ch := g.findChannelForJID(jid)
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -754,7 +762,7 @@ func (g *Gateway) sendMessageReply(jid, text, replyTo, threadID string) (string,
 }
 
 func (g *Gateway) sendDocument(jid, path, name, caption string) error {
-	ch := g.findChannel(jid)
+	ch := g.findChannelForJID(jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}

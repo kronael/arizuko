@@ -334,31 +334,3 @@ func TestSendMessageBothFail(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
-
-func TestSendChat(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chats" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
-		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
-		if body["chat_jid"] != "jid1" {
-			t.Errorf("chat_jid = %v", body["chat_jid"])
-		}
-		if body["name"] != "General" {
-			t.Errorf("name = %v", body["name"])
-		}
-		if body["is_group"] != true {
-			t.Errorf("is_group = %v", body["is_group"])
-		}
-		w.Write([]byte(`{"ok":true}`))
-	}))
-	defer srv.Close()
-
-	rc := NewRouterClient(srv.URL, "s")
-	rc.SetToken("tok")
-	err := rc.SendChat("jid1", "General", true)
-	if err != nil {
-		t.Fatalf("send chat: %v", err)
-	}
-}

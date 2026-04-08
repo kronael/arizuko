@@ -145,12 +145,7 @@ func TestFullLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 6. Chat metadata
-	postJSONWithToken(h, "/v1/chats", map[string]any{
-		"chat_jid": "tg:123", "name": "Test Chat", "is_group": true,
-	}, token)
-
-	// 7. Deregister
+	// 6. Deregister
 	w := postJSONWithToken(h, "/v1/channels/deregister", nil, token)
 	if w.Code != 200 {
 		t.Fatalf("deregister: status %d", w.Code)

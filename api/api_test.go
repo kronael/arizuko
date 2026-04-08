@@ -13,6 +13,7 @@ import (
 
 	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/chanreg"
+	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
 )
 
@@ -176,23 +177,6 @@ func TestDeliverMessageMissingFields(t *testing.T) {
 	}
 }
 
-func TestChatMetadata(t *testing.T) {
-	srv, reg, _ := setup(t)
-	h := srv.Handler()
-
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
-
-	w := postJSON(h, "/v1/chats", chatReq{
-		ChatJID: "tg:123",
-		Name:    "Dev Chat",
-		IsGroup: true,
-	}, token)
-
-	if w.Code != 200 {
-		t.Fatalf("status = %d", w.Code)
-	}
-}
-
 func TestDeregister(t *testing.T) {
 	srv, reg, _ := setup(t)
 	h := srv.Handler()
@@ -348,10 +332,8 @@ func TestOutboundRoutesByChannelName(t *testing.T) {
 	reg.Register("telegram-REDACTED", variant.srv.URL, []string{"telegram:"},
 		map[string]bool{"send_text": true})
 
-	// Regression: onbod 502 on REDACTED. A message from telegram-REDACTED went
-	// back through /v1/outbound without specifying channel, so ForJID picked
-	// the primary telegram adapter (bot not in the group → 502). Fix: thread
-	// onboarding.channel through /v1/outbound's "channel" field.
+	// Explicit channel pin: caller knows which adapter received the message
+	// and threads it back through /v1/outbound's "channel" field.
 	w := postJSON(h, "/v1/outbound", map[string]string{
 		"jid": "telegram:-123", "text": "hi", "channel": "telegram-REDACTED",
 	}, "test-secret")
@@ -364,26 +346,34 @@ func TestOutboundRoutesByChannelName(t *testing.T) {
 	}
 }
 
-func TestOutboundFallsBackToJIDWhenChannelEmpty(t *testing.T) {
-	srv, reg, _ := setup(t)
+func TestOutboundUsesLatestSource(t *testing.T) {
+	srv, reg, s := setup(t)
 	h := srv.Handler()
 
 	primary := newFakeAdapter(t, "telegram")
 	variant := newFakeAdapter(t, "telegram-REDACTED")
-	reg.Register("telegram-REDACTED", variant.srv.URL, []string{"telegram:"},
-		map[string]bool{"send_text": true})
 	reg.Register("telegram", primary.srv.URL, []string{"telegram:"},
 		map[string]bool{"send_text": true})
+	reg.Register("telegram-REDACTED", variant.srv.URL, []string{"telegram:"},
+		map[string]bool{"send_text": true})
 
-	// No channel field → Resolve falls back to ForJID → prefers primary.
+	// Inbound message via telegram-REDACTED is recorded with source.
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: "telegram:-123", Sender: "u",
+		Content: "hi", Timestamp: time.Now(), Source: "telegram-REDACTED",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// No explicit channel → store.LatestSource returns the recorded adapter.
 	w := postJSON(h, "/v1/outbound", map[string]string{
 		"jid": "telegram:-123", "text": "hi",
 	}, "test-secret")
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	if primary.hitCount() != 1 || variant.hitCount() != 0 {
-		t.Errorf("primary=%d variant=%d, want 1/0",
+	if variant.hitCount() != 1 || primary.hitCount() != 0 {
+		t.Errorf("latest source: primary=%d variant=%d, want 0/1",
 			primary.hitCount(), variant.hitCount())
 	}
 }

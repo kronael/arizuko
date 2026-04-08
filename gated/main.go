@@ -55,9 +55,6 @@ func main() {
 		slog.Info("channel deregistered", "name", name)
 		gw.RemoveChannel(name)
 	})
-	apiSrv.OnMessage(func(chatJID, adapterName string) {
-		gw.RecordJIDAdapter(chatJID, adapterName)
-	})
 
 	addr := net.JoinHostPort("", strconv.Itoa(cfg.APIPort))
 	srv := &http.Server{Addr: addr, Handler: apiSrv.Handler()}

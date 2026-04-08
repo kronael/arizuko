@@ -138,28 +138,20 @@ func TestForJIDNoMatch(t *testing.T) {
 	}
 }
 
-// Regression: the onbod 502 bug on REDACTED was caused by ForJID picking the
-// primary telegram adapter for a message that arrived via telegram-REDACTED.
-// ForJID must prefer the bare name over suffixed variants when multiple
-// adapters share a prefix; callers needing exact routing must pass name.
-func TestForJIDPrefersPrimaryOverVariant(t *testing.T) {
+// When multiple adapters share a prefix, ForJID is no longer order-deterministic
+// — callers needing exact routing must resolve by name (latest source from the
+// messages table). This test only asserts that *some* owning adapter is returned.
+func TestForJIDOverlappingPrefixes(t *testing.T) {
 	r := New("s")
 	r.Register("telegram-REDACTED", "http://REDACTED:9001", []string{"telegram:"}, nil)
 	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
 
 	e := r.ForJID("telegram:123")
-	if e == nil || e.Name != "telegram" {
-		t.Fatalf("ForJID = %+v, want telegram (primary)", e)
+	if e == nil {
+		t.Fatal("ForJID = nil, want some owner")
 	}
-}
-
-func TestForJIDFallsBackToVariant(t *testing.T) {
-	r := New("s")
-	r.Register("telegram-REDACTED", "http://REDACTED:9001", []string{"telegram:"}, nil)
-
-	e := r.ForJID("telegram:123")
-	if e == nil || e.Name != "telegram-REDACTED" {
-		t.Fatalf("ForJID = %+v, want telegram-REDACTED fallback", e)
+	if e.Name != "telegram" && e.Name != "telegram-REDACTED" {
+		t.Errorf("ForJID = %s, want one of telegram/telegram-REDACTED", e.Name)
 	}
 }
 
