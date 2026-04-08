@@ -9,6 +9,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- **whapd**: dropped `@lid` -> phone-number translation entirely. Baileys
+  removed `makeInMemoryStore` so the contacts/LID discovery paths no longer
+  worked; arizuko now treats `@lid` as the canonical opaque WhatsApp identifier.
+  Removed `whapd/src/lid.ts` and the dead `normalizeJID` helper in `ipc/`.
+- **specs**: scrubbed stale routes/outbound/delegation references and updated
+  WhatsApp examples to `@lid` form to match shipped reality.
+
 ---
 
 ## [v0.25.0] — 2026-04-08
