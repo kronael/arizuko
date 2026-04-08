@@ -290,12 +290,6 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 		return
 	}
 
-	chatName := d.Author
-	if isSubreddit && d.Subreddit != "" {
-		chatName = "r/" + d.Subreddit
-	}
-	_ = router.SendChat(jid, chatName, isSubreddit)
-
 	// Derive verb from thing kind and context.
 	// t1 = comment, t3 = link/post, t4 = message
 	verb := "message"
@@ -329,7 +323,6 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 		SenderName:  d.Author,
 		Content:     content,
 		Timestamp:   int64(d.CreatedAt),
-		IsGroup:     isSubreddit,
 		Topic:       topic,
 		Verb:        verb,
 		Attachments: atts,

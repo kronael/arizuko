@@ -44,22 +44,9 @@ export class RouterClient {
     sender_name: string;
     content: string;
     timestamp: number;
-    is_group: boolean;
   }): Promise<void> {
     const r = await this.post<MsgResp>('/v1/messages', msg, this.token);
     if (!r.ok) throw new Error(`deliver: ${r.error}`);
-  }
-
-  async sendChat(jid: string, name: string, isGroup: boolean): Promise<void> {
-    await this.post(
-      '/v1/chats',
-      {
-        chat_jid: jid,
-        name,
-        is_group: isGroup,
-      },
-      this.token,
-    ).catch(() => {});
   }
 
   private async post<T = unknown>(

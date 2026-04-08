@@ -38,8 +38,6 @@ const authDir = env(
   dataDir ? `${dataDir}/store/whatsapp-auth` : '/srv/data/store/whatsapp-auth',
 );
 
-const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
 interface OutboundMsg {
   jid: string;
   text: string;
@@ -182,27 +180,8 @@ const rc = new RouterClient(routerURL, channelSecret);
 let reconnectAttempts = 0;
 let connected = false;
 
-const groupNameCache: Record<string, string> = {};
 const outboundQueue: OutboundMsg[] = [];
 let flushing = false;
-
-async function syncGroupMetadata(): Promise<void> {
-  if (!sock) return;
-  try {
-    log('info', 'syncing group metadata');
-    const groups = await sock.groupFetchAllParticipating();
-    let n = 0;
-    for (const [jid, meta] of Object.entries(groups)) {
-      if (meta.subject) {
-        groupNameCache[jid] = meta.subject;
-        n++;
-      }
-    }
-    log('info', 'group metadata synced', { count: n });
-  } catch (e) {
-    log('error', 'group sync failed', { err: String(e) });
-  }
-}
 
 async function flushOutboundQueue(): Promise<void> {
   if (flushing || outboundQueue.length === 0) return;
@@ -330,9 +309,6 @@ async function connect(): Promise<void> {
       flushOutboundQueue().catch((e) =>
         log('error', 'queue flush failed', { err: String(e) }),
       );
-      syncGroupMetadata().catch((e) =>
-        log('error', 'initial group sync failed', { err: String(e) }),
-      );
     }
   });
 
@@ -343,7 +319,6 @@ async function connect(): Promise<void> {
       if (!jid || jid === 'status@broadcast') continue;
       if (msg.key.fromMe) continue;
 
-      const isGroup = jid.endsWith('@g.us');
       const chatJid = `whatsapp:${jid}`;
       const rawSender = msg.key.participant || jid;
       const senderName = msg.pushName || rawSender.split('@')[0];
@@ -356,10 +331,6 @@ async function connect(): Promise<void> {
         await extractContent(msg);
       if (!content && !mediaBuffer) continue;
 
-      const groupName = isGroup ? (groupNameCache[jid] ?? '') : '';
-      await rc
-        .sendChat(chatJid, isGroup ? groupName : senderName, isGroup)
-        .catch(() => {});
       sock!.readMessages([msg.key]).catch(() => {});
 
       try {
@@ -371,7 +342,6 @@ async function connect(): Promise<void> {
           content,
           timestamp:
             Number(msg.messageTimestamp) || Math.floor(Date.now() / 1000),
-          is_group: isGroup,
           ...(mediaBuffer
             ? {
                 attachment: mediaBuffer.toString('base64'),
@@ -440,12 +410,6 @@ async function main() {
   // Never exit on register failure: docker restart loops race Baileys'
   // non-atomic creds writes and corrupt the session. Stay up; gated catches up.
   registerWithRetry();
-
-  setInterval(() => {
-    syncGroupMetadata().catch((e) =>
-      log('error', 'periodic group sync failed', { err: String(e) }),
-    );
-  }, GROUP_SYNC_INTERVAL_MS);
 
   const srv = startServer(
     listenAddr,

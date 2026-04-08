@@ -80,7 +80,6 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		SenderName: senderName,
 		Content:    content,
 		Timestamp:  m.Timestamp.Unix(),
-		IsGroup:    false,
 	}); err != nil {
 		http.Error(w, "router unavailable", http.StatusBadGateway)
 		return

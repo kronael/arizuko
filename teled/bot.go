@@ -97,13 +97,6 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
 		return
 	}
 	jid := "telegram:" + strconv.FormatInt(msg.Chat.ID, 10)
-	isGroup := msg.Chat.IsGroup() || msg.Chat.IsSuperGroup()
-
-	name := msg.Chat.Title
-	if name == "" {
-		name = userName(msg.From)
-	}
-	rc.SendChat(jid, name, isGroup)
 
 	res := extractMedia(msg, b.cfg.ListenURL)
 	content := res.content
@@ -139,7 +132,6 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
 		SenderName:  userName(msg.From),
 		Content:     content,
 		Timestamp:   int64(msg.Date),
-		IsGroup:     isGroup,
 		Topic:       topic,
 		Attachments: res.attachments,
 	}

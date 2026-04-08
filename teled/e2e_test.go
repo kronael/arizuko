@@ -41,7 +41,7 @@ func TestE2EInboundFlow(t *testing.T) {
 	err := rc.SendMessage(chanlib.InboundMsg{
 		ID: "42", ChatJID: "telegram:-1001234567890",
 		Sender: "telegram:12345", SenderName: "Alice",
-		Content: "Hello from telegram", Timestamp: 1709942400, IsGroup: true,
+		Content: "Hello from telegram", Timestamp: 1709942400,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -97,23 +97,6 @@ func TestE2EHealth(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	if resp["status"] != "ok" || resp["name"] != "telegram" {
 		t.Errorf("health = %v", resp)
-	}
-}
-
-func TestE2EChatMetadata(t *testing.T) {
-	mr := newMockRouter("")
-	defer mr.close()
-
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
-	rc.SetToken("test-token")
-	if err := rc.SendChat("telegram:-100123", "Dev Chat", true); err != nil {
-		t.Fatal(err)
-	}
-
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.chats) != 1 || mr.chats[0]["name"] != "Dev Chat" {
-		t.Errorf("chats = %+v", mr.chats)
 	}
 }
 

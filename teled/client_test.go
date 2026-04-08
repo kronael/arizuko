@@ -14,7 +14,6 @@ type mockRouter struct {
 	mu           sync.Mutex
 	registered   map[string]any
 	messages     []chanlib.InboundMsg
-	chats        []map[string]any
 	deregistered bool
 	srv          *httptest.Server
 }
@@ -45,14 +44,6 @@ func newMockRouter(secret string) *mockRouter {
 		json.NewDecoder(r.Body).Decode(&msg)
 		m.mu.Lock()
 		m.messages = append(m.messages, msg)
-		m.mu.Unlock()
-		json.NewEncoder(w).Encode(map[string]any{"ok": true})
-	})
-	mux.HandleFunc("POST /v1/chats", func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
-		m.mu.Lock()
-		m.chats = append(m.chats, body)
 		m.mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
@@ -113,7 +104,6 @@ func TestRouterClientSendMessage(t *testing.T) {
 		SenderName: "Alice",
 		Content:    "hello",
 		Timestamp:  1709942400,
-		IsGroup:    true,
 	})
 
 	if err != nil {
@@ -129,28 +119,6 @@ func TestRouterClientSendMessage(t *testing.T) {
 	}
 	if mr.messages[0].Sender != "telegram:456" {
 		t.Errorf("sender = %q", mr.messages[0].Sender)
-	}
-}
-
-func TestRouterClientSendChat(t *testing.T) {
-	mr := newMockRouter("")
-	defer mr.close()
-
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
-	rc.SetToken("test-token")
-
-	err := rc.SendChat("telegram:-100123", "Dev Chat", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.chats) != 1 {
-		t.Fatalf("chats = %d", len(mr.chats))
-	}
-	if mr.chats[0]["name"] != "Dev Chat" {
-		t.Errorf("name = %v", mr.chats[0]["name"])
 	}
 }
 

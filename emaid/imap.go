@@ -326,7 +326,6 @@ func (p *poller) handleMsg(
 	}
 
 	jid := "email:" + threadID
-	_ = rc.SendChat(jid, fromName+" ("+fromAddr+")", false)
 
 	if err := rc.SendMessage(chanlib.InboundMsg{
 		ID:          msgID,
@@ -335,7 +334,6 @@ func (p *poller) handleMsg(
 		SenderName:  fromName,
 		Content:     content,
 		Timestamp:   ts,
-		IsGroup:     false,
 		Attachments: atts,
 	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)

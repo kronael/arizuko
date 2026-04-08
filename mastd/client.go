@@ -92,7 +92,6 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *chanlib.
 	if name == "" {
 		name = acc.Acct
 	}
-	_ = rc.SendChat(jid, name, false)
 
 	switch n.Type {
 	case "mention", "reply":

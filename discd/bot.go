@@ -59,14 +59,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if err != nil {
 		ch, err = b.session.Channel(m.ChannelID)
 	}
-	isGroup := err == nil && ch.Type == discordgo.ChannelTypeGuildText
 	isThread := err == nil && (ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread)
-
-	name := m.Author.Username
-	if isGroup && ch.Name != "" {
-		name = ch.Name
-	}
-	b.rc.SendChat(jid, name, isGroup)
 
 	content := m.Content
 	var inboundAtts []chanlib.InboundAttachment
@@ -99,7 +92,6 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		SenderName:  m.Author.Username,
 		Content:     content,
 		Timestamp:   m.Timestamp.Unix(),
-		IsGroup:     isGroup,
 		Topic:       topic,
 		Attachments: inboundAtts,
 	})

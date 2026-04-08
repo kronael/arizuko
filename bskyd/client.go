@@ -203,7 +203,6 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 	if name == "" {
 		name = n.Author.Handle
 	}
-	_ = rc.SendChat(jid, name, false)
 
 	topic := ""
 	if n.Record.Reply != nil {
@@ -232,7 +231,6 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		SenderName:  name,
 		Content:     content,
 		Timestamp:   ts.Unix(),
-		IsGroup:     false,
 		Topic:       topic,
 		Verb:        verb,
 		Attachments: atts,
