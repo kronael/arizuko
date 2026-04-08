@@ -81,7 +81,8 @@ func testGateway(t *testing.T) (*Gateway, *store.Store) {
 // setGroup is a test helper that registers a group in the DB.
 func setGroup(gw *Gateway, jid string, g core.Group) {
 	gw.store.PutGroup(g)
-	gw.store.AddRoute(jid, core.Route{Seq: 0, Type: "default", Target: g.Folder})
+	match := "room=" + core.JidRoom(jid)
+	gw.store.AddRoute(core.Route{Seq: 0, Match: match, Target: g.Folder})
 }
 
 func TestCmdText(t *testing.T) {
@@ -249,7 +250,7 @@ func TestResolveTarget_NoRoutes(t *testing.T) {
 func TestResolveTarget_MatchingRoute(t *testing.T) {
 	gw, _ := testGateway(t)
 	routes := []core.Route{
-		{Type: "default", Target: "other"},
+		{Match: "", Target: "other"},
 	}
 	msg := core.Message{Content: "hello"}
 	got := gw.resolveTarget(msg, routes, "self")
@@ -261,7 +262,7 @@ func TestResolveTarget_MatchingRoute(t *testing.T) {
 func TestResolveTarget_SelfFolder(t *testing.T) {
 	gw, _ := testGateway(t)
 	routes := []core.Route{
-		{Type: "default", Target: "self"},
+		{Match: "", Target: "self"},
 	}
 	msg := core.Message{Content: "hello"}
 	got := gw.resolveTarget(msg, routes, "self")
@@ -274,8 +275,8 @@ func TestLoadState_LoadsGroups(t *testing.T) {
 	gw, s := testGateway(t)
 	s.PutGroup(core.Group{Folder: "alpha", Name: "Alpha"})
 	s.PutGroup(core.Group{Folder: "beta", Name: "Beta"})
-	s.AddRoute("jid1", core.Route{Type: "default", Target: "alpha"})
-	s.AddRoute("jid2", core.Route{Type: "default", Target: "beta"})
+	s.AddRoute(core.Route{Match: "room=jid1", Target: "alpha"})
+	s.AddRoute(core.Route{Match: "room=jid2", Target: "beta"})
 
 	gw.loadState()
 
@@ -339,7 +340,7 @@ func TestAdvanceAgentCursor_Empty(t *testing.T) {
 	}
 }
 
-// Regression: pollOnce must advance the agent cursor after handlePrefixRoute
+// Regression: pollOnce must advance the agent cursor after handlePrefixLayer
 // absorbs a message. Otherwise messages are re-processed on every restart.
 func TestPollOnce_PrefixRouteAdvancesCursor(t *testing.T) {
 	gw, s := testGateway(t)
@@ -348,9 +349,7 @@ func TestPollOnce_PrefixRouteAdvancesCursor(t *testing.T) {
 	jid := "telegram:1"
 	setGroup(gw, jid, core.Group{Folder: "grp", Name: "Group"})
 
-	// @prefix route points at the group itself; @unknown child absorbs silently.
-	s.InsertPrefixRoutes(jid, "grp")
-
+	// @unknown child: handlePrefixLayer absorbs silently (in-code, no DB route).
 	ts := time.Now().UTC()
 	if err := s.PutMessage(core.Message{
 		ID: "m1", ChatJID: jid, Sender: "user", Name: "User",
@@ -692,65 +691,6 @@ func TestEnrichAttachments_SkipsEmptyURL(t *testing.T) {
 
 	if strings.Contains(msg.Content, "<attachment") {
 		t.Error("should not add attachment XML when URL is empty")
-	}
-}
-
-func TestFindPrefixRoute_AtMatch(t *testing.T) {
-	routes := []core.Route{
-		{Type: "prefix", Match: "@", Target: "agents", Seq: -2},
-	}
-	msg := core.Message{Content: "hey @alice help me"}
-	r := findPrefixRoute(routes, msg)
-	if r == nil {
-		t.Fatal("findPrefixRoute returned nil for @ content with @ route")
-	}
-	if r.Match != "@" {
-		t.Errorf("Match = %q, want @", r.Match)
-	}
-}
-
-func TestFindPrefixRoute_HashMatch(t *testing.T) {
-	routes := []core.Route{
-		{Type: "prefix", Match: "#", Target: "topics", Seq: -1},
-	}
-	msg := core.Message{Content: "discuss #ai today"}
-	r := findPrefixRoute(routes, msg)
-	if r == nil {
-		t.Fatal("findPrefixRoute returned nil for # content with # route")
-	}
-	if r.Match != "#" {
-		t.Errorf("Match = %q, want #", r.Match)
-	}
-}
-
-func TestFindPrefixRoute_NoMatch(t *testing.T) {
-	routes := []core.Route{
-		{Type: "prefix", Match: "@", Target: "agents", Seq: -2},
-		{Type: "prefix", Match: "#", Target: "topics", Seq: -1},
-	}
-	msg := core.Message{Content: "plain text no prefix"}
-	r := findPrefixRoute(routes, msg)
-	if r != nil {
-		t.Errorf("findPrefixRoute returned non-nil for content without @ or #")
-	}
-}
-
-func TestFindPrefixRoute_NoRoutes(t *testing.T) {
-	msg := core.Message{Content: "@alice hello"}
-	r := findPrefixRoute(nil, msg)
-	if r != nil {
-		t.Error("findPrefixRoute returned non-nil for empty routes")
-	}
-}
-
-func TestFindPrefixRoute_NonPrefixTypeIgnored(t *testing.T) {
-	routes := []core.Route{
-		{Type: "default", Match: "@", Target: "agents"},
-	}
-	msg := core.Message{Content: "@alice hello"}
-	r := findPrefixRoute(routes, msg)
-	if r != nil {
-		t.Error("findPrefixRoute should ignore non-prefix type routes")
 	}
 }
 

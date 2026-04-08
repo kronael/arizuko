@@ -113,7 +113,7 @@ func TestResolveTarget_WithStickyGroup(t *testing.T) {
 
 	// Route with sticky set
 	routes := []core.Route{
-		{Type: "default", Target: "default-group"},
+		{Target: "default-group"},
 	}
 	msg := core.Message{
 		Content: "hello",
@@ -133,7 +133,7 @@ func TestResolveTarget_StickyGroupSameAsSelf(t *testing.T) {
 	s.SetStickyGroup(jid, "self")
 
 	routes := []core.Route{
-		{Type: "default", Target: "other-group"},
+		{Target: "other-group"},
 	}
 	msg := core.Message{
 		Content: "hello",
@@ -193,7 +193,7 @@ func TestHandleStickyCommand_SetGroup(t *testing.T) {
 		Name:   "Test Group",
 		Folder: "test-group",
 	})
-	s.AddRoute("local:test-group", core.Route{Type: "default", Target: "test-group"})
+	s.AddRoute(core.Route{Match: "room=test-group", Target: "test-group"})
 	gw.loadState()
 
 	// Create mock channel

@@ -122,21 +122,21 @@ func (g *Gateway) Run(ctx context.Context) error {
 		UpdateTaskStatus: func(id, status string) error {
 			return g.store.UpdateTask(id, store.TaskPatch{Status: &status})
 		},
-		DeleteTask:        g.store.DeleteTask,
-		ListTasks:         g.store.ListTasks,
-		GetRoutes:         g.store.GetRoutes,
-		ListRoutes:        g.store.ListRoutes,
-		SetRoutes:         g.store.SetRoutes,
-		AddRoute:          g.store.AddRoute,
-		DeleteRoute:       g.store.DeleteRoute,
-		GetRoute:          g.store.GetRoute,
-		GetGrants:         g.store.GetGrants,
-		SetGrants:         g.store.SetGrants,
-		PutMessage:        g.store.PutMessage,
-		GetLastReplyID:    g.store.GetLastReplyID,
-		SetLastReplyID:    g.store.SetLastReplyID,
-		MessagesBefore:    g.store.MessagesBefore,
-		JIDRoutedToFolder: g.store.JIDRoutedToFolder,
+		DeleteTask:          g.store.DeleteTask,
+		ListTasks:           g.store.ListTasks,
+		ListRoutes:          g.store.ListRoutes,
+		SetRoutes:           g.store.SetRoutes,
+		AddRoute:            g.store.AddRoute,
+		DeleteRoute:         g.store.DeleteRoute,
+		GetRoute:            g.store.GetRoute,
+		DefaultFolderForJID: g.store.DefaultFolderForJID,
+		GetGrants:           g.store.GetGrants,
+		SetGrants:           g.store.SetGrants,
+		PutMessage:          g.store.PutMessage,
+		GetLastReplyID:      g.store.GetLastReplyID,
+		SetLastReplyID:      g.store.SetLastReplyID,
+		MessagesBefore:      g.store.MessagesBefore,
+		JIDRoutedToFolder:   g.store.JIDRoutedToFolder,
 	}
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetHasPendingFn(func(jid string) bool {
@@ -194,8 +194,8 @@ func (g *Gateway) loadState() {
 	}
 
 	groups := g.store.AllGroups()
-	jids := g.store.DefaultRouteJIDs()
-	slog.Info("state loaded", "groups", len(groups), "jid_routes", len(jids))
+	routes := g.store.AllRoutes()
+	slog.Info("state loaded", "groups", len(groups), "routes", len(routes))
 }
 
 func (g *Gateway) saveState() {
@@ -217,25 +217,15 @@ func (g *Gateway) messageLoop(ctx context.Context) {
 }
 
 func (g *Gateway) pollOnce() {
-	jids := g.groupJIDs()
 	g.mu.RLock()
 	since := g.lastTimestamp
 	g.mu.RUnlock()
 
-	if g.cfg.OnboardingEnabled {
-		for _, jid := range g.store.UnroutedChatJIDs(since) {
-			if onboardingAllowed(jid, g.cfg.OnboardingPlatforms) {
-				jids = append(jids, jid)
-			}
-		}
-	}
-	jids = append(jids, g.store.ActiveWebJIDs(since)...)
-
-	if len(jids) == 0 {
-		return
-	}
-
-	msgs, hi, err := g.store.NewMessages(jids, since, g.cfg.Name)
+	// Fetch all new inbound messages since the last poll. The old code
+	// filtered by a precomputed set of registered JIDs; with the match-
+	// expression routing model, JID-to-folder resolution happens per
+	// message via groupForJid (routes table), so no pre-filter is needed.
+	msgs, hi, err := g.store.NewMessages(nil, since, g.cfg.Name)
 	if err != nil {
 		slog.Error("error in message loop", "err", err)
 		time.Sleep(5 * time.Second)
@@ -254,6 +244,8 @@ func (g *Gateway) pollOnce() {
 		byChat[m.ChatJID] = append(byChat[m.ChatJID], m)
 	}
 
+	routes := g.store.AllRoutes()
+
 	for chatJid, chatMsgs := range byChat {
 		group, ok := g.groupForJid(chatJid)
 		if !ok {
@@ -267,8 +259,6 @@ func (g *Gateway) pollOnce() {
 			slog.Debug("poll: no group for jid", "jid", chatJid)
 			continue
 		}
-
-		routes := g.store.GetRoutes(chatJid)
 
 		last := chatMsgs[len(chatMsgs)-1]
 
@@ -288,7 +278,7 @@ func (g *Gateway) pollOnce() {
 		}
 
 		if g.cfg.ImpulseEnabled {
-			impCfg := ParseImpulseCfg(g.store.GetImpulseConfigJSON(chatJid))
+			impCfg := ParseImpulseCfg(g.store.GetImpulseConfigJSON(last))
 			if !g.impulse.accept(chatJid, chatMsgs, impCfg) {
 				slog.Debug("poll: impulse hold", "jid", chatJid)
 				continue
@@ -308,7 +298,7 @@ func (g *Gateway) pollOnce() {
 
 	if g.cfg.ImpulseEnabled {
 		for _, jid := range g.impulse.flush(func(jid string) ImpulseCfg {
-			return ParseImpulseCfg(g.store.GetImpulseConfigJSON(jid))
+			return ParseImpulseCfg(g.store.GetImpulseConfigJSON(core.Message{ChatJID: jid, Verb: "message"}))
 		}) {
 			slog.Debug("poll: impulse timeout flush", "jid", jid)
 			g.queue.EnqueueMessageCheck(jid)
@@ -336,7 +326,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return true, nil
 	}
 
-	routes := g.store.GetRoutes(chatJid)
+	routes := g.store.AllRoutes()
 
 	all := msgs
 	n := 0
@@ -396,18 +386,16 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 	return batches
 }
 
-// tryExternalRoute checks prefix routes and resolved routing targets for a message.
-// Returns true if the message was absorbed (routed to prefix target or delegated
-// to a sibling folder), meaning the caller should skip further processing for it.
+// tryExternalRoute runs the in-code prefix layer (inline @agent / #topic),
+// then the data-driven routing layer (routes table). Returns true if the
+// message was absorbed, meaning the caller should skip further processing.
 func (g *Gateway) tryExternalRoute(
 	routes []core.Route, msg core.Message, group core.Group, chatJid, phase string,
 ) bool {
-	if pr := findPrefixRoute(routes, msg); pr != nil {
-		if g.handlePrefixRoute(pr, msg, group, chatJid) {
-			slog.Debug(phase+": routed via prefix",
-				"jid", chatJid, "sender", msg.Sender, "match", pr.Match)
-			return true
-		}
+	if g.handlePrefixLayer(msg, group, chatJid) {
+		slog.Debug(phase+": routed via prefix layer",
+			"jid", chatJid, "sender", msg.Sender)
+		return true
 	}
 
 	target := g.resolveTarget(msg, routes, group.Folder)
@@ -1050,10 +1038,10 @@ func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
 	if err := g.store.PutGroup(group); err != nil {
 		return err
 	}
-	g.store.AddRoute(jid, core.Route{Seq: 0, Type: "default", Target: group.Folder})
-	if auth.Resolve(group.Folder).Tier <= 2 {
-		g.store.InsertPrefixRoutes(jid, group.Folder)
-	}
+	// Default route: match the jid's post-colon room literal (or the full
+	// string when no platform prefix), target the group folder.
+	match := "room=" + core.JidRoom(jid)
+	g.store.AddRoute(core.Route{Seq: 0, Match: match, Target: group.Folder})
 	ensureGroupGitRepo(filepath.Join(g.cfg.GroupsDir, group.Folder))
 	return nil
 }
@@ -1227,60 +1215,51 @@ func parsePrefix(text string) (name, rest string, ok bool) {
 	return "", "", false
 }
 
-func findPrefixRoute(routes []core.Route, msg core.Message) *core.Route {
+// handlePrefixLayer runs the inline prefix navigation layer. Parses an
+// inline @name or #name token from msg.Content, delegates to child
+// or enqueues a topic-scoped message. Does not read the routes table.
+// Returns true if the prefix was consumed.
+func (g *Gateway) handlePrefixLayer(
+	msg core.Message, group core.Group, chatJid string,
+) bool {
+	if msg.BotMsg || strings.HasPrefix(msg.Sender, "timed-") {
+		return false
+	}
 	hasAt := rePrefixAt.MatchString(msg.Content)
 	hasHash := rePrefixHash.MatchString(msg.Content)
-	for i := range routes {
-		r := &routes[i]
-		if r.Type != "prefix" || r.Match == "" {
-			continue
-		}
-		if r.Match == "@" && hasAt {
-			return r
-		}
-		if r.Match == "#" && hasHash {
-			return r
-		}
+	if !hasAt && !hasHash {
+		return false
 	}
-	return nil
-}
-
-func (g *Gateway) handlePrefixRoute(
-	r *core.Route, msg core.Message, group core.Group, chatJid string,
-) bool {
 	name, stripped, ok := parsePrefix(msg.Content)
 	if !ok || name == "" {
 		return false
 	}
-	switch r.Match {
-	case "@":
+	if hasAt {
 		if strings.Contains(name, "/") {
 			slog.Warn("@prefix: name contains slash, rejecting", "name", name)
 			return false
 		}
-		childFolder := r.Target + "/" + name
-		_, exists := g.store.GroupByFolder(childFolder)
-		if !exists {
+		childFolder := group.Folder + "/" + name
+		if _, exists := g.store.GroupByFolder(childFolder); !exists {
 			slog.Warn("@prefix: child group not found", "child", childFolder)
 			return true
 		}
 		g.delegateViaMessage(childFolder, stripped, chatJid, 0)
 		return true
-	case "#":
-		topic := "#" + name
-		g.store.PutMessage(core.Message{
-			ID:        core.MsgID("topic"),
-			ChatJID:   chatJid,
-			Sender:    msg.Sender,
-			Name:      msg.Name,
-			Content:   stripped,
-			Topic:     topic,
-			Timestamp: time.Now(),
-		})
-		g.queue.EnqueueMessageCheck(chatJid)
-		return true
 	}
-	return false
+	// hash prefix
+	topic := "#" + name
+	g.store.PutMessage(core.Message{
+		ID:        core.MsgID("topic"),
+		ChatJID:   chatJid,
+		Sender:    msg.Sender,
+		Name:      msg.Name,
+		Content:   stripped,
+		Topic:     topic,
+		Timestamp: time.Now(),
+	})
+	g.queue.EnqueueMessageCheck(chatJid)
+	return true
 }
 
 func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {
@@ -1373,23 +1352,28 @@ func (g *Gateway) delegateViaMessage(
 	return nil
 }
 
-func (g *Gateway) groupJIDs() []string {
-	return g.store.DefaultRouteJIDs()
-}
-
 func (g *Gateway) recoverPendingMessages() {
-	for _, jid := range g.groupJIDs() {
-		agentTs := g.getAgentCursor(jid)
-		msgs, err := g.store.MessagesSince(jid, agentTs, g.cfg.Name)
-		if err != nil {
-			slog.Error("recovery query failed", "jid", jid, "err", err)
+	// Fetch all recent inbound messages and enqueue a check for each
+	// distinct chat_jid that has a group and is not in an error state.
+	msgs, _, err := g.store.NewMessages(nil, time.Time{}, g.cfg.Name)
+	if err != nil {
+		slog.Error("recovery query failed", "err", err)
+		return
+	}
+	seen := make(map[string]struct{})
+	for _, m := range msgs {
+		if _, dup := seen[m.ChatJID]; dup {
 			continue
 		}
-		if len(msgs) > 0 && !g.store.IsChatErrored(jid) {
-			slog.Info("recovering pending messages",
-				"jid", jid, "count", len(msgs))
-			g.queue.EnqueueMessageCheck(jid)
+		seen[m.ChatJID] = struct{}{}
+		if _, ok := g.groupForJid(m.ChatJID); !ok {
+			continue
 		}
+		if g.store.IsChatErrored(m.ChatJID) {
+			continue
+		}
+		slog.Info("recovering pending messages", "jid", m.ChatJID)
+		g.queue.EnqueueMessageCheck(m.ChatJID)
 	}
 }
 

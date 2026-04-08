@@ -52,7 +52,8 @@ func (g *Gateway) spawnFromPrototype(parentFolder, childJID string) (core.Group,
 	if err := g.store.PutGroup(child); err != nil {
 		return core.Group{}, err
 	}
-	g.store.AddRoute(childJID, core.Route{Seq: 0, Type: "default", Target: childFolder})
+	match := "room=" + core.JidRoom(childJID)
+	g.store.AddRoute(core.Route{Seq: 0, Match: match, Target: childFolder})
 	return child, nil
 }
 

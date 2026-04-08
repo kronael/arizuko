@@ -10,7 +10,7 @@ import (
 func TestReplyChainRouting_EmptyReplyTo(t *testing.T) {
 	gw, _ := testGateway(t)
 	routes := []core.Route{
-		{Type: "default", Target: "default-group"},
+		{Target: "default-group"},
 	}
 	msg := core.Message{
 		Content:   "hello",
@@ -42,7 +42,7 @@ func TestReplyChainRouting_WithReplyTo(t *testing.T) {
 
 	// User replies to that bot message
 	routes := []core.Route{
-		{Type: "default", Target: "default-group"},
+		{Target: "default-group"},
 	}
 	msg := core.Message{
 		Content:   "reply to bot",
@@ -75,7 +75,7 @@ func TestReplyChainRouting_ReplyToSelfFolder(t *testing.T) {
 
 	// User replies - should return empty (stay in same group)
 	routes := []core.Route{
-		{Type: "default", Target: "other-group"},
+		{Target: "other-group"},
 	}
 	msg := core.Message{
 		Content:   "reply to bot",
@@ -108,7 +108,7 @@ func TestReplyChainRouting_NoRoutedTo(t *testing.T) {
 
 	// Reply to user message - should fall back to default routing
 	routes := []core.Route{
-		{Type: "default", Target: "default-group"},
+		{Target: "default-group"},
 	}
 	msg := core.Message{
 		Content:   "reply to user",
@@ -126,7 +126,7 @@ func TestReplyChainRouting_MessageNotFound(t *testing.T) {
 
 	// Reply to non-existent message
 	routes := []core.Route{
-		{Type: "default", Target: "default-group"},
+		{Target: "default-group"},
 	}
 	msg := core.Message{
 		Content:   "reply to nothing",
@@ -239,10 +239,10 @@ func TestReplyChainRouting_PrecedenceOverPatternRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// User replies with content that would match a pattern route
+	// User replies with content that would match a non-default route
 	routes := []core.Route{
-		{Type: "keyword", Match: "urgent", Target: "urgent-group"},
-		{Type: "default", Target: "default-group"},
+		{Match: "sender=urgent:*", Target: "urgent-group"},
+		{Target: "default-group"},
 	}
 	msg := core.Message{
 		Content:   "urgent: reply to bot",
