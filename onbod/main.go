@@ -170,12 +170,81 @@ func handleSend(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) 
 }
 
 func isTier0(db *sql.DB, senderJID string) bool {
-	var parent *string
-	err := db.QueryRow(`
-		SELECT rg.parent FROM routes r
+	platform, room := core.JidPlatform(senderJID), core.JidRoom(senderJID)
+	rows, err := db.Query(`
+		SELECT r.match FROM routes r
 		JOIN groups rg ON rg.folder = r.target
-		WHERE r.jid = ? AND r.seq = 0 LIMIT 1`, senderJID).Scan(&parent)
-	return err == nil && parent == nil
+		WHERE rg.parent IS NULL OR rg.parent = ''`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var match string
+		rows.Scan(&match)
+		if routeMatchesJID(match, platform, room) {
+			return true
+		}
+	}
+	return false
+}
+
+// routeMatchesJID reports whether a match expression matches the given
+// platform/room pair. Only literal equality is checked — any glob is
+// treated as "not a match" for the purposes of onbod's tier-0 detection.
+func routeMatchesJID(match, platform, room string) bool {
+	if match == "" {
+		return false
+	}
+	for _, tok := range strings.Fields(match) {
+		k, v, ok := strings.Cut(tok, "=")
+		if !ok || v == "" || strings.ContainsAny(v, "*?[") {
+			return false
+		}
+		switch k {
+		case "room":
+			if v != room {
+				return false
+			}
+		case "platform":
+			if v != platform {
+				return false
+			}
+		case "chat_jid":
+			if v != platform+":"+room && v != room {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// jidFromMatch reconstructs a concrete chat JID from a match expression
+// that carries platform+room literals (or a bare chat_jid). Returns ""
+// if the match uses wildcards or omits the required fields.
+func jidFromMatch(match string) string {
+	var platform, room string
+	for _, tok := range strings.Fields(match) {
+		k, v, ok := strings.Cut(tok, "=")
+		if !ok || v == "" || strings.ContainsAny(v, "*?[") {
+			continue
+		}
+		switch k {
+		case "platform":
+			platform = v
+		case "room":
+			room = v
+		case "chat_jid":
+			return v
+		}
+	}
+	if room == "" {
+		return ""
+	}
+	if platform == "" {
+		return room
+	}
+	return platform + ":" + room
 }
 
 func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targetJID, folder string) {
@@ -243,10 +312,10 @@ func approveInTx(db *sql.DB, jid, folder string) error {
 		}
 	}
 
+	match := "room=" + core.JidRoom(jid)
 	if _, err := tx.Exec(
-		`INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
-		 VALUES (?, 0, 'default', NULL, ?), (?, -2, 'prefix', '@', ?), (?, -1, 'prefix', '#', ?)`,
-		jid, folder, jid, folder, jid, folder); err != nil {
+		`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (?, ?, ?)`,
+		0, match, folder); err != nil {
 		return err
 	}
 	welcomeID := core.MsgID("onboard-welcome")
@@ -413,17 +482,26 @@ func notifyRoots(db *sql.DB, cfg config, senderJID, msg string) {
 
 func rootJIDs(db *sql.DB) []string {
 	rows, err := db.Query(
-		`SELECT DISTINCT r.jid FROM routes r
+		`SELECT r.match FROM routes r
 		 JOIN groups g ON g.folder = r.target
 		 WHERE g.parent IS NULL OR g.parent = ''`)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
+	seen := map[string]struct{}{}
 	var jids []string
 	for rows.Next() {
-		var jid string
-		rows.Scan(&jid)
+		var match string
+		rows.Scan(&match)
+		jid := jidFromMatch(match)
+		if jid == "" {
+			continue
+		}
+		if _, dup := seen[jid]; dup {
+			continue
+		}
+		seen[jid] = struct{}{}
 		jids = append(jids, jid)
 	}
 	return jids

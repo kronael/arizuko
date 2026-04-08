@@ -19,7 +19,7 @@ func testDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	_, err = db.Exec(`
-		CREATE TABLE routes (jid TEXT, seq INTEGER, type TEXT, match TEXT, target TEXT);
+		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, impulse_config TEXT);
 		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT);
 		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, sender TEXT, channel TEXT, world_name TEXT, prompted_at TEXT, created TEXT);
 		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT, group_folder TEXT);
@@ -33,7 +33,7 @@ func testDB(t *testing.T) *sql.DB {
 func TestIsTier0True(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO groups (folder, parent) VALUES ('main', NULL)`)
-	db.Exec(`INSERT INTO routes (jid, seq, type, target) VALUES ('telegram:123', 0, 'default', 'main')`)
+	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'platform=telegram room=123', 'main')`)
 	if !isTier0(db, "telegram:123") {
 		t.Error("expected isTier0=true for root group sender")
 	}
@@ -42,7 +42,7 @@ func TestIsTier0True(t *testing.T) {
 func TestIsTier0False(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO groups (folder, parent) VALUES ('sub', 'main')`)
-	db.Exec(`INSERT INTO routes (jid, seq, type, target) VALUES ('telegram:456', 0, 'default', 'sub')`)
+	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'platform=telegram room=456', 'sub')`)
 	if isTier0(db, "telegram:456") {
 		t.Error("expected isTier0=false for child group sender")
 	}
