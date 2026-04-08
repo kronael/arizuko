@@ -259,7 +259,7 @@ func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, pageTop, "Activity", "Activity")
 	fmt.Fprint(w, `<table hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">
-<thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Group</th><th>Verb</th><th>Content</th></tr></thead>
+<thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Verb</th><th>Content</th></tr></thead>
 <tbody>`)
 	d.writeActivityRows(w)
 	fmt.Fprint(w, `</tbody></table>`)
@@ -273,23 +273,22 @@ func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
 
 func (d *dash) writeActivityRows(w http.ResponseWriter) {
 	rows, err := d.db.Query(
-		`SELECT timestamp, source, chat_jid, sender, group_folder, verb, substr(content,1,80)
+		`SELECT timestamp, source, chat_jid, sender, verb, substr(content,1,80)
 		 FROM messages ORDER BY timestamp DESC LIMIT 50`)
 	if err != nil {
-		fmt.Fprintf(w, `<tr><td colspan=7>error: %s</td></tr>`, template.HTMLEscapeString(err.Error()))
+		fmt.Fprintf(w, `<tr><td colspan=6>error: %s</td></tr>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var ts, chatJID, sender, content string
-		var source, groupFolder, verb sql.NullString
-		rows.Scan(&ts, &source, &chatJID, &sender, &groupFolder, &verb, &content)
-		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+		var ts, source, chatJID, sender, content string
+		var verb sql.NullString
+		rows.Scan(&ts, &source, &chatJID, &sender, &verb, &content)
+		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
 			template.HTMLEscapeString(ts),
-			template.HTMLEscapeString(nullStr(source)),
+			template.HTMLEscapeString(source),
 			template.HTMLEscapeString(chatJID),
 			template.HTMLEscapeString(sender),
-			template.HTMLEscapeString(nullStr(groupFolder)),
 			template.HTMLEscapeString(nullStr(verb)),
 			template.HTMLEscapeString(content),
 		)
@@ -327,18 +326,15 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 			template.HTMLEscapeString(nullStr(parent)),
 		)
 		d.writeGroupRoutes(w, folder)
-		var msgCount int
-		d.db.QueryRow(
-			`SELECT COUNT(*) FROM messages WHERE group_folder=? AND timestamp > datetime('now','-1 day')`,
-			folder).Scan(&msgCount)
-		fmt.Fprintf(w, `<p>Messages (24h): %d</p></div></details>`, msgCount)
+		fmt.Fprint(w, `</div></details>`)
 	}
 	fmt.Fprint(w, pageBot)
 }
 
 func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 	rows, err := d.db.Query(
-		`SELECT jid, type, COALESCE(match,''), target FROM routes WHERE target=? ORDER BY jid, seq`, folder)
+		`SELECT seq, match, target FROM routes WHERE target=? OR target LIKE ? ORDER BY seq`,
+		folder, folder+"/%")
 	if err != nil {
 		return
 	}
@@ -346,13 +342,13 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 	var n int
 	for rows.Next() {
 		if n == 0 {
-			fmt.Fprint(w, `<table><tr><th>JID</th><th>Type</th><th>Match</th><th>Target</th></tr>`)
+			fmt.Fprint(w, `<table><tr><th>Seq</th><th>Match</th><th>Target</th></tr>`)
 		}
-		var jid, typ, match, target string
-		rows.Scan(&jid, &typ, &match, &target)
-		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-			template.HTMLEscapeString(jid),
-			template.HTMLEscapeString(typ),
+		var seq int
+		var match, target string
+		rows.Scan(&seq, &match, &target)
+		fmt.Fprintf(w, `<tr><td>%d</td><td>%s</td><td>%s</td></tr>`,
+			seq,
 			template.HTMLEscapeString(match),
 			template.HTMLEscapeString(target),
 		)

@@ -249,7 +249,7 @@ func jidFromMatch(match string) string {
 
 func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targetJID, folder string) {
 	if !isTier0(db, senderJID) {
-		sendReply(cfg, senderJID, "Permission denied.", "")
+		sendReply(cfg, senderJID, "Permission denied.")
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -323,8 +323,8 @@ func approveInTx(db *sql.DB, jid, folder string) error {
 		`<system_event type="onboard_welcome">Your room %s is ready. Welcome!</system_event>`,
 		folder)
 	if _, err := tx.Exec(
-		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
-		 VALUES (?, ?, 'system', ?, ?, 1, 1, 'onboarding', '')`,
+		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source)
+		 VALUES (?, ?, 'system', ?, ?, 1, 1, 'onboarding')`,
 		welcomeID, jid, welcomeBody, time.Now().Format(time.RFC3339Nano)); err != nil {
 		return err
 	}
@@ -346,7 +346,7 @@ func nilStr(s string) *string {
 
 func handleReject(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targetJID string) {
 	if !isTier0(db, senderJID) {
-		sendReply(cfg, senderJID, "Permission denied.", "")
+		sendReply(cfg, senderJID, "Permission denied.")
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -367,37 +367,36 @@ func poll(db *sql.DB, cfg config) {
 
 func promptUnprompted(db *sql.DB, cfg config) {
 	rows, err := db.Query(
-		`SELECT jid, channel FROM onboarding WHERE status = 'awaiting_message' AND prompted_at IS NULL`)
+		`SELECT jid FROM onboarding WHERE status = 'awaiting_message' AND prompted_at IS NULL`)
 	if err != nil {
 		slog.Error("promptUnprompted query", "err", err)
 		return
 	}
-	type row struct{ jid, channel string }
-	var pending []row
+	var pending []string
 	for rows.Next() {
-		var r row
-		rows.Scan(&r.jid, &r.channel)
-		pending = append(pending, r)
+		var jid string
+		rows.Scan(&jid)
+		pending = append(pending, jid)
 	}
 	rows.Close()
 
 	now := time.Now().Format(time.RFC3339)
-	for _, r := range pending {
+	for _, jid := range pending {
 		prompt := "Leave a message for the admin:"
 		if cfg.greeting != "" {
 			prompt = cfg.greeting + "\n" + prompt
 		}
-		sendReply(cfg, r.jid, prompt, r.channel)
-		db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`, now, r.jid)
-		slog.Info("prompted user", "jid", r.jid)
+		sendReply(cfg, jid, prompt)
+		db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`, now, jid)
+		slog.Info("prompted user", "jid", jid)
 	}
 }
 
-type onboardRow struct{ jid, promptedAt, channel string }
+type onboardRow struct{ jid, promptedAt string }
 
 func checkResponses(db *sql.DB, cfg config) {
 	rows, err := db.Query(
-		`SELECT jid, prompted_at, channel FROM onboarding
+		`SELECT jid, prompted_at FROM onboarding
 		 WHERE status = 'awaiting_message' AND prompted_at IS NOT NULL`)
 	if err != nil {
 		slog.Error("checkResponses query", "err", err)
@@ -407,7 +406,7 @@ func checkResponses(db *sql.DB, cfg config) {
 	var pending []onboardRow
 	for rows.Next() {
 		var r onboardRow
-		rows.Scan(&r.jid, &r.promptedAt, &r.channel)
+		rows.Scan(&r.jid, &r.promptedAt)
 		pending = append(pending, r)
 	}
 
@@ -434,14 +433,14 @@ func submitForApproval(db *sql.DB, cfg config, r onboardRow, userMsg string) {
 	}
 	msg += fmt.Sprintf("\n/approve %s <folder> or /reject %s", r.jid, r.jid)
 	for _, root := range rootJIDs(db) {
-		sendReply(cfg, root, msg, "")
+		sendReply(cfg, root, msg)
 	}
 	slog.Info("onboarding pending", "jid", r.jid)
 }
 
 func checkPendingMessages(db *sql.DB, cfg config) {
 	rows, err := db.Query(
-		`SELECT jid, prompted_at, channel FROM onboarding
+		`SELECT jid, prompted_at FROM onboarding
 		 WHERE status = 'pending' AND prompted_at IS NOT NULL`)
 	if err != nil {
 		slog.Error("checkPendingMessages query", "err", err)
@@ -451,7 +450,7 @@ func checkPendingMessages(db *sql.DB, cfg config) {
 	var pending []onboardRow
 	for rows.Next() {
 		var r onboardRow
-		rows.Scan(&r.jid, &r.promptedAt, &r.channel)
+		rows.Scan(&r.jid, &r.promptedAt)
 		pending = append(pending, r)
 	}
 
@@ -465,7 +464,7 @@ func checkPendingMessages(db *sql.DB, cfg config) {
 			continue
 		}
 
-		sendReply(cfg, r.jid, "Still waiting for approval.", r.channel)
+		sendReply(cfg, r.jid, "Still waiting for approval.")
 		db.Exec(`UPDATE onboarding SET prompted_at = ? WHERE jid = ?`,
 			time.Now().Format(time.RFC3339), r.jid)
 	}
@@ -474,10 +473,10 @@ func checkPendingMessages(db *sql.DB, cfg config) {
 func notifyRoots(db *sql.DB, cfg config, senderJID, msg string) {
 	for _, jid := range rootJIDs(db) {
 		if jid != senderJID {
-			sendReply(cfg, jid, msg, "")
+			sendReply(cfg, jid, msg)
 		}
 	}
-	sendReply(cfg, senderJID, msg, "")
+	sendReply(cfg, senderJID, msg)
 }
 
 func rootJIDs(db *sql.DB) []string {
@@ -509,11 +508,8 @@ func rootJIDs(db *sql.DB) []string {
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func sendReply(cfg config, jid, text, channel string) {
+func sendReply(cfg config, jid, text string) {
 	payload := map[string]string{"jid": jid, "text": text}
-	if channel != "" {
-		payload["channel"] = channel
-	}
 	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", cfg.gatedURL+"/v1/outbound", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

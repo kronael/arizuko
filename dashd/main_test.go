@@ -28,13 +28,12 @@ func testDB(t *testing.T) *sql.DB {
 			created_at TEXT NOT NULL DEFAULT '')`,
 		`CREATE TABLE messages (
 			id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT,
-			timestamp TEXT, source TEXT, group_folder TEXT, verb TEXT)`,
-		`CREATE TABLE chats (jid TEXT PRIMARY KEY, name TEXT, channel TEXT,
-			is_group INTEGER DEFAULT 0, last_message_time TEXT, errored INTEGER DEFAULT 0)`,
+			timestamp TEXT, source TEXT NOT NULL DEFAULT '', verb TEXT)`,
+		`CREATE TABLE chats (jid TEXT PRIMARY KEY, errored INTEGER DEFAULT 0)`,
 		`CREATE TABLE task_run_logs (id INTEGER PRIMARY KEY AUTOINCREMENT,
 			task_id TEXT, run_at TEXT, duration_ms INTEGER, status TEXT, result TEXT, error TEXT)`,
-		`CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, jid TEXT,
-			seq INTEGER DEFAULT 0, type TEXT DEFAULT 'default', match TEXT, target TEXT)`,
+		`CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT,
+			seq INTEGER DEFAULT 0, match TEXT, target TEXT, impulse_config TEXT)`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("schema: %v", err)

@@ -21,8 +21,8 @@ func testDB(t *testing.T) *sql.DB {
 	_, err = db.Exec(`
 		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, impulse_config TEXT);
 		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT);
-		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, sender TEXT, channel TEXT, world_name TEXT, prompted_at TEXT, created TEXT);
-		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT, group_folder TEXT);
+		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT);
+		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT NOT NULL DEFAULT '');
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestHandleSendApproveMissingFolder(t *testing.T) {
 
 func TestPromptUnprompted(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, channel, created) VALUES ('telegram:1', 'awaiting_message', 'teled', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
 
 	// sendReply will fail silently (no gatedURL), but we can check prompted_at was set
 	cfg := config{greeting: "Welcome to our server!"}
@@ -132,10 +132,10 @@ func TestPromptUnprompted(t *testing.T) {
 
 func TestCheckResponsesTransitionsToPending(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, channel, prompted_at, created)
-		VALUES ('telegram:1', 'awaiting_message', 'teled', '2026-01-01T00:00:00Z', '2026-01-01')`)
-	db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
-		VALUES ('msg1', 'telegram:1', 'user', 'Hello admin!', '2026-01-01T00:01:00Z', 0, 0, 'telegram', '')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, prompted_at, created)
+		VALUES ('telegram:1', 'awaiting_message', '2026-01-01T00:00:00Z', '2026-01-01')`)
+	db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source)
+		VALUES ('msg1', 'telegram:1', 'user', 'Hello admin!', '2026-01-01T00:01:00Z', 0, 0, 'telegram')`)
 
 	cfg := config{}
 	checkResponses(db, cfg)
@@ -149,11 +149,11 @@ func TestCheckResponsesTransitionsToPending(t *testing.T) {
 
 func TestCheckResponsesIgnoresOldMessages(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, channel, prompted_at, created)
-		VALUES ('telegram:1', 'awaiting_message', 'teled', '2026-01-01T00:05:00Z', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, prompted_at, created)
+		VALUES ('telegram:1', 'awaiting_message', '2026-01-01T00:05:00Z', '2026-01-01')`)
 	// Message is before prompted_at
-	db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source, group_folder)
-		VALUES ('msg1', 'telegram:1', 'user', 'old msg', '2026-01-01T00:00:00Z', 0, 0, 'telegram', '')`)
+	db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source)
+		VALUES ('msg1', 'telegram:1', 'user', 'old msg', '2026-01-01T00:00:00Z', 0, 0, 'telegram')`)
 
 	cfg := config{}
 	checkResponses(db, cfg)
