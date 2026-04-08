@@ -210,15 +210,16 @@ func TestResolveRouteTemplate(t *testing.T) {
 		Content: "hello",
 	}
 	routes := []core.Route{
-		{Seq: 0, Type: "default", Target: "atlas/{sender}"},
-		{Seq: 1, Type: "default", Target: "atlas/support"},
+		{Seq: 0, Match: "sender=telegram:*", Target: "atlas/{sender}"},
+		{Seq: 1, Match: "", Target: "atlas/support"},
 	}
 	got := ResolveRoute(msg, routes)
 	if got != "atlas/tg-123456" {
 		t.Fatalf("expected atlas/tg-123456, got %q", got)
 	}
 
-	// Empty sender falls through to next route
+	// Empty sender: first route (sender glob) cannot match empty sender,
+	// falls through to catch-all.
 	msg2 := core.Message{Content: "hello"}
 	got = ResolveRoute(msg2, routes)
 	if got != "atlas/support" {
@@ -228,9 +229,9 @@ func TestResolveRouteTemplate(t *testing.T) {
 
 func TestRouteMatchVerb(t *testing.T) {
 	routes := []core.Route{
-		{Seq: 0, Type: "verb", Match: "react", Target: "reactions"},
-		{Seq: 1, Type: "verb", Match: "follow", Target: "followers"},
-		{Seq: 2, Type: "default", Target: "inbox"},
+		{Seq: 0, Match: "verb=react", Target: "reactions"},
+		{Seq: 1, Match: "verb=follow", Target: "followers"},
+		{Seq: 2, Match: "", Target: "inbox"},
 	}
 	cases := []struct {
 		msg  core.Message
@@ -238,7 +239,6 @@ func TestRouteMatchVerb(t *testing.T) {
 	}{
 		{core.Message{Verb: "react", Content: "❤️"}, "reactions"},
 		{core.Message{Verb: "follow", Content: "x followed you"}, "followers"},
-		{core.Message{Verb: "React", Content: "❤️"}, "reactions"}, // case-insensitive
 		{core.Message{Verb: "message", Content: "hi"}, "inbox"},
 	}
 	for _, tc := range cases {

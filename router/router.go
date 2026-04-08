@@ -3,29 +3,15 @@ package router
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/onvos/arizuko/core"
 )
-
-var reCache sync.Map
-
-func getRegexp(pattern string) (*regexp.Regexp, error) {
-	if v, ok := reCache.Load(pattern); ok {
-		return v.(*regexp.Regexp), nil
-	}
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return nil, err
-	}
-	reCache.Store(pattern, re)
-	return re, nil
-}
 
 func escapeXml(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
@@ -276,49 +262,64 @@ func expandTarget(target string, msg core.Message) string {
 	return strings.ReplaceAll(target, "{sender}", id)
 }
 
-func routeMatches(r core.Route, msg core.Message) bool {
-	switch r.Type {
-	case "command":
-		t := strings.TrimSpace(msg.Content)
-		return r.Match != "" && (t == r.Match || strings.HasPrefix(t, r.Match+" "))
-	case "verb":
-		return r.Match != "" && strings.EqualFold(msg.Verb, r.Match)
-	case "pattern":
-		if r.Match == "" || len(r.Match) > 200 {
-			return false
-		}
-		re, err := getRegexp(r.Match)
-		if err != nil {
-			return false
-		}
-		return re.MatchString(msg.Content)
-	case "keyword":
-		return r.Match != "" && strings.Contains(
-			strings.ToLower(msg.Content), strings.ToLower(r.Match))
-	case "sender":
-		if r.Match == "" || len(r.Match) > 200 {
-			return false
-		}
-		name := msg.Name
-		if name == "" {
-			name = msg.Sender
-		}
-		re, err := getRegexp(r.Match)
-		if err != nil {
-			return false
-		}
-		return re.MatchString(name)
-	case "prefix":
-		return r.Match != "" && strings.HasPrefix(strings.TrimSpace(msg.Content), r.Match)
-	case "default":
-		return true
+// matchPredicate is one key=glob pair parsed from a route's match expression.
+type matchPredicate struct {
+	key     string
+	pattern string
+}
+
+// parseMatch splits "key=glob key=glob ..." into predicates. Whitespace is
+// the only separator. Malformed tokens (no '=' or empty key) are skipped.
+func parseMatch(s string) []matchPredicate {
+	if s == "" {
+		return nil
 	}
-	return false
+	fields := strings.Fields(s)
+	out := make([]matchPredicate, 0, len(fields))
+	for _, f := range fields {
+		k, v, ok := strings.Cut(f, "=")
+		if !ok || k == "" {
+			continue
+		}
+		out = append(out, matchPredicate{key: k, pattern: v})
+	}
+	return out
+}
+
+// msgField returns the message value for a match key. Unknown keys yield
+// an empty string, which will not match any non-empty glob.
+func msgField(msg core.Message, key string) string {
+	switch key {
+	case "platform":
+		return core.JidPlatform(msg.ChatJID)
+	case "room":
+		return core.JidRoom(msg.ChatJID)
+	case "chat_jid":
+		return msg.ChatJID
+	case "sender":
+		return msg.Sender
+	case "verb":
+		return msg.Verb
+	}
+	return ""
+}
+
+// RouteMatches reports whether every predicate in r.Match matches the
+// corresponding field of msg. Empty match expression matches everything.
+func RouteMatches(r core.Route, msg core.Message) bool {
+	for _, p := range parseMatch(r.Match) {
+		v := msgField(msg, p.key)
+		ok, err := path.Match(p.pattern, v)
+		if err != nil || !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func ResolveRoute(msg core.Message, routes []core.Route) string {
 	for _, r := range routes {
-		if !routeMatches(r, msg) {
+		if !RouteMatches(r, msg) {
 			continue
 		}
 		t := expandTarget(r.Target, msg)
