@@ -110,6 +110,7 @@ func TestIsGatewayCommand(t *testing.T) {
 	yes := []string{
 		"/new", "/New", "/NEW",
 		"/ping", "/chatid", "/stop",
+		"/approve", "/reject",
 		"[Doc: f.pdf] /stop",
 		"@root /ping",
 		"[x] @y /new some arg",
@@ -122,7 +123,6 @@ func TestIsGatewayCommand(t *testing.T) {
 
 	no := []string{
 		"hello",
-		"/approve",
 		"/foo",
 		"/newbie",
 		"@root plain text",

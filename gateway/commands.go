@@ -1,7 +1,13 @@
 package gateway
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -34,7 +40,7 @@ func isGatewayCommand(raw string) bool {
 	}
 	word, _, _ := strings.Cut(t[1:], " ")
 	switch strings.ToLower(word) {
-	case "new", "ping", "chatid", "stop", "status":
+	case "new", "ping", "chatid", "stop", "status", "approve", "reject":
 		return true
 	}
 	return false
@@ -58,9 +64,59 @@ func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
 		return g.cmdStop(msg.ChatJID)
 	case "/status":
 		return g.cmdStatus(msg.ChatJID, group)
+	case "/approve", "/reject":
+		return g.cmdOnbod(msg.ChatJID, text)
 	default:
 		return false
 	}
+}
+
+// cmdOnbod forwards /approve and /reject to the onbod daemon over HTTP.
+// Returns true to suppress agent dispatch. When onboarding is disabled,
+// returns false so the message falls through to the agent as before.
+func (g *Gateway) cmdOnbod(chatJid, text string) bool {
+	if !g.cfg.OnboardingEnabled {
+		return false
+	}
+	url := os.Getenv("ONBOD_URL")
+	if url == "" {
+		url = "http://onbod:8092"
+	}
+	body, _ := json.Marshal(map[string]string{"jid": chatJid, "text": text})
+	req, err := http.NewRequest("POST", url+"/send", bytes.NewReader(body))
+	if err != nil {
+		slog.Error("onbod dispatch build", "err", err)
+		g.sendMessage(chatJid, "Failed: onbod dispatch error.")
+		return true
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if g.cfg.ChannelSecret != "" {
+		req.Header.Set("Authorization", "Bearer "+g.cfg.ChannelSecret)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		slog.Error("onbod dispatch failed", "url", url, "err", err)
+		g.sendMessage(chatJid, "Failed: onbod unreachable.")
+		return true
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return true
+	}
+	b, _ := io.ReadAll(resp.Body)
+	slog.Warn("onbod dispatch non-2xx",
+		"status", resp.StatusCode, "body", strings.TrimSpace(string(b)))
+	switch resp.StatusCode {
+	case http.StatusForbidden:
+		g.sendMessage(chatJid, "Permission denied.")
+	case http.StatusNotFound:
+		g.sendMessage(chatJid, "Onboarding request not found.")
+	case http.StatusBadRequest:
+		g.sendMessage(chatJid, "Failed: "+strings.TrimSpace(string(b)))
+	default:
+		g.sendMessage(chatJid, "Failed: onbod error.")
+	}
+	return true
 }
 
 func (g *Gateway) cmdNew(chatJid string, group core.Group, arg string) bool {
