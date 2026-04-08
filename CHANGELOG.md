@@ -11,6 +11,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **routes**: collapsed routes table to `(id, seq, match, target, impulse_config)` —
+  dropped `jid` and `type` columns. Replaced route types (command/verb/pattern/
+  keyword/sender/prefix/default) with a single match expression language:
+  space-separated `key=glob` pairs over platform/room/chat_jid/sender/verb,
+  using Go `path.Match` globs. Empty match = wildcard. See specs/1/F-group-routing.md.
+- **gateway**: three-layer pipeline — sticky → command → prefix → routing. Only
+  the routing layer reads the routes table; commands and prefixes are in-code.
+- **gateway**: `pollOnce` no longer pre-filters by registered JIDs — fetches all
+  new messages, resolves each via `DefaultFolderForJID` (routes table). The old
+  `RegisteredChatJIDs`/`RegisteredRooms` helpers are removed.
 - **gateway**: unified inbound/outbound message paths — agent output now written
   to messages table via `PutMessage` instead of separate `StoreOutbound`.
 - **gateway**: delegation is now message-based — `delegateViaMessage` writes to
