@@ -9,6 +9,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+---
+
+## [v0.25.0] — 2026-04-08
+
 ### Changed
 
 - **routes**: collapsed routes table to `(id, seq, match, target, impulse_config)` —
