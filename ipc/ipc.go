@@ -40,24 +40,24 @@ type GatedFns struct {
 }
 
 type StoreFns struct {
-	CreateTask        func(t core.Task) error
-	GetTask           func(id string) (core.Task, bool)
-	UpdateTaskStatus  func(id, status string) error
-	DeleteTask        func(id string) error
-	ListTasks         func(folder string, isRoot bool) []core.Task
-	GetRoutes         func(jid string) []core.Route
-	ListRoutes        func(folder string, isRoot bool) []core.Route
-	SetRoutes         func(jid string, routes []core.Route) error
-	AddRoute          func(jid string, r core.Route) (int64, error)
-	DeleteRoute       func(id int64) error
-	GetRoute          func(id int64) (core.Route, bool)
-	PutMessage        func(m core.Message) error
-	GetLastReplyID    func(jid, topic string) string
-	SetLastReplyID    func(jid, topic, replyID string)
-	GetGrants         func(folder string) []string
-	SetGrants         func(folder string, rules []string) error
-	MessagesBefore    func(jid string, before time.Time, limit int) ([]core.Message, error)
-	JIDRoutedToFolder func(jid, folder string) bool
+	CreateTask          func(t core.Task) error
+	GetTask             func(id string) (core.Task, bool)
+	UpdateTaskStatus    func(id, status string) error
+	DeleteTask          func(id string) error
+	ListTasks           func(folder string, isRoot bool) []core.Task
+	ListRoutes          func(folder string, isRoot bool) []core.Route
+	SetRoutes           func(folder string, routes []core.Route) error
+	AddRoute            func(r core.Route) (int64, error)
+	DeleteRoute         func(id int64) error
+	GetRoute            func(id int64) (core.Route, bool)
+	DefaultFolderForJID func(jid string) string
+	PutMessage          func(m core.Message) error
+	GetLastReplyID      func(jid, topic string) string
+	SetLastReplyID      func(jid, topic, replyID string)
+	GetGrants           func(folder string) []string
+	SetGrants           func(folder string, rules []string) error
+	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
+	JIDRoutedToFolder   func(jid, folder string) bool
 }
 
 func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string) (func(), error) {
@@ -133,24 +133,25 @@ func normalizeJID(jid string) string {
 	return jid
 }
 
-func isRouteTypeValid(t string) bool {
-	switch t {
-	case "command", "verb", "pattern", "keyword", "sender", "default":
-		return true
-	}
-	return false
-}
-
 func folderForJid(db StoreFns, jid string) string {
-	if db.GetRoutes == nil {
+	if db.DefaultFolderForJID == nil {
 		return ""
 	}
-	for _, r := range db.GetRoutes(jid) {
-		if r.Type == "default" {
-			return r.Target
-		}
+	return db.DefaultFolderForJID(jid)
+}
+
+// routeTargetWithin reports whether target refers to owner's own folder
+// or a descendant. Typed prefixes (folder:, daemon:, builtin:) are
+// normalized before comparison; daemon:/builtin: targets are never
+// considered inside a user folder.
+func routeTargetWithin(target, owner string) bool {
+	switch {
+	case strings.HasPrefix(target, "folder:"):
+		target = strings.TrimPrefix(target, "folder:")
+	case strings.HasPrefix(target, "daemon:"), strings.HasPrefix(target, "builtin:"):
+		return false
 	}
-	return ""
+	return target == owner || strings.HasPrefix(target, owner+"/")
 }
 
 func toolDesc(base string, rules []string, action string) string {
@@ -530,23 +531,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(map[string]any{"queued": true})
 		})
 
-	granted("get_routes", "Get routes for a JID",
-		[]mcp.ToolOption{mcp.WithString("jid", mcp.Required())},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.GetRoutes == nil {
-				return toolErr("get_routes not configured")
-			}
-			jid := req.GetString("jid", "")
-			if jid == "" {
-				return toolErr("jid required")
-			}
-			tf := folderForJid(db, jid)
-			if err := auth.Authorize(id, "get_routes", auth.AuthzTarget{RouteTarget: tf}); err != nil {
-				return toolErr(err.Error())
-			}
-			return toolJSON(map[string]any{"jid": jid, "routes": db.GetRoutes(jid)})
-		})
-
 	granted("list_routes", "List all routes visible to this group", nil,
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.ListRoutes == nil {
@@ -555,65 +539,43 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(map[string]any{"routes": db.ListRoutes(folder, id.Tier == 0)})
 		})
 
-	granted("set_routes", "Replace all routes for a JID",
-		[]mcp.ToolOption{
-			mcp.WithString("jid", mcp.Required()),
-			mcp.WithString("routes", mcp.Required()),
-		},
+	granted("set_routes",
+		"Replace all routes whose target is this folder or under this folder. "+
+			"Each route has seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), "+
+			"target (folder path, or folder:/daemon:/builtin: prefix).",
+		[]mcp.ToolOption{mcp.WithString("routes", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.SetRoutes == nil {
 				return toolErr("set_routes not configured")
 			}
-			jid := req.GetString("jid", "")
-			if jid == "" {
-				return toolErr("jid required")
-			}
-			tf := folderForJid(db, jid)
-			if err := auth.Authorize(id, "set_routes", auth.AuthzTarget{RouteTarget: tf}); err != nil {
+			if err := auth.Authorize(id, "set_routes", auth.AuthzTarget{RouteTarget: id.Folder}); err != nil {
 				return toolErr(err.Error())
 			}
 			var routes []core.Route
 			if err := json.Unmarshal([]byte(req.GetString("routes", "")), &routes); err != nil {
 				return toolErr("invalid routes json: " + err.Error())
 			}
-			// Self-harm guard: if the caller's own default route for this
-			// jid exists and is being removed from the new list, refuse.
-			if db.GetRoutes != nil {
-				for _, old := range db.GetRoutes(jid) {
-					if old.Type != "default" || old.Target != id.Folder {
-						continue
-					}
-					kept := false
-					for _, n := range routes {
-						if n.Type == "default" && n.Target == id.Folder {
-							kept = true
-							break
-						}
-					}
-					if !kept {
-						return toolErr("cannot remove own default route via set_routes")
-					}
+			// Every route must target the caller's own folder or a descendant.
+			for _, r := range routes {
+				if !routeTargetWithin(r.Target, id.Folder) {
+					return toolErr("route target outside own folder: " + r.Target)
 				}
 			}
-			if err := db.SetRoutes(jid, routes); err != nil {
+			if err := db.SetRoutes(id.Folder, routes); err != nil {
 				return toolErr(err.Error())
 			}
-			slog.Info("routes set", "jid", jid, "count", len(routes))
+			slog.Info("routes set", "folder", id.Folder, "count", len(routes))
 			return toolJSON(map[string]any{"updated": true, "count": len(routes)})
 		})
 
-	granted("add_route", "Add a single route for a JID",
-		[]mcp.ToolOption{
-			mcp.WithString("jid", mcp.Required()),
-			mcp.WithString("route", mcp.Required()),
-		},
+	granted("add_route",
+		"Add a single route. "+
+			"Fields: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), "+
+			"target (folder path, or folder:/daemon:/builtin: prefix).",
+		[]mcp.ToolOption{mcp.WithString("route", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.AddRoute == nil {
 				return toolErr("add_route not configured")
-			}
-			jid := normalizeJID(req.GetString("jid", ""))
-			if jid == "" {
-				return toolErr("jid required")
 			}
 			var route core.Route
 			if err := json.Unmarshal([]byte(req.GetString("route", "")), &route); err != nil {
@@ -622,18 +584,15 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if route.Target == "" {
 				return toolErr("route.target required")
 			}
-			if !isRouteTypeValid(route.Type) {
-				return toolErr("invalid route type")
-			}
 			if err := auth.Authorize(id, "add_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
 				return toolErr(err.Error())
 			}
-			rid, err := db.AddRoute(jid, route)
+			rid, err := db.AddRoute(route)
 			if err != nil {
 				return toolErr(err.Error())
 			}
-			slog.Info("route added", "jid", jid, "id", rid, "type", route.Type)
-			return toolJSON(map[string]any{"id": rid, "jid": jid})
+			slog.Info("route added", "id", rid, "target", route.Target, "match", route.Match)
+			return toolJSON(map[string]any{"id": rid})
 		})
 
 	granted("delete_route", "Delete a route by ID",
@@ -649,9 +608,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			route, ok := db.GetRoute(rid)
 			if !ok {
 				return toolErr(fmt.Sprintf("route not found: %d", rid))
-			}
-			if route.Type == "default" && route.Target == id.Folder {
-				return toolErr("cannot delete own default route")
 			}
 			if err := auth.Authorize(id, "delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
 				return toolErr(err.Error())
