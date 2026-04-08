@@ -92,7 +92,7 @@ Built on the shoulders of people doing serious work in this space.
 | Project                                                  | Author            | License     | Copyright                                    | What it contributed                                                                              |
 | -------------------------------------------------------- | ----------------- | ----------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | [nanoclaw](https://github.com/qwibitai/nanoclaw)         | qwibitai          | MIT         | © 2026 Gavriel                               | Direct ancestor — container-per-session model, the original shape of this system                 |
-| [kanipi](https://github.com/onvos/kanipi)                | onvos             | MIT         | © 2026 REDACTED                         | TypeScript proof-of-concept this was rewritten from; routing model, MCP IPC design, skill system |
+| [kanipi](https://github.com/kronael/kanipi)              | kronael           | MIT         | © 2026 kronael                               | TypeScript proof-of-concept this was rewritten from; routing model, MCP IPC design, skill system |
 | [ElizaOS](https://github.com/elizaOS/eliza)              | elizaOS           | MIT         | © 2026 Shaw Walters and elizaOS Contributors | character.json agent persona model, plugin ecosystem thinking                                    |
 | [Claude Code](https://github.com/anthropics/claude-code) | Anthropic         | Proprietary | © Anthropic PBC                              | The agent runtime everything runs on — tools, subagents, MCP, skills                             |
 | [smolagents](https://github.com/huggingface/smolagents)  | Hugging Face      | Apache-2.0  | © Hugging Face                               | Code-as-action framing; thinking about what the minimal agent loop looks like                    |
@@ -100,11 +100,11 @@ Built on the shoulders of people doing serious work in this space.
 | [NemoClaw](https://github.com/NVIDIA/NemoClaw)           | NVIDIA            | Apache-2.0  | © NVIDIA Corporation                         | Landlock + seccomp + netns sandboxing model for agent containers                                 |
 | [Muaddib](https://github.com/pasky/muaddib)              | Petr Baudis       | MIT         | © 2025 Muaddib contributors                  | QEMU micro-VM isolation, 3-tier chronicle memory design                                          |
 | [Hermes](https://github.com/NousResearch/hermes-agent)   | Nous Research     | MIT         | © 2025 Nous Research                         | Self-improving skill learning across sessions                                                    |
-| [takopi](https://github.com/banteg/takopi)               | banteg            | MIT         | © 2025 banteg                                | Telegram→agent dispatch, live progress streaming, the agents page at REDACTED/agents        |
+| [takopi](https://github.com/banteg/takopi)               | banteg            | MIT         | © 2025 banteg                                | Telegram→agent dispatch, live progress streaming, the agents page                                |
 
 If you build on arizuko, this is all we ask:
 
-> Built on [arizuko](https://github.com/onvos/arizuko) by onvos. © 2026 REDACTED (MIT)
+> Built on [arizuko](https://github.com/kronael/arizuko) by kronael. © 2026 kronael (MIT)
 
 ## License
 

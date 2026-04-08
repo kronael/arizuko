@@ -1,147 +1,137 @@
 # TODO
 
-## Agent web skill
+Active backlog. See ROADMAP.md for version-level strategy.
 
-The agent has a `web` skill in `ant/skills/` but it's not reliably loaded when
-agents write web pages. Agents end up writing files to the wrong path (`/home/node/`
-instead of `/workspace/web/`). Two things to investigate and fix:
+## Now
 
-1. **Skill discovery** — confirm `web` skill is always loaded for groups with
-   `WEB_HOST` set (check `.gateway-caps`, skill seeding in runner.go or gateway).
-2. **Skill content** — ensure `web` skill explicitly states the correct write path
-   (`/workspace/web/<app>/index.html`) and URL pattern (`https://$WEB_HOST/<app>/`).
-3. **Path guard** — consider adding a lint in gateway that warns if agent wrote
-   to `/home/node/` (not under a group subdir or `/workspace/web/`) — misplaced files.
+- **Agent web skill discovery** — `web` skill not reliably loaded; agents
+  write to `/home/node/` instead of `/workspace/web/<app>/index.html`.
+  Confirm seeding for groups with `WEB_HOST` set; assert correct path in
+  skill content; consider gateway lint for misplaced writes.
+- **audit-log spec verification** — `specs/3/c-audit-log.md` rewritten to
+  reflect `messages.source` as adapter-of-record (inbound = adapter name,
+  outbound = empty). Verify dashboards/audit queries against new semantics
+  on next deploy. Old semantics (source = producer category) are gone.
 
-## Channel adapters
+## Microservice port — open phases
 
-All core adapters shipped. Remaining: facebook, twitter (low priority).
+### Phase 4: MCP IPC
 
-| Adapter   | Status | Language |
-| --------- | ------ | -------- |
-| whatsapp  | ✓      | TS       |
-| discord   | ✓      | Go       |
-| email     | ✓      | Go       |
-| telegram  | ✓      | Go       |
-| reddit    | ✓      | Go       |
-| mastodon  | ✓      | Go       |
-| bluesky   | ✓      | Go       |
-| web/slink | ✗      | Go       |
-| twitter   | ✗      | —        |
-| facebook  | ✗      | —        |
+- Router becomes MCP server on unix socket per group
+- Agent containers connect via socat bridge as MCP clients
+- Tools: `send_message`, `send_file`, `schedule_task`, etc.
+- Bidirectional: router pushes notifications to agent
+- Remove file-based IPC (requests/, replies/, messages/) and SIGUSR1
+
+### Phase 5: Adapters not yet ported
+
+- twitter (low priority — no clean API)
+- facebook (low priority — fca-unofficial)
+- web/slink as standalone adapter (currently router-internal)
+
+### Phase 6: Web extraction (if needed)
+
+- Separate web server process or keep router-internal
+- If separate: HTTP to router like other adapters
+- Auth, slink, vite proxy
+
+### Open
+
+- Extension packaging: how to distribute/install adapters
+- Event types beyond messages (reactions, edits, joins)
+- Large file delivery (base64 vs upload endpoint)
 
 ## Telegram webhook mode
 
-teled currently polls via `getUpdates` (30s long-poll). Webhook mode pushes
-updates from Telegram immediately, lower latency and CPU.
+`teled` polls via `getUpdates` (30s long-poll). Webhook mode pushes
+updates immediately, lower latency and CPU. ~100 LOC change:
 
-Code changes are small (~100 lines):
+- `POST /webhook` handler in `teled/server.go`: parse `tgbotapi.Update`,
+  validate `X-Telegram-Bot-Api-Secret-Token`, call `b.handle()`
+- Remove `bot.poll()` and offset state file
+- Call `api.SetWebhook(url)` on startup
 
-- Add `POST /webhook` handler to `teled/server.go` — parse `tgbotapi.Update`,
-  validate `X-Telegram-Bot-Api-Secret-Token` header, call `b.handle()`
-- Remove `bot.poll()` and offset state file (`teled-offset`)
-- Call `api.SetWebhook(url)` on startup (or once manually)
+**Blocker**: HTTPS endpoint required (Telegram needs TLS on
+443/80/88/8443). Need TLS termination in front of `teled:9001`.
 
-Blocker: **HTTPS endpoint** — Telegram requires TLS on 443/80/88/8443.
-teled already has an HTTP server (`:9001`); just needs TLS termination in
-front (nginx/Caddy). Once infra exists the code change is straightforward.
+## Daemon test gaps (high priority)
 
-- [ ] Add webhook handler + remove polling once HTTPS infra is confirmed
+Zero test coverage on the following daemons. Risk of regression high
+because runtime branching/state machines are uncovered:
 
-## Container tooling
+- **onbod** (586 LOC, state machine + approval): state transitions,
+  permission check, name validation/collision, approval action,
+  `seedDefaultTasks`. **Highest priority** — auth-adjacent, large file.
+- **dashd**: all routes, JWT auth gate, path-traversal guard in
+  `renderMemorySection`, DB error swallowing.
+- **proxyd**: auth gate, OAuth callback, `/slink/*` rate limiter,
+  vhost matching, `/dav` rewrite.
+- **whapd**: `/send`, `/send-file`, `/typing`, `/health`; queue flush
+  loses on error; QR `pair()` recursion; LID translation.
 
-Already in container: git, bun, go, rust, python+uv, chromium, ffmpeg, ripgrep, fd,
-fzf, bat, jq, shellcheck, pandoc, imagemagick, yt-dlp, tesseract, optipng, jpegoptim,
-marp-cli, biome, prettier, ruff, pyright, pandas, matplotlib, plotly, numpy, scipy,
-python-pptx, openpyxl, weasyprint.
+## Daemon boundary leaks (medium)
 
-### Code hosting / VCS
+Adapters do work that belongs in the gateway. Cleanup as adapters are
+touched, not all at once:
 
-- [x] `gh` — GitHub CLI: issues, PRs, releases, gists, Actions
+- **All Go adapters**: mention rewriting, attachment formatting,
+  message chunking, markdown→HTML — move to gateway/router.
+- **gateway/gateway.go**: routing logic duplicates `router.ResolveRoute`;
+  sticky routing managed by gateway, not router.
+- **timed/main.go**: spawn archiving/TTL — gateway lifecycle concern.
+- **onbod**: direct DB writes to `groups`/`routes`, calls
+  `container.SeedGroupDir` directly — should go through gateway API.
+- **emaid**: IMAP SEEN flag set before delivery confirmed (data loss
+  risk on failed delivery).
 
-### Data / query
+## Daemon dead code / redundancy (low)
 
-- [x] `sqlite3` — explicit CLI (query local DBs, not just via Python)
-- [x] `duckdb` — in-process analytics on CSV/JSON/parquet, no server needed
-- [x] `psql` — Postgres client (pg_dump, query remote DBs)
-- [x] `redis-cli` — query Redis instances
-- [ ] `xsv` — fast CSV slicing/sorting/joining (Rust, single binary)
-- [x] `yq` — YAML processor (jq for YAML; configs, k8s, CI files)
-- [x] `miller` — stream CSV/JSON/TSV like awk (complements xsv)
+- `mastd/server.go:31`, `bskyd/server.go:31` — `ThreadID` field accepted
+  but never used.
+- `reditd/client.go:27-28` — in-memory cursor lost on restart, causes
+  re-polls.
+- `reditd/main.go:29` — `rc2` vs `rc` confusing in same scope.
+- `proxyd/main.go:327-361` vs `dashd/main.go:97-115` — inconsistent
+  auth posture (raw-secret bypass present in proxyd, absent in dashd).
+- `teled/router_client.go`, `discd/router_client.go`,
+  `emaid/router_client.go` — trivial `chanlib` wrappers; remove and
+  import directly.
 
-### HTTP / API / network
+## Channel adapters status
 
-- [ ] `xh` — modern curl alternative (Rust httpie; cleaner API testing output)
-- [ ] `websocat` — WebSocket client/server for testing WS endpoints
-- [x] `grpcurl` — gRPC reflection + call testing
-- [ ] `hurl` — file-based HTTP test sequences (CI-friendly)
-- [x] `socat` — bidirectional data relay; Unix socket debugging
+| Adapter   | Status  | Language |
+| --------- | ------- | -------- |
+| whatsapp  | shipped | TS       |
+| discord   | shipped | Go       |
+| email     | shipped | Go       |
+| telegram  | shipped | Go       |
+| reddit    | shipped | Go       |
+| mastodon  | shipped | Go       |
+| bluesky   | shipped | Go       |
+| web/slink | open    | Go       |
+| twitter   | open    | —        |
+| facebook  | open    | —        |
 
-### Git / diff
+## Container tooling — remaining
 
-- [x] `delta` — syntax-highlighted git diffs (agent-readable output)
-- [x] `shfmt` — shell script formatter (pair with shellcheck)
+Already in container: git, bun, go, rust, python+uv, chromium, ffmpeg,
+ripgrep, fd, fzf, bat, jq, shellcheck, pandoc, imagemagick, yt-dlp,
+tesseract, optipng, jpegoptim, marp-cli, biome, prettier, ruff, pyright,
+pandas, matplotlib, plotly, numpy, scipy, python-pptx, openpyxl,
+weasyprint, gh, sqlite3, duckdb, psql, redis-cli, yq, miller, grpcurl,
+socat, delta, shfmt, hadolint, sqlfluff, semgrep, graphviz, ghostscript,
+exiftool, sox, mediainfo, qrencode, parallel, rsync, sysstat.
 
-### Linting / static analysis
+Not yet:
 
-- [x] `hadolint` — Dockerfile linter
-- [x] `sqlfluff` — SQL formatter and linter
-- [x] `semgrep` — multi-language static analysis / secret scanning
-- [ ] `yamllint` — YAML strict linter (catches tab issues, duplicates)
-- [ ] `vale` — prose linter (docs, changelogs, READMEs)
-
-### Build / task runners
-
-- [ ] `just` — justfile task runner (simpler make; one per project)
-- [ ] `watchexec` — re-run commands on file change (dev loops)
-- [ ] `hyperfine` — command benchmarking with stats
-
-### Load / perf testing
-
-- [ ] `k6` — scriptable HTTP load testing (JS scripts)
-
-### Diagrams / visualization
-
-- [x] `graphviz` — dot → SVG/PNG (architecture, dependency graphs)
-- [ ] `gnuplot` — terminal/file plotting from data
-- [ ] `typst` — modern typesetting (PDF reports, whitepapers; lighter than LaTeX)
-
-### Media / documents
-
-- [x] `ghostscript` — PDF merge/split/compress
-- [x] `exiftool` — read/write media metadata
-- [x] `sox` — audio format conversion and processing
-- [x] `mediainfo` — detailed media file inspection
-- [x] `qrencode` — generate QR codes from CLI
-
-### Security / secrets
-
-- [ ] `age` — modern file encryption (replaces GPG for most cases)
-- [ ] `sops` — encrypted secrets files (YAML/JSON/env with age/GPG keys)
-
-### Infrastructure
-
-- [ ] `kubectl` — Kubernetes cluster management
-- [ ] `opentofu` — IaC (open Terraform fork; provision cloud resources)
-- [ ] `aws` CLI — S3, Lambda, ECR, CloudWatch from agent
-
-### Blockchain / crypto
-
-- [ ] `solana` CLI — keypairs, airdrop, deploy, account queries (Atlas/REDACTED)
-- [ ] `cast` (Foundry) — EVM: call contracts, send txs, decode data
-
-No binary tools needed for: Hyperliquid (`hyperliquid-python-sdk` / REST+WS),
-Ethereum (`web3` py / `viem` js), Polymarket (`py-clob-client` / REST).
-Install on-demand with `uv pip install` or `bun add`.
-
-### Runtime (one new language)
-
-- [ ] `ruby` — scripting, Jekyll, occasional gem tooling
-
-### Misc CLI
-
-- [x] `parallel` — GNU parallel; fan-out batch operations
-- [ ] `hexyl` — hex dump with ASCII sidebar (binary file inspection)
-- [x] `rsync` — efficient file sync (local and remote)
-- [ ] `mkcert` — locally-trusted dev HTTPS certs
-- [x] `ps`/`free` extras — `sysstat` package for `sar`, `iostat`, `mpstat` (scriptable, not TUI)
+- **Data**: `xsv`
+- **HTTP**: `xh`, `websocat`, `hurl`
+- **Lint**: `yamllint`, `vale`
+- **Build**: `just`, `watchexec`, `hyperfine`
+- **Load**: `k6`
+- **Diagrams**: `gnuplot`, `typst`
+- **Security**: `age`, `sops`
+- **Infra**: `kubectl`, `opentofu`, `aws`
+- **Crypto**: `solana`, `cast` (Foundry)
+- **Lang**: `ruby`
+- **Misc**: `hexyl`, `mkcert`

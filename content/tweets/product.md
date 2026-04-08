@@ -14,7 +14,7 @@ agents. Auth, permissions, routing, memory, scheduling as
 independent components. Add a platform without touching agent
 code. The infrastructure grows with you.
 
-github.com/onvos/arizuko
+github.com/kronael/arizuko
 
 ---
 
@@ -129,7 +129,7 @@ researches a topic, verifies it, stores it with timestamps.
 /recall-memories searches everything. Deploy findings as a web
 page with OAuth. Your research compounds.
 
-github.com/onvos/arizuko
+github.com/kronael/arizuko
 
 ---
 
