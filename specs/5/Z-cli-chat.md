@@ -129,7 +129,7 @@ no-op version.
 interface ContainerInput {
   prompt: string; // initial message
   sessionId?: string; // resume existing session
-  groupFolder: string; // e.g. "main"
+  groupFolder: string; // e.g. "root"
   chatJid: string; // used for context only inside container
   isScheduledTask?: bool;
   assistantName?: string;
@@ -162,7 +162,7 @@ input dir is empty or `_close` sentinel is written.
 
 ```
 arizuko chat [group] [flags]
-  group          group folder name (default: "main")
+  group          group folder name (default: "root")
   --new          force new session (ignore stored session ID)
   --instance     instance name (default: basename of $PWD or "local")
   --data         data dir override (default: /srv/data/arizuko_<instance>)
@@ -282,7 +282,7 @@ in output, and read at next invocation for resume.
 
 ### Group and session directory selection
 
-Default group: `"main"` (same as `arizuko create` default).
+Default group: `"root"` (same as `arizuko create` default).
 
 If no data dir flag, the CLI infers it from:
 

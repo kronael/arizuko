@@ -9,7 +9,7 @@ status: draft
 Current routing architecture conflates multiple concerns:
 
 1. **Two message paths**: User messages go through DB+router, agent outputs bypass via callbacks
-2. **Mixed addressing**: Folders (`main/foo`) vs JIDs (`telegram:123`) with no uniform format
+2. **Mixed addressing**: Folders (`root/foo`) vs JIDs (`telegram:123`) with no uniform format
 3. **Routing bypasses**: `delegate_group` directly enqueues instead of using router
 4. **Permission confusion**: `send_message` with @mentions could bypass `delegate_group` grants
 5. **No audit trail**: Agent outputs never written to messages table
@@ -38,11 +38,15 @@ Current routing architecture conflates multiple concerns:
 
 | Type        | Format     | Example                |
 | ----------- | ---------- | ---------------------- |
-| Agent group | `<folder>` | `main`, `main/reports` |
+| Agent group | `<folder>` | `root`, `root/reports` |
 
-**Distinction:** Presence of `:` character distinguishes channel JIDs from group folders.
+**Distinction:** Presence of `:` character in a routing target distinguishes
+typed targets (`folder:`, `daemon:`, `builtin:`) from plain folder paths.
+`folder:` is optional — bare paths without a `:` are always folders. JIDs
+on their own (`telegram:123`) are channel addresses, not route targets.
 
-**Deprecation:** The `local:` prefix (e.g., `local:main`) is removed. It added no value — folder paths alone are unambiguous.
+**Deprecation:** The `local:` prefix (e.g., `local:root`) is removed. It
+added no value — folder paths alone are unambiguous.
 
 ---
 
@@ -89,17 +93,21 @@ func (r *Router) Route(msg Message) Destination {
 
   // 1. Explicit routing
   if target == "" {
-    target = r.resolveTarget(msg)
+    target = r.resolveTarget(msg)  // walks routes table, match language
   }
 
-  // 2. Presence of colon determines type
-  if strings.Contains(target, ":") {
-    // JID format → channel delivery
-    return ChannelDestination{JID: target}
+  // 2. Typed prefix disambiguates destination kind
+  switch {
+  case strings.HasPrefix(target, "daemon:"):
+    return DaemonDestination{Name: strings.TrimPrefix(target, "daemon:")}
+  case strings.HasPrefix(target, "builtin:"):
+    return BuiltinDestination{Name: strings.TrimPrefix(target, "builtin:")}
+  case strings.HasPrefix(target, "folder:"):
+    return AgentDestination{Folder: strings.TrimPrefix(target, "folder:")}
+  default:
+    // Bare paths and legacy rows are folder targets
+    return AgentDestination{Folder: target}
   }
-
-  // No colon → folder path → agent
-  return AgentDestination{Folder: target}
 }
 
 func (r *Router) resolveTarget(msg Message) string {
@@ -212,7 +220,7 @@ func (g *Gateway) handleChannelMessage(msg Message, jid string) {
 send_message(
   chat string,        // conversation context (telegram:123, web:alice@domain)
   text string,        // message content
-  route_to string,    // explicit routing (main/foo, ""), requires delegate_group grant
+  route_to string,    // explicit routing (root/foo, ""), requires delegate_group grant
   reply_to string,    // message ID to thread to
   files []string,     // attachment paths
 )
@@ -242,7 +250,7 @@ func handleSendMessage(req, agentFolder string, grants []Rule) error {
     ChatJID: chat,
     Sender: agentFolder,  // folder path (no colon)
     Content: text,
-    RoutedTo: routeTo,    // "" = router decides, "main/foo" = explicit
+    RoutedTo: routeTo,    // "" = router decides, "root/foo" = explicit
     Attachments: files,
   })
 
@@ -297,7 +305,7 @@ func deriveTier2Rules(folderJIDs []string) []string {
 **Key separation:**
 
 - `send_message(jid=telegram:*)` — can send to users, router decides agent routing
-- `delegate_group(target=main/*)` — can explicitly invoke child agents
+- `delegate_group(target=root/*)` — can explicitly invoke child agents
 - These never overlap because agent messages don't trigger @mention parsing
 
 ---

@@ -35,12 +35,15 @@ per worker at a time. Multiple workers in a group can run in parallel
 Three routing modes:
 
 **1. Command-based** — `/code fix this`, `/research topic` routes to
-the named worker. The command prefix is stripped before the worker
-sees the message. Extends the v1 commands spec.
+the named worker. Implemented as entries in the gateway's
+`gatewayCommands` table; the command prefix is stripped before the
+worker sees the message.
 
-**2. Keyword/rule-based** — operator defines rules:
-`{ pattern: /^@coder/, worker: 'coder' }`. Matched in gateway before
-agent spawn.
+**2. Match-based** — operator adds a routes-table row whose `match`
+targets the worker. Example:
+`seq=10 match="verb=message sender=tg-42*" target=root/coder`.
+Evaluated by the routing layer before agent spawn. See
+`specs/1/F-group-routing.md` for the match language.
 
 **3. Agent-delegated** — default agent receives message, decides to
 hand off via IPC `type:'delegate'` with `{ worker, prompt }`. Gateway

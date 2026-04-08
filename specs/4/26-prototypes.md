@@ -23,9 +23,9 @@ When gated resolves a route target that doesn't exist,
 registers the child in DB, and routes to it.
 
 ```
-gated resolves target "main/support/tg_123"
+gated resolves target "root/support/tg_123"
   → target doesn't exist
-  → copy from "main/support/prototype/"
+  → copy from "root/support/prototype/"
   → register child in DB
   → route to child
 ```
@@ -69,7 +69,6 @@ groups/
     prototype/          what new worlds look like
       CLAUDE.md
       SOUL.md
-  main/
     support/            parent group (has prototype/)
       prototype/
         CLAUDE.md

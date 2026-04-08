@@ -34,7 +34,7 @@ dufs (localhost:8179, no auth)
 Each `auth_users` row gains:
 
 - `webdav_token_hash TEXT` — SHA-256 of a static token (shown once at generation)
-- `webdav_groups TEXT` — JSON array of allowed group names (default `["main"]`)
+- `webdav_groups TEXT` — JSON array of allowed group names (default `["root"]`)
 
 Gateway validates Basic Auth before forwarding; dufs sees no credentials.
 
@@ -52,7 +52,7 @@ https://<host>/dav/<group>/logs/    # read-only (write methods blocked in proxy)
 
 ```sql
 ALTER TABLE auth_users ADD COLUMN webdav_token_hash TEXT;
-ALTER TABLE auth_users ADD COLUMN webdav_groups TEXT DEFAULT '["main"]';
+ALTER TABLE auth_users ADD COLUMN webdav_groups TEXT DEFAULT '["root"]';
 ```
 
 ### Config

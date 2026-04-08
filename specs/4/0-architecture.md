@@ -58,10 +58,11 @@ may run on remote hosts. See `specs/4/1-channel-protocol.md`.
   adapters (teled, discd, whapd) and internal services
   (onbod, dashd) use the same registration mechanism.
   See `specs/4/1-channel-protocol.md`.
-- **Route targets** are either a group folder path (contains
-  `/`) or a service name (no `/`). Folder paths → write to
-  messages table. Service names → channels table lookup →
-  HTTP POST to registered URL.
+- **Route targets** are folder paths by default. Explicit prefixes
+  disambiguate future destinations: `folder:` (optional, default),
+  `daemon:` (daemon HTTP dispatch), `builtin:` (in-gateway handler).
+  Folder paths → write to messages table. Daemon targets → channels
+  table lookup → HTTP POST to registered URL.
 - **Agent is an implicit channel** — currently hardcoded as
   `docker run` in gated. Conceptually a channel named
   `agent`. Future: registers as `http://agentd:8092`.

@@ -20,14 +20,14 @@ container runner, HTTP API, session management.
 
 ## Tables owned
 
-| Table             | Purpose                              |
-| ----------------- | ------------------------------------ |
-| `routes`          | JID → group folder mapping           |
-| `groups`          | known groups and their config        |
-| `router_state`    | daemon state (last poll cursor)      |
-| `sessions`        | active agent sessions per group      |
-| `session_log`     | session history (start, end, reason) |
-| `system_messages` | system-generated messages            |
+| Table             | Purpose                                      |
+| ----------------- | -------------------------------------------- |
+| `routes`          | message → target resolution (match → target) |
+| `groups`          | known groups and their config                |
+| `router_state`    | daemon state (last poll cursor)              |
+| `sessions`        | active agent sessions per group              |
+| `session_log`     | session history (start, end, reason)         |
+| `system_messages` | system-generated messages                    |
 
 Shared tables (read/write): `messages`, `chats`.
 Migration service name: `gated`.
@@ -49,29 +49,34 @@ every 1s:
 
 ## Route resolution
 
-Routes map JID prefixes to groups:
+Routes are a flat list of rows, each with a `match` expression and a
+`target`. The gateway loads all rows once per poll and walks them in
+`seq` order; the first row whose `match` evaluates true for the
+current message wins.
 
 ```sql
-SELECT folder FROM routes
-  WHERE ? LIKE jid_prefix || '%'
-  ORDER BY length(jid_prefix) DESC
-  LIMIT 1
+SELECT id, seq, match, target, impulse_config
+FROM routes
+ORDER BY seq ASC
 ```
 
-Longest prefix match wins. A route for `telegram:-1001234`
-beats `telegram:`.
-
-Route type `command` matches `text == match || text.startsWith(match + " ")`.
-Route type `prefix` matches `text.startsWith(match)` (no space required).
+`match` is a space-separated list of `key=glob` pairs over message
+fields (`platform`, `room`, `chat_jid`, `sender`, `verb`). All pairs
+must match; empty `match` matches everything. Globs use Go
+`path.Match`. See `specs/1/F-group-routing.md` for the full vocabulary.
 
 ### Route targets
 
-- **Group folder** (contains `/`): write message to messages table, enqueue for container.
-- **Service name** (no `/`): look up URL in channels table, POST message to channel's `/send` endpoint.
+- **Folder path** — plain path (e.g. `REDACTED/content`) or explicit
+  `folder:REDACTED/content`. Gateway writes the message to the messages
+  table and enqueues for the container.
+- **`daemon:<name>`** — HTTP POST to a registered daemon's `/send`
+  endpoint. Reserved for future use (today commands like `/approve`
+  are dispatched from the in-code command layer).
+- **`builtin:<name>`** — in-gateway handler (future). Reserved.
 
-Service routing enables commands like `/approve` and `/reject` to be plain
-prefix routes pointing to `onbod`, resolved identically to group routes.
-No special gateway code required.
+`folder:` is optional; bare paths are folder targets. The prefix is
+only required for `daemon:` / `builtin:` disambiguation.
 
 ### Template routing
 
@@ -114,12 +119,16 @@ package.
 
 ### Predefined routes
 
-On group registration (tiers 0-2), gateway inserts:
+On group registration the gateway inserts a single row:
 
-- `seq=-2, type=prefix, match=@` — delegate to named child
-- `seq=-1, type=prefix, match=#` — topic-scoped session
+```sql
+INSERT OR IGNORE INTO routes (seq, match, target)
+VALUES (0, 'room=<post-colon of jid>', '<folder>');
+```
 
-See `specs/7/23-topic-routing.md`.
+There are no predefined `@` / `#` prefix rows. Inline prefix
+navigation is handled in code by the prefix layer (see
+`specs/4/23-topic-routing.md`).
 
 ## Job queue
 
@@ -184,26 +193,22 @@ invoking the callback. gated does not see raw MCP requests.
 
 ## Gateway commands
 
-Intercepted before agent dispatch. Text-command model for
-channel consistency (some channels have native commands,
-arizuko uses text interception).
+Intercepted before agent dispatch by the command layer of the
+pipeline. All commands live in a single Go registration table
+(`gatewayCommands` in `gateway/commands.go`) so adding one is a
+one-line addition.
 
-| Command   | Effect                                                         |
-| --------- | -------------------------------------------------------------- |
-| `/new`    | Clear session, enqueue trailing args as message                |
-| `/ping`   | Reply with group, session, active containers                   |
-| `/chatid` | Reply with the chat JID                                        |
-| `/stop`   | Kill active container for this chat                            |
-| `/status` | Show gateway state, channels, containers (TBD: route to dashd) |
+| Command              | Effect                                              |
+| -------------------- | --------------------------------------------------- |
+| `/new`               | Clear session, enqueue trailing args as message     |
+| `/ping`              | Reply with group, session, active containers        |
+| `/chatid`            | Reply with the chat JID                             |
+| `/stop`              | Kill active container for this chat                 |
+| `/status`            | Show gateway state, channels, containers            |
+| `/approve` `/reject` | Forward to onbod daemon over HTTP (onboarding only) |
 
-Commands are gateway code, not agent tools. The command
-registry is not exported to agents. `/file` commands
-(put/get/list) are deferred — agents handle files via
-MCP tools instead.
-
-Service routes (not gateway code): `/approve` → `onbod`,
-`/reject` → `onbod`. These are prefix routes in the routing
-table resolved via channels table. `/grant` is an MCP tool in ipc.
+Commands never touch the routes table. The command registry is not
+exported to agents. `/grant` is an MCP tool in ipc.
 
 Implementation: `gateway/commands.go`.
 

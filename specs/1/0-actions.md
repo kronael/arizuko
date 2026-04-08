@@ -49,16 +49,16 @@ for the `SpawnGroup(parentFolder, childJID)` contract).
 
 ### Routes
 
-| Action         | MCP | Input                                |
-| -------------- | --- | ------------------------------------ |
-| `get_routes`   | yes | `{ jid }`                            |
-| `list_routes`  | yes | `{ folder? }`                        |
-| `set_routes`   | yes | `{ jid, routes[] }`                  |
-| `add_route`    | yes | `{ jid, type, seq, match?, target }` |
-| `delete_route` | yes | `{ id }`                             |
+| Action         | MCP | Input                     |
+| -------------- | --- | ------------------------- |
+| `list_routes`  | yes | `{ folder? }`             |
+| `set_routes`   | yes | `{ routes[] }`            |
+| `add_route`    | yes | `{ seq, match?, target }` |
+| `delete_route` | yes | `{ id }`                  |
 
-`delete_route` and `set_routes` refuse to remove the caller's own
-tier-0 default route (self-harm guard).
+`delete_route` and `set_routes` refuse to remove the last route
+whose target equals the caller's own folder (self-harm guard:
+never let an agent disconnect itself from every inbound source).
 
 ### Sidecars (not yet implemented)
 
@@ -74,14 +74,19 @@ spawn. `request_sidecar` starts immediately for current session.
 
 ## Routing rules
 
-RoutingRule types: `command`, `prefix` (@/# shortcuts, seq -2/-1),
-`pattern` (regex), `keyword` (case-insensitive substring),
-`sender` (regex on sender JID), `default`.
+Routes are a flat list of rows with `(seq, match, target)`. `match`
+is a space-separated list of `key=glob` pairs (`platform`, `room`,
+`chat_jid`, `sender`, `verb`) with Go `path.Match` semantics. Empty
+`match` matches everything (wildcard).
 
-Evaluation order by seq (lower first); convention: prefix at -2/-1,
-command at 0, others positive, default last.
+Evaluation order: ascending `seq`, first match wins. Convention:
+`seq=0` for default per-room rows, positive `seq` for overrides,
+high `seq` for catch-alls.
 
-`target` is a group folder name.
+`target` is a folder path by default. Explicit `folder:` /
+`daemon:` / `builtin:` prefixes disambiguate typed targets.
+
+See `specs/1/F-group-routing.md` for the full vocabulary.
 
 ## Authorization
 

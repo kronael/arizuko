@@ -103,29 +103,27 @@ CREATE TABLE onboarding (
 
 ## Commands
 
-onbod handles `/approve` and `/reject`. gated routes these via
-the channels table — onbod receives them as HTTP POST to its
-`/send` endpoint. Routing table entries seeded by onbod at
-startup via DB upsert (INSERT OR IGNORE):
-
-```sql
-INSERT OR IGNORE INTO routes (jid, seq, type, match, target)
-  VALUES ('*', -10, 'command', '/approve', 'onbod'),
-         ('*', -10, 'command', '/reject',  'onbod');
-```
-
-`jid = '*'` is a wildcard matching any source JID (evaluated
-by gated when no exact-match route exists for the source JID).
+onbod handles `/approve` and `/reject`. gated's command layer
+(`gatewayCommands` table in `gateway/commands.go`) intercepts them
+and HTTP-POSTs to onbod's `/send` endpoint directly. No route table
+entries are involved — the routes table never stores commands.
 
 ### Tier-0 enforcement
 
 onbod receives the sender's `chat_jid` in the HTTP POST payload.
-It verifies root-only access by querying the routes table:
-`SELECT target FROM routes WHERE jid = ? AND seq = 0 LIMIT 1`
-to find the target folder for the sender's JID, then checks
-`SELECT parent FROM groups WHERE folder = ?`
-(SQLite table name: `groups`) — if `parent IS NULL`,
-the sender is tier 0 (root). Otherwise reject with "Permission denied."
+It verifies root-only access by looking up the sender's default
+target folder via the routes table and then checking the group's
+parent:
+
+```sql
+SELECT r.target FROM routes r
+WHERE r.match LIKE 'room=' || ? || '%' AND r.seq = 0
+LIMIT 1
+```
+
+(where `?` is the post-colon room id of the sender JID). Then
+`SELECT parent FROM groups WHERE folder = ?` — if `parent IS NULL`
+the sender is tier 0 (root); otherwise reject with "Permission denied."
 
 ### /approve <jid> <folder>
 
@@ -135,7 +133,7 @@ the sender is tier 0 (root). Otherwise reject with "Permission denied."
 - Copies prototype from `groups/root/prototype/` if `ONBOARDING_PROTOTYPE` set,
   or from `ONBOARDING_PROTOTYPE` path if configured
 - Inserts group in DB (tier 1)
-- Adds routes: default (seq 0), `@` (seq -2), `#` (seq -1)
+- Adds one route row: `(seq=0, match='room=<post-colon of jid>', target=<folder>)`
 - Grants: tier 1 defaults (see action-grants spec)
 - Enqueues welcome system message
 - Sets onboarding status to `approved`
@@ -198,14 +196,12 @@ and wraps the outbound POST above.
 Notifications sent via `notify.Send(jids, text, sendFn)` only — no
 outbound audit log (onbod does not call `store.StoreOutbound`).
 
-## Target routing (onbod as a channel service)
+## Dispatch from gateway
 
-When gated's route table returns `target = "onbod"` for an
-incoming message, gated looks up `"onbod"` in the channels
-table (not the groups table) and HTTP-POSTs to the channel's
-`/send` URL. This is the same path as routing to any channel
-service. See `specs/7/1-channel-protocol.md` §service-routes
-for the full lookup mechanism.
+gated's command layer (`gateway/commands.go`) intercepts `/approve`
+and `/reject` and HTTP-POSTs directly to
+`http://onbod:8091/send` (or `$ONBOD_URL`). No routing table
+indirection — the command layer knows onbod is its only target.
 
 ## Service contract
 
@@ -229,9 +225,12 @@ deliver inbound messages from a user platform.
 
 ## Notifications
 
-onbod determines root JIDs by querying:
-`SELECT DISTINCT r.jid FROM routes r JOIN groups g ON g.folder = r.target WHERE g.parent IS NULL OR g.parent = ''`
-then calls `notify.Send(jids, text, sendFn)` from the `notify/` library.
+onbod determines root JIDs by walking the routes table for rows
+whose target is a root group (`parent IS NULL OR parent = ''`)
+and extracting the `room=X` literal from each matching row's
+match expression; the result is re-assembled as a JID using the
+target group's platform. It then calls `notify.Send(jids, text,
+sendFn)` from the `notify/` library.
 
 ## Welcome message enqueue
 

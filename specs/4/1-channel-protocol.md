@@ -243,17 +243,24 @@ avoids 502s when the conversation started on a non-primary adapter.
 
 ## Route targets
 
-A route target is either:
+A route target is a string. Its shape determines how gated
+dispatches the message:
 
-- **Folder path** (contains `/`) — write message to
-  messages table; agent picks it up.
-- **Service name** (no `/`) — look up URL in channels
-  table, HTTP POST to `/send`. Same protocol as any
-  channel.
+- **Folder path** (default) — e.g. `REDACTED/content`, optionally
+  written as `folder:REDACTED/content`. Gateway writes the message
+  to the messages table; the agent container picks it up.
+- **`daemon:<name>`** — HTTP POST to a registered daemon's `/send`
+  endpoint (same lookup as external channel adapters). Reserved
+  for future expansion.
+- **`builtin:<name>`** — in-gateway handler. Reserved.
 
-gated holds no hardcoded knowledge of `/approve`,
-`/reject`, etc. They're just routes. See `specs/7/9-gated.md`
-for route resolution details.
+`folder:` is optional; existing bare-path rows continue to work.
+Only explicit daemon/builtin targets need a prefix.
+
+gated's command layer (`gatewayCommands` table in
+`gateway/commands.go`) dispatches `/approve`, `/reject`, and all
+other slash-commands directly — they never flow through routes.
+See `specs/4/9-gated.md` for route resolution details.
 
 ## Agent channel
 

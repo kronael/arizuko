@@ -30,5 +30,5 @@ from From header display name.
 
 - Inbound: IMAP IDLE on INBOX, falls back to 60s poll. Double guard
   (SEEN flag + DB check). Exponential backoff on errors.
-- All email routes to main group.
+- All email routes to root group.
 - Ports: IMAP 993 (TLS), SMTP 587 (STARTTLS).

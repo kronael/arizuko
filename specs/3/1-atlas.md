@@ -10,7 +10,7 @@ status: draft
 
 ## Facts
 
-YAML markdown knowledge files in `groups/main/facts/`. Schema: `path`,
+YAML markdown knowledge files in `groups/root/facts/`. Schema: `path`,
 `category`, `topic`, `verified_at`, `header` (dense summary). 85+ files.
 
 `/facts` skill handles retrieval (explore subagent scans headers),

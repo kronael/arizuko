@@ -14,7 +14,7 @@ kanipi-<name>/
 ├── .env.example          # config template (tokens replaced with placeholders)
 ├── character.json        # agent identity (bio, topics, style)
 ├── groups/
-│   └── main/
+│   └── root/
 │       ├── CLAUDE.md     # agent instructions
 │       ├── character.json  # per-group override (optional)
 │       └── facts/        # knowledge files (YAML markdown)
@@ -33,7 +33,7 @@ kanipi create <name> --from /path/to/local/repo
 # 2. mkdir /srv/data/kanipi_<name>/
 # 3. Copy .env.example → .env (user fills secrets)
 # 4. Copy groups/ → groups/
-# 5. Copy character.json → groups/main/character.json (if not per-group)
+# 5. Copy character.json → groups/root/character.json (if not per-group)
 # 6. Generate systemd unit
 # 7. Register groups from repo structure
 

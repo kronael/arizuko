@@ -35,7 +35,8 @@ If null, the default config applies (threshold=100, message=100 →
 fires on every message, current behavior).
 
 ```sql
-ALTER TABLE routes ADD COLUMN impulse_config TEXT; -- JSON or null
+-- Column exists in the current routes schema:
+-- routes(id, seq, match, target, impulse_config)
 ```
 
 Config shape (same as `ImpulseConfig`):
@@ -50,12 +51,13 @@ To suppress triggering on a route, set all weights to 0:
 { "threshold": 100, "weights": { "*": 0 }, "max_hold_ms": 0 }
 ```
 
-### JID impulse resolution
+### Message impulse resolution
 
-`getImpulseConfigForJid(jid)` merges configs across all routes for
-a JID: if any route has a non-null config, use it; otherwise default.
-Platform wildcard routes (e.g. `discord:`) provide the fallback config
-when no per-channel config exists.
+`GetImpulseConfigJSON(msg)` walks the routes table in `seq` order,
+returns the first non-null `impulse_config` whose `match` expression
+matches the current message, otherwise the default. Platform
+wildcard routes (e.g. `match=platform=discord`) provide the fallback
+config when no per-room config exists.
 
 ### Access tiers
 
@@ -64,8 +66,8 @@ when no per-channel config exists.
 | none      | ✓     | root only       | ✗                  |
 | any route | ✓     | group           | per impulse config |
 
-No separate `store` route type. Impulse config with zero weights IS
-a store-only route.
+No separate "store-only" route kind. An impulse config with zero
+weights on an otherwise normal route row IS a store-only route.
 
 ### Access control: DENY not filter
 
@@ -86,38 +88,20 @@ Root (tier 0) bypasses scope check — sees all JIDs.
 
 ## Implementation
 
-### Migration
-
-```sql
--- 0NNN-impulse-config.sql
-ALTER TABLE routes ADD COLUMN impulse_config TEXT;
-```
-
 ### DB
 
-```typescript
-export function getImpulseConfigForJid(jid: string): ImpulseConfig {
-  const platform = jid.split(':')[0] + ':';
-  const rows = db
-    .prepare(
-      'SELECT impulse_config FROM routes WHERE jid IN (?, ?) AND impulse_config IS NOT NULL LIMIT 1',
-    )
-    .all(jid, platform) as { impulse_config: string }[];
-  if (rows.length === 0) return defaultConfig();
-  return { ...defaultConfig(), ...JSON.parse(rows[0].impulse_config) };
-}
+```go
+// GetImpulseConfigJSON walks routes in seq order, returns the first
+// non-null impulse_config whose match evaluates true for msg.
+func (s *Store) GetImpulseConfigJSON(msg core.Message) string
 ```
 
-### index.ts
+### Gateway
 
-Remove `isSocialJid()` check and global `impulseConfig`. Apply
-per-JID config to every message batch:
+Apply per-message config to every batch:
 
-```typescript
-// before: if (isSocialJid(chatJid)) { accumulate with global config }
-// after: always accumulate with per-JID config
-const cfg = getImpulseConfigForJid(chatJid);
-let iState = impulseStates.get(chatJid) ?? emptyState();
+```go
+cfgJSON := store.GetImpulseConfigJSON(msg)
 // ... accumulate, check flush
 ```
 
@@ -125,8 +109,8 @@ let iState = impulseStates.get(chatJid) ?? emptyState();
 
 ```sql
 -- Store all Discord in atlas/content scope, never trigger
-INSERT INTO routes (jid, type, seq, target, impulse_config)
-VALUES ('discord:', 'default', 9999, 'atlas/content',
+INSERT INTO routes (seq, match, target, impulse_config)
+VALUES (9999, 'platform=discord', 'atlas/content',
         '{"threshold":100,"weights":{"*":0},"max_hold_ms":0}');
 ```
 
@@ -135,6 +119,7 @@ VALUES ('discord:', 'default', 9999, 'atlas/content',
 Message query actions (`get_messages`, `read_messages`):
 
 1. Resolve caller folder from container context
-2. Check `routes.target` includes caller folder for requested JID
+2. Check that some route whose match evaluates true for the requested
+   JID has `target` equal to (or under) the caller folder
 3. If not: return `access_denied` error
 4. Root: bypass check

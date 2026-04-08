@@ -6,31 +6,33 @@ status: draft
 
 **Status**: shipped
 
-Routing symbols `@agent` and `#topic` as predefined route
-table entries. Created automatically on group registration
-for tiers 0-2.
+Inline routing symbols `@agent` and `#topic` in message content.
+Handled entirely in the gateway's prefix layer — no routes table
+rows are involved. The prefix layer runs after the command layer
+and before the routing layer.
 
 ## Routing symbols
 
 ### @agent — route to subgroup
 
-`@support hello` routes to `<parent>/support` (child group).
+`@support hello` routes to `<group.Folder>/support` (child group).
 Prefix stripped before agent sees the message.
 
-- Route type: `prefix`, match: `@`
-- Resolves target: `<parent>/<name>`
-- Child must exist in groups table
-- Message delivered via `delegateToFolder` with stripped text
+- Parsed inline from `msg.Content`
+- Resolves target: `<parent>/<name>` where `<parent>` is the
+  folder of the group that owns the incoming room
+- Child must exist in the groups table
+- Message delivered via `delegateViaMessage` with the stripped text
 - If child doesn't exist: log and drop
 
 ### #topic — route to named session
 
-`#deploy let's review` routes to session "deploy" within
-the same group. Same agent, same folder, different session.
+`#deploy let's review` routes to session "deploy" within the
+same group. Same agent, same folder, different session.
 
-- Route type: `prefix`, match: `#`
+- Parsed inline from `msg.Content`
 - Target: same group folder (self-route with topic context)
-- Creates or resumes named session keyed by `(group_folder, topic)`
+- Creates or resumes a named session keyed by `(group_folder, topic)`
 - Agent sees only messages from that topic's session history
 - `#` prefix consumed — agent sees "let's review"
 - No prefix = default session (topic = "")
@@ -44,63 +46,44 @@ the same group. Same agent, same folder, different session.
 | Folder       | different                 | same                          |
 | Context      | separate                  | separate                      |
 
-## Predefined routes on group creation
+## No routes table rows
 
-For tiers 0-2, insert `@` and `#` routes for the registration JID:
+Prefix handling is entirely in code. The routes table never stores
+`@` or `#` rows. When a group is registered, gateway inserts one row:
 
-```go
-if tier <= 2 {
-    s.AddRoute(jid, store.Route{Seq: -2, Type: "prefix", Match: "@", Target: folder})
-    s.AddRoute(jid, store.Route{Seq: -1, Type: "prefix", Match: "#", Target: folder})
-}
+```sql
+INSERT OR IGNORE INTO routes (seq, match, target)
+VALUES (0, 'room=<post-colon of jid>', '<folder>');
 ```
 
-`jid` is the source JID passed to `register_group`. Routes are per
-source-JID. When `add_route` is called in `ipc/ipc.go` and the
-target group's tier is 0-2, the handler also inserts `@` and `#`
-prefix routes for the same source JID (after inserting the
-requested route):
+The prefix layer reads `msg.Content`, detects an inline `@name` or
+`#name` token at the start, and dispatches accordingly. The
+message's owning group is resolved first (via the routing layer's
+`groupForJid`), so the prefix layer always has a base folder to
+navigate from.
 
-```go
-g, ok := db.GetGroupByFolder(route.Target)
-if ok && g.Tier <= 2 {
-    db.AddRoute(route.JID, store.Route{Seq: -2, Type: "prefix", Match: "@", Target: g.Folder})
-    db.AddRoute(route.JID, store.Route{Seq: -1, Type: "prefix", Match: "#", Target: g.Folder})
-}
+## Pipeline order
+
+```
+1. sticky layer   — bare @name / #topic updates routing state
+2. command layer  — /new, /ping, /approve etc. from gatewayCommands table
+3. prefix layer   — inline @name / #name navigation (this doc)
+4. routing layer  — walks routes table, first match wins
 ```
 
-`store.AddRoute` uses `INSERT OR IGNORE` semantics — duplicate
-`(jid, seq, match)` entries are silently skipped.
-
-Negative seq ensures `@` and `#` evaluated before user routes.
-
-## Route matching
-
-New route type `prefix` in `router.RouteMatches`:
-
-```go
-case "prefix":
-    return strings.HasPrefix(strings.TrimSpace(msg.Content), r.Match)
-```
-
-After match, caller parses the full prefix. Add to `gateway/gateway.go`:
-
-```go
-// ParsePrefix parses "@name rest" or "#name rest" from text.
-// Returns name (without @ or #), rest of message, and ok=true on success.
-func parsePrefix(text string) (name, rest string, ok bool)
-```
+Commands and prefixes never consult the routes table. Only the
+routing layer reads it.
 
 ## @agent resolution
 
-1. Parse `@<name>` from message
-2. Resolve child folder: `<target>/<name>`
+1. Parse `@<name>` from `msg.Content`
+2. Resolve child folder: `<group.Folder>/<name>`
 3. Check child exists in groups table
-4. Strip prefix, delegate via `delegateToFolder`
+4. Strip prefix, delegate via `delegateViaMessage`
 
 ## #topic resolution
 
-1. Parse `#<name>` from message
+1. Parse `#<name>` from `msg.Content`
 2. Target is self (same folder)
 3. Strip prefix
 4. Look up `GetSession(folder, topic)` for topic-specific session
@@ -134,41 +117,15 @@ type RunConfig struct {
 `container.Run` passes `Topic` into `start.json` as `"topic"` field
 and appends `"Topic session: #name"` to `annotations` when non-empty.
 
-## Schema changes
+## delegateViaMessage
 
-Sessions table gains `topic` column, PK changes. SQLite cannot
-ALTER TABLE to change the PK, so migration recreates the table:
+`delegateViaMessage` is an existing function in `gateway/gateway.go`.
+For `@agent` dispatch: `folder=childFolder`, `prompt=stripped text`,
+`originJid=msg.ChatJID`, `depth=0`.
 
-```sql
--- migration file: store/migrations/0008-topic-sessions.sql
-CREATE TABLE sessions_new (
-  group_folder TEXT NOT NULL,
-  topic TEXT NOT NULL DEFAULT '',
-  session_id TEXT NOT NULL,
-  PRIMARY KEY (group_folder, topic)
-);
-INSERT INTO sessions_new (group_folder, topic, session_id)
-  SELECT group_folder, '', session_id FROM sessions;
-DROP TABLE sessions;
-ALTER TABLE sessions_new RENAME TO sessions;
-
-ALTER TABLE messages ADD COLUMN topic TEXT NOT NULL DEFAULT '';
-```
-
-## delegateToFolder
-
-`delegateToFolder` is an existing function in `gateway/gateway.go`:
-
-```go
-func (g *Gateway) delegateToFolder(label, folder, prompt, originJid string, depth int) error
-```
-
-For `@agent` dispatch: `label="route"`, `folder=childFolder`,
-`prompt=stripped text`, `originJid=msg.ChatJID`, `depth=0`.
-
-For `@agent` resolution: `<target>` and `<parent>` both refer to the
-route's Target field (= the receiving group's folder). The child folder
-is `route.Target + "/" + name` where `name` is parsed from `@name`.
+The child folder is `group.Folder + "/" + name` where `name` is
+parsed from `@name` and `group` is the owning group returned by
+`groupForJid` for the current message.
 
 ## start.json topic injection
 
@@ -182,22 +139,11 @@ is `route.Target + "/" + name` where `name` is parsed from `@name`.
 - `/stop #topic` — not in scope; standard `/stop` stops all containers for the folder
 - No prefix = default session (topic="")
 
-## Evaluation order
-
-```
-1. Gateway commands (/new, /stop, /ping, etc.)
-2. Route table scan (seq-ordered, first match wins)
-   seq -2: @ prefix (predefined for tiers 0-2)
-   seq -1: # prefix (predefined for tiers 0-2)
-   seq  0: default route
-   seq  N: user-defined routes
-```
-
 ## Batch ordering note
 
-Route resolution happens on the last non-command message in a poll
+Prefix resolution happens on the last non-command message in a poll
 batch. If multiple messages arrive together with different `@`/`#`
-prefixes, the last message determines routing for the entire batch.
+prefixes, the last message determines dispatch for the entire batch.
 All messages in the batch (including earlier ones with different
 prefixes) are delivered to the target resolved from the last message.
 Earlier prefix content is not lost — it arrives in the container's

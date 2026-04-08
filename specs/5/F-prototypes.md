@@ -19,9 +19,9 @@ the gateway clones it from the routing source group
 the prototype.
 
 ```
-router resolves target "main/support/user_123"
+router resolves target "root/support/user_123"
   → target doesn't exist
-  → clone from "main/support" (the routing source)
+  → clone from "root/support" (the routing source)
   → register clone in DB
   → route to clone
 ```
@@ -37,11 +37,11 @@ No special naming. Spawns are children in the existing
 siblings from seeing each other:
 
 ```
-main/support/                   prototype
-main/support/tg_REDACTED/     spawn (child)
-main/support/web_abc123/        spawn (child)
-main/reddit/                    prototype
-main/reddit/post_abc123/        spawn (child)
+root/support/                   prototype
+root/support/tg_REDACTED/     spawn (child)
+root/support/web_abc123/        spawn (child)
+root/reddit/                    prototype
+root/reddit/post_abc123/        spawn (child)
 ```
 
 Children can't see siblings. The prototype (parent)
@@ -78,11 +78,11 @@ prototype/                 seeds root (was template/)
   web/
 
 groups/
-  main/support/            prototype
+  root/support/            prototype
     CLAUDE.md
     SOUL.md                read by agent at /home/node/SOUL.md
     skills/
-  main/support/tg_123/     spawn
+  root/support/tg_123/     spawn
     CLAUDE.md              copied from prototype
     SOUL.md                copied from prototype
     skills/                mounted ro from prototype

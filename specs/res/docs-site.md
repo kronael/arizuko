@@ -151,7 +151,7 @@ These are ordered by distinctiveness — most unusual/defensible first:
    Language doesn't matter. Contract matters.
 
 3. **Groups are directories**
-   A group is a folder: `groups/main/`. That folder is the agent's $HOME
+   A group is a folder: `groups/root/`. That folder is the agent's $HOME
    inside the container. Diary entries, facts, user profiles, CLAUDE.md —
    all plain files. Backup is `cp -r`. Diff is `git diff`. The agent
    can edit its own CLAUDE.md, write new skills, and update its memory
@@ -171,8 +171,8 @@ These are ordered by distinctiveness — most unusual/defensible first:
    it at runtime.
 
 6. **Tier is folder depth**
-   `groups/main/` is tier 0 (root). `groups/main/research/` is tier 1.
-   `groups/main/research/qa/` is tier 2. Permissions flow from depth.
+   `groups/root/` is tier 0 (root). `groups/root/research/` is tier 1.
+   `groups/root/research/qa/` is tier 2. Permissions flow from depth.
    Tier 0 gets all MCP tools. Tier 3+ gets `send_reply` only. No
    permission table. No RBAC configuration. Depth is authority.
 
@@ -1007,8 +1007,8 @@ you want to add a new channel to all of them, you touch N deployments. When you
 want a shared memory pool across a group hierarchy, you are building that
 yourself.
 
-In arizuko, a group hierarchy is just folder depth. `groups/main/` is the root.
-`groups/main/alice/` is a child agent for Alice. They share the same database,
+In arizuko, a group hierarchy is just folder depth. `groups/root/` is the root.
+`groups/root/alice/` is a child agent for Alice. They share the same database,
 the same channel delivery infrastructure, and the same MCP tools. Alice's agent
 is isolated (it has its own folder, its own session, its own grants) but it
 lives inside the same operational footprint as the root. One instance, many
@@ -1133,7 +1133,7 @@ container image.
 
 **Before/after**: Before: using the arizuko container requires a running
 gateway, a SQLite store, and a registered channel adapter just to get a
-response. After: `arizuko chat main` (or `ant`) launches an agent
+response. After: `arizuko chat root` (or `ant`) launches an agent
 directly from the terminal with full memory, MCP tools, and session
 resume. The agent does not know it is running in CLI mode.
 

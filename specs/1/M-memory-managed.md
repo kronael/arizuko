@@ -18,8 +18,8 @@ Lines beyond 200 are not loaded.
 
 ## Global CLAUDE.md mount
 
-`groups/global/CLAUDE.md` written by main group agent. Mounted
-read-only into non-main groups via
+`groups/global/CLAUDE.md` written by root group agent. Mounted
+read-only into non-root groups via
 `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`.
 
 ## What belongs where

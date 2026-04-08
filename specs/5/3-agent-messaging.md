@@ -31,14 +31,14 @@ Agent JWTs are minted by the gateway on request (new IPC task
 
 ## Flow
 
-1. Agent A holds a link to agent B's group (shared out-of-band or via main).
+1. Agent A holds a link to agent B's group (shared out-of-band or via root).
 2. Agent A POSTs to `/pub/s/<token>/send` with its JWT.
 3. Gateway verifies JWT, delivers message to group B's `chat_jid`.
 4. Agent B handles it as a normal inbound message with `sender = agent:a`.
 
 ## Routing
 
-Main group can create links targeting any group — natural hub for
+Root group can create links targeting any group — natural hub for
 orchestrating inter-agent communication.
 
 ## Decided (previously open)
@@ -46,7 +46,7 @@ orchestrating inter-agent communication.
 - **Agent discovery**: via MCP `tools/list` on shared unix
   sockets. Agents connected to the same `ipc` instance
   discover available groups through the `refresh_groups` tool.
-  Main group acts as natural registry — it sees all groups
+  Root group acts as natural registry — it sees all groups
   and can share link tokens via delegation.
 
 - **JWT scoping**: per-link-token. Each agent JWT encodes
