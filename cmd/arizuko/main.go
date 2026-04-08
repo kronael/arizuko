@@ -185,7 +185,8 @@ func cmdGroup(args []string) {
 		if err := s.PutGroup(core.Group{Name: name, Folder: folder, AddedAt: time.Now()}); err != nil {
 			die("Failed: add group: %v", err)
 		}
-		s.AddRoute(jid, core.Route{Seq: 0, Type: "default", Target: folder})
+		match := "room=" + core.JidRoom(jid)
+		s.AddRoute(core.Route{Seq: 0, Match: match, Target: folder})
 		fmt.Printf("added group %s (%s) -> %s\n", name, jid, folder)
 
 	case "rm":

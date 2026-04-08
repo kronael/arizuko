@@ -178,6 +178,10 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 			attsJSON = string(b)
 		}
 	}
+	verb := req.Verb
+	if verb == "" {
+		verb = "message"
+	}
 	msg := core.Message{
 		ID:            req.ID,
 		ChatJID:       req.ChatJID,
@@ -189,7 +193,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		ReplyToText:   req.ReplyToText,
 		ReplyToSender: req.ReplyToSender,
 		Topic:         req.Topic,
-		Verb:          req.Verb,
+		Verb:          verb,
 		Attachments:   attsJSON,
 	}
 

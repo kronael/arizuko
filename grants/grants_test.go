@@ -207,9 +207,9 @@ func openTestStore(t *testing.T) *store.Store {
 
 func addRoute(t *testing.T, s *store.Store, jid, target string) {
 	t.Helper()
-	_, err := s.AddRoute(jid, core.Route{
-		JID:    jid,
-		Type:   "default",
+	match := "platform=" + core.JidPlatform(jid) + " room=" + core.JidRoom(jid)
+	_, err := s.AddRoute(core.Route{
+		Match:  match,
 		Target: target,
 	})
 	if err != nil {
