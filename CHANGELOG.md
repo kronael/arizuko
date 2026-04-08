@@ -11,12 +11,34 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **store**: `messages.source` is now the canonical adapter-of-record per
+  message. Inbound messages stamp the receiving adapter; outbound delivery
+  resolves the adapter via `store.LatestSource(jid)` (latest non-bot inbound).
+  Replaces three stacked layers of channel-pin hotfixes.
+- **api/handleMessage**: stamps `messages.source` with the registered adapter
+  name on every inbound delivery (was previously a no-op write of `''`).
+- **api/handleOutbound**: resolution order is now (1) explicit `channel`
+  field, (2) `LatestSource(jid)`, (3) `chanreg.ForJID(jid)`.
+- **onbod**: dropped per-onboarding `channel` pin — outbound delivery uses
+  `/v1/outbound`'s `LatestSource` lookup instead of explicit channel routing.
 - **whapd**: dropped `@lid` -> phone-number translation entirely. Baileys
   removed `makeInMemoryStore` so the contacts/LID discovery paths no longer
   worked; arizuko now treats `@lid` as the canonical opaque WhatsApp identifier.
   Removed `whapd/src/lid.ts` and the dead `normalizeJID` helper in `ipc/`.
-- **specs**: scrubbed stale routes/outbound/delegation references and updated
-  WhatsApp examples to `@lid` form to match shipped reality.
+- **specs**: scrubbed stale routes/outbound/delegation references, updated
+  WhatsApp examples to `@lid` form, and rewrote audit-log + JID-format +
+  worlds-rooms specs to reflect post-0023 schema and source semantics.
+
+### Removed
+
+- **store schema (migration 0023)**: dropped dead columns —
+  - `chats.name`, `chats.channel`, `chats.is_group`, `chats.last_message_time`
+    (chats now `(jid, errored, agent_cursor, sticky_group, sticky_topic)`)
+  - `messages.group_folder` (only ever written, never read)
+  - `onboarding.sender`, `onboarding.world_name`, `onboarding.channel`
+    (onboarding now `(jid, status, prompted_at, created)`)
+- **store**: `Store.PutChat` removed — chats rows are no longer pre-created
+  per message. `MarkChatErrored` now upserts.
 
 ---
 
