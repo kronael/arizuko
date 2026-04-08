@@ -10,22 +10,12 @@ import (
 	"github.com/onvos/arizuko/router"
 )
 
-func (s *Store) PutChat(jid, name, ch string, group bool) error {
-	_, err := s.db.Exec(
-		`INSERT INTO chats (jid, name, channel, is_group, last_message_time)
-		 VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(jid) DO UPDATE SET
-		   name = COALESCE(excluded.name, chats.name),
-		   channel = COALESCE(excluded.channel, chats.channel),
-		   is_group = excluded.is_group,
-		   last_message_time = excluded.last_message_time`,
-		jid, name, ch, btoi(group), time.Now().Format(time.RFC3339),
-	)
-	return err
-}
-
 func (s *Store) MarkChatErrored(jid string) error {
-	_, err := s.db.Exec(`UPDATE chats SET errored = 1 WHERE jid = ?`, jid)
+	_, err := s.db.Exec(
+		`INSERT INTO chats (jid, errored) VALUES (?, 1)
+		 ON CONFLICT(jid) DO UPDATE SET errored = 1`,
+		jid,
+	)
 	return err
 }
 
@@ -155,28 +145,6 @@ func (s *Store) UnroutedChatJIDs(since time.Time) []string {
 		}
 	}
 	return jids
-}
-
-func (s *Store) GetChatChannel(jid string) string {
-	var ch *string
-	s.db.QueryRow(
-		`SELECT channel FROM chats WHERE jid = ? AND channel IS NOT NULL AND channel != ''`,
-		jid,
-	).Scan(&ch)
-	if ch == nil {
-		return ""
-	}
-	return *ch
-}
-
-func (s *Store) SetChatChannel(jid, ch string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO chats (jid, channel) VALUES (?, ?)
-		 ON CONFLICT(jid) DO UPDATE SET channel = excluded.channel
-		 WHERE chats.channel IS NULL OR chats.channel = '' OR chats.channel != excluded.channel`,
-		jid, ch,
-	)
-	return err
 }
 
 // routeSourceJIDs reconstructs "platform:room" JIDs from a route's match.

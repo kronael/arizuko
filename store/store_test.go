@@ -149,7 +149,6 @@ func TestChatErrorTracking(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	s.PutChat("tg:1", "Test", "telegram", false)
 	if s.IsChatErrored("tg:1") {
 		t.Fatal("should not be errored initially")
 	}

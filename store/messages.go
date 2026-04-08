@@ -13,14 +13,14 @@ func (s *Store) PutMessage(m core.Message) error {
 		`INSERT OR IGNORE INTO messages
 		 (id, chat_jid, sender, sender_name, content, timestamp,
 		  is_from_me, is_bot_message, forwarded_from,
-		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatJID, m.Sender, m.Name, m.Content,
 		m.Timestamp.Format(time.RFC3339Nano),
 		btoi(m.FromMe), btoi(m.BotMsg),
 		nilIfEmpty(m.ForwardedFrom),
 		nilIfEmpty(m.ReplyToID), nilIfEmpty(m.ReplyToText), nilIfEmpty(m.ReplyToSender),
-		m.Topic, m.RoutedTo, m.Verb, m.Attachments,
+		m.Topic, m.RoutedTo, m.Verb, m.Attachments, m.Source,
 	)
 	return err
 }
@@ -43,7 +43,7 @@ func nilIfEmpty(s string) *string {
 const msgCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp,
 	is_from_me, is_bot_message, COALESCE(forwarded_from,''),
 	COALESCE(reply_to_id,''), COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''),
-	topic, routed_to, verb, attachments`
+	topic, routed_to, verb, attachments, source`
 
 // NewMessages returns new inbound messages since `since`. If jids is empty,
 // no chat_jid filter is applied (all new messages from all chats).
@@ -154,13 +154,26 @@ func scanMessage(r rowScanner) (core.Message, time.Time, error) {
 	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content,
 		&ts, &fromMe, &botMsg, &m.ForwardedFrom,
 		&m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
-		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments); err != nil {
+		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source); err != nil {
 		return m, time.Time{}, err
 	}
 	m.FromMe = fromMe != 0
 	m.BotMsg = botMsg != 0
 	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
 	return m, m.Timestamp, nil
+}
+
+// LatestSource returns the source (adapter name) of the most recent
+// inbound message in chat jid. Empty string if none recorded.
+func (s *Store) LatestSource(jid string) string {
+	var src string
+	s.db.QueryRow(
+		`SELECT source FROM messages
+		 WHERE chat_jid = ? AND source != '' AND is_bot_message = 0
+		 ORDER BY timestamp DESC LIMIT 1`,
+		jid,
+	).Scan(&src)
+	return src
 }
 
 type TopicSummary struct {
@@ -253,15 +266,32 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	return collectMessages(rows)
 }
 
+// ObservedMessagesSince returns recent inbound messages from chats that
+// route to groupFolder via the routes table, excluding excludeJid. Used
+// for "what other chats has this group seen lately" prompts.
 func (s *Store) ObservedMessagesSince(groupFolder, excludeJid, since string) []core.Message {
+	jids := s.RouteSourceJIDsInWorld(groupFolder)
+	if len(jids) == 0 {
+		return nil
+	}
+	args := make([]any, 0, len(jids)+2)
+	for _, jid := range jids {
+		if jid != excludeJid {
+			args = append(args, jid)
+		}
+	}
+	if len(args) == 0 {
+		return nil
+	}
+	args = append(args, since)
+	ph := "(" + strings.TrimSuffix(strings.Repeat("?,", len(args)-1), ",") + ")"
 	rows, err := s.db.Query(
-		`SELECT DISTINCT `+msgCols+` FROM messages
-		 JOIN routes r ON (r.jid = messages.chat_jid OR r.jid = substr(messages.chat_jid, 1, instr(messages.chat_jid, ':')))
-		 WHERE r.target = ? AND messages.chat_jid != ? AND messages.timestamp > ?
-		   AND messages.is_bot_message = 0 AND messages.content != '' AND messages.content IS NOT NULL
-		 ORDER BY messages.timestamp ASC
+		`SELECT `+msgCols+` FROM messages
+		 WHERE chat_jid IN `+ph+` AND timestamp > ?
+		   AND is_bot_message = 0 AND content != ''
+		 ORDER BY timestamp ASC
 		 LIMIT 100`,
-		groupFolder, excludeJid, since,
+		args...,
 	)
 	if err != nil {
 		return nil
@@ -355,11 +385,12 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 	return msgs, nil
 }
 
+// JIDRoutedToFolder reports whether jid resolves (via the routes table)
+// to folder or any descendant of folder.
 func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
-	var count int
-	s.db.QueryRow(
-		`SELECT COUNT(*) FROM routes WHERE jid = ? AND (target = ? OR target LIKE ?)`,
-		jid, folder, folder+"/%",
-	).Scan(&count)
-	return count > 0
+	target := s.DefaultFolderForJID(jid)
+	if target == "" {
+		return false
+	}
+	return target == folder || strings.HasPrefix(target, folder+"/")
 }

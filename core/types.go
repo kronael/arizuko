@@ -24,6 +24,7 @@ type Message struct {
 	RoutedTo      string
 	Verb          string // event type: "message" (default), "join", "edit", "delete", etc.
 	Attachments   string // JSON-encoded []chanlib.InboundAttachment
+	Source        string // adapter name that handled this row (inbound: receiver; outbound: deliverer)
 }
 
 type Group struct {

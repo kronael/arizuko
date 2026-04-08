@@ -4,11 +4,11 @@ import "time"
 
 // InsertOnboarding adds a new onboarding entry for jid with status=awaiting_message.
 // Uses INSERT OR IGNORE so duplicate calls are silently skipped.
-func (s *Store) InsertOnboarding(jid, sender, channel string) error {
+func (s *Store) InsertOnboarding(jid string) error {
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO onboarding (jid, status, sender, channel, created)
-		 VALUES (?, 'awaiting_message', ?, ?, ?)`,
-		jid, nilIfEmpty(sender), nilIfEmpty(channel), time.Now().Format(time.RFC3339),
+		`INSERT OR IGNORE INTO onboarding (jid, status, created)
+		 VALUES (?, 'awaiting_message', ?)`,
+		jid, time.Now().Format(time.RFC3339),
 	)
 	return err
 }
