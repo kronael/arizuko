@@ -166,4 +166,63 @@ describe('POST /typing', () => {
       true,
     );
   });
+
+  it('returns 200 silently when sock is null', async () => {
+    stub = makeStub();
+    const saved = stub.sock;
+    stub.sock = null as any;
+    const r = await fetch(`${BASE}/typing`, {
+      method: 'POST',
+      body: JSON.stringify({ chat_jid: 'whatsapp:12345', on: true }),
+      headers: { 'Content-Type': 'application/json', ...auth() },
+    });
+    expect(r.status).toBe(200);
+    stub.sock = saved;
+  });
+});
+
+describe('POST /send-file auth', () => {
+  it('rejects missing token', async () => {
+    const fd = new globalThis.FormData();
+    fd.append('chat_jid', 'whatsapp:12345');
+    fd.append('file', new Blob(['data']), 'photo.jpg');
+    const r = await fetch(`${BASE}/send-file`, {
+      method: 'POST',
+      body: fd,
+    });
+    expect(r.status).toBe(401);
+  });
+});
+
+describe('unknown route', () => {
+  it('returns 404', async () => {
+    const r = await fetch(`${BASE}/nope`, {
+      method: 'GET',
+      headers: { ...auth() },
+    });
+    expect(r.status).toBe(404);
+  });
+});
+
+describe('POST /send-file document MIME', () => {
+  it('sends pdf as document', async () => {
+    stub = makeStub();
+    connected = true;
+    const fd = new globalThis.FormData();
+    fd.append('chat_jid', 'whatsapp:12345');
+    fd.append('filename', 'report.pdf');
+    fd.append('file', new Blob(['pdfdata']), 'report.pdf');
+    const r = await fetch(`${BASE}/send-file`, {
+      method: 'POST',
+      body: fd,
+      headers: { ...auth() },
+    });
+    expect(r.status).toBe(200);
+    const call = stub.calls.find((c) => c.method === 'sendMessage');
+    expect(call).toBeTruthy();
+    const content = call!.args[1] as Record<string, unknown>;
+    expect(content['document']).toBeTruthy();
+    expect(content['mimetype']).toBe('application/pdf');
+    expect(content['fileName']).toBe('report.pdf');
+  });
 });
