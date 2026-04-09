@@ -62,6 +62,7 @@ RUN apt-get update && apt-get install -y \
     libimage-exiftool-perl \
     miller \
     unzip \
+    age \
     && rm -rf /var/lib/apt/lists/* \
     && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
        -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp
@@ -94,7 +95,7 @@ ENV PATH="/usr/local/cargo/bin:$PATH"
 # uv — fast Python package manager
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
-# Binary dev tools (yq, duckdb, hadolint, delta)
+# Binary dev tools (yq, duckdb, hadolint, delta, xh, websocat, hurl, sops)
 RUN set -e; ARCH=$(dpkg --print-architecture); \
     curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${ARCH}" \
       -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq; \
@@ -109,7 +110,24 @@ RUN set -e; ARCH=$(dpkg --print-architecture); \
     DELTA_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64"); \
     curl -fsSL "https://github.com/dandavison/delta/releases/download/${DELTA_VER}/delta-${DELTA_VER}-${DELTA_ARCH}-unknown-linux-gnu.tar.gz" \
       | tar xz --strip-components=1 -C /usr/local/bin \
-        "delta-${DELTA_VER}-${DELTA_ARCH}-unknown-linux-gnu/delta"
+        "delta-${DELTA_VER}-${DELTA_ARCH}-unknown-linux-gnu/delta"; \
+    RUST_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64"); \
+    XH_VER=$(curl -fsSL https://api.github.com/repos/ducaale/xh/releases/latest | jq -r .tag_name); \
+    curl -fsSL "https://github.com/ducaale/xh/releases/download/${XH_VER}/xh-${XH_VER}-${RUST_ARCH}-unknown-linux-musl.tar.gz" \
+      | tar xz --strip-components=1 -C /usr/local/bin \
+        "xh-${XH_VER}-${RUST_ARCH}-unknown-linux-musl/xh" \
+      && chmod +x /usr/local/bin/xh \
+      && ln -sf /usr/local/bin/xh /usr/local/bin/xhs; \
+    curl -fsSL "https://github.com/vi/websocat/releases/latest/download/websocat.${RUST_ARCH}-unknown-linux-musl" \
+      -o /usr/local/bin/websocat && chmod +x /usr/local/bin/websocat; \
+    HURL_VER=$(curl -fsSL https://api.github.com/repos/Orange-Opensource/hurl/releases/latest | jq -r .tag_name); \
+    curl -fsSL "https://github.com/Orange-Opensource/hurl/releases/download/${HURL_VER}/hurl-${HURL_VER}-${RUST_ARCH}-unknown-linux-gnu.tar.gz" \
+      | tar xz --strip-components=2 -C /usr/local/bin \
+        "hurl-${HURL_VER}-${RUST_ARCH}-unknown-linux-gnu/bin/hurl" \
+        "hurl-${HURL_VER}-${RUST_ARCH}-unknown-linux-gnu/bin/hurlfmt"; \
+    SOPS_VER=$(curl -fsSL https://api.github.com/repos/getsops/sops/releases/latest | jq -r .tag_name); \
+    curl -fsSL "https://github.com/getsops/sops/releases/download/${SOPS_VER}/sops-${SOPS_VER}.linux.${ARCH}" \
+      -o /usr/local/bin/sops && chmod +x /usr/local/bin/sops
 
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
