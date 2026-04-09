@@ -90,6 +90,22 @@ no process handle needed.
 - Timeout enforcement via `docker stop`/`docker kill`
 - Session tracking
 
+Note on IPC input drain (container side): `drainIpcInput` has two
+concurrent consumers during a query — a `PostToolUse` hook
+(`createIpcDrainHook`) that is the primary steering path, and
+`pollIpcDuringQuery` as a fallback. The hook drains input between tool
+calls in the same agentic loop and returns queued messages as
+`hookSpecificOutput.additionalContext`, which the SDK appends to the
+tool result Claude is about to read — mid-loop injection inside the
+current turn. The fallback poll (500ms timer + SIGUSR1 wakeup) still
+handles text-only responses where no tool fires, and still owns the
+`_close` sentinel; it delivers via `stream.push`, which lands as the
+next user turn rather than mid-turn. Both consumers go through
+`drainIpcInputMutex` (a `draining` boolean flag) so they never claim
+the same files. The between-turn drain in `checkIpcMessage` runs
+sequentially with the query and calls `drainIpcInput` directly, no
+mutex required.
+
 ## What we gain
 
 - Restart is non-destructive. In-flight agent responses survive.

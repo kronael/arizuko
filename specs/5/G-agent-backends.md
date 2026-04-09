@@ -12,9 +12,18 @@ is a runtime choice.
 ## Background
 
 `ant/src/index.ts` currently embeds `@anthropic-ai/claude-agent-sdk`
-directly. The SDK's `query()` async iterator drives the conversation; the
-`MessageStream` class pipes IPC follow-up messages mid-turn via
-`stream.push(text)`. Two SDK hooks handle transcript archiving
+directly. The SDK's `query()` async iterator drives the conversation.
+IPC follow-up messages are injected through two complementary paths:
+a `PostToolUse` hook (`createIpcDrainHook`) drains the IPC input dir
+between tool calls and returns queued messages as
+`hookSpecificOutput.additionalContext`, appended to the tool result
+Claude is about to read — achieving true mid-loop injection inside the
+same turn. For text-only turns (no tool calls fire the hook),
+`pollIpcDuringQuery` falls back to `stream.push(text)` on the
+`MessageStream`, which queues the message as the next user turn rather
+than interrupting the active agentic loop. A `draining` boolean mutex
+shared between the hook and the poll timer prevents double-draining the
+same files. Two additional SDK hooks handle transcript archiving
 (PreCompact) and bash secret scrubbing (PreToolUse/Bash).
 
 Alternative backends were evaluated for multi-provider support and reduced
@@ -66,10 +75,11 @@ process continuing the most recent session file.
 | Maturity               | Production, OpenAI-backed                                       |
 
 **Blocker:** mid-turn IPC injection is a core arizuko feature (follow-up
-messages sent while the agent is running get piped into the active
-session). Codex exec is one-shot — each follow-up requires respawning.
-This breaks session continuity and adds latency. Workable but inferior to
-the current model.
+messages drained by a PostToolUse hook get appended to the next tool
+result inside the active agentic loop). Codex exec is one-shot — each
+follow-up requires respawning, with no hook surface for mid-loop
+injection. This breaks session continuity and adds latency. Workable but
+inferior to the current model.
 
 ## Candidate B — pi-coding-agent RPC mode
 
@@ -131,15 +141,15 @@ surface may break across versions.
 
 ## Comparison
 
-| Concern             | Claude SDK (current)   | Codex CLI        | Pi RPC             |
-| ------------------- | ---------------------- | ---------------- | ------------------ |
-| Mid-turn injection  | `MessageStream.push()` | Requires respawn | `steer` command    |
-| MCP (unix socket)   | native                 | native           | extension required |
-| Models              | Anthropic only         | OpenAI only      | 15+ providers      |
-| PreCompact/hooks    | native                 | shell workaround | shell workaround   |
-| Secret isolation    | `env` SDK option       | shell wrapper    | shell wrapper      |
-| Session persistence | UUID                   | file path        | `switch_session`   |
-| Maturity            | high                   | high             | medium             |
+| Concern             | Claude SDK (current) | Codex CLI        | Pi RPC             |
+| ------------------- | -------------------- | ---------------- | ------------------ |
+| Mid-turn injection  | PostToolUse hook     | Requires respawn | `steer` command    |
+| MCP (unix socket)   | native               | native           | extension required |
+| Models              | Anthropic only       | OpenAI only      | 15+ providers      |
+| PreCompact/hooks    | native               | shell workaround | shell workaround   |
+| Secret isolation    | `env` SDK option     | shell wrapper    | shell wrapper      |
+| Session persistence | UUID                 | file path        | `switch_session`   |
+| Maturity            | high                 | high             | medium             |
 
 ## Implementation path
 

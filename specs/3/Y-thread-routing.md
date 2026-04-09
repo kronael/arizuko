@@ -59,15 +59,30 @@ message that triggered the agent run). Before each send, it re-reads
 the store will have the steering message's ID, and the next bot chunk
 replies to that instead.
 
-When `queue.SendMessage` succeeds (steering a follow-up into a running
-container), the gateway immediately calls `SetLastReplyID` with the
-steering message's ID. This way the output callback picks up the new
-reply target on its next chunk.
+When `queue.SendMessages` succeeds (steering a follow-up batch into a
+running container), the gateway immediately calls `SetLastReplyID` with
+the steering message's ID. This way the output callback picks up the
+new reply target on its next chunk. The gateway must also advance
+`agentCursor` for the steered batch — otherwise `drainGroupLocked` sees
+those messages as unprocessed after the container exits and respawns
+with the same batch, causing Claude to see them twice via session
+resume.
+
+Delivery is not instant: the container-side receives steered text at
+the next delivery boundary, not mid-text. Primary path is a PostToolUse
+hook that injects `additionalContext` between tool calls (mid-loop);
+fallback for text-only responses is `pollIpcDuringQuery` calling
+`stream.push`, which lands on the next turn.
 
 ```go
 // Poll loop — steering path
-if g.queue.SendMessage(chatJid, last.Content) {
+texts := make([]string, len(chatMsgs))
+for i, m := range chatMsgs {
+    texts[i] = m.Content
+}
+if g.queue.SendMessages(chatJid, texts) {
     g.store.SetLastReplyID(chatJid, topic, last.ID)
+    g.advanceAgentCursor(chatJid, chatMsgs)
     ...
 }
 

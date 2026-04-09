@@ -79,13 +79,25 @@ stdin (ContainerInput JSON)
 
 ## Open design questions
 
-1. **Mid-turn injection semantics.** The Claude Code CLI supports
-   `--input-format stream-json` which accepts a line-delimited stream of
-   user turns. Need to verify: does writing a second user turn while
-   assistant is mid-generation inject it as a "steer" (what TS SDK's
-   `stream.push` does) or does it queue until the current turn completes?
-   If it queues, behavior is acceptable but slightly different from
-   current mid-turn interrupt semantics. Spike required before committing.
+1. **Mid-turn injection semantics.** _Answered._ There is no native
+   mid-turn injection primitive in the Claude Agent SDK (or CLI):
+   `stream.push` on a `MessageStream` queues as the next user turn, it
+   does not steer a turn already in flight. Upstream has an open feature
+   request for native token-level real-time steering
+   (anthropics/claude-code#30492). Our workaround, implemented in
+   `ant/src/index.ts` as `createIpcDrainHook`, registers a `PostToolUse`
+   hook that drains the IPC input directory and returns the queued
+   messages as `hookSpecificOutput.additionalContext`. The SDK appends
+   that context to the tool result Claude is about to read, giving us
+   mid-loop injection _inside the same turn_ — between tool calls.
+   Limitation: the hook only fires when the current turn runs tools, so
+   text-only responses never trigger it. For that case we fall back to
+   `pollIpcDuringQuery` with `stream.push`, which matches the native
+   "type while working" queue behavior in Claude Code: the message lands
+   as the next user turn. The ant-go port must preserve both paths —
+   wire a `PostToolUse` hook script that drains IPC and prints
+   `hookSpecificOutput.additionalContext`, and fall back to writing a
+   new user turn onto `claude` stdin when no tool call is in flight.
 2. **Hooks: PreCompact and PreToolUse/Bash.** The CLI supports hooks via
    `~/.claude/settings.json` (`hooks` key). Port the two current hooks to
    standalone scripts:

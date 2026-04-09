@@ -47,6 +47,23 @@ every 1s:
     UPDATE messages SET processed = 1
 ```
 
+### Steering a running container
+
+If the target group already has a running container when new messages
+arrive for the same chat, the poll loop steers them into the live turn
+instead of respawning. On a successful `queue.SendMessages` the loop
+advances the per-chat `agentCursor` alongside `SetLastReplyID` /
+`ClearChatErrored`; without this advance, `drainGroupLocked` would see
+the same rows as unprocessed after the container exits and respawn on
+the same inputs (duplicate delivery). Success is logged at Info:
+`"poll: steered messages into running container" count=N`.
+
+Delivery into the container is hook-based: a PostToolUse hook drains
+steered messages mid-loop between tool calls (primary path), and
+`pollIpcDuringQuery`'s `stream.push` serves as a fallback for
+text-only turns where no tool call runs before the turn ends
+(next-turn delivery).
+
 ## Route resolution
 
 Routes are a flat list of rows, each with a `match` expression and a
