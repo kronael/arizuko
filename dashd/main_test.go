@@ -145,3 +145,108 @@ func TestRenderMemorySectionValid(t *testing.T) {
 		t.Errorf("MEMORY.md content missing: body = %q", body)
 	}
 }
+
+// dashd has no auth; proxyd fronts it. This regression guard asserts that.
+// See diary 2026-04-09.
+func TestDashNoAuthGate(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	d := &dash{db: db, groupsDir: t.TempDir()}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	for _, path := range []string{"/dash/", "/dash/status/", "/dash/tasks/", "/dash/memory/", "/health"} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Errorf("%s without auth: status = %d (dashd must not gate; proxyd fronts it)", path, w.Code)
+		}
+	}
+}
+
+func TestMdSummaryYAML(t *testing.T) {
+	dir := t.TempDir()
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "inline",
+			content: "---\ntitle: foo\nsummary: hello world\n---\nbody",
+			want:    "hello world",
+		},
+		{
+			name:    "quoted inline",
+			content: "---\nsummary: \"quoted text\"\n---\nbody",
+			want:    "quoted text",
+		},
+		{
+			name:    "multiline block",
+			content: "---\nsummary: |\n  first line\n  second line\n---\nbody",
+			want:    "first line second line",
+		},
+		{
+			name:    "no yaml, first non-empty line",
+			content: "\n\nplain first line\nsecond",
+			want:    "plain first line",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, tc.name+".md")
+			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got := mdSummary(path)
+			if got != tc.want {
+				t.Errorf("mdSummary = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHandleStatusDBError(t *testing.T) {
+	db := testDB(t)
+	if _, err := db.Exec(`DROP TABLE channels`); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{db: db, dbPath: ":memory:"}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/dash/status/", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d (handler must not panic on DB errors)", w.Code)
+	}
+	if body := w.Body.String(); !strings.Contains(body, "Status") {
+		t.Errorf("body missing page header: %q", body)
+	}
+}
+
+func TestRenderMemorySectionClaudeMissing(t *testing.T) {
+	groups := t.TempDir()
+	folder := "g1"
+	if err := os.MkdirAll(filepath.Join(groups, folder), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(groups, folder, "MEMORY.md"), []byte("mem"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{groupsDir: groups}
+	w := httptest.NewRecorder()
+	d.renderMemorySection(w, folder)
+	body := w.Body.String()
+	if strings.Contains(body, "Invalid group path") {
+		t.Errorf("valid folder rejected: body = %q", body)
+	}
+	if !strings.Contains(body, "MEMORY.md") {
+		t.Errorf("MEMORY.md header missing: body = %q", body)
+	}
+	if strings.Contains(body, "CLAUDE.md") {
+		t.Errorf("CLAUDE.md section present without file: body = %q", body)
+	}
+}
