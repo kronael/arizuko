@@ -1,6 +1,35 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+function pubFallback() {
+  return {
+    name: 'pub-fallback',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url || '';
+        const q = url.indexOf('?');
+        const p = q >= 0 ? url.slice(0, q) : url;
+        const qs = q >= 0 ? url.slice(q) : '';
+        if (p === '/' || p.startsWith('/pub/') || p.startsWith('/@')) {
+          return next();
+        }
+        const abs = join(process.cwd(), p);
+        if (existsSync(abs)) return next();
+        const pubAbs = join(process.cwd(), 'pub', p);
+        if (!existsSync(pubAbs)) return next();
+        if (statSync(pubAbs).isDirectory() && !p.endsWith('/')) {
+          res.statusCode = 301;
+          res.setHeader('Location', p + '/' + qs);
+          res.end();
+          return;
+        }
+        req.url = '/pub' + url;
+        next();
+      });
+    },
+  };
+}
+
 function trailingSlash() {
   return {
     name: 'trailing-slash',
@@ -33,5 +62,5 @@ export default {
     watch: { usePolling: true, interval: 500 },
     hmr: { clientPort: 443, protocol: 'wss' },
   },
-  plugins: [trailingSlash()],
+  plugins: [pubFallback(), trailingSlash()],
 };
