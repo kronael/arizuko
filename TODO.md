@@ -4,14 +4,17 @@ Active backlog. See ROADMAP.md for version-level strategy.
 
 ## Now
 
-- **Agent web skill discovery** — `web` skill not reliably loaded; agents
-  write to `/home/node/` instead of `/workspace/web/<app>/index.html`.
-  Confirm seeding for groups with `WEB_HOST` set; assert correct path in
-  skill content; consider gateway lint for misplaced writes.
-- **audit-log spec verification** — `specs/3/c-audit-log.md` rewritten to
-  reflect `messages.source` as adapter-of-record (inbound = adapter name,
-  outbound = empty). Verify dashboards/audit queries against new semantics
-  on next deploy. Old semantics (source = producer category) are gone.
+_(empty — deploy-verify web skill re-seed + onbod source='' fix; see
+bugs.md "Verify shipped")_
+
+## Next (small wins)
+
+- **Dead code cleanup** — `mastd/server.go:31` + `bskyd/server.go:31`
+  unused `ThreadID` field; `reditd/main.go:29` `rc2` vs `rc` shadowing;
+  `teled/discd/emaid/router_client.go` trivial `chanlib` wrappers.
+- **Daemon test gaps** — `whapd` has zero tests (only Go daemon without
+  any); `dashd` and `proxyd` have partial coverage but miss auth gate
+  - path-traversal tests.
 
 ## Microservice port — open phases
 
