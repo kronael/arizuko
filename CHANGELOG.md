@@ -9,8 +9,29 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- **gateway**: `pollOnce` steering branch now advances `agentCursor` for the
+  full steered batch via `SendMessages`. Previously the cursor was left
+  behind, so after the container exited `drainGroupLocked` saw the same
+  rows as unprocessed and respawned a new container on the same inputs
+  (duplicate delivery). Success is now logged at Info:
+  `"poll: steered messages into running container" count=N`.
+
 ### Changed
 
+- **ant**: true mid-loop steering via a `PostToolUse` hook
+  (`createIpcDrainHook`) wired into `query()` options. The hook drains the
+  IPC input dir between tool calls and returns queued messages as
+  `hookSpecificOutput.additionalContext`, appended to the tool result
+  Claude is about to read — injecting follow-ups inside the active
+  agentic loop instead of waiting for the next turn. `pollIpcDuringQuery`
+  remains as a `stream.push` fallback for text-only turns. A
+  `drainIpcInputMutex` flag shared with the poll timer prevents
+  double-draining the same files.
+- **queue**: `SendMessage(jid, text)` renamed to
+  `SendMessages(jid, []string)`. Loops `writeIpcFile` per message and
+  signals the container once per batch. Success log at Info level.
 - **store**: `messages.source` is now the canonical adapter-of-record per
   message. Inbound messages stamp the receiving adapter; outbound delivery
   resolves the adapter via `store.LatestSource(jid)` (latest non-bot inbound).

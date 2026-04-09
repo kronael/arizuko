@@ -151,9 +151,7 @@ func (q *GroupQueue) SendMessages(groupJid string, texts []string) bool {
 	if written == 0 {
 		return false
 	}
-	if cname != "" {
-		signalContainer(cname)
-	}
+	signalContainer(cname)
 	slog.Info("steer: sent messages into running container",
 		"jid", groupJid, "folder", folder, "count", written)
 	return true

@@ -375,8 +375,8 @@ function drainIpcInput(): string[] {
   }
 }
 
-// Mutex so PostToolUse hook and pollIpcDuringQuery timer don't race for
-// the same files. Whichever arrives first owns the batch.
+// Flag (not a real mutex — single-threaded JS) so the PostToolUse hook
+// and pollIpcDuringQuery timer don't both consume the same input files.
 let draining = false;
 function drainIpcInputMutex(): string[] {
   if (draining) return [];
@@ -385,30 +385,21 @@ function drainIpcInputMutex(): string[] {
   finally { draining = false; }
 }
 
-// PostToolUse hook: drains IPC input between tool calls and appends
-// steered messages to the tool result Claude is about to read. This is
-// the only SDK primitive that injects mid-loop inside the same turn.
-// Text-only responses (no tool calls) never fire this — pollIpcDuringQuery
-// remains the fallback for those via stream.push (next-turn delivery).
+// PostToolUse is the only SDK primitive that injects mid-loop inside the
+// same turn. Text-only responses never fire this — pollIpcDuringQuery
+// remains the fallback via stream.push (next-turn delivery).
 function createIpcDrainHook(): HookCallback {
   return async (_input, _toolUseId, _context) => {
-    try {
-      const messages = drainIpcInputMutex();
-      if (messages.length === 0) return {};
-      log(`Piping ${messages.length} IPC messages into active query via PostToolUse hook`);
-      const body = messages
-        .map(m => `<message>${m}</message>`)
-        .join('\n');
-      return {
-        hookSpecificOutput: {
-          hookEventName: 'PostToolUse',
-          additionalContext: `<user-steering>\n${body}\n</user-steering>`,
-        },
-      };
-    } catch (err) {
-      log(`PostToolUse drain hook error: ${err instanceof Error ? err.message : String(err)}`);
-      return {};
-    }
+    const messages = drainIpcInputMutex();
+    if (messages.length === 0) return {};
+    log(`Piping ${messages.length} IPC messages into active query via PostToolUse hook`);
+    const body = messages.map(m => `<message>${m}</message>`).join('\n');
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PostToolUse',
+        additionalContext: `<user-steering>\n${body}\n</user-steering>`,
+      },
+    };
   };
 }
 

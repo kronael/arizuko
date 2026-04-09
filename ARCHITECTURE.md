@@ -75,7 +75,8 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
   → handleCommand (/new [#topic], /ping, /chatid, /stop)
   → prefix dispatch (@name → named group, #topic → topic session)
   → router.ResolveRoutingTarget (delegate to child group if matched)
-  → queue.SendMessage (stdin pipe to running container) OR
+  → queue.SendMessages (steer into running container: write IPC input files,
+    signal container) — advances agentCursor for steered batch OR
   → queue.EnqueueMessageCheck → processGroupMessages
     → web: JID → processWebTopics (per-topic agent run)
     → filter out gateway commands (isGatewayCommand — not forwarded to agent)
@@ -332,7 +333,12 @@ Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
   `HasPendingMessages`/`processMessages` to read pending work from the DB
 - `drainGroupLocked` — on completion, checks DB for more pending messages,
   starts next waiting group if capacity allows
-- `SendMessage` — write to IPC input dir for live stdin piping
+- `SendMessages(jid, []string)` — steer a batch into a running container:
+  write one IPC input file per message, signal container once. Agent-side
+  drain uses a `PostToolUse` hook for mid-loop injection between tool
+  calls, with `pollIpcDuringQuery` as a next-turn fallback for text-only
+  turns. A `drainIpcInputMutex` flag prevents the hook and poll timer
+  from double-draining.
 
 Delegation, escalation, and `#topic` routing are not special queue
 operations — each writes a row via `PutMessage` and calls
