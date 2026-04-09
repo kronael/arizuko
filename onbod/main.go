@@ -313,10 +313,18 @@ func approveInTx(db *sql.DB, jid, folder string) error {
 	}
 
 	match := "room=" + core.JidRoom(jid)
-	if _, err := tx.Exec(
-		`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (?, ?, ?)`,
-		0, match, folder); err != nil {
+	var n int
+	if err := tx.QueryRow(
+		`SELECT COUNT(*) FROM routes WHERE match = ? AND target = ?`,
+		match, folder).Scan(&n); err != nil {
 		return err
+	}
+	if n == 0 {
+		if _, err := tx.Exec(
+			`INSERT INTO routes (seq, match, target) VALUES (?, ?, ?)`,
+			0, match, folder); err != nil {
+			return err
+		}
 	}
 	welcomeID := core.MsgID("onboard-welcome")
 	welcomeBody := fmt.Sprintf(
@@ -324,7 +332,7 @@ func approveInTx(db *sql.DB, jid, folder string) error {
 		folder)
 	if _, err := tx.Exec(
 		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source)
-		 VALUES (?, ?, 'system', ?, ?, 1, 1, 'onboarding')`,
+		 VALUES (?, ?, 'system', ?, ?, 1, 1, '')`,
 		welcomeID, jid, welcomeBody, time.Now().Format(time.RFC3339Nano)); err != nil {
 		return err
 	}

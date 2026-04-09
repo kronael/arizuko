@@ -769,19 +769,18 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 			continue
 		}
 		d := filepath.Join(dst, e.Name())
-		if _, err := os.Stat(d); err == nil {
-			continue
-		}
+		// Always re-seed: source files overwrite destination. This
+		// ensures skill updates in the repo propagate to existing
+		// groups. Extra files added locally are preserved.
 		cpDir(filepath.Join(src, e.Name()), d)
 	}
 	chown(dst, 1000, 1000)
 
 	mdSrc := filepath.Join(cfg.HostAppDir, "ant", "CLAUDE.md")
 	mdDst := filepath.Join(claudeDir, "CLAUDE.md")
-	if _, err := os.Stat(mdDst); os.IsNotExist(err) {
-		if data, err := os.ReadFile(mdSrc); err == nil {
-			os.WriteFile(mdDst, data, 0o644)
-		}
+	// Always re-seed so ant/CLAUDE.md updates propagate.
+	if data, err := os.ReadFile(mdSrc); err == nil {
+		os.WriteFile(mdDst, data, 0o644)
 	}
 
 	jsonDst := filepath.Join(claudeDir, ".claude.json")
