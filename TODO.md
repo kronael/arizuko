@@ -9,9 +9,6 @@ bugs.md "Verify shipped")_
 
 ## Next (small wins)
 
-- **Dead code cleanup** — `mastd/server.go:31` + `bskyd/server.go:31`
-  unused `ThreadID` field; `reditd/main.go:29` `rc2` vs `rc` shadowing;
-  `teled/discd/emaid/router_client.go` trivial `chanlib` wrappers.
 - **Daemon test gaps** — `whapd` has zero tests (only Go daemon without
   any); `dashd` and `proxyd` have partial coverage but miss auth gate
   - path-traversal tests.
@@ -84,21 +81,13 @@ touched, not all at once:
 - **timed/main.go**: spawn archiving/TTL — gateway lifecycle concern.
 - **onbod**: direct DB writes to `groups`/`routes`, calls
   `container.SeedGroupDir` directly — should go through gateway API.
-- **emaid**: IMAP SEEN flag set before delivery confirmed (data loss
-  risk on failed delivery).
 
 ## Daemon dead code / redundancy (low)
 
-- `mastd/server.go:31`, `bskyd/server.go:31` — `ThreadID` field accepted
-  but never used.
 - `reditd/client.go:27-28` — in-memory cursor lost on restart, causes
   re-polls.
-- `reditd/main.go:29` — `rc2` vs `rc` confusing in same scope.
 - `proxyd/main.go:327-361` vs `dashd/main.go:97-115` — inconsistent
   auth posture (raw-secret bypass present in proxyd, absent in dashd).
-- `teled/router_client.go`, `discd/router_client.go`,
-  `emaid/router_client.go` — trivial `chanlib` wrappers; remove and
-  import directly.
 
 ## Channel adapters status
 
@@ -128,12 +117,13 @@ exiftool, sox, mediainfo, qrencode, parallel, rsync, sysstat.
 Not yet:
 
 - **Data**: `xsv`
-- **HTTP**: `xh`, `websocat`, `hurl`
+- **HTTP**: `xh`, `websocat`, `hurl` — ant/Dockerfile edit drafted, not
+  yet image-built (disk-full at time of authoring 2026-04-09)
 - **Lint**: `yamllint`, `vale`
 - **Build**: `just`, `watchexec`, `hyperfine`
 - **Load**: `k6`
 - **Diagrams**: `gnuplot`, `typst`
-- **Security**: `age`, `sops`
+- **Security**: `age`, `sops` — drafted with the above, same status
 - **Infra**: `kubectl`, `opentofu`, `aws`
 - **Crypto**: `solana`, `cast` (Foundry)
 - **Lang**: `ruby`
