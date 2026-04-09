@@ -375,6 +375,43 @@ function drainIpcInput(): string[] {
   }
 }
 
+// Mutex so PostToolUse hook and pollIpcDuringQuery timer don't race for
+// the same files. Whichever arrives first owns the batch.
+let draining = false;
+function drainIpcInputMutex(): string[] {
+  if (draining) return [];
+  draining = true;
+  try { return drainIpcInput(); }
+  finally { draining = false; }
+}
+
+// PostToolUse hook: drains IPC input between tool calls and appends
+// steered messages to the tool result Claude is about to read. This is
+// the only SDK primitive that injects mid-loop inside the same turn.
+// Text-only responses (no tool calls) never fire this — pollIpcDuringQuery
+// remains the fallback for those via stream.push (next-turn delivery).
+function createIpcDrainHook(): HookCallback {
+  return async (_input, _toolUseId, _context) => {
+    try {
+      const messages = drainIpcInputMutex();
+      if (messages.length === 0) return {};
+      log(`Piping ${messages.length} IPC messages into active query via PostToolUse hook`);
+      const body = messages
+        .map(m => `<message>${m}</message>`)
+        .join('\n');
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: `<user-steering>\n${body}\n</user-steering>`,
+        },
+      };
+    } catch (err) {
+      log(`PostToolUse drain hook error: ${err instanceof Error ? err.message : String(err)}`);
+      return {};
+    }
+  };
+}
+
 // Per spec (L-chat-bound-sessions): exit when input/ is empty.
 // Gateway detects exit and re-queues any messages that arrived after.
 function checkIpcMessage(): string | null {
@@ -412,7 +449,7 @@ async function runQuery(
       wakeup = null;
       return;
     }
-    const messages = drainIpcInput();
+    const messages = drainIpcInputMutex();
     for (const text of messages) {
       log(`Piping IPC message into active query (${text.length} chars)`);
       stream.push(text);
@@ -483,6 +520,7 @@ async function runQuery(
         hooks: {
           PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
           PreToolUse: [{ matcher: 'Bash', hooks: [createSanitizeBashHook()] }],
+          PostToolUse: [{ hooks: [createIpcDrainHook()] }],
         },
       }
     })) {

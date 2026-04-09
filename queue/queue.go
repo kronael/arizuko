@@ -124,7 +124,10 @@ func (q *GroupQueue) RegisterProcess(groupJid, containerName, groupFolder string
 	}
 }
 
-func (q *GroupQueue) SendMessage(groupJid, text string) bool {
+func (q *GroupQueue) SendMessages(groupJid string, texts []string) bool {
+	if len(texts) == 0 {
+		return false
+	}
 	q.mu.Lock()
 	s := q.getGroup(groupJid)
 	if !s.active || s.groupFolder == "" {
@@ -135,12 +138,24 @@ func (q *GroupQueue) SendMessage(groupJid, text string) bool {
 	cname := s.containerName
 	q.mu.Unlock()
 
-	if err := writeIpcFile(filepath.Join(q.ipcDir, folder), text); err != nil {
+	ipcFolder := filepath.Join(q.ipcDir, folder)
+	written := 0
+	for _, text := range texts {
+		if err := writeIpcFile(ipcFolder, text); err != nil {
+			slog.Warn("steer: ipc write failed",
+				"jid", groupJid, "folder", folder, "err", err)
+			continue
+		}
+		written++
+	}
+	if written == 0 {
 		return false
 	}
 	if cname != "" {
 		signalContainer(cname)
 	}
+	slog.Info("steer: sent messages into running container",
+		"jid", groupJid, "folder", folder, "count", written)
 	return true
 }
 

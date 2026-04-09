@@ -283,10 +283,16 @@ func (g *Gateway) pollOnce() {
 			}
 		}
 
-		if g.queue.SendMessage(chatJid, last.Content) {
-			slog.Debug("poll: steered message into running container", "jid", chatJid)
+		texts := make([]string, len(chatMsgs))
+		for i, m := range chatMsgs {
+			texts[i] = m.Content
+		}
+		if g.queue.SendMessages(chatJid, texts) {
+			slog.Info("poll: steered messages into running container",
+				"jid", chatJid, "count", len(texts))
 			g.store.SetLastReplyID(chatJid, g.effectiveTopic(chatJid, last.Topic), last.ID)
 			g.store.ClearChatErrored(chatJid)
+			g.advanceAgentCursor(chatJid, chatMsgs)
 			continue
 		}
 
