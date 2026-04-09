@@ -121,6 +121,78 @@ func TestProxydRequireAuthBadToken(t *testing.T) {
 	}
 }
 
+func TestProxydRequireAuthNoHeader(t *testing.T) {
+	s := &server{cfg: config{authSecret: "testsecret"}, slinkRL: newRateLimiter(10, time.Minute)}
+	called := false
+	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(200)
+	})
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+	if called {
+		t.Error("handler called without credentials")
+	}
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303", w.Code)
+	}
+}
+
+func testMintExpiredJWT(secret []byte, sub string) string {
+	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	c := fmt.Sprintf(`{"sub":%q,"name":"test","exp":%d,"iat":%d}`,
+		sub, time.Now().Add(-time.Hour).Unix(), time.Now().Add(-2*time.Hour).Unix())
+	body := base64.RawURLEncoding.EncodeToString([]byte(c))
+	h := hmac.New(sha256.New, secret)
+	h.Write([]byte(hdr + "." + body))
+	sig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+	return hdr + "." + body + "." + sig
+}
+
+func TestProxydRequireAuthExpiredJWT(t *testing.T) {
+	secret := []byte("testsecret")
+	s := &server{cfg: config{authSecret: "testsecret"}, slinkRL: newRateLimiter(10, time.Minute)}
+	called := false
+	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(200)
+	})
+	tok := testMintExpiredJWT(secret, "user1")
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	h(w, req)
+	if called {
+		t.Error("handler called with expired JWT")
+	}
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303", w.Code)
+	}
+}
+
+func TestProxydSlinkRouteRateLimit(t *testing.T) {
+	s := &server{
+		cfg:     config{},
+		vh:      &vhosts{entries: map[string]string{}},
+		slinkRL: newRateLimiter(1, time.Minute),
+	}
+	req1 := httptest.NewRequest("GET", "/slink/tok1", nil)
+	req1.RemoteAddr = "9.9.9.9:1234"
+	// First hit consumes the only slot; it would proceed to upstream (nil),
+	// which would panic. Pre-fill the limiter bucket instead so the second
+	// request is denied before touching upstream.
+	s.slinkRL.allow("9.9.9.9")
+
+	req := httptest.NewRequest("GET", "/slink/tok1", nil)
+	req.RemoteAddr = "9.9.9.9:1234"
+	w := httptest.NewRecorder()
+	s.route(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429", w.Code)
+	}
+}
+
 func TestProxydDashNilProxy(t *testing.T) {
 	s := testServer() // dashProxy is nil
 	req := httptest.NewRequest("GET", "/dash/status/", nil)

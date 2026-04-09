@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -107,5 +110,38 @@ func TestDashTasks(t *testing.T) {
 	mux.ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
+	}
+}
+
+func TestRenderMemorySectionTraversal(t *testing.T) {
+	groups := t.TempDir()
+	d := &dash{groupsDir: groups}
+	w := httptest.NewRecorder()
+	d.renderMemorySection(w, "../../etc")
+	body := w.Body.String()
+	if !strings.Contains(body, "Invalid group path") {
+		t.Errorf("traversal not rejected: body = %q", body)
+	}
+}
+
+func TestRenderMemorySectionValid(t *testing.T) {
+	groups := t.TempDir()
+	folder := "g1"
+	if err := os.MkdirAll(filepath.Join(groups, folder), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	memContent := "hello memory"
+	if err := os.WriteFile(filepath.Join(groups, folder, "MEMORY.md"), []byte(memContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{groupsDir: groups}
+	w := httptest.NewRecorder()
+	d.renderMemorySection(w, folder)
+	body := w.Body.String()
+	if strings.Contains(body, "Invalid group path") {
+		t.Errorf("valid folder rejected: body = %q", body)
+	}
+	if !strings.Contains(body, memContent) {
+		t.Errorf("MEMORY.md content missing: body = %q", body)
 	}
 }
