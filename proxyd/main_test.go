@@ -8,8 +8,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"testing"
 	"time"
+
+	"github.com/onvos/arizuko/auth"
+	"github.com/onvos/arizuko/store"
 )
 
 func testMintJWT(secret []byte, sub string) string {
@@ -267,5 +272,153 @@ func TestVhostsMatch(t *testing.T) {
 	}
 	if _, ok := vh.match("unknown.com"); ok {
 		t.Error("unknown host should not match")
+	}
+}
+
+// testServerWithUpstream returns a server whose viteProxy points at an
+// httptest upstream. The caller must Close the returned upstream.
+func testServerWithUpstream(t *testing.T) (*server, *httptest.Server) {
+	t.Helper()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Upstream", "hit")
+		w.WriteHeader(200)
+		w.Write([]byte("upstream:" + r.URL.Path))
+	}))
+	u, err := url.Parse(up.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{
+		cfg:       config{authSecret: "testsecret"},
+		vh:        &vhosts{entries: map[string]string{}},
+		viteProxy: httputil.NewSingleHostReverseProxy(u),
+		slinkRL:   newRateLimiter(10, time.Minute),
+	}
+	return s, up
+}
+
+// regression guard — /pub is the public zone
+func TestProxydPubPathNoAuth(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/pub/anything", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200 (pub bypasses auth)", w.Code)
+	}
+	if w.Header().Get("X-Upstream") != "hit" {
+		t.Error("upstream not reached")
+	}
+}
+
+func TestProxydRootRedirectToPub(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("status = %d, want 302", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/pub/" {
+		t.Errorf("location = %q, want /pub/", loc)
+	}
+}
+
+func TestDavRouteForbidden(t *testing.T) {
+	s := &server{
+		cfg:      config{authSecret: "testsecret"},
+		vh:       &vhosts{entries: map[string]string{}},
+		slinkRL:  newRateLimiter(10, time.Minute),
+		davProxy: nil, // 403 short-circuits before hitting the proxy
+	}
+	req := httptest.NewRequest("GET", "/dav/bob/", nil)
+	req.Header.Set("X-User-Groups", `["alice"]`)
+	w := httptest.NewRecorder()
+	s.davRoute(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestProxydRequireAuthExpiredRefreshToken(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.CreateAuthUser("local:admin", "admin", "", "Admin"); err != nil {
+		t.Fatal(err)
+	}
+	token := "expired-refresh"
+	if err := st.CreateAuthSession(
+		auth.HashToken(token), "local:admin", time.Now().Add(-time.Hour),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &server{
+		cfg:     config{authSecret: "testsecret"},
+		st:      st,
+		slinkRL: newRateLimiter(10, time.Minute),
+	}
+	called := false
+	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(200)
+	})
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: token})
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if called {
+		t.Error("handler called with expired refresh session")
+	}
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303", w.Code)
+	}
+}
+
+func TestProxydRequireAuthRefreshTokenUserMissing(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	// session exists, but no auth_users row for its UserSub
+	token := "orphan-refresh"
+	if err := st.CreateAuthSession(
+		auth.HashToken(token), "local:ghost", time.Now().Add(time.Hour),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &server{
+		cfg:     config{authSecret: "testsecret"},
+		st:      st,
+		slinkRL: newRateLimiter(10, time.Minute),
+	}
+	called := false
+	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(200)
+	})
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: token})
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if called {
+		t.Error("handler called when session user is missing")
+	}
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303", w.Code)
 	}
 }
