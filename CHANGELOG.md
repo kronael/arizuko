@@ -9,6 +9,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.25.1] — 2026-04-09
+
 ### Fixed
 
 - **gateway**: `pollOnce` steering branch now advances `agentCursor` for the
