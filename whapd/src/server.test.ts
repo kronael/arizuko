@@ -226,3 +226,70 @@ describe('POST /send-file document MIME', () => {
     expect(content['fileName']).toBe('report.pdf');
   });
 });
+
+function makeThrowingStub() {
+  const calls: { method: string; args: unknown[] }[] = [];
+  const sock = {
+    sendMessage: (...args: unknown[]) => {
+      calls.push({ method: 'sendMessage', args });
+      return Promise.reject(new Error('upstream boom'));
+    },
+    sendPresenceUpdate: (...args: unknown[]) => {
+      calls.push({ method: 'sendPresenceUpdate', args });
+      return Promise.resolve();
+    },
+  } as any;
+  return { sock, calls };
+}
+
+describe('POST /send queues on sendMessage error', () => {
+  it('falls through to queued response when upstream throws', async () => {
+    const throwing = makeThrowingStub();
+    stub.sock = throwing.sock;
+    connected = true;
+    const r = await fetch(`${BASE}/send`, {
+      method: 'POST',
+      body: JSON.stringify({ chat_jid: 'whatsapp:12345', content: 'hi' }),
+      headers: { 'Content-Type': 'application/json', ...auth() },
+    });
+    expect(r.status).toBe(200);
+    const b = await r.json();
+    expect(b.ok).toBe(true);
+    expect(b.queued).toBe(true);
+    expect(throwing.calls.some((c) => c.method === 'sendMessage')).toBe(true);
+    stub = makeStub();
+  });
+});
+
+describe('POST /typing auth', () => {
+  it('rejects missing token', async () => {
+    const r = await fetch(`${BASE}/typing`, {
+      method: 'POST',
+      body: JSON.stringify({ chat_jid: 'whatsapp:12345', on: true }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(r.status).toBe(401);
+  });
+});
+
+describe('POST /send-file upstream error', () => {
+  it('returns 502 when sendMessage throws', async () => {
+    const throwing = makeThrowingStub();
+    stub.sock = throwing.sock;
+    connected = true;
+    const fd = new globalThis.FormData();
+    fd.append('chat_jid', 'whatsapp:12345');
+    fd.append('filename', 'photo.jpg');
+    fd.append('file', new Blob(['imgdata']), 'photo.jpg');
+    const r = await fetch(`${BASE}/send-file`, {
+      method: 'POST',
+      body: fd,
+      headers: { ...auth() },
+    });
+    expect(r.status).toBe(502);
+    const b = await r.json();
+    expect(b.ok).toBe(false);
+    expect(b.error).toContain('upstream boom');
+    stub = makeStub();
+  });
+});

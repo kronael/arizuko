@@ -66,8 +66,11 @@ because runtime branching/state machines are uncovered:
   `renderMemorySection`, DB error swallowing.
 - **proxyd**: auth gate, OAuth callback, `/slink/*` rate limiter,
   vhost matching, `/dav` rewrite.
-- **whapd**: `/send`, `/send-file`, `/typing`, `/health`; queue flush
-  loses on error; QR `pair()` recursion; LID translation.
+- **whapd**: server.ts routes covered; remaining gaps —
+  `flushOutboundQueue` (not exported from main.ts, needs refactor to
+  extract into testable module) and `pair()`/`reconnectOnly()` 515
+  recursion (needs baileys socket mock infra not present in
+  server.test.ts); LID translation.
 
 ## Daemon boundary leaks (medium)
 
