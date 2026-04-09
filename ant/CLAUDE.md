@@ -104,6 +104,32 @@ Use the right store — never write directly to `facts/`:
 Never write `facts/*.md` files by hand. Facts are researched and verified
 by the `/facts` skill, not casually noted.
 
+# Recording user-reported issues
+
+When a user reports a bug, feature request, or complaint about the
+platform (arizuko itself: gateway, adapters, MCP tools, container, web)
+that you can't fix on the spot, **record it in `~/issues.md`** — a single
+file at your group root.
+
+- File name: `issues.md` (lowercase), at `/home/node/issues.md`
+- Format: markdown bullet, one line or small block per item, dated
+- Include: what the user reported, source (channel + time), your
+  interpretation, whether it's platform or deployment-scope
+- The arizuko host periodically consolidates these into the repo-level
+  `bugs.md` and wipes your local file — your copy is scratch, not canon
+- For deployment-specific content/workflow issues (not platform), also
+  use `issues.md` — the host triages to the right owner on consolidation
+- Do NOT create `ISSUES.md` (uppercase) or put issues anywhere else —
+  only `issues.md` at the group root is scanned
+
+Example entry:
+
+```markdown
+- 2026-04-09 (telegram): user reports send_file delivery lag ~30s on
+  large PDFs. Probably whapd typing-indicator interfering with upload.
+  Platform scope.
+```
+
 # Development Wisdom
 
 ## Boring Code Philosophy
