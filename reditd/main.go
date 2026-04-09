@@ -19,15 +19,15 @@ func main() {
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"reddit:"},
 		Caps:          map[string]bool{"send_text": true},
-		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
-			rc2, err := newRedditClient(cfg)
+		Start: func(ctx context.Context, router *chanlib.RouterClient) (http.Handler, func(), error) {
+			rc, err := newRedditClient(cfg)
 			if err != nil {
 				slog.Error("reddit auth failed", "err", err)
 				return nil, nil, err
 			}
-			rc2.loadCursors()
-			go rc2.poll(ctx, rc)
-			return newServer(cfg, rc2, rc2.files).handler(), nil, nil
+			rc.loadCursors()
+			go rc.poll(ctx, router)
+			return newServer(cfg, rc, rc.files).handler(), nil, nil
 		},
 	})
 }
