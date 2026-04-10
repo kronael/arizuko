@@ -15,14 +15,6 @@ bugs.md "Verify shipped")_
 
 ## Microservice port — open phases
 
-### Phase 4: MCP IPC
-
-- Router becomes MCP server on unix socket per group
-- Agent containers connect via socat bridge as MCP clients
-- Tools: `send_message`, `send_file`, `schedule_task`, etc.
-- Bidirectional: router pushes notifications to agent
-- Remove file-based IPC (requests/, replies/, messages/) and SIGUSR1
-
 ### Phase 5: Adapters not yet ported
 
 - twitter (low priority — no clean API)
