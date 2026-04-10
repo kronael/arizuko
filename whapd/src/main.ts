@@ -12,6 +12,7 @@ import makeWASocket, {
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { RouterClient } from './client.js';
+import { extractReplyMeta } from './reply.js';
 import { startServer } from './server.js';
 
 const logger = pino({ level: 'warn' });
@@ -331,6 +332,8 @@ async function connect(): Promise<void> {
         await extractContent(msg);
       if (!content && !mediaBuffer) continue;
 
+      const replyMeta = extractReplyMeta(msg);
+
       sock!.readMessages([msg.key]).catch(() => {});
 
       try {
@@ -347,6 +350,15 @@ async function connect(): Promise<void> {
                 attachment: mediaBuffer.toString('base64'),
                 attachment_mime: mediaMime,
                 attachment_name: mediaFilename,
+              }
+            : {}),
+          ...(replyMeta
+            ? {
+                reply_to: replyMeta.replyTo,
+                reply_to_text: replyMeta.replyToText,
+                ...(replyMeta.replyToSender
+                  ? { reply_to_sender: replyMeta.replyToSender }
+                  : {}),
               }
             : {}),
         });

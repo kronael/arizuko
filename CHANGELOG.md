@@ -16,6 +16,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   now call send_message/send_file/etc. without being the agent. See
   migration 052.
 
+### Fixed
+
+- **whapd**: inbound WhatsApp replies now populate `reply_to`,
+  `reply_to_text`, `reply_to_sender` from Baileys `contextInfo`.
+  Previously all WhatsApp replies reached the gateway as unthreaded
+  messages. Matches the teled/telegram behavior. New pure helper
+  `extractReplyMeta` in `whapd/src/reply.ts`.
+
 ## [v0.25.1] — 2026-04-09
 
 ### Fixed

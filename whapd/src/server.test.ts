@@ -1,5 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import { startServer } from './server';
+import { extractReplyMeta } from './reply';
+import type { WAMessage } from '@whiskeysockets/baileys';
 
 // Minimal WASocket stub
 function makeStub() {
@@ -291,5 +293,121 @@ describe('POST /send-file upstream error', () => {
     expect(b.ok).toBe(false);
     expect(b.error).toContain('upstream boom');
     stub = makeStub();
+  });
+});
+
+function wa(message: Record<string, unknown>): WAMessage {
+  return { key: { id: 'k1' }, message } as unknown as WAMessage;
+}
+
+describe('extractReplyMeta', () => {
+  it('returns undefined when message body is missing', () => {
+    expect(
+      extractReplyMeta({ key: { id: 'k1' } } as WAMessage),
+    ).toBeUndefined();
+  });
+
+  it('returns undefined for plain text without contextInfo', () => {
+    expect(extractReplyMeta(wa({ conversation: 'hello' }))).toBeUndefined();
+  });
+
+  it('extracts reply fields for text reply to text', () => {
+    const meta = extractReplyMeta(
+      wa({
+        extendedTextMessage: {
+          text: 'reply body',
+          contextInfo: {
+            stanzaId: 'STANZA1',
+            participant: '12345@s.whatsapp.net',
+            quotedMessage: { conversation: 'original' },
+          },
+        },
+      }),
+    );
+    expect(meta).toEqual({
+      replyTo: 'STANZA1',
+      replyToText: 'original',
+      replyToSender: 'whatsapp:12345@s.whatsapp.net',
+    });
+  });
+
+  it('uses image caption when replying to captioned image', () => {
+    const meta = extractReplyMeta(
+      wa({
+        extendedTextMessage: {
+          text: 'nice pic',
+          contextInfo: {
+            stanzaId: 'S2',
+            participant: 'p@s',
+            quotedMessage: { imageMessage: { caption: 'sunset' } },
+          },
+        },
+      }),
+    );
+    expect(meta?.replyToText).toBe('sunset');
+  });
+
+  it('falls back to [Image] when quoted image has no caption', () => {
+    const meta = extractReplyMeta(
+      wa({
+        extendedTextMessage: {
+          text: 'cool',
+          contextInfo: {
+            stanzaId: 'S3',
+            participant: 'p@s',
+            quotedMessage: { imageMessage: {} },
+          },
+        },
+      }),
+    );
+    expect(meta?.replyToText).toBe('[Image]');
+  });
+
+  it('omits replyToSender when participant is missing', () => {
+    const meta = extractReplyMeta(
+      wa({
+        extendedTextMessage: {
+          text: 'r',
+          contextInfo: {
+            stanzaId: 'S4',
+            quotedMessage: { conversation: 'q' },
+          },
+        },
+      }),
+    );
+    expect(meta).toEqual({ replyTo: 'S4', replyToText: 'q' });
+    expect(meta?.replyToSender).toBeUndefined();
+  });
+
+  it('passes stanzaId through verbatim', () => {
+    const meta = extractReplyMeta(
+      wa({
+        extendedTextMessage: {
+          text: 'r',
+          contextInfo: {
+            stanzaId: '3EB0ABCDEF1234567890',
+            quotedMessage: { conversation: 'q' },
+          },
+        },
+      }),
+    );
+    expect(meta?.replyTo).toBe('3EB0ABCDEF1234567890');
+  });
+
+  it('reads contextInfo from imageMessage wrapper', () => {
+    const meta = extractReplyMeta(
+      wa({
+        imageMessage: {
+          caption: 'my reply',
+          contextInfo: {
+            stanzaId: 'S5',
+            participant: 'p@s',
+            quotedMessage: { conversation: 'parent' },
+          },
+        },
+      }),
+    );
+    expect(meta?.replyTo).toBe('S5');
+    expect(meta?.replyToText).toBe('parent');
   });
 });
