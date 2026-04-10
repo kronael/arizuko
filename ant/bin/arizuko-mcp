@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""Minimal MCP client for ad-hoc scripts inside arizuko agent containers.
+
+Scripts running alongside the agent can call MCP tools (send_message,
+send_file, ...) via the gated.sock unix socket without being the agent
+themselves. Talks newline-delimited JSON-RPC 2.0, stdlib only.
+
+Usage:
+    arizuko-mcp message <jid> <text>
+    arizuko-mcp file <jid> <path> [caption]
+    arizuko-mcp --default-jid message <text>
+    arizuko-mcp tools
+"""
+
+import argparse
+import json
+import os
+import socket
+import sys
+
+DEFAULT_SOCK = "/workspace/ipc/gated.sock"
+DEFAULT_GROUPS = "/workspace/ipc/available_groups.json"
+
+
+def die(code, msg):
+    print(msg, file=sys.stderr)
+    sys.exit(code)
+
+
+class MCPClient:
+    def __init__(self, sock_path):
+        self.sock_path = sock_path
+        self.sock = None
+        self.rf = None
+        self.wf = None
+        self.next_id = 1
+
+    def connect(self):
+        if not os.path.exists(self.sock_path):
+            die(2, f"gated.sock not found at {self.sock_path}")
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.connect(self.sock_path)
+        self.sock = s
+        self.rf = s.makefile("r", encoding="utf-8", newline="\n")
+        self.wf = s.makefile("w", encoding="utf-8", newline="\n")
+
+    def close(self):
+        try:
+            if self.rf:
+                self.rf.close()
+            if self.wf:
+                self.wf.close()
+            if self.sock:
+                self.sock.close()
+        except Exception:
+            pass
+
+    def send(self, obj):
+        self.wf.write(json.dumps(obj) + "\n")
+        self.wf.flush()
+
+    def recv(self):
+        line = self.rf.readline()
+        if not line:
+            raise RuntimeError("socket closed")
+        return json.loads(line)
+
+    def request(self, method, params=None):
+        rid = self.next_id
+        self.next_id += 1
+        req = {"jsonrpc": "2.0", "id": rid, "method": method}
+        if params is not None:
+            req["params"] = params
+        self.send(req)
+        # Skip notifications, match on id.
+        while True:
+            resp = self.recv()
+            if resp.get("id") == rid:
+                return resp
+
+    def notify(self, method, params=None):
+        n = {"jsonrpc": "2.0", "method": method}
+        if params is not None:
+            n["params"] = params
+        self.send(n)
+
+    def initialize(self):
+        resp = self.request(
+            "initialize",
+            {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "arizuko-mcp", "version": "0.1"},
+            },
+        )
+        if "error" in resp:
+            die(3, f"MCP initialize failed: {resp['error']}")
+        self.notify("notifications/initialized")
+
+    def call_tool(self, name, arguments):
+        resp = self.request(
+            "tools/call", {"name": name, "arguments": arguments}
+        )
+        return resp
+
+    def list_tools(self):
+        return self.request("tools/list")
+
+
+def extract_text(result):
+    # mcp-go NewToolResultText wraps text in content[].text
+    content = result.get("content", [])
+    if isinstance(content, list):
+        parts = []
+        for c in content:
+            if isinstance(c, dict) and c.get("type") == "text":
+                parts.append(c.get("text", ""))
+        if parts:
+            return "\n".join(parts)
+    return json.dumps(result)
+
+
+def default_jid(groups_path):
+    try:
+        with open(groups_path) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        die(1, f"error: default-jid requested but {groups_path} missing")
+    except Exception as e:
+        die(1, f"error: failed to read {groups_path}: {e}")
+    groups = data.get("groups") or []
+    if not groups:
+        die(1, "error: no groups in available_groups.json")
+    # group entries have a Folder field; we want the JID — the snapshot
+    # only has folder/name/parent. Fall back to environment.
+    jid = os.environ.get("ARIZUKO_DEFAULT_JID", "")
+    if not jid:
+        die(1, "error: ARIZUKO_DEFAULT_JID not set; pass jid explicitly")
+    return jid
+
+
+def do_message(client, jid, text):
+    resp = client.call_tool("send_message", {"chatJid": jid, "text": text})
+    if "error" in resp:
+        die(4, f"send_message failed: {resp['error']}")
+    result = resp.get("result", {})
+    if result.get("isError"):
+        die(4, f"send_message failed: {extract_text(result)}")
+    print(extract_text(result))
+
+
+def do_file(client, jid, path, caption):
+    args = {"chatJid": jid, "filepath": path}
+    if caption:
+        args["caption"] = caption
+    resp = client.call_tool("send_file", args)
+    if "error" in resp:
+        die(4, f"send_file failed: {resp['error']}")
+    result = resp.get("result", {})
+    if result.get("isError"):
+        die(4, f"send_file failed: {extract_text(result)}")
+    print(extract_text(result))
+
+
+def do_tools(client):
+    resp = client.list_tools()
+    if "error" in resp:
+        die(4, f"tools/list failed: {resp['error']}")
+    result = resp.get("result", {})
+    tools = result.get("tools", [])
+    for t in tools:
+        name = t.get("name", "")
+        desc = (t.get("description") or "").split("\n")[0]
+        print(f"{name}\t{desc}")
+
+
+def main():
+    p = argparse.ArgumentParser(
+        prog="arizuko-mcp",
+        description="Minimal MCP client for arizuko agent containers",
+    )
+    p.add_argument("--socket", default=DEFAULT_SOCK)
+    p.add_argument("--default-jid", action="store_true")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pm = sub.add_parser("message", help="send a text message")
+    pm.add_argument("jid_or_text")
+    pm.add_argument("text", nargs="?")
+
+    pf = sub.add_parser("file", help="send a file")
+    pf.add_argument("jid_or_path")
+    pf.add_argument("path_or_caption", nargs="?")
+    pf.add_argument("caption", nargs="?")
+
+    sub.add_parser("tools", help="list available tools")
+
+    args = p.parse_args()
+
+    client = MCPClient(args.socket)
+    try:
+        client.connect()
+        client.initialize()
+
+        if args.cmd == "message":
+            if args.default_jid:
+                jid = default_jid(DEFAULT_GROUPS)
+                text = args.jid_or_text
+            else:
+                if not args.text:
+                    die(1, "error: usage: arizuko-mcp message <jid> <text>")
+                jid = args.jid_or_text
+                text = args.text
+            do_message(client, jid, text)
+
+        elif args.cmd == "file":
+            if args.default_jid:
+                jid = default_jid(DEFAULT_GROUPS)
+                path = args.jid_or_path
+                caption = args.path_or_caption or ""
+            else:
+                if not args.path_or_caption:
+                    die(1, "error: usage: arizuko-mcp file <jid> <path> [caption]")
+                jid = args.jid_or_path
+                path = args.path_or_caption
+                caption = args.caption or ""
+            do_file(client, jid, path, caption)
+
+        elif args.cmd == "tools":
+            do_tools(client)
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        die(1, f"error: {e}")
+    finally:
+        client.close()
+
+
+if __name__ == "__main__":
+    main()

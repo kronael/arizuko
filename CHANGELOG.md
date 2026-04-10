@@ -9,6 +9,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **arizuko-mcp CLI**: minimal Python MCP client at
+  `/usr/local/bin/arizuko-mcp` inside agent containers. Scripts can
+  now call send_message/send_file/etc. without being the agent. See
+  migration 052.
+
 ## [v0.25.1] — 2026-04-09
 
 ### Fixed

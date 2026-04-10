@@ -113,7 +113,7 @@ ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION
 ```
 
-Latest migration version: **51**. If version < 51: migrations pending.
+Latest migration version: **52**. If version < 52: migrations pending.
 
 ## MCP tools
 
@@ -156,6 +156,20 @@ Use `~/tmp/` for temporary output files.
 Parameters: `filepath` (required), `filename` (display name), `caption` (message
 text shown alongside the file). Use `caption` instead of a separate `send_message`
 call.
+
+### arizuko-mcp CLI (for scripts)
+
+Ad-hoc scripts running inside the container can call the same MCP
+tools without being the agent — use `/usr/local/bin/arizuko-mcp`:
+
+```bash
+arizuko-mcp message <jid> "hello"
+arizuko-mcp file <jid> /home/node/foo.pdf "caption"
+arizuko-mcp tools   # list available tools
+```
+
+Talks newline-delimited JSON-RPC over `/workspace/ipc/gated.sock`.
+Stdlib-only Python; no extra deps.
 
 ## Group configuration files
 

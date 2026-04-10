@@ -163,6 +163,10 @@ COPY output-styles/ /home/node/.claude/output-styles/
 # Validate TypeScript compiles (catches errors at build time)
 RUN npm run build && rm -rf dist
 
+# arizuko-mcp CLI for scripts to call MCP tools over gated.sock
+COPY bin/arizuko-mcp /usr/local/bin/arizuko-mcp
+RUN chmod +x /usr/local/bin/arizuko-mcp
+
 # Create workspace directories
 RUN mkdir -p /workspace/extra /workspace/ipc/input
 
