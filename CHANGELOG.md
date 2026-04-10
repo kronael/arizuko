@@ -11,10 +11,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
-- **arizuko-mcp CLI**: minimal Python MCP client at
-  `/usr/local/bin/arizuko-mcp` inside agent containers. Scripts can
-  now call send_message/send_file/etc. without being the agent. See
-  migration 052.
+- **mcpc in agent image**: apify's `@apify/mcpc` MCP CLI is installed
+  globally in the agent container so ad-hoc scripts can call MCP
+  tools without being the agent. HTTPie-style param grammar
+  (`key:=value` JSON-typed, `key=value` string), full MCP surface
+  (`tools-list`, `tools-call`, `resources-*`, `prompts-*`). Default
+  socket path via `ARIZUKO_MCP_SOCKET=/workspace/ipc/gated.sock`.
+  Wrap with `socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -` for stdio
+  transport to the gateway. See migration 052.
+
+### Removed
+
+- **arizuko-mcp CLI**: the custom 220-LOC Python MCP client shipped
+  briefly as `ant/bin/arizuko-mcp` is gone — it was an anti-orthogonal
+  wrapper that hardcoded arizuko tool names as subcommands. Replaced
+  by `mcpc` (see Added).
 
 ### Fixed
 

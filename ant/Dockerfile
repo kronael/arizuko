@@ -133,8 +133,11 @@ RUN set -e; ARCH=$(dpkg --print-architecture); \
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Install bun, agent-browser and claude-code globally
-RUN npm install -g bun agent-browser @anthropic-ai/claude-code \
+# Default MCP socket for ad-hoc scripts using mcpc
+ENV ARIZUKO_MCP_SOCKET=/workspace/ipc/gated.sock
+
+# Install bun, agent-browser, claude-code, mcpc globally
+RUN npm install -g bun agent-browser @anthropic-ai/claude-code @apify/mcpc \
     && bun install -g @biomejs/biome prettier svgo \
        @marp-team/marp-cli htmlhint
 
@@ -162,10 +165,6 @@ COPY output-styles/ /home/node/.claude/output-styles/
 
 # Validate TypeScript compiles (catches errors at build time)
 RUN npm run build && rm -rf dist
-
-# arizuko-mcp CLI for scripts to call MCP tools over gated.sock
-COPY bin/arizuko-mcp /usr/local/bin/arizuko-mcp
-RUN chmod +x /usr/local/bin/arizuko-mcp
 
 # Create workspace directories
 RUN mkdir -p /workspace/extra /workspace/ipc/input

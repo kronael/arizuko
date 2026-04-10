@@ -157,19 +157,27 @@ Parameters: `filepath` (required), `filename` (display name), `caption` (message
 text shown alongside the file). Use `caption` instead of a separate `send_message`
 call.
 
-### arizuko-mcp CLI (for scripts)
+### mcpc (calling MCP tools from scripts)
 
 Ad-hoc scripts running inside the container can call the same MCP
-tools without being the agent — use `/usr/local/bin/arizuko-mcp`:
+tools without being the agent — use apify's `mcpc` (general MCP
+CLI, HTTPie-style params) over `$ARIZUKO_MCP_SOCKET` (=
+`/workspace/ipc/gated.sock`).
+
+mcpc uses a session bridge — connect once per script, call, close:
 
 ```bash
-arizuko-mcp message <jid> "hello"
-arizuko-mcp file <jid> /home/node/foo.pdf "caption"
-arizuko-mcp tools   # list available tools
+mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
+trap 'mcpc @s close' EXIT
+
+mcpc @s tools-list
+mcpc @s tools-call send_message jid:="$JID" text:="hello"
+mcpc @s tools-call send_file filepath:=/home/node/foo.pdf \
+     filename:="foo.pdf" caption:="here you go"
 ```
 
-Talks newline-delimited JSON-RPC over `/workspace/ipc/gated.sock`.
-Stdlib-only Python; no extra deps.
+Param grammar: `key:=value` is JSON-typed (numbers, bools, objects),
+`key=value` is plain string.
 
 ## Group configuration files
 

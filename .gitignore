@@ -30,7 +30,6 @@ refs
 old/
 /arizuko
 bin/
-!ant/bin/
 gated/gated
 onbod/onbod
 dashd/dashd
@@ -45,4 +44,3 @@ bskyd/bskyd
 reditd/reditd
 reditd/cursors.json
 *.py
-!ant/bin/*.py
