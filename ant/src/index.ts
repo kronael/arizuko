@@ -375,8 +375,9 @@ function drainIpcInput(): string[] {
   }
 }
 
-// Flag (not a real mutex — single-threaded JS) so the PostToolUse hook
-// and pollIpcDuringQuery timer don't both consume the same input files.
+// Flag (not a real mutex — single-threaded JS) guarding reentry into
+// drainIpcInput. Useful if multiple PostToolUse hook callbacks ever fire
+// concurrently in the SDK's internal scheduler.
 let draining = false;
 function drainIpcInputMutex(): string[] {
   if (draining) return [];
@@ -427,7 +428,20 @@ async function runQuery(
   const stream = new MessageStream();
   stream.push(prompt);
 
-  // Poll IPC for follow-up messages and _close sentinel during the query
+  // Poll IPC ONLY for the _close sentinel during the query. User-message
+  // drain is owned exclusively by the PostToolUse hook (createIpcDrainHook)
+  // which injects via additionalContext at the next tool-call boundary —
+  // that's the actual mid-loop delivery mechanism in the SDK.
+  //
+  // Before: this timer ALSO drained user messages every IPC_POLL_MS and
+  // pushed them to stream, but the hook shares drainIpcInputMutex with
+  // the timer. Typical tool-calls are 5-30s while the timer ticks every
+  // 500ms, so the timer always won the race, the hook saw an empty queue,
+  // and steered messages landed as next-turn items (via stream.push)
+  // instead of mid-loop (via additionalContext). Moving message drain
+  // exclusively to the hook makes the plan's mid-loop steering actually
+  // work. Text-only responses (no tool calls) still pick up steered
+  // messages at next-turn start via checkIpcMessage().
   let ipcPolling = true;
   let closedDuringQuery = false;
   const pollIpcDuringQuery = () => {
@@ -440,13 +454,6 @@ async function runQuery(
       wakeup = null;
       return;
     }
-    const messages = drainIpcInputMutex();
-    for (const text of messages) {
-      log(`Piping IPC message into active query (${text.length} chars)`);
-      stream.push(text);
-    }
-    // Set wakeup before setTimeout so SIGUSR1 arriving in between
-    // still cancels the right timer (no missed-signal double-poll).
     let timer: ReturnType<typeof setTimeout>;
     wakeup = () => { clearTimeout(timer); pollIpcDuringQuery(); };
     timer = setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
