@@ -1081,18 +1081,29 @@ func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
 }
 
 func ensureGroupGitRepo(groupDir string) {
-	if _, err := os.Stat(filepath.Join(groupDir, ".git")); err == nil {
+	gitDir := filepath.Join(groupDir, ".git")
+	if _, err := os.Stat(gitDir); err == nil {
 		return
 	}
 	if err := exec.Command("git", "init", groupDir).Run(); err != nil {
 		return // git unavailable or dir missing — non-fatal
 	}
+	// gated runs as root; the agent container runs as uid 1000 (node).
+	// git init creates .git/ with root ownership, so chown to 1000:1000
+	// or the agent cannot write new objects.
+	filepath.WalkDir(gitDir, func(p string, _ os.DirEntry, err error) error {
+		if err == nil {
+			os.Chown(p, 1000, 1000)
+		}
+		return nil
+	})
 	gitignore := filepath.Join(groupDir, ".gitignore")
 	if _, err := os.Stat(gitignore); err == nil {
 		return
 	}
 	lines := []string{"diary/", "episodes/", "users/", "logs/", "media/", "tmp/", "*.jl"}
 	os.WriteFile(gitignore, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	os.Chown(gitignore, 1000, 1000)
 }
 
 func (g *Gateway) getGroups() map[string]core.Group {
