@@ -47,15 +47,6 @@ func die(format string, args ...any) {
 	os.Exit(1)
 }
 
-func chownTree(dir string, uid, gid int) {
-	filepath.WalkDir(dir, func(p string, _ os.DirEntry, err error) error {
-		if err == nil {
-			os.Chown(p, uid, gid)
-		}
-		return nil
-	})
-}
-
 func cmdRun(args []string) {
 	if len(args) < 1 {
 		fmt.Println("usage: arizuko run <instance>")
@@ -109,14 +100,9 @@ func cmdCreate(args []string) {
 	name := args[0]
 	dataDir := instanceDir(name)
 
-	for _, sub := range []string{"store", "groups", "ipc", "web", "services"} {
-		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
-			die("Failed: mkdir %s: %v", sub, err)
-		}
+	if err := os.MkdirAll(filepath.Join(dataDir, "services"), 0o755); err != nil {
+		die("Failed: mkdir services: %v", err)
 	}
-	// gated runs as uid 1000 (node) in its container; pre-chown the
-	// data dir so it can write. Harmless no-op for dev runs as non-root.
-	chownTree(dataDir, 1000, 1000)
 
 	envFile := filepath.Join(dataDir, ".env")
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
