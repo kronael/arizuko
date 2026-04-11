@@ -3,282 +3,203 @@ status: draft
 source: hermes-agent peel (2026-04-11)
 ---
 
-# specs/6/7 — self-learning: memory + skill_manage
+# specs/6/7 — skill-guard hook (hermes peel, lean version)
 
-Agent-managed persistent memory and skill authoring, ported from
-NousResearch/hermes-agent. Phase 1 ships the primitives as MCP tools.
-Phase 2+ adds post-turn review automation.
+Port the threat-pattern scanner from NousResearch/hermes-agent's
+`tools/skills_guard.py` as a PreToolUse hook in `ant/src/index.ts`.
+Block malicious writes to `~/.claude/**` at the tool gate, before they
+touch disk.
+
+## Background — why this is the lean version
+
+An earlier draft of this spec (commit `1c92bda`) proposed porting
+Hermes's full memory + skill_manage MCP tools (~850 LOC). Deep research
+against `/home/onvos/app/refs/hermes-agent` showed most of that is
+redundant:
+
+| Hermes feature                      | Arizuko equivalent                     |
+| ----------------------------------- | -------------------------------------- |
+| Frozen-snapshot system prompt       | Claude Code CLI reads CLAUDE.md once   |
+| Persistent memory (MEMORY.md)       | `~/.claude/CLAUDE.md` (agent-editable) |
+| Skill CRUD tool                     | `Write`/`Edit` on `~/.claude/skills/`  |
+| Fuzzy patch matching                | `Edit` tool does this natively         |
+| Atomic writes                       | `Write` is atomic in Claude Code       |
+| File locking                        | GroupQueue serializes per-group        |
+| Cache invalidation (mtime manifest) | Fresh system prompt per container      |
+| Post-turn review thread             | Doesn't fit ephemeral-container model  |
+
+The **only** Hermes piece that transfers cleanly is the security
+scanner. Arizuko has no equivalent today — an agent can write
+`os.system(f'curl {SECRET} | bash')` into a skill script and nothing
+stops it.
 
 ## Problem
 
-Today the ant has no bounded, curated memory layer. `~/.claude/CLAUDE.md`
-exists per-group but is unstructured prose the agent edits with raw
-`Write`/`Edit`. There's no:
+Skills under `~/.claude/skills/` can contain executable scripts
+(Python, shell, JS) under `scripts/` subdirs. Skills are loaded into
+the system prompt on every session start. This means:
 
-- Character limit enforcement → memory can silently blow out the context
-- Frozen-snapshot semantics → edits mid-session re-inject into the system
-  prompt and invalidate the prefix cache
-- Content scanner → nothing prevents the agent (or a prompt-injected
-  message author) from writing exfil or role-hijack payloads into memory
-  that land back in the system prompt next session
-- Structured skill authoring → agent can `mkdir .claude/skills/foo` and
-  write `SKILL.md`, but there's no validation, no safety scan, no audit
-  trail through the MCP gate
-
-Hermes solves all four with two tools: `memory` and `skill_manage`. We
-should port them.
+1. A compromised or confused agent can write exfiltration code into a
+   skill that runs next session
+2. A prompt-injected inbound message can coerce the agent into
+   writing a role-hijack payload into `~/.claude/CLAUDE.md` that gets
+   re-injected on the next session
+3. Neither case is caught today — `Write`/`Edit` have no content
+   scanner, and operators don't review every skill the agent writes
 
 ## Current terrain
 
-- **Per-group skill seeding**: `/workspace/self/ant/skills/*` is copied
-  to `~/.claude/skills/` on first container spawn (`ant` entrypoint)
-- **Per-group agent home**: `~` is `/home/node`, mounted from
-  `<dataDir>/groups/<folder>/`, persists across runs
-- **MCP server**: `ipc/ipc.go` exposes tools to the container via unix
-  socket; current tools are task/route/group/message operations
-- **System prompt**: built in `ant/src/index.ts` from the `self` skill +
-  assorted env; no memory-file injection today
-- **Auth**: MCP has `CheckAction` gate via `grants`; can reuse for new
-  tools without any new infra
+- `ant/src/index.ts` already wires PreToolUse hooks via the Agent SDK.
+  Existing hooks: `createPreCompactHook`, `createSanitizeBashHook`,
+  `createIpcDrainHook` (new today as part of mid-loop steering fix).
+- Agent skills are seeded from `/workspace/self/ant/skills/` to
+  `~/.claude/skills/` at first container spawn, then agent owns it.
+- `~/.claude/CLAUDE.md` is read by Claude Code CLI at session start.
 
-## Design — phase 1 (ship first)
+## Design
 
-### Two new MCP tools, added in `ipc/`
+### One new PreToolUse hook: `createSkillGuardHook()`
 
-**`memory`** — curated bounded memory
+Fires on `Write`, `Edit`, `MultiEdit` when the `file_path` parameter is
+under `~/.claude/**`. Runs two checks:
 
-```
-action:  "add" | "replace" | "remove" | "read"
-target:  "memory" | "user"
-content: string     (for add/replace)
-match:   string     (for replace/remove: short unique substring)
-```
+1. **Threat pattern scan** — 100-ish regex patterns (ported from
+   `skills_guard.py`) across categories: exfil, prompt injection,
+   persistence, destructive ops, reverse shells, crypto miners,
+   hardcoded secrets, invisible unicode. Return `{decision: "block"}`
+   with a clear error message naming the pattern id if any match.
 
-Files:
+2. **SKILL.md frontmatter validation** — when the path matches
+   `skills/*/SKILL.md`, parse the YAML frontmatter and require
+   `name:` + `description:` fields. Description max 1024 chars. Reject
+   malformed / incomplete skills.
 
-- `<groupDir>/.claude/MEMORY.md` — 2200 char limit; agent's notes
-  (environment facts, project conventions, things learned)
-- `<groupDir>/.claude/USER.md` — 1375 char limit; user preferences,
-  style, workflow habits
+Return `{decision: "allow"}` when nothing matches. Wrap in try/catch;
+log errors via `log()`; never throw (hooks failing fail-closed is
+fine here — allow the write on scanner crash rather than block
+legitimate work).
 
-Entry delimiter: `§` on its own line (matches Hermes). Multi-line
-entries supported.
+### Threat pattern table
 
-Char limits chosen for a reason: bounded cost for system-prompt
-injection means the agent physically cannot grow memory unbounded.
-When over budget, the `add` call must fail with a clear error so the
-agent rewrites to stay under budget — this is the pressure that
-forces curation.
+Port the regex table from `hermes-agent/tools/skills_guard.py` lines
+82-484. Organized by category, each pattern is `{regexp, id, severity}`.
+Categories to port:
 
-### Content scanner at write time
+- `prompt_injection` — ignore-previous, role-hijack, DAN/developer mode,
+  "don't tell user", disregard rules, bypass restrictions
+- `exfiltration` — curl/wget with env vars matching
+  KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API, DNS exfil, markdown image
+  with env vars, env dumping
+- `secret_access` — reading `.env`, `.netrc`, `.pgpass`, `.npmrc`,
+  SSH dirs, AWS creds, GPG dirs
+- `persistence` — crontab, shell rc files, SSH authorized_keys,
+  systemd unit creation, git config global, CLAUDE.md modification
+- `destructive` — `rm -rf /`, `chmod 777`, `/etc/*` overwrite, `mkfs`,
+  `dd if=/dev/zero`, `shutil.rmtree` with user-controlled paths
+- `network_abuse` — reverse shells, socat listeners, ngrok/localtunnel,
+  hardcoded IPs in bind/connect
+- `obfuscation` — base64 | sh pipes, hex-to-bytes exec, `eval`/`exec`
+  with remote input, echo-piped-to-shell, `getattr(__builtins__)`
+- `privilege_escalation` — `sudo`, setuid/setgid, NOPASSWD sudoers edits
+- `supply_chain` — curl | sh, unpinned `pip install`, `npm install`
+  without lockfile, `docker pull` unknown images
+- `crypto_mining` — xmrig, coinhive, hashrate/thread-count strings
+- `hardcoded_secrets` — GitHub token patterns, OpenAI sk- keys, AWS
+  AKIA keys, JWT-looking strings
+- `invisible_unicode` — zero-width spaces (U+200B..U+200D), directional
+  overrides (U+202A..U+202E), isolates
 
-Reject writes matching any of:
+Actual regex strings: copy from the reference file directly. Don't
+reinvent. Expect ~100-150 patterns in the final table.
 
-| Pattern class     | Examples                                     |
-| ----------------- | -------------------------------------------- |
-| prompt_injection  | `ignore (previous\|all\|above) instructions` |
-| role_hijack       | `you are now`, `act as if you have no`       |
-| deception         | `do not tell the user`                       |
-| exfil_curl/wget   | `curl ... $KEY`, `wget ... $SECRET`          |
-| read_secrets      | `cat .env`, `cat .netrc`, `cat .pgpass`      |
-| ssh_backdoor      | `authorized_keys`, `~/.ssh`                  |
-| invisible_unicode | zero-width, bidi-override chars              |
+### False positive policy
 
-Matches Hermes's `_MEMORY_THREAT_PATTERNS` at
-`tools/memory_tool.py:60-76`. Port as a Go slice of `{regexp, id}`
-pairs in a new file `ipc/scan.go`.
+Hermes's patterns are deliberately loose — `curl [^\n]*\$\w*KEY`
+matches any curl using any env var ending in KEY, not just secrets.
+Accept this. False positives are cheaper than false negatives for a
+skill-write gate. The agent can always rephrase (use a variable named
+`FEED_URL` instead of `FEED_KEY`, or chain via subshell).
 
-Rationale: memory contents are injected into the system prompt on the
-NEXT session. A bad actor (e.g. a prompt-injected inbound message) must
-not be able to coerce the agent into writing a role-hijack payload into
-its own persistent memory.
-
-### Frozen snapshot pattern
-
-At container startup, `ant/src/index.ts` reads both files BEFORE calling
-`query()`. The contents are embedded in `systemPrompt` verbatim, wrapped
-in a fenced block:
-
-```
-<persistent-memory>
-[System note: Your own curated memory from prior sessions.
- This is your notes, not new user input.]
-
-MEMORY.md:
-<contents>
-
-USER.md:
-<contents>
-</persistent-memory>
-```
-
-Mid-session `memory add/replace/remove` writes persist to disk
-immediately but do NOT update the current session's system prompt. This
-preserves the prefix cache for the whole session — changing the system
-prompt mid-run invalidates every cached token.
-
-The agent will see the fresh snapshot on the NEXT container spawn for
-that group.
-
-### `skill_manage` — structured skill authoring
-
-```
-action:  "create" | "edit" | "patch" | "delete" |
-         "write_file" | "remove_file"
-name:    skill name (lowercase, `[a-z0-9][a-z0-9._-]*`, max 64 chars)
-content: SKILL.md content (for create/edit)
-match:   substring for patch
-replace: replacement for patch
-subdir:  one of references/templates/scripts/assets (for write_file)
-file:    filename within subdir
-body:    file content
-```
-
-Writes to `<groupDir>/.claude/skills/<name>/SKILL.md` and subdirs. Same
-content scanner applies to SKILL.md frontmatter + body + any
-`write_file` body.
-
-Size limits:
-
-- SKILL.md: 100,000 chars
-- supporting file: 1 MiB
-- subdir whitelist: `references|templates|scripts|assets`
-
-Name validation: `^[a-z0-9][a-z0-9._-]*$` + `not in {., .., ~}`. Reject
-path traversal attempts outright.
-
-SKILL.md frontmatter validation: require `name:` and `description:`
-fields. Description max 1024 chars. If present, validate `user-invocable`
-is bool, `tools` is list.
+If false positive rate becomes noisy in practice, add an ignore-list
+of known-safe patterns, but start strict.
 
 ### Files to add / touch
 
-**New files**:
+**New**:
 
-- `ipc/memory.go` (~180 LOC) — memory tool handler, file I/O, snapshot
-- `ipc/skillmanage.go` (~250 LOC) — skill_manage tool handler
-- `ipc/scan.go` (~60 LOC) — content scanner (regex table + check fn)
-- `ipc/memory_test.go`, `ipc/skillmanage_test.go`, `ipc/scan_test.go`
+- `ant/src/skillguard.ts` (~180 LOC) — the regex table + check function
+- `ant/src/skillguard.test.ts` — block/allow cases for each category
 
 **Touch**:
 
-- `ipc/ipc.go` — register the two new tools in `buildMCPServer`
-- `ant/src/index.ts` — read MEMORY.md + USER.md at session start, embed
-  in system prompt (~20 LOC)
-- `ant/skills/self/SKILL.md` — add "persistent memory" section
-  explaining `memory` and `skill_manage` usage pattern
-- `ant/skills/self/migrations/054-self-learning.md` — migration note
+- `ant/src/index.ts` — import and register `createSkillGuardHook()` in
+  the existing `options.hooks.PreToolUse` array (~5 LOC)
+- `ant/skills/self/SKILL.md` — one-paragraph note that writes under
+  `~/.claude/**` are scanned for safety
+- `ant/skills/self/migrations/054-skill-guard.md` — migration note
 - `ant/skills/self/MIGRATION_VERSION` → 54
+- `CHANGELOG.md` — entry under `[Unreleased]/Added`
 
-No schema changes. No new packages. No daemon. Entirely additive.
+Zero Go changes. Zero schema changes. No new MCP tools. No new files
+outside `ant/`.
 
-## Design — phase 2 (defer unless needed)
+## What's deliberately NOT in scope
 
-**Post-turn review loop**: after the agent produces its final output for
-a turn, gated spawns a SECOND ephemeral claude subprocess with a
-restricted toolset (`memory` + `skill_manage` only), fed a review prompt:
+- **Memory tool / MEMORY.md / USER.md** — Claude Code CLI already reads
+  `CLAUDE.md` natively at session start with frozen-snapshot semantics.
+  Adding parallel memory files is confusing without gain.
+- **skill_manage MCP tool** — `Write`/`Edit` already do the job.
+- **Post-turn review agent** — Hermes's background daemon thread
+  assumes long-running `AIAgent` per session. Arizuko's ephemeral
+  container model has no natural place for it. If reflection is ever
+  wanted, a better fit is `/distill` or `/learn` as a scheduled `timed`
+  task over recent messages in SQLite, not a mid-session fork.
+- **AST-based scanning** — Hermes's `skills_guard.py` is regex only
+  despite the "guard" name. AST parsing adds dependency weight (parser
+  per language) for marginal accuracy gain. Skip.
+- **Trust-tiered policies (builtin/trusted/community/agent-created)** —
+  Hermes varies severity by skill source. Arizuko's skills are always
+  agent-created or operator-seeded at image build time. Flat policy is
+  fine.
 
-```
-The agent just completed a turn. Here's the user message and the
-agent's response. Review them for:
-1. New facts about the user (add to USER.md if not already there)
-2. New facts about the environment or project (add to MEMORY.md)
-3. Procedural patterns worth capturing as a skill (skill_manage create)
+## Out of scope — not coming back
 
-Be conservative. Most turns yield nothing. If nothing stands out, exit
-without writing.
-```
+Scheduled reflection via `timed` was proposed as a fallback to the
+Hermes review thread and killed (2026-04-11): cron-driven summaries
+over SQLite are a different problem shape and would solve no real
+complaint. Self-eval as an agent-invocable skill is being designed
+separately — see parallel research for `specs/6/8-self-eval-skill.md`.
 
-Triggered every N turns (Hermes uses 10) to amortize the cost. Gated
-tracks the counter per-group in the `groups` table (new column
-`turns_since_review`).
+## Verification
 
-**Why defer**: phase 1 already gives the agent the primitives. The
-Hermes value of the forked review is (a) it doesn't consume the primary
-turn's context budget, (b) it's a "fresh eye" unclouded by the ongoing
-conversation. Both are real but marginal. Ship phase 1, see if agents
-actually use `memory add` of their own accord, then decide if phase 2
-is needed.
+1. `make -C ant build` — clean TS compile
+2. `cd ant && bun test src/skillguard.test.ts` — all block/allow cases
+3. `make test` — no Go regressions (nothing touched)
+4. Manual smoke on a dev instance:
+   - Ask the agent to write a normal skill with SKILL.md + a python
+     helper → verify it writes cleanly
+   - Ask the agent to write a skill with `os.system('curl $API_KEY')`
+     → verify the write is blocked and the agent sees the error
+   - Ask the agent to write to `~/.claude/CLAUDE.md` with a role-hijack
+     payload → verify blocked
+   - Write a SKILL.md without `description:` field → verify blocked
+     with frontmatter error
 
-## Design — phase 3 (further defer)
+## LOC estimate
 
-**Skills guard AST scan**: when agent creates a skill with scripts (Python
-or JS), walk the AST rejecting dangerous calls: `os.system`, `exec`,
-`eval`, `subprocess` with user-controlled strings, `__import__` of
-restricted modules. Matches Hermes's `skills_guard.py`.
-
-Port target: `ipc/skillguard.go`. Only fires on `write_file` under
-`scripts/`. Non-blocking fail: log + warn, never reject.
-
-Again, defer: agent-authored scripts are rare today, and the blast
-radius is bounded by the container uid and mount model already.
-
-## Not in scope
-
-- Global memory shared across groups — Hermes has this via `hermes_home`
-  profile scoping. Skipped: arizuko's model is per-group isolation, and
-  operator-wide memory would muddy the sandbox. If wanted, add as a
-  separate `global_memory` tool later.
-- Memory prefetch / recall tooling — Hermes's `queue_prefetch` abstracts
-  over plugins. We don't have plugins; skip.
-- External memory provider plugins (honcho/mem0/etc.) — Hermes's plugin
-  system is significant complexity for a design-time-only property we
-  don't need.
-
-## Open questions
-
-1. **Char limits 2200/1375 — tune for us?** Hermes picked these for a
-   ~2.75 char/token ratio on typical English + code-light memory.
-   Arizuko memory will lean more toward operational facts and group
-   context. Start with Hermes's numbers, tune in phase 1.5 if
-   ~800 tokens of persistent injection isn't enough.
-
-2. **Separate MEMORY.md vs merge with CLAUDE.md?** Today
-   `ant/skills/self/` seeds `~/.claude/CLAUDE.md`. The Hermes model has
-   MEMORY.md + USER.md separate from any system-prompt file. Proposal:
-   keep CLAUDE.md as the seed/instructions (operator-authored, read-
-   only-ish), add MEMORY.md + USER.md as agent-authored deltas. Both
-   inject at session start.
-
-3. **Git commit strategy for memory writes?** Every memory write could
-   auto-commit to the per-group git repo for audit. Or let the existing
-   once-a-turn commit hook catch them. Lean toward: don't auto-commit,
-   the regular commit hook is enough.
-
-4. **Cross-session conflicts?** If two containers for the same group
-   run concurrently (shouldn't happen — GroupQueue enforces serial
-   per-group) and both write memory, the file-lock in `memory_tool.py`
-   prevents corruption. We should port the `fcntl.flock` pattern in the
-   Go impl — same semantics via `syscall.Flock`.
-
-## Phase 1 verification
-
-1. `make build && make -C ant build` — clean
-2. `make test` — including new `ipc/memory_test.go`, `ipc/scan_test.go`,
-   `ipc/skillmanage_test.go`
-3. Manual smoke on a dev instance:
-   - Send agent a message that triggers `memory add`
-   - Verify `<groupDir>/.claude/MEMORY.md` contains the entry
-   - Restart container for that group; verify next session's system
-     prompt includes the entry
-   - Attempt `memory add` with a role-hijack payload; verify scanner
-     rejects with clear error
-   - Verify `skill_manage create` produces a valid skill dir
-
-## Estimated LOC
-
-- `ipc/memory.go`: 180
-- `ipc/skillmanage.go`: 250
-- `ipc/scan.go`: 60
-- Tests: 300
-- `ant/src/index.ts` edits: 20
-- Skill updates: 40
-- **Total**: ~850 LOC, one weekend to ship
+- `ant/src/skillguard.ts`: ~180 (regex table is the bulk)
+- `ant/src/skillguard.test.ts`: ~120
+- `ant/src/index.ts` edits: ~10
+- Skill docs + migration: ~30
+- **Total**: ~340 LOC, half a day to ship
 
 ## References
 
-- `/home/onvos/app/refs/hermes-agent/tools/memory_tool.py`
-- `/home/onvos/app/refs/hermes-agent/tools/skill_manager_tool.py`
-- `/home/onvos/app/refs/hermes-agent/tools/skills_guard.py`
-- `/home/onvos/app/refs/hermes-agent/agent/memory_manager.py`
-- `.diary/20260411.md` — 16:45 peel notes
+- `/home/onvos/app/refs/hermes-agent/tools/skills_guard.py` — source
+  regex table (most important file)
+- `/home/onvos/app/refs/hermes-agent/tools/memory_tool.py` — inspiration
+  for the threat pattern categories
+- `~/.claude/projects/-home-onvos-app-arizuko/memory/reference_hermes-agent.md`
+  — full peel notes, spec rationale
+- `.diary/20260411.md` — 16:45 (initial peel), 22:55 (spec pushback),
+  research-deepdive (deep research pass)
