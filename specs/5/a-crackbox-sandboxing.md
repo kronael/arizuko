@@ -1,8 +1,15 @@
 ---
 status: draft
+aka: antbox
 ---
 
-# Crackbox QEMU Sandboxing for Arizuko Agents
+# Antbox (crackbox-lineage) QEMU Sandboxing for Arizuko Agents
+
+> **Note (2026-04-11):** this is the open "antbox" spec the user wants
+> kept around for later. It captures the crackbox→antbox rebrand path
+> and the gaps to close. No work scheduled yet — see `bugs.md`
+> "antbox decision" entry. Do not start implementation without
+> user direction on the six open questions at the bottom.
 
 ## 1. Crackbox Summary
 
