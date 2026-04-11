@@ -113,7 +113,8 @@ func TestReditSend_MissingChatJID(t *testing.T) {
 
 func TestReditTyping(t *testing.T) {
 	s := testReditServer(t, "")
-	req := httptest.NewRequest("POST", "/typing", bytes.NewReader([]byte("{}")))
+	body, _ := json.Marshal(map[string]any{"chat_jid": "reddit:alice", "on": true})
+	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -131,7 +132,7 @@ func TestReditTyping(t *testing.T) {
 func TestReditAuthNoSecret(t *testing.T) {
 	// when ChannelSecret is empty, any request passes auth middleware
 	s := testReditServer(t, "")
-	body, _ := json.Marshal(map[string]any{})
+	body, _ := json.Marshal(map[string]any{"chat_jid": "reddit:alice", "on": false})
 	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)

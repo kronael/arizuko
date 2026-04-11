@@ -91,7 +91,7 @@ func TestAuthPassthrough(t *testing.T) {
 	upsertThread(db, "root@x.com", "abc123def456", "alice@x.com", "root@x.com")
 
 	// /typing always ok with valid auth
-	body, _ := json.Marshal(map[string]any{"on": false})
+	body, _ := json.Marshal(map[string]any{"chat_jid": "email:tid", "on": false})
 	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer tok")
 	w := httptest.NewRecorder()

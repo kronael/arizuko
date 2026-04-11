@@ -111,7 +111,8 @@ func TestMastSend_MissingChatJID(t *testing.T) {
 
 func TestMastTyping(t *testing.T) {
 	s := testMastServer(t, "")
-	req := httptest.NewRequest("POST", "/typing", bytes.NewReader([]byte("{}")))
+	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:123", "on": true})
+	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -128,7 +129,7 @@ func TestMastTyping(t *testing.T) {
 
 func TestMastAuthNoSecret(t *testing.T) {
 	s := testMastServer(t, "")
-	body, _ := json.Marshal(map[string]string{"content": "hello"})
+	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:123", "on": false})
 	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)

@@ -104,7 +104,8 @@ func TestBskySend_MissingChatJID(t *testing.T) {
 
 func TestBskyTyping(t *testing.T) {
 	s := testBskyServer(t, "")
-	req := httptest.NewRequest("POST", "/typing", bytes.NewReader([]byte("{}")))
+	body, _ := json.Marshal(map[string]any{"chat_jid": "bluesky:did:plc:123", "on": true})
+	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -121,7 +122,7 @@ func TestBskyTyping(t *testing.T) {
 
 func TestBskyAuthNoSecret(t *testing.T) {
 	s := testBskyServer(t, "")
-	body, _ := json.Marshal(map[string]any{})
+	body, _ := json.Marshal(map[string]any{"chat_jid": "bluesky:did:plc:123", "on": false})
 	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
