@@ -10,10 +10,12 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/onvos/arizuko/auth"
+	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
 )
 
@@ -421,4 +423,481 @@ func TestProxydRequireAuthRefreshTokenUserMissing(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want 303", w.Code)
 	}
+}
+
+// --- additional test gaps: auth gate, oauth, slink, vhost, dav --------------
+
+// testRouteServer builds a server whose viteProxy forwards to a stub upstream.
+// The returned upstream must be Closed by the caller. secret is configured as
+// the auth signing key; pass empty to disable auth (fails closed for protected
+// routes).
+func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *httptest.Server) {
+	t.Helper()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Upstream-Path", r.URL.Path)
+		w.Header().Set("X-Upstream-Host", r.Host)
+		w.Header().Set("X-User-Sub", r.Header.Get("X-User-Sub"))
+		w.Header().Set("X-Folder", r.Header.Get("X-Folder"))
+		w.Header().Set("X-Slink-Token", r.Header.Get("X-Slink-Token"))
+		w.WriteHeader(200)
+		w.Write([]byte("ok:" + r.URL.Path))
+	}))
+	u, err := url.Parse(up.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{
+		cfg:       config{authSecret: secret},
+		st:        st,
+		vh:        &vhosts{entries: map[string]string{}},
+		viteProxy: httputil.NewSingleHostReverseProxy(u),
+		slinkRL:   newRateLimiter(10, time.Minute),
+	}
+	return s, up
+}
+
+// --- auth gate ---------------------------------------------------------------
+
+// Unauthed private route bounces to the login page.
+func TestProxydRouteUnauthedPrivateRedirects(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/private", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/auth/login" {
+		t.Errorf("location = %q, want /auth/login", loc)
+	}
+}
+
+// Valid JWT on a private route reaches the upstream and carries user headers.
+func TestProxydRouteWithJWTReachesUpstream(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+
+	tok := testMintJWT([]byte("testsecret"), "alice")
+	req := httptest.NewRequest("GET", "/private/page", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("X-User-Sub"); got != "alice" {
+		t.Errorf("X-User-Sub upstream echo = %q, want alice", got)
+	}
+}
+
+// Valid refresh_token cookie admits the request to the upstream.
+func TestProxydRouteWithRefreshCookieReachesUpstream(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.CreateAuthUser("local:bob", "bob", "", "Bob"); err != nil {
+		t.Fatal(err)
+	}
+	token := "valid-refresh"
+	if err := st.CreateAuthSession(
+		auth.HashToken(token), "local:bob", time.Now().Add(time.Hour),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	s, up := testRouteServer(t, st, "testsecret")
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/private", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: token})
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("X-User-Sub"); got != "local:bob" {
+		t.Errorf("X-User-Sub upstream echo = %q, want local:bob", got)
+	}
+}
+
+// Raw auth secret passed as refresh_token must not yield a session hit.
+// This is a belt-and-braces check for the TODO note about a supposed
+// raw-secret bypass: the code hashes the cookie value and looks it up as a
+// session, so the raw secret can never match.
+func TestProxydRouteRawSecretAsRefreshCookieRejected(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	s, up := testRouteServer(t, st, "rawsecret")
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/private", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "rawsecret"})
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303 (raw secret is not a session token)", w.Code)
+	}
+}
+
+// --- oauth / auth routes via handler ----------------------------------------
+
+// /auth/login reaches the auth package handler without hitting requireAuth.
+// This guards that proxyd wires auth routes through the mux (not the catch-all).
+func TestProxydHandlerAuthLoginBypassesGate(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	s, up := testRouteServer(t, st, "testsecret")
+	defer up.Close()
+
+	h := s.handler(&core.Config{AuthSecret: "testsecret"})
+	req := httptest.NewRequest("GET", "/auth/login", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200 (login page served by auth package)", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content-type = %q, want text/html*", ct)
+	}
+}
+
+// OAuth callbacks are only wired when a client ID is configured. A bare
+// config therefore exposes /auth/login but not /auth/google/callback, so
+// requests to the latter must not bypass the mux and must hit the auth gate.
+func TestProxydHandlerOAuthCallbackGatedWhenUnconfigured(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	s, up := testRouteServer(t, st, "testsecret")
+	defer up.Close()
+
+	h := s.handler(&core.Config{AuthSecret: "testsecret"})
+	req := httptest.NewRequest("GET", "/auth/google/callback?code=x&state=y", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	// Unconfigured callback falls through to s.route, which treats /auth/*
+	// as a private path and redirects to /auth/login (it's NOT under /pub/).
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303 when callback unconfigured", w.Code)
+	}
+}
+
+// --- slink rate limiter ------------------------------------------------------
+
+// Exactly N requests in the window are admitted; the N+1th is 429.
+func TestProxydSlinkRateLimiterBoundary(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+	s.slinkRL = newRateLimiter(3, time.Minute)
+
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest("GET", "/slink/tok/path", nil)
+		req.RemoteAddr = "7.7.7.7:4242"
+		w := httptest.NewRecorder()
+		s.route(w, req)
+		if w.Code != 200 {
+			t.Fatalf("request %d: status = %d, want 200", i, w.Code)
+		}
+	}
+	req := httptest.NewRequest("GET", "/slink/tok/path", nil)
+	req.RemoteAddr = "7.7.7.7:4242"
+	w := httptest.NewRecorder()
+	s.route(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("4th request: status = %d, want 429", w.Code)
+	}
+}
+
+// Limiter is keyed per remote IP — saturation on one IP does not lock out
+// another.
+func TestProxydSlinkRateLimiterPerIP(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+	s.slinkRL = newRateLimiter(1, time.Minute)
+
+	// IP A exhausts its slot.
+	req := httptest.NewRequest("GET", "/slink/tok", nil)
+	req.RemoteAddr = "1.1.1.1:1000"
+	w := httptest.NewRecorder()
+	s.route(w, req)
+	if w.Code != 200 {
+		t.Fatalf("A first: status = %d, want 200", w.Code)
+	}
+
+	// IP A second attempt → denied.
+	req = httptest.NewRequest("GET", "/slink/tok", nil)
+	req.RemoteAddr = "1.1.1.1:1000"
+	w = httptest.NewRecorder()
+	s.route(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("A second: status = %d, want 429", w.Code)
+	}
+
+	// IP B gets its own slot.
+	req = httptest.NewRequest("GET", "/slink/tok", nil)
+	req.RemoteAddr = "2.2.2.2:2000"
+	w = httptest.NewRecorder()
+	s.route(w, req)
+	if w.Code != 200 {
+		t.Errorf("B first: status = %d, want 200", w.Code)
+	}
+}
+
+// Valid slink token stamps X-Folder / X-Slink-Token on the proxied request.
+func TestProxydSlinkTokenStampsHeaders(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.PutGroup(core.Group{
+		Folder:     "team-a",
+		Name:       "Team A",
+		AddedAt:    time.Now(),
+		SlinkToken: "tokabc",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	s, up := testRouteServer(t, st, "testsecret")
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/slink/tokabc/deep", nil)
+	req.RemoteAddr = "3.3.3.3:3000"
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("X-Folder"); got != "team-a" {
+		t.Errorf("X-Folder upstream echo = %q, want team-a", got)
+	}
+	if got := w.Header().Get("X-Slink-Token"); got != "tokabc" {
+		t.Errorf("X-Slink-Token upstream echo = %q, want tokabc", got)
+	}
+}
+
+// --- vhost matching ----------------------------------------------------------
+
+// Known vhost rewrites the path under /<world>/ and forwards to viteProxy.
+func TestProxydVhostRewritesToUpstream(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+	s.vh = &vhosts{entries: map[string]string{"shop.example.com": "shop"}}
+
+	req := httptest.NewRequest("GET", "/cart", nil)
+	req.Host = "shop.example.com"
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("X-Upstream-Path"); got != "/shop/cart" {
+		t.Errorf("upstream path = %q, want /shop/cart", got)
+	}
+}
+
+// Unknown vhost falls through — a request to / still redirects to /pub/.
+func TestProxydVhostUnknownFallsThrough(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+	s.vh = &vhosts{entries: map[string]string{"known.example.com": "world"}}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "unknown.example.com"
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("status = %d, want 302 (fallthrough to / → /pub/)", w.Code)
+	}
+}
+
+// X-Forwarded-Host must not influence vhost matching — only the real Host
+// header is consulted. Guards against header spoofing promoting a rogue host
+// into the vhost table.
+func TestProxydVhostIgnoresXForwardedHost(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+	s.vh = &vhosts{entries: map[string]string{"shop.example.com": "shop"}}
+
+	req := httptest.NewRequest("GET", "/cart", nil)
+	req.Host = "attacker.example.com"
+	req.Header.Set("X-Forwarded-Host", "shop.example.com")
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if got := w.Header().Get("X-Upstream-Path"); got == "/shop/cart" {
+		t.Errorf("X-Forwarded-Host should not influence vhost routing, got %q", got)
+	}
+}
+
+// Host with an explicit port matches the hostname entry (SplitHostPort strip).
+func TestProxydVhostStripsPort(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+	s.vh = &vhosts{entries: map[string]string{"shop.example.com": "shop"}}
+
+	req := httptest.NewRequest("GET", "/item", nil)
+	req.Host = "shop.example.com:8443"
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("X-Upstream-Path"); got != "/shop/item" {
+		t.Errorf("upstream path = %q, want /shop/item", got)
+	}
+}
+
+// --- /dav rewrite ------------------------------------------------------------
+
+// testDavServer returns a server whose davProxy forwards to the stub upstream.
+// The davProxy uses the same rewrite Director as production.
+func testDavServer(t *testing.T) (*server, *httptest.Server) {
+	t.Helper()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Upstream-Path", r.URL.Path)
+		w.WriteHeader(200)
+		w.Write([]byte("dav:" + r.URL.Path))
+	}))
+	s := &server{
+		cfg:      config{authSecret: "testsecret"},
+		vh:       &vhosts{entries: map[string]string{}},
+		davProxy: davProxy(up.URL),
+		slinkRL:  newRateLimiter(10, time.Minute),
+	}
+	return s, up
+}
+
+// /dav/foo/bar is rewritten to /foo/bar before being forwarded.
+func TestProxydDavRewriteStripsPrefix(t *testing.T) {
+	s, up := testDavServer(t)
+	defer up.Close()
+
+	// davRoute's group-matching gate requires the user to be in the folder —
+	// hit it directly with an allowed group header so the proxy actually runs.
+	req := httptest.NewRequest("GET", "/dav/foo/bar", nil)
+	req.Header.Set("X-User-Groups", `["foo"]`)
+	w := httptest.NewRecorder()
+	s.davRoute(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("X-Upstream-Path"); got != "/foo/bar" {
+		t.Errorf("upstream path = %q, want /foo/bar", got)
+	}
+}
+
+// /dav with a trailing slash but no group redirects to the user's first group.
+func TestProxydDavBareRedirects(t *testing.T) {
+	s, up := testDavServer(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/dav", nil)
+	req.Header.Set("X-User-Groups", `["alpha","beta"]`)
+	w := httptest.NewRecorder()
+	s.davRoute(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	if got := w.Header().Get("Location"); got != "/dav/alpha/" {
+		t.Errorf("location = %q, want /dav/alpha/", got)
+	}
+}
+
+// /dav (bare) with no X-User-Groups header redirects to /dav/root/.
+func TestProxydDavBareNoGroupsDefaultsRoot(t *testing.T) {
+	s, up := testDavServer(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/dav", nil)
+	w := httptest.NewRecorder()
+	s.davRoute(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	if got := w.Header().Get("Location"); got != "/dav/root/" {
+		t.Errorf("location = %q, want /dav/root/", got)
+	}
+}
+
+// With no X-User-Groups header (operator, unrestricted), a /dav/foo/bar
+// request is proxied through without the group-membership check.
+func TestProxydDavNoGroupsHeaderProxies(t *testing.T) {
+	s, up := testDavServer(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/dav/anything/here", nil)
+	// no X-User-Groups header
+	w := httptest.NewRecorder()
+	s.davRoute(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("X-Upstream-Path"); got != "/anything/here" {
+		t.Errorf("upstream path = %q, want /anything/here", got)
+	}
+}
+
+// Malformed X-User-Groups header rejects the request.
+func TestProxydDavBadGroupsHeader(t *testing.T) {
+	s, up := testDavServer(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/dav/anything", nil)
+	req.Header.Set("X-User-Groups", "not-json")
+	w := httptest.NewRecorder()
+	s.davRoute(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+// Path traversal in a vhost request is rejected before any proxy hop.
+func TestProxydVhostRejectsDotDotInSubPath(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+	s.vh = &vhosts{entries: map[string]string{"a.example.com": "a"}}
+
+	req := httptest.NewRequest("GET", "/legit/..%2fetc/passwd", nil)
+	// httptest.NewRequest doesn't decode, but `..` substring check in route
+	// is literal against r.URL.Path. Use a plain traversal to hit it:
+	req2 := httptest.NewRequest("GET", "/sub/../etc", nil)
+	req2.Host = "a.example.com"
+	w := httptest.NewRecorder()
+	s.route(w, req2)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 on dot-dot", w.Code)
+	}
+	_ = req
 }

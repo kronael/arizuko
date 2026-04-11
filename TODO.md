@@ -98,8 +98,13 @@ touched, not all at once:
 
 - `reditd/client.go:27-28` — in-memory cursor lost on restart, causes
   re-polls.
-- `proxyd/main.go:327-361` vs `dashd/main.go:97-115` — inconsistent
-  auth posture (raw-secret bypass present in proxyd, absent in dashd).
+- _(removed 2026-04-11)_ Claim of "raw-secret bypass in proxyd" was
+  stale: proxyd requires a signed JWT (Bearer) or a hashed session
+  cookie (`auth.HashToken` lookup), never the raw `AUTH_SECRET`. dashd
+  has no auth by design — proxyd fronts it. Pinned by
+  `proxyd/TestProxydRequireAuthRawSecretRejected` +
+  `TestProxydRouteRawSecretAsRefreshCookieRejected` and
+  `dashd/TestDashIgnoresAuthHeader`.
 
 ## Channel adapters status
 
