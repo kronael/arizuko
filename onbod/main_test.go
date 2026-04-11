@@ -335,6 +335,77 @@ func TestRootJIDsDedup(t *testing.T) {
 	}
 }
 
+func TestHandleApproveTargetNotPending(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO groups (folder, parent) VALUES ('main', NULL)`)
+	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'platform=telegram room=1', 'main')`)
+	// target exists but is already 'approved', not 'pending'
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:999', 'approved', '2026-01-01')`)
+
+	cfg := config{}
+	body, _ := json.Marshal(map[string]string{
+		"jid":  "telegram:1",
+		"text": "/approve telegram:999 myroom",
+	})
+	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handleSend(w, req, db, cfg)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("want 404, got %d", w.Code)
+	}
+}
+
+func TestCheckPendingMessagesRefreshesPromptedAt(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, prompted_at, created)
+		VALUES ('telegram:1', 'pending', '2026-01-01T00:00:00Z', '2026-01-01')`)
+	// New user message arrived after prompted_at
+	db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source)
+		VALUES ('msg1', 'telegram:1', 'user', 'still here?', '2026-01-01T00:01:00Z', 0, 0, 'telegram')`)
+
+	cfg := config{}
+	checkPendingMessages(db, cfg)
+
+	var prompted string
+	db.QueryRow(`SELECT prompted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&prompted)
+	if prompted == "2026-01-01T00:00:00Z" {
+		t.Error("prompted_at should have been refreshed")
+	}
+}
+
+func TestCheckPendingMessagesNoNewMessages(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, prompted_at, created)
+		VALUES ('telegram:1', 'pending', '2026-01-01T00:05:00Z', '2026-01-01')`)
+	// Message is older than prompted_at — should be ignored
+	db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source)
+		VALUES ('msg1', 'telegram:1', 'user', 'old', '2026-01-01T00:01:00Z', 0, 0, 'telegram')`)
+	// Bot-generated message newer than prompted_at — should be ignored
+	db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source)
+		VALUES ('msg2', 'telegram:1', 'bot', 'hi', '2026-01-01T00:06:00Z', 1, 1, 'telegram')`)
+
+	cfg := config{}
+	checkPendingMessages(db, cfg)
+
+	var prompted string
+	db.QueryRow(`SELECT prompted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&prompted)
+	if prompted != "2026-01-01T00:05:00Z" {
+		t.Errorf("prompted_at should not change, got %q", prompted)
+	}
+}
+
+func TestHandleRejectMissingArgs(t *testing.T) {
+	db := testDB(t)
+	cfg := config{}
+	body, _ := json.Marshal(map[string]string{"jid": "telegram:1", "text": "/reject"})
+	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handleSend(w, req, db, cfg)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("want 400, got %d", w.Code)
+	}
+}
+
 func TestSeedDefaultTasksIdempotent(t *testing.T) {
 	db := testDB(t)
 	tx, _ := db.Begin()

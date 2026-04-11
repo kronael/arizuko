@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -157,6 +159,123 @@ func TestExtractMedia_NoMedia(t *testing.T) {
 	}
 	if len(r.attachments) != 0 {
 		t.Errorf("attachments = %d, want 0", len(r.attachments))
+	}
+}
+
+func TestUserName(t *testing.T) {
+	cases := []struct {
+		u    *tgbotapi.User
+		want string
+	}{
+		{nil, "unknown"},
+		{&tgbotapi.User{FirstName: "Alice", LastName: "Liddell"}, "Alice Liddell"},
+		{&tgbotapi.User{FirstName: "Bob"}, "Bob"},
+		{&tgbotapi.User{ID: 42}, "42"},
+	}
+	for _, c := range cases {
+		if got := userName(c.u); got != c.want {
+			t.Errorf("userName(%+v) = %q, want %q", c.u, got, c.want)
+		}
+	}
+}
+
+func TestUserID(t *testing.T) {
+	if userID(nil) != "" {
+		t.Error("nil user should return empty ID")
+	}
+	if userID(&tgbotapi.User{ID: 123}) != "123" {
+		t.Error("user ID should be stringified")
+	}
+}
+
+func TestEntityExtract(t *testing.T) {
+	// "@bot hello" — mention at offset 0 length 4
+	text := "@bot hello"
+	e := tgbotapi.MessageEntity{Type: "mention", Offset: 0, Length: 4}
+	if got := entity(text, e); got != "@bot" {
+		t.Errorf("entity = %q, want @bot", got)
+	}
+	// Clamp over-length
+	e2 := tgbotapi.MessageEntity{Type: "mention", Offset: 0, Length: 999}
+	if got := entity(text, e2); got != text {
+		t.Errorf("clamped = %q, want %q", got, text)
+	}
+}
+
+func TestLoadSaveOffset(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := filepath.Join(dir, "offset")
+	b := &bot{cfg: config{StateFile: stateFile}}
+
+	// No file → 0
+	if got := b.loadOffset(); got != 0 {
+		t.Errorf("loadOffset empty = %d, want 0", got)
+	}
+
+	b.saveOffset(42)
+	if got := b.loadOffset(); got != 42 {
+		t.Errorf("loadOffset after save = %d, want 42", got)
+	}
+
+	// Corrupt file → 0
+	os.WriteFile(stateFile, []byte("not-a-number"), 0o644)
+	if got := b.loadOffset(); got != 0 {
+		t.Errorf("loadOffset corrupt = %d, want 0", got)
+	}
+
+	// Whitespace tolerated
+	os.WriteFile(stateFile, []byte("  99\n"), 0o644)
+	if got := b.loadOffset(); got != 99 {
+		t.Errorf("loadOffset whitespace = %d, want 99", got)
+	}
+}
+
+func TestLoadSaveOffsetEmptyStateFile(t *testing.T) {
+	// Empty StateFile → no-op (no panic, no file created)
+	b := &bot{cfg: config{StateFile: ""}}
+	b.saveOffset(123)
+	if got := b.loadOffset(); got != 0 {
+		t.Errorf("empty state file path, got %d", got)
+	}
+}
+
+func TestExtractMedia_Video(t *testing.T) {
+	msg := &tgbotapi.Message{
+		Video:   &tgbotapi.Video{FileID: "vid1", FileSize: 5000},
+		Caption: "cool",
+	}
+	r := extractMedia(msg, "http://teled:9001")
+	if r.content != "[Video] cool" {
+		t.Errorf("content = %q", r.content)
+	}
+	if len(r.attachments) != 1 || r.attachments[0].Mime != "video/mp4" {
+		t.Errorf("attachments = %+v", r.attachments)
+	}
+}
+
+func TestExtractMedia_Location(t *testing.T) {
+	msg := &tgbotapi.Message{Location: &tgbotapi.Location{}}
+	r := extractMedia(msg, "")
+	if r.content != "[Location]" {
+		t.Errorf("content = %q", r.content)
+	}
+}
+
+func TestExtractMedia_Contact(t *testing.T) {
+	msg := &tgbotapi.Message{Contact: &tgbotapi.Contact{PhoneNumber: "+1"}}
+	r := extractMedia(msg, "")
+	if r.content != "[Contact]" {
+		t.Errorf("content = %q", r.content)
+	}
+}
+
+func TestMdToHTMLEscape(t *testing.T) {
+	// HTML specials must be escaped before markdown conversion
+	if got := mdToHTML("<script>"); got != "&lt;script&gt;" {
+		t.Errorf("mdToHTML(<script>) = %q", got)
+	}
+	if got := mdToHTML("a & b"); got != "a &amp; b" {
+		t.Errorf("mdToHTML(a & b) = %q", got)
 	}
 }
 
