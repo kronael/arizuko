@@ -113,7 +113,7 @@ ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION
 ```
 
-Latest migration version: **52**. If version < 52: migrations pending.
+Latest migration version: **53**. If version < 53: migrations pending.
 
 ## MCP tools
 

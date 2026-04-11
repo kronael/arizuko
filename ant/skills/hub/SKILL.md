@@ -1,15 +1,17 @@
 ---
-name: research
+name: hub
 description: >
-  Build deep research hubs: parallel agents, iterative deepening, web page.
-  Use when asked to "research thoroughly", "deep research", or "create
-  a knowledge hub" on a frontier topic (biotech, AI, crypto, etc).
+  Build a single-page knowledge hub on a topic by running parallel
+  deep-research subagents, distilling, and assembling into HTML. Use
+  when asked to "build a hub", "research hub", "knowledge hub", or
+  "deep dive" on a frontier topic (biotech, AI, crypto, etc). Named
+  /hub to avoid clashing with Claude's built-in research tool.
 ---
 
-# Research Hub
+# /hub — Knowledge Hub Builder
 
-Build single-page research hubs by running parallel deep-research
-agents, then distilling and assembling into a web page.
+Build single-page knowledge hubs by running parallel deep-research
+subagents, then distilling and assembling into a web page.
 
 ## Workflow
 

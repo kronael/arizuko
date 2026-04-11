@@ -27,6 +27,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   wrapper that hardcoded arizuko tool names as subcommands. Replaced
   by `mcpc` (see Added).
 
+### Changed
+
+- **`/research` skill renamed to `/hub`** to avoid shadowing Claude's
+  built-in `research` tool — the LLM was picking up the internal tool
+  instead of the arizuko skill. New path is `ant/skills/hub/`.
+  Migration 053 cleans up stale `~/.claude/skills/research/` overlays
+  in per-group workspaces. Skill itself (parallel deep-research
+  subagents → distill → HTML knowledge hub) is unchanged.
+
 ### Fixed
 
 - **@prefix router silently dropped messages containing Twitter
