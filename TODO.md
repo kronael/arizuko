@@ -13,9 +13,10 @@ bugs.md "Verify shipped")_
   any); `dashd` and `proxyd` have partial coverage but miss auth gate
   - path-traversal tests.
 - **Skill search MCP tool** — integrate browse/search across skill hubs
-  (ClawHub, Skills.sh, others) as an arizuko MCP tool so agents can
-  discover + fetch skills on demand instead of bundling everything in
-  the image. Prior art: Hermes Agent's `skills browse` / `skills search`.
+  (ClawHub, Skills.sh, Hermes skills, others) as an arizuko MCP tool so
+  agents can discover + fetch skills on demand instead of bundling
+  everything in the image. Prior art: Hermes Agent's `skills browse` /
+  `skills search`.
 
 ## Microservice port — open phases
 
