@@ -193,7 +193,11 @@ proxy), `api/` (HTTP handlers for the router-side endpoints).
 Each polls its platform API, forwards to router HTTP, and serves
 `/send`, `/send-file`, `/typing`, `/health` for outbound. All
 Go adapters share `chanlib/` for `RouterClient`, `InboundMsg`,
-and auth middleware.
+and auth middleware. `/typing` handlers route through a
+`TypingRefresher` (Go: `chanlib.TypingRefresher`; TS:
+`whapd/src/typing.ts`) that re-sends the platform's typing
+presence on a short interval with a hard TTL, so long agent runs
+don't let the indicator decay server-side.
 
 Full protocol: `specs/4/1-channel-protocol.md`.
 
