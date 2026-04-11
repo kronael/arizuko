@@ -40,12 +40,26 @@ same session ID. Walks `.jl` from end on resume, finds last
 
 ## Session Switching
 
-| Trigger        | Mechanism                  | Result      |
-| -------------- | -------------------------- | ----------- |
-| Idle timeout   | Gateway discards stored ID | New session |
-| Stale/rejected | SDK resume fails, fallback | New session |
-| Agent request  | IPC `reset_session`        | New session |
-| User `/new`    | Gateway detects            | New session |
+| Trigger        | Mechanism                   | Result      |
+| -------------- | --------------------------- | ----------- |
+| Idle > 2 days  | Spawn-site check, see below | New session |
+| Stale/rejected | SDK resume fails, fallback  | New session |
+| Agent request  | IPC `reset_session`         | New session |
+| User `/new`    | Gateway detects             | New session |
+
+### 2-day idle expiry
+
+At spawn time `gated` compares the per-chat agent cursor (timestamp of
+the last already-processed non-bot message) against a hard-coded 2-day
+threshold. If the gap exceeds it, the stored session id for the target
+`(folder, topic)` is deleted before the container starts, so the next
+run begins with a fresh Claude session instead of resuming week-old
+context. The threshold is not configurable — resuming sessions across
+multi-day gaps is the root cause of MacroHype-class hallucinations
+where the agent blends historical state into the current turn.
+
+Implementation: `sessionIdleExpiry` constant + `sessionIdleExpired`
+check in `gateway/gateway.go` (`runAgentWithOpts`).
 
 ## Context Injection on Reset
 

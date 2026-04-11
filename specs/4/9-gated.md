@@ -191,6 +191,12 @@ Runs on `API_PORT` (default 8080).
 - Sessions persist across messages within a group
 - Session ID stored in `sessions` table
 - On error: evict session, start fresh
+- **Idle > 2 days: evict session, start fresh.** At spawn time `gated`
+  compares the per-chat agent cursor against `sessionIdleExpiry`
+  (hard-coded 2 days). If the chat has been silent longer than the
+  threshold, the stored session id for `(folder, topic)` is deleted
+  before the container runs. Prevents MacroHype-class hallucinations
+  from agents resuming multi-day-old state as if it were current.
 - Session state lives in container volume
   (`/srv/data/.../groups/<folder>/.claude/`)
 
