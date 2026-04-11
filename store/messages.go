@@ -9,6 +9,9 @@ import (
 )
 
 func (s *Store) PutMessage(m core.Message) error {
+	if m.Topic == "" {
+		m.Topic = s.GetStickyTopic(m.ChatJID)
+	}
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO messages
 		 (id, chat_jid, sender, sender_name, content, timestamp,

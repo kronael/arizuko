@@ -582,3 +582,30 @@ func TestAgentOutput_WritesTopicAndRoutedTo(t *testing.T) {
 		t.Fatalf("agent output missing topic/routed_to: %+v", msgs)
 	}
 }
+
+// Inbound messages with empty topic must inherit the chat's sticky topic
+// so processWebTopics groups them alongside bot replies under the same topic.
+func TestPutMessage_InheritsStickyTopic(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	jid := "web:main"
+	if err := s.SetStickyTopic(jid, "support"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.PutMessage(core.Message{
+		ID: "in-1", ChatJID: jid, Sender: "user",
+		Content: "help", Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, err := s.MessagesByTopic("main", "support", time.Now().Add(time.Second), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].Topic != "support" {
+		t.Fatalf("inbound did not inherit sticky topic: %+v", msgs)
+	}
+}
