@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -113,7 +114,15 @@ func handleTyping(bot BotHandler) http.HandlerFunc {
 			ChatJID string `json:"chat_jid"`
 			On      bool   `json:"on"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			slog.Warn("typing: decode failed", "err", err)
+			WriteErr(w, 400, "invalid json body")
+			return
+		}
+		if req.ChatJID == "" {
+			WriteErr(w, 400, "chat_jid required")
+			return
+		}
 		bot.Typing(req.ChatJID, req.On)
 		WriteJSON(w, map[string]any{"ok": true})
 	}

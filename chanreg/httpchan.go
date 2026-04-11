@@ -146,8 +146,12 @@ func (h *HTTPChannel) Typing(jid string, on bool) error {
 		slog.Warn("typing request failed", "channel", h.entry.Name, "jid", jid, "err", err)
 		return nil
 	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.Warn("typing: non-2xx response", "channel", h.entry.Name, "method", "POST", "url", h.entry.URL+"/typing", "status", resp.StatusCode)
+		return nil
+	}
 	slog.Info("typing: posted", "channel", h.entry.Name, "jid", jid, "on", on, "status", resp.StatusCode)
-	resp.Body.Close()
 	return nil
 }
 

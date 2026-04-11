@@ -164,7 +164,9 @@ func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
 
 func (b *bot) sendTyping(jid string) {
 	chID := strings.TrimPrefix(jid, "discord:")
-	b.session.ChannelTyping(chID)
+	if err := b.session.ChannelTyping(chID); err != nil {
+		slog.Warn("discord typing failed", "jid", jid, "err", err)
+	}
 }
 
 func replaceMentions(content, assistantName string, user *discordgo.User) string {
