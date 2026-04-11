@@ -542,10 +542,19 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 		if !g.canSendToJID(chatJid) {
 			return "", nil
 		}
-		if ch == nil {
+		// Late-bind the channel: the adapter may have registered AFTER
+		// this callback was built (startup race, adapter restart,
+		// health-flap). Without this, a nil capture persists for the
+		// lifetime of the run and every send silently fails with
+		// "no channel for jid" even once the channel is live.
+		c := ch
+		if c == nil {
+			c = g.findChannelForJID(chatJid)
+		}
+		if c == nil {
 			return "", fmt.Errorf("no channel for jid %s", chatJid)
 		}
-		return ch.Send(chatJid, text, replyToID, threadID)
+		return c.Send(chatJid, text, replyToID, threadID)
 	}
 
 	return func(text, _ string) {

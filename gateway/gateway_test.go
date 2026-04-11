@@ -918,6 +918,39 @@ func TestMakeOutputCallback_ThreadID(t *testing.T) {
 	}
 }
 
+// Regression for marinade 2026-04-11 21:39:09 "no channel for jid" 18s
+// after telegram registered. processSenderBatch captured deliverCh=nil
+// when the adapter hadn't re-registered yet on gated startup; the
+// callback never re-resolved and every send silently failed even after
+// the channel came online. Fix: late-bind ch in sendOnce.
+func TestMakeOutputCallback_LateBindsChannel(t *testing.T) {
+	gw, _ := testGateway(t)
+	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
+
+	// Build the callback BEFORE the channel registers. This mirrors
+	// processSenderBatch running during the startup window where the
+	// adapter HTTP POST /v1/channels/register hasn't arrived yet.
+	cb, hadOutput := gw.makeOutputCallback(nil, "jid1", "", "msg-1", "grp")
+
+	// Channel registers after the callback was built (startup race).
+	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
+	gw.AddChannel(ch)
+
+	// Agent produces output. The send should succeed via late-bind.
+	cb("Hello after registration", "")
+
+	if !*hadOutput {
+		t.Error("hadOutput should be true")
+	}
+	sent := ch.getSent()
+	if len(sent) != 1 {
+		t.Fatalf("sent count = %d, want 1 (late-bind failed)", len(sent))
+	}
+	if sent[0].text != "Hello after registration" {
+		t.Errorf("sent text = %q, want %q", sent[0].text, "Hello after registration")
+	}
+}
+
 func TestSendMessageReply_NoChannel(t *testing.T) {
 	gw, _ := testGateway(t)
 
