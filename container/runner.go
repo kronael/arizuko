@@ -114,7 +114,6 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		groupDir, _ = folders.GroupPath(in.Folder)
 	}
 	os.MkdirAll(groupDir, 0o755)
-	chown(groupDir, 1000, 1000)
 	writeGatewayCaps(groupDir, cfg)
 
 	mounts := buildMounts(cfg, in, groupDir, root, folders)
@@ -517,7 +516,6 @@ func buildMounts(
 
 	claudeDir := filepath.Join(groupDir, ".claude")
 	os.MkdirAll(claudeDir, 0o755)
-	chown(claudeDir, 1000, 1000)
 	seedSettings(claudeDir, cfg, in, root)
 
 	ipcDir, err := folders.IpcPath(in.Folder)
@@ -525,7 +523,6 @@ func buildMounts(
 		cleanupLegacyIpcDirs(ipcDir)
 		os.MkdirAll(groupfolder.IpcInputDir(ipcDir), 0o755)
 		os.MkdirAll(groupfolder.IpcSidecars(ipcDir), 0o755)
-		chown(ipcDir, 1000, 1000)
 		m = append(m, volumeMount{
 			Host:      hp(cfg, ipcDir),
 			Container: "/workspace/ipc",
@@ -561,7 +558,6 @@ func buildMounts(
 			webHost = filepath.Join(cfg.WebDir, world)
 			os.MkdirAll(webHost, 0o755)
 		}
-		chown(webHost, 1000, 1000)
 		m = append(m, volumeMount{
 			Host:      hp(cfg, webHost),
 			Container: "/workspace/web",
@@ -742,7 +738,6 @@ func seedGroupDir(cfg *core.Config, folder string) error {
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
 		return err
 	}
-	chown(claudeDir, 1000, 1000)
 	seedSkills(cfg, claudeDir, folder)
 	return nil
 }
@@ -792,7 +787,6 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 		// groups. Extra files added locally are preserved.
 		cpDir(filepath.Join(src, e.Name()), d)
 	}
-	chown(dst, 1000, 1000)
 
 	mdSrc := filepath.Join(cfg.HostAppDir, "ant", "CLAUDE.md")
 	mdDst := filepath.Join(claudeDir, "CLAUDE.md")
@@ -811,7 +805,6 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 			"sonnet45MigrationComplete": true,
 		}, "", "  ")
 		os.WriteFile(jsonDst, append(data, '\n'), 0o644)
-		chown(jsonDst, 1000, 1000)
 	}
 }
 
@@ -870,16 +863,6 @@ func cpDir(src, dst string) {
 			slog.Warn("cpDir: write failed", "path", dp, "err", err)
 		}
 	}
-}
-
-func chown(dir string, uid, gid int) {
-	filepath.WalkDir(dir,
-		func(p string, _ os.DirEntry, err error) error {
-			if err == nil {
-				os.Chown(p, uid, gid)
-			}
-			return nil
-		})
 }
 
 func writeLog(

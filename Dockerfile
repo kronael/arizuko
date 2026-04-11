@@ -14,7 +14,11 @@ RUN CGO_ENABLED=0 go build -o /dashd ./dashd/
 RUN CGO_ENABLED=0 go build -o /proxyd ./proxyd/
 
 FROM alpine:3.20
-RUN apk add --no-cache sqlite-libs ca-certificates docker-cli
+RUN apk add --no-cache sqlite-libs ca-certificates docker-cli \
+    && addgroup -g 1000 node \
+    && adduser -D -u 1000 -G node node \
+    && mkdir -p /srv/app/home \
+    && chown -R 1000:1000 /srv/app/home
 COPY --from=build /arizuko /usr/local/bin/arizuko
 COPY --from=build /gated /usr/local/bin/gated
 COPY --from=build /timed /usr/local/bin/timed

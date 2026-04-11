@@ -28,6 +28,12 @@ func TestGenerateMinimal(t *testing.T) {
 	if !strings.Contains(out, "host.docker.internal:host-gateway") {
 		t.Error("gated missing extra_hosts for host.docker.internal — host-side services unreachable")
 	}
+	if !strings.Contains(out, "user: '1000:1000'") {
+		t.Error("gated missing user:1000 — will create root-owned files in shared data dir")
+	}
+	if !strings.Contains(out, "group_add:") {
+		t.Error("gated missing group_add — docker.sock inaccessible as uid 1000")
+	}
 }
 
 func TestGenerateWithChannel(t *testing.T) {

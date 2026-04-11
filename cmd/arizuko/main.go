@@ -47,6 +47,15 @@ func die(format string, args ...any) {
 	os.Exit(1)
 }
 
+func chownTree(dir string, uid, gid int) {
+	filepath.WalkDir(dir, func(p string, _ os.DirEntry, err error) error {
+		if err == nil {
+			os.Chown(p, uid, gid)
+		}
+		return nil
+	})
+}
+
 func cmdRun(args []string) {
 	if len(args) < 1 {
 		fmt.Println("usage: arizuko run <instance>")
@@ -105,6 +114,9 @@ func cmdCreate(args []string) {
 			die("Failed: mkdir %s: %v", sub, err)
 		}
 	}
+	// gated runs as uid 1000 (node) in its container; pre-chown the
+	// data dir so it can write. Harmless no-op for dev runs as non-root.
+	chownTree(dataDir, 1000, 1000)
 
 	envFile := filepath.Join(dataDir, ".env")
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
@@ -134,7 +146,8 @@ func cmdCreate(args []string) {
 	if err := container.SetupGroup(cfg, "main", ""); err != nil {
 		slog.Warn("failed to setup group dir", "folder", "main", "err", err)
 	}
-	exec.Command("git", "init", filepath.Join(dataDir, "groups/main")).Run()
+	// Git repo is init'd lazily by gateway.ensureGroupGitRepo on first
+	// agent run — correct ownership because gated runs as uid 1000.
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
 }
 
@@ -179,8 +192,6 @@ func cmdGroup(args []string) {
 		if err := container.SetupGroup(cfg, folder, ""); err != nil {
 			die("Failed: setup group dir: %v", err)
 		}
-		groupDir := filepath.Join(dataDir, "groups", folder)
-		exec.Command("git", "init", groupDir).Run()
 
 		if err := s.PutGroup(core.Group{Name: name, Folder: folder, AddedAt: time.Now()}); err != nil {
 			die("Failed: add group: %v", err)
