@@ -607,6 +607,19 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 	}, &hadOutput
 }
 
+// sessionIdleExpiry forces a fresh Claude session when a chat has been
+// silent this long. Resuming week-old sessions blends historical state
+// into current turns (MacroHype-class hallucination).
+const sessionIdleExpiry = 2 * 24 * time.Hour
+
+func (g *Gateway) sessionIdleExpired(chatJid string) bool {
+	cursor := g.store.GetAgentCursor(chatJid)
+	if cursor.IsZero() {
+		return false
+	}
+	return time.Since(cursor) > sessionIdleExpiry
+}
+
 func (g *Gateway) runAgentWithOpts(
 	group core.Group, prompt, chatJid, sender string,
 	onOutput func(string, string), isolated bool,
@@ -616,6 +629,13 @@ func (g *Gateway) runAgentWithOpts(
 	var logRowID int64
 	if !isolated {
 		sessionID, _ = g.store.GetSession(group.Folder, topic)
+		if sessionID != "" && g.sessionIdleExpired(chatJid) {
+			slog.Info("session: resetting on idle expiry",
+				"group", group.Folder, "jid", chatJid,
+				"threshold", sessionIdleExpiry)
+			g.store.DeleteSession(group.Folder, topic)
+			sessionID = ""
+		}
 		logRowID, _ = g.store.RecordSession(group.Folder, sessionID, time.Now())
 	}
 
