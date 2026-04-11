@@ -403,6 +403,22 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 		fmt.Fprint(w, `<p>Invalid group path.</p>`)
 		return
 	}
+	// Resolve symlinks and re-check the prefix. Without this, a symlink
+	// inside a group folder can escape the sandbox and expose host files
+	// (a compromised agent could `ln -s /etc /home/node/escape` then hit
+	// /dash/memory/?group=<folder>/escape). EvalSymlinks fails cleanly on
+	// missing paths — treat that as "nothing to show" and return.
+	if real, err := filepath.EvalSymlinks(groupDir); err == nil {
+		if !strings.HasPrefix(real, d.groupsDir+string(filepath.Separator)) &&
+			real != d.groupsDir {
+			fmt.Fprint(w, `<p>Invalid group path.</p>`)
+			return
+		}
+		groupDir = real
+	} else if !os.IsNotExist(err) {
+		fmt.Fprint(w, `<p>Invalid group path.</p>`)
+		return
+	}
 
 	fmt.Fprint(w, `<h2>MEMORY.md</h2>`)
 	memPath := filepath.Join(groupDir, "MEMORY.md")

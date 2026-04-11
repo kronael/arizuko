@@ -250,3 +250,288 @@ func TestRenderMemorySectionClaudeMissing(t *testing.T) {
 		t.Errorf("CLAUDE.md section present without file: body = %q", body)
 	}
 }
+
+// --- path-traversal guard tests ---
+
+// Batch of traversal payloads that must all be rejected by the prefix check.
+func TestRenderMemorySectionTraversalVariants(t *testing.T) {
+	groups := t.TempDir()
+	d := &dash{groupsDir: groups}
+	cases := []string{
+		"../../etc",
+		"foo/../../etc",
+		"g1/../../..",
+		"..",
+		"../",
+	}
+	for _, input := range cases {
+		t.Run(input, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			d.renderMemorySection(w, input)
+			body := w.Body.String()
+			if !strings.Contains(body, "Invalid group path") {
+				t.Errorf("traversal %q not rejected: body = %q", input, body)
+			}
+		})
+	}
+}
+
+// Absolute-path input: filepath.Join treats the leading slash as a literal
+// segment, so /etc/passwd becomes <groupsDir>/etc/passwd — still inside the
+// sandbox. This test locks in that current behavior.
+func TestRenderMemorySectionAbsolutePath(t *testing.T) {
+	groups := t.TempDir()
+	// create a real subdirectory and file at the sandboxed path so the read succeeds
+	sub := filepath.Join(groups, "etc", "passwd")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "MEMORY.md"), []byte("sandboxed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{groupsDir: groups}
+	w := httptest.NewRecorder()
+	d.renderMemorySection(w, "/etc/passwd")
+	body := w.Body.String()
+	if strings.Contains(body, "Invalid group path") {
+		t.Errorf("absolute path unexpectedly rejected: body = %q", body)
+	}
+	if !strings.Contains(body, "sandboxed") {
+		t.Errorf("expected to read sandboxed MEMORY.md, got: %q", body)
+	}
+	// Host /etc/passwd must NOT have been read — check a string unique to real passwd files
+	if strings.Contains(body, "root:x:") {
+		t.Errorf("host /etc/passwd leaked into response: %q", body)
+	}
+}
+
+// URL-encoded traversal via the full handler: the query decoder turns
+// ..%2F..%2Fetc back into ../../etc, which the guard then catches.
+func TestHandleMemoryURLEncodedTraversal(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	d := &dash{db: db, groupsDir: t.TempDir()}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/dash/memory/?group=..%2F..%2Fetc", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Invalid group path") {
+		t.Errorf("url-encoded traversal not rejected: body = %q", w.Body.String())
+	}
+}
+
+// Symlink escape: a directory INSIDE groupsDir that is actually a symlink to
+// somewhere outside. The string-prefix guard operates on the unresolved path
+// and does NOT catch this — os.ReadFile follows the symlink.
+// EXPECTED BEHAVIOR: guard should catch; if this test fails, it reveals a bug.
+func TestRenderMemorySectionSymlinkEscape(t *testing.T) {
+	if os.Getenv("SKIP_SYMLINK_TEST") != "" {
+		t.Skip("symlinks unsupported")
+	}
+	groups := t.TempDir()
+	outside := t.TempDir()
+	secretPath := filepath.Join(outside, "MEMORY.md")
+	const secret = "TOP_SECRET_OUTSIDE_SANDBOX"
+	if err := os.WriteFile(secretPath, []byte(secret), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(groups, "escape")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	d := &dash{groupsDir: groups}
+	w := httptest.NewRecorder()
+	d.renderMemorySection(w, "escape")
+	body := w.Body.String()
+	if strings.Contains(body, secret) {
+		t.Errorf("BUG: symlink escape leaked %q — guard does not resolve symlinks: body = %q",
+			secret, body)
+	}
+}
+
+// Empty / dot folder names collapse to groupsDir itself via the equal branch
+// of the guard. Not a traversal, but documents what is currently allowed.
+func TestRenderMemorySectionEmptyFolder(t *testing.T) {
+	groups := t.TempDir()
+	// place a MEMORY.md at the groupsDir root
+	if err := os.WriteFile(filepath.Join(groups, "MEMORY.md"), []byte("root-memory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{groupsDir: groups}
+	for _, input := range []string{"", "."} {
+		t.Run("input="+input, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			d.renderMemorySection(w, input)
+			body := w.Body.String()
+			if strings.Contains(body, "Invalid group path") {
+				t.Errorf("%q unexpectedly rejected (equal-branch should allow)", input)
+			}
+			if !strings.Contains(body, "root-memory") {
+				t.Errorf("%q did not read groupsDir/MEMORY.md: body = %q", input, body)
+			}
+		})
+	}
+}
+
+// --- DB error swallowing tests ---
+
+// Portal ignores errors from three QueryRow().Scan() calls. Verify the
+// handler still returns 200 when the tables are missing, documenting the
+// silent-swallow behavior: the dots render as "err" because counts stay 0.
+func TestHandlePortalDBError(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	for _, tbl := range []string{"channels", "chats", "task_run_logs"} {
+		if _, err := db.Exec(`DROP TABLE ` + tbl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := &dash{db: db}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/dash/", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Errorf("status = %d (portal swallows DB errors silently)", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "arizuko") {
+		t.Errorf("portal did not render despite DB errors: %q", w.Body.String())
+	}
+}
+
+// writeTaskRows DOES surface DB errors in the response — lock that in.
+func TestTasksPartialDBError(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	if _, err := db.Exec(`DROP TABLE scheduled_tasks`); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{db: db}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/dash/tasks/x/list", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "error:") {
+		t.Errorf("tasks partial did not surface DB error: %q", body)
+	}
+}
+
+// writeActivityRows DOES surface DB errors — lock in.
+func TestActivityPartialDBError(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	if _, err := db.Exec(`DROP TABLE messages`); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{db: db}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/dash/activity/x/recent", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "error:") {
+		t.Errorf("activity partial did not surface DB error: %q", body)
+	}
+}
+
+// handleGroups DOES surface DB errors in the body.
+func TestHandleGroupsDBError(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	if _, err := db.Exec(`DROP TABLE groups`); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{db: db}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/dash/groups/", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "error:") {
+		t.Errorf("groups handler did not surface DB error: %q", body)
+	}
+}
+
+// handleMemory swallows DB errors from the group-list query: the dropdown
+// simply doesn't render. Current behavior, locked in.
+func TestHandleMemoryDBError(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	if _, err := db.Exec(`DROP TABLE groups`); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{db: db, groupsDir: t.TempDir()}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/dash/memory/", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Errorf("status = %d (handleMemory swallows DB errors)", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "<select") {
+		t.Errorf("dropdown rendered despite DB error: %q", body)
+	}
+}
+
+// --- auth gate tests ---
+// dashd intentionally has NO JWT middleware; proxyd fronts it. These tests
+// guard that contract: bogus Authorization headers are neither honored nor
+// rejected — every request is admitted regardless.
+
+func TestDashIgnoresAuthHeader(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir()}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	cases := []struct {
+		name   string
+		header string
+	}{
+		{"missing", ""},
+		{"bearer junk", "Bearer not.a.real.jwt"},
+		{"bearer expired", "Bearer eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjF9.xxx"},
+		{"raw secret", "super-secret"},
+		{"malformed", "Basic foo"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/dash/status/", nil)
+			if tc.header != "" {
+				req.Header.Set("Authorization", tc.header)
+			}
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+			if w.Code != 200 {
+				t.Errorf("status = %d (dashd must not gate on Authorization header)", w.Code)
+			}
+		})
+	}
+}
