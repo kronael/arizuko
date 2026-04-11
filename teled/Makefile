@@ -10,7 +10,4 @@ lint:
 clean:
 	rm -f teled
 
-image:
-	docker build -t arizuko-telegram .
-
-.PHONY: build test lint clean image
+.PHONY: build test lint clean

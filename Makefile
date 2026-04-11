@@ -19,8 +19,6 @@ clean:
 
 images:
 	docker build -t arizuko .
-	docker build -t arizuko-telegram -f teled/Dockerfile .
-	docker build -t arizuko-discord -f discd/Dockerfile .
 	docker build -t arizuko-whatsapp -f whapd/Dockerfile .
 	make -C ant image
 	make vite-image
