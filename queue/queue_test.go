@@ -1,6 +1,10 @@
 package queue
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -152,6 +156,111 @@ func TestShutdownBlocksEnqueue(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if called.Load() {
 		t.Fatal("should not process after shutdown")
+	}
+}
+
+// SendMessages drives mid-loop steering: writes one IPC file per
+// message and signals the container. Must be a no-op when no container
+// is active for the group.
+
+func TestSendMessages_EmptyInputReturnsFalse(t *testing.T) {
+	q := New(1, t.TempDir())
+	if q.SendMessages("g1", nil) {
+		t.Fatal("empty input should return false")
+	}
+	if q.SendMessages("g1", []string{}) {
+		t.Fatal("zero-length slice should return false")
+	}
+}
+
+func TestSendMessages_NoActiveContainerReturnsFalse(t *testing.T) {
+	q := New(1, t.TempDir())
+	// No RegisterProcess → active=false
+	if q.SendMessages("g1", []string{"hi"}) {
+		t.Fatal("steer should fail when no container is active")
+	}
+}
+
+func TestSendMessages_NoGroupFolderReturnsFalse(t *testing.T) {
+	q := New(1, t.TempDir())
+	// Active but groupFolder still empty (unregistered).
+	q.mu.Lock()
+	s := q.getGroup("g1")
+	s.active = true
+	q.mu.Unlock()
+
+	if q.SendMessages("g1", []string{"hi"}) {
+		t.Fatal("steer should fail with empty groupFolder")
+	}
+}
+
+func TestSendMessages_WritesOneFilePerMessage(t *testing.T) {
+	ipcDir := t.TempDir()
+	q := New(1, ipcDir)
+
+	q.mu.Lock()
+	s := q.getGroup("g1")
+	s.active = true
+	s.groupFolder = "fold"
+	s.containerName = "fake-container-name-that-wont-exist"
+	q.mu.Unlock()
+
+	texts := []string{"first", "second", "third"}
+	ok := q.SendMessages("g1", texts)
+	if !ok {
+		t.Fatal("SendMessages returned false, want true")
+	}
+
+	inputDir := filepath.Join(ipcDir, "fold", "input")
+	entries, err := os.ReadDir(inputDir)
+	if err != nil {
+		t.Fatalf("read input dir: %v", err)
+	}
+	jsonFiles := 0
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") {
+			jsonFiles++
+			data, err := os.ReadFile(filepath.Join(inputDir, e.Name()))
+			if err != nil {
+				t.Fatalf("read %s: %v", e.Name(), err)
+			}
+			var payload map[string]string
+			if err := json.Unmarshal(data, &payload); err != nil {
+				t.Fatalf("unmarshal %s: %v", e.Name(), err)
+			}
+			if payload["type"] != "message" {
+				t.Errorf("type = %q, want 'message'", payload["type"])
+			}
+			seen[payload["text"]] = true
+		}
+	}
+	if jsonFiles != len(texts) {
+		t.Errorf("json files = %d, want %d", jsonFiles, len(texts))
+	}
+	for _, text := range texts {
+		if !seen[text] {
+			t.Errorf("missing file with text=%q", text)
+		}
+	}
+}
+
+func TestSendMessages_NoLeftoverTmpFiles(t *testing.T) {
+	ipcDir := t.TempDir()
+	q := New(1, ipcDir)
+	q.mu.Lock()
+	s := q.getGroup("g1")
+	s.active = true
+	s.groupFolder = "fold"
+	q.mu.Unlock()
+
+	q.SendMessages("g1", []string{"msg"})
+
+	entries, _ := os.ReadDir(filepath.Join(ipcDir, "fold", "input"))
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("leftover tmp file: %s", e.Name())
+		}
 	}
 }
 

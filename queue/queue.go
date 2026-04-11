@@ -124,6 +124,19 @@ func (q *GroupQueue) RegisterProcess(groupJid, containerName, groupFolder string
 	}
 }
 
+// SetActiveForTest simulates an active container for a group, bypassing
+// the normal EnqueueMessageCheck → goroutine → RegisterProcess flow so
+// steering tests can exercise SendMessages without running docker.
+func (q *GroupQueue) SetActiveForTest(groupJid, containerName, groupFolder string) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	s := q.getGroup(groupJid)
+	s.active = true
+	s.containerName = containerName
+	s.groupFolder = groupFolder
+	q.activeCount++
+}
+
 func (q *GroupQueue) SendMessages(groupJid string, texts []string) bool {
 	if len(texts) == 0 {
 		return false

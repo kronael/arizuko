@@ -42,10 +42,15 @@ the Claude integration layer change.
      invocations
 4. Wraps prompt + follow-up messages in a `MessageStream` (AsyncIterable)
    so `isSingleUserTurn = false` — keeps the SDK from auto-terminating
-   after the first prompt. `stream.push(text)` is how mid-turn IPC
-   messages are injected while the container is running.
-5. Reads subsequent IPC follow-up messages from a fifo/pipe and calls
-   `stream.push(text)` for each.
+   after the first prompt. `stream.push(text)` queues follow-up IPC
+   messages as the next user turn (not true mid-turn — see open
+   question 1).
+5. Reads subsequent IPC follow-up messages from a fifo/pipe. A
+   `PostToolUse` hook (`createIpcDrainHook`) drains the IPC input dir
+   between tool calls and returns queued messages as
+   `hookSpecificOutput.additionalContext` for mid-loop injection inside
+   the current turn; a `pollIpcDuringQuery` fallback calls
+   `stream.push(text)` for text-only responses where no tool fires.
 6. Streams SDK events, forwards text to stdout between
    `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---` markers,
    records the new session id, writes a `ContainerOutput` footer.
@@ -54,9 +59,10 @@ the Claude integration layer change.
 
 Replace step 3-6 with a Go process that spawns `claude` CLI with
 `--output-format stream-json` and `--input-format stream-json` so we
-can still push follow-up messages mid-turn. Everything else (container
-contract, group file loading, output delimiters, ContainerOutput) is
-unchanged.
+can still push follow-up messages as subsequent user turns, plus a
+`PostToolUse` hook script for true mid-loop injection between tool
+calls (see open question 1). Everything else (container contract,
+group file loading, output delimiters, ContainerOutput) is unchanged.
 
 ```
 stdin (ContainerInput JSON)

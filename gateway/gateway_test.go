@@ -340,6 +340,37 @@ func TestAdvanceAgentCursor_Empty(t *testing.T) {
 	}
 }
 
+// Regression: pollOnce must advance the agent cursor after steering
+// messages into a running container. Without this, drainGroupLocked
+// re-feeds the same batch on container exit — the marinade atlas
+// respawn loop. Registered by 28ea3bd.
+func TestPollOnce_SteerAdvancesCursor(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.MaxContainers = 2
+
+	jid := "telegram:1"
+	setGroup(gw, jid, core.Group{Folder: "grp", Name: "Group"})
+
+	// Simulate an active container: pollOnce's steering branch only
+	// fires when queue.SendMessages sees active=true + folder set.
+	gw.queue.SetActiveForTest(jid, "fake-container-name", "grp")
+
+	ts := time.Now().UTC()
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: jid, Sender: "user", Name: "User",
+		Content: "hello", Timestamp: ts,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.pollOnce()
+
+	got := s.GetAgentCursor(jid)
+	if got.IsZero() || got.Before(ts) {
+		t.Errorf("cursor = %v, want >= %v (steer path must advance cursor)", got, ts)
+	}
+}
+
 // Regression: pollOnce must advance the agent cursor after handlePrefixLayer
 // absorbs a message. Otherwise messages are re-processed on every restart.
 func TestPollOnce_PrefixRouteAdvancesCursor(t *testing.T) {

@@ -119,22 +119,24 @@ tool_execution_start / tool_execution_end
 
 **Fit analysis:**
 
-| Feature                | Status                                                     |
-| ---------------------- | ---------------------------------------------------------- |
-| Headless RPC           | ✓ `pi --mode rpc`                                          |
-| Mid-turn IPC injection | ✓ `steer` command — exact analog to `MessageStream.push()` |
-| MCP (unix socket)      | △ requires extension or pi-mcp-adapter + socat wrapper     |
-| Session resume         | ✓ `switch_session` RPC command                             |
-| System prompt          | △ must write `.pi/SYSTEM.md` before spawn                  |
-| Bash secret scrubbing  | △ shell wrapper same as Codex                              |
-| PreCompact hook        | ✗ not available                                            |
-| Models                 | ✓ 15+ providers including Anthropic, OpenAI, Google        |
-| Maturity               | Community, solo developer (`badlogic/pi-mono`)             |
+| Feature                | Status                                                                                       |
+| ---------------------- | -------------------------------------------------------------------------------------------- |
+| Headless RPC           | ✓ `pi --mode rpc`                                                                            |
+| Mid-turn IPC injection | ✓ `steer` command — true mid-turn, closer than `MessageStream.push()` which queues next-turn |
+| MCP (unix socket)      | △ requires extension or pi-mcp-adapter + socat wrapper                                       |
+| Session resume         | ✓ `switch_session` RPC command                                                               |
+| System prompt          | △ must write `.pi/SYSTEM.md` before spawn                                                    |
+| Bash secret scrubbing  | △ shell wrapper same as Codex                                                                |
+| PreCompact hook        | ✗ not available                                                                              |
+| Models                 | ✓ 15+ providers including Anthropic, OpenAI, Google                                          |
+| Maturity               | Community, solo developer (`badlogic/pi-mono`)                                               |
 
-**Advantage:** `steer` is a direct structural equivalent to
-`MessageStream.push()`. One long-lived process per container run, matching
-the current architecture. Multi-provider means a single ant image can run
-Claude, GPT, or Gemini via config.
+**Advantage:** `steer` is a first-class mid-turn injection primitive —
+arguably stronger than Claude SDK, where `MessageStream.push()` only
+queues next-turn and we have to use a `PostToolUse` hook workaround for
+true mid-loop delivery. One long-lived process per container run,
+matching the current architecture. Multi-provider means a single ant
+image can run Claude, GPT, or Gemini via config.
 
 **Risk:** solo developer project; no Anthropic or OpenAI backing. API
 surface may break across versions.
