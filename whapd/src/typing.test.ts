@@ -142,6 +142,35 @@ describe('TypingRefresher', () => {
     expect(sends).toBeGreaterThanOrEqual(2);
   });
 
+  it('rapid on/off does not leak timers', async () => {
+    let sends = 0;
+    let clears = 0;
+    const r = new TypingRefresher(
+      20,
+      1000,
+      async () => {
+        sends++;
+      },
+      async () => {
+        clears++;
+      },
+    );
+
+    // Short agent "run": turn on, turn off before first refresh tick.
+    r.set('jid1', true);
+    r.set('jid1', false);
+    expect(r.activeCount()).toBe(0);
+    expect(sends).toBe(1); // immediate only, no refreshes
+    expect(clears).toBe(1);
+
+    // A later run on same jid should still work.
+    r.set('jid1', true);
+    await sleep(30);
+    expect(sends).toBeGreaterThanOrEqual(2);
+    r.set('jid1', false);
+    expect(r.activeCount()).toBe(0);
+  });
+
   it('set(false) on unknown jid is a no-op', () => {
     let clears = 0;
     const r = new TypingRefresher(

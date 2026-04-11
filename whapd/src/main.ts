@@ -398,19 +398,24 @@ export function queueOutbound(jid: string, text: string): void {
 // WhatsApp 'composing' presence decays ~25s server-side, so long agent runs
 // need periodic re-sends. 15s refresh gives safety margin; 10min hard cap
 // matches the Go adapters via chanlib.TypingRefresher.
+async function pushPresence(
+  status: 'composing' | 'paused',
+  jid: string,
+): Promise<void> {
+  const s = sock;
+  if (!s || !connected) return;
+  try {
+    await s.sendPresenceUpdate(status, jid);
+  } catch (e) {
+    log('warn', 'presence update failed', { jid, status, err: String(e) });
+  }
+}
+
 const typing = new TypingRefresher(
   15_000,
   10 * 60 * 1000,
-  async (jid) => {
-    const s = sock;
-    if (!s || !connected) return;
-    await s.sendPresenceUpdate('composing', jid);
-  },
-  async (jid) => {
-    const s = sock;
-    if (!s || !connected) return;
-    await s.sendPresenceUpdate('paused', jid);
-  },
+  (jid) => pushPresence('composing', jid),
+  (jid) => pushPresence('paused', jid),
 );
 
 export function setTyping(jid: string, on: boolean): void {

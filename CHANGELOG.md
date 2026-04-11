@@ -29,6 +29,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **whapd typing indicator survives long runs**: whapd previously
+  called `sendPresenceUpdate('composing')` exactly once on `/typing`,
+  and WhatsApp decays composing ~25s server-side — so the indicator
+  vanished mid-agent-run. Ported `chanlib.TypingRefresher` to TS in
+  `whapd/src/typing.ts` (15s refresh, 10min hard cap). main.ts owns
+  the singleton; server.ts takes a `setTyping(jid,on)` callback.
+  9 new unit tests mirror the Go suite. Closes the last typing-
+  indicator gap across adapters (teled + discd were fixed earlier).
 - **whapd**: inbound WhatsApp replies now populate `reply_to`,
   `reply_to_text`, `reply_to_sender` from Baileys `contextInfo`.
   Previously all WhatsApp replies reached the gateway as unthreaded
