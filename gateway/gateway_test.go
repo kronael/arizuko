@@ -372,19 +372,21 @@ func TestPollOnce_SteerAdvancesCursor(t *testing.T) {
 }
 
 // Regression: pollOnce must advance the agent cursor after handlePrefixLayer
-// absorbs a message. Otherwise messages are re-processed on every restart.
+// absorbs a message (real child delegation). Otherwise messages would be
+// re-processed on every restart.
 func TestPollOnce_PrefixRouteAdvancesCursor(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.MaxContainers = 0 // queue tasks without running them
 
 	jid := "telegram:1"
 	setGroup(gw, jid, core.Group{Folder: "grp", Name: "Group"})
+	// Child group must exist for the prefix-delegation path.
+	s.PutGroup(core.Group{Folder: "grp/child", Name: "Child"})
 
-	// @unknown child: handlePrefixLayer absorbs silently (in-code, no DB route).
 	ts := time.Now().UTC()
 	if err := s.PutMessage(core.Message{
 		ID: "m1", ChatJID: jid, Sender: "user", Name: "User",
-		Content: "@nobody hello", Timestamp: ts,
+		Content: "@child hello", Timestamp: ts,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -558,16 +560,34 @@ func TestParsePrefix_AtStart(t *testing.T) {
 	}
 }
 
-func TestParsePrefix_AtMiddle(t *testing.T) {
-	name, rest, ok := parsePrefix("hello @alice world")
+func TestParsePrefix_AtMiddleIgnored(t *testing.T) {
+	// Mid-content @mentions are references, not nav. Forwarded tweets
+	// with @handles must not be misrouted as child-group delegations.
+	if _, _, ok := parsePrefix("hello @alice world"); ok {
+		t.Error("expected ok=false for mid-content @mention")
+	}
+}
+
+func TestParsePrefix_TwitterContentIgnored(t *testing.T) {
+	// Regression for marinade atlas 2026-04-11: user forwarded a tweet
+	// containing "@buffalu__", router matched it, tried to delegate to
+	// child group atlas/buffalu__ (didn't exist), consumed the message.
+	txt := "Solana's Napster Era Is Over\nbuffalu\n@buffalu__\n·\n7h"
+	if _, _, ok := parsePrefix(txt); ok {
+		t.Error("expected ok=false for Twitter-handle mid-content")
+	}
+}
+
+func TestParsePrefix_LeadingWhitespace(t *testing.T) {
+	name, rest, ok := parsePrefix("  @alice hello")
 	if !ok {
-		t.Fatal("expected ok=true")
+		t.Fatal("expected ok=true for leading-whitespace nav prefix")
 	}
 	if name != "alice" {
 		t.Errorf("name = %q, want alice", name)
 	}
-	if rest != "hello world" {
-		t.Errorf("rest = %q, want %q", rest, "hello world")
+	if rest != "hello" {
+		t.Errorf("rest = %q, want %q", rest, "hello")
 	}
 }
 
@@ -584,13 +604,11 @@ func TestParsePrefix_Hash(t *testing.T) {
 	}
 }
 
-func TestParsePrefix_HashMidSentence(t *testing.T) {
-	name, _, ok := parsePrefix("ask #general for help")
-	if !ok {
-		t.Fatal("expected ok=true")
-	}
-	if name != "general" {
-		t.Errorf("name = %q, want general", name)
+func TestParsePrefix_HashMidSentenceIgnored(t *testing.T) {
+	// Symmetric with @ prefix: mid-content #tags are references,
+	// not navigation commands.
+	if _, _, ok := parsePrefix("ask #general for help"); ok {
+		t.Error("expected ok=false for mid-content #tag")
 	}
 }
 

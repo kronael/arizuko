@@ -29,6 +29,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **@prefix router silently dropped messages containing Twitter
+  handles**: the navigation-prefix regex `@(\w[\w-]*)` matched
+  `@mentions` anywhere in the text, not just at the start. A user
+  forwarding a tweet containing `@buffalu__` would have the router
+  try to delegate to child group `<folder>/buffalu__`; when that
+  group didn't exist, `handlePrefixLayer` logged a warning and
+  returned `true`, consuming the message — the agent never saw
+  it, cursor advanced, no reply. Fixed by (a) anchoring both `@`
+  and `#` prefix regexes to start-of-message (optional leading
+  whitespace), so mid-content mentions are treated as references
+  not nav; and (b) falling through (returning `false`) when a
+  prefix references a non-existent child, so defence-in-depth
+  prevents future silent drops. Gateway tests updated; regression
+  test added for the Twitter-content case.
+
 - **whapd typing indicator survives long runs**: whapd previously
   called `sendPresenceUpdate('composing')` exactly once on `/typing`,
   and WhatsApp decays composing ~25s server-side — so the indicator

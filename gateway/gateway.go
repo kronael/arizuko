@@ -1228,17 +1228,25 @@ func (g *Gateway) effectiveTopic(chatJid, msgTopic string) string {
 	return msgTopic
 }
 
-var rePrefixAt = regexp.MustCompile(`@(\w[\w-]*)`)
-var rePrefixHash = regexp.MustCompile(`#(\w[\w-]*)`)
+// Navigation prefixes must sit at the very start of the message
+// (optional leading whitespace). Mid-content @mentions and #tags are
+// references, not nav commands — e.g. forwarded tweets containing
+// "@handle" must not be misrouted as child-group delegations.
+var rePrefixAt = regexp.MustCompile(`^\s*@(\w[\w-]*)`)
+var rePrefixHash = regexp.MustCompile(`^\s*#(\w[\w-]*)`)
 
 func parsePrefix(text string) (name, rest string, ok bool) {
 	for _, re := range []*regexp.Regexp{rePrefixAt, rePrefixHash} {
-		if m := re.FindStringIndex(text); m != nil {
-			full := text[m[0]:m[1]]
-			name = full[1:] // strip @ or #
-			rest = strings.TrimSpace(strings.Join(strings.Fields(text[:m[0]]+" "+text[m[1]:]), " "))
-			return name, rest, true
+		// Submatch index 2..3 is the captured name (without leading
+		// whitespace or the @/# sigil). Whole-match 0..1 is consumed
+		// wholesale when computing the remainder.
+		m := re.FindStringSubmatchIndex(text)
+		if m == nil {
+			continue
 		}
+		name = text[m[2]:m[3]]
+		rest = strings.TrimSpace(text[m[1]:])
+		return name, rest, true
 	}
 	return "", "", false
 }
@@ -1269,8 +1277,12 @@ func (g *Gateway) handlePrefixLayer(
 		}
 		childFolder := group.Folder + "/" + name
 		if _, exists := g.store.GroupByFolder(childFolder); !exists {
+			// Defence in depth: even though the regex is anchored to
+			// start-of-message, if a nav prefix references an unknown
+			// child we must NOT swallow the message — fall through so
+			// the agent still gets to reply.
 			slog.Warn("@prefix: child group not found", "child", childFolder)
-			return true
+			return false
 		}
 		g.delegateViaMessage(childFolder, stripped, chatJid, 0)
 		return true
