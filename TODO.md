@@ -9,9 +9,9 @@ bugs.md "Verify shipped")_
 
 ## Next (small wins)
 
-- **Daemon test gaps** — `whapd` has zero tests (only Go daemon without
-  any); `dashd` and `proxyd` have partial coverage but miss auth gate
-  - path-traversal tests.
+- **Daemon test gaps** — `dashd` and `proxyd` have partial coverage
+  but miss auth gate + path-traversal tests. (`whapd` now at 37 tests
+  across server/reply/queue/typing; remaining gaps listed below.)
 - **Skill search MCP tool** — integrate browse/search across skill hubs
   (ClawHub, Skills.sh, Hermes skills, others) as an arizuko MCP tool so
   agents can discover + fetch skills on demand instead of bundling
@@ -63,11 +63,11 @@ because runtime branching/state machines are uncovered:
   `renderMemorySection`, DB error swallowing.
 - **proxyd**: auth gate, OAuth callback, `/slink/*` rate limiter,
   vhost matching, `/dav` rewrite.
-- **whapd**: server.ts routes covered; remaining gaps —
-  `flushOutboundQueue` (not exported from main.ts, needs refactor to
-  extract into testable module) and `pair()`/`reconnectOnly()` 515
-  recursion (needs baileys socket mock infra not present in
-  server.test.ts); LID translation.
+- **whapd**: server.ts routes + reply + queue + typing covered;
+  remaining gaps — `flushOutboundQueue` (not exported from main.ts,
+  needs refactor to extract into testable module), `pair()` /
+  `reconnectOnly()` 515 recursion (needs baileys socket mock infra
+  not present in server.test.ts), LID translation.
 
 ## Daemon boundary leaks (medium)
 
