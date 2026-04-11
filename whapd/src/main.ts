@@ -15,6 +15,7 @@ import { RouterClient } from './client.js';
 import { flushQueue } from './queue.js';
 import { extractReplyMeta } from './reply.js';
 import { startServer } from './server.js';
+import { TypingRefresher } from './typing.js';
 
 const logger = pino({ level: 'warn' });
 
@@ -394,6 +395,28 @@ export function queueOutbound(jid: string, text: string): void {
   });
 }
 
+// WhatsApp 'composing' presence decays ~25s server-side, so long agent runs
+// need periodic re-sends. 15s refresh gives safety margin; 10min hard cap
+// matches the Go adapters via chanlib.TypingRefresher.
+const typing = new TypingRefresher(
+  15_000,
+  10 * 60 * 1000,
+  async (jid) => {
+    const s = sock;
+    if (!s || !connected) return;
+    await s.sendPresenceUpdate('composing', jid);
+  },
+  async (jid) => {
+    const s = sock;
+    if (!s || !connected) return;
+    await s.sendPresenceUpdate('paused', jid);
+  },
+);
+
+export function setTyping(jid: string, on: boolean): void {
+  typing.set(jid, on);
+}
+
 async function registerWithRetry(): Promise<void> {
   let attempt = 0;
   while (true) {
@@ -438,10 +461,12 @@ async function main() {
     getSocket,
     isConnected,
     queueOutbound,
+    setTyping,
   );
 
   async function shutdown() {
     log('info', 'shutting down');
+    typing.stop();
     await rc.deregister();
     sock?.end(undefined);
     srv.close();

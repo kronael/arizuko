@@ -27,6 +27,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 let server: ReturnType<typeof startServer>;
 let stub = makeStub();
 let connected = true;
+let typingCalls: { jid: string; on: boolean }[] = [];
 
 beforeAll(() => {
   server = startServer(
@@ -35,6 +36,9 @@ beforeAll(() => {
     () => stub.sock,
     () => connected,
     () => {},
+    (jid, on) => {
+      typingCalls.push({ jid, on });
+    },
   );
 });
 
@@ -156,31 +160,40 @@ describe('POST /send-file', () => {
 });
 
 describe('POST /typing', () => {
-  it('sends presence update when connected', async () => {
-    stub = makeStub();
-    connected = true;
+  it('forwards on=true to setTyping with normalized jid', async () => {
+    typingCalls = [];
     const r = await fetch(`${BASE}/typing`, {
       method: 'POST',
       body: JSON.stringify({ chat_jid: 'whatsapp:12345', on: true }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
     expect(r.status).toBe(200);
-    expect(stub.calls.some((c) => c.method === 'sendPresenceUpdate')).toBe(
-      true,
-    );
+    expect(typingCalls).toEqual([{ jid: '12345@s.whatsapp.net', on: true }]);
   });
 
-  it('returns 200 silently when sock is null', async () => {
-    stub = makeStub();
-    const saved = stub.sock;
-    stub.sock = null as any;
+  it('forwards on=false to setTyping', async () => {
+    typingCalls = [];
     const r = await fetch(`${BASE}/typing`, {
       method: 'POST',
-      body: JSON.stringify({ chat_jid: 'whatsapp:12345', on: true }),
+      body: JSON.stringify({ chat_jid: 'whatsapp:12345', on: false }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
     expect(r.status).toBe(200);
-    stub.sock = saved;
+    expect(typingCalls).toEqual([{ jid: '12345@s.whatsapp.net', on: false }]);
+  });
+
+  it('passes already-suffixed jids through unchanged', async () => {
+    typingCalls = [];
+    const r = await fetch(`${BASE}/typing`, {
+      method: 'POST',
+      body: JSON.stringify({
+        chat_jid: 'whatsapp:12345@g.us',
+        on: true,
+      }),
+      headers: { 'Content-Type': 'application/json', ...auth() },
+    });
+    expect(r.status).toBe(200);
+    expect(typingCalls).toEqual([{ jid: '12345@g.us', on: true }]);
   });
 });
 

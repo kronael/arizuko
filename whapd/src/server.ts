@@ -79,6 +79,7 @@ export function startServer(
   sock: () => WASocket | null,
   isConnected: () => boolean,
   queueOutbound: (jid: string, text: string) => void,
+  setTyping: (jid: string, on: boolean) => void,
 ): http.Server {
   const srv = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -162,19 +163,9 @@ export function startServer(
 
     if (req.method === 'POST' && req.url === '/typing') {
       const body = (await readBody(req)) as TypingReq;
-      const s = sock();
-      if (s) {
-        const status = body.on ? ('composing' as const) : ('paused' as const);
-        const waJid = toWaJid(body.chat_jid);
-        log('debug', 'typing', { jid: waJid, status });
-        s.sendPresenceUpdate(status, waJid).catch((e) =>
-          log('warn', 'presence update failed', {
-            jid: waJid,
-            status,
-            err: String(e),
-          }),
-        );
-      }
+      const waJid = toWaJid(body.chat_jid);
+      log('debug', 'typing', { jid: waJid, on: body.on });
+      setTyping(waJid, body.on);
       json(res, 200, { ok: true });
       return;
     }
