@@ -25,6 +25,9 @@ func TestGenerateMinimal(t *testing.T) {
 	if !strings.Contains(out, "arizuko:latest") {
 		t.Error("missing gated image")
 	}
+	if !strings.Contains(out, "host.docker.internal:host-gateway") {
+		t.Error("gated missing extra_hosts for host.docker.internal — host-side services unreachable")
+	}
 }
 
 func TestGenerateWithChannel(t *testing.T) {

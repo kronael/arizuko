@@ -169,6 +169,12 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	}
 	b.WriteString("    ports:\n")
 	fmt.Fprintf(&b, "      - '%s:%s'\n", apiPort, apiPort)
+	// host.docker.internal resolves to the host bridge gateway regardless of
+	// which docker network the container ends up on. Needed so gated can
+	// reach host-side services (e.g. whisper on the host at a known port)
+	// without baking bridge IPs or WAN addresses into .env files.
+	b.WriteString("    extra_hosts:\n")
+	b.WriteString("      - 'host.docker.internal:host-gateway'\n")
 	b.WriteString("    environment:\n")
 	writeEnv(&b, environment)
 	b.WriteString("    restart: on-failure\n")
