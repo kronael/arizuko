@@ -20,7 +20,8 @@ package-lock.json
 .mcp.json
 .ripgreprc
 .vscode
-.claude/
+.claude/*
+!.claude/skills/
 HEAD
 config
 hooks
