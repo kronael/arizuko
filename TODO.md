@@ -77,7 +77,9 @@ because runtime branching/state machines are uncovered:
   remaining gaps — `flushOutboundQueue` (not exported from main.ts,
   needs refactor to extract into testable module), `pair()` /
   `reconnectOnly()` 515 recursion (needs baileys socket mock infra
-  not present in server.test.ts), LID translation.
+  not present in server.test.ts). **LID translation: won't do** —
+  routing is by chat_jid, onbod handles unknown `<num>@lid` DMs via
+  awaiting_message, sender LID is cosmetic.
 
 ## Daemon boundary leaks (medium)
 
