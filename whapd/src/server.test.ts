@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import { startServer } from './server';
+import { flushQueue } from './queue';
 import { extractReplyMeta } from './reply';
 import type { WAMessage } from '@whiskeysockets/baileys';
 
@@ -409,5 +410,56 @@ describe('extractReplyMeta', () => {
     );
     expect(meta?.replyTo).toBe('S5');
     expect(meta?.replyToText).toBe('parent');
+  });
+});
+
+describe('flushQueue', () => {
+  it('returns empty result for empty queue', async () => {
+    const q: string[] = [];
+    const r = await flushQueue(q, async () => {});
+    expect(r.sent).toEqual([]);
+    expect(r.failed).toEqual([]);
+    expect(q.length).toBe(0);
+  });
+
+  it('sends all items when sendFn succeeds', async () => {
+    const q = ['a', 'b', 'c'];
+    const seen: string[] = [];
+    const r = await flushQueue(q, async (item) => {
+      seen.push(item);
+    });
+    expect(seen).toEqual(['a', 'b', 'c']);
+    expect(r.sent).toEqual(['a', 'b', 'c']);
+    expect(r.failed).toEqual([]);
+    expect(q.length).toBe(0);
+  });
+
+  it('continues past a mid-batch failure', async () => {
+    const q = [
+      { jid: '1', text: 'one' },
+      { jid: '2', text: 'two' },
+      { jid: '3', text: 'three' },
+    ];
+    const seen: string[] = [];
+    const r = await flushQueue(q, async (item) => {
+      seen.push(item.jid);
+      if (item.jid === '2') throw new Error('boom');
+    });
+    expect(seen).toEqual(['1', '2', '3']);
+    expect(r.sent.map((i) => i.jid)).toEqual(['1', '3']);
+    expect(r.failed.length).toBe(1);
+    expect(r.failed[0]!.item.jid).toBe('2');
+    expect(r.failed[0]!.err.message).toBe('boom');
+    expect(q.length).toBe(0);
+  });
+
+  it('wraps non-Error throws into Error', async () => {
+    const q = ['x'];
+    const r = await flushQueue(q, async () => {
+      throw 'string-error';
+    });
+    expect(r.sent).toEqual([]);
+    expect(r.failed[0]!.err).toBeInstanceOf(Error);
+    expect(r.failed[0]!.err.message).toBe('string-error');
   });
 });

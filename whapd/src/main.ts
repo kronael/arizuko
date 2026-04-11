@@ -12,6 +12,7 @@ import makeWASocket, {
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { RouterClient } from './client.js';
+import { flushQueue } from './queue.js';
 import { extractReplyMeta } from './reply.js';
 import { startServer } from './server.js';
 
@@ -187,14 +188,22 @@ let flushing = false;
 async function flushOutboundQueue(): Promise<void> {
   if (flushing || outboundQueue.length === 0) return;
   flushing = true;
+  const initial = outboundQueue.length;
+  log('info', 'flushing outbound queue', { count: initial });
   try {
-    log('info', 'flushing outbound queue', { count: outboundQueue.length });
-    while (outboundQueue.length > 0) {
-      const item = outboundQueue.shift()!;
-      await sock!.sendMessage(item.jid, { text: item.text });
+    const { sent, failed } = await flushQueue(outboundQueue, (item) =>
+      sock!.sendMessage(item.jid, { text: item.text }).then(() => {}),
+    );
+    log('info', 'outbound queue flushed', {
+      sent: sent.length,
+      failed: failed.length,
+    });
+    for (const f of failed) {
+      log('error', 'outbound send failed', {
+        jid: f.item.jid,
+        err: String(f.err),
+      });
     }
-  } catch (e) {
-    log('error', 'queue flush error', { err: String(e) });
   } finally {
     flushing = false;
   }
