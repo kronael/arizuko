@@ -340,13 +340,7 @@ func verifyTelegramWidget(form url.Values, botToken string) bool {
 }
 
 func authBaseURL(cfg *core.Config) string {
-	if cfg.AuthBaseURL != "" {
-		return strings.TrimRight(cfg.AuthBaseURL, "/")
-	}
-	if cfg.WebHost != "" {
-		return "https://" + cfg.WebHost
-	}
-	return ""
+	return strings.TrimRight(cfg.AuthBaseURL, "/")
 }
 
 func exchangeGitHub(cfg *core.Config, code string) (string, error) {

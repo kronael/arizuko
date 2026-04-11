@@ -89,12 +89,12 @@ If your instance uses a root folder named something other than `root` (e.g.
 
 ### New in arizuko (no kanipi equivalent)
 
-| Var                                         | Purpose                                                                                                                                                                                       |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `API_PORT`                                  | Port for the channel registration HTTP API (default 8080). In kanipi this was the web server.                                                                                                 |
-| `CHANNEL_SECRET`                            | Shared secret that channel adapters must send as `Bearer` token to `/v1/channels/register`. No equivalent in kanipi — all channel adapters were in-process.                                   |
-| `AUTH_BASE_URL`                             | Explicit base URL for OAuth redirect URIs. kanipi derived this from `WEB_HOST`. In arizuko `WEB_HOST` still works as a fallback (`https://<WEB_HOST>`), but `AUTH_BASE_URL` takes precedence. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth (`auth/oauth.go`, v1.5.0). Set both to enable the Google login button. No equivalent in kanipi.                                                                                  |
+| Var                                         | Purpose                                                                                                                                                     |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `API_PORT`                                  | Port for the channel registration HTTP API (default 8080). In kanipi this was the web server.                                                               |
+| `CHANNEL_SECRET`                            | Shared secret that channel adapters must send as `Bearer` token to `/v1/channels/register`. No equivalent in kanipi — all channel adapters were in-process. |
+| `AUTH_BASE_URL`                             | Explicit base URL for OAuth redirect URIs (required for OAuth). kanipi derived this from `WEB_HOST`; arizuko requires it explicitly.                        |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth (`auth/oauth.go`, v1.5.0). Set both to enable the Google login button. No equivalent in kanipi.                                                |
 
 ### Removed from arizuko
 
@@ -270,10 +270,9 @@ or be re-created.
 - Google: shipped in both. Callback URL: `/auth/google/callback`.
 - Telegram widget: shipped in arizuko (`POST /auth/telegram`), not in kanipi.
 
-**`AUTH_BASE_URL` vs `WEB_HOST`:** kanipi used `WEB_HOST` to construct
-OAuth redirect URIs. arizuko prefers `AUTH_BASE_URL`; falls back to
-`https://<WEB_HOST>`. If you relied on `WEB_HOST` for OAuth, set
-`AUTH_BASE_URL=https://yourdomain.com` explicitly.
+**`AUTH_BASE_URL` required:** kanipi derived OAuth redirect URIs from
+`WEB_HOST`. arizuko requires `AUTH_BASE_URL=https://yourdomain.com`
+explicitly.
 
 ---
 

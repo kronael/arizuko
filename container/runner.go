@@ -46,23 +46,6 @@ func SanitizeFolder(folder string) string {
 	return strings.Trim(s, "-")
 }
 
-// cleanupLegacyIpcDirs removes file-based IPC subdirs from the pre-015 TS era.
-// These directories are vestigial and can mislead agents or scripts into writing
-// to a dead queue. Safe to call on every container spawn.
-func cleanupLegacyIpcDirs(ipcDir string) {
-	legacy := []string{"requests", "replies", "messages", "tasks"}
-	for _, name := range legacy {
-		p := filepath.Join(ipcDir, name)
-		if _, err := os.Stat(p); err == nil {
-			if err := os.RemoveAll(p); err != nil {
-				slog.Warn("cleanup legacy ipc dir", "path", p, "err", err)
-			} else {
-				slog.Info("removed legacy ipc dir", "path", p)
-			}
-		}
-	}
-}
-
 type Input struct {
 	Prompt    string            `json:"prompt"`
 	SessionID string            `json:"sessionId,omitempty"`
@@ -520,7 +503,6 @@ func buildMounts(
 
 	ipcDir, err := folders.IpcPath(in.Folder)
 	if err == nil {
-		cleanupLegacyIpcDirs(ipcDir)
 		os.MkdirAll(groupfolder.IpcInputDir(ipcDir), 0o755)
 		os.MkdirAll(groupfolder.IpcSidecars(ipcDir), 0o755)
 		m = append(m, volumeMount{
@@ -799,10 +781,8 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 	if _, err := os.Stat(jsonDst); os.IsNotExist(err) {
 		userID := fmt.Sprintf("%x", sha256.Sum256([]byte("arizuko:"+folder)))
 		data, _ := json.MarshalIndent(map[string]any{
-			"firstStartTime":            time.Now().Format(time.RFC3339),
-			"userID":                    userID,
-			"thinkingMigrationComplete": true,
-			"sonnet45MigrationComplete": true,
+			"firstStartTime": time.Now().Format(time.RFC3339),
+			"userID":         userID,
 		}, "", "  ")
 		os.WriteFile(jsonDst, append(data, '\n'), 0o644)
 	}

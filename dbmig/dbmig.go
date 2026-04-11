@@ -59,9 +59,6 @@ func Run(db *sql.DB, fsys embed.FS, dir, service string) error {
 				continue
 			}
 			if _, err := tx.Exec(stmt); err != nil {
-				if strings.Contains(err.Error(), "duplicate column name") {
-					continue
-				}
 				return fmt.Errorf("%s: %w", f, err)
 			}
 		}

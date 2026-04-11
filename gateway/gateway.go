@@ -221,10 +221,6 @@ func (g *Gateway) pollOnce() {
 	since := g.lastTimestamp
 	g.mu.RUnlock()
 
-	// Fetch all new inbound messages since the last poll. The old code
-	// filtered by a precomputed set of registered JIDs; with the match-
-	// expression routing model, JID-to-folder resolution happens per
-	// message via groupForJid (routes table), so no pre-filter is needed.
 	msgs, hi, err := g.store.NewMessages(nil, since, g.cfg.Name)
 	if err != nil {
 		slog.Error("error in message loop", "err", err)
@@ -607,9 +603,6 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 	}, &hadOutput
 }
 
-// sessionIdleExpiry forces a fresh Claude session when a chat has been
-// silent this long. Resuming week-old sessions blends historical state
-// into current turns (MacroHype-class hallucination).
 const sessionIdleExpiry = 2 * 24 * time.Hour
 
 func (g *Gateway) sessionIdleExpired(chatJid string) bool {

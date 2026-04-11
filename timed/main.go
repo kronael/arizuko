@@ -223,8 +223,11 @@ func cleanupSpawns(db *sql.DB, groupsDir string) {
 		var ttlDays int
 		rows.Scan(&folder, &ttlDays)
 		var lastMsg string
-		db.QueryRow(`SELECT MAX(timestamp) FROM messages WHERE chat_jid IN (
-			SELECT jid FROM routes WHERE target = ? AND type = 'default')`, folder).Scan(&lastMsg)
+		db.QueryRow(`SELECT MAX(m.timestamp) FROM messages m
+			JOIN routes r ON r.target = ?
+			WHERE r.match = 'room=' || substr(m.chat_jid, instr(m.chat_jid, ':')+1)
+			   OR r.match LIKE 'room=' || substr(m.chat_jid, instr(m.chat_jid, ':')+1) || ' %'`,
+			folder).Scan(&lastMsg)
 		if lastMsg == "" {
 			continue
 		}

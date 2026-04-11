@@ -606,12 +606,6 @@ func TestSeedSkillsClaudeJSON(t *testing.T) {
 	if _, ok := m["firstStartTime"]; !ok {
 		t.Error("firstStartTime missing")
 	}
-	if m["thinkingMigrationComplete"] != true {
-		t.Errorf("thinkingMigrationComplete = %v", m["thinkingMigrationComplete"])
-	}
-	if m["sonnet45MigrationComplete"] != true {
-		t.Errorf("sonnet45MigrationComplete = %v", m["sonnet45MigrationComplete"])
-	}
 }
 
 func TestSeedSkillsClaudeJSON_Idempotent(t *testing.T) {
