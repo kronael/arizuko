@@ -61,6 +61,33 @@ func TestTypingRefresher_MaxTTLCap(t *testing.T) {
 	}
 }
 
+func TestTypingRefresher_MaxTTLCallsClear(t *testing.T) {
+	var clears int32
+	r := NewTypingRefresher(10*time.Millisecond, 50*time.Millisecond,
+		func(string) {},
+		func(string) { atomic.AddInt32(&clears, 1) },
+	)
+
+	r.Set("jid1", true)
+	time.Sleep(200 * time.Millisecond) // well past maxTTL
+
+	if got := atomic.LoadInt32(&clears); got != 1 {
+		t.Errorf("clears after maxTTL = %d, want 1", got)
+	}
+}
+
+func TestTypingRefresher_NilClearSafe(t *testing.T) {
+	r := NewTypingRefresher(10*time.Millisecond, 50*time.Millisecond,
+		func(string) {},
+		nil,
+	)
+	// Should not panic with nil clear on any path.
+	r.Set("jid1", true)
+	time.Sleep(100 * time.Millisecond) // maxTTL fires
+	r.Set("jid2", true)
+	r.Set("jid2", false) // explicit off
+}
+
 func TestTypingRefresher_PerJIDIsolation(t *testing.T) {
 	var mu sync.Mutex
 	sends := map[string]int{}

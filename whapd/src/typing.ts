@@ -52,6 +52,7 @@ export class TypingRefresher {
         clearInterval(cur.interval);
         this.active.delete(jid);
       }
+      if (this.clear) this.clear(jid).catch(() => {});
     }, this.maxTtlMs);
     this.active.set(jid, { interval, deadline });
   }

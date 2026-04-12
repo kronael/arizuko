@@ -89,7 +89,83 @@ func TestHTTPChannelSendQueuesOnError(t *testing.T) {
 	}
 }
 
-func TestHTTPChannelTypingFireAndForget(t *testing.T) {
+func TestHTTPChannelTypingPostsBody(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/typing" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer secret" {
+			t.Errorf("auth = %q", r.Header.Get("Authorization"))
+		}
+		json.NewDecoder(r.Body).Decode(&got)
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}))
+	defer srv.Close()
+
+	e := &Entry{
+		Name:         "tg",
+		URL:          srv.URL,
+		JIDPrefixes:  []string{"tg:"},
+		Capabilities: map[string]bool{"typing": true},
+	}
+	ch := NewHTTPChannel(e, "secret")
+
+	if err := ch.Typing("tg:123", true); err != nil {
+		t.Fatal(err)
+	}
+	if got["chat_jid"] != "tg:123" || got["on"] != true {
+		t.Errorf("typing body = %v", got)
+	}
+
+	// Also test on=false
+	if err := ch.Typing("tg:123", false); err != nil {
+		t.Fatal(err)
+	}
+	if got["chat_jid"] != "tg:123" || got["on"] != false {
+		t.Errorf("typing off body = %v", got)
+	}
+}
+
+func TestHTTPChannelTypingNoCapSilent(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}))
+	defer srv.Close()
+
+	e := &Entry{
+		Name:         "tg",
+		URL:          srv.URL,
+		JIDPrefixes:  []string{"tg:"},
+		Capabilities: map[string]bool{"send_text": true}, // no "typing"
+	}
+	ch := NewHTTPChannel(e, "secret")
+
+	if err := ch.Typing("tg:123", true); err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Error("typing should not POST when cap missing")
+	}
+}
+
+func TestHTTPChannelTypingNilCapsSilent(t *testing.T) {
+	e := &Entry{
+		Name:        "tg",
+		URL:         "http://should-not-be-called",
+		JIDPrefixes: []string{"tg:"},
+		// Capabilities is nil (adapter registered with nil caps)
+	}
+	ch := NewHTTPChannel(e, "secret")
+
+	if err := ch.Typing("tg:123", true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHTTPChannelTypingSwallowsErrors(t *testing.T) {
 	e := &Entry{
 		Name:         "tg",
 		URL:          "http://127.0.0.1:1", // unreachable
@@ -98,9 +174,28 @@ func TestHTTPChannelTypingFireAndForget(t *testing.T) {
 	}
 	ch := NewHTTPChannel(e, "secret")
 
-	// typing is fire-and-forget — no error returned
+	// fire-and-forget — no error returned even on connection failure
 	if err := ch.Typing("tg:123", true); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHTTPChannelTypingSwallowsNon2xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	e := &Entry{
+		Name:         "tg",
+		URL:          srv.URL,
+		JIDPrefixes:  []string{"tg:"},
+		Capabilities: map[string]bool{"typing": true},
+	}
+	ch := NewHTTPChannel(e, "secret")
+
+	if err := ch.Typing("tg:123", true); err != nil {
+		t.Fatal("typing should swallow non-2xx, got", err)
 	}
 }
 

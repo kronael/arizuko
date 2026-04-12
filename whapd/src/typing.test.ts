@@ -55,6 +55,23 @@ describe('TypingRefresher', () => {
     expect(sends).toBe(afterTtl); // really stopped
   });
 
+  it('maxTtl fires clear callback', async () => {
+    let clears = 0;
+    const r = new TypingRefresher(
+      10,
+      50,
+      async () => {},
+      async () => {
+        clears++;
+      },
+    );
+
+    r.set('jid1', true);
+    await sleep(200); // well past maxTtl
+    expect(clears).toBe(1);
+    expect(r.activeCount()).toBe(0);
+  });
+
   it('per-jid isolation: set(false) on A does not stop B', async () => {
     const sends: Record<string, number> = {};
     const r = new TypingRefresher(

@@ -190,7 +190,7 @@ func TestHandlerSendFileError(t *testing.T) {
 	}
 }
 
-func TestHandlerTyping(t *testing.T) {
+func TestHandlerTypingOn(t *testing.T) {
 	bot := &mockBot{}
 	h := mux(bot)
 	body, _ := json.Marshal(map[string]any{"chat_jid": "test:1", "on": true})
@@ -204,6 +204,48 @@ func TestHandlerTyping(t *testing.T) {
 	}
 	if bot.typJID != "test:1" || !bot.typOn {
 		t.Errorf("typing = %q %v", bot.typJID, bot.typOn)
+	}
+}
+
+func TestHandlerTypingOff(t *testing.T) {
+	bot := &mockBot{}
+	h := mux(bot)
+	body, _ := json.Marshal(map[string]any{"chat_jid": "test:1", "on": false})
+	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if bot.typJID != "test:1" || bot.typOn {
+		t.Errorf("typing off = %q %v", bot.typJID, bot.typOn)
+	}
+}
+
+func TestHandlerTypingMissingJID(t *testing.T) {
+	bot := &mockBot{}
+	h := mux(bot)
+	body, _ := json.Marshal(map[string]any{"on": true})
+	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandlerTypingInvalidJSON(t *testing.T) {
+	bot := &mockBot{}
+	h := mux(bot)
+	req := httptest.NewRequest("POST", "/typing", bytes.NewReader([]byte("not json")))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }
 

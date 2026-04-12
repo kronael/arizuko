@@ -69,6 +69,9 @@ func (r *TypingRefresher) loop(jid string, stop chan struct{}) {
 				delete(r.active, jid)
 			}
 			r.mu.Unlock()
+			if r.clear != nil {
+				r.clear(jid)
+			}
 			return
 		case <-t.C:
 			// Double-check stop to avoid a race where the ticker and the
