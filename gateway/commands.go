@@ -73,6 +73,8 @@ func lookupCommand(raw string) *gatewayCommand {
 	}
 	head, _, _ := strings.Cut(t, " ")
 	head = strings.ToLower(head)
+	// Telegram appends @botname to commands (e.g. /new@rhias_fiu_bot)
+	head, _, _ = strings.Cut(head, "@")
 	for i := range gatewayCommands {
 		if gatewayCommands[i].name == head {
 			return &gatewayCommands[i]

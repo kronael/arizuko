@@ -115,6 +115,9 @@ func TestIsGatewayCommand(t *testing.T) {
 		"[Doc: f.pdf] /stop",
 		"@root /ping",
 		"[x] @y /new some arg",
+		"/new@mybot",
+		"/stop@some_bot_name",
+		"/ping@BOT",
 	}
 	for _, s := range yes {
 		if !isGatewayCommand(s) {
