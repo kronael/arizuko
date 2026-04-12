@@ -1,6 +1,8 @@
 ---
 name: sql
-description: SQL queries and schemas. JOIN USING, column aliases without AS, migrations, schema changes, database design.
+description: >
+  Write SQL queries, design schemas, or create database
+  migrations. Use when working with tables, joins, or DDL.
 ---
 
 # SQL

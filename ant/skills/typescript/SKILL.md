@@ -1,6 +1,8 @@
 ---
 name: typescript
-description: TypeScript/Node.js. .ts/.tsx files, package.json, Next.js, React, Bun, Tailwind, class-validator, Playwright, arrow functions.
+description: >
+  Write or modify TypeScript and Node.js code. Use when working
+  with .ts/.tsx files, React, Next.js, Bun, or Playwright.
 ---
 
 # TypeScript Style

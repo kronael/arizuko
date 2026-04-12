@@ -1,6 +1,8 @@
 ---
 name: testing
-description: Testing patterns. Use when writing tests, setting up test infrastructure, testcontainers.
+description: >
+  Write tests or set up test infrastructure. Covers unit, e2e,
+  and smoke tests with testcontainers and fixture patterns.
 ---
 
 # Testing

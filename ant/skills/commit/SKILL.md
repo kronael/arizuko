@@ -1,6 +1,8 @@
 ---
 name: commit
-description: Git commits. git status, git diff, git add, staging files, commit messages, [section] format.
+description: >
+  Stage and commit changes to git with proper [section] message
+  format. Use when asked to commit or after completing work.
 user-invocable: true
 ---
 

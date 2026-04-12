@@ -1,6 +1,8 @@
 ---
 name: cli
-description: CLI tools. argparse, click, clap, --help, exit codes, signal handling, SIGTERM, SIGINT, config precedence, interactive prompts.
+description: >
+  Build command-line tools with proper argument parsing, help
+  text, exit codes, signal handling, and config precedence.
 ---
 
 # CLI Style

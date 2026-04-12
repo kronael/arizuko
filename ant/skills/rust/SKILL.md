@@ -1,6 +1,8 @@
 ---
 name: rust
-description: Rust development. .rs files, Cargo.toml, tokio, DashMap, tracing, cargo clippy, core_affinity, testcontainers, enum states.
+description: >
+  Write or modify Rust code. Use when working with .rs files,
+  Cargo.toml, async tokio, concurrency, or Rust testing.
 ---
 
 # Rust

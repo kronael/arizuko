@@ -1,6 +1,8 @@
 ---
 name: service
-description: REST APIs and web services. /health, /ready, versioned paths (/v1/), caching, validation before persistence, microservices.
+description: >
+  Design or build HTTP APIs and web services with health
+  checks, versioned routes, caching, and input validation.
 ---
 
 # Service/API

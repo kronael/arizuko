@@ -1,6 +1,8 @@
 ---
 name: trader
-description: Trading bots. State machines, paper trading, WebSocket feeds, order management, exchange APIs, position tracking, Google Sheets config.
+description: >
+  Build or modify trading bots with state machines, order
+  management, exchange APIs, WebSocket feeds, and paper mode.
 ---
 
 # Trader

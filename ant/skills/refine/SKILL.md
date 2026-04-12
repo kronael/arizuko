@@ -1,6 +1,8 @@
 ---
 name: refine
-description: Code refinement and finalization. Orchestrates improve + readme agents, validates, tests, commits [refined] changes, polishes code.
+description: >
+  Simplify and clean up code after a feature lands. Removes dead
+  code, collapses verbosity, runs tests, and commits [refined].
 user-invocable: true
 ---
 

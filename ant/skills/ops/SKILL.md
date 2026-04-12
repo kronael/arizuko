@@ -1,6 +1,8 @@
 ---
 name: ops
-description: DevOps and deployment. Dockerfile, Docker multi-stage, Prometheus, RUST_LOG, systemd, PID files, env.toml, GitHub Actions, monitoring, Ansible.
+description: >
+  Write Dockerfiles, CI pipelines, Ansible playbooks, or
+  configure monitoring, logging, and deployment infrastructure.
 ---
 
 # Ops

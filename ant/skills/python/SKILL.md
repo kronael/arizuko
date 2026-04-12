@@ -1,6 +1,8 @@
 ---
 name: python
-description: Python development. .py files, pyproject.toml, pytest, aiohttp, FastAPI, asyncpg, dataclass, async/await, type annotations.
+description: >
+  Write or modify Python code. Use when working with .py files,
+  async/await, FastAPI, pytest, or Python packaging.
 ---
 
 # Python
