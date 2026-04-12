@@ -17,6 +17,31 @@ _(empty)_
   `source=''` on welcome insert, `onbod/main_test.go:191` asserts
   it. GREEN.
 
+## Products, templates, and skill mixins
+
+Current template/skill system is flat file layering — no first-class
+"product" or "mixin" abstraction. Issues:
+
+- **No product concept**: Can't define "a finance bot" as a bundle of
+  SOUL.md + skills + output-style + CLAUDE.md sections. Template overlays
+  exist (`/migrate` + TEMPLATES file) but are manual, root-only, and
+  undocumented.
+- **CLAUDE.md is one-shot**: Seeded once from `ant/CLAUDE.md`, then
+  diverges. No merge-on-update path without running `/migrate`.
+- **Skill re-seeding is all-or-nothing**: `seedSkills()` copies the full
+  `ant/skills/` tree every spawn. No per-group skill selection — groups
+  get all 38 skills even if they only need 5.
+- **No mixin composition**: Template overlays overwrite SOUL.md, additive-
+  merge CLAUDE.md sections. No conflict resolution, no ordering, no
+  dependency between mixins.
+- **No product registry**: Operators can't browse/select products. Must
+  hand-edit TEMPLATES file and know the template directory names.
+
+Desired direction: a "product" is a named bundle (SOUL + skills + CLAUDE
+sections + output-style + config). Groups select one product at creation.
+Mixins are optional add-ons that compose on top. Both declared in TOML or
+similar, resolved at seed time by `container/runner.go`.
+
 ## Next (small wins)
 
 - **Daemon test gaps** — `dashd` and `proxyd` have partial coverage
