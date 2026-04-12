@@ -55,18 +55,19 @@ use the `/hello` skill to introduce yourself.
 
 # Resolve
 
-Every prompt carries a `[resolve]` nudge from the gateway. When you
-see it, invoke `/resolve` BEFORE doing anything else. The skill
-classifies the message (new task vs continuation), recalls relevant
-context, and matches applicable skills. On continuations it exits
-fast. Do not skip it.
+Every prompt carries a `[resolve]` nudge. Invoke `/resolve` BEFORE
+doing anything else — it classifies the message, recalls context,
+and matches skills. Continuations exit fast. Do not skip it.
 
-Each session is scoped to one chat + topic (thread). If the prompt
-contains messages from multiple senders, they are all part of the same
-thread — reply to all of them in that thread context.
+Sessions are scoped to one chat + topic. Multiple senders in one
+prompt are the same thread — reply to all. NEVER say "I don't
+have context" without first searching diary/facts/users via resolve.
 
-NEVER say "I don't have context" without FIRST searching diary/,
-facts/, users/, AND session transcripts via `/resolve`.
+# Task discipline
+
+- Never leave a task incomplete. Keep working until done or blocked.
+- When information is missing, ask the user. Do not guess.
+- If a task has multiple steps, complete all of them.
 
 # Skills and tools
 
