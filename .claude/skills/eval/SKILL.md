@@ -12,8 +12,9 @@ Run after deploys, on suspicion of a stuck agent, or periodically.
 
 ## Instances
 
-Located at `/srv/data/arizuko_<instance>/`. Known: `sloth`, `krons`.
-Discover all: `ls /srv/data/ | grep arizuko_`.
+Discover all: `sudo ls /srv/data/ | grep arizuko_`.
+Data dir: `/srv/data/arizuko_<instance>/`.
+Groups: `sudo ls /srv/data/arizuko_<instance>/groups/`.
 
 ---
 
@@ -215,7 +216,125 @@ ls /home/onvos/app/arizuko/store/migrations/ | sort | tail -3
 
 ---
 
-### 11. Errors summary (last hour)
+### 11. Episodic memory (diary)
+
+```bash
+for g in $(sudo ls /srv/data/arizuko_${INSTANCE}/groups/); do
+  d=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/diary/ 2>/dev/null | wc -l)
+  latest=$(sudo ls -t /srv/data/arizuko_${INSTANCE}/groups/$g/diary/ 2>/dev/null | head -1)
+  entries=0
+  if [ -n "$latest" ]; then
+    entries=$(sudo grep -c "^## " /srv/data/arizuko_${INSTANCE}/groups/$g/diary/$latest 2>/dev/null)
+  fi
+  echo "$g: files=$d latest=$latest entries_in_latest=$entries"
+done
+```
+
+Per group, check:
+- **Has diary files** — active groups should have recent entries (within 7 days)
+- **Summary maintained** — latest file has YAML `summary:` with current bullet points
+- **Entry quality** — `## HH:MM` entries exist, concise, capture decisions not routine ops
+
+```bash
+# Read latest diary summary for a group
+FOLDER=main
+LATEST=$(sudo ls -t /srv/data/arizuko_${INSTANCE}/groups/${FOLDER}/diary/ 2>/dev/null | head -1)
+sudo head -15 /srv/data/arizuko_${INSTANCE}/groups/${FOLDER}/diary/${LATEST}
+```
+
+**Pass**: active groups have diary entries from last 7 days with maintained summaries.
+**Fail**: active group has no diary, or latest entry is weeks old, or summary is stale/missing.
+
+---
+
+### 12. Knowledge memory (facts)
+
+```bash
+CUTOFF=$(date -d "14 days ago" +%Y-%m-%dT%H:%M:%S)
+for g in $(sudo ls /srv/data/arizuko_${INSTANCE}/groups/); do
+  total=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/facts/ 2>/dev/null | wc -l)
+  stale=0; fresh=0
+  for f in $(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/facts/ 2>/dev/null); do
+    va=$(sudo grep -m1 'verified_at:' /srv/data/arizuko_${INSTANCE}/groups/$g/facts/$f 2>/dev/null \
+      | sed 's/.*verified_at:[[:space:]]*//' | tr -d '"')
+    if [ -n "$va" ] && [[ "$va" < "$CUTOFF" ]]; then stale=$((stale+1)); else fresh=$((fresh+1)); fi
+  done
+  [ "$total" -gt 0 ] && echo "$g: total=$total fresh=$fresh stale=$stale"
+done
+```
+
+Per fact file, check:
+- **Has frontmatter** — `path`, `category`, `topic`, `verified_at`, `header`
+- **Staleness** — `verified_at` older than 14 days = stale; should be refreshed via `/facts`
+- **No hand-written facts** — facts must come from `/facts` skill (researched + verified)
+
+```bash
+# Sample a fact file
+sudo head -20 /srv/data/arizuko_${INSTANCE}/groups/${FOLDER}/facts/$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/${FOLDER}/facts/ 2>/dev/null | head -1)
+```
+
+**Pass**: facts have proper frontmatter, `verified_at` within 14 days, content is researched.
+**Fail**: missing frontmatter, all stale, or hand-written content without verification.
+
+---
+
+### 13. User profiles
+
+```bash
+for g in $(sudo ls /srv/data/arizuko_${INSTANCE}/groups/); do
+  u=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/users/ 2>/dev/null | wc -l)
+  [ "$u" -gt 0 ] && echo "$g: $u user profiles"
+done
+```
+
+Per user file, check:
+- **Has frontmatter** — `name`, `first_seen`, `summary`
+- **Reflects real interactions** — `## Recent` section with dated entries
+- **Not stale** — recent entries if user is still active
+
+```bash
+# Read a user profile
+sudo cat /srv/data/arizuko_${INSTANCE}/groups/${FOLDER}/users/$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/${FOLDER}/users/ 2>/dev/null | head -1)
+```
+
+**Pass**: active groups with multiple users have profile files; content matches interactions.
+**Fail**: zero user profiles in a group with regular multi-user traffic.
+
+---
+
+### 14. Conversation archives
+
+```bash
+for g in $(sudo ls /srv/data/arizuko_${INSTANCE}/groups/); do
+  c=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/conversations/ 2>/dev/null | wc -l)
+  [ "$c" -gt 0 ] && echo "$g: $c archived conversations"
+done
+```
+
+Archives are written by the PreCompact hook when context window fills.
+**Pass**: groups with long sessions have conversation archives.
+**Fail**: active group with many sessions but zero archives → PreCompact hook may be broken.
+
+---
+
+### 15. Memory coverage (cross-group)
+
+```bash
+for g in $(sudo ls /srv/data/arizuko_${INSTANCE}/groups/); do
+  d=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/diary/ 2>/dev/null | wc -l)
+  f=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/facts/ 2>/dev/null | wc -l)
+  u=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/users/ 2>/dev/null | wc -l)
+  c=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/conversations/ 2>/dev/null | wc -l)
+  echo "$g: diary=$d facts=$f users=$u convos=$c"
+done
+```
+
+**Pass**: non-infrastructure groups (not `main`, `root`, `share`) have at least diary entries.
+**Fail**: active group with zero memory stores → agent never invoked memory skills.
+
+---
+
+### 16. Errors summary (last hour)
 
 ```bash
 sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
@@ -247,6 +366,11 @@ Checked: <what was checked>
 | mcp sockets | pass/fail | ... |
 | auth/proxyd | pass/fail | ... |
 | schema version | pass/fail | ... |
+| diary (episodic) | pass/fail | ... |
+| facts (knowledge) | pass/fail | ... |
+| user profiles | pass/fail | ... |
+| conversation archives | pass/fail | ... |
+| memory coverage | pass/fail | ... |
 | error log | pass/fail | ... |
 
 **Summary**: <one line>
