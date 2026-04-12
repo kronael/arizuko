@@ -714,6 +714,22 @@ func TestSoulAndSystemMdLoading(t *testing.T) {
 	}
 }
 
+func TestPrepareInputResolveNudge(t *testing.T) {
+	d := t.TempDir()
+	cfg := &core.Config{HostAppDir: t.TempDir()}
+	os.MkdirAll(filepath.Join(cfg.HostAppDir, "ant", "skills", "self"), 0o755)
+
+	in := Input{Prompt: "hello world"}
+	out := prepareInput(cfg, in, d)
+
+	if !strings.Contains(out.Prompt, "[resolve]") {
+		t.Error("resolve nudge missing from prepared prompt")
+	}
+	if !strings.HasSuffix(out.Prompt, "hello world") {
+		t.Errorf("user prompt not at end: %q", out.Prompt[len(out.Prompt)-40:])
+	}
+}
+
 func TestSoulAndSystemMdMissing(t *testing.T) {
 	d := t.TempDir()
 

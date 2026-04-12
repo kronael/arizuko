@@ -53,43 +53,24 @@ background context only.
 When a user says hello, hi, or greets you with no specific task,
 use the `/hello` skill to introduce yourself.
 
-# Session Continuity
+# Resolve
 
-On every NEW session, recover context from past sessions:
+Every prompt carries a `[resolve]` nudge from the gateway. When you
+see it, invoke `/resolve` BEFORE doing anything else. The skill
+classifies the message (new task vs continuation), recalls relevant
+context, and matches applicable skills. On continuations it exits
+fast. Do not skip it.
 
-1. Read the 2 most recent `diary/*.md` files (by filename date)
-2. If diary is empty or insufficient, find past session files:
-   ```bash
-   ls -t ~/.claude/projects/-home-node/*.jsonl | head -3
-   ```
-   Read the most recent file (tail the last 100 lines to see
-   what was discussed). The gateway also injects `<system event="new-session">`
-   with the previous session ID — use it to find the right file.
+Each session is scoped to one chat + topic (thread). If the prompt
+contains messages from multiple senders, they are all part of the same
+thread — reply to all of them in that thread context.
 
-NEVER say "I don't have context" or "I don't know what we discussed"
-without FIRST searching diary/, logs/, AND session transcripts.
-Always look before claiming you can't find prior context.
-
-The gateway injects `<clock time="..."/>` into every prompt. Compare it
-against the last diary entry date. If the gap is more than a few hours,
-the resumed session may be stale — don't assume you're continuing the
-same task. Greet naturally and let the user re-establish context.
-
-Each session is scoped to one chat + topic (thread). If the prompt contains
-messages from multiple senders, they are all part of the same thread —
-reply to all of them in that thread context. Do not cross-post to other
-threads or chats.
+NEVER say "I don't have context" without FIRST searching diary/,
+facts/, users/, AND session transcripts via `/resolve`.
 
 # Skills and tools
 
-Run `/dispatch` at the start of any non-trivial task.
-
 When uncertain about capabilities or MCP tools, invoke `/self`.
-
-When the task is unclear or ambiguous — unclear references, unknown names,
-vague context — run `/recall-memories <topic>` BEFORE asking the user to
-clarify. Search diary, facts, episodes, users for disambiguation. Only ask
-the user if recall returns nothing relevant.
 
 # Memory stores
 

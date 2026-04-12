@@ -458,6 +458,10 @@ func prepareInput(cfg *core.Config, in Input, groupDir string) Input {
 	in.Soul = readOptional(filepath.Join(groupDir, "SOUL.md"))
 	in.SystemMd = readOptional(filepath.Join(groupDir, "SYSTEM.md"))
 
+	in.Annotations = append(in.Annotations,
+		"[resolve] Before responding, invoke /resolve to classify "+
+			"this message, recall context, and match skills.")
+
 	if len(in.Annotations) > 0 {
 		in.Prompt = strings.Join(in.Annotations, "\n") + "\n\n" + in.Prompt
 	}
