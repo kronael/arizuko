@@ -127,7 +127,7 @@ func TestHTTPChannelTypingPostsBody(t *testing.T) {
 	}
 }
 
-func TestHTTPChannelTypingNoCapSilent(t *testing.T) {
+func TestHTTPChannelTypingNoCap(t *testing.T) {
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
@@ -135,67 +135,44 @@ func TestHTTPChannelTypingNoCapSilent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	e := &Entry{
-		Name:         "tg",
-		URL:          srv.URL,
-		JIDPrefixes:  []string{"tg:"},
-		Capabilities: map[string]bool{"send_text": true}, // no "typing"
-	}
-	ch := NewHTTPChannel(e, "secret")
-
-	if err := ch.Typing("tg:123", true); err != nil {
-		t.Fatal(err)
-	}
-	if called {
-		t.Error("typing should not POST when cap missing")
-	}
-}
-
-func TestHTTPChannelTypingNilCapsSilent(t *testing.T) {
-	e := &Entry{
-		Name:        "tg",
-		URL:         "http://should-not-be-called",
-		JIDPrefixes: []string{"tg:"},
-		// Capabilities is nil (adapter registered with nil caps)
-	}
-	ch := NewHTTPChannel(e, "secret")
-
-	if err := ch.Typing("tg:123", true); err != nil {
-		t.Fatal(err)
+	for _, caps := range []map[string]bool{{"send_text": true}, nil} {
+		e := &Entry{
+			Name: "tg", URL: srv.URL, JIDPrefixes: []string{"tg:"},
+			Capabilities: caps,
+		}
+		ch := NewHTTPChannel(e, "secret")
+		if err := ch.Typing("tg:123", true); err != nil {
+			t.Fatal(err)
+		}
+		if called {
+			t.Error("typing should not POST when cap missing")
+		}
 	}
 }
 
-func TestHTTPChannelTypingSwallowsErrors(t *testing.T) {
-	e := &Entry{
-		Name:         "tg",
-		URL:          "http://127.0.0.1:1", // unreachable
-		JIDPrefixes:  []string{"tg:"},
-		Capabilities: map[string]bool{"typing": true},
-	}
-	ch := NewHTTPChannel(e, "secret")
-
-	// fire-and-forget — no error returned even on connection failure
-	if err := ch.Typing("tg:123", true); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestHTTPChannelTypingSwallowsNon2xx(t *testing.T) {
+func TestHTTPChannelTypingSwallowsFailures(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(500)
 	}))
 	defer srv.Close()
 
-	e := &Entry{
-		Name:         "tg",
-		URL:          srv.URL,
-		JIDPrefixes:  []string{"tg:"},
-		Capabilities: map[string]bool{"typing": true},
-	}
-	ch := NewHTTPChannel(e, "secret")
-
-	if err := ch.Typing("tg:123", true); err != nil {
-		t.Fatal("typing should swallow non-2xx, got", err)
+	for _, tt := range []struct {
+		name string
+		url  string
+	}{
+		{"unreachable", "http://127.0.0.1:1"},
+		{"non_2xx", srv.URL},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &Entry{
+				Name: "tg", URL: tt.url, JIDPrefixes: []string{"tg:"},
+				Capabilities: map[string]bool{"typing": true},
+			}
+			ch := NewHTTPChannel(e, "secret")
+			if err := ch.Typing("tg:123", true); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

@@ -190,50 +190,33 @@ func TestHandlerSendFileError(t *testing.T) {
 	}
 }
 
-func TestHandlerTypingOn(t *testing.T) {
-	bot := &mockBot{}
-	h := mux(bot)
-	body, _ := json.Marshal(map[string]any{"chat_jid": "test:1", "on": true})
-	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer secret")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != 200 {
-		t.Fatalf("status = %d", w.Code)
-	}
-	if bot.typJID != "test:1" || !bot.typOn {
-		t.Errorf("typing = %q %v", bot.typJID, bot.typOn)
-	}
-}
-
-func TestHandlerTypingOff(t *testing.T) {
-	bot := &mockBot{}
-	h := mux(bot)
-	body, _ := json.Marshal(map[string]any{"chat_jid": "test:1", "on": false})
-	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer secret")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != 200 {
-		t.Fatalf("status = %d", w.Code)
-	}
-	if bot.typJID != "test:1" || bot.typOn {
-		t.Errorf("typing off = %q %v", bot.typJID, bot.typOn)
-	}
-}
-
-func TestHandlerTypingMissingJID(t *testing.T) {
-	bot := &mockBot{}
-	h := mux(bot)
-	body, _ := json.Marshal(map[string]any{"on": true})
-	req := httptest.NewRequest("POST", "/typing", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer secret")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	if w.Code != 400 {
-		t.Fatalf("status = %d, want 400", w.Code)
+func TestHandlerTyping(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		body any
+		code int
+		jid  string
+		on   bool
+	}{
+		{"on", map[string]any{"chat_jid": "test:1", "on": true}, 200, "test:1", true},
+		{"off", map[string]any{"chat_jid": "test:1", "on": false}, 200, "test:1", false},
+		{"missing_jid", map[string]any{"on": true}, 400, "", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bot := &mockBot{}
+			h := mux(bot)
+			b, _ := json.Marshal(tt.body)
+			req := httptest.NewRequest("POST", "/typing", bytes.NewReader(b))
+			req.Header.Set("Authorization", "Bearer secret")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != tt.code {
+				t.Fatalf("status = %d, want %d", w.Code, tt.code)
+			}
+			if tt.code == 200 && (bot.typJID != tt.jid || bot.typOn != tt.on) {
+				t.Errorf("typing = %q %v, want %q %v", bot.typJID, bot.typOn, tt.jid, tt.on)
+			}
+		})
 	}
 }
 

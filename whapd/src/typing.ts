@@ -13,23 +13,14 @@ interface Entry {
 }
 
 export class TypingRefresher {
-  private readonly refreshMs: number;
-  private readonly maxTtlMs: number;
-  private readonly send: SendFn;
-  private readonly clear: SendFn | null;
   private readonly active = new Map<string, Entry>();
 
   constructor(
-    refreshMs: number,
-    maxTtlMs: number,
-    send: SendFn,
-    clear: SendFn | null,
-  ) {
-    this.refreshMs = refreshMs;
-    this.maxTtlMs = maxTtlMs;
-    this.send = send;
-    this.clear = clear;
-  }
+    private readonly refreshMs: number,
+    private readonly maxTtlMs: number,
+    private readonly send: SendFn,
+    private readonly clear: SendFn | null,
+  ) {}
 
   set(jid: string, on: boolean): void {
     const existing = this.active.get(jid);
