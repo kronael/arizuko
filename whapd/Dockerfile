@@ -1,9 +1,9 @@
 FROM node:22-alpine AS build
 WORKDIR /src
-COPY package.json package-lock.json* ./
+COPY whapd/package.json whapd/package-lock.json* ./
 RUN npm install
-COPY tsconfig.json ./
-COPY src/ src/
+COPY whapd/tsconfig.json ./
+COPY whapd/src/ src/
 RUN npx tsc
 
 FROM node:22-alpine
