@@ -375,6 +375,7 @@ func (g *Gateway) pollOnce() {
 func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	group, ok := g.groupForJid(chatJid)
 	if !ok {
+		g.store.MarkChatErrored(chatJid)
 		return false, fmt.Errorf("group not registered: %s", chatJid)
 	}
 
