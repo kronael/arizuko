@@ -18,13 +18,24 @@ a `PostToolUse` hook (`createIpcDrainHook`) drains the IPC input dir
 between tool calls and returns queued messages as
 `hookSpecificOutput.additionalContext`, appended to the tool result
 Claude is about to read — achieving true mid-loop injection inside the
-same turn. For text-only turns (no tool calls fire the hook),
-`pollIpcDuringQuery` falls back to `stream.push(text)` on the
-`MessageStream`, which queues the message as the next user turn rather
-than interrupting the active agentic loop. A `draining` boolean mutex
+same turn. This is the primary and exclusive message-drain path.
+`pollIpcDuringQuery` only checks the `_close` sentinel; it no longer
+drains user messages. For text-only turns (no tool calls fire the hook),
+steered messages are picked up at the next query start via
+`checkIpcMessage()`, which runs between queries in the main loop. A
+`draining` boolean flag (single-threaded JS guard, not an OS mutex)
 shared between the hook and the poll timer prevents double-draining the
-same files. Two additional SDK hooks handle transcript archiving
-(PreCompact) and bash secret scrubbing (PreToolUse/Bash).
+same files.
+
+Gateway-side steering uses `SendMessages(jid, texts)` (batch API in
+`queue.go`), which writes one IPC file per message and signals the
+container once. On steer, the gateway calls `recordSteeredTs` (not
+`advanceAgentCursor`) — the cursor advances only on container
+completion via `advanceAgentCursor`, which merges
+`max(batch timestamp, steered timestamp)` into a single cursor write.
+
+Two additional SDK hooks handle transcript archiving (PreCompact) and
+bash secret scrubbing (PreToolUse/Bash).
 
 Alternative backends were evaluated for multi-provider support and reduced
 Anthropic lock-in. Two candidates reached research depth:

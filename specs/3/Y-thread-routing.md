@@ -62,11 +62,13 @@ replies to that instead.
 When `queue.SendMessages` succeeds (steering a follow-up batch into a
 running container), the gateway immediately calls `SetLastReplyID` with
 the steering message's ID. This way the output callback picks up the
-new reply target on its next chunk. The gateway must also advance
-`agentCursor` for the steered batch — otherwise `drainGroupLocked` sees
-those messages as unprocessed after the container exits and respawns
-with the same batch, causing Claude to see them twice via session
-resume.
+new reply target on its next chunk. The cursor does NOT advance on
+steer — only `recordSteeredTs` is called, which records the latest
+steered message timestamp in `steeredTs`. The cursor advances on
+container COMPLETION via `advanceAgentCursor`, which merges
+`max(batch timestamp, steered timestamp)` into a single cursor write
+and deletes the `steeredTs` entry. This ensures `drainGroupLocked`
+does not re-process steered messages after the container exits.
 
 Delivery is not instant: the container-side receives steered text at
 the next delivery boundary, not mid-text. Primary path is a PostToolUse
@@ -82,7 +84,7 @@ for i, m := range chatMsgs {
 }
 if g.queue.SendMessages(chatJid, texts) {
     g.store.SetLastReplyID(chatJid, topic, last.ID)
-    g.advanceAgentCursor(chatJid, chatMsgs)
+    g.recordSteeredTs(chatJid, chatMsgs)
     ...
 }
 

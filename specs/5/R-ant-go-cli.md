@@ -46,11 +46,14 @@ the Claude integration layer change.
    messages as the next user turn (not true mid-turn — see open
    question 1).
 5. Reads subsequent IPC follow-up messages from a fifo/pipe. A
-   `PostToolUse` hook (`createIpcDrainHook`) drains the IPC input dir
-   between tool calls and returns queued messages as
+   `PostToolUse` hook (`createIpcDrainHook`) is the exclusive
+   message-drain path — it drains the IPC input dir between tool calls
+   and returns queued messages as
    `hookSpecificOutput.additionalContext` for mid-loop injection inside
-   the current turn; a `pollIpcDuringQuery` fallback calls
-   `stream.push(text)` for text-only responses where no tool fires.
+   the current turn. `pollIpcDuringQuery` only checks the `_close`
+   sentinel. For text-only responses (no tool calls),
+   `checkIpcMessage()` picks up steered messages at the next query
+   start.
 6. Streams SDK events, forwards text to stdout between
    `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---` markers,
    records the new session id, writes a `ContainerOutput` footer.
@@ -96,14 +99,15 @@ stdin (ContainerInput JSON)
    messages as `hookSpecificOutput.additionalContext`. The SDK appends
    that context to the tool result Claude is about to read, giving us
    mid-loop injection _inside the same turn_ — between tool calls.
-   Limitation: the hook only fires when the current turn runs tools, so
-   text-only responses never trigger it. For that case we fall back to
-   `pollIpcDuringQuery` with `stream.push`, which matches the native
-   "type while working" queue behavior in Claude Code: the message lands
-   as the next user turn. The ant-go port must preserve both paths —
-   wire a `PostToolUse` hook script that drains IPC and prints
-   `hookSpecificOutput.additionalContext`, and fall back to writing a
-   new user turn onto `claude` stdin when no tool call is in flight.
+   This is the primary and exclusive message-drain path.
+   `pollIpcDuringQuery` only checks the `_close` sentinel now — it no
+   longer drains user messages. For text-only responses (no tool calls),
+   steered messages are picked up at the next query start via
+   `checkIpcMessage()`, which runs between queries in the main loop.
+   The ant-go port must preserve both paths — wire a `PostToolUse` hook
+   script that drains IPC and prints
+   `hookSpecificOutput.additionalContext`, and fall back to checking for
+   IPC messages between queries when no tool call fired during the turn.
 2. **Hooks: PreCompact and PreToolUse/Bash.** The CLI supports hooks via
    `~/.claude/settings.json` (`hooks` key). Port the two current hooks to
    standalone scripts:
