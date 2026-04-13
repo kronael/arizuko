@@ -61,6 +61,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	seedBookkeepingTasks(db)
 	slog.Info("scheduler started", "db", dsn, "tz", tz)
 
 	stop := make(chan os.Signal, 1)
@@ -103,6 +104,56 @@ func logRun(db *sql.DB, taskID, status, errText string, durationMs int64) {
 		`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, error)
 		 VALUES (?, ?, ?, ?, ?)`,
 		taskID, time.Now().Format(time.RFC3339), durationMs, status, errVal)
+}
+
+var bookkeepingTasks = [][2]string{
+	{"/compact-memories episodes day", "0 2 * * *"},
+	{"/compact-memories episodes week", "0 3 * * 1"},
+	{"/compact-memories episodes month", "0 4 1 * *"},
+	{"/compact-memories diary week", "0 3 * * 1"},
+	{"/compact-memories diary month", "0 4 1 * *"},
+}
+
+// seedBookkeepingTasks ensures every group has compact-memories tasks.
+// Idempotent via INSERT OR IGNORE on deterministic IDs.
+func seedBookkeepingTasks(db *sql.DB) {
+	rows, err := db.Query("SELECT folder FROM groups")
+	if err != nil {
+		slog.Warn("seed bookkeeping: list groups", "err", err)
+		return
+	}
+	var folders []string
+	for rows.Next() {
+		var f string
+		if rows.Scan(&f) == nil {
+			folders = append(folders, f)
+		}
+	}
+	rows.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	seeded := 0
+	for _, folder := range folders {
+		jid := "local:" + folder
+		for i, t := range bookkeepingTasks {
+			id := fmt.Sprintf("%s-mem-%d", folder, i)
+			r, err := db.Exec(
+				`INSERT OR IGNORE INTO scheduled_tasks
+				 (id,owner,chat_jid,prompt,cron,next_run,status,created_at,context_mode)
+				 VALUES (?,?,?,?,?,?,?,?,?)`,
+				id, folder, jid, t[0], t[1], now, "active", now, "isolated")
+			if err != nil {
+				slog.Warn("seed bookkeeping: insert", "id", id, "err", err)
+				continue
+			}
+			if n, _ := r.RowsAffected(); n > 0 {
+				seeded++
+			}
+		}
+	}
+	if seeded > 0 {
+		slog.Info("seed bookkeeping: created tasks", "count", seeded)
+	}
 }
 
 func fire(db *sql.DB, tz string) {
