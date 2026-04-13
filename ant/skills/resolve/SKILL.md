@@ -36,6 +36,11 @@ grep -ril "<term>" ~/diary/ ~/facts/ ~/users/ 2>/dev/null \
 
 Read matches. Goal: load context BEFORE responding.
 
+**Fact freshness**: when you read a fact, check its `verified_at`
+date. If older than 14 days and the task needs accurate data,
+re-research it now with `/facts <topic>`. Delete facts that are
+wrong or no longer relevant.
+
 ## 3. Dispatch (new task only)
 
 ```bash
