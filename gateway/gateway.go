@@ -221,7 +221,7 @@ func (g *Gateway) checkMigrationVersion() {
 		return
 	}
 	for _, gr := range g.store.AllGroups() {
-		if !groupfolder.IsRoot(gr.Folder) {
+		if !groupfolder.IsRoot(gr.Folder) || gr.Parent != "" {
 			continue
 		}
 		agent := container.MigrationVersion(
@@ -1443,27 +1443,23 @@ func (g *Gateway) delegateViaMessage(
 }
 
 func (g *Gateway) recoverPendingMessages() {
-	// Fetch all recent inbound messages and enqueue a check for each
-	// distinct chat_jid that has a group and is not in an error state.
-	msgs, _, err := g.store.NewMessages(nil, time.Time{}, g.cfg.Name)
-	if err != nil {
-		slog.Error("recovery query failed", "err", err)
-		return
-	}
-	seen := make(map[string]struct{})
-	for _, m := range msgs {
-		if _, dup := seen[m.ChatJID]; dup {
+	// Check every routed chat for pending messages. Using routes (not
+	// a bounded message query) ensures we never miss a chat due to
+	// LIMIT on the messages table.
+	routes := g.store.AllRoutes()
+	for _, r := range routes {
+		jid := strings.TrimPrefix(r.Match, "room=")
+		if _, ok := g.groupForJid(jid); !ok {
 			continue
 		}
-		seen[m.ChatJID] = struct{}{}
-		if _, ok := g.groupForJid(m.ChatJID); !ok {
+		if g.store.IsChatErrored(jid) {
 			continue
 		}
-		if g.store.IsChatErrored(m.ChatJID) {
+		if !g.store.HasPendingMessages(jid, g.cfg.Name) {
 			continue
 		}
-		slog.Info("recovering pending messages", "jid", m.ChatJID)
-		g.queue.EnqueueMessageCheck(m.ChatJID)
+		slog.Info("recovering pending messages", "jid", jid)
+		g.queue.EnqueueMessageCheck(jid)
 	}
 }
 
