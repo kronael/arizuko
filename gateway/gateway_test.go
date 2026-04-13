@@ -1154,26 +1154,6 @@ func TestCheckMigrationVersion_NoVersionFile(t *testing.T) {
 	}
 }
 
-func TestExtractRoom(t *testing.T) {
-	cases := []struct {
-		match, want string
-	}{
-		{"room=123", "123"},
-		{"room=-456", "-456"},
-		{"platform=telegram room=789", "789"},
-		{"platform=discord room=-100", "-100"},
-		{"", ""},
-		{"platform=telegram", ""},
-		{"room=", ""},
-	}
-	for _, tc := range cases {
-		got := extractRoom(tc.match)
-		if got != tc.want {
-			t.Errorf("extractRoom(%q) = %q, want %q", tc.match, got, tc.want)
-		}
-	}
-}
-
 func TestRecoverPendingMessages(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.MaxContainers = 10
@@ -1187,18 +1167,17 @@ func TestRecoverPendingMessages(t *testing.T) {
 		return true, nil
 	})
 
-	s.PutGroup(core.Group{Folder: "grp1", Name: "Group1"})
-	s.AddRoute(core.Route{Seq: 0, Match: "room=-100", Target: "grp1"})
 	s.PutMessage(core.Message{
 		ID: "m1", ChatJID: "telegram:-100", Sender: "user",
 		Content: "hello", Timestamp: time.Now(),
 	})
-
-	s.PutGroup(core.Group{Folder: "grp2", Name: "Group2"})
-	s.AddRoute(core.Route{Seq: 0, Match: "room=200", Target: "grp2"})
 	s.PutMessage(core.Message{
 		ID: "m2", ChatJID: "discord:200", Sender: "user",
 		Content: "hi", Timestamp: time.Now(),
+	})
+	s.PutMessage(core.Message{
+		ID: "m3", ChatJID: "local:mygroup", Sender: "system",
+		Content: "task", Timestamp: time.Now(),
 	})
 
 	gw.recoverPendingMessages()
@@ -1206,11 +1185,10 @@ func TestRecoverPendingMessages(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if !recovered["telegram:-100"] {
-		t.Error("telegram JID not recovered")
-	}
-	if !recovered["discord:200"] {
-		t.Error("discord JID not recovered")
+	for _, jid := range []string{"telegram:-100", "discord:200", "local:mygroup"} {
+		if !recovered[jid] {
+			t.Errorf("%s not recovered", jid)
+		}
 	}
 }
 
@@ -1227,8 +1205,6 @@ func TestRecoverPendingMessages_SkipsErrored(t *testing.T) {
 		return true, nil
 	})
 
-	s.PutGroup(core.Group{Folder: "grp", Name: "Group"})
-	s.AddRoute(core.Route{Seq: 0, Match: "room=-100", Target: "grp"})
 	s.PutMessage(core.Message{
 		ID: "m1", ChatJID: "telegram:-100", Sender: "user",
 		Content: "hello", Timestamp: time.Now(),
@@ -1242,64 +1218,5 @@ func TestRecoverPendingMessages_SkipsErrored(t *testing.T) {
 	defer mu.Unlock()
 	if recovered["telegram:-100"] {
 		t.Error("errored JID should not be recovered")
-	}
-}
-
-func TestRecoverPendingMessages_CompoundRoute(t *testing.T) {
-	gw, s := testGateway(t)
-	gw.cfg.MaxContainers = 10
-
-	var mu sync.Mutex
-	recovered := map[string]bool{}
-	gw.queue.SetProcessMessagesFn(func(jid string) (bool, error) {
-		mu.Lock()
-		recovered[jid] = true
-		mu.Unlock()
-		return true, nil
-	})
-
-	s.PutGroup(core.Group{Folder: "grp", Name: "Group"})
-	s.AddRoute(core.Route{Seq: 0, Match: "platform=telegram room=-100", Target: "grp"})
-	s.PutMessage(core.Message{
-		ID: "m1", ChatJID: "telegram:-100", Sender: "user",
-		Content: "hello", Timestamp: time.Now(),
-	})
-
-	gw.recoverPendingMessages()
-	time.Sleep(100 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if !recovered["telegram:-100"] {
-		t.Error("compound route JID not recovered")
-	}
-}
-
-func TestRecoverPendingMessages_LocalGroups(t *testing.T) {
-	gw, s := testGateway(t)
-	gw.cfg.MaxContainers = 10
-
-	var mu sync.Mutex
-	recovered := map[string]bool{}
-	gw.queue.SetProcessMessagesFn(func(jid string) (bool, error) {
-		mu.Lock()
-		recovered[jid] = true
-		mu.Unlock()
-		return true, nil
-	})
-
-	s.PutGroup(core.Group{Folder: "mygroup", Name: "MyGroup"})
-	s.PutMessage(core.Message{
-		ID: "m1", ChatJID: "local:mygroup", Sender: "system",
-		Content: "task", Timestamp: time.Now(),
-	})
-
-	gw.recoverPendingMessages()
-	time.Sleep(100 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if !recovered["local:mygroup"] {
-		t.Error("local group JID not recovered")
 	}
 }

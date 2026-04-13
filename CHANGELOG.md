@@ -7,6 +7,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+## [v0.26.1] — 2026-04-13
+
+### Fixed
+
+- **gateway: cursor advances once on delivery, not twice**: steer path
+  records timestamps in `steeredTs` map; `advanceAgentCursor` merges
+  `max(batch, steered)` into a single cursor write on container completion
+- **gateway: auto-migrate message starts with /migrate**: ensures the
+  `/migrate` skill dispatches correctly instead of being treated as plain text
+- **ant: silent means silent**: agents produce no output when declining
+  to respond, preventing empty reply messages
+- **container: WEB_PREFIX uses full folder path**: `pub/<world>/<child>`
+  matching the actual web route hierarchy
+- **store: PendingChatJIDs SQL**: replaced brute-force 7-platform recovery
+  loop with single SQL query (-180 lines)
+- **hello skill**: rewritten to lead with use cases, not mechanics
+
 ## [v0.26.0] — 2026-04-13
 
 ### Added

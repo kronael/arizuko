@@ -378,7 +378,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return false, fmt.Errorf("group not registered: %s", chatJid)
 	}
 
-	agentTs := g.getAgentCursor(chatJid)
+	agentTs := g.store.GetAgentCursor(chatJid)
 
 	msgs, err := g.store.MessagesSince(chatJid, agentTs, g.cfg.Name)
 	if err != nil {
@@ -1402,10 +1402,6 @@ func (g *Gateway) recordSteeredTs(chatJid string, msgs []core.Message) {
 	g.mu.Unlock()
 }
 
-func (g *Gateway) getAgentCursor(chatJid string) time.Time {
-	return g.store.GetAgentCursor(chatJid)
-}
-
 func previousSessionXML(sessions []core.SessionRecord) string {
 	if len(sessions) == 0 {
 		return ""
@@ -1431,7 +1427,7 @@ func (g *Gateway) emitSystemEvents(group core.Group, chatJid string) {
 	folder := group.Folder
 	today := time.Now().Format("2006-01-02")
 
-	cursor := g.getAgentCursor(chatJid)
+	cursor := g.store.GetAgentCursor(chatJid)
 	if !cursor.IsZero() && cursor.Format("2006-01-02") != today {
 		g.store.EnqueueSysMsg(folder, "gateway", "new_day",
 			fmt.Sprintf("Date changed to %s", today))
@@ -1486,45 +1482,13 @@ func (g *Gateway) delegateViaMessage(
 }
 
 func (g *Gateway) recoverPendingMessages() {
-	jids := make(map[string]struct{})
-	for _, r := range g.store.AllRoutes() {
-		room := extractRoom(r.Match)
-		if room == "" {
-			continue
-		}
-		for _, pfx := range []string{
-			"telegram:", "discord:", "mastodon:", "bluesky:",
-			"whatsapp:", "reddit:", "email:",
-		} {
-			jid := pfx + room
-			if _, ok := g.groupForJid(jid); ok {
-				jids[jid] = struct{}{}
-			}
-		}
-	}
-	for _, gr := range g.store.AllGroups() {
-		jids["local:"+gr.Folder] = struct{}{}
-	}
-	for jid := range jids {
+	for _, jid := range g.store.PendingChatJIDs(g.cfg.Name) {
 		if g.store.IsChatErrored(jid) {
-			continue
-		}
-		if !g.store.HasPendingMessages(jid, g.cfg.Name) {
 			continue
 		}
 		slog.Info("recovering pending messages", "jid", jid)
 		g.queue.EnqueueMessageCheck(jid)
 	}
-}
-
-func extractRoom(match string) string {
-	for _, f := range strings.Fields(match) {
-		k, v, ok := strings.Cut(f, "=")
-		if ok && k == "room" {
-			return v
-		}
-	}
-	return ""
 }
 
 func (g *Gateway) groupList() []core.Group {

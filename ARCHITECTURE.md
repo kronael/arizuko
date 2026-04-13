@@ -76,7 +76,8 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
   → prefix dispatch (@name → named group, #topic → topic session)
   → router.ResolveRoutingTarget (delegate to child group if matched)
   → queue.SendMessages (steer into running container: write IPC input files,
-    signal container) — advances agentCursor for steered batch OR
+    signal container) — records timestamp in steeredTs (cursor advances
+    once on container completion via max(batch, steered)) OR
   → queue.EnqueueMessageCheck → processGroupMessages
     → web: JID → processWebTopics (per-topic agent run)
     → filter out gateway commands (isGatewayCommand — not forwarded to agent)
@@ -283,6 +284,9 @@ polling query. `topic` and `routed_to` capture audit metadata. Full spec:
    - Container name: `arizuko-<folder>-<timestamp_ms>` for regular runs;
      `arizuko-<folder>-task-<task_id>` for isolated scheduler tasks
      (sender `scheduler-isolated:<task_id>`)
+   - Env vars injected: `WEB_PREFIX` (`pub` for root groups, `pub/<folder>` for
+     children), `ARIZUKO_IS_ROOT`, `ARIZUKO_DELEGATE_DEPTH`, `WEB_HOST`,
+     `ARIZUKO_ASSISTANT_NAME`, plus all group-level env overrides
    - `docker run -i --rm` with volume mounts, write JSON to stdin, read stdout
    - Parse output between `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---` markers
    - Output shape: `{ status, result, newSessionId, error }`

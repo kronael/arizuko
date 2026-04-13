@@ -116,6 +116,29 @@ func (s *Store) SetAgentCursor(jid string, ts time.Time) {
 	}
 }
 
+func (s *Store) PendingChatJIDs(botName string) []string {
+	rows, err := s.db.Query(
+		`SELECT DISTINCT m.chat_jid FROM messages m
+		 LEFT JOIN chats c ON m.chat_jid = c.jid
+		 WHERE m.is_bot_message = 0
+		   AND m.sender NOT LIKE ?
+		   AND m.timestamp > COALESCE(c.agent_cursor, '')`,
+		botName+"%",
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var jids []string
+	for rows.Next() {
+		var jid string
+		if rows.Scan(&jid) == nil {
+			jids = append(jids, jid)
+		}
+	}
+	return jids
+}
+
 // UnroutedChatJIDs returns JIDs with recent user messages that do not
 // map to any group via the routes table. Used by the onboarding hook.
 func (s *Store) UnroutedChatJIDs(since time.Time) []string {
