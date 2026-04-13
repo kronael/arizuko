@@ -346,6 +346,94 @@ sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
 
 ---
 
+### 17. Skill seeding (per group)
+
+```bash
+DB=/srv/data/arizuko_${INSTANCE}/store/messages.db
+SOURCE_COUNT=$(ls /home/onvos/app/arizuko/ant/skills/ | wc -l)
+# Only check groups registered in DB (skip orphan filesystem dirs like share/)
+for g in $(sudo sqlite3 $DB "SELECT folder FROM groups WHERE state='active';"); do
+  gdir=$(echo "$g" | tr '/' '-')  # atlas/content → atlas-content (folder path)
+  n=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/skills/ 2>/dev/null | wc -l)
+  echo "$g: $n skills (expected >= $SOURCE_COUNT)"
+done
+```
+
+**Pass**: every active group has >= source skill count (currently 37).
+**Fail**: group has fewer skills → `migrate` hasn't run, or `SetupGroup` missed it.
+Extra skills (> source) are fine — groups may have custom skills.
+
+---
+
+### 18. Dispatch discovery (skill descriptions)
+
+```bash
+# Run against a group's skills dir — every skill must produce a description
+FOLDER=main
+for d in /srv/data/arizuko_${INSTANCE}/groups/${FOLDER}/.claude/skills/*/; do
+  name=$(basename "$d")
+  desc=$(sudo awk '/^description:/{f=1; sub(/^description:[[:space:]]*/,""); print; next} f && /^[^ ]/{exit} f{print}' "$d/SKILL.md" 2>/dev/null | tr '\n' ' ' | sed 's/^[>[:space:]]*//')
+  if [ -z "$desc" ]; then
+    echo "BROKEN $name — no parseable description"
+  fi
+done
+echo "done"
+```
+
+**Pass**: no BROKEN lines — every skill produces a description for dispatch matching.
+**Fail**: BROKEN skill → dispatch can't discover it → never matched → dead skill.
+Fix: check the skill's SKILL.md frontmatter `description:` field.
+
+---
+
+### 19. Skill consistency (group vs source)
+
+```bash
+DB=/srv/data/arizuko_${INSTANCE}/store/messages.db
+SOURCE_DIR=/home/onvos/app/arizuko/ant/skills
+for g in $(sudo sqlite3 $DB "SELECT folder FROM groups WHERE state='active';"); do
+  missing=""
+  for s in $(ls $SOURCE_DIR); do
+    if ! sudo test -d /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/skills/$s; then
+      missing="$missing $s"
+    fi
+  done
+  [ -n "$missing" ] && echo "$g: MISSING$missing"
+done
+echo "done"
+```
+
+**Pass**: no MISSING lines — all source skills present in every group.
+**Fail**: skills missing → `/migrate` hasn't synced them, or `SetupGroup` incomplete.
+Fix: trigger `/migrate` in the root group, or manually run `SetupGroup` for the group.
+
+---
+
+### 20. Resolve wiring
+
+```bash
+DB=/srv/data/arizuko_${INSTANCE}/store/messages.db
+# Check that group CLAUDE.md has the resolve instruction (seeded from ant/CLAUDE.md)
+for g in $(sudo sqlite3 $DB "SELECT folder FROM groups WHERE state='active';"); do
+  has=$(sudo grep -c "resolve" /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/CLAUDE.md 2>/dev/null)
+  if [ "$has" -lt 1 ]; then
+    echo "$g: MISSING resolve instruction in CLAUDE.md"
+  fi
+done
+echo "done"
+
+# Also verify runner injects [resolve] nudge into prompts (code check)
+grep -q '\[resolve\]' /home/onvos/app/arizuko/container/runner.go && \
+  echo "runner.go: [resolve] nudge present" || \
+  echo "runner.go: [resolve] nudge MISSING"
+```
+
+**Pass**: all groups have resolve in CLAUDE.md + runner.go injects nudge.
+**Fail**: CLAUDE.md missing resolve → `ant/CLAUDE.md` not seeded (seedGroupDir broken).
+Runner missing nudge → resolve never fires → no skill matching → agent runs blind.
+
+---
+
 ## Output pattern
 
 After running checks, append findings to `.diary/YYYYMMDD.md`:
@@ -372,6 +460,10 @@ Checked: <what was checked>
 | conversation archives | pass/fail | ... |
 | memory coverage | pass/fail | ... |
 | error log | pass/fail | ... |
+| skill seeding | pass/fail | ... |
+| dispatch discovery | pass/fail | ... |
+| skill consistency | pass/fail | ... |
+| resolve wiring | pass/fail | ... |
 
 **Summary**: <one line>
 ```
@@ -400,3 +492,5 @@ If a pattern of failures is found across multiple runs, write or update
 | `errored = 1` on chat | Container timed out with no output, or stack crashed mid-run | Clear with `UPDATE chats SET errored = 0 WHERE jid = '...'` then restart |
 | Migration version mismatch | New migration not applied to instance | Run migration manually or `arizuko run` to regenerate compose + restart |
 | gated "connecting channels: count=0" | Adapters not yet registered | Wait 10s; if still 0, restart adapters |
+| Agent ignores skills, responds generically | Resolve not firing: CLAUDE.md not seeded, or nudge missing from runner | Re-seed group via `SetupGroup`; verify `runner.go` has `[resolve]` annotation |
+| Skill exists but never matched by dispatch | Broken `description:` in SKILL.md frontmatter — awk can't parse it | Fix the YAML frontmatter: `description: >` followed by indented text on next line |
