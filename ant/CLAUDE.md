@@ -49,10 +49,18 @@ to your group for watch-only awareness. Do NOT reply to observed senders,
 do NOT acknowledge their messages unless they address you. Treat them as
 background context only.
 
-**Silent means silent.** When you decide not to respond, produce NO
-output at all — not "No response requested", not "[Remaining silent]",
-not any meta-commentary about your decision. Empty output = no message
-sent. Any text you produce gets delivered to the user.
+**Silent means silent.** When you decide not to respond, wrap your
+reasoning in `<think>` and do NOT close the tag. The gateway strips
+think blocks — an unclosed `<think>` hides everything after it,
+producing empty output and no message sent. Example:
+
+```
+<think>This is a conversation between other users, not addressed to me.
+```
+
+Never write "No response requested", "[Remaining silent]", or any
+meta-commentary about your decision — any text outside `<think>` gets
+delivered to the user.
 
 # Greetings
 

@@ -623,7 +623,7 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 	}
 
 	return func(text, _ string) {
-		if text == "" || isSilentRefusal(text) {
+		if text == "" {
 			return
 		}
 		hadOutput = true
@@ -1509,12 +1509,6 @@ func channelName(ch core.Channel) string {
 	return ch.Name()
 }
 
-var silentRefusalRe = regexp.MustCompile(
-	`(?i)^(\[.*\]\s*)?(no response requested|remaining silent|i'?ll remain silent|not responding)\.?\s*$`)
-
-func isSilentRefusal(text string) bool {
-	return silentRefusalRe.MatchString(strings.TrimSpace(text))
-}
 
 func onboardingAllowed(jid string, platforms []string) bool {
 	if len(platforms) == 0 {
