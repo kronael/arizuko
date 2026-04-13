@@ -647,6 +647,9 @@ func seedSettings(
 	env["ARIZUKO_IS_ROOT"] = ""
 	if root {
 		env["ARIZUKO_IS_ROOT"] = "1"
+		env["WEB_PREFIX"] = "pub"
+	} else if w := strings.SplitN(in.Folder, "/", 2)[0]; w != "" {
+		env["WEB_PREFIX"] = "pub/" + w
 	}
 	env["ARIZUKO_DELEGATE_DEPTH"] = strconv.Itoa(in.Depth)
 	if in.Channel != "" {

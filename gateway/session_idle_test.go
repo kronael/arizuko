@@ -25,21 +25,25 @@ func TestSessionIdleExpired(t *testing.T) {
 		t.Error("expected false for zero cursor")
 	}
 
+	// Cursor 3d ago: expired.
+	// Note: SetAgentCursor is monotonic (only advances forward).
+	// Use separate JIDs for non-monotonic test cases.
+	const jid3d = "telegram:42-3d"
+	s.SetAgentCursor(jid3d, time.Now().Add(-3*24*time.Hour))
+	if !gw.sessionIdleExpired(jid3d) {
+		t.Error("expected true for 3d-old cursor")
+	}
+
 	// Cursor 1h ago: fresh.
 	s.SetAgentCursor(jid, time.Now().Add(-1*time.Hour))
 	if gw.sessionIdleExpired(jid) {
 		t.Error("expected false for 1h-old cursor")
 	}
 
-	// Cursor 3d ago: expired.
-	s.SetAgentCursor(jid, time.Now().Add(-3*24*time.Hour))
-	if !gw.sessionIdleExpired(jid) {
-		t.Error("expected true for 3d-old cursor")
-	}
-
 	// Exactly at threshold: not expired (strict >).
-	s.SetAgentCursor(jid, time.Now().Add(-sessionIdleExpiry).Add(time.Second))
-	if gw.sessionIdleExpired(jid) {
+	const jidThresh = "telegram:42-thresh"
+	s.SetAgentCursor(jidThresh, time.Now().Add(-sessionIdleExpiry).Add(time.Second))
+	if gw.sessionIdleExpired(jidThresh) {
 		t.Error("expected false for just-under-threshold cursor")
 	}
 }

@@ -67,19 +67,13 @@ Drop sections that don't apply.
 
 ## Web prefix
 
+You MUST run this bash to get the howto URL — never guess it:
+
 ```bash
-if [ "$ARIZUKO_IS_ROOT" = "1" ]; then
-  WEB_DIR="/workspace/web/pub"
-  WEB_PREFIX="pub"
-else
-  WEB_SUB=$(basename "$HOME")
-  WEB_DIR="/workspace/web/pub/$WEB_SUB"
-  WEB_PREFIX="pub/$WEB_SUB"
-fi
+echo "https://$WEB_HOST/$WEB_PREFIX/howto/"
 ```
 
-Howto URL: `https://<resolved-WEB_HOST>/<WEB_PREFIX>/howto/`
-(run the bash snippet above to get actual values — NEVER output `$WEB_HOST` literally)
+Use the exact URL printed. NEVER output `$WEB_HOST` or `$WEB_PREFIX` literally.
 
 ## Formatting Rules
 
