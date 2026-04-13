@@ -104,8 +104,7 @@ func (s *Store) GetAgentCursor(jid string) time.Time {
 func (s *Store) SetAgentCursor(jid string, ts time.Time) {
 	res, err := s.db.Exec(
 		`INSERT INTO chats (jid, agent_cursor) VALUES (?, ?)
-		 ON CONFLICT(jid) DO UPDATE SET agent_cursor = excluded.agent_cursor
-		 WHERE excluded.agent_cursor > COALESCE(chats.agent_cursor, '')`,
+		 ON CONFLICT(jid) DO UPDATE SET agent_cursor = excluded.agent_cursor`,
 		jid, ts.Format(time.RFC3339Nano),
 	)
 	if err != nil {

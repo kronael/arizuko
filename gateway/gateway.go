@@ -45,6 +45,11 @@ type Gateway struct {
 	// preserve nanosecond precision; seconds-only formats risk missed messages.
 	lastTimestamp time.Time
 
+	// steeredTs tracks the latest message timestamp steered into a
+	// running container per chat JID. processGroupMessages uses this
+	// to advance the cursor past steered messages on completion.
+	steeredTs map[string]time.Time
+
 	impulse *impulseGate
 }
 
@@ -52,9 +57,10 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 func New(cfg *core.Config, s *store.Store) *Gateway {
 	return &Gateway{
-		cfg:   cfg,
-		store: s,
-		queue: queue.New(cfg.MaxContainers, cfg.IpcDir),
+		cfg:       cfg,
+		store:     s,
+		queue:     queue.New(cfg.MaxContainers, cfg.IpcDir),
+		steeredTs: make(map[string]time.Time),
 		folders: &groupfolder.Resolver{
 			GroupsDir: cfg.GroupsDir,
 			IpcDir:    cfg.IpcDir,
@@ -346,7 +352,7 @@ func (g *Gateway) pollOnce() {
 				"jid", chatJid, "count", len(texts))
 			g.store.SetLastReplyID(chatJid, g.effectiveTopic(chatJid, last.Topic), last.ID)
 			g.store.ClearChatErrored(chatJid)
-			g.advanceAgentCursor(chatJid, chatMsgs)
+			g.recordSteeredTs(chatJid, chatMsgs)
 			continue
 		}
 
@@ -1373,7 +1379,27 @@ func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {
 	if len(msgs) == 0 {
 		return
 	}
-	g.store.SetAgentCursor(chatJid, msgs[len(msgs)-1].Timestamp)
+	ts := msgs[len(msgs)-1].Timestamp
+	// Include any messages steered into the container during its run.
+	g.mu.Lock()
+	if st, ok := g.steeredTs[chatJid]; ok && st.After(ts) {
+		ts = st
+	}
+	delete(g.steeredTs, chatJid)
+	g.mu.Unlock()
+	g.store.SetAgentCursor(chatJid, ts)
+}
+
+func (g *Gateway) recordSteeredTs(chatJid string, msgs []core.Message) {
+	if len(msgs) == 0 {
+		return
+	}
+	ts := msgs[len(msgs)-1].Timestamp
+	g.mu.Lock()
+	if cur, ok := g.steeredTs[chatJid]; !ok || ts.After(cur) {
+		g.steeredTs[chatJid] = ts
+	}
+	g.mu.Unlock()
 }
 
 func (g *Gateway) getAgentCursor(chatJid string) time.Time {

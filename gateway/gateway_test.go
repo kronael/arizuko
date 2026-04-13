@@ -394,11 +394,10 @@ func TestAdvanceAgentCursor_Empty(t *testing.T) {
 	}
 }
 
-// Regression: pollOnce must advance the agent cursor after steering
-// messages into a running container. Without this, drainGroupLocked
-// re-feeds the same batch on container exit — the marinade atlas
-// respawn loop. Registered by 28ea3bd.
-func TestPollOnce_SteerAdvancesCursor(t *testing.T) {
+// Regression: pollOnce records steered timestamps so advanceAgentCursor
+// can include them when the container completes. The cursor is NOT
+// advanced during steer — only on container completion.
+func TestPollOnce_SteerRecordsTimestamp(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.MaxContainers = 2
 
@@ -419,9 +418,26 @@ func TestPollOnce_SteerAdvancesCursor(t *testing.T) {
 
 	gw.pollOnce()
 
+	// Cursor should NOT be advanced by steer alone.
 	got := s.GetAgentCursor(jid)
-	if got.IsZero() || got.Before(ts) {
-		t.Errorf("cursor = %v, want >= %v (steer path must advance cursor)", got, ts)
+	if !got.IsZero() {
+		t.Errorf("cursor = %v, want zero (steer must not advance cursor)", got)
+	}
+
+	// steeredTs should be recorded.
+	gw.mu.RLock()
+	st, ok := gw.steeredTs[jid]
+	gw.mu.RUnlock()
+	if !ok || st.Before(ts) {
+		t.Errorf("steeredTs = %v (ok=%v), want >= %v", st, ok, ts)
+	}
+
+	// advanceAgentCursor should incorporate the steered timestamp.
+	earlier := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	gw.advanceAgentCursor(jid, []core.Message{{Timestamp: earlier}})
+	got = s.GetAgentCursor(jid)
+	if got.Before(ts) {
+		t.Errorf("cursor after advance = %v, want >= %v (must include steered ts)", got, ts)
 	}
 }
 

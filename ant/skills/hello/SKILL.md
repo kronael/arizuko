@@ -8,62 +8,60 @@ description: Send a welcome message to introduce yourself and explain what you c
 If `SOUL.md` exists (in home directory), read it first and introduce yourself
 in that persona. Otherwise use `$ARIZUKO_ASSISTANT_NAME`.
 
-Write a welcome message with two parts:
+Write a welcome message with three parts:
 
 1. **Greeting** (2-3 lines) — name, what you do, "send me a message"
-2. **Feature overview** — hierarchical list of capabilities (see below)
+2. **Use cases** — what concrete things users can ask you to do
+3. **Reference** — commands and mechanics
 
-## Feature Overview
+## Use Cases
 
-Present ALL features as a scannable hierarchical list. Use this exact
-structure — L1 is the category, L2 is a one-line summary with key details.
-Omit any category where the capability is not available (e.g., no web host).
+Lead with what the user can DO, not how the system works. Present as a
+scannable list — L1 is the use case, L2 is a concrete example.
 
 ```
-Messaging
-  Multi-channel: telegram, whatsapp, discord, email, web
-  @agent routing: address subgroups directly (@support, @code)
-  #topic sessions: separate conversation threads (#deploy, #research)
-  /new resets session, /stop halts agent, /ping checks status
+Research
+  "research the latest on quantum error correction"
+  "compare the top 3 competitors to X"
 
-Files
-  Send attachments — images, PDFs, docs are read automatically
-  Voice messages transcribed to text
-  /file put|get|list — transfer files to/from workspace
+Data & Analysis
+  "analyze this CSV and plot monthly trends"
+  Send spreadsheets, CSVs — get charts and reports back
 
-Memory & Knowledge
-  Diary — daily work log, auto-surfaced each session
-  Facts — researched knowledge base, verified and dated
-  Episodes — compressed weekly/monthly summaries
-  User context — per-person preferences and history
-  /recall-memories — search all knowledge layers at once
+Code
+  "write a Go HTTP server that returns JSON health"
+  Node/Python/Go/Rust — writes, runs, iterates, sends results
 
-Skills
-  Extensible skill system — coding, research, web, ops, trading
-  /compact-memories — compress session history into episodes
-  /facts — research and verify knowledge
+Web Apps
+  "build a todo app with dark mode"
+  Deploys live to your URL, iterate with follow-ups
 
-Web
-  Deploy web apps and dashboards (resolve WEB_HOST from env)
-  Per-group web hosting with virtual hosts
+Files & Media
+  Send images, PDFs, docs, voice — read automatically
+  /file put|get|ls for workspace transfers
 
-Tasks & Scheduling
-  Cron-based scheduled tasks
-  Recurring research, memory compaction, custom jobs
+Scheduling
+  "check the weather every morning at 9am"
+  Cron jobs, intervals, one-shot tasks
+```
 
-Dashboard
-  /dash/ portal — live gateway status, health monitoring
-  Container state, uptime, error tracking
+Omit any category where the capability is not available.
 
-Commands (gateway-level, always available)
+## Reference
+
+After the use cases, add a compact reference section:
+
+```
+Commands
   /new [msg] — fresh session    /stop — halt agent
   /ping — status check          /chatid — show chat JID
-  /status — gateway health      /file — file transfer
+  /file — file transfer
+
+Routing
+  @agent — address child groups    #topic — parallel threads
 ```
 
-Adapt to your instance: resolve `echo $WEB_HOST` for web URLs (NEVER
-output literal `$WEB_HOST` — always print the resolved hostname).
-Drop sections that don't apply.
+Omit routing if no child groups exist.
 
 ## Web prefix
 
@@ -100,30 +98,33 @@ build web apps, and help with analysis and daily tasks.
 
 Here's what I can do:
 
-Messaging
-  Multi-channel: telegram, whatsapp, discord, email, web
-  @agent — route to subgroups (@support, @code)
-  #topic — separate threads (#deploy, #research)
+Research
+  "research the latest on X" — live web search + summary
+  "download and transcribe this video"
+
+Data & Analysis
+  Send spreadsheets, CSVs — I produce charts and reports
+  "run a SQL query over this data"
+
+Code
+  Node/Python/Go/Rust — I write, run, and iterate
+  "build a CLI tool that deduplicates CSV rows"
+
+Web Apps
+  "build a dashboard for my portfolio"
+  Deployed live at REDACTED
 
 Files
-  Send me images, PDFs, docs — I read them directly
-  Voice messages auto-transcribed
-  /file put|get|list for workspace transfers
+  Send images, PDFs, docs, voice — I read them directly
+  /file put|get|ls for workspace transfers
 
-Memory & Knowledge
-  Diary, facts, episodes — I remember across sessions
-  Per-user context — I track your preferences
-  /recall-memories searches everything at once
-
-Web
-  I deploy apps and pages at REDACTED
-
-Tasks
-  Scheduled jobs — research, cleanup, custom cron
+Scheduling
+  "send me a weekly summary every Monday"
+  Cron jobs, intervals, one-shot tasks
 
 Commands
   /new — fresh session  /stop — halt  /ping — status
-  /chatid — show JID    /status — gateway health
+  @agent — child groups  #topic — parallel threads
 
 Tell me what you need.
 Getting started: https://REDACTED/pub/howto/
@@ -132,25 +133,30 @@ Getting started: https://REDACTED/pub/howto/
 Non-root group:
 
 ```
-I'm myai — one of REDACTED' ants. I can research, code,
+I'm myai — one of REDACTED's ants. I can research, code,
 build web apps, and help with daily tasks.
 
 Here's what I can do:
 
-Messaging
-  @agent — talk to sibling groups (@support)
-  #topic — separate threads (#deploy, #review)
+Research
+  "research X" — web search, summaries, sources
+  "open this page and screenshot the pricing table"
 
-Files & Media
-  Send attachments — I read images, PDFs, docs
-  /file put|get|list for transfers
+Data
+  Send CSVs, spreadsheets — charts and reports back
+  "analyze this and plot monthly trends"
 
-Memory
-  Diary, facts, episodes across sessions
-  /recall-memories to search all knowledge
+Code
+  Node/Python/Go/Rust — writes, runs, sends results
+  "convert this video to mp3"
 
-Web
-  Apps and pages at REDACTED/pub/myai/
+Web Apps
+  "build a todo app with dark mode"
+  Live at REDACTED/pub/myai/
+
+Files
+  Send images, PDFs, docs, voice — read automatically
+  /file put|get|ls for transfers
 
 Commands
   /new — fresh session  /stop — halt  /ping — status
