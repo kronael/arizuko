@@ -232,8 +232,7 @@ func (g *Gateway) checkMigrationVersion() {
 		}
 		slog.Info("auto-migrate: version behind, triggering /migrate",
 			"group", gr.Folder, "agent", agent, "latest", latest)
-		prompt := fmt.Sprintf(
-			"System update available: v%d → v%d. Run /migrate now.",
+		prompt := fmt.Sprintf("/migrate\n\nSystem update: skills v%d → v%d.",
 			agent, latest)
 		g.store.PutMessage(core.Message{
 			ID:        core.MsgID("auto-migrate-" + gr.Folder),
