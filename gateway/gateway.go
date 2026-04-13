@@ -220,7 +220,8 @@ func (g *Gateway) checkMigrationVersion() {
 	if latest == 0 {
 		return
 	}
-	for _, gr := range g.store.AllGroups() {
+	groups := g.store.AllGroups()
+	for _, gr := range groups {
 		if !groupfolder.IsRoot(gr.Folder) || gr.Parent != "" {
 			continue
 		}
@@ -232,10 +233,7 @@ func (g *Gateway) checkMigrationVersion() {
 		slog.Info("auto-migrate: version behind, triggering /migrate",
 			"group", gr.Folder, "agent", agent, "latest", latest)
 		prompt := fmt.Sprintf(
-			"System update available: v%d → v%d. Run /migrate now.\n"+
-				"After migration completes, notify each child group using send_message with a short, "+
-				"friendly changelog summary — what's new, what changed, one or two sentences per item. "+
-				"Write it as a system update announcement they can read, not an internal log.",
+			"System update available: v%d → v%d. Run /migrate now.",
 			agent, latest)
 		g.store.PutMessage(core.Message{
 			ID:        core.MsgID("auto-migrate-" + gr.Folder),
@@ -245,6 +243,24 @@ func (g *Gateway) checkMigrationVersion() {
 			Timestamp: time.Now(),
 		})
 		g.queue.EnqueueMessageCheck("local:" + gr.Folder)
+
+		// Notify child groups directly — don't rely on root agent.
+		note := fmt.Sprintf("System update: skills v%d → v%d applied. "+
+			"New capabilities may be available — check /self for details.", agent, latest)
+		for _, child := range groups {
+			if child.Parent != gr.Folder {
+				continue
+			}
+			g.store.PutMessage(core.Message{
+				ID:        core.MsgID("auto-migrate-notify-" + child.Folder),
+				ChatJID:   "local:" + child.Folder,
+				Sender:    "system",
+				Content:   note,
+				Timestamp: time.Now(),
+			})
+			slog.Info("auto-migrate: notified child group",
+				"child", child.Folder, "parent", gr.Folder)
+		}
 	}
 }
 

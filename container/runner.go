@@ -177,8 +177,13 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		sc.Buffer(make([]byte, 64*1024), maxOutputSize)
 		for sc.Scan() {
 			line := sc.Text()
-			slog.Debug("container stderr",
-				"group", in.Folder, "line", line)
+			if strings.HasPrefix(line, "[ant]") {
+				slog.Info("container agent",
+					"group", in.Folder, "line", line)
+			} else {
+				slog.Debug("container stderr",
+					"group", in.Folder, "line", line)
+			}
 			stderrMu.Lock()
 			if stderrBuf.Len() < maxOutputSize {
 				stderrBuf.WriteString(line)
