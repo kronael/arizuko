@@ -111,6 +111,7 @@ func TestIsGatewayCommand(t *testing.T) {
 	yes := []string{
 		"/new", "/New", "/NEW",
 		"/ping", "/chatid", "/stop",
+		"/root", "/root hello world",
 		"/approve", "/reject",
 		"[Doc: f.pdf] /stop",
 		"@root /ping",
@@ -203,6 +204,55 @@ func TestCmdChatID_SendsJID(t *testing.T) {
 
 	if got := ch.lastSent(); got != "jid1" {
 		t.Errorf("chatid sent %q, want %q", got, "jid1")
+	}
+}
+
+func TestCmdRoot_DelegatesToRoot(t *testing.T) {
+	gw, s := testGateway(t)
+	ch := &mockChannel{name: "test", jids: []string{"jid1"}}
+	gw.AddChannel(ch)
+
+	// Register root group and child group
+	s.PutGroup(core.Group{Folder: "world", Name: "World"})
+	setGroup(gw, "jid1", core.Group{Folder: "world/child", Name: "Child"})
+
+	grp, _ := gw.store.GroupByFolder("world/child")
+
+	// No arg → usage
+	msg := core.Message{ChatJID: "jid1", Content: "/root"}
+	gw.handleCommand(msg, grp)
+	if got := ch.lastSent(); got != "Usage: /root <message>" {
+		t.Errorf("empty arg sent %q, want usage", got)
+	}
+
+	// With arg → delegates to root
+	msg.Content = "/root hello from child"
+	gw.handleCommand(msg, grp)
+
+	delegated, _ := s.MessagesSince("local:world", time.Time{}, "nobot")
+	found := false
+	for _, m := range delegated {
+		if m.Content == "hello from child" && m.Sender == "delegate" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("delegation message not found in root group")
+	}
+}
+
+func TestCmdRoot_AlreadyRoot(t *testing.T) {
+	gw, _ := testGateway(t)
+	ch := &mockChannel{name: "test", jids: []string{"jid1"}}
+	gw.AddChannel(ch)
+	setGroup(gw, "jid1", core.Group{Folder: "world", Name: "World"})
+
+	grp, _ := gw.store.GroupByFolder("world")
+	msg := core.Message{ChatJID: "jid1", Content: "/root hello"}
+	gw.handleCommand(msg, grp)
+
+	if got := ch.lastSent(); got != "Already in root group." {
+		t.Errorf("root group sent %q, want already-in-root", got)
 	}
 }
 

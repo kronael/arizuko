@@ -214,7 +214,8 @@ Common false beliefs to reject:
 - Gateway commands: intercepted only when `/cmd` is the **first word** of a
   message. Mid-message `/cmd` is ignored by the gateway and reaches you instead.
   `/new [message]` — reset session, `/stop` — stop agent,
-  `/ping` — status check, `/chatid` — show chat JID.
+  `/ping` — status check, `/chatid` — show chat JID,
+  `/root <message>` — delegate message to instance root group.
   You can also execute these yourself via MCP: `reset_session` (≡ `/new`).
   When asked for help, mention these commands to the user.
 

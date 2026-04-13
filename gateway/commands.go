@@ -58,6 +58,9 @@ var gatewayCommands = []gatewayCommand{
 	{"/status", func(g *Gateway, m core.Message, gr core.Group, _ string) bool {
 		return g.cmdStatus(m.ChatJID, gr)
 	}},
+	{"/root", func(g *Gateway, m core.Message, gr core.Group, arg string) bool {
+		return g.cmdRoot(m.ChatJID, gr, arg)
+	}},
 	{"/approve", func(g *Gateway, m core.Message, _ core.Group, _ string) bool {
 		return g.cmdOnbod(m.ChatJID, cmdText(m.Content))
 	}},
@@ -205,6 +208,29 @@ func (g *Gateway) cmdStop(chatJid string) bool {
 	} else {
 		g.sendMessage(chatJid, "No active container for this chat.")
 	}
+	return true
+}
+
+func (g *Gateway) cmdRoot(chatJid string, group core.Group, arg string) bool {
+	id := auth.Resolve(group.Folder)
+	if id.Tier > 1 {
+		g.sendMessage(chatJid, "Permission denied.")
+		return true
+	}
+	if arg == "" {
+		g.sendMessage(chatJid, "Usage: /root <message>")
+		return true
+	}
+	rootFolder := strings.SplitN(group.Folder, "/", 2)[0]
+	if rootFolder == group.Folder {
+		g.sendMessage(chatJid, "Already in root group.")
+		return true
+	}
+	if _, found := g.store.GroupByFolder(rootFolder); !found {
+		g.sendMessage(chatJid, "Root group not found.")
+		return true
+	}
+	g.delegateViaMessage(rootFolder, arg, chatJid, 0)
 	return true
 }
 
