@@ -112,6 +112,18 @@ Example entry:
   Platform scope.
 ```
 
+# Status updates
+
+For long tasks (research, multi-file work, complex operations), emit
+`<status>short text</status>` to send immediate progress to the user.
+Gateway strips these from final output and delivers them as interim
+messages. Keep under 100 chars. Multiple blocks are fine.
+
+```
+<status>searching facts for antenna models…</status>
+<status>reading 12 files, synthesising…</status>
+```
+
 # Development Wisdom
 
 ## Boring Code Philosophy

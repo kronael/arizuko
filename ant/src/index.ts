@@ -339,6 +339,24 @@ function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | nu
   return lines.join('\n');
 }
 
+function nudgeProgress(ipcDir: string): void {
+  const ts = Date.now();
+  const name = `${ts}-progress.json`;
+  const fp = path.join(ipcDir, name);
+  const payload = JSON.stringify({
+    type: 'message',
+    text: 'Report progress to the user now. Use <status>short summary of what you are doing</status>.',
+  });
+  try {
+    fs.mkdirSync(ipcDir, { recursive: true });
+    fs.writeFileSync(fp + '.tmp', payload);
+    fs.renameSync(fp + '.tmp', fp);
+    log('Nudged agent for progress report');
+  } catch (err) {
+    log(`Progress nudge write failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function shouldClose(): boolean {
   if (fs.existsSync(IPC_INPUT_CLOSE_SENTINEL)) {
     try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
@@ -462,7 +480,6 @@ async function runQuery(
 
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
-  let lastAssistantText: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
   let maxTurnsHit = false;
@@ -529,7 +546,6 @@ async function runQuery(
       if (message.type === 'assistant') {
         const m = message as { message?: { content?: { type: string; text?: string }[] }; uuid?: string };
         const text = m.message?.content?.filter(c => c.type === 'text').map(c => c.text || '').join('').trim();
-        if (text) lastAssistantText = text;
         if (m.uuid) lastAssistantUuid = m.uuid;
       }
 
@@ -537,9 +553,7 @@ async function runQuery(
       const timeTriggered = now - lastProgressAt >= PROGRESS_INTERVAL_MS;
       const countTriggered = messageCount > 0 && messageCount % 200 === 0;
       if (timeTriggered || countTriggered) {
-        const snippet = lastAssistantText?.slice(0, 280) ?? `${messageCount} messages processed`;
-        const mins = Math.round((now - lastProgressAt) / 60_000);
-        writeOutput({ status: 'success', result: `⏳ still working (${mins}m, ${messageCount} msgs)… ${snippet}`, newSessionId });
+        nudgeProgress(IPC_INPUT_DIR);
         lastProgressAt = now;
       }
 
