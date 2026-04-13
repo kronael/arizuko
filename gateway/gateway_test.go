@@ -1158,6 +1158,11 @@ func TestRecoverPendingMessages(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.MaxContainers = 10
 
+	// Register groups so groupForJid finds them.
+	setGroup(gw, "telegram:-100", core.Group{Folder: "grp1", Name: "G1"})
+	setGroup(gw, "discord:200", core.Group{Folder: "grp2", Name: "G2"})
+	s.PutGroup(core.Group{Folder: "mygroup", Name: "MyGroup"})
+
 	var mu sync.Mutex
 	recovered := map[string]bool{}
 	gw.queue.SetProcessMessagesFn(func(jid string) (bool, error) {
@@ -1181,13 +1186,33 @@ func TestRecoverPendingMessages(t *testing.T) {
 	})
 
 	gw.recoverPendingMessages()
-	time.Sleep(100 * time.Millisecond)
 
-	mu.Lock()
-	defer mu.Unlock()
-	for _, jid := range []string{"telegram:-100", "discord:200", "local:mygroup"} {
-		if !recovered[jid] {
-			t.Errorf("%s not recovered", jid)
+	want := []string{"telegram:-100", "discord:200", "local:mygroup"}
+	deadline := time.After(2 * time.Second)
+	for {
+		mu.Lock()
+		done := true
+		for _, jid := range want {
+			if !recovered[jid] {
+				done = false
+				break
+			}
+		}
+		mu.Unlock()
+		if done {
+			break
+		}
+		select {
+		case <-deadline:
+			mu.Lock()
+			defer mu.Unlock()
+			for _, jid := range want {
+				if !recovered[jid] {
+					t.Errorf("%s not recovered", jid)
+				}
+			}
+			return
+		case <-time.After(10 * time.Millisecond):
 		}
 	}
 }

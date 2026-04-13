@@ -1486,6 +1486,9 @@ func (g *Gateway) recoverPendingMessages() {
 		if g.store.IsChatErrored(jid) {
 			continue
 		}
+		if _, ok := g.groupForJid(jid); !ok {
+			continue
+		}
 		slog.Info("recovering pending messages", "jid", jid)
 		g.queue.EnqueueMessageCheck(jid)
 	}
