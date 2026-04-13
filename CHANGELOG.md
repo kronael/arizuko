@@ -11,68 +11,69 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **auto-migrate on startup**: gateway checks agent MIGRATION_VERSION on
+  boot, injects `/migrate` system message to outdated root groups
+- **`/resolve` skill**: gateway-nudged task classification, context recall,
+  and skill dispatch on every prompt (replaces /dispatch which had 0%
+  compliance). Migration 054 cleans stale dispatch refs
 - **`/root` gateway command**: delegates messages to instance root group
-  with grants-based auth (tier <= 1). Commit 3326abe.
-
+  with grants-based auth (tier <= 1)
 - **migration 055 — bookkeeping cron tasks**: seeds the 5 compact-memories
-  scheduled tasks for groups missing them. Fixes dead episodes pipeline
-  caused by groups created outside onbod `/approve` flow.
-
-- **mcpc in agent image**: apify's `@apify/mcpc` MCP CLI is installed
-  globally in the agent container so ad-hoc scripts can call MCP
-  tools without being the agent. HTTPie-style param grammar
-  (`key:=value` JSON-typed, `key=value` string), full MCP surface
-  (`tools-list`, `tools-call`, `resources-*`, `prompts-*`). Default
-  socket path via `ARIZUKO_MCP_SOCKET=/workspace/ipc/gated.sock`.
-  Wrap with `socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -` for stdio
-  transport to the gateway. See migration 052.
-
-### Removed
-
-- **arizuko-mcp CLI**: the custom 220-LOC Python MCP client shipped
-  briefly as `ant/bin/arizuko-mcp` is gone — it was an anti-orthogonal
-  wrapper that hardcoded arizuko tool names as subcommands. Replaced
-  by `mcpc` (see Added).
+  scheduled tasks for groups missing them
+- **mcpc in agent image**: `@apify/mcpc` MCP CLI for ad-hoc scripts to
+  call MCP tools. Migration 052 documents usage
+- **agent-generated status messages**: `<status>` blocks in agent output
+  are stripped and delivered as interim progress messages via IPC nudge
+  (replaces generic heartbeat)
+- **session inactivity reset**: sessions idle >2 days reset to fresh
+  instead of resuming stale context
+- **fact staleness check**: `/resolve` recall checks `verified_at` on
+  facts, triggers re-research if stale (>14 days)
+- **skill 'Use when' triggers**: 9 skill descriptions now include explicit
+  trigger conditions for better semantic dispatch matching
+- **agent container tools**: xh, websocat, hurl, age, sops added to image
+- **eval skill**: episodic + knowledge memory checks across all instances
 
 ### Changed
 
-- **`/research` skill renamed to `/hub`** to avoid shadowing Claude's
-  built-in `research` tool — the LLM was picking up the internal tool
-  instead of the arizuko skill. New path is `ant/skills/hub/`.
-  Migration 053 cleans up stale `~/.claude/skills/research/` overlays
-  in per-group workspaces. Skill itself (parallel deep-research
-  subagents → distill → HTML knowledge hub) is unchanged.
+- **`/research` skill renamed to `/hub`**: avoids shadowing Claude's
+  built-in `research` tool. Migration 053 cleans stale overlays
+- **gated runs as uid 1000**: no longer runs as root inside the container
+- **IPC user-message drain**: moved from poll timer to PostToolUse hook
+  for lower-latency mid-loop message injection
 
 ### Fixed
 
-- **@prefix router silently dropped messages containing Twitter
-  handles**: the navigation-prefix regex `@(\w[\w-]*)` matched
-  `@mentions` anywhere in the text, not just at the start. A user
-  forwarding a tweet containing `@buffalu__` would have the router
-  try to delegate to child group `<folder>/buffalu__`; when that
-  group didn't exist, `handlePrefixLayer` logged a warning and
-  returned `true`, consuming the message — the agent never saw
-  it, cursor advanced, no reply. Fixed by (a) anchoring both `@`
-  and `#` prefix regexes to start-of-message (optional leading
-  whitespace), so mid-content mentions are treated as references
-  not nav; and (b) falling through (returning `false`) when a
-  prefix references a non-existent child, so defence-in-depth
-  prevents future silent drops. Gateway tests updated; regression
-  test added for the Twitter-content case.
+- **gateway: auto-migrate recovery bugs**: mount path mismatch
+  (/srv/app/arizuko vs HostAppDir), parent field check for root detection,
+  recoverPendingMessages LIMIT bug (replaced with route-based per-chat check)
+- **gateway: @prefix router dropped messages with @handles**: anchored
+  prefix regexes to start-of-message; fall through on non-existent child
+- **gateway: strip @botname suffix from Telegram commands**: `/new@botname`
+  was silently ignored
+- **gateway: late-bind channel in makeOutputCallback**: fixes race when
+  channel connects after container starts
+- **gateway: chown .git to 1000:1000 after git init**: fixes permission
+  errors when gated runs as uid 1000
+- **whapd: typing indicator across long runs**: ported TypingRefresher
+  (15s refresh, 10min cap), closes last adapter typing gap
+- **whapd: extract reply metadata from Baileys contextInfo**: inbound
+  replies now populate reply_to/reply_to_text/reply_to_sender
+- **typing: call clear on maxTTL expiry**: indicator would not stop after
+  10min runs in both Go and TS adapters
+- **typing: log/validate silent failures** in handler, discd, httpchan
+- **store: write sticky-resolved topic on inbound messages**
+- **dashd: resolve symlinks in renderMemorySection**
+- **compose: add host.docker.internal extra_hosts to gated**
+- **ipc: purge legacy file-based IPC dirs**
+- **ant: raise progress count threshold from 100 to 200 messages**
 
-- **whapd typing indicator survives long runs**: whapd previously
-  called `sendPresenceUpdate('composing')` exactly once on `/typing`,
-  and WhatsApp decays composing ~25s server-side — so the indicator
-  vanished mid-agent-run. Ported `chanlib.TypingRefresher` to TS in
-  `whapd/src/typing.ts` (15s refresh, 10min hard cap). main.ts owns
-  the singleton; server.ts takes a `setTyping(jid,on)` callback.
-  9 new unit tests mirror the Go suite. Closes the last typing-
-  indicator gap across adapters (teled + discd were fixed earlier).
-- **whapd**: inbound WhatsApp replies now populate `reply_to`,
-  `reply_to_text`, `reply_to_sender` from Baileys `contextInfo`.
-  Previously all WhatsApp replies reached the gateway as unthreaded
-  messages. Matches the teled/telegram behavior. New pure helper
-  `extractReplyMeta` in `whapd/src/reply.ts`.
+### Removed
+
+- **arizuko-mcp CLI**: custom Python MCP client replaced by mcpc
+- **backwards-compat shims and band-aid fixups**: dead code cleanup
+- **`arizuko create` chownTree and subdir mkdirs**: unnecessary post-seed ops
+- **Makefile: dead per-daemon Dockerfile build targets**
 
 ## [v0.25.1] — 2026-04-09
 

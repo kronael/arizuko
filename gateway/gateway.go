@@ -1445,18 +1445,16 @@ func (g *Gateway) delegateViaMessage(
 }
 
 func (g *Gateway) recoverPendingMessages() {
-	// Build set of JIDs to check: every route's external JID + local:folder
-	// for each group. Using routes (not a bounded message query) ensures we
-	// never miss a chat due to LIMIT on the messages table.
 	jids := make(map[string]struct{})
 	for _, r := range g.store.AllRoutes() {
-		room := strings.TrimPrefix(r.Match, "room=")
-		// External routes have numeric room IDs; internal routes use folder names.
-		if _, ok := g.groupForJid(room); ok {
-			jids[room] = struct{}{}
+		room := extractRoom(r.Match)
+		if room == "" {
+			continue
 		}
-		// Also try the prefixed JID forms that routes may map to.
-		for _, pfx := range []string{"telegram:", "local:"} {
+		for _, pfx := range []string{
+			"telegram:", "discord:", "mastodon:", "bluesky:",
+			"whatsapp:", "reddit:", "email:",
+		} {
 			jid := pfx + room
 			if _, ok := g.groupForJid(jid); ok {
 				jids[jid] = struct{}{}
@@ -1476,6 +1474,16 @@ func (g *Gateway) recoverPendingMessages() {
 		slog.Info("recovering pending messages", "jid", jid)
 		g.queue.EnqueueMessageCheck(jid)
 	}
+}
+
+func extractRoom(match string) string {
+	for _, f := range strings.Fields(match) {
+		k, v, ok := strings.Cut(f, "=")
+		if ok && k == "room" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (g *Gateway) groupList() []core.Group {

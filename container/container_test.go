@@ -173,6 +173,15 @@ func TestMigrationVersion(t *testing.T) {
 			t.Errorf("got %d, want 0", v)
 		}
 	})
+
+	t.Run("non-numeric", func(t *testing.T) {
+		p := filepath.Join(d, "ALPHA")
+		os.WriteFile(p, []byte("abc\n"), 0o644)
+		v := MigrationVersion(p)
+		if v != 0 {
+			t.Errorf("got %d, want 0", v)
+		}
+	})
 }
 
 func TestSeedSettings(t *testing.T) {

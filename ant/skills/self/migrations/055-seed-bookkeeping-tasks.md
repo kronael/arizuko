@@ -16,9 +16,12 @@ For each group returned by `refresh_groups`:
 
 1. Call `list_tasks` — count entries whose prompt contains `compact-memories`
 2. If count >= 5, skip (already seeded)
-3. Call `list_routes` — find a route whose target matches this group's
-   folder. Extract the JID from the route's match field (strip `room=`
-   prefix). If no route exists, use `local:<folder>` as the targetJid.
+3. Determine the targetJid for this group:
+   - Call `list_routes` — find a route whose target matches this group's folder
+   - Reconstruct the JID from the match field: if match has both `platform=X`
+     and `room=Y`, use `X:Y`; if only `room=Y`, use `Y`; if `chat_jid=Z`,
+     use `Z` directly. Skip routes with wildcard values (`*`, `?`).
+   - If no usable route exists, use `local:<folder>` as the targetJid
 4. For each missing task from the 5 below, call `schedule_task`:
 
 | prompt | cron | contextMode |
