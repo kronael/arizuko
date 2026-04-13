@@ -535,7 +535,7 @@ async function runQuery(
 
       const now = Date.now();
       const timeTriggered = now - lastProgressAt >= PROGRESS_INTERVAL_MS;
-      const countTriggered = messageCount > 0 && messageCount % 100 === 0;
+      const countTriggered = messageCount > 0 && messageCount % 200 === 0;
       if (timeTriggered || countTriggered) {
         const snippet = lastAssistantText?.slice(0, 280) ?? `${messageCount} messages processed`;
         const mins = Math.round((now - lastProgressAt) / 60_000);
