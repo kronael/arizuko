@@ -207,8 +207,16 @@ func (g *Gateway) saveState() {
 }
 
 func (g *Gateway) checkMigrationVersion() {
-	src := filepath.Join(g.cfg.HostAppDir, "ant", "skills", "self", "MIGRATION_VERSION")
-	latest := container.MigrationVersion(src)
+	// Try the container-side mount first (/srv/app/arizuko is the canonical
+	// compose mount point), then fall back to HostAppDir for local dev.
+	var latest int
+	for _, base := range []string{"/srv/app/arizuko", g.cfg.HostAppDir} {
+		latest = container.MigrationVersion(
+			filepath.Join(base, "ant", "skills", "self", "MIGRATION_VERSION"))
+		if latest > 0 {
+			break
+		}
+	}
 	if latest == 0 {
 		return
 	}
