@@ -1,8 +1,8 @@
 ---
 name: service
 description: >
-  Design or build HTTP APIs and web services with health
-  checks, versioned routes, caching, and input validation.
+  Use when building REST APIs or web services. Covers /health,
+  versioned routes, caching, and input validation.
 ---
 
 # Service/API

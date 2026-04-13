@@ -1,8 +1,8 @@
 ---
 name: testing
 description: >
-  Write tests or set up test infrastructure. Covers unit, e2e,
-  and smoke tests with testcontainers and fixture patterns.
+  Use when writing tests, debugging test failures, or setting up
+  test infrastructure. Covers unit, e2e, smoke, testcontainers.
 ---
 
 # Testing

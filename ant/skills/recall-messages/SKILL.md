@@ -1,8 +1,8 @@
 ---
 name: recall-messages
 description: >
-  Search past chat messages for what someone said, past
-  decisions, or conversation history. Not for stored knowledge.
+  Use when asked what someone said, what was discussed, or to
+  find a past conversation. Searches chat message history, not facts/diary.
 user_invocable: true
 arg: <question>
 ---

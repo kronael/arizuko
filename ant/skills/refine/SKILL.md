@@ -1,8 +1,8 @@
 ---
 name: refine
 description: >
-  Simplify and clean up code after a feature lands. Removes dead
-  code, collapses verbosity, runs tests, and commits [refined].
+  Use after shipping a feature to simplify and clean up. Removes
+  dead code, collapses verbosity, runs tests, commits [refined].
 user-invocable: true
 ---
 

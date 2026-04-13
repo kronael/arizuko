@@ -1,8 +1,8 @@
 ---
 name: trader
 description: >
-  Build or modify trading bots with state machines, order
-  management, exchange APIs, WebSocket feeds, and paper mode.
+  Use when building or modifying trading bots. Covers state
+  machines, order management, exchange APIs, WebSocket feeds, paper mode.
 ---
 
 # Trader

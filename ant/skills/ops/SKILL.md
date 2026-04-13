@@ -1,8 +1,8 @@
 ---
 name: ops
 description: >
-  Write Dockerfiles, CI pipelines, Ansible playbooks, or
-  configure monitoring, logging, and deployment infrastructure.
+  Use when writing Dockerfiles, CI pipelines, Ansible playbooks,
+  or deployment config. Covers monitoring, logging, systemd.
 ---
 
 # Ops

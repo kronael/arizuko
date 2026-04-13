@@ -1,8 +1,8 @@
 ---
 name: cli
 description: >
-  Build command-line tools with proper argument parsing, help
-  text, exit codes, signal handling, and config precedence.
+  Use when writing CLI tools, argument parsing, --help text,
+  exit codes, or signal handling. Covers argparse, click, clap patterns.
 ---
 
 # CLI Style
