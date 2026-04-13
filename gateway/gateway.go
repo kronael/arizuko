@@ -307,18 +307,18 @@ func (g *Gateway) pollOnce() {
 	routes := g.store.AllRoutes()
 
 	for chatJid, chatMsgs := range byChat {
-		group, ok := g.groupForJid(chatJid)
+		last := chatMsgs[len(chatMsgs)-1]
+		group, ok := g.resolveGroup(last)
 		if !ok {
 			if g.cfg.OnboardingEnabled && onboardingAllowed(chatJid, g.cfg.OnboardingPlatforms) {
 				if err := g.store.InsertOnboarding(chatJid); err != nil {
 					slog.Warn("insert onboarding", "jid", chatJid, "err", err)
 				}
 			}
-			slog.Debug("poll: no group for jid", "jid", chatJid)
+			slog.Debug("poll: no route for message", "jid", chatJid)
+			g.advanceAgentCursor(chatJid, chatMsgs)
 			continue
 		}
-
-		last := chatMsgs[len(chatMsgs)-1]
 
 		if g.handleStickyCommand(chatJid, last) {
 			slog.Debug("poll: handled sticky command", "jid", chatJid)
@@ -373,12 +373,6 @@ func (g *Gateway) pollOnce() {
 }
 
 func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
-	group, ok := g.groupForJid(chatJid)
-	if !ok {
-		g.store.MarkChatErrored(chatJid)
-		return false, fmt.Errorf("group not registered: %s", chatJid)
-	}
-
 	agentTs := g.store.GetAgentCursor(chatJid)
 
 	msgs, err := g.store.MessagesSince(chatJid, agentTs, g.cfg.Name)
@@ -386,6 +380,12 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return false, fmt.Errorf("query messages: %w", err)
 	}
 	if len(msgs) == 0 {
+		return true, nil
+	}
+
+	group, ok := g.resolveGroup(msgs[len(msgs)-1])
+	if !ok {
+		g.advanceAgentCursor(chatJid, msgs)
 		return true, nil
 	}
 
@@ -1202,13 +1202,14 @@ func parseEscalationOrigin(prompt string) *escalationMetadata {
 	return &meta
 }
 
-func (g *Gateway) groupForJid(jid string) (core.Group, bool) {
+func (g *Gateway) resolveGroup(msg core.Message) (core.Group, bool) {
 	for _, prefix := range []string{"local:", "web:"} {
-		if folder, ok := strings.CutPrefix(jid, prefix); ok {
+		if folder, ok := strings.CutPrefix(msg.ChatJID, prefix); ok {
 			return g.store.GroupByFolder(folder)
 		}
 	}
-	if folder := g.store.DefaultFolderForJID(jid); folder != "" {
+	folder := router.ResolveRoute(msg, g.store.AllRoutes())
+	if folder != "" {
 		return g.store.GroupByFolder(folder)
 	}
 	return core.Group{}, false
@@ -1485,9 +1486,6 @@ func (g *Gateway) delegateViaMessage(
 func (g *Gateway) recoverPendingMessages() {
 	for _, jid := range g.store.PendingChatJIDs(g.cfg.Name) {
 		if g.store.IsChatErrored(jid) {
-			continue
-		}
-		if _, ok := g.groupForJid(jid); !ok {
 			continue
 		}
 		slog.Info("recovering pending messages", "jid", jid)

@@ -257,36 +257,39 @@ func TestCmdRoot_AlreadyRoot(t *testing.T) {
 	}
 }
 
-func TestGroupForJid_Found(t *testing.T) {
+func TestResolveGroup_Found(t *testing.T) {
 	gw, _ := testGateway(t)
 	setGroup(gw, "jid1", core.Group{Folder: "alpha", Name: "Alpha"})
 
-	gr, ok := gw.groupForJid("jid1")
+	msg := core.Message{ChatJID: "jid1", Sender: "user", Verb: "message"}
+	gr, ok := gw.resolveGroup(msg)
 	if !ok {
-		t.Fatal("groupForJid returned false for known JID")
+		t.Fatal("resolveGroup returned false for routed message")
 	}
 	if gr.Folder != "alpha" {
 		t.Errorf("folder = %q, want %q", gr.Folder, "alpha")
 	}
 }
 
-func TestGroupForJid_NotFound(t *testing.T) {
+func TestResolveGroup_NotFound(t *testing.T) {
 	gw, _ := testGateway(t)
 	setGroup(gw, "jid1", core.Group{Folder: "alpha"})
 
-	_, ok := gw.groupForJid("jid999")
+	msg := core.Message{ChatJID: "jid999", Verb: "message"}
+	_, ok := gw.resolveGroup(msg)
 	if ok {
-		t.Error("groupForJid returned true for unknown JID")
+		t.Error("resolveGroup returned true for unrouted message")
 	}
 }
 
-func TestGroupForJid_LocalPrefix(t *testing.T) {
+func TestResolveGroup_LocalPrefix(t *testing.T) {
 	gw, s := testGateway(t)
 	s.PutGroup(core.Group{Folder: "beta", Name: "Beta"})
 
-	gr, ok := gw.groupForJid("local:beta")
+	msg := core.Message{ChatJID: "local:beta", Verb: "message"}
+	gr, ok := gw.resolveGroup(msg)
 	if !ok {
-		t.Fatal("groupForJid returned false for local: prefix")
+		t.Fatal("resolveGroup returned false for local: prefix")
 	}
 	if gr.Name != "Beta" {
 		t.Errorf("name = %q, want %q", gr.Name, "Beta")
@@ -1158,11 +1161,6 @@ func TestRecoverPendingMessages(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.MaxContainers = 10
 
-	// Register groups so groupForJid finds them.
-	setGroup(gw, "telegram:-100", core.Group{Folder: "grp1", Name: "G1"})
-	setGroup(gw, "discord:200", core.Group{Folder: "grp2", Name: "G2"})
-	s.PutGroup(core.Group{Folder: "mygroup", Name: "MyGroup"})
-
 	var mu sync.Mutex
 	recovered := map[string]bool{}
 	gw.queue.SetProcessMessagesFn(func(jid string) (bool, error) {
@@ -1170,6 +1168,11 @@ func TestRecoverPendingMessages(t *testing.T) {
 		recovered[jid] = true
 		mu.Unlock()
 		return true, nil
+	})
+	gw.queue.SetHasPendingFn(func(jid string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return !recovered[jid]
 	})
 
 	s.PutMessage(core.Message{
