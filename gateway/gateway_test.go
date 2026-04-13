@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -1046,6 +1047,69 @@ func TestFormatOutbound_ThinkOnlyProducesEmpty(t *testing.T) {
 		got := router.FormatOutbound(tc)
 		if got != "" {
 			t.Errorf("FormatOutbound(%q) = %q, want empty", tc, got)
+		}
+	}
+}
+
+func TestCheckMigrationVersion(t *testing.T) {
+	gw, s := testGateway(t)
+
+	// Set HostAppDir so the source MIGRATION_VERSION can be found
+	gw.cfg.HostAppDir = t.TempDir()
+	srcDir := filepath.Join(gw.cfg.HostAppDir, "ant", "skills", "self")
+	os.MkdirAll(srcDir, 0o755)
+	os.WriteFile(filepath.Join(srcDir, "MIGRATION_VERSION"), []byte("55\n"), 0o644)
+
+	// Create root group with old version
+	s.PutGroup(core.Group{Folder: "myworld", Name: "MyWorld"})
+	groupSkillDir := filepath.Join(gw.cfg.GroupsDir, "myworld", ".claude", "skills", "self")
+	os.MkdirAll(groupSkillDir, 0o755)
+	os.WriteFile(filepath.Join(groupSkillDir, "MIGRATION_VERSION"), []byte("54\n"), 0o644)
+
+	// Create child group (should be skipped)
+	s.PutGroup(core.Group{Folder: "myworld/child", Name: "Child"})
+
+	gw.checkMigrationVersion()
+
+	// Should have injected a message into local:myworld
+	msgs, _ := s.MessagesSince("local:myworld", time.Time{}, "nobot")
+	found := false
+	for _, m := range msgs {
+		if strings.Contains(m.Content, "auto-migration") && m.Sender == "system" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected auto-migration message in local:myworld")
+	}
+
+	// Child group should NOT have a migration message
+	childMsgs, _ := s.MessagesSince("local:myworld/child", time.Time{}, "nobot")
+	for _, m := range childMsgs {
+		if strings.Contains(m.Content, "auto-migration") {
+			t.Error("child group should not get auto-migration message")
+		}
+	}
+}
+
+func TestCheckMigrationVersion_UpToDate(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.HostAppDir = t.TempDir()
+	srcDir := filepath.Join(gw.cfg.HostAppDir, "ant", "skills", "self")
+	os.MkdirAll(srcDir, 0o755)
+	os.WriteFile(filepath.Join(srcDir, "MIGRATION_VERSION"), []byte("55\n"), 0o644)
+
+	s.PutGroup(core.Group{Folder: "uptodate", Name: "UpToDate"})
+	groupSkillDir := filepath.Join(gw.cfg.GroupsDir, "uptodate", ".claude", "skills", "self")
+	os.MkdirAll(groupSkillDir, 0o755)
+	os.WriteFile(filepath.Join(groupSkillDir, "MIGRATION_VERSION"), []byte("55\n"), 0o644)
+
+	gw.checkMigrationVersion()
+
+	msgs, _ := s.MessagesSince("local:uptodate", time.Time{}, "nobot")
+	for _, m := range msgs {
+		if strings.Contains(m.Content, "auto-migration") {
+			t.Error("should not trigger migration when up to date")
 		}
 	}
 }

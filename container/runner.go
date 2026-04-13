@@ -432,9 +432,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 }
 
 func prepareInput(cfg *core.Config, in Input, groupDir string) Input {
-	latest := migrationVersion(
+	latest := MigrationVersion(
 		filepath.Join(cfg.HostAppDir, "ant", "skills", "self", "MIGRATION_VERSION"))
-	agent := migrationVersion(
+	agent := MigrationVersion(
 		filepath.Join(groupDir, ".claude", "skills", "self", "MIGRATION_VERSION"))
 	if agent < latest {
 		in.Annotations = append(in.Annotations, fmt.Sprintf(
@@ -816,7 +816,7 @@ func writeGatewayCaps(groupDir string, cfg *core.Config) {
 		[]byte(b.String()), 0o644)
 }
 
-func migrationVersion(path string) int {
+func MigrationVersion(path string) int {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0

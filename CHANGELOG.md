@@ -11,6 +11,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **`/root` gateway command**: delegates messages to instance root group
+  with grants-based auth (tier <= 1). Commit 3326abe.
+
+- **migration 055 — bookkeeping cron tasks**: seeds the 5 compact-memories
+  scheduled tasks for groups missing them. Fixes dead episodes pipeline
+  caused by groups created outside onbod `/approve` flow.
+
 - **mcpc in agent image**: apify's `@apify/mcpc` MCP CLI is installed
   globally in the agent container so ad-hoc scripts can call MCP
   tools without being the agent. HTTPie-style param grammar

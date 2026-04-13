@@ -141,7 +141,7 @@ func TestMigrationVersion(t *testing.T) {
 	d := t.TempDir()
 
 	t.Run("missing file", func(t *testing.T) {
-		v := migrationVersion(filepath.Join(d, "nope"))
+		v := MigrationVersion(filepath.Join(d, "nope"))
 		if v != 0 {
 			t.Errorf("got %d, want 0", v)
 		}
@@ -150,7 +150,7 @@ func TestMigrationVersion(t *testing.T) {
 	t.Run("valid version", func(t *testing.T) {
 		p := filepath.Join(d, "VERSION")
 		os.WriteFile(p, []byte("42\n"), 0o644)
-		v := migrationVersion(p)
+		v := MigrationVersion(p)
 		if v != 42 {
 			t.Errorf("got %d, want 42", v)
 		}
@@ -159,7 +159,7 @@ func TestMigrationVersion(t *testing.T) {
 	t.Run("whitespace", func(t *testing.T) {
 		p := filepath.Join(d, "VER2")
 		os.WriteFile(p, []byte("  7  \n"), 0o644)
-		v := migrationVersion(p)
+		v := MigrationVersion(p)
 		if v != 7 {
 			t.Errorf("got %d, want 7", v)
 		}
@@ -168,7 +168,7 @@ func TestMigrationVersion(t *testing.T) {
 	t.Run("empty file", func(t *testing.T) {
 		p := filepath.Join(d, "EMPTY")
 		os.WriteFile(p, []byte(""), 0o644)
-		v := migrationVersion(p)
+		v := MigrationVersion(p)
 		if v != 0 {
 			t.Errorf("got %d, want 0", v)
 		}

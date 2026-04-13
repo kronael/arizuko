@@ -163,6 +163,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 	slog.Info("all channels connected")
 
 	g.recoverPendingMessages()
+	g.checkMigrationVersion()
 
 	groups := g.store.AllGroups()
 	slog.Info("arizuko running",
@@ -203,6 +204,38 @@ func (g *Gateway) saveState() {
 	defer g.mu.RUnlock()
 	g.store.SetState("last_timestamp",
 		g.lastTimestamp.Format(time.RFC3339Nano))
+}
+
+func (g *Gateway) checkMigrationVersion() {
+	src := filepath.Join(g.cfg.HostAppDir, "ant", "skills", "self", "MIGRATION_VERSION")
+	latest := container.MigrationVersion(src)
+	if latest == 0 {
+		return
+	}
+	for _, gr := range g.store.AllGroups() {
+		if !groupfolder.IsRoot(gr.Folder) {
+			continue
+		}
+		agent := container.MigrationVersion(
+			filepath.Join(g.cfg.GroupsDir, gr.Folder, ".claude", "skills", "self", "MIGRATION_VERSION"))
+		if agent >= latest {
+			continue
+		}
+		slog.Info("auto-migrate: version behind, triggering /migrate",
+			"group", gr.Folder, "agent", agent, "latest", latest)
+		prompt := fmt.Sprintf(
+			"System auto-migration: skills version %d → %d. Run /migrate now. "+
+				"After migration, send a short changelog summary to each child group using send_message.",
+			agent, latest)
+		g.store.PutMessage(core.Message{
+			ID:        core.MsgID("auto-migrate-" + gr.Folder),
+			ChatJID:   "local:" + gr.Folder,
+			Sender:    "system",
+			Content:   prompt,
+			Timestamp: time.Now(),
+		})
+		g.queue.EnqueueMessageCheck("local:" + gr.Folder)
+	}
 }
 
 func (g *Gateway) messageLoop(ctx context.Context) {
