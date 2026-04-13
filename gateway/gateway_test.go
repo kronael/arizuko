@@ -1075,7 +1075,7 @@ func TestCheckMigrationVersion(t *testing.T) {
 	msgs, _ := s.MessagesSince("local:myworld", time.Time{}, "nobot")
 	found := false
 	for _, m := range msgs {
-		if strings.Contains(m.Content, "auto-migration") && m.Sender == "system" {
+		if strings.Contains(m.Content, "System update") && m.Sender == "system" {
 			found = true
 		}
 	}
@@ -1086,7 +1086,7 @@ func TestCheckMigrationVersion(t *testing.T) {
 	// Child group should NOT have a migration message
 	childMsgs, _ := s.MessagesSince("local:myworld/child", time.Time{}, "nobot")
 	for _, m := range childMsgs {
-		if strings.Contains(m.Content, "auto-migration") {
+		if strings.Contains(m.Content, "System update") {
 			t.Error("child group should not get auto-migration message")
 		}
 	}
@@ -1108,7 +1108,7 @@ func TestCheckMigrationVersion_UpToDate(t *testing.T) {
 
 	msgs, _ := s.MessagesSince("local:uptodate", time.Time{}, "nobot")
 	for _, m := range msgs {
-		if strings.Contains(m.Content, "auto-migration") {
+		if strings.Contains(m.Content, "System update") {
 			t.Error("should not trigger migration when up to date")
 		}
 	}

@@ -232,8 +232,10 @@ func (g *Gateway) checkMigrationVersion() {
 		slog.Info("auto-migrate: version behind, triggering /migrate",
 			"group", gr.Folder, "agent", agent, "latest", latest)
 		prompt := fmt.Sprintf(
-			"System auto-migration: skills version %d → %d. Run /migrate now. "+
-				"After migration, send a short changelog summary to each child group using send_message.",
+			"System update available: v%d → v%d. Run /migrate now.\n"+
+				"After migration completes, notify each child group using send_message with a short, "+
+				"friendly changelog summary — what's new, what changed, one or two sentences per item. "+
+				"Write it as a system update announcement they can read, not an internal log.",
 			agent, latest)
 		g.store.PutMessage(core.Message{
 			ID:        core.MsgID("auto-migrate-" + gr.Folder),
@@ -1443,15 +1445,28 @@ func (g *Gateway) delegateViaMessage(
 }
 
 func (g *Gateway) recoverPendingMessages() {
-	// Check every routed chat for pending messages. Using routes (not
-	// a bounded message query) ensures we never miss a chat due to
-	// LIMIT on the messages table.
-	routes := g.store.AllRoutes()
-	for _, r := range routes {
-		jid := strings.TrimPrefix(r.Match, "room=")
-		if _, ok := g.groupForJid(jid); !ok {
-			continue
+	// Build set of JIDs to check: every route's external JID + local:folder
+	// for each group. Using routes (not a bounded message query) ensures we
+	// never miss a chat due to LIMIT on the messages table.
+	jids := make(map[string]struct{})
+	for _, r := range g.store.AllRoutes() {
+		room := strings.TrimPrefix(r.Match, "room=")
+		// External routes have numeric room IDs; internal routes use folder names.
+		if _, ok := g.groupForJid(room); ok {
+			jids[room] = struct{}{}
 		}
+		// Also try the prefixed JID forms that routes may map to.
+		for _, pfx := range []string{"telegram:", "local:"} {
+			jid := pfx + room
+			if _, ok := g.groupForJid(jid); ok {
+				jids[jid] = struct{}{}
+			}
+		}
+	}
+	for _, gr := range g.store.AllGroups() {
+		jids["local:"+gr.Folder] = struct{}{}
+	}
+	for jid := range jids {
 		if g.store.IsChatErrored(jid) {
 			continue
 		}
