@@ -458,12 +458,29 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 
 // --- auth gate ---------------------------------------------------------------
 
-// Unauthed private route bounces to the login page.
-func TestProxydRouteUnauthedPrivateRedirects(t *testing.T) {
+// Unknown path redirects to /pub/ prefix (public fallback).
+func TestProxydRouteUnknownPathRedirectsToPub(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")
 	defer up.Close()
 
-	req := httptest.NewRequest("GET", "/private", nil)
+	req := httptest.NewRequest("GET", "/arizuko", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("status = %d, want 302", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/pub/arizuko" {
+		t.Errorf("location = %q, want /pub/arizuko", loc)
+	}
+}
+
+// Auth-gated path (/chat/) without credentials bounces to login.
+func TestProxydRouteUnauthedChatRedirectsToLogin(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/chat/atlas", nil)
 	w := httptest.NewRecorder()
 	s.route(w, req)
 
@@ -475,13 +492,13 @@ func TestProxydRouteUnauthedPrivateRedirects(t *testing.T) {
 	}
 }
 
-// Valid JWT on a private route reaches the upstream and carries user headers.
+// Valid JWT on an auth-gated route reaches the upstream and carries user headers.
 func TestProxydRouteWithJWTReachesUpstream(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")
 	defer up.Close()
 
 	tok := testMintJWT([]byte("testsecret"), "alice")
-	req := httptest.NewRequest("GET", "/private/page", nil)
+	req := httptest.NewRequest("GET", "/chat/atlas", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	s.route(w, req)
@@ -514,7 +531,7 @@ func TestProxydRouteWithRefreshCookieReachesUpstream(t *testing.T) {
 	s, up := testRouteServer(t, st, "testsecret")
 	defer up.Close()
 
-	req := httptest.NewRequest("GET", "/private", nil)
+	req := httptest.NewRequest("GET", "/chat/atlas", nil)
 	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: token})
 	w := httptest.NewRecorder()
 	s.route(w, req)
@@ -541,7 +558,7 @@ func TestProxydRouteRawSecretAsRefreshCookieRejected(t *testing.T) {
 	s, up := testRouteServer(t, st, "rawsecret")
 	defer up.Close()
 
-	req := httptest.NewRequest("GET", "/private", nil)
+	req := httptest.NewRequest("GET", "/chat/atlas", nil)
 	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "rawsecret"})
 	w := httptest.NewRecorder()
 	s.route(w, req)

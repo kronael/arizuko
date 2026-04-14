@@ -322,10 +322,19 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/pub/") {
-		upstream.ServeHTTP(w, r)
-	} else {
-		s.requireAuth(upstream.ServeHTTP)(w, r)
+		s.viteProxy.ServeHTTP(w, r)
+		return
 	}
+	// Auth-gated paths that belong to webd, auth, or internal services.
+	for _, p := range []string{"/chat/", "/api/", "/x/", "/static/", "/auth/"} {
+		if strings.HasPrefix(r.URL.Path, p) {
+			s.requireAuth(upstream.ServeHTTP)(w, r)
+			return
+		}
+	}
+	// Unknown path — redirect to /pub/ prefix so public content is reachable
+	// without auth. If the pub target doesn't exist, vite returns 404.
+	http.Redirect(w, r, "/pub"+r.URL.Path, http.StatusFound)
 }
 
 func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
