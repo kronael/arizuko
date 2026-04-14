@@ -3,72 +3,83 @@ status: draft
 phase: next
 ---
 
-# Unified Auth
+# User Identity & Auth
 
-Unifies OAuth web login and slink (anonymous web chat) into one
-auth layer. Replaces the separate slink token system.
+User-centric auth model. The user is the identity — JIDs are
+claimed devices, groups are workspaces, routes are user-configured.
 
-## ACL
+## Data model
 
-`user_groups` table. No rows = no access. `*` = operator.
+```
+user (OAuth sub → username)
+  ├── jids: telegram:123, whatsapp:420...  (proved ownership)
+  ├── groups: alice/, krons/support        (access grants)
+  └── routes: telegram:123 → alice/        (user-managed)
+               telegram:123 → krons/support
+```
 
-Onboarding inserts a row when creating a world. Operators manage
-rows via SQL or CLI (`arizuko grant <instance> <sub> <folder|*>`).
+- `user_groups`: ACL. No rows = no access. `*` = operator.
+- `routes`: JID → group. User must have `user_groups` access to
+  the target group to create a route.
+- A single JID can route to multiple groups.
+
+## Onboarding flow
+
+Unknown JID messages bot → onbod sends auth link → user clicks.
+
+### New user (no world)
+
+1. OAuth authenticate
+2. Pick username (validates: `^[a-z][a-z0-9-]{2,29}$`)
+3. System creates world `<username>/`, grants `user_groups` access
+4. JID auto-routed to `<username>/`
+
+### Existing user, new JID
+
+1. OAuth authenticate
+2. System recognizes OAuth sub → shows user dashboard
+3. User picks which groups this JID routes to
+4. Routes created
+
+Same auth entry point. Branch after OAuth based on "user exists?".
+
+## User dashboard
+
+Served by onbod at `/onboard` (auth-gated via proxyd).
+
+**No world yet**: username picker → create world → done.
+
+**Has a world**:
+
+```
+My JIDs:     telegram:123, whatsapp:420   [+ Add platform]
+My groups:   alice/, krons/support
+Routing:     telegram:123 → alice/ ✓, krons/support ✓
+             whatsapp:420 → alice/ ✓
+             [edit]
+```
+
+Simple HTML, same style as existing auth pages. No framework.
 
 ## Slink → scoped auth token
 
 A slink token is a refresh token with anonymous identity, scoped
-to one group. Stored in `auth_sessions` like OAuth refresh tokens.
+to specific groups. Stored in `auth_sessions`.
 
-- `sub`: `anon:<8-char-hex>` (derived from IP or random)
-- `groups`: `[<folder>]`
-- Issued by bot via MCP tool or by onboarding flow
+- Issued by bot via MCP tool
 - Revoked by deleting from `auth_sessions`
+- Eliminates separate slink_token column and codepath
 
-Eliminates: `slink_token` column on groups, `GroupBySlinkToken`,
-separate rate limiter, separate proxyd codepath.
+## ACL enforcement
 
-## Token flow
-
-```
-POST /slink/<token>  →  proxyd looks up auth_sessions
-                     →  sets X-User-Sub, X-User-Groups
-                     →  proxies to webd (same as OAuth)
-```
-
-## What changes
-
-- `store/auth.go`: `UserGroups` — no rows = empty list (no access),
-  `*` row = nil (operator). Add `GrantUserGroup`.
-- `proxyd`: slink route uses `requireAuth` instead of custom lookup
-- `webd/slink.go`: receives user headers from proxyd, no token lookup
-- `store/groups.go`: drop `slink_token` auto-generation
-- MCP tool: `issue_slink` — creates auth session scoped to group
-
-## JID claiming
-
-A JID (telegram:123, whatsapp:420...) is linked to a world by
-proving ownership: you sent a message from that JID, then
-authenticated via OAuth.
-
-### First contact
-
-Message from unknown JID → onbod sends auth link → user
-authenticates → picks username → world created → route added.
-Single flow handles world creation + JID claim.
-
-### Adding a platform
-
-Message from unknown JID → onbod sends auth link → user
-authenticates → system checks: does this OAuth sub already have
-a `user_groups` row? If yes → add route to existing world (no
-new world). If no → create new world.
-
-Same code path. The only branch is "existing user?" check after
-OAuth completes.
+- `store/auth.go`: `UserGroups` — no rows = no access, `*` = operator
+- `proxyd`: sets `X-User-Groups` from JWT/session
+- `webd`: `requireFolder` checks `X-User-Groups`
+- Route creation: check `user_groups` before inserting
 
 ## Not in scope
 
-- Per-token rate limits (use existing per-IP limiter)
-- Token expiry UI (tokens last 30d like refresh tokens)
-- Multiple groups per slink token
+- Email/password auth (OAuth only)
+- Token expiry UI
+- Group invitations (operator manages `user_groups` directly)
+- Username changes
