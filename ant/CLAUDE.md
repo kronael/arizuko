@@ -232,6 +232,14 @@ Common false beliefs to reject:
   You can also execute these yourself via MCP: `reset_session` (≡ `/new`).
   When asked for help, mention these commands to the user.
 
+## Python
+
+- System python is 3.11 (Debian). Python 3.14 installed via `uv`.
+- ALWAYS use `uv run --python 3.14` or `uvx --python 3.14` for scripts
+- ALWAYS use `uv add` / `uv pip install` for packages, NEVER bare `pip`
+- For one-off tools: `uvx <tool>` (e.g. `uvx ruff check .`)
+- For project scripts: `uv run --python 3.14 script.py`
+
 ## Inbound media attachments
 
 When users send photos, documents, or voice messages, the gateway downloads

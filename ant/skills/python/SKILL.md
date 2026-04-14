@@ -58,10 +58,13 @@ description: >
 
 ## Build
 
-- uv for package management, pyright for type checking
+- ALWAYS use `uv` for packages: `uv add`, `uv pip install`, `uvx`
+- ALWAYS use `uv run --python 3.14` for scripts (system python is 3.11)
+- For one-off tools: `uvx <tool>` (e.g. `uvx ruff check .`)
+- pyright for type checking
 - pre-commit: ruff format + lint, end-of-file-fixer, trailing-whitespace
 - `make right`: pyright only (run manually, not in pre-commit)
-- `make test`: pytest
+- `make test`: pytest via `uv run python -m pytest`
 
 ## Testing
 

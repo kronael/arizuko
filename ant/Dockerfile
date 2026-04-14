@@ -92,8 +92,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     && chmod -R a+rw /usr/local/cargo /usr/local/rustup
 ENV PATH="/usr/local/cargo/bin:$PATH"
 
-# uv — fast Python package manager
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+# uv — fast Python package manager + managed Python 3.14
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
+    && uv python install 3.14 \
+    && ln -sf $(uv python find 3.14) /usr/local/bin/python3.14
 
 # Binary dev tools (yq, duckdb, hadolint, delta, xh, websocat, hurl, sops)
 RUN set -e; ARCH=$(dpkg --print-architecture); \
