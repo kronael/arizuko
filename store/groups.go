@@ -37,6 +37,9 @@ func (s *Store) CountErroredChats() int {
 }
 
 func (s *Store) PutGroup(g core.Group) error {
+	if g.SlinkToken == "" {
+		g.SlinkToken = core.GenSlinkToken()
+	}
 	cfgJSON, _ := json.Marshal(g.Config)
 
 	state := g.State

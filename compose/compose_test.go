@@ -126,6 +126,31 @@ depends_on = ["gated", "telegram"]
 	}
 }
 
+func TestGenerateWebServices(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"WEB_PORT=8095\nCHANNEL_SECRET=sec\nAUTH_SECRET=jwt\nASSISTANT_NAME=bot\n"), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "webd:") {
+		t.Error("missing webd service")
+	}
+	if !strings.Contains(out, "WEBD_URL: 'http://webd:9002'") {
+		t.Error("webd missing WEBD_URL")
+	}
+	if !strings.Contains(out, "WEBD_ADDR: 'http://webd:9002'") {
+		t.Error("proxyd missing WEBD_ADDR")
+	}
+	// proxyd depends on webd
+	if !strings.Contains(out, "depends_on: [gated, dashd, webd]") {
+		t.Error("proxyd missing webd in depends_on")
+	}
+}
+
 func TestInterpolate(t *testing.T) {
 	env := map[string]string{"FOO": "bar", "BAZ": "qux"}
 	got := interpolate("${FOO}-${BAZ}", env)

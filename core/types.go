@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -112,6 +114,13 @@ type SessionRecord struct {
 	Result    string
 	Error     string
 	MsgCount  int
+}
+
+// GenSlinkToken returns a 16-char hex slink token (8 random bytes).
+func GenSlinkToken() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // MsgID returns a unique message ID with the given prefix (e.g. "inject", "cmd-new").

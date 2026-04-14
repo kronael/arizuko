@@ -49,14 +49,12 @@ func (s *server) handler() http.Handler {
 
 	// Private: JSON API.
 	mux.HandleFunc("GET /api/groups", s.requireUser(s.handleAPIGroups))
-	mux.HandleFunc("GET /api/groups/{folder...}/topics", s.requireFolder(s.handleAPITopics))
-	mux.HandleFunc("GET /api/groups/{folder...}/messages", s.requireFolder(s.handleAPIMessages))
-	mux.HandleFunc("POST /api/groups/{folder...}/typing", s.requireFolder(s.handleAPITyping))
+	mux.HandleFunc("GET /api/groups/{rest...}", s.requireUser(s.routeAPIGroups))
+	mux.HandleFunc("POST /api/groups/{rest...}", s.requireUser(s.routeAPIGroups))
 
 	// Private: HTMX partials.
 	mux.HandleFunc("GET /x/groups", s.requireUser(s.handleXGroups))
-	mux.HandleFunc("GET /x/groups/{folder...}/topics", s.requireFolder(s.handleXTopics))
-	mux.HandleFunc("GET /x/groups/{folder...}/messages", s.requireFolder(s.handleXMessages))
+	mux.HandleFunc("GET /x/groups/{rest...}", s.requireUser(s.routeXGroups))
 
 	return loggingMiddleware(mux)
 }
@@ -95,6 +93,46 @@ func (s *server) requireFolder(next http.HandlerFunc) http.HandlerFunc {
 		}
 		http.Error(w, "Forbidden", http.StatusForbidden)
 	})
+}
+
+// splitFolderSuffix splits "atlas/content/topics" → ("atlas/content", "topics").
+func splitFolderSuffix(rest string) (string, string) {
+	for _, suffix := range []string{"/topics", "/messages", "/typing"} {
+		if strings.HasSuffix(rest, suffix) {
+			return rest[:len(rest)-len(suffix)], suffix[1:]
+		}
+	}
+	return rest, ""
+}
+
+func (s *server) routeAPIGroups(w http.ResponseWriter, r *http.Request) {
+	rest := r.PathValue("rest")
+	folder, suffix := splitFolderSuffix(rest)
+	r.SetPathValue("folder", folder)
+	switch {
+	case suffix == "topics":
+		s.requireFolder(s.handleAPITopics)(w, r)
+	case suffix == "messages":
+		s.requireFolder(s.handleAPIMessages)(w, r)
+	case suffix == "typing" && r.Method == http.MethodPost:
+		s.requireFolder(s.handleAPITyping)(w, r)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (s *server) routeXGroups(w http.ResponseWriter, r *http.Request) {
+	rest := r.PathValue("rest")
+	folder, suffix := splitFolderSuffix(rest)
+	r.SetPathValue("folder", folder)
+	switch suffix {
+	case "topics":
+		s.requireFolder(s.handleXTopics)(w, r)
+	case "messages":
+		s.requireFolder(s.handleXMessages)(w, r)
+	default:
+		http.NotFound(w, r)
+	}
 }
 
 func userSub(r *http.Request) string  { return r.Header.Get("X-User-Sub") }

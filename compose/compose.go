@@ -84,6 +84,7 @@ func Generate(dataDir string) (string, error) {
 	b.WriteString(gatedService(app, flavor, dataDir, env))
 	webPort := envOr(env, "WEB_PORT", "")
 	if webPort != "" && profile != "minimal" {
+		b.WriteString(webdService(app, flavor, dataDir, env))
 		b.WriteString(proxydService(app, flavor, dataDir, env))
 		b.WriteString(vitedService(app, flavor, dataDir, env))
 	}
@@ -284,6 +285,7 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 	if r := envOr(env, "WEB_REDIRECTS", ""); r != "" {
 		environment["WEB_REDIRECTS"] = r
 	}
+	environment["WEBD_ADDR"] = "http://webd:9002"
 	if envOr(env, "WEBDAV_ENABLED", "") == "true" {
 		davPort := envOr(env, "DAV_PORT", "8097")
 		environment["DAV_ADDR"] = "http://davd:" + davPort
@@ -305,7 +307,7 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 		dataDir:     dataDir,
 		ports:       ports,
 		environment: environment,
-		dependsOn:   "gated, dashd",
+		dependsOn:   "gated, dashd, webd",
 	})
 }
 
@@ -323,6 +325,28 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("    depends_on: [gated]\n")
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
+}
+
+func webdService(app, flavor, dataDir string, env map[string]string) string {
+	apiPort := envOr(env, "API_PORT", "8080")
+	environment := map[string]string{
+		"DATA_DIR":       "/srv/app/home",
+		"ROUTER_URL":     "http://gated:" + apiPort,
+		"WEBD_LISTEN":    ":9002",
+		"WEBD_URL":       "http://webd:9002",
+		"ASSISTANT_NAME": envOr(env, "ASSISTANT_NAME", "arizuko"),
+	}
+	if s := envOr(env, "CHANNEL_SECRET", ""); s != "" {
+		environment["CHANNEL_SECRET"] = s
+	}
+	if s := envOr(env, "AUTH_SECRET", ""); s != "" {
+		environment["AUTH_SECRET"] = s
+	}
+	return writeSvc(svcDef{
+		name: "webd", app: app, flavor: flavor,
+		entrypoint: "webd", dataDir: dataDir,
+		environment: environment,
+	})
 }
 
 func vitedService(app, flavor, dataDir string, env map[string]string) string {
