@@ -177,7 +177,10 @@ Implementation: `gateway/ratelimit.go`, check in `pollOnce()` after
 impulse gate. Rate-limited messages: cursor advanced, agent not
 spawned. Next window → agent sees full history.
 
-## Schema changes
+## Access control
+
+See [28-unified-auth.md](28-unified-auth.md).
+Onboarding inserts `user_groups` row when creating the world.
 
 ```sql
 -- onboarding table additions
