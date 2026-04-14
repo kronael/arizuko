@@ -48,24 +48,46 @@ Restart from the host if needed.
 
 ## Web chat (slink)
 
-Each group has a slink token for anonymous web chat access. The webd
-service handles these endpoints:
+Each group has a slink token for public web chat. Endpoints:
 
-- `POST /slink/<token>` — send a message (form: `content`, `topic`)
-- `GET /slink/stream?group=<folder>&topic=<t>` — SSE stream of responses
+- `POST /slink/<token>` — send message (form: `content`, `topic`)
+- `GET /slink/stream?group=<folder>&topic=<t>` — SSE response stream
 
-Authenticated users (X-User-Sub header) get their real identity;
-anonymous users get a stable pseudonym (`anon:<hash>`). Messages route
-through the gateway like any other channel (`web:<folder>` JID).
+When users ask about web chat, point them to
+`https://$WEB_HOST/slink/<token>`. Authenticated UI at `/chat/<folder>`.
 
-SSE events are `event: message` with JSON data:
-`{"id", "role", "content", "created_at"}`.
+### Usage with curl
 
-The authenticated web UI at `/chat/<folder>` provides full chat with
-topic switching, message history, and typing indicators (requires OAuth).
+```bash
+# send a message (returns HTML fragment)
+curl -X POST https://host/slink/TOKEN -d "content=hello&topic=t1"
 
-When users ask about web chat or sharing a chat link, point them to
-the slink URL: `https://$WEB_HOST/slink/<token>`.
+# stream responses (SSE, keep-alive)
+curl -N https://host/slink/stream?group=FOLDER&topic=t1
+# each event: {"id","role","content","created_at"}
+```
+
+### Embedding in apps
+
+Slink is a plain HTTP API — no SDK needed. Send = POST form,
+receive = SSE EventSource. Minimal JS integration:
+
+```js
+// send
+fetch(`/slink/${token}`, {
+  method: 'POST',
+  body: new URLSearchParams({ content: msg, topic: tid })
+})
+// receive
+const es = new EventSource(
+  `/slink/stream?group=${folder}&topic=${tid}`)
+es.addEventListener('message', e => {
+  const { content, role } = JSON.parse(e.data)
+})
+```
+
+Topic is auto-generated if omitted. Reuse the same topic for
+a conversation thread. Anonymous users are identified by IP hash.
 
 ## Post-deploy validation
 

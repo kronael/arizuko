@@ -9,6 +9,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **skills**: web chat (slink) documentation in howto and web skills
+- **proxyd**: unknown paths redirect to /pub/ prefix (public fallback)
+
+### Fixed
+
+- **proxyd**: /pub/\* always routes to vite (was broken when webd upstream set)
+
 ## [v0.26.1] — 2026-04-13
 
 ### Fixed
