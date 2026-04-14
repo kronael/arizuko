@@ -154,7 +154,7 @@ async function readStdin(): Promise<string> {
 const OUTPUT_START_MARKER = '---ARIZUKO_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---ARIZUKO_OUTPUT_END---';
 const HEARTBEAT_INTERVAL_MS = 30_000;
-const PROGRESS_INTERVAL_MS = 10 * 60_000;
+const PROGRESS_INTERVAL_MS = 15 * 60_000;
 
 function writeOutput(output: ContainerOutput): void {
   console.log(OUTPUT_START_MARKER);
@@ -551,7 +551,7 @@ async function runQuery(
 
       const now = Date.now();
       const timeTriggered = now - lastProgressAt >= PROGRESS_INTERVAL_MS;
-      const countTriggered = messageCount > 0 && messageCount % 200 === 0;
+      const countTriggered = messageCount > 0 && messageCount % 500 === 0;
       if (timeTriggered || countTriggered) {
         nudgeProgress(IPC_INPUT_DIR);
         lastProgressAt = now;
@@ -597,6 +597,16 @@ async function runQuery(
   clearInterval(heartbeat);
   ipcPolling = false;
   wakeup = null;
+
+  // Drain any IPC messages that arrived after the last PostToolUse hook
+  // (e.g. progress nudges written during final text generation). These
+  // were never injected mid-query, but the query already finished —
+  // re-running them would produce duplicate responses.
+  const stale = drainIpcInput();
+  if (stale.length > 0) {
+    log(`Discarded ${stale.length} stale IPC messages after query`);
+  }
+
   log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
 
   if (maxTurnsHit && newSessionId) {
