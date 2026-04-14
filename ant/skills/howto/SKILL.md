@@ -36,7 +36,7 @@ Document your chosen axes in a comment at the top of the generated HTML.
 Write a complete, self-contained HTML file from CONTENT.md using your chosen style:
 
 - TLDR grid at top (one card per section)
-- All 20 sections as full cards with prose + code blocks
+- All sections as full cards with prose + code blocks
 - Replace `$ASSISTANT_NAME agent` in title and h1 with `$ARIZUKO_ASSISTANT_NAME`
 - Replace `bot.example.com` with `$WEB_HOST`
 - Dark mode toggle (fixed, top-right)

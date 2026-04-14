@@ -46,6 +46,27 @@ Never list placeholders or examples.
 Vite runs in a separate `vited` Docker container with `restart: on-failure`.
 Restart from the host if needed.
 
+## Web chat (slink)
+
+Each group has a slink token for anonymous web chat access. The webd
+service handles these endpoints:
+
+- `POST /slink/<token>` — send a message (form: `content`, `topic`)
+- `GET /slink/stream?group=<folder>&topic=<t>` — SSE stream of responses
+
+Authenticated users (X-User-Sub header) get their real identity;
+anonymous users get a stable pseudonym (`anon:<hash>`). Messages route
+through the gateway like any other channel (`web:<folder>` JID).
+
+SSE events are `event: message` with JSON data:
+`{"id", "role", "content", "created_at"}`.
+
+The authenticated web UI at `/chat/<folder>` provides full chat with
+topic switching, message history, and typing indicators (requires OAuth).
+
+When users ask about web chat or sharing a chat link, point them to
+the slink URL: `https://$WEB_HOST/slink/<token>`.
+
 ## Post-deploy validation
 
 Fetch the affected URL (WebFetch or curl) to verify before reporting done.

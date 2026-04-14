@@ -225,3 +225,49 @@ gateway   Request submitted. Waiting for approval.
 # operator approves — you get a welcome message
 agent     I'm myworld — your dedicated agent. Tell me what you need.
 ```
+
+---
+
+## 13 — Web Chat
+
+**TLDR:** Chat with the agent directly from a web browser — no app install, no account required.
+
+Every group has a **slink** (shared link) — a token-gated URL that lets anyone send messages and receive responses in real time. Anonymous users get a stable pseudonym derived from their IP; authenticated users see their real identity. The link works from any browser, any device.
+
+Slink URLs look like `https://bot.example.com/slink/<token>`. The token is per-group — each group has its own link. Messages arrive via **Server-Sent Events (SSE)**, so responses stream in as the agent types, just like on messaging platforms.
+
+To send a message, POST to the slink endpoint. To receive responses, open an SSE stream. Topics work the same as on other platforms — each conversation thread is isolated.
+
+```
+# send a message (anonymous)
+curl -X POST https://bot.example.com/slink/a1b2c3d4e5f67890 \
+  -d "content=hello&topic=t1"
+
+# listen for responses (SSE)
+curl -N https://bot.example.com/slink/stream?group=mygroup&topic=t1
+
+# SSE events arrive as:
+event: message
+data: {"id":"bot-abc","role":"assistant","content":"Hi! How can I help?","created_at":"2026-04-14T10:00:00Z"}
+```
+
+The web chat UI is also available at the authenticated endpoint — log in via OAuth and chat through a full web interface with topic switching, message history, and typing indicators.
+
+---
+
+## 14 — Platforms
+
+**TLDR:** One agent, many platforms — Telegram, WhatsApp, Discord, email, web, and more.
+
+Your agent lives in one place but speaks through every connected channel. Messages from Telegram, WhatsApp, Discord, Mastodon, Bluesky, Reddit, email, and the web all route to the same agent, same memory, same workspace. Reply on any platform — the response goes back to where you sent it.
+
+Platform-specific features (voice messages, file attachments, reactions) are normalized before the agent sees them. The agent doesn't know or care which platform you're using — it just sees your message.
+
+```
+# same agent, different entry points:
+telegram  → @mybot
+whatsapp  → +1 555 0100
+discord   → MyBot#1234
+email     → agent@bot.example.com
+web       → https://bot.example.com/slink/<token>
+```
