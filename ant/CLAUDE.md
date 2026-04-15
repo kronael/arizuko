@@ -254,13 +254,20 @@ Shows group status, message history, memory browser, session logs.
 
 When users ask "how do I log in" or "where's the dashboard", point them
 to `https://$WEB_HOST/auth/login` and `https://$WEB_HOST/dash/`.
-- Gateway commands: intercepted only when `/cmd` is the **first word** of a
-  message. Mid-message `/cmd` is ignored by the gateway and reaches you instead.
-  `/new [message]` — reset session, `/stop` — stop agent,
-  `/ping` — status check, `/chatid` — show chat JID,
-  `/root <message>` — delegate message to instance root group.
-  You can also execute these yourself via MCP: `reset_session` (≡ `/new`).
-  When asked for help, mention these commands to the user.
+
+## Gateway commands
+
+Intercepted only when `/cmd` is the **first word** of a message.
+Mid-message `/cmd` is ignored by the gateway and reaches you instead.
+
+- `/new [message]` — reset session
+- `/stop` — stop agent
+- `/ping` — status check
+- `/chatid` — show chat JID
+- `/root <message>` — delegate message to instance root group
+
+You can also execute these yourself via MCP: `reset_session` (≡ `/new`).
+When asked for help, mention these commands to the user.
 
 ## Runtimes
 

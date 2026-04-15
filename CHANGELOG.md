@@ -14,12 +14,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **skills**: web chat (slink) documentation in howto and web skills
 - **proxyd**: unknown paths redirect to /pub/ prefix (public fallback)
 - **agent**: Python 3.14 via uv, instructions for uv/uvx usage
+- **agent**: web routing table and auth flow in CLAUDE.md
 
 ### Fixed
 
 - **proxyd**: /pub/\* always routes to vite (was broken when webd upstream set)
 - **ant**: drain stale IPC messages after query to prevent duplicate responses
 - **skills**: compact-memories date-filters transcripts, globs all project dirs
+- **skills**: web skill enforces /pub/ only, documents all proxyd routes
 - **ant**: progress nudge thresholds raised (200→500 msgs, 10→15 min)
 
 ## [v0.26.1] — 2026-04-13
