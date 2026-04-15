@@ -228,9 +228,6 @@ func (q *GroupQueue) runForGroup(groupJid, reason string) {
 		s.consecutiveFailures++
 		slog.Error("error processing messages for group",
 			"groupJid", groupJid, "err", err)
-		if notifyFn != nil {
-			go notifyFn(groupJid, err)
-		}
 	} else if success {
 		s.consecutiveFailures = 0
 	} else {
