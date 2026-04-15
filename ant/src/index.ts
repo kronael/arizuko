@@ -345,6 +345,7 @@ function nudgeProgress(ipcDir: string): void {
   const fp = path.join(ipcDir, name);
   const payload = JSON.stringify({
     type: 'message',
+    source: 'nudge',
     text: 'Report progress to the user now. Use <status>short summary of what you are doing</status>.',
   });
   try {
@@ -391,6 +392,29 @@ function drainIpcInput(): string[] {
     log(`IPC drain error: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
+}
+
+// Remove only self-generated progress nudges from the IPC dir.
+// Gateway-steered user messages are left for checkIpcMessage.
+function discardNudges(): number {
+  try {
+    fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
+    const files = fs.readdirSync(IPC_INPUT_DIR)
+      .filter(f => f.endsWith('.json'))
+      .sort();
+    let count = 0;
+    for (const file of files) {
+      const fp = path.join(IPC_INPUT_DIR, file);
+      try {
+        const data = JSON.parse(fs.readFileSync(fp, 'utf-8'));
+        if (data.source === 'nudge') {
+          fs.unlinkSync(fp);
+          count++;
+        }
+      } catch { /* skip unreadable files */ }
+    }
+    return count;
+  } catch { return 0; }
 }
 
 // Flag (not a real mutex — single-threaded JS) guarding reentry into
@@ -598,13 +622,12 @@ async function runQuery(
   ipcPolling = false;
   wakeup = null;
 
-  // Drain any IPC messages that arrived after the last PostToolUse hook
-  // (e.g. progress nudges written during final text generation). These
-  // were never injected mid-query, but the query already finished —
-  // re-running them would produce duplicate responses.
-  const stale = drainIpcInput();
-  if (stale.length > 0) {
-    log(`Discarded ${stale.length} stale IPC messages after query`);
+  // Discard self-generated progress nudges that arrived after the last
+  // PostToolUse hook (during final text generation). Real user messages
+  // (gateway steers) must NOT be discarded — they feed checkIpcMessage.
+  const discarded = discardNudges();
+  if (discarded > 0) {
+    log(`Discarded ${discarded} stale progress nudges after query`);
   }
 
   log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
