@@ -635,3 +635,65 @@ func TestPutMessage_InheritsStickyTopic(t *testing.T) {
 		t.Fatalf("inbound did not inherit sticky topic: %+v", msgs)
 	}
 }
+
+func TestUserGroupsNoRows(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	got := s.UserGroups("nobody")
+	if got == nil {
+		t.Fatal("expected non-nil pointer for user with no rows")
+	}
+	if len(*got) != 0 {
+		t.Fatalf("expected empty slice, got %v", *got)
+	}
+}
+
+func TestUserGroupsOperator(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	s.CreateAuthUser("op", "op", "", "Operator")
+	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('op', '*')`)
+
+	got := s.UserGroups("op")
+	if got != nil {
+		t.Fatalf("expected nil (operator), got %v", *got)
+	}
+}
+
+func TestUserGroupsSpecificFolders(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	s.CreateAuthUser("u1", "u1", "", "User One")
+	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u1', 'alpha')`)
+	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u1', 'beta')`)
+
+	got := s.UserGroups("u1")
+	if got == nil {
+		t.Fatal("expected non-nil pointer")
+	}
+	if len(*got) != 2 {
+		t.Fatalf("expected 2 folders, got %d", len(*got))
+	}
+	// Ordered by folder
+	if (*got)[0] != "alpha" || (*got)[1] != "beta" {
+		t.Fatalf("expected [alpha beta], got %v", *got)
+	}
+}
+
+func TestUserGroupsMixed(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	s.CreateAuthUser("mix", "mix", "", "Mixed")
+	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('mix', 'alpha')`)
+	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('mix', '*')`)
+	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('mix', 'beta')`)
+
+	got := s.UserGroups("mix")
+	if got != nil {
+		t.Fatalf("expected nil (operator wins), got %v", *got)
+	}
+}
