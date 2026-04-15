@@ -6,32 +6,28 @@ description: >
 user-invocable: true
 ---
 
-# Refine
+# Refine Skill
 
-Orchestrates code refinement in main context (full conversation visibility).
-
-## Simplify First
-
-Primary objective: make code simpler while preserving all functionality.
-
-- ALWAYS remove dead code, redundant checks, unnecessary abstractions
-- ALWAYS collapse multi-line logic that reads as clearly on one line
-- ALWAYS prefer plain functions over classes when no state is held
-- ALWAYS delete helpers used only once — inline them
-- NEVER add comments that restate code; only non-obvious intent
-- Fewer moving parts = fewer bugs, smaller surface = easier to test
+Orchestrates code refinement. Runs in main context for full conversation visibility.
 
 ## Workflow
 
 1. **Checkpoint** - if uncommitted changes, invoke `Skill(commit, "[checkpoint]")`
 2. **Validate** - run build/test, fix failures
-3. **Improve** - spawn improve agent via `Task(prompt, agent="improve")`
-   - Lead with: "Simplify this code: remove redundancy, collapse verbosity,
-     delete dead paths. Keep all tests passing."
-4. **Document** - spawn readme agent via `Task(prompt, agent="readme")`
+3. **Improve** - spawn `Task(prompt, agent="improve")`
+   - Lead with: "Simplify this code: remove redundancy, collapse verbosity, delete dead paths. Keep all tests passing."
+4. **Document** - spawn `Task(prompt, agent="readme")`
 5. **Verify** - final build/test
 6. **Commit** - if changes, invoke `Skill(commit, "[refined]")`
-7. **Summary** - what changed, main impact, no fluff, not marketing
+7. **Cleanup** - remove stale agent worktrees:
+   ```bash
+   for d in .claude/worktrees/*/; do
+     branch=$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)
+     git worktree remove "$d" --force
+     [ -n "$branch" ] && git branch -D "$branch" 2>/dev/null
+   done
+   ```
+8. **Summary** - what changed, main impact, no fluff, not marketing
 
 ## Prompt Structure
 

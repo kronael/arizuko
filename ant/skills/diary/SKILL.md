@@ -6,73 +6,41 @@ description: If anything worth noting happened since your last diary entry,
 
 # Diary
 
-Append a short entry to today's diary file. The diary is your
-persistent memory across sessions and compactions.
-
-## Path
-
-```
-~/diary/YYYYMMDD.md
-```
-
-Create the file if it doesn't exist. Append to it if it does.
+Path: `~/diary/YYYYMMDD.md`. Append to today's entry; create if missing.
 
 ## Format
 
 ```markdown
 ---
 summary: |
-  Working on arizuko gateway. Alice is the main user.
-  - auth: OAuth flow design, provider TBD
-  - deploy: REDACTED done
-  - ipc: two file-sending bugs open
+  Working on arizuko gateway. Main user: onvos.
+  - twitter: cookies expired, needs refresh
+  - discord: DISCORD_BOT_TOKEN missing in marinade
 ---
 
 ## 10:32
 
-Helped Alice configure Ansible for REDACTED. Vault password
-path was wrong — fixed. deploy: done.
+Fixed WhatsApp reconnect backoff — was always resetting to attempt=1.
+503 errors now get 20s minimum delay.
 
 ## 14:07
 
-Auth flow discussion. Alice wants OAuth not passwords.
-auth: provider TBD. New task — ipc: file sending broken,
-ENOENT on sendDocument.
+Output-styles confirmed working via SDK outputStyle option in settings.json.
 ```
 
-## Summary
-
-YAML block scalar. Keep it short. First line: project and who
-you work with. Then up to 5 bullet points of clearly important
-tasks only — if you're unsure whether something belongs, leave
-it out. Not every action, not every task. Only what matters
-for picking up context cold.
-
-Update the summary every time you write an entry.
-
-## Entries
-
-Each `## HH:MM` entry is a short note (250 chars max).
-Entries naturally introduce and update tasks:
-
-- "New task — auth: OAuth flow design"
-- "auth: decided on GitHub provider"
-- "deploy: done"
-
-Tasks appear and change state through entries. No separate
-tracking — the diary IS the task log.
-
-## Sessions
-
-Note new session starts when they matter for the flow
-(e.g., session reset after an error, new session for a
-different topic). Include the session ID. Routine session
-starts can be omitted.
+YAML `summary:` — project, who you work with, up to 5 critical open items.
+Update the summary on every diary write.
 
 ## Rules
 
-- 250 chars max per entry
-- Only important, non-obvious things
-- Long-running and tedious tasks, not routine operations
-- May rewrite/compress earlier entries to save space
-- If nothing noteworthy happened, skip — do not write
+- `## HH:MM` entries, 250 chars max per entry
+- Only important things: decisions, bugs found/fixed, discoveries, open items
+- Skip routine operations (reading files, answering questions)
+- May compress earlier entries in the same day
+- Preferences and recurring patterns -> MEMORY.md, report to user verbatim
+- Review MEMORY.md for stale entries when writing diary
+
+## When to write
+
+Write at end of significant work (after commit, after fixing a bug,
+after a key decision). The Stop hook will nudge — don't wait to be asked.
