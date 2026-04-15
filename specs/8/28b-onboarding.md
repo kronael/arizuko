@@ -9,6 +9,9 @@ depends: [28-acl]
 User-centric onboarding. The user is the identity — JIDs are
 claimed devices, groups are workspaces, routes are user-configured.
 
+Chat is only the entry point (sends auth link). All setup happens
+on the web dashboard.
+
 ## Data model
 
 ```
@@ -35,36 +38,14 @@ JID ownership proof:
 - WhatsApp/other: user messages from JID during onboarding,
   then authenticates via OAuth — system links the two
 
-## Onboarding flow
+## Chat-side flow
 
-Unknown JID messages bot → onbod sends auth link → user clicks.
+Minimal. Chat only sends the link, nothing else.
 
-### New user (no world)
-
-1. OAuth authenticate
-2. Pick username (validates: `^[a-z][a-z0-9-]{2,29}$`)
-3. System creates world `<username>/`, grants `user_groups` access
-4. JID auto-routed to `<username>/`
-5. JID recorded in `user_jids`
-
-### Existing user, new JID
-
-1. OAuth authenticate
-2. System recognizes OAuth sub → shows dashboard
-3. User picks which groups this JID routes to
-4. Routes created, JID recorded in `user_jids`
-
-Same auth entry point. Branch after OAuth based on "user exists?".
-
-## Onboarding state machine
-
-Extend existing onbod states:
-
-```
-unknown_jid → prompted (auth link sent) → authenticated →
-  → new_user: username picker → world created → done
-  → existing_user: dashboard → routes configured → done
-```
+1. Unknown JID messages bot
+2. Onbod replies with auth link: `https://<host>/onboard?token=<hex>`
+3. Token is one-time, 24h TTL, tied to the JID
+4. Done. Everything else is web.
 
 The `onboarding` table gets:
 
@@ -72,13 +53,31 @@ The `onboarding` table gets:
 - `token_expires TEXT` — ISO8601
 - `user_sub TEXT` — set after OAuth, links JID to user
 
-## User dashboard
+No chat-based state machine beyond `unknown_jid → prompted`.
 
-Served by onbod at `/onboard` (auth-gated via proxyd).
+## Web dashboard
 
-**No world yet**: username picker → create world → done.
+Served by onbod at `/onboard`. All setup happens here.
 
-**Has a world**:
+### Token landing page (unauthenticated)
+
+User clicks link from chat → token validated → redirect to OAuth.
+Token consumed on first use.
+
+### After OAuth — new user (no world)
+
+1. Username picker (validates: `^[a-z][a-z0-9-]{2,29}$`)
+2. System creates world `<username>/`, grants `user_groups` access
+3. JID auto-routed to `<username>/`
+4. JID recorded in `user_jids`
+5. Redirect to dashboard
+
+### After OAuth — existing user
+
+System recognizes OAuth sub → straight to dashboard.
+JID auto-recorded in `user_jids` if not already claimed.
+
+### Dashboard (authenticated)
 
 ```
 My JIDs:     telegram:123, whatsapp:420   [+ Add platform]
@@ -96,9 +95,19 @@ User must have `user_groups` access to the target group to
 create a route. Route creation checks this. Operator manages
 `user_groups` directly (SQL/CLI).
 
+## MCP tools
+
+No user-management MCP tools (add_route for self, claim_jid, etc.)
+in chat. Agents cannot perform user authorization operations.
+All user identity management is web-only.
+
+Existing `add_route`/`set_routes` MCP tools remain for operator
+use (tier 0 only).
+
 ## Not in scope
 
 - Email/password auth (OAuth only)
+- Chat-based username picker or route management
 - Token expiry UI
 - Group invitations
 - Username changes
