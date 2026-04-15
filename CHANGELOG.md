@@ -19,6 +19,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 - **proxyd**: /pub/\* always routes to vite (was broken when webd upstream set)
 - **ant**: drain stale IPC messages after query to prevent duplicate responses
+- **skills**: compact-memories date-filters transcripts, globs all project dirs
 - **ant**: progress nudge thresholds raised (200→500 msgs, 10→15 min)
 
 ## [v0.26.1] — 2026-04-13

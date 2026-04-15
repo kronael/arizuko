@@ -15,11 +15,11 @@ Progressive compression: each level built from the level below. Two stores, same
 
 ### Episodes (session transcripts → summaries)
 
-| Level | Sources                               | Output                 |
-| ----- | ------------------------------------- | ---------------------- |
-| day   | `.claude/projects/-home-node/*.jsonl` | `episodes/YYYYMMDD.md` |
-| week  | `episodes/YYYYMMDD.md` (7 days)       | `episodes/2026-W11.md` |
-| month | `episodes/2026-W*.md` (month weeks)   | `episodes/2026-03.md`  |
+| Level | Sources                              | Output                 |
+| ----- | ------------------------------------ | ---------------------- |
+| day   | `.claude/projects/*/*.jsonl` (all)   | `episodes/YYYYMMDD.md` |
+| week  | `episodes/YYYYMMDD.md` (7 days)      | `episodes/2026-W11.md` |
+| month | `episodes/2026-W*.md` (month weeks)  | `episodes/2026-03.md`  |
 
 ### Diary (work log → summaries)
 
@@ -34,9 +34,29 @@ Diary has no "day" level — daily entries already exist.
 
 ### 1. Gather sources
 
-**Episodes day**: Glob `.claude/projects/-home-node/*.jsonl`, filter
-by mtime for yesterday. Read transcripts — skim user messages,
-tool calls, decisions.
+**Episodes day** — target date = yesterday (UTC).
+
+1. Glob `~/.claude/projects/*/*.jsonl` — all project dirs, not just one.
+2. Filter files: only those with mtime on or after the target date.
+3. **Date-filter within each file**: parse JSONL lines, extract timestamps.
+   Only include content from the target date. Sessions spanning multiple
+   days MUST be sliced — include only the target date's portion.
+4. Skip files with zero lines in the target date range.
+
+JSONL timestamp extraction: each line is a JSON object. Look for
+`timestamp`, `created_at`, or infer from message ordering. User messages
+(`"type":"user"`) and result messages (`"type":"result"`) reliably have
+timestamps. When in doubt, use the session_log query below.
+
+**Authoritative cross-check**: query the messages DB via MCP tool
+`query_db` or Bash (`sqlite3 /workspace/store/messages.db`):
+```sql
+SELECT sender, substr(content, 1, 200), timestamp
+FROM messages WHERE date(timestamp) = 'YYYY-MM-DD'
+ORDER BY timestamp
+```
+This catches interactions the transcripts might miss (MCP tool calls,
+steered messages, scheduled tasks). Use both sources.
 
 **Episodes week/month**: Glob the lower-level episode files for
 the target period.
@@ -58,7 +78,7 @@ Keep:
 
 Drop:
 
-- Routine operations
+- Routine operations (migrations that just ran, cron triggers)
 - Dead-end debugging
 - Conversation mechanics
 - Duplicates across sources
@@ -67,24 +87,29 @@ Each level is shorter than the sum of its sources.
 
 ### 3. Write
 
+Output file: `episodes/YYYYMMDD.md` (always YYYYMMDD, no hyphens for day level).
+
 ```markdown
 ---
 summary: >
   - Shipped discord channel support
   - Resolved telegram auth token rotation
-period: '2026-W11'
-type: week
+period: 'YYYYMMDD'
+type: day
 store: episodes
 sources:
-  - episodes/20260310.md
-  - episodes/20260311.md
-  - episodes/20260312.md
+  - 79e60b7d-3fe0-4a2d-a529-c9e84241aeb6.jsonl
+  - 64d579d2-c2bb-449e-81bd-7070445054b1.jsonl
 aggregated_at: '2026-03-17T02:00:00Z'
 ---
 
 ## Key decisions
 
 - Discord uses same ChannelOpts as telegram
+
+## Deliverables
+
+- Discord adapter shipped and tested
 
 ## Active work
 
@@ -96,8 +121,9 @@ aggregated_at: '2026-03-17T02:00:00Z'
 ```
 
 `summary:` — dense, for `/recall` and gateway injection.
-`sources:` — references to the level below.
+`sources:` — transcript filenames (not full paths).
 `store:` — `episodes` or `diary`.
+`period:` — YYYYMMDD for day, YYYY-WNN for week, YYYY-MM for month.
 
 ## Usage
 
