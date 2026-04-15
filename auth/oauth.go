@@ -81,7 +81,7 @@ func handleGitHubCallback(cfg *core.Config, s *store.Store, secret []byte, secur
 				return
 			}
 		}
-		createOAuthSession(w, s, secret, "github:"+sub, name, secure)
+		createOAuthSession(w, r, s, secret, "github:"+sub, name, secure)
 	}
 }
 
@@ -111,7 +111,7 @@ func handleDiscordCallback(cfg *core.Config, s *store.Store, secret []byte, secu
 			http.Error(w, "oauth failed", http.StatusBadGateway)
 			return
 		}
-		createOAuthSession(w, s, secret, "discord:"+sub, name, secure)
+		createOAuthSession(w, r, s, secret, "discord:"+sub, name, secure)
 	}
 }
 
@@ -171,7 +171,7 @@ func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte, secur
 				return
 			}
 		}
-		createOAuthSession(w, s, secret, "google:"+sub, name, secure)
+		createOAuthSession(w, r, s, secret, "google:"+sub, name, secure)
 	}
 }
 
@@ -262,11 +262,11 @@ func handleTelegram(cfg *core.Config, s *store.Store, secret []byte, secure bool
 		if ln := r.FormValue("last_name"); ln != "" {
 			name += " " + ln
 		}
-		createOAuthSession(w, s, secret, "telegram:"+sub, name, secure)
+		createOAuthSession(w, r, s, secret, "telegram:"+sub, name, secure)
 	}
 }
 
-func createOAuthSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, name string, secure bool) {
+func createOAuthSession(w http.ResponseWriter, r *http.Request, s *store.Store, secret []byte, sub, name string, secure bool) {
 	if _, ok := s.AuthUserBySub(sub); !ok {
 		username := sub
 		if err := s.CreateAuthUser(sub, username, "", name); err != nil {
@@ -275,7 +275,7 @@ func createOAuthSession(w http.ResponseWriter, s *store.Store, secret []byte, su
 			return
 		}
 	}
-	issueSession(w, s, secret, sub, name, secure)
+	issueSession(w, r, s, secret, sub, name, secure)
 }
 
 func signState(secret []byte) string {

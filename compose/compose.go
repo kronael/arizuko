@@ -231,6 +231,9 @@ func onbodService(app, flavor, dataDir string, env map[string]string) string {
 	if s := envOr(env, "CHANNEL_SECRET", ""); s != "" {
 		environment["CHANNEL_SECRET"] = s
 	}
+	if s := envOr(env, "AUTH_BASE_URL", ""); s != "" {
+		environment["AUTH_BASE_URL"] = s
+	}
 	return writeSvc(svcDef{
 		name:        "onbod",
 		app:         app,
@@ -289,6 +292,11 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 	if envOr(env, "WEBDAV_ENABLED", "") == "true" {
 		davPort := envOr(env, "DAV_PORT", "8097")
 		environment["DAV_ADDR"] = "http://davd:" + davPort
+	}
+	if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
+		onbodPort := envOr(env, "ONBOD_LISTEN_ADDR", ":8092")
+		onbodPort = strings.TrimPrefix(onbodPort, ":")
+		environment["ONBOD_ADDR"] = "http://onbod:" + onbodPort
 	}
 	ports := []string{webPort + ":" + webPort}
 	if aliases := envOr(env, "WEB_PORT_ALIASES", ""); aliases != "" {

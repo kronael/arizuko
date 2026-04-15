@@ -114,7 +114,7 @@ func handleLogin(s *store.Store, secret []byte, secure bool) http.HandlerFunc {
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
 			return
 		}
-		issueSession(w, s, secret, u.Sub, u.Name, secure)
+		issueSession(w, r, s, secret, u.Sub, u.Name, secure)
 	}
 }
 
@@ -137,7 +137,7 @@ func handleRefresh(s *store.Store, secret []byte, secure bool) http.HandlerFunc 
 			http.Error(w, "user not found", http.StatusUnauthorized)
 			return
 		}
-		issueSession(w, s, secret, u.Sub, u.Name, secure)
+		issueSession(w, r, s, secret, u.Sub, u.Name, secure)
 	}
 }
 
@@ -155,7 +155,7 @@ func handleLogout(s *store.Store, secure bool) http.HandlerFunc {
 	}
 }
 
-func issueSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, name string, secure bool) {
+func issueSession(w http.ResponseWriter, r *http.Request, s *store.Store, secret []byte, sub, name string, secure bool) {
 	groups := s.UserGroups(sub)
 	jwt := mintJWT(secret, sub, name, groups, jwtTTL)
 	refresh := genToken()
@@ -169,10 +169,18 @@ func issueSession(w http.ResponseWriter, s *store.Store, secret []byte, sub, nam
 		Name: cookieName, Value: refresh, Path: "/",
 		Expires: exp, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
 	})
+	dest := "/"
+	if c, err := r.Cookie("auth_return"); err == nil && c.Value != "" {
+		dest = c.Value
+		http.SetCookie(w, &http.Cookie{
+			Name: "auth_return", Value: "", Path: "/",
+			MaxAge: -1, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
+		})
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!DOCTYPE html><html><head><script>
-localStorage.setItem('jwt',%q);window.location='/';
-</script></head><body></body></html>`, jwt)
+localStorage.setItem('jwt',%q);window.location=%q;
+</script></head><body></body></html>`, jwt, dest)
 }
 
 func genToken() string {

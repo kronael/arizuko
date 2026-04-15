@@ -33,6 +33,7 @@ type config struct {
 	webdAddr   string
 	davAddr    string
 	viteAddr   string
+	onbodAddr  string
 	authSecret string
 }
 
@@ -47,6 +48,7 @@ func loadConfig() config {
 		webdAddr:   chanlib.EnvOr("WEBD_ADDR", ""),
 		davAddr:    chanlib.EnvOr("DAV_ADDR", ""),
 		viteAddr:   chanlib.EnvOr("VITE_ADDR", "http://localhost:8096"),
+		onbodAddr:  chanlib.EnvOr("ONBOD_ADDR", ""),
 		authSecret: os.Getenv("AUTH_SECRET"),
 	}
 }
@@ -134,14 +136,15 @@ func (v *vhosts) match(host string) (string, bool) {
 }
 
 type server struct {
-	cfg       config
-	st        *store.Store
-	dashProxy *httputil.ReverseProxy
-	webdProxy *httputil.ReverseProxy
-	davProxy  *httputil.ReverseProxy
-	viteProxy *httputil.ReverseProxy
-	vh        *vhosts
-	slinkRL   *rateLimiter
+	cfg        config
+	st         *store.Store
+	dashProxy  *httputil.ReverseProxy
+	webdProxy  *httputil.ReverseProxy
+	davProxy   *httputil.ReverseProxy
+	viteProxy  *httputil.ReverseProxy
+	onbodProxy *httputil.ReverseProxy
+	vh         *vhosts
+	slinkRL    *rateLimiter
 }
 
 func newServer(cfg config, st *store.Store, vh *vhosts) *server {
@@ -160,6 +163,9 @@ func newServer(cfg config, st *store.Store, vh *vhosts) *server {
 	}
 	if cfg.davAddr != "" {
 		s.davProxy = davProxy(cfg.davAddr)
+	}
+	if cfg.onbodAddr != "" {
+		s.onbodProxy = proxy(cfg.onbodAddr)
 	}
 	return s
 }
@@ -313,6 +319,15 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.HasPrefix(r.URL.Path, "/onboard") {
+		if s.onbodProxy == nil {
+			http.NotFound(w, r)
+			return
+		}
+		s.optionalAuth(s.onbodProxy.ServeHTTP)(w, r)
+		return
+	}
+
 	if r.URL.Path == "/" || r.URL.Path == "/pub" {
 		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 			upstream.ServeHTTP(w, r)
@@ -381,6 +396,30 @@ func setUserHeaders(r *http.Request, sub, name string, groups *[]string) *http.R
 		}
 	}
 	return r2
+}
+
+func (s *server) optionalAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		secret := []byte(s.cfg.authSecret)
+		if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
+			if claims, err := auth.VerifyJWT(secret, strings.TrimPrefix(hdr, "Bearer ")); err == nil {
+				next(w, setUserHeaders(r, claims.Sub, claims.Name, claims.Groups))
+				return
+			}
+		}
+		if s.st != nil {
+			if cookie, err := r.Cookie("refresh_token"); err == nil {
+				h := auth.HashToken(cookie.Value)
+				if sess, ok := s.st.AuthSession(h); ok && time.Now().Before(sess.ExpiresAt) {
+					if u, ok := s.st.AuthUserBySub(sess.UserSub); ok {
+						next(w, setUserHeaders(r, u.Sub, u.Name, s.st.UserGroups(u.Sub)))
+						return
+					}
+				}
+			}
+		}
+		next(w, r)
+	}
 }
 
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {

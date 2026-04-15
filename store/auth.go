@@ -83,27 +83,26 @@ func (s *Store) DeleteAuthSession(tokenHash string) error {
 }
 
 // UserGroups returns the group folders a user may access.
-// Returns nil if the user has no user_groups entries (operator — unrestricted).
-// Returns an empty slice if the user has a row with an empty folder (no access).
+// Returns nil if the user has a `*` row (operator — unrestricted).
+// Returns an empty slice if no rows exist (no access).
 func (s *Store) UserGroups(sub string) *[]string {
 	rows, err := s.db.Query(
 		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, sub)
 	if err != nil {
-		return nil
+		empty := []string{}
+		return &empty
 	}
 	defer rows.Close()
 	var folders []string
-	found := false
 	for rows.Next() {
-		found = true
 		var f string
 		rows.Scan(&f)
+		if f == "*" {
+			return nil // operator
+		}
 		if f != "" {
 			folders = append(folders, f)
 		}
-	}
-	if !found {
-		return nil // operator
 	}
 	if folders == nil {
 		folders = []string{}
