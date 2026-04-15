@@ -222,8 +222,34 @@ Common false beliefs to reject:
   print the resolved value. If `$WEB_HOST` is empty, say "web host not configured".
 - Web file root: `/workspace/web/pub/` — ALWAYS write web files here.
   `index.html` at `/workspace/web/pub/<app-name>/index.html` → served at `/pub/<app-name>/`.
-  `/pub/` is the public zone. Everything outside `/pub/` requires auth.
   NEVER write to `/home/node/` for web content.
+
+## Web routing and auth
+
+Proxyd routes all web traffic. URL structure:
+
+| Path       | Auth     | Backend | Purpose                          |
+| ---------- | -------- | ------- | -------------------------------- |
+| `/pub/*`   | none     | vite    | Public static files              |
+| `/slink/*` | token    | webd    | Anonymous web chat (rate-limited) |
+| `/dash/*`  | JWT      | dashd   | Operator dashboard               |
+| `/chat/*`  | JWT      | webd    | Authenticated web chat           |
+| `/api/*`   | JWT      | webd    | API endpoints                    |
+| `/auth/*`  | none     | proxyd  | OAuth login/callback/logout      |
+| `/x/*`     | JWT      | webd    | Extensions                       |
+| other      | redirect | —       | Unknown paths → `/pub/` + path   |
+
+**Auth flow**: user visits `/auth/login` → picks OAuth provider (GitHub,
+Google, Discord, Telegram) → callback sets JWT (1h, localStorage) +
+refresh_token cookie (30d, HttpOnly). Authenticated requests send
+`Authorization: Bearer <jwt>`. Proxyd validates and injects
+`X-User-Sub`, `X-User-Name`, `X-User-Groups` headers to backends.
+
+**Dashboard** (`/dash/`): operator-only HTMX UI served by dashd.
+Shows group status, message history, memory browser, session logs.
+
+When users ask "how do I log in" or "where's the dashboard", point them
+to `https://$WEB_HOST/auth/login` and `https://$WEB_HOST/dash/`.
 - Gateway commands: intercepted only when `/cmd` is the **first word** of a
   message. Mid-message `/cmd` is ignored by the gateway and reaches you instead.
   `/new [message]` — reset session, `/stop` — stop agent,
