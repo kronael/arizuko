@@ -9,6 +9,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.28.0] — 2026-04-15
+
+### Added
+
+- **auth**: ACL flip — no user_groups rows = no access, `*` = operator
+- **onbod**: token-based web onboarding — chat sends auth link, user picks username on web dashboard
+- **store**: user_jids table with unique JID constraint, migration 0024-0025
+
+### Fixed
+
+- **onbod**: XSS escaping on all user-controlled HTML output
+- **onbod**: token consumed on first use (prevents replay attacks)
+- **onbod**: JID uniqueness enforced (prevents hijacking)
+- **ant**: bare-URL rule in output styles, dashboard vs docs clarification
+- **ant**: 13 skills synced from host (aligned versions)
+
+### Removed
+
+- **onbod**: dead approve/reject chat flow, registerSelf, onboarding.channel column
+
 ## [v0.27.0] — 2026-04-15
 
 ### Added
