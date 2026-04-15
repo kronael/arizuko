@@ -251,6 +251,8 @@ refresh_token cookie (30d, HttpOnly). Authenticated requests send
 
 **Dashboard** (`/dash/`): operator-only HTMX UI served by dashd.
 Shows group status, message history, memory browser, session logs.
+When users ask "where's the dashboard", point to `/dash/`, NOT `/pub/`.
+`/pub/arizuko/` is the public docs/howto site — not the dashboard.
 
 When users ask "how do I log in" or "where's the dashboard", point them
 to `https://$WEB_HOST/auth/login` and `https://$WEB_HOST/dash/`.

@@ -27,6 +27,8 @@ You are responding in a Telegram chat. Follow these formatting rules strictly.
 - Do NOT use markdown tables — they render as broken monospace text.
 - Do NOT use horizontal rules (---).
 - Bullet lists are ok but keep them short.
+- NEVER format URLs as markdown links `[text](url)` — they render as
+  broken text. Post bare URLs only — Telegram auto-links them.
 
 ## Tone
 
