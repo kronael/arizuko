@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"os"
@@ -61,15 +62,7 @@ func main() {
 		slog.Warn("set WAL mode", "err", err)
 	}
 
-	if err := registerSelf(db, cfg.listenAddr); err != nil {
-		slog.Error("register channel", "err", err)
-		os.Exit(1)
-	}
-
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {
-		handleSend(w, r, db, cfg)
-	})
 	mux.HandleFunc("GET /onboard", func(w http.ResponseWriter, r *http.Request) {
 		handleOnboard(w, r, db, cfg)
 	})
@@ -137,242 +130,6 @@ func loadConfig() (config, error) {
 	}
 
 	return cfg, nil
-}
-
-func registerSelf(db *sql.DB, listenAddr string) error {
-	url := "http://onbod" + listenAddr
-	caps := `{"receive_only":true}`
-	_, err := db.Exec(
-		`INSERT OR REPLACE INTO channels (name, url, capabilities) VALUES ('onbod', ?, ?)`,
-		url, caps)
-	return err
-}
-
-// --- Chat-side: /send commands (operator approve/reject) ---
-
-func handleSend(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
-	auth := r.Header.Get("Authorization")
-	if cfg.secret != "" && (!strings.HasPrefix(auth, "Bearer ") ||
-		strings.TrimPrefix(auth, "Bearer ") != cfg.secret) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	var req struct {
-		JID  string `json:"jid"`
-		Text string `json:"text"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
-		return
-	}
-
-	text := strings.TrimSpace(req.Text)
-	switch {
-	case strings.HasPrefix(text, "/approve "):
-		args := strings.Fields(strings.TrimPrefix(text, "/approve "))
-		if len(args) < 2 {
-			http.Error(w, "usage: /approve <jid> <folder>", http.StatusBadRequest)
-			return
-		}
-		handleApprove(w, db, cfg, req.JID, args[0], args[1])
-	case strings.HasPrefix(text, "/reject "):
-		target := strings.TrimSpace(strings.TrimPrefix(text, "/reject "))
-		handleReject(w, db, cfg, req.JID, target)
-	default:
-		http.Error(w, "unknown command", http.StatusBadRequest)
-	}
-}
-
-func isTier0(db *sql.DB, senderJID string) bool {
-	platform, room := core.JidPlatform(senderJID), core.JidRoom(senderJID)
-	rows, err := db.Query(`
-		SELECT r.match FROM routes r
-		JOIN groups rg ON rg.folder = r.target
-		WHERE rg.parent IS NULL OR rg.parent = ''`)
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var match string
-		rows.Scan(&match)
-		if routeMatchesJID(match, platform, room) {
-			return true
-		}
-	}
-	return false
-}
-
-func routeMatchesJID(match, platform, room string) bool {
-	if match == "" {
-		return false
-	}
-	for _, tok := range strings.Fields(match) {
-		k, v, ok := strings.Cut(tok, "=")
-		if !ok || v == "" || strings.ContainsAny(v, "*?[") {
-			return false
-		}
-		switch k {
-		case "room":
-			if v != room {
-				return false
-			}
-		case "platform":
-			if v != platform {
-				return false
-			}
-		case "chat_jid":
-			if v != platform+":"+room && v != room {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func jidFromMatch(match string) string {
-	var platform, room string
-	for _, tok := range strings.Fields(match) {
-		k, v, ok := strings.Cut(tok, "=")
-		if !ok || v == "" || strings.ContainsAny(v, "*?[") {
-			continue
-		}
-		switch k {
-		case "platform":
-			platform = v
-		case "room":
-			room = v
-		case "chat_jid":
-			return v
-		}
-	}
-	if room == "" {
-		return ""
-	}
-	if platform == "" {
-		return room
-	}
-	return platform + ":" + room
-}
-
-func handleApprove(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targetJID, folder string) {
-	if !isTier0(db, senderJID) {
-		sendReply(cfg, senderJID, "Permission denied.")
-		w.WriteHeader(http.StatusForbidden)
-		return
-	}
-
-	var status string
-	err := db.QueryRow(
-		`SELECT status FROM onboarding WHERE jid = ? AND status = 'pending'`,
-		targetJID).Scan(&status)
-	if err != nil {
-		slog.Warn("approve: onboarding not found", "jid", targetJID, "err", err)
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-
-	coreCfg, err := core.LoadConfig()
-	if err != nil {
-		slog.Error("approve: load config", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if err := container.SetupGroup(coreCfg, folder, cfg.prototype); err != nil {
-		slog.Error("approve: setup group", "folder", folder, "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	if err := approveInTx(db, targetJID, folder); err != nil {
-		slog.Error("approve tx", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	msg := "Approved: " + targetJID + " -> " + folder
-	notifyRoots(db, cfg, senderJID, msg)
-	slog.Info("approved", "jid", targetJID, "folder", folder)
-	w.WriteHeader(http.StatusOK)
-}
-
-func approveInTx(db *sql.DB, jid, folder string) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	now := time.Now().Format(time.RFC3339)
-
-	parts := strings.Split(folder, "/")
-	for i := range parts {
-		parent := ""
-		if i > 0 {
-			parent = strings.Join(parts[:i], "/")
-		}
-		seg := strings.Join(parts[:i+1], "/")
-		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO groups (folder, name, parent, added_at) VALUES (?, ?, ?, ?)`,
-			seg, parts[i], nilStr(parent), now); err != nil {
-			return err
-		}
-	}
-
-	match := "room=" + core.JidRoom(jid)
-	var n int
-	if err := tx.QueryRow(
-		`SELECT COUNT(*) FROM routes WHERE match = ? AND target = ?`,
-		match, folder).Scan(&n); err != nil {
-		return err
-	}
-	if n == 0 {
-		if _, err := tx.Exec(
-			`INSERT INTO routes (seq, match, target) VALUES (?, ?, ?)`,
-			0, match, folder); err != nil {
-			return err
-		}
-	}
-	welcomeID := core.MsgID("onboard-welcome")
-	welcomeBody := fmt.Sprintf(
-		`<system_event type="onboard_welcome">Your room %s is ready. Welcome!</system_event>`,
-		folder)
-	if _, err := tx.Exec(
-		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, source)
-		 VALUES (?, ?, 'system', ?, ?, 1, 1, '')`,
-		welcomeID, jid, welcomeBody, time.Now().Format(time.RFC3339Nano)); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(
-		`UPDATE onboarding SET status = 'approved' WHERE jid = ?`, jid); err != nil {
-		return err
-	}
-
-	seedDefaultTasksTx(tx, folder, jid)
-	return tx.Commit()
-}
-
-func nilStr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-func handleReject(w http.ResponseWriter, db *sql.DB, cfg config, senderJID, targetJID string) {
-	if !isTier0(db, senderJID) {
-		sendReply(cfg, senderJID, "Permission denied.")
-		w.WriteHeader(http.StatusForbidden)
-		return
-	}
-
-	db.Exec(`UPDATE onboarding SET status = 'rejected' WHERE jid = ?`, targetJID)
-
-	msg := "Rejected: " + targetJID
-	notifyRoots(db, cfg, senderJID, msg)
-	slog.Info("rejected", "jid", targetJID)
-	w.WriteHeader(http.StatusOK)
 }
 
 // --- Poll: send auth links to unprompted JIDs ---
@@ -454,9 +211,12 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 		return
 	}
 
-	// Set cookies: onboard_token (for linking JID after OAuth) + auth_return (redirect after OAuth)
+	// Consume token: mark as used so the link cannot be replayed
+	db.Exec(`UPDATE onboarding SET status = 'token_used', token = NULL WHERE token = ?`, token)
+
+	// Store JID in cookie (not the token) for linking after OAuth
 	http.SetCookie(w, &http.Cookie{
-		Name: "onboard_token", Value: token, Path: "/",
+		Name: "onboard_jid", Value: jid, Path: "/",
 		MaxAge: 86400, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -466,7 +226,7 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 
 	// If user already authenticated, link directly
 	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
-		linkJID(db, token, jid, userSub)
+		linkJID(db, jid, userSub)
 		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 		return
 	}
@@ -475,17 +235,17 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 }
 
 func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, userSub string) {
-	// Check for pending token cookie — link JID if present
-	if c, err := r.Cookie("onboard_token"); err == nil && c.Value != "" {
-		var jid string
+	// Check for pending JID cookie — link JID if present
+	if c, err := r.Cookie("onboard_jid"); err == nil && c.Value != "" {
+		var status string
 		err := db.QueryRow(
-			`SELECT jid FROM onboarding WHERE token = ? AND status = 'awaiting_message'`,
-			c.Value).Scan(&jid)
+			`SELECT status FROM onboarding WHERE jid = ? AND status = 'token_used'`,
+			c.Value).Scan(&status)
 		if err == nil {
-			linkJID(db, c.Value, jid, userSub)
+			linkJID(db, c.Value, userSub)
 		}
 		http.SetCookie(w, &http.Cookie{
-			Name: "onboard_token", Value: "", Path: "/",
+			Name: "onboard_jid", Value: "", Path: "/",
 			MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
 		})
 	}
@@ -591,18 +351,27 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-func linkJID(db *sql.DB, token, jid, userSub string) {
+func linkJID(db *sql.DB, jid, userSub string) {
+	// Check if JID is already claimed by a different user
+	var existingSub string
+	err := db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = ?`, jid).Scan(&existingSub)
+	if err == nil && existingSub != userSub {
+		slog.Warn("jid already claimed by another user", "jid", jid, "existing", existingSub, "attempted", userSub)
+		return
+	}
+
 	now := time.Now().Format(time.RFC3339)
 	db.Exec(`INSERT OR IGNORE INTO user_jids (user_sub, jid, claimed) VALUES (?, ?, ?)`,
 		userSub, jid, now)
-	db.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ? WHERE token = ?`,
-		userSub, token)
+	db.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ? WHERE jid = ?`,
+		userSub, jid)
 	slog.Info("linked jid to user", "jid", jid, "user", userSub)
 }
 
 // --- HTML rendering ---
 
 func renderPage(w http.ResponseWriter, title, body string) {
+	safeTitle := html.EscapeString(title)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!DOCTYPE html>
 <html><head><title>%s</title>
@@ -617,7 +386,7 @@ table{width:100%%;border-collapse:collapse;margin:.5rem 0}
 td,th{padding:.25rem .5rem;text-align:left;border-bottom:1px solid #eee}
 </style></head><body>
 <div class="card"><h2>%s</h2>%s</div>
-</body></html>`, title, title, body)
+</body></html>`, safeTitle, safeTitle, body)
 }
 
 func renderUsernamePicker(w http.ResponseWriter, currentUsername, userSub string) {
@@ -627,11 +396,13 @@ func renderUsernamePicker(w http.ResponseWriter, currentUsername, userSub string
 <input name="username" placeholder="Username" value="%s" required autofocus
  pattern="[a-z][a-z0-9-]{2,29}" title="3-30 chars, lowercase, starts with letter">
 <button type="submit">Create workspace</button>
-</form>`, currentUsername)
+</form>`, html.EscapeString(currentUsername))
 	renderPage(w, "Create Workspace", body)
 }
 
 func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string) {
+	esc := html.EscapeString
+
 	// Fetch JIDs
 	var jidsHTML string
 	rows, _ := db.Query(`SELECT jid, claimed FROM user_jids WHERE user_sub = ? ORDER BY claimed`, userSub)
@@ -639,7 +410,7 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 		for rows.Next() {
 			var jid, claimed string
 			rows.Scan(&jid, &claimed)
-			jidsHTML += fmt.Sprintf("<tr><td>%s</td><td>%s</td></tr>", jid, claimed[:10])
+			jidsHTML += fmt.Sprintf("<tr><td>%s</td><td>%s</td></tr>", esc(jid), esc(claimed[:10]))
 		}
 		rows.Close()
 	}
@@ -654,7 +425,7 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 		for rows2.Next() {
 			var folder string
 			rows2.Scan(&folder)
-			groupsHTML += fmt.Sprintf("<tr><td>%s</td></tr>", folder)
+			groupsHTML += fmt.Sprintf("<tr><td>%s</td></tr>", esc(folder))
 		}
 		rows2.Close()
 	}
@@ -670,7 +441,7 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 		for rows3.Next() {
 			var jid, target string
 			rows3.Scan(&jid, &target)
-			routesHTML += fmt.Sprintf("<tr><td>%s</td><td>%s</td></tr>", jid, target)
+			routesHTML += fmt.Sprintf("<tr><td>%s</td><td>%s</td></tr>", esc(jid), esc(target))
 		}
 		rows3.Close()
 	}
@@ -689,47 +460,11 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 
 <h3>Routing</h3>
 <table><tr><th>From</th><th>To</th></tr>%s</table>
-`, username, jidsHTML, groupsHTML, routesHTML)
+`, esc(username), jidsHTML, groupsHTML, routesHTML)
 	renderPage(w, "Dashboard", body)
 }
 
 // --- Shared utilities ---
-
-func notifyRoots(db *sql.DB, cfg config, senderJID, msg string) {
-	for _, jid := range rootJIDs(db) {
-		if jid != senderJID {
-			sendReply(cfg, jid, msg)
-		}
-	}
-	sendReply(cfg, senderJID, msg)
-}
-
-func rootJIDs(db *sql.DB) []string {
-	rows, err := db.Query(
-		`SELECT r.match FROM routes r
-		 JOIN groups g ON g.folder = r.target
-		 WHERE g.parent IS NULL OR g.parent = ''`)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	seen := map[string]struct{}{}
-	var jids []string
-	for rows.Next() {
-		var match string
-		rows.Scan(&match)
-		jid := jidFromMatch(match)
-		if jid == "" {
-			continue
-		}
-		if _, dup := seen[jid]; dup {
-			continue
-		}
-		seen[jid] = struct{}{}
-		jids = append(jids, jid)
-	}
-	return jids
-}
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
@@ -750,24 +485,4 @@ func sendReply(cfg config, jid, text string) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		slog.Warn("send reply non-2xx", "jid", jid, "status", resp.StatusCode)
 	}
-}
-
-var defaultTasks = [][2]string{
-	{"/compact-memories episodes day", "0 2 * * *"},
-	{"/compact-memories episodes week", "0 3 * * 1"},
-	{"/compact-memories episodes month", "0 4 1 * *"},
-	{"/compact-memories diary week", "0 3 * * 1"},
-	{"/compact-memories diary month", "0 4 1 * *"},
-}
-
-func seedDefaultTasksTx(tx *sql.Tx, folder, chatJID string) {
-	now := time.Now().Format(time.RFC3339)
-	for i, t := range defaultTasks {
-		id := fmt.Sprintf("%s-mem-%d", folder, i)
-		tx.Exec(`INSERT OR IGNORE INTO scheduled_tasks
-			(id,owner,chat_jid,prompt,cron,next_run,status,created_at,context_mode)
-			VALUES (?,?,?,?,?,?,?,?,?)`,
-			id, folder, chatJID, t[0], t[1], now, "active", now, "isolated")
-	}
-	slog.Info("seeded default tasks", "folder", folder)
 }
