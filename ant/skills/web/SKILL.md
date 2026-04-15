@@ -11,10 +11,14 @@ Any directory with index.html is served by vite MPA.
 ## Access model
 
 - `/pub/` — publicly accessible, no login required
-- Everything else — requires authentication
+- `/dash/`, `/chat/`, `/api/`, `/x/` — auth-gated (JWT required)
+- `/slink/` — token-gated anonymous web chat
+- `/auth/` — OAuth login/callback/logout
+- Any other path redirects to `/pub/` + path (then 404 if missing)
 
 ALWAYS place web apps under `/workspace/web/pub/<app>/`.
-NEVER write to `/workspace/web/<app>/` directly (requires auth).
+NEVER write to `/workspace/web/<app>/` directly — it won't be served.
+NEVER create paths like `/sub/`, `/private/` — they don't exist.
 
 ## Creating an app
 

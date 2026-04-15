@@ -239,6 +239,10 @@ Proxyd routes all web traffic. URL structure:
 | `/x/*`     | JWT      | webd    | Extensions                       |
 | other      | redirect | —       | Unknown paths → `/pub/` + path   |
 
+**ONLY these paths exist.** NEVER create web content outside `/pub/`.
+Paths like `/sub/`, `/private/`, etc. do NOT work — they redirect to
+`/pub/` and 404. All public content goes in `/workspace/web/pub/`.
+
 **Auth flow**: user visits `/auth/login` → picks OAuth provider (GitHub,
 Google, Discord, Telegram) → callback sets JWT (1h, localStorage) +
 refresh_token cookie (30d, HttpOnly). Authenticated requests send
