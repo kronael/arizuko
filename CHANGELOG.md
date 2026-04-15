@@ -9,20 +9,33 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.27.0] — 2026-04-15
+
 ### Added
 
+- **webd**: web chat (slink) integrated into compose, auto-generate slink tokens
+- **agent**: Python 3.14 via uv, uv/uvx instructions in CLAUDE.md and python skill
+- **agent**: web routing table, auth flow, gateway commands in CLAUDE.md
 - **skills**: web chat (slink) documentation in howto and web skills
 - **proxyd**: unknown paths redirect to /pub/ prefix (public fallback)
-- **agent**: Python 3.14 via uv, instructions for uv/uvx usage
-- **agent**: web routing table and auth flow in CLAUDE.md
+- **eval**: checks 17-20 for skill seeding, dispatch discovery, consistency, resolve wiring
+- **specs**: user-centric identity model (28), local CLI (29)
 
 ### Fixed
 
+- **ant**: drain stale IPC nudges after query to prevent duplicate responses
+- **ant**: only discard self-generated nudges, preserve gateway steers
+- **ant**: progress nudge thresholds raised (200→500 msgs, 10→15 min)
+- **ant**: prevent agents from self-creating or modifying SOUL.md without sign-off
 - **proxyd**: /pub/\* always routes to vite (was broken when webd upstream set)
-- **ant**: drain stale IPC messages after query to prevent duplicate responses
+- **gateway**: replace groupForJid with per-message resolveGroup
+- **gateway**: mark unrouted JIDs errored to stop drain loop
+- **gateway**: skip unrouted JIDs in recoverPendingMessages
+- **gateway**: filter silent refusal outputs (No response requested, etc)
+- **gateway**: replace silent refusal regex with \<think\> block approach
 - **skills**: compact-memories date-filters transcripts, globs all project dirs
 - **skills**: web skill enforces /pub/ only, documents all proxyd routes
-- **ant**: progress nudge thresholds raised (200→500 msgs, 10→15 min)
+- **whapd**: Dockerfile COPY paths for repo-root build context
 
 ## [v0.26.1] — 2026-04-13
 
