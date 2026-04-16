@@ -9,6 +9,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **webd/mcp**: single JWT-gated MCP streamable-HTTP endpoint at `/mcp`.
+  One endpoint per instance — the authed user can reach any folder in
+  their `user_groups` ACL via `folder` arguments on each tool. Three
+  tools: `list_groups` (filtered by grants), `send_message` (stamps
+  authed sub/name), `get_history` (topic-scoped). No anonymous MCP.
+- **webd/slink**: `POST /slink/<token>` with `Accept: text/event-stream`
+  holds the connection open and streams user bubble + subsequent
+  assistant responses on the same (folder, topic). Callers can now
+  submit and receive on one request instead of POST + separate
+  `/slink/stream` SSE.
+- **container**: new env vars for bot identity — `ARIZUKO_GROUP_FOLDER`,
+  `ARIZUKO_GROUP_NAME`, `ARIZUKO_GROUP_PARENT`, `ARIZUKO_WORLD` (tier-1
+  top-level folder), `ARIZUKO_TIER` (0 root, 1 world, 2 building,
+  3+ room). Hello/howto skills use these for in-persona greetings.
+- **ant/skills/soul**: user-initiated `/soul` brainstorming skill that
+  writes `~/SOUL.md`. Hello + howto read SOUL.md when present and
+  inject tagline + persona into output.
+
 ### Changed
 
 - **auth/store**: operator is implicit — emergent from grants, not a
@@ -19,6 +39,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   downstream gates (davRoute, webd.requireFolder) no longer need a
   "missing header = operator" special case. Less indirection, one
   code path.
+- **webd/hub**: `serveSSE` flushes headers immediately on connect so
+  plain net/http clients return from `Do` without waiting for the
+  first event. Logging middleware's `statusWriter` now passes through
+  `http.Flusher`.
 
 ## [v0.29.1] — 2026-04-16
 
