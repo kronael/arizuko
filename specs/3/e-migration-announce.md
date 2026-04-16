@@ -33,7 +33,7 @@ arizuko upgraded — v0.26.0
 
 ## Trigger
 
-`dbmig.Run` already loops over pending migrations. After a migration's
+`db_utils.Migrate` already loops over pending migrations. After a migration's
 tx commits, if a paired `.md` exists in the same embedded FS, it is
 recorded in a new lightweight table:
 
@@ -97,7 +97,7 @@ Not in scope for the minimal version.
 
 ## Files touched
 
-- `dbmig/dbmig.go` — after tx commit, write `announcements` row if
+- `db_utils/db_utils.go` — after tx commit, write `announcements` row if
   paired `.md` is present
 - `gated/main.go` (or `gateway/gateway.go` startup) — drain unsent
   announcements into `messages` on boot

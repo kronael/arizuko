@@ -21,4 +21,4 @@ this is the manual fan-out step.
 
 Users on Telegram / WhatsApp / Discord never saw the v0.27 or v0.28
 releases. Nothing was pushing changelog content out to them. This
-closes the loop until the automatic dbmig-based broadcast ships.
+closes the loop until the automatic db_utils-based broadcast ships.

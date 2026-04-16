@@ -78,7 +78,7 @@ reditd/            Reddit adapter (Go)
 whapd/             WhatsApp adapter (TypeScript)
 emaid/             Email adapter (IMAP/SMTP, Go)
 proxyd/            Web proxy daemon (/pub/ public, /* auth-gated)
-dbmig/             Shared migration framework (library)
+db_utils/          SQL migration runner (library)
 cfg/               Instance config files (per-deploy .env snapshots)
 ```
 
@@ -124,30 +124,37 @@ Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`, `mastd`, `b
 
 Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 
-| Name      | Type    | Role                                                                  |
-| --------- | ------- | --------------------------------------------------------------------- |
-| `gated`   | daemon  | Message loop, routing, containers                                     |
-| `timed`   | daemon  | Cron poll, writes to messages                                         |
-| `onbod`   | daemon  | Onboarding state machine (auto-included when ONBOARDING_ENABLED=true) |
-| `dashd`   | daemon  | Operator dashboards (HTMX)                                            |
-| `ipc`     | library | MCP server, identity stamping                                         |
-| `auth`    | library | Authorization policy, JWT, OAuth                                      |
-| `grants`  | library | Grant rule engine                                                     |
-| `notify`  | library | Operator notifications                                                |
-| `chanlib` | library | Shared HTTP + auth primitives for channel adapters                    |
-| `dbmig`   | library | Shared SQLite migration framework                                     |
-| `teled`   | daemon  | Telegram adapter (Go)                                                 |
-| `discd`   | daemon  | Discord adapter (Go)                                                  |
-| `mastd`   | daemon  | Mastodon adapter (Go)                                                 |
-| `bskyd`   | daemon  | Bluesky adapter (Go)                                                  |
-| `reditd`  | daemon  | Reddit adapter (Go)                                                   |
-| `whapd`   | daemon  | WhatsApp adapter (TypeScript)                                         |
-| `proxyd`  | daemon  | Web proxy: /pub/ public, /\* auth-gated (JWT or refresh_token cookie) |
-| `vited`   | service | Vite dev server (arizuko-vite image)                                  |
-| `emaid`   | daemon  | Email adapter (IMAP/SMTP, Go)                                         |
+| Name       | Type    | Role                                                                  |
+| ---------- | ------- | --------------------------------------------------------------------- |
+| `gated`    | daemon  | Message loop, routing, containers                                     |
+| `timed`    | daemon  | Cron poll, writes to messages                                         |
+| `onbod`    | daemon  | Onboarding state machine (auto-included when ONBOARDING_ENABLED=true) |
+| `dashd`    | daemon  | Operator dashboards (HTMX)                                            |
+| `ipc`      | library | MCP server, identity stamping                                         |
+| `auth`     | library | Authorization policy, JWT, OAuth                                      |
+| `grants`   | library | Grant rule engine                                                     |
+| `notify`   | library | Operator notifications                                                |
+| `chanlib`  | library | Shared HTTP + auth primitives for channel adapters                    |
+| `db_utils` | library | SQL migration runner (gated owns schema; others read)                 |
+| `teled`    | daemon  | Telegram adapter (Go)                                                 |
+| `discd`    | daemon  | Discord adapter (Go)                                                  |
+| `mastd`    | daemon  | Mastodon adapter (Go)                                                 |
+| `bskyd`    | daemon  | Bluesky adapter (Go)                                                  |
+| `reditd`   | daemon  | Reddit adapter (Go)                                                   |
+| `whapd`    | daemon  | WhatsApp adapter (TypeScript)                                         |
+| `proxyd`   | daemon  | Web proxy: /pub/ public, /\* auth-gated (JWT or refresh_token cookie) |
+| `vited`    | service | Vite dev server (arizuko-vite image)                                  |
+| `emaid`    | daemon  | Email adapter (IMAP/SMTP, Go)                                         |
 
 Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
-Libraries: `ipc/`, `auth/`, `chanlib/`, `dbmig/`. Host CLI: `cmd/arizuko/main.go`.
+Libraries: `ipc/`, `auth/`, `chanlib/`, `db_utils/`. Host CLI: `cmd/arizuko/main.go`.
+
+**Schema ownership**: `gated` (via `store/`) owns the shared `messages.db`
+schema. All migrations live in `store/migrations/`. Other daemons
+(timed, onbod, etc.) connect to the already-migrated DB and never run
+their own migrations. `db_utils.Migrate` is the shared migration runner;
+`store.Migrate(db)` is the public helper for tests that need a
+schema'd fixture.
 
 ## Operational check (post-deploy)
 

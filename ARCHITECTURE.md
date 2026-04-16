@@ -58,8 +58,8 @@ grants/              (library)
 chanlib/             (library)
   └── RouterClient, InboundMsg, InboundAttachment, NewAdapterMux — shared by all channel adapters
 
-dbmig/               (library)
-  └── Shared SQLite migration framework (keyed by service name)
+db_utils/            (library)
+  └── SQL migration runner (db_utils.Migrate); gated owns schema via store/
 ```
 
 ## Message Flow
@@ -547,7 +547,7 @@ mountsec/           Mount allowlist validation
 template/           Seed for new instances
 sidecar/            MCP server binaries (whisper)
 chanlib/            Shared HTTP + auth primitives for channel adapters
-dbmig/              Shared SQLite migration framework
+db_utils/           SQL migration runner (gated owns schema via store/)
 grants/             Grant rule engine
 notify/             Operator notification fan-out (library)
 gated/              Gateway daemon

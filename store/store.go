@@ -3,19 +3,17 @@ package store
 import (
 	"database/sql"
 	"embed"
-	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
 
+	"github.com/onvos/arizuko/db_utils"
 	_ "modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
 var migrationFS embed.FS
+
+const serviceName = "store"
 
 type Store struct {
 	db *sql.DB
@@ -39,7 +37,7 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
+	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -52,7 +50,7 @@ func OpenMem() (*Store, error) {
 		return nil, err
 	}
 	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
+	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -63,58 +61,10 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-const serviceName = "store"
-
-func (s *Store) migrate() error {
-	s.db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
-		service TEXT NOT NULL, version INTEGER NOT NULL, applied_at TEXT NOT NULL,
-		PRIMARY KEY (service, version))`)
-
-	var max int
-	s.db.QueryRow("SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?",
-		serviceName).Scan(&max)
-
-	entries, _ := migrationFS.ReadDir("migrations")
-	var files []string
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".sql") {
-			files = append(files, e.Name())
-		}
-	}
-	sort.Strings(files)
-
-	for _, f := range files {
-		ver, _ := strconv.Atoi(f[:4])
-		if ver <= max {
-			continue
-		}
-		if ver != max+1 {
-			return fmt.Errorf("migration gap: expected %d, got %d", max+1, ver)
-		}
-		if err := s.runMigration(f, ver); err != nil {
-			return err
-		}
-		max = ver
-	}
-	return nil
-}
-
-func (s *Store) runMigration(f string, ver int) error {
-	raw, err := migrationFS.ReadFile("migrations/" + f)
-	if err != nil {
-		return fmt.Errorf("%s: read: %w", f, err)
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(string(raw)); err != nil {
-		return fmt.Errorf("%s: %w", f, err)
-	}
-	if _, err := tx.Exec("INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",
-		serviceName, ver, time.Now().Format(time.RFC3339)); err != nil {
-		return fmt.Errorf("%s: record: %w", f, err)
-	}
-	return tx.Commit()
+// Migrate applies store's embedded SQL migrations to the given DB.
+// Exposed for daemons and tests that hold a raw *sql.DB but still
+// need the canonical schema — gated (the main daemon) owns schema
+// ownership, but tests for other daemons use this to set up fixtures.
+func Migrate(db *sql.DB) error {
+	return db_utils.Migrate(db, migrationFS, "migrations", serviceName)
 }

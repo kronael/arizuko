@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"database/sql"
-	"embed"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,15 +15,9 @@ import (
 	"time"
 
 	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/dbmig"
 	"github.com/robfig/cron/v3"
 	_ "modernc.org/sqlite"
 )
-
-//go:embed migrations/*.sql
-var migrationFS embed.FS
-
-const serviceName = "timed"
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
@@ -54,11 +47,6 @@ func main() {
 	defer db.Close()
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		slog.Warn("set WAL mode", "err", err)
-	}
-
-	if err := dbmig.Run(db, migrationFS, "migrations", serviceName); err != nil {
-		slog.Error("migrate", "err", err)
-		os.Exit(1)
 	}
 
 	slog.Info("scheduler started", "db", dsn, "tz", tz)

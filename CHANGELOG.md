@@ -14,8 +14,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **ant**: `/migrate` now broadcasts new releases — after migrations
   apply, root agent fans out the latest CHANGELOG entry to every
   registered group via `send_message`. Per-group `~/.announced-version`
-  prevents re-broadcast. Manual fan-out until the automatic dbmig-based
+  prevents re-broadcast. Manual fan-out until the automatic db_utils-based
   announcement path (`specs/3/e-migration-announce.md`) is implemented.
+
+### Changed
+
+- **db_utils**: renamed from `dbmig/` to `db_utils/` (matches the
+  `*_utils` convention). Unified schema ownership: `gated` (via `store/`)
+  owns the shared DB schema; `timed` and `onbod` connect to the
+  already-migrated DB and no longer carry their own migrations.
+- **store**: now uses `db_utils.Run` instead of a duplicated inline
+  migration runner; exposes `store.Migrate(db)` for tests that need a
+  schema'd fixture.
+
+### Removed
+
+- **timed**: `timed/migrations/` (redundant — store creates the same
+  tables) and the migration runner in `timed/main.go`.
+- **auth**: `auth/migrations/` (dead code — never loaded; tables live
+  in store migrations).
 
 ### Fixed
 
