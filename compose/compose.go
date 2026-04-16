@@ -13,15 +13,23 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// dockerGID returns the gid that owns /var/run/docker.sock on the host.
-// The gated container needs to be in this group to talk to docker-cli.
-// Falls back to 999 (common default) if the socket is unreadable.
+// dockerGID returns the gid that owns /var/run/docker.sock, or 999 fallback.
+// gated must be in this group to spawn agent containers as uid 1000.
 func dockerGID() int {
 	var st syscall.Stat_t
 	if err := syscall.Stat("/var/run/docker.sock", &st); err == nil {
 		return int(st.Gid)
 	}
 	return 999
+}
+
+// copyEnv copies keys from env into dst, skipping empty values.
+func copyEnv(dst, env map[string]string, keys ...string) {
+	for _, k := range keys {
+		if v := envOr(env, k, ""); v != "" {
+			dst[k] = v
+		}
+	}
 }
 
 type ServiceConfig struct {
@@ -164,21 +172,15 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	if hostApp != "" {
 		environment["HOST_APP_DIR"] = hostApp
 	}
-	for _, k := range routerEnvKeys {
-		if v := envOr(env, k, ""); v != "" {
-			environment[k] = v
-		}
-	}
+	copyEnv(environment, env, routerEnvKeys...)
 
 	var b strings.Builder
 	b.WriteString("  gated:\n")
 	fmt.Fprintf(&b, "    container_name: %s_gated_%s\n", app, flavor)
 	b.WriteString("    image: arizuko:latest\n")
 	b.WriteString("    entrypoint: ['gated']\n")
-	// Run as uid 1000 (node) so files written into the shared data dir
-	// are readable+writable by the agent container (also uid 1000).
-	// group_add puts us in the host docker group so /var/run/docker.sock
-	// is accessible for spawning agent containers.
+	// uid 1000 matches agent container so shared data dir files round-trip;
+	// group_add into docker gid grants docker.sock access for spawning agents.
 	b.WriteString("    user: '1000:1000'\n")
 	fmt.Fprintf(&b, "    group_add: ['%d']\n", dockerGID())
 	b.WriteString("    volumes:\n")
@@ -189,10 +191,6 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	}
 	b.WriteString("    ports:\n")
 	fmt.Fprintf(&b, "      - '%s:%s'\n", apiPort, apiPort)
-	// host.docker.internal resolves to the host bridge gateway regardless of
-	// which docker network the container ends up on. Needed so gated can
-	// reach host-side services (e.g. whisper on the host at a known port)
-	// without baking bridge IPs or WAN addresses into .env files.
 	b.WriteString("    extra_hosts:\n")
 	b.WriteString("      - 'host.docker.internal:host-gateway'\n")
 	b.WriteString("    environment:\n")

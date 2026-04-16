@@ -1,24 +1,10 @@
 # Sidecars
 
-Adjacent MCP servers that extend arizuko operations.
+Self-contained service images built alongside arizuko.
 
-## Adding a sidecar
+- `whisper/` — `arizuko-whisper` image (faster-whisper over HTTP).
+  Build: `make -C sidecar/whisper image`. Deployed separately;
+  gated reaches it via `WHISPER_BASE_URL`.
 
-1. Place binary or script in this directory
-2. Register in `template/workspace/mcporter.json`:
-
-```json
-{
-  "servers": {
-    "my-sidecar": {
-      "command": "/app/sidecar/my-sidecar",
-      "transport": "stdio"
-    }
-  }
-}
-```
-
-3. Rebuild image: `make image`
-
-The openclaw agent discovers tools via mcporter and calls them
-natively during conversations.
+Per-group MCP sidecar containers (launched by `container.StartSidecars`)
+are a different mechanism — see `ARCHITECTURE.md` §"Sidecar Management".

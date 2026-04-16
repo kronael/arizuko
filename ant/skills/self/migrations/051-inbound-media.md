@@ -1,16 +1,11 @@
-# 051 — Inbound media attachments
+# 051 — inbound media attachments
 
-The gateway now downloads photos, documents, and voice messages before running
-the agent. Attachment paths are injected as XML into message content.
+Gateway downloads photos, documents, and voice messages before running
+the agent. Attachment XML appears inline:
 
-## What changed
+```xml
+<attachment path="…" mime="…" filename="…" transcript="…"/>
+```
 
-- `CLAUDE.md` has a new "Inbound media attachments" section
-- `<attachment path="..." mime="..." filename="..."/>` elements appear in message content
-- Voice messages include a `transcript="..."` attribute when whisper is configured
-- Files saved under `~/media/<YYYYMMDD>/` (gitignored, transient)
-
-## Agent action required
-
-None — attachments appear automatically in your message context. Read the path
-with file tools to process images/docs, or use `transcript` for pre-transcribed voice.
+Files at `~/media/<YYYYMMDD>/`. Read the path to process images/docs;
+use `transcript` for pre-transcribed voice.

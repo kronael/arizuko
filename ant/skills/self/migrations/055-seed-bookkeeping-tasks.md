@@ -1,42 +1,23 @@
 # 055 — seed bookkeeping cron tasks for all groups
 
-## Goal
+Groups created outside `onbod /approve` (CLI, IPC, manual SQL) lack the
+5 compact-memories scheduled tasks. Seed them for each group returned
+by `refresh_groups`:
 
-Groups created outside onbod `/approve` (CLI, IPC, manual SQL) lack the
-5 compact-memories scheduled tasks. This migration seeds them.
+1. `list_tasks` — count entries whose prompt contains `compact-memories`; if ≥5, skip.
+2. Pick the targetJid from `list_routes`:
+   - `platform=X`+`room=Y` → `X:Y`; `room=Y` alone → `Y`; `chat_jid=Z` → `Z`
+   - Skip wildcards (`*`, `?`)
+   - Fallback: `local:<folder>`
+3. For each missing task below, call `schedule_task`:
 
-## Check
+| prompt                             | cron         | contextMode |
+| ---------------------------------- | ------------ | ----------- |
+| `/compact-memories episodes day`   | `0 2 * * *`  | `isolated`  |
+| `/compact-memories episodes week`  | `0 3 * * 1`  | `isolated`  |
+| `/compact-memories episodes month` | `0 4 1 * *`  | `isolated`  |
+| `/compact-memories diary week`     | `0 3 * * 1`  | `isolated`  |
+| `/compact-memories diary month`    | `0 4 1 * *`  | `isolated`  |
 
-Per group: if `list_tasks` already shows 5+ tasks matching
-`compact-memories`, skip that group.
-
-## Steps
-
-For each group returned by `refresh_groups`:
-
-1. Call `list_tasks` — count entries whose prompt contains `compact-memories`
-2. If count >= 5, skip (already seeded)
-3. Determine the targetJid for this group:
-   - Call `list_routes` — find a route whose target matches this group's folder
-   - Reconstruct the JID from the match field: if match has both `platform=X`
-     and `room=Y`, use `X:Y`; if only `room=Y`, use `Y`; if `chat_jid=Z`,
-     use `Z` directly. Skip routes with wildcard values (`*`, `?`).
-   - If no usable route exists, use `local:<folder>` as the targetJid
-4. For each missing task from the 5 below, call `schedule_task`:
-
-| prompt | cron | contextMode |
-|--------|------|-------------|
-| `/compact-memories episodes day` | `0 2 * * *` | `isolated` |
-| `/compact-memories episodes week` | `0 3 * * 1` | `isolated` |
-| `/compact-memories episodes month` | `0 4 1 * *` | `isolated` |
-| `/compact-memories diary week` | `0 3 * * 1` | `isolated` |
-| `/compact-memories diary month` | `0 4 1 * *` | `isolated` |
-
-Use the MCP tools directly — do not write SQL or shell commands.
-Check each task individually; some groups may have partial sets.
-
-## After
-
-```bash
-echo 55 > ~/.claude/skills/self/MIGRATION_VERSION
-```
+Use MCP tools — no SQL or shell. Check each task individually (partial
+sets are possible).
