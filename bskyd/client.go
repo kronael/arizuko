@@ -38,10 +38,8 @@ func newBskyClient(cfg config) (*bskyClient, error) {
 }
 
 func (bc *bskyClient) auth() error {
-	if s := bc.loadSession(); s != nil {
-		if err := bc.refreshSession(s.RefreshJwt); err == nil {
-			return nil
-		}
+	if s := bc.loadSession(); s != nil && bc.refreshSession(s.RefreshJwt) == nil {
+		return nil
 	}
 	return bc.createSession()
 }
@@ -156,8 +154,8 @@ type embedRecord struct {
 }
 
 type embedImage struct {
-	Alt   string    `json:"alt"`
-	Image blobRef   `json:"image"`
+	Alt   string  `json:"alt"`
+	Image blobRef `json:"image"`
 }
 
 type blobRef struct {
@@ -179,8 +177,6 @@ func (bc *bskyClient) fetchNotifications(rc *chanlib.RouterClient) error {
 	if err := bc.xrpc("GET", "app.bsky.notification.listNotifications", params, nil, &result); err != nil {
 		return err
 	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
 	var processed int
 	for _, n := range result.Notifications {
 		if n.IsRead {
@@ -189,10 +185,9 @@ func (bc *bskyClient) fetchNotifications(rc *chanlib.RouterClient) error {
 		bc.handleNotification(n, rc)
 		processed++
 	}
-
 	if processed > 0 {
 		bc.xrpc("POST", "app.bsky.notification.updateSeen", nil,
-			map[string]string{"seenAt": now}, nil)
+			map[string]string{"seenAt": time.Now().UTC().Format(time.RFC3339)}, nil)
 	}
 	return nil
 }
@@ -203,18 +198,13 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 	if name == "" {
 		name = n.Author.Handle
 	}
-
 	topic := ""
 	if n.Record.Reply != nil {
 		topic = n.Record.Reply.Parent.URI
 	}
-
 	verb := "message"
-	switch n.Reason {
-	case "reply":
+	if n.Reason == "reply" {
 		verb = "reply"
-	case "mention":
-		verb = "message"
 	}
 
 	atts := bc.extractAttachments(n)
@@ -224,18 +214,17 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 	}
 
 	ts, _ := time.Parse(time.RFC3339, n.IndexedAt)
-	err := rc.SendMessage(chanlib.InboundMsg{
+	if err := rc.SendMessage(chanlib.InboundMsg{
 		ID:          uriToKey(n.URI),
 		ChatJID:     jid,
-		Sender:      "bluesky:" + n.Author.DID,
+		Sender:      jid,
 		SenderName:  name,
 		Content:     content,
 		Timestamp:   ts.Unix(),
 		Topic:       topic,
 		Verb:        verb,
 		Attachments: atts,
-	})
-	if err != nil {
+	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 	}
 }
@@ -244,22 +233,19 @@ func (bc *bskyClient) extractAttachments(n notification) []chanlib.InboundAttach
 	if n.Record.Embed == nil || n.Record.Embed.Type != "app.bsky.embed.images" {
 		return nil
 	}
-	did := n.Author.DID
 	var atts []chanlib.InboundAttachment
 	for i, img := range n.Record.Embed.Images {
 		cid := img.Image.Ref.Link
 		if cid == "" {
 			continue
 		}
-		ext := blobExt(img.Image.MimeType)
-		fname := fmt.Sprintf("image_%d%s", i, ext)
 		url := ""
 		if bc.cfg.ListenURL != "" {
-			url = bc.cfg.ListenURL + "/files/" + did + "/" + cid
+			url = bc.cfg.ListenURL + "/files/" + n.Author.DID + "/" + cid
 		}
 		atts = append(atts, chanlib.InboundAttachment{
 			Mime:     img.Image.MimeType,
-			Filename: fname,
+			Filename: fmt.Sprintf("image_%d%s", i, blobExt(img.Image.MimeType)),
 			URL:      url,
 			Size:     img.Image.Size,
 		})
@@ -307,15 +293,12 @@ func (bc *bskyClient) Send(req chanlib.SendRequest) (string, error) {
 func (bc *bskyClient) Typing(string, bool) {}
 
 func (bc *bskyClient) getPostCID(uri string) (string, error) {
-	// at://did/collection/rkey
 	parts := strings.Split(uri, "/")
 	if len(parts) < 5 {
 		return "", fmt.Errorf("invalid uri: %s", uri)
 	}
-	repo := parts[2]
-	rkey := parts[len(parts)-1]
 	params := map[string]string{
-		"repo": repo, "collection": "app.bsky.feed.post", "rkey": rkey,
+		"repo": parts[2], "collection": "app.bsky.feed.post", "rkey": parts[len(parts)-1],
 	}
 	var result struct {
 		CID string `json:"cid"`

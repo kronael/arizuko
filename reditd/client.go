@@ -61,10 +61,7 @@ func (rc *redditClient) loadCursors() {
 }
 
 func (rc *redditClient) saveCursors() {
-	b, err := json.Marshal(rc.cursors)
-	if err != nil {
-		return
-	}
+	b, _ := json.Marshal(rc.cursors)
 	os.MkdirAll(rc.cfg.DataDir, 0o755)
 	os.WriteFile(filepath.Join(rc.cfg.DataDir, "cursors.json"), b, 0o600)
 }
@@ -263,7 +260,6 @@ func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClien
 		rc.skipFirst[key] = true
 		return
 	}
-
 	for _, t := range l.Data.Children {
 		rc.handleThing(t, key, router)
 	}
@@ -272,10 +268,8 @@ func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClien
 func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterClient) {
 	d := t.Data
 	sender := "reddit:" + d.Author
-
-	isSubreddit := strings.HasPrefix(key, "sr:")
 	jid := sender
-	if isSubreddit {
+	if strings.HasPrefix(key, "sr:") {
 		jid = "reddit:r_" + d.Subreddit
 	}
 
@@ -290,25 +284,19 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 		return
 	}
 
-	// Derive verb from thing kind and context.
-	// t1 = comment, t3 = link/post, t4 = message
-	verb := "message"
-	topic := ""
+	// t1=comment, t3=post, t4=DM
+	verb, topic := "message", ""
 	switch t.Kind {
-	case "t1": // comment
-		if d.ParentID != "" && strings.HasPrefix(d.ParentID, "t3_") {
-			// comment on a post
-			verb = "reply"
-			topic = d.LinkID
-		} else if d.ParentID != "" {
-			// reply to a comment
+	case "t1":
+		if d.ParentID != "" {
 			verb = "reply"
 			topic = d.ParentID
+			if strings.HasPrefix(d.ParentID, "t3_") {
+				topic = d.LinkID
+			}
 		}
-	case "t3": // link/post (subreddit feed)
+	case "t3":
 		verb = "post"
-	case "t4": // private message
-		verb = "message"
 	}
 
 	atts := rc.extractAttachments(t)
@@ -316,7 +304,7 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 		content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
 	}
 
-	err := router.SendMessage(chanlib.InboundMsg{
+	if err := router.SendMessage(chanlib.InboundMsg{
 		ID:          d.Name,
 		ChatJID:     jid,
 		Sender:      sender,
@@ -326,8 +314,7 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 		Topic:       topic,
 		Verb:        verb,
 		Attachments: atts,
-	})
-	if err != nil {
+	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 	}
 }
@@ -359,38 +346,25 @@ func (rc *redditClient) Typing(string, bool) {}
 
 func (rc *redditClient) extractAttachments(t thing) []chanlib.InboundAttachment {
 	d := t.Data
-	var atts []chanlib.InboundAttachment
-
-	// Video posts.
 	if d.Media != nil && d.Media.RedditVideo != nil && d.Media.RedditVideo.FallbackURL != "" {
-		u := d.Media.RedditVideo.FallbackURL
-		atts = append(atts, rc.makeAttachment(u, "video/mp4", "video.mp4"))
-		return atts
+		return []chanlib.InboundAttachment{rc.makeAttachment(d.Media.RedditVideo.FallbackURL, "video/mp4", "video.mp4")}
 	}
-
-	// Gallery posts.
 	if d.IsGallery && d.GalleryData != nil && d.MediaMetadata != nil {
+		var atts []chanlib.InboundAttachment
 		for _, item := range d.GalleryData.Items {
 			meta, ok := d.MediaMetadata[item.MediaID]
 			if !ok || meta.Status != "valid" || meta.S.U == "" {
 				continue
 			}
 			imgURL := strings.ReplaceAll(meta.S.U, "&amp;", "&")
-			ext := extFromRedditMime(meta.Mime)
-			fname := item.MediaID + ext
-			atts = append(atts, rc.makeAttachment(imgURL, meta.Mime, fname))
+			atts = append(atts, rc.makeAttachment(imgURL, meta.Mime, item.MediaID+extFromRedditMime(meta.Mime)))
 		}
 		return atts
 	}
-
-	// Image posts (i.redd.it or post_hint:image).
 	if d.URL != "" && isRedditImageURL(d.URL, d.PostHint) {
-		mime := mimeFromExt(d.URL)
-		fname := filenameFromURL(d.URL)
-		atts = append(atts, rc.makeAttachment(d.URL, mime, fname))
+		return []chanlib.InboundAttachment{rc.makeAttachment(d.URL, mimeFromExt(d.URL), filenameFromURL(d.URL))}
 	}
-
-	return atts
+	return nil
 }
 
 func (rc *redditClient) makeAttachment(rawURL, mime, fname string) chanlib.InboundAttachment {
@@ -458,11 +432,10 @@ func extFromRedditMime(m string) string {
 	}
 }
 
-// fileCache maps short IDs to original URLs for the file proxy.
 type fileCache struct {
 	mu      sync.Mutex
-	ids     map[string]string // id -> URL
-	order   []string          // eviction order
+	ids     map[string]string
+	order   []string
 	maxSize int
 }
 
