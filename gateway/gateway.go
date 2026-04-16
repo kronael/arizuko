@@ -749,6 +749,8 @@ func (g *Gateway) runAgentWithOpts(
 		Topic:      topic,
 		GroupPath:  groupPath,
 		Name:       cname,
+		GroupName:  group.Name,
+		Parent:     group.Parent,
 		Config:     group.Config,
 		SlinkToken: group.SlinkToken,
 		Channel:    chanName,

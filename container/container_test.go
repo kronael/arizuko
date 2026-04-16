@@ -191,9 +191,10 @@ func TestSeedSettings(t *testing.T) {
 		WebHost: "https://example.com",
 	}
 	in := Input{
-		Folder:  "testgroup",
-		Depth:   2,
-		Channel: "telegram",
+		Folder:    "testgroup",
+		GroupName: "Test World",
+		Depth:     2,
+		Channel:   "telegram",
 	}
 
 	seedSettings(d, cfg, in, true)
@@ -227,6 +228,19 @@ func TestSeedSettings(t *testing.T) {
 	if s["outputStyle"] != "telegram" {
 		t.Errorf("outputStyle = %v", s["outputStyle"])
 	}
+	// Root bot: world is empty, tier 0.
+	if env["ARIZUKO_GROUP_FOLDER"] != "testgroup" {
+		t.Errorf("group_folder = %v", env["ARIZUKO_GROUP_FOLDER"])
+	}
+	if env["ARIZUKO_GROUP_NAME"] != "Test World" {
+		t.Errorf("group_name = %v", env["ARIZUKO_GROUP_NAME"])
+	}
+	if env["ARIZUKO_WORLD"] != "" {
+		t.Errorf("world (root) = %v, want empty", env["ARIZUKO_WORLD"])
+	}
+	if env["ARIZUKO_TIER"] != "0" {
+		t.Errorf("tier (root) = %v, want 0", env["ARIZUKO_TIER"])
+	}
 
 	servers, ok := s["mcpServers"].(map[string]any)
 	if !ok {
@@ -244,7 +258,11 @@ func TestSeedSettings(t *testing.T) {
 func TestSeedSettingsNonRoot(t *testing.T) {
 	d := t.TempDir()
 	cfg := &core.Config{Name: "Bot"}
-	in := Input{Folder: "parent/child"}
+	in := Input{
+		Folder:    "atlas/support",
+		GroupName: "Support",
+		Parent:    "atlas",
+	}
 
 	seedSettings(d, cfg, in, false)
 
@@ -256,6 +274,39 @@ func TestSeedSettingsNonRoot(t *testing.T) {
 	if env["ARIZUKO_IS_ROOT"] != "" {
 		t.Errorf("non-root should have empty ARIZUKO_IS_ROOT, got %v",
 			env["ARIZUKO_IS_ROOT"])
+	}
+	// Tier 2 building: world=atlas, parent=atlas, tier=2.
+	if env["ARIZUKO_WORLD"] != "atlas" {
+		t.Errorf("world = %v, want atlas", env["ARIZUKO_WORLD"])
+	}
+	if env["ARIZUKO_GROUP_PARENT"] != "atlas" {
+		t.Errorf("parent = %v, want atlas", env["ARIZUKO_GROUP_PARENT"])
+	}
+	if env["ARIZUKO_TIER"] != "2" {
+		t.Errorf("tier = %v, want 2", env["ARIZUKO_TIER"])
+	}
+}
+
+func TestSeedSettingsTier1World(t *testing.T) {
+	d := t.TempDir()
+	cfg := &core.Config{Name: "Bot"}
+	in := Input{Folder: "atlas", GroupName: "Atlas"}
+
+	seedSettings(d, cfg, in, false)
+
+	data, _ := os.ReadFile(filepath.Join(d, "settings.json"))
+	var s map[string]any
+	json.Unmarshal(data, &s)
+
+	env := s["env"].(map[string]any)
+	if env["ARIZUKO_WORLD"] != "atlas" {
+		t.Errorf("world = %v, want atlas", env["ARIZUKO_WORLD"])
+	}
+	if env["ARIZUKO_TIER"] != "1" {
+		t.Errorf("tier = %v, want 1", env["ARIZUKO_TIER"])
+	}
+	if env["ARIZUKO_GROUP_PARENT"] != "" {
+		t.Errorf("parent (tier-1) = %v, want empty", env["ARIZUKO_GROUP_PARENT"])
 	}
 }
 

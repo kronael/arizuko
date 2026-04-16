@@ -46,6 +46,29 @@ func SanitizeFolder(folder string) string {
 	return strings.Trim(s, "-")
 }
 
+// worldOf returns the top-level folder segment (tier-1 world).
+// Empty for the root bot.
+func worldOf(folder string, root bool) string {
+	if root {
+		return ""
+	}
+	if i := strings.IndexByte(folder, '/'); i >= 0 {
+		return folder[:i]
+	}
+	return folder
+}
+
+// tierOf returns the bot's tier: 0 root, 1 world, 2 building, 3+ room.
+func tierOf(folder string, root bool) int {
+	if root {
+		return 0
+	}
+	if folder == "" {
+		return 0
+	}
+	return strings.Count(folder, "/") + 1
+}
+
 type Input struct {
 	Prompt    string            `json:"prompt"`
 	SessionID string            `json:"sessionId,omitempty"`
@@ -65,6 +88,8 @@ type Input struct {
 
 	GroupPath   string           `json:"-"`
 	Name        string           `json:"-"`
+	GroupName   string           `json:"-"`
+	Parent      string           `json:"-"`
 	Config      core.GroupConfig `json:"-"`
 	SlinkToken  string           `json:"-"`
 	Annotations []string         `json:"-"`
@@ -652,6 +677,11 @@ func seedSettings(
 		env["WEB_PREFIX"] = "pub/" + in.Folder
 	}
 	env["ARIZUKO_DELEGATE_DEPTH"] = strconv.Itoa(in.Depth)
+	env["ARIZUKO_GROUP_FOLDER"] = in.Folder
+	env["ARIZUKO_GROUP_NAME"] = in.GroupName
+	env["ARIZUKO_GROUP_PARENT"] = in.Parent
+	env["ARIZUKO_WORLD"] = worldOf(in.Folder, root)
+	env["ARIZUKO_TIER"] = strconv.Itoa(tierOf(in.Folder, root))
 	if in.Channel != "" {
 		settings["outputStyle"] = in.Channel
 	}
