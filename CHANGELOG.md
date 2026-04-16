@@ -9,6 +9,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.29.1] — 2026-04-16
+
 ### Changed
 
 - **ant/resolve**: classification section headings (`## Classify`,
