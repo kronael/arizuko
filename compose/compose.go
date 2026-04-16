@@ -220,18 +220,8 @@ func onbodService(app, flavor, dataDir string, env map[string]string) string {
 		"ONBOD_LISTEN_ADDR":  envOr(env, "ONBOD_LISTEN_ADDR", ":8092"),
 		"API_PORT":           envOr(env, "API_PORT", "8080"),
 	}
-	if p := envOr(env, "ONBOARDING_PROTOTYPE", ""); p != "" {
-		environment["ONBOARDING_PROTOTYPE"] = p
-	}
-	if g := envOr(env, "ONBOARDING_GREETING", ""); g != "" {
-		environment["ONBOARDING_GREETING"] = g
-	}
-	if s := envOr(env, "CHANNEL_SECRET", ""); s != "" {
-		environment["CHANNEL_SECRET"] = s
-	}
-	if s := envOr(env, "AUTH_BASE_URL", ""); s != "" {
-		environment["AUTH_BASE_URL"] = s
-	}
+	copyEnv(environment, env,
+		"ONBOARDING_PROTOTYPE", "ONBOARDING_GREETING", "CHANNEL_SECRET", "AUTH_BASE_URL")
 	return writeSvc(svcDef{
 		name:        "onbod",
 		app:         app,
@@ -249,12 +239,7 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 		"DB_PATH":   "/srv/app/home/store/messages.db",
 		"DASH_PORT": dashPort,
 	}
-	if s := envOr(env, "AUTH_SECRET", ""); s != "" {
-		environment["AUTH_SECRET"] = s
-	}
-	if h := envOr(env, "WEB_HOST", ""); h != "" {
-		environment["WEB_HOST"] = h
-	}
+	copyEnv(environment, env, "AUTH_SECRET", "WEB_HOST")
 	return writeSvc(svcDef{
 		name:        "dashd",
 		app:         app,
@@ -276,24 +261,14 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 		"WEB_PORT":  webPort,
 		"DASH_ADDR": dashAddr,
 		"VITE_ADDR": "http://vited:" + vitePort,
+		"WEBD_ADDR": "http://webd:9002",
 	}
-	if s := envOr(env, "AUTH_SECRET", ""); s != "" {
-		environment["AUTH_SECRET"] = s
-	}
-	if p := envOr(env, "WEB_PUBLIC", ""); p != "" {
-		environment["WEB_PUBLIC"] = p
-	}
-	if r := envOr(env, "WEB_REDIRECTS", ""); r != "" {
-		environment["WEB_REDIRECTS"] = r
-	}
-	environment["WEBD_ADDR"] = "http://webd:9002"
+	copyEnv(environment, env, "AUTH_SECRET", "WEB_PUBLIC", "WEB_REDIRECTS")
 	if envOr(env, "WEBDAV_ENABLED", "") == "true" {
-		davPort := envOr(env, "DAV_PORT", "8097")
-		environment["DAV_ADDR"] = "http://davd:" + davPort
+		environment["DAV_ADDR"] = "http://davd:" + envOr(env, "DAV_PORT", "8097")
 	}
 	if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
-		onbodPort := envOr(env, "ONBOD_LISTEN_ADDR", ":8092")
-		onbodPort = strings.TrimPrefix(onbodPort, ":")
+		onbodPort := strings.TrimPrefix(envOr(env, "ONBOD_LISTEN_ADDR", ":8092"), ":")
 		environment["ONBOD_ADDR"] = "http://onbod:" + onbodPort
 	}
 	ports := []string{webPort + ":" + webPort}
@@ -334,20 +309,14 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 }
 
 func webdService(app, flavor, dataDir string, env map[string]string) string {
-	apiPort := envOr(env, "API_PORT", "8080")
 	environment := map[string]string{
 		"DATA_DIR":       "/srv/app/home",
-		"ROUTER_URL":     "http://gated:" + apiPort,
+		"ROUTER_URL":     "http://gated:" + envOr(env, "API_PORT", "8080"),
 		"WEBD_LISTEN":    ":9002",
 		"WEBD_URL":       "http://webd:9002",
 		"ASSISTANT_NAME": envOr(env, "ASSISTANT_NAME", "arizuko"),
 	}
-	if s := envOr(env, "CHANNEL_SECRET", ""); s != "" {
-		environment["CHANNEL_SECRET"] = s
-	}
-	if s := envOr(env, "AUTH_SECRET", ""); s != "" {
-		environment["AUTH_SECRET"] = s
-	}
+	copyEnv(environment, env, "CHANNEL_SECRET", "AUTH_SECRET")
 	return writeSvc(svcDef{
 		name: "webd", app: app, flavor: flavor,
 		entrypoint: "webd", dataDir: dataDir,

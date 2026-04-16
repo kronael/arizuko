@@ -32,11 +32,6 @@ status: active
 - [b-control-chat.md](b-control-chat.md) — root control chat; gap: /status command, /approve /reject wiring
 - [d-dashboards.md](d-dashboards.md) — dashd with 6 dashboards; gap: banner health, expandable detail
 
-## Superseded
-
-- [4-dashboards.md](4-dashboards.md) — operator dashboard architecture (superseded by d-dashboards.md)
-- [Q-dash-status.md](Q-dash-status.md) — status dashboard (superseded by d-dashboards.md, dashd has status page)
-
 ## Planned
 
 - [1-atlas.md](1-atlas.md) — sandboxed support hierarchy

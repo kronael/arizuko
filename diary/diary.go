@@ -31,16 +31,12 @@ func Read(groupDir string, max int) string {
 		files = files[:max]
 	}
 
-	now := time.Now()
-	today := now.Format("20060102")
-	yesterday := now.AddDate(0, 0, -1).Format("20060102")
-
 	var b strings.Builder
 	fmt.Fprintf(&b, "<knowledge layer=\"diary\" count=\"%d\">\n", len(files))
 	for _, f := range files {
 		key := strings.TrimSuffix(f, ".md")
-		age := ageLabel(key, today, yesterday, now)
-		summary := extractSummary(filepath.Join(dir, f))
+		age := ageLabel(key, time.Now())
+		summary := ExtractSummary(filepath.Join(dir, f))
 		if summary == "" {
 			continue
 		}
@@ -73,11 +69,11 @@ func WriteRecovery(groupDir, reason, errMsg string) {
 	slog.Info("wrote recovery diary entry", "group", groupDir, "reason", reason)
 }
 
-func ageLabel(key, today, yesterday string, now time.Time) string {
-	if key == today {
+func ageLabel(key string, now time.Time) string {
+	if key == now.Format("20060102") {
 		return "today"
 	}
-	if key == yesterday {
+	if key == now.AddDate(0, 0, -1).Format("20060102") {
 		return "yesterday"
 	}
 	t, err := time.Parse("20060102", key)
@@ -95,7 +91,7 @@ func ageLabel(key, today, yesterday string, now time.Time) string {
 	return fmt.Sprintf("%d weeks ago", weeks)
 }
 
-func extractSummary(path string) string {
+func ExtractSummary(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""

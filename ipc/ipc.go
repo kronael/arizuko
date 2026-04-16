@@ -185,11 +185,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	id := auth.Resolve(folder)
 	srv := server.NewMCPServer("arizuko", "1.0")
 
-	// register adds a tool if any rule references it, auto-annotates the
-	// description with matching grants, and wraps the handler with a runtime
-	// CheckAction(nil-params) gate. For tools with per-param grants (send_*),
-	// the handler does its own param-aware CheckAction and registerRaw skips
-	// the wrapper.
+	// registerRaw adds a tool if any rule matches; granted additionally
+	// wraps with a CheckAction(nil-params) gate. Send-* tools use
+	// registerRaw because they do param-aware CheckAction themselves.
 	registerRaw := func(name, desc string, opts []mcp.ToolOption, h server.ToolHandlerFunc) {
 		matching := grantslib.MatchingRules(rules, name)
 		if len(matching) == 0 {

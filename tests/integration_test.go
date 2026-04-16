@@ -18,11 +18,10 @@ import (
 
 // mockChannel simulates an external channel adapter's HTTP server.
 type mockChannel struct {
-	mu       sync.Mutex
-	sent     []map[string]string
-	typing   []map[string]any
-	healthy  bool
-	srv      *httptest.Server
+	mu      sync.Mutex
+	sent    []map[string]string
+	healthy bool
+	srv     *httptest.Server
 }
 
 func newMockChannel() *mockChannel {
@@ -39,11 +38,6 @@ func newMockChannel() *mockChannel {
 		})
 	})
 	mux.HandleFunc("POST /typing", func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
-		m.mu.Lock()
-		m.typing = append(m.typing, body)
-		m.mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +95,7 @@ func TestFullLifecycle(t *testing.T) {
 	h := apiSrv.Handler()
 
 	// 1. Register channel
-	token := registerChannel(t, h, secret, mock.srv.URL)
+	token := registerChannelWithName(t, h, secret, mock.srv.URL, "mock-tg", []string{"tg:"})
 
 	if registeredCh == nil {
 		t.Fatal("expected onRegister callback")
@@ -159,10 +153,6 @@ func TestFullLifecycle(t *testing.T) {
 // TestHealthAutoDeregister verifies that 3 consecutive health failures
 // cause auto-deregistration.
 func TestHealthAutoDeregister(t *testing.T) {
-	dir := t.TempDir()
-	s, _ := store.Open(filepath.Join(dir, "store"))
-	defer s.Close()
-
 	mock := newMockChannel()
 	defer mock.close()
 
@@ -170,14 +160,13 @@ func TestHealthAutoDeregister(t *testing.T) {
 	reg.Register("mock-tg", mock.srv.URL, []string{"tg:"}, nil)
 
 	// healthy: reset works
-	mock.setHealthy(true)
 	e := chanreg.NewHTTPChannel(reg.Get("mock-tg"), "secret")
 	if err := e.HealthCheck(); err != nil {
 		t.Fatal(err)
 	}
 	reg.ResetHealth("mock-tg")
 
-	// unhealthy: 3 failures → deregister
+	// unhealthy: 3 failures -> deregister
 	mock.setHealthy(false)
 	for i := 0; i < 3; i++ {
 		fails := reg.RecordHealthFail("mock-tg")
@@ -332,11 +321,6 @@ func TestMessageAutoID(t *testing.T) {
 }
 
 // helpers
-
-func registerChannel(t *testing.T, h http.Handler, secret, url string) string {
-	t.Helper()
-	return registerChannelWithName(t, h, secret, url, "mock-tg", []string{"tg:"})
-}
 
 func registerChannelWithName(t *testing.T, h http.Handler, secret, url, name string, prefixes []string) string {
 	t.Helper()

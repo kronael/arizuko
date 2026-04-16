@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/onvos/arizuko/diary"
 	_ "modernc.org/sqlite"
 )
 
@@ -464,40 +465,14 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 }
 
 func mdSummary(path string) string {
+	if s := diary.ExtractSummary(path); s != "" {
+		return s
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
-	content := string(data)
-	if strings.HasPrefix(content, "---\n") {
-		end := strings.Index(content[4:], "\n---")
-		if end >= 0 {
-			lines := strings.Split(content[4:4+end], "\n")
-			for i, line := range lines {
-				trimmed := strings.TrimSpace(line)
-				if !strings.HasPrefix(trimmed, "summary:") {
-					continue
-				}
-				val := strings.TrimSpace(strings.TrimPrefix(trimmed, "summary:"))
-				if val != "" && val != "|" && val != ">" {
-					return strings.Trim(val, `"'`)
-				}
-				var parts []string
-				for _, bl := range lines[i+1:] {
-					if len(bl) == 0 {
-						continue
-					}
-					if bl[0] == ' ' || bl[0] == '\t' {
-						parts = append(parts, strings.TrimSpace(bl))
-					} else {
-						break
-					}
-				}
-				return strings.Join(parts, " ")
-			}
-		}
-	}
-	for _, l := range strings.Split(content, "\n") {
+	for _, l := range strings.Split(string(data), "\n") {
 		l = strings.TrimSpace(l)
 		if l != "" && l != "---" {
 			return l

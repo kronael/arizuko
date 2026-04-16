@@ -4,62 +4,28 @@
 
 ```
 cmd/arizuko/main
-  ├── core          (Config, types, Channel interface)
-  ├── store         (SQLite persistence)
-  ├── api           (HTTP API: channel registration, inbound messages)
-  │   ├── chanreg   (channel registry, health checks)
-  │   └── store
-  ├── auth          (identity, authorization, JWT, OAuth, middleware)
-  ├── chanreg       (channel registry, HTTP channel proxy)
-  ├── gateway       (main loop, message routing)
-  │   ├── container (docker spawn, volume mounts, sidecars, runtime)
-  │   │   ├── groupfolder
-  │   │   └── mountsec
-  │   ├── queue     (per-group concurrency, stdin piping)
-  │   ├── router    (message formatting, routing rules)
-  │   ├── ipc       (MCP server on unix socket, runtime auth via auth)
-  │   ├── diary     (YAML frontmatter annotations)
-  │   └── groupfolder
-  └── compose       (docker-compose generation)
+  ├── core          Config, types, Channel interface
+  ├── store         SQLite persistence
+  ├── api           HTTP API: channel registration, inbound messages
+  │   └── chanreg, store
+  ├── auth          identity, JWT, OAuth, middleware
+  ├── chanreg       channel registry, HTTP channel proxy
+  ├── gateway       main loop, message routing
+  │   ├── container docker spawn, volume mounts, sidecars, runtime
+  │   │   └── groupfolder, mountsec
+  │   ├── queue     per-group concurrency, stdin piping
+  │   ├── router    message formatting, routing rules
+  │   ├── ipc       MCP server on unix socket
+  │   └── diary, groupfolder
+  └── compose       docker-compose generation
 
-gated/main           (gateway daemon entrypoint)
-  └── wires core + store + gateway + api + chanreg + ipc + auth
-
-teled/main           (telegram adapter daemon)
-  └── calls router HTTP API + serves outbound endpoints
-
-discd/main           (discord adapter daemon)
-  └── calls router HTTP API + serves outbound endpoints
-
-mastd/main           (mastodon adapter daemon)
-  └── WebSocket streaming + REST API; calls router HTTP API
-
-bskyd/main           (bluesky adapter daemon)
-  └── AT Protocol polling; calls router HTTP API
-
-reditd/main          (reddit adapter daemon)
-  └── OAuth2 inbox/subreddit polling; calls router HTTP API
-
-emaid/main           (email adapter daemon)
-  └── IMAP TLS polling + SMTP STARTTLS replies; calls router HTTP API
-
-whapd/               (whatsapp adapter daemon, TypeScript)
-  └── calls router HTTP API + serves outbound endpoints
-
-timed/main           (scheduler daemon)
-  └── polls scheduled_tasks, inserts messages into shared DB
-
-onbod/main           (onboarding daemon)
-  └── state machine, /send HTTP endpoint, poll loop
-
-grants/              (library)
-  └── CheckAction, NarrowRules, MatchingRules, DeriveRules
-
-chanlib/             (library)
-  └── RouterClient, InboundMsg, InboundAttachment, NewAdapterMux — shared by all channel adapters
-
-db_utils/            (library)
-  └── SQL migration runner (db_utils.Migrate); gated owns schema via store/
+gated/   wires core + store + gateway + api + chanreg + ipc + auth
+timed/   scheduler: polls scheduled_tasks, inserts messages
+onbod/   onboarding state machine
+teled/ discd/ mastd/ bskyd/ reditd/ emaid/ whapd/  channel adapters
+grants/  CheckAction, NarrowRules, MatchingRules, DeriveRules
+chanlib/ RouterClient, InboundMsg, auth middleware (shared by adapters)
+db_utils/ SQL migration runner
 ```
 
 ## Message Flow
@@ -67,512 +33,325 @@ db_utils/            (library)
 ```
 Channel adapter → POST /v1/messages (api) → store.PutMessage
   → gateway.messageLoop (polls every 2s)
-  → store.NewMessages (unprocessed since lastTimestamp)
-  → store.ActiveWebJIDs (web: JIDs with recent messages, polled same loop)
-  → impulseGate.accept(jid, msgs) — weight-based batching; skip JID if under
-    threshold (social verbs=0, default=100, max_hold=5min flush)
-  → checkTrigger (direct mode or @name regex)
-  → handleCommand (/new [#topic], /ping, /chatid, /stop)
-  → prefix dispatch (@name → named group, #topic → topic session)
-  → router.ResolveRoutingTarget (delegate to child group if matched)
-  → queue.SendMessages (steer into running container: write IPC input files,
-    signal container) — records timestamp in steeredTs (cursor advances
-    once on container completion via max(batch, steered)) OR
+  → store.NewMessages + store.ActiveWebJIDs
+  → impulseGate.accept — weight-based batching
+  → checkTrigger → handleCommand → prefix dispatch
+  → router.ResolveRoutingTarget
+  → queue.SendMessages (steer into running container) OR
   → queue.EnqueueMessageCheck → processGroupMessages
-    → web: JID → processWebTopics (per-topic agent run)
-    → filter out gateway commands (isGatewayCommand — not forwarded to agent)
-    → enricher: download attachments → groups/<folder>/media/<YYYYMMDD>/ (voice → Whisper)
-    → store.EnrichMessage (update content with <attachment> XML, clear attachments column)
-    → store.MessagesSince (per-chat agent cursor)
-    → store.FlushSysMsgs (XML system events prepended)
-    → router.FormatMessages (XML message batch)
-    → grants.DeriveRules → inject into start.json
-    → container.Run (docker run)
-    → stream output → router.FormatOutbound (strip <internal> tags)
-    → HTTPChannel.Send → POST /send to channel adapter
+    → enricher: download attachments → Whisper for voice
+    → store.EnrichMessage + MessagesSince + FlushSysMsgs
+    → router.FormatMessages (XML batch) + grants.DeriveRules → start.json
+    → container.Run → stream output → router.FormatOutbound
+    → HTTPChannel.Send → POST /send
 ```
 
 ## Web Channel (proxyd)
 
-Web chat uses `web:<folder>` JIDs. Messages arrive via `proxyd` (HTTP/SSE),
-are stored directly in the shared SQLite DB. The gateway poll loop discovers
-active `web:` JIDs via `store.ActiveWebJIDs(since)` and routes them like any
-other channel. Each web message carries a topic; `processWebTopics` in the
-gateway splits messages by topic and runs one agent per topic.
+Web chat uses `web:<folder>` JIDs. Messages arrive via `proxyd` (HTTP/SSE) and
+store directly in SQLite. The gateway poll loop discovers active `web:` JIDs
+via `store.ActiveWebJIDs(since)`. Each message carries a topic;
+`processWebTopics` splits by topic and runs one agent per topic.
 
 **Path model**:
 
-- `/pub/*` — public, no auth required
-- `/health` — public health check
-- `/slink/*` — rate-limited (10 req/min per IP); token resolved against
-  `groups.slink_token`, injects `X-Folder`, `X-Group-Name`,
-  `X-Slink-Token`, then proxies to webd (or vite if no webd)
+- `/pub/*`, `/health` — public
+- `/slink/*` — rate-limited (10 req/min/IP); token resolved against
+  `groups.slink_token`; injects `X-Folder`, `X-Group-Name`, `X-Slink-Token`
 - `/dash/*` — auth-gated, proxied to dashd
-- `/dav/*` — auth-gated, proxied to dufs WebDAV container (strips `/dav` prefix)
-- `/*` — everything else auth-gated
+- `/dav/*` — auth-gated, proxied to dufs (strips `/dav` prefix)
+- `/*` — auth-gated
 
-**Auth resolution** in `requireAuth`:
+**Auth** in `requireAuth`: `Authorization: Bearer <jwt>` → `refresh_token`
+cookie → redirect to `/auth/login`. JWT claims include `groups` (null =
+operator, `[]` = none, list = specific folders) read from `user_groups` at
+login. `webd.requireFolder` checks `X-User-Groups` on folder-specific
+endpoints.
 
-1. `Authorization: Bearer <jwt>` — validates JWT, injects `X-User-Sub`,
-   `X-User-Name`, optionally `X-User-Groups` (JSON array).
-2. `refresh_token` cookie — fallback for browser navigation without JS Bearer
-   header. Looks up session by `auth.HashToken(cookie)`, injects `X-User-Sub`
-   and `X-User-Name`.
-3. Redirects to `/auth/login` if neither check passes.
-
-**JWT plane**: user logs in via `/auth/`, proxyd validates the JWT and injects
-`X-User-Sub` and optionally `X-User-Groups` (JSON array of folder names).
-`groups: null` in the JWT = operator (unrestricted); `groups: []` = no access;
-`groups: ["folder"]` = specific folders. Group list is read from `user_groups`
-table at login time and embedded in the JWT.
-
-`webd.requireFolder` middleware checks `X-User-Groups` on folder-specific
-endpoints. Absent header = operator (no restriction).
-
-`groupForJid` in the gateway resolves `web:<folder>` by stripping the prefix
-and looking up the group by folder path, the same fallback used by `slink:`.
-
-WebDAV at `/dav/` requires `DAV_ADDR` configured; the backing container
-(`sigoden/dufs:latest`) mounts `groups/` read-only.
-
-proxyd receives `DATA_DIR` from compose to locate `web/vhosts.json` (reloaded
-every 5s without restart).
-
-Full protocol: `specs/6/3-chat-ui.md`.
+WebDAV requires `DAV_ADDR`; the dufs container mounts `groups/` read-only.
+proxyd reads `web/vhosts.json` every 5s. Full protocol: `specs/6/3-chat-ui.md`.
 
 ## Auth Hardening
 
-- **Secure cookies**: `refresh_token` and OAuth state cookies include
-  `Secure: true` when `authBaseURL(cfg)` starts with `https://`. Derived
-  once at route registration in `auth/middleware.go`.
-
-- **Login rate limiting**: `loginAllowed(ip)` in `auth/web.go` allows at most
-  5 POST `/auth/login` attempts per IP per 15-minute sliding window.
-  In-memory; resets on restart. Returns HTTP 429 on breach.
-
-- **Telegram replay protection**: `verifyTelegramWidget` rejects payloads
-  where `auth_date` is older than 5 minutes (guards against replay attacks on
-  the Telegram Login Widget).
-
-- **OAuth providers**: Google (`GOOGLE_CLIENT_ID`), GitHub (`GITHUB_CLIENT_ID`,
-  optional `GITHUB_ALLOWED_ORG` for org membership gate), Discord
-  (`DISCORD_CLIENT_ID`). Login page shows provider buttons when the
-  corresponding env is set. All providers use the shared `createOAuthSession`
-  path in `auth/oauth.go`.
+- Secure cookies when `authBaseURL(cfg)` is HTTPS
+- Login rate limit: 5 POST `/auth/login` per IP per 15min (in-memory)
+- Telegram widget: rejects `auth_date` > 5min (replay protection)
+- OAuth: Google, GitHub (optional `GITHUB_ALLOWED_ORG`), Discord; shared
+  `createOAuthSession` path in `auth/oauth.go`
 
 ## Channel Protocol
 
-Channels are external processes that register with the router
-via HTTP. Both sides are HTTP servers.
+Channels are external processes registering via HTTP. Both sides are HTTP
+servers. Full protocol: `specs/4/1-channel-protocol.md`.
 
-**Inbound**: Channel adapter receives platform event, POSTs to
-router `POST /v1/messages`. Router stores in SQLite, routes
-to group.
+- **Inbound**: `POST /v1/messages` → store → route
+- **Outbound**: router calls `POST <url>/send` (synchronous)
+- **Registration**: `POST /v1/channels/register` with name, URL, JID prefixes,
+  capabilities; returns session token
+- **Health**: `GET /health` every 30s; 3 failures = auto-deregister; outbound
+  queues in `HTTPChannel.outbox`
+- **Auth**: `CHANNEL_SECRET` for registration; session token for
+  channel→router; shared secret for router→channel
+- **Typing**: `/typing` handlers route through `TypingRefresher`
+  (`chanlib.TypingRefresher` / `whapd/src/typing.ts`) — re-sends presence on
+  short interval with hard TTL
 
-**Outbound**: Router calls channel's registered URL
-`POST /send`. Synchronous — 200 means delivered to platform.
-
-**Registration**: On startup, channel `POST /v1/channels/register`
-with name, callback URL, JID prefixes, and capabilities. Router
-returns a session token for subsequent calls.
-
-**Health**: Router pings `GET /health` every 30s. Three
-consecutive failures triggers auto-deregister. Outbound queues
-in `HTTPChannel.outbox` until channel re-registers.
-
-**Auth**: Shared secret (`CHANNEL_SECRET`) for registration.
-Session token for channel-to-router calls. Shared secret for
-router-to-channel calls.
-
-**Packages**: `chanreg/` (registry, health loop, `HTTPChannel`
-proxy), `api/` (HTTP handlers for the router-side endpoints).
-
-**Standalone adapters**: `teled/` (Telegram, Go), `discd/`
-(Discord, Go), `mastd/` (Mastodon, Go), `bskyd/` (Bluesky, Go),
-`reditd/` (Reddit, Go), `emaid/` (Email IMAP/SMTP, Go), and
-`whapd/` (WhatsApp, TypeScript) are external adapter daemons.
-Each polls its platform API, forwards to router HTTP, and serves
-`/send`, `/send-file`, `/typing`, `/health` for outbound. All
-Go adapters share `chanlib/` for `RouterClient`, `InboundMsg`,
-and auth middleware. `/typing` handlers route through a
-`TypingRefresher` (Go: `chanlib.TypingRefresher`; TS:
-`whapd/src/typing.ts`) that re-sends the platform's typing
-presence on a short interval with a hard TTL, so long agent runs
-don't let the indicator decay server-side.
-
-Full protocol: `specs/4/1-channel-protocol.md`.
+Packages: `chanreg/` (registry, health, `HTTPChannel`), `api/` (router-side
+handlers), `chanlib/` (shared by Go adapters).
 
 ## Inbound Media Pipeline
 
-When a user sends a photo, voice message, or document:
+1. Adapter populates `Attachments []InboundAttachment` in `/v1/messages`
+2. `store.PutMessage` stores attachment JSON
+3. Enricher fetches URLs, writes to `groups/<folder>/media/<YYYYMMDD>/`,
+   calls `store.EnrichMessage` to prepend
+   `<attachment path="..." mime="..." filename="..."/>` and clear column
+4. Voice (`audio/*`) → Whisper if `VOICE_TRANSCRIPTION_ENABLED=true`
+5. Container path: `/home/node/media/...`
 
-1. Channel adapter (teled, discd) extracts file metadata and populates
-   `Attachments []InboundAttachment` in the `POST /v1/messages` body.
-2. `store.PutMessage` stores the attachment JSON in `messages.attachments`.
-3. Before agent spawn, the gateway enricher fetches each attachment URL,
-   writes the file to `groups/<folder>/media/<YYYYMMDD>/<filename>`, and
-   calls `store.EnrichMessage` to prepend `<attachment path="..." mime="..." filename="..."/>`
-   XML into the message content and clear the `attachments` column.
-4. Voice files (`audio/*`) are sent to Whisper for transcription when
-   `VOICE_TRANSCRIPTION_ENABLED=true`; transcript appended to the attachment tag.
-5. Agent sees attachment XML inline in message content. Container path is
-   `/home/node/media/...` (bound from `groups/<folder>/media/`).
+teled serves `GET /files/{fileID}` as Telegram CDN proxy (bot-token URLs are
+ephemeral). discd uses direct CDN URLs.
 
-teled serves `GET /files/{fileID}` as a proxy to the Telegram CDN, since
-Telegram file URLs are ephemeral and require a bot token. discd uses
-direct CDN URLs (no proxy needed).
+Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
+`WHISPER_BASE_URL`, `WHISPER_MODEL=turbo`.
 
-**Config**: `MEDIA_ENABLED=true` (required to activate enricher), `VOICE_TRANSCRIPTION_ENABLED=true`,
-`WHISPER_BASE_URL=http://...` (e.g. OpenAI Whisper container), `WHISPER_MODEL=turbo` (default).
+## Key Types (core)
 
-## Key Types (core package)
-
-| Type            | Purpose                                                                                                              |
-| --------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `Config`        | All settings from `.env` + env vars                                                                                  |
-| `Message`       | Incoming message (sender, content, reply context)                                                                    |
-| `Group`         | Registered group (folder, trigger, config)                                                                           |
-| `GroupConfig`   | Per-group: mounts, timeout, sidecars                                                                                 |
-| `Route`         | Flat routing table entry (type, match, target)                                                                       |
-| `Task`          | Scheduled task (cron, prompt, status)                                                                                |
-| `Channel`       | Interface: Connect, `Send(jid, text, replyTo) (id, error)`, `SendFile(jid, path, caption)`, Owns, Typing, Disconnect |
-| `SessionRecord` | Session log entry                                                                                                    |
+| Type          | Purpose                                           |
+| ------------- | ------------------------------------------------- |
+| `Config`      | settings from `.env` + env vars                   |
+| `Message`     | incoming (sender, content, reply context)         |
+| `Group`       | registered (folder, trigger, config)              |
+| `GroupConfig` | per-group: mounts, timeout, sidecars              |
+| `Route`       | routing table entry (type, match, target)         |
+| `Task`        | scheduled (cron, prompt, status)                  |
+| `Channel`     | Connect, Send, SendFile, Owns, Typing, Disconnect |
 
 ## SQLite Schema
 
-| Table             | Key columns                                                                                                           |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `chats`           | jid (PK), errored, agent_cursor, sticky_group, sticky_topic                                                           |
-| `messages`        | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments (JSON, cleared after enrich)                 |
-| `groups`          | folder (PK), name, added_at, container_config (JSON), slink_token, parent, state, spawn_ttl_days, archive_closed_days |
-| `routes`          | id (auto), seq, match, target, impulse_config                                                                         |
-| `sessions`        | group_folder + topic (PK), session_id                                                                                 |
-| `session_log`     | id (auto), group_folder, session_id, started_at, ended_at, result, error                                              |
-| `system_messages` | id (auto), group_id, origin, event, body                                                                              |
-| `scheduled_tasks` | id (PK), owner, chat_jid, prompt, cron, next_run, status, created_at                                                  |
-| `router_state`    | key (PK), value — persists lastTimestamp, lastAgentTimestamp                                                          |
-| `auth_users`      | sub (unique), username (unique), hash                                                                                 |
-| `auth_sessions`   | token_hash (PK), user_sub, expires_at                                                                                 |
-| `user_groups`     | user_sub + folder (PK) — restricts web user to specific group folders                                                 |
-| `email_threads`   | thread_id (PK), chat_jid, subject                                                                                     |
-| `onboarding`      | jid (PK), status, prompted_at                                                                                         |
+| Table             | Key columns                                                                     |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `chats`           | jid (PK), errored, agent_cursor, sticky_group, sticky_topic                     |
+| `messages`        | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments        |
+| `groups`          | folder (PK), name, container_config, slink_token, parent, state, spawn_ttl_days |
+| `routes`          | id, seq, match, target, impulse_config                                          |
+| `sessions`        | group_folder + topic (PK), session_id                                           |
+| `session_log`     | id, group_folder, session_id, started_at, ended_at, result, error               |
+| `system_messages` | id, group_id, origin, event, body                                               |
+| `scheduled_tasks` | id (PK), owner, chat_jid, prompt, cron, next_run, status                        |
+| `router_state`    | key (PK), value                                                                 |
+| `auth_users`      | sub (unique), username (unique), hash                                           |
+| `auth_sessions`   | token_hash (PK), user_sub, expires_at                                           |
+| `user_groups`     | user_sub + folder (PK) — restricts web user to folders                          |
+| `email_threads`   | thread_id (PK), chat_jid, subject                                               |
+| `onboarding`      | jid (PK), status, prompted_at                                                   |
 
-`messages.source` is the canonical "adapter-of-record" stamped by
-`api.handleMessage` on every inbound delivery. Outbound resolution
-reads `store.LatestSource(jid)` to pick the return adapter — see
-`specs/4/1-channel-protocol.md`.
+WAL mode, 5s busy timeout, migrations via `PRAGMA user_version`.
 
-WAL mode, 5s busy timeout. Migration via `PRAGMA user_version`.
-
-Agent output, delegation, and escalation all flow through a single
-`PutMessage()` path into the `messages` table. Bot-authored rows are
-marked `is_from_me=1 is_bot_message=1` and filtered out of the inbound
-polling query. `topic` and `routed_to` capture audit metadata. Full spec:
-`specs/7/22-audit-log.md`.
+`messages.source` is the canonical adapter-of-record stamped by
+`api.handleMessage`; outbound reads `store.LatestSource(jid)`. All agent
+output, delegation, and escalation flow through `PutMessage` — bot rows are
+`is_from_me=1 is_bot_message=1` and filtered from inbound polling. `topic`
+and `routed_to` capture audit metadata. Spec: `specs/7/22-audit-log.md`.
 
 ## Container Lifecycle
 
-1. `runtime.EnsureRunning()` — verify docker is reachable
-2. `runtime.CleanupOrphans()` — stop stale `arizuko-*` containers
+1. `runtime.EnsureRunning()` — verify docker
+2. `runtime.CleanupOrphans()` — stop stale `arizuko-*`
 3. `container.Run()`:
-   - Resolve group path via `groupfolder.Resolver`
-   - `BuildMounts()` — assemble volume mounts (group, media, self, share, session, ipc, web, extra)
-   - `mountsec.ValidateAdditionalMounts()` — check against allowlist
-   - `seedSettings()` — write `settings.json` to `groups/<folder>/.claude/` (env vars, arizuko MCP via socat, sidecar MCP config)
-   - `seedSkills()` — copy `ant/skills/` to session on first run; also seeds `.claude.json` if missing (SDK requires it; keyed by folder for stable userID hash)
-   - `StartSidecars()` — launch MCP sidecar containers (if configured)
-   - Container name: `arizuko-<folder>-<timestamp_ms>` for regular runs;
-     `arizuko-<folder>-task-<task_id>` for isolated scheduler tasks
-     (sender `scheduler-isolated:<task_id>`)
-   - Env vars injected: `WEB_PREFIX` (`pub` for root groups, `pub/<folder>` for
-     children), `ARIZUKO_IS_ROOT`, `ARIZUKO_DELEGATE_DEPTH`, `WEB_HOST`,
-     `ARIZUKO_ASSISTANT_NAME`, plus all group-level env overrides
-   - `docker run -i --rm` with volume mounts, write JSON to stdin, read stdout
-   - Parse output between `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---` markers
-   - Output shape: `{ status, result, newSessionId, error }`
-   - Timer-based timeout with graceful stop then kill
-   - `StopSidecars()` — stop sidecar containers after agent exits
-   - Write log to `groups/<folder>/logs/container-<timestamp>.log`
+   - Resolve path via `groupfolder.Resolver`
+   - `BuildMounts()` → `mountsec.ValidateAdditionalMounts()`
+   - `seedSettings()` — write `settings.json` (env, arizuko MCP via socat,
+     sidecars)
+   - `seedSkills()` — copy `ant/skills/` on first run; seed `.claude.json`
+   - `StartSidecars()`
+   - Name: `arizuko-<folder>-<ts_ms>` or
+     `arizuko-<folder>-task-<task_id>` (sender `scheduler-isolated:<id>`)
+   - Env: `WEB_PREFIX` (`pub` for root, `pub/<folder>` for children),
+     `ARIZUKO_IS_ROOT`, `ARIZUKO_DELEGATE_DEPTH`, `WEB_HOST`,
+     `ARIZUKO_ASSISTANT_NAME`, plus group overrides
+   - `docker run -i --rm`; parse output between
+     `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---`
+   - Output: `{ status, result, newSessionId, error }`
+   - Timer timeout: graceful stop then kill
+   - `StopSidecars()`
+   - Log: `groups/<folder>/logs/container-<ts>.log`
 
-Session management: new session ID from container output updates
-`store.sessions`. On error with no output, session is evicted
-(cursor rolled back so messages retry). On error with output,
-cursor advances (partial work preserved).
+Session: new session ID updates `store.sessions`. Error with no output →
+evict session (cursor rolled back, retry). Error with output → cursor
+advances (partial work preserved).
 
-## IPC Mechanism (ipc package)
+## IPC (ipc package)
 
-MCP server on unix socket (`mark3labs/mcp-go`). Gateway starts
-one `ipc` server per group before container spawn, listening on
-`ipc/<folder>/gated.sock`. Tools registered from MCP manifest
-filtered by grants rules for the caller's group; runtime auth via
-`auth.Authorize`. `set_grants`/`get_grants` tools allow agents to
-read and write grant rules. `delegate_group` calls `NarrowRules`
-to merge parent+child rules before persisting.
+MCP server on unix socket (`mark3labs/mcp-go`). One per group at
+`ipc/<folder>/gated.sock`. Tools filtered by grants for the caller's group.
+Runtime auth via `auth.Authorize`. `set_grants`/`get_grants` read/write
+rules; `delegate_group` calls `NarrowRules` to merge parent+child.
 
-**Transport**: socat bridges the host unix socket into the container.
-Agent-runner configures `arizuko` MCP server in `settings.json`
-using `socat UNIX-CONNECT` to reach the socket.
+socat bridges the host socket into the container; agent-runner configures
+`arizuko` MCP server in `settings.json` with `socat UNIX-CONNECT`. Server
+starts before `docker run`, stops after exit; socket cleaned up.
 
-**Lifecycle**: server starts before `docker run`, stops after
-container exits. Socket file cleaned up on stop.
+Identity resolved from socket path (folder, tier); authorization delegated
+to `auth.Authorize`.
 
-**Identity and authorization**: `ipc` resolves caller identity
-from socket path (folder, tier). Authorization checks delegated
-to `auth.Authorize` at runtime.
+## Sidecars (container/sidecar.go)
 
-## Sidecar Management (container/sidecar.go)
+Per-group MCP sidecars from `GroupConfig.Sidecars`:
 
-Per-group MCP sidecars defined in `GroupConfig.Sidecars`:
-
-1. `StartSidecars()` — `docker run -d` each sidecar with socket volume
-   at `ipc/sidecars/<name>.sock`, resource limits (memory, CPUs), network mode
-2. Socket path wired into agent `settings.json` as `mcpServers` entry
-   using `socat UNIX-CONNECT` transport
-3. `StopSidecars()` — `docker stop` then `docker rm -f` on exit
+1. `StartSidecars()` — `docker run -d` per sidecar with socket volume at
+   `ipc/sidecars/<name>.sock`, resource limits, network mode
+2. Socket wired into agent `settings.json` as `mcpServers` entry with
+   `socat UNIX-CONNECT`
+3. `StopSidecars()` — `docker stop` then `rm -f`
 
 ## Queue (queue package)
 
 `GroupQueue` serializes agent invocations per group:
 
-- `maxConcurrent` global limit (default 5)
-- Per-group state: active flag, container name
-- Circuit breaker: 3 consecutive failures opens breaker (reset by new message)
+- `maxConcurrent` global (default 5), per-group active flag + container name
+- Circuit breaker: 3 consecutive failures opens; reset by new message
 - `EnqueueMessageCheck(jid)` — signal-only; queue calls back into
-  `HasPendingMessages`/`processMessages` to read pending work from the DB
-- `drainGroupLocked` — on completion, checks DB for more pending messages,
-  starts next waiting group if capacity allows
-- `SendMessages(jid, []string)` — steer a batch into a running container:
-  write one IPC input file per message, signal container once. Agent-side
-  drain uses a `PostToolUse` hook for mid-loop injection between tool
-  calls, with `pollIpcDuringQuery` as a next-turn fallback for text-only
-  turns. A `drainIpcInputMutex` flag prevents the hook and poll timer
-  from double-draining.
+  `HasPendingMessages`/`processMessages`
+- `drainGroupLocked` — on completion, starts next waiting group if capacity
+- `SendMessages(jid, []string)` — steer batch into running container (write
+  one IPC input file per message, signal once). Agent drains via
+  `PostToolUse` hook for mid-loop injection, with `pollIpcDuringQuery` as
+  next-turn fallback; `drainIpcInputMutex` prevents double-drain
 
-Delegation, escalation, and `#topic` routing are not special queue
-operations — each writes a row via `PutMessage` and calls
-`EnqueueMessageCheck`. There is no closure-based task machinery.
+Delegation, escalation, and `#topic` routing are not special — each writes
+a row via `PutMessage` and calls `EnqueueMessageCheck`.
 
 ## Routing
 
 Route table, route types, topic routing, reply routing, sticky routing,
-and full message flow examples: **`docs/routing.md`**.
+full flow examples: `docs/routing.md`.
 
 ## Grants Engine (grants package)
 
-Rule strings control which MCP tools and actions a group may use. Rule format:
-`[!]action[(param=glob,...)]`. Evaluation is last-match-wins; no match = deny.
+Rule format: `[!]action[(param=glob,...)]`. Last-match-wins; no match = deny.
 
-- `CheckAction(rules, action, params)` — returns allow/deny
-- `NarrowRules(parent, child)` — merges rules; child can only narrow, never widen
-- `MatchingRules(rules, action)` — returns rules matching a given action
-- `DeriveRules(store, folder, tier, worldFolder)` — computes default rules from
-  group tier: tier-0 gets `*`, tier-1 gets platform send actions + management
-  tools, tier-2 gets send only, deeper gets `send_reply` only
+- `CheckAction(rules, action, params)` — allow/deny
+- `NarrowRules(parent, child)` — child can only narrow
+- `MatchingRules(rules, action)` — rules matching an action
+- `DeriveRules(store, folder, tier, worldFolder)` — tier-0 `*`, tier-1
+  platform send + management, tier-2 send only, deeper `send_reply` only
 
-Rules are derived at container spawn time and injected into `start.json`.
-The `ipc` MCP manifest is filtered by grants so agents only see permitted tools.
+Rules derived at spawn and injected into `start.json`. The MCP manifest is
+filtered by grants.
 
 ## Compose Containers
 
-`compose.Generate(dataDir)` builds a `docker-compose.yml` from two sources:
+`compose.Generate(dataDir)` builds `docker-compose.yml` from:
 
-1. **Built-in services** — always emitted based on `.env` profile:
-   - `gated` (always), `timed`, `dashd` (profile=full), `proxyd`+`vited` (WEB_PORT set)
-   - `onbod` when `ONBOARDING_ENABLED=true`
+1. **Built-in** — always emitted per `.env` profile: `gated`, `timed`,
+   `dashd` (profile=full), `proxyd`+`vited` (WEB_PORT set),
+   `onbod` (ONBOARDING_ENABLED=true)
+2. **Extra** — `<dataDir>/services/*.toml` appended
 
-2. **Extra services** — TOML files dropped into `<dataDir>/services/`.
-   Each `.toml` declares one extra compose service (channel adapter or sidecar).
-   `compose.Generate` reads them all and appends to the compose output.
+Bundled catalog at `template/services/` (ships in image, Ansible extracts to
+`/srv/app/arizuko/template/services/`): `teled.toml`, `whapd.toml`,
+`discd.toml`, `bskyd.toml`, `mastd.toml`, `reditd.toml`.
 
-### Service catalog (`template/services/`)
-
-Bundled products ship in the arizuko image at `/opt/arizuko/template/services/`.
-Ansible extracts them to `/srv/app/arizuko/template/services/` on deploy.
-
-| Service       | Image                     | Role                       |
-| ------------- | ------------------------- | -------------------------- |
-| `teled.toml`  | `arizuko:latest`          | Telegram adapter (default) |
-| `whapd.toml`  | `arizuko-whatsapp:latest` | WhatsApp adapter           |
-| `discd.toml`  | `arizuko:latest`          | Discord adapter            |
-| `bskyd.toml`  | `arizuko:latest`          | Bluesky adapter            |
-| `mastd.toml`  | `arizuko:latest`          | Mastodon adapter           |
-| `reditd.toml` | `arizuko:latest`          | Reddit adapter             |
-
-### TOML format
+TOML format:
 
 ```toml
 image = "arizuko:latest"
-entrypoint = ["teled"]          # overrides image entrypoint
-depends_on = ["gated"]          # optional; defaults to [gated]
-volumes = ["${DATA_DIR}/..."]   # optional extra mounts; ${VAR} interpolated from .env
+entrypoint = ["teled"]
+depends_on = ["gated"]
+volumes = ["${DATA_DIR}/..."]
 
 [environment]
-ROUTER_URL = "http://gated:${API_PORT}"   # ${VAR} interpolated
+ROUTER_URL = "http://gated:${API_PORT}"
 CHANNEL_SECRET = "${CHANNEL_SECRET}"
 ```
 
-### Container naming
+Container naming: `<app>_<service>_<flavor>` (e.g. `arizuko_teled_REDACTED`).
+Operator copies desired TOMLs into `/srv/data/arizuko_<flavor>/services/`
+before start; Ansible via `arizuko_instances[].extra_services`.
 
-All containers named `<app>_<service>_<flavor>` e.g. `arizuko_teled_REDACTED`.
-Prevents conflicts when multiple instances run on the same host.
+onbod auto-included when `ONBOARDING_ENABLED=true`. Compose sets
+`ONBOD_LISTEN_ADDR=:8092` (dashd uses `:8090`); standalone default `:8091`.
 
-### Enabling products per instance
+## Onboarding (onbod/)
 
-Operator copies the desired service TOMLs into
-`/srv/data/arizuko_<flavor>/services/` before starting the instance.
-Ansible automates this via `arizuko_instances[].extra_services`.
-
-`onbod` is auto-included in compose when `ONBOARDING_ENABLED=true`. Compose
-sets `ONBOD_LISTEN_ADDR=:8092` to avoid conflict with `dashd` (`:8090`).
-Without compose, onbod defaults to `:8091`. `ONBOARDING_ENABLED` defaults to
-false in gated; set to `true` to surface unrouted JIDs for the onboarding handler.
-
-## Onboarding Daemon (onbod/)
-
-Standalone daemon. Registers itself as a channel with the router, seeds `/approve`
-and `/reject` command routes in the `routes` table on startup.
+Registers as a channel, seeds `/approve` and `/reject` routes on startup.
 
 State machine per JID (`onboarding` table):
 
 ```
-awaiting_message → (greeting + user leaves message) → pending → (admin approves from dashboard, picks folder) → approved
-                                                               → (admin rejects)                               → rejected
+awaiting_message → (greeting + user message) → pending → approved | rejected
 ```
 
-Poll loop (every 10s):
+Poll loop (10s):
 
-1. Prompt unanswered `awaiting_message` records
-2. User leaves a message → transition to `pending`, notify tier-0 JIDs
-3. Respond to pending users who send messages: "Still waiting for approval"
+1. Prompt unanswered `awaiting_message`
+2. Transition on first message → `pending`, notify tier-0 JIDs
+3. Reply to pending users: "Still waiting for approval"
 
-On approve: creates group dir, optionally copies prototype, inserts
-`groups` row and default route in `routes` table, sends welcome system event message.
-Uses `notify` library to fan out messages to all tier-0 root JIDs.
+Approve: creates group dir, optionally copies prototype, inserts `groups`
+row + default route, sends welcome. `notify` fans out to tier-0 root JIDs.
 
-Prototype copy behavior: `CLAUDE.md` and `SOUL.md` are copied; session and
-memory are not. Agents can also spawn children directly via the
-`register_group` MCP tool with `fromPrototype=true`. Full spec: `specs/4/26-prototypes.md`.
+Prototype copy: `CLAUDE.md` and `SOUL.md` only (no session or memory). Agents
+spawn children via `register_group` MCP with `fromPrototype=true`. Spec:
+`specs/4/26-prototypes.md`.
 
 ## Scheduler (timed/)
 
-Full spec: `specs/4/8-scheduler-service.md`.
+Spec: `specs/4/8-scheduler-service.md`. Polls `scheduled_tasks` every 60s.
+For each due task (status=active, next_run ≤ now):
 
-Reads `DATABASE` env for SQLite path. Polls `scheduled_tasks` every 60s.
-For each due task (status=active, next_run <= now):
+1. Insert prompt as message (sender: `scheduler`)
+2. Compute next run (robfig/cron), update `next_run`
+3. Tasks without cron get `next_run=NULL` (one-shot)
 
-1. Insert prompt as message into `messages` table (sender: `scheduler`)
-2. Compute next run via robfig/cron parser, update `next_run`
-3. Tasks without cron expression get `next_run` set to NULL (one-shot)
-
-Gateway picks up scheduler-injected messages in its normal poll loop.
-
-**DB sharing**: timed opens the same SQLite DB as gated (WAL mode).
-Own migration runner using shared `migrations` table (keyed by service
-name `"timed"`). Schema: `timed/migrations/0001-schema.sql`
-creates `scheduled_tasks` if not present (idempotent with store's copy).
+Gateway picks up scheduler messages via normal poll. timed opens the same
+SQLite DB (WAL); own migration runner keyed by `"timed"` in shared
+`migrations` table. `timed/migrations/0001-schema.sql` creates
+`scheduled_tasks` idempotently.
 
 ## Operator Dashboard (dashd/)
 
-Standalone read-only HTMX portal. Full spec: `specs/7/25-dashboards.md`.
+Standalone read-only HTMX portal on `DASH_PORT` (default 8090). Opens SQLite
+read-only. Six views: portal, status, tasks, activity, groups, memory. Auth
+via JWT cookie (imports `auth`). Spec: `specs/7/25-dashboards.md`.
 
-Serves on `DASH_PORT` (default 8090). Opens SQLite read-only (`?mode=ro`).
-Six views: portal (tile grid, 30s auto-refresh), status (channels, groups,
-containers, queue, errors), tasks (scheduled tasks + run history), activity
-(message flow, routing table), groups (hierarchy tree), memory (per-group
-knowledge browser). Auth via JWT cookie (imports `auth` library).
+URLs: `/dash/` portal, `/dash/<name>/` page, `/dash/<name>/x/<frag>` HTMX
+partial, `/dash/<name>/api/<path>` JSON.
 
-URL convention: `/dash/` portal, `/dash/<name>/` page,
-`/dash/<name>/x/<fragment>` HTMX partial, `/dash/<name>/api/<path>` JSON API.
+Registered as `receive_only: true`. `/status` command routes to dashd; dashd
+replies via `notify/`.
 
-dashd registers in the channels table as `receive_only: true`. The `/status`
-command routes to dashd via the routes table; dashd replies via `notify/`.
-Included in generated `docker-compose.yml` as `arizuko_dashd_<flavor>`.
+## Diary (diary package)
 
-## Diary System (diary package)
+`diary.Read(groupDir, max)` reads recent `.md` from `group/diary/`, extracts
+`summary:` frontmatter, returns XML with age labels (today, yesterday, N
+days/weeks ago). Prepended to agent prompt as `<knowledge layer="diary">`.
 
-`diary.Read(groupDir, max)` reads recent `.md` files from `group/diary/`.
-Extracts `summary:` from YAML frontmatter. Returns XML annotations
-with age labels (today, yesterday, N days/weeks ago). Prepended to
-agent prompt as `<knowledge layer="diary">`.
+Two-layer memory: `MEMORY.md` for long-term, daily files for work log. Nudged
+by `/diary` skill, PreCompact hook, every 100 turns. Spec:
+`specs/1/L-memory-diary.md`.
 
-Two-layer memory model: `MEMORY.md` for long-term knowledge, daily diary
-files for work log. Diary nudged by `/diary` skill, PreCompact hook, and
-every 100 turns. Full spec: `specs/1/L-memory-diary.md`.
-
-Episodes (compressed session transcripts) follow the same `summary:` format
-and are indexed by `/recall`. Compression hierarchy: daily → weekly → monthly.
-See `specs/4/24-recall.md` for the recall protocol and episode format.
+Episodes (compressed transcripts) follow the same `summary:` format, indexed
+by `/recall`. Compression: daily → weekly → monthly. Spec:
+`specs/4/24-recall.md`.
 
 ## Error Handling
 
-- Per-chat `errored` flag in `chats` table
-- On agent error with no output: cursor rolled back, flag set, retry on next message
-- On agent error with output: cursor advances, partial output preserved
-- Circuit breaker in queue: 3 failures → stop processing until new message arrives
-- Container timeout: graceful `docker stop`, then `Process.Kill`
+- Per-chat `errored` flag in `chats`
+- Agent error, no output: cursor rolled back, flag set, retry
+- Agent error with output: cursor advances, partial preserved
+- Queue circuit breaker: 3 failures → stop until new message
+- Container timeout: graceful `docker stop` → `Process.Kill`
 
-## Mount Security (mountsec package)
+## Mount Security (mountsec)
 
-`ValidateAdditionalMounts` validates group-configured extra mounts against
-a caller-supplied `Allowlist`. `ValidateFilePath` guards inbound file paths
-(e.g. MCP tool arguments) against symlink escapes and a default blocklist
-(`.ssh`, `.gnupg`, `.env`, credentials, private keys). Container path for
-validated mounts: `/workspace/extra/<name>`.
+`ValidateAdditionalMounts` validates group-configured mounts against a
+caller-supplied `Allowlist`. `ValidateFilePath` guards inbound paths (MCP
+tool arguments) against symlink escapes and a blocklist (`.ssh`, `.gnupg`,
+`.env`, credentials, private keys). Container path: `/workspace/extra/<name>`.
 
-## Docker-in-Docker Path Translation
+## Docker-in-Docker Paths
 
-`container.hp()` translates local paths to host paths when gateway runs
-in docker. `HOST_DATA_DIR` env provides the host-side base.
-
-## Repository Layout
-
-```
-cmd/arizuko/        CLI entrypoint (generate, run, create, group, status)
-core/               Config, types, Channel interface
-store/              SQLite persistence (messages, groups, sessions, tasks, auth)
-api/                HTTP API server (channel protocol endpoints)
-auth/               Identity, authorization, JWT, OAuth, middleware
-chanreg/            Channel registry, health checks, HTTP channel proxy
-gateway/            Main loop, message routing, commands
-container/          Docker spawn, volume mounts, sidecars, runtime, skills seeding (Go)
-ant/                In-container agent (TypeScript entrypoint + skills)
-  skills/           Agent-side skills seeded into ~/.claude/skills/
-queue/              Per-group concurrency, stdin piping
-router/             Message formatting, routing rules
-compose/            Docker-compose generation from *.toml service configs
-ipc/                MCP server (unix socket per group, runtime auth via auth)
-diary/              YAML frontmatter diary annotations
-groupfolder/        Group path resolution and validation
-mountsec/           Mount allowlist validation
-template/           Seed for new instances
-sidecar/            MCP server binaries (whisper)
-chanlib/            Shared HTTP + auth primitives for channel adapters
-db_utils/           SQL migration runner (gated owns schema via store/)
-grants/             Grant rule engine
-notify/             Operator notification fan-out (library)
-gated/              Gateway daemon
-timed/              Scheduler daemon (cron poll, messages)
-onbod/              Onboarding daemon (auto-included when ONBOARDING_ENABLED=true)
-dashd/              Operator dashboards
-proxyd/             Web proxy (auth gate, /dash/, /auth/, Vite)
-teled/              Telegram adapter (Go)
-discd/              Discord adapter (Go)
-mastd/              Mastodon adapter (Go)
-bskyd/              Bluesky adapter (Go)
-reditd/             Reddit adapter (Go)
-emaid/              Email adapter (Go, IMAP/SMTP)
-whapd/              WhatsApp adapter (TypeScript)
-```
-
-## Data Directory
-
-`/srv/data/arizuko_<name>/` per instance:
-
-- `.env` — config
-- `store/` — SQLite DB (`messages.db`)
-- `services/` — enabled product TOMLs; `compose.Generate` reads all `*.toml` here
-- `groups/<folder>/` — group files, logs, diary, media
-- `groups/<world>/share/` — cross-group shared state
-- `ipc/<folder>/` — MCP unix sockets + sidecar sockets
-- `groups/<folder>/.claude/` — agent session state (settings, skills, CLAUDE.md)
-- `web/` — vite web app
+`container.hp()` translates local to host paths when gateway runs in docker.
+`HOST_DATA_DIR` env provides the host-side base.

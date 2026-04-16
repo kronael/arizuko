@@ -145,23 +145,16 @@ func TestAllToolsRegistered(t *testing.T) {
 }
 
 func TestSendReply(t *testing.T) {
-	var got struct{ jid, text, replyToId string }
 	gated := GatedFns{
-		SendMessage:  func(jid, text string) (string, error) { got.jid = jid; got.text = text; return "", nil },
-		SendDocument: func(jid, path, fn, caption string) error { return nil },
-		SendReply: func(jid, text, rid string) (string, error) {
-			got.jid = jid
-			got.text = text
-			got.replyToId = rid
-			return "", nil
-		},
+		SendMessage:   func(jid, text string) (string, error) { return "", nil },
+		SendDocument:  func(jid, path, fn, caption string) error { return nil },
+		SendReply:     func(jid, text, rid string) (string, error) { return "", nil },
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
 		HostGroupsDir: "/tmp/groups",
 		WebDir:        "/tmp/web",
 	}
-	db := StoreFns{}
-	srv := buildMCPServer(gated, db, "world", []string{"send_reply"})
+	srv := buildMCPServer(gated, StoreFns{}, "world", []string{"send_reply"})
 	if srv == nil {
 		t.Fatal("expected non-nil server")
 	}

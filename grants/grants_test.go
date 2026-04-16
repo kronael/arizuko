@@ -73,23 +73,23 @@ func TestParseRule_Wildcard(t *testing.T) {
 // --- matchGlob ---
 
 func TestMatchGlob_Exact(t *testing.T) {
-	if !matchGlob("send_message", "send_message") {
+	if !matchGlob("send_message", "send_message", notWordChar) {
 		t.Fatal("exact match failed")
 	}
-	if matchGlob("send_message", "send_reply") {
+	if matchGlob("send_message", "send_reply", notWordChar) {
 		t.Fatal("should not match different name")
 	}
 }
 
 func TestMatchGlob_Star(t *testing.T) {
-	if !matchGlob("*", "send_message") {
+	if !matchGlob("*", "send_message", notWordChar) {
 		t.Fatal("* should match send_message")
 	}
-	if !matchGlob("send_*", "send_message") {
+	if !matchGlob("send_*", "send_message", notWordChar) {
 		t.Fatal("send_* should match send_message")
 	}
 	// * should NOT match ':' (non-word char)
-	if matchGlob("*", "send:message") {
+	if matchGlob("*", "send:message", notWordChar) {
 		t.Fatal("* should not match colon")
 	}
 }

@@ -61,10 +61,10 @@ func ParseRule(r string) Rule {
 	return rule
 }
 
-// matchWith is a glob matcher where `*` does not cross a boundary byte
-// for which stop returns true. Used for both action names (stop at
-// non-word chars) and param values (stop at ',' or ')').
-func matchWith(pat, s string, stop func(byte) bool) bool {
+// matchGlob: `*` does not cross a boundary for which stop returns true.
+// Used for action names (stop at non-word chars) and param values (stop
+// at ',' or ')').
+func matchGlob(pat, s string, stop func(byte) bool) bool {
 	for {
 		if pat == "" {
 			return s == ""
@@ -72,7 +72,7 @@ func matchWith(pat, s string, stop func(byte) bool) bool {
 		if pat[0] == '*' {
 			pat = pat[1:]
 			for i := 0; i <= len(s); i++ {
-				if matchWith(pat, s[i:], stop) {
+				if matchGlob(pat, s[i:], stop) {
 					return true
 				}
 				if i < len(s) && stop(s[i]) {
@@ -88,10 +88,6 @@ func matchWith(pat, s string, stop func(byte) bool) bool {
 		s = s[1:]
 	}
 }
-
-func matchGlob(pat, s string) bool { return matchWith(pat, s, notWordChar) }
-
-func matchValueGlob(pat, s string) bool { return matchWith(pat, s, isValueDelim) }
 
 func notWordChar(c byte) bool {
 	return !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')
@@ -109,7 +105,7 @@ func ruleMatchesParams(rule Rule, params map[string]string) bool {
 			if present {
 				return false
 			}
-		} else if !present || !matchValueGlob(pr.Pattern, val) {
+		} else if !present || !matchGlob(pr.Pattern, val, isValueDelim) {
 			return false
 		}
 	}
@@ -120,7 +116,7 @@ func CheckAction(rules []string, action string, params map[string]string) bool {
 	result, matched := false, false
 	for _, r := range rules {
 		rule := ParseRule(r)
-		if matchGlob(rule.Action, action) && ruleMatchesParams(rule, params) {
+		if matchGlob(rule.Action, action, notWordChar) && ruleMatchesParams(rule, params) {
 			result = !rule.Deny
 			matched = true
 		}
@@ -131,7 +127,7 @@ func CheckAction(rules []string, action string, params map[string]string) bool {
 func MatchingRules(rules []string, action string) []string {
 	var out []string
 	for _, r := range rules {
-		if matchGlob(ParseRule(r).Action, action) {
+		if matchGlob(ParseRule(r).Action, action, notWordChar) {
 			out = append(out, r)
 		}
 	}

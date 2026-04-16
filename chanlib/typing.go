@@ -5,15 +5,10 @@ import (
 	"time"
 )
 
-// TypingRefresher keeps platform typing indicators alive across long agent
-// runs. Adapters wrap their one-shot "send composing" call; the refresher
-// drives a per-JID ticker that re-emits at refreshRate and auto-stops
-// after maxTTL so a lost off-signal can't leak an indicator forever.
-//
-// Send is called once immediately on Set(jid, true) and then every
-// refreshRate until Set(jid, false), shutdown, or maxTTL elapses. Clear
-// is called once on Set(jid, false); pass nil if the platform has no
-// explicit paused/stop presence (Telegram, Discord).
+// TypingRefresher re-emits a one-shot "composing" indicator every
+// refreshRate until Set(jid, false), Stop, or maxTTL elapses. Clear is
+// called on Set(jid, false) and maxTTL; pass nil if the platform has no
+// stop/paused presence (Telegram, Discord).
 type TypingRefresher struct {
 	send        func(jid string)
 	clear       func(jid string)
