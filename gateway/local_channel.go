@@ -47,8 +47,8 @@ func (c *LocalChannel) Send(jid, text, replyTo, threadID string) (string, error)
 		Name:      "local",
 		Content:   text,
 		Timestamp: time.Now(),
-		FromMe:    false,
-		BotMsg:    false,
+		FromMe:    true,
+		BotMsg:    true,
 		ReplyToID: replyTo,
 		Topic:     threadID,
 	}
