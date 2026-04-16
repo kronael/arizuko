@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"text/tabwriter"
 	"time"
 
 	"github.com/onvos/arizuko/compose"
@@ -21,6 +23,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("usage: arizuko <run|create|group|status|pair|generate> ...")
+		fmt.Println("  group <instance> list | add | rm | grant | ungrant | grants")
 		os.Exit(1)
 	}
 
@@ -139,7 +142,7 @@ func cmdCreate(args []string) {
 
 func cmdGroup(args []string) {
 	if len(args) < 2 {
-		fmt.Println("usage: arizuko group <instance> <list|add|rm> ...")
+		fmt.Println("usage: arizuko group <instance> <list|add|rm|grant|ungrant|grants> ...")
 		os.Exit(1)
 	}
 	instance := args[0]
@@ -197,9 +200,89 @@ func cmdGroup(args []string) {
 		}
 		fmt.Printf("removed group %s\n", folder)
 
+	case "grant":
+		if len(args) < 4 {
+			fmt.Println("usage: arizuko group <instance> grant <sub> <pattern>")
+			os.Exit(1)
+		}
+		if err := runGrant(s, args[2], args[3], os.Stdout); err != nil {
+			die("Failed: grant: %v", err)
+		}
+
+	case "ungrant":
+		if len(args) < 4 {
+			fmt.Println("usage: arizuko group <instance> ungrant <sub> <pattern>")
+			os.Exit(1)
+		}
+		if err := runUngrant(s, args[2], args[3], os.Stdout); err != nil {
+			die("Failed: ungrant: %v", err)
+		}
+
+	case "grants":
+		sub := ""
+		if len(args) >= 3 {
+			sub = args[2]
+		}
+		if err := runGrants(s, sub, os.Stdout); err != nil {
+			die("Failed: grants: %v", err)
+		}
+
 	default:
 		die("unknown group action: %s", action)
 	}
+}
+
+func runGrant(s *store.Store, sub, pat string, w io.Writer) error {
+	if sub == "" || pat == "" {
+		return fmt.Errorf("sub and pattern must be non-empty")
+	}
+	created, err := s.Grant(sub, pat)
+	if err != nil {
+		return err
+	}
+	if created {
+		fmt.Fprintf(w, "granted %s -> %s\n", sub, pat)
+	} else {
+		fmt.Fprintf(w, "already granted: %s -> %s\n", sub, pat)
+	}
+	return nil
+}
+
+func runUngrant(s *store.Store, sub, pat string, w io.Writer) error {
+	if sub == "" || pat == "" {
+		return fmt.Errorf("sub and pattern must be non-empty")
+	}
+	n, err := s.Ungrant(sub, pat)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		fmt.Fprintf(w, "no grant to remove: %s -> %s\n", sub, pat)
+	} else {
+		fmt.Fprintf(w, "ungranted %s -> %s (%d row)\n", sub, pat, n)
+	}
+	return nil
+}
+
+func runGrants(s *store.Store, sub string, w io.Writer) error {
+	grants, err := s.Grants(sub)
+	if err != nil {
+		return err
+	}
+	if len(grants) == 0 {
+		fmt.Fprintln(w, "no grants")
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "SUB\tPATTERN\tGRANTED_AT")
+	for _, g := range grants {
+		ts := g.GrantedAt
+		if ts == "" {
+			ts = "-"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", g.Sub, g.Pattern, ts)
+	}
+	return tw.Flush()
 }
 
 func cmdPair(args []string) {

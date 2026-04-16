@@ -885,6 +885,38 @@ func TestProxydDavNoGroupsHeaderProxies(t *testing.T) {
 	}
 }
 
+// A glob pattern like "pub/*" in X-User-Groups admits a matching nested
+// group without needing a literal entry. This exercises the MatchGroups
+// path in davRoute.
+func TestProxydDavGlobGroupsAllowed(t *testing.T) {
+	s, up := testDavServer(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/dav/pub-alice/file", nil)
+	req.Header.Set("X-User-Groups", `["pub-*"]`)
+	w := httptest.NewRecorder()
+	s.davRoute(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200 (glob match allowed)", w.Code)
+	}
+}
+
+// "**" is the universal operator pattern and admits any group.
+func TestProxydDavDoubleStarAllows(t *testing.T) {
+	s, up := testDavServer(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/dav/anything", nil)
+	req.Header.Set("X-User-Groups", `["**"]`)
+	w := httptest.NewRecorder()
+	s.davRoute(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200 (** matches anything)", w.Code)
+	}
+}
+
 // Malformed X-User-Groups header rejects the request.
 func TestProxydDavBadGroupsHeader(t *testing.T) {
 	s, up := testDavServer(t)

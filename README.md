@@ -40,7 +40,14 @@ arizuko run foo                         # generate + docker compose up
 arizuko group <instance> list                       # registered groups (folder\tname)
 arizuko group <instance> add <jid> <name> [folder]  # register group + default route
 arizuko group <instance> rm  <folder>               # unregister by folder
+arizuko group <instance> grant   <sub> <pattern>    # add user_groups ACL row (idempotent)
+arizuko group <instance> ungrant <sub> <pattern>    # remove a grant
+arizuko group <instance> grants  [<sub>]            # list grants (all or by sub)
 ```
+
+`<pattern>` is a glob matched against folder paths: `**` = all folders
+(operator), `*` = any root-level folder, `pub/*` = one segment under
+`pub/`, or a literal folder name.
 
 First group defaults to folder `main` with direct mode.
 Subsequent groups use trigger mode (`@assistant_name`).

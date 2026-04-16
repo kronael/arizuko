@@ -21,6 +21,7 @@ func TestIsValidFolder(t *testing.T) {
 	invalid := []string{
 		"", " main", "main ", "../etc", "a\\b",
 		"share", "main/share", "SHARE",
+		"*", "**", "main/*", "sub/**",
 		"a/" + string(make([]byte, 129)),
 		"a/",
 	}

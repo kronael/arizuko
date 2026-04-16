@@ -116,6 +116,9 @@ API server always starts (default port 8080).
 `arizuko run <instance>` — generate compose then run `docker compose up` (what systemd calls via `docker run arizuko:latest arizuko generate <name>` + `docker compose up`).
 `arizuko create <name>` — seed data dir, .env, default group.
 `arizuko group <instance> list|add|rm` — manage registered groups.
+`arizuko group <instance> grant <sub> <pattern>` — add a `user_groups` ACL row (`**` = operator, `*` = root groups, `pub/*` = wildcard, literal = exact).
+`arizuko group <instance> ungrant <sub> <pattern>` — remove a grant.
+`arizuko group <instance> grants [<sub>]` — list grants (all or filtered by sub).
 `arizuko status <instance>` — show compose services and registered channels.
 
 Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`, `mastd`, `bskyd`, `reditd`, `emaid`, `onbod`, `dashd`. Each in `<name>/main.go`.

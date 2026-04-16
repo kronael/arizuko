@@ -10,7 +10,7 @@ func IsRoot(folder string) bool {
 	return !strings.Contains(folder, "/")
 }
 
-var reservedFolders = map[string]bool{"share": true}
+var reservedFolders = map[string]bool{"share": true, "*": true, "**": true}
 
 type Resolver struct {
 	GroupsDir string

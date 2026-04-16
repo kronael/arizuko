@@ -11,6 +11,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **cli**: `arizuko group <instance> grant|ungrant|grants` — manage
+  `user_groups` ACL rows from the host CLI instead of hand-editing
+  SQLite. `grant <sub> <pattern>` is idempotent, `grants [<sub>]`
+  prints an aligned table, `ungrant` reports zero rows cleanly.
+  Migration `0026-user-groups-granted-at.sql` adds a nullable
+  `granted_at` timestamp column.
+- **auth**: `MatchGroups(allowed, folder)` helper for glob-matched ACL
+  (`auth/acl.go`). `**` matches anything; otherwise `path.Match`
+  semantics. Shared by `onbod` route-creation guard and `proxyd.davRoute`.
+- **onbod**: second-JID auto-link. When a user who already has a world
+  messages from a new platform, the dashboard handler auto-routes the
+  new JID into the existing folder and skips the username picker.
 - **ant**: `/migrate` now broadcasts new releases — after migrations
   apply, root agent fans out the latest CHANGELOG entry to every
   registered group via `send_message`. Per-group `~/.announced-version`
@@ -19,6 +31,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **proxyd**: `davRoute` uses `auth.MatchGroups` for folder
+  authorization (was a dumb prefix check). Missing `X-User-Groups`
+  header still means operator (unrestricted).
+- **onbod**: `handleCreateWorld` gates route INSERTs behind
+  `auth.MatchGroups` against the user's `user_groups` entries.
+- **groupfolder**: `*` and `**` are now reserved folder names so they
+  cannot collide with ACL glob patterns.
 - **db_utils**: renamed from `dbmig/` to `db_utils/` (matches the
   `*_utils` convention). Unified schema ownership: `gated` (via `store/`)
   owns the shared DB schema; `timed` and `onbod` connect to the

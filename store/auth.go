@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"database/sql"
+	"time"
+)
 
 type AuthUser struct {
 	ID        int64
@@ -108,4 +111,65 @@ func (s *Store) UserGroups(sub string) *[]string {
 		folders = []string{}
 	}
 	return &folders
+}
+
+type Grant struct {
+	Sub       string
+	Pattern   string
+	GrantedAt string
+}
+
+// Grant inserts (sub, pattern) into user_groups if absent. Returns true
+// if a new row was created, false if it already existed.
+func (s *Store) Grant(sub, pattern string) (bool, error) {
+	res, err := s.db.Exec(
+		`INSERT OR IGNORE INTO user_groups (user_sub, folder, granted_at)
+		 VALUES (?, ?, datetime('now'))`, sub, pattern)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// Ungrant removes (sub, pattern) from user_groups. Returns rows affected.
+func (s *Store) Ungrant(sub, pattern string) (int64, error) {
+	res, err := s.db.Exec(
+		`DELETE FROM user_groups WHERE user_sub = ? AND folder = ?`, sub, pattern)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// Grants lists user_groups rows. Filter by sub if non-empty.
+func (s *Store) Grants(sub string) ([]Grant, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if sub != "" {
+		rows, err = s.db.Query(
+			`SELECT user_sub, folder, COALESCE(granted_at, '')
+			 FROM user_groups WHERE user_sub = ?
+			 ORDER BY user_sub, folder`, sub)
+	} else {
+		rows, err = s.db.Query(
+			`SELECT user_sub, folder, COALESCE(granted_at, '')
+			 FROM user_groups ORDER BY user_sub, folder`)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Grant
+	for rows.Next() {
+		var g Grant
+		if err := rows.Scan(&g.Sub, &g.Pattern, &g.GrantedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
 }

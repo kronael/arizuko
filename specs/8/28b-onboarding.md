@@ -1,10 +1,30 @@
 ---
-status: draft
+status: partial
 phase: next
 depends: [28-acl]
 ---
 
 # User Onboarding
+
+## Implementation status (v0.28.0)
+
+Done:
+
+- Token-based auth link flow (GET/POST /onboard, token consume, 24h TTL).
+- OAuth callback → dashboard. New user gets username picker; existing
+  user goes straight to dashboard.
+- `linkJID` on cookie landing; idempotent; rejects re-claim by different
+  sub.
+- Second-JID auto-link: when a user who already has a world messages
+  from a new platform, the dashboard handler auto-routes the new JID
+  into the existing folder and skips the username picker. See
+  `existingWorld`, `autoRoute` in `onbod/main.go`.
+
+Pending:
+
+- Dashboard editing of routes (currently read-only).
+- Group invitations.
+- Username changes.
 
 User-centric onboarding. The user is the identity — JIDs are
 claimed devices, groups are workspaces, routes are user-configured.

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/onvos/arizuko/auth"
 	_ "modernc.org/sqlite"
 )
 
@@ -410,6 +411,137 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'lonely'`).Scan(&n)
 	if n != 0 {
 		t.Errorf("expected 0 routes, got %d", n)
+	}
+}
+
+// A user who already has a world adds a new JID via a second auth link:
+// the JID gets linked AND a route to the existing world is inserted
+// automatically. The dashboard renders normally (no username picker).
+func TestSecondJIDAutoLink(t *testing.T) {
+	db := testDB(t)
+	// Existing user with a world "alice/".
+	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
+		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, name, parent, added_at)
+		VALUES ('alice', 'alice', NULL, '2026-01-01')`)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder)
+		VALUES ('github:alice', 'alice')`)
+	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed)
+		VALUES ('github:alice', 'telegram:1', '2026-01-01')`)
+	// Existing route for first JID.
+	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'alice')`)
+
+	// Second JID (discord:42) arrives, onboarding token consumed, cookie set.
+	db.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
+		VALUES ('discord:42', 'token_used', '2099-01-01T00:00:00Z', '2026-01-01')`)
+
+	cfg := config{}
+	req := httptest.NewRequest("GET", "/onboard", nil)
+	req.Header.Set("X-User-Sub", "github:alice")
+	req.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "discord:42"})
+	w := httptest.NewRecorder()
+	handleOnboard(w, req, db, cfg)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 (dashboard), got %d", w.Code)
+	}
+	body := w.Body.String()
+	if containsStr(body, "create_world") {
+		t.Error("should not show username picker on second-JID link")
+	}
+
+	// discord:42 should be linked.
+	var userSub string
+	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = 'discord:42'`).Scan(&userSub)
+	if userSub != "github:alice" {
+		t.Errorf("want user_sub=github:alice for discord:42, got %q", userSub)
+	}
+	// And auto-routed to existing world.
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE match = 'room=42' AND target = 'alice'`).Scan(&n)
+	if n != 1 {
+		t.Errorf("expected 1 auto-route for second JID to alice, got %d", n)
+	}
+}
+
+// Operator (user_groups has "**") can create world for any folder: the
+// authorization check short-circuits on operator and routes are written.
+func TestCreateWorldOperatorAllowed(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
+		VALUES ('github:op', 'op', 'Op', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('github:op', '**')`)
+	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed)
+		VALUES ('github:op', 'telegram:99', '2026-01-01')`)
+
+	cfg := config{}
+	form := url.Values{"action": {"create_world"}, "username": {"opworld"}}
+	req := httptest.NewRequest("POST", "/onboard", bytes.NewReader([]byte(form.Encode())))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "github:op")
+	w := httptest.NewRecorder()
+	handleOnboardPost(w, req, db, cfg)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
+	}
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'opworld'`).Scan(&n)
+	if n != 1 {
+		t.Errorf("expected 1 route, got %d", n)
+	}
+}
+
+// userGroups helper reports operator=true for "*" and "**" rows and returns
+// the literal folder list otherwise.
+func TestUserGroupsHelper(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:alice', 'alice')`)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:alice', 'pub/*')`)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:op', '**')`)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:star', '*')`)
+
+	if allowed, op := userGroups(db, "u:alice"); op {
+		t.Errorf("alice should not be operator")
+	} else if len(allowed) != 2 {
+		t.Errorf("alice: want 2 patterns, got %v", allowed)
+	}
+	if _, op := userGroups(db, "u:op"); !op {
+		t.Errorf("** should mark operator")
+	}
+	if _, op := userGroups(db, "u:star"); !op {
+		t.Errorf("* should mark operator")
+	}
+	if allowed, op := userGroups(db, "u:none"); op || len(allowed) != 0 {
+		t.Errorf("unknown user should return empty, got %v op=%v", allowed, op)
+	}
+}
+
+// A non-operator user attempting to place routes into a folder outside their
+// user_groups grant list is rejected with 403. We exercise this by placing an
+// entry in user_groups so groupCount>0 (skipping the username picker path is
+// not the subject here — we hit handleCreateWorld directly with a mismatched
+// allowed list). create_world always self-inserts the folder into user_groups
+// first, so to see the denial we must first revoke that. Simulate by
+// intercepting: create a user with an explicit non-matching grant pattern
+// and check that attempting a DIFFERENT folder is blocked.
+func TestRouteCreationDeniedWithoutGrant(t *testing.T) {
+	// We test the gate directly by calling the helper+MatchGroups combo the
+	// handler uses. This avoids racing against the handler's own INSERT into
+	// user_groups. Assertion: for user with grant ["alice"], folder "bob"
+	// is denied while folder "alice" is allowed.
+	db := testDB(t)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:alice', 'alice')`)
+
+	allowed, isOp := userGroups(db, "u:alice")
+	if isOp {
+		t.Fatal("expected non-operator")
+	}
+	if !auth.MatchGroups(allowed, "alice") {
+		t.Error("alice should be allowed for alice")
+	}
+	if auth.MatchGroups(allowed, "bob") {
+		t.Error("alice should NOT be allowed for bob")
 	}
 }
 

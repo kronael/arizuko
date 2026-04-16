@@ -373,15 +373,14 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if hdr == "" {
+		// No X-User-Groups header = operator (unrestricted).
 		s.davProxy.ServeHTTP(w, r)
 		return
 	}
 	group := strings.SplitN(rest, "/", 2)[0]
-	for _, f := range gs {
-		if f == group || strings.HasPrefix(group, f+"/") {
-			s.davProxy.ServeHTTP(w, r)
-			return
-		}
+	if auth.MatchGroups(gs, group) {
+		s.davProxy.ServeHTTP(w, r)
+		return
 	}
 	http.Error(w, "Forbidden", http.StatusForbidden)
 }
