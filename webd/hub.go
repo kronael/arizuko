@@ -64,6 +64,13 @@ func serveSSE(w http.ResponseWriter, r *http.Request, ch <-chan string) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher, _ := w.(http.Flusher)
+	// Emit an initial comment + flush so the client's HTTP.Do returns
+	// as soon as the stream opens (otherwise headers stay buffered
+	// until the first event — browsers cope, net/http clients don't).
+	fmt.Fprint(w, ": ok\n\n")
+	if flusher != nil {
+		flusher.Flush()
+	}
 	for {
 		select {
 		case msg, ok := <-ch:

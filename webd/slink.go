@@ -29,6 +29,9 @@ func anonSender(r *http.Request) string {
 
 // handleSlinkPost accepts user messages via token-authenticated POST.
 // POST /slink/<token>   body: content=Hello&topic=abc123
+// With Accept: text/event-stream the connection is upgraded to SSE and
+// held open — the caller receives the user's own bubble plus any
+// subsequent assistant responses on the same (folder, topic) stream.
 func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	g, ok := s.st.GroupBySlinkToken(token)
@@ -56,6 +59,17 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	if sender == "" {
 		sender = anonSender(r)
 		senderName = "Anonymous"
+	}
+
+	wantSSE := strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+
+	// Subscribe BEFORE publishing so our own user bubble is delivered on
+	// this connection (rather than racing with the publish).
+	var ch <-chan string
+	var unsub func()
+	if wantSSE {
+		ch, unsub = s.hub.subscribe(g.Folder, topic)
+		defer unsub()
 	}
 
 	id := core.MsgID("msg")
@@ -93,6 +107,11 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		"created_at": m.Timestamp.Format(time.RFC3339),
 	})
 	s.hub.publish(g.Folder, topic, "message", string(payload))
+
+	if wantSSE {
+		serveSSE(w, r, ch)
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<div class="msg user" id="msg-%s">%s</div>`, m.ID, htmlEscape(content))

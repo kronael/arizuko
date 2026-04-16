@@ -43,6 +43,13 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /slink/{token}", s.handleSlinkPost)
 	mux.HandleFunc("GET /slink/stream", s.handleSlinkStream)
 
+	// MCP streamable-HTTP endpoint — single per-instance, JWT-gated. The
+	// authed user can reach any folder in their user_groups ACL; each
+	// tool takes `folder` as an arg and checks grants via userGroups(r).
+	mux.HandleFunc("POST /mcp", s.requireUser(s.handleMCP))
+	mux.HandleFunc("GET /mcp", s.requireUser(s.handleMCP))
+	mux.HandleFunc("DELETE /mcp", s.requireUser(s.handleMCP))
+
 	// Private: full pages (proxyd has already validated auth, injects X-User-Sub).
 	mux.HandleFunc("GET /{$}", s.requireUser(s.handleGroupsPage))
 	mux.HandleFunc("GET /chat/{folder...}", s.requireFolder(s.handleChatPage))
@@ -70,27 +77,36 @@ func (s *server) requireUser(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// requireFolder wraps requireUser and enforces X-User-Groups access for
-// folder-specific endpoints. `**` grants universal access; other patterns
-// admit exact or parent-prefix matches (grant "atlas" covers "atlas" and
-// "atlas/..."). Operator is implicit via `**` — no separate bypass.
+// userGroups parses X-User-Groups (JSON string array). `**` means any.
+func userGroups(r *http.Request) []string {
+	var out []string
+	if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
+		_ = json.Unmarshal([]byte(hdr), &out)
+	}
+	return out
+}
+
+// userAllowedFolder returns true if the user's grants cover folder.
+// `**` = universal; exact match; parent-prefix (grant "atlas" covers
+// "atlas" and "atlas/..."). Operator is implicit via `**`.
+func userAllowedFolder(groups []string, folder string) bool {
+	for _, f := range groups {
+		if f == "**" || f == folder || strings.HasPrefix(folder, f+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// requireFolder wraps requireUser and enforces folder-ACL for endpoints
+// that carry folder in the URL path.
 func (s *server) requireFolder(next http.HandlerFunc) http.HandlerFunc {
 	return s.requireUser(func(w http.ResponseWriter, r *http.Request) {
-		var allowed []string
-		if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
-			if err := json.Unmarshal([]byte(hdr), &allowed); err != nil {
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			}
+		if !userAllowedFolder(userGroups(r), folderParam(r)) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
 		}
-		folder := folderParam(r)
-		for _, f := range allowed {
-			if f == "**" || f == folder || strings.HasPrefix(folder, f+"/") {
-				next(w, r)
-				return
-			}
-		}
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		next(w, r)
 	})
 }
 
@@ -159,6 +175,14 @@ type statusWriter struct {
 func (sw *statusWriter) WriteHeader(code int) {
 	sw.code = code
 	sw.ResponseWriter.WriteHeader(code)
+}
+
+// Flush passes through to the underlying ResponseWriter so SSE handlers
+// keep streaming through the logging middleware wrapper.
+func (sw *statusWriter) Flush() {
+	if f, ok := sw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
