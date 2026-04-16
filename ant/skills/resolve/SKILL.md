@@ -10,6 +10,11 @@ user-invocable: false
 
 Triage every incoming message. Continuations must exit in <3s.
 
+**Internal only.** Never emit the section headings below (`## Classify`,
+`## Recall`, `## Dispatch`, `## Act`) or the words "Classification:",
+"Continuation —", "New task —" to the user. Wrap any reasoning in
+`<think>…</think>`. The user sees the result, not the triage.
+
 ## 1. Classify
 
 **Continuation** -- follow-up to current work (yes, do it, ok,

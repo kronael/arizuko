@@ -168,21 +168,23 @@ manual step the root agent runs after `/migrate`.
 
 ### Check what's new
 
-```bash
-# latest released entry from the canonical changelog
-awk '/^## \[v[0-9]/{if(++n==1){print;next};exit} n==1' \
-  /workspace/self/CHANGELOG.md
-```
-
-Only announce if the version advanced since the last broadcast. Track
-the last announced version at `~/.announced-version` (a single line,
-e.g. `v0.28.0`).
+Write the target version BEFORE sending. This prevents a mid-broadcast
+container restart from re-announcing. If sending fails for a group,
+catch the error and retry that JID only — do not roll back the file.
 
 ```bash
 latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md \
   | tr -d '[]')
 last=$(cat ~/.announced-version 2>/dev/null || echo "")
 test "$latest" = "$last" && { echo "already announced $latest"; exit 0; }
+echo "$latest" > ~/.announced-version  # claim the version first
+```
+
+Print the changelog entry to compose the message:
+
+```bash
+awk '/^## \[v[0-9]/{if(++n==1){print;next};exit} n==1' \
+  /workspace/self/CHANGELOG.md
 ```
 
 ### Compose the message
@@ -209,15 +211,24 @@ Root agent calls `refresh_groups` to get every registered group, then
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
 trap 'mcpc @s close' EXIT
 
-mcpc @s tools-call refresh_groups | jq -r '.groups[] | .jid' | while read jid; do
-  mcpc @s tools-call send_message jid:="$jid" text:="$MSG"
-done
-
-echo "$latest" > ~/.announced-version
+mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
+  | while read folder; do
+    # look up primary jid for folder from routes
+    jid=$(sqlite3 /workspace/store/messages.db \
+      "SELECT substr(match, 6) FROM routes WHERE target = '$folder' \
+       AND match LIKE 'room=%' LIMIT 1")
+    test -n "$jid" && mcpc @s tools-call send_message \
+      jid:="$jid" text:="$MSG"
+  done
 ```
 
 Or, more naturally, the root agent reads the groups list from the MCP
 tool call result and sends one message per group in its own turn.
+
+`~/.announced-version` was already written above — do NOT write it
+again here. If you send the same version twice to a group because of
+a retry, that's fine; re-announcing the WHOLE release is the bug this
+file prevents.
 
 ### Scope and etiquette
 

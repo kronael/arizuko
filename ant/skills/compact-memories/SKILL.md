@@ -68,22 +68,27 @@ No sources → stop. Never write empty files.
 
 ### 2. Compress
 
+The purpose of an episode is to **preserve what the user corrected**,
+not what the agent concluded. Your judgement is unreliable; the user's
+is authoritative. Conclusions get redrawn every recall. Corrections do
+not — capture them verbatim.
+
 Keep:
 
-- Decisions made and why
-- Deliverables shipped
-- Active work streams
-- Blockers and resolutions
-- Who was involved
+- User corrections, verbatim (quote the message)
+- User preferences stated ("always X", "never Y")
+- Deliverables the user accepted (shipped, merged, confirmed)
+- Unresolved blockers the user flagged
 
 Drop:
 
-- Routine operations (migrations that just ran, cron triggers)
-- Dead-end debugging
-- Conversation mechanics
-- Duplicates across sources
+- Agent-drawn conclusions, summaries, "insights"
+- Routine operations (migrations, cron triggers, /resolve classifications)
+- Dead-end debugging, internal reasoning
+- Anything the agent inferred without user confirmation
 
-Each level is shorter than the sum of its sources.
+Each level is shorter than the sum of its sources. When in doubt,
+quote the user and skip the gloss.
 
 ### 3. Write
 
@@ -92,35 +97,32 @@ Output file: `episodes/YYYYMMDD.md` (always YYYYMMDD, no hyphens for day level).
 ```markdown
 ---
 summary: >
-  - Shipped discord channel support
-  - Resolved telegram auth token rotation
+  - Shipped discord adapter (user confirmed)
+  - Corrected: "sam is not stake-o-matic" (Apr 14)
 period: 'YYYYMMDD'
 type: day
 store: episodes
 sources:
   - 79e60b7d-3fe0-4a2d-a529-c9e84241aeb6.jsonl
-  - 64d579d2-c2bb-449e-81bd-7070445054b1.jsonl
 aggregated_at: '2026-03-17T02:00:00Z'
 ---
 
-## Key decisions
+## Corrections
 
-- Discord uses same ChannelOpts as telegram
+- user: "sam is not stake-o-matic" (agent had conflated the two)
+- user: "use ~ instead of /home/node/ in all paths"
 
-## Deliverables
+## Shipped
 
-- Discord adapter shipped and tested
+- Discord adapter (user merged)
 
-## Active work
+## Unresolved
 
-- /recall spec v2 design
-
-## Blockers
-
-- None
+- Map links regressed again on mayai
 ```
 
-`summary:` — dense, for `/recall` and gateway injection.
+`summary:` — dense, for `/recall` and gateway injection. Lead with
+corrections.
 `sources:` — transcript filenames (not full paths).
 `store:` — `episodes` or `diary`.
 `period:` — YYYYMMDD for day, YYYY-WNN for week, YYYY-MM for month.

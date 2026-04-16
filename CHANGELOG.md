@@ -9,6 +9,31 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- **ant/resolve**: classification section headings (`## Classify`,
+  `Continuation —`, `New task —`) are internal only — never emitted
+  to the user. Fixes scaffolding leak observed on marinade Apr 16.
+- **ant/compact-memories**: episodes now preserve user corrections
+  verbatim rather than agent-drawn conclusions. Conclusions get
+  redrawn fresh each recall; corrections don't.
+- **ant/recall-memories**: weight corrections over conclusions.
+  Never reuse a prior agent summary as a fact.
+- **ant/migrate**: `~/.announced-version` is written BEFORE the
+  broadcast loop, not after. Prevents a mid-fanout container restart
+  from re-announcing the whole release. Also: fix broken
+  `refresh_groups | jq .jid` (MCP tool returns folder, not jid) by
+  looking up JIDs from the `routes` table.
+- **ant/CLAUDE.md**: attachment rule — `[Document: …]` placeholder
+  without `<attachment path=…>` tag means the file did NOT arrive.
+  Do not claim you read it.
+
+### Fixed
+
+- **store.UserGroups**: correctness — only `**` marks operator (was
+  checking `*`). Aligns with spec and CLAUDE.md.
+- **onbod.userGroups**: same — drop `*` branch, align on `**`.
+
 ## [v0.29.0] — 2026-04-16
 
 ### Added

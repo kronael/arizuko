@@ -293,6 +293,10 @@ them automatically before you run. Attachment paths appear in message content as
 - Voice messages are pre-transcribed; `transcript` attribute holds the text
 - If `transcript` is present, prefer it over re-running your own transcription
 - Files live in the data dir outside the project repo and are not cleaned up automatically
+- If the message says `[Document: name]` or similar placeholder with NO
+  `<attachment path=…>` tag, the file did NOT arrive. Do NOT claim you
+  read it. Reply: "The file didn't reach me — please re-share as a file
+  attachment." Log to `~/issues.md`.
 
 ## Delivering files to users
 
