@@ -59,6 +59,13 @@ func loginAllowed(ip string) bool {
 	return true
 }
 
+func wrapOAuth(buttons string) string {
+	if buttons == "" {
+		return ""
+	}
+	return `<div class="sep">or</div>` + buttons
+}
+
 func handleLoginPage(cfg *core.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		buttons := ""
@@ -73,21 +80,32 @@ func handleLoginPage(cfg *core.Config) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, `<!DOCTYPE html>
-<html><head><title>Login</title>
+<html><head><title>arizuko — login</title>
 <style>
-body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}
-form{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1);width:300px}
-input{width:100%%;padding:.5rem;margin:.25rem 0 1rem;box-sizing:border-box;border:1px solid #ddd;border-radius:4px}
-button{width:100%%;padding:.5rem;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer}
-.oauth-btn{display:block;width:100%%;padding:.5rem;margin-top:.5rem;background:#fff;color:#333;border:1px solid #ddd;border-radius:4px;cursor:pointer;text-align:center;text-decoration:none;box-sizing:border-box}
-h2{margin:0 0 1rem;text-align:center}
-</style></head><body>
+:root{--bg:#0a0a0a;--fg:#e0e0e0;--accent:#4ade80;--accent3:#58a6ff;--dim:#666;--border:#222;--card:#111}
+[data-theme=light]{--bg:#fafafa;--fg:#1a1a1a;--accent:#16a34a;--accent3:#0969da;--dim:#888;--border:#ddd;--card:#fff}
+*{box-sizing:border-box}
+body{font-family:"SF Mono","Fira Code","JetBrains Mono",Consolas,monospace;font-size:14px;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;color:var(--fg);background:var(--bg)}
+form{background:var(--card);border:1px solid var(--border);padding:2rem;border-radius:6px;width:300px}
+h1{margin:0 0 .2em;font-size:1.4em;color:var(--accent);text-align:center}
+.sub{color:var(--dim);font-size:.85em;text-align:center;margin:0 0 1.2em}
+input{width:100%%;padding:.5rem;margin:.25rem 0 1rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:.9em}
+input:focus{outline:none;border-color:var(--accent3)}
+button{width:100%%;padding:.6rem;background:var(--accent);color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-family:inherit;font-weight:bold;font-size:.9em}
+button:hover{opacity:.9}
+.sep{color:var(--dim);text-align:center;margin:1em 0 .5em;font-size:.8em}
+.oauth-btn{display:block;width:100%%;padding:.55rem;margin-top:.4em;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;text-align:center;text-decoration:none;font-size:.9em}
+.oauth-btn:hover{border-color:var(--accent3);color:var(--accent3)}
+</style>
+<script>(function(){var t=localStorage.getItem('hub-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();</script>
+</head><body>
 <form method="POST" action="/auth/login">
-<h2>Login</h2>
-<input name="username" placeholder="Username" required autofocus>
-<input name="password" type="password" placeholder="Password" required>
-<button type="submit">Login</button>
-%s</form></body></html>`, buttons)
+<h1>arizuko</h1>
+<p class="sub">sign in</p>
+<input name="username" placeholder="username" required autofocus>
+<input name="password" type="password" placeholder="password" required>
+<button type="submit">login</button>
+%s</form></body></html>`, wrapOAuth(buttons))
 	}
 }
 

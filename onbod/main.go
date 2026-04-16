@@ -356,18 +356,29 @@ func renderPage(w http.ResponseWriter, title, body string) {
 	safeTitle := html.EscapeString(title)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!DOCTYPE html>
-<html><head><title>%s</title>
+<html><head><title>arizuko — %s</title>
 <style>
-body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}
-.card{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1);max-width:500px;width:100%%}
-h2{margin:0 0 1rem}
-input{width:100%%;padding:.5rem;margin:.25rem 0 1rem;box-sizing:border-box;border:1px solid #ddd;border-radius:4px}
-button{padding:.5rem 1rem;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer}
-a{color:#333}
-table{width:100%%;border-collapse:collapse;margin:.5rem 0}
-td,th{padding:.25rem .5rem;text-align:left;border-bottom:1px solid #eee}
-</style></head><body>
-<div class="card"><h2>%s</h2>%s</div>
+:root{--bg:#0a0a0a;--fg:#e0e0e0;--accent:#4ade80;--accent2:#a78bfa;--accent3:#58a6ff;--dim:#666;--border:#222;--card:#111}
+[data-theme=light]{--bg:#fafafa;--fg:#1a1a1a;--accent:#16a34a;--accent2:#7c3aed;--accent3:#0969da;--dim:#888;--border:#ddd;--card:#fff}
+*{box-sizing:border-box}
+body{font-family:"SF Mono","Fira Code","JetBrains Mono",Consolas,monospace;font-size:14px;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;color:var(--fg);background:var(--bg)}
+.card{background:var(--card);border:1px solid var(--border);padding:2rem;border-radius:6px;max-width:520px;width:calc(100%% - 2rem)}
+.brand{color:var(--accent);font-weight:bold;font-size:1.1em;margin:0 0 .3em}
+h2{margin:0 0 1rem;font-size:1.15em;color:var(--accent3)}
+p{margin:.4em 0}
+input{width:100%%;padding:.5rem;margin:.25rem 0 1rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:.9em}
+input:focus{outline:none;border-color:var(--accent3)}
+button{padding:.55rem 1.2rem;background:var(--accent);color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-family:inherit;font-weight:bold;font-size:.9em}
+button:hover{opacity:.9}
+a{color:var(--accent)}
+a:hover{text-decoration:underline}
+table{width:100%%;border-collapse:collapse;margin:.5rem 0;font-size:.9em}
+td,th{padding:.35rem .6rem;text-align:left;border-bottom:1px solid var(--border)}
+th{color:var(--accent2);font-weight:normal;text-transform:uppercase;font-size:.8em;letter-spacing:.05em}
+</style>
+<script>(function(){var t=localStorage.getItem('hub-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();</script>
+</head><body>
+<div class="card"><p class="brand">arizuko</p><h2>%s</h2>%s</div>
 </body></html>`, safeTitle, safeTitle, body)
 }
 
