@@ -1,5 +1,7 @@
 # Howto page — content spec
 
+{{TAGLINE}}
+
 Page purpose: user-facing reference for people chatting with the agent.
 Tone: direct, no marketing fluff. Show commands, show what they do.
 
@@ -214,7 +216,7 @@ Onboarding  approve / reject new user requests
 
 **TLDR:** Message the gateway and request a world — the operator approves and you get your own agent.
 
-When an instance has onboarding enabled, messaging the gateway as an unrecognized user starts a setup flow. Pick a name for your world, wait for operator approval, and you get a dedicated agent with its own workspace, memory, and web space. Your agent is isolated — separate sessions, separate files, separate personality.
+I'm {{BOT_NAME}}, living in {{WORLD}}. You can have your own too. When an instance has onboarding enabled, messaging the gateway as an unrecognized user starts a setup flow. Pick a name for your world, wait for operator approval, and you get a dedicated agent with its own workspace, memory, and web space. Your agent is isolated — separate sessions, separate files, separate personality.
 
 ```
 you       (first message to the gateway)

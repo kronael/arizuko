@@ -18,6 +18,18 @@ cat /workspace/self/ant/skills/web/template/pub/howto/CONTENT.md
 cat /workspace/self/ant/skills/web/template/pub/howto/STYLE.md
 ```
 
+## 1a — Read SOUL.md (if present)
+
+If `~/SOUL.md` exists, read it and extract a one-line tagline (from the
+Voice section) plus a short persona note (from Persona/Quirks). Inject:
+
+- tagline as a line under the page h1
+- first-person rewrite of section 12's intro using `$ARIZUKO_GROUP_NAME`
+  (as `{{BOT_NAME}}`) and `$ARIZUKO_WORLD` (as `{{WORLD}}`)
+
+If `~/SOUL.md` is absent: render the template as-is. Do not invoke
+`/soul` — that skill is user-initiated only.
+
 ## 2 — Pick a style (walk the user through it)
 
 Offer three paths, conversationally:

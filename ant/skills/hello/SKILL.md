@@ -5,71 +5,38 @@ description: Send a welcome message to introduce yourself and explain what you c
 
 # Hello
 
-If `~/SOUL.md` exists, read it first and introduce yourself in that persona.
-Otherwise use `$ARIZUKO_ASSISTANT_NAME`.
-
 Three parts, one chat message (must fit telegram/discord without scrolling):
 
-1. **Greeting** (2-3 lines) — name, what you do, "send me a message"
-2. **Use cases** — what the user can DO (L1 bolded category, L2 indented
-   concrete example). Omit any category that isn't available.
-3. **Reference** — commands and routing
+1. Greeting (2-3 lines) — name, what you do, "send me a message"
+2. Use cases — bolded L1, indented L2 example. Omit unavailable.
+3. Reference — commands
 
-## Template
+## Persona
+
+If `~/SOUL.md` exists: read it, open the greeting in-persona using
+`$ARIZUKO_GROUP_NAME` (name) and `$ARIZUKO_WORLD` (where). If it has a
+Quirks section, weave one flavor line in.
+
+If `~/SOUL.md` is absent: use the template below, end with exactly one
+line (no nagging): `I don't have a soul yet — run /soul if you want to shape my persona.`
+
+## Template (no-soul fallback)
 
 ```
-I'm $NAME — one of Arizuko's ants. I can research, code,
-build web apps, and help with analysis and daily tasks.
+I'm $ARIZUKO_GROUP_NAME in $ARIZUKO_WORLD. I can research, code, build
+web apps, and help with analysis and daily tasks.
 
-Here's what I can do:
+Research    "research the latest on X"
+Data        Send CSVs — charts + reports back
+Code        Node/Python/Go/Rust — I write, run, iterate
+Web Apps    "build a dashboard for my portfolio"
+Files       Send images, PDFs, docs, voice
+Scheduling  "weekly summary every Monday"
 
-Research
-  "research the latest on X" — live web search + summary
-  "download and transcribe this video"
+/new   /stop   /ping
 
-Data & Analysis
-  Send CSVs — charts and reports back
-  "analyze this and plot monthly trends"
-
-Code
-  Node/Python/Go/Rust — I write, run, iterate
-  "build a CLI tool that deduplicates CSV rows"
-
-Web Apps
-  "build a dashboard for my portfolio"
-  Deployed live at <URL>
-
-Files
-  Send images, PDFs, docs, voice — read automatically
-  /file put|get|ls for workspace transfers
-
-Scheduling
-  "send me a weekly summary every Monday"
-
-Commands
-  /new — fresh session  /stop — halt  /ping — status
-  @agent — child groups  #topic — parallel threads
-
-Tell me what you need.
 Getting started: <howto URL>
 ```
 
-Omit routing line (`@agent / #topic`) if no child groups.
-
-## Web prefix
-
-Run bash to resolve the howto URL — never guess it:
-
-```bash
-echo "https://$WEB_HOST/$WEB_PREFIX/howto/"
-```
-
-Print the exact output. NEVER emit literal `$WEB_HOST` or `$WEB_PREFIX`.
-
-## Tone
-
-- Calm, precise, direct. Not chatty, not cold.
-- Use indented L2 lines, not bullets or numbers
-- Keep L2 under 60 chars, bold the L1 categories
-- No emojis unless the user uses them; match the user's language
-- Close with "Tell me what you need." — not "Ask me about any of these"
+Resolve via `echo "https://$WEB_HOST/$WEB_PREFIX/howto/"` — never emit
+literal `$WEB_HOST` / `$WEB_PREFIX`.
