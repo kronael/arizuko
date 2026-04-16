@@ -866,14 +866,14 @@ func TestProxydDavBareNoGroupsDefaultsRoot(t *testing.T) {
 	}
 }
 
-// With no X-User-Groups header (operator, unrestricted), a /dav/foo/bar
-// request is proxied through without the group-membership check.
-func TestProxydDavNoGroupsHeaderProxies(t *testing.T) {
+// Operator (grant `**`) reaches upstream for any /dav/<folder>. Operator
+// is implicit — there's no separate "no header" bypass.
+func TestProxydDavOperatorProxies(t *testing.T) {
 	s, up := testDavServer(t)
 	defer up.Close()
 
 	req := httptest.NewRequest("GET", "/dav/anything/here", nil)
-	// no X-User-Groups header
+	req.Header.Set("X-User-Groups", `["**"]`)
 	w := httptest.NewRecorder()
 	s.davRoute(w, req)
 

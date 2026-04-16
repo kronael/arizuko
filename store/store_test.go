@@ -426,75 +426,6 @@ func TestTaskOneShotNoCron(t *testing.T) {
 	}
 }
 
-func TestUnroutedChatJIDs_NoMessages(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	jids := s.UnroutedChatJIDs(time.Now().Add(-time.Hour))
-	if len(jids) != 0 {
-		t.Fatalf("expected 0 jids, got %v", jids)
-	}
-}
-
-func TestUnroutedChatJIDs_NoRoute(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	now := time.Now()
-	s.PutMessage(core.Message{
-		ID: "m1", ChatJID: "tg:1", Sender: "user",
-		Content: "hi", Timestamp: now,
-	})
-	s.PutMessage(core.Message{
-		ID: "m2", ChatJID: "tg:2", Sender: "user",
-		Content: "hello", Timestamp: now,
-	})
-
-	jids := s.UnroutedChatJIDs(now.Add(-time.Second))
-	if len(jids) != 2 {
-		t.Fatalf("expected 2 unrouted jids, got %v", jids)
-	}
-}
-
-func TestUnroutedChatJIDs_ExcludesRouted(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	now := time.Now()
-	s.PutMessage(core.Message{
-		ID: "m1", ChatJID: "tg:1", Sender: "user",
-		Content: "hi", Timestamp: now,
-	})
-	s.PutMessage(core.Message{
-		ID: "m2", ChatJID: "tg:2", Sender: "user",
-		Content: "hello", Timestamp: now,
-	})
-
-	// route tg:1 → should be excluded
-	s.AddRoute(core.Route{Match: "platform=tg room=1", Target: "root"})
-
-	jids := s.UnroutedChatJIDs(now.Add(-time.Second))
-	if len(jids) != 1 || jids[0] != "tg:2" {
-		t.Fatalf("expected [tg:2], got %v", jids)
-	}
-}
-
-func TestUnroutedChatJIDs_ExcludesBotMessages(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	now := time.Now()
-	s.PutMessage(core.Message{
-		ID: "m1", ChatJID: "tg:1", Sender: "bot",
-		Content: "reply", Timestamp: now, BotMsg: true,
-	})
-
-	jids := s.UnroutedChatJIDs(now.Add(-time.Second))
-	if len(jids) != 0 {
-		t.Fatalf("bot messages should be excluded, got %v", jids)
-	}
-}
-
 func TestPutMessageAttachmentsRoundTrip(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
@@ -544,23 +475,6 @@ func TestEnrichMessage(t *testing.T) {
 	}
 	if !strings.Contains(msgs[0].Content, "<attachment") {
 		t.Errorf("enriched content should contain attachment XML, got %q", msgs[0].Content)
-	}
-}
-
-func TestUnroutedChatJIDs_SinceFilter(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	old := time.Now().Add(-time.Hour)
-	s.PutMessage(core.Message{
-		ID: "m1", ChatJID: "tg:1", Sender: "user",
-		Content: "old message", Timestamp: old,
-	})
-
-	// query since now — old message should not appear
-	jids := s.UnroutedChatJIDs(time.Now())
-	if len(jids) != 0 {
-		t.Fatalf("expected 0 (message before since), got %v", jids)
 	}
 }
 
@@ -641,11 +555,8 @@ func TestUserGroupsNoRows(t *testing.T) {
 	defer s.Close()
 
 	got := s.UserGroups("nobody")
-	if got == nil {
-		t.Fatal("expected non-nil pointer for user with no rows")
-	}
-	if len(*got) != 0 {
-		t.Fatalf("expected empty slice, got %v", *got)
+	if len(got) != 0 {
+		t.Fatalf("expected empty slice, got %v", got)
 	}
 }
 
@@ -657,8 +568,8 @@ func TestUserGroupsOperator(t *testing.T) {
 	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('op', '**')`)
 
 	got := s.UserGroups("op")
-	if got != nil {
-		t.Fatalf("expected nil (operator), got %v", *got)
+	if len(got) != 1 || got[0] != "**" {
+		t.Fatalf("expected [**], got %v", got)
 	}
 }
 
@@ -671,15 +582,11 @@ func TestUserGroupsSpecificFolders(t *testing.T) {
 	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u1', 'beta')`)
 
 	got := s.UserGroups("u1")
-	if got == nil {
-		t.Fatal("expected non-nil pointer")
+	if len(got) != 2 {
+		t.Fatalf("expected 2 folders, got %d", len(got))
 	}
-	if len(*got) != 2 {
-		t.Fatalf("expected 2 folders, got %d", len(*got))
-	}
-	// Ordered by folder
-	if (*got)[0] != "alpha" || (*got)[1] != "beta" {
-		t.Fatalf("expected [alpha beta], got %v", *got)
+	if got[0] != "alpha" || got[1] != "beta" {
+		t.Fatalf("expected [alpha beta], got %v", got)
 	}
 }
 
@@ -693,7 +600,7 @@ func TestUserGroupsMixed(t *testing.T) {
 	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('mix', 'beta')`)
 
 	got := s.UserGroups("mix")
-	if got != nil {
-		t.Fatalf("expected nil (operator wins), got %v", *got)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 rows (alpha, **, beta), got %v", got)
 	}
 }

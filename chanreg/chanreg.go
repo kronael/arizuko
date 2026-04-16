@@ -21,7 +21,14 @@ type Entry struct {
 
 func (e *Entry) HasCap(cap string) bool { return e.Capabilities[cap] }
 
-func (e *Entry) Owns(jid string) bool { return ownsJID(e, jid) }
+func (e *Entry) Owns(jid string) bool {
+	for _, p := range e.JIDPrefixes {
+		if strings.HasPrefix(jid, p) {
+			return true
+		}
+	}
+	return false
+}
 
 type Registry struct {
 	mu      sync.RWMutex
@@ -111,27 +118,18 @@ func (r *Registry) Resolve(name, jid string) *Entry {
 	return r.ForJID(jid)
 }
 
-// ForJID returns the first adapter that owns jid. Used as a fallback when
-// no per-message source is available; callers wanting exact routing must
-// pass the adapter name explicitly.
+// ForJID returns the first adapter that owns jid. When multiple adapters
+// share a prefix, iteration order is non-deterministic; callers needing
+// exact routing must pass the adapter name.
 func (r *Registry) ForJID(jid string) *Entry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, e := range r.entries {
-		if ownsJID(e, jid) {
+		if e.Owns(jid) {
 			return e
 		}
 	}
 	return nil
-}
-
-func ownsJID(e *Entry, jid string) bool {
-	for _, p := range e.JIDPrefixes {
-		if strings.HasPrefix(jid, p) {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *Registry) RecordHealthFail(name string) int {

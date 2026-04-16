@@ -2,9 +2,9 @@ package auth
 
 import "path"
 
-// MatchGroups reports whether folder is allowed. "**" matches any folder;
-// other patterns use path.Match. nil/empty allowed means no access
-// (operator = nil is caller's responsibility).
+// MatchGroups reports whether folder is allowed. `**` matches any folder
+// (operator is implicit — a `**` grant is the only operator signal),
+// other patterns use path.Match. Empty allowed = no access.
 func MatchGroups(allowed []string, folder string) bool {
 	for _, p := range allowed {
 		if p == "**" {

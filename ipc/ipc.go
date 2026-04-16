@@ -147,15 +147,6 @@ func routeTargetWithin(target, owner string) bool {
 	return target == owner || strings.HasPrefix(target, owner+"/")
 }
 
-func toolDesc(base string, rules []string, action string) string {
-	matching := grantslib.MatchingRules(rules, action)
-	if len(matching) == 0 {
-		return base
-	}
-	data, _ := json.Marshal(matching)
-	return base + "\ngrants: " + string(data)
-}
-
 func workspaceRel(fp string) (string, error) {
 	if strings.HasPrefix(fp, "/home/node/") {
 		return strings.TrimPrefix(fp, "/home/node/"), nil
@@ -200,10 +191,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	// the handler does its own param-aware CheckAction and registerRaw skips
 	// the wrapper.
 	registerRaw := func(name, desc string, opts []mcp.ToolOption, h server.ToolHandlerFunc) {
-		if len(grantslib.MatchingRules(rules, name)) == 0 {
+		matching := grantslib.MatchingRules(rules, name)
+		if len(matching) == 0 {
 			return
 		}
-		all := append([]mcp.ToolOption{mcp.WithDescription(toolDesc(desc, rules, name))}, opts...)
+		data, _ := json.Marshal(matching)
+		desc = desc + "\ngrants: " + string(data)
+		all := append([]mcp.ToolOption{mcp.WithDescription(desc)}, opts...)
 		srv.AddTool(mcp.NewTool(name, all...), h)
 	}
 	granted := func(name, desc string, opts []mcp.ToolOption, h server.ToolHandlerFunc) {
@@ -372,7 +366,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				if gated.SpawnGroup == nil {
 					return toolErr("register_group: fromPrototype not configured")
 				}
-				// Parent is the calling agent's own folder
 				child, err := gated.SpawnGroup(folder, jid)
 				if err != nil {
 					return toolErr(err.Error())
@@ -548,7 +541,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err := json.Unmarshal([]byte(req.GetString("routes", "")), &routes); err != nil {
 				return toolErr("invalid routes json: " + err.Error())
 			}
-			// Every route must target the caller's own folder or a descendant.
 			for _, r := range routes {
 				if !routeTargetWithin(r.Target, id.Folder) {
 					return toolErr("route target outside own folder: " + r.Target)

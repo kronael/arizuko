@@ -142,37 +142,6 @@ func (s *Store) PendingChatJIDs(botName string) []string {
 	return jids
 }
 
-// UnroutedChatJIDs returns JIDs with recent user messages that do not
-// map to any group via the routes table. Used by the onboarding hook.
-func (s *Store) UnroutedChatJIDs(since time.Time) []string {
-	routes := s.AllRoutes()
-	rows, err := s.db.Query(
-		`SELECT DISTINCT chat_jid FROM messages
-		 WHERE timestamp > ?
-		   AND is_bot_message = 0`,
-		since.Format(time.RFC3339Nano),
-	)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var candidates []string
-	for rows.Next() {
-		var jid string
-		if err := rows.Scan(&jid); err == nil {
-			candidates = append(candidates, jid)
-		}
-	}
-	var jids []string
-	for _, jid := range candidates {
-		msg := core.Message{ChatJID: jid, Verb: "message"}
-		if router.ResolveRoute(msg, routes) == "" {
-			jids = append(jids, jid)
-		}
-	}
-	return jids
-}
-
 // routeSourceJIDs reconstructs "platform:room" JIDs from a route's match.
 // Requires both platform and room literals (no globs) to be present.
 // When platform is missing, the room literal alone is returned.

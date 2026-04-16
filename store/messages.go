@@ -87,19 +87,16 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 	defer rows.Close()
 
 	var msgs []core.Message
-	var hi time.Time
+	hi := since
 	for rows.Next() {
-		m, ts, err := scanMessage(rows)
+		m, err := scanMessage(rows)
 		if err != nil {
 			return nil, since, err
 		}
 		msgs = append(msgs, m)
-		if ts.After(hi) {
-			hi = ts
+		if m.Timestamp.After(hi) {
+			hi = m.Timestamp
 		}
-	}
-	if hi.IsZero() {
-		hi = since
 	}
 	return msgs, hi, rows.Err()
 }
@@ -141,7 +138,7 @@ func collectMessages(rows *sql.Rows) ([]core.Message, error) {
 	defer rows.Close()
 	var msgs []core.Message
 	for rows.Next() {
-		m, _, err := scanMessage(rows)
+		m, err := scanMessage(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +147,7 @@ func collectMessages(rows *sql.Rows) ([]core.Message, error) {
 	return msgs, rows.Err()
 }
 
-func scanMessage(r rowScanner) (core.Message, time.Time, error) {
+func scanMessage(r rowScanner) (core.Message, error) {
 	var m core.Message
 	var ts string
 	var fromMe, botMsg int
@@ -158,12 +155,12 @@ func scanMessage(r rowScanner) (core.Message, time.Time, error) {
 		&ts, &fromMe, &botMsg, &m.ForwardedFrom,
 		&m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
 		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source); err != nil {
-		return m, time.Time{}, err
+		return m, err
 	}
 	m.FromMe = fromMe != 0
 	m.BotMsg = botMsg != 0
 	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
-	return m, m.Timestamp, nil
+	return m, nil
 }
 
 // LatestSource returns the source (adapter name) of the most recent
@@ -302,32 +299,13 @@ func (s *Store) ObservedMessagesSince(groupFolder, excludeJid, since string) []c
 	defer rows.Close()
 	var out []core.Message
 	for rows.Next() {
-		m, _, err := scanMessage(rows)
+		m, err := scanMessage(rows)
 		if err != nil {
 			continue
 		}
 		out = append(out, m)
 	}
 	return out
-}
-
-func (s *Store) ActiveWebJIDs(since time.Time) []string {
-	rows, err := s.db.Query(
-		`SELECT DISTINCT chat_jid FROM messages
-		 WHERE chat_jid LIKE 'web:%' AND timestamp > ?`,
-		since.Format(time.RFC3339Nano),
-	)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var jids []string
-	for rows.Next() {
-		var jid string
-		rows.Scan(&jid)
-		jids = append(jids, jid)
-	}
-	return jids
 }
 
 func (s *Store) GetLastReplyID(jid, topic string) string {

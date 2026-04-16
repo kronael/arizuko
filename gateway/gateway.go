@@ -113,7 +113,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		SetupGroup: func(folder string) error {
 			return container.SetupGroup(g.cfg, folder, "")
 		},
-		GetGroups:           g.getGroups,
+		GetGroups:           g.store.AllGroups,
 		EnqueueMessageCheck: g.queue.EnqueueMessageCheck,
 		SpawnGroup: func(parentFolder, childJID string) (core.Group, error) {
 			if _, ok := g.store.GroupByFolder(parentFolder); !ok {
@@ -515,7 +515,7 @@ func (g *Gateway) processSenderBatch(
 	topic := g.effectiveTopic(chatJid, last.Topic)
 	onOutput, hadOutput := g.makeOutputCallback(deliverCh, deliverTo, topic, last.ID, group.Folder)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
-		onOutput, isolated, nil, topic, last.ID, len(msgs))
+		onOutput, isolated, topic, last.ID, len(msgs))
 
 	if deliverCh != nil {
 		slog.Info("typing stop", "jid", deliverTo, "channel", deliverCh.Name())
@@ -571,7 +571,7 @@ func (g *Gateway) processWebTopics(
 		effectiveTopic := g.effectiveTopic(chatJid, topic)
 		onOutput, hadOutput := g.makeOutputCallback(ch, chatJid, effectiveTopic, last.ID, group.Folder)
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
-			onOutput, false, nil, effectiveTopic, last.ID, len(topicMsgs))
+			onOutput, false, effectiveTopic, last.ID, len(topicMsgs))
 
 		if ch != nil {
 			ch.Typing(chatJid, false)
@@ -690,7 +690,7 @@ func (g *Gateway) sessionIdleExpired(chatJid string) bool {
 func (g *Gateway) runAgentWithOpts(
 	group core.Group, prompt, chatJid, sender string,
 	onOutput func(string, string), isolated bool,
-	rules []string, topic string, msgID string, msgCount int,
+	topic string, msgID string, msgCount int,
 ) container.Output {
 	var sessionID string
 	var logRowID int64
@@ -706,11 +706,9 @@ func (g *Gateway) runAgentWithOpts(
 		logRowID, _ = g.store.RecordSession(group.Folder, sessionID, time.Now())
 	}
 
-	if rules == nil {
-		id := auth.Resolve(group.Folder)
-		rules = grants.DeriveRules(g.store, group.Folder, id.Tier, auth.WorldOf(group.Folder))
-		rules = append(rules, g.store.GetGrants(group.Folder)...)
-	}
+	id := auth.Resolve(group.Folder)
+	rules := grants.DeriveRules(g.store, group.Folder, id.Tier, auth.WorldOf(group.Folder))
+	rules = append(rules, g.store.GetGrants(group.Folder)...)
 
 	groupPath, err := g.folders.GroupPath(group.Folder)
 	if err != nil {
@@ -725,13 +723,23 @@ func (g *Gateway) runAgentWithOpts(
 		cname = fmt.Sprintf("arizuko-%s-%d", sanitized, time.Now().UnixMilli())
 	}
 
+	var chanName string
+	if ch := g.findChannelForJID(chatJid); ch != nil {
+		chanName = ch.Name()
+	}
+
 	g.queue.RegisterProcess(chatJid, cname, group.Folder)
 
 	isRoot := groupfolder.IsRoot(group.Folder)
+	allGroups := g.store.AllGroups()
+	groupSlice := make([]core.Group, 0, len(allGroups))
+	for _, gr := range allGroups {
+		groupSlice = append(groupSlice, gr)
+	}
 	container.WriteTasksSnapshot(
 		g.folders, group.Folder, isRoot, g.store.ListTasks("", true))
 	container.WriteGroupsSnapshot(
-		g.folders, group.Folder, isRoot, g.groupList())
+		g.folders, group.Folder, isRoot, groupSlice)
 
 	input := container.Input{
 		Prompt:     prompt,
@@ -743,7 +751,7 @@ func (g *Gateway) runAgentWithOpts(
 		Name:       cname,
 		Config:     group.Config,
 		SlinkToken: group.SlinkToken,
-		Channel:    channelName(g.findChannelForJID(chatJid)),
+		Channel:    chanName,
 		MessageID:  msgID,
 		Sender:     sender,
 		OnOutput:   onOutput,
@@ -784,7 +792,6 @@ func (g *Gateway) runAgentWithOpts(
 	return out
 }
 
-// findChannelByName returns the channel registered under name, or nil.
 func (g *Gateway) findChannelByName(name string) core.Channel {
 	if name == "" {
 		return nil
@@ -1080,7 +1087,6 @@ func sanitizeFilename(name string) string {
 	if name == "." || name == "/" {
 		return ""
 	}
-	// Strip characters unsafe for filesystems
 	var b strings.Builder
 	for _, r := range name {
 		if r == '/' || r == '\\' || r == '\x00' {
@@ -1163,43 +1169,25 @@ func ensureGroupGitRepo(groupDir string) {
 	os.WriteFile(gitignore, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
-func (g *Gateway) getGroups() map[string]core.Group {
-	return g.store.AllGroups()
-}
-
-type escalationMetadata struct {
-	WorkerFolder string
-	OriginJID    string
-	ReplyTo      string
-}
-
 var escAttrRe = regexp.MustCompile(`(\w+)="([^"]*)"`)
 
-func parseEscalationOrigin(prompt string) *escalationMetadata {
+func escalationWorker(prompt string) string {
 	start := strings.Index(prompt, "<escalation_origin")
 	if start == -1 {
-		return nil
+		return ""
 	}
 	end := strings.Index(prompt[start:], "/>")
 	if end == -1 {
-		return nil
+		return ""
 	}
-	tag := prompt[start : start+end+2]
-
 	attrs := map[string]string{}
-	for _, m := range escAttrRe.FindAllStringSubmatch(tag, -1) {
+	for _, m := range escAttrRe.FindAllStringSubmatch(prompt[start:start+end+2], -1) {
 		attrs[m[1]] = m[2]
 	}
-
-	meta := escalationMetadata{
-		WorkerFolder: attrs["folder"],
-		OriginJID:    attrs["jid"],
-		ReplyTo:      attrs["reply_to"],
+	if attrs["folder"] == "" || attrs["jid"] == "" {
+		return ""
 	}
-	if meta.WorkerFolder == "" || meta.OriginJID == "" {
-		return nil
-	}
-	return &meta
+	return attrs["folder"]
 }
 
 func (g *Gateway) resolveGroup(msg core.Message) (core.Group, bool) {
@@ -1362,7 +1350,6 @@ func (g *Gateway) handlePrefixLayer(
 		g.delegateViaMessage(childFolder, stripped, chatJid, 0)
 		return true
 	}
-	// hash prefix
 	topic := "#" + name
 	g.store.PutMessage(core.Message{
 		ID:        core.MsgID("topic"),
@@ -1453,8 +1440,8 @@ func (g *Gateway) delegateViaMessage(
 
 	// For escalation, override return address to go back to the child
 	fwdFrom := originJid
-	if esc := parseEscalationOrigin(prompt); esc != nil && esc.WorkerFolder != "" {
-		fwdFrom = "local:" + esc.WorkerFolder
+	if worker := escalationWorker(prompt); worker != "" {
+		fwdFrom = "local:" + worker
 	}
 
 	if _, found := g.store.GroupByFolder(targetFolder); !found {
@@ -1492,23 +1479,6 @@ func (g *Gateway) recoverPendingMessages() {
 		g.queue.EnqueueMessageCheck(jid)
 	}
 }
-
-func (g *Gateway) groupList() []core.Group {
-	groups := g.store.AllGroups()
-	out := make([]core.Group, 0, len(groups))
-	for _, gr := range groups {
-		out = append(out, gr)
-	}
-	return out
-}
-
-func channelName(ch core.Channel) string {
-	if ch == nil {
-		return ""
-	}
-	return ch.Name()
-}
-
 
 func onboardingAllowed(jid string, platforms []string) bool {
 	if len(platforms) == 0 {

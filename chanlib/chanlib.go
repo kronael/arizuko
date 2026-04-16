@@ -76,28 +76,26 @@ func (r *RouterClient) Deregister() error {
 }
 
 func (r *RouterClient) SendMessage(msg InboundMsg) error {
-	var resp struct {
-		OK    bool   `json:"ok"`
-		Error string `json:"error"`
+	var last error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			slog.Warn("send retry", "err", last)
+			time.Sleep(500 * time.Millisecond)
+		}
+		var resp struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		if err := r.Post("/v1/messages", msg, r.token, &resp); err != nil {
+			last = err
+			continue
+		}
+		if resp.OK {
+			return nil
+		}
+		last = fmt.Errorf("deliver: %s", resp.Error)
 	}
-	err := r.Post("/v1/messages", msg, r.token, &resp)
-	if err == nil && resp.OK {
-		return nil
-	}
-	firstErr := err
-	if firstErr == nil {
-		firstErr = fmt.Errorf("deliver: %s", resp.Error)
-	}
-	slog.Warn("send retry", "err", firstErr)
-	time.Sleep(500 * time.Millisecond)
-	err = r.Post("/v1/messages", msg, r.token, &resp)
-	if err != nil {
-		return err
-	}
-	if !resp.OK {
-		return fmt.Errorf("deliver: %s", resp.Error)
-	}
-	return nil
+	return last
 }
 
 func (r *RouterClient) Post(path string, body any, auth string, out any) error {
@@ -184,5 +182,5 @@ func MustEnv(k string) string {
 	}
 	slog.Error("required env var missing", "key", k)
 	os.Exit(1)
-	return "" // unreachable, satisfies compiler
+	return ""
 }

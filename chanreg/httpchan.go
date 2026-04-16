@@ -49,7 +49,7 @@ func (h *HTTPChannel) Name() string { return h.entry.Name }
 
 func (h *HTTPChannel) Connect(_ context.Context) error { return nil }
 
-func (h *HTTPChannel) Owns(jid string) bool { return ownsJID(h.entry, jid) }
+func (h *HTTPChannel) Owns(jid string) bool { return h.entry.Owns(jid) }
 
 func (h *HTTPChannel) Send(jid, text, replyTo, threadID string) (string, error) {
 	if !h.entry.HasCap("send_text") {
@@ -58,7 +58,6 @@ func (h *HTTPChannel) Send(jid, text, replyTo, threadID string) (string, error) 
 	body := map[string]string{
 		"chat_jid": jid,
 		"content":  text,
-		"format":   "markdown",
 	}
 	if replyTo != "" {
 		body["reply_to"] = replyTo
@@ -137,7 +136,6 @@ func (h *HTTPChannel) SendFile(jid, path, name, caption string) error {
 
 func (h *HTTPChannel) Typing(jid string, on bool) error {
 	if !h.entry.HasCap("typing") {
-		slog.Info("typing: no cap", "channel", h.entry.Name)
 		return nil
 	}
 	b, _ := json.Marshal(map[string]any{"chat_jid": jid, "on": on})
@@ -148,10 +146,8 @@ func (h *HTTPChannel) Typing(jid string, on bool) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		slog.Warn("typing: non-2xx response", "channel", h.entry.Name, "method", "POST", "url", h.entry.URL+"/typing", "status", resp.StatusCode)
-		return nil
+		slog.Warn("typing: non-2xx response", "channel", h.entry.Name, "status", resp.StatusCode)
 	}
-	slog.Info("typing: posted", "channel", h.entry.Name, "jid", jid, "on", on, "status", resp.StatusCode)
 	return nil
 }
 

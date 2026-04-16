@@ -22,7 +22,6 @@ func EnsureRunning() error {
 	if err != nil {
 		return fmt.Errorf("container runtime unreachable: %w\n%s", err, out)
 	}
-	slog.Debug("container runtime reachable")
 	return nil
 }
 

@@ -332,8 +332,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	db.Exec(`INSERT OR IGNORE INTO user_groups (user_sub, folder) VALUES (?, ?)`,
 		userSub, folder)
 
-	allowed, isOperator := userGroups(db, userSub)
-	if !isOperator && !auth.MatchGroups(allowed, folder) {
+	if !auth.MatchGroups(userGroups(db, userSub), folder) {
 		http.Error(w, "forbidden: user not authorized for this folder", http.StatusForbidden)
 		return
 	}
@@ -357,26 +356,25 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-// userGroups mirrors store.UserGroups: returns the folder patterns a user
-// may access. isOperator=true when the user has a "**" row (unrestricted).
-func userGroups(db *sql.DB, userSub string) (allowed []string, isOperator bool) {
+// userGroups mirrors store.UserGroups: returns the grant patterns for
+// userSub verbatim. `**` in the list means operator — auth.MatchGroups
+// handles it.
+func userGroups(db *sql.DB, userSub string) []string {
 	rows, err := db.Query(
 		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, userSub)
 	if err != nil {
-		return nil, false
+		return nil
 	}
 	defer rows.Close()
+	var allowed []string
 	for rows.Next() {
 		var f string
 		rows.Scan(&f)
-		if f == "**" {
-			return nil, true
-		}
 		if f != "" {
 			allowed = append(allowed, f)
 		}
 	}
-	return allowed, false
+	return allowed
 }
 
 func linkJID(db *sql.DB, jid, userSub string) {

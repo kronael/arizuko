@@ -25,7 +25,7 @@ const (
 	cookieName = "refresh_token"
 )
 
-// loginLimiter rate-limits /auth/login: 5 attempts per 15 minutes per IP.
+// 5 attempts per 15 minutes per IP.
 var loginLimiter = &struct {
 	mu      sync.Mutex
 	buckets map[string][]time.Time
@@ -44,7 +44,6 @@ func loginAllowed(ip string) bool {
 			hits = append(hits, t)
 		}
 	}
-	// Opportunistic eviction when the map grows large: drop any stale IPs.
 	if len(loginLimiter.buckets) > 10000 {
 		for k, v := range loginLimiter.buckets {
 			if len(v) == 0 || !v[len(v)-1].After(cutoff) {

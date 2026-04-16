@@ -85,29 +85,25 @@ func (s *Store) DeleteAuthSession(tokenHash string) error {
 	return err
 }
 
-// UserGroups returns the folders a user may access. Nil = operator (has
-// `**` row, unrestricted). Empty slice = no access. Non-empty = pass to
-// auth.MatchGroups.
-func (s *Store) UserGroups(sub string) *[]string {
+// UserGroups returns the grant patterns for sub. Operator is implicit: a
+// user with a `**` row just has `**` in the list and auth.MatchGroups
+// handles it. Empty slice = no access.
+func (s *Store) UserGroups(sub string) []string {
 	rows, err := s.db.Query(
 		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, sub)
 	if err != nil {
-		empty := []string{}
-		return &empty
+		return nil
 	}
 	defer rows.Close()
-	folders := []string{}
+	var folders []string
 	for rows.Next() {
 		var f string
 		rows.Scan(&f)
-		if f == "**" {
-			return nil
-		}
 		if f != "" {
 			folders = append(folders, f)
 		}
 	}
-	return &folders
+	return folders
 }
 
 type Grant struct {

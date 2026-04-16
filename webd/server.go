@@ -70,23 +70,22 @@ func (s *server) requireUser(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// requireFolder wraps requireUser and additionally enforces X-User-Groups
-// access for folder-specific endpoints. Groups header absent = operator access.
+// requireFolder wraps requireUser and enforces X-User-Groups access for
+// folder-specific endpoints. `**` grants universal access; other patterns
+// admit exact or parent-prefix matches (grant "atlas" covers "atlas" and
+// "atlas/..."). Operator is implicit via `**` — no separate bypass.
 func (s *server) requireFolder(next http.HandlerFunc) http.HandlerFunc {
 	return s.requireUser(func(w http.ResponseWriter, r *http.Request) {
-		groupsHdr := r.Header.Get("X-User-Groups")
-		if groupsHdr == "" {
-			next(w, r)
-			return
-		}
 		var allowed []string
-		if err := json.Unmarshal([]byte(groupsHdr), &allowed); err != nil {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
+		if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
+			if err := json.Unmarshal([]byte(hdr), &allowed); err != nil {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
 		}
 		folder := folderParam(r)
 		for _, f := range allowed {
-			if f == folder || strings.HasPrefix(folder, f+"/") {
+			if f == "**" || f == folder || strings.HasPrefix(folder, f+"/") {
 				next(w, r)
 				return
 			}

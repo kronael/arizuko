@@ -19,28 +19,23 @@ func (s *Store) CreateTask(t core.Task) error {
 		s := t.NextRun.Format(time.RFC3339)
 		nextRun = &s
 	}
-	var cron *string
-	if t.Cron != "" {
-		cron = &t.Cron
-	}
 	cm := t.ContextMode
 	if cm == "" {
 		cm = "group"
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO scheduled_tasks
-		 (id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode)
+		`INSERT INTO scheduled_tasks (`+taskCols+`)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Owner, t.ChatJID, t.Prompt, cron,
+		t.ID, t.Owner, t.ChatJID, t.Prompt, nilIfEmpty(t.Cron),
 		nextRun, t.Status, t.Created.Format(time.RFC3339), cm,
 	)
 	return err
 }
 
+const taskCols = `id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode`
+
 func (s *Store) GetTask(id string) (core.Task, bool) {
-	row := s.db.QueryRow(
-		`SELECT id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode
-		 FROM scheduled_tasks WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT `+taskCols+` FROM scheduled_tasks WHERE id = ?`, id)
 	return scanTask(row)
 }
 
@@ -48,13 +43,10 @@ func (s *Store) ListTasks(folder string, isRoot bool) []core.Task {
 	var rows *sql.Rows
 	var err error
 	if isRoot {
-		rows, err = s.db.Query(
-			`SELECT id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode
-			 FROM scheduled_tasks ORDER BY created_at DESC`)
+		rows, err = s.db.Query(`SELECT ` + taskCols + ` FROM scheduled_tasks ORDER BY created_at DESC`)
 	} else {
 		rows, err = s.db.Query(
-			`SELECT id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode
-			 FROM scheduled_tasks WHERE owner = ? ORDER BY created_at DESC`, folder)
+			`SELECT `+taskCols+` FROM scheduled_tasks WHERE owner = ? ORDER BY created_at DESC`, folder)
 	}
 	if err != nil {
 		return nil

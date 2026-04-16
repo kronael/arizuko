@@ -59,11 +59,7 @@ func ReadRecentEpisodes(groupDir string) string {
 		return ""
 	}
 
-	type ep struct {
-		key     string // filename without extension
-		epType  string
-		summary string
-	}
+	type ep struct{ key, epType, summary string }
 
 	byType := map[string][]ep{}
 	for _, e := range entries {
@@ -78,14 +74,13 @@ func ReadRecentEpisodes(groupDir string) string {
 		byType[epType] = append(byType[epType], ep{key, epType, summary})
 	}
 
-	if len(byType) == 0 {
-		return ""
-	}
-
 	var all []ep
 	for _, eps := range byType {
 		sort.Slice(eps, func(i, j int) bool { return eps[i].key > eps[j].key })
 		all = append(all, eps[:min(3, len(eps))]...)
+	}
+	if len(all) == 0 {
+		return ""
 	}
 
 	var b strings.Builder

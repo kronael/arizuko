@@ -492,47 +492,33 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	}
 }
 
-// userGroups helper reports operator=true for "**" rows and returns the
-// literal folder list otherwise.
+// userGroups returns grant rows verbatim; `**` is just another pattern in
+// the list (operator is implicit — auth.MatchGroups handles it).
 func TestUserGroupsHelper(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:alice', 'alice')`)
 	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:alice', 'pub/*')`)
 	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:op', '**')`)
 
-	if allowed, op := userGroups(db, "u:alice"); op {
-		t.Errorf("alice should not be operator")
-	} else if len(allowed) != 2 {
-		t.Errorf("alice: want 2 patterns, got %v", allowed)
+	if got := userGroups(db, "u:alice"); len(got) != 2 {
+		t.Errorf("alice: want 2 patterns, got %v", got)
 	}
-	if _, op := userGroups(db, "u:op"); !op {
-		t.Errorf("** should mark operator")
+	if got := userGroups(db, "u:op"); len(got) != 1 || got[0] != "**" {
+		t.Errorf("op: want [**], got %v", got)
 	}
-	if allowed, op := userGroups(db, "u:none"); op || len(allowed) != 0 {
-		t.Errorf("unknown user should return empty, got %v op=%v", allowed, op)
+	if got := userGroups(db, "u:none"); len(got) != 0 {
+		t.Errorf("unknown user should return empty, got %v", got)
 	}
 }
 
-// A non-operator user attempting to place routes into a folder outside their
-// user_groups grant list is rejected with 403. We exercise this by placing an
-// entry in user_groups so groupCount>0 (skipping the username picker path is
-// not the subject here — we hit handleCreateWorld directly with a mismatched
-// allowed list). create_world always self-inserts the folder into user_groups
-// first, so to see the denial we must first revoke that. Simulate by
-// intercepting: create a user with an explicit non-matching grant pattern
-// and check that attempting a DIFFERENT folder is blocked.
+// A user whose grants don't match the requested folder is rejected.
+// Exercises userGroups+MatchGroups directly, mirroring what the
+// handleCreateWorld gate does.
 func TestRouteCreationDeniedWithoutGrant(t *testing.T) {
-	// We test the gate directly by calling the helper+MatchGroups combo the
-	// handler uses. This avoids racing against the handler's own INSERT into
-	// user_groups. Assertion: for user with grant ["alice"], folder "bob"
-	// is denied while folder "alice" is allowed.
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:alice', 'alice')`)
 
-	allowed, isOp := userGroups(db, "u:alice")
-	if isOp {
-		t.Fatal("expected non-operator")
-	}
+	allowed := userGroups(db, "u:alice")
 	if !auth.MatchGroups(allowed, "alice") {
 		t.Error("alice should be allowed for alice")
 	}

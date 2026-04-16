@@ -69,8 +69,7 @@ type Route struct {
 	ImpulseConfig string `json:"impulse_config,omitempty"`
 }
 
-// JidRoom extracts the post-colon portion of a JID (e.g. "telegram:-123" -> "-123").
-// If the JID has no colon, the whole string is returned.
+// JidRoom returns the post-colon portion of a JID, or the whole string if no colon.
 func JidRoom(jid string) string {
 	if i := strings.IndexByte(jid, ':'); i >= 0 {
 		return jid[i+1:]
@@ -116,19 +115,18 @@ type SessionRecord struct {
 	MsgCount  int
 }
 
-// GenSlinkToken returns a 16-char hex slink token (8 random bytes).
+// GenSlinkToken returns a 16-char hex token (8 random bytes).
 func GenSlinkToken() string {
 	b := make([]byte, 8)
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
-// MsgID returns a unique message ID with the given prefix (e.g. "inject", "cmd-new").
 func MsgID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
-// JidPlatform extracts the platform prefix from a JID (e.g. "telegram:123" -> "telegram").
+// JidPlatform returns the pre-colon portion of a JID, or "" if no colon.
 func JidPlatform(jid string) string {
 	if i := strings.IndexByte(jid, ':'); i > 0 {
 		return jid[:i]

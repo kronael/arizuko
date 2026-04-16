@@ -9,6 +9,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- **auth/store**: operator is implicit — emergent from grants, not a
+  nil-sentinel. `store.UserGroups` now returns plain `[]string`
+  (previously `*[]string` with nil = operator). `Claims.Groups` and
+  `setUserHeaders` follow suit: always a slice, `**` inside it is the
+  only operator signal. `auth.MatchGroups` handles `**` uniformly, so
+  downstream gates (davRoute, webd.requireFolder) no longer need a
+  "missing header = operator" special case. Less indirection, one
+  code path.
+
 ## [v0.29.1] — 2026-04-16
 
 ### Changed

@@ -186,30 +186,12 @@ func TestGoogleAllowlistBlock(t *testing.T) {
 		"/auth/google/callback?state="+url.QueryEscape(state)+"&code=testcode", nil)
 	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
 	rec := httptest.NewRecorder()
-	cl := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	_ = cl
 	handleGoogleCallback(cfg, s, secret, false).ServeHTTP(rec, req)
 	if rec.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("want 307 redirect, got %d", rec.Code)
 	}
 	if !strings.Contains(rec.Header().Get("Location"), "error=unauthorized") {
 		t.Fatalf("expected unauthorized in redirect, got %s", rec.Header().Get("Location"))
-	}
-}
-
-func TestGitHubNoOrg(t *testing.T) {
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-
-	// no org restriction — any user allowed
-	cfg := &core.Config{GitHubAllowedOrg: ""}
-	if cfg.GitHubAllowedOrg != "" {
-		t.Fatal("expected empty org to skip check")
 	}
 }
 

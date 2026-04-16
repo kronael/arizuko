@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -98,7 +100,7 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 	}
 
 	if q.activeCount >= q.maxConcurrent {
-		if !q.hasWaiting(groupJid) {
+		if !slices.Contains(q.waitingGroups, groupJid) {
 			q.waitingGroups = append(q.waitingGroups, groupJid)
 		}
 		slog.Debug("at concurrency limit, queued for drain",
@@ -245,7 +247,13 @@ func (q *GroupQueue) runForGroup(groupJid, reason string) {
 	s.containerName = ""
 	s.groupFolder = ""
 	q.activeCount--
-	q.drainGroupLocked(groupJid)
+	if !q.shuttingDown && !q.startGroupLocked(groupJid) {
+		for len(q.waitingGroups) > 0 && q.activeCount < q.maxConcurrent {
+			jid := q.waitingGroups[0]
+			q.waitingGroups = q.waitingGroups[1:]
+			q.startGroupLocked(jid)
+		}
+	}
 	q.mu.Unlock()
 }
 
@@ -256,32 +264,6 @@ func (q *GroupQueue) startGroupLocked(jid string) bool {
 		q.activeCount++
 		go q.runForGroup(jid, "drain")
 		return true
-	}
-	return false
-}
-
-func (q *GroupQueue) drainGroupLocked(groupJid string) {
-	if q.shuttingDown {
-		return
-	}
-	if !q.startGroupLocked(groupJid) {
-		q.drainWaitingLocked()
-	}
-}
-
-func (q *GroupQueue) drainWaitingLocked() {
-	for len(q.waitingGroups) > 0 && q.activeCount < q.maxConcurrent {
-		jid := q.waitingGroups[0]
-		q.waitingGroups = q.waitingGroups[1:]
-		q.startGroupLocked(jid)
-	}
-}
-
-func (q *GroupQueue) hasWaiting(groupJid string) bool {
-	for _, jid := range q.waitingGroups {
-		if jid == groupJid {
-			return true
-		}
 	}
 	return false
 }
@@ -311,14 +293,5 @@ func (q *GroupQueue) StopProcess(jid string) bool {
 }
 
 func base36(n int) string {
-	const chars = "0123456789abcdefghijklmnopqrstuvwxyz"
-	if n == 0 {
-		return "0000"
-	}
-	b := make([]byte, 4)
-	for i := 3; i >= 0; i-- {
-		b[i] = chars[n%36]
-		n /= 36
-	}
-	return string(b)
+	return fmt.Sprintf("%04s", strconv.FormatInt(int64(n), 36))
 }

@@ -776,15 +776,13 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 			continue
 		}
 		d := filepath.Join(dst, e.Name())
-		// Always re-seed: source files overwrite destination. This
-		// ensures skill updates in the repo propagate to existing
-		// groups. Extra files added locally are preserved.
+		// Re-seed on every call so upstream skill updates propagate.
+		// Extra files added locally are preserved (cpDir only overwrites).
 		cpDir(filepath.Join(src, e.Name()), d)
 	}
 
 	mdSrc := filepath.Join(cfg.HostAppDir, "ant", "CLAUDE.md")
 	mdDst := filepath.Join(claudeDir, "CLAUDE.md")
-	// Always re-seed so ant/CLAUDE.md updates propagate.
 	if data, err := os.ReadFile(mdSrc); err == nil {
 		os.WriteFile(mdDst, data, 0o644)
 	}

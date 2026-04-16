@@ -39,9 +39,7 @@ func IsDirectChild(parent, child string) bool {
 	return !strings.Contains(child[len(parent)+1:], "/")
 }
 
-// CheckSpawnAllowed enforces parent.Config.MaxChildren for a spawn attempt.
-// MaxChildren < 0 means unlimited, 0 disables spawning, otherwise direct
-// children in groups are counted.
+// CheckSpawnAllowed: MaxChildren < 0 = unlimited, 0 = disabled.
 func CheckSpawnAllowed(parent core.Group, groups map[string]core.Group) error {
 	if parent.Config.MaxChildren < 0 {
 		return nil

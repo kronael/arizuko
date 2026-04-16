@@ -18,9 +18,7 @@ type SendRequest struct {
 }
 
 // BotHandler is the interface adapters implement for outbound messaging.
-// Send returns a sent message ID (may be "") and an error.
-// SendFile receives a local temp file path; the handler manages cleanup.
-// Typing is fire-and-forget.
+// Send returns the sent message ID (may be ""); Typing is fire-and-forget.
 type BotHandler interface {
 	Send(req SendRequest) (string, error)
 	SendFile(jid, path, name, caption string) error
@@ -34,9 +32,6 @@ func (NoFileSender) SendFile(_, _, _, _ string) error { return errSendFile }
 
 var errSendFile = errors.New("send-file not supported")
 
-// NewAdapterMux creates an http.ServeMux with the standard adapter routes:
-// POST /send, POST /send-file, POST /typing, GET /health.
-// Callers can add adapter-specific routes to the returned mux.
 func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /send", Auth(secret, handleSend(bot)))

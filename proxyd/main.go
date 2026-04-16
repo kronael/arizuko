@@ -354,9 +354,8 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/dav"), "/")
-	hdr := r.Header.Get("X-User-Groups")
 	var gs []string
-	if hdr != "" {
+	if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
 		if err := json.Unmarshal([]byte(hdr), &gs); err != nil {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
@@ -365,18 +364,16 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 
 	if rest == "" {
 		group := "root"
-		if len(gs) > 0 {
-			group = gs[0]
+		for _, g := range gs {
+			if g != "**" {
+				group = g
+				break
+			}
 		}
 		http.Redirect(w, r, "/dav/"+group+"/", http.StatusFound)
 		return
 	}
 
-	if hdr == "" {
-		// No X-User-Groups header = operator (unrestricted).
-		s.davProxy.ServeHTTP(w, r)
-		return
-	}
 	group := strings.SplitN(rest, "/", 2)[0]
 	if auth.MatchGroups(gs, group) {
 		s.davProxy.ServeHTTP(w, r)
@@ -385,14 +382,12 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Forbidden", http.StatusForbidden)
 }
 
-func setUserHeaders(r *http.Request, sub, name string, groups *[]string) *http.Request {
+func setUserHeaders(r *http.Request, sub, name string, groups []string) *http.Request {
 	r2 := r.Clone(r.Context())
 	r2.Header.Set("X-User-Sub", sub)
 	r2.Header.Set("X-User-Name", name)
-	if groups != nil {
-		if b, err := json.Marshal(groups); err == nil {
-			r2.Header.Set("X-User-Groups", string(b))
-		}
+	if b, err := json.Marshal(groups); err == nil {
+		r2.Header.Set("X-User-Groups", string(b))
 	}
 	return r2
 }

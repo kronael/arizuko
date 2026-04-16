@@ -39,8 +39,8 @@ type ValidMount struct {
 	Readonly      bool
 }
 
-// ValidateFilePath checks that path resolves (via symlinks) to within root
-// and does not match any blocked pattern. Returns the resolved path or an error.
+// ValidateFilePath resolves symlinks before checking containment and
+// blocked patterns; returns the resolved real path.
 func ValidateFilePath(path, root string) (string, error) {
 	real, err := filepath.EvalSymlinks(path)
 	if err != nil {
