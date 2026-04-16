@@ -392,6 +392,27 @@ func setUserHeaders(r *http.Request, sub, name string, groups []string) *http.Re
 	return r2
 }
 
+// authByCookie returns a request with X-User-* headers set if a valid
+// refresh_token cookie is present, else nil.
+func (s *server) authByCookie(r *http.Request) *http.Request {
+	if s.st == nil {
+		return nil
+	}
+	cookie, err := r.Cookie("refresh_token")
+	if err != nil {
+		return nil
+	}
+	sess, ok := s.st.AuthSession(auth.HashToken(cookie.Value))
+	if !ok || !time.Now().Before(sess.ExpiresAt) {
+		return nil
+	}
+	u, ok := s.st.AuthUserBySub(sess.UserSub)
+	if !ok {
+		return nil
+	}
+	return setUserHeaders(r, u.Sub, u.Name, s.st.UserGroups(u.Sub))
+}
+
 func (s *server) optionalAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		secret := []byte(s.cfg.authSecret)
@@ -401,16 +422,9 @@ func (s *server) optionalAuth(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
-		if s.st != nil {
-			if cookie, err := r.Cookie("refresh_token"); err == nil {
-				h := auth.HashToken(cookie.Value)
-				if sess, ok := s.st.AuthSession(h); ok && time.Now().Before(sess.ExpiresAt) {
-					if u, ok := s.st.AuthUserBySub(sess.UserSub); ok {
-						next(w, setUserHeaders(r, u.Sub, u.Name, s.st.UserGroups(u.Sub)))
-						return
-					}
-				}
-			}
+		if authed := s.authByCookie(r); authed != nil {
+			next(w, authed)
+			return
 		}
 		next(w, r)
 	}
@@ -425,10 +439,8 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		secret := []byte(s.cfg.authSecret)
-
 		if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
-			claims, err := auth.VerifyJWT(secret, strings.TrimPrefix(hdr, "Bearer "))
+			claims, err := auth.VerifyJWT([]byte(s.cfg.authSecret), strings.TrimPrefix(hdr, "Bearer "))
 			if err != nil {
 				http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 				return
@@ -436,19 +448,10 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			next(w, setUserHeaders(r, claims.Sub, claims.Name, claims.Groups))
 			return
 		}
-
-		if s.st != nil {
-			if cookie, err := r.Cookie("refresh_token"); err == nil {
-				h := auth.HashToken(cookie.Value)
-				if sess, ok := s.st.AuthSession(h); ok && time.Now().Before(sess.ExpiresAt) {
-					if u, ok := s.st.AuthUserBySub(sess.UserSub); ok {
-						next(w, setUserHeaders(r, u.Sub, u.Name, s.st.UserGroups(u.Sub)))
-						return
-					}
-				}
-			}
+		if authed := s.authByCookie(r); authed != nil {
+			next(w, authed)
+			return
 		}
-
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 	}
 }

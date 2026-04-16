@@ -13,8 +13,10 @@ interface TypingReq {
 }
 
 function log(level: string, msg: string, attrs?: Record<string, unknown>) {
-  const entry = { time: new Date().toISOString(), level, msg, ...attrs };
-  process.stderr.write(JSON.stringify(entry) + '\n');
+  process.stderr.write(
+    JSON.stringify({ time: new Date().toISOString(), level, msg, ...attrs }) +
+      '\n',
+  );
 }
 
 function mdToWa(text: string): string {
@@ -136,7 +138,6 @@ export function startServer(
           json(res, 400, { ok: false, error: 'file required' });
           return;
         }
-        const waJid = toWaJid(chatJid);
         const mime = extToMime(filename || 'file.bin');
         const cap = caption || undefined;
         const content: Record<string, unknown> = { mimetype: mime };
@@ -153,7 +154,7 @@ export function startServer(
           content['fileName'] = filename || 'file';
           content['caption'] = cap;
         }
-        await s.sendMessage(waJid, content as any);
+        await s.sendMessage(toWaJid(chatJid), content as any);
         json(res, 200, { ok: true });
       } catch (e: unknown) {
         json(res, 502, { ok: false, error: String(e) });

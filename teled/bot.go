@@ -48,10 +48,7 @@ func (b *bot) loadOffset() int {
 	if err != nil {
 		return 0
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0
-	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 	return n
 }
 
@@ -166,10 +163,8 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 			msgThreadID = n
 		}
 	}
-	text := req.Content
-	html := mdToHTML(text)
 	var firstID string
-	for _, c := range chanlib.Chunk(html, 4096) {
+	for _, c := range chanlib.Chunk(mdToHTML(req.Content), 4096) {
 		m := tgbotapi.NewMessage(id, c)
 		m.ParseMode = "HTML"
 		if replyMsgID != 0 {
@@ -183,14 +178,16 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		if err != nil {
 			var tgErr *tgbotapi.Error
 			if errors.As(err, &tgErr) && tgErr.Code == 400 {
-				for _, p := range chanlib.Chunk(text, 4096) {
+				for _, p := range chanlib.Chunk(req.Content, 4096) {
 					pm := tgbotapi.NewMessage(id, p)
 					if msgThreadID != 0 {
 						pm.MessageThreadID = msgThreadID
 					}
-					if s2, e2 := b.api.Send(pm); e2 != nil {
+					s2, e2 := b.api.Send(pm)
+					if e2 != nil {
 						return "", fmt.Errorf("telegram send: %w", e2)
-					} else if firstID == "" {
+					}
+					if firstID == "" {
 						firstID = strconv.Itoa(s2.MessageID)
 					}
 				}
@@ -300,12 +297,13 @@ func extractMedia(msg *tgbotapi.Message, listenURL string) mediaResult {
 	if msg.Caption != "" {
 		cap = " " + msg.Caption
 	}
-	att := func(fileID, mime, filename string, size int64) mediaResult {
+	att := func(content, fileID, mime, filename string, size int64) mediaResult {
 		url := ""
 		if listenURL != "" && fileID != "" {
 			url = listenURL + "/files/" + fileID
 		}
 		return mediaResult{
+			content: content,
 			attachments: []chanlib.InboundAttachment{
 				{Mime: mime, Filename: filename, URL: url, Size: size},
 			},
@@ -314,33 +312,23 @@ func extractMedia(msg *tgbotapi.Message, listenURL string) mediaResult {
 	switch {
 	case msg.Photo != nil:
 		best := msg.Photo[len(msg.Photo)-1]
-		r := att(best.FileID, "image/jpeg", best.FileID+".jpg", int64(best.FileSize))
-		r.content = "[Photo]" + cap
-		return r
+		return att("[Photo]"+cap, best.FileID, "image/jpeg", best.FileID+".jpg", int64(best.FileSize))
 	case msg.Video != nil:
-		r := att(msg.Video.FileID, "video/mp4", msg.Video.FileID+".mp4", msg.Video.FileSize)
-		r.content = "[Video]" + cap
-		return r
+		return att("[Video]"+cap, msg.Video.FileID, "video/mp4", msg.Video.FileID+".mp4", msg.Video.FileSize)
 	case msg.Voice != nil:
-		r := att(msg.Voice.FileID, "audio/ogg", msg.Voice.FileID+".ogg", int64(msg.Voice.FileSize))
-		r.content = "[Voice message]" + cap
-		return r
+		return att("[Voice message]"+cap, msg.Voice.FileID, "audio/ogg", msg.Voice.FileID+".ogg", int64(msg.Voice.FileSize))
 	case msg.Audio != nil:
 		fname := msg.Audio.FileName
 		if fname == "" {
 			fname = msg.Audio.FileID + ".mp3"
 		}
-		r := att(msg.Audio.FileID, "audio/mpeg", fname, msg.Audio.FileSize)
-		r.content = "[Audio]" + cap
-		return r
+		return att("[Audio]"+cap, msg.Audio.FileID, "audio/mpeg", fname, msg.Audio.FileSize)
 	case msg.Document != nil:
 		n := msg.Document.FileName
 		if n == "" {
 			n = msg.Document.FileID
 		}
-		r := att(msg.Document.FileID, msg.Document.MimeType, n, msg.Document.FileSize)
-		r.content = fmt.Sprintf("[Document: %s]%s", n, cap)
-		return r
+		return att(fmt.Sprintf("[Document: %s]%s", n, cap), msg.Document.FileID, msg.Document.MimeType, n, msg.Document.FileSize)
 	case msg.Sticker != nil:
 		return mediaResult{content: fmt.Sprintf("[Sticker %s]", msg.Sticker.Emoji)}
 	case msg.Location != nil:

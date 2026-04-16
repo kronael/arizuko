@@ -36,12 +36,10 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 	token := s.cfg.TelegramToken
 	resp, err := httpClient.Get(fmt.Sprintf(
 		"https://api.telegram.org/bot%s/getFile?file_id=%s", token, fileID))
-	if err != nil {
-		chanlib.WriteErr(w, 502, "getFile failed")
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
 		chanlib.WriteErr(w, 502, "getFile failed")
 		return
 	}
@@ -51,21 +49,22 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 			FilePath string `json:"file_path"`
 		} `json:"result"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&apiResp) != nil || !apiResp.OK {
+	err = json.NewDecoder(resp.Body).Decode(&apiResp)
+	resp.Body.Close()
+	if err != nil || !apiResp.OK {
 		chanlib.WriteErr(w, 502, "getFile parse failed")
 		return
 	}
-	cdnURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", token, apiResp.Result.FilePath)
-	fileResp, err := httpClient.Get(cdnURL)
-	if err != nil {
+	fileResp, err := httpClient.Get(fmt.Sprintf(
+		"https://api.telegram.org/file/bot%s/%s", token, apiResp.Result.FilePath))
+	if err != nil || fileResp.StatusCode != 200 {
+		if fileResp != nil {
+			fileResp.Body.Close()
+		}
 		chanlib.WriteErr(w, 502, "file download failed")
 		return
 	}
 	defer fileResp.Body.Close()
-	if fileResp.StatusCode != 200 {
-		chanlib.WriteErr(w, 502, "file download failed")
-		return
-	}
 	if ct := fileResp.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}

@@ -20,8 +20,10 @@ import { TypingRefresher } from './typing.js';
 const logger = pino({ level: 'warn' });
 
 function log(level: string, msg: string, attrs?: Record<string, unknown>) {
-  const entry = { time: new Date().toISOString(), level, msg, ...attrs };
-  process.stderr.write(JSON.stringify(entry) + '\n');
+  process.stderr.write(
+    JSON.stringify({ time: new Date().toISOString(), level, msg, ...attrs }) +
+      '\n',
+  );
 }
 
 function env(k: string, def?: string): string {
@@ -40,11 +42,6 @@ const authDir = env(
   'WHATSAPP_AUTH_DIR',
   dataDir ? `${dataDir}/store/whatsapp-auth` : '/srv/data/store/whatsapp-auth',
 );
-
-interface OutboundMsg {
-  jid: string;
-  text: string;
-}
 
 // Baileys writes creds.json non-atomically; restore from .bak if a prior crash
 // left the live file empty.
@@ -99,53 +96,30 @@ async function makeSocket(): Promise<{
   return { s, saveCreds };
 }
 
-async function reconnectOnly(): Promise<void> {
-  const { s, saveCreds } = await makeSocket();
-  await new Promise<void>((resolve, reject) => {
-    s.ev.on('connection.update', (update) => {
-      const { connection, lastDisconnect } = update;
-      if (connection === 'open') {
-        saveCreds()
-          .then(() => {
-            process.stdout.write('authenticated — credentials saved\n');
-            s.end(undefined);
-            resolve();
-          })
-          .catch(reject);
-      }
-      if (connection === 'close') {
-        const code = (lastDisconnect?.error as any)?.output?.statusCode;
-        if (code === 515) {
-          process.stdout.write('reconnecting after pairing (retry)...\n');
-          reconnectOnly().then(resolve).catch(reject);
-          return;
-        }
-        reject(new Error(`connection closed: ${code}`));
-      }
-    });
-  });
-}
-
-async function pair(phone: string): Promise<void> {
-  process.stdout.write(`pairing whatsapp with phone ${phone}...\n`);
+// Runs one pairing attempt and resolves on 'open'. Handles Baileys' 515
+// "restart required after pairing" by recursing WITHOUT re-requesting a new
+// pair code (that confuses the server and invalidates the session).
+async function pairOnce(phone?: string): Promise<void> {
   const { s, saveCreds } = await makeSocket();
 
-  // Baileys needs a completed handshake before requestPairingCode works.
-  setTimeout(async () => {
-    try {
-      const code = await s.requestPairingCode(phone);
-      process.stdout.write(
-        `\npairing code: ${code}\n\n` +
-          `  1. open WhatsApp on your phone\n` +
-          `  2. tap Settings > Linked Devices > Link a Device\n` +
-          `  3. tap "Link with phone number instead"\n` +
-          `  4. enter: ${code}\n\n`,
-      );
-    } catch (e) {
-      process.stderr.write(`Failed to request pairing code: ${e}\n`);
-      process.exit(1);
-    }
-  }, 3000);
+  if (phone) {
+    // Baileys needs a completed handshake before requestPairingCode works.
+    setTimeout(async () => {
+      try {
+        const code = await s.requestPairingCode(phone);
+        process.stdout.write(
+          `\npairing code: ${code}\n\n` +
+            `  1. open WhatsApp on your phone\n` +
+            `  2. tap Settings > Linked Devices > Link a Device\n` +
+            `  3. tap "Link with phone number instead"\n` +
+            `  4. enter: ${code}\n\n`,
+        );
+      } catch (e) {
+        process.stderr.write(`Failed to request pairing code: ${e}\n`);
+        process.exit(1);
+      }
+    }, 3000);
+  }
 
   await new Promise<void>((resolve, reject) => {
     s.ev.on('connection.update', (update) => {
@@ -161,11 +135,9 @@ async function pair(phone: string): Promise<void> {
       }
       if (connection === 'close') {
         const code = (lastDisconnect?.error as any)?.output?.statusCode;
-        // 515 = restart required after pairing; reconnect WITHOUT re-requesting
-        // a new pair code (that confuses the server and invalidates the session).
         if (code === 515) {
           process.stdout.write('reconnecting after pairing...\n');
-          reconnectOnly().then(resolve).catch(reject);
+          pairOnce().then(resolve).catch(reject);
           return;
         }
         reject(new Error(`connection closed: ${code}`));
@@ -183,14 +155,13 @@ const rc = new RouterClient(routerURL, channelSecret);
 let reconnectAttempts = 0;
 let connected = false;
 
-const outboundQueue: OutboundMsg[] = [];
+const outboundQueue: { jid: string; text: string }[] = [];
 let flushing = false;
 
 async function flushOutboundQueue(): Promise<void> {
   if (flushing || outboundQueue.length === 0) return;
   flushing = true;
-  const initial = outboundQueue.length;
-  log('info', 'flushing outbound queue', { count: initial });
+  log('info', 'flushing outbound queue', { count: outboundQueue.length });
   try {
     const { sent, failed } = await flushQueue(outboundQueue, (item) =>
       sock!.sendMessage(item.jid, { text: item.text }).then(() => {}),
@@ -450,7 +421,8 @@ async function main() {
       process.stderr.write('Usage: node dist/main.js --pair <phone>\n');
       process.exit(1);
     }
-    await pair(phone);
+    process.stdout.write(`pairing whatsapp with phone ${phone}...\n`);
+    await pairOnce(phone);
     process.exit(0);
   }
 

@@ -1,10 +1,6 @@
-interface RegisterResp {
+interface Resp {
   ok: boolean;
   token?: string;
-  error?: string;
-}
-interface MsgResp {
-  ok: boolean;
   error?: string;
 }
 
@@ -17,7 +13,7 @@ export class RouterClient {
   ) {}
 
   async register(name: string, listenURL: string): Promise<void> {
-    const r = await this.post<RegisterResp>(
+    const r = await this.post(
       '/v1/channels/register',
       {
         name,
@@ -48,15 +44,11 @@ export class RouterClient {
     reply_to_text?: string;
     reply_to_sender?: string;
   }): Promise<void> {
-    const r = await this.post<MsgResp>('/v1/messages', msg, this.token);
+    const r = await this.post('/v1/messages', msg, this.token);
     if (!r.ok) throw new Error(`deliver: ${r.error}`);
   }
 
-  private async post<T = unknown>(
-    path: string,
-    body: unknown,
-    auth: string,
-  ): Promise<T> {
+  private async post(path: string, body: unknown, auth: string): Promise<Resp> {
     const r = await fetch(this.url + path, {
       method: 'POST',
       headers: {
@@ -66,6 +58,6 @@ export class RouterClient {
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!r.ok) throw new Error(`router ${path}: status ${r.status}`);
-    return r.json() as Promise<T>;
+    return r.json() as Promise<Resp>;
   }
 }

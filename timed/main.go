@@ -60,7 +60,7 @@ func main() {
 	daily := time.NewTicker(24 * time.Hour)
 	defer daily.Stop()
 
-	fire(db, tz) // first tick immediately
+	fire(db, tz)
 	for {
 		select {
 		case <-tick.C:

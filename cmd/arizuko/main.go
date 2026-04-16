@@ -27,22 +27,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	switch os.Args[1] {
-	case "run":
-		cmdRun(os.Args[2:])
-	case "generate":
-		cmdGenerate(os.Args[2:])
-	case "create":
-		cmdCreate(os.Args[2:])
-	case "group":
-		cmdGroup(os.Args[2:])
-	case "status":
-		cmdStatus(os.Args[2:])
-	case "pair":
-		cmdPair(os.Args[2:])
-	default:
+	cmds := map[string]func([]string){
+		"run":      cmdRun,
+		"generate": cmdGenerate,
+		"create":   cmdCreate,
+		"group":    cmdGroup,
+		"status":   cmdStatus,
+		"pair":     cmdPair,
+	}
+	fn, ok := cmds[os.Args[1]]
+	if !ok {
 		die("unknown command: %s", os.Args[1])
 	}
+	fn(os.Args[2:])
 }
 
 func die(format string, args ...any) {
@@ -50,11 +47,15 @@ func die(format string, args ...any) {
 	os.Exit(1)
 }
 
-func cmdRun(args []string) {
-	if len(args) < 1 {
-		fmt.Println("usage: arizuko run <instance>")
+func need(args []string, n int, usage string) {
+	if len(args) < n {
+		fmt.Println("usage: " + usage)
 		os.Exit(1)
 	}
+}
+
+func cmdRun(args []string) {
+	need(args, 1, "arizuko run <instance>")
 	outPath := generateCompose(instanceDir(args[0]))
 	cmd := exec.Command("docker", "compose", "-f", outPath, "up", "--remove-orphans")
 	cmd.Stdout = os.Stdout
@@ -65,10 +66,7 @@ func cmdRun(args []string) {
 }
 
 func cmdGenerate(args []string) {
-	if len(args) < 1 {
-		fmt.Println("usage: arizuko generate <instance>")
-		os.Exit(1)
-	}
+	need(args, 1, "arizuko generate <instance>")
 	generateCompose(instanceDir(args[0]))
 }
 
@@ -96,10 +94,7 @@ func instanceDir(name string) string {
 }
 
 func cmdCreate(args []string) {
-	if len(args) < 1 {
-		fmt.Println("usage: arizuko create <name>")
-		os.Exit(1)
-	}
+	need(args, 1, "arizuko create <name>")
 	name := args[0]
 	dataDir := instanceDir(name)
 
@@ -135,18 +130,12 @@ func cmdCreate(args []string) {
 	if err := container.SetupGroup(cfg, "main", ""); err != nil {
 		slog.Warn("failed to setup group dir", "folder", "main", "err", err)
 	}
-	// Git repo is init'd lazily by gateway.ensureGroupGitRepo on first
-	// agent run — correct ownership because gated runs as uid 1000.
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
 }
 
 func cmdGroup(args []string) {
-	if len(args) < 2 {
-		fmt.Println("usage: arizuko group <instance> <list|add|rm|grant|ungrant|grants> ...")
-		os.Exit(1)
-	}
-	instance := args[0]
-	action := args[1]
+	need(args, 2, "arizuko group <instance> <list|add|rm|grant|ungrant|grants> ...")
+	instance, action := args[0], args[1]
 
 	dataDir := instanceDir(instance)
 	s, err := store.Open(filepath.Join(dataDir, "store"))
@@ -157,18 +146,13 @@ func cmdGroup(args []string) {
 
 	switch action {
 	case "list":
-		groups := s.AllGroups()
-		for _, g := range groups {
+		for _, g := range s.AllGroups() {
 			fmt.Printf("%s\t%s\n", g.Folder, g.Name)
 		}
 
 	case "add":
-		if len(args) < 4 {
-			fmt.Println("usage: arizuko group <instance> add <jid> <name> [folder]")
-			os.Exit(1)
-		}
-		jid := args[2]
-		name := args[3]
+		need(args, 4, "arizuko group <instance> add <jid> <name> [folder]")
+		jid, name := args[2], args[3]
 		folder := name
 		if len(args) > 4 {
 			folder = args[4]
@@ -185,15 +169,11 @@ func cmdGroup(args []string) {
 		if err := s.PutGroup(core.Group{Name: name, Folder: folder, AddedAt: time.Now()}); err != nil {
 			die("Failed: add group: %v", err)
 		}
-		match := "room=" + core.JidRoom(jid)
-		s.AddRoute(core.Route{Seq: 0, Match: match, Target: folder})
+		s.AddRoute(core.Route{Seq: 0, Match: "room=" + core.JidRoom(jid), Target: folder})
 		fmt.Printf("added group %s (%s) -> %s\n", name, jid, folder)
 
 	case "rm":
-		if len(args) < 3 {
-			fmt.Println("usage: arizuko group <instance> rm <folder>")
-			os.Exit(1)
-		}
+		need(args, 3, "arizuko group <instance> rm <folder>")
 		folder := args[2]
 		if err := s.DeleteGroup(folder); err != nil {
 			die("Failed: remove group: %v", err)
@@ -201,19 +181,13 @@ func cmdGroup(args []string) {
 		fmt.Printf("removed group %s\n", folder)
 
 	case "grant":
-		if len(args) < 4 {
-			fmt.Println("usage: arizuko group <instance> grant <sub> <pattern>")
-			os.Exit(1)
-		}
+		need(args, 4, "arizuko group <instance> grant <sub> <pattern>")
 		if err := runGrant(s, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: grant: %v", err)
 		}
 
 	case "ungrant":
-		if len(args) < 4 {
-			fmt.Println("usage: arizuko group <instance> ungrant <sub> <pattern>")
-			os.Exit(1)
-		}
+		need(args, 4, "arizuko group <instance> ungrant <sub> <pattern>")
 		if err := runUngrant(s, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: ungrant: %v", err)
 		}
@@ -232,9 +206,11 @@ func cmdGroup(args []string) {
 	}
 }
 
+var errEmptyGrant = fmt.Errorf("sub and pattern must be non-empty")
+
 func runGrant(s *store.Store, sub, pat string, w io.Writer) error {
 	if sub == "" || pat == "" {
-		return fmt.Errorf("sub and pattern must be non-empty")
+		return errEmptyGrant
 	}
 	created, err := s.Grant(sub, pat)
 	if err != nil {
@@ -250,7 +226,7 @@ func runGrant(s *store.Store, sub, pat string, w io.Writer) error {
 
 func runUngrant(s *store.Store, sub, pat string, w io.Writer) error {
 	if sub == "" || pat == "" {
-		return fmt.Errorf("sub and pattern must be non-empty")
+		return errEmptyGrant
 	}
 	n, err := s.Ungrant(sub, pat)
 	if err != nil {
@@ -286,14 +262,9 @@ func runGrants(s *store.Store, sub string, w io.Writer) error {
 }
 
 func cmdPair(args []string) {
-	if len(args) < 2 {
-		fmt.Println("usage: arizuko pair <instance> <service> [args...]")
-		os.Exit(1)
-	}
-	name := args[0]
-	service := args[1]
-	dataDir := instanceDir(name)
-	composePath := requireCompose(dataDir, name)
+	need(args, 2, "arizuko pair <instance> <service> [args...]")
+	name, service := args[0], args[1]
+	composePath := requireCompose(instanceDir(name), name)
 
 	cmdArgs := append([]string{"compose", "-f", composePath, "run", "--rm", service}, args[2:]...)
 	cmd := exec.Command("docker", cmdArgs...)
@@ -313,10 +284,7 @@ func requireCompose(dataDir, name string) string {
 }
 
 func cmdStatus(args []string) {
-	if len(args) < 1 {
-		fmt.Println("usage: arizuko status <instance>")
-		os.Exit(1)
-	}
+	need(args, 1, "arizuko status <instance>")
 	name := args[0]
 	dataDir := instanceDir(name)
 	composePath := requireCompose(dataDir, name)

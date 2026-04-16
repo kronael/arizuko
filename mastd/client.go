@@ -6,7 +6,6 @@ import (
 	"html"
 	"log/slog"
 	"net/http"
-	"path"
 	"regexp"
 	"strings"
 	"sync"
@@ -92,6 +91,12 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *chanlib.
 	if name == "" {
 		name = acc.Acct
 	}
+	msg := chanlib.InboundMsg{
+		ChatJID:    jid,
+		Sender:     jid,
+		SenderName: name,
+		Timestamp:  time.Now().Unix(),
+	}
 
 	switch n.Type {
 	case "mention", "reply":
@@ -99,82 +104,48 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *chanlib.
 			return
 		}
 		topic := ""
-		if n.Status.InReplyToID != nil {
-			if replyID, ok := n.Status.InReplyToID.(string); ok {
-				topic = replyID
-			}
+		if s, ok := n.Status.InReplyToID.(string); ok {
+			topic = s
 		}
 		verb := "message"
 		if n.Type == "reply" || topic != "" {
 			verb = "reply"
 		}
-		atts := mc.extractAttachments(n.Status)
 		content := stripHTML(n.Status.Content)
 		for _, att := range n.Status.MediaAttachments {
 			content += fmt.Sprintf(" [%s: %s]", att.Type, att.Description)
 		}
-		err := rc.SendMessage(chanlib.InboundMsg{
-			ID:          string(n.Status.ID),
-			ChatJID:     jid,
-			Sender:      "mastodon:" + string(acc.ID),
-			SenderName:  name,
-			Content:     content,
-			Timestamp:   n.Status.CreatedAt.Unix(),
-			Topic:       topic,
-			Verb:        verb,
-			Attachments: atts,
-		})
-		if err != nil {
-			slog.Error("deliver failed", "jid", jid, "err", err)
-		}
+		msg.ID = string(n.Status.ID)
+		msg.Content = content
+		msg.Timestamp = n.Status.CreatedAt.Unix()
+		msg.Topic = topic
+		msg.Verb = verb
+		msg.Attachments = mc.extractAttachments(n.Status)
 	case "favourite":
 		if n.Status == nil {
 			return
 		}
-		emoji := "❤️"
-		err := rc.SendMessage(chanlib.InboundMsg{
-			ID:         "fav-" + string(n.Status.ID) + "-" + string(acc.ID),
-			ChatJID:    jid,
-			Sender:     "mastodon:" + string(acc.ID),
-			SenderName: name,
-			Content:    emoji,
-			Timestamp:  time.Now().Unix(),
-			Verb:       "react",
-		})
-		if err != nil {
-			slog.Error("deliver failed", "jid", jid, "err", err)
-		}
+		msg.ID = "fav-" + string(n.Status.ID) + "-" + string(acc.ID)
+		msg.Content = "❤️"
+		msg.Verb = "react"
 	case "reblog":
 		if n.Status == nil {
 			return
 		}
-		err := rc.SendMessage(chanlib.InboundMsg{
-			ID:         "reblog-" + string(n.Status.ID) + "-" + string(acc.ID),
-			ChatJID:    jid,
-			Sender:     "mastodon:" + string(acc.ID),
-			SenderName: name,
-			Content:    string(n.Status.ID),
-			Timestamp:  time.Now().Unix(),
-			Verb:       "repost",
-		})
-		if err != nil {
-			slog.Error("deliver failed", "jid", jid, "err", err)
-		}
+		msg.ID = "reblog-" + string(n.Status.ID) + "-" + string(acc.ID)
+		msg.Content = string(n.Status.ID)
+		msg.Verb = "repost"
 	case "follow":
-		err := rc.SendMessage(chanlib.InboundMsg{
-			ID:         "follow-" + string(acc.ID),
-			ChatJID:    jid,
-			Sender:     "mastodon:" + string(acc.ID),
-			SenderName: name,
-			Content:    name + " followed you",
-			Timestamp:  time.Now().Unix(),
-			Verb:       "follow",
-		})
-		if err != nil {
-			slog.Error("deliver failed", "jid", jid, "err", err)
-		}
+		msg.ID = "follow-" + string(acc.ID)
+		msg.Content = name + " followed you"
+		msg.Verb = "follow"
 	default:
 		slog.Debug("mastodon: unhandled notification type", "type", n.Type)
+		return
+	}
+
+	if err := rc.SendMessage(msg); err != nil {
+		slog.Error("deliver failed", "jid", jid, "err", err)
 	}
 }
 
@@ -190,27 +161,22 @@ func (mc *mastoClient) Send(req chanlib.SendRequest) (string, error) {
 func (mc *mastoClient) Typing(string, bool) {}
 
 func (mc *mastoClient) extractAttachments(s *mastodon.Status) []chanlib.InboundAttachment {
-	if len(s.MediaAttachments) == 0 {
-		return nil
-	}
 	var atts []chanlib.InboundAttachment
 	for _, a := range s.MediaAttachments {
 		id := string(a.ID)
 		mc.files.Store(id, a.URL)
 		mime := mediaMime(a.Type)
-		fname := id + mimeExt(mime)
 		url := ""
 		if mc.cfg.ListenURL != "" {
 			url = mc.cfg.ListenURL + "/files/" + id
 		}
 		atts = append(atts, chanlib.InboundAttachment{
-			Mime: mime, Filename: fname, URL: url,
+			Mime: mime, Filename: id + mimeExt(mime), URL: url,
 		})
 	}
 	return atts
 }
 
-// FileURL returns the cached CDN URL for an attachment ID.
 func (mc *mastoClient) FileURL(id string) (string, bool) {
 	v, ok := mc.files.Load(id)
 	if !ok {
@@ -223,12 +189,10 @@ func mediaMime(typ string) string {
 	switch typ {
 	case "image":
 		return "image/jpeg"
-	case "video":
+	case "video", "gifv":
 		return "video/mp4"
 	case "audio":
 		return "audio/mpeg"
-	case "gifv":
-		return "video/mp4"
 	default:
 		return "application/octet-stream"
 	}
@@ -244,9 +208,8 @@ func mimeExt(mime string) string {
 		return ".mp4"
 	case "audio/mpeg":
 		return ".mp3"
-	default:
-		return path.Ext(mime)
 	}
+	return ""
 }
 
 var reTag = regexp.MustCompile(`<[^>]+>`)

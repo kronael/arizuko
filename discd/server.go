@@ -22,17 +22,17 @@ type server struct {
 
 type fileCache struct {
 	mu sync.RWMutex
-	m  map[string]string // short ID → CDN URL
+	m  map[string]string
 }
 
 func (fc *fileCache) Put(url string) string {
 	h := fmt.Sprintf("%x", sha256.Sum256([]byte(url)))[:12]
 	fc.mu.Lock()
+	defer fc.mu.Unlock()
 	if fc.m == nil {
 		fc.m = make(map[string]string)
 	}
 	fc.m[h] = url
-	fc.mu.Unlock()
 	return h
 }
 

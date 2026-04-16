@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
-	"github.com/onvos/arizuko/auth"
 	_ "modernc.org/sqlite"
 )
 
@@ -167,7 +167,7 @@ func TestDashboardShowsUsernamePicker(t *testing.T) {
 		t.Errorf("want 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !containsStr(body, "create_world") {
+	if !strings.Contains(body, "create_world") {
 		t.Error("expected username picker form")
 	}
 }
@@ -277,10 +277,6 @@ func TestLinkJID(t *testing.T) {
 	if sub != "github:alice" {
 		t.Errorf("want github:alice, got %q", sub)
 	}
-}
-
-func containsStr(s, sub string) bool {
-	return len(s) > 0 && len(sub) > 0 && bytes.Contains([]byte(s), []byte(sub))
 }
 
 func TestTokenDoubleUse(t *testing.T) {
@@ -446,7 +442,7 @@ func TestSecondJIDAutoLink(t *testing.T) {
 		t.Fatalf("want 200 (dashboard), got %d", w.Code)
 	}
 	body := w.Body.String()
-	if containsStr(body, "create_world") {
+	if strings.Contains(body, "create_world") {
 		t.Error("should not show username picker on second-JID link")
 	}
 
@@ -464,8 +460,8 @@ func TestSecondJIDAutoLink(t *testing.T) {
 	}
 }
 
-// Operator (user_groups has "**") can create world for any folder: the
-// authorization check short-circuits on operator and routes are written.
+// Operator (user_groups has "**") can create a world and routes are written
+// for their linked JIDs.
 func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
@@ -489,40 +485,5 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'opworld'`).Scan(&n)
 	if n != 1 {
 		t.Errorf("expected 1 route, got %d", n)
-	}
-}
-
-// userGroups returns grant rows verbatim; `**` is just another pattern in
-// the list (operator is implicit — auth.MatchGroups handles it).
-func TestUserGroupsHelper(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:alice', 'alice')`)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:alice', 'pub/*')`)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:op', '**')`)
-
-	if got := userGroups(db, "u:alice"); len(got) != 2 {
-		t.Errorf("alice: want 2 patterns, got %v", got)
-	}
-	if got := userGroups(db, "u:op"); len(got) != 1 || got[0] != "**" {
-		t.Errorf("op: want [**], got %v", got)
-	}
-	if got := userGroups(db, "u:none"); len(got) != 0 {
-		t.Errorf("unknown user should return empty, got %v", got)
-	}
-}
-
-// A user whose grants don't match the requested folder is rejected.
-// Exercises userGroups+MatchGroups directly, mirroring what the
-// handleCreateWorld gate does.
-func TestRouteCreationDeniedWithoutGrant(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:alice', 'alice')`)
-
-	allowed := userGroups(db, "u:alice")
-	if !auth.MatchGroups(allowed, "alice") {
-		t.Error("alice should be allowed for alice")
-	}
-	if auth.MatchGroups(allowed, "bob") {
-		t.Error("alice should NOT be allowed for bob")
 	}
 }

@@ -55,21 +55,14 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	jid := "discord:" + m.ChannelID
-	ch, err := b.session.State.Channel(m.ChannelID)
-	if err != nil {
-		ch, err = b.session.Channel(m.ChannelID)
-	}
-	isThread := err == nil && (ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread)
-
 	content := m.Content
-	var inboundAtts []chanlib.InboundAttachment
+	var atts []chanlib.InboundAttachment
 	for _, att := range m.Attachments {
 		content += fmt.Sprintf(" [Attachment: %s]", att.Filename)
-		proxyID := b.files.Put(att.URL)
-		inboundAtts = append(inboundAtts, chanlib.InboundAttachment{
+		atts = append(atts, chanlib.InboundAttachment{
 			Mime:     att.ContentType,
 			Filename: att.Filename,
-			URL:      fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, proxyID),
+			URL:      fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, b.files.Put(att.URL)),
 			Size:     int64(att.Size),
 		})
 	}
@@ -77,15 +70,18 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	content = replaceMentions(content, b.cfg.AssistantName,
-		b.session.State.User)
+	content = replaceMentions(content, b.cfg.AssistantName, b.session.State.User)
 
 	topic := ""
-	if isThread {
+	ch, err := b.session.State.Channel(m.ChannelID)
+	if err != nil {
+		ch, err = b.session.Channel(m.ChannelID)
+	}
+	if err == nil && (ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread) {
 		topic = m.ChannelID
 	}
 
-	err = b.rc.SendMessage(chanlib.InboundMsg{
+	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:          m.ID,
 		ChatJID:     jid,
 		Sender:      "discord:" + m.Author.ID,
@@ -93,9 +89,8 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		Content:     content,
 		Timestamp:   m.Timestamp.Unix(),
 		Topic:       topic,
-		Attachments: inboundAtts,
-	})
-	if err != nil {
+		Attachments: atts,
+	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 	}
 }
@@ -173,11 +168,8 @@ func replaceMentions(content, assistantName string, user *discordgo.User) string
 	if assistantName == "" || user == nil {
 		return content
 	}
-	mention := "<@" + user.ID + ">"
-	mentionNick := "<@!" + user.ID + ">"
-	if strings.Contains(content, mention) || strings.Contains(content, mentionNick) {
-		content = strings.ReplaceAll(content, mention, "@"+assistantName)
-		content = strings.ReplaceAll(content, mentionNick, "@"+assistantName)
-	}
+	at := "@" + assistantName
+	content = strings.ReplaceAll(content, "<@"+user.ID+">", at)
+	content = strings.ReplaceAll(content, "<@!"+user.ID+">", at)
 	return content
 }

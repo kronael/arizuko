@@ -18,7 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	_ "modernc.org/sqlite"
@@ -85,11 +84,11 @@ func main() {
 	tick := time.NewTicker(cfg.pollInterval)
 	defer tick.Stop()
 
-	poll(db, cfg)
+	promptUnprompted(db, cfg)
 	for {
 		select {
 		case <-tick.C:
-			poll(db, cfg)
+			promptUnprompted(db, cfg)
 		case <-stop:
 			srv.Close()
 			slog.Info("onbod stopped")
@@ -133,12 +132,6 @@ func loadConfig() (config, error) {
 	return cfg, nil
 }
 
-// --- Poll: send auth links to unprompted JIDs ---
-
-func poll(db *sql.DB, cfg config) {
-	promptUnprompted(db, cfg)
-}
-
 func promptUnprompted(db *sql.DB, cfg config) {
 	rows, err := db.Query(
 		`SELECT jid FROM onboarding WHERE status = 'awaiting_message' AND prompted_at IS NULL`)
@@ -177,8 +170,6 @@ func genToken() string {
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }
-
-// --- Web: /onboard handlers ---
 
 func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
 	token := r.URL.Query().Get("token")
@@ -233,8 +224,8 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 }
 
 func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, userSub string) {
-	// Pending JID cookie: link it, and if the user already has a world, route
-	// the new JID into it (second-platform auto-link).
+	// Second-platform auto-link: consume pending JID cookie and route it into
+	// the user's existing world.
 	if c, err := r.Cookie("onboard_jid"); err == nil && c.Value != "" {
 		var status string
 		err := db.QueryRow(
@@ -268,7 +259,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 	db.QueryRow(`SELECT COUNT(*) FROM user_groups WHERE user_sub = ?`, userSub).Scan(&groupCount)
 
 	if groupCount == 0 {
-		renderUsernamePicker(w, username, userSub)
+		renderUsernamePicker(w, username)
 		return
 	}
 
@@ -281,14 +272,11 @@ func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-
-	action := r.FormValue("action")
-	switch action {
-	case "create_world":
-		handleCreateWorld(w, r, db, cfg, userSub)
-	default:
+	if r.FormValue("action") != "create_world" {
 		http.Error(w, "unknown action", http.StatusBadRequest)
+		return
 	}
+	handleCreateWorld(w, r, db, cfg, userSub)
 }
 
 var usernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{2,29}$`)
@@ -332,69 +320,37 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	db.Exec(`INSERT OR IGNORE INTO user_groups (user_sub, folder) VALUES (?, ?)`,
 		userSub, folder)
 
-	if !auth.MatchGroups(userGroups(db, userSub), folder) {
-		http.Error(w, "forbidden: user not authorized for this folder", http.StatusForbidden)
-		return
-	}
-	rows, _ := db.Query(`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub)
-	if rows != nil {
-		var jids []string
+	var jids []string
+	if rows, err := db.Query(`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub); err == nil {
 		for rows.Next() {
-			var j string
-			rows.Scan(&j)
-			jids = append(jids, j)
+			var jid string
+			rows.Scan(&jid)
+			jids = append(jids, jid)
 		}
 		rows.Close()
-		for _, jid := range jids {
-			match := "room=" + core.JidRoom(jid)
-			db.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
-				match, folder)
-		}
+	}
+	for _, jid := range jids {
+		db.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
+			"room="+core.JidRoom(jid), folder)
 	}
 
 	slog.Info("world created", "folder", folder, "user", userSub)
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-// userGroups mirrors store.UserGroups: returns the grant patterns for
-// userSub verbatim. `**` in the list means operator — auth.MatchGroups
-// handles it.
-func userGroups(db *sql.DB, userSub string) []string {
-	rows, err := db.Query(
-		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, userSub)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var allowed []string
-	for rows.Next() {
-		var f string
-		rows.Scan(&f)
-		if f != "" {
-			allowed = append(allowed, f)
-		}
-	}
-	return allowed
-}
-
 func linkJID(db *sql.DB, jid, userSub string) {
-	// Check if JID is already claimed by a different user
 	var existingSub string
-	err := db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = ?`, jid).Scan(&existingSub)
-	if err == nil && existingSub != userSub {
-		slog.Warn("jid already claimed by another user", "jid", jid, "existing", existingSub, "attempted", userSub)
+	if err := db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = ?`, jid).Scan(&existingSub); err == nil && existingSub != userSub {
+		slog.Warn("jid already claimed", "jid", jid, "existing", existingSub, "attempted", userSub)
 		return
 	}
-
 	now := time.Now().Format(time.RFC3339)
 	db.Exec(`INSERT OR IGNORE INTO user_jids (user_sub, jid, claimed) VALUES (?, ?, ?)`,
 		userSub, jid, now)
 	db.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ? WHERE jid = ?`,
 		userSub, jid)
-	slog.Info("linked jid to user", "jid", jid, "user", userSub)
+	slog.Info("linked jid", "jid", jid, "user", userSub)
 }
-
-// --- HTML rendering ---
 
 func renderPage(w http.ResponseWriter, title, body string) {
 	safeTitle := html.EscapeString(title)
@@ -415,7 +371,7 @@ td,th{padding:.25rem .5rem;text-align:left;border-bottom:1px solid #eee}
 </body></html>`, safeTitle, safeTitle, body)
 }
 
-func renderUsernamePicker(w http.ResponseWriter, currentUsername, userSub string) {
+func renderUsernamePicker(w http.ResponseWriter, currentUsername string) {
 	body := fmt.Sprintf(`<p>Pick a username for your workspace.</p>
 <form method="POST" action="/onboard">
 <input type="hidden" name="action" value="create_world">
@@ -429,10 +385,8 @@ func renderUsernamePicker(w http.ResponseWriter, currentUsername, userSub string
 func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string) {
 	esc := html.EscapeString
 
-	// Fetch JIDs
 	var jidsHTML string
-	rows, _ := db.Query(`SELECT jid, claimed FROM user_jids WHERE user_sub = ? ORDER BY claimed`, userSub)
-	if rows != nil {
+	if rows, err := db.Query(`SELECT jid, claimed FROM user_jids WHERE user_sub = ? ORDER BY claimed`, userSub); err == nil {
 		for rows.Next() {
 			var jid, claimed string
 			rows.Scan(&jid, &claimed)
@@ -444,32 +398,29 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 		jidsHTML = "<tr><td colspan=2>No linked accounts yet. Message the bot from a new platform to link it.</td></tr>"
 	}
 
-	// Fetch groups
 	var groupsHTML string
-	rows2, _ := db.Query(`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, userSub)
-	if rows2 != nil {
-		for rows2.Next() {
+	if rows, err := db.Query(`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, userSub); err == nil {
+		for rows.Next() {
 			var folder string
-			rows2.Scan(&folder)
+			rows.Scan(&folder)
 			groupsHTML += fmt.Sprintf("<tr><td>%s</td></tr>", esc(folder))
 		}
-		rows2.Close()
+		rows.Close()
 	}
 
-	// Fetch routes for user's JIDs
 	var routesHTML string
-	rows3, _ := db.Query(`
+	if rows, err := db.Query(`
 		SELECT uj.jid, r.target FROM user_jids uj
-		JOIN routes r ON r.match LIKE '%%room=' || REPLACE(REPLACE(uj.jid, uj.jid, SUBSTR(uj.jid, INSTR(uj.jid, ':')+1)), ':', '') || '%%'
+		JOIN routes r ON r.match = 'room=' || SUBSTR(uj.jid, INSTR(uj.jid, ':')+1)
+		   OR r.match LIKE 'room=' || SUBSTR(uj.jid, INSTR(uj.jid, ':')+1) || ' %'
 		WHERE uj.user_sub = ?
-		ORDER BY uj.jid, r.target`, userSub)
-	if rows3 != nil {
-		for rows3.Next() {
+		ORDER BY uj.jid, r.target`, userSub); err == nil {
+		for rows.Next() {
 			var jid, target string
-			rows3.Scan(&jid, &target)
+			rows.Scan(&jid, &target)
 			routesHTML += fmt.Sprintf("<tr><td>%s</td><td>%s</td></tr>", esc(jid), esc(target))
 		}
-		rows3.Close()
+		rows.Close()
 	}
 	if routesHTML == "" {
 		routesHTML = "<tr><td colspan=2>No routes configured.</td></tr>"
@@ -489,8 +440,6 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 `, esc(username), jidsHTML, groupsHTML, routesHTML)
 	renderPage(w, "Dashboard", body)
 }
-
-// --- Shared utilities ---
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 

@@ -44,16 +44,11 @@ func sendReply(cfg config, to, rootMsgID, text string) error {
 	}
 	defer wc.Close()
 
-	msgIDRef := ""
+	fmt.Fprintf(wc, "From: %s\r\nTo: %s\r\nSubject: Re: (arizuko)\r\nDate: %s\r\n",
+		cfg.Account, sanitizeHeader(to), time.Now().Format(time.RFC1123Z))
 	if rootMsgID != "" {
-		msgIDRef = "<" + sanitizeHeader(strings.Trim(rootMsgID, "<>")) + ">"
-	}
-	date := time.Now().Format(time.RFC1123Z)
-	safeTo := sanitizeHeader(to)
-
-	fmt.Fprintf(wc, "From: %s\r\nTo: %s\r\nSubject: Re: (arizuko)\r\nDate: %s\r\n", cfg.Account, safeTo, date)
-	if msgIDRef != "" {
-		fmt.Fprintf(wc, "In-Reply-To: %s\r\nReferences: %s\r\n", msgIDRef, msgIDRef)
+		ref := "<" + sanitizeHeader(strings.Trim(rootMsgID, "<>")) + ">"
+		fmt.Fprintf(wc, "In-Reply-To: %s\r\nReferences: %s\r\n", ref, ref)
 	}
 	fmt.Fprintf(wc, "Content-Type: text/plain; charset=utf-8\r\n\r\n%s", text)
 	return nil
