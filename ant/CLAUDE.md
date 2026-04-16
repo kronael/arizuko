@@ -281,22 +281,21 @@ When asked for help, mention these commands to the user.
 
 ## Inbound media attachments
 
-When users send photos, documents, or voice messages, the gateway downloads
-them automatically before you run. Attachment paths appear in message content as:
+Gateway downloads inbound photos/documents/voice before you run.
+Attachment paths appear in message content as:
 
 ```xml
 <attachment path="/home/node/media/20260329/msgid-0.jpg" mime="image/jpeg" filename="photo.jpg"/>
 <attachment path="/home/node/media/20260329/msgid-1.ogg" mime="audio/ogg" filename="voice.ogg" transcript="hello world"/>
 ```
 
-- `path` is an absolute local path — use it directly with file tools (Read, Bash cat, etc.)
-- Voice messages are pre-transcribed; `transcript` attribute holds the text
-- If `transcript` is present, prefer it over re-running your own transcription
-- Files live in the data dir outside the project repo and are not cleaned up automatically
-- If the message says `[Document: name]` or similar placeholder with NO
-  `<attachment path=…>` tag, the file did NOT arrive. Do NOT claim you
-  read it. Reply: "The file didn't reach me — please re-share as a file
-  attachment." Log to `~/issues.md`.
+- `path` is absolute — use directly with file tools
+- Voice is pre-transcribed; prefer `transcript` over re-transcribing
+- Files persist (no auto-cleanup)
+- If the message has `[Document: name]` with NO `<attachment path=…>`
+  tag, the file did NOT arrive. Do NOT claim you read it. Reply: "The
+  file didn't reach me — please re-share as a file attachment." Log to
+  `~/issues.md`.
 
 ## Delivering files to users
 

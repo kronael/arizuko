@@ -68,10 +68,9 @@ No sources → stop. Never write empty files.
 
 ### 2. Compress
 
-The purpose of an episode is to **preserve what the user corrected**,
-not what the agent concluded. Your judgement is unreliable; the user's
-is authoritative. Conclusions get redrawn every recall. Corrections do
-not — capture them verbatim.
+**Preserve what the user corrected, not what the agent concluded.**
+User corrections are authoritative; agent conclusions get redrawn every
+recall. Capture corrections verbatim.
 
 Keep:
 
@@ -87,8 +86,8 @@ Drop:
 - Dead-end debugging, internal reasoning
 - Anything the agent inferred without user confirmation
 
-Each level is shorter than the sum of its sources. When in doubt,
-quote the user and skip the gloss.
+Each level is shorter than the sum of its sources. When in doubt, quote
+the user and skip the gloss.
 
 ### 3. Write
 
@@ -139,8 +138,7 @@ corrections.
 
 ## Cron setup
 
-On-demand. Set up when the user or agent wants progressive compression
-for this group. Call `schedule_task` for each level:
+On-demand. Call `schedule_task` for each level:
 
 | Prompt                             | Cron        | When               |
 | ---------------------------------- | ----------- | ------------------ |

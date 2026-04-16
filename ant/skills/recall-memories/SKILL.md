@@ -28,11 +28,9 @@ Deliberate in `<think>` (mandatory):
 2. For each: what does it say? Does it answer? What gap?
 3. Verdict: use it, refresh via `/facts`, or research fresh
 
-**Weight corrections over conclusions.** Episodes contain both user
-corrections (authoritative, quoted) and agent summaries (unreliable).
-Trust corrections verbatim; re-derive conclusions fresh from the
-corrections + current context. Do not reuse a prior agent conclusion
-as a fact.
+**Weight corrections over conclusions.** Trust user corrections
+verbatim; re-derive conclusions fresh from corrections + current
+context. Never reuse a prior agent summary as a fact.
 
 ## When to use
 

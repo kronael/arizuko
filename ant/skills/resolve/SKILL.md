@@ -10,18 +10,17 @@ user-invocable: false
 
 Triage every incoming message. Continuations must exit in <3s.
 
-**Internal only.** Never emit the section headings below (`## Classify`,
-`## Recall`, `## Dispatch`, `## Act`) or the words "Classification:",
-"Continuation —", "New task —" to the user. Wrap any reasoning in
-`<think>…</think>`. The user sees the result, not the triage.
+**Internal only.** Never emit the section headings below or words like
+"Classification:", "Continuation —", "New task —" to the user. Wrap any
+reasoning in `<think>…</think>`.
 
 ## 1. Classify
 
-**Continuation** -- follow-up to current work (yes, do it, ok,
-corrections, references to something just discussed). Skip to 4.
+**Continuation** — follow-up to current work (yes, ok, corrections,
+references to something just discussed). Skip to 4.
 
-**New task** -- distinct request unrelated to previous turn, or
-first message in session. If unsure, treat as new task.
+**New task** — distinct request, or first message in session. If unsure,
+treat as new task.
 
 ## 2. Recall (new task only)
 
@@ -30,21 +29,19 @@ ls -t ~/diary/*.md 2>/dev/null | head -2 | xargs cat 2>/dev/null
 ls ~/facts/ 2>/dev/null | head -20
 ```
 
-Read the 2 most recent diary files. Scan fact filenames. If any
-fact is relevant to the message topic, read it. If the user
-references an unrecognized name or term:
+Read the 2 most recent diary files. Scan fact filenames; read any
+relevant to the topic. If the user references an unrecognized name:
 
 ```bash
 grep -ril "<term>" ~/diary/ ~/facts/ ~/users/ 2>/dev/null \
   | head -5
 ```
 
-Read matches. Goal: load context BEFORE responding.
+Load context BEFORE responding.
 
-**Fact freshness**: when you read a fact, check its `verified_at`
-date. If older than 14 days and the task needs accurate data,
-re-research it now with `/facts <topic>`. Delete facts that are
-wrong or no longer relevant.
+**Fact freshness**: check `verified_at` on any fact read. If older than
+14 days and the task needs accurate data, refresh via `/facts <topic>`.
+Delete facts that are wrong or obsolete.
 
 ## 3. Dispatch (new task only)
 
@@ -56,11 +53,10 @@ for d in ~/.claude/skills/*/; do
 done
 ```
 
-Match descriptions against the user's request. If a skill
-matches, read its SKILL.md and follow its workflow.
+Match descriptions against the request. If a skill matches, read its
+SKILL.md and follow its workflow.
 
 ## 4. Act
 
-Respond to the user. Apply matched skill workflows.
-
-Do not mention this skill to the user.
+Respond to the user. Apply matched skill workflows. Do not mention this
+skill.

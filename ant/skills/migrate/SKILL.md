@@ -161,16 +161,14 @@ Report summary of groups updated and migrations run.
 ## e) Announce the release
 
 After migrations apply, broadcast the changelog to each group so users
-on the actual channels (Telegram, WhatsApp, etc.) see what changed.
-
-Until `specs/3/e-migration-announce.md` is implemented, this is a
-manual step the root agent runs after `/migrate`.
+on the actual channels see what changed. Manual step until
+`specs/3/e-migration-announce.md` lands.
 
 ### Check what's new
 
-Write the target version BEFORE sending. This prevents a mid-broadcast
-container restart from re-announcing. If sending fails for a group,
-catch the error and retry that JID only — do not roll back the file.
+Write the target version BEFORE sending to prevent a mid-broadcast
+restart from re-announcing. On per-group send failure, retry that JID
+only — do not roll back the file.
 
 ```bash
 latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md \
@@ -189,8 +187,8 @@ awk '/^## \[v[0-9]/{if(++n==1){print;next};exit} n==1' \
 
 ### Compose the message
 
-Keep it short — one screenful. Strip `###` subheadings down to plain
-bullets. Title line names the version. Example:
+Keep it short — one screenful. Strip `###` subheadings to plain bullets.
+Title names the version. Example:
 
 ```
 arizuko upgraded — v0.28.0
@@ -222,22 +220,16 @@ mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
   done
 ```
 
-Or, more naturally, the root agent reads the groups list from the MCP
-tool call result and sends one message per group in its own turn.
+Or the root agent reads the groups list from the MCP result and sends
+one message per group in its own turn.
 
-`~/.announced-version` was already written above — do NOT write it
-again here. If you send the same version twice to a group because of
-a retry, that's fine; re-announcing the WHOLE release is the bug this
-file prevents.
+`~/.announced-version` was written above — do NOT write it again. Per-
+group retry duplicates are fine; re-announcing the WHOLE release is the
+bug this file prevents.
 
 ### Scope and etiquette
 
-- Broadcast only to registered groups with `state=active` (refresh_groups
-  already filters inactive ones).
-- Do NOT re-announce if a group was offline — send once, let the message
-  sit in whatever retry/queue the channel uses.
-- If a group has opted out (future: `groups.announce_mute`), skip it.
-  For now, no opt-out exists — announce everywhere.
-- One message per release, not per migration. Users don't care about
-  internal migration numbers; they care about what changed in the
-  product.
+- Broadcast only to active registered groups (refresh_groups filters).
+- Send once; let the channel's own retry/queue handle offline groups.
+- One message per release, not per migration. Users care about product
+  changes, not internal migration numbers.
