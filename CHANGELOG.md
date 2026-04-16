@@ -9,6 +9,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.29.0] — 2026-04-16
+
 ### Added
 
 - **cli**: `arizuko group <instance> grant|ungrant|grants` — manage
