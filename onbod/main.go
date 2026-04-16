@@ -212,10 +212,8 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 		return
 	}
 
-	// Consume token: mark as used so the link cannot be replayed
 	db.Exec(`UPDATE onboarding SET status = 'token_used', token = NULL WHERE token = ?`, token)
 
-	// Store JID in cookie (not the token) for linking after OAuth
 	http.SetCookie(w, &http.Cookie{
 		Name: "onboard_jid", Value: jid, Path: "/",
 		MaxAge: 86400, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
@@ -225,7 +223,6 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 		MaxAge: 86400, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
 	})
 
-	// If user already authenticated, link directly
 	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
 		linkJID(db, jid, userSub)
 		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
@@ -236,8 +233,8 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 }
 
 func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, userSub string) {
-	// Check for pending JID cookie — link JID if present, and if the user
-	// already has a world, auto-route the new JID into it (second-JID link).
+	// Pending JID cookie: link it, and if the user already has a world, route
+	// the new JID into it (second-platform auto-link).
 	if c, err := r.Cookie("onboard_jid"); err == nil && c.Value != "" {
 		var status string
 		err := db.QueryRow(
@@ -245,8 +242,13 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 			c.Value).Scan(&status)
 		if err == nil {
 			linkJID(db, c.Value, userSub)
-			if folder, ok := existingWorld(db, userSub); ok {
-				autoRoute(db, c.Value, folder)
+			var folder string
+			if err := db.QueryRow(
+				`SELECT g.folder FROM groups g
+				 JOIN user_groups ug ON ug.folder = g.folder
+				 WHERE ug.user_sub = ? LIMIT 1`, userSub).Scan(&folder); err == nil {
+				db.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
+					"room="+core.JidRoom(c.Value), folder)
 			}
 		}
 		http.SetCookie(w, &http.Cookie{
@@ -255,7 +257,6 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 		})
 	}
 
-	// Check if user has a world
 	var username string
 	err := db.QueryRow(`SELECT username FROM auth_users WHERE sub = ?`, userSub).Scan(&username)
 	if err != nil {
@@ -263,7 +264,6 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 		return
 	}
 
-	// Check if user has any groups
 	var groupCount int
 	db.QueryRow(`SELECT COUNT(*) FROM user_groups WHERE user_sub = ?`, userSub).Scan(&groupCount)
 
@@ -302,7 +302,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		return
 	}
 
-	// Check uniqueness
 	var exists int
 	db.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = ?`, username).Scan(&exists)
 	if exists > 0 {
@@ -312,10 +311,8 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		return
 	}
 
-	// Update auth_users username
 	db.Exec(`UPDATE auth_users SET username = ? WHERE sub = ?`, username, userSub)
 
-	// Create world group
 	folder := username
 	coreCfg, err := core.LoadConfig()
 	if err != nil {
@@ -335,9 +332,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	db.Exec(`INSERT OR IGNORE INTO user_groups (user_sub, folder) VALUES (?, ?)`,
 		userSub, folder)
 
-	// Route all claimed JIDs to the new world. Authorize against the user's
-	// user_groups before inserting — MatchGroups enforces glob semantics.
-	// nil allowed = operator (unrestricted).
 	allowed, isOperator := userGroups(db, userSub)
 	if !isOperator && !auth.MatchGroups(allowed, folder) {
 		http.Error(w, "forbidden: user not authorized for this folder", http.StatusForbidden)
@@ -363,31 +357,8 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-// existingWorld returns a folder the user already owns (joined via
-// user_groups ↔ groups). Used to short-circuit the username picker on a
-// second-JID link: if the user has a world, auto-route the new JID to it.
-func existingWorld(db *sql.DB, userSub string) (string, bool) {
-	var folder string
-	err := db.QueryRow(
-		`SELECT g.folder FROM groups g
-		 JOIN user_groups ug ON ug.folder = g.folder
-		 WHERE ug.user_sub = ? LIMIT 1`, userSub).Scan(&folder)
-	if err != nil {
-		return "", false
-	}
-	return folder, true
-}
-
-// autoRoute inserts a route from jid → folder if absent.
-func autoRoute(db *sql.DB, jid, folder string) {
-	match := "room=" + core.JidRoom(jid)
-	db.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
-		match, folder)
-}
-
 // userGroups mirrors store.UserGroups: returns the folder patterns a user
-// may access. isOperator=true when the user has a "*" or "**" row, signalling
-// unrestricted access (nil allowed list handled by callers as "allow anything").
+// may access. isOperator=true when the user has a "**" row (unrestricted).
 func userGroups(db *sql.DB, userSub string) (allowed []string, isOperator bool) {
 	rows, err := db.Query(
 		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, userSub)
@@ -398,7 +369,7 @@ func userGroups(db *sql.DB, userSub string) (allowed []string, isOperator bool) 
 	for rows.Next() {
 		var f string
 		rows.Scan(&f)
-		if f == "*" || f == "**" {
+		if f == "**" {
 			return nil, true
 		}
 		if f != "" {

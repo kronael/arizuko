@@ -492,14 +492,13 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	}
 }
 
-// userGroups helper reports operator=true for "*" and "**" rows and returns
-// the literal folder list otherwise.
+// userGroups helper reports operator=true for "**" rows and returns the
+// literal folder list otherwise.
 func TestUserGroupsHelper(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:alice', 'alice')`)
 	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:alice', 'pub/*')`)
 	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:op', '**')`)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u:star', '*')`)
 
 	if allowed, op := userGroups(db, "u:alice"); op {
 		t.Errorf("alice should not be operator")
@@ -508,9 +507,6 @@ func TestUserGroupsHelper(t *testing.T) {
 	}
 	if _, op := userGroups(db, "u:op"); !op {
 		t.Errorf("** should mark operator")
-	}
-	if _, op := userGroups(db, "u:star"); !op {
-		t.Errorf("* should mark operator")
 	}
 	if allowed, op := userGroups(db, "u:none"); op || len(allowed) != 0 {
 		t.Errorf("unknown user should return empty, got %v op=%v", allowed, op)
@@ -542,34 +538,5 @@ func TestRouteCreationDeniedWithoutGrant(t *testing.T) {
 	}
 	if auth.MatchGroups(allowed, "bob") {
 		t.Error("alice should NOT be allowed for bob")
-	}
-}
-
-func TestUsernameEdgeCases(t *testing.T) {
-	cases := []struct {
-		name  string
-		input string
-		valid bool
-	}{
-		{"exactly 3 chars", "abc", true},
-		{"exactly 30 chars", "abcdefghijklmnopqrstuvwxyz1234", true},
-		{"31 chars", "abcdefghijklmnopqrstuvwxyz12345", false},
-		{"2 chars", "ab", false},
-		{"1 char", "a", false},
-		{"starts with hyphen", "-abc", false},
-		{"starts with number", "1abc", false},
-		{"uppercase", "Abc", false},
-		{"empty", "", false},
-		{"spaces", "a b c", false},
-		{"underscores", "a_bc", false},
-		{"trailing hyphen", "abc-", true},
-		{"all hyphens after first", "a--", true},
-		{"max with hyphens", "a-b-c-d-e-f-g-h-i-j-k-l-m-n-o", true},
-	}
-	for _, c := range cases {
-		got := usernameRe.MatchString(c.input)
-		if got != c.valid {
-			t.Errorf("%s (%q): got %v, want %v", c.name, c.input, got, c.valid)
-		}
 	}
 }

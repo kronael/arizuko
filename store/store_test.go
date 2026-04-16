@@ -654,7 +654,7 @@ func TestUserGroupsOperator(t *testing.T) {
 	defer s.Close()
 
 	s.CreateAuthUser("op", "op", "", "Operator")
-	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('op', '*')`)
+	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('op', '**')`)
 
 	got := s.UserGroups("op")
 	if got != nil {
@@ -689,7 +689,7 @@ func TestUserGroupsMixed(t *testing.T) {
 
 	s.CreateAuthUser("mix", "mix", "", "Mixed")
 	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('mix', 'alpha')`)
-	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('mix', '*')`)
+	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('mix', '**')`)
 	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('mix', 'beta')`)
 
 	got := s.UserGroups("mix")

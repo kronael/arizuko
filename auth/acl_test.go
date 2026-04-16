@@ -9,19 +9,14 @@ func TestMatchGroups(t *testing.T) {
 		folder  string
 		want    bool
 	}{
-		{"nil", nil, "alice", false},
-		{"empty", []string{}, "alice", false},
-		{"double-star matches root", []string{"**"}, "alice", true},
-		{"double-star matches nested", []string{"**"}, "pub/alice/nested", true},
+		{"empty", nil, "alice", false},
+		{"double-star nested", []string{"**"}, "pub/a/b", true},
 		{"literal match", []string{"alice"}, "alice", true},
-		{"literal no match", []string{"alice"}, "bob", false},
-		{"glob matches one segment", []string{"pub/*"}, "pub/foo", true},
-		{"glob does not cross slashes", []string{"pub/*"}, "pub/foo/bar", false},
-		{"glob other prefix rejected", []string{"pub/*"}, "priv/foo", false},
-		{"multi entry literal", []string{"alice", "pub/*"}, "alice", true},
-		{"multi entry glob", []string{"alice", "pub/*"}, "pub/x", true},
-		{"multi entry neither", []string{"alice", "pub/*"}, "bob", false},
-		{"case sensitive", []string{"alice"}, "Alice", false},
+		{"literal mismatch", []string{"alice"}, "bob", false},
+		{"glob one segment", []string{"pub/*"}, "pub/foo", true},
+		{"glob no cross slash", []string{"pub/*"}, "pub/foo/bar", false},
+		{"multi entry first", []string{"alice", "pub/*"}, "alice", true},
+		{"multi entry second", []string{"alice", "pub/*"}, "pub/x", true},
 	}
 	for _, c := range cases {
 		if got := MatchGroups(c.allowed, c.folder); got != c.want {

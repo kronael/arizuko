@@ -938,15 +938,11 @@ func TestProxydVhostRejectsDotDotInSubPath(t *testing.T) {
 	defer up.Close()
 	s.vh = &vhosts{entries: map[string]string{"a.example.com": "a"}}
 
-	req := httptest.NewRequest("GET", "/legit/..%2fetc/passwd", nil)
-	// httptest.NewRequest doesn't decode, but `..` substring check in route
-	// is literal against r.URL.Path. Use a plain traversal to hit it:
-	req2 := httptest.NewRequest("GET", "/sub/../etc", nil)
-	req2.Host = "a.example.com"
+	req := httptest.NewRequest("GET", "/sub/../etc", nil)
+	req.Host = "a.example.com"
 	w := httptest.NewRecorder()
-	s.route(w, req2)
+	s.route(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 on dot-dot", w.Code)
 	}
-	_ = req
 }
