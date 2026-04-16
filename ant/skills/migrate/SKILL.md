@@ -157,3 +157,76 @@ done
 ```
 
 Report summary of groups updated and migrations run.
+
+## e) Announce the release
+
+After migrations apply, broadcast the changelog to each group so users
+on the actual channels (Telegram, WhatsApp, etc.) see what changed.
+
+Until `specs/3/e-migration-announce.md` is implemented, this is a
+manual step the root agent runs after `/migrate`.
+
+### Check what's new
+
+```bash
+# latest released entry from the canonical changelog
+awk '/^## \[v[0-9]/{if(++n==1){print;next};exit} n==1' \
+  /workspace/self/CHANGELOG.md
+```
+
+Only announce if the version advanced since the last broadcast. Track
+the last announced version at `~/.announced-version` (a single line,
+e.g. `v0.28.0`).
+
+```bash
+latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md \
+  | tr -d '[]')
+last=$(cat ~/.announced-version 2>/dev/null || echo "")
+test "$latest" = "$last" && { echo "already announced $latest"; exit 0; }
+```
+
+### Compose the message
+
+Keep it short — one screenful. Strip `###` subheadings down to plain
+bullets. Title line names the version. Example:
+
+```
+arizuko upgraded — v0.28.0
+
+- token-based web onboarding (chat → auth link → dashboard)
+- ACL flip: no user_groups row = no access
+- XSS + replay hardening on onbod
+- 13 agent skills synced across groups
+```
+
+### Fan out
+
+Root agent calls `refresh_groups` to get every registered group, then
+`send_message` to each group's primary jid.
+
+```bash
+# pseudocode for the mcpc flow
+mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
+trap 'mcpc @s close' EXIT
+
+mcpc @s tools-call refresh_groups | jq -r '.groups[] | .jid' | while read jid; do
+  mcpc @s tools-call send_message jid:="$jid" text:="$MSG"
+done
+
+echo "$latest" > ~/.announced-version
+```
+
+Or, more naturally, the root agent reads the groups list from the MCP
+tool call result and sends one message per group in its own turn.
+
+### Scope and etiquette
+
+- Broadcast only to registered groups with `state=active` (refresh_groups
+  already filters inactive ones).
+- Do NOT re-announce if a group was offline — send once, let the message
+  sit in whatever retry/queue the channel uses.
+- If a group has opted out (future: `groups.announce_mute`), skip it.
+  For now, no opt-out exists — announce everywhere.
+- One message per release, not per migration. Users don't care about
+  internal migration numbers; they care about what changed in the
+  product.

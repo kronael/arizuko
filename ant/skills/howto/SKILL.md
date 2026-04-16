@@ -18,18 +18,43 @@ cat /workspace/self/ant/skills/web/template/pub/howto/CONTENT.md
 cat /workspace/self/ant/skills/web/template/pub/howto/STYLE.md
 ```
 
-## Step 2 — Pick a style
+## Step 2 — Pick a style (walk the user through it)
 
-Ask the user OR choose autonomously:
+The user decides the visual direction. Offer three paths — don't just
+ask "what style?" in the abstract.
 
-> "Which site's style should I imitate? Give me a URL or name (stripe.com,
-> linear.app, notion.so…). Or say 'random' to let me choose."
+**Offer the menu, conversationally:**
 
-- **URL given**: use `agent-browser` to screenshot it, extract palette + typography + layout, map to the axes in STYLE.md.
-- **Name given**: map to the nearest archetype in STYLE.md.
-- **Random / not asked**: roll dice across the 5 axes in STYLE.md — pick one value per axis, ensure the combination is coherent (don't combine terminal density with vivid decoration).
+> How do you want the page to look? Three ways to decide:
+>
+> 1. **Copy a site you like** — send me a URL (stripe.com, linear.app,
+>    notion.so, a personal blog, anything). I'll extract its palette
+>    and typography and build on that.
+> 2. **Pick from archetypes** — I have 8 palette archetypes
+>    (slate-ink, forest-mist, amber-desk, violet-lab, rose-paper,
+>    zinc-terminal, ocean-deep, sage-clay) × 6 typography pairs ×
+>    4 densities × 4 decoration levels. Tell me keywords
+>    ("technical + dark + minimal" or "warm + serif + airy") and
+>    I'll compose it.
+> 3. **Random coherent** — say "surprise me" and I'll roll the dice
+>    across all axes, keeping the combination tasteful.
+
+**Resolve their answer against STYLE.md:**
+
+- **URL given**: use `agent-browser` to screenshot it, extract palette +
+  typography + layout, map to the axes in STYLE.md.
+- **Keywords given**: pick the archetype/typography/density/decoration
+  closest to their words. If ambiguous, confirm before generating.
+- **Name given** (stripe, linear, notion…): map to the nearest archetype
+  + typography pair in STYLE.md from memory.
+- **"Surprise me" / "random"**: roll across the 5 axes in STYLE.md — but
+  ensure the combination is coherent (don't combine terminal density
+  with vivid decoration, don't mix editorial typography with zinc-terminal
+  palette).
 
 Document your chosen axes in a comment at the top of the generated HTML.
+On first generation, tell the user exactly which axes you picked and
+offer to re-roll or swap any single axis without regenerating from scratch.
 
 ## Step 3 — Generate the HTML
 

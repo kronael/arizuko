@@ -9,6 +9,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **ant**: `/migrate` now broadcasts new releases — after migrations
+  apply, root agent fans out the latest CHANGELOG entry to every
+  registered group via `send_message`. Per-group `~/.announced-version`
+  prevents re-broadcast. Manual fan-out until the automatic dbmig-based
+  announcement path (`specs/3/e-migration-announce.md`) is implemented.
+
+### Fixed
+
+- **queue**: remove duplicate error notification — gateway's
+  `Failed: ...` message is now the single error surface. Queue-side
+  `notifyError` was firing a second message for every failure.
+
 ## [v0.28.0] — 2026-04-15
 
 ### Added
