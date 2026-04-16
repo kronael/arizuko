@@ -5,61 +5,46 @@ description: Intelligently sync skills and files across groups with conflict res
 
 # Migrate
 
-Sync skills and config across groups. Merges upstream changes, preserves local edits.
+Sync skills and config across groups. Merges upstream changes, preserves
+local edits. Then runs pending migrations, applies template overlays,
+announces the release.
 
 ## Container paths
 
-Inside the container, the relevant mounts are:
-
-- `/workspace/self/` — app source (read-only), skills source at `ant/skills/`
+- `/workspace/self/` — app source (read-only), skills at `ant/skills/`
 - `/workspace/data/groups/` — all group directories (root only)
-- `/home/node/` — current group's home directory (`~`)
+- `/home/node/` — current group's home (`~`)
 
-## Root-only check
+## Root-only
 
 ```bash
-if [ "$ARIZUKO_IS_ROOT" != "1" ]; then
-  echo "ERROR: migrate is root-group only"
-  exit 1
-fi
+[ "$ARIZUKO_IS_ROOT" = "1" ] || { echo "ERROR: root-only"; exit 1; }
 ```
 
-## Group discovery
+## a) Sync skills
 
-1. Call `refresh_groups` MCP tool — returns registered groups with jid, folder, name
-2. Each group lives at `/workspace/data/groups/<folder>/`
+Call `refresh_groups` for the group list. Each group lives at
+`/workspace/data/groups/<folder>/`.
 
-## Migration strategy
-
-- NEVER use simple cp/rsync
-- ALWAYS agent-driven merge: detect, classify, resolve
-
-Merge rules:
+Per group, spawn a Task agent to merge `/workspace/self/ant/` into the
+group dir. Rules:
 
 - New in source → copy
 - Unchanged → skip
 - Upstream-only changes → update
 - Local-only changes → preserve
-- Both changed → agent-driven 3-way merge
+- Both changed → 3-way merge
 
-## Implementation
+For conflicts:
 
-Spawn a Task agent per group to merge `/workspace/self/ant/` into
-`/workspace/data/groups/{group}/`. Agent compares, merges, reports.
+- **SKILL.md** — merge YAML (prefer source description), add new rules,
+  preserve local additions.
+- **CLAUDE.md** — merge sections additively, preserve local sections.
+- **Web / code files** — preserve local mods, update unchanged files.
 
-## Conflict resolution rules
-
-When both source and dest have changes:
-
-**SKILL.md**: merge YAML frontmatter (prefer source description), add new rules from source, preserve local additions.
-
-**CLAUDE.md**: merge sections additively, preserve local sections, update global wisdom from source.
-
-**Web / code files**: preserve local modifications, update unchanged files from source.
+Never `cp -r` or `rsync` blindly.
 
 ## b) Run pending migrations
-
-For each group session, check MIGRATION_VERSION and run missing migrations.
 
 ```bash
 src=/workspace/self/ant/skills/self/migrations
@@ -72,13 +57,12 @@ for session in /workspace/data/groups/*/; do
     | grep -oP '/(\d+)-' | grep -oP '\d+' | sort -n \
     | awk -v v="$current" '$1 > v')
   if test -z "$pending"; then
-    echo "$group: up to date (version $current)"
+    echo "$group: up to date ($current)"
     continue
   fi
-  echo "$group: running migrations: $pending"
   for n in $pending; do
     f=$(ls "$src"/$(printf '%03d' $n)-*.md | head -1)
-    echo "  → migration $n: $f"
+    echo "$group: migration $n: $f"
     cat "$f"
     echo "$n" > "$skills_dir/MIGRATION_VERSION"
   done
@@ -87,19 +71,17 @@ done
 
 ## c) Re-read CLAUDE.md
 
-After migrations that update `~/.claude/CLAUDE.md`, re-read it to apply
-changes in the current session:
+If migrations updated `~/.claude/CLAUDE.md`, re-read it and follow new
+instructions immediately.
 
 ```bash
 cat ~/.claude/CLAUDE.md
 ```
 
-Read the output and follow any new instructions immediately.
-
 ## d) Apply template overlays
 
-For each group with `~/.claude/skills/self/TEMPLATES`, apply named overlays
-from `/workspace/self/template/<name>/`.
+For each group with `~/.claude/skills/self/TEMPLATES`, apply named
+overlays from `/workspace/self/template/<name>/`.
 
 ```bash
 src_templates=/workspace/self/template
@@ -115,8 +97,8 @@ for session in /workspace/data/groups/*/; do
     [ -z "$name" ] && continue
     tdir="$src_templates/$name"
 
-    [ -f "$tdir/SOUL.md" ]   && cp "$tdir/SOUL.md"   "$session/SOUL.md"   && echo "$group: $name: SOUL.md"
-    [ -f "$tdir/SYSTEM.md" ] && cp "$tdir/SYSTEM.md" "$session/SYSTEM.md" && echo "$group: $name: SYSTEM.md"
+    [ -f "$tdir/SOUL.md" ]   && cp "$tdir/SOUL.md"   "$session/SOUL.md"
+    [ -f "$tdir/SYSTEM.md" ] && cp "$tdir/SYSTEM.md" "$session/SYSTEM.md"
 
     if [ -f "$tdir/CLAUDE.md" ]; then
       target="$session/.claude/CLAUDE.md"
@@ -132,7 +114,6 @@ with open('$target', 'a') as f:
             f.write(('\n' if tgt.rstrip() else '') + p)
             tgt += p
 "
-      echo "$group: $name: CLAUDE.md merged"
     fi
 
     if [ -d "$tdir/.claude/skills" ]; then
@@ -140,78 +121,55 @@ with open('$target', 'a') as f:
         sname=$(basename "$skill_dir")
         dest="$session/.claude/skills/$sname"
         grep -qE "^(disabled: true|managed: local)" "$dest/SKILL.md" 2>/dev/null && continue
-        cp -r "$skill_dir" "$dest" && echo "$group: $name: skills/$sname"
+        cp -r "$skill_dir" "$dest"
       done
     fi
 
     if [ -d "$tdir/.claude/output-styles" ]; then
       mkdir -p "$session/.claude/output-styles/"
       cp "$tdir/.claude/output-styles/"* "$session/.claude/output-styles/" 2>/dev/null
-      echo "$group: $name: output-styles"
     fi
   done < "$tfile"
 
   date -u +%Y-%m-%dT%H:%M:%SZ > "$self_dir/TEMPLATES.applied"
-  echo "$group: overlays done"
 done
 ```
 
-Report summary of groups updated and migrations run.
-
 ## e) Announce the release
 
-After migrations apply, broadcast the changelog to each group so users
-on the actual channels see what changed. Manual step until
-`specs/3/e-migration-announce.md` lands.
+Broadcast the latest `CHANGELOG.md` entry to every registered group so
+users on Telegram / Discord / WhatsApp see what changed.
 
-### Check what's new
-
-Write the target version BEFORE sending to prevent a mid-broadcast
-restart from re-announcing. On per-group send failure, retry that JID
-only — do not roll back the file.
+Claim the version BEFORE the fan-out so a mid-broadcast restart cannot
+re-announce:
 
 ```bash
 latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md \
   | tr -d '[]')
 last=$(cat ~/.announced-version 2>/dev/null || echo "")
 test "$latest" = "$last" && { echo "already announced $latest"; exit 0; }
-echo "$latest" > ~/.announced-version  # claim the version first
+echo "$latest" > ~/.announced-version
 ```
 
-Print the changelog entry to compose the message:
+Read the changelog entry for the message:
 
 ```bash
 awk '/^## \[v[0-9]/{if(++n==1){print;next};exit} n==1' \
   /workspace/self/CHANGELOG.md
 ```
 
-### Compose the message
+Keep the message short — one screenful, plain bullets, title names the
+version. One message per release, not per migration.
 
-Keep it short — one screenful. Strip `###` subheadings to plain bullets.
-Title names the version. Example:
-
-```
-arizuko upgraded — v0.28.0
-
-- token-based web onboarding (chat → auth link → dashboard)
-- ACL flip: no user_groups row = no access
-- XSS + replay hardening on onbod
-- 13 agent skills synced across groups
-```
-
-### Fan out
-
-Root agent calls `refresh_groups` to get every registered group, then
-`send_message` to each group's primary jid.
+Fan out via `refresh_groups` → look up each folder's primary JID from
+the `routes` table → `send_message`:
 
 ```bash
-# pseudocode for the mcpc flow
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
 trap 'mcpc @s close' EXIT
 
 mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
   | while read folder; do
-    # look up primary jid for folder from routes
     jid=$(sqlite3 /workspace/store/messages.db \
       "SELECT substr(match, 6) FROM routes WHERE target = '$folder' \
        AND match LIKE 'room=%' LIMIT 1")
@@ -220,16 +178,5 @@ mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
   done
 ```
 
-Or the root agent reads the groups list from the MCP result and sends
-one message per group in its own turn.
-
-`~/.announced-version` was written above — do NOT write it again. Per-
-group retry duplicates are fine; re-announcing the WHOLE release is the
-bug this file prevents.
-
-### Scope and etiquette
-
-- Broadcast only to active registered groups (refresh_groups filters).
-- Send once; let the channel's own retry/queue handle offline groups.
-- One message per release, not per migration. Users care about product
-  changes, not internal migration numbers.
+Per-group retries are fine; do NOT re-write `~/.announced-version`.
+Send once; let the channel queue handle offline groups.

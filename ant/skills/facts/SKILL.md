@@ -9,13 +9,14 @@ arg: <question or topic to research>
 # Facts
 
 Research → verify → write to `facts/` for future recall via `/recall-memories`.
+ALWAYS use subagents — never research in main context.
 
 ## Step 1: Research (subagent)
 
-Spawn a research subagent. It must:
+Tools: Read, Glob, Grep, WebSearch, WebFetch, Write.
 
 - Search existing `facts/` for related knowledge first
-- Search the web (WebSearch, WebFetch)
+- Search the web
 - Write new fact files to `facts/` with YAML frontmatter:
   ```yaml
   ---
@@ -30,9 +31,9 @@ Spawn a research subagent. It must:
 - One fact per file, named by topic slug
 - Stop after 3–10 new facts
 
-## Step 2: Verify (subagent per batch)
+## Step 2: Verify (subagent per batch of 5)
 
-For each batch of new facts (max 5), spawn a verifier subagent:
+Tools: Read, Glob, Grep, WebSearch, WebFetch, Bash.
 
 - Cross-reference against codebase and web sources
 - Check for contradictions with existing facts
@@ -42,9 +43,3 @@ For each batch of new facts (max 5), spawn a verifier subagent:
 ## Step 3: Answer
 
 Read surviving fact files, answer the user's original question naturally.
-
-## Rules
-
-- ALWAYS use subagents — never research in main context
-- Research subagent tools: Read, Glob, Grep, WebSearch, WebFetch, Write
-- Verifier subagent tools: Read, Glob, Grep, WebSearch, WebFetch, Bash

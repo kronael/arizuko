@@ -41,13 +41,7 @@ func newBot(cfg config) (*bot, error) {
 }
 
 func (b *bot) loadOffset() int {
-	if b.cfg.StateFile == "" {
-		return 0
-	}
-	data, err := os.ReadFile(b.cfg.StateFile)
-	if err != nil {
-		return 0
-	}
+	data, _ := os.ReadFile(b.cfg.StateFile)
 	n, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 	return n
 }
@@ -303,32 +297,34 @@ func extractMedia(msg *tgbotapi.Message, listenURL string) mediaResult {
 			url = listenURL + "/files/" + fileID
 		}
 		return mediaResult{
-			content: content,
-			attachments: []chanlib.InboundAttachment{
-				{Mime: mime, Filename: filename, URL: url, Size: size},
-			},
+			content:     content,
+			attachments: []chanlib.InboundAttachment{{Mime: mime, Filename: filename, URL: url, Size: size}},
 		}
 	}
 	switch {
 	case msg.Photo != nil:
-		best := msg.Photo[len(msg.Photo)-1]
-		return att("[Photo]"+cap, best.FileID, "image/jpeg", best.FileID+".jpg", int64(best.FileSize))
+		p := msg.Photo[len(msg.Photo)-1]
+		return att("[Photo]"+cap, p.FileID, "image/jpeg", p.FileID+".jpg", int64(p.FileSize))
 	case msg.Video != nil:
-		return att("[Video]"+cap, msg.Video.FileID, "video/mp4", msg.Video.FileID+".mp4", msg.Video.FileSize)
+		v := msg.Video
+		return att("[Video]"+cap, v.FileID, "video/mp4", v.FileID+".mp4", v.FileSize)
 	case msg.Voice != nil:
-		return att("[Voice message]"+cap, msg.Voice.FileID, "audio/ogg", msg.Voice.FileID+".ogg", int64(msg.Voice.FileSize))
+		v := msg.Voice
+		return att("[Voice message]"+cap, v.FileID, "audio/ogg", v.FileID+".ogg", int64(v.FileSize))
 	case msg.Audio != nil:
-		fname := msg.Audio.FileName
+		a := msg.Audio
+		fname := a.FileName
 		if fname == "" {
-			fname = msg.Audio.FileID + ".mp3"
+			fname = a.FileID + ".mp3"
 		}
-		return att("[Audio]"+cap, msg.Audio.FileID, "audio/mpeg", fname, msg.Audio.FileSize)
+		return att("[Audio]"+cap, a.FileID, "audio/mpeg", fname, a.FileSize)
 	case msg.Document != nil:
-		n := msg.Document.FileName
+		d := msg.Document
+		n := d.FileName
 		if n == "" {
-			n = msg.Document.FileID
+			n = d.FileID
 		}
-		return att(fmt.Sprintf("[Document: %s]%s", n, cap), msg.Document.FileID, msg.Document.MimeType, n, msg.Document.FileSize)
+		return att(fmt.Sprintf("[Document: %s]%s", n, cap), d.FileID, d.MimeType, n, d.FileSize)
 	case msg.Sticker != nil:
 		return mediaResult{content: fmt.Sprintf("[Sticker %s]", msg.Sticker.Emoji)}
 	case msg.Location != nil:

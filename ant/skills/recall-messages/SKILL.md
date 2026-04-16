@@ -1,49 +1,35 @@
 ---
 name: recall-messages
 description: >
-  Use when asked what someone said, what was discussed, or to
-  find a past conversation. Searches chat message history, not facts/diary.
+  Use when asked what someone said, what was discussed, or to find a past
+  conversation. Searches chat message history, not facts/diary.
 user_invocable: true
 arg: <question>
 ---
 
 # Recall Messages
 
-Search chat message history for past conversations. Use for "what did X say",
-"did we discuss Y", decisions made in conversation.
-NEVER use for stored knowledge (facts/diary/episodes) — use `/recall-memories` for those.
+Search chat message history for past conversations ("what did X say",
+"did we discuss Y", decisions made in conversation).
+For stored knowledge (facts, diary, episodes) use `/recall-memories`.
 
 ## Protocol
 
-### 1. Fetch message history
+1. Fetch history:
+   ```
+   get_history({ chat_jid: "<jid from message context>", limit: 200 })
+   ```
+   Write the result to `~/tmp/messages.json`.
 
-```
-get_history({ chat_jid: "<jid from message context>", limit: 200 })
-```
+2. Spawn Explore subagent:
 
-Optional `before` param (ISO 8601 timestamp) for pagination.
-Write the result to `~/tmp/messages.json` for the Explore subagent.
+   > Search `~/tmp/messages.json` for messages related to: `<question>`.
+   > Return matching messages with sender, timestamp, and content.
+   > Summarize what you found and how it relates.
 
-### 2. Spawn Explore subagent
-
-> Search `~/tmp/messages.json` for messages related to: `<question>`.
-> Return matching messages with sender, timestamp, and content.
-> Summarize what you found and how it relates to the question.
-
-### 3. Report
-
-Summarize the findings. Do NOT fabricate matches or infer from partial text.
+3. Report findings. Do NOT fabricate matches or infer from partial text.
 
 ## Pagination
 
-If the first 200 messages don't contain a match, ask the user whether
-to go further back. Each subsequent call uses `before: <oldest timestamp seen>`.
-
-## When to use
-
-- "what did X say about Y last week?"
-- "did we discuss Z before?"
-- "what was the decision on X?"
-- Anything referencing past conversation content (not stored knowledge)
-
-For stored knowledge (facts, past research, diary): use `/recall-memories`.
+If no match in 200 messages, ask the user whether to go further back.
+Each subsequent `get_history` call uses `before: <oldest timestamp seen>`.

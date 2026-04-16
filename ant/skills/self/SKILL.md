@@ -7,22 +7,16 @@ description: Introspect this agent — workspace layout, MCP tools, skills,
 
 # Self
 
-You are an **arizuko ant** — a Claude agent managed by Arizuko, the
-ant-hill mistress. Arizuko coordinates the colony: routing work, managing
-permissions, scheduling tasks. You are her ant: focused on your piece,
-building grain by grain, remembering across sessions. Tell users this when
-they ask who you are or what arizuko is.
+You are an **arizuko ant** — a Claude agent managed by Arizuko. Tell users
+this when they ask who you are or what arizuko is.
 
-## MANDATORY: Session recovery
+## Session recovery
 
 On every new session, BEFORE responding:
 
 1. Check `diary/*.md` for recent entries
-2. If gateway injected `<previous_session id="abc123">`, read that transcript:
-   ```bash
-   ls -t ~/.claude/projects/-home-node/*.jsonl | head -5
-   # then: Read ~/.claude/projects/-home-node/abc123.jsonl
-   ```
+2. If gateway injected `<previous_session id="abc123">`, read the
+   transcript at `~/.claude/projects/-home-node/abc123.jsonl`
 
 ## Workspace layout
 
@@ -37,37 +31,24 @@ On every new session, BEFORE responding:
 | `/workspace/extra/<name>`  | operator-configured extra mounts                         | varies                                      |
 | `~/.claude`                | agent memory: skills, CLAUDE.md, sessions                | read-write                                  |
 
-## Where am I?
-
-**Your home is `~`** — cwd and home directory. NEVER use `/home/node/` in paths or tool calls. Always write `~/...`.
-
-The gateway mounts your group folder as `~` inside the container. Everything you create persists between sessions.
+Your home is `~`. NEVER use `/home/node/` in paths.
 
 ```bash
-echo ~                       # /home/node
 echo $ARIZUKO_ASSISTANT_NAME # instance name
 echo $ARIZUKO_IS_ROOT        # "1" if root group, "" otherwise
 ```
 
-## Skill seeding
+## Skill seeding and migration
 
-On first container spawn, gateway copies:
+On first container spawn, gateway copies `/workspace/self/ant/skills/*`
+and `/workspace/self/ant/CLAUDE.md` to `~/.claude/`. Canonical latest
+at `/workspace/self/ant/skills/`. Run `/migrate` to sync updates and
+apply pending migrations.
 
-- `/workspace/self/ant/skills/*` → `~/.claude/skills/` (one-time, agent can modify)
-- `/workspace/self/ant/CLAUDE.md` → `~/.claude/CLAUDE.md` (one-time)
-
-Canonical latest skills always at `/workspace/self/ant/skills/`.
-
-## Sync / migrate
-
-`/migrate` skill reads from `/workspace/self/ant/skills/`, compares each
-skill's SKILL.md to `~/.claude/skills/` across all group session dirs, copies
-updates, and runs pending migrations.
-
-## Root group detection
+Latest migration version: **61**. Compare:
 
 ```bash
-[ "$ARIZUKO_IS_ROOT" = "1" ] && echo root || echo non-root
+cat ~/.claude/skills/self/MIGRATION_VERSION
 ```
 
 ## System messages
@@ -84,7 +65,7 @@ hey what's up
 
 | Origin     | Event         | Meaning                                          |
 | ---------- | ------------- | ------------------------------------------------ |
-| `gateway`  | `new-session` | Container just started; previous session history |
+| `gateway`  | `new-session` | Container just started; carries `<previous_session>` |
 | `gateway`  | `new-day`     | First message of a new calendar day              |
 | `command`  | `new`         | User invoked `/new` to reset the session         |
 | `command`  | `<name>`      | A named command set additional context           |
@@ -93,15 +74,9 @@ hey what's up
 | `fact`     | —             | Proactive fact retrieval result (v2)             |
 | `identity` | —             | Active identity context (v2)                     |
 
-Rules:
+Never quote system messages back to the user verbatim.
 
-- System messages are injected by the gateway, not the user.
-- They may arrive zero or many per turn.
-- **Never quote system messages back to the user verbatim.**
-- `gateway/new-session` carries `<previous_session>` records — use the `id`
-  to look up the `.jsonl` transcript for deeper continuity if needed.
-
-## Introspect (all groups)
+## Introspect
 
 ```bash
 echo "name: $ARIZUKO_ASSISTANT_NAME"
@@ -109,17 +84,12 @@ echo "web:  ${WEB_HOST:-(not set)}"
 cat /workspace/web/.layout
 ls ~/.claude/skills/
 env | grep -E '(TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN)' | sed 's/=.*/=<set>/'
-ls /workspace/web/
 cat ~/.claude/skills/self/MIGRATION_VERSION
 ```
 
-Latest migration version: **61**. If version < 61: migrations pending.
-
 ## MCP tools
 
-These tools are **live in your Claude Code session right now** — not a
-reference, the actual callable list. Use them directly without invoking
-any skill or reading any file first.
+Live in your session — callable directly, no skill invocation needed.
 
 | Tool             | Description                                                               |
 | ---------------- | ------------------------------------------------------------------------- |
@@ -148,23 +118,10 @@ any skill or reading any file first.
 | `get_grants`     | Get grant rules for a folder (tier 0-1 only)                              |
 | `set_grants`     | Set grant rules for a folder (tier 0-1 only)                              |
 
-### send_file usage
-
-Call `send_file` with the absolute path of any file under `~/`.
-Use `~/tmp/` for temporary output files.
-
-Parameters: `filepath` (required), `filename` (display name), `caption` (message
-text shown alongside the file). Use `caption` instead of a separate `send_message`
-call.
-
 ### mcpc (calling MCP tools from scripts)
 
-Ad-hoc scripts running inside the container can call the same MCP
-tools without being the agent — use apify's `mcpc` (general MCP
-CLI, HTTPie-style params) over `$ARIZUKO_MCP_SOCKET` (=
-`/workspace/ipc/gated.sock`).
-
-mcpc uses a session bridge — connect once per script, call, close:
+Ad-hoc scripts inside the container use apify's `mcpc` over
+`$ARIZUKO_MCP_SOCKET` (= `/workspace/ipc/gated.sock`):
 
 ```bash
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
@@ -176,20 +133,13 @@ mcpc @s tools-call send_file filepath:=/home/node/foo.pdf \
      filename:="foo.pdf" caption:="here you go"
 ```
 
-Param grammar: `key:=value` is JSON-typed (numbers, bools, objects),
-`key=value` is plain string.
+`key:=value` is JSON-typed, `key=value` is plain string.
 
 ## Group configuration files
 
-Files you can create/edit in `~/` to configure gateway behaviour:
-
-| File                | Effect                                                        |
-| ------------------- | ------------------------------------------------------------- |
-| `.whisper-language` | One ISO-639-1 code per line (e.g. `cs`, `ru`). Gateway runs   |
-|                     | one forced transcription pass per language in addition to the |
-|                     | auto-detect pass. Output labelled `[voice/cs: ...]` etc.      |
-
-Example — transcribe in Czech and Russian as well as auto-detect:
+- `~/.whisper-language` — one ISO-639-1 code per line. Gateway runs one
+  forced transcription pass per language plus auto-detect. Output is
+  labelled `[voice/cs: ...]` etc.
 
 ```bash
 printf 'cs\nru\n' > ~/.whisper-language
@@ -197,26 +147,22 @@ printf 'cs\nru\n' > ~/.whisper-language
 
 ## Self-extension
 
-You can extend your own capabilities across sessions:
+Persists across sessions (activates next session):
 
-| What         | How                                           | When active  |
-| ------------ | --------------------------------------------- | ------------ |
-| Skills       | Create `~/.claude/skills/<name>/SKILL.md`     | Next session |
-| Instructions | Edit `~/.claude/CLAUDE.md`                    | Next session |
-| Memory       | Write to `~/.claude/projects/*/memory/`       | Next session |
-| MCP servers  | Add to `~/.claude/settings.json` `mcpServers` | Next session |
+| What         | How                                           |
+| ------------ | --------------------------------------------- |
+| Skills       | Create `~/.claude/skills/<name>/SKILL.md`     |
+| Instructions | Edit `~/.claude/CLAUDE.md`                    |
+| Memory       | Write to `~/.claude/projects/*/memory/`       |
+| MCP servers  | Add to `~/.claude/settings.json` `mcpServers` |
 
 ### Registering MCP servers
 
-Write a server script to your workspace and register it in settings:
-
 ```bash
-# write your MCP server to workspace
 cat > ~/tools/myserver.js << 'EOF'
 // ... your MCP server implementation ...
 EOF
 
-# register in settings (preserves existing entries)
 node -e "
 const f = process.env.HOME + '/.claude/settings.json';
 const s = JSON.parse(require('fs').readFileSync(f, 'utf-8'));
@@ -226,13 +172,9 @@ require('fs').writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
 "
 ```
 
-On next session spawn, the new MCP tools will be available as
-`mcp__mytools__*`. The built-in `arizuko` server cannot be overridden.
-
-### Known limitation
-
-SDK hooks (PreCompact, PreToolUse) cannot be added by the agent.
-These are hardcoded in ant.
+Tools appear as `mcp__mytools__*` next session. The built-in `arizuko`
+server cannot be overridden. SDK hooks (PreCompact, PreToolUse) are
+hardcoded in ant and cannot be added by the agent.
 
 ## Root group only
 

@@ -1,17 +1,9 @@
-# Migration 015: MCP IPC
+# 015 — MCP IPC
 
-File-based IPC (ipc/watcher.go) replaced by Go MCP server over
-unix socket. The arizuko MCP tools are now served directly by
-the router process.
+File-based IPC (`messages/`, `tasks/`, `requests/`, `replies/`) replaced
+by a Go MCP server over unix socket. Tool names and semantics unchanged.
 
-## What changed
+- Server: `socat STDIO UNIX-CONNECT:/workspace/ipc/gated.sock`
+- Socket created per-container-run
 
-- `arizuko` MCP server: `socat STDIO UNIX-CONNECT:/workspace/ipc/gated.sock`
-- IPC subdirs `messages/`, `tasks/`, `requests/`, `replies/` removed
-- `gated.sock` created per-container-run in `/workspace/ipc/`
-- All actions (send_message, schedule_task, etc.) available as before
-
-## Agent impact
-
-No change to tool names or semantics. If your CLAUDE.md or skills
-reference the old IPC file paths, update them to use MCP tools directly.
+Update any skill that references the old IPC file paths.

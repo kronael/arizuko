@@ -131,9 +131,8 @@ func (rc *redditClient) do(method, path string, params map[string]string, form u
 		req.URL.RawQuery = q.Encode()
 	}
 	rc.mu.Lock()
-	tok := rc.token
+	req.Header.Set("Authorization", "Bearer "+rc.token)
 	rc.mu.Unlock()
-	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("User-Agent", rc.cfg.UserAgent)
 	return rc.doWithRetry(req)
 }

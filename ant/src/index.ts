@@ -10,8 +10,6 @@ interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   secrets?: Record<string, string>;
-  messageCount?: number;
-  delegateDepth?: number;
   soul?: string;
   systemMd?: string;
 }
@@ -25,13 +23,7 @@ interface ContainerOutput {
 
 interface SessionEntry {
   sessionId: string;
-  fullPath: string;
   summary: string;
-  firstPrompt: string;
-}
-
-interface SessionsIndex {
-  entries: SessionEntry[];
 }
 
 interface SDKUserMessage {
@@ -41,26 +33,14 @@ interface SDKUserMessage {
   session_id: string;
 }
 
-function isRoot(folder: string): boolean {
-  return !folder.includes('/');
-}
-
-type McpServerConfig = {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-};
+type McpServerConfig = { command: string; args?: string[]; env?: Record<string, string> };
 
 function loadAgentMcpServers(): Record<string, McpServerConfig> {
-  const settingsPath = `${HOME}/.claude/settings.json`;
   try {
-    if (!fs.existsSync(settingsPath)) return {};
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    const servers = settings.mcpServers as
-      Record<string, McpServerConfig> | undefined;
+    const s = JSON.parse(fs.readFileSync(`${HOME}/.claude/settings.json`, 'utf-8'));
+    const servers = s.mcpServers;
     if (!servers || typeof servers !== 'object') return {};
-    // Never override the built-in arizuko server
-    delete servers.arizuko;
+    delete servers.arizuko;  // never override the built-in server
     return servers;
   } catch {
     return {};
@@ -69,28 +49,18 @@ function loadAgentMcpServers(): Record<string, McpServerConfig> {
 
 function buildSystemPrompt(ci: ContainerInput):
     string | { type: 'preset'; preset: 'claude_code' } {
-  const parts: string[] = [];
-  if (ci.systemMd) parts.push(ci.systemMd);
-  if (ci.soul) parts.push(ci.soul);
-  // SDK only injects output styles into the preset system prompt.
-  // When we provide a custom string, load the style file ourselves.
-  const style = readOutputStyle();
-  if (style) parts.push(style);
+  // SDK injects output styles only into the preset prompt — load it ourselves for custom.
+  const parts = [ci.systemMd, ci.soul, readOutputStyle()].filter(Boolean);
   if (parts.length > 0) return parts.join('\n\n');
   return { type: 'preset' as const, preset: 'claude_code' as const };
 }
 
 function readOutputStyle(): string | null {
-  const settingsPath = `${HOME}/.claude/settings.json`;
   try {
-    if (!fs.existsSync(settingsPath)) return null;
-    const s = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    const s = JSON.parse(fs.readFileSync(`${HOME}/.claude/settings.json`, 'utf-8'));
     const name = s.outputStyle;
     if (!name || name === 'default') return null;
-    const fp = `${HOME}/.claude/output-styles/${name}.md`;
-    if (!fs.existsSync(fp)) return null;
-    const raw = fs.readFileSync(fp, 'utf-8');
-    // Strip YAML frontmatter
+    const raw = fs.readFileSync(`${HOME}/.claude/output-styles/${name}.md`, 'utf-8');
     return raw.replace(/^---\n[\s\S]*?\n---\n*/, '').trim() || null;
   } catch {
     return null;
@@ -105,10 +75,7 @@ const IPC_POLL_MS = 500;
 let wakeup: (() => void) | null = null;
 process.on('SIGUSR1', () => { if (wakeup) wakeup(); });
 
-/**
- * Push-based async iterable for streaming user messages to the SDK.
- * Keeps the iterable alive until end() is called, preventing isSingleUserTurn.
- */
+// Push-based async iterable; alive until end() so SDK doesn't treat as single-turn.
 class MessageStream {
   private queue: SDKUserMessage[] = [];
   private waiting: (() => void) | null = null;
@@ -173,58 +140,33 @@ function log(message: string): void {
 }
 
 function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
-  const projectDir = path.dirname(transcriptPath);
-  const indexPath = path.join(projectDir, 'sessions-index.json');
-
-  if (!fs.existsSync(indexPath)) return null;
-
+  const indexPath = path.join(path.dirname(transcriptPath), 'sessions-index.json');
   try {
-    const index: SessionsIndex = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
-    const entry = index.entries.find(e => e.sessionId === sessionId);
-    if (entry?.summary) {
-      return entry.summary;
-    }
-  } catch (err) {
-    log(`Failed to read sessions index: ${err instanceof Error ? err.message : String(err)}`);
+    const index = JSON.parse(fs.readFileSync(indexPath, 'utf-8')) as { entries: SessionEntry[] };
+    return index.entries.find(e => e.sessionId === sessionId)?.summary ?? null;
+  } catch {
+    return null;
   }
-
-  return null;
 }
 
 function createPreCompactHook(assistantName?: string): HookCallback {
   return async (input, _toolUseId, _context) => {
-    const preCompact = input as PreCompactHookInput;
-    const transcriptPath = preCompact.transcript_path;
-    const sessionId = preCompact.session_id;
-
-    if (!transcriptPath || !fs.existsSync(transcriptPath)) {
-      log('No transcript found for archiving');
-      return {};
-    }
-
+    const { transcript_path: transcriptPath, session_id: sessionId } = input as PreCompactHookInput;
     try {
-      const content = fs.readFileSync(transcriptPath, 'utf-8');
-      const messages = parseTranscript(content);
-
+      const messages = parseTranscript(fs.readFileSync(transcriptPath, 'utf-8'));
       if (messages.length === 0) {
         log('No messages to archive');
-        return {};
+      } else {
+        const summary = getSessionSummary(sessionId, transcriptPath);
+        const slug = summary
+          ? summary.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50)
+          : `conversation-${new Date().toTimeString().slice(0, 5).replace(':', '')}`;
+        const dir = `${HOME}/conversations`;
+        fs.mkdirSync(dir, { recursive: true });
+        const fp = path.join(dir, `${new Date().toISOString().split('T')[0]}-${slug}.md`);
+        fs.writeFileSync(fp, formatTranscriptMarkdown(messages, summary, assistantName));
+        log(`Archived conversation to ${fp}`);
       }
-
-      const summary = getSessionSummary(sessionId, transcriptPath);
-      const name = summary ? sanitizeFilename(summary) : generateFallbackName();
-
-      const conversationsDir = `${HOME}/conversations`;
-      fs.mkdirSync(conversationsDir, { recursive: true });
-
-      const date = new Date().toISOString().split('T')[0];
-      const filename = `${date}-${name}.md`;
-      const filePath = path.join(conversationsDir, filename);
-
-      const markdown = formatTranscriptMarkdown(messages, summary, assistantName);
-      fs.writeFileSync(filePath, markdown);
-
-      log(`Archived conversation to ${filePath}`);
     } catch (err) {
       log(`Failed to archive transcript: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -243,8 +185,7 @@ function createPreCompactHook(assistantName?: string): HookCallback {
   };
 }
 
-// Strip secrets from Bash subprocess environments: needed by claude-code
-// for API auth but must never be visible to commands the agent runs.
+// Strip from Bash subprocesses — SDK needs them, agent commands must not see them.
 const SECRET_ENV_VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
 
 function createSanitizeBashHook(): HookCallback {
@@ -266,18 +207,6 @@ function createSanitizeBashHook(): HookCallback {
   };
 }
 
-function sanitizeFilename(summary: string): string {
-  return summary
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50);
-}
-
-function generateFallbackName(): string {
-  return `conversation-${new Date().toTimeString().slice(0, 5).replace(':', '')}`;
-}
-
 interface ParsedMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -285,71 +214,45 @@ interface ParsedMessage {
 
 function parseTranscript(content: string): ParsedMessage[] {
   const messages: ParsedMessage[] = [];
-
   for (const line of content.split('\n')) {
     if (!line.trim()) continue;
     try {
       const entry = JSON.parse(line);
-      if (entry.type === 'user' && entry.message?.content) {
-        const text = typeof entry.message.content === 'string'
-          ? entry.message.content
-          : entry.message.content.map((c: { text?: string }) => c.text || '').join('');
+      const c = entry.message?.content;
+      if (!c) continue;
+      if (entry.type === 'user') {
+        const text = typeof c === 'string' ? c : c.map((p: { text?: string }) => p.text || '').join('');
         if (text) messages.push({ role: 'user', content: text });
-      } else if (entry.type === 'assistant' && entry.message?.content) {
-        const textParts = entry.message.content
-          .filter((c: { type: string }) => c.type === 'text')
-          .map((c: { text: string }) => c.text);
-        const text = textParts.join('');
+      } else if (entry.type === 'assistant') {
+        const text = c.filter((p: { type: string }) => p.type === 'text').map((p: { text: string }) => p.text).join('');
         if (text) messages.push({ role: 'assistant', content: text });
       }
-    } catch {
-    }
+    } catch { /* skip malformed line */ }
   }
-
   return messages;
 }
 
 function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | null, assistantName?: string): string {
-  const now = new Date();
-  const formatDateTime = (d: Date) => d.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true
+  const when = new Date().toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
   });
-
-  const lines: string[] = [];
-  lines.push(`# ${title || 'Conversation'}`);
-  lines.push('');
-  lines.push(`Archived: ${formatDateTime(now)}`);
-  lines.push('');
-  lines.push('---');
-  lines.push('');
-
-  for (const msg of messages) {
-    const sender = msg.role === 'user' ? 'User' : (assistantName || 'Assistant');
-    const content = msg.content.length > 2000
-      ? msg.content.slice(0, 2000) + '...'
-      : msg.content;
-    lines.push(`**${sender}**: ${content}`);
-    lines.push('');
-  }
-
-  return lines.join('\n');
+  const body = messages.map(m => {
+    const sender = m.role === 'user' ? 'User' : (assistantName || 'Assistant');
+    const content = m.content.length > 2000 ? m.content.slice(0, 2000) + '...' : m.content;
+    return `**${sender}**: ${content}\n`;
+  }).join('\n');
+  return `# ${title || 'Conversation'}\n\nArchived: ${when}\n\n---\n\n${body}`;
 }
 
-function nudgeProgress(ipcDir: string): void {
-  const ts = Date.now();
-  const name = `${ts}-progress.json`;
-  const fp = path.join(ipcDir, name);
+function nudgeProgress(): void {
+  const fp = path.join(IPC_INPUT_DIR, `${Date.now()}-progress.json`);
   const payload = JSON.stringify({
     type: 'message',
     source: 'nudge',
     text: 'Report progress to the user now. Use <status>short summary of what you are doing</status>.',
   });
   try {
-    fs.mkdirSync(ipcDir, { recursive: true });
+    fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
     fs.writeFileSync(fp + '.tmp', payload);
     fs.renameSync(fp + '.tmp', fp);
     log('Nudged agent for progress report');
@@ -394,8 +297,7 @@ function drainIpcInput(): string[] {
   }
 }
 
-// Remove only self-generated progress nudges from the IPC dir.
-// Gateway-steered user messages are left for checkIpcMessage.
+// Drop only self-generated nudges; leave gateway-steered messages.
 function discardNudges(): number {
   try {
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
@@ -417,23 +319,11 @@ function discardNudges(): number {
   } catch { return 0; }
 }
 
-// Flag (not a real mutex — single-threaded JS) guarding reentry into
-// drainIpcInput. Useful if multiple PostToolUse hook callbacks ever fire
-// concurrently in the SDK's internal scheduler.
-let draining = false;
-function drainIpcInputMutex(): string[] {
-  if (draining) return [];
-  draining = true;
-  try { return drainIpcInput(); }
-  finally { draining = false; }
-}
-
 // PostToolUse is the only SDK primitive that injects mid-loop inside the
-// same turn. Text-only responses never fire this — pollIpcDuringQuery
-// remains the fallback via stream.push (next-turn delivery).
+// same turn. Text-only responses rely on checkIpcMessage next-turn pickup.
 function createIpcDrainHook(): HookCallback {
   return async (_input, _toolUseId, _context) => {
-    const messages = drainIpcInputMutex();
+    const messages = drainIpcInput();
     if (messages.length === 0) return {};
     log(`Piping ${messages.length} IPC messages into active query via PostToolUse hook`);
     const body = messages.map(m => `<message>${m}</message>`).join('\n');
@@ -446,20 +336,13 @@ function createIpcDrainHook(): HookCallback {
   };
 }
 
-// Per spec (L-chat-bound-sessions): exit when input/ is empty.
-// Gateway detects exit and re-queues any messages that arrived after.
+// Exit when input/ is empty; gateway re-queues anything arriving after.
 function checkIpcMessage(): string | null {
   if (shouldClose()) return null;
   const messages = drainIpcInput();
   return messages.length > 0 ? messages.join('\n') : null;
 }
 
-/**
- * Run a single query and stream results via writeOutput.
- * Uses MessageStream (AsyncIterable) to keep isSingleUserTurn=false,
- * allowing agent teams subagents to run to completion.
- * Also pipes IPC messages into the stream during the query.
- */
 async function runQuery(
   prompt: string,
   sessionId: string | undefined,
@@ -470,20 +353,8 @@ async function runQuery(
   const stream = new MessageStream();
   stream.push(prompt);
 
-  // Poll IPC ONLY for the _close sentinel during the query. User-message
-  // drain is owned exclusively by the PostToolUse hook (createIpcDrainHook)
-  // which injects via additionalContext at the next tool-call boundary —
-  // that's the actual mid-loop delivery mechanism in the SDK.
-  //
-  // Before: this timer ALSO drained user messages every IPC_POLL_MS and
-  // pushed them to stream, but the hook shares drainIpcInputMutex with
-  // the timer. Typical tool-calls are 5-30s while the timer ticks every
-  // 500ms, so the timer always won the race, the hook saw an empty queue,
-  // and steered messages landed as next-turn items (via stream.push)
-  // instead of mid-loop (via additionalContext). Moving message drain
-  // exclusively to the hook makes the plan's mid-loop steering actually
-  // work. Text-only responses (no tool calls) still pick up steered
-  // messages at next-turn start via checkIpcMessage().
+  // Poll only for the _close sentinel. User-message drain is owned by
+  // the PostToolUse hook (mid-loop via additionalContext).
   let ipcPolling = true;
   let closedDuringQuery = false;
   const pollIpcDuringQuery = () => {
@@ -510,18 +381,16 @@ async function runQuery(
   let sessionError = false;
   let lastProgressAt = Date.now();
 
-  // Additional dirs: their CLAUDE.md files are auto-loaded by the SDK
+  // Extra dirs: SDK auto-loads their CLAUDE.md files.
   const extraDirs: string[] = [];
-  if (!isRoot(containerInput.groupFolder) && fs.existsSync('/workspace/share')) {
-    extraDirs.push('/workspace/share');
-  }
-  const extraBase = '/workspace/extra';
-  if (fs.existsSync(extraBase)) {
-    for (const e of fs.readdirSync(extraBase)) {
-      const p = path.join(extraBase, e);
+  const isRoot = !containerInput.groupFolder.includes('/');
+  if (!isRoot && fs.existsSync('/workspace/share')) extraDirs.push('/workspace/share');
+  try {
+    for (const e of fs.readdirSync('/workspace/extra')) {
+      const p = path.join('/workspace/extra', e);
       if (fs.statSync(p).isDirectory()) extraDirs.push(p);
     }
-  }
+  } catch { /* /workspace/extra absent */ }
 
   const heartbeat = setInterval(writeHeartbeat, HEARTBEAT_INTERVAL_MS);
   const agentMcpServers = loadAgentMcpServers();
@@ -568,16 +437,13 @@ async function runQuery(
       log(`[msg #${messageCount}] type=${msgType}`);
 
       if (message.type === 'assistant') {
-        const m = message as { message?: { content?: { type: string; text?: string }[] }; uuid?: string };
-        const text = m.message?.content?.filter(c => c.type === 'text').map(c => c.text || '').join('').trim();
-        if (m.uuid) lastAssistantUuid = m.uuid;
+        const uuid = (message as { uuid?: string }).uuid;
+        if (uuid) lastAssistantUuid = uuid;
       }
 
       const now = Date.now();
-      const timeTriggered = now - lastProgressAt >= PROGRESS_INTERVAL_MS;
-      const countTriggered = messageCount > 0 && messageCount % 500 === 0;
-      if (timeTriggered || countTriggered) {
-        nudgeProgress(IPC_INPUT_DIR);
+      if (now - lastProgressAt >= PROGRESS_INTERVAL_MS || messageCount % 500 === 0) {
+        nudgeProgress();
         lastProgressAt = now;
       }
 
@@ -622,9 +488,7 @@ async function runQuery(
   ipcPolling = false;
   wakeup = null;
 
-  // Discard self-generated progress nudges that arrived after the last
-  // PostToolUse hook (during final text generation). Real user messages
-  // (gateway steers) must NOT be discarded — they feed checkIpcMessage.
+  // Drop nudges that landed during final text gen; real user messages stay.
   const discarded = discardNudges();
   if (discarded > 0) {
     log(`Discarded ${discarded} stale progress nudges after query`);
@@ -672,8 +536,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Build SDK env: merge secrets into process.env for the SDK only.
-  // Secrets never touch process.env itself, so Bash subprocesses can't see them.
+  // SDK gets secrets via env param; process.env stays clean so Bash can't see them.
   const sdkEnv: Record<string, string | undefined> = { ...process.env };
   for (const [key, value] of Object.entries(containerInput.secrets || {})) {
     sdkEnv[key] = value;
@@ -719,9 +582,7 @@ async function main(): Promise<void> {
         resumeAt = queryResult.lastAssistantUuid;
       }
 
-      // If _close was consumed during the query, exit immediately.
-      // Don't emit a session-update marker (it would reset the host's
-      // idle timer and cause a 30-min delay before the next _close).
+      // Skip the session-update marker — it resets the host idle timer.
       if (queryResult.closedDuringQuery) {
         log('Close sentinel consumed during query, exiting');
         break;

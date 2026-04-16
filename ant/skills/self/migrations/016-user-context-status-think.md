@@ -1,25 +1,11 @@
-# 016 — User context, status blocks, think blocks
+# 016 — user context, status blocks, think blocks
 
-## Changes
+Gateway now:
 
-The gateway now injects user identity into prompts via `<user>` tags
-and processes agent output to strip `<think>` blocks and extract
-`<status>` blocks as interim messages.
-
-## What you need to know
-
-- `<user id="tg-123" name="Alice" memory="~/users/tg-123.md" />`
-  appears before `<messages>` when a sender is identified
-- User profile files live in `~/users/<platform>-<id>.md` with
-  YAML frontmatter (`name:` field). You can create/edit these
-  to remember user preferences.
-- `<think>` blocks are stripped — use them for private reasoning
-  that should not reach the user
-- `<status>` blocks are sent immediately as interim messages —
-  use them to show progress during long tasks
-- Messages now include `reply_to` attributes when the user
-  replied to a specific message
-
-## No action needed
-
-These are gateway-side changes. No agent-side code changes required.
+- Injects `<user id="tg-123" name="Alice" memory="~/users/tg-123.md" />`
+  before `<messages>` when a sender is identified. Profiles in
+  `~/users/<platform>-<id>.md` with YAML frontmatter — edit to remember
+  preferences.
+- Strips `<think>` blocks — use for private reasoning.
+- Sends `<status>` blocks immediately as interim messages.
+- Adds `reply_to` attribute when the user replied to a specific message.

@@ -5,95 +5,20 @@ description: Send a welcome message to introduce yourself and explain what you c
 
 # Hello
 
-If `SOUL.md` exists (in home directory), read it first and introduce yourself
-in that persona. Otherwise use `$ARIZUKO_ASSISTANT_NAME`.
+If `~/SOUL.md` exists, read it first and introduce yourself in that persona.
+Otherwise use `$ARIZUKO_ASSISTANT_NAME`.
 
-Write a welcome message with three parts:
+Three parts, one chat message (must fit telegram/discord without scrolling):
 
 1. **Greeting** (2-3 lines) — name, what you do, "send me a message"
-2. **Use cases** — what concrete things users can ask you to do
-3. **Reference** — commands and mechanics
+2. **Use cases** — what the user can DO (L1 bolded category, L2 indented
+   concrete example). Omit any category that isn't available.
+3. **Reference** — commands and routing
 
-## Use Cases
-
-Lead with what the user can DO, not how the system works. Present as a
-scannable list — L1 is the use case, L2 is a concrete example.
+## Template
 
 ```
-Research
-  "research the latest on quantum error correction"
-  "compare the top 3 competitors to X"
-
-Data & Analysis
-  "analyze this CSV and plot monthly trends"
-  Send spreadsheets, CSVs — get charts and reports back
-
-Code
-  "write a Go HTTP server that returns JSON health"
-  Node/Python/Go/Rust — writes, runs, iterates, sends results
-
-Web Apps
-  "build a todo app with dark mode"
-  Deploys live to your URL, iterate with follow-ups
-
-Files & Media
-  Send images, PDFs, docs, voice — read automatically
-  /file put|get|ls for workspace transfers
-
-Scheduling
-  "check the weather every morning at 9am"
-  Cron jobs, intervals, one-shot tasks
-```
-
-Omit any category where the capability is not available.
-
-## Reference
-
-After the use cases, add a compact reference section:
-
-```
-Commands
-  /new [msg] — fresh session    /stop — halt agent
-  /ping — status check          /chatid — show chat JID
-  /file — file transfer
-
-Routing
-  @agent — address child groups    #topic — parallel threads
-```
-
-Omit routing if no child groups exist.
-
-## Web prefix
-
-You MUST run this bash to get the howto URL — never guess it:
-
-```bash
-echo "https://$WEB_HOST/$WEB_PREFIX/howto/"
-```
-
-Use the exact URL printed. NEVER output `$WEB_HOST` or `$WEB_PREFIX` literally.
-
-## Formatting Rules
-
-- Single chat message — must fit telegram/discord without scrolling
-- Use indented lines for L2, not bullets or numbered lists
-- Keep each L2 line under 60 chars where possible
-- Bold the L1 category names
-- No emojis unless the user uses them
-- Match the user's language
-
-## Tone
-
-- Calm, precise, direct — not chatty, not cold
-- Informative but scannable — users skim, they don't read walls
-- Close with "Tell me what you need." not "Ask me about any of these"
-
-## Examples
-
-Root group:
-
-```
-I'm REDACTED — one of Arizuko's ants. I can research, code,
+I'm $NAME — one of Arizuko's ants. I can research, code,
 build web apps, and help with analysis and daily tasks.
 
 Here's what I can do:
@@ -103,64 +28,48 @@ Research
   "download and transcribe this video"
 
 Data & Analysis
-  Send spreadsheets, CSVs — I produce charts and reports
-  "run a SQL query over this data"
+  Send CSVs — charts and reports back
+  "analyze this and plot monthly trends"
 
 Code
-  Node/Python/Go/Rust — I write, run, and iterate
+  Node/Python/Go/Rust — I write, run, iterate
   "build a CLI tool that deduplicates CSV rows"
 
 Web Apps
   "build a dashboard for my portfolio"
-  Deployed live at REDACTED
+  Deployed live at <URL>
 
 Files
-  Send images, PDFs, docs, voice — I read them directly
+  Send images, PDFs, docs, voice — read automatically
   /file put|get|ls for workspace transfers
 
 Scheduling
   "send me a weekly summary every Monday"
-  Cron jobs, intervals, one-shot tasks
 
 Commands
   /new — fresh session  /stop — halt  /ping — status
   @agent — child groups  #topic — parallel threads
 
 Tell me what you need.
-Getting started: https://REDACTED/pub/howto/
+Getting started: <howto URL>
 ```
 
-Non-root group:
+Omit routing line (`@agent / #topic`) if no child groups.
 
+## Web prefix
+
+Run bash to resolve the howto URL — never guess it:
+
+```bash
+echo "https://$WEB_HOST/$WEB_PREFIX/howto/"
 ```
-I'm myai — one of REDACTED's ants. I can research, code,
-build web apps, and help with daily tasks.
 
-Here's what I can do:
+Print the exact output. NEVER emit literal `$WEB_HOST` or `$WEB_PREFIX`.
 
-Research
-  "research X" — web search, summaries, sources
-  "open this page and screenshot the pricing table"
+## Tone
 
-Data
-  Send CSVs, spreadsheets — charts and reports back
-  "analyze this and plot monthly trends"
-
-Code
-  Node/Python/Go/Rust — writes, runs, sends results
-  "convert this video to mp3"
-
-Web Apps
-  "build a todo app with dark mode"
-  Live at REDACTED/pub/myai/
-
-Files
-  Send images, PDFs, docs, voice — read automatically
-  /file put|get|ls for transfers
-
-Commands
-  /new — fresh session  /stop — halt  /ping — status
-
-Tell me what you need.
-Getting started: https://REDACTED/pub/myai/howto/
-```
+- Calm, precise, direct. Not chatty, not cold.
+- Use indented L2 lines, not bullets or numbers
+- Keep L2 under 60 chars, bold the L1 categories
+- No emojis unless the user uses them; match the user's language
+- Close with "Tell me what you need." — not "Ask me about any of these"

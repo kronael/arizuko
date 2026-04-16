@@ -5,12 +5,8 @@ description: Restart the arizuko container or reload config. Use when asked to r
 
 # Reload
 
-Terminate the container to trigger a restart with fresh config.
-
-## Usage
-
-Send SIGTERM to PID 1 (the container entrypoint). The container's
-restart policy will bring it back with fresh config.
+Send SIGTERM to PID 1; the container's restart policy brings it back with
+fresh config.
 
 ```bash
 kill -TERM 1

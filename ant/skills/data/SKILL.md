@@ -5,65 +5,44 @@ description: >
   Covers rate limiting, deduplication, state recovery, and backfill.
 ---
 
-# Collector/Data Collection
-
-## Testing
-
-- ALWAYS test with real API after 10 lines (mental models are always wrong)
-- Each source has main() for live API testing before integration
+# Data collection
 
 ## Architecture
 
-- asyncio-based, multiple collectors in single loop
-- Sources yield articles via async iterators
-- NEVER block event loop with synchronous requests
+- asyncio-based, one loop hosts multiple collectors
+- Sources yield items via async iterators
+- Test against real API after ~10 lines — mental models are always wrong
 
-## State Management
+## State
 
-- state.json for recovery: resume from last_processed + 1
-- Save state every 10,000 items, keep portable (JSON)
+- `state.json` for recovery: resume from `last_processed + 1`
+- Save every ~10k items, keep it portable JSON
 
-## Data Source Patterns
+## Sources
 
-- **RSS**: feedparser, RssFeedSource base
-- **REST API**: JsonSource base, test fixtures from saved responses
-- **WebSocket**: WebsocketSource base, restart_on_failure decorator
-- **Blockchain/RPC**: parallel fetching (10 concurrent), gRPC when available
+- RSS: feedparser
+- REST: JsonSource base, save real responses as test fixtures
+- WebSocket: restart-on-failure decorator
+- RPC/Blockchain: parallel fetching, gRPC when available
 
-## Error Handling
+## Error handling
 
-- restart_on_failure decorator for crash recovery
-- Retry with exponential backoff, NEVER trust external APIs
-- Cache-first: local cache before RPC fallback
-- LeakyBucket for expensive APIs (ChatGPT, etc.)
+- Exponential backoff, only retry transient errors
+- Cache-first, RPC/API fallback
+- LeakyBucket for paid APIs
 
 ## Backfill
 
-- ALWAYS store raw data (compressed JSON/XZ) for backfill
-- NEVER delete historical data
-- Incremental snapshots, CLI flag (-s slot) for start point
+- ALWAYS store raw data (compressed JSON/XZ) — NEVER delete history
+- Incremental snapshots, CLI flag for start point
 
-## Storage
+## Dedup
 
-- **PostgreSQL**: structured, indexed on frequent queries
-- **Redis**: hot data cache (MGET <2ms for 100 accounts vs 1-5s RPC)
-  - Key namespace: schema:, state:, stake:
-- **BigQuery**: historical analysis, time-series
-- **File**: compressed blocks (XZ level 6)
-
-## Deduplication
-
-- URL/primary key (database insert check)
-- Vector similarity for semantic dedup (Weaviate)
+- URL or primary key (DB insert check)
+- Vector similarity for semantic dedup
 - NEVER trust upstream deduplication
-
-## Configuration
-
-- NEVER hardcode secrets (env vars)
-- Google Sheets for dynamic config (live reconfiguration without restart)
 
 ## Concurrency
 
-- ALWAYS parallelize independent tasks
-- Database constraints for dedup, not in-memory locks
-- Redis atomic ops (INCR, SET NX), DashMap for lock-free reads
+- Parallelize independent tasks
+- Use DB constraints for dedup, not in-memory locks

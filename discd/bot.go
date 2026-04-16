@@ -53,7 +53,6 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.Bot {
 		return
 	}
-
 	jid := "discord:" + m.ChannelID
 	content := m.Content
 	var atts []chanlib.InboundAttachment
@@ -69,7 +68,6 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if content == "" {
 		return
 	}
-
 	content = replaceMentions(content, b.cfg.AssistantName, b.session.State.User)
 
 	topic := ""
@@ -100,30 +98,25 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	if req.ThreadID != "" {
 		chID = req.ThreadID
 	}
-	chunks := chanlib.Chunk(req.Content, 2000)
 	var firstID string
-	for i, c := range chunks {
-		var (
-			msg *discordgo.Message
-			err error
-		)
+	for i, c := range chanlib.Chunk(req.Content, 2000) {
+		var msg *discordgo.Message
+		var err error
 		for attempt := 0; attempt < 3; attempt++ {
 			if req.ReplyTo != "" && i == 0 {
-				ref := &discordgo.MessageReference{MessageID: req.ReplyTo}
-				msg, err = b.session.ChannelMessageSendReply(chID, c, ref)
+				msg, err = b.session.ChannelMessageSendReply(chID, c, &discordgo.MessageReference{MessageID: req.ReplyTo})
 			} else {
 				msg, err = b.session.ChannelMessageSend(chID, c)
 			}
 			if err == nil {
 				break
 			}
-			errStr := err.Error()
-			if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") {
-				slog.Warn("discord rate limited, retrying", "attempt", attempt+1)
-				time.Sleep(time.Second)
-				continue
+			es := err.Error()
+			if !strings.Contains(es, "429") && !strings.Contains(es, "rate limit") {
+				break
 			}
-			break
+			slog.Warn("discord rate limited, retrying", "attempt", attempt+1)
+			time.Sleep(time.Second)
 		}
 		if err != nil {
 			return "", fmt.Errorf("discord send: %w", err)

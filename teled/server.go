@@ -68,7 +68,6 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 	if ct := fileResp.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
-	w.Header().Set("Content-Disposition",
-		fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(apiResp.Result.FilePath)))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(apiResp.Result.FilePath)))
 	io.Copy(w, fileResp.Body)
 }

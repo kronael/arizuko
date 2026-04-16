@@ -2,44 +2,38 @@
 name: cli
 description: >
   Use when writing CLI tools, argument parsing, --help text,
-  exit codes, or signal handling. Covers argparse, click, clap patterns.
+  exit codes, or signal handling.
 ---
 
 # CLI Style
 
 ## Arguments
 
-- ALWAYS short flags for common ops: -c, -v, -h (old Unix style)
-- Repeat flag for multiples: `-e ex1 -e ex2` or comma: `--hosts=h1,h2`
+- Short flags for common ops: `-c`, `-v`, `-h`
+- Repeat flag for multiples (`-e a -e b`) or comma: `--hosts=a,b`
 - Positional: required `<identity>`, optional `[branch]`
 
-## Config Precedence
+## Config precedence
 
 CLI flags > env vars > config files > defaults. Fail fast on invalid config.
 
-## Exit Codes
+## Exit codes
 
-- 0: success, 1: config error, 2: runtime error (retryable), 3: fatal, 130: interrupted
+0 success, 1 config error, 2 runtime (retryable), 3 fatal, 130 interrupted.
 
 ## Output
 
-- stdout: results, stderr: errors
-- --json for machine parsing, --quiet for scripts
+- stdout = results, stderr = errors
+- `--json` for machine parsing, `--quiet` for scripts
 - Error messages MUST be actionable (show got + fix)
 
 ## Modes
 
-- ALWAYS support --yes for non-interactive (CI/automation)
-- ALWAYS provide --dry-run for destructive operations
+- `--yes` for non-interactive (CI/automation)
+- `--dry-run` for destructive operations
 
-## Installation
-
-Two methods: `make link` (dev, symlink debug binary) and `make install` (system, install release binary).
-
-## Pitfalls
+## Rules
 
 - NEVER write secrets to logs
-- NEVER hardcode paths (use ${PREFIX})
-- ALWAYS document env vars in --help
 - ALWAYS validate config on load, BEFORE any operations
-- Fixture data in cfg/test/, NEVER use production configs in tests
+- Fixture data in `cfg/test/`, never production configs in tests

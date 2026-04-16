@@ -44,6 +44,11 @@ func (bc *bskyClient) auth() error {
 	return bc.createSession()
 }
 
+func (bc *bskyClient) storeSession(s session) {
+	bc.session = s
+	bc.saveSession()
+}
+
 func (bc *bskyClient) sessionPath() string {
 	return filepath.Join(bc.cfg.DataDir, "bluesky-session.json")
 }
@@ -86,8 +91,7 @@ func (bc *bskyClient) createSession() error {
 	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
 		return err
 	}
-	bc.session = s
-	bc.saveSession()
+	bc.storeSession(s)
 	slog.Info("bluesky authenticated", "did", s.DID)
 	return nil
 }
@@ -108,8 +112,7 @@ func (bc *bskyClient) refreshSession(refreshJwt string) error {
 	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
 		return err
 	}
-	bc.session = s
-	bc.saveSession()
+	bc.storeSession(s)
 	return nil
 }
 
@@ -186,8 +189,7 @@ func (bc *bskyClient) fetchNotifications(rc *chanlib.RouterClient) error {
 		processed++
 	}
 	if processed > 0 {
-		bc.xrpc("POST", "app.bsky.notification.updateSeen", nil,
-			map[string]string{"seenAt": time.Now().UTC().Format(time.RFC3339)}, nil)
+		bc.xrpc("POST", "app.bsky.notification.updateSeen", nil, map[string]string{"seenAt": time.Now().UTC().Format(time.RFC3339)}, nil)
 	}
 	return nil
 }
@@ -206,13 +208,11 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 	if n.Reason == "reply" {
 		verb = "reply"
 	}
-
 	atts := bc.extractAttachments(n)
 	content := n.Record.Text
 	for _, a := range atts {
 		content += fmt.Sprintf(" [Image: %s]", a.Filename)
 	}
-
 	ts, _ := time.Parse(time.RFC3339, n.IndexedAt)
 	if err := rc.SendMessage(chanlib.InboundMsg{
 		ID:          uriToKey(n.URI),

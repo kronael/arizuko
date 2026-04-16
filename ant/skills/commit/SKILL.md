@@ -19,26 +19,17 @@ user-invocable: true
 `[section] Message` — why not what, 1-2 sentences.
 Sections: fix, feat, refactor, docs, test, chore, perf, style
 
-Markers: `[checkpoint]` -> `[checkpoint] Message`, `[refined]` -> `[section] Message [refined]`
+Markers: `[checkpoint]`, `[section] ... [refined]`
 
 ## Workflow
 
 1. `git status` + `git diff` + `git log --oneline -5`
-2. Decide commit or not
-3. Draft message
-4. Commit directly: `git commit -m "msg" -- file1 file2`
-5. If pre-commit reformats, retry once
-6. If index.lock: `rm -f .git/index.lock`, retry once
+2. `git commit -m "msg" -- file1 file2` (no staging, commit whole files)
+3. On pre-commit reformat, retry once
+4. On `.git/index.lock`, remove and retry once
 
 ## Rules
 
-- ALWAYS `git commit -m "msg" -- file1 file2` (direct, no staging)
-- ALWAYS commit whole files, list each explicitly
-- NEVER `git add` (commit directly with -- pathspec)
-- NEVER `git commit` without `-- file1 file2`
-- NEVER `git commit --amend`
-- NEVER `git commit -a`
-- NEVER `git stash`
-- NEVER Co-Authored-By
-- NEVER skip pre-commit hooks
+- NEVER `git add`, `git commit -a`, `git stash`, `git commit --amend`
+- NEVER skip pre-commit hooks, NEVER Co-Authored-By
 - Ignore other agents' uncommitted changes

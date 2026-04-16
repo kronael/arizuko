@@ -1,28 +1,10 @@
-# 013 — CLAUDE.md + skills: Soul, Knowledge, Greetings, hello persona
+# 013 — CLAUDE.md gains Soul, Knowledge, Greetings sections
 
-The seeded `~/.claude/CLAUDE.md` is missing the Soul, Knowledge,
-and Greetings sections. The hello skill has a stale version that
-hardcodes a stale identity instead of reading SOUL.md.
-
-## Check
-
-```bash
-grep -q "^# Soul" ~/.claude/CLAUDE.md && \
-  [ ! -f ~/.claude/skills/hello/SKILL.md ] || \
-  grep -q "SOUL.md" ~/.claude/skills/hello/SKILL.md && \
-  echo "done" && exit 0
-```
-
-## Steps
+CLAUDE.md was missing these sections; hello skill had a stale identity.
+Re-seed if outdated:
 
 ```bash
 cp /workspace/self/container/CLAUDE.md ~/.claude/CLAUDE.md
 mkdir -p ~/.claude/skills/hello
 cp /workspace/self/container/skills/hello/SKILL.md ~/.claude/skills/hello/SKILL.md
-```
-
-## After
-
-```bash
-echo 13 > ~/.claude/skills/self/MIGRATION_VERSION
 ```

@@ -6,42 +6,33 @@ description: >
 user-invocable: true
 ---
 
-# Refine Skill
+# Refine
 
-Orchestrates code refinement. Runs in main context for full conversation visibility.
+Runs in main context for full conversation visibility.
 
 ## Workflow
 
-1. **Checkpoint** - if uncommitted changes, invoke `Skill(commit, "[checkpoint]")`
-2. **Validate** - run build/test, fix failures
-3. **Improve** - spawn `Task(prompt, agent="improve")`
-   - Lead with: "Simplify this code: remove redundancy, collapse verbosity, delete dead paths. Keep all tests passing."
-4. **Document** - spawn `Task(prompt, agent="readme")`
-5. **Verify** - final build/test
-6. **Commit** - if changes, invoke `Skill(commit, "[refined]")`
-7. **Cleanup** - remove stale agent worktrees:
-   ```bash
-   for d in .claude/worktrees/*/; do
-     branch=$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)
-     git worktree remove "$d" --force
-     [ -n "$branch" ] && git branch -D "$branch" 2>/dev/null
-   done
-   ```
-8. **Summary** - what changed, main impact, no fluff, not marketing
+1. **Checkpoint** — if uncommitted changes, `Skill(commit, "[checkpoint]")`
+2. **Validate** — `make build && make test`, fix failures
+3. **Improve** — `Task(prompt, agent="improve")`, leading with:
+   "Simplify this code: remove redundancy, collapse verbosity, delete dead paths. Keep all tests passing."
+4. **Document** — `Task(prompt, agent="readme")`
+5. **Verify** — final build/test
+6. **Commit** — `Skill(commit, "[refined]")` if anything changed
+7. **Summary** — what changed, main impact, no marketing
 
-## Prompt Structure
+## Prompt structure
 
 ```
-Intent: [user's original request, not summary]
+Intent: [user's original request, not a summary]
 Primary: [files to modify]
 Context: [read-only reference, if needed]
 ```
 
-For readme agent: list what changed (file + one-line each).
+For the readme agent: list what changed (file + one-liner each).
 
 ## Rules
 
-- NEVER do improvement work yourself - delegate to improve agent
-- NEVER summarize user intent - pass original request
-- Explicit scope > vague "review these files"
-- Run ALL 7 steps; skip commit only if no file changes
+- NEVER do improvement work yourself — delegate to the improve agent
+- NEVER summarize user intent — pass the original request
+- Skip commit only if no file changes

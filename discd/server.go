@@ -26,14 +26,14 @@ type fileCache struct {
 }
 
 func (fc *fileCache) Put(url string) string {
-	h := fmt.Sprintf("%x", sha256.Sum256([]byte(url)))[:12]
+	id := fmt.Sprintf("%x", sha256.Sum256([]byte(url)))[:12]
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 	if fc.m == nil {
-		fc.m = make(map[string]string)
+		fc.m = map[string]string{}
 	}
-	fc.m[h] = url
-	return h
+	fc.m[id] = url
+	return id
 }
 
 func (fc *fileCache) Get(id string) (string, bool) {

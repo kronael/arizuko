@@ -1,33 +1,16 @@
-# 020 — Group identity env vars and routing defaults
+# 020 — group identity env vars and routing
 
-## What changed
+New env vars injected by the gateway:
 
-### New environment variables
+- `ARIZUKO_GROUP_NAME` — display name
+- `ARIZUKO_GROUP_FOLDER` — folder path (e.g. `atlas/support`)
+- `ARIZUKO_IS_WORLD_ADMIN` — "1" if tier 1
+- `ARIZUKO_CHAT_JID` — JID of the current chat (per invocation)
 
-The gateway now injects group identity into `settings.json`:
+Routing:
 
-- `ARIZUKO_GROUP_NAME` — display name (e.g., "Atlas")
-- `ARIZUKO_GROUP_FOLDER` — folder path (e.g., "atlas" or "atlas/support")
-- `ARIZUKO_IS_WORLD_ADMIN` — "1" if tier 1 (world's main admin group)
-- `ARIZUKO_CHAT_JID` — JID of the current chat session (set per invocation)
+- `get_routes` — `jid` optional; omit for all, pass `$ARIZUKO_CHAT_JID` to filter.
+- `add_route` — `jid` required; use `$ARIZUKO_CHAT_JID` for current chat.
+- `set_routes` removed (never existed).
 
-These join the existing `ARIZUKO_TIER`, `ARIZUKO_IS_ROOT`,
-`ARIZUKO_ASSISTANT_NAME`.
-
-### Routing actions updated
-
-- `get_routes` — `jid` is now optional. Omit to get all routes,
-  pass `$ARIZUKO_CHAT_JID` to filter by current chat.
-- `add_route` — `jid` is required. Always use `$ARIZUKO_CHAT_JID`
-  to target the current chat.
-- `set_routes` action removed (never existed, was documented in error).
-
-### IPC watcher
-
-Now discovers nested group folders recursively. Groups like
-`atlas/support` will have their IPC requests drained correctly.
-
-## Action required
-
-Update MEMORY.md if you stored assumptions about available env vars
-or routing actions.
+IPC watcher now recurses into nested group folders (`atlas/support` etc).

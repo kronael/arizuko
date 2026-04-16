@@ -1,73 +1,35 @@
 ---
 name: ops
 description: >
-  Use when writing Dockerfiles, CI pipelines, Ansible playbooks,
-  or deployment config. Covers monitoring, logging, systemd.
+  Use when writing Dockerfiles, CI pipelines, or deployment config.
+  Covers monitoring, logging, and systemd.
 ---
 
 # Ops
 
 ## Docker
 
-- ALWAYS pin image versions (NEVER :latest)
-- ALWAYS multi-stage if intermediate layers >100MB
-- ENTRYPOINT for production, CMD for development
-- Layer order: base+system deps -> lang deps (Cargo.toml, requirements.txt) -> fetch deps -> copy source -> build
-- Cross-compilation: volume mount source, NEVER copy
-- ALWAYS set memory limits (2GB typical) and build timeout (30m)
-
-## Configuration
-
-- Three-level: base TOML -> env.toml (`${PREFIX:-/srv}/key/env.toml`) -> env vars
-- Secrets in /srv/key/env.toml (NOT committed), chmod 600 for keypairs
+- ALWAYS pin image versions (NEVER `:latest`)
+- Multi-stage if intermediate layers >100MB
+- Layer order: base + system deps → lang deps → fetch → copy source → build
+- Memory limit (2GB typical), build timeout (30m)
 
 ## Logging
 
 - Format: `Mon DD HH:MM:SS.fff [LEVEL] message key=value`
-- CRITICAL prefix for monitoring alerts
 - Log rotation via logrotate (not in app)
-- RUST_LOG: `info` (prod), `debug` (dev), `module::path=debug,info` (selective)
 
 ## Monitoring
 
-- Heartbeat: ./tmp/<service>.heartbeat
-- Health: /.well-known/live, Metrics: /metrics (Prometheus)
-- Prometheus labels: NEVER unbounded values, ONLY bounded enums. High cardinality -> logs.
+- `/.well-known/live` for liveness, `/metrics` for Prometheus
+- Prometheus labels: bounded enums only, NEVER unbounded values
 
-## Error Handling
+## Error handling
 
-- Hierarchy: ApplicationError, InfrastructureError, DomainError
-- Exponential backoff: 100ms...1600ms, ONLY retry transient errors
-- Alert on >10 persistent failures
-
-## Storage
-
-- Config: `${PREFIX:-/srv}/key/`, Runtime: `${PREFIX:-/srv}/run/`, Data: `${PREFIX:-/srv}/data/<project>/`
-
-## Anti-Patterns
-
-- Use EWMA (not sliding windows) for window calculations
-- NEVER manually .close() async context managers
-
-## Ansible docker-service Role
-
-- Containers MUST have `./main` or `python -m main`
-- Entrypoint: `[[ -x ./main ]] && exec ./main $args $cfg || exec python -m main $args $cfg`
-- Service names: underscores (`funding_report`), image names: dashes (`funding-report`)
-- `--network=host` (no port mapping), config: `/cfg/<server>/<service>.toml`
-- Volumes: `/srv/spool/<name>` (persistent), `/srv/run/<name>` (runtime)
-
-```yaml
-service:
-  - image: my-service              # Long-running
-  - image: my-timer                # Cron timer
-    minute: "*/5"
-    timeout: 600
-  - image: my-calendar             # Calendar timer
-    oncalendar: "daily"
-```
+- Exponential backoff (100ms…1600ms), only retry transient errors
+- Alert after >10 persistent failures
 
 ## CI/CD
 
-- ALWAYS explicit make targets: `make prepare`, `make image`, `make test`
-- NEVER run release builds locally, mix debug/release artifacts
+- Explicit make targets: `make build`, `make image`, `make test`
+- Never mix debug/release artifacts locally

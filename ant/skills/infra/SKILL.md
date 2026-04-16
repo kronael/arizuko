@@ -8,40 +8,15 @@ user-invocable: true
 
 # Infra
 
-Root-only. Manage virtual hostnames and web directory structure.
+Root-only. Map hostnames to world web directories.
 
-## Hostname Assignment
+## Steps
 
-Map a hostname to a world's web directory:
+1. Read `/workspace/web/vhosts.json` (create `{}` if missing)
+2. Add `{"hostname.example.com": "worldname"}`
+3. Write back
+4. `dig +short hostname.example.com` to verify DNS
+5. `mkdir -p /workspace/web/worldname/` if needed
 
-1. Read current `/workspace/web/vhosts.json` (create `{}` if missing)
-2. Add entry: `{"hostname.example.com": "worldname"}`
-3. Write back to `/workspace/web/vhosts.json`
-4. Verify DNS: `dig +short hostname.example.com`
-5. Create web dir if needed: `mkdir -p /workspace/web/worldname/`
-
-The gateway reloads vhosts.json automatically (5s mtime check).
-
-## DNS Verification
-
-```bash
-dig +short hostname.example.com
-```
-
-## SSL/TLS
-
-TLS terminated by reverse proxy (Caddy) with auto Let's Encrypt.
-
-## Web Directory Structure
-
-```
-/workspace/web/
-  vhosts.json          <- hostname -> world mapping
-  REDACTED/               <- world web root
-    index.html
-  atlas/
-    index.html
-```
-
-Each world's web content is served at `https://hostname/`
-via internal path rewrite by proxyd.
+Gateway reloads `vhosts.json` automatically (5s mtime check). TLS is handled
+by the reverse proxy (Caddy + Let's Encrypt).

@@ -4,133 +4,74 @@ description: >
   Build a single-page knowledge hub on a topic by running parallel
   deep-research subagents, distilling, and assembling into HTML. Use
   when asked to "build a hub", "research hub", "knowledge hub", or
-  "deep dive" on a frontier topic (biotech, AI, crypto, etc). Named
-  /hub to avoid clashing with Claude's built-in research tool.
+  "deep dive" on a frontier topic (biotech, AI, crypto, etc).
 ---
 
-# /hub — Knowledge Hub Builder
+# Hub — knowledge hub builder
 
-Build single-page knowledge hubs by running parallel deep-research
-subagents, then distilling and assembling into a web page.
+## 1. Plan
 
-## Workflow
+Create `tasks.md` in the project directory with numbered tasks, dependencies,
+status checkboxes. Update throughout.
 
-### 1. Plan Tasks
+## 2. Parallel research
 
-Create `tasks.md` in the project directory with numbered tasks,
-dependencies, and status checkboxes. Update throughout.
+Launch one `deep-research` subagent per topic using Task tool
+(`run_in_background: true`, max 3 in parallel). Each agent does 5 iterative
+loops and writes to `./tmp/<topic>.md`.
 
-### 2. Parallel Deep-Research Agents
-
-Launch one `deep-research` subagent per topic using Task tool:
-
-- `run_in_background: true` for parallelism
-- Each agent does 5 iterative loops (search, read, refine)
-- 3 agents max in parallel (avoids rate limits)
-- Save each agent's output to `./tmp/<topic>.md`
+Research prompt:
 
 ```
-Task: "Research <topic>. Do 5 iterative deepening loops:
-  loop 1: broad landscape, key companies, terminology
-  loop 2: specific technologies, mechanisms, challenges
-  loop 3: key papers, researchers, recent breakthroughs
-  loop 4: companies, funding, clinical stage
-  loop 5: cross-references, gaps, synthesis
-  Save comprehensive findings."
+Research <TOPIC> for a comprehensive knowledge hub. Do 5 iterative
+deepening loops, each building on the previous:
+  1. Landscape: field, terminology, major players, current state, market size
+  2. Mechanisms: how it works, key challenges, approaches and tradeoffs
+  3. Literature: papers (title, authors, year, one-liner), key researchers,
+     recent breakthroughs (last 2 years)
+  4. Companies: who is building what, funding, stage, differentiation
+  5. Synthesis: cross-references, gaps, emerging trends, contrarian takes
+Output: structured markdown.
 ```
 
-### 3. Prepare Web Directory While Agents Run
+## 3. Scaffold in parallel
 
-While research agents run in background:
+While research runs: check existing site patterns, scaffold `index.html`.
 
-- Check existing site patterns (look at sibling pages)
-- Scaffold `index.html` with the page structure
+## 4. Distill
 
-### 4. Distill Agent
+After research completes, launch `distill` subagent:
 
-After research agents complete, launch `distill` subagent:
+```
+Distill N research documents into:
+  1. TLDR (3-5 sentences, most important)
+  2. Cross-cutting patterns
+  3. Key tensions / tradeoffs
+  4. What surprised you
+Use 5/3 recursive summarization: summarize → merge → top-3 per group →
+synthesize across → final.
+```
 
-- Input: all research outputs
-- 5/3 recursive summarization (5 passes, keep top 3 insights)
-- Output: TLDRs, cross-cutting patterns, key tensions
+## 5. Assemble
 
-### 5. Assemble Web Page
+Single-page HTML, organized into:
 
-Single-page HTML with all research organized into sections:
-
-- TLDR (distilled summary at top)
+- TLDR (distilled, top)
 - Topic deep-dives (one card per research area)
-- Companies table (name, stage, funding, focus)
-- Key papers (title, authors, year, one-line takeaway)
-- Guidebooks / learning path (ordered progression)
-- Key people (researchers, founders)
-- Cross-cutting patterns (from distill agent)
+- Companies table, key papers, guidebooks, people
+- Cross-cutting patterns
 
-### 6. Deploy
+Design: dark monospace theme, sticky section nav, cards, tables, status tags,
+inline CSS, mobile-responsive, no JS frameworks.
 
-Drop `index.html` into `/workspace/web/pub/<name>/`.
-Available at `https://$WEB_HOST/pub/<name>/`.
+## 6. Deploy
 
-## Page Design
-
-- Dark monospace theme
-- Sticky nav with section links
-- Cards for topic deep-dives
-- Tables for structured data (companies, papers)
-- Tags for status (clinical stage, funding round, etc.)
-- No external dependencies (inline CSS, no JS frameworks)
-- Mobile-responsive
+Drop `index.html` into `/workspace/web/pub/<name>/`. Live at
+`https://$WEB_HOST/pub/<name>/`.
 
 ## Rules
 
-- ALWAYS save raw research to ./tmp/ before assembling
-- ALWAYS run research agents in parallel (not sequential)
-- ALWAYS distill before final assembly (raw research is too long)
-- NEVER put the full research text on the page (summarize)
-- NEVER skip the iterative deepening (shallow research is useless)
-- ALWAYS update tasks.md as work progresses
-- ALWAYS check existing web pages for style consistency
-
-## Research Agent Prompt Template
-
-```
-You are researching <TOPIC> for a comprehensive knowledge hub.
-
-Do 5 iterative deepening loops. Each loop builds on the previous.
-
-Loop 1 - Landscape: What is the field? Key terminology. Major
-  players. Current state of the art. Market size.
-
-Loop 2 - Mechanisms: How does it work technically? Key challenges.
-  Current approaches and their tradeoffs.
-
-Loop 3 - Literature: Important papers (title, authors, year,
-  one-line summary). Key researchers. Recent breakthroughs (last
-  2 years).
-
-Loop 4 - Companies: Who is building what? Funding. Clinical/
-  development stage. Differentiation.
-
-Loop 5 - Synthesis: Cross-references between loops. Gaps in the
-  field. Emerging trends. Contrarian takes.
-
-Output format: structured markdown with clear sections.
-```
-
-## Distill Agent Prompt Template
-
-```
-Distill <N> research documents into:
-
-1. TLDR (3-5 sentences, the most important things)
-2. Cross-cutting patterns (themes that appear across topics)
-3. Key tensions (where experts disagree or tradeoffs exist)
-4. What surprised you (non-obvious findings)
-
-Use 5/3 recursive summarization:
-- Pass 1: summarize each document to 1 page
-- Pass 2: merge related summaries
-- Pass 3: extract top 3 insights per merged group
-- Pass 4: synthesize across groups
-- Pass 5: final distillation
-```
+- ALWAYS save raw research to `./tmp/` before assembling
+- ALWAYS run research agents in parallel
+- ALWAYS distill before final assembly — never paste raw research
+- ALWAYS update `tasks.md` as work progresses

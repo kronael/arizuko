@@ -1,21 +1,12 @@
-# 022 — Unified home directory
+# 022 — unified home directory
 
-## What changed
+Agent cwd is now `/home/node/` (was `/workspace/group/`). The group
+folder is mounted directly as the agent's home. `/workspace/group/` no
+longer exists.
 
-The agent's working directory is now `/home/node/` (was `/workspace/group/`).
-The group folder is mounted directly as the agent's home directory.
+- `SOUL.md` at `/home/node/SOUL.md`
+- Session transcripts at `~/.claude/projects/-home-node/`
+- Root sees all group sessions at `/workspace/data/groups/`
 
-- `cwd` is `/home/node/` (was `/workspace/group/`)
-- `SOUL.md` lives at `/home/node/SOUL.md` (was `~/.claude/SOUL.md`)
-- `.claude/` lives at `/home/node/.claude/` (same as `~/.claude/`)
-- Session transcripts: `~/.claude/projects/-home-node/` (was `-workspace-group`)
-- `/workspace/group` no longer exists
-
-## What to do
-
-- Scripts using `basename /workspace/group` should use `$ARIZUKO_GROUP_FOLDER`
-- Scripts using `/workspace/group/` paths should use relative paths or `/home/node/`
-- SOUL.md references: `~/.claude/SOUL.md` → just `SOUL.md`
-- Root migrate: `/workspace/data/groups/` — all group session dirs accessible here
-
-No action required — paths are updated in skills automatically via migrate.
+Scripts using `basename /workspace/group` should use `$ARIZUKO_GROUP_FOLDER`;
+other `/workspace/group/` paths become `~` or relative.

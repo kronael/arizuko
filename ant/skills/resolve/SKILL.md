@@ -8,11 +8,9 @@ user-invocable: false
 
 # Resolve
 
-Triage every incoming message. Continuations must exit in <3s.
-
-**Internal only.** Never emit the section headings below or words like
-"Classification:", "Continuation —", "New task —" to the user. Wrap any
-reasoning in `<think>…</think>`.
+Triage every incoming message. Internal only — never emit the section
+headings below or words like "Classification:", "Continuation —", "New
+task —". Wrap reasoning in `<think>…</think>`.
 
 ## 1. Classify
 
@@ -33,15 +31,11 @@ Read the 2 most recent diary files. Scan fact filenames; read any
 relevant to the topic. If the user references an unrecognized name:
 
 ```bash
-grep -ril "<term>" ~/diary/ ~/facts/ ~/users/ 2>/dev/null \
-  | head -5
+grep -ril "<term>" ~/diary/ ~/facts/ ~/users/ 2>/dev/null | head -5
 ```
 
-Load context BEFORE responding.
-
-**Fact freshness**: check `verified_at` on any fact read. If older than
-14 days and the task needs accurate data, refresh via `/facts <topic>`.
-Delete facts that are wrong or obsolete.
+If a fact's `verified_at` is >14 days old and the task needs accurate
+data, refresh via `/facts <topic>`. Delete facts that are wrong.
 
 ## 3. Dispatch (new task only)
 

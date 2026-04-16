@@ -1,13 +1,5 @@
----
-version: 3
-description: migrate skill uses ARIZUKO_IS_MAIN for main-group detection
----
+# 003 — migrate main-group detection
 
-# Migration 003 — migrate skill main-group detection fix
-
-The `migrate` skill previously checked for `/workspace/global` dir existence
-to detect whether it was running in the main group. That dir always exists
-(Dockerfile creates it), so all groups were treated as non-main.
-
-This migration just records the skill update — no data changes required.
-The updated `migrate/SKILL.md` already uses `ARIZUKO_IS_MAIN != 1`.
+`migrate` skill now uses `ARIZUKO_IS_MAIN` env check instead of
+`/workspace/global` dir existence (the dir always existed → all groups
+were treated as non-main). Skill-only update, no data changes.

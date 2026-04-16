@@ -42,8 +42,8 @@ description: >          # 1-2 sentences: WHEN to activate, WHAT it does
 
 1. Check existing skills for overlap: `ls ~/.claude/skills/`
 2. Write SKILL.md with frontmatter + body
-3. Test: does `/dispatch` match it for the intended task?
-4. If not, improve the `description` — that's what dispatch reads
+3. Test: does `/resolve` match it for the intended task?
+4. If not, improve the `description` — that's what resolve reads
 
 ```bash
 mkdir -p ~/.claude/skills/myskill
@@ -84,7 +84,7 @@ Common problems and fixes:
 # What skills exist?
 ls ~/.claude/skills/
 
-# What does dispatch see?
+# What does resolve see?
 cat ~/.claude/skills/*/SKILL.md | grep -A1 'description:'
 
 # Is the skill seeded from canonical?

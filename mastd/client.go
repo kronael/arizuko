@@ -91,22 +91,14 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *chanlib.
 	if name == "" {
 		name = acc.Acct
 	}
-	msg := chanlib.InboundMsg{
-		ChatJID:    jid,
-		Sender:     jid,
-		SenderName: name,
-		Timestamp:  time.Now().Unix(),
-	}
+	msg := chanlib.InboundMsg{ChatJID: jid, Sender: jid, SenderName: name, Timestamp: time.Now().Unix()}
 
 	switch n.Type {
 	case "mention", "reply":
 		if n.Status == nil {
 			return
 		}
-		topic := ""
-		if s, ok := n.Status.InReplyToID.(string); ok {
-			topic = s
-		}
+		topic, _ := n.Status.InReplyToID.(string)
 		verb := "message"
 		if n.Type == "reply" || topic != "" {
 			verb = "reply"
@@ -193,9 +185,8 @@ func mediaMime(typ string) string {
 		return "video/mp4"
 	case "audio":
 		return "audio/mpeg"
-	default:
-		return "application/octet-stream"
 	}
+	return "application/octet-stream"
 }
 
 func mimeExt(mime string) string {

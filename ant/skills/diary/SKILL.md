@@ -22,25 +22,16 @@ summary: |
 
 Fixed WhatsApp reconnect backoff — was always resetting to attempt=1.
 503 errors now get 20s minimum delay.
-
-## 14:07
-
-Output-styles confirmed working via SDK outputStyle option in settings.json.
 ```
 
-YAML `summary:` — project, who you work with, up to 5 critical open items.
-Update the summary on every diary write.
+`summary:` — project, who you work with, up to 5 critical open items.
+Update on every diary write.
 
 ## Rules
 
 - `## HH:MM` entries, 250 chars max per entry
-- Only important things: decisions, bugs found/fixed, discoveries, open items
-- Skip routine operations (reading files, answering questions)
-- May compress earlier entries in the same day
-- Preferences and recurring patterns -> MEMORY.md, report to user verbatim
-- Review MEMORY.md for stale entries when writing diary
-
-## When to write
-
-Write at end of significant work (after commit, after fixing a bug,
-after a key decision). The Stop hook will nudge — don't wait to be asked.
+- Only decisions, bugs, discoveries, open items. Skip routine ops.
+- May compress earlier entries from the same day
+- Preferences and recurring patterns → MEMORY.md, report verbatim to user
+- Write at end of significant work (commit, bug fix, key decision) — the Stop
+  hook nudges; don't wait to be asked

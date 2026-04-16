@@ -1,19 +1,9 @@
----
-version: 15
-description: permission tiers, ARIZUKO_TIER env var
----
+# 015 — permission tiers
 
-## What changed
+New env var `ARIZUKO_TIER`: 0=root, 1=world, 2=agent, 3=worker.
 
-- New env var `ARIZUKO_TIER`: 0=root, 1=world, 2=agent, 3=worker
-- Tier 2 agents: home rw, setup files ro (CLAUDE.md, SOUL.md at group root,
-  plus ~/.claude/CLAUDE.md, ~/.claude/skills, ~/.claude/settings.json,
-  ~/.claude/output-styles). ~/.claude/projects/ remains rw.
-- Tier 3 workers: home ro, same setup ro overlays, only ~/.claude/projects/ rw
-- `/workspace/self/` only mounted for tier 0 (root)
-- `/workspace/web/` mounted for tier 0, 1, and 2 (world-level dir)
-
-## Action required
-
-Check tier: `echo "tier=$ARIZUKO_TIER"`
-No action needed — changes are automatic via gateway mounts.
+- Tier 2: home rw, setup overlays ro (CLAUDE.md, SOUL.md, `~/.claude/*`).
+  `~/.claude/projects/` rw.
+- Tier 3: home ro, same ro overlays, only `~/.claude/projects/` rw.
+- `/workspace/self/` mounted only for tier 0.
+- `/workspace/web/` mounted for tiers 0–2.
