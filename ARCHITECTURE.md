@@ -270,27 +270,25 @@ Container naming: `<app>_<service>_<flavor>` (e.g. `arizuko_teled_REDACTED`).
 Operator copies desired TOMLs into `/srv/data/arizuko_<flavor>/services/`
 before start; Ansible via `arizuko_instances[].extra_services`.
 
-onbod auto-included when `ONBOARDING_ENABLED=true`. Compose sets
-`ONBOD_LISTEN_ADDR=:8092` (dashd uses `:8090`); standalone default `:8091`.
+onbod auto-included when `ONBOARDING_ENABLED=true`. All daemons
+listen on :8080 inside containers.
 
 ## Onboarding (onbod/)
 
-Registers as a channel, seeds `/approve` and `/reject` routes on startup.
+Self-service token-based onboarding. No admin approval.
 
 State machine per JID (`onboarding` table):
 
 ```
-awaiting_message → (greeting + user message) → pending → approved | rejected
+awaiting_message → token_used (clicked link) → approved (OAuth + world created)
 ```
 
-Poll loop (10s):
+Poll loop (10s): picks up `awaiting_message` rows, generates one-time
+token (24h TTL), sends auth link via gated outbound API.
 
-1. Prompt unanswered `awaiting_message`
-2. Transition on first message → `pending`, notify tier-0 JIDs
-3. Reply to pending users: "Still waiting for approval"
-
-Approve: creates group dir, optionally copies prototype, inserts `groups`
-row + default route, sends welcome. `notify` fans out to tier-0 root JIDs.
+Web dashboard at `/onboard`: token landing → OAuth → username picker →
+world creation via `container.SetupGroup`. Second-JID auto-link when
+user already has a world.
 
 Prototype copy: `CLAUDE.md` and `SOUL.md` only (no session or memory). Agents
 spawn children via `register_group` MCP with `fromPrototype=true`. Spec:

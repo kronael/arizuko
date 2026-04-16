@@ -1,10 +1,15 @@
 ---
-status: draft
+status: superseded
+superseded_by: 8/27-mass-onboarding.md
 ---
 
-# onbod
+# onbod (LEGACY — superseded)
 
-**Status**: shipped
+**Status**: superseded by [8/27-mass-onboarding.md](../8/27-mass-onboarding.md)
+
+The admin-approval flow (/approve, /reject) has been removed.
+Onboarding is now fully self-service via OAuth token links.
+This spec is retained for historical reference only.
 
 Onboarding daemon. Polls `onboarding` table, runs state machine,
 sends replies via channel adapter HTTP API. Standalone service

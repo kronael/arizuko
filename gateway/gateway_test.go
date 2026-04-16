@@ -113,7 +113,6 @@ func TestIsGatewayCommand(t *testing.T) {
 		"/new", "/New", "/NEW",
 		"/ping", "/chatid", "/stop",
 		"/root", "/root hello world",
-		"/approve", "/reject",
 		"[Doc: f.pdf] /stop",
 		"@root /ping",
 		"[x] @y /new some arg",
