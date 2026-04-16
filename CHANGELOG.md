@@ -21,6 +21,11 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   assistant responses on the same (folder, topic). Callers can now
   submit and receive on one request instead of POST + separate
   `/slink/stream` SSE.
+- **webd/slink**: REST variant — `POST /slink/<token>` with
+  `Accept: application/json` returns `{user: {...}}`. Add `?wait=<sec>`
+  (1-120) to block until the first assistant reply, returning
+  `{user, assistant}`. Enables scriptable curl-style usage without SSE
+  plumbing.
 - **container**: new env vars for bot identity — `ARIZUKO_GROUP_FOLDER`,
   `ARIZUKO_GROUP_NAME`, `ARIZUKO_GROUP_PARENT`, `ARIZUKO_WORLD` (tier-1
   top-level folder), `ARIZUKO_TIER` (0 root, 1 world, 2 building,

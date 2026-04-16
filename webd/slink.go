@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,9 +31,15 @@ func anonSender(r *http.Request) string {
 
 // handleSlinkPost accepts user messages via token-authenticated POST.
 // POST /slink/<token>   body: content=Hello&topic=abc123
-// With Accept: text/event-stream the connection is upgraded to SSE and
-// held open — the caller receives the user's own bubble plus any
-// subsequent assistant responses on the same (folder, topic) stream.
+//
+// Content negotiation via Accept header:
+//   - text/event-stream: upgrade to SSE, hold open, stream own bubble
+//     plus any subsequent assistant/user events on (folder, topic).
+//   - application/json:  return JSON {user, [assistant]}. Optional
+//     ?wait=<sec> blocks up to N seconds for the first assistant reply
+//     before responding (useful for curl-style sync clients).
+//   - default:           return an HTMX-friendly <div class="msg user">
+//     bubble fragment.
 func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	g, ok := s.st.GroupBySlinkToken(token)
@@ -61,13 +69,26 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		senderName = "Anonymous"
 	}
 
-	wantSSE := strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+	accept := r.Header.Get("Accept")
+	wantSSE := strings.Contains(accept, "text/event-stream")
+	wantJSON := strings.Contains(accept, "application/json")
+	wait := 0
+	if wantJSON {
+		if v := r.URL.Query().Get("wait"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				wait = n
+				if wait > 120 {
+					wait = 120
+				}
+			}
+		}
+	}
 
-	// Subscribe BEFORE publishing so our own user bubble is delivered on
-	// this connection (rather than racing with the publish).
+	// Subscribe BEFORE publishing so streamers and sync callers see the
+	// user's own bubble + any assistant reply without a race.
 	var ch <-chan string
 	var unsub func()
-	if wantSSE {
+	if wantSSE || wait > 0 {
 		ch, unsub = s.hub.subscribe(g.Folder, topic)
 		defer unsub()
 	}
@@ -81,6 +102,7 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		Content:   content,
 		Timestamp: time.Now(),
 		Topic:     topic,
+		Source:    "web",
 	}
 	if err := s.st.PutMessage(m); err != nil {
 		http.Error(w, "store failed", http.StatusInternalServerError)
@@ -99,22 +121,74 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload, _ := json.Marshal(map[string]any{
+	userPayload := map[string]any{
 		"id":         m.ID,
 		"role":       "user",
 		"content":    m.Content,
 		"sender":     senderName,
+		"topic":      topic,
+		"folder":     g.Folder,
 		"created_at": m.Timestamp.Format(time.RFC3339),
-	})
-	s.hub.publish(g.Folder, topic, "message", string(payload))
-
-	if wantSSE {
-		serveSSE(w, r, ch)
-		return
 	}
+	userPayloadJSON, _ := json.Marshal(userPayload)
+	s.hub.publish(g.Folder, topic, "message", string(userPayloadJSON))
 
-	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<div class="msg user" id="msg-%s">%s</div>`, m.ID, htmlEscape(content))
+	switch {
+	case wantSSE:
+		serveSSE(w, r, ch)
+	case wantJSON:
+		w.Header().Set("Content-Type", "application/json")
+		resp := map[string]any{"user": userPayload}
+		if wait > 0 {
+			if a, ok := waitForAssistant(r.Context(), ch, time.Duration(wait)*time.Second); ok {
+				resp["assistant"] = a
+			}
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	default:
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<div class="msg user" id="msg-%s">%s</div>`, m.ID, htmlEscape(content))
+	}
+}
+
+// waitForAssistant blocks until an assistant-role event arrives on ch,
+// the request context ends, or timeout fires. Non-assistant frames
+// (e.g. the caller's own user bubble) are consumed and ignored.
+func waitForAssistant(ctx context.Context, ch <-chan string, timeout time.Duration) (map[string]any, bool) {
+	deadline := time.After(timeout)
+	for {
+		select {
+		case frame, ok := <-ch:
+			if !ok {
+				return nil, false
+			}
+			data := sseData(frame)
+			if data == "" {
+				continue
+			}
+			var m map[string]any
+			if json.Unmarshal([]byte(data), &m) != nil {
+				continue
+			}
+			if role, _ := m["role"].(string); role == "assistant" {
+				return m, true
+			}
+		case <-deadline:
+			return nil, false
+		case <-ctx.Done():
+			return nil, false
+		}
+	}
+}
+
+// sseData extracts the "data: <payload>" line from an SSE frame.
+func sseData(frame string) string {
+	for _, line := range strings.Split(frame, "\n") {
+		if strings.HasPrefix(line, "data: ") {
+			return line[6:]
+		}
+	}
+	return ""
 }
 
 // handleSlinkStream opens an SSE connection for a group/topic.
