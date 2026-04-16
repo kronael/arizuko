@@ -139,11 +139,13 @@ func TestGenerateWebServices(t *testing.T) {
 	if !strings.Contains(out, "webd:") {
 		t.Error("missing webd service")
 	}
-	if !strings.Contains(out, "WEBD_URL: 'http://webd:9002'") {
-		t.Error("webd missing WEBD_URL")
+	// Shared env flows via env_file; peer URLs default in code to
+	// http://<svc>:8080.
+	if !strings.Contains(out, "env_file:\n      - .env") {
+		t.Error("services missing env_file: [.env]")
 	}
-	if !strings.Contains(out, "WEBD_ADDR: 'http://webd:9002'") {
-		t.Error("proxyd missing WEBD_ADDR")
+	if !strings.Contains(out, "'8095:8080'") {
+		t.Error("proxyd external mapping should be WEB_PORT:8080")
 	}
 	// proxyd depends on webd
 	if !strings.Contains(out, "depends_on: [gated, dashd, webd]") {
@@ -169,10 +171,13 @@ func TestRouterEnvPassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "ASSISTANT_NAME: 'bot'") {
-		t.Error("ASSISTANT_NAME not passed to gated")
+	// Shared config flows via env_file — compose doesn't duplicate these
+	// keys in per-service environment blocks anymore. Asserting env_file
+	// is enough: docker-compose reads .env at container start.
+	if !strings.Contains(out, "env_file:\n      - .env") {
+		t.Error("gated missing env_file: [.env]")
 	}
-	if !strings.Contains(out, "CONTAINER_IMAGE: 'agent:v2'") {
-		t.Error("CONTAINER_IMAGE not passed to gated")
+	if !strings.Contains(out, "API_PORT: '8080'") {
+		t.Error("gated missing API_PORT override pinning internal listen to 8080")
 	}
 }

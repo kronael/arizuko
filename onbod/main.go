@@ -99,7 +99,7 @@ func main() {
 
 func loadConfig() (config, error) {
 	cfg := config{
-		listenAddr:   ":8092",
+		listenAddr:   ":8080",
 		pollInterval: 10 * time.Second,
 	}
 
@@ -114,11 +114,10 @@ func loadConfig() (config, error) {
 	cfg.authBaseURL = os.Getenv("AUTH_BASE_URL")
 	cfg.secureCookie = strings.HasPrefix(cfg.authBaseURL, "https://")
 
-	apiPort := os.Getenv("API_PORT")
-	if apiPort == "" {
-		apiPort = "8080"
+	cfg.gatedURL = os.Getenv("ROUTER_URL")
+	if cfg.gatedURL == "" {
+		cfg.gatedURL = "http://gated:8080"
 	}
-	cfg.gatedURL = "http://gated:" + apiPort
 
 	if addr := os.Getenv("ONBOD_LISTEN_ADDR"); addr != "" {
 		cfg.listenAddr = addr

@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -23,14 +22,11 @@ func dockerGID() int {
 	return 999
 }
 
-// copyEnv copies keys from env into dst, skipping empty values.
-func copyEnv(dst, env map[string]string, keys ...string) {
-	for _, k := range keys {
-		if v := envOr(env, k, ""); v != "" {
-			dst[k] = v
-		}
-	}
-}
+// All daemons share /srv/data/<instance>/.env via env_file. Secrets and
+// shared config flow implicitly; per-service environment: blocks only
+// hold compose-side overrides (container paths, port transforms, feature
+// flags that diverge from .env).
+const envFileLine = "    env_file:\n      - .env\n"
 
 type ServiceConfig struct {
 	Image       string            `toml:"image"`
@@ -150,8 +146,11 @@ func writeSvc(def svcDef) string {
 			fmt.Fprintf(&b, "      - '%s'\n", p)
 		}
 	}
-	b.WriteString("    environment:\n")
-	writeEnv(&b, def.environment)
+	b.WriteString(envFileLine)
+	if len(def.environment) > 0 {
+		b.WriteString("    environment:\n")
+		writeEnv(&b, def.environment)
+	}
 	dep := def.dependsOn
 	if dep == "" {
 		dep = "gated"
@@ -165,14 +164,9 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	apiPort := envOr(env, "API_PORT", "8080")
 	hostApp := envOr(env, "HOST_APP_DIR", "")
 
-	environment := map[string]string{
-		"API_PORT":      apiPort,
-		"HOST_DATA_DIR": envOr(env, "HOST_DATA_DIR", dataDir),
-	}
-	if hostApp != "" {
-		environment["HOST_APP_DIR"] = hostApp
-	}
-	copyEnv(environment, env, routerEnvKeys...)
+	// API_PORT override pins gated's internal listen to 8080 (unified).
+	// Host-publish side uses the .env value as external port.
+	environment := map[string]string{"API_PORT": "8080"}
 
 	var b strings.Builder
 	b.WriteString("  gated:\n")
@@ -190,9 +184,10 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 		fmt.Fprintf(&b, "      - %s:/srv/app/arizuko:ro\n", hostApp)
 	}
 	b.WriteString("    ports:\n")
-	fmt.Fprintf(&b, "      - '%s:%s'\n", apiPort, apiPort)
+	fmt.Fprintf(&b, "      - '%s:8080'\n", apiPort)
 	b.WriteString("    extra_hosts:\n")
 	b.WriteString("      - 'host.docker.internal:host-gateway'\n")
+	b.WriteString(envFileLine)
 	b.WriteString("    environment:\n")
 	writeEnv(&b, environment)
 	b.WriteString("    restart: on-failure\n")
@@ -206,82 +201,64 @@ func timedService(app, flavor, dataDir string, env map[string]string) string {
 		flavor:     flavor,
 		entrypoint: "timed",
 		dataDir:    dataDir,
-		environment: map[string]string{
-			"DATA_DIR": "/srv/app/home",
-			"TIMEZONE": envOr(env, "TZ", "UTC"),
-		},
+		// TIMEZONE is the only compose-side transform; timed reads this
+		// name while the rest of the world uses TZ.
+		environment: map[string]string{"TIMEZONE": envOr(env, "TZ", "UTC")},
 	})
 }
 
 func onbodService(app, flavor, dataDir string, env map[string]string) string {
-	environment := map[string]string{
-		"DATA_DIR":           "/srv/app/home",
-		"ONBOARDING_ENABLED": "true",
-		"ONBOD_LISTEN_ADDR":  envOr(env, "ONBOD_LISTEN_ADDR", ":8092"),
-		"API_PORT":           envOr(env, "API_PORT", "8080"),
-	}
-	copyEnv(environment, env,
-		"ONBOARDING_PROTOTYPE", "ONBOARDING_GREETING", "CHANNEL_SECRET", "AUTH_BASE_URL")
 	return writeSvc(svcDef{
-		name:        "onbod",
-		app:         app,
-		flavor:      flavor,
-		entrypoint:  "onbod",
-		dataDir:     dataDir,
-		environment: environment,
+		name:       "onbod",
+		app:        app,
+		flavor:     flavor,
+		entrypoint: "onbod",
+		dataDir:    dataDir,
+		// Force ONBOARDING_ENABLED=true inside the container regardless of
+		// how the flag is expressed in .env (gate for daemon inclusion was
+		// already decided by Generate's caller).
+		environment: map[string]string{"ONBOARDING_ENABLED": "true"},
 	})
 }
 
 func dashdService(app, flavor, dataDir string, env map[string]string) string {
-	dashPort := envOr(env, "DASH_PORT", "8090")
-	environment := map[string]string{
-		"DATA_DIR":  "/srv/app/home",
-		"DB_PATH":   "/srv/app/home/store/messages.db",
-		"DASH_PORT": dashPort,
+	def := svcDef{
+		name:       "dashd",
+		app:        app,
+		flavor:     flavor,
+		entrypoint: "dashd",
+		dataDir:    dataDir,
+		// DB_PATH is a container-side path; .env doesn't know where inside
+		// the container the data volume lands.
+		environment: map[string]string{"DB_PATH": "/srv/app/home/store/messages.db"},
 	}
-	copyEnv(environment, env, "AUTH_SECRET", "WEB_HOST")
-	return writeSvc(svcDef{
-		name:        "dashd",
-		app:         app,
-		flavor:      flavor,
-		entrypoint:  "dashd",
-		dataDir:     dataDir,
-		ports:       []string{dashPort + ":" + dashPort},
-		environment: environment,
-	})
+	// If DASH_PORT is set, expose dashd directly on the host for debugging.
+	// Normal access is via proxyd → /dash/.
+	if dashPort := envOr(env, "DASH_PORT", ""); dashPort != "" {
+		def.ports = []string{dashPort + ":8080"}
+	}
+	return writeSvc(def)
 }
 
 func proxydService(app, flavor, dataDir string, env map[string]string) string {
 	webPort := envOr(env, "WEB_PORT", "8095")
-	dashPort := envOr(env, "DASH_PORT", "8090")
-	vitePort := vitePortFrom(webPort)
-	dashAddr := envOr(env, "DASH_ADDR", "http://dashd:"+dashPort)
-	environment := map[string]string{
-		"DATA_DIR":  "/srv/app/home",
-		"WEB_PORT":  webPort,
-		"DASH_ADDR": dashAddr,
-		"VITE_ADDR": "http://vited:" + vitePort,
-		"WEBD_ADDR": "http://webd:9002",
-	}
-	copyEnv(environment, env, "AUTH_SECRET", "WEB_PUBLIC", "WEB_REDIRECTS",
-		"AUTH_BASE_URL",
-		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_ALLOWED_ORG",
-		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ALLOWED_EMAILS",
-		"DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
-		"TELEGRAM_BOT_TOKEN")
+	// Optional upstreams — peer URLs for always-on services (dashd, webd,
+	// vited) are defaulted in proxyd's code to http://<svc>:8080. Only
+	// feature-gated targets (davd, onbod) need explicit addressing so
+	// proxyd's "empty = disabled" check keeps them as 404s when off.
+	environment := map[string]string{}
 	if envOr(env, "WEBDAV_ENABLED", "") == "true" {
-		environment["DAV_ADDR"] = "http://davd:" + envOr(env, "DAV_PORT", "8097")
+		environment["DAV_ADDR"] = "http://davd:8080"
 	}
 	if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
-		onbodPort := strings.TrimPrefix(envOr(env, "ONBOD_LISTEN_ADDR", ":8092"), ":")
-		environment["ONBOD_ADDR"] = "http://onbod:" + onbodPort
+		environment["ONBOD_ADDR"] = "http://onbod:8080"
 	}
-	ports := []string{webPort + ":" + webPort}
+	ports := []string{webPort + ":8080"}
 	if aliases := envOr(env, "WEB_PORT_ALIASES", ""); aliases != "" {
 		for _, a := range strings.Split(aliases, ",") {
 			a = strings.TrimSpace(a)
 			if a != "" {
-				ports = append(ports, a+":"+webPort)
+				ports = append(ports, a+":8080")
 			}
 		}
 	}
@@ -298,72 +275,40 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 }
 
 func davdService(app, flavor, dataDir string, env map[string]string) string {
-	davPort := envOr(env, "DAV_PORT", "8097")
 	var b strings.Builder
 	b.WriteString("  davd:\n")
 	fmt.Fprintf(&b, "    container_name: %s_davd_%s\n", app, flavor)
 	b.WriteString("    image: sigoden/dufs:latest\n")
 	fmt.Fprintf(&b, "    volumes:\n      - %s/groups:/data:ro\n", dataDir)
-	b.WriteString("    ports:\n")
-	fmt.Fprintf(&b, "      - '%s:%s'\n", davPort, davPort)
+	// Host-side dav port exposure for direct access, if DAV_PORT is set.
+	if davPort := envOr(env, "DAV_PORT", ""); davPort != "" {
+		b.WriteString("    ports:\n")
+		fmt.Fprintf(&b, "      - '%s:8080'\n", davPort)
+	}
 	b.WriteString("    command:\n")
-	fmt.Fprintf(&b, "      - dufs\n      - --port\n      - '%s'\n      - /data\n", davPort)
+	b.WriteString("      - dufs\n      - --port\n      - '8080'\n      - /data\n")
 	b.WriteString("    depends_on: [gated]\n")
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }
 
 func webdService(app, flavor, dataDir string, env map[string]string) string {
-	environment := map[string]string{
-		"DATA_DIR":       "/srv/app/home",
-		"ROUTER_URL":     "http://gated:" + envOr(env, "API_PORT", "8080"),
-		"WEBD_LISTEN":    ":9002",
-		"WEBD_URL":       "http://webd:9002",
-		"ASSISTANT_NAME": envOr(env, "ASSISTANT_NAME", "arizuko"),
-	}
-	copyEnv(environment, env, "CHANNEL_SECRET", "AUTH_SECRET")
+	// webd's defaults for WEBD_LISTEN/WEBD_URL/ROUTER_URL resolve to
+	// http://webd:8080 and http://gated:8080 — no compose-side env needed.
 	return writeSvc(svcDef{
 		name: "webd", app: app, flavor: flavor,
 		entrypoint: "webd", dataDir: dataDir,
-		environment: environment,
 	})
 }
 
 func vitedService(app, flavor, dataDir string, env map[string]string) string {
-	webPort := envOr(env, "WEB_PORT", "8095")
-	vitePort := vitePortFrom(webPort)
-
 	var b strings.Builder
 	b.WriteString("  vited:\n")
 	fmt.Fprintf(&b, "    container_name: %s_vited_%s\n", app, flavor)
 	b.WriteString("    image: arizuko-vite:latest\n")
 	fmt.Fprintf(&b, "    volumes:\n      - %s/web:/web\n", dataDir)
-	b.WriteString("    environment:\n")
-	fmt.Fprintf(&b, "      VITE_PORT: '%s'\n", vitePort)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
-}
-
-func vitePortFrom(webPort string) string {
-	n, err := strconv.Atoi(webPort)
-	if err != nil {
-		return "8096"
-	}
-	return strconv.Itoa(n + 1)
-}
-
-var routerEnvKeys = []string{
-	"ASSISTANT_NAME",
-	"AUTH_SECRET",
-	"CHANNEL_SECRET",
-	"CONTAINER_IMAGE",
-	"CONTAINER_TIMEOUT",
-	"IDLE_TIMEOUT",
-	"MAX_CONCURRENT_CONTAINERS",
-	"MEDIA_ENABLED",
-	"VOICE_TRANSCRIPTION_ENABLED",
-	"WEB_HOST",
-	"WHISPER_BASE_URL",
 }
 
 func renderService(app, flavor, name string, cfg ServiceConfig, env map[string]string) string {
@@ -389,6 +334,7 @@ func renderService(app, flavor, name string, cfg ServiceConfig, env map[string]s
 			fmt.Fprintf(&b, "      - '%s'\n", p)
 		}
 	}
+	b.WriteString(envFileLine)
 	if len(cfg.Environment) > 0 {
 		b.WriteString("    environment:\n")
 		interped := make(map[string]string, len(cfg.Environment))

@@ -3,7 +3,7 @@ entrypoint = ["node", "dist/main.js"]
 volumes = ["${DATA_DIR}/store/whatsapp-auth:/srv/data/store/whatsapp-auth"]
 
 [environment]
-ROUTER_URL = "http://gated:${API_PORT}"
+ROUTER_URL = "http://gated:8080"
 CHANNEL_SECRET = "${CHANNEL_SECRET}"
 ASSISTANT_NAME = "${ASSISTANT_NAME}"
 LISTEN_ADDR = ":9002"

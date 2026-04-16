@@ -2,7 +2,7 @@ image = "arizuko:latest"
 entrypoint = ["bskyd"]
 
 [environment]
-ROUTER_URL = "http://gated:${API_PORT}"
+ROUTER_URL = "http://gated:8080"
 BLUESKY_IDENTIFIER = "${BLUESKY_IDENTIFIER}"
 BLUESKY_PASSWORD = "${BLUESKY_PASSWORD}"
 CHANNEL_SECRET = "${CHANNEL_SECRET}"

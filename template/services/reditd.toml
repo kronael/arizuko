@@ -2,7 +2,7 @@ image = "arizuko:latest"
 entrypoint = ["reditd"]
 
 [environment]
-ROUTER_URL = "http://gated:${API_PORT}"
+ROUTER_URL = "http://gated:8080"
 REDDIT_CLIENT_ID = "${REDDIT_CLIENT_ID}"
 REDDIT_CLIENT_SECRET = "${REDDIT_CLIENT_SECRET}"
 REDDIT_USERNAME = "${REDDIT_USERNAME}"

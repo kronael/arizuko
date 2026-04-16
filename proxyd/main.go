@@ -38,16 +38,16 @@ type config struct {
 }
 
 func loadConfig() config {
-	port := chanlib.EnvOr("WEB_PORT", "8095")
+	port := chanlib.EnvOr("PROXYD_LISTEN", "8080")
 	if !strings.HasPrefix(port, ":") {
 		port = ":" + port
 	}
 	return config{
 		port:       port,
-		dashAddr:   chanlib.EnvOr("DASH_ADDR", ""),
-		webdAddr:   chanlib.EnvOr("WEBD_ADDR", ""),
+		dashAddr:   chanlib.EnvOr("DASH_ADDR", "http://dashd:8080"),
+		webdAddr:   chanlib.EnvOr("WEBD_ADDR", "http://webd:8080"),
 		davAddr:    chanlib.EnvOr("DAV_ADDR", ""),
-		viteAddr:   chanlib.EnvOr("VITE_ADDR", "http://localhost:8096"),
+		viteAddr:   chanlib.EnvOr("VITE_ADDR", "http://vited:8080"),
 		onbodAddr:  chanlib.EnvOr("ONBOD_ADDR", ""),
 		authSecret: os.Getenv("AUTH_SECRET"),
 	}

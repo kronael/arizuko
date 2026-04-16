@@ -35,7 +35,7 @@ func main() {
 
 	port := os.Getenv("DASH_PORT")
 	if port == "" {
-		port = ":8090"
+		port = ":8080"
 	}
 	if !strings.HasPrefix(port, ":") {
 		port = ":" + port

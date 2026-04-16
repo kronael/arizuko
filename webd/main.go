@@ -33,9 +33,9 @@ func loadConfig() config {
 		os.Exit(1)
 	}
 	return config{
-		listenAddr:    chanlib.EnvOr("WEBD_LISTEN", ":9002"),
-		listenURL:     chanlib.MustEnv("WEBD_URL"),
-		routerURL:     chanlib.MustEnv("ROUTER_URL"),
+		listenAddr:    chanlib.EnvOr("WEBD_LISTEN", ":8080"),
+		listenURL:     chanlib.EnvOr("WEBD_URL", "http://webd:8080"),
+		routerURL:     chanlib.EnvOr("ROUTER_URL", "http://gated:8080"),
 		channelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
 		authSecret:    coreCfg.AuthSecret,
 		storeDir:      coreCfg.StoreDir,

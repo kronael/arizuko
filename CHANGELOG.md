@@ -48,6 +48,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   plain net/http clients return from `Do` without waiting for the
   first event. Logging middleware's `statusWriter` now passes through
   `http.Flusher`.
+- **compose/daemons**: unified internal listen port on `:8080` for
+  every daemon (gated, webd, dashd, onbod, proxyd, vited). Host-side
+  publish ports (`API_PORT`, `WEB_PORT`, `DASH_PORT`, `DAV_PORT`) map
+  to container `:8080`. Peer URLs (`WEBD_URL`, `ROUTER_URL`,
+  `DASH_ADDR`, `WEBD_ADDR`, `VITE_ADDR`) default in code to
+  `http://<service>:8080` — compose no longer sets them. `proxyd`
+  now reads `PROXYD_LISTEN` (default `:8080`) instead of `WEB_PORT`
+  for its container-internal listen.
+- **compose/env**: every arizuko daemon gets `env_file: ['.env']`.
+  Shared config and secrets flow implicitly from the instance `.env`;
+  per-service `environment:` blocks now hold only compose-side
+  overrides (container paths, `TIMEZONE` transform, `API_PORT=8080`
+  pin, feature-gated `DAV_ADDR`/`ONBOD_ADDR`). Eliminates the
+  per-service env whitelists. Adapter TOMLs also pick this up.
+- **template/services**: adapter TOMLs use literal
+  `ROUTER_URL = "http://gated:8080"` — `${API_PORT}` interpolation is
+  no longer correct since gated's container-internal port is fixed.
+  Deployments with customized services/_.toml must be updated
+  manually (e.g. `sed -i 's|:${API_PORT}|:8080|' services/_.toml`).
 
 ## [v0.29.1] — 2026-04-16
 
