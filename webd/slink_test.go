@@ -135,6 +135,28 @@ func TestSlinkPost_JSON(t *testing.T) {
 	}
 }
 
+// postSlinkJSON POSTs form-encoded body to /slink/<token><query> with
+// Accept: application/json and returns the decoded response + elapsed.
+func postSlinkJSON(t *testing.T, url, body string) (map[string]any, time.Duration) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	start := time.Now()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	var got map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return got, time.Since(start)
+}
+
 // POST ?wait=<sec> with Accept: application/json blocks until an assistant
 // reply is published on the hub, then returns {user, assistant}.
 func TestSlinkPost_JSON_WaitReturnsAssistant(t *testing.T) {
@@ -144,32 +166,15 @@ func TestSlinkPost_JSON_WaitReturnsAssistant(t *testing.T) {
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 
-	// Publish an assistant reply shortly after POST arrives.
 	go func() {
 		time.Sleep(80 * time.Millisecond)
 		s.hub.publish(g.Folder, "t-wait", "message",
 			`{"role":"assistant","content":"pong","id":"bot-1"}`)
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	got, _ := postSlinkJSON(t, srv.URL+"/slink/"+g.SlinkToken+"?wait=2",
+		"content=ping&topic=t-wait")
 
-	req, _ := http.NewRequestWithContext(ctx, "POST",
-		srv.URL+"/slink/"+g.SlinkToken+"?wait=2",
-		strings.NewReader("content=ping&topic=t-wait"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("do: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var got map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
 	user, _ := got["user"].(map[string]any)
 	if user == nil || user["content"] != "ping" {
 		t.Fatalf("missing/bad user: %+v", got)
@@ -191,33 +196,14 @@ func TestSlinkPost_JSON_WaitTimesOut(t *testing.T) {
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	req, _ := http.NewRequestWithContext(ctx, "POST",
-		srv.URL+"/slink/"+g.SlinkToken+"?wait=1",
-		strings.NewReader("content=silent&topic=t-timeout"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	start := time.Now()
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("do: %v", err)
-	}
-	defer resp.Body.Close()
-	elapsed := time.Since(start)
+	got, elapsed := postSlinkJSON(t, srv.URL+"/slink/"+g.SlinkToken+"?wait=1",
+		"content=silent&topic=t-timeout")
 
 	if elapsed < 900*time.Millisecond {
 		t.Errorf("returned too fast (%s) — should have waited ~1s", elapsed)
 	}
 	if elapsed > 2500*time.Millisecond {
 		t.Errorf("returned too slow (%s)", elapsed)
-	}
-
-	var got map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
-		t.Fatalf("decode: %v", err)
 	}
 	if _, ok := got["user"]; !ok {
 		t.Errorf("missing user: %+v", got)

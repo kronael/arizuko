@@ -74,13 +74,8 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	wantJSON := strings.Contains(accept, "application/json")
 	wait := 0
 	if wantJSON {
-		if v := r.URL.Query().Get("wait"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				wait = n
-				if wait > 120 {
-					wait = 120
-				}
-			}
+		if n, err := strconv.Atoi(r.URL.Query().Get("wait")); err == nil {
+			wait = min(max(n, 0), 120)
 		}
 	}
 
@@ -140,9 +135,11 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := map[string]any{"user": userPayload}
 		if wait > 0 {
-			if a, ok := waitForAssistant(r.Context(), ch, time.Duration(wait)*time.Second); ok {
+			ctx, cancel := context.WithTimeout(r.Context(), time.Duration(wait)*time.Second)
+			if a, ok := waitForAssistant(ctx, ch); ok {
 				resp["assistant"] = a
 			}
+			cancel()
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	default:
@@ -152,20 +149,17 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 }
 
 // waitForAssistant blocks until an assistant-role event arrives on ch,
-// the request context ends, or timeout fires. Non-assistant frames
+// the context ends, or the channel closes. Non-assistant frames
 // (e.g. the caller's own user bubble) are consumed and ignored.
-func waitForAssistant(ctx context.Context, ch <-chan string, timeout time.Duration) (map[string]any, bool) {
-	deadline := time.After(timeout)
+func waitForAssistant(ctx context.Context, ch <-chan string) (map[string]any, bool) {
 	for {
 		select {
 		case frame, ok := <-ch:
 			if !ok {
 				return nil, false
 			}
-			data := sseData(frame)
-			if data == "" {
-				continue
-			}
+			_, data, _ := strings.Cut(frame, "data: ")
+			data, _, _ = strings.Cut(data, "\n")
 			var m map[string]any
 			if json.Unmarshal([]byte(data), &m) != nil {
 				continue
@@ -173,22 +167,10 @@ func waitForAssistant(ctx context.Context, ch <-chan string, timeout time.Durati
 			if role, _ := m["role"].(string); role == "assistant" {
 				return m, true
 			}
-		case <-deadline:
-			return nil, false
 		case <-ctx.Done():
 			return nil, false
 		}
 	}
-}
-
-// sseData extracts the "data: <payload>" line from an SSE frame.
-func sseData(frame string) string {
-	for _, line := range strings.Split(frame, "\n") {
-		if strings.HasPrefix(line, "data: ") {
-			return line[6:]
-		}
-	}
-	return ""
 }
 
 // handleSlinkStream opens an SSE connection for a group/topic.
