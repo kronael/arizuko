@@ -147,8 +147,11 @@ func writeSvc(def svcDef) string {
 		}
 	}
 	b.WriteString(envFileLine)
+	// DATA_DIR is always the container-internal mount point — .env doesn't
+	// know this path, so every arizuko daemon needs the override.
+	b.WriteString("    environment:\n")
+	b.WriteString("      DATA_DIR: '/srv/app/home'\n")
 	if len(def.environment) > 0 {
-		b.WriteString("    environment:\n")
 		writeEnv(&b, def.environment)
 	}
 	dep := def.dependsOn
