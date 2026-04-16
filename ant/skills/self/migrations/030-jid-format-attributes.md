@@ -1,45 +1,22 @@
 # 030 — JID format and message attributes
 
-The gateway now uses `scheme:id` format for all senders and enriches
-message XML with additional attributes.
+All senders use `scheme:id` format. Each `<message>` tag now includes:
 
-## Message format changes
+| Attribute   | Example                  |
+| ----------- | ------------------------ |
+| `sender`    | `Alice` (display name)   |
+| `sender_id` | `telegram:123456`        |
+| `chat_id`   | `telegram:-1001234567890`|
+| `chat`      | `Support` (groups only)  |
+| `platform`  | `telegram`               |
+| `time`      | `2026-03-11T14:00:00Z`   |
+| `ago`       | `3h`                     |
 
-Each `<message>` tag now includes:
+A `<clock time="…" tz="…" />` tag is injected before messages on each
+invocation.
 
-| Attribute   | Example                   | Description              |
-| ----------- | ------------------------- | ------------------------ |
-| `sender`    | `Alice`                   | Display name             |
-| `sender_id` | `telegram:REDACTED`     | Platform-prefixed JID    |
-| `chat_id`   | `telegram:-1001234567890` | Chat JID                 |
-| `chat`      | `Support`                 | Group name (groups only) |
-| `platform`  | `telegram`                | Source platform          |
-| `time`      | `2026-03-11T14:00:00Z`    | Message timestamp        |
-| `ago`       | `3h`                      | Relative time            |
+Sender schemes: `telegram:`, `whatsapp:…@lid`, `discord:`, `email:`,
+`web:`. Use `sender_id` for stable cross-session identification.
 
-## Clock header
-
-A `<clock>` tag is injected before messages on each agent invocation:
-
-```xml
-<clock time="2026-03-13T10:00:00.000Z" tz="Europe/Prague" />
-```
-
-## Sender JID format
-
-All senders now use `platform:id`:
-
-- `telegram:REDACTED`
-- `whatsapp:REDACTED@lid` (WhatsApp uses opaque LID identifiers)
-- `discord:9876543210`
-- `email:user@example.com`
-- `web:anonymous`
-
-Display names remain in the `sender` attribute. Use `sender_id` for
-stable identification across sessions.
-
-## No action required
-
-These changes are gateway-side. Message history in `.jl` transcripts
-may show the old format (bare sender IDs). New messages use the
+Old `.jl` transcripts may show bare sender IDs — new messages use the
 enriched format automatically.

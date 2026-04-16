@@ -6,9 +6,9 @@ description: >
   or analysis.
 ---
 
-# Data Acquisition
+# Acquire
 
-Low-level download, transcription, and scraping patterns.
+Download, transcribe, scrape.
 
 ## Video (yt-dlp + ffmpeg)
 
@@ -23,27 +23,24 @@ yt-dlp -x --audio-format mp3 -o '~/tmp/%(title)s.%(ext)s' '<url>'
 yt-dlp --write-subs --write-auto-subs --sub-lang en --skip-download \
   -o '~/tmp/%(title)s' '<url>'
 
-# metadata as JSON
+# metadata
 yt-dlp --dump-json '<url>' | jq '{title, duration, description}'
 
-# key frames at intervals
+# key frames
 ffmpeg -i ~/tmp/video.mp4 -vf "fps=1/30" ~/tmp/frame_%03d.jpg
 ```
 
-Supported sites: YouTube, Twitter/X, Reddit, TikTok, Vimeo, 1000+ others.
-Run `yt-dlp --list-extractors` to check.
+YouTube, Twitter/X, Reddit, TikTok, Vimeo, 1000+ more sites.
+`yt-dlp --list-extractors` to check.
 
-## Audio transcription (whisper)
-
-Transcribe via `$WHISPER_BASE_URL`:
+## Audio transcription
 
 ```bash
-curl -s -F "file=@$HOME/tmp/audio.mp3" \
-  -F "model=turbo" \
+curl -s -F "file=@$HOME/tmp/audio.mp3" -F "model=turbo" \
   "$WHISPER_BASE_URL/inference" | jq -r '.text'
 ```
 
-For long audio, split first:
+Split long audio first:
 
 ```bash
 ffmpeg -i ~/tmp/long.mp3 -f segment -segment_time 600 \
@@ -58,31 +55,25 @@ Claude reads images natively via Read tool:
 curl -o ~/tmp/img.jpg '<url>'
 ```
 
-Then read it with the Read tool — works for photos, charts, screenshots, PDFs.
-
 ## Web content
 
 - Static: `curl -s '<url>'`
-- JS-rendered / auth-required: use `agent-browser` skill
+- JS-rendered / auth-required: `agent-browser` skill
 
-## Non-obvious search services
+## Useful search services
 
-| Service            | URL pattern                   | Use case                           |
-| ------------------ | ----------------------------- | ---------------------------------- |
-| DeepWiki           | `deepwiki.com/<owner>/<repo>` | AI-navigable GitHub repo wiki      |
-| Marginalia         | `search.marginalia.nu`        | Small-web, non-commercial results  |
-| Kagi Small Web     | `kagi.com/smallweb`           | Curated indie/blog content         |
-| Hacker News search | `hn.algolia.com`              | Tech discussion, launch history    |
-| Lobsters           | `lobste.rs`                   | Computing-focused link aggregation |
-| Archive.org        | `web.archive.org/web/<url>`   | Historical snapshots of any URL    |
-| Google Scholar     | `scholar.google.com`          | Academic papers, citations         |
-| Semantic Scholar   | `semanticscholar.org`         | AI-powered paper search + API      |
-| Common Crawl       | `index.commoncrawl.org`       | Bulk web archive index             |
+| Service          | URL                           | Use case                      |
+| ---------------- | ----------------------------- | ----------------------------- |
+| DeepWiki         | `deepwiki.com/<owner>/<repo>` | AI-navigable GitHub repo wiki |
+| Marginalia       | `search.marginalia.nu`        | Small-web, non-commercial     |
+| HN Algolia       | `hn.algolia.com`              | Tech discussion history       |
+| Archive.org      | `web.archive.org/web/<url>`   | Historical snapshots          |
+| Google Scholar   | `scholar.google.com`          | Academic papers               |
+| Semantic Scholar | `semanticscholar.org`         | AI-powered paper search + API |
 
 ## Rules
 
-- ALWAYS prefer transcripts over raw media — text is cheaper to process
+- ALWAYS prefer transcripts over raw media
 - ALWAYS save intermediate files to `~/tmp/` (sendable via `send_file`)
-- ALWAYS run `yt-dlp --dump-json` before downloading — description/comments often suffice
-- NEVER download full video when subtitles/transcript are available
-- Batch when possible — yt-dlp accepts playlists and multiple URLs
+- ALWAYS try `yt-dlp --dump-json` first — description/comments often suffice
+- NEVER download full video when subtitles exist

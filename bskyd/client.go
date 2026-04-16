@@ -263,9 +263,8 @@ func blobExt(mime string) string {
 		return ".webp"
 	case "image/gif":
 		return ".gif"
-	default:
-		return ".bin"
 	}
+	return ".bin"
 }
 
 func (bc *bskyClient) Send(req chanlib.SendRequest) (string, error) {
@@ -297,12 +296,10 @@ func (bc *bskyClient) getPostCID(uri string) (string, error) {
 	if len(parts) < 5 {
 		return "", fmt.Errorf("invalid uri: %s", uri)
 	}
-	params := map[string]string{
-		"repo": parts[2], "collection": "app.bsky.feed.post", "rkey": parts[len(parts)-1],
-	}
 	var result struct {
 		CID string `json:"cid"`
 	}
+	params := map[string]string{"repo": parts[2], "collection": "app.bsky.feed.post", "rkey": parts[len(parts)-1]}
 	if err := bc.xrpc("GET", "com.atproto.repo.getRecord", params, nil, &result); err != nil {
 		return "", err
 	}

@@ -1,45 +1,17 @@
----
-version: 42
-description: tier 2 now has /workspace/web mount; fix web path logic
----
+# 042 — tier 2 gets /workspace/web mount
 
-## What changed
-
-- `/workspace/web` is now mounted for tier 0, 1, AND 2 groups
-- Tier 0 (root): full web root
-- Tier 1 (world admin): `web/<world>/` mounted as `/workspace/web`
-- Tier 2 (child): `web/<world>/` mounted as `/workspace/web` (same mount)
-- Skills updated: web, research, hello, howto — all now use `basename`
-  for the subdirectory when tier 2, not the full `$GROUP_FOLDER`
-
-## Convention (updated)
+`/workspace/web` is now mounted for tier 0, 1, AND 2. Tier 1 and 2 share
+the same world-level mount. Skills (`web`, `research`, `hello`, `howto`)
+now use `basename` for the subdirectory when tier 2.
 
 ```bash
-GROUP_FOLDER=$ARIZUKO_GROUP_FOLDER
 if [ "$ARIZUKO_IS_ROOT" = "1" ] || [ "$ARIZUKO_IS_WORLD_ADMIN" = "1" ]; then
   WEB_DIR="/workspace/web"
 else
-  WEB_SUB=$(basename "$GROUP_FOLDER")
-  WEB_DIR="/workspace/web/$WEB_SUB"
+  WEB_DIR="/workspace/web/$(basename "$ARIZUKO_GROUP_FOLDER")"
   mkdir -p "$WEB_DIR"
 fi
 ```
 
-## Action required
-
-Check if `/workspace/web` is now available: `ls /workspace/web/ 2>/dev/null && echo ok`
-
-If you previously published content and it's not visible, check the path:
-
-- Old path: `/workspace/web/atlas/support/` (wrong — used full GROUP_FOLDER)
-- New path: `/workspace/web/support/` (correct — use basename only)
-
-Move content if needed:
-
-```bash
-# Only if /workspace/web exists and you're tier 2
-if [ "$ARIZUKO_TIER" = "2" ]; then
-  WEB_SUB=$(basename "$ARIZUKO_GROUP_FOLDER")
-  mkdir -p "/workspace/web/$WEB_SUB"
-fi
-```
+If you previously published under `/workspace/web/<world>/<child>/` (full
+`GROUP_FOLDER`), move content to `/workspace/web/<child>/` (basename only).

@@ -5,94 +5,70 @@ description: Deploy web apps, pages, sites, dashboards, or UIs. Use when asked t
 
 # Web
 
-Deploy web apps by writing files to /workspace/web/pub/<app_name>/.
-Any directory with index.html is served by vite MPA.
+Deploy by writing files to `/workspace/web/pub/<app>/`. Any directory with
+`index.html` is served by vite MPA.
 
-## Access model
+## Access
 
-- `/pub/` — publicly accessible, no login required
-- `/dash/`, `/chat/`, `/api/`, `/x/` — auth-gated (JWT required)
-- `/slink/` — token-gated anonymous web chat
-- `/auth/` — OAuth login/callback/logout
+- `/pub/*` — public, no login
+- `/dash/`, `/chat/`, `/api/`, `/x/` — JWT-gated
+- `/slink/*` — token-gated anonymous chat
+- `/auth/*` — OAuth flow
 - Any other path redirects to `/pub/` + path (then 404 if missing)
 
-ALWAYS place web apps under `/workspace/web/pub/<app>/`.
-NEVER write to `/workspace/web/<app>/` directly — it won't be served.
-NEVER create paths like `/sub/`, `/private/` — they don't exist.
+ALWAYS place apps under `/workspace/web/pub/<app>/`. NEVER write to
+`/workspace/web/<app>/` — it won't be served. Paths like `/sub/` or
+`/private/` do not exist.
 
-## Creating an app
+## Create an app
 
-1. Write files to `/workspace/web/pub/myapp/` (index.html required)
-2. App is live at `https://$WEB_HOST/pub/myapp/` (if WEB_HOST set)
+1. Write files to `/workspace/web/pub/myapp/` (`index.html` required)
+2. Live at `https://$WEB_HOST/pub/myapp/`
 3. Vite handles TypeScript, CSS, hot reload natively
 
 ## Stack
 
-- Vite MPA (no build step needed)
+- Vite MPA (no build step)
 - Vanilla HTML + CSS + JS/TS
-- Shared assets in `/workspace/web/pub/assets/` (hub.css, hub.js)
-
-## Styling
-
-Use shared CSS variables from hub.css:
-`--accent`, `--bg`, `--fg`, `--card`, `--border`, `--dim`
-
-For richer apps: Tailwind CSS via CDN, Alpine.js via CDN.
+- Shared assets in `/workspace/web/pub/assets/` (`hub.css`, `hub.js`)
+- Rich apps: Tailwind CDN, Alpine CDN
 
 ## Hub page
 
-Root `/workspace/web/pub/index.html` lists all deployed apps.
-Update it when adding/removing apps.
-Never list placeholders or examples.
-
-## Vite restart
-
-Vite runs in a separate `vited` Docker container with `restart: on-failure`.
-Restart from the host if needed.
+Root `/workspace/web/pub/index.html` lists deployed apps. Update when
+adding/removing apps. No placeholders.
 
 ## Web chat (slink)
 
-Each group has a slink token for public web chat. Endpoints:
+Each group has a slink token for public chat:
 
-- `POST /slink/<token>` — send message (form: `content`, `topic`)
+- `POST /slink/<token>` — form: `content`, `topic`
 - `GET /slink/stream?group=<folder>&topic=<t>` — SSE response stream
+  (events: `{id, role, content, created_at}`)
 
-When users ask about web chat, point them to
-`https://$WEB_HOST/slink/<token>`. Authenticated UI at `/chat/<folder>`.
+Point users to `https://$WEB_HOST/slink/<token>`. Authenticated UI at
+`/chat/<folder>`.
 
-### Usage with curl
-
-```bash
-# send a message (returns HTML fragment)
-curl -X POST https://host/slink/TOKEN -d "content=hello&topic=t1"
-
-# stream responses (SSE, keep-alive)
-curl -N https://host/slink/stream?group=FOLDER&topic=t1
-# each event: {"id","role","content","created_at"}
-```
-
-### Embedding in apps
-
-Slink is a plain HTTP API — no SDK needed. Send = POST form,
-receive = SSE EventSource. Minimal JS integration:
+Minimal embed:
 
 ```js
-// send
 fetch(`/slink/${token}`, {
   method: 'POST',
-  body: new URLSearchParams({ content: msg, topic: tid })
+  body: new URLSearchParams({ content: msg, topic: tid }),
 })
-// receive
-const es = new EventSource(
-  `/slink/stream?group=${folder}&topic=${tid}`)
+const es = new EventSource(`/slink/stream?group=${folder}&topic=${tid}`)
 es.addEventListener('message', e => {
   const { content, role } = JSON.parse(e.data)
 })
 ```
 
-Topic is auto-generated if omitted. Reuse the same topic for
-a conversation thread. Anonymous users are identified by IP hash.
+Topic auto-generated if omitted. Anonymous users identified by IP hash.
 
-## Post-deploy validation
+## Vite restart
 
-Fetch the affected URL (WebFetch or curl) to verify before reporting done.
+Vite runs in a separate `vited` container with `restart: on-failure`. Restart
+from the host if needed.
+
+## Post-deploy
+
+Fetch the URL (WebFetch or curl) to verify before reporting done.

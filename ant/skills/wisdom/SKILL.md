@@ -7,8 +7,6 @@ description: >
 
 # Wisdom
 
-How to write, improve, and debug skills and CLAUDE.md.
-
 ## SKILL.md anatomy
 
 ```yaml
@@ -20,30 +18,18 @@ description: >          # 1-2 sentences: WHEN to activate, WHAT it does
 ---
 ```
 
-- `description` is the trigger — semantic matching activates skills
-- Bad: "general utilities" / "helps with stuff"
-- Good: "Use when asked to build X" / "Use for Y errors"
+`description` is the trigger — semantic matching activates skills. Good
+descriptions say "Use when asked to X" or "Use for Y errors". Avoid vague
+phrases like "general utilities".
 
-## Skill body rules
+## Body rules
 
 - Imperative statements: ALWAYS, NEVER, MUST, SHOULD
-- Concrete steps with code blocks — not prose explaining concepts
+- Concrete steps with code blocks, not prose explaining concepts
 - Under 200 lines; link to supporting files if larger
 - One skill = one capability. If it does two things, split it.
 
-## CLAUDE.md rules
-
-- Project-specific patterns only (skills handle reusable knowledge)
-- Architecture, build commands, state machines, external systems
-- Under 200 lines — overflow to `.claude/*.md` files
-- Same format: statements + examples, not paragraphs
-
-## Creating a new skill
-
-1. Check existing skills for overlap: `ls ~/.claude/skills/`
-2. Write SKILL.md with frontmatter + body
-3. Test: does `/resolve` match it for the intended task?
-4. If not, improve the `description` — that's what resolve reads
+## Creating a skill
 
 ```bash
 mkdir -p ~/.claude/skills/myskill
@@ -66,42 +52,37 @@ description: >
 EOF
 ```
 
-## Improving a skill
+Test that `/resolve` matches it for the intended task; if not, improve the
+`description` — that's what resolve reads.
 
-Common problems and fixes:
+## Common problems
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| Skill never triggers | Vague description | Add specific keywords and use-cases |
-| Skill triggers wrong | Description too broad | Narrow to exact scenarios |
-| Agent ignores rules | Buried in prose | Convert to ALWAYS/NEVER bullets |
-| Agent does extra work | Missing NEVER rules | Add explicit "don't do X" |
-| Skill too long | Scope creep | Split into focused skills |
+| Symptom               | Fix                                         |
+| --------------------- | ------------------------------------------- |
+| Never triggers        | Vague description — add keywords, use cases |
+| Triggers wrong        | Description too broad — narrow scenarios    |
+| Rules ignored         | Buried in prose — convert to ALWAYS/NEVER   |
+| Agent does extra work | Add explicit NEVER rules                    |
+| Too long              | Split into focused skills                   |
 
-## Debugging skills
+## Debugging
 
 ```bash
-# What skills exist?
 ls ~/.claude/skills/
-
-# What does resolve see?
 cat ~/.claude/skills/*/SKILL.md | grep -A1 'description:'
-
-# Is the skill seeded from canonical?
 diff ~/.claude/skills/myskill/SKILL.md /workspace/self/ant/skills/myskill/SKILL.md
 ```
 
 ## Anti-patterns
 
-- NEVER write "This skill helps you..." marketing prose
-- NEVER duplicate between skills — one source of truth per topic
-- NEVER put transient info in skills (use diary/memory instead)
-- NEVER use vague descriptions ("general utilities", "misc helpers")
+- NEVER "This skill helps you..." marketing prose
+- NEVER duplicate between skills — one source of truth
+- NEVER put transient info in skills (use diary/memory)
 - NEVER exceed 200 lines without splitting into supporting files
 - NEVER put ops procedures in CLAUDE.md — use a skill
 
-## Canonical skill location
+## Canonical location
 
-- Source: `/workspace/self/ant/skills/` (read-only in container)
-- Agent copy: `~/.claude/skills/` (read-write, seeded once on first spawn)
-- Use `/migrate` to sync canonical → agent copies across groups
+- Source: `/workspace/self/ant/skills/` (read-only)
+- Agent copy: `~/.claude/skills/` (seeded once on first spawn)
+- `/migrate` syncs canonical → agent copies

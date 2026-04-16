@@ -61,8 +61,8 @@ func (rc *redditClient) loadCursors() {
 }
 
 func (rc *redditClient) saveCursors() {
-	b, _ := json.Marshal(rc.cursors)
 	os.MkdirAll(rc.cfg.DataDir, 0o755)
+	b, _ := json.Marshal(rc.cursors)
 	os.WriteFile(filepath.Join(rc.cfg.DataDir, "cursors.json"), b, 0o600)
 }
 
@@ -271,7 +271,6 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 	if strings.HasPrefix(key, "sr:") {
 		jid = "reddit:r_" + d.Subreddit
 	}
-
 	content := d.Body
 	if content == "" {
 		content = d.Title
@@ -282,8 +281,6 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 	if content == "" {
 		return
 	}
-
-	// t1=comment, t3=post, t4=DM
 	verb, topic := "message", ""
 	switch t.Kind {
 	case "t1":
@@ -297,12 +294,10 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 	case "t3":
 		verb = "post"
 	}
-
 	atts := rc.extractAttachments(t)
 	for _, a := range atts {
 		content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
 	}
-
 	if err := router.SendMessage(chanlib.InboundMsg{
 		ID:          d.Name,
 		ChatJID:     jid,
@@ -345,10 +340,10 @@ func (rc *redditClient) Typing(string, bool) {}
 
 func (rc *redditClient) extractAttachments(t thing) []chanlib.InboundAttachment {
 	d := t.Data
-	if d.Media != nil && d.Media.RedditVideo != nil && d.Media.RedditVideo.FallbackURL != "" {
+	switch {
+	case d.Media != nil && d.Media.RedditVideo != nil && d.Media.RedditVideo.FallbackURL != "":
 		return []chanlib.InboundAttachment{rc.makeAttachment(d.Media.RedditVideo.FallbackURL, "video/mp4", "video.mp4")}
-	}
-	if d.IsGallery && d.GalleryData != nil && d.MediaMetadata != nil {
+	case d.IsGallery && d.GalleryData != nil && d.MediaMetadata != nil:
 		var atts []chanlib.InboundAttachment
 		for _, item := range d.GalleryData.Items {
 			meta, ok := d.MediaMetadata[item.MediaID]
@@ -359,8 +354,7 @@ func (rc *redditClient) extractAttachments(t thing) []chanlib.InboundAttachment 
 			atts = append(atts, rc.makeAttachment(imgURL, meta.Mime, item.MediaID+extFromRedditMime(meta.Mime)))
 		}
 		return atts
-	}
-	if d.URL != "" && isRedditImageURL(d.URL, d.PostHint) {
+	case d.URL != "" && isRedditImageURL(d.URL, d.PostHint):
 		return []chanlib.InboundAttachment{rc.makeAttachment(d.URL, mimeFromExt(d.URL), filenameFromURL(d.URL))}
 	}
 	return nil
@@ -401,9 +395,8 @@ func mimeFromExt(u string) string {
 		return "image/gif"
 	case strings.Contains(lower, ".webp"):
 		return "image/webp"
-	default:
-		return "image/jpeg"
 	}
+	return "image/jpeg"
 }
 
 func filenameFromURL(u string) string {
@@ -426,9 +419,8 @@ func extFromRedditMime(m string) string {
 		return ".gif"
 	case "image/webp":
 		return ".webp"
-	default:
-		return ".jpg"
 	}
+	return ".jpg"
 }
 
 type fileCache struct {
