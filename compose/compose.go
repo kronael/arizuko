@@ -263,7 +263,12 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 		"VITE_ADDR": "http://vited:" + vitePort,
 		"WEBD_ADDR": "http://webd:9002",
 	}
-	copyEnv(environment, env, "AUTH_SECRET", "WEB_PUBLIC", "WEB_REDIRECTS")
+	copyEnv(environment, env, "AUTH_SECRET", "WEB_PUBLIC", "WEB_REDIRECTS",
+		"AUTH_BASE_URL",
+		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_ALLOWED_ORG",
+		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ALLOWED_EMAILS",
+		"DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
+		"TELEGRAM_BOT_TOKEN")
 	if envOr(env, "WEBDAV_ENABLED", "") == "true" {
 		environment["DAV_ADDR"] = "http://davd:" + envOr(env, "DAV_PORT", "8097")
 	}
