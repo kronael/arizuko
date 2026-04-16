@@ -20,6 +20,7 @@ import (
 
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/theme"
 	_ "modernc.org/sqlite"
 )
 
@@ -352,42 +353,18 @@ func linkJID(db *sql.DB, jid, userSub string) {
 }
 
 func renderPage(w http.ResponseWriter, title, body string) {
-	safeTitle := html.EscapeString(title)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!DOCTYPE html>
-<html><head><title>arizuko — %s</title>
-<style>
-:root{--bg:#0a0a0a;--fg:#e0e0e0;--accent:#4ade80;--accent2:#a78bfa;--accent3:#58a6ff;--dim:#666;--border:#222;--card:#111}
-[data-theme=light]{--bg:#fafafa;--fg:#1a1a1a;--accent:#16a34a;--accent2:#7c3aed;--accent3:#0969da;--dim:#888;--border:#ddd;--card:#fff}
-*{box-sizing:border-box}
-body{font-family:"SF Mono","Fira Code","JetBrains Mono",Consolas,monospace;font-size:14px;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;color:var(--fg);background:var(--bg)}
-.card{background:var(--card);border:1px solid var(--border);padding:2rem;border-radius:6px;max-width:520px;width:calc(100%% - 2rem)}
-.brand{color:var(--accent);font-weight:bold;font-size:1.1em;margin:0 0 .3em}
-h2{margin:0 0 1rem;font-size:1.15em;color:var(--accent3)}
-p{margin:.4em 0}
-input{width:100%%;padding:.5rem;margin:.25rem 0 1rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:.9em}
-input:focus{outline:none;border-color:var(--accent3)}
-button{padding:.55rem 1.2rem;background:var(--accent);color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-family:inherit;font-weight:bold;font-size:.9em}
-button:hover{opacity:.9}
-a{color:var(--accent)}
-a:hover{text-decoration:underline}
-table{width:100%%;border-collapse:collapse;margin:.5rem 0;font-size:.9em}
-td,th{padding:.35rem .6rem;text-align:left;border-bottom:1px solid var(--border)}
-th{color:var(--accent2);font-weight:normal;text-transform:uppercase;font-size:.8em;letter-spacing:.05em}
-</style>
-<script>(function(){var t=localStorage.getItem('hub-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();</script>
-</head><body>
-<div class="card"><p class="brand">arizuko</p><h2>%s</h2>%s</div>
-</body></html>`, safeTitle, safeTitle, body)
+	fmt.Fprint(w, theme.Page(title, body))
 }
 
 func renderUsernamePicker(w http.ResponseWriter, currentUsername string) {
-	body := fmt.Sprintf(`<p>Pick a username for your workspace.</p>
+	body := fmt.Sprintf(`<p class="dim" style="margin-bottom:.8em">Pick a username for your workspace. Lowercase letters, numbers, and hyphens only.</p>
 <form method="POST" action="/onboard">
 <input type="hidden" name="action" value="create_world">
-<input name="username" placeholder="Username" value="%s" required autofocus
- pattern="[a-z][a-z0-9-]{2,29}" title="3-30 chars, lowercase, starts with letter">
-<button type="submit">Create workspace</button>
+<input name="username" placeholder="username" value="%s" required autofocus
+ pattern="[a-z][a-z0-9-]{2,29}" title="3-30 chars, lowercase, starts with letter"
+ style="margin-bottom:1rem">
+<button type="submit" style="width:100%%">Create workspace</button>
 </form>`, html.EscapeString(currentUsername))
 	renderPage(w, "Create Workspace", body)
 }
@@ -396,24 +373,35 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 	esc := html.EscapeString
 
 	var jidsHTML string
-	if rows, err := db.Query(`SELECT jid, claimed FROM user_jids WHERE user_sub = ? ORDER BY claimed`, userSub); err == nil {
+	if rows, err := db.Query(
+		`SELECT jid, claimed FROM user_jids WHERE user_sub = ? ORDER BY claimed`, userSub,
+	); err == nil {
 		for rows.Next() {
 			var jid, claimed string
 			rows.Scan(&jid, &claimed)
-			jidsHTML += fmt.Sprintf("<tr><td>%s</td><td>%s</td></tr>", esc(jid), esc(claimed[:10]))
+			platform := jid
+			if i := strings.Index(jid, ":"); i > 0 {
+				platform = jid[:i]
+			}
+			jidsHTML += fmt.Sprintf(
+				`<tr><td><span class="dot dot-ok"></span> %s</td><td>%s</td><td class="dim">%s</td></tr>`,
+				esc(platform), esc(jid), esc(claimed[:10]))
 		}
 		rows.Close()
 	}
 	if jidsHTML == "" {
-		jidsHTML = "<tr><td colspan=2>No linked accounts yet. Message the bot from a new platform to link it.</td></tr>"
+		jidsHTML = `<tr><td colspan="3" class="empty">No linked accounts. Message the bot from any platform to link it.</td></tr>`
 	}
 
 	var groupsHTML string
-	if rows, err := db.Query(`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, userSub); err == nil {
+	if rows, err := db.Query(
+		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, userSub,
+	); err == nil {
 		for rows.Next() {
 			var folder string
 			rows.Scan(&folder)
-			groupsHTML += fmt.Sprintf("<tr><td>%s</td></tr>", esc(folder))
+			groupsHTML += fmt.Sprintf(
+				`<tr><td><span class="dot dot-ok"></span> %s</td></tr>`, esc(folder))
 		}
 		rows.Close()
 	}
@@ -428,27 +416,49 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 		for rows.Next() {
 			var jid, target string
 			rows.Scan(&jid, &target)
-			routesHTML += fmt.Sprintf("<tr><td>%s</td><td>%s</td></tr>", esc(jid), esc(target))
+			routesHTML += fmt.Sprintf(
+				`<tr><td>%s</td><td>%s</td></tr>`, esc(jid), esc(target))
 		}
 		rows.Close()
 	}
 	if routesHTML == "" {
-		routesHTML = "<tr><td colspan=2>No routes configured.</td></tr>"
+		routesHTML = `<tr><td colspan="2" class="empty">No routes configured.</td></tr>`
 	}
 
-	body := fmt.Sprintf(`
-<p>Logged in as <strong>%s</strong></p>
+	initial := "?"
+	if len(username) > 0 {
+		initial = strings.ToUpper(username[:1])
+	}
 
-<h3>My accounts</h3>
-<table><tr><th>Platform</th><th>Linked</th></tr>%s</table>
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body>
+<div class="page-wide">
+<div class="user-header">
+  <div class="user-avatar">%s</div>
+  <div class="user-meta">
+    <div class="brand">%s</div>
+    <div class="dim">%s</div>
+  </div>
+</div>
 
-<h3>My groups</h3>
-<table><tr><th>Group</th></tr>%s</table>
-
-<h3>Routing</h3>
-<table><tr><th>From</th><th>To</th></tr>%s</table>
-`, esc(username), jidsHTML, groupsHTML, routesHTML)
-	renderPage(w, "Dashboard", body)
+<div class="cols">
+  <div class="section">
+    <h3>Accounts</h3>
+    <table><tr><th>Platform</th><th>JID</th><th>Linked</th></tr>%s</table>
+  </div>
+  <div class="section">
+    <h3>Groups</h3>
+    <table><tr><th>Folder</th></tr>%s</table>
+  </div>
+  <div class="section card-full">
+    <h3>Routing</h3>
+    <table><tr><th>From</th><th>To</th></tr>%s</table>
+  </div>
+</div>
+</div></body></html>`,
+		theme.Head("Dashboard"),
+		esc(initial), esc(username), esc(userSub),
+		jidsHTML, groupsHTML, routesHTML)
 }
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}

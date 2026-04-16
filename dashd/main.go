@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/onvos/arizuko/diary"
+	"github.com/onvos/arizuko/theme"
 	_ "modernc.org/sqlite"
 )
 
@@ -93,53 +94,17 @@ func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, `{"ok":true}`)
 }
 
-const dashCSS = `<style>
-:root{--bg:#0a0a0a;--fg:#e0e0e0;--accent:#4ade80;--accent2:#a78bfa;--accent3:#58a6ff;--dim:#666;--border:#222;--card:#111;--code-bg:#1a1a1a}
-[data-theme=light]{--bg:#fafafa;--fg:#1a1a1a;--accent:#16a34a;--accent2:#7c3aed;--accent3:#0969da;--dim:#888;--border:#ddd;--card:#fff;--code-bg:#f0f0f0}
-*{box-sizing:border-box}
-body{font-family:"SF Mono","Fira Code","JetBrains Mono",Consolas,monospace;font-size:14px;line-height:1.6;color:var(--fg);background:var(--bg);max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
-h1{font-size:1.6em;color:var(--accent);margin:0 0 .2em}
-h2{font-size:1.15em;color:var(--accent3);margin:1.4em 0 .6em;padding-bottom:.25em;border-bottom:1px solid var(--border)}
-a{color:var(--accent);text-decoration:none}
-a:hover{text-decoration:underline}
-nav{margin:.4em 0 1.4em;color:var(--dim);font-size:.9em}
-nav a{color:var(--dim);margin-right:1rem}
-nav a:hover{color:var(--accent3)}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.8rem;margin-top:1em}
-.tile{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:1em;color:var(--fg)}
-.tile:hover{border-color:var(--accent3);text-decoration:none}
-.tile h2{margin:0 0 .3em;font-size:.95em;color:var(--accent3);border:none;padding:0}
-.tile p{color:var(--dim);font-size:.85em;margin:0}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:.4em;vertical-align:middle}
-.ok{background:var(--accent)}.warn{background:#fa0}.err{background:#e5484d}
-table{border-collapse:collapse;width:100%;font-size:.9em}
-th,td{text-align:left;padding:.35rem .6rem;border-bottom:1px solid var(--border)}
-th{color:var(--accent2);font-weight:normal;font-size:.85em;text-transform:uppercase;letter-spacing:.05em}
-tr:hover td{background:var(--card)}
-pre,code{background:var(--code-bg);border-radius:3px}
-code{padding:.15em .4em;font-size:.9em}
-pre{padding:1em;overflow:auto;max-height:400px;border:1px solid var(--border)}
-details{margin:.3em 0}
-details summary{cursor:pointer;padding:.3em 0;color:var(--fg)}
-details summary:hover{color:var(--accent3)}
-.group-detail{margin:.5em 0 .5em 1em;font-size:.9em;padding-left:.8em;border-left:1px solid var(--border)}
-.banner-ok,.banner-warn,.banner-err{padding:.6em 1em;margin:1em 0;border-radius:4px;border:1px solid}
-.banner-ok{background:rgba(74,222,128,.1);border-color:var(--accent);color:var(--accent)}
-.banner-warn{background:rgba(255,170,0,.1);border-color:#fa0;color:#fa0}
-.banner-err{background:rgba(229,72,77,.1);border-color:#e5484d;color:#e5484d}
-select,input{background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:.35em .6em;font-family:inherit;font-size:.9em}
-.theme-toggle{position:fixed;top:1em;right:1em;background:var(--card);border:1px solid var(--border);border-radius:50%;width:2.2em;height:2.2em;cursor:pointer;font-size:1em;color:var(--fg)}
-.theme-toggle:hover{transform:rotate(20deg)}
-</style>
-<script>(function(){var t=localStorage.getItem('hub-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);window.toggleTheme=function(){var c=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',c);localStorage.setItem('hub-theme',c);document.querySelector('.theme-toggle').textContent=c==='dark'?'\u{1F319}':'\u{1F506}'};document.addEventListener('DOMContentLoaded',function(){var b=document.querySelector('.theme-toggle');if(b){b.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'\u{1F319}':'\u{1F506}';b.addEventListener('click',toggleTheme)}})})();</script>`
+const dashNav = `<nav><a href="/dash/">arizuko</a><a href="/dash/status/">status</a><a href="/dash/tasks/">tasks</a><a href="/dash/activity/">activity</a><a href="/dash/groups/">groups</a><a href="/dash/memory/">memory</a></nav><button class="theme-toggle"></button>`
 
-const dashNav = `<nav><a href="/dash/">arizuko</a><a href="/dash/status/">status</a><a href="/dash/tasks/">tasks</a><a href="/dash/activity/">activity</a><a href="/dash/groups/">groups</a><a href="/dash/memory/">memory</a></nav><button class="theme-toggle">🌙</button>`
+func dashHead(title string) string {
+	return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+		`<title>` + title + ` — arizuko</title>` +
+		`<script src="https://unpkg.com/htmx.org@1.9.12"></script>` +
+		`<style>` + theme.CSS + `</style>` + theme.ThemeScript + theme.ToggleScript + `</head>`
+}
 
-var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><html><head>
-<meta charset=utf-8><title>arizuko</title>
-<script src="https://unpkg.com/htmx.org@1.9.12"></script>
-` + dashCSS + `</head><body>
-` + dashNav + `
+var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><html>{{.Head}}<body>
+<div class="page-wide">` + dashNav + `
 <h1>arizuko</h1>
 <p style="color:var(--dim);margin-bottom:1em">operator dashboard</p>
 <div class="tiles">
@@ -149,7 +114,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><htm
 <a class="tile" href="/dash/groups/"><h2>groups</h2><p>group hierarchy</p></a>
 <a class="tile" href="/dash/memory/"><h2>memory</h2><p>knowledge browser</p></a>
 </div>
-</body></html>`))
+</div></body></html>`))
 
 func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/dash/" {
@@ -180,18 +145,18 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	portalTmpl.Execute(w, struct {
+		Head      template.HTML
 		StatusDot string
 		TasksDot  string
-	}{statusDot, tasksDot})
+	}{template.HTML(dashHead("arizuko")), statusDot, tasksDot})
 }
 
 func pageTop(w http.ResponseWriter, title string) {
-	fmt.Fprintf(w, `<!DOCTYPE html><html><head><meta charset=utf-8><title>%s — arizuko</title><script src="https://unpkg.com/htmx.org@1.9.12"></script>`, template.HTMLEscapeString(title))
-	fmt.Fprint(w, dashCSS)
-	fmt.Fprintf(w, `</head><body>%s<h1>%s</h1>`, dashNav, template.HTMLEscapeString(title))
+	fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s<h1>%s</h1>`,
+		dashHead(title), dashNav, template.HTMLEscapeString(title))
 }
 
-const pageBot = `</body></html>`
+const pageBot = `</div></body></html>`
 
 func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -16,6 +16,7 @@ import (
 
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
+	"github.com/onvos/arizuko/theme"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -79,33 +80,15 @@ func handleLoginPage(cfg *core.Config) http.HandlerFunc {
 			buttons += `<a href="/auth/discord" class="oauth-btn">Sign in with Discord</a>`
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, `<!DOCTYPE html>
-<html><head><title>arizuko — login</title>
-<style>
-:root{--bg:#0a0a0a;--fg:#e0e0e0;--accent:#4ade80;--accent3:#58a6ff;--dim:#666;--border:#222;--card:#111}
-[data-theme=light]{--bg:#fafafa;--fg:#1a1a1a;--accent:#16a34a;--accent3:#0969da;--dim:#888;--border:#ddd;--card:#fff}
-*{box-sizing:border-box}
-body{font-family:"SF Mono","Fira Code","JetBrains Mono",Consolas,monospace;font-size:14px;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;color:var(--fg);background:var(--bg)}
-form{background:var(--card);border:1px solid var(--border);padding:2rem;border-radius:6px;width:300px}
-h1{margin:0 0 .2em;font-size:1.4em;color:var(--accent);text-align:center}
-.sub{color:var(--dim);font-size:.85em;text-align:center;margin:0 0 1.2em}
-input{width:100%%;padding:.5rem;margin:.25rem 0 1rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:.9em}
-input:focus{outline:none;border-color:var(--accent3)}
-button{width:100%%;padding:.6rem;background:var(--accent);color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-family:inherit;font-weight:bold;font-size:.9em}
-button:hover{opacity:.9}
-.sep{color:var(--dim);text-align:center;margin:1em 0 .5em;font-size:.8em}
-.oauth-btn{display:block;width:100%%;padding:.55rem;margin-top:.4em;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;text-align:center;text-decoration:none;font-size:.9em}
-.oauth-btn:hover{border-color:var(--accent3);color:var(--accent3)}
-</style>
-<script>(function(){var t=localStorage.getItem('hub-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();</script>
-</head><body>
-<form method="POST" action="/auth/login">
-<h1>arizuko</h1>
+		fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body>
+<div class="page-center">
+<form method="POST" action="/auth/login" class="card card-sm" style="padding:2rem">
+<h1 style="text-align:center;margin-bottom:.1em">arizuko</h1>
 <p class="sub">sign in</p>
-<input name="username" placeholder="username" required autofocus>
-<input name="password" type="password" placeholder="password" required>
-<button type="submit">login</button>
-%s</form></body></html>`, wrapOAuth(buttons))
+<input name="username" placeholder="username" required autofocus style="margin-bottom:.5rem">
+<input name="password" type="password" placeholder="password" required style="margin-bottom:1rem">
+<button type="submit" style="width:100%%">login</button>
+%s</form></div></body></html>`, theme.Head("login"), wrapOAuth(buttons))
 	}
 }
 
