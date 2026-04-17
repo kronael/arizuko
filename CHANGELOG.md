@@ -68,6 +68,23 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   Deployments with customized services/_.toml must be updated
   manually (e.g. `sed -i 's|:${API_PORT}|:8080|' services/_.toml`).
 
+### Fixed
+
+- **auth/proxyd**: new OAuth users with no groups now land on `/onboard`
+  instead of `/`; unauthenticated requests to deep links (`/chat/X`,
+  `/dash/Y`) preserve the original path through login via `auth_return`
+  cookie (10-min TTL).
+
+### Ops
+
+- **Makefile**: `make images` now runs `docker image prune -af` first
+  to reclaim dangling layers (prevents disk-full on hosts with a ~100G
+  root during successive agent-image rebuilds).
+- **tests**: coverage expansion — `teled` →58.5%, `discd` →70.5%,
+  `mastd` →69.5%, `bskyd` →84.2%, `timed` →72.1%, `dashd`, `onbod`.
+  Integration tests drive inbound/outbound paths against in-process
+  httptest mocks per platform.
+
 ## [v0.29.1] — 2026-04-16
 
 ### Changed

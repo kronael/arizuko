@@ -11,8 +11,8 @@ Go, SQLite, Docker.
 
 ```bash
 make build    # ./arizuko + daemon binaries
-make image    # gateway docker image
-make agent    # agent docker image
+make images   # all docker images (router + adapters + agent)
+make agent    # agent docker image only
 
 arizuko create foo                      # seed instance
 vim /srv/data/arizuko_foo/.env          # configure

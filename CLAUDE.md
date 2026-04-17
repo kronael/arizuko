@@ -162,8 +162,8 @@ Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 | `theme`    | library | Shared CSS/HTML helpers                               |
 
 **Schema ownership**: `gated` (via `store/`) owns `messages.db`. All
-migrations in `store/migrations/` (27 total). Other daemons connect
-read-only. `store.Migrate(db)` for test fixtures.
+migrations in `store/migrations/`. Other daemons connect read/write but
+never run migrations. `store.Migrate(db)` for test fixtures.
 
 ## Operational check (post-deploy)
 

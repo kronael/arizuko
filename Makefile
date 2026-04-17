@@ -23,6 +23,7 @@ clean:
 	$(foreach d,$(DAEMONS),make -C $(d) clean;)
 
 images:
+	$(DOCKER) image prune -af
 	$(DOCKER) build -t arizuko .
 	$(DOCKER) build -t arizuko-whatsapp -f whapd/Dockerfile .
 	make -C ant image DOCKER="$(DOCKER)"
