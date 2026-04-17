@@ -31,7 +31,7 @@ YAML frontmatter required. `triggers` is an array of keywords.
 ## Layout
 
 ```
-container/skills/
+ant/skills/
   self/         -- identity, memory, system messages
   migrate/      -- skill sync + migration (root group only)
   whisper/      -- voice transcription

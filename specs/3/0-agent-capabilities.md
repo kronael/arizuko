@@ -35,7 +35,7 @@ episodes, etc.) without going through gateway IPC.
 
 ## Skill: acquire
 
-`container/skills/acquire/SKILL.md` — teaches agents the
+`ant/skills/acquire/SKILL.md` — teaches agents the
 multimedia acquisition strategy:
 
 1. Prefer transcripts over raw media

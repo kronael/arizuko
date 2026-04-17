@@ -88,8 +88,7 @@ must match; empty `match` matches everything. Globs use Go
   `folder:REDACTED/content`. Gateway writes the message to the messages
   table and enqueues for the container.
 - **`daemon:<name>`** — HTTP POST to a registered daemon's `/send`
-  endpoint. Reserved for future use (today commands like `/approve`
-  are dispatched from the in-code command layer).
+  endpoint. Reserved for future use.
 - **`builtin:<name>`** — in-gateway handler (future). Reserved.
 
 `folder:` is optional; bare paths are folder targets. The prefix is
@@ -221,14 +220,13 @@ pipeline. All commands live in a single Go registration table
 (`gatewayCommands` in `gateway/commands.go`) so adding one is a
 one-line addition.
 
-| Command              | Effect                                              |
-| -------------------- | --------------------------------------------------- |
-| `/new`               | Clear session, enqueue trailing args as message     |
-| `/ping`              | Reply with group, session, active containers        |
-| `/chatid`            | Reply with the chat JID                             |
-| `/stop`              | Kill active container for this chat                 |
-| `/status`            | Show gateway state, channels, containers            |
-| `/approve` `/reject` | Forward to onbod daemon over HTTP (onboarding only) |
+| Command   | Effect                                          |
+| --------- | ----------------------------------------------- |
+| `/new`    | Clear session, enqueue trailing args as message |
+| `/ping`   | Reply with group, session, active containers    |
+| `/chatid` | Reply with the chat JID                         |
+| `/stop`   | Kill active container for this chat             |
+| `/status` | Show gateway state, channels, containers        |
 
 Commands never touch the routes table. The command registry is not
 exported to agents. `/grant` is an MCP tool in ipc.

@@ -38,7 +38,7 @@ The distinction:
 | File                 | Content                                             | Updated by                    |
 | -------------------- | --------------------------------------------------- | ----------------------------- |
 | `MEMORY.md`          | Tacit/behavioural — style, preferences, how to work | Agent, autonomously, any time |
-| `facts/<concept>.md` | World facts — who Alice is, what REDACTED runs        | Agent or scheduled extraction |
+| `facts/<concept>.md` | World facts — who Alice is, what REDACTED runs      | Agent or scheduled extraction |
 
 MEMORY.md is for "how" knowledge. Facts are for "what" knowledge.
 Agent is already instructed to use MEMORY.md this way by Claude Code's
@@ -146,5 +146,5 @@ Reference: `/home/onvos/app/eliza-plugin-evangelist/src/services/factsService.ts
 - Privacy: facts shared across all group users — per-user scoping needed
 - Whether `facts/` lives alongside `diary/` and `episodes/` or separately
 - Retention/pruning policy for stale facts
-- Cross-reference: `specs/3/9-identities.md` — identity claims are a
+- Cross-reference: `specs/5/9-identities.md` — identity claims are a
   natural bootstrap for user fact files

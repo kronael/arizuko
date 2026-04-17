@@ -4,7 +4,7 @@ status: draft
 
 ## <!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
-## status: shipped
+## status: unshipped
 
 # Channel Actions — Dynamic Registration and Filtered Manifest
 

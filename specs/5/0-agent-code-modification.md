@@ -21,7 +21,7 @@ live-patched.
 /workspace/staging/       rw — agent writes proposed changes
 ```
 
-On restart or `kanipi apply-staging <instance>`:
+On restart or `arizuko apply-staging <instance>`:
 
 1. Diff staging/ against self/
 2. Show changes for review (or auto-apply if configured)

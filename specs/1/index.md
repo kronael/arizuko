@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 # specs/1 — v1 core (trimmed)

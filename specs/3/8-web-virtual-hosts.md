@@ -9,7 +9,7 @@ management is deferred — defined by the world itself when needed.
 
 ## Problem
 
-A single kanipi instance hosts multiple worlds. Today all groups share
+A single arizuko instance hosts multiple worlds. Today all groups share
 one web root (`DATA_DIR/web/`). Each world needs its own hostname so
 it can be addressed independently.
 
@@ -62,7 +62,7 @@ get_web_host   { folder }           tier 0-1
 CLI equivalent:
 
 ```bash
-kanipi config <instance> group set-web-host atlas atlas.example.com
+arizuko config <instance> group set-web-host atlas atlas.example.com
 ```
 
 Validation: `host` must be a valid hostname (no scheme, no path), no

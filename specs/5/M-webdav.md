@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: shipped
 ---
 
 # WebDAV Workspace Access
@@ -72,7 +72,7 @@ dufs --bind 127.0.0.1 --port 8179 --allow-upload --allow-delete \
 ```
 
 Binary added to the agent container image or run as a sidecar — follow
-whichever pattern kanipi ships (see `kanipi/specs/5/f-webdav.md`).
+whichever pattern arizuko ships (see `specs/5/f-webdav.md`).
 
 ### web-proxy route
 

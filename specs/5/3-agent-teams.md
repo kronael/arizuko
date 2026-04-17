@@ -24,13 +24,13 @@ status: planned
 - Spawning mechanism inside a container: runs sibling `claude` processes in the same
   container process namespace, sharing the same mounts
 
-## Why Agent Teams Don't Fit Kanipi
+## Why Agent Teams Don't Fit Arizuko
 
 1. **Parallelism already handled at gateway level** — each group gets its own container.
    Team members inside one container would share `/workspace/group`, `/web/`, IPC dirs
    and could stomp on each other with no coordination guarantees.
 
-2. **Orphan risk** — team member processes have no tracked lifecycle in kanipi.
+2. **Orphan risk** — team member processes have no tracked lifecycle in arizuko.
    When the parent container exits (idle timeout, error), sibling processes may linger.
    We already saw orphan containers (`laughing_burnell`, `modest_jackson`) from this.
 

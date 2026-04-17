@@ -51,7 +51,7 @@ POST /v1/channels/register
 {
   "platform": "telegram",
   "account":  "mybot",
-  "url":      "http://teled:9001",
+  "url":      "http://teled:8080",
   "capabilities": { "send_text": true, "send_file": true, "typing": true }
 }
 ```
@@ -79,8 +79,8 @@ entrypoint = ["teled"]
 ROUTER_URL   = "http://gated:${API_PORT}"
 TELEGRAM_BOT_TOKEN = "${TELEGRAM_SUPPORT_BOT_TOKEN}"
 CHANNEL_SECRET     = "${CHANNEL_SECRET}"
-LISTEN_ADDR  = ":9002"
-LISTEN_URL   = "http://teled-support:9002"
+LISTEN_ADDR  = ":8080"
+LISTEN_URL   = "http://teled-support:8080"
 ```
 
 Router registers both entries. Routing rules:

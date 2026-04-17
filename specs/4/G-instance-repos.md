@@ -4,13 +4,13 @@ status: planned
 
 # Instance Config as Git Repos
 
-Kanipi instance configs should ship as bare git repos with a known structure.
+Arizuko instance configs should ship as bare git repos with a known structure.
 Like Helm charts for agent deployments.
 
 ## Repo structure
 
 ```
-kanipi-<name>/
+arizuko-<name>/
 ├── .env.example          # config template (tokens replaced with placeholders)
 ├── character.json        # agent identity (bio, topics, style)
 ├── groups/
@@ -25,12 +25,12 @@ kanipi-<name>/
 
 ```bash
 # Create from repo
-kanipi create <name> --from <repo-url>
-kanipi create <name> --from /path/to/local/repo
+arizuko create <name> --from <repo-url>
+arizuko create <name> --from /path/to/local/repo
 
 # What it does:
 # 1. Clone repo to tmp
-# 2. mkdir /srv/data/kanipi_<name>/
+# 2. mkdir /srv/data/arizuko_<name>/
 # 3. Copy .env.example → .env (user fills secrets)
 # 4. Copy groups/ → groups/
 # 5. Copy character.json → groups/root/character.json (if not per-group)
@@ -38,7 +38,7 @@ kanipi create <name> --from /path/to/local/repo
 # 7. Register groups from repo structure
 
 # Update from repo (pull new facts, CLAUDE.md changes)
-kanipi update <name> --from <repo-url>
+arizuko update <name> --from <repo-url>
 # Merges groups/ content, preserves .env and local state
 ```
 
@@ -46,5 +46,5 @@ kanipi update <name> --from <repo-url>
 
 This is a v2 feature. For now, instance setup is manual.
 The repo structure is the target format — we can extract
-kanipi-REDACTED as the first instance repo once the CLI
+arizuko-REDACTED as the first instance repo once the CLI
 supports `--from`.

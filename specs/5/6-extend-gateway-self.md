@@ -21,7 +21,7 @@ It should be able to:
 But changes need to:
 
 - Stay in version control
-- Not conflict with upstream kanipi updates
+- Not conflict with upstream arizuko updates
 - Be testable before deploy
 - Not break running instances
 
@@ -30,7 +30,7 @@ But changes need to:
 Root agent has `/workspace/self` mounted read-only. It can read
 gateway source but cannot modify it. Changes require:
 
-1. Human edits code in `/home/onvos/app/kanipi/`
+1. Human edits code in `/home/onvos/app/arizuko/`
 2. `make build && make image`
 3. Restart systemd service
 
@@ -82,7 +82,7 @@ d) **Everything** — including security-critical code
 
 ### 4. How to sync with upstream?
 
-When upstream kanipi updates:
+When upstream arizuko updates:
 
 a) **Manual rebase** — human resolves conflicts
 b) **Auto-merge** — CI attempts merge, alerts on conflict
@@ -111,7 +111,7 @@ d) **Feature flags** — disable broken code path without redeploy
 Minimal viable approach:
 
 ```
-/home/onvos/app/kanipi/
+/home/onvos/app/arizuko/
   plugins/
     actions/           # additional action handlers
     handlers/          # additional mime handlers

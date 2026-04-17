@@ -28,8 +28,8 @@ entrypoint = ["teled"]
 ROUTER_URL         = "http://gated:${API_PORT}"
 TELEGRAM_BOT_TOKEN = "${TELEGRAM_SUPPORT_BOT_TOKEN}"
 CHANNEL_SECRET     = "${CHANNEL_SECRET}"
-LISTEN_ADDR        = ":9002"
-LISTEN_URL         = "http://teled-support:9002"
+LISTEN_ADDR        = ":8080"
+LISTEN_URL         = "http://teled-support:8080"
 ```
 
 The account (`supportbot`) comes from the token after auth — no extra config.

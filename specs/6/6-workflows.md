@@ -33,7 +33,7 @@ Prior fragments (thin — user's richer sketches not recovered):
   Defers the declarative form, assumes skills carry topology.
 - Deleted `specs/v2/workflows.md` (git `c7f27e3`, 42 lines) sketched
   agent-side media processing and "sub-workflows / sub-groups."
-- `refs/ironclaw/skills/ironclaw-workflow-orchestrator/` (kanipi ref)
+- `refs/ironclaw/skills/ironclaw-workflow-orchestrator/` (arizuko ref)
   is closest prior art: event-driven routines with `trigger_type`,
   `event_source`, `event_filters`, `action_type`, prompt templates.
 

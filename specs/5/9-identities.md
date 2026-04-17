@@ -53,7 +53,7 @@ This bridges `local:<uuid>` (web password login) to `telegram:123456`
 
 - Identity resolution is advisory — agents can query it but does not
   enforce automatically.
-- No identity merging UI (CLI only via `kanipi identity list/link/unlink`).
+- No identity merging UI (CLI only via `arizuko identity list/link/unlink`).
 - Conflict resolution (two identities claim the same sub): last-write wins,
   log warning.
 
@@ -73,4 +73,4 @@ valid claim sub in this model.
 - `identities` + `identity_claims` tables
 - `GET /auth/link-code` endpoint
 - Link-code detection in channel message handlers
-- `kanipi identity` CLI subcommands
+- `arizuko identity` CLI subcommands

@@ -2,9 +2,7 @@
 status: draft
 ---
 
-## <!-- trimmed 2026-03-15: TS removed, rich facts only -->
-
-## status: shipped
+## status: partial
 
 # Social Events — Unified Inbound Model
 
@@ -14,11 +12,6 @@ by impulse weights, routes by verb. Agents see uniform stream.
 ## Verbs
 
 message, reply, post, react, repost, follow, join, edit, delete, close
-
-## Platforms
-
-telegram, whatsapp, discord, email, web, reddit, twitter, mastodon,
-bluesky, twitch, youtube, facebook, instagram, threads, linkedin
 
 ## Platform Mapping
 
@@ -41,17 +34,6 @@ bluesky, twitch, youtube, facebook, instagram, threads, linkedin
 | New post in r/sub   | Post    | -       | -          | -           |
 | Upvote on our post  | React   | -       | post_id    | -           |
 
-### Twitter/X
-
-| Source             | verb    | thread   | target   | mentions_me |
-| ------------------ | ------- | -------- | -------- | ----------- |
-| DM received        | Message | -        | -        | -           |
-| @mention tweet     | Message | tweet_id | -        | yes         |
-| Reply to our tweet | Reply   | tweet_id | tweet_id | -           |
-| Like on our tweet  | React   | -        | tweet_id | -           |
-| Retweet            | Repost  | -        | tweet_id | -           |
-| New follower       | Follow  | -        | -        | -           |
-
 ### Mastodon / Bluesky
 
 | Source            | verb    | thread    | target    | mentions_me |
@@ -70,36 +52,6 @@ bluesky, twitch, youtube, facebook, instagram, threads, linkedin
 | Direct email      | Message | thread_id | -      |
 | Reply in thread   | Reply   | thread_id | msg_id |
 | Mailing list post | Post    | list_id   | -      |
-
-### Twitch / YouTube
-
-| Source           | verb    | thread    | target   |
-| ---------------- | ------- | --------- | -------- |
-| Chat message     | Message | stream_id | -        |
-| Comment on video | Reply   | video_id  | video_id |
-| New follower/sub | Follow  | -         | -        |
-
-### Facebook / Instagram / Threads
-
-| Source          | verb    | thread  | target  | mentions_me |
-| --------------- | ------- | ------- | ------- | ----------- |
-| Messenger DM    | Message | -       | -       | -           |
-| Comment on post | Reply   | post_id | post_id | -           |
-| @mention        | Message | -       | post_id | yes         |
-| Page reaction   | React   | -       | post_id | -           |
-
-### Close events
-
-| Platform | Signal                   |
-| -------- | ------------------------ |
-| Discord  | thread archived/locked   |
-| Reddit   | post locked by moderator |
-| YouTube  | live stream ends         |
-| Twitch   | stream goes offline      |
-| Twitter  | reply restrictions set   |
-| Facebook | comments disabled        |
-
-Mastodon and Bluesky have no close concept.
 
 ## Impulse Filter
 
@@ -131,10 +83,6 @@ Immediate events (weight >= threshold): individual messages with full
 content. Batched events (weight < threshold): plain text summary in
 brackets: `[5 reactions on post abc123, 3 reposts, 10 new followers]`
 
-## Verb Routing
-
-Rule evaluation: command > verb > pattern > keyword > sender > default.
-
 ## Agent XML Format
 
 ```xml
@@ -145,22 +93,15 @@ Rule evaluation: command > verb > pattern > keyword > sender > default.
 ```
 
 Attributes: `platform` (always), `verb` (always), `mentions_me` (when
-mentioned), `thread`/`target` (when set). Additive to existing format.
+mentioned), `thread`/`target` (when set).
 
-## JID Format
+## JID Format (shipped platforms)
 
-| Platform  | DM JID                     | Feed JID                       |
-| --------- | -------------------------- | ------------------------------ |
-| Reddit    | `reddit:{username}`        | `reddit:r_{sub}`               |
-| Twitter   | `twitter:{userId}`         | `twitter:{userId}:feed`        |
-| Mastodon  | `mastodon:{id}`            | `mastodon:{id}:feed`           |
-| Bluesky   | `bluesky:{did}`            | `bluesky:{did}:feed`           |
-| Twitch    | `twitch:{channel}`         | -                              |
-| YouTube   | `youtube:{channelId}:live` | `youtube:{channelId}:comments` |
-| Facebook  | `facebook:{pageId}`        | `facebook:{pageId}:feed`       |
-| Instagram | `instagram:{threadId}`     | `instagram:biz:{accountId}`    |
-| Threads   | `threads:{userId}`         | -                              |
-| LinkedIn  | `linkedin:page:{pageId}`   | -                              |
+| Platform | DM JID              | Feed JID             |
+| -------- | ------------------- | -------------------- |
+| Reddit   | `reddit:{username}` | `reddit:r_{sub}`     |
+| Mastodon | `mastodon:{id}`     | `mastodon:{id}:feed` |
+| Bluesky  | `bluesky:{did}`     | `bluesky:{did}:feed` |
 
 ## Decisions
 

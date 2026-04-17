@@ -176,7 +176,7 @@ RRF fusion: vector 0.7, BM25 0.3.
 ### Skill
 
 ```
-container/skills/recall/SKILL.md
+ant/skills/recall/SKILL.md
 ```
 
 Always-present base skill. Teaches the agent the semantic

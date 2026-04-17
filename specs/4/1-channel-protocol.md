@@ -49,7 +49,7 @@ Authorization: Bearer <shared-secret>
 {
   "platform": "telegram",
   "account":  "mybot",
-  "url":      "http://telegram:9001",
+  "url":      "http://telegram:8080",
   "capabilities": {
     "send_text": true,
     "send_file": true,
@@ -85,7 +85,7 @@ Authorization: Bearer <session-token>
     {
       "mime": "image/jpeg",
       "filename": "photo.jpg",
-      "url": "http://telegram:9001/files/abc123",
+      "url": "http://telegram:8080/files/abc123",
       "size": 84210
     }
   ]
@@ -298,9 +298,9 @@ Channel's registered `url` determines transport:
 
 | URL                                      | Transport      |
 | ---------------------------------------- | -------------- |
-| `http://telegram:9001`                   | Docker network |
-| `http://localhost:9001`                  | TCP local      |
-| `http://10.0.0.5:9001`                   | TCP remote     |
+| `http://telegram:8080`                   | Docker network |
+| `http://localhost:8080`                  | TCP local      |
+| `http://10.0.0.5:8080`                   | TCP remote     |
 | `http+unix:///run/arizuko/telegram.sock` | Unix socket    |
 | vsock CID:port                           | vsock          |
 
@@ -336,4 +336,4 @@ segment comes from `api.Self.UserName` after auth. JIDs become
 `telegram:mainbot/<id>` vs `telegram:supportbot/<id>`. Each registers
 with its own prefix. Router routes by prefix. No conflict.
 `CHANNEL_ACCOUNT` overrides the platform name if needed.
-See specs/8/4-multi-account.md and specs/8/5-jid-format.md.
+See specs/5/R-multi-account.md and specs/5/S-jid-format.md.

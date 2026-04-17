@@ -108,4 +108,4 @@ the origin (internal/scheduler), not the destination, so the name is correct.
 ## Out of scope
 
 Agent event stream (thinking, tool calls, streaming) — next spec:
-`specs/web-events.md`.
+a future agent event stream spec.

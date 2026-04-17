@@ -2,43 +2,40 @@
 status: draft
 ---
 
-## <!-- trimmed 2026-03-15: TS removed, rich facts only -->
-
-## status: shipped
+## status: unshipped
 
 # Social Actions — Outbound
 
 Outbound actions for social platforms. Entries in the existing action
 registry, exposed as MCP tools. Gateway resolves platform from JID prefix.
 
-## Action-to-Platform Matrix
+## Shipped actions
 
-| Action        | Platforms                                       |
-| ------------- | ----------------------------------------------- |
-| `post`        | reddit, twitter, mastodon, bluesky, fb, threads |
-| `reply`       | all                                             |
-| `react`       | all                                             |
-| `repost`      | twitter, mastodon, bluesky, reddit              |
-| `follow`      | reddit, twitter, mastodon, bluesky              |
-| `unfollow`    | reddit, mastodon, bluesky                       |
-| `set_profile` | mastodon, bluesky, reddit                       |
-| `delete_post` | all                                             |
-| `edit_post`   | reddit, mastodon, fb                            |
-| `close`       | gateway (marks thread group closed)             |
-| `delete`      | gateway (removes thread group)                  |
-| `ban`         | reddit, discord, twitch, youtube, mastodon, fb  |
-| `unban`       | reddit, discord, twitch, mastodon, fb           |
-| `timeout`     | discord, twitch, youtube                        |
-| `mute`        | reddit, twitter, mastodon, bluesky              |
-| `block`       | twitter, mastodon, bluesky, twitch, fb          |
-| `pin`         | reddit, mastodon, discord                       |
-| `unpin`       | reddit, mastodon, discord                       |
-| `lock`        | reddit, discord                                 |
-| `unlock`      | reddit, discord                                 |
-| `hide`        | youtube, facebook, instagram                    |
-| `approve`     | reddit, youtube, mastodon                       |
-| `set_flair`   | reddit                                          |
-| `kick`        | discord                                         |
+| Action  | How                                                    |
+| ------- | ------------------------------------------------------ |
+| `reply` | All adapters via `send_message` MCP tool (replyTo set) |
+| `post`  | reditd, bskyd internal (submit_post / create_post)     |
+
+## Planned actions (unshipped)
+
+| Action        | Platforms (shipped adapters only)   |
+| ------------- | ----------------------------------- |
+| `react`       | discord, mastodon, bluesky, reddit  |
+| `repost`      | mastodon, bluesky, reddit           |
+| `follow`      | reddit, mastodon, bluesky           |
+| `unfollow`    | reddit, mastodon, bluesky           |
+| `set_profile` | mastodon, bluesky, reddit           |
+| `delete_post` | all                                 |
+| `edit_post`   | reddit, mastodon                    |
+| `close`       | gateway (marks thread group closed) |
+| `delete`      | gateway (removes thread group)      |
+| `ban`         | reddit, discord, mastodon           |
+| `unban`       | reddit, discord, mastodon           |
+| `pin`         | reddit, mastodon, discord           |
+| `unpin`       | reddit, mastodon, discord           |
+| `lock`        | reddit, discord                     |
+| `unlock`      | reddit, discord                     |
+| `kick`        | discord                             |
 
 ## Schema Shapes
 
@@ -53,10 +50,7 @@ via prefix. `target` is platform-native ID.
 - **delete_post/edit_post**: jid, target, content?
 - **close/delete**: group
 - **ban/unban**: jid, target, duration?, reason?
-- **timeout**: jid, target, duration
-- **mute/block/pin/unpin/lock/unlock/hide/approve**: jid, target
-- **set_flair**: jid, target, flair
-- **kick**: jid, target
+- **pin/unpin/lock/unlock/kick**: jid, target
 
 ## Decisions
 
@@ -66,4 +60,3 @@ via prefix. `target` is platform-native ID.
   `{ error: 'rate_limited', retry_after_ms }`. Agent decides retry.
 - **Content length**: gateway validates per platform. On exceed: return
   error with max length, don't truncate or split. Agent rewrites.
-- **Thread-aware posting**: future work (add `thread` field later).

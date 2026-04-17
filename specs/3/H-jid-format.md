@@ -4,11 +4,11 @@ status: draft
 
 ## <!-- trimmed 2026-03-15: migration notes removed, rich facts only -->
 
-## status: superseded by specs/8/5-jid-format.md
+## status: shipped
 
 # JID Format Normalization
 
-All JIDs use `platform:account/id`. See specs/8/5-jid-format.md for full spec.
+All JIDs use `platform:account/id`.
 `local:folder` has no account segment.
 
 ~~Old format was `scheme:id` — no longer used.~~

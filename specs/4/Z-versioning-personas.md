@@ -27,8 +27,8 @@ Agent versioning, skill distribution, and persona config.
 
 ### Persona files
 
-- `container/CLAUDE.md` seeded once to `~/.claude/CLAUDE.md`
-- `container/skills/` seeded once to `~/.claude/skills/`
+- `ant/CLAUDE.md` seeded once to `~/.claude/CLAUDE.md`
+- `ant/skills/` seeded once to `~/.claude/skills/`
 - Group folder: `SOUL.md`, `CLAUDE.md`, `facts/`
 - Tier 2/3: RO mounts over inherited files
 

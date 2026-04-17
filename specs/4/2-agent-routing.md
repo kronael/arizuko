@@ -61,7 +61,7 @@ A worker definition:
 {
   "name": "coder",
   "trigger": "/code",
-  "image": "kanipi-agent-coder:latest",
+  "image": "arizuko-agent-coder:latest",
   "claudeMd": "container/workers/coder/CLAUDE.md"
 }
 ```

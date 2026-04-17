@@ -34,7 +34,7 @@ Gateway appends ro mount: `CODEBASE_PATH → /workspace/codebase`.
 
 ## Skill: `code-researcher`
 
-`container/skills/code-researcher/SKILL.md` instructs the agent:
+`ant/skills/code-researcher/SKILL.md` instructs the agent:
 
 - Primary role: answer questions about `/workspace/codebase`
 - Use Read, Grep, Glob, Bash(ls/find/tree/cat/head/wc)

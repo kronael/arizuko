@@ -6,7 +6,7 @@ status: planned
 
 ## Overview
 
-Main group can extend kanipi (new skills, gateway patches,
+Main group can extend arizuko (new skills, gateway patches,
 MCP servers) without operator shell access. Security:
 **agent proposes, operator approves**.
 
@@ -22,7 +22,7 @@ MCP servers) without operator shell access. Security:
 
 ### 1. Skills
 
-Dir under `container/skills/<name>/` with `SKILL.md`.
+Dir under `ant/skills/<name>/` with `SKILL.md`.
 Agent writes to `/workspace/group/plugins/<name>/`,
 emits `plugin-propose` with `type=skill`.
 See `extend-skills.md` for seeding/updates.
@@ -73,7 +73,7 @@ Agent writes proposal -> IPC plugin-propose
 
 ```bash
 case $(cat "$DIR/kind") in
-  skill) cp -r "$DIR/files/" container/skills/${NAME}/ ;;
+  skill) cp -r "$DIR/files/" ant/skills/${NAME}/ ;;
   patch) git apply "$DIR/files/${NAME}.patch" && make lint ;;
 esac
 ```

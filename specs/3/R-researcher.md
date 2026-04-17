@@ -15,7 +15,7 @@ Background task that explores repos, web, docs — writes findings to facts/.
 - Two-phase: Opus researches, Sonnet verifies (rejects bad findings)
 - Results delivered back to conversation via reply threading
 
-## Kanipi approach
+## Arizuko approach
 
 Subagent spawning. The agent already has all tools natively.
 

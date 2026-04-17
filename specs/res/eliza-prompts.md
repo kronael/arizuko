@@ -22,7 +22,7 @@ Style:
 - {style.chat items}
 ```
 
-Kanipi `assembleCharacter()` (agent-runner/src/index.ts:66-106)
+Arizuko `assembleCharacter()` (agent-runner/src/index.ts:66-106)
 does the same but adds:
 
 - Random topic: "{name} is currently thinking about {topic}."
@@ -31,9 +31,9 @@ does the same but adds:
 
 **Difference**: ElizaOS doesn't randomize or include topics/adjectives
 in the system prompt — those go into the `{{providers}}` template
-variable via composeState. Kanipi puts everything in one system prompt
+variable via composeState. Arizuko puts everything in one system prompt
 block. Both approaches work. ElizaOS is more modular (providers inject
-context per-message), kanipi is simpler (one-shot system prompt).
+context per-message), arizuko is simpler (one-shot system prompt).
 
 ## Message Handler Template
 
@@ -74,7 +74,7 @@ IMPORTANT RESEARCH_NEEDED USAGE:
 </output>
 ```
 
-**Kanipi equivalent**: None. Kanipi agents run Claude Code SDK directly —
+**Arizuko equivalent**: None. Arizuko agents run Claude Code SDK directly —
 no action/provider routing layer. The agent decides actions natively.
 The `RESEARCH_NEEDED` trigger concept maps to a `/research` skill.
 
@@ -90,7 +90,7 @@ If told to stop → STOP
 Otherwise → IGNORE
 ```
 
-**Kanipi equivalent**: `trigger_pattern` in groups table.
+**Arizuko equivalent**: `trigger_pattern` in groups table.
 Gateway handles this at routing level — agent never sees messages
 it shouldn't respond to. Simpler and more reliable.
 
@@ -127,7 +127,7 @@ Tiers and limits:
 
 Confidence formula: `max(0, (similarity - 0.70) * 3.33)`
 
-**Kanipi equivalent**: Phase 2 gateway injection (specs/atlas/TODO.md).
+**Arizuko equivalent**: Phase 2 gateway injection (specs/atlas/TODO.md).
 Phase 1 uses agentic search (agent greps facts/ directly).
 
 ## Post Creation Template
@@ -144,7 +144,7 @@ Total character count MUST be less than 280.
 No emojis. Use \n\n between statements.
 ```
 
-**Kanipi equivalent**: `tweet` skill (container/skills/tweet/SKILL.md).
+**Arizuko equivalent**: `tweet` skill (ant/skills/tweet/SKILL.md).
 
 ## character.json Fields (ElizaOS)
 
@@ -172,11 +172,11 @@ No emojis. Use \n\n between statements.
 }
 ```
 
-**Kanipi character.json** supports all the same fields except
-`templates` (kanipi uses SDK system prompt, not Handlebars templates).
+**Arizuko character.json** supports all the same fields except
+`templates` (arizuko uses SDK system prompt, not Handlebars templates).
 The `{NAME}` placeholder is replaced at load time.
 
-## What Kanipi Should Copy
+## What Arizuko Should Copy
 
 1. **Knowledge context XML format** — the tier/confidence/fact
    structure works well for injection. Use same format in Phase 2.
@@ -185,11 +185,11 @@ The `{NAME}` placeholder is replaced at load time.
 3. **Fact formatting** — path, header, topic, verification, summary,
    read_full pattern. Agent knows how to dig deeper.
 4. **Style section** — ElizaOS puts style as bullet list, same as
-   kanipi. Keep this.
+   arizuko. Keep this.
 
-## What Kanipi Should NOT Copy
+## What Arizuko Should NOT Copy
 
-1. **Handlebars templates** — kanipi uses SDK system prompt, not
+1. **Handlebars templates** — arizuko uses SDK system prompt, not
    template rendering. Simpler.
 2. **Action/provider routing** — Claude Code handles this natively.
 3. **Should-respond logic** — gateway routing handles this better.

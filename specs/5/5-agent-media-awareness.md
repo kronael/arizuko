@@ -31,7 +31,7 @@ images, and documents natively — the agent just needs to be told.
 ## Root cause
 
 CLAUDE.md lacks media handling instructions. The nanoclaw refs have
-clear "What You Can Do" sections that explain capabilities. Kanipi
+clear "What You Can Do" sections that explain capabilities. Arizuko
 agents don't have this.
 
 ## Solution
@@ -76,7 +76,7 @@ first trying to Read the attached file path.
 
 ### Howto skill update
 
-Update `container/skills/howto/SKILL.md` Level 1 to mention:
+Update `ant/skills/howto/SKILL.md` Level 1 to mention:
 
 - "Send me documents — I'll read and analyze them"
 - "Send images — I can see and describe them"
@@ -96,13 +96,13 @@ media processing may be disabled. Check `MEDIA_ENABLED=true` in .env.
 
 ## Implementation
 
-1. Update `container/CLAUDE.md` with media handling section
-2. Update `container/skills/howto/SKILL.md` level 1
+1. Update `ant/CLAUDE.md` with media handling section
+2. Update `ant/skills/howto/SKILL.md` level 1
 3. Sync to existing agents via migration
 
 ### Migration
 
-Add to `container/skills/self/migrations/017-media-awareness.md`:
+Add to `ant/skills/self/migrations/017-media-awareness.md`:
 
 ```markdown
 # Migration 017: Media Awareness

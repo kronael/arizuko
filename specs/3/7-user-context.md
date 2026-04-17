@@ -84,7 +84,7 @@ Cross-channel identity (same person on telegram + whatsapp) is out of scope — 
 src/router.ts
   - inject <user> tag with id, name, memory path
 
-container/skills/users/SKILL.md
+ant/skills/users/SKILL.md
   - /users skill for read/write
 
 container/CLAUDE.md

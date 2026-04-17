@@ -86,7 +86,7 @@ file for context. The `summary:` value is indexed by `/recall-memories`.
 
 `container.seedSkills()` in `container/runner.go` (lines 690–738):
 
-1. Reads `container/skills/` on the host (where arizuko source is mounted as
+1. Reads `ant/skills/` on the host (where arizuko source is mounted as
    `/workspace/self` inside the container).
 2. Copies each skill directory to `groups/<folder>/.claude/skills/`
    if the destination does not exist. This is the `~/.claude/skills/` path
@@ -148,11 +148,11 @@ This ensures diary continuity even when the context window fills.
 
 ### 2.5 Migration system
 
-`container/skills/self/migrations/NNN-description.md` files define incremental
+`ant/skills/self/migrations/NNN-description.md` files define incremental
 updates to the skill set. The `/migrate` skill (root group only) reads
 `MIGRATION_VERSION` in each group's `~/.claude/skills/self/`, runs all pending
 migrations in order, and updates the version file. Latest canonical version is
-tracked in `container/skills/self/MIGRATION_VERSION` (currently `48`).
+tracked in `ant/skills/self/MIGRATION_VERSION` (currently `48`).
 
 ---
 
@@ -303,11 +303,11 @@ cd ~/my-agent
 mkdir -p ~/.claude/skills/{diary,facts,recall-memories,compact-memories,users}
 
 # Copy SKILL.md files from this repo:
-# container/skills/diary/SKILL.md         → ~/.claude/skills/diary/SKILL.md
-# container/skills/facts/SKILL.md         → ~/.claude/skills/facts/SKILL.md
-# container/skills/recall-memories/SKILL.md → ~/.claude/skills/recall-memories/SKILL.md
-# container/skills/compact-memories/SKILL.md → ~/.claude/skills/compact-memories/SKILL.md
-# container/skills/users/SKILL.md         → ~/.claude/skills/users/SKILL.md
+# ant/skills/diary/SKILL.md         → ~/.claude/skills/diary/SKILL.md
+# ant/skills/facts/SKILL.md         → ~/.claude/skills/facts/SKILL.md
+# ant/skills/recall-memories/SKILL.md → ~/.claude/skills/recall-memories/SKILL.md
+# ant/skills/compact-memories/SKILL.md → ~/.claude/skills/compact-memories/SKILL.md
+# ant/skills/users/SKILL.md         → ~/.claude/skills/users/SKILL.md
 
 # Add memory routing to CLAUDE.md
 # Copy the "Memory stores" and "Session Continuity" sections from
@@ -530,9 +530,9 @@ On session start (agent side, per container/CLAUDE.md):
 ```
 container.Run()
   └── seedSkills(cfg, sessDir, folder)     (runner.go:690)
-        ├── for each dir in container/skills/:
+        ├── for each dir in ant/skills/:
         │     if ~/.claude/skills/<name>/ missing: cpDir()  [one-time]
-        ├── if ~/.claude/CLAUDE.md missing: copy container/CLAUDE.md  [one-time]
+        ├── if ~/.claude/CLAUDE.md missing: copy ant/CLAUDE.md  [one-time]
         └── if ~/.claude/.claude.json missing: write synthetic JSON
 ```
 

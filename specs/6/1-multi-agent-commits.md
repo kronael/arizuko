@@ -4,7 +4,7 @@ status: planned
 
 # Multi-Agent Commit Coordination
 
-When multiple agents work on a single repo (e.g. kanipi dev with
+When multiple agents work on a single repo (e.g. arizuko dev with
 parallel Claude Code sessions, or openclaw-style multi-agent), their
 commit workflows overlap: staging collisions, pre-commit hook
 contention, index.lock races.
@@ -34,7 +34,7 @@ Standard git hooks via `prek install` (their pre-commit framework):
 - Python: ruff for skills scripts
 - Project: pnpm audit, oxlint (type-aware), oxfmt, swiftlint, swiftformat
 
-Same pattern as kanipi's prettier/typecheck hooks.
+Same pattern as arizuko's prettier/typecheck hooks.
 
 ### Layer 2: `scripts/committer` wrapper
 
@@ -116,10 +116,10 @@ openclaw hooks list/enable/disable/install/update
 - No stash, no worktree, no branch switching
 - `git pull --rebase` OK for integration, never discard
 
-### Key difference from kanipi
+### Key difference from arizuko
 
 OpenClaw enforces scoped commits via a **script** (hard to
-misinterpret). Kanipi enforces via **skill instructions** (soft).
+misinterpret). Arizuko enforces via **skill instructions** (soft).
 The script is more reliable — agent can't accidentally `git add .`
 because the script rejects it.
 
@@ -138,7 +138,7 @@ only sanctioned way to commit.
 
 **Adopt simplified**:
 
-- Event hooks — kanipi already has PreCompact/Stop/PreToolUse via
+- Event hooks — arizuko already has PreCompact/Stop/PreToolUse via
   SDK hooks in agent-runner. Don't need openclaw's 24-type system.
   But the hook discovery pattern (workspace → user → bundled) and
   HOOK.md frontmatter are worth considering for v2 extensibility.
@@ -147,15 +147,15 @@ only sanctioned way to commit.
 
 **Skip**:
 
-- `prek` framework — kanipi uses standard pre-commit, works fine
-- Secret detection hook — kanipi agents run in containers, lower risk
-- Plugin hook types for subagent lifecycle — kanipi delegates via
+- `prek` framework — arizuko uses standard pre-commit, works fine
+- Secret detection hook — arizuko agents run in containers, lower risk
+- Plugin hook types for subagent lifecycle — arizuko delegates via
   GroupQueue, different model
 - swiftlint/oxlint specifics — language-specific, not relevant
 
 ## Proposed: Commit Skill Multi-Agent Guards
 
-Add to the global commit skill (synced to kanipi agent skill):
+Add to the global commit skill (synced to arizuko agent skill):
 
 1. **Unstage before staging** — `git restore --staged :/` before
    `git add` to clear other agent's staged files
@@ -186,14 +186,14 @@ How does an agent know which files are "mine"? Options:
 ### Q2: Wrapper script vs skill instructions
 
 - OpenClaw uses a bash script (`scripts/committer`) that agents call
-- Kanipi uses a skill (SKILL.md instructions) that agents follow
+- Arizuko uses a skill (SKILL.md instructions) that agents follow
 - Script is more reliable (can't be misinterpreted) but less flexible
 - Could do both: skill instructions + optional wrapper for safety
 
 ### Q3: Lock contention frequency
 
 - How often do two agents actually commit simultaneously?
-- In kanipi's model: agents are in separate containers on separate
+- In arizuko's model: agents are in separate containers on separate
   group folders — they rarely share a git repo
 - In dev: user runs multiple Claude Code sessions on same repo —
   this is the real case
@@ -226,21 +226,21 @@ How does an agent know which files are "mine"? Options:
 ### Q7: Inserting the committer script
 
 OpenClaw's committer lives at `scripts/committer` in the repo.
-For kanipi agents running in containers, where does it go?
+For arizuko agents running in containers, where does it go?
 
 Options:
 
 - **Global `~/.claude/scripts/committer`** — commit skill references
   it. Works for dev (direct Claude Code sessions). Needs manual
   install or dotfiles sync.
-- **Container skill asset** — ship as `container/skills/commit/committer`
+- **Container skill asset** — ship as `ant/skills/commit/committer`
   alongside SKILL.md. Agent-runner copies skills to `~/.claude/skills/`
   on first spawn. Script available at `~/.claude/skills/commit/committer`.
   Skill instructions say "run this script instead of raw git".
 - **Repo-local `scripts/committer`** — like openclaw. Each project
   that wants multi-agent safety adds the script. Commit skill detects
   its presence and uses it when available.
-- **All three** — global for dev sessions, container skill for kanipi
+- **All three** — global for dev sessions, container skill for arizuko
   agents, repo-local for other projects. Same script, three install
   paths. Skill instructions: "use `scripts/committer` if present,
   else `~/.claude/skills/commit/committer`, else follow manual steps".

@@ -18,7 +18,7 @@ Goal: make the system extensible without modifying core code.
 | Routing Rules | router/             | Agent         | MCP tools        |
 | Sidecars      | container/          | Agent         | Container config |
 | Mounts        | container/          | Agent         | Container config |
-| Skills        | container/skills/   | Agent         | File-based       |
+| Skills        | ant/skills/         | Agent         | File-based       |
 | Tasks         | timed/              | Agent         | IPC actions      |
 | Diary         | diary/              | Agent         | File-based       |
 
@@ -67,15 +67,15 @@ Launched as separate containers with Unix socket IPC.
 
 ## 4. Skills System
 
-**Current**: `container/skills/` seeded into agent session.
+**Current**: `ant/skills/` seeded into agent session.
 Each skill has `SKILL.md` with prompt injection.
 
 ### Decided
 
 1. **Skill loading**: on spawn, if destination does not exist.
-   Gateway copies `container/skills/` to session dir on first
+   Gateway copies `ant/skills/` to session dir on first
    spawn per group. Agent owns its copy — changes persist.
-   Canonical definitions at `/workspace/self/container/skills/`
+   Canonical definitions at `/workspace/self/ant/skills/`
    (read-only mount) for `/migrate` diffing.
 
 2. **Skill dependencies**: deferred. No dependency resolution
@@ -83,7 +83,7 @@ Each skill has `SKILL.md` with prompt injection.
    document it in SKILL.md — human ensures both are present.
 
 3. **Skill scope**: three levels, no inheritance:
-   - `container/skills/` — global, baked into image (read-only)
+   - `ant/skills/` — global, baked into image (read-only)
    - `groups/<folder>/.claude/skills/` — per-group, persistent
    - `.claude/skills/` — per-session, seeded from global on
      first spawn, then agent-owned

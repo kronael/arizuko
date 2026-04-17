@@ -36,7 +36,7 @@ store dirs and judges relevance. The LLM is the search engine.
 ### Skill
 
 ```
-container/skills/recall-memories/SKILL.md
+ant/skills/recall-memories/SKILL.md
 ```
 
 Protocol:
@@ -203,7 +203,7 @@ Week/month diary summaries exist for `/recall` searches over longer timeframes.
 `recall-messages` is a separate skill for searching chat message history
 (the `messages` table), distinct from knowledge store recall. It does not
 use the FTS5/sqlite-vec pipeline — message history lookup is a direct DB
-query. Shipped alongside `recall-memories` in the kanipi skill sync.
+query. Shipped alongside `recall-memories` in the arizuko skill sync.
 
 ## Not in scope
 

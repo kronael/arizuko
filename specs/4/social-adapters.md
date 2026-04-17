@@ -29,13 +29,13 @@ See `specs/4/1-channel-protocol.md` for full HTTP protocol spec.
 
 | Daemon | Platform | JID prefix  | Port | Status  |
 | ------ | -------- | ----------- | ---- | ------- |
-| teled  | Telegram | `telegram:` | 9001 | shipped |
-| discd  | Discord  | `discord:`  | 9002 | shipped |
-| emaid  | Email    | `email:`    | 9003 | shipped |
-| mastd  | Mastodon | `mastodon:` | 9004 | shipped |
-| bskyd  | Bluesky  | `bluesky:`  | 9005 | shipped |
-| reditd | Reddit   | `reddit:`   | 9006 | shipped |
-| whapd  | WhatsApp | `whatsapp:` | 9007 | shipped |
+| teled  | Telegram | `telegram:` | 8080 | shipped |
+| discd  | Discord  | `discord:`  | 8080 | shipped |
+| emaid  | Email    | `email:`    | 8080 | shipped |
+| mastd  | Mastodon | `mastodon:` | 8080 | shipped |
+| bskyd  | Bluesky  | `bluesky:`  | 8080 | shipped |
+| reditd | Reddit   | `reddit:`   | 8080 | shipped |
+| whapd  | WhatsApp | `whatsapp:` | 8080 | shipped |
 
 ## Capabilities
 
@@ -130,7 +130,7 @@ to restore from `creds.json.bak` if the live file is 0 bytes, and
 manual QR re-pair.
 
 Config: `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_URL` (default
-`http://whapd:9007`), `DATA_DIR` (default `/data`).
+`http://whapd:8080`), `DATA_DIR` (default `/data`).
 
 ## Layout
 

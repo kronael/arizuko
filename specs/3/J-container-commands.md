@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 ## <!-- trimmed 2026-03-15: TS signatures removed, rich facts only -->

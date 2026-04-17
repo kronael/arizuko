@@ -22,12 +22,10 @@ Unshipped features, future designs, and deferred decisions.
 - [C-message-mcp.md](C-message-mcp.md) — agent-side message history query tools
 - [D-message-wal.md](D-message-wal.md) — write-ahead log for reliable delivery
 - [E-plugins.md](E-plugins.md) — agent-proposes/operator-approves plugin system
-- [F-prototypes.md](F-prototypes.md) — groups spawned from prototypes on routing miss
 - [J-sse.md](J-sse.md) — SSE streams, groups as auth boundary
 - [M-webdav.md](M-webdav.md) — WebDAV workspace access via Caddy
 
 ## Decision records
 
 - [3-agent-teams.md](3-agent-teams.md) — why Agent Teams disabled (orphan/stdio/scoping)
-- [A-ipc-mcp-proxy.md](A-ipc-mcp-proxy.md) — MCP over unix socket (shipped as ipc)
 - [G-agent-backends.md](G-agent-backends.md) — Codex CLI and pi-coding-agent as ant backends (not shipping)

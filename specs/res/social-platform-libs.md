@@ -12,7 +12,7 @@ Mastodon and Bluesky have healthy, free, well-typed ecosystems (masto.js
 and @atproto/api respectively). Twitter/X is expensive and hostile to
 developers — $200/mo minimum for read access. Reddit killed self-service
 API keys in late 2024, requiring pre-approval. Facebook requires App
-Review for anything beyond basic profile. For a kanipi channel, Mastodon
+Review for anything beyond basic profile. For an arizuko channel, Mastodon
 and Bluesky are the easiest wins; Reddit and X carry significant access
 barriers; Facebook is bureaucratically heavy.
 
@@ -415,12 +415,12 @@ use case, privacy policy, data handling. Can take weeks.
 
 ---
 
-## Recommendation for kanipi Channels
+## Recommendation for arizuko Channels
 
 **Tier 1 — implement first (free, good APIs):**
 
 1. **Mastodon** via masto.js — federated, free, excellent streaming,
-   well-typed. Most aligned with kanipi's open philosophy.
+   well-typed. Most aligned with arizuko's open philosophy.
 2. **Bluesky** via @atproto/api — free, growing fast, Jetstream
    for real-time. Official SDK is excellent.
 
