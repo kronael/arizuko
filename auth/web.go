@@ -195,6 +195,9 @@ func issueSession(w http.ResponseWriter, r *http.Request, s *store.Store, secret
 		Expires: exp, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
 	})
 	dest := "/"
+	if len(groups) == 0 {
+		dest = "/onboard"
+	}
 	if c, err := r.Cookie("auth_return"); err == nil && c.Value != "" {
 		if safe, ok := safeReturn(c.Value); ok {
 			dest = safe

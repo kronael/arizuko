@@ -576,6 +576,18 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
 		slog.Warn("auth denied", "reason", "no_valid_credential",
 			"path", r.URL.Path, "remote", peer)
+		if rt := r.URL.Path; rt != "" && rt != "/" && strings.HasPrefix(rt, "/") &&
+			!strings.HasPrefix(rt, "/auth/") {
+			if r.URL.RawQuery != "" {
+				rt += "?" + r.URL.RawQuery
+			}
+			secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+			http.SetCookie(w, &http.Cookie{
+				Name: "auth_return", Value: rt, Path: "/",
+				MaxAge: 600, HttpOnly: true, Secure: secure,
+				SameSite: http.SameSiteLaxMode,
+			})
+		}
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 	}
 }
