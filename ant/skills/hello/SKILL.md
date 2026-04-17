@@ -34,20 +34,4 @@ Files       Send images, PDFs, docs, voice
 Scheduling  "weekly summary every Monday"
 
 /new   /stop   /ping
-
-Getting started: <howto URL>
 ```
-
-Include the "Getting started:" line ONLY if the howto page actually
-exists — per-group howto pages must be generated with `/howto` first.
-Probe before emitting:
-
-```bash
-URL="https://$WEB_HOST/$WEB_PREFIX/howto/"
-curl -sfI -o /dev/null "$URL" && echo "$URL"
-```
-
-If the probe fails (404), try the instance-root howto
-`https://$WEB_HOST/pub/howto/`; only emit it if that returns 200.
-Otherwise omit the "Getting started:" line entirely. NEVER emit a URL
-you haven't verified, and NEVER print literal `$WEB_HOST` / `$WEB_PREFIX`.
