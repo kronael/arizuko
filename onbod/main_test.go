@@ -32,6 +32,7 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE TABLE auth_users (id INTEGER PRIMARY KEY AUTOINCREMENT, sub TEXT UNIQUE, username TEXT, hash TEXT, name TEXT, created_at TEXT);
 		CREATE TABLE auth_sessions (token_hash TEXT PRIMARY KEY, user_sub TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
 		CREATE TABLE channels (name TEXT PRIMARY KEY, url TEXT, capabilities TEXT);
+		CREATE TABLE onboarding_gates (gate TEXT PRIMARY KEY, limit_per_day INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);
 		CREATE TABLE invitations (token TEXT PRIMARY KEY, folder TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, uses INTEGER NOT NULL DEFAULT 0, max_uses INTEGER NOT NULL DEFAULT 1, expires TEXT);
 	`)
 	if err != nil {
@@ -264,7 +265,7 @@ func TestLinkJID(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'token_used', '2026-01-01')`)
 
-	linkJID(db, "telegram:1", "github:alice", nil)
+	linkJID(db, "telegram:1", "github:alice")
 
 	var userSub string
 	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = 'telegram:1'`).Scan(&userSub)
@@ -313,8 +314,8 @@ func TestLinkJIDIdempotent(t *testing.T) {
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
 		VALUES ('telegram:5', 'token_used', '2026-01-01')`)
 
-	linkJID(db, "telegram:5", "github:alice", nil)
-	linkJID(db, "telegram:5", "github:alice", nil)
+	linkJID(db, "telegram:5", "github:alice")
+	linkJID(db, "telegram:5", "github:alice")
 
 	var n int
 	db.QueryRow(`SELECT COUNT(*) FROM user_jids WHERE jid = 'telegram:5'`).Scan(&n)
@@ -328,8 +329,8 @@ func TestLinkJIDDifferentUserRejected(t *testing.T) {
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
 		VALUES ('telegram:6', 'token_used', '2026-01-01')`)
 
-	linkJID(db, "telegram:6", "github:alice", nil)
-	linkJID(db, "telegram:6", "github:eve", nil)
+	linkJID(db, "telegram:6", "github:alice")
+	linkJID(db, "telegram:6", "github:eve")
 
 	var n int
 	db.QueryRow(`SELECT COUNT(*) FROM user_jids WHERE jid = 'telegram:6'`).Scan(&n)
@@ -585,9 +586,9 @@ func TestLinkJIDWithGatesQueues(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
 		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 10)`)
 
-	gates := []gate{{kind: "github", param: "org=co", limitPerDay: 10}}
-	linkJID(db, "telegram:1", "github:alice", gates)
+	linkJID(db, "telegram:1", "github:alice")
 
 	var status, gateCol, queuedAt string
 	db.QueryRow(
@@ -608,9 +609,9 @@ func TestLinkJIDWithGatesNoMatch(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
 		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 10)`)
 
-	gates := []gate{{kind: "github", param: "org=co", limitPerDay: 10}}
-	linkJID(db, "telegram:1", "google:alice@other.com", gates)
+	linkJID(db, "telegram:1", "google:alice@other.com")
 
 	// Status should remain token_used (no matching gate, rejected)
 	var status string
@@ -633,10 +634,8 @@ func TestAdmitFromQueue(t *testing.T) {
 		VALUES ('t:3', 'queued', 'github:org=co', ?, 'github:c', '2026-01-01')`,
 		"2026-04-17T10:02:00Z")
 
-	cfg := config{gates: []gate{
-		{kind: "github", param: "org=co", limitPerDay: 2},
-	}}
-	admitFromQueue(db, cfg)
+	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 2)`)
+	admitFromQueue(db)
 
 	// First 2 should be approved, third still queued
 	var s1, s2, s3 string
@@ -666,10 +665,8 @@ func TestAdmitFromQueueRespectsDaily(t *testing.T) {
 		VALUES ('t:1', 'queued', 'github:org=co', ?, 'github:a', '2026-01-01')`,
 		today+"T10:00:00Z")
 
-	cfg := config{gates: []gate{
-		{kind: "github", param: "org=co", limitPerDay: 1},
-	}}
-	admitFromQueue(db, cfg)
+	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 1)`)
+	admitFromQueue(db)
 
 	// Daily limit already hit, t:1 stays queued
 	var s string
@@ -683,9 +680,8 @@ func TestAdmitFromQueueNoGates(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
 		VALUES ('t:1', 'queued', 'github:org=co', '2026-04-17T10:00:00Z', 'github:a', '2026-01-01')`)
-	// No gates configured → noop
-	cfg := config{}
-	admitFromQueue(db, cfg)
+	// No gates in DB → noop
+	admitFromQueue(db)
 
 	var s string
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:1'`).Scan(&s)
@@ -704,7 +700,9 @@ func TestQueuePositionRendering(t *testing.T) {
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:second', 'second', 'Second', '', '2026-01-01')`)
 
-	cfg := config{gates: []gate{{kind: "*", param: "", limitPerDay: 100}}}
+	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 100)`)
+
+	cfg := config{}
 	req := httptest.NewRequest("GET", "/onboard", nil)
 	req.Header.Set("X-User-Sub", "github:second")
 	w := httptest.NewRecorder()
@@ -728,7 +726,7 @@ func TestNoGatesLegacyBehavior(t *testing.T) {
 		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
 
 	// No gates → linkJID should set approved directly
-	linkJID(db, "telegram:1", "github:alice", nil)
+	linkJID(db, "telegram:1", "github:alice")
 
 	var status string
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)

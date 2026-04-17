@@ -42,7 +42,6 @@ type config struct {
 	greeting     string
 	authBaseURL  string
 	secureCookie bool
-	gates        []gate
 }
 
 func main() {
@@ -104,7 +103,7 @@ func main() {
 	defer tick.Stop()
 
 	promptUnprompted(db, cfg)
-	admitFromQueue(db, cfg)
+	admitFromQueue(db)
 	var admitCount int
 	for {
 		select {
@@ -113,7 +112,7 @@ func main() {
 			admitCount++
 			// Admit every ~1 minute (pollInterval ticks until we reach 60s worth).
 			if admitCount*int(cfg.pollInterval.Seconds()) >= 60 {
-				admitFromQueue(db, cfg)
+				admitFromQueue(db)
 				admitCount = 0
 			}
 		case <-stop:
@@ -154,14 +153,6 @@ func loadConfig() (config, error) {
 		if d, err := time.ParseDuration(iv); err == nil {
 			cfg.pollInterval = d
 		}
-	}
-
-	if gatesEnv := os.Getenv("ONBOARDING_GATES"); gatesEnv != "" {
-		g, err := parseGates(gatesEnv)
-		if err != nil {
-			return cfg, fmt.Errorf("ONBOARDING_GATES: %w", err)
-		}
-		cfg.gates = g
 	}
 
 	return cfg, nil
@@ -349,7 +340,7 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 	})
 
 	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
-		linkJID(db, jid, userSub, cfg.gates)
+		linkJID(db, jid, userSub)
 		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 		return
 	}
@@ -366,7 +357,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 			`SELECT status FROM onboarding WHERE jid = ? AND status = 'token_used'`,
 			c.Value).Scan(&status)
 		if err == nil {
-			linkJID(db, c.Value, userSub, cfg.gates)
+			linkJID(db, c.Value, userSub)
 			var folder string
 			if err := db.QueryRow(
 				`SELECT g.folder FROM groups g
@@ -389,16 +380,13 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 		return
 	}
 
-	// If gates are active and this user has a queued JID, show queue position.
-	if len(cfg.gates) > 0 {
-		var qGate, qAt string
-		err := db.QueryRow(
-			`SELECT gate, queued_at FROM onboarding WHERE user_sub = ? AND status = 'queued' LIMIT 1`,
-			userSub).Scan(&qGate, &qAt)
-		if err == nil {
-			renderQueuePosition(w, db, cfg, qGate, qAt)
-			return
-		}
+	// If this user has a queued JID, show queue position.
+	var qGate, qAt string
+	if db.QueryRow(
+		`SELECT gate, queued_at FROM onboarding WHERE user_sub = ? AND status = 'queued' LIMIT 1`,
+		userSub).Scan(&qGate, &qAt) == nil {
+		renderQueuePosition(w, db, qGate, qAt)
+		return
 	}
 
 	var groupCount int
@@ -491,7 +479,34 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-func linkJID(db *sql.DB, jid, userSub string, gates []gate) {
+// loadGates reads enabled gates from the onboarding_gates DB table.
+func loadGates(db *sql.DB) []gate {
+	rows, err := db.Query(
+		`SELECT gate, limit_per_day FROM onboarding_gates WHERE enabled = 1`)
+	if err != nil {
+		slog.Error("loadGates query", "err", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []gate
+	for rows.Next() {
+		var key string
+		var limit int
+		rows.Scan(&key, &limit)
+		out = append(out, gateFromKey(key, limit))
+	}
+	return out
+}
+
+func gateFromKey(key string, limit int) gate {
+	if key == "*" {
+		return gate{kind: "*", limitPerDay: limit}
+	}
+	kind, param, _ := strings.Cut(key, ":")
+	return gate{kind: kind, param: param, limitPerDay: limit}
+}
+
+func linkJID(db *sql.DB, jid, userSub string) {
 	var existingSub string
 	if err := db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = ?`, jid).Scan(&existingSub); err == nil && existingSub != userSub {
 		slog.Warn("jid already claimed", "jid", jid, "existing", existingSub, "attempted", userSub)
@@ -501,6 +516,7 @@ func linkJID(db *sql.DB, jid, userSub string, gates []gate) {
 	db.Exec(`INSERT OR IGNORE INTO user_jids (user_sub, jid, claimed) VALUES (?, ?, ?)`,
 		userSub, jid, now)
 
+	gates := loadGates(db)
 	if len(gates) > 0 {
 		if g := matchGate(gates, userSub); g != nil {
 			db.Exec(
@@ -519,7 +535,7 @@ func linkJID(db *sql.DB, jid, userSub string, gates []gate) {
 	slog.Info("linked jid", "jid", jid, "user", userSub)
 }
 
-func renderQueuePosition(w http.ResponseWriter, db *sql.DB, cfg config, gateStr, queuedAt string) {
+func renderQueuePosition(w http.ResponseWriter, db *sql.DB, gateStr, queuedAt string) {
 	var pos int
 	db.QueryRow(
 		`SELECT COUNT(*) FROM onboarding WHERE status = 'queued' AND gate = ? AND queued_at < ?`,
@@ -527,15 +543,15 @@ func renderQueuePosition(w http.ResponseWriter, db *sql.DB, cfg config, gateStr,
 	pos++ // 1-indexed
 
 	var etaMsg string
-	for _, g := range cfg.gates {
-		if gateKey(g) == gateStr {
-			mins := pos * 1440 / g.limitPerDay
-			if mins < 60 {
-				etaMsg = fmt.Sprintf("~%d minutes", mins)
-			} else {
-				etaMsg = fmt.Sprintf("~%d hours", mins/60)
-			}
-			break
+	var limit int
+	if db.QueryRow(
+		`SELECT limit_per_day FROM onboarding_gates WHERE gate = ? AND enabled = 1`,
+		gateStr).Scan(&limit) == nil && limit > 0 {
+		mins := pos * 1440 / limit
+		if mins < 60 {
+			etaMsg = fmt.Sprintf("~%d minutes", mins)
+		} else {
+			etaMsg = fmt.Sprintf("~%d hours", mins/60)
 		}
 	}
 
@@ -550,12 +566,13 @@ func renderQueuePosition(w http.ResponseWriter, db *sql.DB, cfg config, gateStr,
 }
 
 // admitFromQueue promotes queued users up to each gate's daily limit.
-func admitFromQueue(db *sql.DB, cfg config) {
-	if len(cfg.gates) == 0 {
+func admitFromQueue(db *sql.DB) {
+	gates := loadGates(db)
+	if len(gates) == 0 {
 		return
 	}
 	today := time.Now().Format("2006-01-02")
-	for _, g := range cfg.gates {
+	for _, g := range gates {
 		k := gateKey(g)
 		var admitted int
 		db.QueryRow(

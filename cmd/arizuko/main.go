@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -22,8 +24,9 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|status|pair|generate> ...")
+		fmt.Println("usage: arizuko <run|create|group|gate|status|pair|generate> ...")
 		fmt.Println("  group <instance> list | add | rm | grant | ungrant | grants")
+		fmt.Println("  gate  <instance> list | add | rm | enable | disable")
 		os.Exit(1)
 	}
 
@@ -32,6 +35,7 @@ func main() {
 		"generate": cmdGenerate,
 		"create":   cmdCreate,
 		"group":    cmdGroup,
+		"gate":     cmdGate,
 		"status":   cmdStatus,
 		"pair":     cmdPair,
 	}
@@ -259,6 +263,77 @@ func runGrants(s *store.Store, sub string, w io.Writer) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\n", g.Sub, g.Pattern, ts)
 	}
 	return tw.Flush()
+}
+
+func cmdGate(args []string) {
+	need(args, 2, "arizuko gate <instance> <list|add|rm|enable|disable> ...")
+	instance, action := args[0], args[1]
+
+	dataDir := instanceDir(instance)
+	s, err := store.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		die("Failed: open db: %v", err)
+	}
+	defer s.Close()
+
+	switch action {
+	case "list":
+		gates, err := s.ListGates()
+		if err != nil {
+			die("Failed: list gates: %v", err)
+		}
+		if len(gates) == 0 {
+			fmt.Println("no gates")
+			return
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "GATE\tLIMIT/DAY\tENABLED")
+		for _, g := range gates {
+			en := "yes"
+			if !g.Enabled {
+				en = "no"
+			}
+			fmt.Fprintf(tw, "%s\t%d\t%s\n", g.Gate, g.LimitPerDay, en)
+		}
+		tw.Flush()
+
+	case "add":
+		need(args, 4, "arizuko gate <instance> add <spec> <N>/day")
+		spec := args[2]
+		limitStr := strings.TrimSuffix(args[3], "/day")
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil || limit <= 0 {
+			die("Failed: invalid limit %q", args[3])
+		}
+		if err := s.PutGate(spec, limit); err != nil {
+			die("Failed: add gate: %v", err)
+		}
+		fmt.Printf("gate added: %s %d/day\n", spec, limit)
+
+	case "rm":
+		need(args, 3, "arizuko gate <instance> rm <spec>")
+		if err := s.DeleteGate(args[2]); err != nil {
+			die("Failed: rm gate: %v", err)
+		}
+		fmt.Printf("gate removed: %s\n", args[2])
+
+	case "enable":
+		need(args, 3, "arizuko gate <instance> enable <spec>")
+		if err := s.EnableGate(args[2], true); err != nil {
+			die("Failed: enable gate: %v", err)
+		}
+		fmt.Printf("gate enabled: %s\n", args[2])
+
+	case "disable":
+		need(args, 3, "arizuko gate <instance> disable <spec>")
+		if err := s.EnableGate(args[2], false); err != nil {
+			die("Failed: disable gate: %v", err)
+		}
+		fmt.Printf("gate disabled: %s\n", args[2])
+
+	default:
+		die("unknown gate action: %s", action)
+	}
 }
 
 func cmdPair(args []string) {

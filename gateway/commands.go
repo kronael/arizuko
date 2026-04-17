@@ -59,6 +59,9 @@ var gatewayCommands = []gatewayCommand{
 	{"/invite", func(g *Gateway, m core.Message, gr core.Group, arg string) bool {
 		return g.cmdInvite(m.ChatJID, gr, arg)
 	}},
+	{"/gate", func(g *Gateway, m core.Message, gr core.Group, arg string) bool {
+		return g.cmdGate(m.ChatJID, gr, arg)
+	}},
 }
 
 func lookupCommand(raw string) *gatewayCommand {
@@ -203,6 +206,98 @@ func (g *Gateway) cmdInvite(chatJid string, group core.Group, arg string) bool {
 	}
 	label += "):\n" + link
 	g.sendMessage(chatJid, label)
+	return true
+}
+
+func (g *Gateway) cmdGate(chatJid string, group core.Group, arg string) bool {
+	id := auth.Resolve(group.Folder)
+	if id.Tier != 0 {
+		g.sendMessage(chatJid, "Permission denied: root only.")
+		return true
+	}
+
+	parts := strings.Fields(arg)
+	action := ""
+	if len(parts) > 0 {
+		action = parts[0]
+	}
+
+	switch action {
+	case "", "list":
+		gates, err := g.store.ListGates()
+		if err != nil {
+			g.sendMessage(chatJid, "Failed: "+err.Error())
+			return true
+		}
+		if len(gates) == 0 {
+			g.sendMessage(chatJid, "no gates")
+			return true
+		}
+		var b strings.Builder
+		for _, gt := range gates {
+			en := "on"
+			if !gt.Enabled {
+				en = "off"
+			}
+			fmt.Fprintf(&b, "%s  %d/day  %s\n", gt.Gate, gt.LimitPerDay, en)
+		}
+		g.sendMessage(chatJid, strings.TrimRight(b.String(), "\n"))
+
+	case "add":
+		if len(parts) < 3 {
+			g.sendMessage(chatJid, "Usage: /gate add <spec> <N>/day")
+			return true
+		}
+		spec := parts[1]
+		limitStr := strings.TrimSuffix(parts[2], "/day")
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil || limit <= 0 {
+			g.sendMessage(chatJid, "Failed: invalid limit")
+			return true
+		}
+		if err := g.store.PutGate(spec, limit); err != nil {
+			g.sendMessage(chatJid, "Failed: "+err.Error())
+			return true
+		}
+		g.sendMessage(chatJid, fmt.Sprintf("gate added: %s %d/day", spec, limit))
+
+	case "rm":
+		if len(parts) < 2 {
+			g.sendMessage(chatJid, "Usage: /gate rm <spec>")
+			return true
+		}
+		if err := g.store.DeleteGate(parts[1]); err != nil {
+			g.sendMessage(chatJid, "Failed: "+err.Error())
+			return true
+		}
+		g.sendMessage(chatJid, "gate removed: "+parts[1])
+
+	case "enable":
+		if len(parts) < 2 {
+			g.sendMessage(chatJid, "Usage: /gate enable <spec>")
+			return true
+		}
+		if err := g.store.EnableGate(parts[1], true); err != nil {
+			g.sendMessage(chatJid, "Failed: "+err.Error())
+			return true
+		}
+		g.sendMessage(chatJid, "gate enabled: "+parts[1])
+
+	case "disable":
+		if len(parts) < 2 {
+			g.sendMessage(chatJid, "Usage: /gate disable <spec>")
+			return true
+		}
+		if err := g.store.EnableGate(parts[1], false); err != nil {
+			g.sendMessage(chatJid, "Failed: "+err.Error())
+			return true
+		}
+		g.sendMessage(chatJid, "gate disabled: "+parts[1])
+
+	default:
+		g.sendMessage(chatJid,
+			"Usage: /gate [list|add|rm|enable|disable]")
+	}
 	return true
 }
 
