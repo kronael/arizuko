@@ -15,5 +15,5 @@ COPY --from=build /src/dist dist/
 RUN chown -R node:node /app
 USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD wget -qO- --tries=1 --timeout=3 http://127.0.0.1:9002/health >/dev/null || exit 1
+    CMD wget -qO- --tries=1 --timeout=3 http://127.0.0.1:8080/health >/dev/null || exit 1
 ENTRYPOINT ["node", "dist/main.js"]

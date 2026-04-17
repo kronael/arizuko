@@ -226,6 +226,9 @@ type svcDef struct {
 	ports       []string
 	environment map[string]string
 	dependsOn   string
+	// noHealth skips the standard /health healthcheck. Set for daemons
+	// without an HTTP server (timed) or without /health (vited).
+	noHealth bool
 }
 
 // yamlQuote emits a double-quoted YAML scalar with escapes for control
@@ -296,7 +299,9 @@ func writeSvc(def svcDef) string {
 		dep = "gated"
 	}
 	fmt.Fprintf(&b, "    depends_on: [%s]\n", dep)
-	b.WriteString(healthBlock)
+	if !def.noHealth {
+		b.WriteString(healthBlock)
+	}
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }
@@ -373,12 +378,14 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 		flavor:     flavor,
 		entrypoint: "dashd",
 		dataDir:    dataDir,
-		// DB_PATH is a container-side path; .env doesn't know where inside
-		// the container the data volume lands.
-		environment: map[string]string{"DB_PATH": "/srv/app/home/store/messages.db"},
+		// DB_PATH is container-internal; .env can't know it.
+		// DASH_PORT override pins internal listen to :8080 (healthcheck target)
+		// even when .env sets DASH_PORT for host-side publish.
+		environment: map[string]string{
+			"DB_PATH":   "/srv/app/home/store/messages.db",
+			"DASH_PORT": "8080",
+		},
 	}
-	// If DASH_PORT is set, expose dashd directly on the host for debugging.
-	// Normal access is via proxyd → /dash/.
 	if dashPort := envOr(env, "DASH_PORT", ""); dashPort != "" {
 		def.ports = []string{dashPort + ":8080"}
 	}
@@ -452,6 +459,10 @@ func vitedService(app, flavor, dataDir string, env map[string]string) string {
 	fmt.Fprintf(&b, "    container_name: %s_vited_%s\n", app, flavor)
 	b.WriteString("    image: arizuko-vite:latest\n")
 	fmt.Fprintf(&b, "    volumes:\n      - %s/web:/web\n", dataDir)
+	// vite dev server has no /health; probe /@vite/client (always 200 in dev).
+	b.WriteString("    healthcheck:\n")
+	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:8080/@vite/client']\n")
+	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n")
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }

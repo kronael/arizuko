@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -50,6 +51,20 @@ func main() {
 	}
 
 	slog.Info("scheduler started", "db", dsn, "tz", tz)
+
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+			if err := db.Ping(); err != nil {
+				http.Error(w, "db unreachable", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = w.Write([]byte("ok"))
+		})
+		if err := http.ListenAndServe(":8080", mux); err != nil {
+			slog.Error("health server", "err", err)
+		}
+	}()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)

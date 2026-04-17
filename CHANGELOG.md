@@ -74,6 +74,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   instead of `/`; unauthenticated requests to deep links (`/chat/X`,
   `/dash/Y`) preserve the original path through login via `auth_return`
   cookie (10-min TTL).
+- **healthchecks**: unified all daemons on internal `:8080/health`.
+  `dashd` compose now pins internal `DASH_PORT=8080` (host publish still
+  uses `.env`); `timed` now runs a small HTTP server exposing `/health`
+  (db.Ping); `onbod` registers `/health`; `vited` probes `/@vite/client`
+  (Vite has no `/health`); `whapd` Dockerfile healthcheck moved from
+  `:9002` to `:8080`; adapter service TOMLs (`teled`, `discd`, `mastd`,
+  `bskyd`, `reditd`, `whapd`) set `LISTEN_ADDR=:8080`. Eliminates the
+  mass of `(unhealthy)` containers from the port-unification migration.
+- **webd (mobile)**: chat page now viewport-aware — `100dvh`, safe-area
+  padding on footer, larger touch targets (44px send, 36px header
+  buttons), 16px textarea font (prevents iOS zoom), `enterkeyhint=send`,
+  hidden tagline <640px, bubble max-width 88% on phones.
 
 ### Ops
 

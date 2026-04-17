@@ -83,6 +83,8 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
 <footer>
   <form id="msg-form" onsubmit="sendMsg(event)">
     <textarea id="msg-input" placeholder="type a message..."
+              autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"
+              enterkeyhint="send" rows="1"
               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg(event)}"></textarea>
     <button type="submit">send</button>
   </form>
