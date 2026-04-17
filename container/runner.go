@@ -242,8 +242,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	var timedOut atomic.Bool
 	stopContainer := func(reason string) {
 		timedOut.Store(true)
-		slog.Info("container "+reason+", stopping",
-			"group", in.Folder, "container", containerName)
+		slog.Info("container stopping",
+			"reason", reason, "group", in.Folder, "container", containerName)
 		stop := exec.Command(
 			Bin, StopContainerArgs(containerName)...)
 		if err := stop.Run(); err != nil {

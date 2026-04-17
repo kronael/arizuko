@@ -55,7 +55,6 @@ func main() {
 	reg := chanreg.New(cfg.ChannelSecret)
 	apiSrv := api.New(reg, s)
 	apiSrv.OnRegister(func(name string, ch *chanreg.HTTPChannel) {
-		slog.Info("channel registered", "name", name)
 		gw.RemoveChannel(name)
 		gw.AddChannel(ch)
 		chanMu.Lock()
@@ -64,7 +63,6 @@ func main() {
 		ch.DrainOutbox()
 	})
 	apiSrv.OnDeregister(func(name string) {
-		slog.Info("channel deregistered", "name", name)
 		gw.RemoveChannel(name)
 		chanMu.Lock()
 		delete(httpChannels, name)

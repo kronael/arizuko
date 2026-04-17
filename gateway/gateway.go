@@ -155,17 +155,14 @@ func (g *Gateway) Run(ctx context.Context) error {
 		g.sendMessage(jid, msg)
 	})
 
-	slog.Info("connecting channels", "count", len(g.channels))
 	for _, ch := range g.channels {
-		slog.Info("connecting channel", "channel", ch.Name())
 		if err := ch.Connect(ctx); err != nil {
 			slog.Error("channel connect failed",
 				"channel", ch.Name(), "err", err)
 			continue
 		}
-		slog.Info("channel connected", "channel", ch.Name())
 	}
-	slog.Info("all channels connected")
+	slog.Info("channels connected", "count", len(g.channels))
 
 	g.recoverPendingMessages()
 	g.checkMigrationVersion()
@@ -450,15 +447,15 @@ func (g *Gateway) tryExternalRoute(
 	routes []core.Route, msg core.Message, group core.Group, chatJid, phase string,
 ) bool {
 	if g.handlePrefixLayer(msg, group, chatJid) {
-		slog.Debug(phase+": routed via prefix layer",
-			"jid", chatJid, "sender", msg.Sender)
+		slog.Debug("routed via prefix layer",
+			"phase", phase, "jid", chatJid, "sender", msg.Sender)
 		return true
 	}
 
 	target := g.resolveTarget(msg, routes, group.Folder)
 	if target != "" && router.IsAuthorizedRoutingTarget(group.Folder, target) {
-		slog.Debug(phase+": delegating to child",
-			"jid", chatJid, "sender", msg.Sender, "target", target)
+		slog.Debug("delegating to child",
+			"phase", phase, "jid", chatJid, "sender", msg.Sender, "target", target)
 		g.delegateViaMessage(target, msg.Content, chatJid, 0)
 		return true
 	}
@@ -499,7 +496,7 @@ func (g *Gateway) processSenderBatch(
 	prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n" + router.FormatMessages(msgs, observed)
 
 	if deliverCh != nil {
-		slog.Info("typing start", "jid", deliverTo, "channel", deliverCh.Name())
+		slog.Debug("typing start", "jid", deliverTo, "channel", deliverCh.Name())
 		deliverCh.Typing(deliverTo, true)
 	} else {
 		slog.Warn("typing skip: no channel", "jid", deliverTo)
@@ -512,7 +509,7 @@ func (g *Gateway) processSenderBatch(
 		onOutput, isolated, topic, last.ID, len(msgs))
 
 	if deliverCh != nil {
-		slog.Info("typing stop", "jid", deliverTo, "channel", deliverCh.Name())
+		slog.Debug("typing stop", "jid", deliverTo, "channel", deliverCh.Name())
 		deliverCh.Typing(deliverTo, false)
 	}
 

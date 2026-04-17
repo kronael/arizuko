@@ -63,7 +63,6 @@ func loadConfig() config {
 		davAddr:        chanlib.EnvOr("DAV_ADDR", ""),
 		viteAddr:       chanlib.EnvOr("VITE_ADDR", "http://vited:8080"),
 		onbodAddr:      chanlib.EnvOr("ONBOD_ADDR", ""),
-		authSecret:     os.Getenv("AUTH_SECRET"),
 		hmacSecret:     hmacSecret,
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
 	}
@@ -577,13 +576,14 @@ func main() {
 		Level: slog.LevelInfo,
 	})))
 
-	cfg := loadConfig()
-
 	coreCfg, err := core.LoadConfig()
 	if err != nil {
 		slog.Error("load config", "err", err)
 		os.Exit(1)
 	}
+
+	cfg := loadConfig()
+	cfg.authSecret = coreCfg.AuthSecret
 
 	st, err := store.Open(coreCfg.StoreDir)
 	if err != nil {

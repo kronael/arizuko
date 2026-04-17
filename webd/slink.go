@@ -239,7 +239,6 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	case wantSSE:
 		serveSSE(w, r, ch)
 	case wantJSON:
-		w.Header().Set("Content-Type", "application/json")
 		resp := map[string]any{"user": userPayload}
 		if wait > 0 {
 			ctx, cancel := context.WithTimeout(r.Context(), time.Duration(wait)*time.Second)
@@ -248,7 +247,7 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 			}
 			cancel()
 		}
-		_ = json.NewEncoder(w).Encode(resp)
+		chanlib.WriteJSON(w, resp)
 	default:
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprintf(w, `<div class="msg user" id="msg-%s">%s</div>`, m.ID, htmlEscape(content))

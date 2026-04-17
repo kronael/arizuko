@@ -775,7 +775,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 					if err := op.exec(taskID); err != nil {
 						return toolErr(err.Error())
 					}
-					slog.Info("task "+op.name+" via mcp", "taskId", taskID, "sourceGroup", folder)
+					slog.Info("task op via mcp", "op", op.name, "taskId", taskID, "sourceGroup", folder)
 					return toolJSON(map[string]any{"ok": true})
 				})
 		}

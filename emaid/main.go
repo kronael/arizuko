@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strconv"
 
 	"github.com/onvos/arizuko/chanlib"
 )
@@ -64,19 +63,7 @@ func loadConfig() config {
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9003"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://email:9003"),
 		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/emaid"),
-		MaxAttachment: envInt64("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
+		MaxAttachment: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		StrictAuth:    os.Getenv("EMAIL_STRICT_AUTH") == "true",
 	}
-}
-
-func envInt64(k string, def int64) int64 {
-	v := os.Getenv(k)
-	if v == "" {
-		return def
-	}
-	n, err := strconv.ParseInt(v, 10, 64)
-	if err != nil {
-		return def
-	}
-	return n
 }

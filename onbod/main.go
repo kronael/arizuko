@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/onvos/arizuko/auth"
+	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/theme"
@@ -35,6 +36,7 @@ type gate struct {
 }
 
 type config struct {
+	core         *core.Config
 	dsn          string
 	secret       string
 	authSecret   string
@@ -121,37 +123,31 @@ func main() {
 }
 
 func loadConfig() (config, error) {
+	coreCfg, err := core.LoadConfig()
+	if err != nil {
+		return config{}, err
+	}
+	if coreCfg.ProjectRoot == "" {
+		return config{}, fmt.Errorf("DATA_DIR env required")
+	}
 	cfg := config{
-		listenAddr:   ":8080",
+		core:         coreCfg,
+		dsn:          filepath.Join(coreCfg.ProjectRoot, "store", "messages.db"),
+		secret:       coreCfg.ChannelSecret,
+		authSecret:   coreCfg.AuthSecret,
+		authBaseURL:  coreCfg.AuthBaseURL,
+		secureCookie: strings.HasPrefix(coreCfg.AuthBaseURL, "https://"),
+		prototype:    os.Getenv("ONBOARDING_PROTOTYPE"),
+		greeting:     os.Getenv("ONBOARDING_GREETING"),
+		gatedURL:     chanlib.EnvOr("ROUTER_URL", "http://gated:8080"),
+		listenAddr:   chanlib.EnvOr("ONBOD_LISTEN_ADDR", ":8080"),
 		pollInterval: 10 * time.Second,
-	}
-
-	dataDir := os.Getenv("DATA_DIR")
-	if dataDir == "" {
-		return cfg, fmt.Errorf("DATA_DIR env required")
-	}
-	cfg.dsn = filepath.Join(dataDir, "store", "messages.db")
-	cfg.secret = os.Getenv("CHANNEL_SECRET")
-	cfg.authSecret = os.Getenv("AUTH_SECRET")
-	cfg.prototype = os.Getenv("ONBOARDING_PROTOTYPE")
-	cfg.greeting = os.Getenv("ONBOARDING_GREETING")
-	cfg.authBaseURL = os.Getenv("AUTH_BASE_URL")
-	cfg.secureCookie = strings.HasPrefix(cfg.authBaseURL, "https://")
-
-	cfg.gatedURL = os.Getenv("ROUTER_URL")
-	if cfg.gatedURL == "" {
-		cfg.gatedURL = "http://gated:8080"
-	}
-
-	if addr := os.Getenv("ONBOD_LISTEN_ADDR"); addr != "" {
-		cfg.listenAddr = addr
 	}
 	if iv := os.Getenv("ONBOARD_POLL_INTERVAL"); iv != "" {
 		if d, err := time.ParseDuration(iv); err == nil {
 			cfg.pollInterval = d
 		}
 	}
-
 	return cfg, nil
 }
 
@@ -447,11 +443,14 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	db.Exec(`UPDATE auth_users SET username = ? WHERE sub = ?`, username, userSub)
 
 	folder := username
-	coreCfg, err := core.LoadConfig()
-	if err != nil {
-		slog.Error("create world: load config", "err", err)
-		renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
-		return
+	coreCfg := cfg.core
+	if coreCfg == nil {
+		var err error
+		if coreCfg, err = core.LoadConfig(); err != nil {
+			slog.Error("create world: load config", "err", err)
+			renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
+			return
+		}
 	}
 	if err := container.SetupGroup(coreCfg, folder, cfg.prototype); err != nil {
 		slog.Error("create world: setup group", "folder", folder, "err", err)
