@@ -130,6 +130,10 @@ func verifySlinkSig(secret string, r *http.Request) bool {
 func (s *server) requireUser(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !verifyUserSig(s.cfg.hmacSecret, r) {
+			attemptedSub := r.Header.Get("X-User-Sub")
+			slog.Warn("user sig verify failed", "path", r.URL.Path,
+				"attempted_sub", attemptedSub,
+				"remote", r.Header.Get("X-Forwarded-For"))
 			for _, h := range []string{"X-User-Sub", "X-User-Name", "X-User-Groups", "X-User-Sig"} {
 				r.Header.Del(h)
 			}
@@ -161,7 +165,10 @@ func userAllowedFolder(groups []string, folder string) bool {
 
 func (s *server) requireFolder(next http.HandlerFunc) http.HandlerFunc {
 	return s.requireUser(func(w http.ResponseWriter, r *http.Request) {
-		if !userAllowedFolder(userGroups(r), folderParam(r)) {
+		folder := folderParam(r)
+		if !userAllowedFolder(userGroups(r), folder) {
+			slog.Warn("folder access denied",
+				"sub", userSub(r), "folder", folder, "path", r.URL.Path)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
@@ -229,7 +236,8 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		sw := &statusWriter{ResponseWriter: w, code: 200}
 		next.ServeHTTP(sw, r)
 		slog.Info("request", "method", r.Method, "path", r.URL.Path,
-			"status", sw.code, "dur", time.Since(start).String())
+			"status", sw.code, "dur", time.Since(start).String(),
+			"sub", r.Header.Get("X-User-Sub"))
 	})
 }
 

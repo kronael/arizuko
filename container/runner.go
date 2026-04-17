@@ -185,7 +185,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			cuid = uid
 		}
 		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Grants, in.McpToken, cuid); err != nil {
-			slog.Warn("failed to start MCP server", "group", in.Folder, "err", err)
+			slog.Warn("failed to start MCP server",
+				"group", in.Folder, "container", containerName, "err", err)
 		} else {
 			stopMCP = stop
 		}
@@ -413,7 +414,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		to, hadStreaming, fullBuf.String(), stderrStr, mounts)
 
 	slog.Info("container exited",
-		"group", in.Folder, "code", code,
+		"group", in.Folder, "container", containerName, "code", code,
 		"duration", elapsed,
 		"timedOut", to, "hadOutput", hadStreaming)
 
@@ -441,7 +442,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	if code != 0 {
 		slog.Error("container exited with error",
-			"group", in.Folder, "code", code,
+			"group", in.Folder, "container", containerName, "code", code,
 			"duration", elapsed, "logFile", logFile)
 		tail := stderrStr
 		if len(tail) > 200 {

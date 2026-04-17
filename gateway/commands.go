@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -178,7 +179,10 @@ func (g *Gateway) cmdRoot(chatJid string, group core.Group, arg string) bool {
 		g.sendMessage(chatJid, "Root group not found.")
 		return true
 	}
-	g.delegateViaMessage(rootFolder, arg, chatJid, 0)
+	if err := g.delegateViaMessage(rootFolder, arg, chatJid, 0); err != nil {
+		slog.Warn("cmdRoot: delegate failed",
+			"jid", chatJid, "target", rootFolder, "err", err)
+	}
 	return true
 }
 

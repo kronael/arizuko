@@ -137,7 +137,7 @@ func fire(db *sql.DB, tz string) {
 			 VALUES (?, ?, ?, ?, ?)`,
 			id, t.jid, sender, t.prompt, start.Format(time.RFC3339))
 		if err != nil {
-			slog.Error("insert message", "task", t.id, "err", err)
+			slog.Error("insert message", "task", t.id, "jid", t.jid, "err", err)
 			logRun(db, t.id, "error", err.Error(), time.Since(start).Milliseconds())
 			db.Exec(`UPDATE scheduled_tasks SET status = 'active' WHERE id = ?`, t.id)
 			continue

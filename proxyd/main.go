@@ -320,9 +320,12 @@ func logging(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, code: 200}
 		next.ServeHTTP(sw, r)
+		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
 		slog.Info("request",
 			"method", r.Method, "path", r.URL.Path,
-			"status", sw.code, "dur", time.Since(start).String())
+			"status", sw.code, "dur", time.Since(start).String(),
+			"sub", r.Header.Get("X-User-Sub"),
+			"remote", peer, "host", r.Host)
 	})
 }
 
@@ -496,6 +499,8 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 		s.davProxy.ServeHTTP(w, r)
 		return
 	}
+	slog.Warn("dav forbidden", "sub", r.Header.Get("X-User-Sub"),
+		"group", group, "path", r.URL.Path)
 	http.Error(w, "Forbidden", http.StatusForbidden)
 }
 
@@ -560,6 +565,7 @@ func (s *server) optionalAuth(next http.HandlerFunc) http.HandlerFunc {
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.authSecret == "" {
+			slog.Warn("auth denied", "reason", "auth_secret_unset", "path", r.URL.Path)
 			http.NotFound(w, r)
 			return
 		}
@@ -567,6 +573,9 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			next(w, a)
 			return
 		}
+		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
+		slog.Warn("auth denied", "reason", "no_valid_credential",
+			"path", r.URL.Path, "remote", peer)
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 	}
 }

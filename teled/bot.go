@@ -186,6 +186,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 		return false
 	}
+	slog.Debug("inbound", "chat_jid", jid, "sender_jid", im.Sender, "message_id", im.ID, "content_len", len(content))
 	return true
 }
 
@@ -242,6 +243,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 			firstID = strconv.Itoa(sent.MessageID)
 		}
 	}
+	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", firstID, "source", "telegram")
 	return firstID, nil
 }
 

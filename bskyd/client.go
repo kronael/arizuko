@@ -266,7 +266,9 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		Attachments: atts,
 	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
+		return
 	}
+	slog.Debug("inbound", "chat_jid", jid, "sender_jid", jid, "message_id", uriToKey(n.URI), "content_len", len(content), "verb", verb)
 }
 
 func (bc *bskyClient) extractAttachments(n notification) []chanlib.InboundAttachment {
@@ -326,7 +328,11 @@ func (bc *bskyClient) Send(req chanlib.SendRequest) (string, error) {
 		"collection": "app.bsky.feed.post",
 		"record":     record,
 	}
-	return "", bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, nil)
+	if err := bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, nil); err != nil {
+		return "", err
+	}
+	slog.Debug("send", "chat_jid", req.ChatJID, "source", "bluesky")
+	return "", nil
 }
 
 func (bc *bskyClient) Typing(string, bool) {}

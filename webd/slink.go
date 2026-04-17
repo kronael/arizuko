@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -14,6 +16,15 @@ import (
 	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/core"
 )
+
+// tokenHash returns a short tag for logging a sensitive token without leaking it.
+func tokenHash(s string) string {
+	if s == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:4])
+}
 
 // anonSender returns "anon:<hex>" derived from the proxyd-trusted client
 // IP. X-Forwarded-For is set by proxyd; webd listens only on the internal net.
@@ -143,6 +154,7 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	g, ok := s.st.GroupBySlinkToken(token)
 	if !ok {
+		slog.Warn("slink token not found", "token_hash", tokenHash(token))
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
@@ -210,6 +222,9 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store failed", http.StatusInternalServerError)
 		return
 	}
+
+	slog.Info("slink inbound", "folder", g.Folder,
+		"anon_sender", sender, "token_hash", tokenHash(token), "topic", topic)
 
 	if err := s.rc.SendMessage(chanlib.InboundMsg{
 		ID:         m.ID,
@@ -297,6 +312,9 @@ func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 	okSlink := verifySlinkSig(s.cfg.hmacSecret, r) && r.Header.Get("X-Folder") == folder
 	okUser := verifyUserSig(s.cfg.hmacSecret, r) && userAllowedFolder(userGroups(r), folder)
 	if !okSlink && !okUser {
+		slog.Warn("slink stream forbidden", "folder", folder,
+			"sub", r.Header.Get("X-User-Sub"),
+			"token_hash", tokenHash(r.URL.Query().Get("token")))
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}

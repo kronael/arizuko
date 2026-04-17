@@ -207,7 +207,9 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *chanlib.
 
 	if err := rc.SendMessage(msg); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
+		return
 	}
+	slog.Debug("inbound", "chat_jid", jid, "sender_jid", msg.Sender, "message_id", msg.ID, "content_len", len(msg.Content), "verb", msg.Verb)
 }
 
 func (mc *mastoClient) Send(req chanlib.SendRequest) (string, error) {
@@ -216,7 +218,11 @@ func (mc *mastoClient) Send(req chanlib.SendRequest) (string, error) {
 		toot.InReplyToID = mastodon.ID(req.ReplyTo)
 	}
 	_, err := mc.client.PostStatus(context.Background(), toot)
-	return "", err
+	if err != nil {
+		return "", err
+	}
+	slog.Debug("send", "chat_jid", req.ChatJID, "source", "mastodon")
+	return "", nil
 }
 
 func (mc *mastoClient) Typing(string, bool) {}

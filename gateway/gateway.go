@@ -278,7 +278,7 @@ func (g *Gateway) pollOnce() {
 
 	msgs, hi, err := g.store.NewMessages(nil, since, g.cfg.Name)
 	if err != nil {
-		slog.Error("error in message loop", "err", err)
+		slog.Error("error in message loop", "since", since, "err", err)
 		time.Sleep(5 * time.Second)
 		return
 	}
@@ -456,7 +456,10 @@ func (g *Gateway) tryExternalRoute(
 	if target != "" && router.IsAuthorizedRoutingTarget(group.Folder, target) {
 		slog.Debug("delegating to child",
 			"phase", phase, "jid", chatJid, "sender", msg.Sender, "target", target)
-		g.delegateViaMessage(target, msg.Content, chatJid, 0)
+		if err := g.delegateViaMessage(target, msg.Content, chatJid, 0); err != nil {
+			slog.Warn("delegate failed",
+				"phase", phase, "jid", chatJid, "sender", msg.Sender, "target", target, "err", err)
+		}
 		return true
 	}
 	return false
@@ -1329,7 +1332,10 @@ func (g *Gateway) handlePrefixLayer(
 			slog.Warn("@prefix: child group not found", "child", childFolder)
 			return false
 		}
-		g.delegateViaMessage(childFolder, stripped, chatJid, 0)
+		if err := g.delegateViaMessage(childFolder, stripped, chatJid, 0); err != nil {
+			slog.Warn("@prefix: delegate failed",
+				"jid", chatJid, "sender", msg.Sender, "target", childFolder, "err", err)
+		}
 		return true
 	}
 	topic := "#" + name

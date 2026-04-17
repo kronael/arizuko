@@ -99,7 +99,9 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		Attachments: atts,
 	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
+		return
 	}
+	slog.Debug("inbound", "chat_jid", jid, "sender_jid", "discord:"+m.Author.ID, "message_id", m.ID, "content_len", len(content))
 }
 
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
@@ -123,7 +125,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 			if !isRateLimit(err) {
 				break
 			}
-			slog.Warn("discord rate limited, retrying", "attempt", attempt+1)
+			slog.Warn("discord rate limited, retrying", "attempt", attempt+1, "max_attempts", 3, "err", err)
 			time.Sleep(time.Second)
 		}
 		if err != nil {
@@ -133,6 +135,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 			firstID = msg.ID
 		}
 	}
+	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", firstID, "source", "discord")
 	return firstID, nil
 }
 
