@@ -1,7 +1,12 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"database/sql"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +24,20 @@ func openTestDB(t *testing.T) *sql.DB {
 	}
 	db.Exec("PRAGMA journal_mode=WAL")
 	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+// openFileDB returns a file-backed SQLite DB allowing multiple connections.
+// Needed for code paths that hold a rows iterator while issuing nested queries.
+func openFileDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "t.db")+"?_busy_timeout=5000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Exec("PRAGMA journal_mode=WAL")
 	t.Cleanup(func() { db.Close() })
 	return db
 }
@@ -357,6 +376,341 @@ func TestIsIntervalMs(t *testing.T) {
 		if ok != c.ok || ms != c.ms {
 			t.Errorf("isIntervalMs(%q) = (%d, %v), want (%d, %v)", c.in, ms, ok, c.ms, c.ok)
 		}
+	}
+}
+
+func TestComputeNextRunInterval(t *testing.T) {
+	got := computeNextRun("1500", "UTC", "x")
+	nr, err := time.Parse(time.RFC3339, got)
+	if err != nil {
+		t.Fatal("bad rfc3339:", got)
+	}
+	diff := time.Until(nr)
+	if diff < 500*time.Millisecond || diff > 3*time.Second {
+		t.Fatal("interval next_run not ~1.5s in future:", diff)
+	}
+}
+
+func TestComputeNextRunEmpty(t *testing.T) {
+	if got := computeNextRun("", "UTC", "x"); got != "" {
+		t.Fatal("empty cron should return empty, got", got)
+	}
+}
+
+func TestComputeNextRunCron(t *testing.T) {
+	got := computeNextRun("0 9 * * *", "UTC", "x")
+	if got == "" {
+		t.Fatal("expected next_run, got empty")
+	}
+	nr, err := time.Parse(time.RFC3339, got)
+	if err != nil {
+		t.Fatal("bad rfc3339:", got)
+	}
+	if nr.Hour() != 9 || nr.Minute() != 0 {
+		t.Fatalf("expected 09:00, got %02d:%02d", nr.Hour(), nr.Minute())
+	}
+}
+
+func TestComputeNextRunInvalidCron(t *testing.T) {
+	if got := computeNextRun("not a cron", "UTC", "x"); got != "" {
+		t.Fatal("invalid cron should return empty, got", got)
+	}
+}
+
+func TestLogRunErrorPath(t *testing.T) {
+	db := openTestDB(t)
+	store.Migrate(db)
+	insertTask(t, db, "err1", "c1", "p", "active", time.Now().Format(time.RFC3339), nil)
+
+	logRun(db, "err1", "error", "boom", 42)
+
+	var status, errText string
+	var dur int64
+	db.QueryRow(`SELECT status, error, duration_ms FROM task_run_logs WHERE task_id='err1'`).
+		Scan(&status, &errText, &dur)
+	if status != "error" || errText != "boom" || dur != 42 {
+		t.Fatalf("log row wrong: %s %s %d", status, errText, dur)
+	}
+}
+
+func TestFireInsertErrorRestoresActive(t *testing.T) {
+	db := openTestDB(t)
+	store.Migrate(db)
+	// Intentionally DO NOT call setupMessages — messages table stays as created
+	// by migration 0001; but migration 0019 adds columns. fire() INSERTs only
+	// id, chat_jid, sender, content, timestamp → must still work.
+	// To force an insert error, drop the messages table.
+	if _, err := db.Exec(`DROP TABLE messages`); err != nil {
+		t.Fatal(err)
+	}
+
+	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
+	insertTask(t, db, "e1", "c1", "will fail", "active", past, nil)
+
+	fire(db, "UTC")
+
+	var status string
+	db.QueryRow("SELECT status FROM scheduled_tasks WHERE id='e1'").Scan(&status)
+	if status != "active" {
+		t.Fatal("on insert error, task should be restored to active, got", status)
+	}
+
+	var logStatus, logErr string
+	if err := db.QueryRow(
+		`SELECT status, error FROM task_run_logs WHERE task_id='e1'`).Scan(&logStatus, &logErr); err != nil {
+		t.Fatal("expected error run log:", err)
+	}
+	if logStatus != "error" || logErr == "" {
+		t.Fatalf("expected error log, got status=%s err=%q", logStatus, logErr)
+	}
+}
+
+func TestFireHonorsTimezone(t *testing.T) {
+	db := openTestDB(t)
+	store.Migrate(db)
+	setupMessages(t, db)
+
+	cron := "0 12 * * *"
+	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
+	insertTask(t, db, "tz1", "chat1", "noon", "active", past, &cron)
+
+	fire(db, "Asia/Tokyo")
+
+	var nextRun string
+	db.QueryRow("SELECT next_run FROM scheduled_tasks WHERE id='tz1'").Scan(&nextRun)
+	nr, err := time.Parse(time.RFC3339, nextRun)
+	if err != nil {
+		t.Fatal("bad next_run:", nextRun)
+	}
+	// Tokyo noon = 03:00 UTC
+	if nr.UTC().Hour() != 3 {
+		t.Fatalf("expected UTC hour=3 (Tokyo noon), got %d", nr.UTC().Hour())
+	}
+}
+
+func TestCleanupSpawnsClosesIdle(t *testing.T) {
+	db := openFileDB(t)
+	store.Migrate(db)
+
+	tmp := t.TempDir()
+
+	// Parent group
+	_, err := db.Exec(`INSERT INTO groups (folder, name, added_at, state, spawn_ttl_days, archive_closed_days, updated_at)
+		VALUES ('parent', 'Parent', ?, 'active', 7, 1, ?)`,
+		time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Child spawn, ttl=1 day, last msg 2 days ago
+	old := time.Now().Add(-48 * time.Hour).Format(time.RFC3339)
+	_, err = db.Exec(`INSERT INTO groups (folder, name, added_at, parent, state, spawn_ttl_days, archive_closed_days, updated_at)
+		VALUES ('parent/spawn1', 'Spawn1', ?, 'parent', 'active', 1, 1, ?)`, old, old)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Route targets the spawn folder, matches room=xyz
+	if _, err := db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=xyz', 'parent/spawn1')`); err != nil {
+		t.Fatal(err)
+	}
+	// Last message in that room is 2 days old
+	if _, err := db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp)
+		VALUES ('m1', 'group:xyz', 'u', 'hi', ?)`, old); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanupSpawns(db, tmp)
+
+	var state string
+	db.QueryRow(`SELECT state FROM groups WHERE folder='parent/spawn1'`).Scan(&state)
+	if state != "closed" {
+		t.Fatalf("expected spawn closed, got %s", state)
+	}
+}
+
+func TestCleanupSpawnsKeepsActiveWhenRecent(t *testing.T) {
+	db := openFileDB(t)
+	store.Migrate(db)
+	tmp := t.TempDir()
+
+	now := time.Now().Format(time.RFC3339)
+	db.Exec(`INSERT INTO groups (folder, name, added_at, state, spawn_ttl_days, archive_closed_days, updated_at)
+		VALUES ('p', 'P', ?, 'active', 7, 1, ?)`, now, now)
+	db.Exec(`INSERT INTO groups (folder, name, added_at, parent, state, spawn_ttl_days, archive_closed_days, updated_at)
+		VALUES ('p/s', 'S', ?, 'p', 'active', 7, 1, ?)`, now, now)
+	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=live', 'p/s')`)
+	db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp)
+		VALUES ('m', 'group:live', 'u', 'hi', ?)`, now)
+
+	cleanupSpawns(db, tmp)
+
+	var state string
+	db.QueryRow(`SELECT state FROM groups WHERE folder='p/s'`).Scan(&state)
+	if state != "active" {
+		t.Fatalf("expected active, got %s", state)
+	}
+}
+
+func TestCleanupSpawnsArchivesClosedAndOld(t *testing.T) {
+	db := openFileDB(t)
+	store.Migrate(db)
+
+	tmp := t.TempDir()
+	// Build source dir for the spawn
+	spawnDir := filepath.Join(tmp, "p", "s")
+	if err := os.MkdirAll(spawnDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(spawnDir, "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	old := time.Now().Add(-72 * time.Hour).Format(time.RFC3339)
+	_, err := db.Exec(`INSERT INTO groups (folder, name, added_at, parent, state, spawn_ttl_days, archive_closed_days, updated_at)
+		VALUES ('p/s', 'S', ?, 'p', 'closed', 1, 1, ?)`, old, old)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cleanupSpawns(db, tmp)
+
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder='p/s'`).Scan(&n)
+	if n != 0 {
+		t.Fatal("archived group row should be deleted, still present")
+	}
+	if _, err := os.Stat(spawnDir); !os.IsNotExist(err) {
+		t.Fatal("src dir should be removed after archive")
+	}
+	// tar.gz archive file should exist
+	archives, err := filepath.Glob(filepath.Join(tmp, "p", "archive", "s-*.tar.gz"))
+	if err != nil || len(archives) == 0 {
+		t.Fatal("expected archive file, found none")
+	}
+	// Sanity: archive contains note.txt
+	f, err := os.Open(archives[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gz)
+	found := false
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h.Name == "note.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("archive should contain note.txt")
+	}
+}
+
+func TestCleanupSpawnsSkipsNotYetOldClosed(t *testing.T) {
+	db := openFileDB(t)
+	store.Migrate(db)
+	tmp := t.TempDir()
+
+	recent := time.Now().Add(-30 * time.Minute).Format(time.RFC3339)
+	db.Exec(`INSERT INTO groups (folder, name, added_at, parent, state, spawn_ttl_days, archive_closed_days, updated_at)
+		VALUES ('p/s', 'S', ?, 'p', 'closed', 1, 1, ?)`, recent, recent)
+
+	cleanupSpawns(db, tmp)
+
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder='p/s'`).Scan(&n)
+	if n != 1 {
+		t.Fatal("recently-closed group should not be archived yet")
+	}
+}
+
+func TestCompressDirTarGz(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "src")
+	if err := os.MkdirAll(filepath.Join(src, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(src, "a.txt"), []byte("A"), 0o644)
+	os.WriteFile(filepath.Join(src, "sub", "b.txt"), []byte("BB"), 0o644)
+
+	dst := filepath.Join(tmp, "out.tar.gz")
+	if err := compressDirTarGz(src, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := os.Open(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gz)
+	names := map[string]bool{}
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		names[h.Name] = true
+	}
+	if !names["a.txt"] || !names[filepath.Join("sub", "b.txt")] {
+		t.Fatalf("archive missing entries: %v", names)
+	}
+}
+
+func TestCompressDirTarGzBadDst(t *testing.T) {
+	err := compressDirTarGz(t.TempDir(), "/no/such/dir/out.tar.gz")
+	if err == nil {
+		t.Fatal("expected error creating archive at bad path")
+	}
+}
+
+func TestFireUpdatesNextRunOnInterval(t *testing.T) {
+	db := openTestDB(t)
+	store.Migrate(db)
+	setupMessages(t, db)
+
+	intervalMs := "60000"
+	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
+	insertTask(t, db, "iv", "c1", "i", "active", past, &intervalMs)
+
+	before := time.Now()
+	fire(db, "UTC")
+
+	var nextRun string
+	db.QueryRow("SELECT next_run FROM scheduled_tasks WHERE id='iv'").Scan(&nextRun)
+	nr, err := time.Parse(time.RFC3339, nextRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ~60s in future
+	if nr.Sub(before) < 50*time.Second || nr.Sub(before) > 75*time.Second {
+		t.Fatalf("interval next_run off: %v", nr.Sub(before))
+	}
+}
+
+func TestIsIntervalMsExtra(t *testing.T) {
+	if _, ok := isIntervalMs("not-a-number"); ok {
+		t.Fatal("non-numeric should not be interval")
+	}
+	if _, ok := isIntervalMs("9999999999999"); !ok {
+		t.Fatal("large positive int should be interval")
 	}
 }
 
