@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -33,6 +34,7 @@ type gate struct {
 type config struct {
 	dsn          string
 	secret       string
+	authSecret   string
 	listenAddr   string
 	gatedURL     string
 	pollInterval time.Duration
@@ -79,6 +81,12 @@ func main() {
 	})
 	mux.HandleFunc("GET /invite/{token}", func(w http.ResponseWriter, r *http.Request) {
 		handleInvite(w, r, db, cfg)
+	})
+	mux.HandleFunc("GET /onboard", func(w http.ResponseWriter, r *http.Request) {
+		handleOnboard(w, r, db, cfg)
+	})
+	mux.HandleFunc("POST /onboard", func(w http.ResponseWriter, r *http.Request) {
+		handleOnboardPost(w, r, db, cfg)
 	})
 
 	srv := &http.Server{Addr: cfg.listenAddr, Handler: mux}
@@ -128,6 +136,7 @@ func loadConfig() (config, error) {
 	}
 	cfg.dsn = filepath.Join(dataDir, "store", "messages.db")
 	cfg.secret = os.Getenv("CHANNEL_SECRET")
+	cfg.authSecret = os.Getenv("AUTH_SECRET")
 	cfg.prototype = os.Getenv("ONBOARDING_PROTOTYPE")
 	cfg.greeting = os.Getenv("ONBOARDING_GREETING")
 	cfg.authBaseURL = os.Getenv("AUTH_BASE_URL")
@@ -409,11 +418,18 @@ func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if r.FormValue("action") != "create_world" {
+	switch r.FormValue("action") {
+	case "create_world":
+		handleCreateWorld(w, r, db, cfg, userSub)
+	case "delete_route":
+		folders := userFolders(db, userSub)
+		handleDeleteRoute(w, r, db, userSub, folders)
+	case "add_route":
+		folders := userFolders(db, userSub)
+		handleAddRoute(w, r, db, userSub, folders)
+	default:
 		http.Error(w, "unknown action", http.StatusBadRequest)
-		return
 	}
-	handleCreateWorld(w, r, db, cfg, userSub)
 }
 
 var usernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{2,29}$`)
@@ -790,4 +806,147 @@ func sendReply(cfg config, jid, text string) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		slog.Warn("send reply non-2xx", "jid", jid, "status", resp.StatusCode)
 	}
+}
+
+var defaultTasks = [][2]string{
+	{"/compact-memories episodes day", "0 2 * * *"},
+	{"/compact-memories episodes week", "0 3 * * 1"},
+	{"/compact-memories episodes month", "0 4 1 * *"},
+	{"/compact-memories diary week", "0 3 * * 1"},
+	{"/compact-memories diary month", "0 4 1 * *"},
+}
+
+func seedDefaultTasksTx(tx *sql.Tx, folder, chatJID string) {
+	now := time.Now().Format(time.RFC3339)
+	for i, t := range defaultTasks {
+		id := fmt.Sprintf("%s-mem-%d", folder, i)
+		tx.Exec(`INSERT OR IGNORE INTO scheduled_tasks
+			(id,owner,chat_jid,prompt,cron,next_run,status,created_at,context_mode)
+			VALUES (?,?,?,?,?,?,?,?,?)`,
+			id, folder, chatJID, t[0], t[1], now, "active", now, "isolated")
+	}
+	slog.Info("seeded default tasks", "folder", folder)
+}
+
+// userFolders returns the folders the user has access to.
+// nil means operator (unrestricted).
+func userFolders(db *sql.DB, sub string) []string {
+	rows, err := db.Query(
+		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, sub)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var folders []string
+	for rows.Next() {
+		var f string
+		rows.Scan(&f)
+		if f != "" {
+			folders = append(folders, f)
+		}
+	}
+	return folders
+}
+
+type dashRoute struct {
+	ID     int64
+	Seq    int
+	Match  string
+	Target string
+}
+
+// userRoutes returns routes targeting the user's folders (or all if operator).
+func userRoutes(db *sql.DB, folders []string) []dashRoute {
+	var rows *sql.Rows
+	var err error
+	if folders == nil {
+		rows, err = db.Query(
+			`SELECT id, seq, match, target FROM routes ORDER BY seq, id`)
+	} else {
+		// Build placeholders
+		ph := make([]string, len(folders))
+		args := make([]any, len(folders))
+		for i, f := range folders {
+			ph[i] = "?"
+			args[i] = f
+		}
+		rows, err = db.Query(
+			`SELECT id, seq, match, target FROM routes
+			 WHERE target IN (`+strings.Join(ph, ",")+`)
+			 ORDER BY seq, id`, args...)
+	}
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []dashRoute
+	for rows.Next() {
+		var r dashRoute
+		rows.Scan(&r.ID, &r.Seq, &r.Match, &r.Target)
+		out = append(out, r)
+	}
+	return out
+}
+
+
+func folderAllowed(folders []string, target string) bool {
+	if folders == nil {
+		return true // operator
+	}
+	for _, f := range folders {
+		if f == target {
+			return true
+		}
+	}
+	return false
+}
+
+func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
+	db *sql.DB, sub string, folders []string) {
+	id, err := strconv.ParseInt(r.FormValue("route_id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid route_id", http.StatusBadRequest)
+		return
+	}
+
+	var target string
+	err = db.QueryRow(
+		`SELECT target FROM routes WHERE id = ?`, id).Scan(&target)
+	if err != nil {
+		http.Error(w, "route not found", http.StatusNotFound)
+		return
+	}
+	if !folderAllowed(folders, target) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	db.Exec(`DELETE FROM routes WHERE id = ?`, id)
+	slog.Info("route deleted", "id", id, "sub", sub)
+	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
+}
+
+func handleAddRoute(w http.ResponseWriter, r *http.Request,
+	db *sql.DB, sub string, folders []string) {
+	match := strings.TrimSpace(r.FormValue("match"))
+	target := strings.TrimSpace(r.FormValue("target"))
+	if match == "" || target == "" {
+		http.Error(w, "match and target required", http.StatusBadRequest)
+		return
+	}
+	if !folderAllowed(folders, target) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	_, err := db.Exec(
+		`INSERT INTO routes (seq, match, target) VALUES (0, ?, ?)`,
+		match, target)
+	if err != nil {
+		slog.Error("add route", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	slog.Info("route added", "match", match, "target", target, "sub", sub)
+	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }

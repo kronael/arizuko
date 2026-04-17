@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -29,6 +30,7 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE UNIQUE INDEX idx_user_jids_jid ON user_jids(jid);
 		CREATE TABLE user_groups (user_sub TEXT NOT NULL, folder TEXT NOT NULL, PRIMARY KEY (user_sub, folder));
 		CREATE TABLE auth_users (id INTEGER PRIMARY KEY AUTOINCREMENT, sub TEXT UNIQUE, username TEXT, hash TEXT, name TEXT, created_at TEXT);
+		CREATE TABLE auth_sessions (token_hash TEXT PRIMARY KEY, user_sub TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
 		CREATE TABLE channels (name TEXT PRIMARY KEY, url TEXT, capabilities TEXT);
 		CREATE TABLE invitations (token TEXT PRIMARY KEY, folder TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, uses INTEGER NOT NULL DEFAULT 0, max_uses INTEGER NOT NULL DEFAULT 1, expires TEXT);
 	`)
@@ -893,5 +895,120 @@ func TestInviteInvalidToken(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
+	}
+}
+
+func postOnboard(db *sql.DB, cfg config, sub string,
+	vals url.Values) *httptest.ResponseRecorder {
+	body := vals.Encode()
+	req := httptest.NewRequest("POST", "/onboard", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", sub)
+	w := httptest.NewRecorder()
+	handleOnboardPost(w, req, db, cfg)
+	return w
+}
+
+func TestDeleteRoute(t *testing.T) {
+	db := testDB(t)
+	cfg := config{}
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'myroom')`)
+
+	var id int64
+	db.QueryRow(`SELECT id FROM routes WHERE target = 'myroom'`).Scan(&id)
+
+	w := postOnboard(db, cfg, "alice", url.Values{
+		"action":   {"delete_route"},
+		"route_id": {strconv.FormatInt(id, 10)},
+	})
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("want 303, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE id = ?`, id).Scan(&n)
+	if n != 0 {
+		t.Error("route should be deleted")
+	}
+}
+
+func TestDeleteRouteWrongUser(t *testing.T) {
+	db := testDB(t)
+	cfg := config{}
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('bob', 'bobroom')`)
+	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'aliceroom')`)
+
+	var id int64
+	db.QueryRow(`SELECT id FROM routes WHERE target = 'aliceroom'`).Scan(&id)
+
+	w := postOnboard(db, cfg, "bob", url.Values{
+		"action":   {"delete_route"},
+		"route_id": {strconv.FormatInt(id, 10)},
+	})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("want 403, got %d", w.Code)
+	}
+
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE id = ?`, id).Scan(&n)
+	if n != 1 {
+		t.Error("route should still exist")
+	}
+}
+
+func TestAddRoute(t *testing.T) {
+	db := testDB(t)
+	cfg := config{}
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+
+	w := postOnboard(db, cfg, "alice", url.Values{
+		"action": {"add_route"},
+		"match":  {"room=999"},
+		"target": {"myroom"},
+	})
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("want 303, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var match, target string
+	db.QueryRow(
+		`SELECT match, target FROM routes WHERE target = 'myroom'`,
+	).Scan(&match, &target)
+	if match != "room=999" || target != "myroom" {
+		t.Errorf("route: match=%q target=%q", match, target)
+	}
+}
+
+func TestAddRouteWrongTarget(t *testing.T) {
+	db := testDB(t)
+	cfg := config{}
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('bob', 'bobroom')`)
+
+	w := postOnboard(db, cfg, "bob", url.Values{
+		"action": {"add_route"},
+		"match":  {"room=999"},
+		"target": {"aliceroom"},
+	})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("want 403, got %d", w.Code)
+	}
+
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	if n != 0 {
+		t.Error("no route should have been created")
+	}
+}
+
+func TestDashboardUnauthenticated(t *testing.T) {
+	db := testDB(t)
+	cfg := config{}
+	req := httptest.NewRequest("GET", "/onboard", nil)
+	w := httptest.NewRecorder()
+	handleOnboard(w, req, db, cfg)
+	// No token, no X-User-Sub → redirect to login
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("want 303 redirect, got %d", w.Code)
 	}
 }
