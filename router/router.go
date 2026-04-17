@@ -262,30 +262,6 @@ func expandTarget(target string, msg core.Message) string {
 	return strings.ReplaceAll(target, "{sender}", id)
 }
 
-// matchPredicate is one key=glob pair parsed from a route's match expression.
-type matchPredicate struct {
-	key     string
-	pattern string
-}
-
-// parseMatch splits "key=glob key=glob ..." into predicates. Whitespace is
-// the only separator. Malformed tokens (no '=' or empty key) are skipped.
-func parseMatch(s string) []matchPredicate {
-	if s == "" {
-		return nil
-	}
-	fields := strings.Fields(s)
-	out := make([]matchPredicate, 0, len(fields))
-	for _, f := range fields {
-		k, v, ok := strings.Cut(f, "=")
-		if !ok || k == "" {
-			continue
-		}
-		out = append(out, matchPredicate{key: k, pattern: v})
-	}
-	return out
-}
-
 // msgField returns the message value for a match key. Unknown keys yield
 // an empty string, which will not match any non-empty glob.
 func msgField(msg core.Message, key string) string {
@@ -304,13 +280,17 @@ func msgField(msg core.Message, key string) string {
 	return ""
 }
 
-// RouteMatches reports whether every predicate in r.Match matches the
-// corresponding field of msg. Empty match expression matches everything.
+// RouteMatches reports whether every "key=glob" predicate in r.Match matches
+// the corresponding field of msg. Empty match expression matches everything.
+// Malformed tokens (no '=' or empty key) are skipped.
 func RouteMatches(r core.Route, msg core.Message) bool {
-	for _, p := range parseMatch(r.Match) {
-		v := msgField(msg, p.key)
-		ok, err := path.Match(p.pattern, v)
-		if err != nil || !ok {
+	for _, f := range strings.Fields(r.Match) {
+		k, pat, ok := strings.Cut(f, "=")
+		if !ok || k == "" {
+			continue
+		}
+		m, err := path.Match(pat, msgField(msg, k))
+		if err != nil || !m {
 			return false
 		}
 	}

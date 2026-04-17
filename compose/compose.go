@@ -35,8 +35,7 @@ var identRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$`)
 // Per-daemon env scoping: each known daemon gets env/<daemon>.env containing
 // only the vars it needs. Unknown services (custom services/*.toml) fall back
 // to the shared .env. Secrets do not leak across daemons.
-const envFileLine = "    env_file:\n      - .env\n"
-
+//
 // commonKeys flow into every arizuko daemon env file.
 var commonKeys = []string{
 	"ASSISTANT_NAME", "TZ", "LOG_LEVEL", "ARIZUKO_DEV",
@@ -61,7 +60,7 @@ var daemonKeys = map[string][]string{
 		"DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
 		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ALLOWED_EMAILS",
 		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
-		"ONBOARDING_PROTOTYPE", "ONBOARDING_GREETING", "ONBOARDING_GATES",
+		"ONBOARDING_PROTOTYPE", "ONBOARDING_GREETING",
 		"ONBOARD_POLL_INTERVAL", "ONBOD_LISTEN_ADDR",
 	},
 	"dashd":  {"AUTH_SECRET", "DASH_PORT"},
@@ -82,7 +81,7 @@ func envFileFor(name string) string {
 	if _, ok := daemonKeys[name]; ok {
 		return fmt.Sprintf("    env_file:\n      - env/%s.env\n", name)
 	}
-	return envFileLine
+	return "    env_file:\n      - .env\n"
 }
 
 // writeEnvFiles emits env/<daemon>.env with only the keys each daemon needs.

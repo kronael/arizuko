@@ -116,9 +116,8 @@ type SessionRecord struct {
 	MsgCount  int
 }
 
-// GenSlinkToken returns a 256-bit (32-byte) base64url-encoded random token.
-// Panics if the system RNG fails — a zero-entropy token is worse than a
-// crash because it silently creates guessable auth credentials.
+// GenSlinkToken returns a 256-bit base64url-encoded random token. Panics
+// on RNG failure — a zero-entropy token would be a guessable credential.
 func GenSlinkToken() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -127,12 +126,10 @@ func GenSlinkToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// instanceNameRE constrains instance/flavor names to characters safe inside
-// filesystem paths, docker container_name, and unquoted YAML scalars.
 var instanceNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,31}$`)
 
-// SanitizeInstance validates an instance name. Allowed: [A-Za-z0-9_-], max
-// 32 chars, no leading '-'. Empty string is rejected.
+// SanitizeInstance rejects names unsafe for filesystem paths, docker
+// container_name, and unquoted YAML scalars.
 func SanitizeInstance(name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("instance name is empty")

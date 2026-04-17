@@ -166,7 +166,7 @@ func (q *GroupQueue) SendMessages(groupJid string, texts []string) bool {
 	if written == 0 {
 		return false
 	}
-	signalContainer(cname)
+	_ = exec.Command(container.Bin, "kill", "--signal=SIGUSR1", cname).Run()
 	slog.Info("steer: sent messages into running container",
 		"jid", groupJid, "folder", folder, "count", written)
 	return true
@@ -179,7 +179,7 @@ func writeIpcFile(ipcFolder, text string) error {
 	}
 	ts := time.Now().UnixMilli()
 	r := rand.IntN(1679616) // 36^4
-	name := fmt.Sprintf("%d-%s.json", ts, base36(r))
+	name := fmt.Sprintf("%d-%04s.json", ts, strconv.FormatInt(int64(r), 36))
 	fp := filepath.Join(inputDir, name)
 	tmp := fp + ".tmp"
 	payload, _ := json.Marshal(map[string]string{"type": "message", "text": text})
@@ -268,10 +268,6 @@ func (q *GroupQueue) startGroupLocked(jid string) bool {
 	return false
 }
 
-func signalContainer(name string) {
-	_ = exec.Command(container.Bin, "kill", "--signal=SIGUSR1", name).Run()
-}
-
 func (q *GroupQueue) ActiveCount() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -288,10 +284,5 @@ func (q *GroupQueue) StopProcess(jid string) bool {
 	name := s.containerName
 	q.mu.Unlock()
 
-	cmd := exec.Command(container.Bin, container.StopContainerArgs(name)...)
-	return cmd.Run() == nil
-}
-
-func base36(n int) string {
-	return fmt.Sprintf("%04s", strconv.FormatInt(int64(n), 36))
+	return exec.Command(container.Bin, container.StopContainerArgs(name)...).Run() == nil
 }

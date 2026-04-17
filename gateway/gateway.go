@@ -103,11 +103,10 @@ func (g *Gateway) Run(ctx context.Context) error {
 		SendReply: func(jid, text, replyTo string) (string, error) {
 			return g.sendMessageReply(jid, text, replyTo, "")
 		},
-		SendDocument:  g.sendDocument,
-		ClearSession:  g.clearSession,
-		GroupsDir:     g.cfg.GroupsDir,
-		HostGroupsDir: g.cfg.HostGroupsDir,
-		WebDir:        g.cfg.WebDir,
+		SendDocument: g.sendDocument,
+		ClearSession: g.clearSession,
+		GroupsDir:    g.cfg.GroupsDir,
+		WebDir:       g.cfg.WebDir,
 		InjectMessage: g.injectMessage,
 		RegisterGroup: g.registerGroupIPC,
 		SetupGroup: func(folder string) error {
@@ -195,14 +194,9 @@ func (g *Gateway) Shutdown() {
 }
 
 func (g *Gateway) loadState() {
-	raw := g.store.GetState("last_timestamp")
-	if raw != "" {
+	if raw := g.store.GetState("last_timestamp"); raw != "" {
 		g.lastTimestamp, _ = time.Parse(time.RFC3339Nano, raw)
 	}
-
-	groups := g.store.AllGroups()
-	routes := g.store.AllRoutes()
-	slog.Info("state loaded", "groups", len(groups), "routes", len(routes))
 }
 
 func (g *Gateway) saveState() {
@@ -1171,25 +1165,14 @@ func ensureGroupGitRepo(groupDir string) {
 	os.WriteFile(gitignore, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
-var escAttrRe = regexp.MustCompile(`(\w+)="([^"]*)"`)
+var escOriginRe = regexp.MustCompile(`<escalation_origin\s[^/]*folder="([^"]+)"[^/]*jid="([^"]+)"[^/]*/>`)
 
 func escalationWorker(prompt string) string {
-	start := strings.Index(prompt, "<escalation_origin")
-	if start == -1 {
+	m := escOriginRe.FindStringSubmatch(prompt)
+	if m == nil {
 		return ""
 	}
-	end := strings.Index(prompt[start:], "/>")
-	if end == -1 {
-		return ""
-	}
-	attrs := map[string]string{}
-	for _, m := range escAttrRe.FindAllStringSubmatch(prompt[start:start+end+2], -1) {
-		attrs[m[1]] = m[2]
-	}
-	if attrs["folder"] == "" || attrs["jid"] == "" {
-		return ""
-	}
-	return attrs["folder"]
+	return m[1]
 }
 
 func (g *Gateway) resolveGroup(msg core.Message) (core.Group, bool) {

@@ -263,16 +263,3 @@ func TestSendMessages_NoLeftoverTmpFiles(t *testing.T) {
 		}
 	}
 }
-
-func TestBase36(t *testing.T) {
-	if got := base36(0); got != "0000" {
-		t.Fatalf("base36(0) = %q, want 0000", got)
-	}
-	if got := base36(36); got != "0010" {
-		t.Fatalf("base36(36) = %q, want 0010", got)
-	}
-	// max value 36^4 - 1
-	if got := base36(1679615); got != "zzzz" {
-		t.Fatalf("base36(1679615) = %q, want zzzz", got)
-	}
-}

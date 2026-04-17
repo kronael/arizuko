@@ -120,9 +120,8 @@ func LoadConfig() (*Config, error) {
 	if !dev && c.ChannelSecret == "" {
 		return nil, fmt.Errorf("CHANNEL_SECRET is empty: channel authentication disabled (set ARIZUKO_DEV=true to override)")
 	}
-	// ASSISTANT_NAME and the data dir basename end up in container_name and
-	// other YAML scalars unquoted; reject inputs that would break YAML or
-	// collide with other containers.
+	// ASSISTANT_NAME and data dir basename end up in container_name and
+	// YAML scalars unquoted — reject anything that would break them.
 	if strings.ContainsAny(c.Name, " \t\r\n:'\"\\/") {
 		return nil, fmt.Errorf("ASSISTANT_NAME %q contains whitespace or special characters", c.Name)
 	}

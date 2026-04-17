@@ -61,10 +61,8 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// Migrate applies store's embedded SQL migrations to the given DB.
-// Exposed for daemons and tests that hold a raw *sql.DB but still
-// need the canonical schema — gated (the main daemon) owns schema
-// ownership, but tests for other daemons use this to set up fixtures.
+// Migrate applies store's embedded SQL migrations to db. Used by test
+// fixtures in other packages that open a raw *sql.DB.
 func Migrate(db *sql.DB) error {
 	return db_utils.Migrate(db, migrationFS, "migrations", serviceName)
 }

@@ -14,7 +14,6 @@ func TestBuildMCPServer(t *testing.T) {
 		ClearSession:  func(f string) {},
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
-		HostGroupsDir: "/tmp/groups",
 		WebDir:        "/tmp/web",
 	}
 	db := StoreFns{}
@@ -32,7 +31,6 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 		ClearSession:  func(f string) {},
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
-		HostGroupsDir: "/tmp/groups",
 		WebDir:        "/tmp/web",
 	}
 	db := StoreFns{}
@@ -93,7 +91,6 @@ func TestAllToolsRegistered(t *testing.T) {
 		InjectMessage:       func(j, c, s, n string) (string, error) { return "", nil },
 		RegisterGroup:       func(j string, g core.Group) error { return nil },
 		GroupsDir:           "/tmp/groups",
-		HostGroupsDir:       "/tmp/groups",
 		WebDir:              "/tmp/web",
 	}
 	db := StoreFns{
@@ -132,7 +129,6 @@ func TestSendReply(t *testing.T) {
 		SendReply:     func(jid, text, rid string) (string, error) { return "", nil },
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
-		HostGroupsDir: "/tmp/groups",
 		WebDir:        "/tmp/web",
 	}
 	srv := buildMCPServer(gated, StoreFns{}, "world", []string{"send_reply"})
@@ -150,7 +146,6 @@ func TestRefreshGroups(t *testing.T) {
 		SendDocument:  func(jid, path, fn, caption string) error { return nil },
 		GetGroups:     func() map[string]core.Group { return groups },
 		GroupsDir:     "/tmp/groups",
-		HostGroupsDir: "/tmp/groups",
 		WebDir:        "/tmp/web",
 	}
 	db := StoreFns{}

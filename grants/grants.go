@@ -1,7 +1,6 @@
 package grants
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -22,19 +21,8 @@ type ParamRule struct {
 
 // ParseRule parses a grant rule. Malformed input (e.g. unterminated
 // paren) yields a rule with Action == "" which matches nothing, so a
-// typo cannot silently widen access. Use ParseRuleStrict to inspect
-// the parse error.
+// typo cannot silently widen access.
 func ParseRule(r string) Rule {
-	rule, err := ParseRuleStrict(r)
-	if err != nil {
-		return Rule{}
-	}
-	return rule
-}
-
-// ParseRuleStrict parses a grant rule and returns an error on
-// malformed input (missing closing paren, etc).
-func ParseRuleStrict(r string) (Rule, error) {
 	var rule Rule
 	if strings.HasPrefix(r, "!") {
 		rule.Deny = true
@@ -44,15 +32,15 @@ func ParseRuleStrict(r string) (Rule, error) {
 	paren := strings.IndexByte(r, '(')
 	if paren < 0 {
 		rule.Action = r
-		return rule, nil
+		return rule
 	}
 	if !strings.HasSuffix(r, ")") {
-		return Rule{}, fmt.Errorf("unterminated parens in rule %q", r)
+		return Rule{}
 	}
 	rule.Action = r[:paren]
 	rest := r[paren+1 : len(r)-1]
 	if rest == "" {
-		return rule, nil
+		return rule
 	}
 
 	rule.Params = make(map[string]ParamRule)
@@ -76,7 +64,7 @@ func ParseRuleStrict(r string) (Rule, error) {
 		}
 		rule.Params[name] = ParamRule{Deny: deny, Pattern: val}
 	}
-	return rule, nil
+	return rule
 }
 
 // matchGlob: `*` does not cross a boundary for which stop returns true.
@@ -146,32 +134,6 @@ func MatchingRules(rules []string, action string) []string {
 	var out []string
 	for _, r := range rules {
 		if matchGlob(ParseRule(r).Action, action, notWordChar) {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-func NarrowRules(parent, child []string) []string {
-	out := append([]string(nil), parent...)
-	for _, r := range child {
-		rule := ParseRule(r)
-		if rule.Deny {
-			out = append(out, r)
-			continue
-		}
-		// Evaluate the child's own param patterns against parent rules:
-		// if child is send_message(jid=telegram:123) and parent allows
-		// send_message(jid=telegram:*), the child is a legitimate
-		// narrowing. Use each child param's pattern as the probe value.
-		probe := make(map[string]string, len(rule.Params))
-		for name, pr := range rule.Params {
-			if pr.Deny {
-				continue
-			}
-			probe[name] = pr.Pattern
-		}
-		if CheckAction(parent, rule.Action, probe) {
 			out = append(out, r)
 		}
 	}

@@ -342,101 +342,11 @@ func TestDeriveRules_Tier2(t *testing.T) {
 	}
 }
 
-// --- NarrowRules ---
-
-func TestNarrowRules_DenyAlwaysKept(t *testing.T) {
-	parent := []string{"*"}
-	child := []string{"!send_file"}
-	out := NarrowRules(parent, child)
-	hasDeny := false
-	for _, r := range out {
-		if r == "!send_file" {
-			hasDeny = true
-		}
-	}
-	if !hasDeny {
-		t.Fatal("deny rule from child should be kept")
-	}
-}
-
-func TestNarrowRules_AllowNotWidened(t *testing.T) {
-	parent := []string{"send_reply"}
-	child := []string{"send_message"} // parent doesn't allow this
-	out := NarrowRules(parent, child)
-	for _, r := range out {
-		if r == "send_message" {
-			t.Fatal("send_message should not be added (parent doesn't allow it)")
-		}
-	}
-}
-
-func TestNarrowRules_AllowKeptIfParentAllows(t *testing.T) {
-	parent := []string{"*"}
-	child := []string{"send_reply"}
-	out := NarrowRules(parent, child)
-	found := false
-	for _, r := range out {
-		if r == "send_reply" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("send_reply should be kept (parent allows it)")
-	}
-}
-
-func TestNarrowRules_NilChildLeavesParentUnchanged(t *testing.T) {
-	parent := []string{"send_reply"}
-	out := NarrowRules(parent, nil)
-	if len(out) != 1 || out[0] != "send_reply" {
-		t.Fatalf("nil child should leave parent unchanged, got %v", out)
-	}
-}
-
-func TestNarrowRules_ParamScopedChildKept(t *testing.T) {
-	parent := []string{"send_message(jid=telegram:*)"}
-	child := []string{"send_message(jid=telegram:123)"}
-	out := NarrowRules(parent, child)
-	found := false
-	for _, r := range out {
-		if r == "send_message(jid=telegram:123)" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("param-scoped child narrowing should be kept")
-	}
-}
-
-func TestNarrowRules_ParamScopedChildRejectedIfOutsideParent(t *testing.T) {
-	parent := []string{"send_message(jid=telegram:*)"}
-	child := []string{"send_message(jid=discord:1)"}
-	out := NarrowRules(parent, child)
-	for _, r := range out {
-		if r == "send_message(jid=discord:1)" {
-			t.Fatal("child outside parent scope must be dropped")
-		}
-	}
-}
-
 func TestParseRule_UnterminatedParens(t *testing.T) {
-	if _, err := ParseRuleStrict("foo(a=1"); err == nil {
-		t.Fatal("expected error for unterminated parens")
-	}
-	// Lenient ParseRule must not silently accept: Action must be empty
-	// so no action can match.
+	// Malformed rule must not silently match: Action empty so no action matches.
 	r := ParseRule("foo(a=1")
 	if r.Action != "" {
-		t.Fatalf("malformed rule produced action %q; want empty (matches nothing)", r.Action)
-	}
-}
-
-func TestNarrowRules_NilParentDoesNotWidenToStar(t *testing.T) {
-	out := NarrowRules(nil, []string{"*"})
-	for _, r := range out {
-		if r == "*" {
-			t.Fatal("nil parent must not widen to [*]")
-		}
+		t.Fatalf("malformed rule produced action %q; want empty", r.Action)
 	}
 }
 

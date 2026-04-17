@@ -94,9 +94,8 @@ func handleLoginPage(cfg *core.Config) http.HandlerFunc {
 	}
 }
 
-// clientIP returns the client IP, preferring X-Forwarded-For (set by a
-// trusted reverse proxy) so the login rate-limiter is keyed per-user
-// rather than per-proxy.
+// clientIP prefers X-Forwarded-For so the login limiter keys per-user,
+// not per-proxy.
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if i := strings.IndexByte(xff, ','); i >= 0 {

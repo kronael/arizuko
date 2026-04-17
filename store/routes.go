@@ -15,9 +15,6 @@ func scanRoute(r rowScanner) (core.Route, error) {
 	return rt, err
 }
 
-// AllRoutes returns every row in the routes table, ordered by seq ASC.
-// The gateway fetches this once per poll and walks it against each
-// incoming message.
 func (s *Store) AllRoutes() []core.Route {
 	rows, err := s.db.Query(`SELECT ` + routeCols + ` FROM routes ORDER BY seq ASC, id ASC`)
 	if err != nil {
@@ -49,9 +46,7 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 	return res.LastInsertId()
 }
 
-// SetRoutes replaces the routes whose target is exactly `folder` or falls
-// under `folder/`. Used by the agent IPC set_routes tool so an agent can
-// bulk-replace its own routes without touching siblings.
+// SetRoutes replaces the routes whose target is `folder` or `folder/...`.
 func (s *Store) SetRoutes(folder string, routes []core.Route) error {
 	tx, err := s.db.Begin()
 	if err != nil {

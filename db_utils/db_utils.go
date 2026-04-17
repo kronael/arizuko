@@ -4,20 +4,15 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Migrate applies pending SQL migrations from an embedded filesystem.
-// Each migration file must have a 4-digit version prefix (e.g. 0001-init.sql).
-// Versions must be sequential with no gaps.
-//
-// The migrations table is keyed on (service, version); in practice
-// gated is the only schema owner, but the service key keeps this
-// usable if that ever changes.
+// Migrate applies pending `NNNN-*.sql` migrations from fsys/dir. Versions
+// must be sequential with no gaps. Tracked in the `migrations` table
+// keyed on (service, version).
 func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
 		service TEXT NOT NULL, version INTEGER NOT NULL, applied_at TEXT NOT NULL,
@@ -45,13 +40,11 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 
 	for _, f := range files {
 		if len(f) < 4 {
-			slog.Warn("skipping migration: filename too short for 4-digit version", "file", f)
-			continue
+			return fmt.Errorf("migration %q: filename too short for 4-digit version", f)
 		}
-		ver, atoiErr := strconv.Atoi(f[:4])
-		if atoiErr != nil {
-			slog.Warn("skipping migration: non-numeric version prefix", "file", f)
-			continue
+		ver, err := strconv.Atoi(f[:4])
+		if err != nil {
+			return fmt.Errorf("migration %q: non-numeric version prefix: %w", f, err)
 		}
 		if ver <= max {
 			continue

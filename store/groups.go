@@ -143,8 +143,7 @@ func (s *Store) PendingChatJIDs(botName string) []string {
 }
 
 // routeSourceJIDs reconstructs "platform:room" JIDs from a route's match.
-// Requires both platform and room literals (no globs) to be present.
-// When platform is missing, the room literal alone is returned.
+// Glob values are skipped. Missing platform → room literal alone.
 func routeSourceJIDs(match string) []string {
 	var platform string
 	var rooms []string
@@ -173,9 +172,8 @@ func routeSourceJIDs(match string) []string {
 	return out
 }
 
-// RouteSourceJIDsInWorld returns the distinct inbound JIDs owned by
-// routes whose target falls under `worldFolder`. Used by grants derivation
-// to extract platforms visible to a tier-1/tier-2 group.
+// RouteSourceJIDsInWorld returns distinct inbound JIDs whose routes
+// target worldFolder or any descendant.
 func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string {
 	seen := make(map[string]struct{})
 	var out []string
@@ -194,9 +192,7 @@ func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string {
 	return out
 }
 
-// DefaultFolderForJID resolves the owning folder for a given source JID
-// by running the routes table against a skeletal message. Empty string
-// if no route matches.
+// DefaultFolderForJID returns the folder a jid routes to, or "" if none.
 func (s *Store) DefaultFolderForJID(jid string) string {
 	msg := core.Message{ChatJID: jid, Verb: "message"}
 	return router.ResolveRoute(msg, s.AllRoutes())
