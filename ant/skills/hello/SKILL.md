@@ -35,3 +35,7 @@ Scheduling  "weekly summary every Monday"
 
 /new   /stop   /ping
 ```
+
+If `/workspace/web/pub/$ARIZUKO_GROUP_FOLDER/howto/index.html` exists,
+append one line: `Getting started: https://$WEB_HOST/$WEB_PREFIX/howto/`
+(resolved, no literal vars).
