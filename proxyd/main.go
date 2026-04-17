@@ -3,6 +3,10 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -28,13 +32,15 @@ import (
 )
 
 type config struct {
-	port       string
-	dashAddr   string
-	webdAddr   string
-	davAddr    string
-	viteAddr   string
-	onbodAddr  string
-	authSecret string
+	port           string
+	dashAddr       string
+	webdAddr       string
+	davAddr        string
+	viteAddr       string
+	onbodAddr      string
+	authSecret     string
+	hmacSecret     string
+	trustedProxies []*net.IPNet
 }
 
 func loadConfig() config {
@@ -42,15 +48,85 @@ func loadConfig() config {
 	if !strings.HasPrefix(port, ":") {
 		port = ":" + port
 	}
-	return config{
-		port:       port,
-		dashAddr:   chanlib.EnvOr("DASH_ADDR", "http://dashd:8080"),
-		webdAddr:   chanlib.EnvOr("WEBD_ADDR", "http://webd:8080"),
-		davAddr:    chanlib.EnvOr("DAV_ADDR", ""),
-		viteAddr:   chanlib.EnvOr("VITE_ADDR", "http://vited:8080"),
-		onbodAddr:  chanlib.EnvOr("ONBOD_ADDR", ""),
-		authSecret: os.Getenv("AUTH_SECRET"),
+	hmacSecret := os.Getenv("PROXYD_HMAC_SECRET")
+	if hmacSecret == "" {
+		var b [32]byte
+		if _, err := rand.Read(b[:]); err == nil {
+			hmacSecret = hex.EncodeToString(b[:])
+			slog.Warn("PROXYD_HMAC_SECRET unset; generated ephemeral secret — webd will reject header signatures unless both share the same env value")
+		}
 	}
+	return config{
+		port:           port,
+		dashAddr:       chanlib.EnvOr("DASH_ADDR", "http://dashd:8080"),
+		webdAddr:       chanlib.EnvOr("WEBD_ADDR", "http://webd:8080"),
+		davAddr:        chanlib.EnvOr("DAV_ADDR", ""),
+		viteAddr:       chanlib.EnvOr("VITE_ADDR", "http://vited:8080"),
+		onbodAddr:      chanlib.EnvOr("ONBOD_ADDR", ""),
+		authSecret:     os.Getenv("AUTH_SECRET"),
+		hmacSecret:     hmacSecret,
+		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
+	}
+}
+
+// parseTrustedProxies parses a comma-separated list of CIDR blocks. A bare
+// IP is treated as a /32 (or /128). Empty input = no client is trusted to
+// supply X-Forwarded-For; the header is replaced with the connection peer.
+func parseTrustedProxies(s string) []*net.IPNet {
+	var out []*net.IPNet
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if !strings.Contains(part, "/") {
+			if strings.Contains(part, ":") {
+				part += "/128"
+			} else {
+				part += "/32"
+			}
+		}
+		if _, n, err := net.ParseCIDR(part); err == nil {
+			out = append(out, n)
+		} else {
+			slog.Warn("invalid TRUSTED_PROXIES entry", "entry", part, "err", err)
+		}
+	}
+	return out
+}
+
+// clientHeaderNames are request headers proxyd owns. Clients must not be
+// able to forge them; they are stripped on entry and repopulated only
+// after authentication or slink-token resolution.
+var clientHeaderNames = []string{
+	"X-User-Sub",
+	"X-User-Name",
+	"X-User-Groups",
+	"X-User-Sig",
+	"X-Folder",
+	"X-Group-Name",
+	"X-Slink-Token",
+	"X-Slink-Sig",
+}
+
+func stripClientHeaders(r *http.Request) {
+	for _, h := range clientHeaderNames {
+		r.Header.Del(h)
+	}
+}
+
+func hmacSign(secret, msg string) string {
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write([]byte(msg))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func userSigMessage(sub, name, groupsJSON string) string {
+	return "user:" + sub + "|" + name + "|" + groupsJSON
+}
+
+func slinkSigMessage(token, folder string) string {
+	return "slink:" + token + "|" + folder
 }
 
 func proxy(target string) *httputil.ReverseProxy {
@@ -187,11 +263,12 @@ func (rl *rateLimiter) allow(key string) bool {
 	now := time.Now()
 	cutoff := now.Add(-rl.window)
 
-	if len(rl.buckets) > 10000 {
-		for k, hits := range rl.buckets {
-			if len(hits) == 0 || hits[len(hits)-1].Before(cutoff) {
-				delete(rl.buckets, k)
-			}
+	// Sweep stale buckets on every call. Prevents attackers from keeping
+	// the map bloated indefinitely using many distinct source IPs with
+	// one hit each.
+	for k, hits := range rl.buckets {
+		if len(hits) == 0 || hits[len(hits)-1].Before(cutoff) {
+			delete(rl.buckets, k)
 		}
 	}
 
@@ -254,10 +331,44 @@ func logging(next http.Handler) http.Handler {
 	})
 }
 
+func (s *server) fixForwardedFor(r *http.Request) {
+	peer, _, _ := net.SplitHostPort(r.RemoteAddr)
+	peerIP := net.ParseIP(peer)
+	trusted := false
+	if peerIP != nil {
+		for _, n := range s.cfg.trustedProxies {
+			if n.Contains(peerIP) {
+				trusted = true
+				break
+			}
+		}
+	}
+	if trusted {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			left := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])
+			if left != "" {
+				r.Header.Set("X-Forwarded-For", left)
+				return
+			}
+		}
+	}
+	if peer == "" {
+		r.Header.Del("X-Forwarded-For")
+		return
+	}
+	r.Header.Set("X-Forwarded-For", peer)
+}
+
 func (s *server) route(w http.ResponseWriter, r *http.Request) {
+	stripClientHeaders(r)
+	s.fixForwardedFor(r)
+
 	if world, ok := s.vh.match(r.Host); ok {
 		rawPath := r.URL.Path
-		if strings.Contains(rawPath, "..") {
+		lowRaw := strings.ToLower(r.URL.RawPath)
+		if strings.Contains(rawPath, "..") ||
+			strings.Contains(lowRaw, "%2e%2e") ||
+			strings.Contains(lowRaw, "%2f") {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -306,20 +417,30 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
-		token := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/slink/"), "/", 2)[0]
+		var token string
+		if r.URL.Path == "/slink/stream" {
+			token = r.URL.Query().Get("token")
+		} else {
+			token = strings.SplitN(strings.TrimPrefix(r.URL.Path, "/slink/"), "/", 2)[0]
+		}
 		if token != "" && s.st != nil {
 			if group, ok := s.st.GroupBySlinkToken(token); ok {
 				r = r.Clone(r.Context())
 				r.Header.Set("X-Folder", group.Folder)
 				r.Header.Set("X-Group-Name", group.Name)
 				r.Header.Set("X-Slink-Token", token)
+				r.Header.Set("X-Slink-Sig",
+					hmacSign(s.cfg.hmacSecret, slinkSigMessage(token, group.Folder)))
 			}
 		}
-		upstream.ServeHTTP(w, r)
+		// Attach signed user identity when the caller is also logged in
+		// (e.g. an authed operator opening the chat UI) so webd can trust
+		// them via folder ACL in addition to the slink token.
+		s.optionalAuth(upstream.ServeHTTP)(w, r)
 		return
 	}
 
-	if strings.HasPrefix(r.URL.Path, "/onboard") {
+	if r.URL.Path == "/onboard" || strings.HasPrefix(r.URL.Path, "/onboard/") {
 		if s.onbodProxy == nil {
 			http.NotFound(w, r)
 			return
@@ -340,19 +461,21 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		s.viteProxy.ServeHTTP(w, r)
 		return
 	}
-	// Auth-gated paths that belong to webd, auth, or internal services.
-	for _, p := range []string{"/chat/", "/api/", "/x/", "/static/", "/auth/"} {
+	for _, p := range []string{"/chat/", "/api/", "/x/", "/static/", "/auth/", "/mcp"} {
 		if strings.HasPrefix(r.URL.Path, p) {
 			s.requireAuth(upstream.ServeHTTP)(w, r)
 			return
 		}
 	}
-	// Unknown path — redirect to /pub/ prefix so public content is reachable
-	// without auth. If the pub target doesn't exist, vite returns 404.
 	http.Redirect(w, r, "/pub"+r.URL.Path, http.StatusFound)
 }
 
 func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
+	if strings.Contains(r.URL.Path, "..") ||
+		strings.Contains(strings.ToLower(r.URL.RawPath), "%2e%2e") {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
 	rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/dav"), "/")
 	var gs []string
 	if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
@@ -382,18 +505,22 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Forbidden", http.StatusForbidden)
 }
 
-func setUserHeaders(r *http.Request, sub, name string, groups []string) *http.Request {
+func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []string) *http.Request {
 	r2 := r.Clone(r.Context())
 	r2.Header.Set("X-User-Sub", sub)
 	r2.Header.Set("X-User-Name", name)
+	groupsJSON := "null"
 	if b, err := json.Marshal(groups); err == nil {
-		r2.Header.Set("X-User-Groups", string(b))
+		groupsJSON = string(b)
+	}
+	r2.Header.Set("X-User-Groups", groupsJSON)
+	if s.cfg.hmacSecret != "" {
+		r2.Header.Set("X-User-Sig",
+			hmacSign(s.cfg.hmacSecret, userSigMessage(sub, name, groupsJSON)))
 	}
 	return r2
 }
 
-// authByCookie returns a request with X-User-* headers set if a valid
-// refresh_token cookie is present, else nil.
 func (s *server) authByCookie(r *http.Request) *http.Request {
 	if s.st == nil {
 		return nil
@@ -410,7 +537,7 @@ func (s *server) authByCookie(r *http.Request) *http.Request {
 	if !ok {
 		return nil
 	}
-	return setUserHeaders(r, u.Sub, u.Name, s.st.UserGroups(u.Sub))
+	return s.setUserHeaders(r, u.Sub, u.Name, s.st.UserGroups(u.Sub))
 }
 
 func (s *server) optionalAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -418,7 +545,7 @@ func (s *server) optionalAuth(next http.HandlerFunc) http.HandlerFunc {
 		secret := []byte(s.cfg.authSecret)
 		if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
 			if claims, err := auth.VerifyJWT(secret, strings.TrimPrefix(hdr, "Bearer ")); err == nil {
-				next(w, setUserHeaders(r, claims.Sub, claims.Name, claims.Groups))
+				next(w, s.setUserHeaders(r, claims.Sub, claims.Name, claims.Groups))
 				return
 			}
 		}
@@ -432,9 +559,6 @@ func (s *server) optionalAuth(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// No auth secret configured = nobody can authenticate. Fail closed:
-		// private routes are simply unreachable. /pub/* and /auth/* still
-		// route normally (they don't go through requireAuth).
 		if s.cfg.authSecret == "" {
 			http.NotFound(w, r)
 			return
@@ -445,7 +569,7 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 				http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 				return
 			}
-			next(w, setUserHeaders(r, claims.Sub, claims.Name, claims.Groups))
+			next(w, s.setUserHeaders(r, claims.Sub, claims.Name, claims.Groups))
 			return
 		}
 		if authed := s.authByCookie(r); authed != nil {

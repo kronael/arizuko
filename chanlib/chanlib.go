@@ -3,14 +3,20 @@ package chanlib
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 )
+
+// maxRouterResponseBytes caps decoded router responses to guard
+// adapters from OOM on a malicious or buggy router.
+const maxRouterResponseBytes = 10 << 20
 
 type InboundAttachment struct {
 	Mime     string `json:"mime"`
@@ -119,7 +125,7 @@ func (r *RouterClient) Post(path string, body any, auth string, out any) error {
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("router %s: status %d", path, resp.StatusCode)
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return json.NewDecoder(io.LimitReader(resp.Body, maxRouterResponseBytes)).Decode(out)
 }
 
 func WriteJSON(w http.ResponseWriter, v any) {
@@ -138,7 +144,7 @@ func Auth(secret string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if secret != "" {
 			tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if tok != secret {
+			if subtle.ConstantTimeCompare([]byte(tok), []byte(secret)) != 1 {
 				WriteErr(w, 401, "invalid secret")
 				return
 			}

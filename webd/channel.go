@@ -17,6 +17,7 @@ func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 		ReplyTo string `json:"reply_to"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
 		chanlib.WriteErr(w, 400, "chat_jid and content required")
 		return

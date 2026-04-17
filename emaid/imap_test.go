@@ -82,7 +82,7 @@ func TestExtractContent_WithAttachment(t *testing.T) {
 	mime := "Content-Type: multipart/mixed; boundary=boundary\r\n\r\n" + body
 
 	reg := newAttRegistry()
-	text, atts := extractContent(strings.NewReader(mime), 42, "http://emaid:9003", reg)
+	text, atts := extractContent([]byte(mime), 42, "http://emaid:9003", reg, 0)
 
 	if !strings.Contains(text, "plain body") {
 		t.Errorf("text = %q", text)
@@ -119,7 +119,7 @@ func TestExtractContent_WithAttachment(t *testing.T) {
 // TestExtractContent_NoAttachments verifies text-only emails return no attachments.
 func TestExtractContent_NoAttachments(t *testing.T) {
 	raw := "Content-Type: text/plain\r\n\r\njust text"
-	text, atts := extractContent(strings.NewReader(raw), 1, "http://emaid:9003", newAttRegistry())
+	text, atts := extractContent([]byte(raw), 1, "http://emaid:9003", newAttRegistry(), 0)
 	if !strings.Contains(text, "just text") {
 		t.Errorf("text = %q", text)
 	}
@@ -144,7 +144,7 @@ func TestExtractContent_MultipleAttachments(t *testing.T) {
 	mime := "Content-Type: multipart/mixed; boundary=boundary\r\n\r\n" + body
 
 	reg := newAttRegistry()
-	_, atts := extractContent(strings.NewReader(mime), 99, "http://emaid:9003", reg)
+	_, atts := extractContent([]byte(mime), 99, "http://emaid:9003", reg, 0)
 
 	if len(atts) != 2 {
 		t.Fatalf("got %d attachments, want 2", len(atts))

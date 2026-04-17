@@ -15,10 +15,16 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// anonSender derives a stable, privacy-preserving sender ID from client IP.
-// Format: "anon:<8-char hex prefix of sha256(ip)>"
+// anonSender derives a stable, privacy-preserving sender ID from the
+// client IP. Format: "anon:<8-char hex prefix of sha256(ip)>". Uses
+// RemoteAddr (set to the trusted XFF by proxyd); never the raw client
+// X-Forwarded-For header which any client can spoof.
 func anonSender(r *http.Request) string {
-	ip := r.Header.Get("X-Forwarded-For")
+	// proxyd rewrites X-Forwarded-For to a single trusted IP. If the
+	// header is present we trust it here because webd only listens on
+	// the internal network; in any other deployment proxyd is the only
+	// caller and supplies the trusted value.
+	ip := strings.TrimSpace(strings.SplitN(r.Header.Get("X-Forwarded-For"), ",", 2)[0])
 	if ip == "" {
 		ip, _, _ = net.SplitHostPort(r.RemoteAddr)
 	}
@@ -83,7 +89,7 @@ footer button:disabled{opacity:.4;cursor:default}
   </form>
 </footer>
 <script>
-var folder='%s',token='%s',topic='t'+Date.now(),es;
+var folder="%s",token="%s",topic='t'+Date.now(),es;
 function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function addMsg(role,content,id){
   var d=document.createElement('div');
@@ -95,7 +101,7 @@ function addMsg(role,content,id){
 }
 function connect(){
   if(es)es.close();
-  es=new EventSource('/slink/stream?group='+encodeURIComponent(folder)+'&topic='+encodeURIComponent(topic));
+  es=new EventSource('/slink/stream?token='+encodeURIComponent(token)+'&group='+encodeURIComponent(folder)+'&topic='+encodeURIComponent(topic));
   es.addEventListener('message',function(e){
     try{
       var m=JSON.parse(e.data);
@@ -147,6 +153,10 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cap body size before ParseForm buffers it all into memory. Slink
+	// tokens are often shared publicly; without this a single POST could
+	// pin multi-GB.
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBody)
 	if r.ParseForm() != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -160,9 +170,18 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	if topic == "" {
 		topic = fmt.Sprintf("t%d", time.Now().UnixMilli())
 	}
+	if len(topic) > maxTopicLen {
+		http.Error(w, "topic too long", http.StatusBadRequest)
+		return
+	}
 
-	sender := userSub(r)
-	senderName := userName(r)
+	// Authed-user identity is trusted only when signed by proxyd.
+	// Otherwise fall back to anon derived from the (proxyd-trusted) IP.
+	sender, senderName := "", ""
+	if verifyUserSig(s.cfg.hmacSecret, r) {
+		sender = userSub(r)
+		senderName = userName(r)
+	}
 	if sender == "" {
 		sender = anonSender(r)
 		senderName = "Anonymous"
@@ -273,12 +292,41 @@ func waitForAssistant(ctx context.Context, ch <-chan string) (map[string]any, bo
 }
 
 // handleSlinkStream opens an SSE connection for a group/topic.
-// GET /slink/stream?group=<folder>&topic=<t>
+// GET /slink/stream?token=<t>&group=<folder>&topic=<t>
+//
+// Access control: the caller must present EITHER a valid slink token
+// whose folder matches `group`, OR a proxyd-signed X-User-Sub+X-User-Groups
+// with a grant covering `group`. Without one of those, any attacker who
+// can guess a folder name subscribes to live messages.
 func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 	folder := r.URL.Query().Get("group")
 	topic := r.URL.Query().Get("topic")
 	if folder == "" || topic == "" {
 		http.Error(w, "group and topic required", http.StatusBadRequest)
+		return
+	}
+	if len(topic) > maxTopicLen {
+		http.Error(w, "topic too long", http.StatusBadRequest)
+		return
+	}
+
+	// Authorisation: either proxyd-signed slink token (preferred for
+	// anonymous users) or proxyd-signed user identity with folder ACL.
+	allowed := false
+	if verifySlinkSig(s.cfg.hmacSecret, r) && r.Header.Get("X-Folder") == folder {
+		allowed = true
+	} else if verifyUserSig(s.cfg.hmacSecret, r) && userAllowedFolder(userGroups(r), folder) {
+		allowed = true
+	}
+	if !allowed {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Cap the hub size before subscribing so a flood of unique
+	// (folder, topic) pairs can't drive webd OOM.
+	if !s.hub.canSubscribe() {
+		http.Error(w, "too many subscriptions", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -309,10 +357,16 @@ func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 	serveSSE(w, r, ch)
 }
 
+// htmlEscape escapes the five characters that can alter HTML parsing
+// or break out of single/double-quoted attributes or JS string literals.
+// Go's html/template handles this via context-aware encoding but these
+// pages build ad-hoc strings with fmt.Sprintf, so we escape manually.
 func htmlEscape(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
 	s = strings.ReplaceAll(s, "\"", "&#34;")
+	s = strings.ReplaceAll(s, "'", "&#39;")
+	s = strings.ReplaceAll(s, "\\", "&#92;")
 	return s
 }

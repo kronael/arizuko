@@ -17,6 +17,12 @@ func TestMatchGroups(t *testing.T) {
 		{"glob no cross slash", []string{"pub/*"}, "pub/foo/bar", false},
 		{"multi entry first", []string{"alice", "pub/*"}, "alice", true},
 		{"multi entry second", []string{"alice", "pub/*"}, "pub/x", true},
+		{"world doublestar one", []string{"world/**"}, "world/a", true},
+		{"world doublestar deep", []string{"world/**"}, "world/a/b/c", true},
+		{"world doublestar root", []string{"world/**"}, "world", true},
+		{"world doublestar miss", []string{"world/**"}, "other/a", false},
+		{"mid doublestar", []string{"w/**/leaf"}, "w/a/b/leaf", true},
+		{"mid doublestar no leaf", []string{"w/**/leaf"}, "w/a/b/c", false},
 	}
 	for _, c := range cases {
 		if got := MatchGroups(c.allowed, c.folder); got != c.want {

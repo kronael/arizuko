@@ -2,6 +2,7 @@ package core
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -13,6 +14,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 	} {
 		os.Unsetenv(k)
 	}
+	os.Setenv("ARIZUKO_DEV", "true")
+	defer os.Unsetenv("ARIZUKO_DEV")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -38,11 +41,13 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	os.Setenv("TELEGRAM_BOT_TOKEN", "abc123")
 	os.Setenv("CONTAINER_IMAGE", "custom:v1")
 	os.Setenv("MAX_CONCURRENT_CONTAINERS", "10")
+	os.Setenv("ARIZUKO_DEV", "true")
 	defer func() {
 		os.Unsetenv("ASSISTANT_NAME")
 		os.Unsetenv("TELEGRAM_BOT_TOKEN")
 		os.Unsetenv("CONTAINER_IMAGE")
 		os.Unsetenv("MAX_CONCURRENT_CONTAINERS")
+		os.Unsetenv("ARIZUKO_DEV")
 	}()
 
 	cfg, err := LoadConfig()
@@ -86,5 +91,20 @@ func TestEnvHelpers(t *testing.T) {
 	os.Setenv("TEST_INT", "bad")
 	if got := envInt("TEST_INT", 99); got != 99 {
 		t.Fatalf("expected fallback 99, got %d", got)
+	}
+}
+
+func TestSanitizeInstance(t *testing.T) {
+	ok := []string{"alpha", "A1", "instance-1", "_under", "a", strings.Repeat("a", 32)}
+	for _, s := range ok {
+		if _, err := SanitizeInstance(s); err != nil {
+			t.Errorf("SanitizeInstance(%q) unexpected err: %v", s, err)
+		}
+	}
+	bad := []string{"", "../etc", "foo/bar", "-dashfirst", strings.Repeat("a", 33), "with space", "has\nnewline", "has:colon"}
+	for _, s := range bad {
+		if _, err := SanitizeInstance(s); err == nil {
+			t.Errorf("SanitizeInstance(%q) expected err", s)
+		}
 	}
 }

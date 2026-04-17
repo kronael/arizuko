@@ -1,11 +1,16 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -15,6 +20,17 @@ import (
 
 //go:embed static
 var staticFS embed.FS
+
+// maxJSONBody caps decoded JSON payload size for defense against unbounded
+// client bodies. 1 MiB is generous for MCP/channel callbacks.
+const maxJSONBody = 1 << 20
+
+// maxFormBody caps form-encoded POST /slink/<token> bodies.
+const maxFormBody = 64 << 10
+
+// maxTopicLen bounds attacker-chosen topic strings which otherwise grow
+// the hub map indefinitely.
+const maxTopicLen = 128
 
 type server struct {
 	cfg config
@@ -67,10 +83,73 @@ func (s *server) handler() http.Handler {
 	return loggingMiddleware(mux)
 }
 
-// requireUser checks that X-User-Sub is present (injected by proxyd after auth).
+// loadHMACSecret returns the shared secret used to verify proxyd-signed
+// headers. Generated at startup if unset — but in that case proxyd and
+// webd won't share a value, so every verifyUserSig will fail closed (the
+// intended outcome: webd refuses unsigned identity headers).
+func loadHMACSecret() string {
+	if v := os.Getenv("PROXYD_HMAC_SECRET"); v != "" {
+		return v
+	}
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err == nil {
+		slog.Warn("PROXYD_HMAC_SECRET unset in webd — all signed-header verification will fail until set on both webd and proxyd")
+		return hex.EncodeToString(b[:])
+	}
+	return ""
+}
+
+// verifyUserSig returns true if X-User-Sig matches HMAC(sub|name|groupsJSON).
+// Missing header, empty secret, or mismatched signature → false.
+func verifyUserSig(secret string, r *http.Request) bool {
+	if secret == "" {
+		return false
+	}
+	sub := r.Header.Get("X-User-Sub")
+	if sub == "" {
+		return false
+	}
+	sig := r.Header.Get("X-User-Sig")
+	if sig == "" {
+		return false
+	}
+	msg := "user:" + sub + "|" + r.Header.Get("X-User-Name") + "|" + r.Header.Get("X-User-Groups")
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write([]byte(msg))
+	want := hex.EncodeToString(h.Sum(nil))
+	return hmac.Equal([]byte(want), []byte(sig))
+}
+
+// verifySlinkSig returns true if X-Slink-Sig matches HMAC(token|folder).
+func verifySlinkSig(secret string, r *http.Request) bool {
+	if secret == "" {
+		return false
+	}
+	token := r.Header.Get("X-Slink-Token")
+	folder := r.Header.Get("X-Folder")
+	sig := r.Header.Get("X-Slink-Sig")
+	if token == "" || folder == "" || sig == "" {
+		return false
+	}
+	msg := "slink:" + token + "|" + folder
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write([]byte(msg))
+	want := hex.EncodeToString(h.Sum(nil))
+	return hmac.Equal([]byte(want), []byte(sig))
+}
+
+// requireUser checks that X-User-Sub is present AND signed by proxyd.
+// Without the signature check, any client reaching webd directly (e.g.
+// via a misconfigured compose, leaked internal port, or absence of
+// proxyd) could forge identity headers and bypass auth entirely.
 func (s *server) requireUser(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-User-Sub") == "" {
+		if !verifyUserSig(s.cfg.hmacSecret, r) {
+			// Drop unsigned identity headers before any further handling
+			// so downstream code can't accidentally trust them.
+			for _, h := range []string{"X-User-Sub", "X-User-Name", "X-User-Groups", "X-User-Sig"} {
+				r.Header.Del(h)
+			}
 			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 			return
 		}
@@ -111,12 +190,23 @@ func (s *server) requireFolder(next http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
-// splitFolderSuffix splits "atlas/content/topics" → ("atlas/content", "topics").
+// splitFolderSuffix splits "atlas/content/topics" → ("atlas/content",
+// "topics"). The suffix must be a distinct preceding path segment:
+// "topics" alone or a folder literally named "topics" with nothing in
+// front will NOT mis-route to an empty folder. Previously a request to
+// "/topics" (folder literally named "topics") was split into
+// folder="", which let callers with a grant on "" slip through.
 func splitFolderSuffix(rest string) (string, string) {
 	for _, suffix := range []string{"/topics", "/messages", "/typing"} {
-		if strings.HasSuffix(rest, suffix) {
-			return rest[:len(rest)-len(suffix)], suffix[1:]
+		if !strings.HasSuffix(rest, suffix) {
+			continue
 		}
+		folder := rest[:len(rest)-len(suffix)]
+		if folder == "" {
+			// "/topics" is not a <folder>/topics; no match.
+			continue
+		}
+		return folder, suffix[1:]
 	}
 	return rest, ""
 }

@@ -3,8 +3,9 @@ package core
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
+	"encoding/base64"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -115,11 +116,34 @@ type SessionRecord struct {
 	MsgCount  int
 }
 
-// GenSlinkToken returns a 16-char hex token (8 random bytes).
+// GenSlinkToken returns a 256-bit (32-byte) base64url-encoded random token.
+// Panics if the system RNG fails — a zero-entropy token is worse than a
+// crash because it silently creates guessable auth credentials.
 func GenSlinkToken() string {
-	b := make([]byte, 8)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// instanceNameRE constrains instance/flavor names to characters safe inside
+// filesystem paths, docker container_name, and unquoted YAML scalars.
+var instanceNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,31}$`)
+
+// SanitizeInstance validates an instance name. Allowed: [A-Za-z0-9_-], max
+// 32 chars, no leading '-'. Empty string is rejected.
+func SanitizeInstance(name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("instance name is empty")
+	}
+	if len(name) > 32 {
+		return "", fmt.Errorf("instance name too long: %d chars (max 32)", len(name))
+	}
+	if !instanceNameRE.MatchString(name) {
+		return "", fmt.Errorf("invalid instance name %q (allowed: [A-Za-z0-9_-], max 32, no leading '-')", name)
+	}
+	return name, nil
 }
 
 func MsgID(prefix string) string {

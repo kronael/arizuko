@@ -17,13 +17,15 @@ import (
 )
 
 type config struct {
-	listenAddr    string
-	listenURL     string
-	routerURL     string
-	channelSecret string
-	authSecret    string
-	storeDir      string
-	assistantName string
+	listenAddr     string
+	listenURL      string
+	routerURL      string
+	channelSecret  string
+	authSecret     string
+	hmacSecret     string
+	storeDir       string
+	assistantName  string
+	trustedProxies []string
 }
 
 func loadConfig() config {
@@ -38,6 +40,7 @@ func loadConfig() config {
 		routerURL:     chanlib.EnvOr("ROUTER_URL", "http://gated:8080"),
 		channelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
 		authSecret:    coreCfg.AuthSecret,
+		hmacSecret:    loadHMACSecret(),
 		storeDir:      coreCfg.StoreDir,
 		assistantName: chanlib.EnvOr("ASSISTANT_NAME", "assistant"),
 	}

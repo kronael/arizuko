@@ -2,8 +2,10 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,6 +18,52 @@ import (
 	"github.com/onvos/arizuko/theme"
 	_ "modernc.org/sqlite"
 )
+
+// maxFileBytes caps single-file reads rendered in the dashboard.
+// A compromised agent (or any writer to groups/<folder>/) could drop a
+// multi-GB MEMORY.md or diary entry; this keeps dashd memory bounded.
+const maxFileBytes = 1 << 20 // 1 MiB
+
+// maxDirEntries caps how many .md files from a single directory
+// (diary, episodes, users, facts) are rendered in one request.
+const maxDirEntries = 100
+
+// errEscape is returned by safeJoin when a resolved leaf escapes the base.
+var errEscape = errors.New("path escapes sandbox")
+
+// readCapped reads at most maxFileBytes+1 from path and returns the first
+// maxFileBytes; the truncated flag signals that the file is larger.
+func readCapped(path string) ([]byte, bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
+	if err != nil {
+		return nil, false, err
+	}
+	truncated := len(data) > maxFileBytes
+	if truncated {
+		data = data[:maxFileBytes]
+	}
+	return data, truncated, nil
+}
+
+// safeJoin joins base+leaf, then resolves symlinks on the result and
+// verifies it still lives under base. Any escape yields errEscape.
+// Missing paths propagate os.ErrNotExist so callers can skip cleanly.
+func safeJoin(base, leaf string) (string, error) {
+	p := filepath.Join(base, leaf)
+	real, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return "", err
+	}
+	if real != base && !strings.HasPrefix(real, base+string(filepath.Separator)) {
+		return "", errEscape
+	}
+	return real, nil
+}
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
@@ -123,11 +171,17 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var chanCount, erroredCount, failedTasks int
-	d.db.QueryRow(`SELECT COUNT(*) FROM channels`).Scan(&chanCount)
-	d.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE errored=1`).Scan(&erroredCount)
-	d.db.QueryRow(
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM channels`).Scan(&chanCount); err != nil {
+		slog.Warn("portal: scan channels", "err", err)
+	}
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE errored=1`).Scan(&erroredCount); err != nil {
+		slog.Warn("portal: scan chats", "err", err)
+	}
+	if err := d.db.QueryRow(
 		`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`,
-	).Scan(&failedTasks)
+	).Scan(&failedTasks); err != nil {
+		slog.Warn("portal: scan task_run_logs", "err", err)
+	}
 
 	statusDot := "ok"
 	if chanCount == 0 {
@@ -144,11 +198,13 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	portalTmpl.Execute(w, struct {
+	if err := portalTmpl.Execute(w, struct {
 		Head      template.HTML
 		StatusDot string
 		TasksDot  string
-	}{template.HTML(dashHead("arizuko")), statusDot, tasksDot})
+	}{template.HTML(dashHead("arizuko")), statusDot, tasksDot}); err != nil {
+		slog.Warn("portal: template execute", "err", err)
+	}
 }
 
 func pageTop(w http.ResponseWriter, title string) {
@@ -163,10 +219,28 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	pageTop(w, "Status")
 
 	var groupCount, sessionCount, chanCount, erroredCount int
-	d.db.QueryRow(`SELECT COUNT(*) FROM groups`).Scan(&groupCount)
-	d.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessionCount)
-	d.db.QueryRow(`SELECT COUNT(*) FROM channels`).Scan(&chanCount)
-	d.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE errored=1`).Scan(&erroredCount)
+	var scanErr error
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM groups`).Scan(&groupCount); err != nil {
+		slog.Warn("status: scan groups", "err", err)
+		scanErr = err
+	}
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessionCount); err != nil {
+		slog.Warn("status: scan sessions", "err", err)
+		scanErr = err
+	}
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM channels`).Scan(&chanCount); err != nil {
+		slog.Warn("status: scan channels", "err", err)
+		scanErr = err
+	}
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE errored=1`).Scan(&erroredCount); err != nil {
+		slog.Warn("status: scan chats", "err", err)
+		scanErr = err
+	}
+
+	if scanErr != nil {
+		fmt.Fprintf(w, `<div class="banner-err">DB error: %s</div>`,
+			template.HTMLEscapeString(scanErr.Error()))
+	}
 
 	bannerClass := "banner-ok"
 	bannerText := fmt.Sprintf("%d channels, %d groups, %d errored chats", chanCount, groupCount, erroredCount)
@@ -186,11 +260,23 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<h2>Channels</h2><table><tr><th>Name</th><th>URL</th></tr>`)
 		for rows.Next() {
 			var name, url string
-			rows.Scan(&name, &url)
+			if err := rows.Scan(&name, &url); err != nil {
+				slog.Warn("status: scan channels row", "err", err)
+				continue
+			}
 			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td></tr>`,
 				template.HTMLEscapeString(name), template.HTMLEscapeString(url))
 		}
+		if err := rows.Err(); err != nil {
+			slog.Warn("status: channels rows", "err", err)
+			fmt.Fprintf(w, `<tr><td colspan=2>rows error: %s</td></tr>`,
+				template.HTMLEscapeString(err.Error()))
+		}
 		fmt.Fprint(w, `</table>`)
+	} else {
+		slog.Warn("status: query channels", "err", err)
+		fmt.Fprintf(w, `<p class="banner-err">channels query error: %s</p>`,
+			template.HTMLEscapeString(err.Error()))
 	}
 
 	fmt.Fprint(w, pageBot)
@@ -217,6 +303,7 @@ func (d *dash) writeTaskRows(w http.ResponseWriter) {
 		`SELECT id, owner, cron, status, created_at, next_run
 		 FROM scheduled_tasks ORDER BY owner, id`)
 	if err != nil {
+		slog.Warn("tasks: query", "err", err)
 		fmt.Fprintf(w, `<tr><td colspan=6>error: %s</td></tr>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
@@ -224,7 +311,12 @@ func (d *dash) writeTaskRows(w http.ResponseWriter) {
 	for rows.Next() {
 		var id, owner, status, createdAt string
 		var cron, nextRun sql.NullString
-		rows.Scan(&id, &owner, &cron, &status, &createdAt, &nextRun)
+		if err := rows.Scan(&id, &owner, &cron, &status, &createdAt, &nextRun); err != nil {
+			slog.Warn("tasks: scan row", "err", err)
+			fmt.Fprintf(w, `<tr><td colspan=6>scan error: %s</td></tr>`,
+				template.HTMLEscapeString(err.Error()))
+			continue
+		}
 		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
 			template.HTMLEscapeString(id),
 			template.HTMLEscapeString(owner),
@@ -233,6 +325,11 @@ func (d *dash) writeTaskRows(w http.ResponseWriter) {
 			template.HTMLEscapeString(createdAt),
 			template.HTMLEscapeString(nullStr(nextRun)),
 		)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("tasks: rows", "err", err)
+		fmt.Fprintf(w, `<tr><td colspan=6>rows error: %s</td></tr>`,
+			template.HTMLEscapeString(err.Error()))
 	}
 }
 
@@ -257,6 +354,7 @@ func (d *dash) writeActivityRows(w http.ResponseWriter) {
 		`SELECT timestamp, source, chat_jid, sender, verb, substr(content,1,80)
 		 FROM messages ORDER BY timestamp DESC LIMIT 50`)
 	if err != nil {
+		slog.Warn("activity: query", "err", err)
 		fmt.Fprintf(w, `<tr><td colspan=6>error: %s</td></tr>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
@@ -264,7 +362,12 @@ func (d *dash) writeActivityRows(w http.ResponseWriter) {
 	for rows.Next() {
 		var ts, source, chatJID, sender, content string
 		var verb sql.NullString
-		rows.Scan(&ts, &source, &chatJID, &sender, &verb, &content)
+		if err := rows.Scan(&ts, &source, &chatJID, &sender, &verb, &content); err != nil {
+			slog.Warn("activity: scan row", "err", err)
+			fmt.Fprintf(w, `<tr><td colspan=6>scan error: %s</td></tr>`,
+				template.HTMLEscapeString(err.Error()))
+			continue
+		}
 		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
 			template.HTMLEscapeString(ts),
 			template.HTMLEscapeString(source),
@@ -274,6 +377,11 @@ func (d *dash) writeActivityRows(w http.ResponseWriter) {
 			template.HTMLEscapeString(content),
 		)
 	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("activity: rows", "err", err)
+		fmt.Fprintf(w, `<tr><td colspan=6>rows error: %s</td></tr>`,
+			template.HTMLEscapeString(err.Error()))
+	}
 }
 
 func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
@@ -282,6 +390,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := d.db.Query(`SELECT folder, parent, name, state FROM groups ORDER BY folder`)
 	if err != nil {
+		slog.Warn("groups: query", "err", err)
 		fmt.Fprintf(w, `<p>error: %s</p>`, template.HTMLEscapeString(err.Error()))
 		fmt.Fprint(w, pageBot)
 		return
@@ -291,7 +400,12 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var folder, name, state string
 		var parent sql.NullString
-		rows.Scan(&folder, &parent, &name, &state)
+		if err := rows.Scan(&folder, &parent, &name, &state); err != nil {
+			slog.Warn("groups: scan row", "err", err)
+			fmt.Fprintf(w, `<p class="banner-err">scan error: %s</p>`,
+				template.HTMLEscapeString(err.Error()))
+			continue
+		}
 		label := ""
 		if !parent.Valid || parent.String == "" {
 			label = " (root)"
@@ -309,6 +423,11 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		d.writeGroupRoutes(w, folder)
 		fmt.Fprint(w, `</div></details>`)
 	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("groups: rows", "err", err)
+		fmt.Fprintf(w, `<p class="banner-err">rows error: %s</p>`,
+			template.HTMLEscapeString(err.Error()))
+	}
 	fmt.Fprint(w, pageBot)
 }
 
@@ -317,6 +436,7 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 		`SELECT seq, match, target FROM routes WHERE target=? OR target LIKE ? ORDER BY seq`,
 		folder, folder+"/%")
 	if err != nil {
+		slog.Warn("groups: routes query", "err", err, "folder", folder)
 		return
 	}
 	defer rows.Close()
@@ -327,13 +447,19 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 		}
 		var seq int
 		var match, target string
-		rows.Scan(&seq, &match, &target)
+		if err := rows.Scan(&seq, &match, &target); err != nil {
+			slog.Warn("groups: routes scan row", "err", err, "folder", folder)
+			continue
+		}
 		fmt.Fprintf(w, `<tr><td>%d</td><td>%s</td><td>%s</td></tr>`,
 			seq,
 			template.HTMLEscapeString(match),
 			template.HTMLEscapeString(target),
 		)
 		n++
+	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("groups: routes rows", "err", err, "folder", folder)
 	}
 	if n > 0 {
 		fmt.Fprint(w, `</table>`)
@@ -356,7 +482,10 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 <option value="">-- select group --</option>`)
 		for rows.Next() {
 			var folder string
-			rows.Scan(&folder)
+			if err := rows.Scan(&folder); err != nil {
+				slog.Warn("memory: scan row", "err", err)
+				continue
+			}
 			sel := ""
 			if folder == selectedGroup {
 				sel = ` selected`
@@ -367,7 +496,12 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 				template.HTMLEscapeString(folder),
 			)
 		}
+		if err := rows.Err(); err != nil {
+			slog.Warn("memory: rows", "err", err)
+		}
 		fmt.Fprint(w, `</select></form>`)
+	} else {
+		slog.Warn("memory: query groups", "err", err)
 	}
 
 	if selectedGroup != "" {
@@ -384,11 +518,10 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 		fmt.Fprint(w, `<p>Invalid group path.</p>`)
 		return
 	}
-	// Resolve symlinks and re-check the prefix. Without this, a symlink
-	// inside a group folder can escape the sandbox and expose host files
-	// (a compromised agent could `ln -s /etc /home/node/escape` then hit
-	// /dash/memory/?group=<folder>/escape). EvalSymlinks fails cleanly on
-	// missing paths — treat that as "nothing to show" and return.
+	// Resolve symlinks on the group directory and re-check the prefix.
+	// Without this, a symlinked group folder could escape the sandbox.
+	// EvalSymlinks fails cleanly on missing paths — treat that as
+	// "nothing to show" and return.
 	if real, err := filepath.EvalSymlinks(groupDir); err == nil {
 		if !strings.HasPrefix(real, d.groupsDir+string(filepath.Separator)) &&
 			real != d.groupsDir {
@@ -402,68 +535,71 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 	}
 
 	fmt.Fprint(w, `<h2>MEMORY.md</h2>`)
-	memPath := filepath.Join(groupDir, "MEMORY.md")
-	if content, err := os.ReadFile(memPath); err == nil {
-		info, _ := os.Stat(memPath)
-		mtime := ""
-		if info != nil {
-			mtime = info.ModTime().Format("2006-01-02 15:04")
-		}
-		fmt.Fprintf(w, `<p><small>%d bytes, modified %s</small></p><pre>%s</pre>`,
-			len(content), mtime, template.HTMLEscapeString(string(content)))
-	} else {
-		fmt.Fprint(w, `<p><em>MEMORY.md not found</em></p>`)
-	}
+	renderCappedFile(w, groupDir, "MEMORY.md", true)
 
-	claudePath := filepath.Join(groupDir, "CLAUDE.md")
-	if content, err := os.ReadFile(claudePath); err == nil {
-		fmt.Fprintf(w, `<details><summary>CLAUDE.md</summary><pre>%s</pre></details>`,
-			template.HTMLEscapeString(string(content)))
-	}
+	renderCappedFile(w, groupDir, "CLAUDE.md", false)
 
-	diaryDir := filepath.Join(groupDir, "diary")
-	entries, err := os.ReadDir(diaryDir)
-	if err == nil {
-		fmt.Fprint(w, `<h2>Diary</h2><details open><summary>entries</summary><ul>`)
-		for i := len(entries) - 1; i >= 0; i-- {
-			e := entries[i]
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-				continue
-			}
-			summary := mdSummary(filepath.Join(diaryDir, e.Name()))
-			fmt.Fprintf(w, `<li><b>%s</b> %s</li>`,
-				template.HTMLEscapeString(e.Name()),
-				template.HTMLEscapeString(summary),
-			)
-		}
-		fmt.Fprint(w, `</ul></details>`)
-	}
-
-	renderMdDir(w, groupDir, "episodes", "Episodes")
-	renderMdDir(w, groupDir, "users", "Users")
-	renderMdDir(w, groupDir, "facts", "Facts")
+	renderEntries(w, groupDir, "diary", "Diary", true)
+	renderEntries(w, groupDir, "episodes", "Episodes", false)
+	renderEntries(w, groupDir, "users", "Users", false)
+	renderEntries(w, groupDir, "facts", "Facts", false)
 }
 
-func mdSummary(path string) string {
-	if s := diary.ExtractSummary(path); s != "" {
-		return s
-	}
-	data, err := os.ReadFile(path)
+// renderCappedFile reads and renders a single leaf file under groupDir.
+// Leaf is resolved via EvalSymlinks and rejected if it escapes. If missing
+// and `showMissing`, renders a "<name> not found" note. Read is bounded.
+func renderCappedFile(w http.ResponseWriter, groupDir, leaf string, showMissing bool) {
+	path, err := safeJoin(groupDir, leaf)
 	if err != nil {
-		return ""
-	}
-	for _, l := range strings.Split(string(data), "\n") {
-		l = strings.TrimSpace(l)
-		if l != "" && l != "---" {
-			return l
+		if errors.Is(err, errEscape) {
+			slog.Warn("memory: symlink escape", "file", leaf, "groupDir", groupDir)
+			fmt.Fprintf(w, `<p><em>%s unavailable (symlink escape)</em></p>`,
+				template.HTMLEscapeString(leaf))
+			return
 		}
+		if os.IsNotExist(err) && showMissing {
+			fmt.Fprintf(w, `<p><em>%s not found</em></p>`, template.HTMLEscapeString(leaf))
+		}
+		return
 	}
-	return ""
+	data, truncated, err := readCapped(path)
+	if err != nil {
+		slog.Warn("memory: read file", "err", err, "path", path)
+		if showMissing {
+			fmt.Fprintf(w, `<p><em>%s read error</em></p>`, template.HTMLEscapeString(leaf))
+		}
+		return
+	}
+	info, _ := os.Stat(path)
+	mtime := ""
+	if info != nil {
+		mtime = info.ModTime().Format("2006-01-02 15:04")
+	}
+	truncNote := ""
+	if truncated {
+		truncNote = fmt.Sprintf(" (truncated at %d bytes)", maxFileBytes)
+	}
+	if leaf == "MEMORY.md" {
+		fmt.Fprintf(w, `<p><small>%d bytes, modified %s%s</small></p><pre>%s</pre>`,
+			len(data), mtime, truncNote, template.HTMLEscapeString(string(data)))
+	} else {
+		fmt.Fprintf(w, `<details><summary>%s%s</summary><pre>%s</pre></details>`,
+			template.HTMLEscapeString(leaf), truncNote, template.HTMLEscapeString(string(data)))
+	}
 }
 
-func renderMdDir(w http.ResponseWriter, groupDir, sub, title string) {
-	dir := filepath.Join(groupDir, sub)
-	entries, err := os.ReadDir(dir)
+// renderEntries lists up to maxDirEntries .md files under groupDir/sub,
+// newest first (by name, reverse). Each entry is symlink-checked and its
+// summary is bounded via mdSummary (which uses readCapped).
+func renderEntries(w http.ResponseWriter, groupDir, sub, title string, openDetails bool) {
+	dirPath, err := safeJoin(groupDir, sub)
+	if err != nil {
+		if errors.Is(err, errEscape) {
+			slog.Warn("memory: dir symlink escape", "sub", sub, "groupDir", groupDir)
+		}
+		return
+	}
+	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return
 	}
@@ -476,17 +612,56 @@ func renderMdDir(w http.ResponseWriter, groupDir, sub, title string) {
 	if len(mdFiles) == 0 {
 		return
 	}
-	fmt.Fprintf(w, `<h2>%s</h2><details><summary>%d files</summary><ul>`,
-		template.HTMLEscapeString(title), len(mdFiles))
-	for i := len(mdFiles) - 1; i >= 0; i-- {
+	total := len(mdFiles)
+	limit := total
+	if limit > maxDirEntries {
+		limit = maxDirEntries
+	}
+	summaryLabel := fmt.Sprintf("%d files", total)
+	if total > maxDirEntries {
+		summaryLabel = fmt.Sprintf("%d files (showing newest %d)", total, maxDirEntries)
+	}
+	openAttr := ""
+	if openDetails {
+		openAttr = " open"
+	}
+	fmt.Fprintf(w, `<h2>%s</h2><details%s><summary>%s</summary><ul>`,
+		template.HTMLEscapeString(title), openAttr, template.HTMLEscapeString(summaryLabel))
+	shown := 0
+	for i := total - 1; i >= 0 && shown < limit; i-- {
 		e := mdFiles[i]
-		summary := mdSummary(filepath.Join(dir, e.Name()))
+		leafPath, err := safeJoin(dirPath, e.Name())
+		if err != nil {
+			if errors.Is(err, errEscape) {
+				slog.Warn("memory: entry symlink escape", "file", e.Name(), "dir", dirPath)
+			}
+			continue
+		}
+		summary := mdSummary(leafPath)
 		fmt.Fprintf(w, `<li><b>%s</b> %s</li>`,
 			template.HTMLEscapeString(e.Name()),
 			template.HTMLEscapeString(summary),
 		)
+		shown++
 	}
 	fmt.Fprint(w, `</ul></details>`)
+}
+
+func mdSummary(path string) string {
+	if s := diary.ExtractSummary(path); s != "" {
+		return s
+	}
+	data, _, err := readCapped(path)
+	if err != nil {
+		return ""
+	}
+	for _, l := range strings.Split(string(data), "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" && l != "---" {
+			return l
+		}
+	}
+	return ""
 }
 
 func nullStr(n sql.NullString) string {

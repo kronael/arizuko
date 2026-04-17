@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"syscall"
@@ -22,11 +23,97 @@ func dockerGID() int {
 	return 999
 }
 
-// All daemons share /srv/data/<instance>/.env via env_file. Secrets and
-// shared config flow implicitly; per-service environment: blocks only
-// hold compose-side overrides (container paths, port transforms, feature
-// flags that diverge from .env).
+// imageRefRE constrains docker image references to alnum, dots, colons,
+// slashes, underscores, dashes, and @ (digest). No whitespace, no
+// newlines — prevents YAML injection through services/*.toml `image`.
+var imageRefRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$`)
+
+// identRE matches safe identifiers for container_name components, service
+// names, and entrypoint binary names.
+var identRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$`)
+
+// Per-daemon env scoping: each known daemon gets env/<daemon>.env containing
+// only the vars it needs. Unknown services (custom services/*.toml) fall back
+// to the shared .env. Secrets do not leak across daemons.
 const envFileLine = "    env_file:\n      - .env\n"
+
+// commonKeys flow into every arizuko daemon env file.
+var commonKeys = []string{
+	"ASSISTANT_NAME", "TZ", "LOG_LEVEL", "ARIZUKO_DEV",
+	"HOST_DATA_DIR", "HOST_APP_DIR", "WEB_HOST",
+	"API_PORT", "DATA_DIR",
+}
+
+// daemonKeys: per-daemon secrets + config. Unlisted keys never reach the daemon.
+var daemonKeys = map[string][]string{
+	"gated": {
+		"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL",
+		"CONTAINER_IMAGE", "CONTAINER_TIMEOUT",
+		"IDLE_TIMEOUT", "MAX_CONCURRENT_CONTAINERS",
+		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
+		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
+		"IMPULSE_ENABLED", "SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
+	},
+	"timed": {"CHANNEL_SECRET"},
+	"onbod": {
+		"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL",
+		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_ALLOWED_ORG",
+		"DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
+		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ALLOWED_EMAILS",
+		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
+		"ONBOARDING_PROTOTYPE", "ONBOARDING_GREETING", "ONBOARDING_GATES",
+		"ONBOARD_POLL_INTERVAL", "ONBOD_LISTEN_ADDR",
+	},
+	"dashd":  {"AUTH_SECRET", "DASH_PORT"},
+	"webd":   {"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL", "ROUTER_URL"},
+	"proxyd": {"AUTH_SECRET", "AUTH_BASE_URL"},
+	"teled":  {"CHANNEL_SECRET", "TELEGRAM_BOT_TOKEN"},
+	"discd":  {"CHANNEL_SECRET", "DISCORD_BOT_TOKEN"},
+	"mastd":  {"CHANNEL_SECRET", "MASTODON_ACCESS_TOKEN", "MASTODON_INSTANCE"},
+	"bskyd":  {"CHANNEL_SECRET", "BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"},
+	"reditd": {"CHANNEL_SECRET", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
+	"emaid":  {"CHANNEL_SECRET", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"},
+	"whapd":  {"CHANNEL_SECRET"},
+}
+
+// envFileFor returns the scoped env_file block for a daemon, falling back to
+// the shared .env for services not in daemonKeys.
+func envFileFor(name string) string {
+	if _, ok := daemonKeys[name]; ok {
+		return fmt.Sprintf("    env_file:\n      - env/%s.env\n", name)
+	}
+	return envFileLine
+}
+
+// writeEnvFiles emits env/<daemon>.env with only the keys each daemon needs.
+// Called from Generate before rendering compose; failure is non-fatal.
+func writeEnvFiles(dataDir string, env map[string]string) error {
+	dir := filepath.Join(dataDir, "env")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for daemon, keys := range daemonKeys {
+		all := append([]string{}, commonKeys...)
+		all = append(all, keys...)
+		sort.Strings(all)
+		var b strings.Builder
+		fmt.Fprintf(&b, "# Generated per-daemon env for %s. Do not edit by hand.\n", daemon)
+		for _, k := range all {
+			if v, ok := env[k]; ok && v != "" {
+				fmt.Fprintf(&b, "%s=%s\n", k, v)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, daemon+".env"), []byte(b.String()), 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// healthBlock: every Go daemon exposes /health on :8080 internally.
+const healthBlock = "    healthcheck:\n" +
+	"      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:8080/health']\n" +
+	"      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n"
 
 type ServiceConfig struct {
 	Image       string            `toml:"image"`
@@ -53,6 +140,10 @@ func Generate(dataDir string) (string, error) {
 			env[k] = v
 		}
 	}
+	// Per-daemon env files: non-fatal if it fails; log for triage.
+	if werr := writeEnvFiles(dataDir, env); werr != nil {
+		fmt.Fprintf(os.Stderr, "compose: writeEnvFiles: %v\n", werr)
+	}
 	servicesDir := filepath.Join(dataDir, "services")
 
 	entries, err := os.ReadDir(servicesDir)
@@ -73,12 +164,25 @@ func Generate(dataDir string) (string, error) {
 		if _, err := toml.DecodeFile(filepath.Join(servicesDir, e.Name()), &cfg); err != nil {
 			return "", fmt.Errorf("parse %s: %w", e.Name(), err)
 		}
-		services = append(services, svc{strings.TrimSuffix(e.Name(), ".toml"), cfg})
+		name := strings.TrimSuffix(e.Name(), ".toml")
+		if !identRE.MatchString(name) {
+			return "", fmt.Errorf("invalid service filename %q (allowed chars: [A-Za-z0-9_.-])", e.Name())
+		}
+		if !imageRefRE.MatchString(cfg.Image) {
+			return "", fmt.Errorf("service %q has invalid image %q (must match image-ref regex)", name, cfg.Image)
+		}
+		services = append(services, svc{name, cfg})
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
 	project := filepath.Base(dataDir)
 	app, flavor, _ := strings.Cut(project, "_")
+	if !identRE.MatchString(app) {
+		return "", fmt.Errorf("invalid compose project app %q (derived from data dir basename)", app)
+	}
+	if flavor != "" && !identRE.MatchString(flavor) {
+		return "", fmt.Errorf("invalid instance flavor %q (derived from data dir basename)", flavor)
+	}
 
 	profile := envOr(env, "PROFILE", "full")
 
@@ -121,6 +225,36 @@ type svcDef struct {
 	dependsOn   string
 }
 
+// yamlQuote emits a double-quoted YAML scalar with escapes for control
+// chars, quotes, and backslashes. Prevents injection via values containing
+// newlines, carriage returns, or embedded quotes.
+func yamlQuote(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 {
+				fmt.Fprintf(&b, `\x%02x`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
 func writeEnv(b *strings.Builder, env map[string]string) {
 	keys := make([]string, 0, len(env))
 	for k := range env {
@@ -128,7 +262,7 @@ func writeEnv(b *strings.Builder, env map[string]string) {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		fmt.Fprintf(b, "      %s: '%s'\n", k, strings.ReplaceAll(env[k], "'", "''"))
+		fmt.Fprintf(b, "      %s: %s\n", k, yamlQuote(env[k]))
 	}
 }
 
@@ -146,7 +280,7 @@ func writeSvc(def svcDef) string {
 			fmt.Fprintf(&b, "      - '%s'\n", p)
 		}
 	}
-	b.WriteString(envFileLine)
+	b.WriteString(envFileFor(def.name))
 	// DATA_DIR is always the container-internal mount point — .env doesn't
 	// know this path, so every arizuko daemon needs the override.
 	b.WriteString("    environment:\n")
@@ -159,6 +293,7 @@ func writeSvc(def svcDef) string {
 		dep = "gated"
 	}
 	fmt.Fprintf(&b, "    depends_on: [%s]\n", dep)
+	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }
@@ -190,9 +325,10 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	fmt.Fprintf(&b, "      - '%s:8080'\n", apiPort)
 	b.WriteString("    extra_hosts:\n")
 	b.WriteString("      - 'host.docker.internal:host-gateway'\n")
-	b.WriteString(envFileLine)
+	b.WriteString(envFileFor("gated"))
 	b.WriteString("    environment:\n")
 	writeEnv(&b, environment)
+	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }
@@ -337,7 +473,7 @@ func renderService(app, flavor, name string, cfg ServiceConfig, env map[string]s
 			fmt.Fprintf(&b, "      - '%s'\n", p)
 		}
 	}
-	b.WriteString(envFileLine)
+	b.WriteString(envFileFor(name))
 	if len(cfg.Environment) > 0 {
 		b.WriteString("    environment:\n")
 		interped := make(map[string]string, len(cfg.Environment))
@@ -379,7 +515,7 @@ func envOr(env map[string]string, key, fallback string) string {
 func yamlList(items []string) string {
 	quoted := make([]string, len(items))
 	for i, s := range items {
-		quoted[i] = "'" + strings.ReplaceAll(s, "'", "''") + "'"
+		quoted[i] = yamlQuote(s)
 	}
 	return "[" + strings.Join(quoted, ", ") + "]"
 }

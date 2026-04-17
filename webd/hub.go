@@ -4,7 +4,27 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 )
+
+// Caps to bound resource use under unauthenticated-subscriber flood.
+// maxHubKeys limits distinct (folder,topic) pairs; maxSubsPerKey limits
+// subscribers on a single key. Both are deliberately generous so normal
+// multi-tab usage is never impacted.
+const (
+	maxHubKeys    = 10000
+	maxSubsPerKey = 256
+)
+
+// sseKeepalive is the heartbeat interval written as an SSE comment
+// (`: ping`) to detect half-open TCP connections and keep load balancers
+// from idling the stream out.
+const sseKeepalive = 15 * time.Second
+
+// sseWriteTimeout bounds any single write (including the flush). A
+// client that stops reading will block writes; without a deadline the
+// goroutine + buffered channel leak for minutes.
+const sseWriteTimeout = 10 * time.Second
 
 // hub is the SSE broker keyed by "folder/topic".
 type hub struct {
@@ -16,11 +36,26 @@ func newHub() *hub {
 	return &hub{subs: make(map[string][]chan string)}
 }
 
+// canSubscribe returns true if the hub has headroom for another
+// subscription. Callers check this before subscribe() to reject floods
+// with a clean 503 rather than OOMing.
+func (h *hub) canSubscribe() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.subs) < maxHubKeys
+}
+
 // subscribe registers a new listener and returns a channel + unsubscribe func.
+// Returns (nil, nil) if the per-key subscriber cap is reached.
 func (h *hub) subscribe(folder, topic string) (<-chan string, func()) {
 	ch := make(chan string, 16)
 	k := folder + "/" + topic
 	h.mu.Lock()
+	if len(h.subs[k]) >= maxSubsPerKey {
+		h.mu.Unlock()
+		close(ch)
+		return ch, func() {}
+	}
 	h.subs[k] = append(h.subs[k], ch)
 	h.mu.Unlock()
 	unsub := func() {
@@ -58,28 +93,46 @@ func (h *hub) publish(folder, topic, event, data string) {
 }
 
 // serveSSE writes SSE events from ch to w until the client disconnects.
+// Emits a periodic keepalive comment and applies a per-write deadline so
+// a stuck client can't pin the goroutine indefinitely.
 func serveSSE(w http.ResponseWriter, r *http.Request, ch <-chan string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher, _ := w.(http.Flusher)
-	// Emit an initial comment + flush so the client's HTTP.Do returns
-	// as soon as the stream opens (otherwise headers stay buffered
-	// until the first event — browsers cope, net/http clients don't).
-	fmt.Fprint(w, ": ok\n\n")
-	if flusher != nil {
-		flusher.Flush()
+	rc := http.NewResponseController(w)
+
+	writeWithDeadline := func(s string) error {
+		_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+		if _, err := fmt.Fprint(w, s); err != nil {
+			return err
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return nil
 	}
+
+	if writeWithDeadline(": ok\n\n") != nil {
+		return
+	}
+
+	tick := time.NewTicker(sseKeepalive)
+	defer tick.Stop()
+
 	for {
 		select {
 		case msg, ok := <-ch:
 			if !ok {
 				return
 			}
-			fmt.Fprint(w, msg)
-			if flusher != nil {
-				flusher.Flush()
+			if writeWithDeadline(msg) != nil {
+				return
+			}
+		case <-tick.C:
+			if writeWithDeadline(": ping\n\n") != nil {
+				return
 			}
 		case <-r.Context().Done():
 			return

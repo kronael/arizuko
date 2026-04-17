@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -113,6 +114,21 @@ func LoadConfig() (*Config, error) {
 		VoiceEnabled:  envOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
 		VideoEnabled:  envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 		WhisperModel:  envOr("WHISPER_MODEL", "turbo"),
+	}
+
+	dev := os.Getenv("ARIZUKO_DEV") == "true" || os.Getenv("ARIZUKO_DEV") == "1"
+	if !dev && c.ChannelSecret == "" {
+		return nil, fmt.Errorf("CHANNEL_SECRET is empty: channel authentication disabled (set ARIZUKO_DEV=true to override)")
+	}
+	// ASSISTANT_NAME and the data dir basename end up in container_name and
+	// other YAML scalars unquoted; reject inputs that would break YAML or
+	// collide with other containers.
+	if strings.ContainsAny(c.Name, " \t\r\n:'\"\\/") {
+		return nil, fmt.Errorf("ASSISTANT_NAME %q contains whitespace or special characters", c.Name)
+	}
+	flavor := filepath.Base(c.ProjectRoot)
+	if strings.ContainsAny(flavor, " \t\r\n:'\"\\") {
+		return nil, fmt.Errorf("data dir basename %q contains whitespace or special characters", flavor)
 	}
 
 	return c, nil

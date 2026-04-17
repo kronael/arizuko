@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/groupfolder"
@@ -26,8 +27,26 @@ func startSidecars(
 	var names []string
 	for name, spec := range sidecars {
 		cname := sidecarName(folder, name)
-		sockPath := filepath.Join(sockDir, name+".sock")
-
+		// Per-sidecar subdir isolates each sidecar's socket from peers.
+		// Previously every sidecar mounted the shared sockDir and could
+		// read/write siblings' sockets to impersonate them to the agent.
+		perDir := filepath.Join(sockDir, name)
+		if err := os.MkdirAll(perDir, 0o700); err != nil {
+			slog.Error("sidecar mkdir failed",
+				"name", name, "dir", perDir, "err", err)
+			continue
+		}
+		// Reset mode in case dir pre-existed with looser permissions.
+		os.Chmod(perDir, 0o700)
+		// Refuse to start if a container with this name already exists
+		// (concurrent Run on same folder): pre-removing the socket of a
+		// running peer would silently break MCP connectivity.
+		if out, err := exec.Command(Bin, "ps", "-a", "--filter", "name=^"+cname+"$", "--format", "{{.Names}}").Output(); err == nil && strings.TrimSpace(string(out)) == cname {
+			slog.Warn("sidecar container already exists; skipping start",
+				"name", name, "container", cname)
+			continue
+		}
+		sockPath := filepath.Join(perDir, name+".sock")
 		os.Remove(sockPath)
 
 		mem := spec.MemMB
@@ -49,7 +68,7 @@ func startSidecars(
 			fmt.Sprintf("--memory=%dm", mem),
 			fmt.Sprintf("--cpus=%.1f", cpus),
 			fmt.Sprintf("--network=%s", net),
-			"-v", hp(cfg, sockDir) + ":/sockets",
+			"-v", hp(cfg, perDir) + ":/sockets",
 			"-e", "SOCKET_PATH=/sockets/" + name + ".sock",
 			"-e", "TZ=" + cfg.Timezone,
 		}

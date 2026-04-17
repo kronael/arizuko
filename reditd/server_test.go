@@ -32,7 +32,9 @@ func (s *stubSender) Typing(string, bool) {}
 func testReditServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "reddit", ChannelSecret: secret}
-	return newServer(cfg, &stubSender{}, newFileCache(100))
+	s := newServer(cfg, &stubSender{}, newFileCache(100))
+	s.safeFetch = nil
+	return s
 }
 
 func TestReditHealth(t *testing.T) {
@@ -214,6 +216,7 @@ func TestReditFileProxy(t *testing.T) {
 	fc := newFileCache(100)
 	id := fc.Put(cdn.URL + "/image.jpg")
 	s := newServer(config{Name: "reddit"}, &stubSender{}, fc)
+	s.safeFetch = nil
 
 	req := httptest.NewRequest("GET", "/files/"+id, nil)
 	w := httptest.NewRecorder()
@@ -250,5 +253,20 @@ func TestReditFileProxyAuthRequired(t *testing.T) {
 	s.handler().ServeHTTP(w, req)
 	if w.Code != 401 {
 		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+// TestReditFileProxy_SSRFBlock verifies that disallowed URLs are rejected even
+// when the file cache happens to contain one (defense-in-depth).
+func TestReditFileProxy_SSRFBlock(t *testing.T) {
+	fc := newFileCache(100)
+	id := fc.Put("http://169.254.169.254/latest/meta-data/")
+	s := newServer(config{Name: "reddit"}, &stubSender{}, fc)
+	// default safeFetch = isSafeFetchURL must reject
+	req := httptest.NewRequest("GET", "/files/"+id, nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 (SSRF blocked)", w.Code)
 	}
 }

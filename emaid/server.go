@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -53,7 +54,7 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := s.fetchPart(imap.UID(uid), meta.Part)
+	data, err := s.fetchPart(imap.UID(uid), meta.Part, s.cfg.MaxAttachment)
 	if err != nil {
 		slog.Error("imap re-fetch failed", "uid", uid, "part", part, "err", err)
 		chanlib.WriteErr(w, 502, "failed to fetch attachment from IMAP")
@@ -61,12 +62,28 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", meta.Mime)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, meta.Filename))
+	w.Header().Set("Content-Disposition", dispositionHeader(meta.Filename))
 	w.Write(data) //nolint:errcheck
 }
 
+// dispositionHeader builds a safe Content-Disposition value.
+// Strips CR/LF (header-injection vector), escapes quotes, and RFC 2047
+// Q-encodes non-ASCII characters. ASCII-only filenames pass through
+// unchanged so existing callers see "attachment; filename=\"doc.pdf\"".
+func dispositionHeader(filename string) string {
+	filename = strings.ReplaceAll(filename, "\r", "")
+	filename = strings.ReplaceAll(filename, "\n", "")
+	safe := strings.ReplaceAll(filename, `\`, `\\`)
+	safe = strings.ReplaceAll(safe, `"`, `\"`)
+	encoded := mime.QEncoding.Encode("utf-8", safe)
+	return fmt.Sprintf(`attachment; filename="%s"`, encoded)
+}
+
 // fetchPart connects to IMAP and fetches a specific MIME part by UID.
-func (s *server) fetchPart(uid imap.UID, section []int) ([]byte, error) {
+// If maxBytes > 0, the returned data is truncated (not padded) to the cap
+// to prevent a remote sender from ballooning this adapter's RSS via
+// large attachments.
+func (s *server) fetchPart(uid imap.UID, section []int, maxBytes int64) ([]byte, error) {
 	addr := s.cfg.IMAPHost + ":" + s.cfg.IMAPPort
 	c, err := s.dialTLS(addr, nil)
 	if err != nil {
@@ -97,6 +114,9 @@ func (s *server) fetchPart(uid imap.UID, section []int) ([]byte, error) {
 	data := msgs[0].FindBodySection(&imap.FetchItemBodySection{Part: section})
 	if data == nil {
 		return nil, fmt.Errorf("no body section %v for uid %d", section, uid)
+	}
+	if maxBytes > 0 && int64(len(data)) > maxBytes {
+		data = data[:maxBytes]
 	}
 	return data, nil
 }

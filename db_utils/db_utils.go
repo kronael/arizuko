@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,7 +31,10 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 		return fmt.Errorf("read migration version: %w", err)
 	}
 
-	entries, _ := fsys.ReadDir(dir)
+	entries, err := fsys.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read migrations dir %q: %w", dir, err)
+	}
 	var files []string
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), ".sql") {
@@ -40,7 +44,15 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 	sort.Strings(files)
 
 	for _, f := range files {
-		ver, _ := strconv.Atoi(f[:4])
+		if len(f) < 4 {
+			slog.Warn("skipping migration: filename too short for 4-digit version", "file", f)
+			continue
+		}
+		ver, atoiErr := strconv.Atoi(f[:4])
+		if atoiErr != nil {
+			slog.Warn("skipping migration: non-numeric version prefix", "file", f)
+			continue
+		}
 		if ver <= max {
 			continue
 		}

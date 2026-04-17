@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +15,33 @@ import (
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
 )
+
+const testHMACSecret = "test-secret"
+
+// signUserHeaders fills in X-User-Sig for the caller-supplied identity
+// headers so webd's requireUser gate accepts them.
+func signUserHeaders(h map[string]string) map[string]string {
+	if h == nil {
+		h = map[string]string{}
+	}
+	msg := "user:" + h["X-User-Sub"] + "|" + h["X-User-Name"] + "|" + h["X-User-Groups"]
+	mac := hmac.New(sha256.New, []byte(testHMACSecret))
+	mac.Write([]byte(msg))
+	h["X-User-Sig"] = hex.EncodeToString(mac.Sum(nil))
+	return h
+}
+
+// signSlinkHeaders fills in X-Slink-Sig for an anonymous slink caller.
+func signSlinkHeaders(token, folder string) map[string]string {
+	msg := "slink:" + token + "|" + folder
+	mac := hmac.New(sha256.New, []byte(testHMACSecret))
+	mac.Write([]byte(msg))
+	return map[string]string{
+		"X-Slink-Token": token,
+		"X-Folder":      folder,
+		"X-Slink-Sig":   hex.EncodeToString(mac.Sum(nil)),
+	}
+}
 
 // mockRouter is a minimal fake of the router API used by webd.
 type mockRouter struct {
@@ -61,7 +91,7 @@ func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 	rc := chanlib.NewRouterClient(mr.srv.URL, "")
 	rc.SetToken("test-token")
 
-	cfg := config{assistantName: "assistant"}
+	cfg := config{assistantName: "assistant", hmacSecret: testHMACSecret}
 	return newServer(cfg, st, newHub(), rc), mr, st
 }
 

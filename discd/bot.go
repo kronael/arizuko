@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,18 +52,34 @@ func (b *bot) stop() {
 }
 
 func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.Bot {
+	if m == nil || m.Author == nil || m.Author.Bot {
 		return
 	}
 	jid := "discord:" + m.ChannelID
 	content := m.Content
 	var atts []chanlib.InboundAttachment
 	for _, att := range m.Attachments {
-		content += fmt.Sprintf(" [Attachment: %s]", att.Filename)
+		if att == nil || att.URL == "" {
+			continue
+		}
+		name := att.Filename
+		if name == "" {
+			name = "attachment"
+		}
+		content += fmt.Sprintf(" [Attachment: %s]", name)
+		var proxied string
+		if b.files != nil {
+			proxied = fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, b.files.Put(att.URL))
+		} else {
+			// Fallback: pass the raw CDN URL through. Should be unreachable
+			// because main wires b.files before session.Open(), but avoids
+			// nil-deref if that ordering ever regresses.
+			proxied = att.URL
+		}
 		atts = append(atts, chanlib.InboundAttachment{
 			Mime:     att.ContentType,
-			Filename: att.Filename,
-			URL:      fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, b.files.Put(att.URL)),
+			Filename: name,
+			URL:      proxied,
 			Size:     int64(att.Size),
 		})
 	}
@@ -111,8 +129,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 			if err == nil {
 				break
 			}
-			es := err.Error()
-			if !strings.Contains(es, "429") && !strings.Contains(es, "rate limit") {
+			if !isRateLimit(err) {
 				break
 			}
 			slog.Warn("discord rate limited, retrying", "attempt", attempt+1)
@@ -155,6 +172,26 @@ func (b *bot) sendTyping(jid string) {
 	if err := b.session.ChannelTyping(chID); err != nil {
 		slog.Warn("discord typing failed", "jid", jid, "err", err)
 	}
+}
+
+// isRateLimit returns true if err is a Discord 429 / rate-limit error.
+// Prefers the typed discordgo errors; falls back to substring match.
+func isRateLimit(err error) bool {
+	if err == nil {
+		return false
+	}
+	var rest *discordgo.RESTError
+	if errors.As(err, &rest) {
+		if rest.Response != nil && rest.Response.StatusCode == http.StatusTooManyRequests {
+			return true
+		}
+	}
+	var rl *discordgo.RateLimitError
+	if errors.As(err, &rl) {
+		return true
+	}
+	es := strings.ToLower(err.Error())
+	return strings.Contains(es, "429") || strings.Contains(es, "rate limit")
 }
 
 func replaceMentions(content, assistantName string, user *discordgo.User) string {

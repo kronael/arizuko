@@ -31,7 +31,7 @@ type attMeta struct {
 	Part     []int // IMAP BODY section path (1-indexed)
 }
 
-// attRegistry is a transitory in-memory map of "uid-partIdx" -> metadata.
+// attRegistry is a transitory in-memory map of "uid-attIdx" -> metadata.
 type attRegistry struct {
 	mu sync.RWMutex
 	m  map[string]attMeta
@@ -309,7 +309,15 @@ func (p *poller) handleMsg(
 	body := ""
 	var atts []chanlib.InboundAttachment
 	if bodyRaw != nil {
-		body, atts = extractContent(bytes.NewReader(bodyRaw), msg.UID, p.cfg.ListenURL, p.reg)
+		if p.cfg.StrictAuth && !authResultsPass(bodyRaw) {
+			slog.Warn("dropping mail: auth-results fail", "uid", msg.UID, "from", fromAddr)
+			// Mark seen so we don't re-process the same rejected message.
+			c.Store(imap.UIDSetNum(msg.UID), &imap.StoreFlags{
+				Op: imap.StoreFlagsAdd, Flags: []imap.Flag{imap.FlagSeen},
+			}, nil).Close() //nolint:errcheck
+			return nil
+		}
+		body, atts = extractContent(bodyRaw, msg.UID, p.cfg.ListenURL, p.reg, p.cfg.MaxAttachment)
 	}
 
 	subject := env.Subject
@@ -341,69 +349,131 @@ func (p *poller) handleMsg(
 	}
 
 	// Pass UIDSet to Store — the library detects UIDSet and issues UID STORE.
+	// Surface the error: if mark-seen fails, the next fetchUnseen will
+	// re-deliver via NotFlag:FlagSeen. Router dedups on msgID, so duplicate
+	// delivery is safe; silent loss of the mark-seen error is not (the old
+	// slog.Warn dropped it and claimed success).
 	cmd := c.Store(imap.UIDSetNum(msg.UID), &imap.StoreFlags{
 		Op:    imap.StoreFlagsAdd,
 		Flags: []imap.Flag{imap.FlagSeen},
 	}, nil)
 	if err := cmd.Close(); err != nil {
-		slog.Warn("mark seen failed", "uid", msg.UID, "err", err)
+		return fmt.Errorf("mark seen uid %d: %w", msg.UID, err)
 	}
 
 	return nil
 }
 
+// authResultsPass returns false if Authentication-Results indicates
+// spf=fail / dkim=fail / dmarc=fail. Missing header → pass (many
+// providers omit it). Only consulted when cfg.StrictAuth is set.
+func authResultsPass(raw []byte) bool {
+	limit := len(raw)
+	if limit > 64*1024 {
+		limit = 64 * 1024
+	}
+	head := strings.ToLower(string(raw[:limit]))
+	if idx := strings.Index(head, "\r\n\r\n"); idx >= 0 {
+		head = head[:idx]
+	}
+	for _, ln := range strings.Split(head, "\n") {
+		ln = strings.TrimSpace(ln)
+		if !strings.HasPrefix(ln, "authentication-results:") {
+			continue
+		}
+		if strings.Contains(ln, "spf=fail") ||
+			strings.Contains(ln, "dkim=fail") ||
+			strings.Contains(ln, "dmarc=fail") {
+			return false
+		}
+	}
+	return true
+}
+
 func extractPlainText(r io.Reader) string {
-	text, _ := extractContent(r, 0, "", nil)
+	b, _ := io.ReadAll(r)
+	text, _ := extractContent(b, 0, "", nil, 0)
 	return text
 }
 
-func extractContent(r io.Reader, uid imap.UID, listenURL string, reg *attRegistry) (string, []chanlib.InboundAttachment) {
-	mr, err := gomessage.CreateReader(r)
+// extractContent walks the MIME tree. go-message's Reader flattens nested
+// multiparts into a linear stream of leaf parts, so the IMAP BODY section
+// number is the 1-indexed leaf position in that stream (works for simple
+// single-level multipart/mixed; nested multiparts yield best-effort paths).
+//
+// raw is the full MIME bytes; passing them (rather than an io.Reader)
+// keeps the fallback path correct — the previous implementation tried to
+// re-read from an io.Reader that had already been advanced by CreateReader
+// and returned a truncated tail instead of the whole body.
+//
+// maxBytes (>0) caps per-attachment reads via io.LimitReader to prevent
+// a remote sender from forcing unbounded IMAP bandwidth + CPU use just to
+// measure a multi-GB attachment.
+func extractContent(
+	raw []byte, uid imap.UID, listenURL string, reg *attRegistry, maxBytes int64,
+) (string, []chanlib.InboundAttachment) {
+	mr, err := gomessage.CreateReader(bytes.NewReader(raw))
 	if err != nil {
-		b, _ := io.ReadAll(r)
-		return string(b), nil
+		// Fallback from the ORIGINAL bytes, not the consumed reader.
+		return string(raw), nil
 	}
 	var text string
 	var atts []chanlib.InboundAttachment
-	partIdx := 0
+	partCount := 0 // every leaf part (text + attachment) — IMAP BODY section.
+	attIdx := 0    // monotonic attachment index for the public URL key.
 	for {
 		p, err := mr.NextPart()
 		if err != nil {
 			break
 		}
+		partCount++
 		switch h := p.Header.(type) {
 		case *gomessage.InlineHeader:
 			ct, _, _ := h.ContentType()
 			if ct == "text/plain" && text == "" {
-				b, _ := io.ReadAll(p.Body)
+				var body io.Reader = p.Body
+				if maxBytes > 0 {
+					body = io.LimitReader(body, maxBytes+1)
+				}
+				b, _ := io.ReadAll(body)
+				io.Copy(io.Discard, p.Body) //nolint:errcheck
 				text = string(b)
+			} else {
+				io.Copy(io.Discard, p.Body) //nolint:errcheck
 			}
 		case *gomessage.AttachmentHeader:
 			ct, _, _ := h.ContentType()
 			fname, _ := h.Filename()
 			if fname == "" {
-				fname = fmt.Sprintf("attachment-%d", partIdx)
+				fname = fmt.Sprintf("attachment-%d", attIdx)
 			}
 			// Read body only to measure size -- data is NOT stored.
-			n, _ := io.Copy(io.Discard, p.Body)
+			var body io.Reader = p.Body
+			if maxBytes > 0 {
+				body = io.LimitReader(body, maxBytes+1)
+			}
+			n, _ := io.Copy(io.Discard, body)
+			io.Copy(io.Discard, p.Body) //nolint:errcheck
 			att := chanlib.InboundAttachment{
 				Mime:     ct,
 				Filename: fname,
 				Size:     n,
 			}
 			if reg != nil && listenURL != "" {
-				key := fmt.Sprintf("%d-%d", uid, partIdx)
-				// IMAP BODY section parts are 1-indexed.
+				key := fmt.Sprintf("%d-%d", uid, attIdx)
+				// IMAP BODY section = absolute 1-indexed leaf position.
+				// The previous code used attIdx+1 here, which mismatched
+				// whenever a text part appeared before the attachment.
 				reg.put(key, attMeta{
 					Mime:     ct,
 					Filename: fname,
 					Size:     n,
-					Part:     []int{partIdx + 1},
+					Part:     []int{partCount},
 				})
-				att.URL = fmt.Sprintf("%s/files/%d/%d", listenURL, uid, partIdx)
+				att.URL = fmt.Sprintf("%s/files/%d/%d", listenURL, uid, attIdx)
 			}
 			atts = append(atts, att)
-			partIdx++
+			attIdx++
 		}
 	}
 	return text, atts

@@ -141,8 +141,8 @@ func TestGenerateWebServices(t *testing.T) {
 	}
 	// Shared env flows via env_file; peer URLs default in code to
 	// http://<svc>:8080.
-	if !strings.Contains(out, "env_file:\n      - .env") {
-		t.Error("services missing env_file: [.env]")
+	if !strings.Contains(out, "env_file:\n      - env/gated.env") {
+		t.Error("gated missing scoped env_file: env/gated.env")
 	}
 	if !strings.Contains(out, "'8095:8080'") {
 		t.Error("proxyd external mapping should be WEB_PORT:8080")
@@ -213,10 +213,10 @@ func TestRouterEnvPassthrough(t *testing.T) {
 	// Shared config flows via env_file — compose doesn't duplicate these
 	// keys in per-service environment blocks anymore. Asserting env_file
 	// is enough: docker-compose reads .env at container start.
-	if !strings.Contains(out, "env_file:\n      - .env") {
-		t.Error("gated missing env_file: [.env]")
+	if !strings.Contains(out, "env_file:\n      - env/gated.env") {
+		t.Error("gated missing scoped env_file: env/gated.env")
 	}
-	if !strings.Contains(out, "API_PORT: '8080'") {
+	if !strings.Contains(out, `API_PORT: "8080"`) {
 		t.Error("gated missing API_PORT override pinning internal listen to 8080")
 	}
 }

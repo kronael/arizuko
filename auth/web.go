@@ -6,10 +6,12 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -92,9 +94,28 @@ func handleLoginPage(cfg *core.Config) http.HandlerFunc {
 	}
 }
 
+// clientIP returns the client IP, preferring X-Forwarded-For (set by a
+// trusted reverse proxy) so the login rate-limiter is keyed per-user
+// rather than per-proxy.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			xff = xff[:i]
+		}
+		if ip := strings.TrimSpace(xff); ip != "" {
+			return ip
+		}
+	}
+	if xr := strings.TrimSpace(r.Header.Get("X-Real-IP")); xr != "" {
+		return xr
+	}
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return ip
+}
+
 func handleLogin(s *store.Store, secret []byte, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+		ip := clientIP(r)
 		if !loginAllowed(ip) {
 			http.Error(w, "too many attempts", http.StatusTooManyRequests)
 			return
@@ -158,7 +179,12 @@ func handleLogout(s *store.Store, secure bool) http.HandlerFunc {
 func issueSession(w http.ResponseWriter, r *http.Request, s *store.Store, secret []byte, sub, name string, secure bool) {
 	groups := s.UserGroups(sub)
 	jwt := mintJWT(secret, sub, name, groups, jwtTTL)
-	refresh := genToken()
+	refresh, err := genToken()
+	if err != nil {
+		slog.Error("generate refresh token failed", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	exp := time.Now().Add(refreshTTL)
 	if err := s.CreateAuthSession(HashToken(refresh), sub, exp); err != nil {
 		slog.Error("create session failed", "err", err)
@@ -171,22 +197,59 @@ func issueSession(w http.ResponseWriter, r *http.Request, s *store.Store, secret
 	})
 	dest := "/"
 	if c, err := r.Cookie("auth_return"); err == nil && c.Value != "" {
-		dest = c.Value
+		if safe, ok := safeReturn(c.Value); ok {
+			dest = safe
+		}
 		http.SetCookie(w, &http.Cookie{
 			Name: "auth_return", Value: "", Path: "/",
 			MaxAge: -1, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
 		})
 	}
+	jwtJS, _ := json.Marshal(jwt)
+	destJS, _ := json.Marshal(dest)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!DOCTYPE html><html><head><script>
-localStorage.setItem('jwt',%q);window.location=%q;
-</script></head><body></body></html>`, jwt, dest)
+localStorage.setItem('jwt',%s);window.location=%s;
+</script></head><body></body></html>`,
+		jsSafe(jwtJS), jsSafe(destJS))
 }
 
-func genToken() string {
+// safeReturn validates auth_return as a same-origin path. It must start
+// with `/` and not be a protocol-relative `//...` or contain control
+// characters or backslashes (which browsers may normalize to `/`).
+func safeReturn(v string) (string, bool) {
+	if v == "" || v[0] != '/' {
+		return "", false
+	}
+	if strings.HasPrefix(v, "//") || strings.HasPrefix(v, "/\\") {
+		return "", false
+	}
+	if strings.ContainsAny(v, "\\\r\n\x00") {
+		return "", false
+	}
+	u, err := url.Parse(v)
+	if err != nil || u.Scheme != "" || u.Host != "" {
+		return "", false
+	}
+	return v, true
+}
+
+// jsSafe replaces U+2028/U+2029 and "</" with JS-safe escapes so that
+// JSON embedded in a <script> block cannot break out of the string or tag.
+func jsSafe(b []byte) string {
+	s := string(b)
+	s = strings.ReplaceAll(s, "\u2028", `\u2028`)
+	s = strings.ReplaceAll(s, "\u2029", `\u2029`)
+	s = strings.ReplaceAll(s, "</", `<\/`)
+	return s
+}
+
+func genToken() (string, error) {
 	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func HashToken(token string) string {

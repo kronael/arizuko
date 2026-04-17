@@ -1,7 +1,23 @@
 # Arizuko Agent Container
 # Runs Claude Code in isolated Linux container with browser automation
+#
+# Reproducibility contract: base image pinned to tag; CLI tools pinned to
+# explicit versions. Where upstream publishes SHA256SUMS files, we verify.
 
 FROM node:22-slim
+
+# Pinned tool versions — bump intentionally, never use `latest`.
+ENV YT_DLP_VERSION=2024.12.23 \
+    YQ_VERSION=v4.44.3 \
+    HADOLINT_VERSION=v2.12.0 \
+    DUCKDB_VERSION=v1.1.3 \
+    DELTA_VERSION=0.18.2 \
+    XH_VERSION=v0.23.1 \
+    WEBSOCAT_VERSION=v1.13.0 \
+    HURL_VERSION=5.0.1 \
+    SOPS_VERSION=v3.9.1 \
+    GO_VERSION=1.24.1 \
+    UV_VERSION=0.5.11
 
 # Install system dependencies for Chromium
 RUN apt-get update && apt-get install -y \
@@ -63,12 +79,21 @@ RUN apt-get update && apt-get install -y \
     miller \
     unzip \
     age \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-       -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
 
-# GitHub CLI
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+# yt-dlp (upstream publishes SHA2-256SUMS; verify)
+RUN set -eux; \
+    curl --fail -fsSL "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/yt-dlp" \
+      -o /usr/local/bin/yt-dlp; \
+    curl --fail -fsSL "https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/SHA2-256SUMS" \
+      -o /tmp/ytdlp.sums; \
+    (cd /usr/local/bin && grep "  yt-dlp$" /tmp/ytdlp.sums | sha256sum -c -); \
+    chmod +x /usr/local/bin/yt-dlp; \
+    rm /tmp/ytdlp.sums
+
+# GitHub CLI (official apt repo, signed)
+RUN curl --fail -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
       | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
@@ -76,114 +101,106 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get update && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Go (agent can fetch+compile Go tools)
-RUN curl -fsSL https://go.dev/dl/go1.24.1.linux-$(dpkg --print-architecture).tar.gz \
-    | tar -C /usr/local -xz
+# Go (pinned; upstream publishes SHA256 per-tarball)
+RUN set -eux; ARCH=$(dpkg --print-architecture); \
+    curl --fail -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tgz; \
+    curl --fail -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz.sha256" -o /tmp/go.sha256; \
+    echo "$(cat /tmp/go.sha256)  /tmp/go.tgz" | sha256sum -c -; \
+    tar -C /usr/local -xzf /tmp/go.tgz; \
+    rm /tmp/go.tgz /tmp/go.sha256
 ENV PATH="/usr/local/go/bin:$PATH"
 
-# Go-based dev tools
-RUN go install mvdan.cc/sh/v3/cmd/shfmt@latest \
-    && go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+# Go-based dev tools — pinned; go.sum authenticates downloads
+RUN go install mvdan.cc/sh/v3/cmd/shfmt@v3.10.0 \
+    && go install github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.1
 
-# Rust (agent can cargo install tools)
+# Rust (rustup installer; download and retain for drift inspection)
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --default-toolchain stable --profile minimal \
-    && chmod -R a+rw /usr/local/cargo /usr/local/rustup
+RUN set -eux; \
+    curl --fail --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/rustup-init.sh; \
+    sha256sum /tmp/rustup-init.sh; \
+    sh /tmp/rustup-init.sh -y --default-toolchain stable --profile minimal; \
+    rm /tmp/rustup-init.sh
 ENV PATH="/usr/local/cargo/bin:$PATH"
 
-# uv — fast Python package manager + managed Python 3.14
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
-    && uv python install 3.14 \
-    && ln -sf $(uv python find 3.14) /usr/local/bin/python3.14
+# uv — pinned
+RUN set -eux; \
+    curl --fail -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" \
+      | env UV_INSTALL_DIR=/usr/local/bin sh; \
+    uv python install 3.14; \
+    ln -sf "$(uv python find 3.14)" /usr/local/bin/python3.14
 
-# Binary dev tools (yq, duckdb, hadolint, delta, xh, websocat, hurl, sops)
-RUN set -e; ARCH=$(dpkg --print-architecture); \
-    curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${ARCH}" \
-      -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq; \
+# Binary tools pinned to explicit versions with SHA256 where upstream provides
+RUN set -eux; ARCH=$(dpkg --print-architecture); \
+    curl --fail -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" \
+      -o /usr/local/bin/yq; \
+    chmod +x /usr/local/bin/yq; \
     HL_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "arm64"); \
-    curl -fsSL "https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-${HL_ARCH}" \
-      -o /usr/local/bin/hadolint && chmod +x /usr/local/bin/hadolint; \
+    curl --fail -fsSL "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-${HL_ARCH}" \
+      -o /usr/local/bin/hadolint; \
+    curl --fail -fsSL "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-${HL_ARCH}.sha256" \
+      -o /tmp/hadolint.sha256; \
+    echo "$(cut -d' ' -f1 /tmp/hadolint.sha256)  /usr/local/bin/hadolint" | sha256sum -c -; \
+    chmod +x /usr/local/bin/hadolint; rm /tmp/hadolint.sha256; \
     DK_ARCH=$([ "$ARCH" = "amd64" ] && echo "amd64" || echo "aarch64"); \
-    curl -fsSL "https://github.com/duckdb/duckdb/releases/latest/download/duckdb_cli-linux-${DK_ARCH}.zip" \
-      -o /tmp/duckdb.zip && unzip /tmp/duckdb.zip duckdb -d /usr/local/bin \
-      && chmod +x /usr/local/bin/duckdb && rm /tmp/duckdb.zip; \
-    DELTA_VER=$(curl -fsSL https://api.github.com/repos/dandavison/delta/releases/latest | jq -r .tag_name); \
+    curl --fail -fsSL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb_cli-linux-${DK_ARCH}.zip" \
+      -o /tmp/duckdb.zip; \
+    unzip /tmp/duckdb.zip duckdb -d /usr/local/bin; \
+    chmod +x /usr/local/bin/duckdb; rm /tmp/duckdb.zip; \
     DELTA_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64"); \
-    curl -fsSL "https://github.com/dandavison/delta/releases/download/${DELTA_VER}/delta-${DELTA_VER}-${DELTA_ARCH}-unknown-linux-gnu.tar.gz" \
+    curl --fail -fsSL "https://github.com/dandavison/delta/releases/download/${DELTA_VERSION}/delta-${DELTA_VERSION}-${DELTA_ARCH}-unknown-linux-gnu.tar.gz" \
       | tar xz --strip-components=1 -C /usr/local/bin \
-        "delta-${DELTA_VER}-${DELTA_ARCH}-unknown-linux-gnu/delta"; \
+        "delta-${DELTA_VERSION}-${DELTA_ARCH}-unknown-linux-gnu/delta"; \
     RUST_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64"); \
-    XH_VER=$(curl -fsSL https://api.github.com/repos/ducaale/xh/releases/latest | jq -r .tag_name); \
-    curl -fsSL "https://github.com/ducaale/xh/releases/download/${XH_VER}/xh-${XH_VER}-${RUST_ARCH}-unknown-linux-musl.tar.gz" \
+    curl --fail -fsSL "https://github.com/ducaale/xh/releases/download/${XH_VERSION}/xh-${XH_VERSION}-${RUST_ARCH}-unknown-linux-musl.tar.gz" \
       | tar xz --strip-components=1 -C /usr/local/bin \
-        "xh-${XH_VER}-${RUST_ARCH}-unknown-linux-musl/xh" \
-      && chmod +x /usr/local/bin/xh \
-      && ln -sf /usr/local/bin/xh /usr/local/bin/xhs; \
-    curl -fsSL "https://github.com/vi/websocat/releases/latest/download/websocat.${RUST_ARCH}-unknown-linux-musl" \
-      -o /usr/local/bin/websocat && chmod +x /usr/local/bin/websocat; \
-    HURL_VER=$(curl -fsSL https://api.github.com/repos/Orange-Opensource/hurl/releases/latest | jq -r .tag_name); \
-    curl -fsSL "https://github.com/Orange-Opensource/hurl/releases/download/${HURL_VER}/hurl-${HURL_VER}-${RUST_ARCH}-unknown-linux-gnu.tar.gz" \
+        "xh-${XH_VERSION}-${RUST_ARCH}-unknown-linux-musl/xh"; \
+    chmod +x /usr/local/bin/xh; ln -sf /usr/local/bin/xh /usr/local/bin/xhs; \
+    curl --fail -fsSL "https://github.com/vi/websocat/releases/download/${WEBSOCAT_VERSION}/websocat.${RUST_ARCH}-unknown-linux-musl" \
+      -o /usr/local/bin/websocat; chmod +x /usr/local/bin/websocat; \
+    curl --fail -fsSL "https://github.com/Orange-Opensource/hurl/releases/download/${HURL_VERSION}/hurl-${HURL_VERSION}-${RUST_ARCH}-unknown-linux-gnu.tar.gz" \
       | tar xz --strip-components=2 -C /usr/local/bin \
-        "hurl-${HURL_VER}-${RUST_ARCH}-unknown-linux-gnu/bin/hurl" \
-        "hurl-${HURL_VER}-${RUST_ARCH}-unknown-linux-gnu/bin/hurlfmt"; \
-    SOPS_VER=$(curl -fsSL https://api.github.com/repos/getsops/sops/releases/latest | jq -r .tag_name); \
-    curl -fsSL "https://github.com/getsops/sops/releases/download/${SOPS_VER}/sops-${SOPS_VER}.linux.${ARCH}" \
-      -o /usr/local/bin/sops && chmod +x /usr/local/bin/sops
+        "hurl-${HURL_VERSION}-${RUST_ARCH}-unknown-linux-gnu/bin/hurl" \
+        "hurl-${HURL_VERSION}-${RUST_ARCH}-unknown-linux-gnu/bin/hurlfmt"; \
+    curl --fail -fsSL "https://github.com/getsops/sops/releases/download/${SOPS_VERSION}/sops-${SOPS_VERSION}.linux.${ARCH}" \
+      -o /usr/local/bin/sops; chmod +x /usr/local/bin/sops
 
-# Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
-
-# Default MCP socket for ad-hoc scripts using mcpc
 ENV ARIZUKO_MCP_SOCKET=/workspace/ipc/gated.sock
 
-# Install bun, agent-browser, claude-code, mcpc globally
 RUN npm install -g bun agent-browser @anthropic-ai/claude-code @apify/mcpc \
     && bun install -g @biomejs/biome prettier svgo \
        @marp-team/marp-cli htmlhint
 
-# Python tooling (break-system-packages: container-only, no venv needed)
 RUN uv pip install --system --break-system-packages \
     ruff pyright \
     pandas matplotlib plotly numpy scipy \
     python-pptx openpyxl weasyprint \
     sqlfluff semgrep
 
-# Create app directory
 WORKDIR /app
-
-# Copy package files first for better caching
 COPY package*.json ./
-
-# Install dependencies
 RUN npm install
-
-# Copy source code
 COPY . ./
-
-# Bake per-channel output styles into agent image
 COPY output-styles/ /home/node/.claude/output-styles/
-
-# Validate TypeScript compiles (catches errors at build time)
 RUN npm run build && rm -rf dist
-
-# Create workspace directories
 RUN mkdir -p /workspace/extra /workspace/ipc/input
 
-# Create entrypoint script
-# Secrets are passed via stdin JSON — temp file is deleted immediately after Node reads it
-# Follow-up messages arrive via IPC files in /workspace/ipc/input/
-RUN printf '#!/bin/bash\nset -e\ncd /app && bunx tsc --outDir /tmp/dist 2>&1 >&2\nln -s /app/node_modules /tmp/dist/node_modules\nchmod -R a-w /tmp/dist\ncat > /tmp/input.json\nnode /tmp/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+# Entrypoint is now a real file (was inline printf); easier to review/diff.
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-# Set ownership to node user (non-root) for writable directories
-RUN chown -R node:node /workspace && chmod 777 /home/node
+# Toolchain root-owned at 755 (was world-writable — agent code could swap cargo).
+# /home/node is 755 (was 777). Workspace is node-owned for runtime writes.
+RUN chown -R node:node /workspace /home/node \
+    && chmod 755 /home/node \
+    && chmod -R u=rwX,go=rX /usr/local/cargo /usr/local/rustup
 
-# Switch to non-root user (required for --dangerously-skip-permissions)
 USER node
-
-# Set working directory to group home (mounted at /home/node)
 WORKDIR /home/node
 
-# Entry point reads JSON from stdin, outputs JSON to stdout
+# Agent container is one-shot (stdin JSON in, stdout JSON out). Liveness is
+# tracked by gated directly — no HEALTHCHECK is meaningful here.
+
 ENTRYPOINT ["/app/entrypoint.sh"]

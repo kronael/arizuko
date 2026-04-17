@@ -80,11 +80,11 @@ func TestMCP_RequiresAuth(t *testing.T) {
 func TestMCP_ListGroups_FiltersByGrants(t *testing.T) {
 	_, srv := newMCPTestServer(t)
 	groups, _ := json.Marshal([]string{"main"})
-	c := mcpDial(t, srv.URL+"/mcp", map[string]string{
+	c := mcpDial(t, srv.URL+"/mcp", signUserHeaders(map[string]string{
 		"X-User-Sub":    "user:1",
 		"X-User-Name":   "Alice",
 		"X-User-Groups": string(groups),
-	})
+	}))
 
 	ctx := context.Background()
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
@@ -106,11 +106,11 @@ func TestMCP_ListGroups_FiltersByGrants(t *testing.T) {
 func TestMCP_SendMessage_AllowedFolder(t *testing.T) {
 	s, srv := newMCPTestServer(t)
 	groups, _ := json.Marshal([]string{"main"})
-	c := mcpDial(t, srv.URL+"/mcp", map[string]string{
+	c := mcpDial(t, srv.URL+"/mcp", signUserHeaders(map[string]string{
 		"X-User-Sub":    "user:alice",
 		"X-User-Name":   "Alice",
 		"X-User-Groups": string(groups),
-	})
+	}))
 
 	ctx := context.Background()
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
@@ -147,10 +147,10 @@ func TestMCP_SendMessage_AllowedFolder(t *testing.T) {
 func TestMCP_SendMessage_ForbiddenFolder(t *testing.T) {
 	_, srv := newMCPTestServer(t)
 	groups, _ := json.Marshal([]string{"main"})
-	c := mcpDial(t, srv.URL+"/mcp", map[string]string{
+	c := mcpDial(t, srv.URL+"/mcp", signUserHeaders(map[string]string{
 		"X-User-Sub":    "user:alice",
 		"X-User-Groups": string(groups),
-	})
+	}))
 
 	ctx := context.Background()
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
@@ -176,10 +176,10 @@ func TestMCP_SendMessage_ForbiddenFolder(t *testing.T) {
 func TestMCP_GetHistory(t *testing.T) {
 	_, srv := newMCPTestServer(t)
 	groups, _ := json.Marshal([]string{"main"})
-	c := mcpDial(t, srv.URL+"/mcp", map[string]string{
+	c := mcpDial(t, srv.URL+"/mcp", signUserHeaders(map[string]string{
 		"X-User-Sub":    "user:alice",
 		"X-User-Groups": string(groups),
-	})
+	}))
 
 	ctx := context.Background()
 	_, err := c.CallTool(ctx, mcp.CallToolRequest{

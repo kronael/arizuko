@@ -16,13 +16,14 @@ type fileResolver interface {
 }
 
 type server struct {
-	cfg   config
-	mc    chanlib.BotHandler
-	files fileResolver
+	cfg          config
+	mc           chanlib.BotHandler
+	files        fileResolver
+	maxFileBytes int64
 }
 
 func newServer(cfg config, mc chanlib.BotHandler, fr fileResolver) *server {
-	return &server{cfg: cfg, mc: mc, files: fr}
+	return &server{cfg: cfg, mc: mc, files: fr, maxFileBytes: cfg.MaxFileBytes}
 }
 
 func (s *server) handler() http.Handler {
@@ -55,5 +56,9 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 	if ct := resp.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
-	io.Copy(w, resp.Body)
+	max := s.maxFileBytes
+	if max <= 0 {
+		max = 20 * 1024 * 1024
+	}
+	io.Copy(w, io.LimitReader(resp.Body, max))
 }

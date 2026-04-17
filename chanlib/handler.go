@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type SendRequest struct {
@@ -80,6 +81,15 @@ func handleSendFile(bot BotHandler) http.HandlerFunc {
 		defer file.Close()
 		if name == "" {
 			name = hdr.Filename
+		}
+		// Strip directory components and reject traversal tokens.
+		// `name` is attacker-controlled (multipart form value / filename
+		// header); without this, filepath.Join(dir, name) can escape
+		// the temp dir.
+		name = filepath.Base(filepath.Clean(name))
+		if name == "" || name == "." || name == ".." || strings.Contains(name, "..") || strings.ContainsRune(name, os.PathSeparator) {
+			WriteErr(w, 400, "invalid filename")
+			return
 		}
 		dir, err := os.MkdirTemp("", "chan-")
 		if err != nil {

@@ -86,9 +86,16 @@ func (rc *redditClient) refreshToken() error {
 		return fmt.Errorf("token request: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("token request: status %d: %s", resp.StatusCode, string(b))
+	}
 	var tr tokenResp
 	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
 		return fmt.Errorf("token decode: %w", err)
+	}
+	if tr.AccessToken == "" || tr.ExpiresIn <= 0 {
+		return fmt.Errorf("token response missing access_token or expires_in")
 	}
 	rc.mu.Lock()
 	rc.token = tr.AccessToken
@@ -137,7 +144,12 @@ func (rc *redditClient) do(method, path string, params map[string]string, form u
 	return rc.doWithRetry(req)
 }
 
+// maxRetryAfter caps Retry-After so a misbehaving upstream can't stall the
+// poll goroutine for hours.
+const maxRetryAfter = 5 * time.Minute
+
 func (rc *redditClient) doWithRetry(req *http.Request) (*http.Response, error) {
+	refreshedOn401 := false
 	for attempt := 0; attempt < 3; attempt++ {
 		resp, err := rc.http.Do(req)
 		if err != nil {
@@ -148,10 +160,26 @@ func (rc *redditClient) doWithRetry(req *http.Request) (*http.Response, error) {
 			wait := 5 * time.Second
 			if ra := resp.Header.Get("Retry-After"); ra != "" {
 				var secs float64
-				fmt.Sscanf(ra, "%f", &secs)
-				wait = time.Duration(secs) * time.Second
+				if _, perr := fmt.Sscanf(ra, "%f", &secs); perr == nil && secs > 0 {
+					wait = time.Duration(secs) * time.Second
+				}
+			}
+			if wait > maxRetryAfter {
+				wait = maxRetryAfter
 			}
 			time.Sleep(wait)
+			continue
+		}
+		// 401: token may have been revoked early. Refresh once and retry.
+		if resp.StatusCode == 401 && !refreshedOn401 {
+			resp.Body.Close()
+			refreshedOn401 = true
+			if err := rc.refreshToken(); err != nil {
+				return nil, fmt.Errorf("refresh after 401: %w", err)
+			}
+			rc.mu.Lock()
+			req.Header.Set("Authorization", "Bearer "+rc.token)
+			rc.mu.Unlock()
 			continue
 		}
 		return resp, nil
@@ -249,18 +277,25 @@ func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClien
 		return
 	}
 
-	if len(l.Data.Children) > 0 {
-		rc.cursors[key] = l.Data.Children[0].Data.Name
-		rc.saveCursors()
-	}
-
 	// Skip first poll for new sources (no persisted cursor) to avoid replaying history.
+	// Still advance the cursor to the latest so subsequent polls start from here.
 	if prevCursor == "" && !rc.skipFirst[key] {
 		rc.skipFirst[key] = true
+		if len(l.Data.Children) > 0 {
+			rc.cursors[key] = l.Data.Children[0].Data.Name
+			rc.saveCursors()
+		}
 		return
 	}
-	for _, t := range l.Data.Children {
+	// Deliver oldest-first (reverse the newest-first listing) and advance the
+	// cursor only after each successful delivery so a crash mid-batch doesn't
+	// skip undelivered items.
+	children := l.Data.Children
+	for i := len(children) - 1; i >= 0; i-- {
+		t := children[i]
 		rc.handleThing(t, key, router)
+		rc.cursors[key] = t.Data.Name
+		rc.saveCursors()
 	}
 }
 

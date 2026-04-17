@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { query, HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 
@@ -35,12 +36,32 @@ interface SDKUserMessage {
 
 type McpServerConfig = { command: string; args?: string[]; env?: Record<string, string> };
 
+const HOME = '/home/node';
+const IPC_INPUT_DIR = '/workspace/ipc/input';
+const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
+const IPC_POLL_MS = 500;
+const MAX_QUEUE = 100;
+const MAX_STDIN_BYTES = 1024 * 1024;
+const QUERY_TIMEOUT_MS = 15 * 60_000;
+
+const OUTPUT_START_MARKER = '---ARIZUKO_OUTPUT_START---';
+const OUTPUT_END_MARKER = '---ARIZUKO_OUTPUT_END---';
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const PROGRESS_INTERVAL_MS = 15 * 60_000;
+
+function escapeForSteering(s: string): string {
+  return s
+    .replace(/\]\]>/g, ']]]]><![CDATA[>')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function loadAgentMcpServers(): Record<string, McpServerConfig> {
   try {
     const s = JSON.parse(fs.readFileSync(`${HOME}/.claude/settings.json`, 'utf-8'));
     const servers = s.mcpServers;
     if (!servers || typeof servers !== 'object') return {};
-    delete servers.arizuko;  // never override the built-in server
+    delete servers.arizuko;
     return servers;
   } catch {
     return {};
@@ -49,7 +70,6 @@ function loadAgentMcpServers(): Record<string, McpServerConfig> {
 
 function buildSystemPrompt(ci: ContainerInput):
     string | { type: 'preset'; preset: 'claude_code' } {
-  // SDK injects output styles only into the preset prompt — load it ourselves for custom.
   const parts = [ci.systemMd, ci.soul, readOutputStyle()].filter(Boolean);
   if (parts.length > 0) return parts.join('\n\n');
   return { type: 'preset' as const, preset: 'claude_code' as const };
@@ -67,21 +87,19 @@ function readOutputStyle(): string | null {
   }
 }
 
-const HOME = '/home/node';
-const IPC_INPUT_DIR = '/workspace/ipc/input';
-const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
-const IPC_POLL_MS = 500;
-
 let wakeup: (() => void) | null = null;
 process.on('SIGUSR1', () => { if (wakeup) wakeup(); });
 
-// Push-based async iterable; alive until end() so SDK doesn't treat as single-turn.
 class MessageStream {
   private queue: SDKUserMessage[] = [];
   private waiting: (() => void) | null = null;
   private done = false;
 
   push(text: string): void {
+    if (this.queue.length >= MAX_QUEUE) {
+      log(`MessageStream queue full (${this.queue.length}); dropping message`);
+      return;
+    }
     this.queue.push({
       type: 'user',
       message: { role: 'user', content: text },
@@ -111,17 +129,24 @@ class MessageStream {
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
+    let size = 0;
+    let aborted = false;
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', chunk => { data += chunk; });
-    process.stdin.on('end', () => resolve(data));
+    process.stdin.on('data', chunk => {
+      if (aborted) return;
+      size += Buffer.byteLength(chunk, 'utf8');
+      if (size > MAX_STDIN_BYTES) {
+        aborted = true;
+        process.stdin.pause();
+        reject(new Error(`stdin exceeds max size (${MAX_STDIN_BYTES} bytes)`));
+        return;
+      }
+      data += chunk;
+    });
+    process.stdin.on('end', () => { if (!aborted) resolve(data); });
     process.stdin.on('error', reject);
   });
 }
-
-const OUTPUT_START_MARKER = '---ARIZUKO_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---ARIZUKO_OUTPUT_END---';
-const HEARTBEAT_INTERVAL_MS = 30_000;
-const PROGRESS_INTERVAL_MS = 15 * 60_000;
 
 function writeOutput(output: ContainerOutput): void {
   console.log(OUTPUT_START_MARKER);
@@ -185,7 +210,6 @@ function createPreCompactHook(assistantName?: string): HookCallback {
   };
 }
 
-// Strip from Bash subprocesses — SDK needs them, agent commands must not see them.
 const SECRET_ENV_VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
 
 function createSanitizeBashHook(): HookCallback {
@@ -282,7 +306,8 @@ function drainIpcInput(): string[] {
       try {
         const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         fs.unlinkSync(filePath);
-        if (data.type === 'message' && data.text) {
+        if (data.source === 'self' || data.source === 'nudge') continue;
+        if (data.type === 'message' && typeof data.text === 'string') {
           messages.push(data.text);
         }
       } catch (err) {
@@ -297,36 +322,34 @@ function drainIpcInput(): string[] {
   }
 }
 
-// Drop only self-generated nudges; leave gateway-steered messages.
 function discardNudges(): number {
   try {
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
     const files = fs.readdirSync(IPC_INPUT_DIR)
       .filter(f => f.endsWith('.json'))
       .sort();
-    let count = 0;
+    const toDelete: string[] = [];
     for (const file of files) {
       const fp = path.join(IPC_INPUT_DIR, file);
       try {
         const data = JSON.parse(fs.readFileSync(fp, 'utf-8'));
-        if (data.source === 'nudge') {
-          fs.unlinkSync(fp);
-          count++;
-        }
+        if (data.source === 'nudge') toDelete.push(fp);
       } catch { /* skip unreadable files */ }
+    }
+    let count = 0;
+    for (const fp of toDelete) {
+      try { fs.unlinkSync(fp); count++; } catch { /* ignore */ }
     }
     return count;
   } catch { return 0; }
 }
 
-// PostToolUse is the only SDK primitive that injects mid-loop inside the
-// same turn. Text-only responses rely on checkIpcMessage next-turn pickup.
 function createIpcDrainHook(): HookCallback {
   return async (_input, _toolUseId, _context) => {
     const messages = drainIpcInput();
     if (messages.length === 0) return {};
     log(`Piping ${messages.length} IPC messages into active query via PostToolUse hook`);
-    const body = messages.map(m => `<message>${m}</message>`).join('\n');
+    const body = messages.map(m => `<message>${escapeForSteering(m)}</message>`).join('\n');
     return {
       hookSpecificOutput: {
         hookEventName: 'PostToolUse',
@@ -336,7 +359,6 @@ function createIpcDrainHook(): HookCallback {
   };
 }
 
-// Exit when input/ is empty; gateway re-queues anything arriving after.
 function checkIpcMessage(): string | null {
   if (shouldClose()) return null;
   const messages = drainIpcInput();
@@ -353,8 +375,6 @@ async function runQuery(
   const stream = new MessageStream();
   stream.push(prompt);
 
-  // Poll only for the _close sentinel. User-message drain is owned by
-  // the PostToolUse hook (mid-loop via additionalContext).
   let ipcPolling = true;
   let closedDuringQuery = false;
   const pollIpcDuringQuery = () => {
@@ -381,7 +401,6 @@ async function runQuery(
   let sessionError = false;
   let lastProgressAt = Date.now();
 
-  // Extra dirs: SDK auto-loads their CLAUDE.md files.
   const extraDirs: string[] = [];
   const isRoot = !containerInput.groupFolder.includes('/');
   if (!isRoot && fs.existsSync('/workspace/share')) extraDirs.push('/workspace/share');
@@ -395,10 +414,18 @@ async function runQuery(
   const heartbeat = setInterval(writeHeartbeat, HEARTBEAT_INTERVAL_MS);
   const agentMcpServers = loadAgentMcpServers();
 
+  const abortController = new AbortController();
+  const timeoutTimer = setTimeout(() => {
+    log(`Query timeout (${QUERY_TIMEOUT_MS}ms) reached, aborting`);
+    abortController.abort();
+    stream.end();
+  }, QUERY_TIMEOUT_MS);
+
   try {
     for await (const message of query({
       prompt: stream,
       options: {
+        abortController,
         cwd: HOME,
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
         resume: sessionId,
@@ -461,7 +488,7 @@ async function runQuery(
         resultCount++;
         const textResult = 'result' in message ? (message as { result?: string }).result : null;
         log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
-        stream.end(); // terminate SDK iterator after result; outer loop handles follow-ups
+        stream.end();
         if (message.subtype === 'error_max_turns') {
           maxTurnsHit = true;
         } else if (message.subtype === 'error_during_execution') {
@@ -473,22 +500,20 @@ async function runQuery(
       }
     }
   } catch (err) {
-    // SDK sometimes throws after already delivering a result (e.g. process
-    // exited with code 1 after a stale-session resume that recovered).
-    // If we already got a result, the success output is already written —
-    // swallow the throw and return normally with the captured newSessionId.
     if (resultCount > 0) {
       log(`SDK threw after result (ignored): ${err instanceof Error ? err.message : String(err)}`);
     } else {
+      clearTimeout(timeoutTimer);
+      clearInterval(heartbeat);
       throw err;
     }
   }
 
+  clearTimeout(timeoutTimer);
   clearInterval(heartbeat);
   ipcPolling = false;
   wakeup = null;
 
-  // Drop nudges that landed during final text gen; real user messages stay.
   const discarded = discardNudges();
   if (discarded > 0) {
     log(`Discarded ${discarded} stale progress nudges after query`);
@@ -497,7 +522,7 @@ async function runQuery(
   log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
 
   if (maxTurnsHit && newSessionId) {
-    log('Max turns hit — requesting summary + resumption nudge');
+    log('Max turns hit; requesting summary + resumption nudge');
     for await (const msg of query({
       prompt: 'You ran out of turns mid-task. Summarise concisely: what you accomplished, what is still pending. Then tell the user they can say "continue" to resume where you left off.',
       options: {
@@ -510,7 +535,7 @@ async function runQuery(
     })) {
       if (msg.type === 'result') {
         const txt = (msg as { result?: string }).result ?? null;
-        writeOutput({ status: 'success', result: txt ?? '⚠️ ran out of turns — say "continue" to resume.', newSessionId });
+        writeOutput({ status: 'success', result: txt ?? 'ran out of turns; say "continue" to resume.', newSessionId });
       }
     }
   }
@@ -521,100 +546,116 @@ async function runQuery(
 async function main(): Promise<void> {
   let containerInput: ContainerInput;
 
+  let privateTmpDir: string | null = null;
   try {
-    const stdinData = await readStdin();
-    containerInput = JSON.parse(stdinData);
-    // Delete the temp file the entrypoint wrote — it contains secrets
+    privateTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'arizuko-'));
+    try { fs.chmodSync(privateTmpDir, 0o700); } catch { /* ignore */ }
+  } catch { /* ignore */ }
+
+  const cleanupSecrets = () => {
     try { fs.unlinkSync('/tmp/input.json'); } catch { /* may not exist */ }
-    log(`Received input for group: ${containerInput.groupFolder}`);
-  } catch (err) {
-    writeOutput({
-      status: 'error',
-      result: null,
-      error: `Failed to parse input: ${err instanceof Error ? err.message : String(err)}`
-    });
-    process.exit(1);
-  }
-
-  // SDK gets secrets via env param; process.env stays clean so Bash can't see them.
-  const sdkEnv: Record<string, string | undefined> = { ...process.env };
-  for (const [key, value] of Object.entries(containerInput.secrets || {})) {
-    sdkEnv[key] = value;
-  }
-
-  let sessionId = containerInput.sessionId;
-  fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
-
-  // Clean up stale _close sentinel from previous container runs
-  try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
-
-  // Build initial prompt (drain any pending IPC messages too)
-  let prompt = containerInput.prompt;
-  if (containerInput.isScheduledTask) {
-    prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
-  }
-  if (containerInput.soul && !containerInput.systemMd) {
-    prompt = containerInput.soul + '\n\n' + prompt;
-  }
-  const pending = drainIpcInput();
-  if (pending.length > 0) {
-    log(`Draining ${pending.length} pending IPC messages into initial prompt`);
-    prompt += '\n' + pending.join('\n');
-  }
-
-  // Query loop: run query → wait for IPC message → run new query → repeat
-  let resumeAt: string | undefined;
-  try {
-    while (true) {
-      log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
-
-      const queryResult = await runQuery(prompt, sessionId, containerInput, sdkEnv, resumeAt);
-      if (queryResult.sessionError && sessionId) {
-        log(`Session error on resume, retrying with fresh session (was: ${sessionId})`);
-        sessionId = undefined;
-        resumeAt = undefined;
-        continue;
-      }
-      if (queryResult.newSessionId) {
-        sessionId = queryResult.newSessionId;
-      }
-      if (queryResult.lastAssistantUuid) {
-        resumeAt = queryResult.lastAssistantUuid;
-      }
-
-      // Skip the session-update marker — it resets the host idle timer.
-      if (queryResult.closedDuringQuery) {
-        log('Close sentinel consumed during query, exiting');
-        break;
-      }
-
-      // Emit session update only when session is new
-      if (!containerInput.sessionId) {
-        writeOutput({ status: 'success', result: null, newSessionId: sessionId });
-      }
-
-      log('Query ended, checking for next IPC message...');
-
-      const nextMessage = checkIpcMessage();
-      if (nextMessage === null) {
-        log('Input empty, exiting');
-        break;
-      }
-
-      log(`Got new message (${nextMessage.length} chars), starting new query`);
-      prompt = nextMessage;
+    if (privateTmpDir) {
+      try { fs.rmSync(privateTmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    log(`Agent error: ${errorMessage}`);
-    writeOutput({
-      status: 'error',
-      result: null,
-      newSessionId: sessionId,
-      error: errorMessage
-    });
-    process.exit(1);
+  };
+
+  try {
+    try {
+      const stdinData = await readStdin();
+      containerInput = JSON.parse(stdinData);
+      log(`Received input for group: ${containerInput.groupFolder}`);
+    } catch (err) {
+      cleanupSecrets();
+      writeOutput({
+        status: 'error',
+        result: null,
+        error: `Failed to parse input: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      process.exit(1);
+    }
+
+    const sdkEnv: Record<string, string | undefined> = { ...process.env };
+    for (const [key, value] of Object.entries(containerInput.secrets || {})) {
+      sdkEnv[key] = value;
+    }
+
+    let sessionId = containerInput.sessionId;
+    fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
+
+    try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
+
+    let prompt = containerInput.prompt;
+    if (containerInput.isScheduledTask) {
+      prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
+    }
+    if (containerInput.soul && !containerInput.systemMd) {
+      prompt = containerInput.soul + '\n\n' + prompt;
+    }
+    const pending = drainIpcInput();
+    if (pending.length > 0) {
+      log(`Draining ${pending.length} pending IPC messages into initial prompt`);
+      prompt += '\n' + pending.join('\n');
+    }
+
+    let resumeAt: string | undefined;
+    try {
+      while (true) {
+        log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
+
+        const queryResult = await runQuery(prompt, sessionId, containerInput, sdkEnv, resumeAt);
+        if (queryResult.sessionError && sessionId) {
+          log(`Session error on resume, retrying with fresh session (was: ${sessionId})`);
+          sessionId = undefined;
+          resumeAt = undefined;
+          continue;
+        }
+        if (queryResult.newSessionId) {
+          sessionId = queryResult.newSessionId;
+        }
+        if (queryResult.lastAssistantUuid) {
+          resumeAt = queryResult.lastAssistantUuid;
+        }
+
+        if (queryResult.closedDuringQuery) {
+          log('Close sentinel consumed during query, exiting');
+          break;
+        }
+
+        if (!containerInput.sessionId) {
+          writeOutput({ status: 'success', result: null, newSessionId: sessionId });
+        }
+
+        log('Query ended, checking for next IPC message...');
+
+        const nextMessage = checkIpcMessage();
+        if (nextMessage === null) {
+          log('Input empty, exiting');
+          break;
+        }
+
+        log(`Got new message (${nextMessage.length} chars), starting new query`);
+        prompt = nextMessage;
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log(`Agent error: ${errorMessage}`);
+      writeOutput({
+        status: 'error',
+        result: null,
+        newSessionId: sessionId,
+        error: errorMessage,
+      });
+      process.exit(1);
+    }
+  } finally {
+    cleanupSecrets();
   }
 }
 
-main();
+main().catch((err) => {
+  const errorMessage = err instanceof Error ? err.message : String(err);
+  try {
+    writeOutput({ status: 'error', result: null, error: `Unhandled: ${errorMessage}` });
+  } catch { /* stdout already closed */ }
+  process.exit(1);
+});

@@ -10,7 +10,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf16"
 
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
@@ -21,8 +23,10 @@ type bot struct {
 	api       *tgbotapi.BotAPI
 	cfg       config
 	cancel    context.CancelFunc
+	done      chan struct{}
 	mentionRe *regexp.Regexp
 	typing    *chanlib.TypingRefresher
+	offsetMu  sync.Mutex
 }
 
 func newBot(cfg config) (*bot, error) {
@@ -31,7 +35,7 @@ func newBot(cfg config) (*bot, error) {
 		return nil, fmt.Errorf("telegram auth: %w", err)
 	}
 	slog.Info("telegram connected", "username", api.Self.UserName)
-	b := &bot{api: api, cfg: cfg}
+	b := &bot{api: api, cfg: cfg, done: make(chan struct{})}
 	b.typing = chanlib.NewTypingRefresher(4*time.Second, 10*time.Minute, b.sendTyping, nil)
 	if cfg.AssistantName != "" {
 		b.mentionRe = regexp.MustCompile(
@@ -46,14 +50,45 @@ func (b *bot) loadOffset() int {
 	return n
 }
 
+// saveOffset writes atomically via temp + fsync + rename so a crash can't
+// leave an empty or partial offset file.
 func (b *bot) saveOffset(offset int) {
 	if b.cfg.StateFile == "" {
 		return
 	}
-	os.WriteFile(b.cfg.StateFile, []byte(strconv.Itoa(offset)), 0o644)
+	b.offsetMu.Lock()
+	defer b.offsetMu.Unlock()
+	tmp := b.cfg.StateFile + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		slog.Warn("offset open failed", "err", err)
+		return
+	}
+	if _, err := f.WriteString(strconv.Itoa(offset)); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		slog.Warn("offset write failed", "err", err)
+		return
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		slog.Warn("offset fsync failed", "err", err)
+		return
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		slog.Warn("offset close failed", "err", err)
+		return
+	}
+	if err := os.Rename(tmp, b.cfg.StateFile); err != nil {
+		os.Remove(tmp)
+		slog.Warn("offset rename failed", "err", err)
+	}
 }
 
 func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
+	defer close(b.done)
 	offset := b.loadOffset()
 	uc := tgbotapi.NewUpdate(offset)
 	uc.Timeout = 30
@@ -67,10 +102,15 @@ func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
 			if !ok {
 				return
 			}
+			delivered := true
 			if u.Message != nil {
-				b.handle(u.Message, rc)
+				delivered = b.handle(u.Message, rc)
 			}
-			b.saveOffset(u.UpdateID + 1)
+			// Advance offset only after successful delivery so Telegram
+			// redelivers on next long-poll if the router was unreachable.
+			if delivered {
+				b.saveOffset(u.UpdateID + 1)
+			}
 		}
 	}
 }
@@ -81,11 +121,19 @@ func (b *bot) stop() {
 	}
 	b.typing.Stop()
 	b.api.StopReceivingUpdates()
+	// Wait for poll goroutine to exit so any in-flight saveOffset completes.
+	select {
+	case <-b.done:
+	case <-time.After(5 * time.Second):
+		slog.Warn("poll goroutine did not exit within timeout")
+	}
 }
 
-func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
+// handle processes a message and returns true iff the router accepted
+// delivery (or the message was intentionally skipped and safe to ack).
+func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 	if msg.From != nil && msg.From.IsBot {
-		return
+		return true
 	}
 	jid := "telegram:" + strconv.FormatInt(msg.Chat.ID, 10)
 
@@ -98,7 +146,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
 		}
 	}
 	if content == "" {
-		return
+		return true
 	}
 
 	if b.mentionRe != nil && b.api.Self.UserName != "" && msg.Entities != nil {
@@ -134,10 +182,11 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) {
 			im.ReplyToText = r.Caption
 		}
 	}
-	err := rc.SendMessage(im)
-	if err != nil {
+	if err := rc.SendMessage(im); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
+		return false
 	}
+	return true
 }
 
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
@@ -272,13 +321,23 @@ func userID(u *tgbotapi.User) string {
 	return strconv.FormatInt(u.ID, 10)
 }
 
+// entity slices the substring addressed by a Telegram MessageEntity.
+// Telegram documents Offset/Length as UTF-16 code units, so the string
+// must be encoded to UTF-16 before indexing — otherwise emoji / non-BMP
+// characters yield wrong ranges or panic on out-of-range.
 func entity(text string, e tgbotapi.MessageEntity) string {
-	r := []rune(text)
-	end := e.Offset + e.Length
-	if end > len(r) {
-		end = len(r)
+	u := utf16.Encode([]rune(text))
+	if e.Offset < 0 || e.Offset > len(u) {
+		return ""
 	}
-	return string(r[e.Offset:end])
+	end := e.Offset + e.Length
+	if end > len(u) {
+		end = len(u)
+	}
+	if end < e.Offset {
+		return ""
+	}
+	return string(utf16.Decode(u[e.Offset:end]))
 }
 
 type mediaResult struct {

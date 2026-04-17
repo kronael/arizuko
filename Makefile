@@ -1,5 +1,10 @@
 DAEMONS = gated onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd
 
+# DOCKER may be overridden by the caller for hosts where the invoking user is
+# in the docker group (then `make images DOCKER=docker`). Default is
+# `sudo docker` so `make images` works consistently across dev hosts.
+DOCKER ?= sudo docker
+
 build:
 	go build -o arizuko cmd/arizuko/main.go
 	$(foreach d,$(DAEMONS),make -C $(d) build;)
@@ -18,15 +23,15 @@ clean:
 	$(foreach d,$(DAEMONS),make -C $(d) clean;)
 
 images:
-	docker build -t arizuko .
-	docker build -t arizuko-whatsapp -f whapd/Dockerfile .
-	make -C ant image
+	$(DOCKER) build -t arizuko .
+	$(DOCKER) build -t arizuko-whatsapp -f whapd/Dockerfile .
+	make -C ant image DOCKER="$(DOCKER)"
 	make vite-image
 
 vite-image:
-	sudo docker build -f ant/Dockerfile.vite -t arizuko-vite:latest .
+	$(DOCKER) build -f ant/Dockerfile.vite -t arizuko-vite:latest .
 
 agent:
-	make -C ant image
+	make -C ant image DOCKER="$(DOCKER)"
 
 .PHONY: build lint test clean images agent vite-image

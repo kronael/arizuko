@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +14,11 @@ import (
 	"github.com/onvos/arizuko/store"
 	_ "modernc.org/sqlite"
 )
+
+func TestMain(m *testing.M) {
+	os.Setenv("ARIZUKO_DEV", "true")
+	os.Exit(m.Run())
+}
 
 // migratedDB opens an in-memory SQLite DB and runs the canonical
 // store migrations. Use for tests that exercise the full schema.
@@ -202,9 +208,11 @@ func TestCreateWorldValidUsername(t *testing.T) {
 
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"alice"}}
+	form.Set("csrf", "c")
 	req := httptest.NewRequest("POST", "/onboard", bytes.NewReader([]byte(form.Encode())))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:new")
+	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, cfg)
 
@@ -238,9 +246,11 @@ func TestCreateWorldInvalidUsername(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"A!"}}
+	form.Set("csrf", "c")
 	req := httptest.NewRequest("POST", "/onboard", bytes.NewReader([]byte(form.Encode())))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:new")
+	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, cfg)
 
@@ -254,9 +264,11 @@ func TestCreateWorldDuplicateUsername(t *testing.T) {
 	db.Exec(`INSERT INTO groups (folder, name, parent, added_at) VALUES ('alice', 'alice', NULL, '2026-01-01')`)
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"alice"}}
+	form.Set("csrf", "c")
 	req := httptest.NewRequest("POST", "/onboard", bytes.NewReader([]byte(form.Encode())))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:new")
+	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, cfg)
 
@@ -373,9 +385,11 @@ func TestCreateWorldRoutesLinkedJIDs(t *testing.T) {
 
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"newworld"}}
+	form.Set("csrf", "c")
 	req := httptest.NewRequest("POST", "/onboard", bytes.NewReader([]byte(form.Encode())))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:new")
+	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, cfg)
 
@@ -410,9 +424,11 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"lonely"}}
+	form.Set("csrf", "c")
 	req := httptest.NewRequest("POST", "/onboard", bytes.NewReader([]byte(form.Encode())))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:lonely")
+	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, cfg)
 
@@ -495,9 +511,11 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"opworld"}}
+	form.Set("csrf", "c")
 	req := httptest.NewRequest("POST", "/onboard", bytes.NewReader([]byte(form.Encode())))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:op")
+	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, cfg)
 
@@ -917,13 +935,28 @@ func TestInviteInvalidToken(t *testing.T) {
 
 func postOnboard(db *sql.DB, cfg config, sub string,
 	vals url.Values) *httptest.ResponseRecorder {
+	// Double-submit CSRF: cookie and form field must match.
+	const csrf = "test-csrf-token"
+	if vals.Get("csrf") == "" {
+		vals = cloneVals(vals)
+		vals.Set("csrf", csrf)
+	}
 	body := vals.Encode()
 	req := httptest.NewRequest("POST", "/onboard", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", sub)
+	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: csrf})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, cfg)
 	return w
+}
+
+func cloneVals(v url.Values) url.Values {
+	out := make(url.Values, len(v))
+	for k, vs := range v {
+		out[k] = append([]string(nil), vs...)
+	}
+	return out
 }
 
 func TestDeleteRoute(t *testing.T) {
@@ -978,6 +1011,8 @@ func TestAddRoute(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
 	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	// Alice must own a JID whose room matches the add_route match pattern.
+	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed) VALUES ('alice', 'telegram:999', '2026-01-01')`)
 
 	w := postOnboard(db, cfg, "alice", url.Values{
 		"action": {"add_route"},
@@ -994,6 +1029,153 @@ func TestAddRoute(t *testing.T) {
 	).Scan(&match, &target)
 	if match != "room=999" || target != "myroom" {
 		t.Errorf("route: match=%q target=%q", match, target)
+	}
+}
+
+// Non-operator cannot add a route whose match refers to a JID they don't own,
+// even if the target folder is theirs — prevents cross-tenant interception.
+func TestAddRouteMatchNotOwned(t *testing.T) {
+	db := testDB(t)
+	cfg := config{}
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	// alice has NO user_jids; attempt to claim victim's room.
+	w := postOnboard(db, cfg, "alice", url.Values{
+		"action": {"add_route"},
+		"match":  {"room=victim-id"},
+		"target": {"myroom"},
+	})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("want 403, got %d: %s", w.Code, w.Body.String())
+	}
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	if n != 0 {
+		t.Errorf("no route should have been created, got %d", n)
+	}
+}
+
+// Reject malformed match pattern characters (wildcards, spaces).
+func TestAddRouteInvalidMatchChars(t *testing.T) {
+	db := testDB(t)
+	cfg := config{}
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	for _, bad := range []string{"room=* *", "room=a b", "** match"} {
+		w := postOnboard(db, cfg, "alice", url.Values{
+			"action": {"add_route"},
+			"match":  {bad},
+			"target": {"myroom"},
+		})
+		if w.Code != http.StatusBadRequest && w.Code != http.StatusForbidden {
+			t.Errorf("bad match %q: want 400/403, got %d", bad, w.Code)
+		}
+	}
+}
+
+func TestCSRFRejected(t *testing.T) {
+	db := testDB(t)
+	cfg := config{}
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	// No csrf cookie/field → must be rejected even with X-User-Sub.
+	form := url.Values{"action": {"add_route"}, "match": {"room=1"}, "target": {"myroom"}}
+	req := httptest.NewRequest("POST", "/onboard", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "alice")
+	w := httptest.NewRecorder()
+	handleOnboardPost(w, req, db, cfg)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("want 403 (csrf), got %d", w.Code)
+	}
+}
+
+// Cookie-based auto-link is single-use: once claimed, the onboarding row's
+// user_sub is set and a later attacker with the cookie cannot rebind.
+func TestSecondJIDAutoLinkSingleUse(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
+		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, name, parent, added_at)
+		VALUES ('alice', 'alice', NULL, '2026-01-01')`)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('github:alice', 'alice')`)
+	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
+		VALUES ('github:eve', 'eve', 'Eve', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, name, parent, added_at)
+		VALUES ('eve', 'eve', NULL, '2026-01-01')`)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('github:eve', 'eve')`)
+	// token_used row with user_sub still NULL.
+	db.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
+		VALUES ('telegram:victim', 'token_used', '2099-01-01T00:00:00Z', '2026-01-01')`)
+
+	// Alice legitimately claims the JID.
+	req := httptest.NewRequest("GET", "/onboard", nil)
+	req.Header.Set("X-User-Sub", "github:alice")
+	req.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "telegram:victim"})
+	w := httptest.NewRecorder()
+	handleOnboard(w, req, db, config{})
+
+	var jidOwner string
+	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = 'telegram:victim'`).Scan(&jidOwner)
+	if jidOwner != "github:alice" {
+		t.Fatalf("first claim: want github:alice, got %q", jidOwner)
+	}
+
+	// Eve tries to rebind using the same cookie. Must fail: onboarding row is
+	// now claimed (user_sub != NULL), so the atomic UPDATE matches nothing.
+	req2 := httptest.NewRequest("GET", "/onboard", nil)
+	req2.Header.Set("X-User-Sub", "github:eve")
+	req2.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "telegram:victim"})
+	w2 := httptest.NewRecorder()
+	handleOnboard(w2, req2, db, config{})
+
+	// Ownership unchanged.
+	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = 'telegram:victim'`).Scan(&jidOwner)
+	if jidOwner != "github:alice" {
+		t.Errorf("after replay attempt: want github:alice, got %q", jidOwner)
+	}
+	// No route to eve's folder.
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'eve'`).Scan(&n)
+	if n != 0 {
+		t.Errorf("eve must not receive a route, got %d", n)
+	}
+}
+
+// Invite consume is atomic: simulated concurrent redemption cannot exceed
+// max_uses. The guard is inside the UPDATE — double-call with uses=max_uses
+// after the first returns the "used" page.
+func TestInviteAtomicConsume(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
+		VALUES ('github:bob', 'bob', 'Bob', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, name, parent, added_at)
+		VALUES ('alice', 'alice', NULL, '2026-01-01')`)
+	tok := createInvitation(db, "alice", "telegram:1", 1)
+
+	// First consume.
+	req := httptest.NewRequest("GET", "/invite/"+tok, nil)
+	req.SetPathValue("token", tok)
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	handleInvite(w, req, db, config{})
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("first consume: want 303, got %d", w.Code)
+	}
+
+	// Second consume — uses is now 1 == max_uses; must fail.
+	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
+		VALUES ('github:eve', 'eve', 'Eve', '', '2026-01-01')`)
+	req2 := httptest.NewRequest("GET", "/invite/"+tok, nil)
+	req2.SetPathValue("token", tok)
+	req2.Header.Set("X-User-Sub", "github:eve")
+	w2 := httptest.NewRecorder()
+	handleInvite(w2, req2, db, config{})
+	if w2.Code != http.StatusOK {
+		t.Errorf("second consume: want 200 error page, got %d", w2.Code)
+	}
+	// Eve should not have user_groups row.
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM user_groups WHERE user_sub = 'github:eve'`).Scan(&n)
+	if n != 0 {
+		t.Errorf("eve must not be granted access, got %d rows", n)
 	}
 }
 

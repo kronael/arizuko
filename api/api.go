@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -13,12 +14,20 @@ import (
 	"github.com/onvos/arizuko/store"
 )
 
+// Request body caps. /v1/messages is larger to accommodate inline base64
+// attachments (whapd); other endpoints take small JSON.
+const (
+	maxBodyDefault  = 10 << 20 // 10 MiB
+	maxBodyMessages = 25 << 20 // 25 MiB
+)
+
 type Server struct {
 	reg   *chanreg.Registry
 	store *store.Store
 
-	onRegister   func(name string, ch *chanreg.HTTPChannel)
-	onDeregister func(name string)
+	onRegister    func(name string, ch *chanreg.HTTPChannel)
+	onDeregister  func(name string)
+	channelLookup func(name string) *chanreg.HTTPChannel
 }
 
 func New(reg *chanreg.Registry, s *store.Store) *Server {
@@ -28,19 +37,35 @@ func New(reg *chanreg.Registry, s *store.Store) *Server {
 func (s *Server) OnRegister(fn func(string, *chanreg.HTTPChannel)) { s.onRegister = fn }
 func (s *Server) OnDeregister(fn func(string))                     { s.onDeregister = fn }
 
+// ChannelLookup wires the server to the gateway's live channel store so
+// outbound sends reuse the same HTTPChannel (preserves retry outbox).
+func (s *Server) ChannelLookup(fn func(name string) *chanreg.HTTPChannel) {
+	s.channelLookup = fn
+}
+
 func (s *Server) Handler() http.Handler {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return chanlib.Auth(s.reg.Secret(), h)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/channels/register", auth(s.handleRegister))
-	mux.HandleFunc("POST /v1/channels/deregister", s.handleDeregister)
-	mux.HandleFunc("POST /v1/outbound", auth(s.handleOutbound))
-	mux.HandleFunc("POST /v1/messages", s.handleMessage)
+	mux.HandleFunc("POST /v1/channels/register", auth(capBody(maxBodyDefault, s.handleRegister)))
+	mux.HandleFunc("POST /v1/channels/deregister", capBody(maxBodyDefault, s.handleDeregister))
+	mux.HandleFunc("POST /v1/outbound", auth(capBody(maxBodyDefault, s.handleOutbound)))
+	mux.HandleFunc("POST /v1/messages", capBody(maxBodyMessages, s.handleMessage))
 	mux.HandleFunc("GET /v1/channels", auth(s.handleListChannels))
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /ready", s.handleHealth)
 	return mux
+}
+
+// capBody wraps next with an http.MaxBytesReader on r.Body so an
+// oversize request body surfaces a 400-class error before it exhausts
+// memory in json.Decode.
+func capBody(max int64, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, max)
+		next(w, r)
+	}
 }
 
 type registerReq struct {
@@ -61,14 +86,29 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.reg.Register(req.Name, req.URL, req.JIDPrefixes, req.Capabilities)
+	// Origin pin: require future re-registrations to come from the same
+	// source IP and present the same secret. Blocks adapter-name hijack
+	// by other CHANNEL_SECRET holders.
+	originIP := clientIP(r)
+	presentedSecret := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+
+	token, err := s.reg.RegisterWithOrigin(req.Name, req.URL, req.JIDPrefixes, req.Capabilities,
+		originIP, presentedSecret)
 	if err != nil {
-		chanlib.WriteErr(w, http.StatusInternalServerError, err.Error())
+		status := http.StatusBadRequest
+		if strings.HasPrefix(err.Error(), "generate token") {
+			status = http.StatusInternalServerError
+		} else if strings.Contains(err.Error(), "already registered") {
+			status = http.StatusConflict
+		}
+		chanlib.WriteErr(w, status, err.Error())
 		return
 	}
 
 	if s.onRegister != nil {
-		s.onRegister(req.Name, chanreg.NewHTTPChannel(s.reg.Get(req.Name), s.reg.Secret()))
+		if entry := s.reg.Get(req.Name); entry != nil {
+			s.onRegister(req.Name, chanreg.NewHTTPChannel(entry, s.reg.Secret()))
+		}
 	}
 
 	slog.Info("channel registered",
@@ -110,12 +150,24 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, http.StatusNotFound, "no channel for jid")
 		return
 	}
-	ch := chanreg.NewHTTPChannel(entry, s.reg.Secret())
-	if _, err := ch.Send(req.JID, req.Text, "", ""); err != nil {
+	// Prefer the gateway-held HTTPChannel (set via OnRegister) so its
+	// outbox survives across failed sends. Fall back to constructing one
+	// when no gateway hook is wired (tests, bootstrap).
+	ch := s.resolveChannel(entry)
+	if _, err := ch.SendCtx(r.Context(), req.JID, req.Text, "", ""); err != nil {
 		chanlib.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	chanlib.WriteJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) resolveChannel(entry *chanreg.Entry) *chanreg.HTTPChannel {
+	if s.channelLookup != nil {
+		if ch := s.channelLookup(entry.Name); ch != nil {
+			return ch
+		}
+	}
+	return chanreg.NewHTTPChannel(entry, s.reg.Secret())
 }
 
 type messageReq struct {
@@ -236,4 +288,14 @@ func (s *Server) checkToken(w http.ResponseWriter, r *http.Request) *chanreg.Ent
 	}
 	chanlib.WriteErr(w, http.StatusUnauthorized, "invalid token")
 	return nil
+}
+
+// clientIP returns the peer IP for r. RemoteAddr is host:port; strip the port.
+// No X-Forwarded-For trust: router is private-network-bound.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

@@ -2,12 +2,14 @@ package chanlib
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 // RunOpts bundles per-adapter values for Run. Start is called after
@@ -32,7 +34,8 @@ func Run(opts RunOpts) {
 		Level: slog.LevelInfo,
 	})))
 	if opts.ChannelSecret == "" {
-		slog.Warn("CHANNEL_SECRET not set; HTTP endpoints unauthenticated")
+		slog.Error("CHANNEL_SECRET not set; refusing to start unauthenticated adapter")
+		os.Exit(1)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -58,13 +61,27 @@ func Run(opts RunOpts) {
 	}
 	slog.Info("http server starting", "addr", opts.ListenAddr)
 	srv := &http.Server{Handler: handler}
-	go srv.Serve(ln)
+	serveErr := make(chan error, 1)
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
+		}
+	}()
 
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case err := <-serveErr:
+		slog.Error("http server failed", "err", err)
+		os.Exit(1)
+	}
 	slog.Info("shutting down")
 	rc.Deregister()
 	if stop != nil {
 		stop()
 	}
-	srv.Close()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("graceful shutdown failed", "err", err)
+	}
 }

@@ -1,6 +1,9 @@
 package theme
 
-import "html"
+import (
+	"html"
+	"html/template"
+)
 
 // CSS is the shared arizuko stylesheet. All theme variables, resets,
 // and component classes live here. Consumers embed it via Head() or
@@ -286,9 +289,13 @@ func Head(title string) string {
 
 // Page returns a complete HTML page with centered card layout.
 // Suited for login, onboarding token landing, error pages.
-func Page(title, body string) string {
+//
+// body is template.HTML: callers MUST opt in to raw HTML, and MUST
+// escape any user input (html.EscapeString / template.HTMLEscapeString)
+// before wrapping with template.HTML(...).
+func Page(title string, body template.HTML) string {
 	return `<!DOCTYPE html><html>` + Head(title) +
 		`<body><div class="page-center"><div class="card card-md"><p class="brand">arizuko</p><h2>` +
-		html.EscapeString(title) + `</h2>` + body +
+		html.EscapeString(title) + `</h2>` + string(body) +
 		`</div></div></body></html>`
 }

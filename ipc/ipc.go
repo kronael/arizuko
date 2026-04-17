@@ -1,9 +1,14 @@
 package ipc
 
 import (
+	"bufio"
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -60,29 +65,76 @@ type StoreFns struct {
 	JIDRoutedToFolder   func(jid, folder string) bool
 }
 
-func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string) (func(), error) {
+// maxMCPConns bounds concurrent in-flight MCP connections per group.
+const maxMCPConns = 8
+
+// GenerateRuntimeToken returns a fresh per-run token passed into the
+// container via env (ARIZUKO_MCP_TOKEN). The MCP server verifies it on
+// the first framed message of each connection. Empty return = RNG
+// failure; callers should treat as a hard error.
+func GenerateRuntimeToken() string {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// ServeMCP binds the group MCP socket, enforces ownership (0660 + chown
+// to the container uid when known) and bounds accept-loop fan-out. The
+// MCPServer is built once and reused across connections. When token is
+// non-empty, every accepted connection must first send a single JSON
+// line {"token":"<hex>"}\n; other bytes are rejected.
+func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, token string, containerUID int) (func(), error) {
 	os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
 		return nil, err
 	}
-	os.Chmod(sockPath, 0666) // agent container runs as uid=1000, gated as root
+	// 0660 lets the container uid (group member) connect while excluding
+	// every other local user. Chown to the container uid when known so
+	// DAC enforces ownership even for hostile accounts in the same group.
+	os.Chmod(sockPath, 0o660)
+	if containerUID > 0 {
+		os.Chown(sockPath, containerUID, -1)
+	}
 	slog.Info("mcp server listening", "folder", folder, "sock", sockPath)
 
+	// Build server once; every connection multiplexes onto it.
+	srv := buildMCPServer(gated, db, folder, rules)
+	stdioSrv := server.NewStdioServer(srv)
+
 	ctx, cancel := context.WithCancel(context.Background())
+	sem := make(chan struct{}, maxMCPConns)
 	go func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			slog.Debug("mcp connection accepted", "folder", folder)
-			go func() {
-				srv := buildMCPServer(gated, db, folder, rules)
-				stdioSrv := server.NewStdioServer(srv)
-				stdioSrv.Listen(ctx, conn, conn)
+			select {
+			case sem <- struct{}{}:
+			default:
+				slog.Warn("mcp conn limit reached; rejecting",
+					"folder", folder, "limit", maxMCPConns)
 				conn.Close()
-			}()
+				continue
+			}
+			slog.Debug("mcp connection accepted", "folder", folder)
+			go func(c net.Conn) {
+				defer func() { <-sem; c.Close() }()
+				var reader io.Reader = c
+				if token != "" {
+					ar, err := verifyToken(c, token)
+					if err != nil {
+						slog.Warn("mcp token verification failed",
+							"folder", folder, "err", err)
+						return
+					}
+					reader = ar
+				}
+				stdioSrv.Listen(ctx, reader, c)
+			}(conn)
 		}
 	}()
 
@@ -91,6 +143,33 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 		ln.Close()
 		os.Remove(sockPath)
 	}, nil
+}
+
+// verifyToken reads a short preamble line from conn and checks it
+// carries the expected token. Preamble: a single line of JSON
+// {"token":"<hex>"}\n. On success the returned reader has the preamble
+// stripped so the MCP stdio server sees only the remaining JSON-RPC
+// stream.
+func verifyToken(conn net.Conn, expected string) (io.Reader, error) {
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return nil, fmt.Errorf("set deadline: %w", err)
+	}
+	br := bufio.NewReader(conn)
+	line, err := br.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("preamble read: %w", err)
+	}
+	conn.SetReadDeadline(time.Time{})
+	var p struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &p); err != nil {
+		return nil, fmt.Errorf("preamble parse: %w", err)
+	}
+	if subtle.ConstantTimeCompare([]byte(p.Token), []byte(expected)) != 1 {
+		return nil, fmt.Errorf("invalid token")
+	}
+	return br, nil
 }
 
 func toolErr(msg string) (*mcp.CallToolResult, error) {
@@ -178,7 +257,16 @@ func writeVhosts(webDir string, m map[string]string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(webDir, "vhosts.json"), data, 0644)
+	fp := filepath.Join(webDir, "vhosts.json")
+	tmp := fp + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, fp); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) *server.MCPServer {
@@ -284,13 +372,26 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr(err.Error())
 			}
 			localPath := filepath.Join(gated.GroupsDir, folder, rel)
-			hostPath := filepath.Join(gated.HostGroupsDir, folder, rel)
-			if _, err := mountsec.ValidateFilePath(localPath, filepath.Join(gated.GroupsDir, folder)); err != nil {
+			groupRoot := filepath.Join(gated.GroupsDir, folder)
+			realLocal, err := mountsec.ValidateFilePath(localPath, groupRoot)
+			if err != nil {
 				return toolErr("path outside group dir")
 			}
-			if !strings.HasPrefix(hostPath, filepath.Join(gated.HostGroupsDir, folder)+"/") {
+			// Derive hostPath from fully-resolved localPath so symlink
+			// escapes caught by EvalSymlinks also fail the host-prefix check.
+			realRoot, err := filepath.EvalSymlinks(groupRoot)
+			if err != nil {
+				return toolErr("group root unresolvable")
+			}
+			relResolved, err := filepath.Rel(realRoot, realLocal)
+			if err != nil || strings.HasPrefix(relResolved, "..") {
 				return toolErr("path outside group dir")
 			}
+			hostPath := filepath.Join(gated.HostGroupsDir, folder, relResolved)
+			if !strings.HasPrefix(hostPath, filepath.Join(gated.HostGroupsDir, folder)+string(filepath.Separator)) {
+				return toolErr("path outside group dir")
+			}
+			_ = hostPath // validated; SendDocument operates on localPath
 			slog.Info("send_file", "folder", folder, "jid", jid, "path", localPath)
 			if err := gated.SendDocument(jid, localPath, name, caption); err != nil {
 				return toolErr(err.Error())

@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/onvos/arizuko/api"
 	"github.com/onvos/arizuko/chanreg"
@@ -43,32 +45,69 @@ func main() {
 
 	gw := gateway.New(cfg, s)
 
+	// httpChannels tracks the live *chanreg.HTTPChannel per adapter name so
+	// api.handleOutbound can reuse it (preserving retry outbox) instead of
+	// constructing a throwaway channel per request.
+	var (
+		chanMu       sync.RWMutex
+		httpChannels = map[string]*chanreg.HTTPChannel{}
+	)
+
 	reg := chanreg.New(cfg.ChannelSecret)
 	apiSrv := api.New(reg, s)
 	apiSrv.OnRegister(func(name string, ch *chanreg.HTTPChannel) {
 		slog.Info("channel registered", "name", name)
 		gw.RemoveChannel(name)
 		gw.AddChannel(ch)
+		chanMu.Lock()
+		httpChannels[name] = ch
+		chanMu.Unlock()
 		ch.DrainOutbox()
 	})
 	apiSrv.OnDeregister(func(name string) {
 		slog.Info("channel deregistered", "name", name)
 		gw.RemoveChannel(name)
+		chanMu.Lock()
+		delete(httpChannels, name)
+		chanMu.Unlock()
+	})
+	apiSrv.ChannelLookup(func(name string) *chanreg.HTTPChannel {
+		chanMu.RLock()
+		defer chanMu.RUnlock()
+		return httpChannels[name]
 	})
 
 	addr := net.JoinHostPort("", strconv.Itoa(cfg.APIPort))
-	srv := &http.Server{Addr: addr, Handler: apiSrv.Handler()}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           apiSrv.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	go func() {
 		slog.Info("api server starting", "addr", addr)
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 			slog.Error("api server error", "err", err)
 		}
 	}()
-	reg.StartHealthLoop(context.Background())
 
 	ctx, cancel := signal.NotifyContext(context.Background(),
 		syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
+
+	reg.StartHealthLoop(ctx)
+
+	// Graceful HTTP shutdown when the signal context cancels.
+	go func() {
+		<-ctx.Done()
+		shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutCancel()
+		if err := srv.Shutdown(shutCtx); err != nil {
+			slog.Error("api server shutdown", "err", err)
+		}
+	}()
 
 	if err := gw.Run(ctx); err != nil {
 		slog.Error("gateway error", "err", err)

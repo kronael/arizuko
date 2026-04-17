@@ -60,7 +60,7 @@ func need(args []string, n int, usage string) {
 
 func cmdRun(args []string) {
 	need(args, 1, "arizuko run <instance>")
-	outPath := generateCompose(instanceDir(args[0]))
+	outPath := generateCompose(mustInstanceDir(args[0]))
 	cmd := exec.Command("docker", "compose", "-f", outPath, "up", "--remove-orphans")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -71,7 +71,7 @@ func cmdRun(args []string) {
 
 func cmdGenerate(args []string) {
 	need(args, 1, "arizuko generate <instance>")
-	generateCompose(instanceDir(args[0]))
+	generateCompose(mustInstanceDir(args[0]))
 }
 
 func generateCompose(dataDir string) string {
@@ -80,27 +80,63 @@ func generateCompose(dataDir string) string {
 		die("Failed: %v", err)
 	}
 	outPath := filepath.Join(dataDir, "docker-compose.yml")
-	if err := os.WriteFile(outPath, []byte(yml), 0o644); err != nil {
-		die("Failed: write compose: %v", err)
+	// Atomic write: tempfile in the same dir + rename. Prevents a partial
+	// YAML on mid-write crash (which would break `docker compose up`).
+	tmp, err := os.CreateTemp(dataDir, ".docker-compose.yml.*")
+	if err != nil {
+		die("Failed: create tempfile: %v", err)
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.WriteString(yml); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		die("Failed: write tempfile: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		die("Failed: close tempfile: %v", err)
+	}
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
+		os.Remove(tmpPath)
+		die("Failed: chmod tempfile: %v", err)
+	}
+	if err := os.Rename(tmpPath, outPath); err != nil {
+		os.Remove(tmpPath)
+		die("Failed: rename compose: %v", err)
 	}
 	return outPath
 }
 
-func instanceDir(name string) string {
+func mustInstanceDir(name string) string {
+	dir, err := instanceDir(name)
+	if err != nil {
+		die("Failed: %v", err)
+	}
+	return dir
+}
+
+func instanceDir(name string) (string, error) {
+	clean, err := core.SanitizeInstance(name)
+	if err != nil {
+		return "", err
+	}
 	if base := os.Getenv("ARIZUKO_DATA_DIR"); base != "" {
-		return filepath.Join(base, "arizuko_"+name)
+		return filepath.Join(base, "arizuko_"+clean), nil
 	}
 	prefix := os.Getenv("PREFIX")
 	if prefix == "" {
 		prefix = "/srv"
 	}
-	return filepath.Join(prefix, "data", "arizuko_"+name)
+	return filepath.Join(prefix, "data", "arizuko_"+clean), nil
 }
 
 func cmdCreate(args []string) {
 	need(args, 1, "arizuko create <name>")
-	name := args[0]
-	dataDir := instanceDir(name)
+	name, err := core.SanitizeInstance(args[0])
+	if err != nil {
+		die("Failed: %v", err)
+	}
+	dataDir := mustInstanceDir(name)
 
 	if err := os.MkdirAll(filepath.Join(dataDir, "services"), 0o755); err != nil {
 		die("Failed: mkdir services: %v", err)
@@ -108,11 +144,15 @@ func cmdCreate(args []string) {
 
 	envFile := filepath.Join(dataDir, ".env")
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
-		secret := make([]byte, 16)
-		rand.Read(secret)
+		secret := make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			die("Failed: crypto/rand: %v", err)
+		}
 		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=arizuko-ant:latest\nAPI_PORT=8080\nCHANNEL_SECRET=%s\n",
 			name, hex.EncodeToString(secret))
-		if err := os.WriteFile(envFile, []byte(content), 0o644); err != nil {
+		// 0600: .env holds CHANNEL_SECRET plus operator-populated OAuth
+		// secrets and tokens — not world-readable.
+		if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
 			die("Failed: write .env: %v", err)
 		}
 	}
@@ -141,7 +181,7 @@ func cmdGroup(args []string) {
 	need(args, 2, "arizuko group <instance> <list|add|rm|grant|ungrant|grants> ...")
 	instance, action := args[0], args[1]
 
-	dataDir := instanceDir(instance)
+	dataDir := mustInstanceDir(instance)
 	s, err := store.Open(filepath.Join(dataDir, "store"))
 	if err != nil {
 		die("Failed: open db: %v", err)
@@ -173,7 +213,9 @@ func cmdGroup(args []string) {
 		if err := s.PutGroup(core.Group{Name: name, Folder: folder, AddedAt: time.Now()}); err != nil {
 			die("Failed: add group: %v", err)
 		}
-		s.AddRoute(core.Route{Seq: 0, Match: "room=" + core.JidRoom(jid), Target: folder})
+		if _, err := s.AddRoute(core.Route{Seq: 0, Match: "room=" + core.JidRoom(jid), Target: folder}); err != nil {
+			die("Failed: add route: %v", err)
+		}
 		fmt.Printf("added group %s (%s) -> %s\n", name, jid, folder)
 
 	case "rm":
@@ -269,7 +311,7 @@ func cmdGate(args []string) {
 	need(args, 2, "arizuko gate <instance> <list|add|rm|enable|disable> ...")
 	instance, action := args[0], args[1]
 
-	dataDir := instanceDir(instance)
+	dataDir := mustInstanceDir(instance)
 	s, err := store.Open(filepath.Join(dataDir, "store"))
 	if err != nil {
 		die("Failed: open db: %v", err)
@@ -339,7 +381,7 @@ func cmdGate(args []string) {
 func cmdPair(args []string) {
 	need(args, 2, "arizuko pair <instance> <service> [args...]")
 	name, service := args[0], args[1]
-	composePath := requireCompose(instanceDir(name), name)
+	composePath := requireCompose(mustInstanceDir(name), name)
 
 	cmdArgs := append([]string{"compose", "-f", composePath, "run", "--rm", service}, args[2:]...)
 	cmd := exec.Command("docker", cmdArgs...)
@@ -361,7 +403,7 @@ func requireCompose(dataDir, name string) string {
 func cmdStatus(args []string) {
 	need(args, 1, "arizuko status <instance>")
 	name := args[0]
-	dataDir := instanceDir(name)
+	dataDir := mustInstanceDir(name)
 	composePath := requireCompose(dataDir, name)
 
 	cmd := exec.Command("docker", "compose", "-f", composePath, "ps", "--format",
@@ -375,7 +417,10 @@ func cmdStatus(args []string) {
 		return
 	}
 	url := fmt.Sprintf("http://localhost:%d/v1/channels", cfg.APIPort)
-	resp, err := http.Get(url)
+	// Explicit timeout — default http.Client has none and a hung router
+	// would block `arizuko status` indefinitely.
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil {
 		fmt.Printf("\nrouter API unreachable at %s\n", url)
 		return

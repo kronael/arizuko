@@ -272,7 +272,7 @@ func TestFileProxy_MetadataRecordedDuringExtract(t *testing.T) {
 	mime := "Content-Type: multipart/mixed; boundary=boundary\r\n\r\n" + body
 
 	reg := newAttRegistry()
-	_, atts := extractContent(strings.NewReader(mime), 7, "http://emaid:9003", reg)
+	_, atts := extractContent([]byte(mime), 7, "http://emaid:9003", reg, 0)
 
 	if len(atts) != 1 {
 		t.Fatalf("got %d attachments, want 1", len(atts))
@@ -291,7 +291,9 @@ func TestFileProxy_MetadataRecordedDuringExtract(t *testing.T) {
 	if meta.Filename != "photo.jpg" {
 		t.Errorf("meta.Filename = %q", meta.Filename)
 	}
-	if len(meta.Part) != 1 || meta.Part[0] != 1 {
-		t.Errorf("meta.Part = %v, want [1]", meta.Part)
+	// Section 2: text/plain is section 1, attachment is section 2.
+	// Previous buggy behavior incremented only on attachment, producing [1].
+	if len(meta.Part) != 1 || meta.Part[0] != 2 {
+		t.Errorf("meta.Part = %v, want [2]", meta.Part)
 	}
 }

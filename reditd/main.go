@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/onvos/arizuko/chanlib"
@@ -45,6 +46,7 @@ type config struct {
 	ListenAddr    string
 	ListenURL     string
 	DataDir       string
+	MaxFileBytes  int64
 }
 
 func loadConfig() config {
@@ -69,5 +71,14 @@ func loadConfig() config {
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9006"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://reditd:9006"),
 		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/reditd"),
+		MaxFileBytes:  parseBytes(chanlib.EnvOr("MEDIA_MAX_FILE_BYTES", "20971520")),
 	}
+}
+
+func parseBytes(s string) int64 {
+	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil || n <= 0 {
+		return 20 * 1024 * 1024
+	}
+	return n
 }

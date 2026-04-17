@@ -17,7 +17,7 @@ func (s *server) handleXGroups(w http.ResponseWriter, r *http.Request) {
 			dot = `<span class="dot green"></span>`
 		}
 		fmt.Fprintf(w, `<a class="card" href="/chat/%s">%s<strong>%s</strong></a>`,
-			g.Folder, dot, htmlEscape(g.Name))
+			htmlEscape(g.Folder), dot, htmlEscape(g.Name))
 	}
 }
 

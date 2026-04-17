@@ -393,6 +393,44 @@ func TestNarrowRules_NilChildLeavesParentUnchanged(t *testing.T) {
 	}
 }
 
+func TestNarrowRules_ParamScopedChildKept(t *testing.T) {
+	parent := []string{"send_message(jid=telegram:*)"}
+	child := []string{"send_message(jid=telegram:123)"}
+	out := NarrowRules(parent, child)
+	found := false
+	for _, r := range out {
+		if r == "send_message(jid=telegram:123)" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("param-scoped child narrowing should be kept")
+	}
+}
+
+func TestNarrowRules_ParamScopedChildRejectedIfOutsideParent(t *testing.T) {
+	parent := []string{"send_message(jid=telegram:*)"}
+	child := []string{"send_message(jid=discord:1)"}
+	out := NarrowRules(parent, child)
+	for _, r := range out {
+		if r == "send_message(jid=discord:1)" {
+			t.Fatal("child outside parent scope must be dropped")
+		}
+	}
+}
+
+func TestParseRule_UnterminatedParens(t *testing.T) {
+	if _, err := ParseRuleStrict("foo(a=1"); err == nil {
+		t.Fatal("expected error for unterminated parens")
+	}
+	// Lenient ParseRule must not silently accept: Action must be empty
+	// so no action can match.
+	r := ParseRule("foo(a=1")
+	if r.Action != "" {
+		t.Fatalf("malformed rule produced action %q; want empty (matches nothing)", r.Action)
+	}
+}
+
 func TestNarrowRules_NilParentDoesNotWidenToStar(t *testing.T) {
 	out := NarrowRules(nil, []string{"*"})
 	for _, r := range out {

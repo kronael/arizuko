@@ -21,6 +21,9 @@ import (
 // grant before acting. Identity on outbound messages is the authed
 // user's sub/name (never anon).
 func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
+	}
 	sub := userSub(r)
 	name := userName(r)
 	if name == "" {

@@ -52,6 +52,10 @@ func (h *HTTPChannel) Connect(_ context.Context) error { return nil }
 func (h *HTTPChannel) Owns(jid string) bool { return h.entry.Owns(jid) }
 
 func (h *HTTPChannel) Send(jid, text, replyTo, threadID string) (string, error) {
+	return h.SendCtx(context.Background(), jid, text, replyTo, threadID)
+}
+
+func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID string) (string, error) {
 	if !h.entry.HasCap("send_text") {
 		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
@@ -67,7 +71,7 @@ func (h *HTTPChannel) Send(jid, text, replyTo, threadID string) (string, error) 
 	}
 	b, _ := json.Marshal(body)
 
-	httpResp, err := h.post("/send", b)
+	httpResp, err := h.post(ctx, "/send", b)
 	if err == nil {
 		defer httpResp.Body.Close()
 		if httpResp.StatusCode == http.StatusOK {
@@ -84,6 +88,10 @@ func (h *HTTPChannel) Send(jid, text, replyTo, threadID string) (string, error) 
 }
 
 func (h *HTTPChannel) SendFile(jid, path, name, caption string) error {
+	return h.SendFileCtx(context.Background(), jid, path, name, caption)
+}
+
+func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption string) error {
 	if !h.entry.HasCap("send_file") {
 		return fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
@@ -115,7 +123,7 @@ func (h *HTTPChannel) SendFile(jid, path, name, caption string) error {
 	w.Close()
 
 	url := h.entry.URL + "/send-file"
-	req, err := http.NewRequest("POST", url, &buf)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, &buf)
 	if err != nil {
 		return err
 	}
@@ -139,7 +147,7 @@ func (h *HTTPChannel) Typing(jid string, on bool) error {
 		return nil
 	}
 	b, _ := json.Marshal(map[string]any{"chat_jid": jid, "on": on})
-	resp, err := h.post("/typing", b)
+	resp, err := h.post(context.Background(), "/typing", b)
 	if err != nil {
 		slog.Warn("typing request failed", "channel", h.entry.Name, "jid", jid, "err", err)
 		return nil
@@ -182,9 +190,9 @@ func (h *HTTPChannel) QueueLen() int {
 	return len(h.outbox)
 }
 
-func (h *HTTPChannel) post(path string, body []byte) (*http.Response, error) {
+func (h *HTTPChannel) post(ctx context.Context, path string, body []byte) (*http.Response, error) {
 	url := h.entry.URL + path
-	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

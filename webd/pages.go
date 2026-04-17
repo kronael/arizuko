@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 const htmlHead = `<!DOCTYPE html>
@@ -50,6 +51,9 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
+	folderURL := url.PathEscape(folder)
+	folderQ := url.QueryEscape(folder)
+	folderJS := htmlEscape(folder)
 	fmt.Fprint(w, htmlHead)
 	fmt.Fprintf(w, `<body>
 <header>
@@ -114,6 +118,6 @@ async function sendMsg(e) {
 }
 </script>
 </body></html>`,
-		htmlEscape(g.Name), folder, folder, folder, folder, folder,
+		htmlEscape(g.Name), folderURL, folderURL, folderQ, folderURL, folderJS,
 		htmlEscape(g.SlinkToken))
 }

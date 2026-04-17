@@ -92,6 +92,7 @@ type Input struct {
 	Parent      string           `json:"-"`
 	Config      core.GroupConfig `json:"-"`
 	SlinkToken  string           `json:"-"`
+	McpToken    string           `json:"-"`
 	Annotations []string         `json:"-"`
 	OnOutput    OnOutputFn       `json:"-"`
 	GatedFns    ipc.GatedFns     `json:"-"`
@@ -124,6 +125,11 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	os.MkdirAll(groupDir, 0o755)
 	writeGatewayCaps(groupDir, cfg)
 
+	// Generate the per-run MCP runtime token before mounts so seedSettings
+	// can stamp it into the container's settings.json env.
+	if in.McpToken == "" {
+		in.McpToken = ipc.GenerateRuntimeToken()
+	}
 	mounts := buildMounts(cfg, in, groupDir, root, folders)
 	in = prepareInput(cfg, in, groupDir)
 
@@ -172,7 +178,13 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	var stopMCP func()
 	if ipcDir, err := folders.IpcPath(in.Folder); err == nil {
 		sockPath := groupfolder.IpcSocket(ipcDir)
-		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Grants); err != nil {
+		// Container uid: if --user <uid>:<gid> is set, chown socket to
+		// that uid. Agent default image runs as uid 1000; 0 = no chown.
+		cuid := 0
+		if uid := os.Getuid(); uid > 0 && uid != 1000 {
+			cuid = uid
+		}
+		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Grants, in.McpToken, cuid); err != nil {
 			slog.Warn("failed to start MCP server", "group", in.Folder, "err", err)
 		} else {
 			stopMCP = stop
@@ -235,9 +247,16 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		stop := exec.Command(
 			Bin, StopContainerArgs(containerName)...)
 		if err := stop.Run(); err != nil {
-			slog.Warn("graceful stop failed, killing",
-				"group", in.Folder, "container", containerName)
-			cmd.Process.Kill()
+			slog.Warn("graceful stop failed, killing container",
+				"group", in.Folder, "container", containerName, "err", err)
+			// docker stop failed: kill the container itself via docker kill.
+			// cmd.Process.Kill() only kills the local docker CLI client,
+			// leaving the container running (orphan).
+			if kerr := exec.Command(Bin, "kill", containerName).Run(); kerr != nil {
+				slog.Warn("docker kill failed, forcing removal",
+					"group", in.Folder, "container", containerName, "err", kerr)
+				exec.Command(Bin, "rm", "-f", containerName).Run()
+			}
 		}
 	}
 	deadline := time.AfterFunc(cfgTimeout, func() {
@@ -281,7 +300,12 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		fullBuf      strings.Builder
 		hadStreaming bool
 		newSessionID string
+		idleResets   int
 	)
+	// Cap idle-timer resets driven by streaming output. A compromised
+	// agent could otherwise emit markers forever to defeat idle cleanup.
+	// The hard deadline still bounds absolute runtime.
+	const maxIdleResetsFromOutput = 20
 
 	reader := bufio.NewReader(stdout)
 	buf := make([]byte, 32*1024)
@@ -340,7 +364,10 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 				if parsed.SessionID != "" {
 					newSessionID = parsed.SessionID
 				}
-				timer.Reset(cfg.IdleTimeout)
+				if idleResets < maxIdleResetsFromOutput {
+					timer.Reset(cfg.IdleTimeout)
+					idleResets++
+				}
 
 				if in.OnOutput != nil {
 					in.OnOutput(parsed.Result, parsed.Status)
@@ -688,6 +715,9 @@ func seedSettings(
 	if in.SlinkToken != "" {
 		env["SLINK_TOKEN"] = in.SlinkToken
 	}
+	if in.McpToken != "" {
+		env["ARIZUKO_MCP_TOKEN"] = in.McpToken
+	}
 	settings["env"] = env
 
 	servers, _ := settings["mcpServers"].(map[string]any)
@@ -712,7 +742,7 @@ func seedSettings(
 				"command": "socat",
 				"args": []string{
 					"UNIX-CONNECT:/workspace/ipc/sidecars/" +
-						name + ".sock",
+						name + "/" + name + ".sock",
 					"STDIO",
 				},
 			}
@@ -875,7 +905,19 @@ func cpDir(src, dst string) {
 	for _, e := range entries {
 		sp := filepath.Join(src, e.Name())
 		dp := filepath.Join(dst, e.Name())
-		if e.IsDir() {
+		// Use Lstat so symlinks are detected here rather than followed;
+		// copying a symlink's target would leak arbitrary host files
+		// into the group-writable skills tree.
+		fi, err := os.Lstat(sp)
+		if err != nil {
+			slog.Warn("cpDir: lstat failed", "path", sp, "err", err)
+			continue
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			slog.Warn("cpDir: skipping symlink", "path", sp)
+			continue
+		}
+		if fi.IsDir() {
 			cpDir(sp, dp)
 		} else if data, err := os.ReadFile(sp); err != nil {
 			slog.Warn("cpDir: read failed", "path", sp, "err", err)

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"os"
@@ -81,12 +82,6 @@ func main() {
 	})
 	mux.HandleFunc("GET /invite/{token}", func(w http.ResponseWriter, r *http.Request) {
 		handleInvite(w, r, db, cfg)
-	})
-	mux.HandleFunc("GET /onboard", func(w http.ResponseWriter, r *http.Request) {
-		handleOnboard(w, r, db, cfg)
-	})
-	mux.HandleFunc("POST /onboard", func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardPost(w, r, db, cfg)
 	})
 
 	srv := &http.Server{Addr: cfg.listenAddr, Handler: mux}
@@ -298,6 +293,8 @@ func genToken() string {
 }
 
 func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
+	// TODO(proxyd-auth): X-User-Sub is trusted unconditionally; see comment
+	// in handleOnboardPost for the shared-secret-HMAC plan.
 	token := r.URL.Query().Get("token")
 	userSub := r.Header.Get("X-User-Sub")
 
@@ -307,6 +304,9 @@ func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg confi
 	}
 
 	if userSub != "" {
+		// Mint/refresh the CSRF cookie on every authenticated GET so POST
+		// handlers have a matching double-submit token available.
+		ensureCSRFToken(w, r, cfg)
 		handleDashboard(w, r, db, cfg, userSub)
 		return
 	}
@@ -315,21 +315,22 @@ func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg confi
 }
 
 func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, token string) {
-	var jid, expires string
+	// Atomic consume: single UPDATE ... RETURNING guards status, token, and
+	// expiry. Concurrent requests with the same token race here — only one
+	// wins. Prevents SELECT-then-UPDATE replays.
+	now := time.Now().Format(time.RFC3339)
+	var jid string
 	err := db.QueryRow(
-		`SELECT jid, token_expires FROM onboarding WHERE token = ? AND status = 'awaiting_message'`,
-		token).Scan(&jid, &expires)
+		`UPDATE onboarding
+		 SET status = 'token_used', token = NULL
+		 WHERE token = ? AND status = 'awaiting_message'
+		   AND (token_expires IS NULL OR token_expires > ?)
+		 RETURNING jid`, token, now).Scan(&jid)
 	if err != nil {
-		renderPage(w, "Invalid Link", "<p>This link is invalid or has already been used.</p>")
+		renderPage(w, "Invalid Link",
+			template.HTML("<p>This link is invalid, already used, or has expired.</p>"))
 		return
 	}
-	exp, _ := time.Parse(time.RFC3339, expires)
-	if time.Now().After(exp) {
-		renderPage(w, "Link Expired", "<p>This link has expired. Please message the bot again for a new one.</p>")
-		return
-	}
-
-	db.Exec(`UPDATE onboarding SET status = 'token_used', token = NULL WHERE token = ?`, token)
 
 	http.SetCookie(w, &http.Cookie{
 		Name: "onboard_jid", Value: jid, Path: "/",
@@ -351,13 +352,26 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 
 func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, userSub string) {
 	// Second-platform auto-link: consume pending JID cookie and route it into
-	// the user's existing world.
+	// the user's existing world. Atomic claim prevents replay: once the
+	// onboarding row is claimed (user_sub set), a stolen cookie can no longer
+	// bind the victim's JID to a different account.
 	if c, err := r.Cookie("onboard_jid"); err == nil && c.Value != "" {
-		var status string
-		err := db.QueryRow(
-			`SELECT status FROM onboarding WHERE jid = ? AND status = 'token_used'`,
-			c.Value).Scan(&status)
+		res, err := db.Exec(
+			`UPDATE onboarding SET user_sub = ?
+			 WHERE jid = ? AND status = 'token_used' AND user_sub IS NULL`,
+			userSub, c.Value)
+		claimed := false
 		if err == nil {
+			if n, _ := res.RowsAffected(); n == 1 {
+				claimed = true
+			}
+		}
+		// Always clear the cookie: single-use regardless of outcome.
+		http.SetCookie(w, &http.Cookie{
+			Name: "onboard_jid", Value: "", Path: "/",
+			MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
+		})
+		if claimed {
 			linkJID(db, c.Value, userSub)
 			var folder string
 			if err := db.QueryRow(
@@ -368,16 +382,12 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 					"room="+core.JidRoom(c.Value), folder)
 			}
 		}
-		http.SetCookie(w, &http.Cookie{
-			Name: "onboard_jid", Value: "", Path: "/",
-			MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
-		})
 	}
 
 	var username string
 	err := db.QueryRow(`SELECT username FROM auth_users WHERE sub = ?`, userSub).Scan(&username)
 	if err != nil {
-		renderPage(w, "Error", "<p>User not found.</p>")
+		renderPage(w, "Error", template.HTML("<p>User not found.</p>"))
 		return
 	}
 
@@ -401,10 +411,67 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 	renderDashboard(w, db, userSub, username)
 }
 
+// csrfCookieName is a short-lived token bound to a dashboard session. The
+// server sets it on GET /onboard and requires it back on POST in a form
+// field. Without the double-submit, any cross-site form that forges a
+// POST could exploit the auth proxy's cookie to mutate state.
+const csrfCookieName = "onbod_csrf"
+
+// ensureCSRFToken reads (or mints) the CSRF token cookie for this session.
+// Returns the current token value.
+func ensureCSRFToken(w http.ResponseWriter, r *http.Request, cfg config) string {
+	if c, err := r.Cookie(csrfCookieName); err == nil && c.Value != "" {
+		return c.Value
+	}
+	tok := genToken()
+	http.SetCookie(w, &http.Cookie{
+		Name: csrfCookieName, Value: tok, Path: "/",
+		MaxAge: 86400, HttpOnly: false, // JS does not read it; scripts can't cross-origin anyway
+		Secure: cfg.secureCookie, SameSite: http.SameSiteStrictMode,
+	})
+	return tok
+}
+
+// checkCSRF verifies the double-submit token: the form field must equal the
+// cookie value using constant-time compare.
+func checkCSRF(r *http.Request) bool {
+	c, err := r.Cookie(csrfCookieName)
+	if err != nil || c.Value == "" {
+		return false
+	}
+	got := r.FormValue("csrf")
+	if got == "" || len(got) != len(c.Value) {
+		return false
+	}
+	return subtleCompare(got, c.Value)
+}
+
+// subtleCompare is a constant-time equality check.
+func subtleCompare(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	var v byte
+	for i := 0; i < len(a); i++ {
+		v |= a[i] ^ b[i]
+	}
+	return v == 0
+}
+
 func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
+	// TODO(proxyd-auth): X-User-Sub is trusted unconditionally. When onbod is
+	// reachable without proxyd in front (dev, misconfigured networks, exposed
+	// port), anyone can impersonate any user by setting the header. Add a
+	// shared-secret header (e.g. X-Proxyd-Auth = HMAC(secret, X-User-Sub))
+	// verified here; see /home/onvos/app/arizuko/proxyd/main.go where the
+	// header is set (around line 387).
 	userSub := r.Header.Get("X-User-Sub")
 	if userSub == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if !checkCSRF(r) {
+		http.Error(w, "csrf token invalid", http.StatusForbidden)
 		return
 	}
 	switch r.FormValue("action") {
@@ -427,8 +494,8 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	username := strings.TrimSpace(r.FormValue("username"))
 	if !usernameRe.MatchString(username) {
 		renderPage(w, "Invalid Username",
-			"<p>Username must be 3-30 chars, lowercase letters/numbers/hyphens, start with a letter.</p>"+
-				`<p><a href="/onboard">Try again</a></p>`)
+			template.HTML("<p>Username must be 3-30 chars, lowercase letters/numbers/hyphens, start with a letter.</p>"+
+				`<p><a href="/onboard">Try again</a></p>`))
 		return
 	}
 
@@ -436,8 +503,8 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	db.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = ?`, username).Scan(&exists)
 	if exists > 0 {
 		renderPage(w, "Username Taken",
-			"<p>That username is already in use.</p>"+
-				`<p><a href="/onboard">Try again</a></p>`)
+			template.HTML("<p>That username is already in use.</p>"+
+				`<p><a href="/onboard">Try again</a></p>`))
 		return
 	}
 
@@ -447,12 +514,12 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	coreCfg, err := core.LoadConfig()
 	if err != nil {
 		slog.Error("create world: load config", "err", err)
-		renderPage(w, "Error", "<p>Internal error.</p>")
+		renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
 		return
 	}
 	if err := container.SetupGroup(coreCfg, folder, cfg.prototype); err != nil {
 		slog.Error("create world: setup group", "folder", folder, "err", err)
-		renderPage(w, "Error", "<p>Internal error.</p>")
+		renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
 		return
 	}
 
@@ -563,7 +630,7 @@ func renderQueuePosition(w http.ResponseWriter, db *sql.DB, gateStr, queuedAt st
 			`<p class="dim">This page will update automatically.</p>`,
 		pos, html.EscapeString(etaMsg))
 	w.Header().Set("Refresh", "30")
-	renderPage(w, "Queued", body)
+	renderPage(w, "Queued", template.HTML(body))
 }
 
 // admitFromQueue promotes queued users up to each gate's daily limit.
@@ -572,38 +639,59 @@ func admitFromQueue(db *sql.DB) {
 	if len(gates) == 0 {
 		return
 	}
-	today := time.Now().Format("2006-01-02")
+	// Use a day-range on queued_at rather than a LIKE prefix so timezone
+	// drift at the writer does not miscount today's admissions.
+	todayStart := time.Now().Format("2006-01-02") + "T00:00:00Z"
+	tomorrowStart := time.Now().Add(24*time.Hour).Format("2006-01-02") + "T00:00:00Z"
 	for _, g := range gates {
 		k := gateKey(g)
-		var admitted int
-		db.QueryRow(
-			`SELECT COUNT(*) FROM onboarding
-			 WHERE gate = ? AND status = 'approved' AND queued_at LIKE ?`,
-			k, today+"%").Scan(&admitted)
-		remaining := g.limitPerDay - admitted
-		if remaining <= 0 {
+		// Wrap count + select + update in a single transaction so concurrent
+		// poll cycles cannot exceed limitPerDay.
+		tx, err := db.Begin()
+		if err != nil {
+			slog.Error("admitFromQueue begin", "gate", k, "err", err)
 			continue
 		}
-		rows, err := db.Query(
-			`SELECT jid, user_sub FROM onboarding
+		var admitted int
+		tx.QueryRow(
+			`SELECT COUNT(*) FROM onboarding
+			 WHERE gate = ? AND status = 'approved'
+			   AND queued_at >= ? AND queued_at < ?`,
+			k, todayStart, tomorrowStart).Scan(&admitted)
+		remaining := g.limitPerDay - admitted
+		if remaining <= 0 {
+			tx.Rollback()
+			continue
+		}
+		rows, err := tx.Query(
+			`SELECT jid FROM onboarding
 			 WHERE status = 'queued' AND gate = ?
 			 ORDER BY queued_at ASC LIMIT ?`, k, remaining)
 		if err != nil {
 			slog.Error("admitFromQueue query", "gate", k, "err", err)
+			tx.Rollback()
 			continue
 		}
-		var batch []struct{ jid, sub string }
+		var batch []string
 		for rows.Next() {
-			var jid, sub string
-			rows.Scan(&jid, &sub)
-			batch = append(batch, struct{ jid, sub string }{jid, sub})
+			var jid string
+			rows.Scan(&jid)
+			batch = append(batch, jid)
 		}
 		rows.Close()
-		for _, b := range batch {
-			db.Exec(
+		for _, jid := range batch {
+			if _, err := tx.Exec(
 				`UPDATE onboarding SET status = 'approved' WHERE jid = ?`,
-				b.jid)
-			slog.Info("admitted from queue", "jid", b.jid, "gate", k)
+				jid); err != nil {
+				slog.Error("admitFromQueue update", "jid", jid, "err", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			slog.Error("admitFromQueue commit", "gate", k, "err", err)
+			continue
+		}
+		for _, jid := range batch {
+			slog.Info("admitted from queue", "jid", jid, "gate", k)
 		}
 	}
 }
@@ -611,7 +699,7 @@ func admitFromQueue(db *sql.DB) {
 func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
 	token := r.PathValue("token")
 	if token == "" {
-		renderPage(w, "Invalid Invite", "<p>No invite token provided.</p>")
+		renderPage(w, "Invalid Invite", template.HTML("<p>No invite token provided.</p>"))
 		return
 	}
 
@@ -628,35 +716,37 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		return
 	}
 
-	// Validate and consume the invitation.
-	var folder string
-	var createdAt, expires sql.NullString
-	var uses, maxUses int
-	err := db.QueryRow(
-		`SELECT folder, created_at, uses, max_uses, expires
-		 FROM invitations WHERE token = ?`, token,
-	).Scan(&folder, &createdAt, &uses, &maxUses, &expires)
-	if err != nil {
+	// Check existence + expiry first for clearer user-facing messages.
+	var expires sql.NullString
+	if err := db.QueryRow(
+		`SELECT expires FROM invitations WHERE token = ?`, token,
+	).Scan(&expires); err != nil {
 		renderPage(w, "Invalid Invite",
-			"<p>This invite link is invalid or does not exist.</p>")
+			template.HTML("<p>This invite link is invalid or does not exist.</p>"))
 		return
 	}
 	if expires.Valid && expires.String != "" {
 		exp, _ := time.Parse(time.RFC3339, expires.String)
 		if !exp.IsZero() && time.Now().After(exp) {
 			renderPage(w, "Invite Expired",
-				"<p>This invite link has expired.</p>")
+				template.HTML("<p>This invite link has expired.</p>"))
 			return
 		}
 	}
-	if uses >= maxUses {
+
+	// Atomic consume: guard uses < max_uses inside the UPDATE itself so
+	// concurrent redemptions of a 1-use invite cannot both succeed.
+	var folder string
+	err := db.QueryRow(
+		`UPDATE invitations SET uses = uses + 1
+		 WHERE token = ? AND uses < max_uses
+		 RETURNING folder`, token,
+	).Scan(&folder)
+	if err != nil {
 		renderPage(w, "Invite Used",
-			"<p>This invite link has already been used the maximum number of times.</p>")
+			template.HTML("<p>This invite link has already been used the maximum number of times.</p>"))
 		return
 	}
-
-	// Consume one use.
-	db.Exec(`UPDATE invitations SET uses = uses + 1 WHERE token = ?`, token)
 
 	// Grant access: insert user_groups row.
 	db.Exec(
@@ -696,7 +786,9 @@ func createInvitation(db *sql.DB, folder, createdBy string, maxUses int) string 
 	return token
 }
 
-func renderPage(w http.ResponseWriter, title, body string) {
+// renderPage writes a full HTML page. body is template.HTML; callers MUST
+// html.EscapeString any user input before wrapping with template.HTML(...).
+func renderPage(w http.ResponseWriter, title string, body template.HTML) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprint(w, theme.Page(title, body))
 }
@@ -710,7 +802,7 @@ func renderUsernamePicker(w http.ResponseWriter, currentUsername string) {
  style="margin-bottom:1rem">
 <button type="submit" style="width:100%%">Create workspace</button>
 </form>`, html.EscapeString(currentUsername))
-	renderPage(w, "Create Workspace", body)
+	renderPage(w, "Create Workspace", template.HTML(body))
 }
 
 func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string) {
@@ -907,6 +999,20 @@ func userRoutes(db *sql.DB, folders []string) []dashRoute {
 }
 
 
+// isOperator reports whether folders grants unrestricted access. Either a
+// nil slice (internal bypass) or any `**` entry qualifies.
+func isOperator(folders []string) bool {
+	if folders == nil {
+		return true
+	}
+	for _, f := range folders {
+		if f == "**" {
+			return true
+		}
+	}
+	return false
+}
+
 func folderAllowed(folders []string, target string) bool {
 	if folders == nil {
 		return true // no grants queried (internal caller bypass)
@@ -939,6 +1045,42 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
+// matchRe bounds allowed match patterns: ASCII printable, no spaces/wildcards.
+// Operators (folders == nil) bypass this. Prevents cross-tenant interception
+// via wildcards or whitespace-smuggling patterns that confuse the matcher.
+var matchRe = regexp.MustCompile(`^[A-Za-z0-9_.:=@/-]+$`)
+
+// userOwnsMatch reports whether the supplied match pattern references a room
+// (JID suffix) that the user has a linked user_jids row for. Operators
+// (folders == nil) bypass this check.
+func userOwnsMatch(db *sql.DB, sub, match string) bool {
+	// Only support the canonical "room=<id>" form for the onboarding UI.
+	// More expressive patterns require operator grants.
+	const prefix = "room="
+	if !strings.HasPrefix(match, prefix) {
+		return false
+	}
+	room := match[len(prefix):]
+	if room == "" {
+		return false
+	}
+	// Check user_jids for a jid whose room portion (after ':') matches.
+	rows, err := db.Query(
+		`SELECT jid FROM user_jids WHERE user_sub = ?`, sub)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var jid string
+		rows.Scan(&jid)
+		if i := strings.Index(jid, ":"); i > 0 && jid[i+1:] == room {
+			return true
+		}
+	}
+	return false
+}
+
 func handleAddRoute(w http.ResponseWriter, r *http.Request,
 	db *sql.DB, sub string, folders []string) {
 	match := strings.TrimSpace(r.FormValue("match"))
@@ -947,8 +1089,23 @@ func handleAddRoute(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "match and target required", http.StatusBadRequest)
 		return
 	}
+	if len(match) > 256 || len(target) > 256 {
+		http.Error(w, "match or target too long", http.StatusBadRequest)
+		return
+	}
+	if !matchRe.MatchString(match) {
+		http.Error(w, "invalid match characters", http.StatusBadRequest)
+		return
+	}
 	if !folderAllowed(folders, target) {
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	// Non-operators may only route from their own JIDs. Operators (folders
+	// either nil-bypass or a `**` grant) may create any match → target pair.
+	if !isOperator(folders) && !userOwnsMatch(db, sub, match) {
+		http.Error(w, "forbidden: match does not reference a linked account",
+			http.StatusForbidden)
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/onvos/arizuko/chanlib"
@@ -25,6 +27,7 @@ type session struct {
 type bskyClient struct {
 	chanlib.NoFileSender
 	cfg     config
+	mu      sync.RWMutex // guards session
 	session session
 	http    *http.Client
 }
@@ -45,8 +48,16 @@ func (bc *bskyClient) auth() error {
 }
 
 func (bc *bskyClient) storeSession(s session) {
+	bc.mu.Lock()
 	bc.session = s
+	bc.mu.Unlock()
 	bc.saveSession()
+}
+
+func (bc *bskyClient) getSession() session {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	return bc.session
 }
 
 func (bc *bskyClient) sessionPath() string {
@@ -67,8 +78,29 @@ func (bc *bskyClient) loadSession() *session {
 
 func (bc *bskyClient) saveSession() {
 	os.MkdirAll(bc.cfg.DataDir, 0o755)
-	b, _ := json.Marshal(bc.session)
+	s := bc.getSession()
+	b, _ := json.Marshal(s)
 	os.WriteFile(bc.sessionPath(), b, 0o600)
+}
+
+// httpStatusError lets callers inspect the status code of an HTTP failure
+// without string-matching the error message.
+type httpStatusError struct {
+	Code int
+	Body string
+	Op   string
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("%s: status %d: %s", e.Op, e.Code, e.Body)
+}
+
+func isHTTPStatus(err error, code int) bool {
+	var h *httpStatusError
+	if errors.As(err, &h) {
+		return h.Code == code
+	}
+	return false
 }
 
 func (bc *bskyClient) createSession() error {
@@ -84,8 +116,8 @@ func (bc *bskyClient) createSession() error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("createSession: status %d: %s", resp.StatusCode, string(b))
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return &httpStatusError{Code: resp.StatusCode, Body: string(b), Op: "createSession"}
 	}
 	var s session
 	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
@@ -106,7 +138,8 @@ func (bc *bskyClient) refreshSession(refreshJwt string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("refresh: status %d", resp.StatusCode)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return &httpStatusError{Code: resp.StatusCode, Body: string(b), Op: "refreshSession"}
 	}
 	var s session
 	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
@@ -180,16 +213,23 @@ func (bc *bskyClient) fetchNotifications(rc *chanlib.RouterClient) error {
 	if err := bc.xrpc("GET", "app.bsky.notification.listNotifications", params, nil, &result); err != nil {
 		return err
 	}
-	var processed int
-	for _, n := range result.Notifications {
+	// API returns newest-first. Walk oldest→newest, handling each, then
+	// updateSeen with the processed item's IndexedAt. This ensures older
+	// unread notifications beyond the 25-item window stay unread (not
+	// silently dropped by a bulk seenAt=now).
+	ns := result.Notifications
+	for i := len(ns) - 1; i >= 0; i-- {
+		n := ns[i]
 		if n.IsRead {
 			continue
 		}
 		bc.handleNotification(n, rc)
-		processed++
-	}
-	if processed > 0 {
-		bc.xrpc("POST", "app.bsky.notification.updateSeen", nil, map[string]string{"seenAt": time.Now().UTC().Format(time.RFC3339)}, nil)
+		// Advance seen pointer to the just-processed notification's timestamp.
+		// Use IndexedAt as-is so the server's clock is authoritative.
+		if n.IndexedAt != "" {
+			_ = bc.xrpc("POST", "app.bsky.notification.updateSeen", nil,
+				map[string]string{"seenAt": n.IndexedAt}, nil)
+		}
 	}
 	return nil
 }
@@ -282,7 +322,7 @@ func (bc *bskyClient) Send(req chanlib.SendRequest) (string, error) {
 		record["reply"] = map[string]any{"root": ref, "parent": ref}
 	}
 	body := map[string]any{
-		"repo":       bc.session.DID,
+		"repo":       bc.getSession().DID,
 		"collection": "app.bsky.feed.post",
 		"record":     record,
 	}
@@ -320,7 +360,8 @@ func (bc *bskyClient) xrpc(method, nsid string, params map[string]string, body, 
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
-		req.Header.Set("Authorization", "Bearer "+bc.session.AccessJwt)
+		s := bc.getSession()
+		req.Header.Set("Authorization", "Bearer "+s.AccessJwt)
 		q := req.URL.Query()
 		for k, v := range params {
 			q.Set(k, v)
@@ -332,8 +373,8 @@ func (bc *bskyClient) xrpc(method, nsid string, params map[string]string, body, 
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			b, _ := io.ReadAll(resp.Body)
-			return fmt.Errorf("xrpc %s: status %d: %s", nsid, resp.StatusCode, string(b))
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			return &httpStatusError{Code: resp.StatusCode, Body: string(b), Op: "xrpc " + nsid}
 		}
 		if out != nil {
 			return json.NewDecoder(resp.Body).Decode(out)
@@ -341,9 +382,16 @@ func (bc *bskyClient) xrpc(method, nsid string, params map[string]string, body, 
 		return nil
 	}
 	err := do()
-	if err != nil && strings.Contains(err.Error(), "401") {
-		if rerr := bc.refreshSession(bc.session.RefreshJwt); rerr != nil {
-			bc.createSession()
+	if err != nil && isHTTPStatus(err, 401) {
+		// Token rejected: try refresh; if refresh itself fails, propagate both
+		// the original 401 and the refresh error instead of silently retrying
+		// with a stale token.
+		refreshErr := bc.refreshSession(bc.getSession().RefreshJwt)
+		if refreshErr != nil {
+			if cerr := bc.createSession(); cerr != nil {
+				return fmt.Errorf("xrpc %s: 401 and re-auth failed: refresh=%v create=%w",
+					nsid, refreshErr, cerr)
+			}
 		}
 		return do()
 	}
