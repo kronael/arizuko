@@ -261,7 +261,7 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<p><b>DB:</b> %s</p>`, template.HTMLEscapeString(d.dbPath))
 	fmt.Fprintf(w, `<p>Groups: %d &nbsp; Active sessions: %d</p>`, groupCount, sessionCount)
 
-	rows, err := d.db.Query(`SELECT name, url FROM channels ORDER BY name`)
+	rows, err := d.db.Query(`SELECT name, url FROM channels ORDER BY name LIMIT 500`)
 	if err == nil {
 		defer rows.Close()
 		fmt.Fprint(w, `<h2>Channels</h2><table><tr><th>Name</th><th>URL</th></tr>`)
@@ -308,7 +308,7 @@ func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
 func (d *dash) writeTaskRows(w http.ResponseWriter) {
 	rows, err := d.db.Query(
 		`SELECT id, owner, cron, status, created_at, next_run
-		 FROM scheduled_tasks ORDER BY owner, id`)
+		 FROM scheduled_tasks ORDER BY owner, id LIMIT 500`)
 	if err != nil {
 		slog.Warn("tasks: query", "err", err)
 		fmt.Fprintf(w, `<tr><td colspan=6>error: %s</td></tr>`, template.HTMLEscapeString(err.Error()))
@@ -395,7 +395,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTop(w, "Groups")
 
-	rows, err := d.db.Query(`SELECT folder, parent, name, state FROM groups ORDER BY folder`)
+	rows, err := d.db.Query(`SELECT folder, parent, name, state FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
 		slog.Warn("groups: query", "err", err)
 		fmt.Fprintf(w, `<p>error: %s</p>`, template.HTMLEscapeString(err.Error()))
@@ -440,7 +440,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 
 func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 	rows, err := d.db.Query(
-		`SELECT seq, match, target FROM routes WHERE target=? OR target LIKE ? ORDER BY seq`,
+		`SELECT seq, match, target FROM routes WHERE target=? OR target LIKE ? ORDER BY seq LIMIT 200`,
 		folder, folder+"/%")
 	if err != nil {
 		slog.Warn("groups: routes query", "err", err, "folder", folder)
@@ -481,7 +481,7 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 
 	pageTop(w, "Memory")
 
-	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder`)
+	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
 	if err == nil {
 		defer rows.Close()
 		fmt.Fprint(w, `<form method="get">

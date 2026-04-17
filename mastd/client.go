@@ -1,8 +1,8 @@
 package main
 
 import (
-	"context"
 	"container/list"
+	"context"
 	"fmt"
 	"html"
 	"log/slog"

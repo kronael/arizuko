@@ -70,7 +70,6 @@ type Route struct {
 	ImpulseConfig string `json:"impulse_config,omitempty"`
 }
 
-// JidRoom returns the post-colon portion of a JID, or the whole string if no colon.
 func JidRoom(jid string) string {
 	if i := strings.IndexByte(jid, ':'); i >= 0 {
 		return jid[i+1:]
@@ -147,7 +146,6 @@ func MsgID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
-// JidPlatform returns the pre-colon portion of a JID, or "" if no colon.
 func JidPlatform(jid string) string {
 	if i := strings.IndexByte(jid, ':'); i > 0 {
 		return jid[:i]

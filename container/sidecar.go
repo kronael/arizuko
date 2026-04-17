@@ -27,9 +27,8 @@ func startSidecars(
 	var names []string
 	for name, spec := range sidecars {
 		cname := sidecarName(folder, name)
-		// Per-sidecar subdir isolates each sidecar's socket from peers.
-		// Previously every sidecar mounted the shared sockDir and could
-		// read/write siblings' sockets to impersonate them to the agent.
+		// Per-sidecar subdir prevents a compromised sidecar from accessing
+		// peers' sockets and impersonating them to the agent.
 		perDir := filepath.Join(sockDir, name)
 		if err := os.MkdirAll(perDir, 0o700); err != nil {
 			slog.Error("sidecar mkdir failed",
