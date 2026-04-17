@@ -24,6 +24,12 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+type gate struct {
+	kind        string // "github", "google", "email", "*"
+	param       string // "org=mycompany", "domain=company.com", etc.
+	limitPerDay int
+}
+
 type config struct {
 	dsn          string
 	secret       string
@@ -34,6 +40,7 @@ type config struct {
 	greeting     string
 	authBaseURL  string
 	secureCookie bool
+	gates        []gate
 }
 
 func main() {
@@ -86,10 +93,18 @@ func main() {
 	defer tick.Stop()
 
 	promptUnprompted(db, cfg)
+	admitFromQueue(db, cfg)
+	var admitCount int
 	for {
 		select {
 		case <-tick.C:
 			promptUnprompted(db, cfg)
+			admitCount++
+			// Admit every ~1 minute (pollInterval ticks until we reach 60s worth).
+			if admitCount*int(cfg.pollInterval.Seconds()) >= 60 {
+				admitFromQueue(db, cfg)
+				admitCount = 0
+			}
 		case <-stop:
 			srv.Close()
 			slog.Info("onbod stopped")
@@ -129,7 +144,114 @@ func loadConfig() (config, error) {
 		}
 	}
 
+	if gatesEnv := os.Getenv("ONBOARDING_GATES"); gatesEnv != "" {
+		g, err := parseGates(gatesEnv)
+		if err != nil {
+			return cfg, fmt.Errorf("ONBOARDING_GATES: %w", err)
+		}
+		cfg.gates = g
+	}
+
 	return cfg, nil
+}
+
+func parseGates(s string) ([]gate, error) {
+	var gates []gate
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		g, err := parseOneGate(part)
+		if err != nil {
+			return nil, fmt.Errorf("bad gate %q: %w", part, err)
+		}
+		gates = append(gates, g)
+	}
+	return gates, nil
+}
+
+func parseOneGate(s string) (gate, error) {
+	// Formats: "*:50/day", "github:org=mycompany:10/day",
+	// "google:domain=example.com:20/day", "email:domain=example.com:5/day"
+	parts := strings.Split(s, ":")
+	if len(parts) < 2 {
+		return gate{}, fmt.Errorf("need at least kind:limit")
+	}
+	kind := parts[0]
+	var param, limitStr string
+	if kind == "*" {
+		limitStr = parts[1]
+	} else {
+		if len(parts) < 3 {
+			return gate{}, fmt.Errorf("need kind:param:limit")
+		}
+		param = parts[1]
+		limitStr = parts[2]
+	}
+	limitStr = strings.TrimSuffix(limitStr, "/day")
+	var limit int
+	if _, err := fmt.Sscanf(limitStr, "%d", &limit); err != nil || limit <= 0 {
+		return gate{}, fmt.Errorf("invalid limit %q", limitStr)
+	}
+	return gate{kind: kind, param: param, limitPerDay: limit}, nil
+}
+
+// gateKey returns a stable identifier for a gate (used in DB gate column).
+func gateKey(g gate) string {
+	if g.kind == "*" {
+		return "*"
+	}
+	return g.kind + ":" + g.param
+}
+
+// matchGate returns the first gate matching a user sub, or nil.
+func matchGate(gates []gate, userSub string) *gate {
+	for i := range gates {
+		g := &gates[i]
+		switch g.kind {
+		case "*":
+			return g
+		case "github":
+			if strings.HasPrefix(userSub, "github:") {
+				return g
+			}
+		case "google":
+			if !strings.HasPrefix(userSub, "google:") {
+				continue
+			}
+			// param is "domain=X"; extract domain and match
+			if d := paramVal(g.param, "domain"); d != "" {
+				if emailDomain(userSub) == d {
+					return g
+				}
+			} else {
+				return g
+			}
+		case "email":
+			if d := paramVal(g.param, "domain"); d != "" {
+				if strings.HasSuffix(userSub, "@"+d) {
+					return g
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func paramVal(param, key string) string {
+	if strings.HasPrefix(param, key+"=") {
+		return param[len(key)+1:]
+	}
+	return ""
+}
+
+// emailDomain extracts domain from "google:user@example.com" style subs.
+func emailDomain(sub string) string {
+	if i := strings.LastIndex(sub, "@"); i >= 0 {
+		return sub[i+1:]
+	}
+	return ""
 }
 
 func promptUnprompted(db *sql.DB, cfg config) {
@@ -215,7 +337,7 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 	})
 
 	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
-		linkJID(db, jid, userSub)
+		linkJID(db, jid, userSub, cfg.gates)
 		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 		return
 	}
@@ -232,7 +354,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 			`SELECT status FROM onboarding WHERE jid = ? AND status = 'token_used'`,
 			c.Value).Scan(&status)
 		if err == nil {
-			linkJID(db, c.Value, userSub)
+			linkJID(db, c.Value, userSub, cfg.gates)
 			var folder string
 			if err := db.QueryRow(
 				`SELECT g.folder FROM groups g
@@ -253,6 +375,18 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 	if err != nil {
 		renderPage(w, "Error", "<p>User not found.</p>")
 		return
+	}
+
+	// If gates are active and this user has a queued JID, show queue position.
+	if len(cfg.gates) > 0 {
+		var qGate, qAt string
+		err := db.QueryRow(
+			`SELECT gate, queued_at FROM onboarding WHERE user_sub = ? AND status = 'queued' LIMIT 1`,
+			userSub).Scan(&qGate, &qAt)
+		if err == nil {
+			renderQueuePosition(w, db, cfg, qGate, qAt)
+			return
+		}
 	}
 
 	var groupCount int
@@ -338,7 +472,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-func linkJID(db *sql.DB, jid, userSub string) {
+func linkJID(db *sql.DB, jid, userSub string, gates []gate) {
 	var existingSub string
 	if err := db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = ?`, jid).Scan(&existingSub); err == nil && existingSub != userSub {
 		slog.Warn("jid already claimed", "jid", jid, "existing", existingSub, "attempted", userSub)
@@ -347,9 +481,94 @@ func linkJID(db *sql.DB, jid, userSub string) {
 	now := time.Now().Format(time.RFC3339)
 	db.Exec(`INSERT OR IGNORE INTO user_jids (user_sub, jid, claimed) VALUES (?, ?, ?)`,
 		userSub, jid, now)
+
+	if len(gates) > 0 {
+		if g := matchGate(gates, userSub); g != nil {
+			db.Exec(
+				`UPDATE onboarding SET status = 'queued', user_sub = ?, gate = ?, queued_at = ? WHERE jid = ?`,
+				userSub, gateKey(*g), now, jid)
+			slog.Info("queued jid", "jid", jid, "user", userSub, "gate", gateKey(*g))
+			return
+		}
+		// No matching gate — reject
+		slog.Warn("no matching gate", "jid", jid, "user", userSub)
+		return
+	}
+
 	db.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ? WHERE jid = ?`,
 		userSub, jid)
 	slog.Info("linked jid", "jid", jid, "user", userSub)
+}
+
+func renderQueuePosition(w http.ResponseWriter, db *sql.DB, cfg config, gateStr, queuedAt string) {
+	var pos int
+	db.QueryRow(
+		`SELECT COUNT(*) FROM onboarding WHERE status = 'queued' AND gate = ? AND queued_at < ?`,
+		gateStr, queuedAt).Scan(&pos)
+	pos++ // 1-indexed
+
+	var etaMsg string
+	for _, g := range cfg.gates {
+		if gateKey(g) == gateStr {
+			mins := pos * 1440 / g.limitPerDay
+			if mins < 60 {
+				etaMsg = fmt.Sprintf("~%d minutes", mins)
+			} else {
+				etaMsg = fmt.Sprintf("~%d hours", mins/60)
+			}
+			break
+		}
+	}
+
+	body := fmt.Sprintf(
+		`<p>You're in the queue.</p>`+
+			`<p>Position <strong>#%d</strong></p>`+
+			`<p class="dim">Estimated wait: %s</p>`+
+			`<p class="dim">This page will update automatically.</p>`,
+		pos, html.EscapeString(etaMsg))
+	w.Header().Set("Refresh", "30")
+	renderPage(w, "Queued", body)
+}
+
+// admitFromQueue promotes queued users up to each gate's daily limit.
+func admitFromQueue(db *sql.DB, cfg config) {
+	if len(cfg.gates) == 0 {
+		return
+	}
+	today := time.Now().Format("2006-01-02")
+	for _, g := range cfg.gates {
+		k := gateKey(g)
+		var admitted int
+		db.QueryRow(
+			`SELECT COUNT(*) FROM onboarding
+			 WHERE gate = ? AND status = 'approved' AND queued_at LIKE ?`,
+			k, today+"%").Scan(&admitted)
+		remaining := g.limitPerDay - admitted
+		if remaining <= 0 {
+			continue
+		}
+		rows, err := db.Query(
+			`SELECT jid, user_sub FROM onboarding
+			 WHERE status = 'queued' AND gate = ?
+			 ORDER BY queued_at ASC LIMIT ?`, k, remaining)
+		if err != nil {
+			slog.Error("admitFromQueue query", "gate", k, "err", err)
+			continue
+		}
+		var batch []struct{ jid, sub string }
+		for rows.Next() {
+			var jid, sub string
+			rows.Scan(&jid, &sub)
+			batch = append(batch, struct{ jid, sub string }{jid, sub})
+		}
+		rows.Close()
+		for _, b := range batch {
+			db.Exec(
+				`UPDATE onboarding SET status = 'approved' WHERE jid = ?`,
+				b.jid)
+			slog.Info("admitted from queue", "jid", b.jid, "gate", k)
+		}
+	}
 }
 
 func renderPage(w http.ResponseWriter, title, body string) {

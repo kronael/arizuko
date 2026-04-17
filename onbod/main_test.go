@@ -22,7 +22,7 @@ func testDB(t *testing.T) *sql.DB {
 	_, err = db.Exec(`
 		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, impulse_config TEXT);
 		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT);
-		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT, token TEXT, token_expires TEXT, user_sub TEXT);
+		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT, token TEXT, token_expires TEXT, user_sub TEXT, gate TEXT, queued_at TEXT);
 		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT NOT NULL DEFAULT '');
 		CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT, created_at TEXT, context_mode TEXT);
 		CREATE TABLE user_jids (user_sub TEXT NOT NULL, jid TEXT NOT NULL, claimed TEXT NOT NULL, PRIMARY KEY (user_sub, jid));
@@ -261,7 +261,7 @@ func TestLinkJID(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'token_used', '2026-01-01')`)
 
-	linkJID(db, "telegram:1", "github:alice")
+	linkJID(db, "telegram:1", "github:alice", nil)
 
 	var userSub string
 	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = 'telegram:1'`).Scan(&userSub)
@@ -310,8 +310,8 @@ func TestLinkJIDIdempotent(t *testing.T) {
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
 		VALUES ('telegram:5', 'token_used', '2026-01-01')`)
 
-	linkJID(db, "telegram:5", "github:alice")
-	linkJID(db, "telegram:5", "github:alice")
+	linkJID(db, "telegram:5", "github:alice", nil)
+	linkJID(db, "telegram:5", "github:alice", nil)
 
 	var n int
 	db.QueryRow(`SELECT COUNT(*) FROM user_jids WHERE jid = 'telegram:5'`).Scan(&n)
@@ -325,8 +325,8 @@ func TestLinkJIDDifferentUserRejected(t *testing.T) {
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
 		VALUES ('telegram:6', 'token_used', '2026-01-01')`)
 
-	linkJID(db, "telegram:6", "github:alice")
-	linkJID(db, "telegram:6", "github:eve")
+	linkJID(db, "telegram:6", "github:alice", nil)
+	linkJID(db, "telegram:6", "github:eve", nil)
 
 	var n int
 	db.QueryRow(`SELECT COUNT(*) FROM user_jids WHERE jid = 'telegram:6'`).Scan(&n)
@@ -485,5 +485,251 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'opworld'`).Scan(&n)
 	if n != 1 {
 		t.Errorf("expected 1 route, got %d", n)
+	}
+}
+
+// --- Gate parsing tests ---
+
+func TestParseGates(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []gate
+	}{
+		{"github:org=mycompany:10/day", []gate{
+			{kind: "github", param: "org=mycompany", limitPerDay: 10},
+		}},
+		{"*:50/day", []gate{
+			{kind: "*", param: "", limitPerDay: 50},
+		}},
+		{"github:org=co:10/day,google:domain=co.com:20/day,*:5/day", []gate{
+			{kind: "github", param: "org=co", limitPerDay: 10},
+			{kind: "google", param: "domain=co.com", limitPerDay: 20},
+			{kind: "*", param: "", limitPerDay: 5},
+		}},
+		{"email:domain=example.com:5/day", []gate{
+			{kind: "email", param: "domain=example.com", limitPerDay: 5},
+		}},
+	}
+	for _, tc := range tests {
+		got, err := parseGates(tc.input)
+		if err != nil {
+			t.Errorf("parseGates(%q) error: %v", tc.input, err)
+			continue
+		}
+		if len(got) != len(tc.want) {
+			t.Errorf("parseGates(%q) = %d gates, want %d", tc.input, len(got), len(tc.want))
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("parseGates(%q)[%d] = %+v, want %+v", tc.input, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
+
+func TestParseGatesInvalid(t *testing.T) {
+	bad := []string{"", "github", "github:org=co:0/day", "github:org=co:-1/day"}
+	for _, s := range bad {
+		got, err := parseGates(s)
+		if err == nil && len(got) > 0 {
+			t.Errorf("parseGates(%q) should fail, got %+v", s, got)
+		}
+	}
+}
+
+func TestMatchGate(t *testing.T) {
+	gates := []gate{
+		{kind: "github", param: "org=co", limitPerDay: 10},
+		{kind: "google", param: "domain=co.com", limitPerDay: 20},
+		{kind: "email", param: "domain=example.com", limitPerDay: 5},
+		{kind: "*", param: "", limitPerDay: 50},
+	}
+
+	tests := []struct {
+		sub  string
+		want string // gateKey or "" for nil
+	}{
+		{"github:alice", "github:org=co"},
+		{"google:alice@co.com", "google:domain=co.com"},
+		{"google:alice@other.com", "*"},
+		{"email:bob@example.com", "email:domain=example.com"},
+		{"mastodon:foo", "*"},
+	}
+	for _, tc := range tests {
+		g := matchGate(gates, tc.sub)
+		var got string
+		if g != nil {
+			got = gateKey(*g)
+		}
+		if got != tc.want {
+			t.Errorf("matchGate(%q) = %q, want %q", tc.sub, got, tc.want)
+		}
+	}
+}
+
+func TestMatchGateNoWildcard(t *testing.T) {
+	gates := []gate{
+		{kind: "github", param: "org=co", limitPerDay: 10},
+	}
+	g := matchGate(gates, "google:alice@co.com")
+	if g != nil {
+		t.Errorf("expected nil for unmatched sub, got %+v", *g)
+	}
+}
+
+func TestLinkJIDWithGatesQueues(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created)
+		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
+
+	gates := []gate{{kind: "github", param: "org=co", limitPerDay: 10}}
+	linkJID(db, "telegram:1", "github:alice", gates)
+
+	var status, gateCol, queuedAt string
+	db.QueryRow(
+		`SELECT status, gate, queued_at FROM onboarding WHERE jid = 'telegram:1'`,
+	).Scan(&status, &gateCol, &queuedAt)
+	if status != "queued" {
+		t.Errorf("want status=queued, got %s", status)
+	}
+	if gateCol != "github:org=co" {
+		t.Errorf("want gate=github:org=co, got %s", gateCol)
+	}
+	if queuedAt == "" {
+		t.Error("want queued_at set")
+	}
+}
+
+func TestLinkJIDWithGatesNoMatch(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created)
+		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
+
+	gates := []gate{{kind: "github", param: "org=co", limitPerDay: 10}}
+	linkJID(db, "telegram:1", "google:alice@other.com", gates)
+
+	// Status should remain token_used (no matching gate, rejected)
+	var status string
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)
+	if status != "token_used" {
+		t.Errorf("want status=token_used (rejected), got %s", status)
+	}
+}
+
+func TestAdmitFromQueue(t *testing.T) {
+	db := testDB(t)
+	now := "2026-04-17T10:00:00Z"
+	// 3 queued users under the same gate, limit=2
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:1', 'queued', 'github:org=co', ?, 'github:a', '2026-01-01')`, now)
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:2', 'queued', 'github:org=co', ?, 'github:b', '2026-01-01')`,
+		"2026-04-17T10:01:00Z")
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:3', 'queued', 'github:org=co', ?, 'github:c', '2026-01-01')`,
+		"2026-04-17T10:02:00Z")
+
+	cfg := config{gates: []gate{
+		{kind: "github", param: "org=co", limitPerDay: 2},
+	}}
+	admitFromQueue(db, cfg)
+
+	// First 2 should be approved, third still queued
+	var s1, s2, s3 string
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:1'`).Scan(&s1)
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:2'`).Scan(&s2)
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:3'`).Scan(&s3)
+	if s1 != "approved" {
+		t.Errorf("t:1 want approved, got %s", s1)
+	}
+	if s2 != "approved" {
+		t.Errorf("t:2 want approved, got %s", s2)
+	}
+	if s3 != "queued" {
+		t.Errorf("t:3 want queued, got %s", s3)
+	}
+}
+
+func TestAdmitFromQueueRespectsDaily(t *testing.T) {
+	db := testDB(t)
+	today := "2026-04-17"
+	// 1 already admitted today
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:0', 'approved', 'github:org=co', ?, 'github:z', '2026-01-01')`,
+		today+"T08:00:00Z")
+	// 1 queued
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:1', 'queued', 'github:org=co', ?, 'github:a', '2026-01-01')`,
+		today+"T10:00:00Z")
+
+	cfg := config{gates: []gate{
+		{kind: "github", param: "org=co", limitPerDay: 1},
+	}}
+	admitFromQueue(db, cfg)
+
+	// Daily limit already hit, t:1 stays queued
+	var s string
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:1'`).Scan(&s)
+	if s != "queued" {
+		t.Errorf("t:1 want queued (daily limit hit), got %s", s)
+	}
+}
+
+func TestAdmitFromQueueNoGates(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:1', 'queued', 'github:org=co', '2026-04-17T10:00:00Z', 'github:a', '2026-01-01')`)
+	// No gates configured → noop
+	cfg := config{}
+	admitFromQueue(db, cfg)
+
+	var s string
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:1'`).Scan(&s)
+	if s != "queued" {
+		t.Errorf("want queued (no gates = noop), got %s", s)
+	}
+}
+
+func TestQueuePositionRendering(t *testing.T) {
+	db := testDB(t)
+	// 2 users queued, test shows position for second one
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:1', 'queued', '*', '2026-04-17T10:00:00Z', 'github:first', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:2', 'queued', '*', '2026-04-17T10:01:00Z', 'github:second', '2026-01-01')`)
+	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
+		VALUES ('github:second', 'second', 'Second', '', '2026-01-01')`)
+
+	cfg := config{gates: []gate{{kind: "*", param: "", limitPerDay: 100}}}
+	req := httptest.NewRequest("GET", "/onboard", nil)
+	req.Header.Set("X-User-Sub", "github:second")
+	w := httptest.NewRecorder()
+	handleOnboard(w, req, db, cfg)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "#2") {
+		t.Errorf("expected position #2 in body, got: %s", body)
+	}
+	if !strings.Contains(body, "queue") {
+		t.Errorf("expected 'queue' in body")
+	}
+}
+
+func TestNoGatesLegacyBehavior(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created)
+		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
+
+	// No gates → linkJID should set approved directly
+	linkJID(db, "telegram:1", "github:alice", nil)
+
+	var status string
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)
+	if status != "approved" {
+		t.Errorf("want approved (legacy), got %s", status)
 	}
 }
