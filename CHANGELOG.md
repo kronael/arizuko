@@ -9,6 +9,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.29.2] — 2026-04-17
+
 ### Added
 
 - **webd/mcp**: single JWT-gated MCP streamable-HTTP endpoint at `/mcp`.
