@@ -39,6 +39,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/messages", s.handleMessage)
 	mux.HandleFunc("GET /v1/channels", auth(s.handleListChannels))
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /ready", s.handleHealth)
 	return mux
 }
 
