@@ -9,10 +9,9 @@ when explicitly asked or the task requires it: generating content
 
 ## What is arizuko
 
-Multitenant Claude agent router. External
-channel adapters register via HTTP; router routes messages
-to containerized Claude agents. Docker compose orchestration,
-MCP sidecar extensibility.
+Multitenant Claude agent router. External channel adapters register via
+HTTP; router routes messages to containerized Claude agents. Docker compose
+orchestration, MCP sidecar extensibility.
 
 ## Build & Test
 
@@ -33,43 +32,39 @@ Pre-commit hooks configured via `.pre-commit-config.yaml`.
 
 ## Architecture
 
-**Flow**: Channel adapter → HTTP API → store.PutMessage →
-gateway.messageLoop polls → GroupQueue → container.Run (docker run)
-→ stream output → HTTPChannel.Send → channel adapter.
-
-See ARCHITECTURE.md for package graph, schema, container model.
+See ARCHITECTURE.md for package graph, message flow, container model.
 
 ## Layout
 
 ```
-cmd/arizuko/       CLI entrypoint (generate, run, create, group, status)
+cmd/arizuko/       CLI entrypoint (generate, run, create, group, status, pair)
 core/              Config, types, Channel interface
-store/             SQLite (messages.db)
+store/             SQLite (messages.db), migrations
 gateway/           Main loop + commands
-container/         Docker runner + sidecars + runtime (Go package only)
-ant/               In-container agent (TypeScript entrypoint, skills, Dockerfile)
-  skills/          Agent-side skills seeded into ~/.claude/skills/
+container/         Docker runner + sidecars + runtime
+ant/               In-container agent (TypeScript, skills, Dockerfile)
 queue/             Per-group concurrency
 router/            Message formatting + routing
 chanreg/           Channel registry + HTTP proxy
 api/               Router HTTP API server
 compose/           Docker-compose generation
-ipc/               MCP server (unix socket, runtime auth via auth)
+ipc/               MCP server (unix socket, runtime auth)
 auth/              Identity, authorization, JWT, OAuth, middleware
 diary/             Diary annotations
 groupfolder/       Path validation
 mountsec/          Mount security
-template/          Instance seed files; services/ is the catalog of available adapters
-  services/        Channel adapter service TOMLs (teled, whapd, discd, …)
-  web/             Vite web app scaffold
+template/          Instance seed files; services/ has adapter TOMLs, web/ has Vite scaffold
 sidecar/           MCP server binaries
-gated/             Gateway daemon (standalone binary)
-timed/             Scheduler daemon (standalone binary)
-onbod/             Onboarding daemon (auto-included when ONBOARDING_ENABLED=true)
-dashd/             Operator dashboards
-grants/            Grant rule engine
-notify/            Operator notifications (library)
-chanlib/           Shared primitives for channel adapter daemons
+gated/             Gateway daemon
+timed/             Scheduler daemon
+onbod/             Onboarding daemon (gated admission queue + OAuth link)
+dashd/             Operator dashboards (HTMX)
+webd/              Web channel daemon (websocket hub, slink, MCP bridge)
+proxyd/            Web proxy (/pub/ public, /* auth-gated)
+grants/            Grant rule engine (library)
+chanlib/           Shared HTTP + auth primitives for adapters (library)
+db_utils/          SQL migration runner (library)
+theme/             Shared CSS/HTML helpers (library)
 teled/             Telegram adapter (Go)
 discd/             Discord adapter (Go)
 mastd/             Mastodon adapter (Go)
@@ -77,8 +72,6 @@ bskyd/             Bluesky adapter (Go)
 reditd/            Reddit adapter (Go)
 whapd/             WhatsApp adapter (TypeScript)
 emaid/             Email adapter (IMAP/SMTP, Go)
-proxyd/            Web proxy daemon (/pub/ public, /* auth-gated)
-db_utils/          SQL migration runner (library)
 cfg/               Instance config files (per-deploy .env snapshots)
 ```
 
@@ -88,104 +81,100 @@ cfg/               Instance config files (per-deploy .env snapshots)
 - XML tags for prompt structure, JSON for IPC/MCP/structured output
 - Container output delimited by `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---`
 - IPC: MCP over unix socket, socat bridge into container
+- Business features (gates, grants, onboarding) are DB-backed with CLI +
+  chat command for management. Infra (ports, timeouts, images, paths) stays
+  as env vars in `.env`.
 
 ## Data Dir
 
 `/srv/data/arizuko_<name>/` per instance:
 
 - `.env` — config (gateway reads from cwd)
-- `store/` — SQLite DB
+- `store/` — SQLite DB (`messages.db`)
 - `groups/<folder>/` — group files, logs, diary
 - `groups/<folder>/media/<YYYYMMDD>/` — downloaded inbound attachments
 - `ipc/<folder>/` — MCP unix sockets + sidecar sockets
-- `groups/<folder>/.claude/` — agent session state (skills, settings, CLAUDE.md)
+- `groups/<folder>/.claude/` — agent session state
 
 ## Config
 
 All config via `.env` in data dir or env vars (`core.LoadConfig`).
-Key values: `ASSISTANT_NAME`, `CONTAINER_IMAGE`, `IDLE_TIMEOUT`,
-`MAX_CONCURRENT_CONTAINERS`, `API_PORT`, `CHANNEL_SECRET`,
-`ONBOARDING_ENABLED`, `VOICE_ENABLED`, `WHISPER_URL`.
 
-`HOST_DATA_DIR` and `HOST_APP_DIR` for docker-in-docker path translation.
-API server always starts (default port 8080).
+Infra: `ASSISTANT_NAME`, `CONTAINER_IMAGE`, `CONTAINER_TIMEOUT`,
+`IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`, `API_PORT`, `CHANNEL_SECRET`,
+`HOST_DATA_DIR`, `HOST_APP_DIR`, `WEB_HOST`, `AUTH_SECRET`, `AUTH_BASE_URL`,
+`TZ`, `LOG_LEVEL`, `ARIZUKO_DEV`.
+Media: `MEDIA_ENABLED`, `MEDIA_MAX_FILE_BYTES`, `WHISPER_BASE_URL`,
+`VOICE_TRANSCRIPTION_ENABLED`, `VIDEO_TRANSCRIPTION_ENABLED`, `WHISPER_MODEL`.
+OAuth: `GITHUB_CLIENT_ID/SECRET`, `GITHUB_ALLOWED_ORG`,
+`DISCORD_CLIENT_ID/SECRET`, `GOOGLE_CLIENT_ID/SECRET`, `GOOGLE_ALLOWED_EMAILS`.
+Flags: `ONBOARDING_ENABLED` (true/false), `IMPULSE_ENABLED`,
+`SEND_DISABLED_CHANNELS`, `SEND_DISABLED_GROUPS`, `ONBOARDING_PLATFORMS`.
+Onboarding: `ONBOARDING_PROTOTYPE`, `ONBOARDING_GREETING`,
+`ONBOARDING_GATES` (format `*:50/day` or `github:org=X:10/day,google:domain=Y:20/day`).
+Gates write to `onboarding.gate` + `onboarding.queued_at` columns (migration 0027).
+Daemon-specific: `DATA_DIR`, `DATABASE`, `DB_PATH`, `DASH_PORT`,
+`ROUTER_URL`, `ONBOD_LISTEN_ADDR`, `ONBOARD_POLL_INTERVAL`.
 
 ## Entrypoint
 
-`arizuko generate <instance>` — write `docker-compose.yml` to the data dir (no docker needed).
-`arizuko run <instance>` — generate compose then run `docker compose up` (what systemd calls via `docker run arizuko:latest arizuko generate <name>` + `docker compose up`).
-`arizuko create <name>` — seed data dir, .env, default group.
-`arizuko group <instance> list|add|rm` — manage registered groups.
-`arizuko group <instance> grant <sub> <pattern>` — add a `user_groups` ACL row (`**` = operator, `*` = root groups, `pub/*` = wildcard, literal = exact).
-`arizuko group <instance> ungrant <sub> <pattern>` — remove a grant.
-`arizuko group <instance> grants [<sub>]` — list grants (all or filtered by sub).
-`arizuko status <instance>` — show compose services and registered channels.
+```
+arizuko generate <instance>    write docker-compose.yml to data dir
+arizuko run <instance>         generate + docker compose up
+arizuko create <name>          seed data dir, .env, default group
+arizuko group <inst> list|add|rm   manage groups
+arizuko group <inst> grant <sub> <pattern>   add user_groups ACL row
+arizuko group <inst> ungrant <sub> <pattern>
+arizuko group <inst> grants [<sub>]
+arizuko status <instance>      show compose services + channels
+arizuko pair <instance> <svc>  docker compose run --rm a service
+```
 
-Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`, `mastd`, `bskyd`, `reditd`, `emaid`, `onbod`, `dashd`. Each in `<name>/main.go`.
+Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`,
+`mastd`, `bskyd`, `reditd`, `emaid`, `whapd`, `onbod`, `dashd`, `webd`,
+`proxyd`. Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
 
 ## Service Architecture
 
 Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 
-| Name       | Type    | Role                                                                  |
-| ---------- | ------- | --------------------------------------------------------------------- |
-| `gated`    | daemon  | Message loop, routing, containers                                     |
-| `timed`    | daemon  | Cron poll, writes to messages                                         |
-| `onbod`    | daemon  | Onboarding state machine (auto-included when ONBOARDING_ENABLED=true) |
-| `dashd`    | daemon  | Operator dashboards (HTMX)                                            |
-| `ipc`      | library | MCP server, identity stamping                                         |
-| `auth`     | library | Authorization policy, JWT, OAuth                                      |
-| `grants`   | library | Grant rule engine                                                     |
-| `notify`   | library | Operator notifications                                                |
-| `chanlib`  | library | Shared HTTP + auth primitives for channel adapters                    |
-| `db_utils` | library | SQL migration runner (gated owns schema; others read)                 |
-| `teled`    | daemon  | Telegram adapter (Go)                                                 |
-| `discd`    | daemon  | Discord adapter (Go)                                                  |
-| `mastd`    | daemon  | Mastodon adapter (Go)                                                 |
-| `bskyd`    | daemon  | Bluesky adapter (Go)                                                  |
-| `reditd`   | daemon  | Reddit adapter (Go)                                                   |
-| `whapd`    | daemon  | WhatsApp adapter (TypeScript)                                         |
-| `proxyd`   | daemon  | Web proxy: /pub/ public, /\* auth-gated (JWT or refresh_token cookie) |
-| `vited`    | service | Vite dev server (arizuko-vite image)                                  |
-| `emaid`    | daemon  | Email adapter (IMAP/SMTP, Go)                                         |
+| Name       | Type    | Role                                                  |
+| ---------- | ------- | ----------------------------------------------------- |
+| `gated`    | daemon  | Message loop, routing, containers                     |
+| `timed`    | daemon  | Cron poll, writes to messages                         |
+| `onbod`    | daemon  | Onboarding: OAuth link, gated admission queue         |
+| `dashd`    | daemon  | Operator dashboards (HTMX)                            |
+| `webd`     | daemon  | Web channel: websocket hub, slink, MCP bridge         |
+| `proxyd`   | daemon  | Web proxy: /pub/ public, /\* auth-gated               |
+| `vited`    | service | Vite dev server (compose-generated, arizuko-vite img) |
+| `teled`    | daemon  | Telegram adapter                                      |
+| `discd`    | daemon  | Discord adapter                                       |
+| `mastd`    | daemon  | Mastodon adapter                                      |
+| `bskyd`    | daemon  | Bluesky adapter                                       |
+| `reditd`   | daemon  | Reddit adapter                                        |
+| `whapd`    | daemon  | WhatsApp adapter (TypeScript)                         |
+| `emaid`    | daemon  | Email adapter (IMAP/SMTP)                             |
+| `ipc`      | library | MCP server, identity stamping                         |
+| `auth`     | library | Authorization policy, JWT, OAuth                      |
+| `grants`   | library | Grant rule engine                                     |
+| `chanlib`  | library | Shared HTTP + auth primitives for adapters            |
+| `db_utils` | library | SQL migration runner                                  |
+| `theme`    | library | Shared CSS/HTML helpers                               |
 
-Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
-Libraries: `ipc/`, `auth/`, `chanlib/`, `db_utils/`. Host CLI: `cmd/arizuko/main.go`.
-
-**Schema ownership**: `gated` (via `store/`) owns the shared `messages.db`
-schema. All migrations live in `store/migrations/`. Other daemons
-(timed, onbod, etc.) connect to the already-migrated DB and never run
-their own migrations. `db_utils.Migrate` is the shared migration runner;
-`store.Migrate(db)` is the public helper for tests that need a
-schema'd fixture.
+**Schema ownership**: `gated` (via `store/`) owns `messages.db`. All
+migrations in `store/migrations/` (27 total). Other daemons connect
+read-only. `store.Migrate(db)` for test fixtures.
 
 ## Operational check (post-deploy)
 
 ```bash
-# 1. Service health
 sudo systemctl status arizuko_<instance>
-
-# 2. Startup sequence — expect: "state loaded", "channel connected",
-#    "scheduler started", "arizuko running"
-sudo journalctl -u arizuko_<instance> --since "5 minutes ago" --no-pager | head -30
-
-# 3. Errors
-sudo journalctl -u arizuko_<instance> --since "5 minutes ago" --no-pager \
-  | grep -iE 'error|warn|fatal|crash|unhandled|reject'
-
-# 4. Container orphans
+sudo journalctl -u arizuko_<instance> --since "5 min ago" --no-pager | head -30
+sudo journalctl -u arizuko_<instance> --since "5 min ago" --no-pager | grep -iE 'error|fatal'
 sudo docker ps --filter "name=arizuko-" --format "{{.Names}} {{.Status}}"
-
-# 5. MCP socket check
-ls /srv/data/arizuko_<instance>/ipc/*/gated.sock 2>/dev/null
 ```
 
-Red flags: `"error in message loop"`, `"container timeout"`,
-`"circuit breaker open"`, `"agent error"`, no log activity >30s.
-
-Key error emitters: `gateway/gateway.go` (message loop),
-`queue/queue.go` (concurrency/circuit breaker),
-`container/runner.go` (spawn/timeout), `ipc/ipc.go` (MCP).
+Red flags: `"error in message loop"`, `"container timeout"`, `"circuit breaker open"`.
 
 ## Shipping changes
 
@@ -197,16 +186,13 @@ Key error emitters: `gateway/gateway.go` (message loop),
 
 ## Tagging a new version
 
-1. Update `CHANGELOG.md` — move [Unreleased] to `[vX.Y.Z] — YYYY-MM-DD`
-2. Update `README.md` and `ARCHITECTURE.md` if needed
-3. `git tag vX.Y.Z`
-4. Tag docker images: `docker tag arizuko:latest arizuko:vX.Y.Z` and same for `arizuko-ant`
-5. Add `.diary/YYYYMMDD.md` entry
+1. Move CHANGELOG.md [Unreleased] to `[vX.Y.Z] — YYYY-MM-DD`
+2. `git tag vX.Y.Z`, tag docker images (`arizuko:vX.Y.Z`, `arizuko-ant:vX.Y.Z`)
+3. Add `.diary/YYYYMMDD.md` entry
 
 ## Migrating from kanipi
 
-See `MIGRATION.md` at repo root — non-obvious differences only (IPC transport,
-schema, auth hashing, env vars, feature gaps).
+See `MIGRATION.md`.
 
 ## Related projects
 

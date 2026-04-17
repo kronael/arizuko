@@ -19,12 +19,16 @@ cmd/arizuko/main
   │   └── diary, groupfolder
   └── compose       docker-compose generation
 
-gated/   wires core + store + gateway + api + chanreg + ipc + auth
-timed/   scheduler: polls scheduled_tasks, inserts messages
-onbod/   onboarding state machine
+gated/    wires core + store + gateway + api + chanreg + ipc + auth
+timed/    scheduler: polls scheduled_tasks, inserts messages
+onbod/    onboarding state machine + gated admission queue
+dashd/    operator dashboard (HTMX, read-only SQLite)
+webd/     web chat channel adapter (HTTP/SSE, registers as "web")
+proxyd/   reverse proxy: auth, vhost routing, slink rate limiting
 teled/ discd/ mastd/ bskyd/ reditd/ emaid/ whapd/  channel adapters
-grants/  CheckAction, NarrowRules, MatchingRules, DeriveRules
-chanlib/ RouterClient, InboundMsg, auth middleware (shared by adapters)
+grants/   CheckAction, NarrowRules, MatchingRules, DeriveRules
+chanlib/  RouterClient, InboundMsg, auth middleware (shared by adapters)
+theme/    shared CSS + HTML helpers (used by onbod, dashd)
 db_utils/ SQL migration runner
 ```
 
@@ -32,14 +36,14 @@ db_utils/ SQL migration runner
 
 ```
 Channel adapter → POST /v1/messages (api) → store.PutMessage
-  → gateway.messageLoop (polls every 2s)
-  → store.NewMessages + store.ActiveWebJIDs
-  → impulseGate.accept — weight-based batching
-  → checkTrigger → handleCommand → prefix dispatch
-  → router.ResolveRoutingTarget
+  → gateway.messageLoop → pollOnce (polls every PollInterval)
+  → store.NewMessages (since lastTimestamp)
+  → resolveGroup (route table lookup)
+  → handleCommand (prefix dispatch)
+  → impulseGate.accept — weight-based batching (if enabled)
   → queue.SendMessages (steer into running container) OR
   → queue.EnqueueMessageCheck → processGroupMessages
-    → enricher: download attachments → Whisper for voice
+    → enrichAttachments: download media → Whisper for voice
     → store.EnrichMessage + MessagesSince + FlushSysMsgs
     → router.FormatMessages (XML batch) + grants.DeriveRules → start.json
     → container.Run → stream output → router.FormatOutbound
@@ -48,10 +52,11 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
 
 ## Web Channel (proxyd)
 
-Web chat uses `web:<folder>` JIDs. Messages arrive via `proxyd` (HTTP/SSE) and
-store directly in SQLite. The gateway poll loop discovers active `web:` JIDs
-via `store.ActiveWebJIDs(since)`. Each message carries a topic;
-`processWebTopics` splits by topic and runs one agent per topic.
+Web chat uses `web:<folder>` JIDs. `webd` is a channel adapter that registers
+with the router as `"web"` (prefix `web:`), receives messages via HTTP/SSE,
+and stores them through the standard `/v1/messages` API. When
+`processGroupMessages` encounters a `web:` JID it delegates to
+`processWebTopics`, which splits by topic and runs one agent per topic.
 
 **Path model**:
 
@@ -76,7 +81,8 @@ proxyd reads `web/vhosts.json` every 5s. Full protocol: `specs/6/3-chat-ui.md`.
 - Secure cookies when `authBaseURL(cfg)` is HTTPS
 - Login rate limit: 5 POST `/auth/login` per IP per 15min (in-memory)
 - Telegram widget: rejects `auth_date` > 5min (replay protection)
-- OAuth: Google, GitHub (optional `GITHUB_ALLOWED_ORG`), Discord; shared
+- OAuth: Google (optional `GOOGLE_ALLOWED_EMAILS`), GitHub (optional
+  `GITHUB_ALLOWED_ORG`), Discord, Telegram widget; shared
   `createOAuthSession` path in `auth/oauth.go`
 
 ## Channel Protocol
@@ -121,32 +127,39 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | ------------- | ------------------------------------------------- |
 | `Config`      | settings from `.env` + env vars                   |
 | `Message`     | incoming (sender, content, reply context)         |
-| `Group`       | registered (folder, trigger, config)              |
+| `Group`       | registered (folder, name, config, state)          |
 | `GroupConfig` | per-group: mounts, timeout, sidecars              |
-| `Route`       | routing table entry (type, match, target)         |
+| `Route`       | routing table entry (seq, match, target)          |
 | `Task`        | scheduled (cron, prompt, status)                  |
 | `Channel`     | Connect, Send, SendFile, Owns, Typing, Disconnect |
 
 ## SQLite Schema
 
-| Table             | Key columns                                                                     |
-| ----------------- | ------------------------------------------------------------------------------- |
-| `chats`           | jid (PK), errored, agent_cursor, sticky_group, sticky_topic                     |
-| `messages`        | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments        |
-| `groups`          | folder (PK), name, container_config, slink_token, parent, state, spawn_ttl_days |
-| `routes`          | id, seq, match, target, impulse_config                                          |
-| `sessions`        | group_folder + topic (PK), session_id                                           |
-| `session_log`     | id, group_folder, session_id, started_at, ended_at, result, error               |
-| `system_messages` | id, group_id, origin, event, body                                               |
-| `scheduled_tasks` | id (PK), owner, chat_jid, prompt, cron, next_run, status                        |
-| `router_state`    | key (PK), value                                                                 |
-| `auth_users`      | sub (unique), username (unique), hash                                           |
-| `auth_sessions`   | token_hash (PK), user_sub, expires_at                                           |
-| `user_groups`     | user_sub + folder (PK) — restricts web user to folders                          |
-| `email_threads`   | thread_id (PK), chat_jid, subject                                               |
-| `onboarding`      | jid (PK), status, prompted_at                                                   |
+| Table              | Key columns                                                                     |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `chats`            | jid (PK), errored, agent_cursor, sticky_group, sticky_topic                     |
+| `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic |
+| `groups`           | folder (PK), name, container_config, slink_token, parent, state, spawn_ttl_days |
+| `routes`           | id (PK), seq, match, target, impulse_config                                     |
+| `sessions`         | group_folder + topic (PK), session_id                                           |
+| `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error               |
+| `system_messages`  | id, group_id, origin, event, body                                               |
+| `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode          |
+| `task_run_logs`    | id (PK), task_id, run_at, duration_ms, status, error                            |
+| `router_state`     | key (PK), value                                                                 |
+| `channels`         | name (PK), url, jid_prefixes, capabilities                                      |
+| `auth_users`       | sub (unique), username (unique), hash, name                                     |
+| `auth_sessions`    | token_hash (PK), user_sub, expires_at                                           |
+| `user_groups`      | user_sub + folder (PK), granted_at                                              |
+| `user_jids`        | user_sub + jid (PK), jid (unique), claimed                                      |
+| `grant_rules`      | folder (PK), rules (JSON)                                                       |
+| `grants`           | id, jid, role, granted_by, granted_at                                           |
+| `chat_reply_state` | jid + topic (PK), last_reply_id                                                 |
+| `email_threads`    | thread_id (PK), chat_jid, subject                                               |
+| `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at  |
 
-WAL mode, 5s busy timeout, migrations via `PRAGMA user_version`.
+WAL mode, 5s busy timeout, migrations via `db_utils.Migrate` (`migrations`
+table keyed by service+version).
 
 `messages.source` is the canonical adapter-of-record stamped by
 `api.handleMessage`; outbound reads `store.LatestSource(jid)`. All agent
@@ -156,17 +169,17 @@ and `routed_to` capture audit metadata. Spec: `specs/7/22-audit-log.md`.
 
 ## Container Lifecycle
 
-1. `runtime.EnsureRunning()` — verify docker
-2. `runtime.CleanupOrphans()` — stop stale `arizuko-*`
+1. `container.EnsureRunning()` — verify docker
+2. `container.CleanupOrphans()` — stop stale `arizuko-*`
 3. `container.Run()`:
    - Resolve path via `groupfolder.Resolver`
-   - `BuildMounts()` → `mountsec.ValidateAdditionalMounts()`
+   - `buildMounts()` → `mountsec.ValidateAdditionalMounts()`
    - `seedSettings()` — write `settings.json` (env, arizuko MCP via socat,
      sidecars)
-   - `seedSkills()` — copy `ant/skills/` on first run; seed `.claude.json`
-   - `StartSidecars()`
-   - Name: `arizuko-<folder>-<ts_ms>` or
-     `arizuko-<folder>-task-<task_id>` (sender `scheduler-isolated:<id>`)
+   - `seedSkills()` — copy `ant/skills/` (re-seeds every run); seed `.claude.json`
+   - `startSidecars()`
+   - Name: `arizuko-<instance>-<folder>-<ts_ms>` or overridden by caller
+     (e.g. task containers set `timed-isolated:<id>` sender)
    - Env: `WEB_PREFIX` (`pub` for root, `pub/<folder>` for children),
      `ARIZUKO_IS_ROOT`, `ARIZUKO_DELEGATE_DEPTH`, `WEB_HOST`,
      `ARIZUKO_ASSISTANT_NAME`, plus group overrides
@@ -174,7 +187,7 @@ and `routed_to` capture audit metadata. Spec: `specs/7/22-audit-log.md`.
      `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---`
    - Output: `{ status, result, newSessionId, error }`
    - Timer timeout: graceful stop then kill
-   - `StopSidecars()`
+   - `stopSidecars()`
    - Log: `groups/<folder>/logs/container-<ts>.log`
 
 Session: new session ID updates `store.sessions`. Error with no output →
@@ -199,11 +212,11 @@ to `auth.Authorize`.
 
 Per-group MCP sidecars from `GroupConfig.Sidecars`:
 
-1. `StartSidecars()` — `docker run -d` per sidecar with socket volume at
+1. `startSidecars()` — `docker run -d` per sidecar with socket volume at
    `ipc/sidecars/<name>.sock`, resource limits, network mode
 2. Socket wired into agent `settings.json` as `mcpServers` entry with
    `socat UNIX-CONNECT`
-3. `StopSidecars()` — `docker stop` then `rm -f`
+3. `stopSidecars()` — `docker stop` then `rm -f`
 
 ## Queue (queue package)
 
@@ -244,9 +257,11 @@ filtered by grants.
 
 `compose.Generate(dataDir)` builds `docker-compose.yml` from:
 
-1. **Built-in** — always emitted per `.env` profile: `gated`, `timed`,
-   `dashd` (profile=full), `proxyd`+`vited` (WEB_PORT set),
-   `onbod` (ONBOARDING_ENABLED=true)
+1. **Built-in** — emitted per `.env` profile and feature flags:
+   `gated` (always), `timed` (profile != minimal/web),
+   `webd`+`proxyd`+`vited` (WEB_PORT set, profile != minimal),
+   `dashd` (profile=full), `davd` (profile=full, WEBDAV_ENABLED=true),
+   `onbod` (profile=full, ONBOARDING_ENABLED=true)
 2. **Extra** — `<dataDir>/services/*.toml` appended
 
 Bundled catalog at `template/services/` (ships in image, Ansible extracts to
@@ -275,16 +290,23 @@ listen on :8080 inside containers.
 
 ## Onboarding (onbod/)
 
-Self-service token-based onboarding. No admin approval.
+Self-service token-based onboarding with optional gated admission.
 
 State machine per JID (`onboarding` table):
 
 ```
-awaiting_message → token_used (clicked link) → approved (OAuth + world created)
+awaiting_message → token_used (clicked link) → [queued] → approved (OAuth + world created)
 ```
 
-Poll loop (10s): picks up `awaiting_message` rows, generates one-time
-token (24h TTL), sends auth link via gated outbound API.
+Poll loop (10s): picks up `awaiting_message` rows with no `prompted_at`,
+generates one-time token (24h TTL), sends auth link via gated outbound API.
+
+When `ONBOARDING_GATES` is set (comma-separated gate specs like
+`github:org=mycompany:10/day`, `google:domain=example.com:20/day`, `*:50/day`),
+users who click the link enter `queued` status with a matched gate.
+`admitFromQueue` runs every ~60s and promotes queued users up to each gate's
+daily limit. Queue position page auto-refreshes (30s). Without gates, users
+go directly to `approved`.
 
 Web dashboard at `/onboard`: token landing → OAuth → username picker →
 world creation via `container.SetupGroup`. Second-JID auto-link when
@@ -297,28 +319,31 @@ spawn children via `register_group` MCP with `fromPrototype=true`. Spec:
 ## Scheduler (timed/)
 
 Spec: `specs/4/8-scheduler-service.md`. Polls `scheduled_tasks` every 60s.
-For each due task (status=active, next_run ≤ now):
+For each due task (status=active, next_run <= now):
 
-1. Insert prompt as message (sender: `scheduler`)
-2. Compute next run (robfig/cron), update `next_run`
-3. Tasks without cron get `next_run=NULL` (one-shot)
+1. Atomically claim due tasks (`status='firing'`) to prevent double-fire
+2. Insert prompt as message (sender: `timed` or `timed-isolated:<id>`)
+3. Compute next run (robfig/cron or interval-ms), update `next_run`
+4. Tasks without cron get `status='completed'` (one-shot)
+5. Log each run to `task_run_logs`
+
+Daily `cleanupSpawns`: closes idle child groups past `spawn_ttl_days`,
+archives closed groups past `archive_closed_days` as `.tar.gz`.
 
 Gateway picks up scheduler messages via normal poll. timed opens the same
-SQLite DB (WAL); own migration runner keyed by `"timed"` in shared
-`migrations` table. `timed/migrations/0001-schema.sql` creates
-`scheduled_tasks` idempotently.
+SQLite DB (WAL mode); schema is owned by `store/migrations/` and must
+already be migrated by gated before timed starts.
 
 ## Operator Dashboard (dashd/)
 
-Standalone read-only HTMX portal on `DASH_PORT` (default 8090). Opens SQLite
-read-only. Six views: portal, status, tasks, activity, groups, memory. Auth
-via JWT cookie (imports `auth`). Spec: `specs/7/25-dashboards.md`.
+Standalone read-only HTMX portal on `:8080` (configurable via `DASH_PORT`
+env; exposed on host only if `DASH_PORT` is set in compose, otherwise
+accessed via proxyd at `/dash/`). Opens SQLite read-only. Six views: portal,
+status, tasks, activity, groups, memory. Auth enforced by proxyd's
+`requireAuth` middleware. Spec: `specs/7/25-dashboards.md`.
 
 URLs: `/dash/` portal, `/dash/<name>/` page, `/dash/<name>/x/<frag>` HTMX
-partial, `/dash/<name>/api/<path>` JSON.
-
-Registered as `receive_only: true`. `/status` command routes to dashd; dashd
-replies via `notify/`.
+partial.
 
 ## Diary (diary package)
 
@@ -352,4 +377,4 @@ tool arguments) against symlink escapes and a blocklist (`.ssh`, `.gnupg`,
 ## Docker-in-Docker Paths
 
 `container.hp()` translates local to host paths when gateway runs in docker.
-`HOST_DATA_DIR` env provides the host-side base.
+`HOST_DATA_DIR` and `HOST_APP_DIR` provide the host-side base paths.
