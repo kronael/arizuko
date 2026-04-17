@@ -153,6 +153,45 @@ func TestGenerateWebServices(t *testing.T) {
 	}
 }
 
+func TestGenerateWithWebDAV(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"WEBDAV_ENABLED=true\nWEB_PORT=443\nAPI_PORT=8080\n"), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "davd:") {
+		t.Error("missing davd service")
+	}
+	if !strings.Contains(out, "sigoden/dufs") {
+		t.Error("davd should use sigoden/dufs image")
+	}
+	if !strings.Contains(out, "/data:ro") {
+		t.Error("davd should mount /data:ro (read-only)")
+	}
+	if !strings.Contains(out, "depends_on") {
+		t.Error("davd missing depends_on")
+	}
+}
+
+func TestGenerateWithoutWebDAV(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"WEB_PORT=443\nAPI_PORT=8080\n"), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "davd:") {
+		t.Error("davd service should not be present when WEBDAV_ENABLED is not set")
+	}
+}
+
 func TestInterpolate(t *testing.T) {
 	env := map[string]string{"FOO": "bar", "BAZ": "qux"}
 	got := interpolate("${FOO}-${BAZ}", env)

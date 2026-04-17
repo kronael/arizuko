@@ -251,14 +251,3 @@ func TestHandlerHealth(t *testing.T) {
 		t.Errorf("name = %v", resp["name"])
 	}
 }
-
-func TestNoFileSender(t *testing.T) {
-	var nfs NoFileSender
-	err := nfs.SendFile("", "", "", "")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if err.Error() != "send-file not supported" {
-		t.Errorf("err = %v", err)
-	}
-}

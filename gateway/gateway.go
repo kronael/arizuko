@@ -954,10 +954,10 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 		transcript := ""
 		if g.cfg.VoiceEnabled && g.cfg.WhisperURL != "" {
 			if strings.HasPrefix(att.Mime, "audio/") {
-				transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, dest, langs)
+				transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, dest, att.Mime, langs)
 			} else if strings.HasPrefix(att.Mime, "video/") {
 				if audioPath := extractVideoAudio(dest); audioPath != "" {
-					transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, audioPath, langs)
+					transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, audioPath, "audio/mpeg", langs)
 					os.Remove(audioPath)
 				}
 			}
@@ -1017,20 +1017,20 @@ func downloadFile(url, dest, secret string, maxBytes int64) error {
 	return cpErr
 }
 
-func whisperTranscribe(baseURL, model, path string, langs []string) string {
+func whisperTranscribe(baseURL, model, path, mime string, langs []string) string {
 	if len(langs) == 0 {
 		langs = []string{""}
 	}
 	var results []string
 	for _, lang := range langs {
-		if t := transcribeOnce(baseURL, model, path, lang); t != "" {
+		if t := transcribeOnce(baseURL, model, path, lang, mime); t != "" {
 			results = append(results, t)
 		}
 	}
 	return strings.Join(results, "\n")
 }
 
-func transcribeOnce(baseURL, model, path, lang string) string {
+func transcribeOnce(baseURL, model, path, lang, mime string) string {
 	f, err := os.Open(path)
 	if err != nil {
 		return ""
@@ -1042,7 +1042,7 @@ func transcribeOnce(baseURL, model, path, lang string) string {
 	if err != nil {
 		return ""
 	}
-	req.Header.Set("Content-Type", "audio/ogg")
+	req.Header.Set("Content-Type", mime)
 	q := req.URL.Query()
 	q.Set("model", model)
 	if lang != "" {

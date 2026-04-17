@@ -2,8 +2,11 @@ package gateway
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1245,5 +1248,172 @@ func TestRecoverPendingMessages_SkipsErrored(t *testing.T) {
 	defer mu.Unlock()
 	if recovered["telegram:-100"] {
 		t.Error("errored JID should not be recovered")
+	}
+}
+
+func TestEnrichAttachments_VoiceTranscription(t *testing.T) {
+	// Mock file server
+	fileSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/ogg")
+		w.Write([]byte("OggS...fake audio"))
+	}))
+	defer fileSrv.Close()
+
+	// Mock whisper server — records Content-Type from request
+	var gotContentType string
+	whisperSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		io.ReadAll(r.Body)
+		json.NewEncoder(w).Encode(map[string]string{"text": "hello world"})
+	}))
+	defer whisperSrv.Close()
+
+	gw, s := testGateway(t)
+	gw.cfg.MediaEnabled = true
+	gw.cfg.MediaMaxBytes = 10 * 1024 * 1024
+	gw.cfg.VoiceEnabled = true
+	gw.cfg.WhisperURL = whisperSrv.URL
+	gw.cfg.WhisperModel = "turbo"
+
+	grp := core.Group{Folder: "grp", Name: "Test"}
+	setGroup(gw, "jid1", grp)
+
+	atts := `[{"mime":"audio/ogg","filename":"voice.ogg","url":"` + fileSrv.URL + `/voice.ogg","size":17}]`
+	msg := core.Message{
+		ID: "m-voice", ChatJID: "jid1", Sender: "user",
+		Content: "[Voice]", Timestamp: time.Now(), Attachments: atts,
+	}
+	s.PutMessage(msg)
+
+	gw.enrichAttachments(&msg, "grp")
+
+	if gotContentType != "audio/ogg" {
+		t.Errorf("whisper Content-Type = %q, want %q", gotContentType, "audio/ogg")
+	}
+	if !strings.Contains(msg.Content, `transcript="hello world"`) {
+		t.Errorf("expected transcript in content, got %q", msg.Content)
+	}
+	if !strings.Contains(msg.Content, "<attachment") {
+		t.Errorf("expected attachment XML, got %q", msg.Content)
+	}
+}
+
+func TestEnrichAttachments_VoiceDisabled(t *testing.T) {
+	fileSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("OggS...fake audio"))
+	}))
+	defer fileSrv.Close()
+
+	gw, s := testGateway(t)
+	gw.cfg.MediaEnabled = true
+	gw.cfg.MediaMaxBytes = 10 * 1024 * 1024
+	gw.cfg.VoiceEnabled = false
+
+	grp := core.Group{Folder: "grp", Name: "Test"}
+	setGroup(gw, "jid1", grp)
+
+	atts := `[{"mime":"audio/ogg","filename":"voice.ogg","url":"` + fileSrv.URL + `/voice.ogg","size":17}]`
+	msg := core.Message{
+		ID: "m-novoice", ChatJID: "jid1", Sender: "user",
+		Content: "[Voice]", Timestamp: time.Now(), Attachments: atts,
+	}
+	s.PutMessage(msg)
+
+	gw.enrichAttachments(&msg, "grp")
+
+	if strings.Contains(msg.Content, "transcript") {
+		t.Errorf("expected no transcript when VoiceEnabled=false, got %q", msg.Content)
+	}
+	if !strings.Contains(msg.Content, "<attachment") {
+		t.Errorf("expected attachment XML even with voice disabled, got %q", msg.Content)
+	}
+}
+
+func TestEnrichAttachments_Base64Decode(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.MediaEnabled = true
+	gw.cfg.MediaMaxBytes = 10 * 1024 * 1024
+
+	grp := core.Group{Folder: "grp", Name: "Test"}
+	setGroup(gw, "jid1", grp)
+
+	raw := []byte("fake-image-bytes")
+	b64 := base64.StdEncoding.EncodeToString(raw)
+	atts := `[{"mime":"image/png","filename":"shot.png","data":"` + b64 + `","size":16}]`
+	msg := core.Message{
+		ID: "m-b64", ChatJID: "jid1", Sender: "user",
+		Content: "[Image]", Timestamp: time.Now(), Attachments: atts,
+	}
+	s.PutMessage(msg)
+
+	gw.enrichAttachments(&msg, "grp")
+
+	if !strings.Contains(msg.Content, "<attachment") {
+		t.Errorf("expected attachment XML for base64 data, got %q", msg.Content)
+	}
+	if !strings.Contains(msg.Content, "shot.png") {
+		t.Errorf("expected filename in XML, got %q", msg.Content)
+	}
+}
+
+func TestWhisperTranscribe_MultiLanguage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lang := r.URL.Query().Get("language")
+		text := "transcript-" + lang
+		if lang == "" {
+			text = "transcript-default"
+		}
+		json.NewEncoder(w).Encode(map[string]string{"text": text})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	f := filepath.Join(dir, "audio.ogg")
+	os.WriteFile(f, []byte("fake"), 0o644)
+
+	got := whisperTranscribe(srv.URL, "turbo", f, "audio/ogg", []string{"en", "es"})
+	if !strings.Contains(got, "transcript-en") {
+		t.Errorf("missing en transcript, got %q", got)
+	}
+	if !strings.Contains(got, "transcript-es") {
+		t.Errorf("missing es transcript, got %q", got)
+	}
+	parts := strings.Split(got, "\n")
+	if len(parts) != 2 {
+		t.Errorf("expected 2 parts joined by newline, got %d: %q", len(parts), got)
+	}
+}
+
+func TestWhisperTranscribe_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	f := filepath.Join(dir, "audio.ogg")
+	os.WriteFile(f, []byte("fake"), 0o644)
+
+	got := whisperTranscribe(srv.URL, "turbo", f, "audio/ogg", nil)
+	if got != "" {
+		t.Errorf("expected empty on server error, got %q", got)
+	}
+}
+
+func TestReadWhisperLanguages(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".whisper-language"), []byte("en\nes\n"), 0o644)
+
+	langs := readWhisperLanguages(dir)
+	if len(langs) != 2 || langs[0] != "en" || langs[1] != "es" {
+		t.Errorf("readWhisperLanguages = %v, want [en es]", langs)
+	}
+}
+
+func TestReadWhisperLanguages_Missing(t *testing.T) {
+	dir := t.TempDir()
+	langs := readWhisperLanguages(dir)
+	if langs != nil {
+		t.Errorf("readWhisperLanguages = %v, want nil", langs)
 	}
 }

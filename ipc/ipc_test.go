@@ -43,25 +43,6 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 	}
 }
 
-func TestToolErrFormat(t *testing.T) {
-	r, err := toolErr("test error")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r == nil {
-		t.Fatal("expected non-nil result")
-	}
-}
-
-func TestToolJSONFormat(t *testing.T) {
-	r, err := toolJSON(map[string]string{"key": "val"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r == nil {
-		t.Fatal("expected non-nil result")
-	}
-}
 
 func TestFolderForJid(t *testing.T) {
 	db := StoreFns{

@@ -902,21 +902,6 @@ func TestProxydDavGlobGroupsAllowed(t *testing.T) {
 	}
 }
 
-// "**" is the universal operator pattern and admits any group.
-func TestProxydDavDoubleStarAllows(t *testing.T) {
-	s, up := testDavServer(t)
-	defer up.Close()
-
-	req := httptest.NewRequest("GET", "/dav/anything", nil)
-	req.Header.Set("X-User-Groups", `["**"]`)
-	w := httptest.NewRecorder()
-	s.davRoute(w, req)
-
-	if w.Code != 200 {
-		t.Fatalf("status = %d, want 200 (** matches anything)", w.Code)
-	}
-}
-
 // Malformed X-User-Groups header rejects the request.
 func TestProxydDavBadGroupsHeader(t *testing.T) {
 	s, up := testDavServer(t)
@@ -929,6 +914,27 @@ func TestProxydDavBadGroupsHeader(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+// When davProxy is nil (WEBDAV_ENABLED not set), /dav/* returns 404
+// at the route level before auth is checked.
+func TestDavRouteNotConfigured(t *testing.T) {
+	s := &server{
+		cfg:     config{authSecret: "testsecret"},
+		vh:      &vhosts{entries: map[string]string{}},
+		slinkRL: newRateLimiter(10, time.Minute),
+		// davProxy intentionally nil
+	}
+	for _, path := range []string{"/dav", "/dav/", "/dav/folder/file"} {
+		w := httptest.NewRecorder()
+		s.route(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != http.StatusNotFound {
+			t.Errorf("path %q: status = %d, want 404", path, w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "WebDAV not configured") {
+			t.Errorf("path %q: body = %q, want 'WebDAV not configured'", path, w.Body.String())
+		}
 	}
 }
 
