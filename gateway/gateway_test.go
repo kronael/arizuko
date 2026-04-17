@@ -622,82 +622,32 @@ func TestPreviousSessionXML_NoEndedAt(t *testing.T) {
 	}
 }
 
-func TestParsePrefix_AtStart(t *testing.T) {
-	name, rest, ok := parsePrefix("@alice hello world")
-	if !ok {
-		t.Fatal("expected ok=true")
+func TestParsePrefix(t *testing.T) {
+	// Regression notes:
+	//   "twitter content" — marinade atlas 2026-04-11 forwarded tweet misroute
+	//   "hash mid-sentence" — symmetric with @ prefix
+	cases := []struct {
+		name, in, wantName, wantRest string
+		wantOK                       bool
+	}{
+		{"@ at start", "@alice hello world", "alice", "hello world", true},
+		{"@ mid-content ignored", "hello @alice world", "", "", false},
+		{"twitter content ignored", "Solana's Napster Era Is Over\nbuffalu\n@buffalu__\n·\n7h", "", "", false},
+		{"leading whitespace", "  @alice hello", "alice", "hello", true},
+		{"# at start", "#topic rest of message", "topic", "rest of message", true},
+		{"# mid-sentence ignored", "ask #general for help", "", "", false},
+		{"none", "no prefix here", "", "", false},
+		{"empty", "", "", "", false},
 	}
-	if name != "alice" {
-		t.Errorf("name = %q, want alice", name)
-	}
-	if rest != "hello world" {
-		t.Errorf("rest = %q, want %q", rest, "hello world")
-	}
-}
-
-func TestParsePrefix_AtMiddleIgnored(t *testing.T) {
-	// Mid-content @mentions are references, not nav. Forwarded tweets
-	// with @handles must not be misrouted as child-group delegations.
-	if _, _, ok := parsePrefix("hello @alice world"); ok {
-		t.Error("expected ok=false for mid-content @mention")
-	}
-}
-
-func TestParsePrefix_TwitterContentIgnored(t *testing.T) {
-	// Regression for marinade atlas 2026-04-11: user forwarded a tweet
-	// containing "@buffalu__", router matched it, tried to delegate to
-	// child group atlas/buffalu__ (didn't exist), consumed the message.
-	txt := "Solana's Napster Era Is Over\nbuffalu\n@buffalu__\n·\n7h"
-	if _, _, ok := parsePrefix(txt); ok {
-		t.Error("expected ok=false for Twitter-handle mid-content")
-	}
-}
-
-func TestParsePrefix_LeadingWhitespace(t *testing.T) {
-	name, rest, ok := parsePrefix("  @alice hello")
-	if !ok {
-		t.Fatal("expected ok=true for leading-whitespace nav prefix")
-	}
-	if name != "alice" {
-		t.Errorf("name = %q, want alice", name)
-	}
-	if rest != "hello" {
-		t.Errorf("rest = %q, want %q", rest, "hello")
-	}
-}
-
-func TestParsePrefix_Hash(t *testing.T) {
-	name, rest, ok := parsePrefix("#topic rest of message")
-	if !ok {
-		t.Fatal("expected ok=true")
-	}
-	if name != "topic" {
-		t.Errorf("name = %q, want topic", name)
-	}
-	if rest != "rest of message" {
-		t.Errorf("rest = %q, want %q", rest, "rest of message")
-	}
-}
-
-func TestParsePrefix_HashMidSentenceIgnored(t *testing.T) {
-	// Symmetric with @ prefix: mid-content #tags are references,
-	// not navigation commands.
-	if _, _, ok := parsePrefix("ask #general for help"); ok {
-		t.Error("expected ok=false for mid-content #tag")
-	}
-}
-
-func TestParsePrefix_None(t *testing.T) {
-	_, _, ok := parsePrefix("no prefix here")
-	if ok {
-		t.Error("expected ok=false for content with no @ or #")
-	}
-}
-
-func TestParsePrefix_Empty(t *testing.T) {
-	_, _, ok := parsePrefix("")
-	if ok {
-		t.Error("expected ok=false for empty string")
+	for _, c := range cases {
+		name, rest, ok := parsePrefix(c.in)
+		if ok != c.wantOK {
+			t.Errorf("%s: ok = %v, want %v", c.name, ok, c.wantOK)
+			continue
+		}
+		if ok && (name != c.wantName || rest != c.wantRest) {
+			t.Errorf("%s: got (%q, %q), want (%q, %q)", c.name, name, rest, c.wantName, c.wantRest)
+		}
 	}
 }
 

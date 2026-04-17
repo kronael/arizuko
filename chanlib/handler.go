@@ -26,7 +26,6 @@ type BotHandler interface {
 	Typing(jid string, on bool)
 }
 
-// NoFileSender is an embeddable stub for adapters that don't support file sending.
 type NoFileSender struct{}
 
 func (NoFileSender) SendFile(_, _, _, _ string) error { return errSendFile }

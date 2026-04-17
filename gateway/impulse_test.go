@@ -7,84 +7,46 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-func TestParseImpulseCfg_Empty(t *testing.T) {
-	cfg := ParseImpulseCfg("")
-	if cfg.Threshold != 100 {
-		t.Errorf("threshold = %d, want 100", cfg.Threshold)
+func TestParseImpulseCfg(t *testing.T) {
+	// want=-1 means "don't check this field"
+	cases := []struct {
+		name       string
+		json       string
+		threshold  int
+		maxHold    time.Duration
+		joinWeight int // -1 = skip
+		extra      func(*testing.T, ImpulseCfg)
+	}{
+		{"empty", "", 100, 5 * time.Minute, 0, nil},
+		{"invalid json", "{bad json", 100, 5 * time.Minute, -1, nil},
+		{"override threshold", `{"threshold": 50}`, 50, 5 * time.Minute, 0, nil},
+		{"override max_hold", `{"max_hold_ms": 60000}`, 100, time.Minute, -1, nil},
+		{"merge weights", `{"weights": {"join": 50, "custom": 10}}`, 100, 5 * time.Minute, 50,
+			func(t *testing.T, c ImpulseCfg) {
+				if c.Weights["custom"] != 10 {
+					t.Errorf("custom = %d, want 10", c.Weights["custom"])
+				}
+				if c.Weights["edit"] != 0 || c.Weights["delete"] != 0 {
+					t.Errorf("defaults not preserved: %v", c.Weights)
+				}
+			}},
+		{"all fields", `{"threshold": 200, "max_hold_ms": 120000, "weights": {"join": 10}}`, 200, 2 * time.Minute, 10, nil},
+		{"zero threshold", `{"threshold": 0}`, 0, 5 * time.Minute, -1, nil},
 	}
-	if cfg.MaxHold != 5*time.Minute {
-		t.Errorf("max_hold = %v, want 5m", cfg.MaxHold)
-	}
-	if cfg.Weights["join"] != 0 {
-		t.Errorf("join weight = %d, want 0", cfg.Weights["join"])
-	}
-}
-
-func TestParseImpulseCfg_InvalidJSON(t *testing.T) {
-	cfg := ParseImpulseCfg("{bad json")
-	if cfg.Threshold != 100 {
-		t.Errorf("threshold = %d, want 100 on bad json", cfg.Threshold)
-	}
-}
-
-func TestParseImpulseCfg_OverrideThreshold(t *testing.T) {
-	cfg := ParseImpulseCfg(`{"threshold": 50}`)
-	if cfg.Threshold != 50 {
-		t.Errorf("threshold = %d, want 50", cfg.Threshold)
-	}
-	// defaults preserved
-	if cfg.MaxHold != 5*time.Minute {
-		t.Errorf("max_hold = %v, want 5m", cfg.MaxHold)
-	}
-	if cfg.Weights["join"] != 0 {
-		t.Errorf("join weight should still be 0")
-	}
-}
-
-func TestParseImpulseCfg_OverrideMaxHold(t *testing.T) {
-	cfg := ParseImpulseCfg(`{"max_hold_ms": 60000}`)
-	if cfg.MaxHold != time.Minute {
-		t.Errorf("max_hold = %v, want 1m", cfg.MaxHold)
-	}
-	if cfg.Threshold != 100 {
-		t.Errorf("threshold = %d, want 100", cfg.Threshold)
-	}
-}
-
-func TestParseImpulseCfg_MergeWeights(t *testing.T) {
-	cfg := ParseImpulseCfg(`{"weights": {"join": 50, "custom": 10}}`)
-	if cfg.Weights["join"] != 50 {
-		t.Errorf("join = %d, want 50", cfg.Weights["join"])
-	}
-	if cfg.Weights["custom"] != 10 {
-		t.Errorf("custom = %d, want 10", cfg.Weights["custom"])
-	}
-	// unmentioned defaults preserved
-	if cfg.Weights["edit"] != 0 {
-		t.Errorf("edit = %d, want 0 (default preserved)", cfg.Weights["edit"])
-	}
-	if cfg.Weights["delete"] != 0 {
-		t.Errorf("delete = %d, want 0 (default preserved)", cfg.Weights["delete"])
-	}
-}
-
-func TestParseImpulseCfg_AllFields(t *testing.T) {
-	cfg := ParseImpulseCfg(`{"threshold": 200, "max_hold_ms": 120000, "weights": {"join": 10}}`)
-	if cfg.Threshold != 200 {
-		t.Errorf("threshold = %d, want 200", cfg.Threshold)
-	}
-	if cfg.MaxHold != 2*time.Minute {
-		t.Errorf("max_hold = %v, want 2m", cfg.MaxHold)
-	}
-	if cfg.Weights["join"] != 10 {
-		t.Errorf("join = %d, want 10", cfg.Weights["join"])
-	}
-}
-
-func TestParseImpulseCfg_ZeroThreshold(t *testing.T) {
-	cfg := ParseImpulseCfg(`{"threshold": 0}`)
-	if cfg.Threshold != 0 {
-		t.Errorf("threshold = %d, want 0", cfg.Threshold)
+	for _, c := range cases {
+		cfg := ParseImpulseCfg(c.json)
+		if cfg.Threshold != c.threshold {
+			t.Errorf("%s: threshold = %d, want %d", c.name, cfg.Threshold, c.threshold)
+		}
+		if cfg.MaxHold != c.maxHold {
+			t.Errorf("%s: max_hold = %v, want %v", c.name, cfg.MaxHold, c.maxHold)
+		}
+		if c.joinWeight >= 0 && cfg.Weights["join"] != c.joinWeight {
+			t.Errorf("%s: join weight = %d, want %d", c.name, cfg.Weights["join"], c.joinWeight)
+		}
+		if c.extra != nil {
+			c.extra(t, cfg)
+		}
 	}
 }
 

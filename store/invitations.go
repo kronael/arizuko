@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// CreateInvitationToken generates a token, inserts the invitation, and returns it.
 func (s *Store) CreateInvitationToken(folder, createdBy string, maxUses int) string {
 	b := make([]byte, 32)
 	rand.Read(b)

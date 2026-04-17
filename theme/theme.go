@@ -281,18 +281,14 @@ const ThemeScript = `<script>(function(){var t=localStorage.getItem('hub-theme')
 // the DOM.
 const ToggleScript = `<script>(function(){window.toggleTheme=function(){var c=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',c);localStorage.setItem('hub-theme',c);var b=document.querySelector('.theme-toggle');if(b)b.textContent=c==='dark'?'\u{1F319}':'\u{1F506}'};document.addEventListener('DOMContentLoaded',function(){var b=document.querySelector('.theme-toggle');if(b){b.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'\u{1F319}':'\u{1F506}';b.addEventListener('click',toggleTheme)}})})();</script>`
 
-// Head returns the <head> block with title, CSS, and theme initialization.
 func Head(title string) string {
 	return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>arizuko — ` +
 		html.EscapeString(title) + `</title><style>` + CSS + `</style>` + ThemeScript + `</head>`
 }
 
-// Page returns a complete HTML page with centered card layout.
-// Suited for login, onboarding token landing, error pages.
-//
-// body is template.HTML: callers MUST opt in to raw HTML, and MUST
-// escape any user input (html.EscapeString / template.HTMLEscapeString)
-// before wrapping with template.HTML(...).
+// body is template.HTML: callers MUST escape any user input
+// (html.EscapeString / template.HTMLEscapeString) before wrapping with
+// template.HTML(...).
 func Page(title string, body template.HTML) string {
 	return `<!DOCTYPE html><html>` + Head(title) +
 		`<body><div class="page-center"><div class="card card-md"><p class="brand">arizuko</p><h2>` +

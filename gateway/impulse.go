@@ -14,7 +14,6 @@ type ImpulseCfg struct {
 	MaxHold   time.Duration  // max hold time before forced flush; default 5m
 }
 
-// ParseImpulseCfg parses raw JSON into ImpulseCfg, filling missing fields with defaults.
 func ParseImpulseCfg(raw string) ImpulseCfg {
 	cfg := defaultImpulseCfg()
 	if raw == "" {
@@ -75,7 +74,6 @@ func weightFor(cfg ImpulseCfg, verb string) int {
 	return 100
 }
 
-// accept adds messages for a JID and returns true if the agent should fire now.
 func (g *impulseGate) accept(jid string, msgs []core.Message, cfg ImpulseCfg) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -100,7 +98,6 @@ func (g *impulseGate) accept(jid string, msgs []core.Message, cfg ImpulseCfg) bo
 	return false
 }
 
-// flush returns JIDs whose pending weight has exceeded max_hold and resets them.
 func (g *impulseGate) flush(cfgFor func(jid string) ImpulseCfg) []string {
 	g.mu.Lock()
 	defer g.mu.Unlock()

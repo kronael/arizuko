@@ -81,7 +81,6 @@ func (r *TypingRefresher) loop(jid string, stop chan struct{}) {
 	}
 }
 
-// Stop cancels every active refresh loop. Call on adapter shutdown.
 func (r *TypingRefresher) Stop() {
 	r.mu.Lock()
 	defer r.mu.Unlock()

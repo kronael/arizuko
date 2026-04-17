@@ -29,10 +29,6 @@ func cmdText(raw string) string {
 	return t
 }
 
-// gatewayCommand is a single registration table entry: the name (including
-// the leading "/") plus a handler. To add a command, add one entry here.
-// Both isGatewayCommand and handleCommand consult this table, so there is
-// no second place to update.
 type gatewayCommand struct {
 	name    string
 	handler func(g *Gateway, msg core.Message, group core.Group, arg string) bool

@@ -112,8 +112,6 @@ type Grant struct {
 	GrantedAt string
 }
 
-// Grant inserts (sub, pattern) into user_groups if absent. Returns true
-// if a new row was created, false if it already existed.
 func (s *Store) Grant(sub, pattern string) (bool, error) {
 	res, err := s.db.Exec(
 		`INSERT OR IGNORE INTO user_groups (user_sub, folder, granted_at)
@@ -125,7 +123,6 @@ func (s *Store) Grant(sub, pattern string) (bool, error) {
 	return n > 0, nil
 }
 
-// Ungrant removes (sub, pattern) from user_groups. Returns rows affected.
 func (s *Store) Ungrant(sub, pattern string) (int64, error) {
 	res, err := s.db.Exec(
 		`DELETE FROM user_groups WHERE user_sub = ? AND folder = ?`, sub, pattern)
@@ -136,7 +133,6 @@ func (s *Store) Ungrant(sub, pattern string) (int64, error) {
 	return n, nil
 }
 
-// Grants lists user_groups rows. Filter by sub if non-empty.
 func (s *Store) Grants(sub string) ([]Grant, error) {
 	var (
 		rows *sql.Rows

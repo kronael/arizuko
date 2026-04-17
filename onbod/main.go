@@ -152,7 +152,6 @@ func loadConfig() (config, error) {
 	return cfg, nil
 }
 
-// gateKey returns a stable identifier for a gate (used in DB gate column).
 func gateKey(g gate) string {
 	if g.kind == "*" {
 		return "*"
@@ -160,7 +159,6 @@ func gateKey(g gate) string {
 	return g.kind + ":" + g.param
 }
 
-// matchGate returns the first gate matching a user sub, or nil.
 func matchGate(gates []gate, userSub string) *gate {
 	for i := range gates {
 		g := &gates[i]
@@ -175,7 +173,6 @@ func matchGate(gates []gate, userSub string) *gate {
 			if !strings.HasPrefix(userSub, "google:") {
 				continue
 			}
-			// param is "domain=X"; extract domain and match
 			if d := paramVal(g.param, "domain"); d != "" {
 				if emailDomain(userSub) == d {
 					return g
@@ -201,7 +198,6 @@ func paramVal(param, key string) string {
 	return ""
 }
 
-// emailDomain extracts domain from "google:user@example.com" style subs.
 func emailDomain(sub string) string {
 	if i := strings.LastIndex(sub, "@"); i >= 0 {
 		return sub[i+1:]
@@ -332,7 +328,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 		if err == nil {
 			n, _ = res.RowsAffected()
 		}
-		// Always clear the cookie: single-use regardless of outcome.
+		// Single-use cookie: clear regardless of claim outcome.
 		http.SetCookie(w, &http.Cookie{
 			Name: "onboard_jid", Value: "", Path: "/",
 			MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
@@ -357,7 +353,6 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 		return
 	}
 
-	// If this user has a queued JID, show queue position.
 	var qGate, qAt string
 	if db.QueryRow(
 		`SELECT gate, queued_at FROM onboarding WHERE user_sub = ? AND status = 'queued' LIMIT 1`,
@@ -495,7 +490,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-// loadGates reads enabled gates from the onboarding_gates DB table.
 func loadGates(db *sql.DB) []gate {
 	rows, err := db.Query(
 		`SELECT gate, limit_per_day FROM onboarding_gates WHERE enabled = 1`)
@@ -541,7 +535,6 @@ func linkJID(db *sql.DB, jid, userSub string) {
 			slog.Info("queued jid", "jid", jid, "user", userSub, "gate", gateKey(*g))
 			return
 		}
-		// No matching gate — reject
 		slog.Warn("no matching gate", "jid", jid, "user", userSub)
 		return
 	}
@@ -653,7 +646,6 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 
 	userSub := r.Header.Get("X-User-Sub")
 	if userSub == "" {
-		// Save return URL and redirect to login.
 		http.SetCookie(w, &http.Cookie{
 			Name: "auth_return", Value: "/invite/" + token, Path: "/",
 			MaxAge: 86400, HttpOnly: true,
@@ -702,12 +694,10 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		return
 	}
 
-	// Grant access: insert user_groups row.
 	db.Exec(
 		`INSERT OR IGNORE INTO user_groups (user_sub, folder) VALUES (?, ?)`,
 		userSub, folder)
 
-	// Create routes for any linked JIDs.
 	if rows, err := db.Query(
 		`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub,
 	); err == nil {
@@ -927,7 +917,6 @@ func userRoutes(db *sql.DB, folders []string) []dashRoute {
 		rows, err = db.Query(
 			`SELECT id, seq, match, target FROM routes ORDER BY seq, id`)
 	} else {
-		// Build placeholders
 		ph := make([]string, len(folders))
 		args := make([]any, len(folders))
 		for i, f := range folders {
@@ -1016,7 +1005,6 @@ func userOwnsMatch(db *sql.DB, sub, match string) bool {
 	if room == "" {
 		return false
 	}
-	// Check user_jids for a jid whose room portion (after ':') matches.
 	rows, err := db.Query(
 		`SELECT jid FROM user_jids WHERE user_sub = ?`, sub)
 	if err != nil {
