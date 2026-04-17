@@ -67,19 +67,10 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 			name = "attachment"
 		}
 		content += fmt.Sprintf(" [Attachment: %s]", name)
-		var proxied string
-		if b.files != nil {
-			proxied = fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, b.files.Put(att.URL))
-		} else {
-			// Fallback: pass the raw CDN URL through. Should be unreachable
-			// because main wires b.files before session.Open(), but avoids
-			// nil-deref if that ordering ever regresses.
-			proxied = att.URL
-		}
 		atts = append(atts, chanlib.InboundAttachment{
 			Mime:     att.ContentType,
 			Filename: name,
-			URL:      proxied,
+			URL:      fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, b.files.Put(att.URL)),
 			Size:     int64(att.Size),
 		})
 	}

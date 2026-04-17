@@ -7,24 +7,13 @@ import (
 	"time"
 )
 
-// Caps to bound resource use under unauthenticated-subscriber flood.
-// maxHubKeys limits distinct (folder,topic) pairs; maxSubsPerKey limits
-// subscribers on a single key. Both are deliberately generous so normal
-// multi-tab usage is never impacted.
+// Caps bound memory under unauthenticated-subscriber flood.
 const (
-	maxHubKeys    = 10000
-	maxSubsPerKey = 256
+	maxHubKeys      = 10000
+	maxSubsPerKey   = 256
+	sseKeepalive    = 15 * time.Second
+	sseWriteTimeout = 10 * time.Second
 )
-
-// sseKeepalive is the heartbeat interval written as an SSE comment
-// (`: ping`) to detect half-open TCP connections and keep load balancers
-// from idling the stream out.
-const sseKeepalive = 15 * time.Second
-
-// sseWriteTimeout bounds any single write (including the flush). A
-// client that stops reading will block writes; without a deadline the
-// goroutine + buffered channel leak for minutes.
-const sseWriteTimeout = 10 * time.Second
 
 // hub is the SSE broker keyed by "folder/topic".
 type hub struct {
@@ -36,17 +25,12 @@ func newHub() *hub {
 	return &hub{subs: make(map[string][]chan string)}
 }
 
-// canSubscribe returns true if the hub has headroom for another
-// subscription. Callers check this before subscribe() to reject floods
-// with a clean 503 rather than OOMing.
 func (h *hub) canSubscribe() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return len(h.subs) < maxHubKeys
 }
 
-// subscribe registers a new listener and returns a channel + unsubscribe func.
-// Returns (nil, nil) if the per-key subscriber cap is reached.
 func (h *hub) subscribe(folder, topic string) (<-chan string, func()) {
 	ch := make(chan string, 16)
 	k := folder + "/" + topic
@@ -92,9 +76,8 @@ func (h *hub) publish(folder, topic, event, data string) {
 	}
 }
 
-// serveSSE writes SSE events from ch to w until the client disconnects.
-// Emits a periodic keepalive comment and applies a per-write deadline so
-// a stuck client can't pin the goroutine indefinitely.
+// serveSSE streams events to w until client disconnect. Keepalive comment
+// + per-write deadline prevent goroutine leak on stuck clients.
 func serveSSE(w http.ResponseWriter, r *http.Request, ch <-chan string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")

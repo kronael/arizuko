@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -83,22 +82,12 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 	fileResp, err := httpClient.Get(fmt.Sprintf(
 		"https://api.telegram.org/file/bot%s/%s",
 		url.QueryEscape(token), escapePath(apiResp.Result.FilePath)))
-	if err != nil || fileResp.StatusCode != 200 {
-		if fileResp != nil {
-			fileResp.Body.Close()
-		}
+	if err != nil {
 		chanlib.WriteErr(w, 502, "file download failed")
 		return
 	}
 	defer fileResp.Body.Close()
-	if ct := fileResp.Header.Get("Content-Type"); ct != "" {
-		w.Header().Set("Content-Type", ct)
-	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf(
 		`attachment; filename="%s"`, sanitizeFilename(apiResp.Result.FilePath)))
-	max := s.cfg.MediaMaxBytes
-	if max <= 0 {
-		max = 20 * 1024 * 1024
-	}
-	io.Copy(w, io.LimitReader(fileResp.Body, max))
+	chanlib.ProxyFile(w, fileResp, s.cfg.MediaMaxBytes)
 }

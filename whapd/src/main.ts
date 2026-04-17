@@ -12,19 +12,13 @@ import makeWASocket, {
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { RouterClient } from './client.js';
+import { log } from './log.js';
 import { flushQueue } from './queue.js';
 import { extractReplyMeta } from './reply.js';
 import { startServer } from './server.js';
 import { TypingRefresher } from './typing.js';
 
 const logger = pino({ level: 'warn' });
-
-function log(level: string, msg: string, attrs?: Record<string, unknown>) {
-  process.stderr.write(
-    JSON.stringify({ time: new Date().toISOString(), level, msg, ...attrs }) +
-      '\n',
-  );
-}
 
 function env(k: string, def?: string): string {
   const v = process.env[k] || def;
@@ -249,16 +243,11 @@ async function connect(): Promise<void> {
     if (connection === 'close') {
       connected = false;
       const code = (lastDisconnect?.error as any)?.output?.statusCode;
-      if (code === DisconnectReason.loggedOut) {
-        log('error', 'logged out, delete auth dir and restart');
-        process.exit(1);
-      }
-      // 405 = server-side session termination; retrying will never succeed.
-      if (code === 405) {
-        log(
-          'error',
-          'session invalidated by server (405), delete auth dir and re-pair',
-        );
+      // 405 = server-side session termination. Both cases require re-pairing.
+      if (code === DisconnectReason.loggedOut || code === 405) {
+        log('error', 'session invalidated, delete auth dir and re-pair', {
+          code,
+        });
         process.exit(1);
       }
       reconnectAttempts++;

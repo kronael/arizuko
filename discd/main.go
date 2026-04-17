@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/onvos/arizuko/chanlib"
 )
@@ -46,12 +45,6 @@ type config struct {
 }
 
 func loadConfig() config {
-	maxBytes := int64(20 * 1024 * 1024)
-	if v := chanlib.EnvOr("MEDIA_MAX_FILE_BYTES", ""); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-			maxBytes = n
-		}
-	}
 	return config{
 		Name:          chanlib.EnvOr("CHANNEL_NAME", "discord"),
 		DiscordToken:  chanlib.MustEnv("DISCORD_BOT_TOKEN"),
@@ -60,6 +53,6 @@ func loadConfig() config {
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9002"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://discord:9002"),
 		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
-		MediaMaxBytes: maxBytes,
+		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 	}
 }

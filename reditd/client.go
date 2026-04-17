@@ -270,10 +270,8 @@ func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClien
 		return
 	}
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-
 	var l listing
-	if json.Unmarshal(b, &l) != nil {
+	if json.NewDecoder(resp.Body).Decode(&l) != nil {
 		return
 	}
 
@@ -439,11 +437,10 @@ func filenameFromURL(u string) string {
 	if err != nil {
 		return "image.jpg"
 	}
-	base := filepath.Base(parsed.Path)
-	if base == "" || base == "." || base == "/" {
-		return "image.jpg"
+	if base := filepath.Base(parsed.Path); base != "" && base != "." && base != "/" {
+		return base
 	}
-	return base
+	return "image.jpg"
 }
 
 func extFromRedditMime(m string) string {

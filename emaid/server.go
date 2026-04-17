@@ -84,19 +84,11 @@ func dispositionHeader(filename string) string {
 // to prevent a remote sender from ballooning this adapter's RSS via
 // large attachments.
 func (s *server) fetchPart(uid imap.UID, section []int, maxBytes int64) ([]byte, error) {
-	addr := s.cfg.IMAPHost + ":" + s.cfg.IMAPPort
-	c, err := s.dialTLS(addr, nil)
+	c, err := imapConnect(s.cfg, s.dialTLS, nil)
 	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
+		return nil, err
 	}
 	defer c.Logout()
-
-	if err := c.Login(s.cfg.Account, s.cfg.Password).Wait(); err != nil {
-		return nil, fmt.Errorf("login: %w", err)
-	}
-	if _, err := c.Select("INBOX", nil).Wait(); err != nil {
-		return nil, fmt.Errorf("select: %w", err)
-	}
 
 	fetchOpts := &imap.FetchOptions{
 		BodySection: []*imap.FetchItemBodySection{

@@ -4,8 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"strconv"
-	"strings"
 
 	"github.com/onvos/arizuko/chanlib"
 )
@@ -56,14 +54,6 @@ func loadConfig() config {
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9005"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://bluesky:9005"),
 		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/bskyd"),
-		MaxFileBytes:  parseBytes(chanlib.EnvOr("MEDIA_MAX_FILE_BYTES", "20971520")),
+		MaxFileBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 	}
-}
-
-func parseBytes(s string) int64 {
-	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
-	if err != nil || n <= 0 {
-		return 20 * 1024 * 1024
-	}
-	return n
 }

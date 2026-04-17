@@ -529,56 +529,6 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	}
 }
 
-// --- Gate parsing tests ---
-
-func TestParseGates(t *testing.T) {
-	tests := []struct {
-		input string
-		want  []gate
-	}{
-		{"github:org=mycompany:10/day", []gate{
-			{kind: "github", param: "org=mycompany", limitPerDay: 10},
-		}},
-		{"*:50/day", []gate{
-			{kind: "*", param: "", limitPerDay: 50},
-		}},
-		{"github:org=co:10/day,google:domain=co.com:20/day,*:5/day", []gate{
-			{kind: "github", param: "org=co", limitPerDay: 10},
-			{kind: "google", param: "domain=co.com", limitPerDay: 20},
-			{kind: "*", param: "", limitPerDay: 5},
-		}},
-		{"email:domain=example.com:5/day", []gate{
-			{kind: "email", param: "domain=example.com", limitPerDay: 5},
-		}},
-	}
-	for _, tc := range tests {
-		got, err := parseGates(tc.input)
-		if err != nil {
-			t.Errorf("parseGates(%q) error: %v", tc.input, err)
-			continue
-		}
-		if len(got) != len(tc.want) {
-			t.Errorf("parseGates(%q) = %d gates, want %d", tc.input, len(got), len(tc.want))
-			continue
-		}
-		for i := range got {
-			if got[i] != tc.want[i] {
-				t.Errorf("parseGates(%q)[%d] = %+v, want %+v", tc.input, i, got[i], tc.want[i])
-			}
-		}
-	}
-}
-
-func TestParseGatesInvalid(t *testing.T) {
-	bad := []string{"", "github", "github:org=co:0/day", "github:org=co:-1/day"}
-	for _, s := range bad {
-		got, err := parseGates(s)
-		if err == nil && len(got) > 0 {
-			t.Errorf("parseGates(%q) should fail, got %+v", s, got)
-		}
-	}
-}
-
 func TestMatchGate(t *testing.T) {
 	gates := []gate{
 		{kind: "github", param: "org=co", limitPerDay: 10},

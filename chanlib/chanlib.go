@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -189,4 +190,32 @@ func MustEnv(k string) string {
 	slog.Error("required env var missing", "key", k)
 	os.Exit(1)
 	return ""
+}
+
+// EnvBytes parses a positive int64 from env var k, returning def on
+// missing/invalid/non-positive values.
+func EnvBytes(k string, def int64) int64 {
+	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
+// ProxyFile streams src → w, copying Content-Type and capping bytes at max
+// (falls back to 20 MiB when max <= 0). Writes 502 on non-200 upstream.
+// Caller owns closing src.Body.
+func ProxyFile(w http.ResponseWriter, src *http.Response, max int64) {
+	if src.StatusCode != 200 {
+		WriteErr(w, 502, "upstream fetch failed")
+		return
+	}
+	if max <= 0 {
+		max = 20 * 1024 * 1024
+	}
+	if ct := src.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	io.Copy(w, io.LimitReader(src.Body, max))
 }

@@ -50,11 +50,9 @@ type config struct {
 }
 
 func loadConfig() config {
-	srs := chanlib.EnvOr("REDDIT_SUBREDDITS", "")
 	var subreddits []string
-	for _, s := range strings.Split(srs, ",") {
-		s = strings.TrimSpace(s)
-		if s != "" {
+	for _, s := range strings.Split(chanlib.EnvOr("REDDIT_SUBREDDITS", ""), ",") {
+		if s = strings.TrimSpace(s); s != "" {
 			subreddits = append(subreddits, s)
 		}
 	}

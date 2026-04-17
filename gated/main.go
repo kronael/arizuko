@@ -45,9 +45,8 @@ func main() {
 
 	gw := gateway.New(cfg, s)
 
-	// httpChannels tracks the live *chanreg.HTTPChannel per adapter name so
-	// api.handleOutbound can reuse it (preserving retry outbox) instead of
-	// constructing a throwaway channel per request.
+	// Reuse the live channel per adapter so api.handleOutbound preserves the
+	// retry outbox instead of constructing a throwaway channel per request.
 	var (
 		chanMu       sync.RWMutex
 		httpChannels = map[string]*chanreg.HTTPChannel{}
@@ -99,7 +98,6 @@ func main() {
 
 	reg.StartHealthLoop(ctx)
 
-	// Graceful HTTP shutdown when the signal context cancels.
 	go func() {
 		<-ctx.Done()
 		shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -15,11 +15,8 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// handleMCP serves the streamable-HTTP MCP endpoint. One endpoint per
-// arizuko instance — the authed user can reach any folder in their
-// user_groups ACL. Each tool takes `folder` as an arg and checks the
-// grant before acting. Identity on outbound messages is the authed
-// user's sub/name (never anon).
+// handleMCP: streamable-HTTP MCP, one endpoint per instance. Tools take
+// `folder` and check grants; outbound identity is the authed user (never anon).
 func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)

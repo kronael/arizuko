@@ -15,15 +15,9 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// anonSender derives a stable, privacy-preserving sender ID from the
-// client IP. Format: "anon:<8-char hex prefix of sha256(ip)>". Uses
-// RemoteAddr (set to the trusted XFF by proxyd); never the raw client
-// X-Forwarded-For header which any client can spoof.
+// anonSender returns "anon:<hex>" derived from the proxyd-trusted client
+// IP. X-Forwarded-For is set by proxyd; webd listens only on the internal net.
 func anonSender(r *http.Request) string {
-	// proxyd rewrites X-Forwarded-For to a single trusted IP. If the
-	// header is present we trust it here because webd only listens on
-	// the internal network; in any other deployment proxyd is the only
-	// caller and supplies the trusted value.
 	ip := strings.TrimSpace(strings.SplitN(r.Header.Get("X-Forwarded-For"), ",", 2)[0])
 	if ip == "" {
 		ip, _, _ = net.SplitHostPort(r.RemoteAddr)
@@ -153,9 +147,6 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cap body size before ParseForm buffers it all into memory. Slink
-	// tokens are often shared publicly; without this a single POST could
-	// pin multi-GB.
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBody)
 	if r.ParseForm() != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -175,8 +166,7 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authed-user identity is trusted only when signed by proxyd.
-	// Otherwise fall back to anon derived from the (proxyd-trusted) IP.
+	// Authed identity only when signed by proxyd; else anon from trusted IP.
 	sender, senderName := "", ""
 	if verifyUserSig(s.cfg.hmacSecret, r) {
 		sender = userSub(r)
@@ -197,8 +187,7 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Subscribe BEFORE publishing so streamers and sync callers see the
-	// user's own bubble + any assistant reply without a race.
+	// Subscribe before publishing to avoid a race on the user's own bubble.
 	var ch <-chan string
 	var unsub func()
 	if wantSSE || wait > 0 {
@@ -291,13 +280,9 @@ func waitForAssistant(ctx context.Context, ch <-chan string) (map[string]any, bo
 	}
 }
 
-// handleSlinkStream opens an SSE connection for a group/topic.
-// GET /slink/stream?token=<t>&group=<folder>&topic=<t>
-//
-// Access control: the caller must present EITHER a valid slink token
-// whose folder matches `group`, OR a proxyd-signed X-User-Sub+X-User-Groups
-// with a grant covering `group`. Without one of those, any attacker who
-// can guess a folder name subscribes to live messages.
+// handleSlinkStream: SSE for a group/topic. Access requires either a valid
+// proxyd-signed slink token matching `group`, or proxyd-signed user identity
+// with folder ACL. GET /slink/stream?token=<t>&group=<folder>&topic=<t>
 func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 	folder := r.URL.Query().Get("group")
 	topic := r.URL.Query().Get("topic")
@@ -310,21 +295,13 @@ func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authorisation: either proxyd-signed slink token (preferred for
-	// anonymous users) or proxyd-signed user identity with folder ACL.
-	allowed := false
-	if verifySlinkSig(s.cfg.hmacSecret, r) && r.Header.Get("X-Folder") == folder {
-		allowed = true
-	} else if verifyUserSig(s.cfg.hmacSecret, r) && userAllowedFolder(userGroups(r), folder) {
-		allowed = true
-	}
-	if !allowed {
+	okSlink := verifySlinkSig(s.cfg.hmacSecret, r) && r.Header.Get("X-Folder") == folder
+	okUser := verifyUserSig(s.cfg.hmacSecret, r) && userAllowedFolder(userGroups(r), folder)
+	if !okSlink && !okUser {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
-	// Cap the hub size before subscribing so a flood of unique
-	// (folder, topic) pairs can't drive webd OOM.
 	if !s.hub.canSubscribe() {
 		http.Error(w, "too many subscriptions", http.StatusServiceUnavailable)
 		return
@@ -357,10 +334,8 @@ func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 	serveSSE(w, r, ch)
 }
 
-// htmlEscape escapes the five characters that can alter HTML parsing
-// or break out of single/double-quoted attributes or JS string literals.
-// Go's html/template handles this via context-aware encoding but these
-// pages build ad-hoc strings with fmt.Sprintf, so we escape manually.
+// htmlEscape covers HTML, attribute, and JS-string-literal contexts.
+// These pages use fmt.Sprintf rather than html/template's contextual encoding.
 func htmlEscape(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")

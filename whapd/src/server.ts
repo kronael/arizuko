@@ -1,6 +1,7 @@
 import http from 'node:http';
 import Busboy from 'busboy';
 import type { WASocket } from '@whiskeysockets/baileys';
+import { log } from './log.js';
 
 interface SendReq {
   chat_jid: string;
@@ -10,13 +11,6 @@ interface SendReq {
 interface TypingReq {
   chat_jid: string;
   on: boolean;
-}
-
-function log(level: string, msg: string, attrs?: Record<string, unknown>) {
-  process.stderr.write(
-    JSON.stringify({ time: new Date().toISOString(), level, msg, ...attrs }) +
-      '\n',
-  );
 }
 
 function mdToWa(text: string): string {

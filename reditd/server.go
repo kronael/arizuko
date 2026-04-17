@@ -23,19 +23,14 @@ var allowedRedditHosts = map[string]bool{
 }
 
 type server struct {
-	cfg          config
-	rc           chanlib.BotHandler
-	files        *fileCache
-	maxFileBytes int64
-	safeFetch    func(string) bool
+	cfg       config
+	rc        chanlib.BotHandler
+	files     *fileCache
+	safeFetch func(string) bool
 }
 
 func newServer(cfg config, rc chanlib.BotHandler, files *fileCache) *server {
-	return &server{
-		cfg: cfg, rc: rc, files: files,
-		maxFileBytes: cfg.MaxFileBytes,
-		safeFetch:    isSafeFetchURL,
-	}
+	return &server{cfg: cfg, rc: rc, files: files, safeFetch: isSafeFetchURL}
 }
 
 func (s *server) handler() http.Handler {
@@ -72,7 +67,7 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 	if ct := resp.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
-	max := s.maxFileBytes
+	max := s.cfg.MaxFileBytes
 	if max <= 0 {
 		max = 20 * 1024 * 1024
 	}

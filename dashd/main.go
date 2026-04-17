@@ -19,20 +19,14 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// maxFileBytes caps single-file reads rendered in the dashboard.
-// A compromised agent (or any writer to groups/<folder>/) could drop a
-// multi-GB MEMORY.md or diary entry; this keeps dashd memory bounded.
-const maxFileBytes = 1 << 20 // 1 MiB
+// Caps bound memory from adversarial writes by a compromised agent.
+const (
+	maxFileBytes  = 1 << 20
+	maxDirEntries = 100
+)
 
-// maxDirEntries caps how many .md files from a single directory
-// (diary, episodes, users, facts) are rendered in one request.
-const maxDirEntries = 100
-
-// errEscape is returned by safeJoin when a resolved leaf escapes the base.
 var errEscape = errors.New("path escapes sandbox")
 
-// readCapped reads at most maxFileBytes+1 from path and returns the first
-// maxFileBytes; the truncated flag signals that the file is larger.
 func readCapped(path string) ([]byte, bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -50,9 +44,8 @@ func readCapped(path string) ([]byte, bool, error) {
 	return data, truncated, nil
 }
 
-// safeJoin joins base+leaf, then resolves symlinks on the result and
-// verifies it still lives under base. Any escape yields errEscape.
-// Missing paths propagate os.ErrNotExist so callers can skip cleanly.
+// safeJoin resolves base+leaf through symlinks and rejects any escape.
+// Missing paths propagate os.ErrNotExist.
 func safeJoin(base, leaf string) (string, error) {
 	p := filepath.Join(base, leaf)
 	real, err := filepath.EvalSymlinks(p)
@@ -171,16 +164,17 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var chanCount, erroredCount, failedTasks int
-	if err := d.db.QueryRow(`SELECT COUNT(*) FROM channels`).Scan(&chanCount); err != nil {
-		slog.Warn("portal: scan channels", "err", err)
-	}
-	if err := d.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE errored=1`).Scan(&erroredCount); err != nil {
-		slog.Warn("portal: scan chats", "err", err)
-	}
-	if err := d.db.QueryRow(
-		`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`,
-	).Scan(&failedTasks); err != nil {
-		slog.Warn("portal: scan task_run_logs", "err", err)
+	for _, q := range []struct {
+		sql string
+		dst *int
+	}{
+		{`SELECT COUNT(*) FROM channels`, &chanCount},
+		{`SELECT COUNT(*) FROM chats WHERE errored=1`, &erroredCount},
+		{`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`, &failedTasks},
+	} {
+		if err := d.db.QueryRow(q.sql).Scan(q.dst); err != nil {
+			slog.Warn("portal: scan", "sql", q.sql, "err", err)
+		}
 	}
 
 	statusDot := "ok"
@@ -219,27 +213,18 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	pageTop(w, "Status")
 
 	var groupCount, sessionCount, chanCount, erroredCount int
-	var scanErr error
-	if err := d.db.QueryRow(`SELECT COUNT(*) FROM groups`).Scan(&groupCount); err != nil {
-		slog.Warn("status: scan groups", "err", err)
-		scanErr = err
-	}
-	if err := d.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessionCount); err != nil {
-		slog.Warn("status: scan sessions", "err", err)
-		scanErr = err
-	}
-	if err := d.db.QueryRow(`SELECT COUNT(*) FROM channels`).Scan(&chanCount); err != nil {
-		slog.Warn("status: scan channels", "err", err)
-		scanErr = err
-	}
-	if err := d.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE errored=1`).Scan(&erroredCount); err != nil {
-		slog.Warn("status: scan chats", "err", err)
-		scanErr = err
-	}
-
-	if scanErr != nil {
-		fmt.Fprintf(w, `<div class="banner-err">DB error: %s</div>`,
-			template.HTMLEscapeString(scanErr.Error()))
+	for _, q := range []struct {
+		sql string
+		dst *int
+	}{
+		{`SELECT COUNT(*) FROM groups`, &groupCount},
+		{`SELECT COUNT(*) FROM sessions`, &sessionCount},
+		{`SELECT COUNT(*) FROM channels`, &chanCount},
+		{`SELECT COUNT(*) FROM chats WHERE errored=1`, &erroredCount},
+	} {
+		if err := d.db.QueryRow(q.sql).Scan(q.dst); err != nil {
+			slog.Warn("status: scan", "sql", q.sql, "err", err)
+		}
 	}
 
 	bannerClass := "banner-ok"
@@ -518,10 +503,7 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 		fmt.Fprint(w, `<p>Invalid group path.</p>`)
 		return
 	}
-	// Resolve symlinks on the group directory and re-check the prefix.
-	// Without this, a symlinked group folder could escape the sandbox.
-	// EvalSymlinks fails cleanly on missing paths — treat that as
-	// "nothing to show" and return.
+	// Re-check prefix after EvalSymlinks to reject symlink escapes.
 	if real, err := filepath.EvalSymlinks(groupDir); err == nil {
 		if !strings.HasPrefix(real, d.groupsDir+string(filepath.Separator)) &&
 			real != d.groupsDir {
@@ -545,9 +527,6 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 	renderEntries(w, groupDir, "facts", "Facts", false)
 }
 
-// renderCappedFile reads and renders a single leaf file under groupDir.
-// Leaf is resolved via EvalSymlinks and rejected if it escapes. If missing
-// and `showMissing`, renders a "<name> not found" note. Read is bounded.
 func renderCappedFile(w http.ResponseWriter, groupDir, leaf string, showMissing bool) {
 	path, err := safeJoin(groupDir, leaf)
 	if err != nil {
@@ -588,9 +567,6 @@ func renderCappedFile(w http.ResponseWriter, groupDir, leaf string, showMissing 
 	}
 }
 
-// renderEntries lists up to maxDirEntries .md files under groupDir/sub,
-// newest first (by name, reverse). Each entry is symlink-checked and its
-// summary is bounded via mdSummary (which uses readCapped).
 func renderEntries(w http.ResponseWriter, groupDir, sub, title string, openDetails bool) {
 	dirPath, err := safeJoin(groupDir, sub)
 	if err != nil {

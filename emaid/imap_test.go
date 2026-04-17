@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,12 @@ import (
 
 	"github.com/onvos/arizuko/chanlib"
 )
+
+func extractPlainText(r io.Reader) string {
+	b, _ := io.ReadAll(r)
+	text, _ := extractContent(b, 0, "", nil, 0)
+	return text
+}
 
 // threadIDFromMsgID mirrors the inline logic in handleMsg.
 func threadIDFromMsgID(rootMsgID string) string {

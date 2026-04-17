@@ -65,6 +65,27 @@ func newPoller(cfg config, db *sql.DB, reg *attRegistry) *poller {
 	return &poller{cfg: cfg, db: db, dialTLS: imapclient.DialTLS, reg: reg}
 }
 
+// imapConnect dials, logs in and selects INBOX. Caller must Logout.
+func imapConnect(
+	cfg config,
+	dialTLS func(string, *imapclient.Options) (*imapclient.Client, error),
+	opts *imapclient.Options,
+) (*imapclient.Client, error) {
+	c, err := dialTLS(cfg.IMAPHost+":"+cfg.IMAPPort, opts)
+	if err != nil {
+		return nil, fmt.Errorf("dial: %w", err)
+	}
+	if err := c.Login(cfg.Account, cfg.Password).Wait(); err != nil {
+		c.Logout() //nolint:errcheck
+		return nil, fmt.Errorf("login: %w", err)
+	}
+	if _, err := c.Select("INBOX", nil).Wait(); err != nil {
+		c.Logout() //nolint:errcheck
+		return nil, fmt.Errorf("select: %w", err)
+	}
+	return c, nil
+}
+
 func (p *poller) run(ctx context.Context, rc *chanlib.RouterClient) {
 	backoff := time.Second
 	for {
@@ -91,8 +112,6 @@ func (p *poller) run(ctx context.Context, rc *chanlib.RouterClient) {
 }
 
 func (p *poller) runIdle(ctx context.Context, rc *chanlib.RouterClient) error {
-	addr := p.cfg.IMAPHost + ":" + p.cfg.IMAPPort
-
 	exists := make(chan struct{}, 1)
 	opts := &imapclient.Options{
 		UnilateralDataHandler: &imapclient.UnilateralDataHandler{
@@ -107,19 +126,11 @@ func (p *poller) runIdle(ctx context.Context, rc *chanlib.RouterClient) error {
 		},
 	}
 
-	c, err := p.dialTLS(addr, opts)
+	c, err := imapConnect(p.cfg, p.dialTLS, opts)
 	if err != nil {
-		return fmt.Errorf("dial: %w", err)
+		return err
 	}
 	defer c.Logout()
-
-	if err := c.Login(p.cfg.Account, p.cfg.Password).Wait(); err != nil {
-		return fmt.Errorf("login: %w", err)
-	}
-
-	if _, err := c.Select("INBOX", nil).Wait(); err != nil {
-		return fmt.Errorf("select: %w", err)
-	}
 
 	if err := p.fetchUnseen(c, rc); err != nil {
 		return fmt.Errorf("initial fetch: %w", err)
@@ -211,21 +222,11 @@ func (p *poller) runPoll(ctx context.Context, rc *chanlib.RouterClient) {
 }
 
 func (p *poller) poll(_ context.Context, rc *chanlib.RouterClient) error {
-	addr := p.cfg.IMAPHost + ":" + p.cfg.IMAPPort
-	c, err := p.dialTLS(addr, nil)
+	c, err := imapConnect(p.cfg, p.dialTLS, nil)
 	if err != nil {
-		return fmt.Errorf("dial: %w", err)
+		return err
 	}
 	defer c.Logout()
-
-	if err := c.Login(p.cfg.Account, p.cfg.Password).Wait(); err != nil {
-		return fmt.Errorf("login: %w", err)
-	}
-
-	if _, err := c.Select("INBOX", nil).Wait(); err != nil {
-		return fmt.Errorf("select: %w", err)
-	}
-
 	return p.fetchUnseen(c, rc)
 }
 
@@ -388,12 +389,6 @@ func authResultsPass(raw []byte) bool {
 		}
 	}
 	return true
-}
-
-func extractPlainText(r io.Reader) string {
-	b, _ := io.ReadAll(r)
-	text, _ := extractContent(b, 0, "", nil, 0)
-	return text
 }
 
 // extractContent walks the MIME tree. go-message's Reader flattens nested

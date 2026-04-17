@@ -83,70 +83,53 @@ func (s *server) handler() http.Handler {
 	return loggingMiddleware(mux)
 }
 
-// loadHMACSecret returns the shared secret used to verify proxyd-signed
-// headers. Generated at startup if unset — but in that case proxyd and
-// webd won't share a value, so every verifyUserSig will fail closed (the
-// intended outcome: webd refuses unsigned identity headers).
+// loadHMACSecret returns the proxyd-shared secret. If unset, a random
+// value makes every sig-check fail closed (webd refuses unsigned identity).
 func loadHMACSecret() string {
 	if v := os.Getenv("PROXYD_HMAC_SECRET"); v != "" {
 		return v
 	}
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err == nil {
-		slog.Warn("PROXYD_HMAC_SECRET unset in webd — all signed-header verification will fail until set on both webd and proxyd")
+		slog.Warn("PROXYD_HMAC_SECRET unset in webd — signed-header verification will fail until set on both")
 		return hex.EncodeToString(b[:])
 	}
 	return ""
 }
 
-// verifyUserSig returns true if X-User-Sig matches HMAC(sub|name|groupsJSON).
-// Missing header, empty secret, or mismatched signature → false.
-func verifyUserSig(secret string, r *http.Request) bool {
-	if secret == "" {
+func hmacVerify(secret, msg, sig string) bool {
+	if secret == "" || sig == "" {
 		return false
 	}
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write([]byte(msg))
+	return hmac.Equal([]byte(hex.EncodeToString(h.Sum(nil))), []byte(sig))
+}
+
+func verifyUserSig(secret string, r *http.Request) bool {
 	sub := r.Header.Get("X-User-Sub")
 	if sub == "" {
 		return false
 	}
-	sig := r.Header.Get("X-User-Sig")
-	if sig == "" {
-		return false
-	}
 	msg := "user:" + sub + "|" + r.Header.Get("X-User-Name") + "|" + r.Header.Get("X-User-Groups")
-	h := hmac.New(sha256.New, []byte(secret))
-	h.Write([]byte(msg))
-	want := hex.EncodeToString(h.Sum(nil))
-	return hmac.Equal([]byte(want), []byte(sig))
+	return hmacVerify(secret, msg, r.Header.Get("X-User-Sig"))
 }
 
-// verifySlinkSig returns true if X-Slink-Sig matches HMAC(token|folder).
 func verifySlinkSig(secret string, r *http.Request) bool {
-	if secret == "" {
-		return false
-	}
 	token := r.Header.Get("X-Slink-Token")
 	folder := r.Header.Get("X-Folder")
-	sig := r.Header.Get("X-Slink-Sig")
-	if token == "" || folder == "" || sig == "" {
+	if token == "" || folder == "" {
 		return false
 	}
-	msg := "slink:" + token + "|" + folder
-	h := hmac.New(sha256.New, []byte(secret))
-	h.Write([]byte(msg))
-	want := hex.EncodeToString(h.Sum(nil))
-	return hmac.Equal([]byte(want), []byte(sig))
+	return hmacVerify(secret, "slink:"+token+"|"+folder, r.Header.Get("X-Slink-Sig"))
 }
 
 // requireUser checks that X-User-Sub is present AND signed by proxyd.
-// Without the signature check, any client reaching webd directly (e.g.
-// via a misconfigured compose, leaked internal port, or absence of
-// proxyd) could forge identity headers and bypass auth entirely.
+// Without the signature check, a misconfigured compose (no proxyd in
+// front) would let any client forge identity headers.
 func (s *server) requireUser(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !verifyUserSig(s.cfg.hmacSecret, r) {
-			// Drop unsigned identity headers before any further handling
-			// so downstream code can't accidentally trust them.
 			for _, h := range []string{"X-User-Sub", "X-User-Name", "X-User-Groups", "X-User-Sig"} {
 				r.Header.Del(h)
 			}
@@ -157,7 +140,6 @@ func (s *server) requireUser(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// userGroups parses X-User-Groups (JSON string array). `**` means any.
 func userGroups(r *http.Request) []string {
 	var out []string
 	if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
@@ -166,9 +148,8 @@ func userGroups(r *http.Request) []string {
 	return out
 }
 
-// userAllowedFolder returns true if the user's grants cover folder.
-// `**` = universal; exact match; parent-prefix (grant "atlas" covers
-// "atlas" and "atlas/..."). Operator is implicit via `**`.
+// userAllowedFolder: `**` = any; exact match; parent-prefix ("atlas"
+// covers "atlas" and "atlas/...").
 func userAllowedFolder(groups []string, folder string) bool {
 	for _, f := range groups {
 		if f == "**" || f == folder || strings.HasPrefix(folder, f+"/") {
@@ -178,8 +159,6 @@ func userAllowedFolder(groups []string, folder string) bool {
 	return false
 }
 
-// requireFolder wraps requireUser and enforces folder-ACL for endpoints
-// that carry folder in the URL path.
 func (s *server) requireFolder(next http.HandlerFunc) http.HandlerFunc {
 	return s.requireUser(func(w http.ResponseWriter, r *http.Request) {
 		if !userAllowedFolder(userGroups(r), folderParam(r)) {
@@ -191,11 +170,8 @@ func (s *server) requireFolder(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // splitFolderSuffix splits "atlas/content/topics" → ("atlas/content",
-// "topics"). The suffix must be a distinct preceding path segment:
-// "topics" alone or a folder literally named "topics" with nothing in
-// front will NOT mis-route to an empty folder. Previously a request to
-// "/topics" (folder literally named "topics") was split into
-// folder="", which let callers with a grant on "" slip through.
+// "topics"). Bare "/topics" does NOT match — prevents folder="" from
+// slipping past ACL via an empty-string grant.
 func splitFolderSuffix(rest string) (string, string) {
 	for _, suffix := range []string{"/topics", "/messages", "/typing"} {
 		if !strings.HasSuffix(rest, suffix) {
@@ -203,7 +179,6 @@ func splitFolderSuffix(rest string) (string, string) {
 		}
 		folder := rest[:len(rest)-len(suffix)]
 		if folder == "" {
-			// "/topics" is not a <folder>/topics; no match.
 			continue
 		}
 		return folder, suffix[1:]
@@ -268,8 +243,7 @@ func (sw *statusWriter) WriteHeader(code int) {
 	sw.ResponseWriter.WriteHeader(code)
 }
 
-// Flush passes through to the underlying ResponseWriter so SSE handlers
-// keep streaming through the logging middleware wrapper.
+// Flush passes SSE flushes through the logging middleware wrapper.
 func (sw *statusWriter) Flush() {
 	if f, ok := sw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()

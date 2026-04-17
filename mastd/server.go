@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -16,14 +15,13 @@ type fileResolver interface {
 }
 
 type server struct {
-	cfg          config
-	mc           chanlib.BotHandler
-	files        fileResolver
-	maxFileBytes int64
+	cfg   config
+	mc    chanlib.BotHandler
+	files fileResolver
 }
 
 func newServer(cfg config, mc chanlib.BotHandler, fr fileResolver) *server {
-	return &server{cfg: cfg, mc: mc, files: fr, maxFileBytes: cfg.MaxFileBytes}
+	return &server{cfg: cfg, mc: mc, files: fr}
 }
 
 func (s *server) handler() http.Handler {
@@ -49,16 +47,5 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		chanlib.WriteErr(w, 502, "cdn fetch failed")
-		return
-	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		w.Header().Set("Content-Type", ct)
-	}
-	max := s.maxFileBytes
-	if max <= 0 {
-		max = 20 * 1024 * 1024
-	}
-	io.Copy(w, io.LimitReader(resp.Body, max))
+	chanlib.ProxyFile(w, resp, s.cfg.MaxFileBytes)
 }

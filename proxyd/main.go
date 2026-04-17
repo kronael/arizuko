@@ -69,9 +69,8 @@ func loadConfig() config {
 	}
 }
 
-// parseTrustedProxies parses a comma-separated list of CIDR blocks. A bare
-// IP is treated as a /32 (or /128). Empty input = no client is trusted to
-// supply X-Forwarded-For; the header is replaced with the connection peer.
+// parseTrustedProxies parses comma-separated CIDRs; bare IP → /32 or /128.
+// Empty = no client trusted; XFF is always replaced with the connection peer.
 func parseTrustedProxies(s string) []*net.IPNet {
 	var out []*net.IPNet
 	for _, part := range strings.Split(s, ",") {
@@ -95,9 +94,8 @@ func parseTrustedProxies(s string) []*net.IPNet {
 	return out
 }
 
-// clientHeaderNames are request headers proxyd owns. Clients must not be
-// able to forge them; they are stripped on entry and repopulated only
-// after authentication or slink-token resolution.
+// clientHeaderNames are proxyd-owned; stripped on entry and repopulated
+// only after auth or slink-token resolution.
 var clientHeaderNames = []string{
 	"X-User-Sub",
 	"X-User-Name",
@@ -263,9 +261,7 @@ func (rl *rateLimiter) allow(key string) bool {
 	now := time.Now()
 	cutoff := now.Add(-rl.window)
 
-	// Sweep stale buckets on every call. Prevents attackers from keeping
-	// the map bloated indefinitely using many distinct source IPs with
-	// one hit each.
+	// Sweep stale buckets to bound map size under distinct-IP flood.
 	for k, hits := range rl.buckets {
 		if len(hits) == 0 || hits[len(hits)-1].Before(cutoff) {
 			delete(rl.buckets, k)
@@ -433,9 +429,8 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 					hmacSign(s.cfg.hmacSecret, slinkSigMessage(token, group.Folder)))
 			}
 		}
-		// Attach signed user identity when the caller is also logged in
-		// (e.g. an authed operator opening the chat UI) so webd can trust
-		// them via folder ACL in addition to the slink token.
+		// Attach signed user identity when also logged in so webd can also
+		// accept via folder ACL.
 		s.optionalAuth(upstream.ServeHTTP)(w, r)
 		return
 	}
@@ -540,18 +535,24 @@ func (s *server) authByCookie(r *http.Request) *http.Request {
 	return s.setUserHeaders(r, u.Sub, u.Name, s.st.UserGroups(u.Sub))
 }
 
+// tryAuth returns an identity-stamped request if the caller has a valid
+// Bearer JWT or refresh-token cookie; otherwise the original request.
+func (s *server) tryAuth(r *http.Request) *http.Request {
+	if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
+		if c, err := auth.VerifyJWT([]byte(s.cfg.authSecret), strings.TrimPrefix(hdr, "Bearer ")); err == nil {
+			return s.setUserHeaders(r, c.Sub, c.Name, c.Groups)
+		}
+	}
+	if a := s.authByCookie(r); a != nil {
+		return a
+	}
+	return nil
+}
+
 func (s *server) optionalAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		secret := []byte(s.cfg.authSecret)
-		if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
-			if claims, err := auth.VerifyJWT(secret, strings.TrimPrefix(hdr, "Bearer ")); err == nil {
-				next(w, s.setUserHeaders(r, claims.Sub, claims.Name, claims.Groups))
-				return
-			}
-		}
-		if authed := s.authByCookie(r); authed != nil {
-			next(w, authed)
-			return
+		if a := s.tryAuth(r); a != nil {
+			r = a
 		}
 		next(w, r)
 	}
@@ -563,17 +564,8 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
-			claims, err := auth.VerifyJWT([]byte(s.cfg.authSecret), strings.TrimPrefix(hdr, "Bearer "))
-			if err != nil {
-				http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
-				return
-			}
-			next(w, s.setUserHeaders(r, claims.Sub, claims.Name, claims.Groups))
-			return
-		}
-		if authed := s.authByCookie(r); authed != nil {
-			next(w, authed)
+		if a := s.tryAuth(r); a != nil {
+			next(w, a)
 			return
 		}
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)

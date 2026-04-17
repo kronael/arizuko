@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -152,48 +153,6 @@ func loadConfig() (config, error) {
 	}
 
 	return cfg, nil
-}
-
-func parseGates(s string) ([]gate, error) {
-	var gates []gate
-	for _, part := range strings.Split(s, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		g, err := parseOneGate(part)
-		if err != nil {
-			return nil, fmt.Errorf("bad gate %q: %w", part, err)
-		}
-		gates = append(gates, g)
-	}
-	return gates, nil
-}
-
-func parseOneGate(s string) (gate, error) {
-	// Formats: "*:50/day", "github:org=mycompany:10/day",
-	// "google:domain=example.com:20/day", "email:domain=example.com:5/day"
-	parts := strings.Split(s, ":")
-	if len(parts) < 2 {
-		return gate{}, fmt.Errorf("need at least kind:limit")
-	}
-	kind := parts[0]
-	var param, limitStr string
-	if kind == "*" {
-		limitStr = parts[1]
-	} else {
-		if len(parts) < 3 {
-			return gate{}, fmt.Errorf("need kind:param:limit")
-		}
-		param = parts[1]
-		limitStr = parts[2]
-	}
-	limitStr = strings.TrimSuffix(limitStr, "/day")
-	var limit int
-	if _, err := fmt.Sscanf(limitStr, "%d", &limit); err != nil || limit <= 0 {
-		return gate{}, fmt.Errorf("invalid limit %q", limitStr)
-	}
-	return gate{kind: kind, param: param, limitPerDay: limit}, nil
 }
 
 // gateKey returns a stable identifier for a gate (used in DB gate column).
@@ -360,18 +319,16 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 			`UPDATE onboarding SET user_sub = ?
 			 WHERE jid = ? AND status = 'token_used' AND user_sub IS NULL`,
 			userSub, c.Value)
-		claimed := false
+		var n int64
 		if err == nil {
-			if n, _ := res.RowsAffected(); n == 1 {
-				claimed = true
-			}
+			n, _ = res.RowsAffected()
 		}
 		// Always clear the cookie: single-use regardless of outcome.
 		http.SetCookie(w, &http.Cookie{
 			Name: "onboard_jid", Value: "", Path: "/",
 			MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
 		})
-		if claimed {
+		if n == 1 {
 			linkJID(db, c.Value, userSub)
 			var folder string
 			if err := db.QueryRow(
@@ -417,45 +374,24 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 // POST could exploit the auth proxy's cookie to mutate state.
 const csrfCookieName = "onbod_csrf"
 
-// ensureCSRFToken reads (or mints) the CSRF token cookie for this session.
-// Returns the current token value.
-func ensureCSRFToken(w http.ResponseWriter, r *http.Request, cfg config) string {
+func ensureCSRFToken(w http.ResponseWriter, r *http.Request, cfg config) {
 	if c, err := r.Cookie(csrfCookieName); err == nil && c.Value != "" {
-		return c.Value
+		return
 	}
-	tok := genToken()
 	http.SetCookie(w, &http.Cookie{
-		Name: csrfCookieName, Value: tok, Path: "/",
+		Name: csrfCookieName, Value: genToken(), Path: "/",
 		MaxAge: 86400, HttpOnly: false, // JS does not read it; scripts can't cross-origin anyway
 		Secure: cfg.secureCookie, SameSite: http.SameSiteStrictMode,
 	})
-	return tok
 }
 
-// checkCSRF verifies the double-submit token: the form field must equal the
-// cookie value using constant-time compare.
 func checkCSRF(r *http.Request) bool {
 	c, err := r.Cookie(csrfCookieName)
 	if err != nil || c.Value == "" {
 		return false
 	}
 	got := r.FormValue("csrf")
-	if got == "" || len(got) != len(c.Value) {
-		return false
-	}
-	return subtleCompare(got, c.Value)
-}
-
-// subtleCompare is a constant-time equality check.
-func subtleCompare(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	var v byte
-	for i := 0; i < len(a); i++ {
-		v |= a[i] ^ b[i]
-	}
-	return v == 0
+	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(c.Value)) == 1
 }
 
 func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
@@ -999,8 +935,13 @@ func userRoutes(db *sql.DB, folders []string) []dashRoute {
 }
 
 
-// isOperator reports whether folders grants unrestricted access. Either a
-// nil slice (internal bypass) or any `**` entry qualifies.
+func folderAllowed(folders []string, target string) bool {
+	if folders == nil {
+		return true // no grants queried (internal caller bypass)
+	}
+	return auth.MatchGroups(folders, target)
+}
+
 func isOperator(folders []string) bool {
 	if folders == nil {
 		return true
@@ -1011,13 +952,6 @@ func isOperator(folders []string) bool {
 		}
 	}
 	return false
-}
-
-func folderAllowed(folders []string, target string) bool {
-	if folders == nil {
-		return true // no grants queried (internal caller bypass)
-	}
-	return auth.MatchGroups(folders, target)
 }
 
 func handleDeleteRoute(w http.ResponseWriter, r *http.Request,

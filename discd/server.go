@@ -4,7 +4,6 @@ import (
 	"container/list"
 	"crypto/sha256"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -106,16 +105,5 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		chanlib.WriteErr(w, 502, "cdn fetch failed")
-		return
-	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		w.Header().Set("Content-Type", ct)
-	}
-	max := s.cfg.MediaMaxBytes
-	if max <= 0 {
-		max = 20 * 1024 * 1024
-	}
-	io.Copy(w, io.LimitReader(resp.Body, max))
+	chanlib.ProxyFile(w, resp, s.cfg.MediaMaxBytes)
 }

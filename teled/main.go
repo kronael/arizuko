@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/onvos/arizuko/chanlib"
 )
@@ -41,12 +40,6 @@ type config struct {
 func loadConfig() config {
 	dataDir := chanlib.EnvOr("DATA_DIR", "/srv/app/home")
 	name := chanlib.EnvOr("CHANNEL_NAME", "telegram")
-	maxBytes := int64(20 * 1024 * 1024)
-	if v := chanlib.EnvOr("MEDIA_MAX_FILE_BYTES", ""); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-			maxBytes = n
-		}
-	}
 	return config{
 		Name:          name,
 		TelegramToken: chanlib.MustEnv("TELEGRAM_BOT_TOKEN"),
@@ -56,6 +49,6 @@ func loadConfig() config {
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://telegram:9001"),
 		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
 		StateFile:     dataDir + "/teled-offset-" + name,
-		MediaMaxBytes: maxBytes,
+		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 	}
 }
