@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/theme"
@@ -908,14 +909,9 @@ func userRoutes(db *sql.DB, folders []string) []dashRoute {
 
 func folderAllowed(folders []string, target string) bool {
 	if folders == nil {
-		return true // operator
+		return true // no grants queried (internal caller bypass)
 	}
-	for _, f := range folders {
-		if f == target {
-			return true
-		}
-	}
-	return false
+	return auth.MatchGroups(folders, target)
 }
 
 func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
