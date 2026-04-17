@@ -40,7 +40,11 @@ var identRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$`)
 var commonKeys = []string{
 	"ASSISTANT_NAME", "TZ", "LOG_LEVEL", "ARIZUKO_DEV",
 	"HOST_DATA_DIR", "HOST_APP_DIR", "WEB_HOST",
-	"API_PORT", "DATA_DIR",
+	"API_PORT",
+	// DATA_DIR is NOT in commonKeys: that would leak the host path
+	// into env/<daemon>.env and into the container. DATA_DIR is the
+	// container-internal mount point, set per-daemon in the compose
+	// `environment:` block.
 }
 
 // daemonKeys: per-daemon secrets + config. Unlisted keys never reach the daemon.
@@ -303,7 +307,10 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 
 	// API_PORT override pins gated's internal listen to 8080 (unified).
 	// Host-publish side uses the .env value as external port.
-	environment := map[string]string{"API_PORT": "8080"}
+	environment := map[string]string{
+		"API_PORT": "8080",
+		"DATA_DIR": "/srv/app/home",
+	}
 
 	var b strings.Builder
 	b.WriteString("  gated:\n")

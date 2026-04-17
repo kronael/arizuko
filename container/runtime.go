@@ -30,24 +30,22 @@ func CleanupOrphans(instance, image string) {
 	if instance != "" {
 		prefix = "arizuko-" + instance + "-"
 	}
-	filters := []string{"name=" + prefix}
+	// Single docker ps call with both filters: name-prefix AND image.
+	// Previously each filter ran in its own call and results were unioned
+	// (OR), so on a host running multiple instances the image filter
+	// would match peers and kill them.
+	args := []string{"ps", "--filter=name=" + prefix, "--format", "{{.Names}}"}
 	if image != "" {
-		filters = append(filters, "ancestor="+image)
+		args = append(args, "--filter=ancestor="+image)
 	}
-
-	seen := map[string]bool{}
+	out, err := exec.Command(Bin, args...).Output()
+	if err != nil {
+		slog.Warn("failed to list containers for cleanup", "err", err)
+		return
+	}
 	var orphans []string
-	for _, f := range filters {
-		out, err := exec.Command(Bin, "ps", "--filter="+f, "--format", "{{.Names}}").Output()
-		if err != nil {
-			slog.Warn("failed to list containers for cleanup", "err", err)
-			continue
-		}
-		for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if name == "" || seen[name] {
-				continue
-			}
-			seen[name] = true
+	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if name != "" {
 			orphans = append(orphans, name)
 		}
 	}
