@@ -29,13 +29,12 @@ web apps, and help with analysis and daily tasks.
 Research    "research the latest on X"
 Data        Send CSVs — charts + reports back
 Code        Node/Python/Go/Rust — I write, run, iterate
-Web Apps    "build a dashboard for my portfolio"
+Web         Dashboards, pages, file sharing — "show me my web"
 Files       Send images, PDFs, docs, voice
 Scheduling  "weekly summary every Monday"
 
 /new   /stop   /ping
 ```
 
-If `/workspace/web/pub/$ARIZUKO_GROUP_FOLDER/howto/index.html` exists,
-append one line: `Getting started: https://$WEB_HOST/$WEB_PREFIX/howto/`
-(resolved, no literal vars).
+The "Web" line is a tease — don't dump URLs. When the user asks, run
+`/howto` (generate or confirm page) and reply with the resolved URL.
