@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/onvos/arizuko/store"
 	_ "modernc.org/sqlite"
@@ -1524,5 +1525,397 @@ func TestDashboardUnauthenticated(t *testing.T) {
 	// No token, no X-User-Sub → redirect to login
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303 redirect, got %d", w.Code)
+	}
+}
+
+// sendReply must POST to cfg.gatedURL with a bearer secret when configured.
+// promptUnprompted indirectly exercises sendReply; using a test HTTP server
+// captures the wire format without mocking.
+func TestSendReplyUsesSecretHeader(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+
+	var gotAuth string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotBody, _ = readAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := config{secret: "s3cret", gatedURL: srv.URL, authBaseURL: "https://ex.com"}
+	promptUnprompted(db, cfg)
+
+	if gotAuth != "Bearer s3cret" {
+		t.Errorf("want Bearer secret header, got %q", gotAuth)
+	}
+	if !strings.Contains(string(gotBody), "telegram:1") ||
+		!strings.Contains(string(gotBody), "/onboard?token=") {
+		t.Errorf("unexpected outbound body: %s", gotBody)
+	}
+}
+
+// sendReply gracefully handles non-2xx — prompt still records token update.
+func TestSendReplyHandlesNon2xx(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('t:1', 'awaiting_message', '2026-01-01')`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	cfg := config{gatedURL: srv.URL, authBaseURL: "https://ex.com"}
+	// Should not panic even when router returns 500.
+	promptUnprompted(db, cfg)
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE jid='t:1' AND token IS NOT NULL`).Scan(&n)
+	if n != 1 {
+		t.Errorf("token should still be persisted after send failure, got %d", n)
+	}
+}
+
+// sendReply swallows transport errors (unreachable URL).
+func TestSendReplyHandlesTransportError(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('t:1', 'awaiting_message', '2026-01-01')`)
+	// Point at a closed port to force Do() to fail.
+	cfg := config{gatedURL: "http://127.0.0.1:1", authBaseURL: "https://ex.com"}
+	promptUnprompted(db, cfg) // must not panic
+}
+
+// handleTokenLanding: user already authenticated at landing → row gets linked
+// and consumer is redirected to /onboard (not /auth/login).
+func TestTokenLandingAuthenticatedRedirectsToDashboard(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
+		VALUES ('telegram:7', 'awaiting_message', 'tok', '2099-01-01T00:00:00Z', '2026-01-01')`)
+
+	cfg := config{authBaseURL: "https://ex.com"}
+	req := httptest.NewRequest("GET", "/onboard?token=tok", nil)
+	req.Header.Set("X-User-Sub", "github:alice")
+	w := httptest.NewRecorder()
+	handleOnboard(w, req, db, cfg)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("want 303, got %d", w.Code)
+	}
+	if got := w.Header().Get("Location"); got != "/onboard" {
+		t.Errorf("want redirect to /onboard, got %q", got)
+	}
+	// linkJID ran synchronously (no gates, no user rows yet — status goes approved).
+	var sub string
+	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid='telegram:7'`).Scan(&sub)
+	if sub != "github:alice" {
+		t.Errorf("jid not linked on authenticated landing, got %q", sub)
+	}
+}
+
+// ensureCSRFToken is idempotent: an incoming request that already carries the
+// cookie must not receive a new Set-Cookie header.
+func TestEnsureCSRFIdempotent(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/onboard", nil)
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "existing"})
+	ensureCSRFToken(w, req, config{})
+	for _, sc := range w.Result().Cookies() {
+		if sc.Name == csrfCookieName {
+			t.Errorf("unexpected re-set of csrf cookie when one already present")
+		}
+	}
+}
+
+// handleInvite with empty path value (defensive — router should never route
+// empty, but guard in handler must still return a friendly page).
+func TestInviteEmptyToken(t *testing.T) {
+	db := testDB(t)
+	req := httptest.NewRequest("GET", "/invite/", nil)
+	req.SetPathValue("token", "")
+	req.Header.Set("X-User-Sub", "github:alice")
+	w := httptest.NewRecorder()
+	handleInvite(w, req, db, config{})
+	if w.Code != http.StatusOK {
+		t.Errorf("want 200 page, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Invalid Invite") {
+		t.Error("want Invalid Invite page")
+	}
+}
+
+// handleAddRoute: match/target longer than 256 chars is rejected before touching DB.
+func TestAddRouteTooLong(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('op', '**')`)
+	long := strings.Repeat("a", 257)
+	w := postOnboard(db, config{}, "op", url.Values{
+		"action": {"add_route"}, "match": {"room=1"}, "target": {long},
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("want 400 on long target, got %d", w.Code)
+	}
+	w2 := postOnboard(db, config{}, "op", url.Values{
+		"action": {"add_route"}, "match": {long}, "target": {"myroom"},
+	})
+	if w2.Code != http.StatusBadRequest {
+		t.Errorf("want 400 on long match, got %d", w2.Code)
+	}
+}
+
+// handleAddRoute: invalid pattern characters (spaces, wildcards) are rejected.
+func TestAddRouteInvalidMatchChars2(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('op', '**')`)
+	// Note: "room=a\n" (trailing newline) is accepted by the current regex —
+	// Go's default `$` matches before a final \n. Logged in bugs.md.
+	for _, bad := range []string{"room=a b", "room=*", "room=a%", "room=a\nb"} {
+		w := postOnboard(db, config{}, "op", url.Values{
+			"action": {"add_route"}, "match": {bad}, "target": {"x"},
+		})
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("match=%q: want 400, got %d", bad, w.Code)
+		}
+	}
+}
+
+// handleAddRoute: non-operator must own the room referenced in match.
+func TestAddRouteNonOperatorForbiddenOnUnownedMatch(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'alice')`)
+	// alice has no user_jids → cannot claim any room=<id>.
+	w := postOnboard(db, config{}, "alice", url.Values{
+		"action": {"add_route"}, "match": {"room=9999"}, "target": {"alice"},
+	})
+	if w.Code != http.StatusForbidden {
+		t.Errorf("want 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// userOwnsMatch: only canonical "room=<id>" is accepted; malformed prefixes
+// return false.
+func TestUserOwnsMatchRejectsNonRoomPrefix(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed) VALUES ('alice','telegram:42','2026-01-01')`)
+	if userOwnsMatch(db, "alice", "peer=42") {
+		t.Error("non-room prefix must not match")
+	}
+	if userOwnsMatch(db, "alice", "room=") {
+		t.Error("empty room must not match")
+	}
+	if !userOwnsMatch(db, "alice", "room=42") {
+		t.Error("valid room=42 should match")
+	}
+	if userOwnsMatch(db, "alice", "room=99") {
+		t.Error("wrong room id must not match")
+	}
+}
+
+// renderQueuePosition: with low daily limit + many queued, ETA must use
+// "hours" wording (covers the >=60min branch).
+func TestQueuePositionETAHours(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
+		VALUES ('github:x', 'x', 'X', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 1)`)
+	// 4 earlier queued entries + the caller → position 5, 5*1440/1 = 7200 min.
+	for i, jid := range []string{"t:a", "t:b", "t:c", "t:d"} {
+		db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+			VALUES (?, 'queued', '*', ?, 'u:'||?, '2026-01-01')`,
+			jid, "2026-04-17T0"+strconv.Itoa(i)+":00:00Z", i)
+	}
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:me', 'queued', '*', '2026-04-17T09:00:00Z', 'github:x', '2026-01-01')`)
+
+	req := httptest.NewRequest("GET", "/onboard", nil)
+	req.Header.Set("X-User-Sub", "github:x")
+	w := httptest.NewRecorder()
+	handleOnboard(w, req, db, config{})
+	if !strings.Contains(w.Body.String(), "hours") {
+		t.Errorf("expected 'hours' in ETA, body=%s", w.Body.String())
+	}
+}
+
+// admitFromQueue respects already-admitted today's count and does not
+// exceed limitPerDay even across repeated invocations.
+func TestAdmitFromQueueDailyLimitPersists(t *testing.T) {
+	db := testDB(t)
+	today := time.Now().Format("2006-01-02")
+	// Already-approved entry counts against today's budget.
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:old', 'approved', '*', ?, 'u:old', '2026-01-01')`, today+"T02:00:00Z")
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:wait', 'queued', '*', ?, 'u:wait', '2026-01-01')`, today+"T03:00:00Z")
+	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 1)`)
+
+	admitFromQueue(db)
+	var st string
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid='t:wait'`).Scan(&st)
+	if st != "queued" {
+		t.Errorf("daily limit should block further admission, got %s", st)
+	}
+
+	// Second call is also a no-op (limit already hit).
+	admitFromQueue(db)
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid='t:wait'`).Scan(&st)
+	if st != "queued" {
+		t.Errorf("second admit should still be no-op, got %s", st)
+	}
+}
+
+// tokenHash returns empty string for empty input and a stable 8-char tag
+// otherwise. Stability lets log pipelines correlate attempts.
+func TestTokenHash(t *testing.T) {
+	if tokenHash("") != "" {
+		t.Error("empty input must yield empty tag")
+	}
+	h := tokenHash("abc123")
+	if len(h) != 8 {
+		t.Errorf("want 8-char tag, got %d", len(h))
+	}
+	if tokenHash("abc123") != h {
+		t.Error("tokenHash must be deterministic")
+	}
+	if tokenHash("abc124") == h {
+		t.Error("different inputs must produce different tags")
+	}
+}
+
+// loadConfig happy path: populates fields from env, including
+// pollInterval parsing.
+func TestLoadConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DATA_DIR", dir)
+	t.Setenv("ARIZUKO_DEV", "true")
+	t.Setenv("ONBOARD_POLL_INTERVAL", "5s")
+	t.Setenv("ONBOARDING_GREETING", "hi")
+	t.Setenv("ROUTER_URL", "http://r:1")
+	t.Setenv("AUTH_BASE_URL", "https://auth.example.com")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.pollInterval != 5*time.Second {
+		t.Errorf("want pollInterval=5s, got %v", cfg.pollInterval)
+	}
+	if cfg.greeting != "hi" {
+		t.Errorf("greeting not propagated")
+	}
+	if cfg.gatedURL != "http://r:1" {
+		t.Errorf("gatedURL not propagated, got %q", cfg.gatedURL)
+	}
+	if !cfg.secureCookie {
+		t.Errorf("secureCookie should be true for https AUTH_BASE_URL")
+	}
+	if !strings.HasSuffix(cfg.dsn, "/store/messages.db") {
+		t.Errorf("unexpected dsn: %s", cfg.dsn)
+	}
+}
+
+// loadConfig with invalid poll interval falls back to default (10s).
+func TestLoadConfigBadPollInterval(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DATA_DIR", dir)
+	t.Setenv("ARIZUKO_DEV", "true")
+	t.Setenv("ONBOARD_POLL_INTERVAL", "not-a-duration")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.pollInterval != 10*time.Second {
+		t.Errorf("want default 10s, got %v", cfg.pollInterval)
+	}
+}
+
+// createInvitation writes the row and returns a 64-char hex token.
+func TestCreateInvitation(t *testing.T) {
+	db := testDB(t)
+	tok := createInvitation(db, "alice", "op", 3)
+	if len(tok) != 64 {
+		t.Errorf("want 64-char hex token, got %d", len(tok))
+	}
+	var folder, createdBy string
+	var maxUses, uses int
+	db.QueryRow(`SELECT folder, created_by, max_uses, uses FROM invitations WHERE token=?`, tok).
+		Scan(&folder, &createdBy, &maxUses, &uses)
+	if folder != "alice" || createdBy != "op" || maxUses != 3 || uses != 0 {
+		t.Errorf("row mismatch: folder=%q createdBy=%q max=%d uses=%d",
+			folder, createdBy, maxUses, uses)
+	}
+}
+
+// isOperator: `**` grant = operator; empty/other grants = not operator.
+func TestIsOperator(t *testing.T) {
+	if !isOperator(nil) {
+		t.Error("nil folders must be operator (bypass)")
+	}
+	if !isOperator([]string{"alice", "**"}) {
+		t.Error("** grant must be operator")
+	}
+	if isOperator([]string{"alice", "bob"}) {
+		t.Error("plain folders must not be operator")
+	}
+	if isOperator([]string{}) {
+		t.Error("empty slice must not be operator")
+	}
+}
+
+// userFolders filters out empty-string rows (defensive — migration scars).
+func TestUserFoldersSkipsEmpty(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'real')`)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', '')`)
+	got := userFolders(db, "alice")
+	for _, f := range got {
+		if f == "" {
+			t.Errorf("empty folder leaked into result: %v", got)
+		}
+	}
+}
+
+// handleOnboardPost rejects when CSRF cookie set but no form value supplied.
+func TestCSRFRejectedWhenFormMissing(t *testing.T) {
+	db := testDB(t)
+	req := httptest.NewRequest("POST", "/onboard",
+		strings.NewReader(url.Values{"action": {"create_world"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "github:alice")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "abc"})
+	w := httptest.NewRecorder()
+	handleOnboardPost(w, req, db, config{})
+	if w.Code != http.StatusForbidden {
+		t.Errorf("want 403 when csrf form value absent, got %d", w.Code)
+	}
+}
+
+// genToken yields unique 64-char hex strings.
+func TestGenTokenUnique(t *testing.T) {
+	seen := map[string]bool{}
+	for i := 0; i < 64; i++ {
+		tk := genToken()
+		if len(tk) != 64 {
+			t.Fatalf("want 64 chars, got %d", len(tk))
+		}
+		if seen[tk] {
+			t.Fatal("duplicate token from genToken")
+		}
+		seen[tk] = true
+	}
+}
+
+// Small helper: drain a body without importing io at the top of the file.
+func readAll(r interface{ Read(p []byte) (int, error) }) ([]byte, error) {
+	var out []byte
+	buf := make([]byte, 1024)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			out = append(out, buf[:n]...)
+		}
+		if err != nil {
+			if err.Error() == "EOF" {
+				return out, nil
+			}
+			return out, err
+		}
 	}
 }
