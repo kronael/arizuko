@@ -29,6 +29,105 @@ func anonSender(r *http.Request) string {
 	return fmt.Sprintf("anon:%x", sum[:4])
 }
 
+// handleSlinkPage renders the browser-based chat UI for anonymous slink users.
+// GET /slink/<token>
+func (s *server) handleSlinkPage(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	g, ok := s.st.GroupBySlinkToken(token)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, slinkPageHTML, htmlEscape(g.Name), htmlEscape(g.Name), htmlEscape(g.Folder), htmlEscape(token))
+}
+
+const slinkPageHTML = `<!DOCTYPE html><html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>%s</title>
+<style>
+:root{--bg:#0a0a0a;--fg:#e0e0e0;--accent:#4ade80;--accent2:#a78bfa;--accent3:#58a6ff;--dim:#666;--border:#222;--card:#111;--card-hover:#161616}
+[data-theme=light]{--bg:#fafafa;--fg:#1a1a1a;--accent:#16a34a;--accent2:#7c3aed;--accent3:#0969da;--dim:#888;--border:#ddd;--card:#fff;--card-hover:#f5f5f5}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"SF Mono","Fira Code","JetBrains Mono",Consolas,monospace;font-size:14px;color:var(--fg);background:var(--bg);height:100vh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:.6rem;padding:.6rem 1rem;border-bottom:1px solid var(--border);background:var(--card)}
+header .name{color:var(--accent);font-weight:bold;font-size:1.05em}
+header .dim{color:var(--dim);font-size:.85em}
+#thread{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.4rem}
+.msg{max-width:75%%;padding:.5rem .8rem;border-radius:8px;line-height:1.5;white-space:pre-wrap;word-break:break-word;font-size:.9em}
+.msg.user{align-self:flex-end;background:var(--accent);color:var(--bg)}
+.msg.assistant{align-self:flex-start;background:var(--card);border:1px solid var(--border)}
+.msg .meta{font-size:.7em;color:var(--dim);margin-top:.2em}
+.msg.user .meta{color:rgba(0,0,0,.5)}
+.typing{align-self:flex-start;color:var(--dim);font-size:.85em;padding:.3rem .8rem}
+footer{padding:.6rem 1rem;border-top:1px solid var(--border);background:var(--card)}
+footer form{display:flex;gap:.5rem}
+footer textarea{flex:1;resize:none;padding:.5rem .7rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:.9em;height:2.6rem}
+footer textarea:focus{outline:none;border-color:var(--accent3)}
+footer button{padding:.5rem 1.2rem;background:var(--accent);color:var(--bg);border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:bold;font-size:.9em}
+footer button:hover{opacity:.9}
+footer button:disabled{opacity:.4;cursor:default}
+@media(max-width:600px){body{font-size:13px}.msg{max-width:88%%}}
+</style>
+<script>(function(){var t=localStorage.getItem('hub-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})()</script>
+</head><body>
+<header>
+  <span class="name">%s</span>
+  <span class="dim">web chat</span>
+</header>
+<div id="thread"></div>
+<footer>
+  <form id="f" onsubmit="send(event)">
+    <textarea id="m" placeholder="type a message..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send(event)}"></textarea>
+    <button type="submit" id="btn">send</button>
+  </form>
+</footer>
+<script>
+var folder='%s',token='%s',topic='t'+Date.now(),es;
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function addMsg(role,content,id){
+  var d=document.createElement('div');
+  d.className='msg '+role;
+  if(id)d.id='msg-'+id;
+  d.textContent=content;
+  document.getElementById('thread').appendChild(d);
+  d.scrollIntoView({behavior:'smooth'});
+}
+function connect(){
+  if(es)es.close();
+  es=new EventSource('/slink/stream?group='+encodeURIComponent(folder)+'&topic='+encodeURIComponent(topic));
+  es.addEventListener('message',function(e){
+    try{
+      var m=JSON.parse(e.data);
+      if(document.getElementById('msg-'+m.id))return;
+      var el=document.querySelector('.typing');if(el)el.remove();
+      addMsg(m.role||'assistant',m.content,m.id);
+    }catch(x){}
+  });
+}
+connect();
+async function send(e){
+  e.preventDefault();
+  var input=document.getElementById('m'),btn=document.getElementById('btn');
+  var content=input.value.trim();
+  if(!content)return;
+  input.value='';btn.disabled=true;
+  try{
+    var resp=await fetch('/slink/'+token,{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:'content='+encodeURIComponent(content)+'&topic='+encodeURIComponent(topic)
+    });
+    if(!resp.ok){addMsg('assistant','Error: '+resp.statusText);return}
+    var html=await resp.text();
+    var tmp=document.createElement('div');tmp.innerHTML=html;
+    document.getElementById('thread').appendChild(tmp.firstChild);
+    tmp.firstChild&&tmp.firstChild.scrollIntoView({behavior:'smooth'});
+  }finally{btn.disabled=false;input.focus()}
+}
+</script>
+</body></html>`
+
 // handleSlinkPost accepts user messages via token-authenticated POST.
 // POST /slink/<token>   body: content=Hello&topic=abc123
 //

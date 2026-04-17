@@ -40,6 +40,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /health", s.handleHealth)
 
 	// Public slink endpoints (token-gated internally).
+	mux.HandleFunc("GET /slink/{token}", s.handleSlinkPage)
 	mux.HandleFunc("POST /slink/{token}", s.handleSlinkPost)
 	mux.HandleFunc("GET /slink/stream", s.handleSlinkStream)
 

@@ -213,6 +213,43 @@ func TestSlinkPost_JSON_WaitTimesOut(t *testing.T) {
 	}
 }
 
+// GET /slink/<token> renders the chat page.
+func TestSlinkPage(t *testing.T) {
+	s, _, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	req := httptest.NewRequest("GET", "/slink/"+g.SlinkToken, nil)
+	req.SetPathValue("token", g.SlinkToken)
+	w := httptest.NewRecorder()
+	s.handleSlinkPage(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, g.Name) {
+		t.Error("page missing group name")
+	}
+	if !strings.Contains(body, g.SlinkToken) {
+		t.Error("page missing slink token in JS")
+	}
+	if !strings.Contains(body, "web chat") {
+		t.Error("page missing web chat label")
+	}
+}
+
+// GET /slink/<bad-token> → 404.
+func TestSlinkPage_BadToken(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/slink/nope", nil)
+	req.SetPathValue("token", "nope")
+	w := httptest.NewRecorder()
+	s.handleSlinkPage(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d", w.Code)
+	}
+}
+
 // Bad token → 404.
 func TestSlinkPost_BadToken(t *testing.T) {
 	s, _, _ := newTestServer(t)
