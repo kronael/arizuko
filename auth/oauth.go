@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -26,6 +27,17 @@ const stateTTL = 10 * time.Minute
 
 var googleTokenURL = "https://oauth2.googleapis.com/token"
 var googleUserinfoURL = "https://www.googleapis.com/oauth2/v3/userinfo"
+
+var httpClient = &http.Client{Timeout: 15 * time.Second}
+
+func postForm(ctx context.Context, url string, data url.Values) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return httpClient.Do(req)
+}
 
 func oauthRedirect(secret []byte, secure bool, authURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -108,20 +120,20 @@ func handleGitHubCallback(cfg *core.Config, s *store.Store, secret []byte, secur
 		if !ok {
 			return
 		}
-		token, err := exchangeGitHub(cfg, code, verifier)
+		token, err := exchangeGitHub(r.Context(), cfg, code, verifier)
 		if err != nil {
 			slog.Error("github token exchange failed", "err", err)
 			http.Error(w, "oauth failed", http.StatusBadGateway)
 			return
 		}
-		sub, name, err := fetchGitHubUser(token)
+		sub, name, err := fetchGitHubUser(r.Context(), token)
 		if err != nil {
 			slog.Error("github user fetch failed", "err", err)
 			http.Error(w, "oauth failed", http.StatusBadGateway)
 			return
 		}
 		if org := cfg.GitHubAllowedOrg; org != "" {
-			if !checkGitHubOrgMember(token, org, sub) {
+			if !checkGitHubOrgMember(r.Context(), token, org, sub) {
 				http.Redirect(w, r, "/auth/login?error=unauthorized", http.StatusTemporaryRedirect)
 				return
 			}
@@ -144,13 +156,13 @@ func handleDiscordCallback(cfg *core.Config, s *store.Store, secret []byte, secu
 		if !ok {
 			return
 		}
-		token, err := exchangeDiscord(cfg, code, verifier)
+		token, err := exchangeDiscord(r.Context(), cfg, code, verifier)
 		if err != nil {
 			slog.Error("discord token exchange failed", "err", err)
 			http.Error(w, "oauth failed", http.StatusBadGateway)
 			return
 		}
-		sub, name, err := fetchDiscordUser(token)
+		sub, name, err := fetchDiscordUser(r.Context(), token)
 		if err != nil {
 			slog.Error("discord user fetch failed", "err", err)
 			http.Error(w, "oauth failed", http.StatusBadGateway)
@@ -198,13 +210,13 @@ func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte, secur
 		if !ok {
 			return
 		}
-		token, err := exchangeGoogle(cfg, code, verifier)
+		token, err := exchangeGoogle(r.Context(), cfg, code, verifier)
 		if err != nil {
 			slog.Error("google token exchange failed", "err", err)
 			http.Error(w, "oauth failed", http.StatusBadGateway)
 			return
 		}
-		sub, name, email, verified, err := fetchGoogleUser(token)
+		sub, name, email, verified, err := fetchGoogleUser(r.Context(), token)
 		if err != nil {
 			slog.Error("google user fetch failed", "err", err)
 			http.Error(w, "oauth failed", http.StatusBadGateway)
@@ -222,7 +234,7 @@ func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte, secur
 	}
 }
 
-func exchangeGoogle(cfg *core.Config, code, verifier string) (string, error) {
+func exchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
 	cb := authBaseURL(cfg) + "/auth/google/callback"
 	form := url.Values{
 		"code":          {code},
@@ -234,7 +246,7 @@ func exchangeGoogle(cfg *core.Config, code, verifier string) (string, error) {
 	if verifier != "" {
 		form.Set("code_verifier", verifier)
 	}
-	resp, err := http.PostForm(googleTokenURL, form)
+	resp, err := postForm(ctx, googleTokenURL, form)
 	if err != nil {
 		return "", err
 	}
@@ -251,10 +263,10 @@ func exchangeGoogle(cfg *core.Config, code, verifier string) (string, error) {
 	return tok.AccessToken, nil
 }
 
-func fetchGoogleUser(token string) (sub, name, email string, verified bool, err error) {
-	req, _ := http.NewRequest("GET", googleUserinfoURL, nil)
+func fetchGoogleUser(ctx context.Context, token string) (sub, name, email string, verified bool, err error) {
+	req, _ := http.NewRequestWithContext(ctx, "GET", googleUserinfoURL, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", "", "", false, err
 	}
@@ -284,13 +296,13 @@ func matchEmailAllowlist(email, allowlist string) bool {
 	return false
 }
 
-func checkGitHubOrgMember(token, org, username string) bool {
+func checkGitHubOrgMember(ctx context.Context, token, org, username string) bool {
 	u := fmt.Sprintf("https://api.github.com/orgs/%s/members/%s",
 		url.PathEscape(org), url.PathEscape(username))
-	req, _ := http.NewRequest("GET", u, nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		slog.Warn("github org check failed", "org", org, "err", err)
 		return false
@@ -416,7 +428,7 @@ func authBaseURL(cfg *core.Config) string {
 	return strings.TrimRight(cfg.AuthBaseURL, "/")
 }
 
-func exchangeGitHub(cfg *core.Config, code, verifier string) (string, error) {
+func exchangeGitHub(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
 	data := url.Values{
 		"client_id":     {cfg.GitHubClientID},
 		"client_secret": {cfg.GitHubSecret},
@@ -425,12 +437,12 @@ func exchangeGitHub(cfg *core.Config, code, verifier string) (string, error) {
 	if verifier != "" {
 		data.Set("code_verifier", verifier)
 	}
-	req, _ := http.NewRequest("POST",
+	req, _ := http.NewRequestWithContext(ctx, "POST",
 		"https://github.com/login/oauth/access_token",
 		strings.NewReader(data.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -446,10 +458,10 @@ func exchangeGitHub(cfg *core.Config, code, verifier string) (string, error) {
 	return result.AccessToken, nil
 }
 
-func fetchGitHubUser(token string) (string, string, error) {
-	req, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
+func fetchGitHubUser(ctx context.Context, token string) (string, string, error) {
+	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/user", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", "", err
 	}
@@ -466,7 +478,7 @@ func fetchGitHubUser(token string) (string, string, error) {
 	return u.Login, name, nil
 }
 
-func exchangeDiscord(cfg *core.Config, code, verifier string) (string, error) {
+func exchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
 	cb := authBaseURL(cfg) + "/auth/discord/callback"
 	data := url.Values{
 		"client_id":     {cfg.DiscordClientID},
@@ -478,8 +490,7 @@ func exchangeDiscord(cfg *core.Config, code, verifier string) (string, error) {
 	if verifier != "" {
 		data.Set("code_verifier", verifier)
 	}
-	resp, err := http.PostForm(
-		"https://discord.com/api/oauth2/token", data)
+	resp, err := postForm(ctx, "https://discord.com/api/oauth2/token", data)
 	if err != nil {
 		return "", err
 	}
@@ -495,11 +506,11 @@ func exchangeDiscord(cfg *core.Config, code, verifier string) (string, error) {
 	return result.AccessToken, nil
 }
 
-func fetchDiscordUser(token string) (string, string, error) {
-	req, _ := http.NewRequest("GET",
+func fetchDiscordUser(ctx context.Context, token string) (string, string, error) {
+	req, _ := http.NewRequestWithContext(ctx, "GET",
 		"https://discord.com/api/users/@me", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", "", err
 	}

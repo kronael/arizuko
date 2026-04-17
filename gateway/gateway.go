@@ -1043,7 +1043,7 @@ func transcribeOnce(baseURL, model, path, lang, mime string) string {
 		q.Set("language", lang)
 	}
 	req.URL.RawQuery = q.Encode()
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		return ""
 	}

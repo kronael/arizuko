@@ -19,6 +19,11 @@ import (
 // adapters from OOM on a malicious or buggy router.
 const maxRouterResponseBytes = 10 << 20
 
+// MaxAdapterJSONBody caps JSON request bodies for adapter /send, /typing
+// endpoints. Large enough for replies with embedded context, small
+// enough to refuse OOM-style bodies from a compromised router.
+const MaxAdapterJSONBody = 1 << 20
+
 type InboundAttachment struct {
 	Mime     string `json:"mime"`
 	Filename string `json:"filename"`

@@ -43,6 +43,7 @@ func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler) *http
 
 func handleSend(bot BotHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
 		var req SendRequest
 		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
 			WriteErr(w, 400, "chat_jid and content required")
@@ -114,6 +115,7 @@ func handleSendFile(bot BotHandler) http.HandlerFunc {
 
 func handleTyping(bot BotHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
 		var req struct {
 			ChatJID string `json:"chat_jid"`
 			On      bool   `json:"on"`

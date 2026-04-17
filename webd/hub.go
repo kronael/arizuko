@@ -60,15 +60,15 @@ func (h *hub) subscribe(folder, topic string) (<-chan string, func()) {
 	return ch, unsub
 }
 
-// publish sends an SSE event to all subscribers of folder/topic.
+// publish sends an SSE event to all subscribers of folder/topic. Sends
+// happen under the mutex so unsub can't close a channel between copy
+// and send; the sends are non-blocking so holding the lock is cheap.
 func (h *hub) publish(folder, topic, event, data string) {
 	k := folder + "/" + topic
-	h.mu.Lock()
-	list := make([]chan string, len(h.subs[k]))
-	copy(list, h.subs[k])
-	h.mu.Unlock()
 	msg := fmt.Sprintf("event: %s\ndata: %s\n\n", event, data)
-	for _, ch := range list {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, ch := range h.subs[k] {
 		select {
 		case ch <- msg:
 		default: // slow client — drop
