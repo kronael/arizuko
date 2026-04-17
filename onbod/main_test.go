@@ -30,6 +30,7 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE TABLE user_groups (user_sub TEXT NOT NULL, folder TEXT NOT NULL, PRIMARY KEY (user_sub, folder));
 		CREATE TABLE auth_users (id INTEGER PRIMARY KEY AUTOINCREMENT, sub TEXT UNIQUE, username TEXT, hash TEXT, name TEXT, created_at TEXT);
 		CREATE TABLE channels (name TEXT PRIMARY KEY, url TEXT, capabilities TEXT);
+		CREATE TABLE invitations (token TEXT PRIMARY KEY, folder TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, uses INTEGER NOT NULL DEFAULT 0, max_uses INTEGER NOT NULL DEFAULT 1, expires TEXT);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -731,5 +732,166 @@ func TestNoGatesLegacyBehavior(t *testing.T) {
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)
 	if status != "approved" {
 		t.Errorf("want approved (legacy), got %s", status)
+	}
+}
+
+// --- Invitation tests ---
+
+func TestInviteCreation(t *testing.T) {
+	db := testDB(t)
+	token := createInvitation(db, "alice", "telegram:1", 3)
+	if len(token) != 64 {
+		t.Errorf("expected 64-char hex token, got %d", len(token))
+	}
+
+	var folder, createdBy string
+	var maxUses, uses int
+	db.QueryRow(`SELECT folder, created_by, max_uses, uses FROM invitations WHERE token = ?`,
+		token).Scan(&folder, &createdBy, &maxUses, &uses)
+	if folder != "alice" {
+		t.Errorf("want folder=alice, got %q", folder)
+	}
+	if createdBy != "telegram:1" {
+		t.Errorf("want created_by=telegram:1, got %q", createdBy)
+	}
+	if maxUses != 3 {
+		t.Errorf("want max_uses=3, got %d", maxUses)
+	}
+	if uses != 0 {
+		t.Errorf("want uses=0, got %d", uses)
+	}
+}
+
+func TestInviteConsume(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
+		VALUES ('github:bob', 'bob', 'Bob', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, name, parent, added_at)
+		VALUES ('alice', 'alice', NULL, '2026-01-01')`)
+	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed)
+		VALUES ('github:bob', 'telegram:99', '2026-01-01')`)
+
+	token := createInvitation(db, "alice", "telegram:1", 1)
+
+	cfg := config{authBaseURL: "https://example.com"}
+	req := httptest.NewRequest("GET", "/invite/"+token, nil)
+	req.SetPathValue("token", token)
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	handleInvite(w, req, db, cfg)
+
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("want 303, got %d", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/onboard" {
+		t.Errorf("want redirect to /onboard, got %s", loc)
+	}
+
+	// user_groups row should exist
+	var folder string
+	db.QueryRow(`SELECT folder FROM user_groups WHERE user_sub = 'github:bob'`).Scan(&folder)
+	if folder != "alice" {
+		t.Errorf("want user_groups folder=alice, got %q", folder)
+	}
+
+	// Route should exist for bob's JID
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE match = 'room=99' AND target = 'alice'`).Scan(&n)
+	if n != 1 {
+		t.Errorf("want 1 route for room=99→alice, got %d", n)
+	}
+
+	// Uses should be incremented
+	var uses int
+	db.QueryRow(`SELECT uses FROM invitations WHERE token = ?`, token).Scan(&uses)
+	if uses != 1 {
+		t.Errorf("want uses=1, got %d", uses)
+	}
+}
+
+func TestInviteExpired(t *testing.T) {
+	db := testDB(t)
+	past := "2020-01-01T00:00:00Z"
+	db.Exec(`INSERT INTO invitations (token, folder, created_by, created_at, max_uses, expires)
+		VALUES ('expired-tok', 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, ?)`, past)
+
+	cfg := config{}
+	req := httptest.NewRequest("GET", "/invite/expired-tok", nil)
+	req.SetPathValue("token", "expired-tok")
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	handleInvite(w, req, db, cfg)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("want 200 (error page), got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "expired") && !strings.Contains(body, "Expired") {
+		t.Errorf("expected expired message in body")
+	}
+}
+
+func TestInviteMaxUses(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO invitations (token, folder, created_by, created_at, uses, max_uses)
+		VALUES ('used-tok', 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, 1)`)
+
+	cfg := config{}
+	req := httptest.NewRequest("GET", "/invite/used-tok", nil)
+	req.SetPathValue("token", "used-tok")
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	handleInvite(w, req, db, cfg)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("want 200 (error page), got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "used") && !strings.Contains(body, "Used") {
+		t.Errorf("expected max-uses message in body")
+	}
+}
+
+func TestInviteAuthRequired(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO invitations (token, folder, created_by, created_at, max_uses)
+		VALUES ('auth-tok', 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1)`)
+
+	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
+	req := httptest.NewRequest("GET", "/invite/auth-tok", nil)
+	req.SetPathValue("token", "auth-tok")
+	// No X-User-Sub header → should redirect to login
+	w := httptest.NewRecorder()
+	handleInvite(w, req, db, cfg)
+
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("want 303, got %d", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/auth/login" {
+		t.Errorf("want redirect to /auth/login, got %s", loc)
+	}
+	// auth_return cookie should save the invite URL
+	var found bool
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "auth_return" && c.Value == "/invite/auth-tok" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected auth_return cookie with invite path")
+	}
+}
+
+func TestInviteInvalidToken(t *testing.T) {
+	db := testDB(t)
+	cfg := config{}
+	req := httptest.NewRequest("GET", "/invite/nonexistent", nil)
+	req.SetPathValue("token", "nonexistent")
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	handleInvite(w, req, db, cfg)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("want 200 (error page), got %d", w.Code)
 	}
 }

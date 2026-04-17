@@ -77,6 +77,9 @@ func main() {
 	mux.HandleFunc("POST /onboard", func(w http.ResponseWriter, r *http.Request) {
 		handleOnboardPost(w, r, db, cfg)
 	})
+	mux.HandleFunc("GET /invite/{token}", func(w http.ResponseWriter, r *http.Request) {
+		handleInvite(w, r, db, cfg)
+	})
 
 	srv := &http.Server{Addr: cfg.listenAddr, Handler: mux}
 	go func() {
@@ -569,6 +572,94 @@ func admitFromQueue(db *sql.DB, cfg config) {
 			slog.Info("admitted from queue", "jid", b.jid, "gate", k)
 		}
 	}
+}
+
+func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
+	token := r.PathValue("token")
+	if token == "" {
+		renderPage(w, "Invalid Invite", "<p>No invite token provided.</p>")
+		return
+	}
+
+	userSub := r.Header.Get("X-User-Sub")
+	if userSub == "" {
+		// Save return URL and redirect to login.
+		http.SetCookie(w, &http.Cookie{
+			Name: "auth_return", Value: "/invite/" + token, Path: "/",
+			MaxAge: 86400, HttpOnly: true,
+			Secure:   cfg.secureCookie,
+			SameSite: http.SameSiteLaxMode,
+		})
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
+
+	// Validate and consume the invitation.
+	var folder string
+	var createdAt, expires sql.NullString
+	var uses, maxUses int
+	err := db.QueryRow(
+		`SELECT folder, created_at, uses, max_uses, expires
+		 FROM invitations WHERE token = ?`, token,
+	).Scan(&folder, &createdAt, &uses, &maxUses, &expires)
+	if err != nil {
+		renderPage(w, "Invalid Invite",
+			"<p>This invite link is invalid or does not exist.</p>")
+		return
+	}
+	if expires.Valid && expires.String != "" {
+		exp, _ := time.Parse(time.RFC3339, expires.String)
+		if !exp.IsZero() && time.Now().After(exp) {
+			renderPage(w, "Invite Expired",
+				"<p>This invite link has expired.</p>")
+			return
+		}
+	}
+	if uses >= maxUses {
+		renderPage(w, "Invite Used",
+			"<p>This invite link has already been used the maximum number of times.</p>")
+		return
+	}
+
+	// Consume one use.
+	db.Exec(`UPDATE invitations SET uses = uses + 1 WHERE token = ?`, token)
+
+	// Grant access: insert user_groups row.
+	db.Exec(
+		`INSERT OR IGNORE INTO user_groups (user_sub, folder) VALUES (?, ?)`,
+		userSub, folder)
+
+	// Create routes for any linked JIDs.
+	if rows, err := db.Query(
+		`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub,
+	); err == nil {
+		var jids []string
+		for rows.Next() {
+			var jid string
+			rows.Scan(&jid)
+			jids = append(jids, jid)
+		}
+		rows.Close()
+		for _, jid := range jids {
+			db.Exec(
+				`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
+				"room="+core.JidRoom(jid), folder)
+		}
+	}
+
+	slog.Info("invite accepted", "token", token[:8]+"...",
+		"folder", folder, "user", userSub)
+	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
+}
+
+func createInvitation(db *sql.DB, folder, createdBy string, maxUses int) string {
+	token := genToken()
+	now := time.Now().Format(time.RFC3339)
+	db.Exec(
+		`INSERT INTO invitations (token, folder, created_by, created_at, max_uses)
+		 VALUES (?, ?, ?, ?, ?)`,
+		token, folder, createdBy, now, maxUses)
+	return token
 }
 
 func renderPage(w http.ResponseWriter, title, body string) {

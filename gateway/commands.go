@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +55,9 @@ var gatewayCommands = []gatewayCommand{
 	}},
 	{"/root", func(g *Gateway, m core.Message, gr core.Group, arg string) bool {
 		return g.cmdRoot(m.ChatJID, gr, arg)
+	}},
+	{"/invite", func(g *Gateway, m core.Message, gr core.Group, arg string) bool {
+		return g.cmdInvite(m.ChatJID, gr, arg)
 	}},
 }
 
@@ -172,6 +176,33 @@ func (g *Gateway) cmdRoot(chatJid string, group core.Group, arg string) bool {
 		return true
 	}
 	g.delegateViaMessage(rootFolder, arg, chatJid, 0)
+	return true
+}
+
+func (g *Gateway) cmdInvite(chatJid string, group core.Group, arg string) bool {
+	id := auth.Resolve(group.Folder)
+	if id.Tier != 0 {
+		g.sendMessage(chatJid, "Permission denied: root group only.")
+		return true
+	}
+	maxUses := 1
+	if arg != "" {
+		n, err := strconv.Atoi(strings.TrimSpace(arg))
+		if err != nil || n < 1 {
+			g.sendMessage(chatJid, "Usage: /invite [max_uses]")
+			return true
+		}
+		maxUses = n
+	}
+	token := g.store.CreateInvitationToken(group.Folder, chatJid, maxUses)
+	base := strings.TrimRight(g.cfg.AuthBaseURL, "/")
+	link := base + "/invite/" + token
+	label := fmt.Sprintf("Invite link (%d use", maxUses)
+	if maxUses > 1 {
+		label += "s"
+	}
+	label += "):\n" + link
+	g.sendMessage(chatJid, label)
 	return true
 }
 
