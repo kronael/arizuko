@@ -43,12 +43,13 @@ function recoverCredsIfEmpty(dir: string): void {
   const creds = `${dir}/creds.json`;
   const backup = `${dir}/creds.json.bak`;
   try {
-    if (fs.statSync(creds).size === 0 && fs.existsSync(backup)) {
-      const bs = fs.statSync(backup);
-      if (bs.size > 0) {
-        fs.copyFileSync(backup, creds);
-        log('warn', 'restored creds.json from backup', { size: bs.size });
-      }
+    const missing = !fs.existsSync(creds) || fs.statSync(creds).size === 0;
+    if (!missing) return;
+    if (!fs.existsSync(backup)) return;
+    const bs = fs.statSync(backup);
+    if (bs.size > 0) {
+      fs.copyFileSync(backup, creds);
+      log('warn', 'restored creds.json from backup', { size: bs.size });
     }
   } catch {}
 }
