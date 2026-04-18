@@ -1,14 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -110,20 +106,6 @@ func stripClientHeaders(r *http.Request) {
 	for _, h := range clientHeaderNames {
 		r.Header.Del(h)
 	}
-}
-
-func hmacSign(secret, msg string) string {
-	h := hmac.New(sha256.New, []byte(secret))
-	h.Write([]byte(msg))
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-func userSigMessage(sub, name, groupsJSON string) string {
-	return "user:" + sub + "|" + name + "|" + groupsJSON
-}
-
-func slinkSigMessage(token, folder string) string {
-	return "slink:" + token + "|" + folder
 }
 
 func proxy(target string) *httputil.ReverseProxy {
@@ -284,30 +266,6 @@ func (rl *rateLimiter) allow(key string) bool {
 	return true
 }
 
-type statusWriter struct {
-	http.ResponseWriter
-	code int
-}
-
-func (sw *statusWriter) WriteHeader(code int) {
-	sw.code = code
-	sw.ResponseWriter.WriteHeader(code)
-}
-
-func (sw *statusWriter) Flush() {
-	if f, ok := sw.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	h, ok := sw.ResponseWriter.(http.Hijacker)
-	if !ok {
-		return nil, nil, errors.New("ResponseWriter does not implement http.Hijacker")
-	}
-	return h.Hijack()
-}
-
 func (s *server) handler(cfg *core.Config) http.Handler {
 	mux := http.NewServeMux()
 	auth.RegisterRoutes(mux, s.st, cfg)
@@ -318,12 +276,12 @@ func (s *server) handler(cfg *core.Config) http.Handler {
 func logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		sw := &statusWriter{ResponseWriter: w, code: 200}
+		sw := &chanlib.StatusWriter{ResponseWriter: w, Code: 200}
 		next.ServeHTTP(sw, r)
 		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
 		slog.Info("request",
 			"method", r.Method, "path", r.URL.Path,
-			"status", sw.code, "dur", time.Since(start).String(),
+			"status", sw.Code, "dur", time.Since(start).String(),
 			"sub", r.Header.Get("X-User-Sub"),
 			"remote", peer, "host", r.Host)
 	})
@@ -428,7 +386,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 				r.Header.Set("X-Group-Name", group.Name)
 				r.Header.Set("X-Slink-Token", token)
 				r.Header.Set("X-Slink-Sig",
-					hmacSign(s.cfg.hmacSecret, slinkSigMessage(token, group.Folder)))
+					auth.SignHMAC(s.cfg.hmacSecret, auth.SlinkSigMessage(token, group.Folder)))
 			}
 		}
 		// Attach signed user identity when also logged in so webd can also
@@ -515,7 +473,7 @@ func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []stri
 	r2.Header.Set("X-User-Groups", groupsJSON)
 	if s.cfg.hmacSecret != "" {
 		r2.Header.Set("X-User-Sig",
-			hmacSign(s.cfg.hmacSecret, userSigMessage(sub, name, groupsJSON)))
+			auth.SignHMAC(s.cfg.hmacSecret, auth.UserSigMessage(sub, name, groupsJSON)))
 	}
 	return r2
 }

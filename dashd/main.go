@@ -13,33 +13,12 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
+	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/diary"
 	"github.com/onvos/arizuko/theme"
 	_ "modernc.org/sqlite"
 )
-
-type statusWriter struct {
-	http.ResponseWriter
-	code int
-}
-
-func (sw *statusWriter) WriteHeader(code int) {
-	sw.code = code
-	sw.ResponseWriter.WriteHeader(code)
-}
-
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		sw := &statusWriter{ResponseWriter: w, code: 200}
-		next.ServeHTTP(sw, r)
-		slog.Info("request", "method", r.Method, "path", r.URL.Path,
-			"status", sw.code, "dur", time.Since(start).String(),
-			"sub", r.Header.Get("X-User-Sub"))
-	})
-}
 
 // Caps bound memory from adversarial writes by a compromised agent.
 const (
@@ -118,7 +97,7 @@ func main() {
 	d := &dash{db: db, dbPath: dsn, groupsDir: groupsDir}
 	d.registerRoutes(mux)
 
-	srv := &http.Server{Addr: port, Handler: loggingMiddleware(mux)}
+	srv := &http.Server{Addr: port, Handler: chanlib.LogMiddleware(mux)}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)

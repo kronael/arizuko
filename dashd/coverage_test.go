@@ -478,29 +478,6 @@ func TestNullStr(t *testing.T) {
 	}
 }
 
-// --- loggingMiddleware ---
-
-func TestLoggingMiddleware(t *testing.T) {
-	called := false
-	h := loggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(418)
-		w.Write([]byte("ok"))
-	}))
-	req := httptest.NewRequest("GET", "/x", nil)
-	req.Header.Set("X-User-Sub", "user@example.com")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	if !called {
-		t.Fatal("handler not called")
-	}
-	if w.Code != 418 {
-		t.Errorf("code = %d, want 418", w.Code)
-	}
-	if w.Body.String() != "ok" {
-		t.Errorf("body = %q", w.Body.String())
-	}
-}
 
 // --- auth header pass-through: dashd trusts X-User-Sub from proxyd,
 // but does not gate on it. Ensure handlers process requests with it set. ---

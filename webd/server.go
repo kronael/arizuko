@@ -1,9 +1,7 @@
 package main
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -12,8 +10,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
+	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/store"
 )
@@ -80,7 +78,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /x/groups", s.requireUser(s.handleXGroups))
 	mux.HandleFunc("GET /x/groups/{rest...}", s.requireUser(s.routeXGroups))
 
-	return loggingMiddleware(mux)
+	return chanlib.LogMiddleware(mux)
 }
 
 // loadHMACSecret returns the proxyd-shared secret. If unset, a random
@@ -97,39 +95,13 @@ func loadHMACSecret() string {
 	return ""
 }
 
-func hmacVerify(secret, msg, sig string) bool {
-	if secret == "" || sig == "" {
-		return false
-	}
-	h := hmac.New(sha256.New, []byte(secret))
-	h.Write([]byte(msg))
-	return hmac.Equal([]byte(hex.EncodeToString(h.Sum(nil))), []byte(sig))
-}
-
-func verifyUserSig(secret string, r *http.Request) bool {
-	sub := r.Header.Get("X-User-Sub")
-	if sub == "" {
-		return false
-	}
-	msg := "user:" + sub + "|" + r.Header.Get("X-User-Name") + "|" + r.Header.Get("X-User-Groups")
-	return hmacVerify(secret, msg, r.Header.Get("X-User-Sig"))
-}
-
-func verifySlinkSig(secret string, r *http.Request) bool {
-	token := r.Header.Get("X-Slink-Token")
-	folder := r.Header.Get("X-Folder")
-	if token == "" || folder == "" {
-		return false
-	}
-	return hmacVerify(secret, "slink:"+token+"|"+folder, r.Header.Get("X-Slink-Sig"))
-}
 
 // requireUser checks that X-User-Sub is present AND signed by proxyd.
 // Without the signature check, a misconfigured compose (no proxyd in
 // front) would let any client forge identity headers.
 func (s *server) requireUser(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !verifyUserSig(s.cfg.hmacSecret, r) {
+		if !auth.VerifyUserSig(s.cfg.hmacSecret, r) {
 			attemptedSub := r.Header.Get("X-User-Sub")
 			slog.Warn("user sig verify failed", "path", r.URL.Path,
 				"attempted_sub", attemptedSub,
@@ -228,34 +200,6 @@ func userName(r *http.Request) string { return r.Header.Get("X-User-Name") }
 
 func folderParam(r *http.Request) string {
 	return strings.TrimPrefix(r.PathValue("folder"), "/")
-}
-
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		sw := &statusWriter{ResponseWriter: w, code: 200}
-		next.ServeHTTP(sw, r)
-		slog.Info("request", "method", r.Method, "path", r.URL.Path,
-			"status", sw.code, "dur", time.Since(start).String(),
-			"sub", r.Header.Get("X-User-Sub"))
-	})
-}
-
-type statusWriter struct {
-	http.ResponseWriter
-	code int
-}
-
-func (sw *statusWriter) WriteHeader(code int) {
-	sw.code = code
-	sw.ResponseWriter.WriteHeader(code)
-}
-
-// Flush passes SSE flushes through the logging middleware wrapper.
-func (sw *statusWriter) Flush() {
-	if f, ok := sw.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {

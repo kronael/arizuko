@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/core"
 )
@@ -180,7 +181,7 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 
 	// Authed identity only when signed by proxyd; else anon from trusted IP.
 	sender, senderName := "", ""
-	if verifyUserSig(s.cfg.hmacSecret, r) {
+	if auth.VerifyUserSig(s.cfg.hmacSecret, r) {
 		sender = userSub(r)
 		senderName = userName(r)
 	}
@@ -309,8 +310,8 @@ func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	okSlink := verifySlinkSig(s.cfg.hmacSecret, r) && r.Header.Get("X-Folder") == folder
-	okUser := verifyUserSig(s.cfg.hmacSecret, r) && userAllowedFolder(userGroups(r), folder)
+	okSlink := auth.VerifySlinkSig(s.cfg.hmacSecret, r) && r.Header.Get("X-Folder") == folder
+	okUser := auth.VerifyUserSig(s.cfg.hmacSecret, r) && userAllowedFolder(userGroups(r), folder)
 	if !okSlink && !okUser {
 		slog.Warn("slink stream forbidden", "folder", folder,
 			"sub", r.Header.Get("X-User-Sub"),

@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/onvos/arizuko/auth"
 )
 
 // splitFolderSuffix extracts folder + suffix from a /api|x/groups path rest,
@@ -202,13 +204,13 @@ func TestStaticFiles(t *testing.T) {
 
 // hmacVerify: empty secret or empty sig fails; good sig passes.
 func TestHMACVerify(t *testing.T) {
-	if hmacVerify("", "msg", "sig") {
+	if auth.VerifyHMAC("", "msg", "sig") {
 		t.Error("empty secret should fail")
 	}
-	if hmacVerify("sec", "msg", "") {
+	if auth.VerifyHMAC("sec", "msg", "") {
 		t.Error("empty sig should fail")
 	}
-	if !hmacVerify(testHMACSecret, "x",
+	if !auth.VerifyHMAC(testHMACSecret, "x",
 		computeSig(t, testHMACSecret, "x")) {
 		t.Error("valid sig should pass")
 	}
@@ -221,12 +223,12 @@ func TestVerifySlinkSig(t *testing.T) {
 	for k, v := range h {
 		req.Header.Set(k, v)
 	}
-	if !verifySlinkSig(testHMACSecret, req) {
+	if !auth.VerifySlinkSig(testHMACSecret, req) {
 		t.Error("signed slink should verify")
 	}
 	// Missing folder → fail.
 	req.Header.Del("X-Folder")
-	if verifySlinkSig(testHMACSecret, req) {
+	if auth.VerifySlinkSig(testHMACSecret, req) {
 		t.Error("missing folder should fail")
 	}
 }
