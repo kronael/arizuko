@@ -261,20 +261,34 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	chanlib.WriteJSON(w, map[string]any{"ok": true})
 }
 
+type channelDTO struct {
+	Name         string          `json:"name"`
+	URL          string          `json:"url"`
+	JIDPrefixes  []string        `json:"jid_prefixes"`
+	Capabilities map[string]bool `json:"capabilities"`
+	HealthFails  int             `json:"health_fails"`
+	RegisteredAt int64           `json:"registered_at"`
+}
+
+type listChannelsResp struct {
+	OK       bool         `json:"ok"`
+	Channels []channelDTO `json:"channels"`
+}
+
 func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 	entries := s.reg.All()
-	out := make([]map[string]any, 0, len(entries))
+	out := make([]channelDTO, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, map[string]any{
-			"name":         e.Name,
-			"url":          e.URL,
-			"jid_prefixes": e.JIDPrefixes,
-			"capabilities": e.Capabilities,
-			"health_fails": e.HealthFails,
-			"registered_at": e.RegisteredAt.Unix(),
+		out = append(out, channelDTO{
+			Name:         e.Name,
+			URL:          e.URL,
+			JIDPrefixes:  e.JIDPrefixes,
+			Capabilities: e.Capabilities,
+			HealthFails:  e.HealthFails,
+			RegisteredAt: e.RegisteredAt.Unix(),
 		})
 	}
-	chanlib.WriteJSON(w, map[string]any{"ok": true, "channels": out})
+	chanlib.WriteJSON(w, listChannelsResp{OK: true, Channels: out})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {

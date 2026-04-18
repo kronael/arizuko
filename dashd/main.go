@@ -170,6 +170,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><htm
 <div class="page-wide">` + dashNav + `
 <h1>arizuko</h1>
 <p style="color:var(--dim);margin-bottom:1em">operator dashboard</p>
+{{if .Err}}<p class="banner-err">portal: {{.Err}}</p>{{end}}
 <div class="tiles">
 <a class="tile" href="/dash/status/"><h2>status<span class="dot {{.StatusDot}}"></span></h2><p>service health</p></a>
 <a class="tile" href="/dash/tasks/"><h2>tasks<span class="dot {{.TasksDot}}"></span></h2><p>scheduled jobs</p></a>
@@ -186,6 +187,7 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var chanCount, erroredCount, failedTasks int
+	var scanErrs []string
 	for _, q := range []struct {
 		sql string
 		dst *int
@@ -196,10 +198,14 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	} {
 		if err := d.db.QueryRow(q.sql).Scan(q.dst); err != nil {
 			slog.Warn("portal: scan", "sql", q.sql, "err", err)
+			scanErrs = append(scanErrs, err.Error())
 		}
 	}
 
 	statusDot := "ok"
+	if len(scanErrs) > 0 {
+		statusDot = "err"
+	}
 	if chanCount == 0 {
 		statusDot = "err"
 	} else if erroredCount > 0 {
@@ -214,11 +220,16 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	errMsg := ""
+	if len(scanErrs) > 0 {
+		errMsg = strings.Join(scanErrs, "; ")
+	}
 	if err := portalTmpl.Execute(w, struct {
 		Head      template.HTML
 		StatusDot string
 		TasksDot  string
-	}{template.HTML(dashHead("arizuko")), statusDot, tasksDot}); err != nil {
+		Err       string
+	}{template.HTML(dashHead("arizuko")), statusDot, tasksDot, errMsg}); err != nil {
 		slog.Warn("portal: template execute", "err", err)
 	}
 }
@@ -444,6 +455,8 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 		folder, folder+"/%")
 	if err != nil {
 		slog.Warn("groups: routes query", "err", err, "folder", folder)
+		fmt.Fprintf(w, `<p class="banner-err">routes error: %s</p>`,
+			template.HTMLEscapeString(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -482,7 +495,11 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 	pageTop(w, "Memory")
 
 	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
-	if err == nil {
+	if err != nil {
+		slog.Warn("memory: groups query", "err", err)
+		fmt.Fprintf(w, `<p class="banner-err">groups query error: %s</p>`,
+			template.HTMLEscapeString(err.Error()))
+	} else {
 		defer rows.Close()
 		fmt.Fprint(w, `<form method="get">
 <select name="group" onchange="this.form.submit()">
@@ -507,8 +524,6 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("memory: rows", "err", err)
 		}
 		fmt.Fprint(w, `</select></form>`)
-	} else {
-		slog.Warn("memory: query groups", "err", err)
 	}
 
 	if selectedGroup != "" {

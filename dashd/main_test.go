@@ -399,10 +399,14 @@ func TestHandlePortalDBError(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != 200 {
-		t.Errorf("status = %d (portal swallows DB errors silently)", w.Code)
+		t.Errorf("status = %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "arizuko") {
-		t.Errorf("portal did not render despite DB errors: %q", w.Body.String())
+	body := w.Body.String()
+	if !strings.Contains(body, "arizuko") {
+		t.Errorf("portal did not render despite DB errors: %q", body)
+	}
+	if !strings.Contains(body, "banner-err") {
+		t.Errorf("portal did not surface DB error banner: %q", body)
 	}
 }
 
@@ -475,8 +479,8 @@ func TestHandleGroupsDBError(t *testing.T) {
 	}
 }
 
-// handleMemory swallows DB errors from the group-list query: the dropdown
-// simply doesn't render. Current behavior, locked in.
+// handleMemory surfaces DB errors from the group-list query as an inline
+// banner, and omits the dropdown.
 func TestHandleMemoryDBError(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
@@ -491,11 +495,14 @@ func TestHandleMemoryDBError(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != 200 {
-		t.Errorf("status = %d (handleMemory swallows DB errors)", w.Code)
+		t.Errorf("status = %d", w.Code)
 	}
 	body := w.Body.String()
 	if strings.Contains(body, "<select") {
 		t.Errorf("dropdown rendered despite DB error: %q", body)
+	}
+	if !strings.Contains(body, "banner-err") {
+		t.Errorf("memory did not surface DB error banner: %q", body)
 	}
 }
 

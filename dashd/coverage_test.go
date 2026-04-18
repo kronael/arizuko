@@ -279,9 +279,13 @@ func TestWriteGroupRoutesQueryError(t *testing.T) {
 	defer db.Close()
 	d := &dash{db: db}
 	w := httptest.NewRecorder()
-	d.writeGroupRoutes(w, "g1") // must not panic; warning logged, no output
-	if strings.Contains(w.Body.String(), "<table>") {
-		t.Errorf("unexpected table on query error: %s", w.Body.String())
+	d.writeGroupRoutes(w, "g1") // must not panic; renders inline error banner
+	body := w.Body.String()
+	if strings.Contains(body, "<table>") {
+		t.Errorf("unexpected table on query error: %s", body)
+	}
+	if !strings.Contains(body, "banner-err") {
+		t.Errorf("writeGroupRoutes did not surface DB error: %s", body)
 	}
 }
 

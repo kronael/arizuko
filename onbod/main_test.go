@@ -643,7 +643,10 @@ func TestAdmitFromQueue(t *testing.T) {
 
 func TestAdmitFromQueueRespectsDaily(t *testing.T) {
 	db := testDB(t)
-	today := "2026-04-17"
+	// Use the real clock's "today" — admitFromQueue uses time.Now() to scope
+	// the per-day counter, so hardcoding a calendar date regresses the moment
+	// the suite runs past that day.
+	today := time.Now().UTC().Format("2006-01-02")
 	// 1 already admitted today
 	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
 		VALUES ('t:0', 'approved', 'github:org=co', ?, 'github:z', '2026-01-01')`,

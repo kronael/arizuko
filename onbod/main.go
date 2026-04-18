@@ -990,7 +990,7 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 // matchRe bounds allowed match patterns: ASCII printable, no spaces/wildcards.
 // Operators (folders == nil) bypass this. Prevents cross-tenant interception
 // via wildcards or whitespace-smuggling patterns that confuse the matcher.
-var matchRe = regexp.MustCompile(`^[A-Za-z0-9_.:=@/-]+$`)
+var matchRe = regexp.MustCompile(`\A[A-Za-z0-9_.:=@/-]+\z`)
 
 // userOwnsMatch reports whether the supplied match pattern references a room
 // (JID suffix) that the user has a linked user_jids row for. Operators
