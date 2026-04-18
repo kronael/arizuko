@@ -151,7 +151,7 @@ const maxRetryAfter = 5 * time.Minute
 func (rc *redditClient) doWithRetry(req *http.Request) (*http.Response, error) {
 	refreshedOn401 := false
 	for attempt := 0; attempt < 3; attempt++ {
-		resp, err := rc.http.Do(req)
+		resp, err := chanlib.DoWithRetry(rc.http, req)
 		if err != nil {
 			return nil, err
 		}

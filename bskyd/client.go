@@ -376,7 +376,7 @@ func (bc *bskyClient) xrpc(method, nsid string, params map[string]string, body, 
 			q.Set(k, v)
 		}
 		req.URL.RawQuery = q.Encode()
-		resp, err := bc.http.Do(req)
+		resp, err := chanlib.DoWithRetry(bc.http, req)
 		if err != nil {
 			return fmt.Errorf("xrpc %s: %w", nsid, err)
 		}
