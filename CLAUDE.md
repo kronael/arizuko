@@ -190,6 +190,22 @@ Red flags: `"error in message loop"`, `"container timeout"`, `"circuit breaker o
 2. `git tag vX.Y.Z`, tag docker images (`arizuko:vX.Y.Z`, `arizuko-ant:vX.Y.Z`)
 3. Add `.diary/YYYYMMDD.md` entry
 
+## Deploy policy
+
+- **krons** is the test/deploy target. Always deploy here first.
+- **sloth** and **marinade** only on explicit user request.
+- Docker requires `sudo`. `make image` / `make agent` will fail without it.
+
+## "Nothing works" checklist
+
+Healthchecks green but the agent doesn't reply — usually one of:
+
+1. **`arizuko-ant` image missing**. Look for `pull access denied for arizuko-ant` in journalctl. Fix: `sudo make -C ant image`.
+2. **Adapter silent**. Check `sudo journalctl -u arizuko_<inst> --since "10 min ago" | grep -viE health`.
+3. **Container exit 125** in gated logs = image/compose mismatch, not a code bug.
+
+Docker log driver is `none` — use `journalctl -u arizuko_<inst>`, not `docker logs`.
+
 ## Migrating from kanipi
 
 See `MIGRATION.md`.

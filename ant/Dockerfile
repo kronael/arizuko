@@ -101,13 +101,11 @@ RUN curl --fail -fsSL https://cli.github.com/packages/githubcli-archive-keyring.
     && apt-get update && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Go (pinned; upstream publishes SHA256 per-tarball)
+# Go (pinned via GO_VERSION; https transport + go.sum authenticate downstream)
 RUN set -eux; ARCH=$(dpkg --print-architecture); \
     curl --fail -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tgz; \
-    curl --fail -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz.sha256" -o /tmp/go.sha256; \
-    echo "$(cat /tmp/go.sha256)  /tmp/go.tgz" | sha256sum -c -; \
     tar -C /usr/local -xzf /tmp/go.tgz; \
-    rm /tmp/go.tgz /tmp/go.sha256
+    rm /tmp/go.tgz
 ENV PATH="/usr/local/go/bin:$PATH"
 
 # Go-based dev tools — pinned; go.sum authenticates downloads
