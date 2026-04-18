@@ -115,7 +115,10 @@ func (g *Gateway) Run(ctx context.Context) error {
 		InjectMessage: g.injectMessage,
 		RegisterGroup: g.registerGroupIPC,
 		SetupGroup: func(folder string) error {
-			return container.SetupGroup(g.cfg, folder, "")
+			if err := container.SetupGroup(g.cfg, folder, ""); err != nil {
+				return err
+			}
+			return g.store.SeedDefaultTasks(folder, "local:"+folder)
 		},
 		GetGroups:           g.store.AllGroups,
 		EnqueueMessageCheck: g.queue.EnqueueMessageCheck,

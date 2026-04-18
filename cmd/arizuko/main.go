@@ -161,19 +161,23 @@ func cmdCreate(args []string) {
 	if err != nil {
 		die("Failed: open db: %v", err)
 	}
-	err = s.PutGroup(core.Group{Name: name, Folder: "main", AddedAt: time.Now()})
-	s.Close()
-	if err != nil {
+	if err := s.PutGroup(core.Group{Name: name, Folder: "main", AddedAt: time.Now()}); err != nil {
+		s.Close()
 		die("Failed: add default group: %v", err)
 	}
 
 	cfg, err := core.LoadConfigFrom(dataDir)
 	if err != nil {
+		s.Close()
 		die("Failed: load config: %v", err)
 	}
 	if err := container.SetupGroup(cfg, "main", ""); err != nil {
 		slog.Warn("failed to setup group dir", "folder", "main", "err", err)
 	}
+	if err := s.SeedDefaultTasks("main", "local:main"); err != nil {
+		slog.Warn("failed to seed default tasks", "folder", "main", "err", err)
+	}
+	s.Close()
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
 }
 
@@ -208,6 +212,9 @@ func cmdGroup(args []string) {
 		}
 		if err := container.SetupGroup(cfg, folder, ""); err != nil {
 			die("Failed: setup group dir: %v", err)
+		}
+		if err := s.SeedDefaultTasks(folder, "local:"+folder); err != nil {
+			slog.Warn("failed to seed default tasks", "folder", folder, "err", err)
 		}
 
 		if err := s.PutGroup(core.Group{Name: name, Folder: folder, AddedAt: time.Now()}); err != nil {

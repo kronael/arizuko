@@ -1,5 +1,8 @@
 # 055 — seed bookkeeping cron tasks for all groups
 
+Legacy-only: new groups are seeded at creation by `store.SeedDefaultTasks`.
+This migration fills the gap for groups created before that seeding existed.
+
 Groups created outside `onbod /approve` (CLI, IPC, manual SQL) lack the
 5 compact-memories scheduled tasks. Seed them for each group returned
 by `refresh_groups`:

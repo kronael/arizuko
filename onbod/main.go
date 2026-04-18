@@ -26,6 +26,7 @@ import (
 	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/store"
 	"github.com/onvos/arizuko/theme"
 	_ "modernc.org/sqlite"
 )
@@ -469,6 +470,9 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
 		return
 	}
+	if err := store.New(db).SeedDefaultTasks(folder, "local:"+folder); err != nil {
+		slog.Warn("create world: seed default tasks", "folder", folder, "err", err)
+	}
 
 	now := time.Now().Format(time.RFC3339)
 	db.Exec(`INSERT OR IGNORE INTO groups (folder, name, parent, added_at) VALUES (?, ?, NULL, ?)`,
@@ -864,26 +868,6 @@ func sendReply(cfg config, jid, text string) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		slog.Warn("send reply non-2xx", "jid", jid, "status", resp.StatusCode)
 	}
-}
-
-var defaultTasks = [][2]string{
-	{"/compact-memories episodes day", "0 2 * * *"},
-	{"/compact-memories episodes week", "0 3 * * 1"},
-	{"/compact-memories episodes month", "0 4 1 * *"},
-	{"/compact-memories diary week", "0 3 * * 1"},
-	{"/compact-memories diary month", "0 4 1 * *"},
-}
-
-func seedDefaultTasksTx(tx *sql.Tx, folder, chatJID string) {
-	now := time.Now().Format(time.RFC3339)
-	for i, t := range defaultTasks {
-		id := fmt.Sprintf("%s-mem-%d", folder, i)
-		tx.Exec(`INSERT OR IGNORE INTO scheduled_tasks
-			(id,owner,chat_jid,prompt,cron,next_run,status,created_at,context_mode)
-			VALUES (?,?,?,?,?,?,?,?,?)`,
-			id, folder, chatJID, t[0], t[1], now, "active", now, "isolated")
-	}
-	slog.Info("seeded default tasks", "folder", folder)
 }
 
 // userFolders returns the folders the user has access to.

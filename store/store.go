@@ -66,3 +66,10 @@ func (s *Store) Close() error {
 func Migrate(db *sql.DB) error {
 	return db_utils.Migrate(db, migrationFS, "migrations", serviceName)
 }
+
+// New wraps an already-open *sql.DB as a *Store. Caller owns the db lifetime
+// and must have run migrations. For callers that hold a raw handle and need
+// a few typed methods.
+func New(db *sql.DB) *Store {
+	return &Store{db: db}
+}

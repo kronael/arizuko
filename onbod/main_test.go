@@ -1156,51 +1156,6 @@ func TestAddRouteWrongTarget(t *testing.T) {
 
 // --- Expanded coverage: schema, permissions, XSS, operator, flow ---
 
-// seedDefaultTasksTx writes 5 canonical memory-compaction tasks.
-func TestSeedDefaultTasks(t *testing.T) {
-	db := migratedDB(t)
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedDefaultTasksTx(tx, "alice", "telegram:42")
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM scheduled_tasks WHERE owner = ?`, "alice").Scan(&n)
-	if n != len(defaultTasks) {
-		t.Errorf("want %d tasks, got %d", len(defaultTasks), n)
-	}
-
-	// Verify chat_jid and status are set correctly on each task.
-	rows, _ := db.Query(`SELECT chat_jid, status, context_mode FROM scheduled_tasks WHERE owner = ?`, "alice")
-	defer rows.Close()
-	for rows.Next() {
-		var jid, status, mode string
-		rows.Scan(&jid, &status, &mode)
-		if jid != "telegram:42" {
-			t.Errorf("want chat_jid=telegram:42, got %q", jid)
-		}
-		if status != "active" {
-			t.Errorf("want status=active, got %q", status)
-		}
-		if mode != "isolated" {
-			t.Errorf("want context_mode=isolated, got %q", mode)
-		}
-	}
-
-	// Idempotent: second call should not duplicate (INSERT OR IGNORE on id).
-	tx2, _ := db.Begin()
-	seedDefaultTasksTx(tx2, "alice", "telegram:42")
-	tx2.Commit()
-	db.QueryRow(`SELECT COUNT(*) FROM scheduled_tasks WHERE owner = ?`, "alice").Scan(&n)
-	if n != len(defaultTasks) {
-		t.Errorf("after re-seed, want %d tasks, got %d", len(defaultTasks), n)
-	}
-}
-
 // userRoutes returns routes filtered by user's folders (or all if nil=operator bypass).
 func TestUserRoutesFilter(t *testing.T) {
 	db := testDB(t)

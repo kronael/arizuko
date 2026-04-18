@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,6 +93,36 @@ func (s *Store) CountActiveTasks() int {
 	var n int
 	s.db.QueryRow(`SELECT COUNT(*) FROM scheduled_tasks WHERE status = ?`, core.TaskActive).Scan(&n)
 	return n
+}
+
+// defaultTasks are the 5 canonical memory-compaction cron tasks every new
+// group gets. Keep in sync with ant migration 055 which backfills legacy groups.
+var defaultTasks = [...]struct{ prompt, cron string }{
+	{"/compact-memories episodes day", "0 2 * * *"},
+	{"/compact-memories episodes week", "0 3 * * 1"},
+	{"/compact-memories episodes month", "0 4 1 * *"},
+	{"/compact-memories diary week", "0 3 * * 1"},
+	{"/compact-memories diary month", "0 4 1 * *"},
+}
+
+// SeedDefaultTasks inserts the 5 canonical compact-memories cron tasks for a
+// new group. Idempotent (INSERT OR IGNORE on stable IDs `<folder>-mem-N`).
+// New groups inherit MIGRATION_VERSION=latest at creation and therefore skip
+// ant migration 055, which seeds the same tasks for pre-055 legacy groups.
+func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
+	now := time.Now().Format(time.RFC3339)
+	for i, t := range defaultTasks {
+		id := folder + "-mem-" + strconv.Itoa(i)
+		_, err := s.db.Exec(
+			`INSERT OR IGNORE INTO scheduled_tasks
+			 (id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, folder, chatJID, t.prompt, t.cron, now, core.TaskActive, now, "isolated")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func scanTask(r rowScanner) (core.Task, bool) {
