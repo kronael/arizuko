@@ -699,7 +699,7 @@ func TestEnrichAttachments_MediaDisabled(t *testing.T) {
 		Content:     "[Photo]",
 		Attachments: `[{"mime":"image/jpeg","filename":"photo.jpg","url":"http://teled:9001/files/abc","size":1024}]`,
 	}
-	gw.enrichAttachments(&msg, "grp")
+	gw.enrichAttachments(context.Background(), &msg, "grp")
 
 	if msg.Content != "[Photo]" {
 		t.Errorf("content changed when MediaEnabled=false: %q", msg.Content)
@@ -734,7 +734,7 @@ func TestEnrichAttachments_DownloadsFile(t *testing.T) {
 	}
 	s.PutMessage(msg)
 
-	gw.enrichAttachments(&msg, "grp")
+	gw.enrichAttachments(context.Background(), &msg, "grp")
 
 	if !strings.Contains(msg.Content, "<attachment") {
 		t.Errorf("enriched content should contain attachment XML, got %q", msg.Content)
@@ -769,7 +769,7 @@ func TestEnrichAttachments_SkipsEmptyURL(t *testing.T) {
 	}
 	s.PutMessage(msg)
 
-	gw.enrichAttachments(&msg, "grp2")
+	gw.enrichAttachments(context.Background(), &msg, "grp2")
 
 	if strings.Contains(msg.Content, "<attachment") {
 		t.Error("should not add attachment XML when URL is empty")
@@ -1235,7 +1235,7 @@ func TestEnrichAttachments_VoiceTranscription(t *testing.T) {
 	}
 	s.PutMessage(msg)
 
-	gw.enrichAttachments(&msg, "grp")
+	gw.enrichAttachments(context.Background(), &msg, "grp")
 
 	if gotContentType != "audio/ogg" {
 		t.Errorf("whisper Content-Type = %q, want %q", gotContentType, "audio/ogg")
@@ -1269,7 +1269,7 @@ func TestEnrichAttachments_VoiceDisabled(t *testing.T) {
 	}
 	s.PutMessage(msg)
 
-	gw.enrichAttachments(&msg, "grp")
+	gw.enrichAttachments(context.Background(), &msg, "grp")
 
 	if strings.Contains(msg.Content, "transcript") {
 		t.Errorf("expected no transcript when VoiceEnabled=false, got %q", msg.Content)
@@ -1296,7 +1296,7 @@ func TestEnrichAttachments_Base64Decode(t *testing.T) {
 	}
 	s.PutMessage(msg)
 
-	gw.enrichAttachments(&msg, "grp")
+	gw.enrichAttachments(context.Background(), &msg, "grp")
 
 	if !strings.Contains(msg.Content, "<attachment") {
 		t.Errorf("expected attachment XML for base64 data, got %q", msg.Content)
@@ -1321,7 +1321,7 @@ func TestWhisperTranscribe_MultiLanguage(t *testing.T) {
 	f := filepath.Join(dir, "audio.ogg")
 	os.WriteFile(f, []byte("fake"), 0o644)
 
-	got := whisperTranscribe(srv.URL, "turbo", f, "audio/ogg", []string{"en", "es"})
+	got := whisperTranscribe(context.Background(), srv.URL, "turbo", f, "audio/ogg", []string{"en", "es"})
 	if !strings.Contains(got, "transcript-en") {
 		t.Errorf("missing en transcript, got %q", got)
 	}
@@ -1344,7 +1344,7 @@ func TestWhisperTranscribe_ServerError(t *testing.T) {
 	f := filepath.Join(dir, "audio.ogg")
 	os.WriteFile(f, []byte("fake"), 0o644)
 
-	got := whisperTranscribe(srv.URL, "turbo", f, "audio/ogg", nil)
+	got := whisperTranscribe(context.Background(), srv.URL, "turbo", f, "audio/ogg", nil)
 	if got != "" {
 		t.Errorf("expected empty on server error, got %q", got)
 	}

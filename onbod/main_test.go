@@ -1355,15 +1355,13 @@ func TestNonOperatorNoGrantsDenied(t *testing.T) {
 
 	var id int64
 	db.QueryRow(`SELECT id FROM routes WHERE target = 'someroom'`).Scan(&id)
-	// bob has no user_groups rows → userFolders returns nil → current behavior
-	// treats nil as bypass (legacy). Document the active behavior so any future
-	// tightening triggers this test.
+	// bob has no user_groups rows → userFolders returns nil → denied.
+	// Operator is emergent only from a `**` grant row.
 	w := postOnboard(db, config{}, "bob", url.Values{
 		"action": {"delete_route"}, "route_id": {strconv.FormatInt(id, 10)},
 	})
-	// Legacy: nil folders = bypass. This is logged in bugs.md.
-	if w.Code != http.StatusSeeOther && w.Code != http.StatusForbidden {
-		t.Errorf("unexpected status %d", w.Code)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("want 403, got %d", w.Code)
 	}
 }
 

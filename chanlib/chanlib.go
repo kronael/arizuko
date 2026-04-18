@@ -19,6 +19,11 @@ import (
 // adapters from OOM on a malicious or buggy router.
 const maxRouterResponseBytes = 10 << 20
 
+// UserAgent is the User-Agent value adapter HTTP clients send on
+// outbound requests. Mastodon and Bluesky recommend a custom UA for
+// rate-limit attribution; Reddit requires one.
+const UserAgent = "arizuko/0.29.0 (+https://github.com/onvos/arizuko)"
+
 // MaxAdapterJSONBody caps JSON request bodies for adapter /send, /typing
 // endpoints. Large enough for replies with embedded context, small
 // enough to refuse OOM-style bodies from a compromised router.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,16 @@ import (
 )
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
+
+// tgGet issues an authenticated-style GET with arizuko's User-Agent header.
+func tgGet(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", chanlib.UserAgent)
+	return httpClient.Do(req)
+}
 
 type server struct {
 	cfg config
@@ -55,7 +66,7 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := s.cfg.TelegramToken
-	resp, err := httpClient.Get(fmt.Sprintf(
+	resp, err := tgGet(r.Context(), fmt.Sprintf(
 		"https://api.telegram.org/bot%s/getFile?file_id=%s",
 		url.QueryEscape(token), url.QueryEscape(fileID)))
 	if err != nil || resp.StatusCode != 200 {
@@ -79,7 +90,7 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 	}
 	// Telegram's file_path is a relative path like "photos/file_0.jpg".
 	// URL-escape each segment but preserve slashes.
-	fileResp, err := httpClient.Get(fmt.Sprintf(
+	fileResp, err := tgGet(r.Context(), fmt.Sprintf(
 		"https://api.telegram.org/file/bot%s/%s",
 		url.QueryEscape(token), escapePath(apiResp.Result.FilePath)))
 	if err != nil {

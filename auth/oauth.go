@@ -254,7 +254,7 @@ func exchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string
 	var tok struct {
 		AccessToken string `json:"access_token"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&tok); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&tok); err != nil {
 		return "", err
 	}
 	if tok.AccessToken == "" {
@@ -277,7 +277,7 @@ func fetchGoogleUser(ctx context.Context, token string) (sub, name, email string
 		Email         string `json:"email"`
 		EmailVerified bool   `json:"email_verified"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&u); err != nil {
 		return "", "", "", false, err
 	}
 	return u.Sub, u.Name, u.Email, u.EmailVerified, nil
@@ -451,7 +451,7 @@ func exchangeGitHub(ctx context.Context, cfg *core.Config, code, verifier string
 		AccessToken string `json:"access_token"`
 		Error       string `json:"error"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result)
 	if result.Error != "" {
 		return "", fmt.Errorf("github: %s", result.Error)
 	}
@@ -470,7 +470,7 @@ func fetchGitHubUser(ctx context.Context, token string) (string, string, error) 
 		Login string `json:"login"`
 		Name  string `json:"name"`
 	}
-	json.NewDecoder(resp.Body).Decode(&u)
+	json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&u)
 	name := u.Name
 	if name == "" {
 		name = u.Login
@@ -502,7 +502,7 @@ func exchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier strin
 	var result struct {
 		AccessToken string `json:"access_token"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result)
 	return result.AccessToken, nil
 }
 
@@ -520,7 +520,7 @@ func fetchDiscordUser(ctx context.Context, token string) (string, string, error)
 		Username string `json:"username"`
 		Global   string `json:"global_name"`
 	}
-	json.NewDecoder(resp.Body).Decode(&u)
+	json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&u)
 	name := u.Global
 	if name == "" {
 		name = u.Username

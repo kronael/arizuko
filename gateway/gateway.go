@@ -51,6 +51,10 @@ type Gateway struct {
 	steeredTs map[string]time.Time
 
 	impulse *impulseGate
+
+	// ctx is the gateway's root context set at Run. Used to abort
+	// long-running HTTP calls (media download, whisper) on shutdown.
+	ctx context.Context
 }
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
@@ -87,6 +91,7 @@ func (g *Gateway) RemoveChannel(name string) {
 }
 
 func (g *Gateway) Run(ctx context.Context) error {
+	g.ctx = ctx
 	if err := container.EnsureRunning(); err != nil {
 		return fmt.Errorf("runtime check failed: %w", err)
 	}
@@ -478,8 +483,12 @@ func (g *Gateway) processSenderBatch(
 ) bool {
 	last := msgs[len(msgs)-1]
 
+	ctx := g.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	for i := range msgs {
-		g.enrichAttachments(&msgs[i], group.Folder)
+		g.enrichAttachments(ctx, &msgs[i], group.Folder)
 	}
 
 	// Determine delivery target: forwarded_from overrides chatJid (delegation return path)
@@ -886,7 +895,7 @@ func (g *Gateway) injectMessage(jid, content, sender, senderName string) (string
 	return id, nil
 }
 
-func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
+func (g *Gateway) enrichAttachments(ctx context.Context, msg *core.Message, folder string) {
 	if !g.cfg.MediaEnabled || msg.Attachments == "" {
 		return
 	}
@@ -935,7 +944,7 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 				continue
 			}
 		} else {
-			if err := downloadFile(att.URL, dest, g.cfg.ChannelSecret, g.cfg.MediaMaxBytes); err != nil {
+			if err := downloadFile(ctx, att.URL, dest, g.cfg.ChannelSecret, g.cfg.MediaMaxBytes); err != nil {
 				slog.Warn("enrich: download failed", "url", att.URL, "err", err)
 				continue
 			}
@@ -948,10 +957,10 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 		transcript := ""
 		if g.cfg.VoiceEnabled && g.cfg.WhisperURL != "" {
 			if strings.HasPrefix(att.Mime, "audio/") {
-				transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, dest, att.Mime, langs)
+				transcript = whisperTranscribe(ctx, g.cfg.WhisperURL, g.cfg.WhisperModel, dest, att.Mime, langs)
 			} else if strings.HasPrefix(att.Mime, "video/") {
 				if audioPath := extractVideoAudio(dest); audioPath != "" {
-					transcript = whisperTranscribe(g.cfg.WhisperURL, g.cfg.WhisperModel, audioPath, "audio/mpeg", langs)
+					transcript = whisperTranscribe(ctx, g.cfg.WhisperURL, g.cfg.WhisperModel, audioPath, "audio/mpeg", langs)
 					os.Remove(audioPath)
 				}
 			}
@@ -977,8 +986,8 @@ func (g *Gateway) enrichAttachments(msg *core.Message, folder string) {
 	}
 }
 
-func downloadFile(url, dest, secret string, maxBytes int64) error {
-	req, err := http.NewRequest("GET", url, nil)
+func downloadFile(ctx context.Context, url, dest, secret string, maxBytes int64) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
 	}
@@ -1011,20 +1020,20 @@ func downloadFile(url, dest, secret string, maxBytes int64) error {
 	return cpErr
 }
 
-func whisperTranscribe(baseURL, model, path, mime string, langs []string) string {
+func whisperTranscribe(ctx context.Context, baseURL, model, path, mime string, langs []string) string {
 	if len(langs) == 0 {
 		langs = []string{""}
 	}
 	var results []string
 	for _, lang := range langs {
-		if t := transcribeOnce(baseURL, model, path, lang, mime); t != "" {
+		if t := transcribeOnce(ctx, baseURL, model, path, lang, mime); t != "" {
 			results = append(results, t)
 		}
 	}
 	return strings.Join(results, "\n")
 }
 
-func transcribeOnce(baseURL, model, path, lang, mime string) string {
+func transcribeOnce(ctx context.Context, baseURL, model, path, lang, mime string) string {
 	f, err := os.Open(path)
 	if err != nil {
 		return ""
@@ -1032,7 +1041,7 @@ func transcribeOnce(baseURL, model, path, lang, mime string) string {
 	defer f.Close()
 
 	url := baseURL + "/v1/audio/transcriptions"
-	req, err := http.NewRequest("POST", url, f)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, f)
 	if err != nil {
 		return ""
 	}

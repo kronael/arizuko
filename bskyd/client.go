@@ -110,6 +110,7 @@ func (bc *bskyClient) createSession() error {
 	req, _ := http.NewRequest("POST",
 		bc.cfg.Service+"/xrpc/com.atproto.server.createSession", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", chanlib.UserAgent)
 	resp, err := bc.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("createSession: %w", err)
@@ -132,6 +133,7 @@ func (bc *bskyClient) refreshSession(refreshJwt string) error {
 	req, _ := http.NewRequest("POST",
 		bc.cfg.Service+"/xrpc/com.atproto.server.refreshSession", nil)
 	req.Header.Set("Authorization", "Bearer "+refreshJwt)
+	req.Header.Set("User-Agent", chanlib.UserAgent)
 	resp, err := bc.http.Do(req)
 	if err != nil {
 		return err
@@ -368,6 +370,7 @@ func (bc *bskyClient) xrpc(method, nsid string, params map[string]string, body, 
 		}
 		s := bc.getSession()
 		req.Header.Set("Authorization", "Bearer "+s.AccessJwt)
+		req.Header.Set("User-Agent", chanlib.UserAgent)
 		q := req.URL.Query()
 		for k, v := range params {
 			q.Set(k, v)

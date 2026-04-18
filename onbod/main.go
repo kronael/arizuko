@@ -947,9 +947,6 @@ func userRoutes(db *sql.DB, folders []string) []dashRoute {
 
 
 func folderAllowed(folders []string, target string) bool {
-	if folders == nil {
-		return true // no grants queried (internal caller bypass)
-	}
 	return auth.MatchGroups(folders, target)
 }
 

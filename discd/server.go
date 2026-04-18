@@ -99,7 +99,13 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, 404, "not found")
 		return
 	}
-	resp, err := httpClient.Get(cdnURL)
+	req, err := http.NewRequestWithContext(r.Context(), "GET", cdnURL, nil)
+	if err != nil {
+		chanlib.WriteErr(w, 502, "cdn fetch failed")
+		return
+	}
+	req.Header.Set("User-Agent", chanlib.UserAgent)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		chanlib.WriteErr(w, 502, "cdn fetch failed")
 		return

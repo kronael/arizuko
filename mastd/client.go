@@ -87,6 +87,7 @@ func newMastoClient(cfg config) (*mastoClient, error) {
 		Server:      cfg.InstanceURL,
 		AccessToken: cfg.AccessToken,
 	})
+	c.UserAgent = chanlib.UserAgent
 	me, err := c.GetAccountCurrentUser(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("mastodon auth: %w", err)
