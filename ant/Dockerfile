@@ -17,7 +17,7 @@ ENV YT_DLP_VERSION=2024.12.23 \
     HURL_VERSION=5.0.1 \
     SOPS_VERSION=v3.9.1 \
     GO_VERSION=1.24.1 \
-    UV_VERSION=0.5.11
+    UV_VERSION=0.11.7
 
 # Install system dependencies for Chromium
 RUN apt-get update && apt-get install -y \
