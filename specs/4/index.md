@@ -5,7 +5,7 @@ status: deferred
 # specs/4 — dashboards, memory, products
 
 Mixed bag. Most specs describe shipped core architecture; the rest
-are deferred or superseded by phase 8.
+are deferred.
 
 ## Shipped
 
@@ -38,9 +38,3 @@ are deferred or superseded by phase 8.
 - [G-instance-repos.md](G-instance-repos.md) — instance configs as git repos (`--from`)
 - [e2e-tests.md](e2e-tests.md) — mock-agent-based end-to-end tests
 - [products.md](products.md) — curated persona+skill templates (`ant/products/<name>/`)
-
-## Superseded
-
-- [0-architecture.md](0-architecture.md) → `/ARCHITECTURE.md`
-- [2-agent-routing.md](2-agent-routing.md) → [23-topic-routing.md](23-topic-routing.md) + subgroup delegation
-- [21-onboarding.md](21-onboarding.md) → [8/27-mass-onboarding.md](../8/27-mass-onboarding.md)
