@@ -463,7 +463,7 @@ func TestFetchHistory_Notifications(t *testing.T) {
 			return
 		}
 		if r.Header.Get("Authorization") != "Bearer tok" {
-			http.Error(w, "bad auth", 401)
+			http.Error(w, "bad auth", http.StatusUnauthorized)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

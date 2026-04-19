@@ -225,7 +225,7 @@ func TestNextCronEveryMinute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	diff := next.Sub(time.Now())
+	diff := time.Until(next)
 	if diff > 2*time.Minute || diff < 0 {
 		t.Fatal("every-minute cron should be within 2m, got", diff)
 	}

@@ -388,12 +388,8 @@ func (bc *bskyClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryR
 		if len(result.Feed) == 0 {
 			break
 		}
-		oldestInPage := time.Now()
 		for _, fv := range result.Feed {
 			ts, _ := time.Parse(time.RFC3339, fv.Post.IndexedAt)
-			if ts.Before(oldestInPage) {
-				oldestInPage = ts
-			}
 			if !req.Before.IsZero() && !ts.Before(req.Before) {
 				continue
 			}
@@ -431,10 +427,6 @@ func (bc *bskyClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryR
 			break
 		}
 		cursor = result.Cursor
-		// If oldest post in page is already before Before, nothing older matters.
-		if !req.Before.IsZero() && oldestInPage.Before(req.Before) {
-			// Past the Before window; but we may still need more items. Continue.
-		}
 	}
 	return chanlib.HistoryResponse{Source: "platform", Messages: out}, nil
 }
