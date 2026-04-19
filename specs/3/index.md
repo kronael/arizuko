@@ -17,7 +17,7 @@ status: active
 | [E-memory-session.md](E-memory-session.md)             | shipped   | session switching, 2-day idle expiry, context injection on reset    |
 | [E-message-scoping.md](E-message-scoping.md)           | shipped   | impulse as universal trigger gate, per-route config, DENY access    |
 | [F-memory-facts.md](F-memory-facts.md)                 | deferred  | concept-centric knowledge (depends on atlas)                        |
-| [G-history-backfill.md](G-history-backfill.md)         | unshipped | adapter HWM backfill on startup (WhatsApp excepted)                 |
+| [G-history-backfill.md](G-history-backfill.md)         | shipped   | fetch_history MCP tool across 7 adapters (whapd excepted)           |
 | [H-jid-format.md](H-jid-format.md)                     | shipped   | clock header + message XML attrs + context block                    |
 | [J-container-commands.md](J-container-commands.md)     | shipped   | agent vs raw container paths, `command` column on tasks             |
 | [L-chat-bound-sessions.md](L-chat-bound-sessions.md)   | shipped   | IPC encoding, delivery guarantees, cross-folder parallelism         |

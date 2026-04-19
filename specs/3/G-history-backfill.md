@@ -1,5 +1,5 @@
 ---
-status: deferred
+status: shipped
 ---
 
 # History Fetch (channel-first) + Inspect Tools
