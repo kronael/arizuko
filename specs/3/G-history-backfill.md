@@ -1,54 +1,61 @@
 ---
-status: unshipped
+status: deferred
 ---
 
 # History Backfill
 
-Channel adapters fetch and store messages that arrived while offline.
-On startup, each adapter backfills before entering the live loop.
+Question reopened 2026-04-19: the agent already has `get_history` (see
+`ipc/ipc.go` + `webd/mcp.go`) that reads the **local** message DB.
+Missing piece is only when history predates the local DB — the
+traditional answer is "backfill on startup". Alternative below may be
+better.
 
-## Contract
+## Option A — Startup backfill (traditional)
 
-`POST /v1/messages` (to gated) — same endpoint as live. `timestamp`
-carries original platform timestamp. Adapters deduplicate against their
-own cursor state.
+Each adapter persists a high-water mark (HWM); on startup it fetches
+from platform API `after=HWM`, feeds gateway via normal `POST
+/v1/messages`. Per-platform table kept as reference:
 
-Each adapter persists a high-water mark (HWM). On startup: fetch
-everything after HWM, deliver, update HWM. First run: last 7 days or
-1000 messages (whichever smaller).
+| Platform | Method                                  | Depth            |
+| -------- | --------------------------------------- | ---------------- |
+| Telegram | `getUpdates` offset resume              | 24h (API limit)  |
+| Discord  | `GET /channels/{id}/messages?after=HWM` | unlimited        |
+| Reddit   | listing pagination with `after`         | ~1000 items      |
+| Bluesky  | cursor-based `listNotifications`        | no known cap     |
+| Mastodon | `/notifications?since_id=`              | server-dependent |
+| Email    | `SEARCH SINCE <date>`                   | unlimited        |
+| WhatsApp | Baileys sync unreliable — exception     | —                |
 
-## Per-platform
+Cost: per-adapter state files, dedup logic, 6 different API shapes.
 
-| Platform | Backfill | Method                                  | Depth            | HWM                  |
-| -------- | -------- | --------------------------------------- | ---------------- | -------------------- |
-| Telegram | Yes      | `getUpdates` offset resume              | 24h (API limit)  | offset file (exists) |
-| Discord  | Yes      | `GET /channels/{id}/messages?after=HWM` | unlimited        | state file           |
-| WhatsApp | No       | Baileys sync unreliable — exception     | —                | —                    |
-| Reddit   | Yes      | listing pagination with `after`         | ~1000 items      | state file           |
-| Bluesky  | Yes      | cursor-based `listNotifications`        | no known cap     | state file           |
-| Mastodon | Yes      | `/notifications?since_id=`              | server-dependent | state file           |
-| Email    | Yes      | `SEARCH SINCE <date>`                   | unlimited        | IMAP seen flag       |
+## Option B — Agent pulls from backend on demand
 
-Discord needs `VIEW_CHANNEL` + `READ_MESSAGE_HISTORY`. Reddit rate
-limit 100 req/min. Mastodon max 80/page, filter `type=mention`. Email
-already works via `SEARCH UNSEEN`.
+Don't backfill. Keep the local DB as a cache of the live stream only.
+Expose a new MCP tool `fetch_platform_history(jid, before, limit)`
+per adapter; the agent calls it when `get_history` from local DB runs
+dry. Adapter hits platform API at call time, writes results to local
+DB (so next call is cached), returns them.
 
-## HWM state file
+Tradeoffs vs A:
 
-```
-/srv/data/arizuko_<instance>/<adapter>-hwm-<name>
-```
+- **No startup loop** — instances restart fast.
+- **No blind backfill** — platform API only hit when an agent actually
+  asks. Cheaper per month.
+- **Slower first query** per platform per chat, then cached.
+- **Requires one new MCP tool per adapter** — mostly thin wrappers.
+- **Storage bounded** — the local DB trims old rows on a schedule, since
+  the agent can always re-pull from backend when it wants them.
 
-Single line, platform-specific cursor. Read on startup, written after
-each successful batch. Telegram already uses `teled-offset-<name>`.
+Option B feels more in line with "agent is the reasoning layer; let
+it decide what history to load." Option A is a batch-era solution.
 
-## Ordering & dedup
+## Decision
 
-Backfilled messages delivered oldest-first; `messageLoop` processes in
-timestamp order. Adapters set platform message ID as `id`; store uses
-`INSERT OR IGNORE` so duplicates drop silently.
+Deferred. Probably go with B but need to prove the pattern on one
+adapter (Discord — has clean API, no auth-refresh gotchas) before
+templating. No code change until then.
 
-## Media
+## Non-goals
 
-Same pipeline as live — adapter sends URL/data, gateway enricher
-downloads to `groups/<folder>/media/<YYYYMMDD>/`.
+- Media re-download on backfill (use existing media enricher).
+- Cross-platform history merge. One JID, one platform.

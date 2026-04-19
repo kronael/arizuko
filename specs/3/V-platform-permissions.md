@@ -1,5 +1,5 @@
 ---
-status: unshipped
+status: deferred
 ---
 
 # Platform Permissions

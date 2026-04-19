@@ -44,25 +44,45 @@ CREATE TABLE announcements (
 
 (Bootstrap migration creates this table first.)
 
-## Delivery
+## Delivery — root dispatches, per-jid once
 
-`gated` on startup drains announcements not yet fanned out:
+Root agent (the `root` group) owns fanout. It has the `arizuko` binary
+CLI and the authority to speak on each channel's behalf. On startup,
+`gated` inserts a single message into the `root` group describing which
+migrations have pending announcements; the root agent reads the `.md`
+bodies and dispatches via its normal outbound MCP tools (`send_message`
+per jid).
 
-1. Select rows without matching `announcement_sent(service, version, group_folder)`.
-2. For each active group, insert outbound row into `messages` via the
-   bot-message path. Router picks up; adapter ships.
-3. Record `(service, version, group_folder)` in `announcement_sent`
-   inside the same tx.
+The `announcement_sent(service, version, user_jid)` ledger keys by **jid**,
+not by group. Each jid that arizuko talks to gets each announcement
+exactly once, regardless of how many groups share that jid.
 
-Groups added after migration still get the announcement first time
-`gated` starts with them active — idempotent per `(version, folder)`,
-not per-run.
+```sql
+CREATE TABLE announcement_sent (
+  service   TEXT NOT NULL,
+  version   INTEGER NOT NULL,
+  user_jid  TEXT NOT NULL,
+  sent_at   TEXT NOT NULL,
+  PRIMARY KEY (service, version, user_jid)
+);
+```
 
-## Targeting
+Root runs the fanout loop itself: select pending announcements, iterate
+over all known jids, skip those already in `announcement_sent`,
+`send_message`, write ledger row. Inner (non-root) groups are **not**
+involved in sending — they just get notified that their underlying
+arizuko instance changed.
 
-Default: every active group. Migration touches shared schema, so every
-group is potentially affected. Opt-out (`groups.announce_mute`) is a
-future extension.
+## Targeting inner groups
+
+Simplest: root notifies inner agents too, via a short `system_message`
+insertion into each active group's message stream (origin=`migration`,
+one line per upgrade). Inner agent reads on next turn, reacts however
+it wants (re-read skills, note in diary). This keeps the migration
+flow one-directional: root dispatches, everyone else receives.
+
+Deferred to inner agents to migrate themselves: no. Root does it
+completely for now.
 
 ## Failure modes
 
@@ -75,8 +95,12 @@ future extension.
 
 - `db_utils/db_utils.go` — write `announcements` row after tx commit
   if paired `.md` is present
-- `gated/main.go` or `gateway/gateway.go` startup — drain into messages
+- `gated/main.go` — on startup, insert one system message into the
+  root group listing pending announcements
+- Root agent's CLAUDE.md / a skill — handles dispatch via `send_message`
+  - writes to `announcement_sent`
 - `store/migrations/NNNN-announcements.sql` — create tables
+  (`announcements` + `announcement_sent` keyed by jid)
 - `store/migrations/NNNN-<feature>.md` — per release
 
 ## Out of scope

@@ -7,6 +7,23 @@ status: partial
 Outbound actions for social platforms. Entries in the action registry,
 exposed as MCP tools. Gateway resolves platform from JID prefix.
 
+## Direction (2026-04-19)
+
+Target: **complete and perfect** per-platform. Partial is not good
+enough — an agent that can't `react` on Discord but can on Mastodon is
+a confusing surface. Ship per-platform, full coverage per platform.
+
+Arch note: the outbound-social layer should be **separable from
+arizuko**. Today each adapter is an arizuko daemon; the cleaner shape
+is a "social-out" library + binary that arizuko embeds but that could
+also be used standalone by other projects. Treat this spec as a
+precursor to that split — design tool names and manifest shapes to be
+kind-agnostic, not arizuko-coupled.
+
+Implication: when implementing, factor adapter outbound code into a
+package that has no arizuko-specific types in its public surface. The
+adapter daemon becomes a thin arizuko adapter over that package.
+
 ## Shipped actions
 
 | Action  | How                                                    |

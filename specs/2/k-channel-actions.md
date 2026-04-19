@@ -1,5 +1,5 @@
 ---
-status: unshipped
+status: deferred
 ---
 
 # Channel Actions — Dynamic Registration and Filtered Manifest

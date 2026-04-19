@@ -10,7 +10,7 @@ status: active
 | [1-atlas.md](1-atlas.md)                               | partial   | facts shipped; escalation response protocol wiring open             |
 | [3-support.md](3-support.md)                           | unshipped | code-researcher product config                                      |
 | [5-permissions.md](5-permissions.md)                   | shipped   | four-tier model, mount enforcement, action authorization            |
-| [6-session-recovery.md](6-session-recovery.md)         | partial   | recovery notes written; injection-on-next-session open              |
+| [6-session-recovery.md](6-session-recovery.md)         | shipped   | handled via diary + recall-messages skill                           |
 | [7-user-context.md](7-user-context.md)                 | shipped   | per-user memory files, gateway injects identity tag                 |
 | [8-web-virtual-hosts.md](8-web-virtual-hosts.md)       | shipped   | one DNS hostname per world, `web_host` column                       |
 | [B-memory-episodic.md](B-memory-episodic.md)           | deferred  | time-hierarchy diary aggregation (v2)                               |
