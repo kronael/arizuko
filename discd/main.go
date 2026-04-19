@@ -30,7 +30,7 @@ func main() {
 			// soon as Open returns; deferring this creates a race where an
 			// inbound message with attachments dereferences nil b.files.
 			srv := newServer(cfg, b)
-			b.files = &srv.files
+			b.files = srv.files
 			if err := b.start(rc); err != nil {
 				slog.Error("discord connect failed", "err", err)
 				return nil, nil, err

@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,7 +31,7 @@ type redditClient struct {
 	expiresAt time.Time
 	cursors   map[string]string
 	skipFirst map[string]bool
-	files     *fileCache
+	files     *chanlib.URLCache
 }
 
 func newRedditClient(cfg config) (*redditClient, error) {
@@ -42,7 +40,7 @@ func newRedditClient(cfg config) (*redditClient, error) {
 		http:      &http.Client{Timeout: 15 * time.Second},
 		cursors:   map[string]string{},
 		skipFirst: map[string]bool{},
-		files:     newFileCache(1000),
+		files:     chanlib.NewURLCache(1000),
 	}
 	if err := rc.refreshToken(); err != nil {
 		return nil, err
@@ -512,39 +510,4 @@ func extFromRedditMime(m string) string {
 		return ".webp"
 	}
 	return ".jpg"
-}
-
-type fileCache struct {
-	mu      sync.Mutex
-	ids     map[string]string
-	order   []string
-	maxSize int
-}
-
-func newFileCache(max int) *fileCache {
-	return &fileCache{ids: map[string]string{}, maxSize: max}
-}
-
-func (fc *fileCache) Put(rawURL string) string {
-	h := sha256.Sum256([]byte(rawURL))
-	id := hex.EncodeToString(h[:8])
-	fc.mu.Lock()
-	defer fc.mu.Unlock()
-	if _, ok := fc.ids[id]; !ok {
-		fc.ids[id] = rawURL
-		fc.order = append(fc.order, id)
-		for len(fc.ids) > fc.maxSize {
-			oldest := fc.order[0]
-			fc.order = fc.order[1:]
-			delete(fc.ids, oldest)
-		}
-	}
-	return id
-}
-
-func (fc *fileCache) Get(id string) (string, bool) {
-	fc.mu.Lock()
-	defer fc.mu.Unlock()
-	u, ok := fc.ids[id]
-	return u, ok
 }

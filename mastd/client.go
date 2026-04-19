@@ -1,7 +1,6 @@
 package main
 
 import (
-	"container/list"
 	"context"
 	"fmt"
 	"html"
@@ -9,7 +8,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/mattn/go-mastodon"
@@ -17,69 +15,13 @@ import (
 	"github.com/onvos/arizuko/chanlib"
 )
 
-// fileCache holds a bounded map of attachment ID → CDN URL. Evicts
-// oldest entries once size exceeds maxSize so a long-running stream
-// doesn't grow memory without bound.
-type fileCache struct {
-	mu      sync.Mutex
-	entries map[string]*list.Element
-	order   *list.List // front=oldest, back=newest
-	maxSize int
-}
-
-type fileEntry struct {
-	id  string
-	url string
-}
-
-func newFileCache(max int) *fileCache {
-	if max <= 0 {
-		max = 1000
-	}
-	return &fileCache{
-		entries: map[string]*list.Element{},
-		order:   list.New(),
-		maxSize: max,
-	}
-}
-
-func (fc *fileCache) Put(id, url string) {
-	fc.mu.Lock()
-	defer fc.mu.Unlock()
-	if el, ok := fc.entries[id]; ok {
-		el.Value.(*fileEntry).url = url
-		fc.order.MoveToBack(el)
-		return
-	}
-	el := fc.order.PushBack(&fileEntry{id: id, url: url})
-	fc.entries[id] = el
-	for fc.order.Len() > fc.maxSize {
-		front := fc.order.Front()
-		if front == nil {
-			break
-		}
-		fc.order.Remove(front)
-		delete(fc.entries, front.Value.(*fileEntry).id)
-	}
-}
-
-func (fc *fileCache) Get(id string) (string, bool) {
-	fc.mu.Lock()
-	defer fc.mu.Unlock()
-	el, ok := fc.entries[id]
-	if !ok {
-		return "", false
-	}
-	return el.Value.(*fileEntry).url, true
-}
-
 type mastoClient struct {
 	chanlib.NoFileSender
 	cfg    config
 	client *mastodon.Client
 	me     *mastodon.Account
 	http   *http.Client
-	files  *fileCache
+	files  *chanlib.URLCache
 }
 
 func newMastoClient(cfg config) (*mastoClient, error) {
@@ -96,7 +38,7 @@ func newMastoClient(cfg config) (*mastoClient, error) {
 	return &mastoClient{
 		cfg: cfg, client: c, me: me,
 		http:  &http.Client{Timeout: 30 * time.Second},
-		files: newFileCache(cfg.FileCacheSize),
+		files: chanlib.NewURLCache(cfg.FileCacheSize),
 	}, nil
 }
 
@@ -284,15 +226,14 @@ func (mc *mastoClient) Typing(string, bool) {}
 func (mc *mastoClient) extractAttachments(s *mastodon.Status) []chanlib.InboundAttachment {
 	var atts []chanlib.InboundAttachment
 	for _, a := range s.MediaAttachments {
-		id := string(a.ID)
-		mc.files.Put(id, a.URL)
+		id := mc.files.Put(a.URL)
 		mime := mediaMime(a.Type)
 		url := ""
 		if mc.cfg.ListenURL != "" {
 			url = mc.cfg.ListenURL + "/files/" + id
 		}
 		atts = append(atts, chanlib.InboundAttachment{
-			Mime: mime, Filename: id + mimeExt(mime), URL: url,
+			Mime: mime, Filename: string(a.ID) + mimeExt(mime), URL: url,
 		})
 	}
 	return atts

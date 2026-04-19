@@ -389,7 +389,7 @@ func TestOnMessage_Inbound(t *testing.T) {
 	addChannel(t, sess, "ch-1", discordgo.ChannelTypeGuildText)
 
 	srv := newServer(config{Name: "discord", ListenURL: "http://discd:9002"}, nil)
-	b := &bot{session: sess, cfg: config{AssistantName: "Ari", ListenURL: "http://discd:9002"}, rc: rc, files: &srv.files}
+	b := &bot{session: sess, cfg: config{AssistantName: "Ari", ListenURL: "http://discd:9002"}, rc: rc, files: srv.files}
 
 	msg := &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID:        "m1",
@@ -430,7 +430,7 @@ func TestOnMessage_ThreadChannelTopic(t *testing.T) {
 	addChannel(t, sess, "thread-7", discordgo.ChannelTypeGuildPublicThread)
 
 	srv := newServer(config{Name: "discord"}, nil)
-	b := &bot{session: sess, cfg: config{}, rc: rc, files: &srv.files}
+	b := &bot{session: sess, cfg: config{}, rc: rc, files: srv.files}
 	b.onMessage(sess, &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID: "t1", ChannelID: "thread-7", Content: "hi",
 		Author: &discordgo.User{ID: "u1"}, Timestamp: time.Now(),
@@ -451,7 +451,7 @@ func TestOnMessage_BotIgnored(t *testing.T) {
 
 	srv := newServer(config{Name: "discord"}, nil)
 	sess := newTestSession(t)
-	b := &bot{session: sess, rc: rc, files: &srv.files}
+	b := &bot{session: sess, rc: rc, files: srv.files}
 	b.onMessage(sess, &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID: "x", ChannelID: "ch-1", Content: "hi",
 		Author: &discordgo.User{ID: "bot-other", Bot: true},
@@ -463,7 +463,7 @@ func TestOnMessage_BotIgnored(t *testing.T) {
 
 func TestOnMessage_NilAuthor(t *testing.T) {
 	srv := newServer(config{Name: "discord"}, nil)
-	b := &bot{session: newTestSession(t), files: &srv.files}
+	b := &bot{session: newTestSession(t), files: srv.files}
 	// nil message
 	b.onMessage(nil, nil)
 	// nil author
@@ -480,7 +480,7 @@ func TestOnMessage_Attachment(t *testing.T) {
 	addChannel(t, sess, "ch-1", discordgo.ChannelTypeGuildText)
 
 	srv := newServer(config{Name: "discord", ListenURL: "http://discd:9002"}, nil)
-	b := &bot{session: sess, cfg: config{ListenURL: "http://discd:9002"}, rc: rc, files: &srv.files}
+	b := &bot{session: sess, cfg: config{ListenURL: "http://discd:9002"}, rc: rc, files: srv.files}
 
 	b.onMessage(sess, &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID: "m1", ChannelID: "ch-1", Content: "see attached",
@@ -516,7 +516,7 @@ func TestOnMessage_EmptyContentAndNoAttachments_Skipped(t *testing.T) {
 	addChannel(t, sess, "ch-1", discordgo.ChannelTypeGuildText)
 
 	srv := newServer(config{Name: "discord"}, nil)
-	b := &bot{session: sess, rc: rc, files: &srv.files}
+	b := &bot{session: sess, rc: rc, files: srv.files}
 	b.onMessage(sess, &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID: "m1", ChannelID: "ch-1", Content: "",
 		Author: &discordgo.User{ID: "u1"}, Timestamp: time.Now(),

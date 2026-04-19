@@ -246,10 +246,9 @@ func TestMastFileProxyCDNError(t *testing.T) {
 }
 
 func TestExtractAttachments(t *testing.T) {
-	mc := &mastoClient{cfg: config{ListenURL: "http://mastd:9004"}, files: newFileCache(10)}
-	// Simulate calling extractAttachments by storing + retrieving
-	mc.files.Put("img1", "https://cdn.example.com/media/img1.jpg")
-	u, ok := mc.FileURL("img1")
+	mc := &mastoClient{cfg: config{ListenURL: "http://mastd:9004"}, files: chanlib.NewURLCache(10)}
+	id := mc.files.Put("https://cdn.example.com/media/img1.jpg")
+	u, ok := mc.FileURL(id)
 	if !ok {
 		t.Fatal("FileURL not found")
 	}

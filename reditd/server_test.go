@@ -32,7 +32,7 @@ func (s *stubSender) Typing(string, bool) {}
 func testReditServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "reddit", ChannelSecret: secret}
-	s := newServer(cfg, &stubSender{}, newFileCache(100))
+	s := newServer(cfg, &stubSender{}, chanlib.NewURLCache(100))
 	s.safeFetch = nil
 	return s
 }
@@ -146,7 +146,7 @@ func TestReditAuthNoSecret(t *testing.T) {
 
 func TestReditSendComment(t *testing.T) {
 	stub := &stubSender{}
-	s := newServer(config{Name: "reddit"}, stub, newFileCache(100))
+	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100))
 	body, _ := json.Marshal(map[string]string{"chat_jid": "reddit:1", "content": "reply", "reply_to": "t3_abc"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -165,7 +165,7 @@ func TestReditSendComment(t *testing.T) {
 
 func TestReditSendSubmit(t *testing.T) {
 	stub := &stubSender{}
-	s := newServer(config{Name: "reddit"}, stub, newFileCache(100))
+	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100))
 	body, _ := json.Marshal(map[string]string{"chat_jid": "reddit:1", "content": "post"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -184,7 +184,7 @@ func TestReditSendSubmit(t *testing.T) {
 
 func TestReditSendError(t *testing.T) {
 	stub := &stubSender{err: errors.New("boom")}
-	s := newServer(config{Name: "reddit"}, stub, newFileCache(100))
+	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100))
 	body, _ := json.Marshal(map[string]string{"chat_jid": "reddit:1", "content": "hi"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -213,7 +213,7 @@ func TestReditFileProxy(t *testing.T) {
 	}))
 	defer cdn.Close()
 
-	fc := newFileCache(100)
+	fc := chanlib.NewURLCache(100)
 	id := fc.Put(cdn.URL + "/image.jpg")
 	s := newServer(config{Name: "reddit"}, &stubSender{}, fc)
 	s.safeFetch = nil
@@ -244,7 +244,7 @@ func TestReditFileProxyNotFound(t *testing.T) {
 }
 
 func TestReditFileProxyAuthRequired(t *testing.T) {
-	fc := newFileCache(100)
+	fc := chanlib.NewURLCache(100)
 	fc.Put("https://example.com/img.jpg")
 	s := newServer(config{Name: "reddit", ChannelSecret: "secret123"}, &stubSender{}, fc)
 
@@ -259,7 +259,7 @@ func TestReditFileProxyAuthRequired(t *testing.T) {
 // TestReditFileProxy_SSRFBlock verifies that disallowed URLs are rejected even
 // when the file cache happens to contain one (defense-in-depth).
 func TestReditFileProxy_SSRFBlock(t *testing.T) {
-	fc := newFileCache(100)
+	fc := chanlib.NewURLCache(100)
 	id := fc.Put("http://169.254.169.254/latest/meta-data/")
 	s := newServer(config{Name: "reddit"}, &stubSender{}, fc)
 	// default safeFetch = isSafeFetchURL must reject

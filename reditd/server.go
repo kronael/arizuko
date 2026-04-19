@@ -25,11 +25,11 @@ var allowedRedditHosts = map[string]bool{
 type server struct {
 	cfg       config
 	rc        chanlib.BotHandler
-	files     *fileCache
+	files     *chanlib.URLCache
 	safeFetch func(string) bool
 }
 
-func newServer(cfg config, rc chanlib.BotHandler, files *fileCache) *server {
+func newServer(cfg config, rc chanlib.BotHandler, files *chanlib.URLCache) *server {
 	return &server{cfg: cfg, rc: rc, files: files, safeFetch: isSafeFetchURL}
 }
 

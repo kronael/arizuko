@@ -20,7 +20,7 @@ type bot struct {
 	cfg     config
 	rc      *chanlib.RouterClient
 	typing  *chanlib.TypingRefresher
-	files   *fileCache
+	files   *chanlib.URLCache
 }
 
 func newBot(cfg config) (*bot, error) {

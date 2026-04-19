@@ -50,7 +50,7 @@ func testMastoClient(t *testing.T) *mastoClient {
 	t.Helper()
 	return &mastoClient{
 		cfg:   config{ListenURL: "http://mastd:9004"},
-		files: newFileCache(10),
+		files: chanlib.NewURLCache(10),
 	}
 }
 
@@ -154,14 +154,16 @@ func TestHandleNotification_WithAttachments(t *testing.T) {
 	if got.Attachments[0].Mime != "image/jpeg" {
 		t.Errorf("mime[0] = %q", got.Attachments[0].Mime)
 	}
-	if !strings.HasSuffix(got.Attachments[0].URL, "/files/img1") {
+	// URL uses hashed id; resolve round-trip via FileURL.
+	prefix := "http://mastd:9004/files/"
+	if !strings.HasPrefix(got.Attachments[0].URL, prefix) {
 		t.Errorf("url[0] = %q", got.Attachments[0].URL)
 	}
 	if !strings.Contains(got.Content, "[image: a cat]") {
 		t.Errorf("content missing image desc: %q", got.Content)
 	}
-	// FileURL resolves
-	if u, ok := mc.FileURL("img1"); !ok || u != "https://cdn/img1.jpg" {
+	id := strings.TrimPrefix(got.Attachments[0].URL, prefix)
+	if u, ok := mc.FileURL(id); !ok || u != "https://cdn/img1.jpg" {
 		t.Errorf("FileURL = %q, ok=%v", u, ok)
 	}
 }
@@ -365,7 +367,7 @@ func TestTyping_Noop(t *testing.T) {
 func TestExtractAttachments_Multi(t *testing.T) {
 	mc := &mastoClient{
 		cfg:   config{ListenURL: "http://mastd:9004"},
-		files: newFileCache(10),
+		files: chanlib.NewURLCache(10),
 	}
 	s := &mastodon.Status{
 		MediaAttachments: []mastodon.Attachment{
@@ -388,50 +390,13 @@ func TestExtractAttachments_Multi(t *testing.T) {
 }
 
 func TestExtractAttachments_NoListenURL(t *testing.T) {
-	mc := &mastoClient{cfg: config{ListenURL: ""}, files: newFileCache(10)}
+	mc := &mastoClient{cfg: config{ListenURL: ""}, files: chanlib.NewURLCache(10)}
 	s := &mastodon.Status{MediaAttachments: []mastodon.Attachment{
 		{ID: "x", Type: "image", URL: "https://cdn/x.jpg"},
 	}}
 	atts := mc.extractAttachments(s)
 	if len(atts) != 1 || atts[0].URL != "" {
 		t.Errorf("URL should be empty when ListenURL unset: %+v", atts)
-	}
-}
-
-func TestFileCache_Eviction(t *testing.T) {
-	fc := newFileCache(2)
-	fc.Put("a", "ua")
-	fc.Put("b", "ub")
-	fc.Put("c", "uc") // evicts "a"
-	if _, ok := fc.Get("a"); ok {
-		t.Error("oldest entry should have been evicted")
-	}
-	if _, ok := fc.Get("b"); !ok {
-		t.Error("b should still be present")
-	}
-	if _, ok := fc.Get("c"); !ok {
-		t.Error("c should be present")
-	}
-}
-
-func TestFileCache_UpdateMovesToBack(t *testing.T) {
-	fc := newFileCache(2)
-	fc.Put("a", "ua")
-	fc.Put("b", "ub")
-	fc.Put("a", "ua2") // update existing; "a" moves to back
-	fc.Put("c", "uc")  // evicts "b" (now front)
-	if _, ok := fc.Get("b"); ok {
-		t.Error("b should have been evicted after a was moved to back")
-	}
-	if u, _ := fc.Get("a"); u != "ua2" {
-		t.Errorf("a url = %q, want ua2", u)
-	}
-}
-
-func TestFileCache_DefaultCap(t *testing.T) {
-	fc := newFileCache(0) // 0 → default 1000
-	if fc.maxSize != 1000 {
-		t.Errorf("default cap = %d, want 1000", fc.maxSize)
 	}
 }
 
@@ -482,7 +447,7 @@ func TestFetchHistory_Notifications(t *testing.T) {
 			Server: srv.URL, AccessToken: "tok",
 		}),
 		http:  srv.Client(),
-		files: newFileCache(10),
+		files: chanlib.NewURLCache(10),
 	}
 
 	resp, err := mc.FetchHistory(chanlib.HistoryRequest{ChatJID: "mastodon:42", Limit: 50})

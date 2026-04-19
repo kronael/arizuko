@@ -22,7 +22,7 @@ func makeRedditClient(t *testing.T, srv *httptest.Server) *redditClient {
 		skipFirst: map[string]bool{},
 		token:     "test-token",
 		expiresAt: time.Now().Add(time.Hour),
-		files:     newFileCache(100),
+		files:     chanlib.NewURLCache(100),
 		http: &http.Client{
 			Transport: &hostRewrite{target: srv.Listener.Addr().String()},
 			Timeout:   5 * time.Second,
@@ -275,33 +275,6 @@ func TestExtractAttachments_NoMedia(t *testing.T) {
 	atts := rc.extractAttachments(th)
 	if len(atts) != 0 {
 		t.Errorf("got %d attachments, want 0", len(atts))
-	}
-}
-
-// TestFileCache verifies put/get and eviction.
-func TestFileCache(t *testing.T) {
-	fc := newFileCache(3)
-	id1 := fc.Put("https://example.com/1.jpg")
-	id2 := fc.Put("https://example.com/2.jpg")
-
-	if u, ok := fc.Get(id1); !ok || u != "https://example.com/1.jpg" {
-		t.Errorf("get id1: ok=%v url=%q", ok, u)
-	}
-	if u, ok := fc.Get(id2); !ok || u != "https://example.com/2.jpg" {
-		t.Errorf("get id2: ok=%v url=%q", ok, u)
-	}
-
-	// same URL returns same ID
-	id1b := fc.Put("https://example.com/1.jpg")
-	if id1b != id1 {
-		t.Errorf("duplicate URL got different ID: %q vs %q", id1, id1b)
-	}
-
-	// eviction: add 2 more to exceed max of 3
-	fc.Put("https://example.com/3.jpg")
-	fc.Put("https://example.com/4.jpg")
-	if _, ok := fc.Get(id1); ok {
-		t.Error("id1 should have been evicted")
 	}
 }
 

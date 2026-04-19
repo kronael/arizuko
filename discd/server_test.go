@@ -198,19 +198,3 @@ func TestServerFileProxyAuth(t *testing.T) {
 		t.Errorf("status = %d", w.Code)
 	}
 }
-
-func TestFileCachePutGet(t *testing.T) {
-	var fc fileCache
-	id := fc.Put("https://cdn.example.com/file.png")
-	if id == "" {
-		t.Fatal("empty id")
-	}
-	url, ok := fc.Get(id)
-	if !ok || url != "https://cdn.example.com/file.png" {
-		t.Errorf("got %q, ok=%v", url, ok)
-	}
-	_, ok = fc.Get("missing")
-	if ok {
-		t.Error("expected not found")
-	}
-}
