@@ -33,4 +33,4 @@ status: active
 | [c-audit-log.md](c-audit-log.md)                       | shipped   | `PutMessage` unified path, `source` column semantics                |
 | [d-dashboards.md](d-dashboards.md)                     | partial   | dashd + six dashboards; banner health and expandable detail pending |
 | [e-migration-announce.md](e-migration-announce.md)     | unshipped | paired `.md` on migrations fans out upgrade notes to active groups  |
-| [l-linkedin.md](l-linkedin.md)                         | unshipped | LinkedIn channel adapter (`linkd`)                                  |
+| [l-linkedin.md](l-linkedin.md)                         | shipped   | LinkedIn channel adapter (`linkd`)                                  |

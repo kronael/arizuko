@@ -44,4 +44,5 @@ mastd/mastd
 bskyd/bskyd
 reditd/reditd
 reditd/cursors.json
+linkd/linkd
 *.py

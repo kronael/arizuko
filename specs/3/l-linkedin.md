@@ -1,5 +1,5 @@
 ---
-status: unshipped
+status: shipped
 ---
 
 # LinkedIn Channel (`linkd`)
