@@ -1,4 +1,4 @@
-DAEMONS = gated onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd
+DAEMONS = gated onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd linkd
 
 # DOCKER may be overridden by the caller for hosts where the invoking user is
 # in the docker group (then `make images DOCKER=docker`). Default is

@@ -15,6 +15,7 @@ RUN CGO_ENABLED=0 go build -o /onbod ./onbod/
 RUN CGO_ENABLED=0 go build -o /dashd ./dashd/
 RUN CGO_ENABLED=0 go build -o /proxyd ./proxyd/
 RUN CGO_ENABLED=0 go build -o /webd ./webd/
+RUN CGO_ENABLED=0 go build -o /linkd ./linkd/
 
 FROM alpine:3.20
 RUN apk add --no-cache sqlite-libs ca-certificates docker-cli wget \
@@ -31,6 +32,7 @@ COPY --from=build /onbod /usr/local/bin/onbod
 COPY --from=build /dashd /usr/local/bin/dashd
 COPY --from=build /proxyd /usr/local/bin/proxyd
 COPY --from=build /webd /usr/local/bin/webd
+COPY --from=build /linkd /usr/local/bin/linkd
 COPY --from=build /src/ant/skills /opt/arizuko/ant/skills
 COPY --from=build /src/ant/CLAUDE.md /opt/arizuko/ant/CLAUDE.md
 COPY --from=build /src/template/services /opt/arizuko/template/services
