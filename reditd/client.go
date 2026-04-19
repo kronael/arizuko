@@ -297,13 +297,11 @@ func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClien
 	}
 }
 
-func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterClient) {
+// thingToMsg converts a reddit thing to an InboundMsg. jid is the chat JID
+// (caller decides r_<sr> vs direct sender JID). Returns ok=false if the thing
+// has no usable content.
+func (rc *redditClient) thingToMsg(t thing, jid string) (chanlib.InboundMsg, bool) {
 	d := t.Data
-	sender := "reddit:" + d.Author
-	jid := sender
-	if strings.HasPrefix(key, "sr:") {
-		jid = "reddit:r_" + d.Subreddit
-	}
 	content := d.Body
 	if content == "" {
 		content = d.Title
@@ -312,7 +310,7 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 		}
 	}
 	if content == "" {
-		return
+		return chanlib.InboundMsg{}, false
 	}
 	verb, topic := "message", ""
 	switch t.Kind {
@@ -331,17 +329,29 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 	for _, a := range atts {
 		content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
 	}
-	if err := router.SendMessage(chanlib.InboundMsg{
+	return chanlib.InboundMsg{
 		ID:          d.Name,
 		ChatJID:     jid,
-		Sender:      sender,
+		Sender:      "reddit:" + d.Author,
 		SenderName:  d.Author,
 		Content:     content,
 		Timestamp:   int64(d.CreatedAt),
 		Topic:       topic,
 		Verb:        verb,
 		Attachments: atts,
-	}); err != nil {
+	}, true
+}
+
+func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterClient) {
+	jid := "reddit:" + t.Data.Author
+	if strings.HasPrefix(key, "sr:") {
+		jid = "reddit:r_" + t.Data.Subreddit
+	}
+	msg, ok := rc.thingToMsg(t, jid)
+	if !ok {
+		return
+	}
+	if err := router.SendMessage(msg); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 	}
 }
@@ -382,49 +392,15 @@ func (rc *redditClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.Histor
 	// Reverse to oldest-first to match poll delivery order.
 	for i := len(l.Data.Children) - 1; i >= 0; i-- {
 		t := l.Data.Children[i]
-		d := t.Data
-		ts := int64(d.CreatedAt)
+		ts := int64(t.Data.CreatedAt)
 		if !before.IsZero() && ts >= before.Unix() {
 			continue
 		}
-		content := d.Body
-		if content == "" {
-			content = d.Title
-			if d.Selftext != "" {
-				content += "\n\n" + d.Selftext
-			}
-		}
-		if content == "" {
+		msg, ok := rc.thingToMsg(t, jid)
+		if !ok {
 			continue
 		}
-		verb, topic := "message", ""
-		switch t.Kind {
-		case "t1":
-			if d.ParentID != "" {
-				verb = "reply"
-				topic = d.ParentID
-				if strings.HasPrefix(d.ParentID, "t3_") {
-					topic = d.LinkID
-				}
-			}
-		case "t3":
-			verb = "post"
-		}
-		atts := rc.extractAttachments(t)
-		for _, a := range atts {
-			content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
-		}
-		msgs = append(msgs, chanlib.InboundMsg{
-			ID:          d.Name,
-			ChatJID:     jid,
-			Sender:      "reddit:" + d.Author,
-			SenderName:  d.Author,
-			Content:     content,
-			Timestamp:   ts,
-			Topic:       topic,
-			Verb:        verb,
-			Attachments: atts,
-		})
+		msgs = append(msgs, msg)
 	}
 	return chanlib.HistoryResponse{Source: "platform-capped", Cap: "1000", Messages: msgs}, nil
 }

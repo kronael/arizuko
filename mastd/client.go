@@ -155,62 +155,16 @@ func (mc *mastoClient) streamOnce(ctx context.Context, rc *chanlib.RouterClient)
 }
 
 func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *chanlib.RouterClient) {
-	acc := n.Account
-	jid := "mastodon:" + string(acc.ID)
-	name := acc.DisplayName
-	if name == "" {
-		name = acc.Acct
-	}
-	msg := chanlib.InboundMsg{ChatJID: jid, Sender: jid, SenderName: name, Timestamp: time.Now().Unix()}
-
-	switch n.Type {
-	case "mention", "reply":
-		if n.Status == nil {
-			return
-		}
-		topic, _ := n.Status.InReplyToID.(string)
-		verb := "message"
-		if n.Type == "reply" || topic != "" {
-			verb = "reply"
-		}
-		content := stripHTML(n.Status.Content)
-		for _, att := range n.Status.MediaAttachments {
-			content += fmt.Sprintf(" [%s: %s]", att.Type, att.Description)
-		}
-		msg.ID = string(n.Status.ID)
-		msg.Content = content
-		msg.Timestamp = n.Status.CreatedAt.Unix()
-		msg.Topic = topic
-		msg.Verb = verb
-		msg.Attachments = mc.extractAttachments(n.Status)
-	case "favourite":
-		if n.Status == nil {
-			return
-		}
-		msg.ID = "fav-" + string(n.Status.ID) + "-" + string(acc.ID)
-		msg.Content = "❤️"
-		msg.Verb = "react"
-	case "reblog":
-		if n.Status == nil {
-			return
-		}
-		msg.ID = "reblog-" + string(n.Status.ID) + "-" + string(acc.ID)
-		msg.Content = string(n.Status.ID)
-		msg.Verb = "repost"
-	case "follow":
-		msg.ID = "follow-" + string(acc.ID)
-		msg.Content = name + " followed you"
-		msg.Verb = "follow"
-	default:
+	msg, ok := mc.notificationToMsg(n)
+	if !ok {
 		slog.Debug("mastodon: unhandled notification type", "type", n.Type)
 		return
 	}
-
 	if err := rc.SendMessage(msg); err != nil {
-		slog.Error("deliver failed", "jid", jid, "err", err)
+		slog.Error("deliver failed", "jid", msg.ChatJID, "err", err)
 		return
 	}
-	slog.Debug("inbound", "chat_jid", jid, "sender_jid", msg.Sender, "message_id", msg.ID, "content_len", len(msg.Content), "verb", msg.Verb)
+	slog.Debug("inbound", "chat_jid", msg.ChatJID, "sender_jid", msg.Sender, "message_id", msg.ID, "content_len", len(msg.Content), "verb", msg.Verb)
 }
 
 // FetchHistory returns notifications from the target account, newest-first
@@ -258,8 +212,8 @@ func (mc *mastoClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.History
 	return chanlib.HistoryResponse{Source: "platform", Messages: out}, nil
 }
 
-// notificationToMsg mirrors handleNotification but returns the message
-// instead of delivering. Returns ok=false for types we skip.
+// notificationToMsg converts a notification to an InboundMsg.
+// Returns ok=false for types we skip.
 func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.InboundMsg, bool) {
 	acc := n.Account
 	jid := "mastodon:" + string(acc.ID)
