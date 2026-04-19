@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -74,8 +73,6 @@ type StoreFns struct {
 
 // maxMCPConns bounds concurrent in-flight MCP connections per group.
 const maxMCPConns = 8
-
-var sidecarNameRE = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // ServeMCP binds the group MCP socket (0660, chowned to expectedUID),
 // bounds accept fan-out, and verifies each peer via SO_PEERCRED. Only
@@ -965,69 +962,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				slog.Info("set_web_host", "hostname", hostname, "folder", targetFolder, "sourceGroup", folder)
 				return toolJSON(vhosts)
 			})
-	}
-
-	if id.Tier <= 1 {
-		srv.AddTool(mcp.NewTool("list_sidecars",
-			mcp.WithDescription("List sidecars configured for this group (tier 0-1)"),
-		), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.GetGroups == nil {
-				return toolErr("list_sidecars not configured")
-			}
-			gr, ok := gated.GetGroups()[folder]
-			if !ok {
-				return toolErr("group not found: " + folder)
-			}
-			return toolJSON(map[string]any{"sidecars": gr.Config.Sidecars})
-		})
-
-		srv.AddTool(mcp.NewTool("configure_sidecar",
-			mcp.WithDescription("Persist a sidecar config on this group; takes effect next spawn (tier 0-1)"),
-			mcp.WithString("name", mcp.Required()),
-			mcp.WithString("image", mcp.Required()),
-			mcp.WithString("network"),
-			mcp.WithString("env"),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.GetGroups == nil || gated.UpdateGroupConfig == nil {
-				return toolErr("configure_sidecar not configured")
-			}
-			name := req.GetString("name", "")
-			image := req.GetString("image", "")
-			if name == "" || image == "" {
-				return toolErr("name and image required")
-			}
-			if !sidecarNameRE.MatchString(name) {
-				return toolErr("invalid name (allowed: [a-z0-9-]+)")
-			}
-			net := req.GetString("network", "none")
-			if net != "none" && net != "bridge" {
-				return toolErr("network must be 'none' or 'bridge'")
-			}
-			envMap := map[string]string{}
-			if raw := req.GetString("env", ""); raw != "" {
-				if err := json.Unmarshal([]byte(raw), &envMap); err != nil {
-					return toolErr("invalid env json: " + err.Error())
-				}
-			}
-			groups := gated.GetGroups()
-			gr, ok := groups[folder]
-			if !ok {
-				return toolErr("group not found: " + folder)
-			}
-			if gr.Config.Sidecars == nil {
-				gr.Config.Sidecars = map[string]core.Sidecar{}
-			}
-			gr.Config.Sidecars[name] = core.Sidecar{
-				Image: image,
-				Env:   envMap,
-				Net:   net,
-			}
-			if err := gated.UpdateGroupConfig(folder, gr.Config); err != nil {
-				return toolErr(err.Error())
-			}
-			slog.Info("configure_sidecar", "folder", folder, "name", name, "image", image)
-			return toolOK()
-		})
 	}
 
 	srv.AddTool(mcp.NewTool("get_work",

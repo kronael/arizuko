@@ -43,7 +43,6 @@ type Group struct {
 type GroupConfig struct {
 	Mounts      []Mount
 	Timeout     time.Duration
-	Sidecars    map[string]Sidecar
 	MaxChildren int
 }
 
@@ -51,15 +50,6 @@ type Mount struct {
 	Host      string
 	Container string
 	RO        bool
-}
-
-type Sidecar struct {
-	Image string
-	Env   map[string]string
-	MemMB int
-	CPUs  float64
-	Net   string   // "bridge"|"none"
-	Tools []string // ["*"] or specific
 }
 
 type Route struct {

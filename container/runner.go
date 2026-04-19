@@ -128,13 +128,6 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	mounts := buildMounts(cfg, in, groupDir, root, folders)
 	in = prepareInput(cfg, in, groupDir)
 
-	var sidecarNames []string
-	if len(in.Config.Sidecars) > 0 {
-		ipcDir, _ := folders.IpcPath(in.Folder)
-		sidecarNames = startSidecars(
-			cfg, in.Folder, in.Config.Sidecars, ipcDir)
-	}
-
 	containerName := in.Name
 	if containerName == "" {
 		safe := safeNameRe.ReplaceAllString(in.Folder, "-")
@@ -386,9 +379,6 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	if stopMCP != nil {
 		stopMCP()
 	}
-	if len(sidecarNames) > 0 {
-		stopSidecars(sidecarNames)
-	}
 
 	elapsed := time.Since(start)
 
@@ -566,7 +556,6 @@ func buildMounts(
 	ipcDir, err := folders.IpcPath(in.Folder)
 	if err == nil {
 		os.MkdirAll(groupfolder.IpcInputDir(ipcDir), 0o755)
-		os.MkdirAll(groupfolder.IpcSidecars(ipcDir), 0o755)
 		m = append(m, volumeMount{
 			Host:      hp(cfg, ipcDir),
 			Container: "/workspace/ipc",
@@ -728,35 +717,6 @@ func seedSettings(
 	}
 	settings["mcpServers"] = servers
 
-	if len(in.Config.Sidecars) > 0 {
-		managed, _ := settings["_managedSidecars"].([]any)
-		var allowed []any
-		if a, ok := settings["allowedTools"].([]any); ok {
-			allowed = a
-		}
-
-		for name, spec := range in.Config.Sidecars {
-			servers[name] = map[string]any{
-				"command": "socat",
-				"args": []string{
-					"UNIX-CONNECT:/workspace/ipc/sidecars/" +
-						name + "/" + name + ".sock",
-					"STDIO",
-				},
-			}
-			managed = append(managed, name)
-
-			for _, tool := range spec.Tools {
-				allowed = append(allowed, "mcp__"+name+"__"+tool)
-			}
-		}
-
-		settings["_managedSidecars"] = managed
-		if len(allowed) > 0 {
-			settings["allowedTools"] = allowed
-		}
-	}
-
 	data, _ := json.MarshalIndent(settings, "", "  ")
 	tmp := fp + ".tmp"
 	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
@@ -766,7 +726,7 @@ func seedSettings(
 	if err := os.Rename(tmp, fp); err != nil {
 		slog.Warn("failed to rename settings", "from", tmp, "to", fp, "err", err)
 	}
-	slog.Debug("settings seeded", "path", fp, "sidecars", len(in.Config.Sidecars))
+	slog.Debug("settings seeded", "path", fp)
 }
 
 func SetupGroup(cfg *core.Config, folder, prototype string) error {
