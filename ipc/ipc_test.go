@@ -1,7 +1,11 @@
 package ipc
 
 import (
+	"net"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/core"
@@ -195,5 +199,56 @@ func TestIdentityUsedInServer(t *testing.T) {
 	}
 	if id.World != "world" {
 		t.Fatalf("got world %q, want world", id.World)
+	}
+}
+
+func TestServeMCP_PeerCredAcceptsMatchingUID(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "test", nil, os.Getuid())
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+	c, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+	// Server should not close the conn immediately — it accepted the peer.
+	c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	var buf [1]byte
+	_, err = c.Read(buf[:])
+	// Expect timeout (server is waiting for MCP input), not EOF.
+	if err == nil || !strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("expected read timeout, got err=%v", err)
+	}
+}
+
+func TestServeMCP_PeerCredRejectsWrongUID(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+	// Set expectedUID to a value we can't possibly be.
+	wrong := os.Getuid() + 100000
+	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "test", nil, wrong)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+	c, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+	// Server should close the conn after reading peer cred.
+	c.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	var buf [1]byte
+	_, err = c.Read(buf[:])
+	// Expect EOF/closed, not timeout.
+	if err == nil {
+		t.Fatalf("expected conn to be closed, got nil err")
+	}
+	if strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("expected conn closed, got timeout: %v", err)
 	}
 }

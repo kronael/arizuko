@@ -9,6 +9,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.29.4] — 2026-04-19
+
+### Changed
+
+- **ipc**: replace the (disabled) token preamble with kernel-attested
+  `SO_PEERCRED` on every MCP connection. `ServeMCP` takes an
+  `expectedUID int` parameter (1000 = ant image's `node` user in prod,
+  host uid when `--user` override fires in dev) and rejects any peer
+  whose kernel-reported uid doesn't match. No client changes needed —
+  standard MCP, unchanged socat bridge. Removed dead code:
+  `GenerateRuntimeToken`, `verifyToken`, `McpToken` field,
+  `ARIZUKO_MCP_TOKEN` env stamp. Security boundary remains per-group
+  mount isolation (`buildMounts` bind-mounts only the group's own
+  `ipcDir` → `/workspace/ipc`, validated by `folders.IpcPath`);
+  peer-uid check is a cheap sanity gate, not the boundary.
+
 ## [v0.29.3] — 2026-04-19
 
 ### Fixed

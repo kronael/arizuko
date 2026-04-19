@@ -1,14 +1,9 @@
 package ipc
 
 import (
-	"bufio"
 	"context"
-	"crypto/rand"
-	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -26,6 +21,7 @@ import (
 	"github.com/onvos/arizuko/mountsec"
 	"github.com/onvos/arizuko/router"
 	"github.com/robfig/cron/v3"
+	"golang.org/x/sys/unix"
 )
 
 type GatedFns struct {
@@ -67,30 +63,22 @@ type StoreFns struct {
 // maxMCPConns bounds concurrent in-flight MCP connections per group.
 const maxMCPConns = 8
 
-// GenerateRuntimeToken returns a fresh per-run token passed into the
-// container via env (ARIZUKO_MCP_TOKEN). Empty return = RNG failure.
-func GenerateRuntimeToken() string {
-	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return ""
-	}
-	return hex.EncodeToString(b[:])
-}
-
-// ServeMCP binds the group MCP socket (0660, chowned to container uid
-// when known), bounds accept fan-out, and verifies the per-run token on
-// each connection's first line: {"token":"<hex>"}\n.
-func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, token string, containerUID int) (func(), error) {
+// ServeMCP binds the group MCP socket (0660, chowned to expectedUID),
+// bounds accept fan-out, and verifies each peer via SO_PEERCRED. Only
+// connections whose kernel-attested peer uid matches expectedUID are
+// accepted. expectedUID <= 0 disables the check (dev/tests).
+func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, expectedUID int) (func(), error) {
 	os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
 		return nil, err
 	}
 	os.Chmod(sockPath, 0o660)
-	if containerUID > 0 {
-		os.Chown(sockPath, containerUID, -1)
+	if expectedUID > 0 {
+		os.Chown(sockPath, expectedUID, -1)
 	}
-	slog.Info("mcp server listening", "folder", folder, "sock", sockPath)
+	slog.Info("mcp server listening",
+		"folder", folder, "sock", sockPath, "peer_uid", expectedUID)
 
 	// Build server once; every connection multiplexes onto it.
 	srv := buildMCPServer(gated, db, folder, rules)
@@ -112,20 +100,24 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 				conn.Close()
 				continue
 			}
-			slog.Debug("mcp connection accepted", "folder", folder)
 			go func(c net.Conn) {
 				defer func() { <-sem; c.Close() }()
-				var reader io.Reader = c
-				if token != "" {
-					ar, err := verifyToken(c, token)
+				if expectedUID > 0 {
+					cred, err := peerCred(c)
 					if err != nil {
-						slog.Warn("mcp token verification failed",
+						slog.Warn("mcp peer cred read failed",
 							"folder", folder, "err", err)
 						return
 					}
-					reader = ar
+					if int(cred.Uid) != expectedUID {
+						slog.Warn("mcp peer uid mismatch",
+							"folder", folder,
+							"want", expectedUID, "got", cred.Uid,
+							"pid", cred.Pid)
+						return
+					}
 				}
-				stdioSrv.Listen(ctx, reader, c)
+				stdioSrv.Listen(ctx, c, c)
 			}(conn)
 		}
 	}()
@@ -137,29 +129,26 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 	}, nil
 }
 
-// verifyToken reads one line {"token":"<hex>"}\n from conn and compares
-// against expected in constant time. Returns a reader with the preamble
-// consumed.
-func verifyToken(conn net.Conn, expected string) (io.Reader, error) {
-	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		return nil, fmt.Errorf("set deadline: %w", err)
+// peerCred returns SO_PEERCRED for a unix-socket peer — kernel-attested
+// pid/uid/gid of the connecting process.
+func peerCred(c net.Conn) (*unix.Ucred, error) {
+	uc, ok := c.(*net.UnixConn)
+	if !ok {
+		return nil, fmt.Errorf("not a unix conn")
 	}
-	br := bufio.NewReader(conn)
-	line, err := br.ReadString('\n')
+	raw, err := uc.SyscallConn()
 	if err != nil {
-		return nil, fmt.Errorf("preamble read: %w", err)
+		return nil, fmt.Errorf("syscall conn: %w", err)
 	}
-	conn.SetReadDeadline(time.Time{})
-	var p struct {
-		Token string `json:"token"`
+	var cred *unix.Ucred
+	var cerr error
+	if err := raw.Control(func(fd uintptr) {
+		cred, cerr = unix.GetsockoptUcred(int(fd),
+			unix.SOL_SOCKET, unix.SO_PEERCRED)
+	}); err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &p); err != nil {
-		return nil, fmt.Errorf("preamble parse: %w", err)
-	}
-	if subtle.ConstantTimeCompare([]byte(p.Token), []byte(expected)) != 1 {
-		return nil, fmt.Errorf("invalid token")
-	}
-	return br, nil
+	return cred, cerr
 }
 
 func toolErr(msg string) (*mcp.CallToolResult, error) {

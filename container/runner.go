@@ -92,7 +92,6 @@ type Input struct {
 	Parent      string           `json:"-"`
 	Config      core.GroupConfig `json:"-"`
 	SlinkToken  string           `json:"-"`
-	McpToken    string           `json:"-"`
 	Annotations []string         `json:"-"`
 	OnOutput    OnOutputFn       `json:"-"`
 	GatedFns    ipc.GatedFns     `json:"-"`
@@ -125,11 +124,6 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	os.MkdirAll(groupDir, 0o755)
 	writeGatewayCaps(groupDir, cfg)
 
-	// Generate the per-run MCP runtime token before mounts so seedSettings
-	// can stamp it into the container's settings.json env.
-	if in.McpToken == "" {
-		in.McpToken = ipc.GenerateRuntimeToken()
-	}
 	mounts := buildMounts(cfg, in, groupDir, root, folders)
 	in = prepareInput(cfg, in, groupDir)
 
@@ -178,13 +172,14 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	var stopMCP func()
 	if ipcDir, err := folders.IpcPath(in.Folder); err == nil {
 		sockPath := groupfolder.IpcSocket(ipcDir)
-		// Container uid: if --user <uid>:<gid> is set, chown socket to
-		// that uid. Agent default image runs as uid 1000; 0 = no chown.
-		cuid := 0
+		// Expected peer uid for SO_PEERCRED check and socket chown.
+		// Defaults to 1000 (ant image's `node` user). In dev, the host
+		// uid may be propagated via --user <uid>:<gid>; match it.
+		expectedUID := 1000
 		if uid := os.Getuid(); uid > 0 && uid != 1000 {
-			cuid = uid
+			expectedUID = uid
 		}
-		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Grants, "", cuid); err != nil {
+		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Grants, expectedUID); err != nil {
 			slog.Warn("failed to start MCP server",
 				"group", in.Folder, "container", containerName, "err", err)
 		} else {
@@ -715,9 +710,6 @@ func seedSettings(
 	}
 	if in.SlinkToken != "" {
 		env["SLINK_TOKEN"] = in.SlinkToken
-	}
-	if in.McpToken != "" {
-		env["ARIZUKO_MCP_TOKEN"] = in.McpToken
 	}
 	settings["env"] = env
 
