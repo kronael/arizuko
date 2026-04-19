@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Dashboards
@@ -7,16 +7,9 @@ status: partial
 Tile-based operator portal. Each subsystem has a dashboard; portal shows
 summary tiles with health indicators. All read-only.
 
-## Shipped
-
 `dashd` HTTP server with auth middleware and six dashboards: Portal,
 Status, Tasks, Activity, Groups, Memory. Inline Go templates, HTMX for
 live updates (no frontend build).
-
-## Pending
-
-Banner health indicators, expandable sections, error details, onboarding
-section, flow visualizations, route editor.
 
 ## dashd daemon
 
