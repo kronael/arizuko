@@ -20,6 +20,7 @@ const historyLimitMax = 50
 
 type server struct {
 	chanlib.NoFileSender
+	chanlib.NoSocial
 	cfg     config
 	db      *sql.DB
 	reg     *attRegistry

@@ -223,6 +223,37 @@ func (mc *mastoClient) Send(req chanlib.SendRequest) (string, error) {
 
 func (mc *mastoClient) Typing(string, bool) {}
 
+func (mc *mastoClient) Post(req chanlib.PostRequest) (string, error) {
+	if len(req.MediaPaths) > 0 {
+		return "", fmt.Errorf("mastodon post: media upload not implemented")
+	}
+	toot := &mastodon.Toot{Status: req.Content}
+	status, err := mc.client.PostStatus(context.Background(), toot)
+	if err != nil {
+		return "", fmt.Errorf("mastodon post: %w", err)
+	}
+	slog.Debug("post", "source", "mastodon", "id", status.ID)
+	return string(status.ID), nil
+}
+
+func (mc *mastoClient) React(req chanlib.ReactRequest) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if _, err := mc.client.Favourite(ctx, mastodon.ID(req.TargetID)); err != nil {
+		return fmt.Errorf("mastodon favourite: %w", err)
+	}
+	return nil
+}
+
+func (mc *mastoClient) DeletePost(req chanlib.DeleteRequest) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := mc.client.DeleteStatus(ctx, mastodon.ID(req.TargetID)); err != nil {
+		return fmt.Errorf("mastodon delete: %w", err)
+	}
+	return nil
+}
+
 func (mc *mastoClient) extractAttachments(s *mastodon.Status) []chanlib.InboundAttachment {
 	var atts []chanlib.InboundAttachment
 	for _, a := range s.MediaAttachments {

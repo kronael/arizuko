@@ -339,6 +339,67 @@ func (bc *bskyClient) Send(req chanlib.SendRequest) (string, error) {
 
 func (bc *bskyClient) Typing(string, bool) {}
 
+func (bc *bskyClient) Post(req chanlib.PostRequest) (string, error) {
+	if len(req.MediaPaths) > 0 {
+		return "", fmt.Errorf("bluesky post: media upload not implemented")
+	}
+	record := map[string]any{
+		"$type":     "app.bsky.feed.post",
+		"text":      req.Content,
+		"createdAt": time.Now().UTC().Format(time.RFC3339),
+	}
+	body := map[string]any{
+		"repo":       bc.getSession().DID,
+		"collection": "app.bsky.feed.post",
+		"record":     record,
+	}
+	var result struct {
+		URI string `json:"uri"`
+		CID string `json:"cid"`
+	}
+	if err := bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, &result); err != nil {
+		return "", fmt.Errorf("bluesky post: %w", err)
+	}
+	return result.URI, nil
+}
+
+func (bc *bskyClient) React(req chanlib.ReactRequest) error {
+	cid, err := bc.getPostCID(req.TargetID)
+	if err != nil {
+		return fmt.Errorf("bluesky like: get cid: %w", err)
+	}
+	record := map[string]any{
+		"$type":     "app.bsky.feed.like",
+		"subject":   map[string]string{"uri": req.TargetID, "cid": cid},
+		"createdAt": time.Now().UTC().Format(time.RFC3339),
+	}
+	body := map[string]any{
+		"repo":       bc.getSession().DID,
+		"collection": "app.bsky.feed.like",
+		"record":     record,
+	}
+	if err := bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, nil); err != nil {
+		return fmt.Errorf("bluesky like: %w", err)
+	}
+	return nil
+}
+
+func (bc *bskyClient) DeletePost(req chanlib.DeleteRequest) error {
+	parts := strings.Split(req.TargetID, "/")
+	if len(parts) < 5 {
+		return fmt.Errorf("bluesky delete: target_id must be an at:// URI")
+	}
+	body := map[string]any{
+		"repo":       parts[2],
+		"collection": "app.bsky.feed.post",
+		"rkey":       parts[len(parts)-1],
+	}
+	if err := bc.xrpc("POST", "com.atproto.repo.deleteRecord", nil, body, nil); err != nil {
+		return fmt.Errorf("bluesky delete: %w", err)
+	}
+	return nil
+}
+
 type feedViewPost struct {
 	Post struct {
 		URI    string `json:"uri"`

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +15,11 @@ import (
 	"sync"
 	"time"
 )
+
+// ErrUnsupported is returned when an adapter responds 501 to a social
+// verb (post/react/delete-post) because the underlying platform doesn't
+// support that action.
+var ErrUnsupported = errors.New("unsupported")
 
 const maxOutbox = 1000
 
@@ -185,6 +191,74 @@ func (h *HTTPChannel) FetchHistory(ctx context.Context, jid string, before time.
 		return nil, fmt.Errorf("channel %s fetch_history: status %d", h.entry.Name, resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+}
+
+// Post publishes a standalone post on the adapter (feed/timeline/subreddit).
+// Returns the platform-native ID. Returns ErrUnsupported if the adapter
+// returns 501 (i.e. the platform doesn't support posts).
+func (h *HTTPChannel) Post(ctx context.Context, jid, content string, mediaPaths []string) (string, error) {
+	body := map[string]any{"chat_jid": jid, "content": content}
+	if len(mediaPaths) > 0 {
+		body["media_paths"] = mediaPaths
+	}
+	b, _ := json.Marshal(body)
+	resp, err := h.post(ctx, "/post", b)
+	if err != nil {
+		return "", fmt.Errorf("channel %s post: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotImplemented {
+		return "", ErrUnsupported
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("channel %s post: status %d", h.entry.Name, resp.StatusCode)
+	}
+	var r struct {
+		ID string `json:"id"`
+	}
+	json.NewDecoder(resp.Body).Decode(&r)
+	return r.ID, nil
+}
+
+// React attaches a reaction (emoji / like / upvote) to a post or message.
+func (h *HTTPChannel) React(ctx context.Context, jid, targetID, reaction string) error {
+	b, _ := json.Marshal(map[string]string{
+		"chat_jid":  jid,
+		"target_id": targetID,
+		"reaction":  reaction,
+	})
+	resp, err := h.post(ctx, "/react", b)
+	if err != nil {
+		return fmt.Errorf("channel %s react: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotImplemented {
+		return ErrUnsupported
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("channel %s react: status %d", h.entry.Name, resp.StatusCode)
+	}
+	return nil
+}
+
+// DeletePost removes a post or message authored by the bot.
+func (h *HTTPChannel) DeletePost(ctx context.Context, jid, targetID string) error {
+	b, _ := json.Marshal(map[string]string{
+		"chat_jid":  jid,
+		"target_id": targetID,
+	})
+	resp, err := h.post(ctx, "/delete-post", b)
+	if err != nil {
+		return fmt.Errorf("channel %s delete-post: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotImplemented {
+		return ErrUnsupported
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("channel %s delete-post: status %d", h.entry.Name, resp.StatusCode)
+	}
+	return nil
 }
 
 func (h *HTTPChannel) Disconnect() error { return nil }

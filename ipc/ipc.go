@@ -28,6 +28,9 @@ type GatedFns struct {
 	SendMessage         func(jid, text string) (string, error)
 	SendReply           func(jid, text, replyToId string) (string, error)
 	SendDocument        func(jid, path, filename, caption string) error
+	Post                func(jid, content string, mediaPaths []string) (string, error)
+	React               func(jid, targetID, reaction string) error
+	DeletePost          func(jid, targetID string) error
 	ClearSession        func(folder string)
 	InjectMessage       func(jid, content, sender, senderName string) (string, error)
 	RegisterGroup       func(jid string, group core.Group) error

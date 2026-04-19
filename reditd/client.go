@@ -428,6 +428,36 @@ func (rc *redditClient) Send(req chanlib.SendRequest) (string, error) {
 
 func (rc *redditClient) Typing(string, bool) {}
 
+func (rc *redditClient) Post(req chanlib.PostRequest) (string, error) {
+	if len(req.MediaPaths) > 0 {
+		return "", fmt.Errorf("reddit post: media upload not implemented")
+	}
+	data := url.Values{
+		"kind":  {"self"},
+		"sr":    {"u_" + rc.cfg.Username},
+		"title": {"arizuko"},
+		"text":  {req.Content},
+	}
+	resp, err := rc.do("POST", "/api/submit", nil, data)
+	if err != nil {
+		return "", fmt.Errorf("reddit post: %w", err)
+	}
+	resp.Body.Close()
+	return "", nil
+}
+
+func (rc *redditClient) React(chanlib.ReactRequest) error { return chanlib.ErrUnsupported }
+
+func (rc *redditClient) DeletePost(req chanlib.DeleteRequest) error {
+	data := url.Values{"id": {req.TargetID}}
+	resp, err := rc.do("POST", "/api/del", nil, data)
+	if err != nil {
+		return fmt.Errorf("reddit delete: %w", err)
+	}
+	resp.Body.Close()
+	return nil
+}
+
 func (rc *redditClient) extractAttachments(t thing) []chanlib.InboundAttachment {
 	d := t.Data
 	switch {

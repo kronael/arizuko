@@ -15,6 +15,7 @@ type stubSend struct{ JID, Content string }
 type stubFile struct{ JID, Name string }
 
 type stubBot struct {
+	chanlib.NoSocial
 	sent    []stubSend
 	files   []stubFile
 	typings []bool

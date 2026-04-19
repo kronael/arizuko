@@ -14,11 +14,30 @@ import (
 
 type stubPoster struct {
 	chanlib.NoFileSender
-	err error
+	err      error
+	postReq  chanlib.PostRequest
+	postID   string
+	postErr  error
+	reactReq chanlib.ReactRequest
+	reactErr error
+	delReq   chanlib.DeleteRequest
+	delErr   error
 }
 
 func (s *stubPoster) Send(chanlib.SendRequest) (string, error) { return "", s.err }
 func (s *stubPoster) Typing(string, bool)                      {}
+func (s *stubPoster) Post(r chanlib.PostRequest) (string, error) {
+	s.postReq = r
+	return s.postID, s.postErr
+}
+func (s *stubPoster) React(r chanlib.ReactRequest) error {
+	s.reactReq = r
+	return s.reactErr
+}
+func (s *stubPoster) DeletePost(r chanlib.DeleteRequest) error {
+	s.delReq = r
+	return s.delErr
+}
 
 type stubFiles struct{ urls map[string]string }
 
@@ -31,6 +50,51 @@ func testMastServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "mastodon", ChannelSecret: secret}
 	return newServer(cfg, &stubPoster{}, &stubFiles{})
+}
+
+func TestMastPost(t *testing.T) {
+	bot := &stubPoster{postID: "99"}
+	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{})
+	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "content": "toot"})
+	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if bot.postReq.Content != "toot" {
+		t.Errorf("post req = %+v", bot.postReq)
+	}
+}
+
+func TestMastReact(t *testing.T) {
+	bot := &stubPoster{}
+	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{})
+	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "target_id": "t1"})
+	req := httptest.NewRequest("POST", "/react", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if bot.reactReq.TargetID != "t1" {
+		t.Errorf("react req = %+v", bot.reactReq)
+	}
+}
+
+func TestMastDeletePost(t *testing.T) {
+	bot := &stubPoster{}
+	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{})
+	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "target_id": "t1"})
+	req := httptest.NewRequest("POST", "/delete-post", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if bot.delReq.TargetID != "t1" {
+		t.Errorf("del req = %+v", bot.delReq)
+	}
 }
 
 func TestMastHealth(t *testing.T) {

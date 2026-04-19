@@ -12,9 +12,29 @@ import (
 )
 
 type stubBot struct {
-	sent    []stubSend
-	files   []stubFile
-	typings []bool
+	sent     []stubSend
+	files    []stubFile
+	typings  []bool
+	postReq  chanlib.PostRequest
+	postID   string
+	postErr  error
+	reactReq chanlib.ReactRequest
+	reactErr error
+	delReq   chanlib.DeleteRequest
+	delErr   error
+}
+
+func (sb *stubBot) Post(r chanlib.PostRequest) (string, error) {
+	sb.postReq = r
+	return sb.postID, sb.postErr
+}
+func (sb *stubBot) React(r chanlib.ReactRequest) error {
+	sb.reactReq = r
+	return sb.reactErr
+}
+func (sb *stubBot) DeletePost(r chanlib.DeleteRequest) error {
+	sb.delReq = r
+	return sb.delErr
 }
 
 type stubSend struct{ JID, Content string }
@@ -38,6 +58,59 @@ func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}
 	cfg := config{Name: "discord", ChannelSecret: secret}
 	return newServer(cfg, sb).handler(), sb
+}
+
+func TestServerPost(t *testing.T) {
+	h, sb := stubHandler("secret")
+	sb.postID = "msg-42"
+	body, _ := json.Marshal(map[string]any{"chat_jid": "discord:123", "content": "hi"})
+	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if sb.postReq.ChatJID != "discord:123" || sb.postReq.Content != "hi" {
+		t.Errorf("post req = %+v", sb.postReq)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["id"] != "msg-42" {
+		t.Errorf("id = %v", resp["id"])
+	}
+}
+
+func TestServerReact(t *testing.T) {
+	h, sb := stubHandler("secret")
+	body, _ := json.Marshal(map[string]any{
+		"chat_jid": "discord:123", "target_id": "m1", "reaction": "🎉",
+	})
+	req := httptest.NewRequest("POST", "/react", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if sb.reactReq.TargetID != "m1" || sb.reactReq.Reaction != "🎉" {
+		t.Errorf("react req = %+v", sb.reactReq)
+	}
+}
+
+func TestServerDeletePost(t *testing.T) {
+	h, sb := stubHandler("secret")
+	body, _ := json.Marshal(map[string]any{"chat_jid": "discord:123", "target_id": "m1"})
+	req := httptest.NewRequest("POST", "/delete-post", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if sb.delReq.TargetID != "m1" {
+		t.Errorf("del req = %+v", sb.delReq)
+	}
 }
 
 func TestServerSend(t *testing.T) {

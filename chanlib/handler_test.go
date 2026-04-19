@@ -19,6 +19,7 @@ type mockBot struct {
 	fileErr  error
 	typJID   string
 	typOn    bool
+	NoSocial
 }
 
 func (m *mockBot) Send(req SendRequest) (string, error) {

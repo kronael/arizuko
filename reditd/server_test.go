@@ -16,6 +16,11 @@ type stubSender struct {
 	commented []string
 	submitted []string
 	err       error
+	postReq   chanlib.PostRequest
+	postID    string
+	postErr   error
+	delReq    chanlib.DeleteRequest
+	delErr    error
 }
 
 func (s *stubSender) Send(req chanlib.SendRequest) (string, error) {
@@ -28,6 +33,15 @@ func (s *stubSender) Send(req chanlib.SendRequest) (string, error) {
 }
 
 func (s *stubSender) Typing(string, bool) {}
+func (s *stubSender) Post(r chanlib.PostRequest) (string, error) {
+	s.postReq = r
+	return s.postID, s.postErr
+}
+func (s *stubSender) React(chanlib.ReactRequest) error { return chanlib.ErrUnsupported }
+func (s *stubSender) DeletePost(r chanlib.DeleteRequest) error {
+	s.delReq = r
+	return s.delErr
+}
 
 func testReditServer(t *testing.T, secret string) *server {
 	t.Helper()
@@ -253,6 +267,55 @@ func TestReditFileProxyAuthRequired(t *testing.T) {
 	s.handler().ServeHTTP(w, req)
 	if w.Code != 401 {
 		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestReditPost(t *testing.T) {
+	stub := &stubSender{postID: "t3_abc"}
+	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100))
+	body, _ := json.Marshal(map[string]any{"chat_jid": "reddit:sub", "content": "body"})
+	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if stub.postReq.Content != "body" {
+		t.Errorf("post req = %+v", stub.postReq)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["id"] != "t3_abc" {
+		t.Errorf("id = %v", resp["id"])
+	}
+}
+
+func TestReditDeletePost(t *testing.T) {
+	stub := &stubSender{}
+	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100))
+	body, _ := json.Marshal(map[string]any{"chat_jid": "reddit:sub", "target_id": "t3_abc"})
+	req := httptest.NewRequest("POST", "/delete-post", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if stub.delReq.TargetID != "t3_abc" {
+		t.Errorf("del req = %+v", stub.delReq)
+	}
+}
+
+func TestReditReactUnsupported(t *testing.T) {
+	s := newServer(config{Name: "reddit"}, &stubSender{}, chanlib.NewURLCache(100))
+	body, _ := json.Marshal(map[string]any{"chat_jid": "reddit:sub", "target_id": "t3_abc", "reaction": "👍"})
+	req := httptest.NewRequest("POST", "/react", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 501 {
+		t.Errorf("status = %d, want 501", w.Code)
 	}
 }
 

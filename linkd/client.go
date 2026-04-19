@@ -21,6 +21,7 @@ import (
 
 type linkClient struct {
 	chanlib.NoFileSender
+	chanlib.NoSocial
 	cfg       config
 	http      *http.Client
 	mu        sync.Mutex

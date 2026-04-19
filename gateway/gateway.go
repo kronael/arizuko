@@ -19,6 +19,7 @@ import (
 
 	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/chanlib"
+	"github.com/onvos/arizuko/chanreg"
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/diary"
@@ -111,6 +112,9 @@ func (g *Gateway) Run(ctx context.Context) error {
 			return g.sendMessageReply(jid, text, replyTo, "")
 		},
 		SendDocument: g.sendDocument,
+		Post:         g.postToJID,
+		React:        g.reactOnJID,
+		DeletePost:   g.deletePostOnJID,
 		ClearSession: g.clearSession,
 		GroupsDir:    g.cfg.GroupsDir,
 		WebDir:       g.cfg.WebDir,
@@ -936,6 +940,51 @@ func (g *Gateway) sendDocument(jid, path, name, caption string) error {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
 	return ch.SendFile(jid, path, name, caption)
+}
+
+func (g *Gateway) channelSocial(jid string) (core.Socializer, error) {
+	ch := g.findChannelForJID(jid)
+	if ch == nil {
+		return nil, fmt.Errorf("no channel for jid %s", jid)
+	}
+	s, ok := ch.(core.Socializer)
+	if !ok {
+		return nil, chanreg.ErrUnsupported
+	}
+	return s, nil
+}
+
+func (g *Gateway) postToJID(jid, content string, mediaPaths []string) (string, error) {
+	if !g.canSendToJID(jid) {
+		return "", nil
+	}
+	s, err := g.channelSocial(jid)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Post(ctx, jid, content, mediaPaths)
+}
+
+func (g *Gateway) reactOnJID(jid, targetID, reaction string) error {
+	s, err := g.channelSocial(jid)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.React(ctx, jid, targetID, reaction)
+}
+
+func (g *Gateway) deletePostOnJID(jid, targetID string) error {
+	s, err := g.channelSocial(jid)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.DeletePost(ctx, jid, targetID)
 }
 
 func (g *Gateway) clearSession(folder string) {

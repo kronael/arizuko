@@ -22,11 +22,46 @@ type SendRequest struct {
 
 // BotHandler is the interface adapters implement for outbound messaging.
 // Send returns the sent message ID (may be ""); Typing is fire-and-forget.
+// Post, React, DeletePost are social-action primitives — adapters that
+// don't support them should embed NoSocial to get "unsupported" defaults.
 type BotHandler interface {
 	Send(req SendRequest) (string, error)
 	SendFile(jid, path, name, caption string) error
 	Typing(jid string, on bool)
+	Post(req PostRequest) (string, error)
+	React(req ReactRequest) error
+	DeletePost(req DeleteRequest) error
 }
+
+type PostRequest struct {
+	ChatJID    string   `json:"chat_jid"`
+	Content    string   `json:"content"`
+	MediaPaths []string `json:"media_paths,omitempty"`
+}
+
+type ReactRequest struct {
+	ChatJID  string `json:"chat_jid"`
+	TargetID string `json:"target_id"`
+	Reaction string `json:"reaction"`
+}
+
+type DeleteRequest struct {
+	ChatJID  string `json:"chat_jid"`
+	TargetID string `json:"target_id"`
+}
+
+// ErrUnsupported marks a social action not implemented on this platform.
+// Adapter HTTP layer maps this to 501.
+var ErrUnsupported = errors.New("unsupported")
+
+// NoSocial is a zero-value mixin providing "unsupported" defaults for
+// Post, React, DeletePost. Adapters that implement a subset embed this
+// and override the relevant method(s).
+type NoSocial struct{}
+
+func (NoSocial) Post(PostRequest) (string, error) { return "", ErrUnsupported }
+func (NoSocial) React(ReactRequest) error         { return ErrUnsupported }
+func (NoSocial) DeletePost(DeleteRequest) error   { return ErrUnsupported }
 
 // HistoryRequest is the query for platform-side history fetch.
 // Before is RFC3339; empty means "latest". Limit is clamped by the adapter.
@@ -63,6 +98,9 @@ func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler) *http
 	mux.HandleFunc("POST /send", Auth(secret, handleSend(bot)))
 	mux.HandleFunc("POST /send-file", Auth(secret, handleSendFile(bot)))
 	mux.HandleFunc("POST /typing", Auth(secret, handleTyping(bot)))
+	mux.HandleFunc("POST /post", Auth(secret, handlePost(bot)))
+	mux.HandleFunc("POST /react", Auth(secret, handleReact(bot)))
+	mux.HandleFunc("POST /delete-post", Auth(secret, handleDeletePost(bot)))
 	mux.HandleFunc("GET /health", handleHealth(name, prefixes))
 	if hp, ok := bot.(HistoryProvider); ok {
 		mux.HandleFunc("GET /v1/history", Auth(secret, handleHistory(hp)))
@@ -193,6 +231,71 @@ func handleTyping(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		bot.Typing(req.ChatJID, req.On)
+		WriteJSON(w, map[string]any{"ok": true})
+	}
+}
+
+func handlePost(bot BotHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
+		var req PostRequest
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
+			WriteErr(w, 400, "chat_jid and content required")
+			return
+		}
+		id, err := bot.Post(req)
+		if err != nil {
+			if errors.Is(err, ErrUnsupported) {
+				WriteErr(w, 501, "unsupported")
+				return
+			}
+			WriteErr(w, 502, err.Error())
+			return
+		}
+		resp := map[string]any{"ok": true}
+		if id != "" {
+			resp["id"] = id
+		}
+		WriteJSON(w, resp)
+	}
+}
+
+func handleReact(bot BotHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
+		var req ReactRequest
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" {
+			WriteErr(w, 400, "chat_jid and target_id required")
+			return
+		}
+		if err := bot.React(req); err != nil {
+			if errors.Is(err, ErrUnsupported) {
+				WriteErr(w, 501, "unsupported")
+				return
+			}
+			WriteErr(w, 502, err.Error())
+			return
+		}
+		WriteJSON(w, map[string]any{"ok": true})
+	}
+}
+
+func handleDeletePost(bot BotHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
+		var req DeleteRequest
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" {
+			WriteErr(w, 400, "chat_jid and target_id required")
+			return
+		}
+		if err := bot.DeletePost(req); err != nil {
+			if errors.Is(err, ErrUnsupported) {
+				WriteErr(w, 501, "unsupported")
+				return
+			}
+			WriteErr(w, 502, err.Error())
+			return
+		}
 		WriteJSON(w, map[string]any{"ok": true})
 	}
 }

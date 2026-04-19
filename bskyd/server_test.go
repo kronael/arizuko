@@ -14,7 +14,27 @@ import (
 
 type stubCreator struct {
 	chanlib.NoFileSender
-	err error
+	err      error
+	postID   string
+	postErr  error
+	postReq  chanlib.PostRequest
+	reactReq chanlib.ReactRequest
+	reactErr error
+	delReq   chanlib.DeleteRequest
+	delErr   error
+}
+
+func (s *stubCreator) Post(r chanlib.PostRequest) (string, error) {
+	s.postReq = r
+	return s.postID, s.postErr
+}
+func (s *stubCreator) React(r chanlib.ReactRequest) error {
+	s.reactReq = r
+	return s.reactErr
+}
+func (s *stubCreator) DeletePost(r chanlib.DeleteRequest) error {
+	s.delReq = r
+	return s.delErr
 }
 
 func (s *stubCreator) Send(chanlib.SendRequest) (string, error) { return "", s.err }
@@ -227,6 +247,63 @@ func TestBskyFileProxyCDNError(t *testing.T) {
 	s.handler().ServeHTTP(w, req)
 	if w.Code != 502 {
 		t.Errorf("status = %d, want 502", w.Code)
+	}
+}
+
+func TestBskyPost(t *testing.T) {
+	stub := &stubCreator{postID: "at://did:plc:me/app.bsky.feed.post/abc"}
+	s := newServer(config{Name: "bluesky"}, stub)
+	body, _ := json.Marshal(map[string]any{"chat_jid": "bluesky:did:plc:me", "content": "hello world"})
+	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if stub.postReq.Content != "hello world" {
+		t.Errorf("post req = %+v", stub.postReq)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["id"] != "at://did:plc:me/app.bsky.feed.post/abc" {
+		t.Errorf("id = %v", resp["id"])
+	}
+}
+
+func TestBskyReact(t *testing.T) {
+	stub := &stubCreator{}
+	s := newServer(config{Name: "bluesky"}, stub)
+	body, _ := json.Marshal(map[string]any{
+		"chat_jid": "bluesky:did:plc:me", "target_id": "at://x/app.bsky.feed.post/y", "reaction": "like",
+	})
+	req := httptest.NewRequest("POST", "/react", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if stub.reactReq.TargetID != "at://x/app.bsky.feed.post/y" {
+		t.Errorf("react req = %+v", stub.reactReq)
+	}
+}
+
+func TestBskyDeletePost(t *testing.T) {
+	stub := &stubCreator{}
+	s := newServer(config{Name: "bluesky"}, stub)
+	body, _ := json.Marshal(map[string]any{
+		"chat_jid": "bluesky:did:plc:me", "target_id": "at://did:plc:me/app.bsky.feed.post/abc",
+	})
+	req := httptest.NewRequest("POST", "/delete-post", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if stub.delReq.TargetID != "at://did:plc:me/app.bsky.feed.post/abc" {
+		t.Errorf("del req = %+v", stub.delReq)
 	}
 }
 

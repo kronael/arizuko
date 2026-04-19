@@ -23,6 +23,8 @@ type bot struct {
 	files   *chanlib.URLCache
 }
 
+var _ chanlib.BotHandler = (*bot)(nil)
+
 func newBot(cfg config) (*bot, error) {
 	s, err := discordgo.New("Bot " + cfg.DiscordToken)
 	if err != nil {
@@ -160,6 +162,56 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 }
 
 func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
+
+func (b *bot) Post(req chanlib.PostRequest) (string, error) {
+	chID := strings.TrimPrefix(req.ChatJID, "discord:")
+	if chID == "" {
+		return "", fmt.Errorf("discord post: empty channel id")
+	}
+	send := &discordgo.MessageSend{Content: req.Content}
+	var openedFiles []*os.File
+	defer func() {
+		for _, f := range openedFiles {
+			f.Close()
+		}
+	}()
+	for _, p := range req.MediaPaths {
+		f, err := os.Open(p)
+		if err != nil {
+			return "", fmt.Errorf("discord post open %s: %w", p, err)
+		}
+		openedFiles = append(openedFiles, f)
+		send.Files = append(send.Files, &discordgo.File{Name: filepath.Base(p), Reader: f})
+	}
+	msg, err := b.session.ChannelMessageSendComplex(chID, send)
+	if err != nil {
+		return "", fmt.Errorf("discord post: %w", err)
+	}
+	if msg == nil {
+		return "", nil
+	}
+	return msg.ID, nil
+}
+
+func (b *bot) React(req chanlib.ReactRequest) error {
+	chID := strings.TrimPrefix(req.ChatJID, "discord:")
+	emoji := req.Reaction
+	if emoji == "" {
+		emoji = "👍"
+	}
+	if err := b.session.MessageReactionAdd(chID, req.TargetID, emoji); err != nil {
+		return fmt.Errorf("discord react: %w", err)
+	}
+	return nil
+}
+
+func (b *bot) DeletePost(req chanlib.DeleteRequest) error {
+	chID := strings.TrimPrefix(req.ChatJID, "discord:")
+	if err := b.session.ChannelMessageDelete(chID, req.TargetID); err != nil {
+		return fmt.Errorf("discord delete: %w", err)
+	}
+	return nil
+}
 
 // discordEpochMs is the Discord snowflake epoch (2015-01-01T00:00:00Z).
 const discordEpochMs = 1420070400000
