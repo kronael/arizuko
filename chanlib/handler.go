@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type SendRequest struct {
@@ -26,6 +28,30 @@ type BotHandler interface {
 	Typing(jid string, on bool)
 }
 
+// HistoryRequest is the query for platform-side history fetch.
+// Before is RFC3339; empty means "latest". Limit is clamped by the adapter.
+type HistoryRequest struct {
+	ChatJID string
+	Before  time.Time
+	Limit   int
+}
+
+// HistoryResponse is returned by an adapter's /v1/history endpoint.
+// Source is one of "platform", "platform-capped", "cache-only", "unsupported".
+// Cap is a human-readable limit note ("24h", "1000") when Source is capped.
+type HistoryResponse struct {
+	Source   string       `json:"source"`
+	Cap      string       `json:"cap,omitempty"`
+	Messages []InboundMsg `json:"messages"`
+}
+
+// HistoryProvider is an optional bot capability. Adapters that can fetch
+// history from the platform implement this; those that can't skip it and
+// the gateway falls back to the local DB.
+type HistoryProvider interface {
+	FetchHistory(req HistoryRequest) (HistoryResponse, error)
+}
+
 type NoFileSender struct{}
 
 func (NoFileSender) SendFile(_, _, _, _ string) error { return errSendFile }
@@ -38,7 +64,44 @@ func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler) *http
 	mux.HandleFunc("POST /send-file", Auth(secret, handleSendFile(bot)))
 	mux.HandleFunc("POST /typing", Auth(secret, handleTyping(bot)))
 	mux.HandleFunc("GET /health", handleHealth(name, prefixes))
+	if hp, ok := bot.(HistoryProvider); ok {
+		mux.HandleFunc("GET /v1/history", Auth(secret, handleHistory(hp)))
+	}
 	return mux
+}
+
+func handleHistory(hp HistoryProvider) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		jid := q.Get("jid")
+		if jid == "" {
+			WriteErr(w, 400, "jid required")
+			return
+		}
+		req := HistoryRequest{ChatJID: jid, Limit: 100}
+		if s := q.Get("limit"); s != "" {
+			if n, err := strconv.Atoi(s); err == nil && n > 0 {
+				req.Limit = n
+			}
+		}
+		if s := q.Get("before"); s != "" {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				WriteErr(w, 400, "invalid before (RFC3339)")
+				return
+			}
+			req.Before = t
+		}
+		resp, err := hp.FetchHistory(req)
+		if err != nil {
+			WriteErr(w, 502, err.Error())
+			return
+		}
+		if resp.Source == "" {
+			resp.Source = "platform"
+		}
+		WriteJSON(w, resp)
+	}
 }
 
 func handleSend(bot BotHandler) http.HandlerFunc {

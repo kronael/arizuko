@@ -104,6 +104,13 @@ type Channel interface {
 	Disconnect() error
 }
 
+// HistoryFetcher is an optional capability implemented by channels that can
+// retrieve history from the upstream platform API. Returns raw JSON bytes
+// matching chanlib.HistoryResponse; the caller decodes.
+type HistoryFetcher interface {
+	FetchHistory(ctx context.Context, jid string, before time.Time, limit int) ([]byte, error)
+}
+
 type SessionRecord struct {
 	ID        int64
 	Folder    string

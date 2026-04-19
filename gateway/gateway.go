@@ -132,6 +132,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 			gr.Config = cfg
 			return g.store.PutGroup(gr)
 		},
+		FetchPlatformHistory: g.fetchPlatformHistory,
 		SpawnGroup: func(parentFolder, childJID string) (core.Group, error) {
 			if _, ok := g.store.GroupByFolder(parentFolder); !ok {
 				return core.Group{}, fmt.Errorf("parent group not found: %s", parentFolder)
@@ -839,6 +840,56 @@ func (g *Gateway) findChannelForJID(jid string) core.Channel {
 		}
 	}
 	return nil
+}
+
+// fetchPlatformHistory proxies to the adapter owning jid, decodes the
+// HistoryResponse, caches rows in the local DB (dedup by ID), and returns
+// the decoded messages. On adapter error returns source:"cache" with
+// whatever the local DB has.
+func (g *Gateway) fetchPlatformHistory(jid string, before time.Time, limit int) (ipc.PlatformHistory, error) {
+	fallback := func(source string) (ipc.PlatformHistory, error) {
+		msgs, err := g.store.MessagesBefore(jid, before, limit)
+		if err != nil {
+			return ipc.PlatformHistory{}, err
+		}
+		return ipc.PlatformHistory{Source: source, Messages: msgs}, nil
+	}
+	ch := g.findChannelForJID(jid)
+	if ch == nil {
+		return fallback("cache-only")
+	}
+	hf, ok := ch.(core.HistoryFetcher)
+	if !ok {
+		return fallback("cache-only")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	raw, err := hf.FetchHistory(ctx, jid, before, limit)
+	if err != nil {
+		slog.Warn("fetch_history: adapter failed, falling back to cache",
+			"jid", jid, "err", err)
+		return fallback("cache")
+	}
+	var resp chanlib.HistoryResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fallback("cache")
+	}
+	out := ipc.PlatformHistory{Source: resp.Source, Cap: resp.Cap}
+	for _, m := range resp.Messages {
+		cm := core.Message{
+			ID:        m.ID,
+			ChatJID:   m.ChatJID,
+			Sender:    m.Sender,
+			Content:   m.Content,
+			Timestamp: time.Unix(m.Timestamp, 0).UTC(),
+			ReplyToID: m.ReplyTo,
+		}
+		if cm.ID != "" {
+			_ = g.store.PutMessage(cm)
+		}
+		out.Messages = append(out.Messages, cm)
+	}
+	return out, nil
 }
 
 func (g *Gateway) sendMessage(jid, text string) error {

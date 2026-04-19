@@ -37,8 +37,18 @@ type GatedFns struct {
 	EnqueueMessageCheck func(jid string)
 	SpawnGroup          func(parentFolder, childJID string) (core.Group, error)
 	UpdateGroupConfig   func(folder string, cfg core.GroupConfig) error
+	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
 	GroupsDir           string
 	WebDir              string
+}
+
+// PlatformHistory is the decoded channel-side history response surfaced to
+// the agent. Source is "platform", "platform-capped", "cache-only",
+// "unsupported", or "cache" (adapter-unreachable fallback).
+type PlatformHistory struct {
+	Source   string         `json:"source"`
+	Cap      string         `json:"cap,omitempty"`
+	Messages []core.Message `json:"messages"`
 }
 
 type StoreFns struct {
@@ -828,8 +838,59 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	}
 
 	if db.MessagesBefore != nil {
+		inspectMessages := func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chat_jid", "")
+			if jid == "" {
+				return toolErr("chat_jid required")
+			}
+			if id.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
+				return toolErr("access_denied: jid not routed to your group")
+			}
+			limitVal := req.GetInt("limit", 100)
+			if limitVal <= 0 || limitVal > 200 {
+				limitVal = 100
+			}
+			var before time.Time
+			if beforeStr := req.GetString("before", ""); beforeStr != "" {
+				t, err := time.Parse(time.RFC3339, beforeStr)
+				if err != nil {
+					return toolErr("invalid before timestamp: " + err.Error())
+				}
+				before = t
+			}
+			msgs, err := db.MessagesBefore(jid, before, limitVal)
+			if err != nil {
+				return toolErr("inspect_messages: " + err.Error())
+			}
+			oldest := ""
+			if len(msgs) > 0 {
+				oldest = msgs[0].Timestamp.Format(time.RFC3339)
+			}
+			return toolJSON(map[string]any{
+				"messages": router.FormatMessages(msgs),
+				"count":    len(msgs),
+				"oldest":   oldest,
+				"source":   "local-db",
+			})
+		}
+		srv.AddTool(mcp.NewTool("inspect_messages",
+			mcp.WithDescription("Read local message DB for a chat — outbound audit, errored rows, routing introspection. For conversation context prefer fetch_history."),
+			mcp.WithString("chat_jid", mcp.Required()),
+			mcp.WithNumber("limit"),
+			mcp.WithString("before"),
+		), inspectMessages)
+		// Back-compat alias; remove after next agent release.
 		srv.AddTool(mcp.NewTool("get_history",
-			mcp.WithDescription("Fetch message history for a chat. Returns XML same as injected <messages> block."),
+			mcp.WithDescription("DEPRECATED alias for inspect_messages. Use fetch_history for conversation context."),
+			mcp.WithString("chat_jid", mcp.Required()),
+			mcp.WithNumber("limit"),
+			mcp.WithString("before"),
+		), inspectMessages)
+	}
+
+	if gated.FetchPlatformHistory != nil {
+		srv.AddTool(mcp.NewTool("fetch_history",
+			mcp.WithDescription("Fetch conversation history from the channel (platform API). Writes to the local cache; falls back to cache when the adapter is unreachable."),
 			mcp.WithString("chat_jid", mcp.Required()),
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
@@ -853,18 +914,20 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				}
 				before = t
 			}
-			msgs, err := db.MessagesBefore(jid, before, limitVal)
+			h, err := gated.FetchPlatformHistory(jid, before, limitVal)
 			if err != nil {
-				return toolErr("get_history: " + err.Error())
+				return toolErr("fetch_history: " + err.Error())
 			}
 			oldest := ""
-			if len(msgs) > 0 {
-				oldest = msgs[0].Timestamp.Format(time.RFC3339)
+			if len(h.Messages) > 0 {
+				oldest = h.Messages[0].Timestamp.Format(time.RFC3339)
 			}
 			return toolJSON(map[string]any{
-				"messages": router.FormatMessages(msgs),
-				"count":    len(msgs),
+				"messages": router.FormatMessages(h.Messages),
+				"count":    len(h.Messages),
 				"oldest":   oldest,
+				"source":   h.Source,
+				"cap":      h.Cap,
 			})
 		})
 	}

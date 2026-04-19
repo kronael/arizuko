@@ -159,6 +159,34 @@ func (h *HTTPChannel) Typing(jid string, on bool) error {
 	return nil
 }
 
+// FetchHistory proxies to the adapter's GET /v1/history endpoint and
+// returns the raw JSON bytes. The caller decodes into chanlib.HistoryResponse.
+// Returns an error if the adapter doesn't advertise the fetch_history cap or
+// if the request fails.
+func (h *HTTPChannel) FetchHistory(ctx context.Context, jid string, before time.Time, limit int) ([]byte, error) {
+	if !h.entry.HasCap("fetch_history") {
+		return nil, fmt.Errorf("channel %s: fetch_history not supported", h.entry.Name)
+	}
+	u := fmt.Sprintf("%s/v1/history?jid=%s&limit=%d", h.entry.URL, jid, limit)
+	if !before.IsZero() {
+		u += "&before=" + before.UTC().Format(time.RFC3339)
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+h.secret)
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("channel %s fetch_history: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("channel %s fetch_history: status %d", h.entry.Name, resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+}
+
 func (h *HTTPChannel) Disconnect() error { return nil }
 
 func (h *HTTPChannel) HealthCheck() error { return healthPing(h.client, h.entry.URL) }
