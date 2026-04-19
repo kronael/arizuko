@@ -1,10 +1,11 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Prototypes
 
-Spawn and copy shipped. Cleanup/TTL job deferred.
+Spawn, copy, and cleanup/TTL all shipped. Cleanup runs via `timed`
+(`timed/main.go cleanupSpawns`).
 
 A group's `prototype/` subdirectory defines what its children look
 like. When a child is spawned (via auto-threading or onboarding),
@@ -99,9 +100,9 @@ spawn_ttl_days       INT  default 7   -- mark closed after N days inactive
 archive_closed_days  INT  default 1   -- archive closed after N days
 ```
 
-Cleanup runs once per day via timed daemon. Note: `spawn_ttl_days`
-cleanup and archive jobs are not yet implemented — spawns persist
-active indefinitely regardless of inactivity.
+Cleanup runs once per day via `timed` (`cleanupSpawns` in
+`timed/main.go`): marks inactive spawns `closed`, archives after the
+`archive_closed_days` threshold.
 
 ## Migrations
 
@@ -144,4 +145,4 @@ remains the primary mechanism for inbound-triggered spawns.
 
 - Prototype inheritance across worlds (each world's root defines its own)
 - Spawn creation from chat commands (use auto-threading routes)
-- Spawn cleanup/TTL jobs (spawns persist active indefinitely)
+- Prototype creation from chat commands beyond `register_group`

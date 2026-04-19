@@ -20,6 +20,7 @@ are deferred or superseded by phase 8.
 - [18-web-vhosts.md](18-web-vhosts.md) — hostname-based routing, vhosts.json
 - [19-action-grants.md](19-action-grants.md) — grant rules, tier defaults, delegation
 - [23-topic-routing.md](23-topic-routing.md) — `@agent` delegation, `#topic` sessions
+- [26-prototypes.md](26-prototypes.md) — spawn/copy + TTL cleanup via timed
 - [Y-minimal-setup.md](Y-minimal-setup.md) — PROFILE-gated compose generation
 - [chanlib-refactor.md](chanlib-refactor.md) — adapter boilerplate moved to chanlib
 - [social-adapters.md](social-adapters.md) — teled, discd, emaid, bskyd, mastd, reditd, whapd
@@ -28,14 +29,13 @@ are deferred or superseded by phase 8.
 ## Partial
 
 - [24-recall.md](24-recall.md) — v1 LLM grep shipped; v2 FTS5+sqlite-vec planned
-- [26-prototypes.md](26-prototypes.md) — spawn/copy shipped; cleanup/TTL deferred
+- [Q-dash-memory.md](Q-dash-memory.md) — view shipped; edit endpoints open
 - [X-extensions.md](X-extensions.md) — sidecars + skills shipped; marketplace deferred
 - [Z-versioning-personas.md](Z-versioning-personas.md) — versioning shipped; plugin composition deferred
 
 ## Unshipped
 
 - [G-instance-repos.md](G-instance-repos.md) — instance configs as git repos (`--from`)
-- [Q-dash-memory.md](Q-dash-memory.md) — dashd memory view/edit UI
 - [e2e-tests.md](e2e-tests.md) — mock-agent-based end-to-end tests
 - [products.md](products.md) — curated persona+skill templates (`ant/products/<name>/`)
 

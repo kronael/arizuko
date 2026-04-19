@@ -1,5 +1,5 @@
 ---
-status: unshipped
+status: partial
 ---
 
 # Dashboard: Memory View & Edit

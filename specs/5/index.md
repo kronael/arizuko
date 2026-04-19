@@ -15,7 +15,7 @@ status: future
 | [6-evangelist.md](6-evangelist.md)                             | deferred   | Community-engagement agent (scrape → score → draft → review)       |
 | [6-extend-gateway-self.md](6-extend-gateway-self.md)           | unshipped  | Root agent modifying gateway codebase (plugin dir or agent branch) |
 | [9-identities.md](9-identities.md)                             | unshipped  | Link one user across multiple platform subs                        |
-| [C-message-mcp.md](C-message-mcp.md)                           | unshipped  | `get_history` / `get_thread` MCP tools                             |
+| [C-message-mcp.md](C-message-mcp.md)                           | partial    | `get_history` shipped; `get_thread` pending                        |
 | [D-message-wal.md](D-message-wal.md)                           | unshipped  | WAL for reliable pipe-to-container message delivery                |
 | [E-plugins.md](E-plugins.md)                                   | unshipped  | Agent proposes, operator approves plugin system                    |
 | [G-agent-backends.md](G-agent-backends.md)                     | superseded | Codex / Pi as ant backends — not shipping                          |

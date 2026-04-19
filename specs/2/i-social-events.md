@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Social Events — Unified Inbound Model

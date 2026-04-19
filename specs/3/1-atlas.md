@@ -1,5 +1,5 @@
 ---
-status: shipped
+status: partial
 ---
 
 # Atlas
