@@ -99,7 +99,9 @@ func (g *Gateway) Run(ctx context.Context) error {
 
 	g.loadState()
 
-	g.AddChannel(NewLocalChannel(g.store))
+	lc := NewLocalChannel(g.store)
+	lc.SetEnqueue(func(jid string) { g.queue.EnqueueMessageCheck(jid) })
+	g.AddChannel(lc)
 
 	g.gatedFns = ipc.GatedFns{
 		SendMessage: func(jid, text string) (string, error) {
@@ -122,6 +124,14 @@ func (g *Gateway) Run(ctx context.Context) error {
 		},
 		GetGroups:           g.store.AllGroups,
 		EnqueueMessageCheck: g.queue.EnqueueMessageCheck,
+		UpdateGroupConfig: func(folder string, cfg core.GroupConfig) error {
+			gr, ok := g.store.GroupByFolder(folder)
+			if !ok {
+				return fmt.Errorf("group not found: %s", folder)
+			}
+			gr.Config = cfg
+			return g.store.PutGroup(gr)
+		},
 		SpawnGroup: func(parentFolder, childJID string) (core.Group, error) {
 			if _, ok := g.store.GroupByFolder(parentFolder); !ok {
 				return core.Group{}, fmt.Errorf("parent group not found: %s", parentFolder)

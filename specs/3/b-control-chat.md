@@ -1,6 +1,9 @@
 ---
-status: partial
+status: shipped
 ---
+
+Note: `/approve` and `/reject` are wired as graceful stubs; a HITL queue
+is a separate spec.
 
 # Control Chat
 

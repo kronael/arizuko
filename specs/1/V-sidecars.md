@@ -6,8 +6,11 @@ status: partial
 
 MCP servers in isolated docker containers. Gateway-managed
 (operator config via `GroupConfig.Sidecars`) is shipped.
-Agent-requested provisioning (`request_sidecar` IPC action) is
-specified but not implemented. Code: `container/sidecar.go`.
+`list_sidecars` and `configure_sidecar` MCP tools (tier 0-1) are
+shipped and persist to `container_config`; take effect next spawn.
+Agent-requested runtime provisioning (`request_sidecar` / `stop_sidecar`)
+still requires a persistent sidecar supervisor and is not implemented.
+Code: `container/sidecar.go`, `ipc/ipc.go`.
 
 ## Socket path convention
 

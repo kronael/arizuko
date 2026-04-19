@@ -1,5 +1,5 @@
 ---
-status: unshipped
+status: shipped
 ---
 
 # Work — current task state

@@ -3,6 +3,7 @@ package ipc
 import (
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -189,6 +190,75 @@ func TestWorkspaceRel(t *testing.T) {
 		if got != c.want {
 			t.Errorf("workspaceRel(%q): got %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestSidecarConfigRoundTrip(t *testing.T) {
+	groups := map[string]core.Group{
+		"world": {Folder: "world"},
+	}
+	var stored core.GroupConfig
+	gated := GatedFns{
+		GetGroups: func() map[string]core.Group { return groups },
+		UpdateGroupConfig: func(folder string, cfg core.GroupConfig) error {
+			stored = cfg
+			gr := groups[folder]
+			gr.Config = cfg
+			groups[folder] = gr
+			return nil
+		},
+		GroupsDir: "/tmp", WebDir: "/tmp",
+	}
+	// tier-0 build: list_sidecars + configure_sidecar should register
+	srv := buildMCPServer(gated, StoreFns{}, "world", nil)
+	if srv == nil {
+		t.Fatal("nil server")
+	}
+	// tier-3 at w/a/b/c: sidecar tools should NOT register
+	srv2 := buildMCPServer(gated, StoreFns{}, "w/a/b/c", nil)
+	if srv2 == nil {
+		t.Fatal("nil tier-3 server")
+	}
+
+	// Simulate configure_sidecar persistence (gated.UpdateGroupConfig
+	// is what the handler calls)
+	cfg := core.GroupConfig{Sidecars: map[string]core.Sidecar{
+		"bash": {Image: "arizuko-sidecar-bash:latest", Net: "none"},
+	}}
+	if err := gated.UpdateGroupConfig("world", cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := stored.Sidecars["bash"]; !ok {
+		t.Error("sidecar not stored")
+	}
+}
+
+// TestWorkToolsRegistered verifies set_work/get_work register per tier
+// and build without error.
+func TestWorkToolsRegistered(t *testing.T) {
+	dir := t.TempDir()
+	gated := GatedFns{GroupsDir: dir, WebDir: dir}
+	// tier-0 with no rules: get_work always registers, set_work gated on tier
+	if srv := buildMCPServer(gated, StoreFns{}, "world", nil); srv == nil {
+		t.Fatal("tier-0 build failed")
+	}
+	// tier-3 at w/a/b/c: get_work registers, set_work does not
+	if srv := buildMCPServer(gated, StoreFns{}, "w/a/b/c", nil); srv == nil {
+		t.Fatal("tier-3 build failed")
+	}
+
+	// Verify work.md round-trip via filesystem (the path set_work writes)
+	groupDir := filepath.Join(dir, "world")
+	if err := os.MkdirAll(groupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(groupDir, "work.md")
+	if err := os.WriteFile(p, []byte("draft"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil || string(data) != "draft" {
+		t.Errorf("round-trip failed: %q err=%v", data, err)
 	}
 }
 

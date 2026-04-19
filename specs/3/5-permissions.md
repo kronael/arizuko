@@ -5,7 +5,9 @@ status: shipped
 # Group Permissions
 
 Four-tier permission model. Core enforcement shipped. Escalation
-response protocol is the main open item.
+response wiring shipped: `LocalChannel.Send` now enqueues a message
+check on `local:<child>` and stores the parent reply as a non-bot
+message so the child resumes and replies to the original user JID.
 
 ## Tiers
 

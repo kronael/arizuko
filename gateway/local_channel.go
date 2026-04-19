@@ -11,11 +11,18 @@ import (
 )
 
 type LocalChannel struct {
-	store *store.Store
+	store   *store.Store
+	enqueue func(jid string)
 }
 
 func NewLocalChannel(s *store.Store) *LocalChannel {
 	return &LocalChannel{store: s}
+}
+
+// SetEnqueue wires a callback so local: messages land as queued input
+// for the target group (wakes escalation recipients).
+func (c *LocalChannel) SetEnqueue(fn func(jid string)) {
+	c.enqueue = fn
 }
 
 func (c *LocalChannel) Name() string                    { return "local" }
@@ -40,13 +47,16 @@ func (c *LocalChannel) Send(jid, text, replyTo, threadID string) (string, error)
 		Name:      "local",
 		Content:   text,
 		Timestamp: time.Now(),
-		FromMe:    true,
-		BotMsg:    true,
 		ReplyToID: replyTo,
 		Topic:     threadID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("store message: %w", err)
+	}
+	// Wake the local recipient so escalation replies flow back to the
+	// originating child group for onward delivery to the user.
+	if c.enqueue != nil {
+		c.enqueue(jid)
 	}
 	return msgID, nil
 }

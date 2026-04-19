@@ -59,6 +59,14 @@ var gatewayCommands = []gatewayCommand{
 	{"/gate", func(g *Gateway, m core.Message, gr core.Group, arg string) bool {
 		return g.cmdGate(m.ChatJID, gr, arg)
 	}},
+	{"/approve", func(g *Gateway, m core.Message, _ core.Group, _ string) bool {
+		g.sendMessage(m.ChatJID, "HITL not configured")
+		return true
+	}},
+	{"/reject", func(g *Gateway, m core.Message, _ core.Group, _ string) bool {
+		g.sendMessage(m.ChatJID, "HITL not configured")
+		return true
+	}},
 }
 
 func lookupCommand(raw string) *gatewayCommand {

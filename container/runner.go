@@ -504,6 +504,10 @@ func prepareInput(cfg *core.Config, in Input, groupDir string) Input {
 	if d := diary.Read(groupDir, 14); d != "" {
 		in.Annotations = append(in.Annotations, d)
 	}
+	if wk := readOptional(filepath.Join(groupDir, "work.md")); wk != "" {
+		in.Annotations = append(in.Annotations,
+			"<knowledge layer=\"work\">\n"+wk+"\n</knowledge>")
+	}
 	if uc := router.UserContextXml(in.Sender, groupDir); uc != "" {
 		in.Annotations = append(in.Annotations, uc)
 	}

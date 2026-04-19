@@ -790,6 +790,34 @@ func TestPrepareInputResolveNudge(t *testing.T) {
 	}
 }
 
+func TestPrepareInputInjectsWorkMd(t *testing.T) {
+	d := t.TempDir()
+	cfg := &core.Config{HostAppDir: t.TempDir()}
+	os.MkdirAll(filepath.Join(cfg.HostAppDir, "ant", "skills", "self"), 0o755)
+	os.WriteFile(filepath.Join(d, "work.md"), []byte("## Current task\nfixing bug"), 0o644)
+
+	out := prepareInput(cfg, Input{Prompt: "hi"}, d)
+
+	if !strings.Contains(out.Prompt, `<knowledge layer="work">`) {
+		t.Errorf("work.md not injected: %q", out.Prompt)
+	}
+	if !strings.Contains(out.Prompt, "fixing bug") {
+		t.Errorf("work.md content missing from prompt")
+	}
+}
+
+func TestPrepareInputNoWorkMd(t *testing.T) {
+	d := t.TempDir()
+	cfg := &core.Config{HostAppDir: t.TempDir()}
+	os.MkdirAll(filepath.Join(cfg.HostAppDir, "ant", "skills", "self"), 0o755)
+
+	out := prepareInput(cfg, Input{Prompt: "hi"}, d)
+
+	if strings.Contains(out.Prompt, `layer="work"`) {
+		t.Errorf("work layer should be absent when no work.md")
+	}
+}
+
 func TestSoulAndSystemMdMissing(t *testing.T) {
 	d := t.TempDir()
 

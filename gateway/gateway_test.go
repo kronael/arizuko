@@ -149,7 +149,7 @@ func TestHandleCommand_RecognizedCommands(t *testing.T) {
 	gw.AddChannel(ch)
 	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
 
-	cmds := []string{"/new", "/ping", "/chatid", "/stop"}
+	cmds := []string{"/new", "/ping", "/chatid", "/stop", "/approve", "/reject"}
 	for _, c := range cmds {
 		msg := core.Message{ChatJID: "jid1", Content: c}
 		grp, _ := gw.store.GroupByFolder("grp")
@@ -192,6 +192,24 @@ func TestCmdNew_ClearsSession(t *testing.T) {
 
 	if id, _ := s.GetSession("grp", ""); id != "" {
 		t.Error("session not cleared after /new")
+	}
+}
+
+func TestCmdApproveReject_NotConfigured(t *testing.T) {
+	for _, cmd := range []string{"/approve", "/reject"} {
+		gw, _ := testGateway(t)
+		ch := &mockChannel{name: "test", jids: []string{"jid1"}}
+		gw.AddChannel(ch)
+		setGroup(gw, "jid1", core.Group{Folder: "grp"})
+
+		grp, _ := gw.store.GroupByFolder("grp")
+		msg := core.Message{ChatJID: "jid1", Content: cmd}
+		if !gw.handleCommand(msg, grp) {
+			t.Fatalf("%s handled = false", cmd)
+		}
+		if got := ch.lastSent(); got != "HITL not configured" {
+			t.Errorf("%s sent %q, want %q", cmd, got, "HITL not configured")
+		}
 	}
 }
 

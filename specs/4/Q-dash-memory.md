@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Dashboard: Memory View & Edit
@@ -10,9 +10,9 @@ Per-group memory browser in dashd: view and edit `MEMORY.md`,
 ## Routes
 
 ```
-/dash/memory/:folder/              HTML browser
-/dash/memory/:folder/api/files     list
-/dash/memory/:folder/api/file      GET read / PUT write
+/dash/memory/              HTML browser (group select via ?group=...)
+PUT    /dash/memory/:folder/:rel    write file content (body = bytes)
+DELETE /dash/memory/:folder/:rel    remove file
 ```
 
 Auth: JWT + group access (tier 0–1 all groups, tier 2 own group).

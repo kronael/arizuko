@@ -542,3 +542,153 @@ func TestDashIgnoresAuthHeader(t *testing.T) {
 		})
 	}
 }
+
+func TestMemoryPathAllowed(t *testing.T) {
+	cases := []struct {
+		rel  string
+		want bool
+	}{
+		{"MEMORY.md", true},
+		{".claude/CLAUDE.md", true},
+		{"diary/2026-04-19.md", true},
+		{"facts/foo.md", true},
+		{"users/bob.md", true},
+		{"episodes/week-1.md", true},
+		{"", false},
+		{"..", false},
+		{"../etc/passwd", false},
+		{"/absolute", false},
+		{"diary/../MEMORY.md", false},
+		{"diary/sub/nested.md", false},
+		{"random.md", false},
+		{"MEMORY", false},
+		{".env", false},
+		{"facts/foo.txt", false},
+	}
+	for _, c := range cases {
+		got := memoryPathAllowed(c.rel)
+		if got != c.want {
+			t.Errorf("memoryPathAllowed(%q) = %v, want %v", c.rel, got, c.want)
+		}
+	}
+}
+
+func setupMemoryTest(t *testing.T) (*dash, string, *http.ServeMux) {
+	t.Helper()
+	groups := t.TempDir()
+	folder := "g1"
+	if err := os.MkdirAll(filepath.Join(groups, folder, "diary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db := testDB(t)
+	t.Cleanup(func() { db.Close() })
+	d := &dash{db: db, groupsDir: groups}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+	return d, folder, mux
+}
+
+func TestMemoryWrite(t *testing.T) {
+	d, folder, mux := setupMemoryTest(t)
+
+	body := "hello memory\n"
+	req := httptest.NewRequest("PUT", "/dash/memory/"+folder+"/MEMORY.md", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %q", w.Code, w.Body.String())
+	}
+	data, err := os.ReadFile(filepath.Join(d.groupsDir, folder, "MEMORY.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != body {
+		t.Errorf("file contents = %q, want %q", data, body)
+	}
+}
+
+func TestMemoryWriteDiary(t *testing.T) {
+	d, folder, mux := setupMemoryTest(t)
+
+	req := httptest.NewRequest("PUT", "/dash/memory/"+folder+"/diary/2026-04-19.md", strings.NewReader("entry"))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %q", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(d.groupsDir, folder, "diary", "2026-04-19.md")); err != nil {
+		t.Fatalf("diary file missing: %v", err)
+	}
+}
+
+func TestMemoryWriteRejectsTraversal(t *testing.T) {
+	_, folder, mux := setupMemoryTest(t)
+
+	cases := []string{
+		"/dash/memory/" + folder + "/../../../etc/passwd",
+		"/dash/memory/" + folder + "/random.md",
+		"/dash/memory/" + folder + "/.env",
+		"/dash/memory/../other/MEMORY.md",
+	}
+	for _, p := range cases {
+		req := httptest.NewRequest("PUT", p, strings.NewReader("x"))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code == http.StatusNoContent {
+			t.Errorf("PUT %s should be rejected, got %d", p, w.Code)
+		}
+	}
+}
+
+func TestMemoryDelete(t *testing.T) {
+	d, folder, mux := setupMemoryTest(t)
+	path := filepath.Join(d.groupsDir, folder, "MEMORY.md")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/dash/memory/"+folder+"/MEMORY.md", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %q", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("file should be deleted, got err = %v", err)
+	}
+}
+
+func TestMemoryDeleteRejectsTraversal(t *testing.T) {
+	_, folder, mux := setupMemoryTest(t)
+	req := httptest.NewRequest("DELETE", "/dash/memory/"+folder+"/../other/MEMORY.md", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code == http.StatusNoContent {
+		t.Errorf("DELETE traversal should be rejected, got %d", w.Code)
+	}
+}
+
+func TestMemoryRejectsSymlink(t *testing.T) {
+	d, folder, mux := setupMemoryTest(t)
+	// Create a symlink MEMORY.md -> outside file
+	outside := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(d.groupsDir, folder, "MEMORY.md")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skip("symlink not supported")
+	}
+
+	req := httptest.NewRequest("PUT", "/dash/memory/"+folder+"/MEMORY.md", strings.NewReader("pwned"))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code == http.StatusNoContent {
+		t.Errorf("PUT to symlink should be rejected, got %d", w.Code)
+	}
+	// Verify outside file untouched
+	data, _ := os.ReadFile(outside)
+	if string(data) != "secret" {
+		t.Errorf("outside file modified: %q", data)
+	}
+}

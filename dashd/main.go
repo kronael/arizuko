@@ -127,6 +127,8 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/activity/", d.handleActivity)
 	mux.HandleFunc("GET /dash/groups/", d.handleGroups)
 	mux.HandleFunc("GET /dash/memory/", d.handleMemory)
+	mux.HandleFunc("PUT /dash/memory/", d.handleMemoryWrite)
+	mux.HandleFunc("DELETE /dash/memory/", d.handleMemoryDelete)
 	mux.HandleFunc("GET /dash/tasks/x/list", d.handleTasksPartial)
 	mux.HandleFunc("GET /dash/activity/x/recent", d.handleActivityPartial)
 }
@@ -465,6 +467,152 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 	} else {
 		fmt.Fprint(w, `<p><em>no routes</em></p>`)
 	}
+}
+
+// memoryPathAllowed reports whether rel is a writable memory file within a
+// group. Allowed: MEMORY.md, .claude/CLAUDE.md, and *.md under
+// diary/, facts/, users/, episodes/. Rejects '..', absolute paths, and
+// anything else.
+func memoryPathAllowed(rel string) bool {
+	if rel == "" || strings.HasPrefix(rel, "/") || strings.Contains(rel, "..") {
+		return false
+	}
+	clean := filepath.Clean(rel)
+	if clean != rel {
+		return false
+	}
+	if clean == "MEMORY.md" || clean == ".claude/CLAUDE.md" {
+		return true
+	}
+	for _, sub := range []string{"diary/", "facts/", "users/", "episodes/"} {
+		if strings.HasPrefix(clean, sub) && strings.HasSuffix(clean, ".md") &&
+			!strings.ContainsAny(clean[len(sub):], "/") {
+			return true
+		}
+	}
+	return false
+}
+
+// parseMemoryPath extracts (folder, rel) from a URL path of the form
+// /dash/memory/<folder>/<rel...>. Returns ("", "") for malformed paths.
+func parseMemoryPath(urlPath string) (string, string) {
+	const prefix = "/dash/memory/"
+	if !strings.HasPrefix(urlPath, prefix) {
+		return "", ""
+	}
+	rest := strings.TrimPrefix(urlPath, prefix)
+	i := strings.IndexByte(rest, '/')
+	if i < 0 {
+		return "", ""
+	}
+	folder := rest[:i]
+	rel := rest[i+1:]
+	if folder == "" || rel == "" {
+		return "", ""
+	}
+	return folder, rel
+}
+
+// resolveMemoryFile validates folder+rel and returns the absolute path to
+// write. Rejects symlink escapes from the group root.
+func (d *dash) resolveMemoryFile(folder, rel string) (string, error) {
+	if strings.Contains(folder, "..") || strings.HasPrefix(folder, "/") {
+		return "", errEscape
+	}
+	if !memoryPathAllowed(rel) {
+		return "", errors.New("path not allowed")
+	}
+	groupDir := filepath.Join(d.groupsDir, filepath.Clean(folder))
+	if !strings.HasPrefix(groupDir, d.groupsDir+string(filepath.Separator)) &&
+		groupDir != d.groupsDir {
+		return "", errEscape
+	}
+	// Group dir must exist; resolve symlinks and re-check.
+	real, err := filepath.EvalSymlinks(groupDir)
+	if err != nil {
+		return "", err
+	}
+	if real != d.groupsDir &&
+		!strings.HasPrefix(real, d.groupsDir+string(filepath.Separator)) {
+		return "", errEscape
+	}
+	target := filepath.Join(real, rel)
+	// If target exists, verify it doesn't escape via symlink.
+	if st, err := os.Lstat(target); err == nil && st.Mode()&os.ModeSymlink != 0 {
+		return "", errEscape
+	}
+	// Re-verify resolved target stays inside the group dir.
+	if !strings.HasPrefix(target, real+string(filepath.Separator)) {
+		return "", errEscape
+	}
+	return target, nil
+}
+
+func (d *dash) handleMemoryWrite(w http.ResponseWriter, r *http.Request) {
+	folder, rel := parseMemoryPath(r.URL.Path)
+	if folder == "" {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	target, err := d.resolveMemoryFile(folder, rel)
+	if err != nil {
+		slog.Warn("memory write: resolve", "folder", folder, "rel", rel, "err", err)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxFileBytes+1))
+	if err != nil {
+		http.Error(w, "read body", http.StatusBadRequest)
+		return
+	}
+	if len(body) > maxFileBytes {
+		http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		slog.Warn("memory write: mkdir", "path", target, "err", err)
+		http.Error(w, "mkdir", http.StatusInternalServerError)
+		return
+	}
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		slog.Warn("memory write: tmp", "path", tmp, "err", err)
+		http.Error(w, "write", http.StatusInternalServerError)
+		return
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		os.Remove(tmp)
+		slog.Warn("memory write: rename", "path", target, "err", err)
+		http.Error(w, "rename", http.StatusInternalServerError)
+		return
+	}
+	slog.Info("memory write", "folder", folder, "rel", rel, "bytes", len(body))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (d *dash) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
+	folder, rel := parseMemoryPath(r.URL.Path)
+	if folder == "" {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	target, err := d.resolveMemoryFile(folder, rel)
+	if err != nil {
+		slog.Warn("memory delete: resolve", "folder", folder, "rel", rel, "err", err)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if err := os.Remove(target); err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		slog.Warn("memory delete: remove", "path", target, "err", err)
+		http.Error(w, "remove", http.StatusInternalServerError)
+		return
+	}
+	slog.Info("memory delete", "folder", folder, "rel", rel)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
