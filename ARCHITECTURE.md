@@ -238,7 +238,7 @@ a row via `PutMessage` and calls `EnqueueMessageCheck`.
 ## Routing
 
 Route table, route types, topic routing, reply routing, sticky routing,
-full flow examples: `docs/routing.md`.
+full flow examples: `ROUTING.md`.
 
 ## Grants Engine (grants package)
 

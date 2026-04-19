@@ -1,12 +1,75 @@
-# Security Audit — MCP IPC Hardening
+# ipc — Security
 
-_2026-04-19 · arizuko v0.29.4_
+The MCP channel: how agents reach gateway tools over a unix socket, how
+group isolation is enforced, and what the peer-uid check is for. See
+[`../SECURITY.md`](../SECURITY.md) for the system-wide model.
 
-Record of an audit and fix for the gateway↔agent MCP channel. Written
-after a 2-day production incident in which agents silently lost access
-to every gateway tool (`get_history`, `get_facts`, `search_memories`,
-`send_file`, `reset_session`, cross-group delegation, …) while appearing
-healthy. The symptom was agents replying "nemám záznam", "no context" —
+## Threat model
+
+| Threat                                                | Defense                                        |
+| ----------------------------------------------------- | ---------------------------------------------- |
+| Agent in group A reads group B's socket               | Per-group bind mount — B's socket not visible  |
+| Host process as uid 1000 connects to a group's socket | `SO_PEERCRED` peer-uid check (kernel-attested) |
+| Sidecar in same group impersonates the agent          | Out of scope — same group, same trust domain   |
+| Host root opens any socket                            | Out of scope — host root is trusted            |
+| Peer writes fake MCP messages after a valid connect   | Out of scope — stream auth not layered on MCP  |
+
+## Security boundary
+
+The real boundary is **per-group bind mount**. `container/runner.go
+buildMounts` mounts only the current group's `ipcDir` at
+`/workspace/ipc`:
+
+```go
+ipcDir, _ := folders.IpcPath(in.Folder)  // validated, per-group
+m = append(m, volumeMount{
+    Host:      hp(cfg, ipcDir),
+    Container: "/workspace/ipc",
+})
+```
+
+`folders.IpcPath(folder)` rejects `..`, backslashes, empty segments,
+reserved names (`share`, `*`, `**`). Other groups' `ipcDir` are
+unreachable through the mount — there's no path inside the container
+that resolves to them.
+
+## Sanity gate: SO_PEERCRED
+
+On every accepted connection, `ipc.ServeMCP` reads the peer's
+kernel-attested credentials via `SO_PEERCRED` and rejects any peer
+whose uid doesn't match the expected container uid (1000 in prod, or
+the host uid when `--user` override fires in dev):
+
+```go
+if expectedUID > 0 {
+    cred, err := peerCred(c)
+    if err != nil { slog.Warn("mcp peer cred read failed"); return }
+    if int(cred.Uid) != expectedUID {
+        slog.Warn("mcp peer uid mismatch",
+            "want", expectedUID, "got", cred.Uid, "pid", cred.Pid)
+        return
+    }
+}
+```
+
+Properties:
+
+- **No client changes.** Standard MCP. Socat bridge unmodified.
+- **Kernel-attested.** Not spoofable; `SO_PEERCRED` is set at connect.
+- **Cheap.** One syscall per connection.
+- **Fails closed** by default in production (expectedUID = 1000). Set
+  `≤ 0` only in unit tests where caller runs in-process.
+
+Tests: `TestServeMCP_PeerCredAcceptsMatchingUID`,
+`TestServeMCP_PeerCredRejectsWrongUID` in `ipc/ipc_test.go`.
+
+## Incident 2026-04-17 → 2026-04-19 — token preamble outage
+
+Record of the audit and fix for this channel. A 2-day production
+incident in which agents silently lost access to every gateway tool
+(`get_history`, `get_facts`, `search_memories`, `send_file`,
+`reset_session`, cross-group delegation, …) while appearing healthy.
+The symptom was agents replying "nemám záznam", "no context" —
 seemingly amnesia, actually complete MCP failure.
 
 ## What broke
@@ -72,69 +135,6 @@ Adding server-side verification with no client-side implementation
 guarantees a silent outage on first deploy. The fault was not "bad
 cryptography" — the token plumbing was fine — it was shipping a
 half-built protocol.
-
-## What the boundary actually is
-
-arizuko's real isolation comes from **per-group bind mounts**, not from
-anything on the socket itself.
-
-```go
-// container/runner.go buildMounts
-ipcDir, _ := folders.IpcPath(in.Folder)  // validated, per-group
-m = append(m, volumeMount{
-    Host:      hp(cfg, ipcDir),
-    Container: "/workspace/ipc",
-})
-```
-
-`folders.IpcPath(folder)` resolves to `<IpcDir>/<folder>` and refuses
-`..`, backslashes, empty segments, and reserved names (`share`, `*`,
-`**`). Each agent container sees only its own group's `ipcDir` — other
-groups' sockets are unreachable through the mount. That's the boundary.
-
-Socket perms (`chmod 0660`, `chown <uid>`) are not the boundary. Host
-root always wins; socket perms can't stop that. The container uid
-(1000 = `node`) matches gated's uid (1000) because the gated service
-itself runs as 1000 in a container, so the socket naturally ends up
-`1000:1000 0660`.
-
-## What replaced the token (v0.29.4)
-
-A kernel-attested `SO_PEERCRED` check on every accepted connection.
-The kernel hands us the connecting process's `{pid, uid, gid}`; we
-reject anything whose uid isn't the expected container uid.
-
-```go
-// ipc/ipc.go v0.29.4
-if expectedUID > 0 {
-    cred, err := peerCred(c)
-    if err != nil { slog.Warn("mcp peer cred read failed"); return }
-    if int(cred.Uid) != expectedUID {
-        slog.Warn("mcp peer uid mismatch",
-            "want", expectedUID, "got", cred.Uid, "pid", cred.Pid)
-        return
-    }
-}
-```
-
-Properties:
-
-- **No client changes.** Standard MCP. Socat bridge unmodified.
-- **Kernel-attested.** Not spoofable by the peer; `SO_PEERCRED` is set
-  by the kernel at `connect()`.
-- **Cheap.** One syscall per connection.
-- **Fails closed by default** in production (expectedUID = 1000). Set
-  to `-1` for unit tests where the caller runs in-process.
-
-It is still not the boundary. Mount isolation is. Peer-uid check is a
-sanity gate: in production both gated and agent run as uid 1000, so
-any connecting process must also be uid 1000. Host processes as other
-uids are rejected. It does not distinguish agent from sidecar (same
-uid); that's covered by mount scoping and process model, not by this
-check.
-
-Unit tests (`TestServeMCP_PeerCredAcceptsMatchingUID`,
-`TestServeMCP_PeerCredRejectsWrongUID`) confirm both branches.
 
 ## Audit conclusions
 
