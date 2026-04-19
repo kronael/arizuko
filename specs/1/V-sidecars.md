@@ -1,16 +1,13 @@
 ---
-status: partial
+status: shipped
 ---
 
 # MCP Sidecars
 
 MCP servers in isolated docker containers. Gateway-managed
-(operator config via `GroupConfig.Sidecars`) is shipped.
-`list_sidecars` and `configure_sidecar` MCP tools (tier 0-1) are
-shipped and persist to `container_config`; take effect next spawn.
-Agent-requested runtime provisioning (`request_sidecar` / `stop_sidecar`)
-still requires a persistent sidecar supervisor and is not implemented.
-Code: `container/sidecar.go`, `ipc/ipc.go`.
+(operator config via `GroupConfig.Sidecars`). `list_sidecars` and
+`configure_sidecar` MCP tools (tier 0-1) persist to `container_config`;
+take effect next spawn. Code: `container/sidecar.go`, `ipc/ipc.go`.
 
 ## Socket path convention
 
@@ -33,23 +30,3 @@ Both containers mount the same host socket directory.
 | **web**        | no    | yes     | no  | search, API calls    |
 
 Default: offline (safest). Privileged requires operator allowlist.
-
-## Agent-requested sidecar validation
-
-- Image allowlist: `SIDECAR_ALLOWED_IMAGES=node:22-slim,python:3.12-slim,arizuko-sidecar-*`
-- Mount restrictions: relative paths only, under /workspace/group/, default ro
-- Resource caps: memoryMb max 1024, cpus max 2.0
-- Network requires allowlist
-- Max per group: `MAX_SIDECARS_PER_GROUP=4`
-- Name format: `^[a-z0-9-]+$`
-
-Lifecycle: agent calls request_sidecar -> gateway validates, spawns,
-waits for socket -> returns socket path -> agent connects via socat.
-On agent exit: all agent-requested sidecars stopped.
-
-## Open questions
-
-1. Startup latency (5-10s); hot sidecar pooling?
-2. Persistence: agent-requested die with agent, gateway-managed persist
-3. Sidecar-to-gateway IPC: needs own auth token
-4. Image pull: pre-pull or fail fast?

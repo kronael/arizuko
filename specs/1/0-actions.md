@@ -1,11 +1,8 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Gateway Actions
-
-Sidecar actions (`configure_sidecar`, `request_sidecar`, `stop_sidecar`,
-`list_sidecars`) are specified but not yet implemented; rest shipped.
 
 ## Action table
 
@@ -61,17 +58,14 @@ for the `SpawnGroup(parentFolder, childJID)` contract).
 whose target equals the caller's own folder (self-harm guard:
 never let an agent disconnect itself from every inbound source).
 
-### Sidecars (not yet implemented)
+### Sidecars
 
 | Action              | MCP | Input                                            |
 | ------------------- | --- | ------------------------------------------------ |
 | `configure_sidecar` | yes | `{ name, image, env?, allowedTools?, network? }` |
-| `request_sidecar`   | yes | `{ name, image, env?, allowedTools? }`           |
-| `stop_sidecar`      | yes | `{ name }`                                       |
 | `list_sidecars`     | yes | --                                               |
 
-`configure_sidecar` persists to `container_config`; takes effect next
-spawn. `request_sidecar` starts immediately for current session.
+`configure_sidecar` persists to `container_config`; takes effect next spawn.
 
 ## Routing rules
 
