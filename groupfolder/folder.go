@@ -55,9 +55,8 @@ func (r *Resolver) IpcPath(folder string) (string, error) {
 }
 
 // IPC subdirectory conventions.
-func IpcInputDir(ipcDir string) string  { return filepath.Join(ipcDir, "input") }
-func IpcSocket(ipcDir string) string    { return filepath.Join(ipcDir, "gated.sock") }
-func IpcSidecars(ipcDir string) string  { return filepath.Join(ipcDir, "sidecars") }
+func IpcInputDir(ipcDir string) string          { return filepath.Join(ipcDir, "input") }
+func IpcSocket(ipcDir string) string            { return filepath.Join(ipcDir, "gated.sock") }
 func GroupMediaDir(groupDir, day string) string { return filepath.Join(groupDir, "media", day) }
 
 func resolve(base, folder string) (string, error) {

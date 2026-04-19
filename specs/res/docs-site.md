@@ -291,14 +291,13 @@ Package: `container/`, `groupfolder/`, `mountsec/`
 
 Content:
 
-- Full lifecycle: 12 steps from EnsureRunning to StopSidecars
+- Full lifecycle: from EnsureRunning to container exit
 - Volume mount table: all 8 mount types (host path → container path → rw)
 - Input JSON schema: all fields of ContainerInput/Input struct
 - Output protocol: marker lines, JSON shape, streaming across turns,
   IPC poll loop inside container, `_close` sentinel
 - seedSettings: what goes into settings.json (env block, MCP servers)
 - seedSkills: one-time copy, non-destructive, migration path
-- Sidecars: docker run -d lifecycle, socket path, settings.json wiring
 - Security flags: --cap-drop ALL, --security-opt no-new-privileges,
   --memory 1g, --cpus 2
 - mountsec: allowlist JSON, blocked patterns, path resolution rules

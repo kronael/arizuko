@@ -11,7 +11,7 @@ cmd/arizuko/main
   ├── auth          identity, JWT, OAuth, middleware
   ├── chanreg       channel registry, HTTP channel proxy
   ├── gateway       main loop, message routing
-  │   ├── container docker spawn, volume mounts, sidecars, runtime
+  │   ├── container docker spawn, volume mounts, runtime
   │   │   └── groupfolder, mountsec
   │   ├── queue     per-group concurrency, stdin piping
   │   ├── router    message formatting, routing rules
@@ -131,7 +131,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `Config`      | settings from `.env` + env vars                   |
 | `Message`     | incoming (sender, content, reply context)         |
 | `Group`       | registered (folder, name, config, state)          |
-| `GroupConfig` | per-group: mounts, timeout, sidecars              |
+| `GroupConfig` | per-group: mounts, timeout                        |
 | `Route`       | routing table entry (seq, match, target)          |
 | `Task`        | scheduled (cron, prompt, status)                  |
 | `Channel`     | Connect, Send, SendFile, Owns, Typing, Disconnect |
@@ -177,10 +177,8 @@ and `routed_to` capture audit metadata. Spec: `specs/7/22-audit-log.md`.
 3. `container.Run()`:
    - Resolve path via `groupfolder.Resolver`
    - `buildMounts()` → `mountsec.ValidateAdditionalMounts()`
-   - `seedSettings()` — write `settings.json` (env, arizuko MCP via socat,
-     sidecars)
+   - `seedSettings()` — write `settings.json` (env, arizuko MCP via socat)
    - `seedSkills()` — copy `ant/skills/` (re-seeds every run); seed `.claude.json`
-   - `startSidecars()`
    - Name: `arizuko-<instance>-<folder>-<ts_ms>` or overridden by caller
      (e.g. task containers set `timed-isolated:<id>` sender)
    - Env: `WEB_PREFIX` (`pub` for root, `pub/<folder>` for children),
@@ -190,7 +188,6 @@ and `routed_to` capture audit metadata. Spec: `specs/7/22-audit-log.md`.
      `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---`
    - Output: `{ status, result, newSessionId, error }`
    - Timer timeout: graceful stop then kill
-   - `stopSidecars()`
    - Log: `groups/<folder>/logs/container-<ts>.log`
 
 Session: new session ID updates `store.sessions`. Error with no output →
@@ -210,16 +207,6 @@ starts before `docker run`, stops after exit; socket cleaned up.
 
 Identity resolved from socket path (folder, tier); authorization delegated
 to `auth.Authorize`.
-
-## Sidecars (container/sidecar.go)
-
-Per-group MCP sidecars from `GroupConfig.Sidecars`:
-
-1. `startSidecars()` — `docker run -d` per sidecar with socket volume at
-   `ipc/sidecars/<name>.sock`, resource limits, network mode
-2. Socket wired into agent `settings.json` as `mcpServers` entry with
-   `socat UNIX-CONNECT`
-3. `stopSidecars()` — `docker stop` then `rm -f`
 
 ## Queue (queue package)
 

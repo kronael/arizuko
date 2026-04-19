@@ -58,15 +58,6 @@ for the `SpawnGroup(parentFolder, childJID)` contract).
 whose target equals the caller's own folder (self-harm guard:
 never let an agent disconnect itself from every inbound source).
 
-### Sidecars
-
-| Action              | MCP | Input                                            |
-| ------------------- | --- | ------------------------------------------------ |
-| `configure_sidecar` | yes | `{ name, image, env?, allowedTools?, network? }` |
-| `list_sidecars`     | yes | --                                               |
-
-`configure_sidecar` persists to `container_config`; takes effect next spawn.
-
 ## Routing rules
 
 Routes are a flat list of rows with `(seq, match, target)`. `match`

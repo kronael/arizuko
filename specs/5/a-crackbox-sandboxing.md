@@ -21,6 +21,5 @@ uses Docker."
 
 Unblockers: execution primitive (new `POST /v1/run` on crackbox-agent
 vs existing `/v1/claude-stream`), unix socket over 9p, VM cold-start
-latency (pre-boot pool?), sidecar placement (host Docker vs in-VM),
-host requirements (root, /dev/kvm, CAP_NET_ADMIN), multi-instance
-namespace.
+latency (pre-boot pool?), host requirements (root, /dev/kvm,
+CAP_NET_ADMIN), multi-instance namespace.

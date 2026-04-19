@@ -10,7 +10,6 @@ group isolation is enforced, and what the peer-uid check is for. See
 | ----------------------------------------------------- | ---------------------------------------------- |
 | Agent in group A reads group B's socket               | Per-group bind mount — B's socket not visible  |
 | Host process as uid 1000 connects to a group's socket | `SO_PEERCRED` peer-uid check (kernel-attested) |
-| Sidecar in same group impersonates the agent          | Out of scope — same group, same trust domain   |
 | Host root opens any socket                            | Out of scope — host root is trusted            |
 | Peer writes fake MCP messages after a valid connect   | Out of scope — stream auth not layered on MCP  |
 
@@ -112,8 +111,7 @@ verification failed` on every spawn; nobody was reading.
    test ever dialed the socket through the ant runtime.
 2. **Threat model unstated.** "Auth hardening" didn't name what the
    token defended against that mount isolation didn't. The real answer
-   — "same-uid sidecar in the same group" — is narrow and was already
-   out of scope (see threat table).
+   was narrow and already out of scope (see threat table).
 3. **Client side orphaned.** `ARIZUKO_MCP_TOKEN` was generated, stamped
    into container env, then ignored — no ant code to write it.
 

@@ -52,8 +52,6 @@ autocall. Most "what is X right now" queries fall into this bucket.
 - `get_instance_info` — autocall `instance`, `folder`, `tier`
 - `get_session` — autocall `session_id`, `message_count`
 - parts of `get_identity` — static parts autocall, variable parts tool
-- `list_available_sidecars` — could be an autocall block at prompt
-  assembly when the set is small
 
 ## Implementation sketch
 

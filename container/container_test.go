@@ -42,23 +42,6 @@ func TestStopContainerArgs(t *testing.T) {
 	}
 }
 
-func TestSidecarName(t *testing.T) {
-	cases := []struct {
-		folder, name, want string
-	}{
-		{"mygroup", "redis", "arizuko-sc-mygroup-redis"},
-		{"my/sub", "pg", "arizuko-sc-my-sub-pg"},
-		{"a@b", "x", "arizuko-sc-a-b-x"},
-	}
-	for _, tc := range cases {
-		got := sidecarName(tc.folder, tc.name)
-		if got != tc.want {
-			t.Errorf("sidecarName(%q, %q) = %q, want %q",
-				tc.folder, tc.name, got, tc.want)
-		}
-	}
-}
-
 func TestHp(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -307,45 +290,6 @@ func TestSeedSettingsTier1World(t *testing.T) {
 	}
 	if env["ARIZUKO_GROUP_PARENT"] != "" {
 		t.Errorf("parent (tier-1) = %v, want empty", env["ARIZUKO_GROUP_PARENT"])
-	}
-}
-
-func TestSeedSettingsWithSidecars(t *testing.T) {
-	d := t.TempDir()
-	cfg := &core.Config{Name: "Bot"}
-	in := Input{
-		Folder: "g",
-		Config: core.GroupConfig{
-			Sidecars: map[string]core.Sidecar{
-				"redis": {
-					Image: "redis:7",
-					Tools: []string{"get", "set"},
-				},
-			},
-		},
-	}
-
-	seedSettings(d, cfg, in, false)
-
-	data, _ := os.ReadFile(filepath.Join(d, "settings.json"))
-	var s map[string]any
-	json.Unmarshal(data, &s)
-
-	servers := s["mcpServers"].(map[string]any)
-	if _, ok := servers["redis"]; !ok {
-		t.Error("redis sidecar server missing")
-	}
-
-	allowed, ok := s["allowedTools"].([]any)
-	if !ok {
-		t.Fatal("allowedTools missing")
-	}
-	found := map[string]bool{}
-	for _, a := range allowed {
-		found[a.(string)] = true
-	}
-	if !found["mcp__redis__get"] || !found["mcp__redis__set"] {
-		t.Errorf("allowedTools = %v", allowed)
 	}
 }
 

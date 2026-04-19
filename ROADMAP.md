@@ -68,6 +68,6 @@ Gateway rewrite in Go. Agent container stays TypeScript. `specs/7/`
 Product-specific roadmap. `specs/atlas/`
 
 - User context: per-user memory, gateway injection
-- Semantic search: embeddings MCP sidecar
+- Semantic search: embeddings index
 - Gateway fact injection (top-N relevant)
 - v2 sandboxed support: frontend/backend agent split

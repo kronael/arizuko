@@ -9,7 +9,7 @@ agent extension.
 
 | Spec                                             | Status    | Hook                                                      |
 | ------------------------------------------------ | --------- | --------------------------------------------------------- |
-| [0-actions.md](0-actions.md)                     | partial   | IPC/command action table; sidecar actions unimplemented   |
+| [0-actions.md](0-actions.md)                     | shipped   | IPC/command action table                                  |
 | [a-task-scheduler.md](a-task-scheduler.md)       | shipped   | Cron/interval/once schedules, isolated vs group context   |
 | [8-email.md](8-email.md)                         | shipped   | `email:<thread_id>` JID; IMAP IDLE + SMTP reply threading |
 | [W-slink.md](W-slink.md)                         | shipped   | Public 96-bit token; anon/auth/agent rate tiers           |
@@ -20,8 +20,6 @@ agent extension.
 | [Y-system-messages.md](Y-system-messages.md)     | shipped   | `<system origin=... event=...>` piggyback queue           |
 | [L-memory-diary.md](L-memory-diary.md)           | shipped   | Two-layer (MEMORY.md + diary), YAML summary injection     |
 | [M-memory-managed.md](M-memory-managed.md)       | shipped   | Claude Code managed CLAUDE.md + MEMORY.md, 200-line cap   |
-| [V-sidecars.md](V-sidecars.md)                   | partial   | Gateway-managed sidecars shipped; agent-requested pending |
-| [h-isolation.md](h-isolation.md)                 | shipped   | socat unix-socket bridge; gVisor/Firecracker future       |
 | [Q-mime.md](Q-mime.md)                           | shipped   | Enricher pipeline, ContextAnnotation, Whisper integration |
 | [H-introspection.md](H-introspection.md)         | shipped   | `.gateway-caps` TOML, `.whisper-language` contract        |
 | [9-extend-agent.md](9-extend-agent.md)           | shipped   | settings.json merge order; hooks hardcoded                |

@@ -193,46 +193,6 @@ func TestWorkspaceRel(t *testing.T) {
 	}
 }
 
-func TestSidecarConfigRoundTrip(t *testing.T) {
-	groups := map[string]core.Group{
-		"world": {Folder: "world"},
-	}
-	var stored core.GroupConfig
-	gated := GatedFns{
-		GetGroups: func() map[string]core.Group { return groups },
-		UpdateGroupConfig: func(folder string, cfg core.GroupConfig) error {
-			stored = cfg
-			gr := groups[folder]
-			gr.Config = cfg
-			groups[folder] = gr
-			return nil
-		},
-		GroupsDir: "/tmp", WebDir: "/tmp",
-	}
-	// tier-0 build: list_sidecars + configure_sidecar should register
-	srv := buildMCPServer(gated, StoreFns{}, "world", nil)
-	if srv == nil {
-		t.Fatal("nil server")
-	}
-	// tier-3 at w/a/b/c: sidecar tools should NOT register
-	srv2 := buildMCPServer(gated, StoreFns{}, "w/a/b/c", nil)
-	if srv2 == nil {
-		t.Fatal("nil tier-3 server")
-	}
-
-	// Simulate configure_sidecar persistence (gated.UpdateGroupConfig
-	// is what the handler calls)
-	cfg := core.GroupConfig{Sidecars: map[string]core.Sidecar{
-		"bash": {Image: "arizuko-sidecar-bash:latest", Net: "none"},
-	}}
-	if err := gated.UpdateGroupConfig("world", cfg); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := stored.Sidecars["bash"]; !ok {
-		t.Error("sidecar not stored")
-	}
-}
-
 // TestWorkToolsRegistered verifies set_work/get_work register per tier
 // and build without error.
 func TestWorkToolsRegistered(t *testing.T) {

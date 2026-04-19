@@ -4,8 +4,8 @@ status: partial
 
 # Extensions System
 
-Extension points in arizuko. Sidecars and skills shipped; plugin
-marketplace deferred.
+Extension points in arizuko. Skills shipped; plugin marketplace
+deferred.
 
 ## Extension Points
 
@@ -14,19 +14,10 @@ marketplace deferred.
 | Channels      | external containers | Developer     | HTTP protocol    |
 | Actions       | MCP tools           | Agent/Plugin  | Registry + MCP   |
 | Routing Rules | router/             | Agent         | MCP tools        |
-| Sidecars      | container/          | Agent         | Container config |
 | Mounts        | container/          | Agent         | Container config |
 | Skills        | ant/skills/         | Agent         | File-based       |
 | Tasks         | timed/              | Agent         | IPC actions      |
 | Diary         | diary/              | Agent         | File-based       |
-
-## Sidecars (shipped)
-
-Per-group `GroupConfig.Sidecars`. MCP over unix socket in
-`/workspace/ipc/`. Persistent daemons started by compose (like `ipc`,
-`timed`) — survive agent restarts. Discovery via MCP `tools/list`;
-agent merges tools from each socket. Env passthrough via compose; no
-scoped tokens — sidecar runs at agent's trust level.
 
 ## Skills (shipped)
 
@@ -38,7 +29,7 @@ Three scopes, no inheritance:
 
 Canonical definitions at `/workspace/self/ant/skills/` (ro mount) for
 `/migrate` diffing. `MIGRATION_VERSION` integer + `/migrate` skill
-drive upgrades. Name collisions across sidecars = error at spawn.
+drive upgrades.
 
 Skill format:
 

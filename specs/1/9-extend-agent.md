@@ -20,7 +20,7 @@ Changes take effect on next session spawn.
 
 ## settings.json merge order
 
-Agent-written servers < sidecar servers < arizuko (arizuko always wins).
+Agent-written servers < arizuko (arizuko always wins).
 
 Agent registers MCP servers via `settings.json`. Agent-runner merges
 with built-in `arizuko` server. Agent MCP servers are container-local,

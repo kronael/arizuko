@@ -11,7 +11,7 @@ when explicitly asked or the task requires it: generating content
 
 Multitenant Claude agent router. External channel adapters register via
 HTTP; router routes messages to containerized Claude agents. Docker compose
-orchestration, MCP sidecar extensibility.
+orchestration.
 
 ## Build & Test
 
@@ -48,7 +48,7 @@ cmd/arizuko/       CLI entrypoint (generate, run, create, group, status, pair)
 core/              Config, types, Channel interface
 store/             SQLite (messages.db), migrations
 gateway/           Main loop + commands
-container/         Docker runner + sidecars + runtime
+container/         Docker runner + runtime
 ant/               In-container agent (TypeScript, skills, Dockerfile)
 queue/             Per-group concurrency
 router/            Message formatting + routing
@@ -61,7 +61,7 @@ diary/             Diary annotations
 groupfolder/       Path validation
 mountsec/          Mount security
 template/          Instance seed files; services/ has adapter TOMLs, web/ has Vite scaffold
-sidecar/           MCP server binaries
+sidecar/           whisper transcription service image
 gated/             Gateway daemon
 timed/             Scheduler daemon
 onbod/             Onboarding daemon (gated admission queue + OAuth link)
@@ -101,7 +101,7 @@ cfg/               Instance config files (per-deploy .env snapshots)
 - `store/` — SQLite DB (`messages.db`)
 - `groups/<folder>/` — group files, logs, diary
 - `groups/<folder>/media/<YYYYMMDD>/` — downloaded inbound attachments
-- `ipc/<folder>/` — MCP unix sockets + sidecar sockets
+- `ipc/<folder>/` — MCP unix sockets
 - `groups/<folder>/.claude/` — agent session state
 
 ## Config
