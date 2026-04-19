@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/onvos/arizuko/auth"
+	"github.com/onvos/arizuko/chanlib"
 )
 
 // splitFolderSuffix extracts folder + suffix from a /api|x/groups path rest,
@@ -257,14 +258,14 @@ func TestAnonSender(t *testing.T) {
 
 // tokenHash returns 8 hex chars for non-empty input, "" for empty.
 func TestTokenHash(t *testing.T) {
-	if tokenHash("") != "" {
+	if chanlib.ShortHash("") != "" {
 		t.Error("empty token → empty hash")
 	}
-	h := tokenHash("secrettoken")
+	h := chanlib.ShortHash("secrettoken")
 	if len(h) != 8 {
 		t.Errorf("hash len = %d, want 8", len(h))
 	}
-	if tokenHash("secrettoken") != h {
+	if chanlib.ShortHash("secrettoken") != h {
 		t.Error("hash not stable")
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -1719,17 +1720,17 @@ func TestAdmitFromQueueDailyLimitPersists(t *testing.T) {
 // tokenHash returns empty string for empty input and a stable 8-char tag
 // otherwise. Stability lets log pipelines correlate attempts.
 func TestTokenHash(t *testing.T) {
-	if tokenHash("") != "" {
+	if chanlib.ShortHash("") != "" {
 		t.Error("empty input must yield empty tag")
 	}
-	h := tokenHash("abc123")
+	h := chanlib.ShortHash("abc123")
 	if len(h) != 8 {
 		t.Errorf("want 8-char tag, got %d", len(h))
 	}
-	if tokenHash("abc123") != h {
+	if chanlib.ShortHash("abc123") != h {
 		t.Error("tokenHash must be deterministic")
 	}
-	if tokenHash("abc124") == h {
+	if chanlib.ShortHash("abc124") == h {
 		t.Error("different inputs must produce different tags")
 	}
 }

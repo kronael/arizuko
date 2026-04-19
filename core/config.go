@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 type Config struct {
@@ -133,36 +134,11 @@ func LoadConfig() (*Config, error) {
 	return c, nil
 }
 
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-func envInt(key string, fallback int) int {
-	s := os.Getenv(key)
-	if s == "" {
-		return fallback
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return fallback
-	}
-	return n
-}
-
-func envDur(key string, fallback time.Duration) time.Duration {
-	s := os.Getenv(key)
-	if s == "" {
-		return fallback
-	}
-	ms, err := strconv.Atoi(s)
-	if err != nil {
-		return fallback
-	}
-	return time.Duration(ms) * time.Millisecond
-}
+var (
+	envOr  = chanlib.EnvOr
+	envInt = chanlib.EnvInt
+	envDur = chanlib.EnvDur
+)
 
 func resolveTimezone() string {
 	tz := os.Getenv("TZ")

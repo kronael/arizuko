@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/diary"
 	"github.com/onvos/arizuko/grants"
@@ -777,7 +778,7 @@ func SetupGroup(cfg *core.Config, folder, prototype string) error {
 		return fmt.Errorf("mkdir logs: %w", err)
 	}
 	if prototype != "" {
-		if err := copyDirNoSymlinks(prototype, groupDir); err != nil {
+		if err := chanlib.CopyDirNoSymlinks(prototype, groupDir); err != nil {
 			slog.Warn("setup group: copy prototype", "folder", folder, "err", err)
 		}
 	}
@@ -791,27 +792,6 @@ func seedGroupDir(cfg *core.Config, folder string) error {
 	}
 	seedSkills(cfg, claudeDir, folder)
 	return nil
-}
-
-func copyDirNoSymlinks(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-		rel, _ := filepath.Rel(src, path)
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, data, 0o644)
-	})
 }
 
 func seedSkills(cfg *core.Config, claudeDir, folder string) {

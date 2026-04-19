@@ -3,7 +3,9 @@ package chanlib
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -191,6 +193,45 @@ func EnvOr(k, v string) string {
 		return e
 	}
 	return v
+}
+
+// EnvInt returns atoi(os.Getenv(k)) or fallback on empty/parse-error.
+func EnvInt(k string, fallback int) int {
+	s := os.Getenv(k)
+	if s == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+// EnvDur parses os.Getenv(k) as integer milliseconds and returns the
+// resulting duration, or fallback on empty/parse-error. The ms encoding
+// matches core's legacy behavior for CONTAINER_TIMEOUT, IDLE_TIMEOUT, etc.
+func EnvDur(k string, fallback time.Duration) time.Duration {
+	s := os.Getenv(k)
+	if s == "" {
+		return fallback
+	}
+	ms, err := strconv.Atoi(s)
+	if err != nil {
+		return fallback
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+// ShortHash returns a short non-reversible hex tag for logging a token
+// or other sensitive string. Empty input yields an empty string so callers
+// can skip the prefix when there's nothing to tag.
+func ShortHash(s string) string {
+	if s == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:4])
 }
 
 func MustEnv(k string) string {

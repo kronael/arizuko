@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
@@ -245,17 +244,10 @@ func promptUnprompted(db *sql.DB, cfg config) {
 
 func genToken() string {
 	b := make([]byte, 32)
-	rand.Read(b)
-	return hex.EncodeToString(b)
-}
-
-// tokenHash returns a short non-reversible tag for logging a token.
-func tokenHash(s string) string {
-	if s == "" {
-		return ""
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
 	}
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:4])
+	return hex.EncodeToString(b)
 }
 
 func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
@@ -294,12 +286,12 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 		 RETURNING jid`, token, now).Scan(&jid)
 	if err != nil {
 		slog.Warn("onboard token invalid",
-			"token_hash", tokenHash(token), "remote", r.RemoteAddr)
+			"token_hash", chanlib.ShortHash(token), "remote", r.RemoteAddr)
 		renderPage(w, "Invalid Link",
 			template.HTML("<p>This link is invalid, already used, or has expired.</p>"))
 		return
 	}
-	slog.Info("onboard token consumed", "jid", jid, "token_hash", tokenHash(token))
+	slog.Info("onboard token consumed", "jid", jid, "token_hash", chanlib.ShortHash(token))
 
 	http.SetCookie(w, &http.Cookie{
 		Name: "onboard_jid", Value: jid, Path: "/",
@@ -670,7 +662,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		`SELECT expires FROM invitations WHERE token = ?`, token,
 	).Scan(&expires); err != nil {
 		slog.Warn("invite invalid", "reason", "not_found",
-			"token_hash", tokenHash(token), "user", userSub)
+			"token_hash", chanlib.ShortHash(token), "user", userSub)
 		renderPage(w, "Invalid Invite",
 			template.HTML("<p>This invite link is invalid or does not exist.</p>"))
 		return
@@ -679,7 +671,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		exp, _ := time.Parse(time.RFC3339, expires.String)
 		if !exp.IsZero() && time.Now().After(exp) {
 			slog.Warn("invite invalid", "reason", "expired",
-				"token_hash", tokenHash(token), "user", userSub)
+				"token_hash", chanlib.ShortHash(token), "user", userSub)
 			renderPage(w, "Invite Expired",
 				template.HTML("<p>This invite link has expired.</p>"))
 			return
@@ -696,7 +688,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 	).Scan(&folder)
 	if err != nil {
 		slog.Warn("invite invalid", "reason", "exhausted",
-			"token_hash", tokenHash(token), "user", userSub)
+			"token_hash", chanlib.ShortHash(token), "user", userSub)
 		renderPage(w, "Invite Used",
 			template.HTML("<p>This invite link has already been used the maximum number of times.</p>"))
 		return
@@ -723,7 +715,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		}
 	}
 
-	slog.Info("invite accepted", "token_hash", tokenHash(token),
+	slog.Info("invite accepted", "token_hash", chanlib.ShortHash(token),
 		"folder", folder, "user", userSub)
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
