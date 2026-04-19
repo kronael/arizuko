@@ -2,60 +2,63 @@
 status: deferred
 ---
 
-# History Backfill
+# History Fetch (channel-first) + Inspect Tools
 
-Question reopened 2026-04-19: the agent already has `get_history` (see
-`ipc/ipc.go` + `webd/mcp.go`) that reads the **local** message DB.
-Missing piece is only when history predates the local DB — the
-traditional answer is "backfill on startup". Alternative below may be
-better.
+Rename and split today's single `get_history` into two distinct tools
+with distinct audiences:
 
-## Option A — Startup backfill (traditional)
+| Tool               | Source        | Audience           | Purpose                               |
+| ------------------ | ------------- | ------------------ | ------------------------------------- |
+| `fetch_history`    | channel (API) | agent (reasoning)  | conversation context, backfill depth  |
+| `inspect_messages` | local DB      | agent (ops / logs) | outbound audit, routing, errored rows |
 
-Each adapter persists a high-water mark (HWM); on startup it fetches
-from platform API `after=HWM`, feeds gateway via normal `POST
-/v1/messages`. Per-platform table kept as reference:
+## Why split
 
-| Platform | Method                                  | Depth            |
-| -------- | --------------------------------------- | ---------------- |
-| Telegram | `getUpdates` offset resume              | 24h (API limit)  |
-| Discord  | `GET /channels/{id}/messages?after=HWM` | unlimited        |
-| Reddit   | listing pagination with `after`         | ~1000 items      |
-| Bluesky  | cursor-based `listNotifications`        | no known cap     |
-| Mastodon | `/notifications?since_id=`              | server-dependent |
-| Email    | `SEARCH SINCE <date>`                   | unlimited        |
-| WhatsApp | Baileys sync unreliable — exception     | —                |
+`get_history` today reads the local DB. That conflates two jobs:
 
-Cost: per-adapter state files, dedup logic, 6 different API shapes.
+1. **What was actually said in the conversation** — for which the
+   channel/platform is authoritative. Local DB may be missing rows
+   (adapter was offline, WhatsApp LID translation failing, etc.).
+2. **What passed through arizuko** — inbound rows, outbound audit,
+   `errored=1` flags, bot IDs. For this, local DB is authoritative.
 
-## Option B — Agent pulls from backend on demand
+Calling local DB "history" hides the platform gap and mixes ops data
+into reasoning context.
 
-Don't backfill. Keep the local DB as a cache of the live stream only.
-Expose a new MCP tool `fetch_platform_history(jid, before, limit)`
-per adapter; the agent calls it when `get_history` from local DB runs
-dry. Adapter hits platform API at call time, writes results to local
-DB (so next call is cached), returns them.
+## `fetch_history` — channel-first
 
-Tradeoffs vs A:
+Agent calls `fetch_history(jid, before, limit)`. Gateway resolves the
+adapter from JID prefix and proxies to `<adapter>/v1/history?
+jid=…&before=…&limit=…`. Adapter hits platform API, writes rows into
+local DB (write-through cache), returns them.
 
-- **No startup loop** — instances restart fast.
-- **No blind backfill** — platform API only hit when an agent actually
-  asks. Cheaper per month.
-- **Slower first query** per platform per chat, then cached.
-- **Requires one new MCP tool per adapter** — mostly thin wrappers.
-- **Storage bounded** — the local DB trims old rows on a schedule, since
-  the agent can always re-pull from backend when it wants them.
+Fallback: if adapter is offline or platform errors, gateway returns
+`{source: "cache"}` with whatever local DB has. Agent sees the source
+tag.
 
-Option B feels more in line with "agent is the reasoning layer; let
-it decide what history to load." Option A is a batch-era solution.
+Ship Discord first (clean API, unlimited depth). Then Bluesky, Mastodon,
+Reddit, Email. Telegram is 24h-limited — wrap with `source:"platform",
+cap:"24h"`. WhatsApp is excepted (Baileys unreliable) — returns local
+DB only with `source:"cache-only"`.
+
+## `inspect_messages` — local DB, operational
+
+Same shape as today's `get_history`. Used for:
+
+- answering "what did I send the last time" (outbound audit)
+- debugging (`errored=1` rows, session boundaries, bot_message flag)
+- /logs-style skills
+
+No rename-and-flip migration needed in agent skills — `get_history`
+stays as a thin alias for `inspect_messages` for one release, then the
+alias is removed.
 
 ## Decision
 
-Deferred. Probably go with B but need to prove the pattern on one
-adapter (Discord — has clean API, no auth-refresh gotchas) before
-templating. No code change until then.
+Deferred. Ship the Discord proof of `fetch_history` first; rename only
+after the pattern is proven on one adapter.
 
 ## Non-goals
 
-- Media re-download on backfill (use existing media enricher).
+- Media re-download on fetch (use existing media enricher).
 - Cross-platform history merge. One JID, one platform.
