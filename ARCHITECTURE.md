@@ -27,7 +27,10 @@ webd/     web chat channel adapter (HTTP/SSE, registers as "web")
 proxyd/   reverse proxy: auth, vhost routing, slink rate limiting
 teled/ discd/ mastd/ bskyd/ reditd/ emaid/ whapd/  channel adapters
 grants/   CheckAction, NarrowRules, MatchingRules, DeriveRules
-chanlib/  RouterClient, InboundMsg, auth middleware (shared by adapters)
+chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
+          proxy cache for discd/mastd/reditd), fsutil (CopyDirNoSymlinks,
+          CopyFile), env helpers (EnvOr/EnvInt/EnvDur), ShortHash — shared
+          by adapters + gateway + container + onbod + webd
 theme/    shared CSS + HTML helpers (used by onbod, dashd)
 db_utils/ SQL migration runner
 ```

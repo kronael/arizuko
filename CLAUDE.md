@@ -69,7 +69,8 @@ dashd/             Operator dashboards (HTMX)
 webd/              Web channel daemon (websocket hub, slink, MCP bridge)
 proxyd/            Web proxy (/pub/ public, /* auth-gated)
 grants/            Grant rule engine (library)
-chanlib/           Shared HTTP + auth primitives for adapters (library)
+chanlib/           Shared HTTP + auth primitives, URLCache, fsutil, env
+                   helpers, ShortHash (library; used beyond adapters)
 db_utils/          SQL migration runner (library)
 theme/             Shared CSS/HTML helpers (library)
 teled/             Telegram adapter (Go)
@@ -164,7 +165,7 @@ Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 | `ipc`      | library | MCP server, identity stamping                         |
 | `auth`     | library | Authorization policy, JWT, OAuth                      |
 | `grants`   | library | Grant rule engine                                     |
-| `chanlib`  | library | Shared HTTP + auth primitives for adapters            |
+| `chanlib`  | library | HTTP + auth, URLCache, fsutil, env, ShortHash         |
 | `db_utils` | library | SQL migration runner                                  |
 | `theme`    | library | Shared CSS/HTML helpers                               |
 

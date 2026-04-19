@@ -9,6 +9,32 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- **chanlib**: absorbed cross-package primitives. Single `URLCache` (12-hex
+  LRU, cap 4096) replaces three divergent private `fileCache` impls in
+  discd/mastd/reditd. `CopyDirNoSymlinks`+`CopyFile` (fsutil) replace
+  duplicated copies in container + gateway (io.Copy path wins). `EnvInt`,
+  `EnvDur` join existing `EnvOr`; core no longer carries its own copies.
+  `ShortHash` replaces identical 4-byte sha256 log tags in onbod + webd.
+- **mastd/reditd**: deduped message conversion. mastd `handleNotification`
+  now calls `notificationToMsg`; reditd extracted `thingToMsg` shared by
+  `handleThing` (poll) and `FetchHistory` (backfill). ~75 lines removed.
+- **bskyd**: dropped no-op `oldestInPage` branch in `FetchHistory`; fixed
+  staticcheck lints (numeric 401 → `http.StatusUnauthorized`,
+  `t.Sub(time.Now())` → `time.Until`).
+
+### Removed
+
+- **store**: `ConsumeInvitation` (dead — onbod has its own atomic consume).
+- **webd**: unused `authSecret` + `trustedProxies` config fields.
+
+### Fixed
+
+- **onbod**: `genToken` silently discarded `crypto/rand` errors; now panics
+  on RNG failure (matches `core.GenSlinkToken`). A zero-entropy token
+  would be a guessable credential.
+
 ## [v0.29.4] — 2026-04-19
 
 ### Changed
