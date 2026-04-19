@@ -279,6 +279,23 @@ func TestMdToHTMLEscape(t *testing.T) {
 	}
 }
 
+func TestFetchHistoryUnsupported(t *testing.T) {
+	b := &bot{}
+	resp, err := b.FetchHistory(chanlib.HistoryRequest{ChatJID: "telegram:1", Limit: 50})
+	if err != nil {
+		t.Fatalf("FetchHistory error: %v", err)
+	}
+	if resp.Source != "unsupported" {
+		t.Errorf("source = %q, want unsupported", resp.Source)
+	}
+	if len(resp.Messages) != 0 {
+		t.Errorf("messages = %d, want 0", len(resp.Messages))
+	}
+	if resp.Cap == "" {
+		t.Error("Cap note should explain why history is unsupported")
+	}
+}
+
 func TestChunk(t *testing.T) {
 	c := chanlib.Chunk("abcdefgh", 3)
 	if len(c) != 3 || c[0] != "abc" || c[1] != "def" || c[2] != "gh" {

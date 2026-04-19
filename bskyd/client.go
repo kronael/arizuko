@@ -339,6 +339,106 @@ func (bc *bskyClient) Send(req chanlib.SendRequest) (string, error) {
 
 func (bc *bskyClient) Typing(string, bool) {}
 
+type feedViewPost struct {
+	Post struct {
+		URI    string `json:"uri"`
+		Author struct {
+			DID         string `json:"did"`
+			Handle      string `json:"handle"`
+			DisplayName string `json:"displayName"`
+		} `json:"author"`
+		Record    json.RawMessage `json:"record"`
+		IndexedAt string          `json:"indexedAt"`
+	} `json:"post"`
+	Reply *struct {
+		Parent struct {
+			URI string `json:"uri"`
+		} `json:"parent"`
+	} `json:"reply,omitempty"`
+}
+
+// FetchHistory returns recent posts authored by the DID encoded in ChatJID
+// via app.bsky.feed.getAuthorFeed. Bluesky uses opaque cursors, so Before
+// is applied client-side by filtering indexedAt < Before and paginating
+// while the page's oldest item is still after Before (up to 5 pages).
+// Limit is clamped to [1, 100] per Bluesky's API cap.
+func (bc *bskyClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
+	did := strings.TrimPrefix(req.ChatJID, "bluesky:")
+	if did == "" {
+		return chanlib.HistoryResponse{}, fmt.Errorf("invalid chat_jid")
+	}
+	limit := req.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	var out []chanlib.InboundMsg
+	cursor := ""
+	for page := 0; page < 5 && len(out) < limit; page++ {
+		params := map[string]string{"actor": did, "limit": fmt.Sprintf("%d", limit)}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		var result struct {
+			Feed   []feedViewPost `json:"feed"`
+			Cursor string         `json:"cursor"`
+		}
+		if err := bc.xrpc("GET", "app.bsky.feed.getAuthorFeed", params, nil, &result); err != nil {
+			return chanlib.HistoryResponse{}, err
+		}
+		if len(result.Feed) == 0 {
+			break
+		}
+		oldestInPage := time.Now()
+		for _, fv := range result.Feed {
+			ts, _ := time.Parse(time.RFC3339, fv.Post.IndexedAt)
+			if ts.Before(oldestInPage) {
+				oldestInPage = ts
+			}
+			if !req.Before.IsZero() && !ts.Before(req.Before) {
+				continue
+			}
+			var rec struct {
+				Text  string `json:"text"`
+				Reply *struct {
+					Parent struct {
+						URI string `json:"uri"`
+					} `json:"parent"`
+				} `json:"reply,omitempty"`
+			}
+			json.Unmarshal(fv.Post.Record, &rec)
+			name := fv.Post.Author.DisplayName
+			if name == "" {
+				name = fv.Post.Author.Handle
+			}
+			replyTo := ""
+			if rec.Reply != nil {
+				replyTo = uriToKey(rec.Reply.Parent.URI)
+			}
+			out = append(out, chanlib.InboundMsg{
+				ID:         uriToKey(fv.Post.URI),
+				ChatJID:    req.ChatJID,
+				Sender:     "bluesky:" + fv.Post.Author.DID,
+				SenderName: name,
+				Content:    rec.Text,
+				Timestamp:  ts.Unix(),
+				ReplyTo:    replyTo,
+			})
+			if len(out) >= limit {
+				break
+			}
+		}
+		if result.Cursor == "" || result.Cursor == cursor {
+			break
+		}
+		cursor = result.Cursor
+		// If oldest post in page is already before Before, nothing older matters.
+		if !req.Before.IsZero() && oldestInPage.Before(req.Before) {
+			// Past the Before window; but we may still need more items. Continue.
+		}
+	}
+	return chanlib.HistoryResponse{Source: "platform", Messages: out}, nil
+}
+
 func (bc *bskyClient) getPostCID(uri string) (string, error) {
 	parts := strings.Split(uri, "/")
 	if len(parts) < 5 {

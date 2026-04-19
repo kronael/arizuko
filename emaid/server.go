@@ -8,12 +8,15 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
 	"github.com/onvos/arizuko/chanlib"
 )
+
+const historyLimitMax = 50
 
 type server struct {
 	chanlib.NoFileSender
@@ -125,3 +128,123 @@ func (s *server) Send(req chanlib.SendRequest) (string, error) {
 }
 
 func (s *server) Typing(string, bool) {}
+
+// FetchHistory searches IMAP for messages in the requested thread before
+// the given date. `Before` is date-only per IMAP spec. Limit clamps at 50.
+// Returns `platform` source with the most recent `Limit` messages.
+func (s *server) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
+	threadID := strings.TrimPrefix(req.ChatJID, "email:")
+	var t emailThread
+	row := s.db.QueryRow(
+		`SELECT thread_id, from_address, root_msg_id FROM email_threads WHERE thread_id = ?`, threadID)
+	if err := row.Scan(&t.ThreadID, &t.FromAddress, &t.RootMsgID); err != nil {
+		return chanlib.HistoryResponse{}, fmt.Errorf("thread not found: %s", threadID)
+	}
+
+	limit := req.Limit
+	if limit <= 0 || limit > historyLimitMax {
+		limit = historyLimitMax
+	}
+
+	c, err := imapConnect(s.cfg, s.dialTLS, nil)
+	if err != nil {
+		return chanlib.HistoryResponse{}, fmt.Errorf("imap: %w", err)
+	}
+	defer c.Logout()
+
+	// Match messages that belong to the thread: either the root itself, or any
+	// reply whose References header contains the root Message-ID.
+	rootHdr := "<" + t.RootMsgID + ">"
+	criteria := &imap.SearchCriteria{
+		Or: [][2]imap.SearchCriteria{{
+			{Header: []imap.SearchCriteriaHeaderField{{Key: "Message-ID", Value: rootHdr}}},
+			{Header: []imap.SearchCriteriaHeaderField{{Key: "References", Value: t.RootMsgID}}},
+		}},
+	}
+	if !req.Before.IsZero() {
+		criteria.Before = req.Before
+	}
+
+	searchData, err := c.UIDSearch(criteria, nil).Wait()
+	if err != nil {
+		return chanlib.HistoryResponse{}, fmt.Errorf("search: %w", err)
+	}
+	uids := searchData.AllUIDs()
+	if len(uids) == 0 {
+		return chanlib.HistoryResponse{Source: "platform", Messages: []chanlib.InboundMsg{}}, nil
+	}
+	// Keep the most recent `limit` UIDs.
+	if len(uids) > limit {
+		uids = uids[len(uids)-limit:]
+	}
+
+	fetchOpts := &imap.FetchOptions{
+		Envelope:    true,
+		BodySection: []*imap.FetchItemBodySection{{}},
+		UID:         true,
+	}
+	msgs, err := c.Fetch(imap.UIDSetNum(uids...), fetchOpts).Collect()
+	if err != nil {
+		return chanlib.HistoryResponse{}, fmt.Errorf("fetch: %w", err)
+	}
+
+	out := make([]chanlib.InboundMsg, 0, len(msgs))
+	for _, m := range msgs {
+		im, ok := fetchMsgToInbound(m, threadID, s.cfg.ListenURL, s.reg, s.cfg.MaxAttachment)
+		if ok {
+			out = append(out, im)
+		}
+	}
+	return chanlib.HistoryResponse{Source: "platform", Messages: out}, nil
+}
+
+// fetchMsgToInbound converts an IMAP FetchMessageBuffer into an InboundMsg
+// shape identical to the live poller's delivery. Factored out so history
+// uses the same conversion as inbound (no drift).
+func fetchMsgToInbound(
+	msg *imapclient.FetchMessageBuffer,
+	threadID, listenURL string,
+	reg *attRegistry,
+	maxBytes int64,
+) (chanlib.InboundMsg, bool) {
+	if msg.Envelope == nil {
+		return chanlib.InboundMsg{}, false
+	}
+	env := msg.Envelope
+	msgID := strings.Trim(env.MessageID, "<>")
+	if msgID == "" {
+		msgID = fmt.Sprintf("uid-%d", msg.UID)
+	}
+	var fromAddr, fromName string
+	if len(env.From) > 0 {
+		fromAddr = env.From[0].Addr()
+		fromName = env.From[0].Name
+		if fromName == "" {
+			fromName = fromAddr
+		}
+	}
+	bodyRaw := msg.FindBodySection(&imap.FetchItemBodySection{})
+	body := ""
+	var atts []chanlib.InboundAttachment
+	if bodyRaw != nil {
+		body, atts = extractContent(bodyRaw, msg.UID, listenURL, reg, maxBytes)
+	}
+	toAddr := ""
+	if len(env.To) > 0 {
+		toAddr = env.To[0].Addr()
+	}
+	content := fmt.Sprintf("From: %s <%s>\nSubject: %s\nDate: %s\nTo: %s\n\n%s",
+		fromName, fromAddr, env.Subject, env.Date.Format(time.RFC1123Z), toAddr, body)
+	for _, a := range atts {
+		content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
+	}
+	return chanlib.InboundMsg{
+		ID:          msgID,
+		ChatJID:     "email:" + threadID,
+		Sender:      "email:" + fromAddr,
+		SenderName:  fromName,
+		Content:     content,
+		Timestamp:   env.Date.Unix(),
+		Attachments: atts,
+	}, true
+}

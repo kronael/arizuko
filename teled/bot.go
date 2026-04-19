@@ -288,6 +288,18 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 
 func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
 
+// FetchHistory honestly reports that Telegram's Bot API cannot fetch
+// arbitrary chat history. getUpdates is offset-based and 24h-capped;
+// getHistory / forwardMessages require MTProto (user API), which the
+// bot token can't use. The gateway falls back to its local-DB cache.
+func (b *bot) FetchHistory(_ chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
+	return chanlib.HistoryResponse{
+		Source:   "unsupported",
+		Cap:      "telegram bot API does not expose history",
+		Messages: []chanlib.InboundMsg{},
+	}, nil
+}
+
 func (b *bot) sendTyping(jid string) {
 	id, err := parseChatID(jid)
 	if err != nil {

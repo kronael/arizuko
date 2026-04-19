@@ -563,3 +563,100 @@ func newBskyRouterMock() *bskyRouter {
 }
 
 func (m *bskyRouter) close() { m.srv.Close() }
+
+func TestFetchHistory(t *testing.T) {
+	var capturedQuery string
+	var pageHits int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/xrpc/com.atproto.server.createSession", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(session{DID: "did:plc:me", AccessJwt: "a", RefreshJwt: "r"})
+	})
+	mux.HandleFunc("/xrpc/app.bsky.feed.getAuthorFeed", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&pageHits, 1)
+		capturedQuery = r.URL.RawQuery
+		// Return two posts, newest first; empty cursor → no more pages.
+		w.Write([]byte(`{
+			"feed":[
+				{"post":{"uri":"at://did:plc:a/app.bsky.feed.post/p2","author":{"did":"did:plc:a","handle":"alice.bsky","displayName":"Alice"},"indexedAt":"2026-04-18T12:00:00Z","record":{"text":"second"}}},
+				{"post":{"uri":"at://did:plc:a/app.bsky.feed.post/p1","author":{"did":"did:plc:a","handle":"alice.bsky","displayName":"Alice"},"indexedAt":"2026-04-18T11:00:00Z","record":{"text":"first","reply":{"parent":{"uri":"at://did:plc:a/app.bsky.feed.post/p0"}}}}}
+			]
+		}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	bc := &bskyClient{
+		cfg:  config{Service: srv.URL, Identifier: "u", Password: "p", DataDir: t.TempDir()},
+		http: &http.Client{Timeout: 5 * time.Second},
+	}
+	if err := bc.createSession(); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := bc.FetchHistory(chanlib.HistoryRequest{
+		ChatJID: "bluesky:did:plc:a", Limit: 50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Source != "platform" {
+		t.Errorf("source = %q", resp.Source)
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("got %d messages", len(resp.Messages))
+	}
+	if resp.Messages[0].ID != "p2" || resp.Messages[0].Content != "second" {
+		t.Errorf("msg[0] = %+v", resp.Messages[0])
+	}
+	if resp.Messages[1].ReplyTo != "p0" {
+		t.Errorf("msg[1] replyTo = %q", resp.Messages[1].ReplyTo)
+	}
+	if resp.Messages[1].Sender != "bluesky:did:plc:a" || resp.Messages[1].SenderName != "Alice" {
+		t.Errorf("sender = %s / %s", resp.Messages[1].Sender, resp.Messages[1].SenderName)
+	}
+	if !strings.Contains(capturedQuery, "actor=did") {
+		t.Errorf("query missing actor: %q", capturedQuery)
+	}
+	if !strings.Contains(capturedQuery, "limit=50") {
+		t.Errorf("query missing limit: %q", capturedQuery)
+	}
+	if atomic.LoadInt32(&pageHits) == 0 {
+		t.Error("feed endpoint never hit")
+	}
+}
+
+func TestFetchHistory_BeforeFilter(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/xrpc/com.atproto.server.createSession", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(session{DID: "did:plc:me", AccessJwt: "a", RefreshJwt: "r"})
+	})
+	mux.HandleFunc("/xrpc/app.bsky.feed.getAuthorFeed", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"feed":[
+			{"post":{"uri":"at://x/p/new","author":{"did":"did:plc:a","handle":"a"},"indexedAt":"2026-04-20T00:00:00Z","record":{"text":"new"}}},
+			{"post":{"uri":"at://x/p/old","author":{"did":"did:plc:a","handle":"a"},"indexedAt":"2026-04-10T00:00:00Z","record":{"text":"old"}}}
+		]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	bc := &bskyClient{
+		cfg:  config{Service: srv.URL, Identifier: "u", Password: "p", DataDir: t.TempDir()},
+		http: &http.Client{Timeout: 5 * time.Second},
+	}
+	if err := bc.createSession(); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := time.Parse(time.RFC3339, "2026-04-15T00:00:00Z")
+	resp, err := bc.FetchHistory(chanlib.HistoryRequest{
+		ChatJID: "bluesky:did:plc:a", Limit: 50, Before: before,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Messages) != 1 || resp.Messages[0].Content != "old" {
+		t.Errorf("messages = %+v (Before filter should drop 'new')", resp.Messages)
+	}
+}
+
+func TestFetchHistory_Interface(t *testing.T) {
+	var _ chanlib.HistoryProvider = (*bskyClient)(nil)
+}

@@ -244,6 +244,71 @@ func TestDeliverComment(t *testing.T) {
 	}
 }
 
+func TestFetchHistory_Comments(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			http.Error(w, "bad auth", 401)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"elements":[
+			{"id":"c1","actor":"urn:li:person:alice","created":{"time":1700000200000},"message":{"text":"great"}},
+			{"id":"c2","actor":"urn:li:person:me","created":{"time":1700000150000},"message":{"text":"self-skip"}},
+			{"id":"c3","actor":"urn:li:person:bob","created":{"time":1700000100000},"message":{"text":"reply"},"parentComment":"urn:li:comment:xyz"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	lc := &linkClient{
+		cfg:   config{APIBase: srv.URL},
+		http:  srv.Client(),
+		token: "tok",
+		meURN: "urn:li:person:me",
+		seen:  map[string]bool{},
+	}
+	resp, err := lc.FetchHistory(chanlib.HistoryRequest{
+		ChatJID: "linkedin:urn:li:activity:999",
+		Limit:   50,
+	})
+	if err != nil {
+		t.Fatalf("FetchHistory: %v", err)
+	}
+	if resp.Source != "platform" {
+		t.Errorf("Source=%q", resp.Source)
+	}
+	if !strings.Contains(gotPath, "/v2/socialActions/") || !strings.Contains(gotPath, "/comments") {
+		t.Errorf("path=%q", gotPath)
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("messages=%d want 2 (own-comment filtered)", len(resp.Messages))
+	}
+	if resp.Messages[0].ID != "urn:li:activity:999-c1" {
+		t.Errorf("ID=%q", resp.Messages[0].ID)
+	}
+	if resp.Messages[0].ChatJID != "linkedin:urn:li:activity:999" {
+		t.Errorf("ChatJID=%q", resp.Messages[0].ChatJID)
+	}
+	if resp.Messages[1].Verb != "reply" || resp.Messages[1].ReplyTo != "urn:li:comment:xyz" {
+		t.Errorf("reply fields wrong: %+v", resp.Messages[1])
+	}
+}
+
+func TestFetchHistory_NonPostJID_Unsupported(t *testing.T) {
+	lc := &linkClient{seen: map[string]bool{}}
+	resp, err := lc.FetchHistory(chanlib.HistoryRequest{ChatJID: "linkedin:urn:li:person:alice"})
+	if err != nil {
+		t.Fatalf("FetchHistory: %v", err)
+	}
+	if resp.Source != "unsupported" {
+		t.Errorf("Source=%q", resp.Source)
+	}
+	if len(resp.Messages) != 0 {
+		t.Errorf("messages=%d", len(resp.Messages))
+	}
+}
+
 func TestSaveLoadState(t *testing.T) {
 	tmp := t.TempDir()
 	lc1 := &linkClient{

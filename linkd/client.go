@@ -524,6 +524,71 @@ func (lc *linkClient) postComment(postURN, text, parentComment string) (string, 
 	return out.ID, nil
 }
 
+// FetchHistory returns comments on an own-post URN. JID shape
+// `linkedin:<postURN>`; non-post JIDs (e.g. person URNs) aren't
+// addressable via LinkedIn's community-management API and return
+// "unsupported" with an empty response.
+func (lc *linkClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
+	urn := strings.TrimPrefix(req.ChatJID, "linkedin:")
+	if !isPostURN(urn) {
+		return chanlib.HistoryResponse{Source: "unsupported", Messages: []chanlib.InboundMsg{}}, nil
+	}
+	limit := req.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	path := "/v2/socialActions/" + url.PathEscape(urn) + "/comments"
+	params := map[string]string{"count": fmt.Sprintf("%d", limit)}
+	resp, err := lc.do("GET", path, params, nil)
+	if err != nil {
+		return chanlib.HistoryResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return chanlib.HistoryResponse{}, fmt.Errorf("comments: status %d: %s", resp.StatusCode, string(b))
+	}
+	var cr commentsResp
+	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
+		return chanlib.HistoryResponse{}, err
+	}
+	lc.mu.Lock()
+	meURN := lc.meURN
+	lc.mu.Unlock()
+	before := req.Before
+	msgs := make([]chanlib.InboundMsg, 0, len(cr.Elements))
+	for _, c := range cr.Elements {
+		if c.Actor == meURN {
+			continue
+		}
+		if strings.TrimSpace(c.Message.Text) == "" {
+			continue
+		}
+		ts := c.Created.Time / 1000
+		if !before.IsZero() && ts != 0 && ts >= before.Unix() {
+			continue
+		}
+		verb := "comment"
+		replyTo := ""
+		if c.ParentComment != "" {
+			verb = "reply"
+			replyTo = c.ParentComment
+		}
+		msgs = append(msgs, chanlib.InboundMsg{
+			ID:         urn + "-" + c.ID,
+			ChatJID:    "linkedin:" + urn,
+			Sender:     "linkedin:" + c.Actor,
+			SenderName: c.Actor,
+			Content:    c.Message.Text,
+			Timestamp:  ts,
+			Topic:      urn,
+			Verb:       verb,
+			ReplyTo:    replyTo,
+		})
+	}
+	return chanlib.HistoryResponse{Source: "platform", Messages: msgs}, nil
+}
+
 func (lc *linkClient) Typing(string, bool) {}
 
 func isPostURN(urn string) bool {

@@ -335,3 +335,101 @@ func TestEnsureToken_NotExpired(t *testing.T) {
 		t.Errorf("token changed unexpectedly to %q", rc.token)
 	}
 }
+
+// TestFetchHistory_Subreddit verifies FetchHistory returns listing items
+// oldest-first, mapped to InboundMsg shape, with platform-capped source.
+func TestFetchHistory_Subreddit(t *testing.T) {
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/r/golang/new.json") {
+			http.Error(w, "wrong path", 404)
+			return
+		}
+		if r.URL.Query().Get("limit") == "" {
+			t.Error("limit param missing")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// Two items; reddit returns newest-first so "newer" comes first.
+		l := listing{}
+		newer := thing{Kind: "t3"}
+		newer.Data.Name = "t3_newer"
+		newer.Data.Author = "alice"
+		newer.Data.Title = "hello"
+		newer.Data.Subreddit = "golang"
+		newer.Data.CreatedAt = 1_700_000_200
+		older := thing{Kind: "t3"}
+		older.Data.Name = "t3_older"
+		older.Data.Author = "bob"
+		older.Data.Title = "world"
+		older.Data.Subreddit = "golang"
+		older.Data.CreatedAt = 1_700_000_100
+		l.Data.Children = []thing{newer, older}
+		json.NewEncoder(w).Encode(l)
+	}))
+	defer apiSrv.Close()
+
+	rc := makeRedditClient(t, apiSrv)
+	resp, err := rc.FetchHistory(chanlib.HistoryRequest{ChatJID: "reddit:r_golang", Limit: 50})
+	if err != nil {
+		t.Fatalf("FetchHistory: %v", err)
+	}
+	if resp.Source != "platform-capped" || resp.Cap != "1000" {
+		t.Errorf("Source=%q Cap=%q", resp.Source, resp.Cap)
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("messages=%d", len(resp.Messages))
+	}
+	// Oldest-first ordering.
+	if resp.Messages[0].ID != "t3_older" || resp.Messages[1].ID != "t3_newer" {
+		t.Errorf("order wrong: %q, %q", resp.Messages[0].ID, resp.Messages[1].ID)
+	}
+	if resp.Messages[0].ChatJID != "reddit:r_golang" {
+		t.Errorf("ChatJID=%q", resp.Messages[0].ChatJID)
+	}
+	if resp.Messages[0].Verb != "post" {
+		t.Errorf("Verb=%q", resp.Messages[0].Verb)
+	}
+}
+
+func TestFetchHistory_UserJID_Unsupported(t *testing.T) {
+	rc := &redditClient{}
+	resp, err := rc.FetchHistory(chanlib.HistoryRequest{ChatJID: "reddit:alice"})
+	if err != nil {
+		t.Fatalf("FetchHistory: %v", err)
+	}
+	if resp.Source != "unsupported" {
+		t.Errorf("Source=%q", resp.Source)
+	}
+	if len(resp.Messages) != 0 {
+		t.Errorf("want empty, got %d", len(resp.Messages))
+	}
+}
+
+func TestFetchHistory_BeforeFilter(t *testing.T) {
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		l := listing{}
+		a := thing{Kind: "t3"}
+		a.Data.Name = "t3_a"
+		a.Data.Title = "a"
+		a.Data.CreatedAt = 1_000
+		b := thing{Kind: "t3"}
+		b.Data.Name = "t3_b"
+		b.Data.Title = "b"
+		b.Data.CreatedAt = 3_000
+		l.Data.Children = []thing{b, a}
+		json.NewEncoder(w).Encode(l)
+	}))
+	defer apiSrv.Close()
+
+	rc := makeRedditClient(t, apiSrv)
+	resp, err := rc.FetchHistory(chanlib.HistoryRequest{
+		ChatJID: "reddit:r_x",
+		Before:  time.Unix(2_000, 0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Messages) != 1 || resp.Messages[0].ID != "t3_a" {
+		t.Errorf("before filter wrong: %+v", resp.Messages)
+	}
+}

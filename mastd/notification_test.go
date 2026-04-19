@@ -456,6 +456,68 @@ func TestEnvCacheSize_InvalidFallsBack(t *testing.T) {
 	}
 }
 
+func TestFetchHistory_Notifications(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/notifications" {
+			http.Error(w, "wrong path", 404)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			http.Error(w, "bad auth", 401)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// Two mentions: one from account 42 (target), one from 99 (filtered out).
+		w.Write([]byte(`[
+			{"id":"n1","type":"mention","created_at":"2023-11-14T22:13:20Z","account":{"id":"42","display_name":"Alice","acct":"alice"},"status":{"id":"s-newer","content":"<p>newer</p>","created_at":"2023-11-14T22:13:20Z"}},
+			{"id":"n2","type":"mention","created_at":"2023-11-14T22:13:10Z","account":{"id":"99","display_name":"Zed","acct":"zed"},"status":{"id":"s-other","content":"other","created_at":"2023-11-14T22:13:10Z"}},
+			{"id":"n3","type":"mention","created_at":"2023-11-14T22:13:00Z","account":{"id":"42","display_name":"Alice","acct":"alice"},"status":{"id":"s-older","content":"<p>older</p>","created_at":"2023-11-14T22:13:00Z"}}
+		]`))
+	}))
+	defer srv.Close()
+
+	mc := &mastoClient{
+		cfg: config{InstanceURL: srv.URL, ListenURL: "http://mastd:9004"},
+		client: mastodon.NewClient(&mastodon.Config{
+			Server: srv.URL, AccessToken: "tok",
+		}),
+		http:  srv.Client(),
+		files: newFileCache(10),
+	}
+
+	resp, err := mc.FetchHistory(chanlib.HistoryRequest{ChatJID: "mastodon:42", Limit: 50})
+	if err != nil {
+		t.Fatalf("FetchHistory: %v", err)
+	}
+	if resp.Source != "platform" {
+		t.Errorf("Source=%q", resp.Source)
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("messages=%d", len(resp.Messages))
+	}
+	// Oldest-first.
+	if resp.Messages[0].ID != "s-older" || resp.Messages[1].ID != "s-newer" {
+		t.Errorf("order wrong: %q %q", resp.Messages[0].ID, resp.Messages[1].ID)
+	}
+	if resp.Messages[0].ChatJID != "mastodon:42" {
+		t.Errorf("ChatJID=%q", resp.Messages[0].ChatJID)
+	}
+	if resp.Messages[0].Content != "older" {
+		t.Errorf("Content=%q (should be HTML-stripped)", resp.Messages[0].Content)
+	}
+}
+
+func TestFetchHistory_UnsupportedJID(t *testing.T) {
+	mc := &mastoClient{}
+	resp, err := mc.FetchHistory(chanlib.HistoryRequest{ChatJID: "telegram:123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Source != "unsupported" || len(resp.Messages) != 0 {
+		t.Errorf("want unsupported empty, got %+v", resp)
+	}
+}
+
 func TestMimeExt_Unknown(t *testing.T) {
 	if mimeExt("application/octet-stream") != "" {
 		t.Error("unknown mime should return empty string")

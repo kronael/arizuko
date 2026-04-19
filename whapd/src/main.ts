@@ -420,6 +420,11 @@ async function main() {
 
   // Never exit on register failure: docker restart loops race Baileys'
   // non-atomic creds writes and corrupt the session. Stay up; gated catches up.
+  //
+  // Note: whapd does NOT expose `fetch_history`. Baileys has no reliable
+  // history API — the in-memory sync store was removed in current versions
+  // and LID/JID translation makes offline lookup unsafe. The gateway falls
+  // back to its local-DB cache for history queries.
   registerWithRetry();
 
   const srv = startServer(

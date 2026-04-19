@@ -161,6 +161,79 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 
 func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
 
+// discordEpochMs is the Discord snowflake epoch (2015-01-01T00:00:00Z).
+const discordEpochMs = 1420070400000
+
+// FetchHistory pulls recent messages from Discord for the given channel.
+// Limit is clamped to [1, 100] per Discord API; Before is translated to a
+// snowflake ID so the API returns messages strictly older than that time.
+func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
+	chID := strings.TrimPrefix(req.ChatJID, "discord:")
+	if chID == "" {
+		return chanlib.HistoryResponse{}, fmt.Errorf("invalid chat_jid")
+	}
+	limit := req.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	var beforeID string
+	if !req.Before.IsZero() {
+		ms := req.Before.UnixMilli() - discordEpochMs
+		if ms < 0 {
+			ms = 0
+		}
+		beforeID = fmt.Sprintf("%d", ms<<22)
+	}
+	msgs, err := b.session.ChannelMessages(chID, limit, beforeID, "", "")
+	if err != nil {
+		return chanlib.HistoryResponse{}, fmt.Errorf("discord history: %w", err)
+	}
+	out := make([]chanlib.InboundMsg, 0, len(msgs))
+	for _, m := range msgs {
+		if m == nil || m.Author == nil {
+			continue
+		}
+		content := m.Content
+		var atts []chanlib.InboundAttachment
+		for _, att := range m.Attachments {
+			if att == nil || att.URL == "" {
+				continue
+			}
+			name := att.Filename
+			if name == "" {
+				name = "attachment"
+			}
+			content += fmt.Sprintf(" [Attachment: %s]", name)
+			url := att.URL
+			if b.files != nil && b.cfg.ListenURL != "" {
+				url = fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, b.files.Put(att.URL))
+			}
+			atts = append(atts, chanlib.InboundAttachment{
+				Mime: att.ContentType, Filename: name, URL: url, Size: int64(att.Size),
+			})
+		}
+		if content == "" && len(atts) == 0 {
+			continue
+		}
+		content = replaceMentions(content, b.cfg.AssistantName, b.session.State.User)
+		var replyTo string
+		if m.MessageReference != nil {
+			replyTo = m.MessageReference.MessageID
+		}
+		out = append(out, chanlib.InboundMsg{
+			ID:          m.ID,
+			ChatJID:     req.ChatJID,
+			Sender:      "discord:" + m.Author.ID,
+			SenderName:  m.Author.Username,
+			Content:     content,
+			Timestamp:   m.Timestamp.Unix(),
+			ReplyTo:     replyTo,
+			Attachments: atts,
+		})
+	}
+	return chanlib.HistoryResponse{Source: "platform", Messages: out}, nil
+}
+
 func (b *bot) sendTyping(jid string) {
 	chID := strings.TrimPrefix(jid, "discord:")
 	if err := b.session.ChannelTyping(chID); err != nil {

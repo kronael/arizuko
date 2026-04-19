@@ -566,6 +566,99 @@ func newDiscdRouterMock() *discdRouter {
 
 func (m *discdRouter) close() { m.srv.Close() }
 
+func TestFetchHistory(t *testing.T) {
+	var capturedQuery string
+	var capturedPath string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedPath = r.URL.Path
+		capturedQuery = r.URL.RawQuery
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[
+			{"id":"m2","channel_id":"ch-1","content":"second","timestamp":"2026-04-18T12:00:00Z",
+			 "author":{"id":"u1","username":"alice"},
+			 "message_reference":{"message_id":"parent-9"}},
+			{"id":"m1","channel_id":"ch-1","content":"first","timestamp":"2026-04-18T11:00:00Z",
+			 "author":{"id":"u1","username":"alice"},
+			 "attachments":[{"id":"a1","filename":"pic.png","url":"https://cdn/x","content_type":"image/png","size":42}]}
+		]`))
+	}))
+	defer srv.Close()
+	defer mockDiscordEndpoints(srv.URL)()
+
+	b := &bot{session: newTestSession(t), cfg: config{AssistantName: "Ari"}}
+	// leave b.files nil — FetchHistory should fall back to the raw CDN URL.
+
+	before, _ := time.Parse(time.RFC3339, "2026-04-19T00:00:00Z")
+	resp, err := b.FetchHistory(chanlib.HistoryRequest{
+		ChatJID: "discord:ch-1", Before: before, Limit: 50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Source != "platform" {
+		t.Errorf("source = %q", resp.Source)
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("got %d messages", len(resp.Messages))
+	}
+	if resp.Messages[0].ID != "m2" || resp.Messages[0].ReplyTo != "parent-9" {
+		t.Errorf("msg[0] = %+v", resp.Messages[0])
+	}
+	if resp.Messages[1].ID != "m1" || len(resp.Messages[1].Attachments) != 1 {
+		t.Errorf("msg[1] = %+v", resp.Messages[1])
+	}
+	if resp.Messages[1].Attachments[0].URL != "https://cdn/x" {
+		t.Errorf("attachment url = %q (expected raw CDN when files cache nil)", resp.Messages[1].Attachments[0].URL)
+	}
+	if resp.Messages[1].Sender != "discord:u1" || resp.Messages[1].SenderName != "alice" {
+		t.Errorf("sender = %s / %s", resp.Messages[1].Sender, resp.Messages[1].SenderName)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.HasSuffix(capturedPath, "/channels/ch-1/messages") {
+		t.Errorf("path = %q", capturedPath)
+	}
+	if !strings.Contains(capturedQuery, "limit=50") {
+		t.Errorf("query missing limit: %q", capturedQuery)
+	}
+	if !strings.Contains(capturedQuery, "before=") {
+		t.Errorf("query missing before snowflake: %q", capturedQuery)
+	}
+}
+
+func TestFetchHistory_ClampsLimit(t *testing.T) {
+	var captured string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		captured = r.URL.RawQuery
+		mu.Unlock()
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+	defer mockDiscordEndpoints(srv.URL)()
+
+	b := &bot{session: newTestSession(t)}
+	_, err := b.FetchHistory(chanlib.HistoryRequest{ChatJID: "discord:ch-1", Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(captured, "limit=100") {
+		t.Errorf("limit not clamped to 100: %q", captured)
+	}
+}
+
+func TestFetchHistory_HTTPRegistered(t *testing.T) {
+	// The adapter mux should register /v1/history when the bot implements
+	// HistoryProvider. Assert that the real *bot satisfies the interface.
+	var _ chanlib.HistoryProvider = (*bot)(nil)
+}
+
 func os_WriteFile(t *testing.T, path string, data []byte) {
 	t.Helper()
 	if err := os.WriteFile(path, data, 0o644); err != nil {

@@ -17,7 +17,9 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"discord:"},
-		Caps:          map[string]bool{"send_text": true, "send_file": true, "typing": true},
+		Caps: map[string]bool{
+			"send_text": true, "send_file": true, "typing": true, "fetch_history": true,
+		},
 		Start: func(_ context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)
 			if err != nil {

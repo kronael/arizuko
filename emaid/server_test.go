@@ -10,8 +10,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 func testServer(t *testing.T, secret string) (*server, *sql.DB) {
@@ -194,6 +198,70 @@ func TestFileProxyIMAPError(t *testing.T) {
 
 	if w.Code != 502 {
 		t.Errorf("status = %d, want 502", w.Code)
+	}
+}
+
+// TestFetchHistory_ThreadNotFound verifies that a request for an unknown
+// thread returns an error (502 via handler) without contacting IMAP.
+func TestFetchHistory_ThreadNotFound(t *testing.T) {
+	s, _ := testServer(t, "")
+	_, err := s.FetchHistory(chanlib.HistoryRequest{ChatJID: "email:nosuch", Limit: 10})
+	if err == nil {
+		t.Fatal("expected error for unknown thread, got nil")
+	}
+}
+
+// TestFetchMsgToInbound verifies the IMAP→InboundMsg shape conversion used
+// by FetchHistory matches the live poller's delivery format (no drift).
+func TestFetchMsgToInbound(t *testing.T) {
+	// Build a FetchMessageBuffer directly: envelope + a text/plain body.
+	raw := []byte("Content-Type: text/plain\r\n\r\nhello history")
+	msg := &imapclient.FetchMessageBuffer{
+		UID: 7,
+		Envelope: &imap.Envelope{
+			MessageID: "<m1@example.com>",
+			Subject:   "hi",
+			Date:      time.Unix(1_700_000_000, 0).UTC(),
+			From:      []imap.Address{{Name: "Alice", Mailbox: "alice", Host: "example.com"}},
+			To:        []imap.Address{{Name: "", Mailbox: "bot", Host: "example.com"}},
+		},
+		BodySection: []imapclient.FetchBodySectionBuffer{
+			{Section: &imap.FetchItemBodySection{}, Bytes: raw},
+		},
+	}
+
+	im, ok := fetchMsgToInbound(msg, "tid123", "", newAttRegistry(), 0)
+	if !ok {
+		t.Fatal("fetchMsgToInbound returned !ok")
+	}
+	if im.ID != "m1@example.com" {
+		t.Errorf("id = %q", im.ID)
+	}
+	if im.ChatJID != "email:tid123" {
+		t.Errorf("jid = %q", im.ChatJID)
+	}
+	if im.Sender != "email:alice@example.com" {
+		t.Errorf("sender = %q", im.Sender)
+	}
+	if im.SenderName != "Alice" {
+		t.Errorf("sender_name = %q", im.SenderName)
+	}
+	if !strings.Contains(im.Content, "Subject: hi") {
+		t.Errorf("content missing Subject header: %q", im.Content)
+	}
+	if !strings.Contains(im.Content, "hello history") {
+		t.Errorf("content missing body: %q", im.Content)
+	}
+	if im.Timestamp != 1_700_000_000 {
+		t.Errorf("timestamp = %d", im.Timestamp)
+	}
+}
+
+// TestFetchMsgToInbound_NoEnvelope verifies missing envelope → !ok (skip).
+func TestFetchMsgToInbound_NoEnvelope(t *testing.T) {
+	_, ok := fetchMsgToInbound(&imapclient.FetchMessageBuffer{UID: 1}, "tid", "", nil, 0)
+	if ok {
+		t.Error("expected !ok when envelope is nil")
 	}
 }
 

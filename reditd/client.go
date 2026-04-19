@@ -346,6 +346,89 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 	}
 }
 
+// FetchHistory pulls a subreddit listing (newest-first). JID shape
+// `reddit:r_<sr>` maps to `/r/<sr>/new.json`; user DM JIDs are
+// unsupported because /message/inbox isn't filterable by counterparty.
+// Reddit listing endpoints cap depth at ~1000 items.
+func (rc *redditClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
+	jid := req.ChatJID
+	if !strings.HasPrefix(jid, "reddit:r_") {
+		return chanlib.HistoryResponse{Source: "unsupported", Messages: []chanlib.InboundMsg{}}, nil
+	}
+	sr := strings.TrimPrefix(jid, "reddit:r_")
+	if sr == "" {
+		return chanlib.HistoryResponse{Source: "unsupported", Messages: []chanlib.InboundMsg{}}, nil
+	}
+	limit := req.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	params := map[string]string{"limit": fmt.Sprintf("%d", limit)}
+	resp, err := rc.do("GET", "/r/"+sr+"/new.json", params, nil)
+	if err != nil {
+		return chanlib.HistoryResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return chanlib.HistoryResponse{}, fmt.Errorf("reddit listing: status %d: %s", resp.StatusCode, string(b))
+	}
+	var l listing
+	if err := json.NewDecoder(resp.Body).Decode(&l); err != nil {
+		return chanlib.HistoryResponse{}, err
+	}
+	before := req.Before
+	msgs := make([]chanlib.InboundMsg, 0, len(l.Data.Children))
+	// Reverse to oldest-first to match poll delivery order.
+	for i := len(l.Data.Children) - 1; i >= 0; i-- {
+		t := l.Data.Children[i]
+		d := t.Data
+		ts := int64(d.CreatedAt)
+		if !before.IsZero() && ts >= before.Unix() {
+			continue
+		}
+		content := d.Body
+		if content == "" {
+			content = d.Title
+			if d.Selftext != "" {
+				content += "\n\n" + d.Selftext
+			}
+		}
+		if content == "" {
+			continue
+		}
+		verb, topic := "message", ""
+		switch t.Kind {
+		case "t1":
+			if d.ParentID != "" {
+				verb = "reply"
+				topic = d.ParentID
+				if strings.HasPrefix(d.ParentID, "t3_") {
+					topic = d.LinkID
+				}
+			}
+		case "t3":
+			verb = "post"
+		}
+		atts := rc.extractAttachments(t)
+		for _, a := range atts {
+			content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
+		}
+		msgs = append(msgs, chanlib.InboundMsg{
+			ID:          d.Name,
+			ChatJID:     jid,
+			Sender:      "reddit:" + d.Author,
+			SenderName:  d.Author,
+			Content:     content,
+			Timestamp:   ts,
+			Topic:       topic,
+			Verb:        verb,
+			Attachments: atts,
+		})
+	}
+	return chanlib.HistoryResponse{Source: "platform-capped", Cap: "1000", Messages: msgs}, nil
+}
+
 func (rc *redditClient) Send(req chanlib.SendRequest) (string, error) {
 	var data url.Values
 	var path string
