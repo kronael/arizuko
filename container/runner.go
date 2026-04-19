@@ -184,7 +184,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		if uid := os.Getuid(); uid > 0 && uid != 1000 {
 			cuid = uid
 		}
-		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Grants, in.McpToken, cuid); err != nil {
+		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Grants, "", cuid); err != nil {
 			slog.Warn("failed to start MCP server",
 				"group", in.Folder, "container", containerName, "err", err)
 		} else {
