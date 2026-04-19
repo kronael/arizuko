@@ -1,101 +1,99 @@
 ---
-status: draft
+status: partial
 ---
-
-## status: partial
 
 # Social Events — Unified Inbound Model
 
 Normalize inbound events into typed InboundEvent. Gateway filters
-by impulse weights, routes by verb. Agents see uniform stream.
+by impulse weights, routes by verb. Agents see a uniform stream.
 
 ## Verbs
 
-message, reply, post, react, repost, follow, join, edit, delete, close
+`message, reply, post, react, repost, follow, join, edit, delete, close`
 
-## Platform Mapping
+## Platform mapping
 
-### Chat channels (verb always Message)
+### Chat channels (verb always `message`)
 
-| Source            | verb    | content | thread   |
-| ----------------- | ------- | ------- | -------- |
-| Telegram chat msg | Message | text    | -        |
-| WhatsApp msg      | Message | text    | -        |
-| Discord msg       | Message | text    | threadId |
-| Web (slink)       | Message | text    | -        |
+| Source            | content | thread   |
+| ----------------- | ------- | -------- |
+| Telegram chat msg | text    | -        |
+| WhatsApp msg      | text    | -        |
+| Discord msg       | text    | threadId |
+| Web (slink)       | text    | -        |
 
 ### Reddit
 
 | Source              | verb    | thread  | target     | mentions_me |
 | ------------------- | ------- | ------- | ---------- | ----------- |
-| DM received         | Message | -       | -          | -           |
-| Comment on our post | Reply   | post_id | post_id    | -           |
-| u/ mention          | Message | post_id | comment_id | yes         |
-| New post in r/sub   | Post    | -       | -          | -           |
-| Upvote on our post  | React   | -       | post_id    | -           |
+| DM received         | message | -       | -          | -           |
+| Comment on our post | reply   | post_id | post_id    | -           |
+| u/ mention          | message | post_id | comment_id | yes         |
+| New post in r/sub   | post    | -       | -          | -           |
+| Upvote on our post  | react   | -       | post_id    | -           |
 
 ### Mastodon / Bluesky
 
 | Source            | verb    | thread    | target    | mentions_me |
 | ----------------- | ------- | --------- | --------- | ----------- |
-| DM (direct vis.)  | Message | -         | -         | -           |
-| @mention          | Message | status_id | -         | yes         |
-| Reply to our post | Reply   | status_id | status_id | -           |
-| Favourite/like    | React   | -         | status_id | -           |
-| Boost/repost      | Repost  | -         | status_id | -           |
-| New follower      | Follow  | -         | -         | -           |
+| DM (direct vis.)  | message | -         | -         | -           |
+| @mention          | message | status_id | -         | yes         |
+| Reply to our post | reply   | status_id | status_id | -           |
+| Favourite/like    | react   | -         | status_id | -           |
+| Boost/repost      | repost  | -         | status_id | -           |
+| New follower      | follow  | -         | -         | -           |
 
 ### Email
 
 | Source            | verb    | thread    | target |
 | ----------------- | ------- | --------- | ------ |
-| Direct email      | Message | thread_id | -      |
-| Reply in thread   | Reply   | thread_id | msg_id |
-| Mailing list post | Post    | list_id   | -      |
+| Direct email      | message | thread_id | -      |
+| Reply in thread   | reply   | thread_id | msg_id |
+| Mailing list post | post    | list_id   | -      |
 
-## Impulse Filter
+## Impulse filter
 
-Per-group weight-based batching between message discovery and queue
-enqueue. Each verb has integer weight. Events accumulate impulse per
-group. When sum >= threshold, flush to queue. Safety timeout flushes
-if threshold never reached.
+Per-group weight-based batching between discovery and queue enqueue.
+Each verb has an integer weight. Events accumulate impulse per group.
+When sum >= threshold, flush to queue. Safety timeout flushes if
+threshold never reached.
 
 ### Default weights
 
 | Verb    | Default | Notes                        |
 | ------- | ------- | ---------------------------- |
-| Message | 100     |                              |
-| Reply   | 100     |                              |
-| Post    | 100     | tune down if feed is noisy   |
-| React   | 100     | tune to 5 for "20 = trigger" |
-| Repost  | 100     | tune to 10 if noisy          |
-| Follow  | 100     | tune to 10 if noisy          |
-| Close   | 100     | triggers thread lifecycle    |
-| Join    | 0       | ignored                      |
-| Edit    | 0       | ignored                      |
-| Delete  | 0       | ignored                      |
+| message | 100     |                              |
+| reply   | 100     |                              |
+| post    | 100     | tune down if feed is noisy   |
+| react   | 100     | tune to 5 for "20 = trigger" |
+| repost  | 100     | tune to 10 if noisy          |
+| follow  | 100     | tune to 10 if noisy          |
+| close   | 100     | triggers thread lifecycle    |
+| join    | 0       | ignored                      |
+| edit    | 0       | ignored                      |
+| delete  | 0       | ignored                      |
 
-Weight 0 = drop. Operator configures `weights` and `threshold` per group.
+Weight 0 = drop. Operator sets `weights` and `threshold` per group.
 
 ### Flush delivery
 
-Immediate events (weight >= threshold): individual messages with full
-content. Batched events (weight < threshold): plain text summary in
-brackets: `[5 reactions on post abc123, 3 reposts, 10 new followers]`
+- Immediate (weight >= threshold): individual message with full content.
+- Batched (weight < threshold): plain text bracket summary,
+  e.g. `[5 reactions on post abc123, 3 reposts, 10 new followers]`.
 
-## Agent XML Format
+## Agent XML format
 
 ```xml
 <message sender="alice" time="..." platform="mastodon" verb="reply"
          thread="status_123" target="status_456">
-  content here
+  content
 </message>
 ```
 
-Attributes: `platform` (always), `verb` (always), `mentions_me` (when
-mentioned), `thread`/`target` (when set).
+Attributes: `platform`, `verb` always. `mentions_me` when mentioned.
+`thread`/`target` when set.
 
-## JID Format (shipped platforms)
+## JID format (shipped platforms)
 
 | Platform | DM JID              | Feed JID             |
 | -------- | ------------------- | -------------------- |
@@ -105,6 +103,6 @@ mentioned), `thread`/`target` (when set).
 
 ## Decisions
 
-- Batch summary: plain text brackets (not XML)
-- React content: string — platform-native value (emoji, "upvote", etc.)
-- Auth failure: log error, mark channel disconnected, reconnect next tick
+- Batch summary is plain text in brackets, not XML.
+- React content is the platform-native string (emoji, "upvote", etc.).
+- Auth failure: log error, mark channel disconnected, reconnect next tick.

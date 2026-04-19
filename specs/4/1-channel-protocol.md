@@ -1,10 +1,8 @@
 ---
-status: draft
+status: shipped
 ---
 
 # Channel Adapter Protocol
-
-## status: shipped
 
 Channel adapters connect to platforms and talk to the
 router over HTTP. Both sides are HTTP servers. Channel

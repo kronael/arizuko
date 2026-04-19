@@ -2,8 +2,6 @@
 status: shipped
 ---
 
-## status: shipped
-
 # timed
 
 Cron daemon. Polls `scheduled_tasks`, INSERTs into `messages`.

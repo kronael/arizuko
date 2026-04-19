@@ -1,12 +1,11 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # Skills
 
 Markdown instruction sets loaded into every agent container.
+Seeded by `container.seedSkills()` from `ant/skills/`.
 
 ## SKILL.md format
 

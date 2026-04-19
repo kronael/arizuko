@@ -1,10 +1,11 @@
 ---
-status: draft
+status: shipped
 ---
 
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
-
 # Prompt Format
+
+Stdin/stdout contract between `gated` and the in-container agent
+(`ant/`). Assembled by `router/`, consumed by `ant/src/runner.ts`.
 
 ## ContainerInput (stdin JSON)
 

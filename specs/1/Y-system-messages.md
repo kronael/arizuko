@@ -1,14 +1,14 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # System Messages
 
 Gateway-generated annotations alongside user messages into agent
-stdin. Never sent to channel, never trigger agent alone -- piggyback
-on next real user message.
+stdin. Never sent to channel, never trigger agent alone — piggyback
+on next real user message. Table: `system_messages`. Code: `store/`.
+
+`episode`, `fact`, `identity` origins reserved for v2.
 
 ## XML schema
 

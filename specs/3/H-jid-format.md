@@ -1,19 +1,12 @@
 ---
-status: draft
+status: shipped
 ---
 
-## <!-- trimmed 2026-03-15: migration notes removed, rich facts only -->
+# JID Format
 
-## status: shipped
+All JIDs use `platform:account/id`. `local:folder` has no account segment.
 
-# JID Format Normalization
-
-All JIDs use `platform:account/id`.
-`local:folder` has no account segment.
-
-~~Old format was `scheme:id` — no longer used.~~
-
-## Clock Header
+## Clock header
 
 Injected once per agent invocation, before messages:
 
@@ -21,14 +14,14 @@ Injected once per agent invocation, before messages:
 <clock time="2026-03-11T17:23:00.000Z" tz="Europe/Prague" />
 ```
 
-Only on initial prompt, not piped messages.
+Initial prompt only, not piped messages.
 
-## Message XML Attributes
+## Message XML
 
 ```xml
-<message sender="Alice" sender_id="telegram:main/REDACTED"
-         chat_id="telegram:main/-1001234567890"
-         platform="telegram" time="2026-03-11T14:00:00Z" ago="3h">
+<message sender="Alice" sender_id="telegram:main/..."
+         chat_id="telegram:main/-100..."
+         platform="telegram" time="..." ago="3h">
   Hello
 </message>
 ```
@@ -42,29 +35,16 @@ Only on initial prompt, not piped messages.
 | `time`      | timestamp         | always                           |
 | `ago`       | computed          | always                           |
 
-## Session Context Injection (not yet implemented)
-
-Prepend `<context>` block before `<messages>`:
+## Session context injection (not yet implemented)
 
 ```xml
 <context>
   <agent group="atlas/support" name="Atlas Support" tier="2" world="atlas"/>
-  <chat jid="telegram:main/-1001234567890" platform="telegram"/>
+  <chat jid="telegram:main/-100..." platform="telegram"/>
 </context>
 ```
 
-### `<agent>` attributes
+`<agent>`: `group`=`ARIZUKO_GROUP_FOLDER`, `name`=`ARIZUKO_GROUP_NAME`,
+`tier`=`ARIZUKO_TIER`, `world`=folder first segment.
 
-| Attribute | Source               |
-| --------- | -------------------- |
-| `group`   | ARIZUKO_GROUP_FOLDER |
-| `name`    | ARIZUKO_GROUP_NAME   |
-| `tier`    | ARIZUKO_TIER         |
-| `world`   | folder.split('/')[0] |
-
-### `<chat>` attributes
-
-| Attribute  | Source               |
-| ---------- | -------------------- |
-| `jid`      | ARIZUKO_CHAT_JID     |
-| `platform` | platformFromJid(jid) |
+`<chat>`: `jid`=`ARIZUKO_CHAT_JID`, `platform`=`platformFromJid(jid)`.

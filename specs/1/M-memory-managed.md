@@ -1,8 +1,6 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # Memory: Managed
 
@@ -34,7 +32,5 @@ read-only into non-root groups via
 ## Open questions
 
 - Global MEMORY.md (instance-wide patterns across groups)
-- Convention enforcement: no explicit instruction distinguishing
-  MEMORY.md (tacit) from facts/ (world knowledge)
 - 200-line limit: agents that write too much lose context silently
-- Topic file discovery: no index of topic files exists
+- No index of topic files

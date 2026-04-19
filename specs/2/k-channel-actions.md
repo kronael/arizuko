@@ -1,28 +1,22 @@
 ---
-status: draft
+status: unshipped
 ---
-
-## <!-- trimmed 2026-03-15: TS removed, rich facts only -->
-
-## status: unshipped
 
 # Channel Actions — Dynamic Registration and Filtered Manifest
 
 Each social channel registers outbound actions on connect. Gateway
-filters manifest per group so agents only see usable tools.
+filters the manifest per group so agents only see usable tools.
 Agent-runner becomes a generic proxy (~50 lines).
 
-## Platform-Based Manifest Filtering
+## Manifest filtering
 
 `getManifest(sourceGroup)` filters actions by:
 
-1. **minTier/maxTier**: hide from agents above the action's max tier
-2. **platforms**: show only if agent's group has ANY platform that
-   supports the action
+1. **minTier/maxTier**: hide from agents above the action's max tier.
+2. **platforms**: show only if agent's group has any platform that
+   supports the action.
 
 Actions without constraints are visible to all agents.
-
-### Filter Table
 
 | Action           | minTier | platforms          | Visible to         |
 | ---------------- | ------- | ------------------ | ------------------ |
@@ -36,29 +30,27 @@ Actions without constraints are visible to all agents.
 | `set_flair`      | --      | reddit             | agents with reddit |
 | `timeout`        | --      | discord,twitch,yt  | agents with any    |
 
-If agent calls an action on unsupported platform, handler returns
-runtime error.
+If agent calls an action on an unsupported platform, handler returns
+a runtime error.
 
-## Client Registry Pattern
+## Client registry
 
 Channels register their platform client on `connect()`, unregister on
-`disconnect()`. Social actions are registered once at startup and
-dispatch to whichever clients are connected via a shared
-`Map<Platform, PlatformClient>`.
+`disconnect()`. Social actions registered once at startup and dispatch
+to whichever clients are connected via a shared `Map<Platform, PlatformClient>`.
 
-## Generic Agent-Runner Proxy
+## Generic agent-runner proxy
 
-Agent-runner fetches manifest on startup, registers MCP tools
-dynamically from it. Two special cases remain:
+Agent-runner fetches manifest on startup, registers MCP tools dynamically
+from it. Two special cases remain:
 
-- `list_tasks`: reads local file (no IPC round-trip)
-- `schedule_task`: cron validation moved to gateway handler
+- `list_tasks`: reads local file (no IPC round-trip).
+- `schedule_task`: cron validation moved to gateway handler.
 
 Manifest fetched once at startup (tools don't change during container
 lifetime). Retry: 3 attempts, 500ms backoff if gateway not ready.
 
-## MCP Tool Naming
+## MCP tool naming
 
-All actions are generic verbs (post, reply, ban, pin). Handler
-switches on `platformFromJid(jid)`. Agent uses the JID it received;
-gateway resolves platform and dispatches.
+All actions are generic verbs (post, reply, ban, pin). Handler switches
+on `platformFromJid(jid)`.

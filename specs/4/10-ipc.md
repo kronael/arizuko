@@ -1,10 +1,10 @@
 ---
-status: draft
+status: shipped
 ---
 
 # ipc
 
-**Status**: shipped — `ipc/` package (ipc.go, all 20 tools, runtime auth via auth)
+`ipc/` package: ipc.go, all 20 tools, runtime auth via auth.
 
 MCP daemon. Per-group MCP server on unix socket. Resolves caller
 identity from socket path, authorizes via auth, executes all 20

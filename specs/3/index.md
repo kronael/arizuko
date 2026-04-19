@@ -4,45 +4,34 @@ status: active
 
 # specs/3 — features & extensions
 
-30 specs. Originally 25; 9 removed (shipped and self-evident), 14 added.
-
-## Shipped (trimmed to design decisions)
-
-- [5-permissions.md](5-permissions.md) — escalation protocol, mount enforcement, delegation format
-- [E-memory-session.md](E-memory-session.md) — session switching triggers, context injection, /new
-- [H-jid-format.md](H-jid-format.md) — context injection design, clock header, message XML attrs
-- [J-container-commands.md](J-container-commands.md) — two-path concept, command column
-- [L-chat-bound-sessions.md](L-chat-bound-sessions.md) — IPC encoding, delivery guarantees, parallelism
-- [P-message-ids.md](P-message-ids.md) — channel coverage tables, WhatsApp limitation, XML format
-- [E-message-scoping.md](E-message-scoping.md) — impulse_config on routes, per-JID message gating
-
-## Shipped (kept as-is)
-
-- [0-agent-capabilities.md](0-agent-capabilities.md) — container tooling inventory, media flow
-- [7-user-context.md](7-user-context.md) — per-user memory files, gateway injection
-- [D-knowledge-system.md](D-knowledge-system.md) — push vs pull layers, injection pattern
-- [c-audit-log.md](c-audit-log.md) — StoreOutbound + wiring in gateway/ipc
-- [Y-thread-routing.md](Y-thread-routing.md) — persist reply ID, thread mapping in adapters, Channel.Send threadID
-- [Z-reply-routing.md](Z-reply-routing.md) — routed_to column, reply-chain group resolution
-- [a-sticky-routing.md](a-sticky-routing.md) — @group and #topic commands, 38 test cases
-- [8-web-virtual-hosts.md](8-web-virtual-hosts.md) — vhosts.json hostname→world routing in proxyd
-
-## Shipped (partial — minor gaps)
-
-- [b-control-chat.md](b-control-chat.md) — root control chat; gap: /status command, /approve /reject wiring
-- [d-dashboards.md](d-dashboards.md) — dashd with 6 dashboards; gap: banner health, expandable detail
-
-## Planned
-
-- [1-atlas.md](1-atlas.md) — sandboxed support hierarchy
-- [3-support.md](3-support.md) — code researcher product pattern
-- [6-session-recovery.md](6-session-recovery.md) — recovery note injection on abnormal end
-- [B-memory-episodic.md](B-memory-episodic.md) — time-hierarchy diary aggregation (v2, many open questions)
-- [F-memory-facts.md](F-memory-facts.md) — concept-centric knowledge (v2, depends on atlas)
-- [R-researcher.md](R-researcher.md) — background research task pattern
-- [V-platform-permissions.md](V-platform-permissions.md) — platform_grants table
-- [W-work.md](W-work.md) — ephemeral active-task file
-- [X-worlds-rooms.md](X-worlds-rooms.md) — room model research, comparative analysis
-- [l-linkedin.md](l-linkedin.md) — LinkedIn channel adapter
-- [G-history-backfill.md](G-history-backfill.md) — adapter history backfill on startup (WhatsApp excepted)
-- [e-migration-announce.md](e-migration-announce.md) — paired `.md` on migrations auto-fans out upgrade notes to active groups
+| Spec                                                   | Status    | Hook                                                                |
+| ------------------------------------------------------ | --------- | ------------------------------------------------------------------- |
+| [0-agent-capabilities.md](0-agent-capabilities.md)     | shipped   | container tooling inventory, media flow                             |
+| [1-atlas.md](1-atlas.md)                               | shipped   | facts system + sandboxed-support product pattern                    |
+| [3-support.md](3-support.md)                           | unshipped | code-researcher product config                                      |
+| [5-permissions.md](5-permissions.md)                   | partial   | four-tier model, mount enforcement; escalation protocol open        |
+| [6-session-recovery.md](6-session-recovery.md)         | unshipped | recovery-note injection on abnormal session end                     |
+| [7-user-context.md](7-user-context.md)                 | shipped   | per-user memory files, gateway injects identity tag                 |
+| [8-web-virtual-hosts.md](8-web-virtual-hosts.md)       | shipped   | one DNS hostname per world, `web_host` column                       |
+| [B-memory-episodic.md](B-memory-episodic.md)           | deferred  | time-hierarchy diary aggregation (v2)                               |
+| [D-knowledge-system.md](D-knowledge-system.md)         | partial   | push vs pull layers, injection XML                                  |
+| [E-memory-session.md](E-memory-session.md)             | shipped   | session switching, 2-day idle expiry, context injection on reset    |
+| [E-message-scoping.md](E-message-scoping.md)           | shipped   | impulse as universal trigger gate, per-route config, DENY access    |
+| [F-memory-facts.md](F-memory-facts.md)                 | deferred  | concept-centric knowledge (depends on atlas)                        |
+| [G-history-backfill.md](G-history-backfill.md)         | unshipped | adapter HWM backfill on startup (WhatsApp excepted)                 |
+| [H-jid-format.md](H-jid-format.md)                     | shipped   | clock header + message XML attrs + context block                    |
+| [J-container-commands.md](J-container-commands.md)     | shipped   | agent vs raw container paths, `command` column on tasks             |
+| [L-chat-bound-sessions.md](L-chat-bound-sessions.md)   | shipped   | IPC encoding, delivery guarantees, cross-folder parallelism         |
+| [P-message-ids.md](P-message-ids.md)                   | partial   | reply/forward metadata; WhatsApp reply deferred                     |
+| [R-researcher.md](R-researcher.md)                     | unshipped | background research subagent writing to facts/                      |
+| [V-platform-permissions.md](V-platform-permissions.md) | unshipped | `platform_grants` table parallel to routes                          |
+| [W-work.md](W-work.md)                                 | unshipped | ephemeral work.md state file, agent-managed                         |
+| [X-worlds-rooms.md](X-worlds-rooms.md)                 | unshipped | room model research vs brainpro/muaddib/ElizaOS                     |
+| [Y-thread-routing.md](Y-thread-routing.md)             | shipped   | persist last-reply-id, Topic mapping, `routed_to` on messages       |
+| [Z-reply-routing.md](Z-reply-routing.md)               | shipped   | per-sender batching, chunk chaining, escalation reply threading     |
+| [a-sticky-routing.md](a-sticky-routing.md)             | shipped   | `@group` / `#topic` commands, sticky columns on chats               |
+| [b-control-chat.md](b-control-chat.md)                 | partial   | root group as control chat; `/status` and approve wiring pending    |
+| [c-audit-log.md](c-audit-log.md)                       | shipped   | `PutMessage` unified path, `source` column semantics                |
+| [d-dashboards.md](d-dashboards.md)                     | partial   | dashd + six dashboards; banner health and expandable detail pending |
+| [e-migration-announce.md](e-migration-announce.md)     | unshipped | paired `.md` on migrations fans out upgrade notes to active groups  |
+| [l-linkedin.md](l-linkedin.md)                         | unshipped | LinkedIn channel adapter (`linkd`)                                  |

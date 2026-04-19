@@ -1,8 +1,6 @@
 ---
-status: draft
+status: shipped
 ---
-
-## status: shipped
 
 # social adapters
 

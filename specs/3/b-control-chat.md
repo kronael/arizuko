@@ -1,31 +1,25 @@
 ---
-status: draft
+status: partial
 ---
 
 # Control Chat
 
-**Status**: shipped (partial)
-
-Operator communication via root group's chat.
-No dedicated `CONTROL_JID` — root's JIDs from routing table
-are the control channel. Commands use existing command registry,
-not a separate dispatcher.
+Operator communication via root group's chat. No dedicated `CONTROL_JID`
+— root's JIDs from the routing table are the control channel. Commands
+use the existing command registry.
 
 ## Design
 
-Root group is the control chat. Messages to root follow normal
-routing. `/new`, `/stop`, `/ping`, `/chatid`, `/status`, `/root`
-are intercepted by gated before container run. Non-command
-messages proceed to root agent normally.
+Root = control chat. Messages follow normal routing. `/new`, `/stop`,
+`/ping`, `/chatid`, `/status`, `/root` intercepted by gated before
+container run. Non-command messages proceed to root agent normally.
 
-## Notifications (shared library)
+## Notifications
 
-`notify/` package. Any service imports it to send operator
-messages to root's JIDs. Looks up root's JIDs from routes
-table, sends via channel adapter HTTP API, records via
-`store.PutMessage` with `source: "control"` and `is_bot_message=1`.
-
-Note: `notify/` package ships in `notify/notify.go`.
+`notify/notify.go`. Any service imports to send operator messages to
+root's JIDs. Looks up root's JIDs from routes, sends via channel adapter
+HTTP API, records via `store.PutMessage` with `source: "control"` and
+`is_bot_message=1`.
 
 Senders: `gated` (container errors, channel health).
 
@@ -38,10 +32,14 @@ Senders: `gated` (container errors, channel health).
 | `/grant`  | ipc     | MCP tool      | `ipc/grants`, not a chat command    |
 
 Root-only commands check tier inside their handler.
-`/grant` is an MCP tool, not a route.
+
+## Gaps
+
+- `/status` command wiring (see `d-dashboards.md`)
+- `/approve` / `/reject` wiring
 
 ## Not in scope
 
 - Multi-operator (future — role-based access)
-- Audit log of control commands (covered by audit-log spec)
+- Audit log of control commands (see `c-audit-log.md`)
 - Bot command menus (telegram setMyCommands etc.)

@@ -1,13 +1,13 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # Task Scheduler
 
-Cron-based task scheduling. Agents create tasks via IPC, gateway
-polls for due tasks and runs them in containers.
+Cron-based task scheduling. Agents create tasks via IPC, `timed`
+daemon polls for due tasks and writes them to messages.
+
+Daemon: `timed/main.go`. Full service spec: `specs/4/8-scheduler-service.md`.
 
 ## Three schedule types
 
@@ -41,9 +41,9 @@ Due = `status = 'active' AND next_run <= now`.
 
 ## Queue integration
 
-Tasks go through `GroupQueue.enqueueTask()`, sharing per-group
-concurrency with user messages. A task won't run while a user
-conversation is active on the same group.
+Tasks flow through the normal message pipeline. `timed` writes a
+message row; `gated` picks it up via `GroupQueue`, sharing per-group
+concurrency with user messages.
 
 ## Run logging
 

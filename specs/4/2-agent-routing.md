@@ -1,109 +1,19 @@
 ---
-status: planned
+status: superseded
+superseded_by: 4/23-topic-routing.md
 ---
 
-# Agent Routing & Specialized Workers — open (v2)
+# Agent Routing & Specialized Workers
 
-Pipeline-based message routing to specialized agents within a group.
-Group-configurable from inside (agent or operator sets up routing rules).
+Superseded by shipped topic routing (`4/23-topic-routing.md`) plus
+`@agent` subgroup delegation. The "workers" idea is covered by child
+groups spawned via `register_group` / prototype copy — each child is
+its own container with its own session and skills.
 
-## Problem
+What remains unbuilt:
 
-Today every message in a group goes to one agent with one fixed setup.
-Some groups need multiple specialized agents — a coder, a researcher,
-a scheduler — each with their own container image, CLAUDE.md, skills,
-and session. The group operator (or the main agent itself) should be
-able to configure which messages go where.
+- ML/keyword-based routing (classify intent → worker). Speculative.
+- Worker image per subgroup (today all children inherit
+  `CONTAINER_IMAGE`). Would need a `groups.image` column.
 
-## Design
-
-A group can register **worker agents** alongside the default agent.
-Each worker has:
-
-- A name / trigger pattern (keyword, command, or ML-routed)
-- Its own container image (or inherits the group default)
-- Its own session (separate session ID, separate JSONL transcript)
-- Its own CLAUDE.md / skills (in `groups/<folder>/.claude/`)
-- Its own IPC channel
-
-Workers are still sequential per worker slot — one active container
-per worker at a time. Multiple workers in a group can run in parallel
-(subject to `MAX_CONCURRENT_CONTAINERS`).
-
-## Routing
-
-Three routing modes:
-
-**1. Command-based** — `/code fix this`, `/research topic` routes to
-the named worker. Implemented as entries in the gateway's
-`gatewayCommands` table; the command prefix is stripped before the
-worker sees the message.
-
-**2. Match-based** — operator adds a routes-table row whose `match`
-targets the worker. Example:
-`seq=10 match="verb=message sender=tg-42*" target=root/coder`.
-Evaluated by the routing layer before agent spawn. See
-`specs/1/F-group-routing.md` for the match language.
-
-**3. Agent-delegated** — default agent receives message, decides to
-hand off via IPC `type:'delegate'` with `{ worker, prompt }`. Gateway
-spawns the target worker with the delegated prompt. Response goes back
-to the channel.
-
-## Worker setup
-
-Workers are configured per group. Configuration stored in
-`groups.workers` (JSON column or separate table).
-
-A worker definition:
-
-```json
-{
-  "name": "coder",
-  "trigger": "/code",
-  "image": "arizuko-agent-coder:latest",
-  "claudeMd": "container/workers/coder/CLAUDE.md"
-}
-```
-
-The main agent can manage worker config via IPC or file tools — the
-operator doesn't need to touch the DB directly. This is the
-"configurable from inside" requirement.
-
-## Pipeline
-
-Each worker slot is a mini-pipeline:
-
-```
-inbound message
-  → routing rules (command / keyword / delegation)
-  → worker selected
-  → worker queue (same GroupQueue, different slot key)
-  → runContainerCommand with worker config
-  → response back to channel
-```
-
-The main agent always sees the full message stream. Workers see only
-what is routed to them.
-
-## Prior art
-
-- **brainpro**: `ChannelSessionMap` maps channel target → session,
-  one session per channel target. No worker concept.
-- **muaddib**: one VM per arc (channel), no routing within a channel.
-- **OpenClaw**: 24 hook types, binding-based routing, closest to what
-  we want but at the channel level not the worker level.
-
-## Open
-
-- Worker config schema and DB storage
-- IPC `type:'delegate'` message definition
-- Whether workers share the group's conversation history or have
-  their own isolated history
-- Worker lifecycle: same idle timeout as main agent, or configurable?
-- Security: worker images are operator-specified — same mount allowlist
-  checks as `mount-security.ts` apply
-- v1 bridge: agent-defined commands (from `specs/1/6-commands.md`) are
-  a stepping stone — once command routing exists, worker routing is
-  a natural extension
-- ML-based routing (classify intent → worker) is speculative, keep open
+Neither has a concrete driver today.

@@ -1,12 +1,11 @@
 ---
-status: draft
+status: unshipped
 ---
 
-# migration-triggered announcements
+# Migration-triggered Announcements
 
-Automatic upgrade notifications, triggered by the same migration
-sequence that evolves the schema. Minimal addition — no new daemon, no
-new table, no new transport.
+Automatic upgrade notifications, driven by the migration sequence. No
+new daemon, no new transport.
 
 ## Shape
 
@@ -14,14 +13,11 @@ Each SQL migration may ship a paired markdown note:
 
 ```
 store/migrations/0024-foo.sql
-store/migrations/0024-foo.md   ← optional, user-facing changelog
+store/migrations/0024-foo.md   optional, user-facing changelog
 ```
 
-If `.md` is absent, the migration is silent (schema-only; no user-facing
-change worth announcing).
-
-The `.md` body is the literal message sent to affected groups. Plain
-markdown, one screenful max. Example:
+Missing `.md` = silent (schema-only change). The `.md` body is the
+literal message sent to affected groups. Plain markdown, one screenful.
 
 ```markdown
 arizuko upgraded — v0.26.0
@@ -33,9 +29,8 @@ arizuko upgraded — v0.26.0
 
 ## Trigger
 
-`db_utils.Migrate` already loops over pending migrations. After a migration's
-tx commits, if a paired `.md` exists in the same embedded FS, it is
-recorded in a new lightweight table:
+`db_utils.Migrate` already loops pending migrations. After a
+migration's tx commits, if paired `.md` exists, it lands in:
 
 ```sql
 CREATE TABLE announcements (
@@ -47,61 +42,45 @@ CREATE TABLE announcements (
 );
 ```
 
-(This table itself is created by a bootstrap migration before
-announcements can land in it.)
+(Bootstrap migration creates this table first.)
 
 ## Delivery
 
-`gated` on startup drains `announcements` not yet fanned out:
+`gated` on startup drains announcements not yet fanned out:
 
-1. Select rows from `announcements` that have no matching row in a
-   per-group delivery ledger (`announcement_sent(service, version,
-group_folder)`).
-2. For each active group (`groups` table, `state='active'`), insert
-   one outbound row into `messages` via the existing bot-message path
-   — same path the agent uses for replies. The router picks it up and
-   the channel adapter ships it.
+1. Select rows without matching `announcement_sent(service, version, group_folder)`.
+2. For each active group, insert outbound row into `messages` via the
+   bot-message path. Router picks up; adapter ships.
 3. Record `(service, version, group_folder)` in `announcement_sent`
    inside the same tx.
 
-Groups added after the migration ran still get the announcement the
-first time `gated` starts with them active — delivery is idempotent
-per `(version, folder)`, not per-run.
+Groups added after migration still get the announcement first time
+`gated` starts with them active — idempotent per `(version, folder)`,
+not per-run.
 
 ## Targeting
 
-Default: every active group on the instance. A migration touches the
-shared schema, so every group is potentially affected.
-
-Opt-out per group is a future extension (`groups.announce_mute`).
-Not in scope for the minimal version.
+Default: every active group. Migration touches shared schema, so every
+group is potentially affected. Opt-out (`groups.announce_mute`) is a
+future extension.
 
 ## Failure modes
 
-- Adapter offline at send time → the announcement sits in `messages`
-  like any other outbound row. The existing retry/queue path handles
-  it.
-- `.md` missing despite convention → silent. No warning. Migrations
-  without user-facing change don't need one.
-- Duplicate fan-out after a crash → prevented by `announcement_sent`
-  ledger check before insert.
+- Adapter offline: outbound row sits in `messages`; existing retry
+  handles it.
+- Missing `.md`: silent.
+- Duplicate after crash: prevented by `announcement_sent` ledger check.
+
+## Files
+
+- `db_utils/db_utils.go` — write `announcements` row after tx commit
+  if paired `.md` is present
+- `gated/main.go` or `gateway/gateway.go` startup — drain into messages
+- `store/migrations/NNNN-announcements.sql` — create tables
+- `store/migrations/NNNN-<feature>.md` — per release
 
 ## Out of scope
 
-- No HTML, no rich formatting beyond what the channel adapter already
-  strips.
-- No per-user notification — group broadcast only. DMs can be added
-  later by reusing the same path with a different target selector.
-- No release-manager dashboard. `make image && deploy` is enough;
-  the migration sequence is the source of truth.
-
-## Files touched
-
-- `db_utils/db_utils.go` — after tx commit, write `announcements` row if
-  paired `.md` is present
-- `gated/main.go` (or `gateway/gateway.go` startup) — drain unsent
-  announcements into `messages` on boot
-- `store/migrations/NNNN-announcements.sql` — create
-  `announcements` + `announcement_sent` tables
-- `store/migrations/NNNN-<feature>.md` — per-release, written
-  alongside the schema change that introduces the feature
+- HTML / rich formatting beyond what adapter already strips
+- Per-user DM notification
+- Release-manager dashboard

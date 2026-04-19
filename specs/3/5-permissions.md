@@ -1,10 +1,6 @@
 ---
-status: draft
+status: partial
 ---
-
-## <!-- trimmed 2026-03-15: TS removed, shipped items collapsed, rich facts only -->
-
-## status: partial
 
 # Group Permissions
 
@@ -18,9 +14,9 @@ response protocol is the main open item.
 - **Tier 2**: agent (depth 2)
 - **Tier 3**: worker (depth 3+, clamped)
 
-Tier derived from folder depth: `min(folder.split('/').length, 3)`.
+Tier = `min(folder.split('/').length, 3)`.
 
-## Action Authorization Summary
+## Action authorization
 
 | Action         | Tier 0     | Tier 1       | Tier 2      | Tier 3  |
 | -------------- | ---------- | ------------ | ----------- | ------- |
@@ -33,7 +29,7 @@ Tier derived from folder depth: `min(folder.split('/').length, 3)`.
 | escalate_group | denied     | denied       | parent      | parent  |
 | refresh_groups | allowed    | denied       | denied      | denied  |
 
-## Mount Enforcement
+## Mount enforcement
 
 | Mount                | Tier 0 | Tier 1 | Tier 2      | Tier 3      |
 | -------------------- | ------ | ------ | ----------- | ----------- |
@@ -47,7 +43,7 @@ Tier derived from folder depth: `min(folder.split('/').length, 3)`.
 | `~/groups`           | rw     | no     | no          | no          |
 | `/app/src`           | rw     | rw     | rw          | ro          |
 
-## Delegation Prompt Format
+## Delegation prompt format
 
 ```xml
 <delegated_by group="atlas">
@@ -55,18 +51,18 @@ Tier derived from folder depth: `min(folder.split('/').length, 3)`.
 </delegated_by>
 ```
 
-Child knows via `ARIZUKO_DELEGATE_DEPTH > 0` env var. Fire-and-forget;
+Child knows via `ARIZUKO_DELEGATE_DEPTH > 0` env. Fire-and-forget;
 child replies directly to `chatJid`.
 
-## local: Routing Enforcement
+## `local:` routing enforcement
 
 All `local:` rules enforced in **action handlers** (not router).
 
-- Downward: sender must be ancestor of target folder
-- Upward: `escalate_group` only, direct parent only (one level)
-- `send_message` cannot target `local:` JIDs at all
+- Downward: sender must be ancestor of target folder.
+- Upward: `escalate_group` only, direct parent only (one level).
+- `send_message` cannot target `local:` JIDs.
 
-## Open: Escalation Response Protocol
+## Open: escalation response protocol
 
 Currently fire-and-forget. Intended design:
 
@@ -74,14 +70,13 @@ Currently fire-and-forget. Intended design:
 user -> worker (chatJid = user_jid)
   worker calls escalate_group(prompt)
     -> parent runs with chatJid = local:worker_folder
-      -> parent replies -> routed to worker as new message
+      -> parent replies -> routed to worker
         -> worker replies to user_jid with replyTo: original_msg_id
 ```
 
-**`local:` JID namespace**: every registered group gets `local:{folder}`.
-Created at registration, internal routing only.
+Every registered group gets `local:{folder}` JID for internal routing.
 
-**Escalation XML wrapper**:
+Escalation XML:
 
 ```xml
 <escalation from="atlas/support" reply_to="telegram:xxx" reply_id="789">
@@ -90,14 +85,14 @@ Created at registration, internal routing only.
 </escalation>
 ```
 
-**reply_id by channel**:
+reply_id by channel:
 
-| Channel  | Type             | Send implementation                     |
-| -------- | ---------------- | --------------------------------------- |
-| Telegram | integer string   | `reply_parameters: { message_id }`      |
-| Discord  | snowflake string | `message.reply()` -- not yet            |
-| WhatsApp | stanza ID        | needs quoted message object -- deferred |
-| Mastodon | status ID        | stub exists                             |
-| Email    | Message-ID       | thread-based                            |
+| Channel  | Type             | Send implementation                |
+| -------- | ---------------- | ---------------------------------- |
+| Telegram | integer string   | `reply_parameters: { message_id }` |
+| Discord  | snowflake string | `message.reply()` — not yet        |
+| WhatsApp | stanza ID        | needs quoted object — deferred     |
+| Mastodon | status ID        | stub exists                        |
+| Email    | Message-ID       | thread-based                       |
 
-**Circuit breaker**: `MAX_DELEGATE_DEPTH = 1`. No recursive chaining.
+Circuit breaker: `MAX_DELEGATE_DEPTH = 1`. No recursive chaining.

@@ -1,10 +1,8 @@
 ---
-status: draft
+status: shipped
 ---
 
 # Topic Routing
-
-**Status**: shipped
 
 Inline routing symbols `@agent` and `#topic` in message content.
 Handled entirely in the gateway's prefix layer — no routes table

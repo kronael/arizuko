@@ -1,13 +1,13 @@
 ---
-status: draft
+status: partial
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # MCP Sidecars
 
-MCP servers in isolated docker containers. Two provisioning modes:
-gateway-managed (operator config) and agent-requested (IPC action).
+MCP servers in isolated docker containers. Gateway-managed
+(operator config via `GroupConfig.Sidecars`) is shipped.
+Agent-requested provisioning (`request_sidecar` IPC action) is
+specified but not implemented. Code: `container/sidecar.go`.
 
 ## Socket path convention
 

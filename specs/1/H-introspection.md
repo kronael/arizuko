@@ -1,13 +1,11 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # Introspection
 
 Agent discovers gateway features via a manifest; configures
-behavior via well-known files.
+behavior via well-known files. Written by `container/`.
 
 ## .gateway-caps (TOML, read-only)
 

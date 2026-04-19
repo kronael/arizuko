@@ -1,10 +1,10 @@
 ---
-status: draft
+status: partial
 ---
 
 # Recall — Knowledge Retrieval
 
-**Status**: shipped (v1 only; v2 planned)
+v1 shipped (LLM semantic grep). v2 (FTS5 + sqlite-vec) planned.
 
 Generic search across knowledge stores. Read-only — never writes.
 All stores use `summary:` frontmatter, so recall treats them

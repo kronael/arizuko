@@ -1,12 +1,11 @@
 ---
-status: draft
+status: shipped
 ---
 
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
+# Slink
 
-# Slink (REDACTED Link)
-
-Web channel for a group. Public token = POST endpoint.
+Web channel for a group. Public token = POST endpoint. Token lives
+in `groups.slink_token`; proxyd resolves it on `/slink/*` requests.
 
 ## Token design
 

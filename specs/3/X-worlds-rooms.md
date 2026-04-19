@@ -1,39 +1,31 @@
 ---
-status: draft
+status: unshipped
 ---
 
-# Worlds, Rooms, and Threading — Research
+# Worlds, Rooms, Threading — research
 
 Comparative analysis of room models in brainpro, muaddib, ElizaOS,
-and arizuko's current design. Not started.
+arizuko.
 
-## Summary of prior art
+## Prior art
 
-- **brainpro** (Rust): no Room entity. `channel:chat_id` IS the
-  session key. No threads, no world grouping. Multi-lane queue in
-  gateway; agents stateless per-request.
+- **brainpro** (Rust): no Room entity. `channel:chat_id` IS the session
+  key. No threads, no world grouping. Stateless per-request.
+- **muaddib** (TS): richest model. `arc = serverTag#channelName` is the
+  room ID and filesystem prefix (`~/.muaddib/arcs/<arc>/`). Session key
+  = `arc + nick` or `arc + threadId`. Per-arc JSONL history. LLM
+  context reducer.
+- **ElizaOS** (TS): formal `World > Room > Entity > Memory`. Deterministic
+  UUIDs from platform IDs. Memories scoped by (roomId, entityId, worldId).
 
-- **muaddib** (TS): richest room model. `arc = serverTag#channelName`
-  is the room ID and filesystem path prefix (`~/.muaddib/arcs/<arc>/`).
-  Session key = `arc + nick` (non-threaded) or `arc + threadId`
-  (threaded). Per-arc JSONL history. Context reducer collapses old
-  history via LLM. `RoomConfig` per transport.
+## Arizuko current
 
-- **ElizaOS** (TS): formal ontology `World > Room > Entity > Memory`.
-  Deterministic UUIDs from platform IDs. Memories scoped by
-  (roomId, entityId, worldId). Supports embeddings per memory.
+Flat JID-centric. `chats.jid` (e.g. `telegram:main/-100...`) is PK.
+`routes(seq, match, target, impulse_config)` maps JID → folder.
+`GroupQueue` in-memory keyed by JID.
 
-## arizuko current
-
-Flat JID-centric model:
-
-- `chats.jid` (e.g. `telegram:main/-100...`) — primary key
-- `routes(seq, match, target, impulse_config)` — JID → folder mapping
-- `messages.source` — adapter-of-record per inbound
-- `GroupQueue` in-memory, keyed by JID
-
-Missing: no Room entity, no World, no thread/reply-to, no sender-scoped
-sessions, no per-room history limit.
+Missing: Room entity, World, thread/reply-to, sender-scoped sessions,
+per-room history limit.
 
 ## Comparison
 
@@ -46,40 +38,34 @@ sessions, no per-room history limit.
 | Multi-sender isolation | none           | arc+nick              | per entityId          | none              |
 | Context reducer        | no             | LLM reducer           | configurable count    | none              |
 
-## What arizuko should adopt
+## Arizuko candidates to adopt
 
-**Arc-style ID** (from muaddib): replace bare `chat_jid` with
-`<platform>:<server>#<channel>` — server-level queries fall out for
-free via `WHERE jid LIKE 'dc:MyServer#%'`.
+- **Arc-style ID**: replace bare `chat_jid` with
+  `<platform>:<server>#<channel>`. Server-level queries fall out via
+  `WHERE jid LIKE 'dc:MyServer#%'`.
+- **Thread tracking**: add `thread_id` + `reply_to_id` to messages.
+  `GroupQueue` key = `jid + thread_id` for threaded channels.
+- **Per-room history config**: `room_config` table with `history_size`,
+  `context_mode`, `requires_trigger`.
+- **Sender-scoped sessions**: when `requires_trigger=1`, key includes
+  sender; else per-JID.
 
-**Thread tracking** (from muaddib): add `thread_id` + `reply_to_id`
-to messages. `GroupQueue` session key becomes `jid + thread_id` for
-channels that support threads (Discord, email).
+## Deferred (ElizaOS features not needed now)
 
-**Per-room history config**: `groups` table or new `room_config`
-table with `history_size`, `context_mode`, `requires_trigger`.
+- Entity tracking as first-class records
+- Vector embeddings on messages (v2 facts)
+- Explicit World entity (arc prefix encodes it)
 
-**Sender-scoped sessions in group chats**: when `requires_trigger=1`,
-session key includes sender. When `requires_trigger=0`, keep per-JID.
+## Open
 
-## Deferred (ElizaOS features arizuko does NOT need now)
-
-- Entity tracking as first-class records (add only if cross-channel
-  identity becomes a product need).
-- Vector embeddings on messages (belongs in v2 facts layer, not
-  the room model).
-- World as explicit entity (arc format prefix already encodes it).
-
-## Open questions
-
-1. Discord threads: sender-scoped session or distinct JID?
-2. Email thread_id tracking order vs session-scoping.
-3. Context window management — add `history_size` + truncate in runner.
-4. Arc format migration: breaks existing `chat_jid` values across
-   `groups`, `routes`, `messages`, `sessions`, `scheduled_tasks`.
+1. Discord threads: sender-scoped or distinct JID?
+2. Email thread_id order vs session-scoping.
+3. Context window management (`history_size` + runner truncation).
+4. Arc format migration breaks existing `chat_jid` in `groups`,
+   `routes`, `messages`, `sessions`, `scheduled_tasks`.
 
 ## References
 
-- brainpro: https://github.com/jgarzik/brainpro (Rust, lane system)
-- muaddib: https://github.com/pasky/muaddib (arc model, JSONL)
-- ElizaOS: https://github.com/elizaOS/eliza (World/Room/Entity)
+- brainpro: https://github.com/jgarzik/brainpro
+- muaddib: https://github.com/pasky/muaddib
+- ElizaOS: https://github.com/elizaOS/eliza

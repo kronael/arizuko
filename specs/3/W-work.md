@@ -1,13 +1,11 @@
 ---
-status: draft
+status: unshipped
 ---
 
 # Work — current task state
 
-**Status**: not started
-
-Skill-managed working state file. Inspired by brainpro's
-WORKING.md but implemented as an agent skill, not gateway.
+Skill-managed working state file. Inspired by brainpro's WORKING.md,
+implemented as an agent skill.
 
 ## Path
 
@@ -19,16 +17,12 @@ Single file per group. Agent-written, agent-read.
 
 ## Purpose
 
-Captures what the agent is currently doing. Unlike diary
-(historical record) or MEMORY.md (tacit knowledge), work.md
-is ephemeral — it describes the active task, blockers, next
-steps. Overwritten each time, not appended.
+Captures what the agent is doing. Ephemeral — active task, blockers,
+next steps. Overwritten, not appended.
 
 ## Skill: `/work`
 
-Agent runs `/work` to update current task state. The skill
-instructs the agent to overwrite `/workspace/group/work.md`
-with a short summary:
+Overwrites `/workspace/group/work.md`:
 
 ```markdown
 ## Current task
@@ -41,33 +35,26 @@ Implementing IPC file sending — path translation bug.
 
 ## Next
 
-- Fix hostPath, rebuild, deploy to REDACTED
+- Fix hostPath, rebuild, deploy to krons
 - Test with manual IPC message
 ```
 
-No YAML frontmatter — plain markdown. Max ~20 lines.
+Plain markdown, no frontmatter, max ~20 lines.
 
 ## Gateway injection
 
-On session start, if `groups/<folder>/work.md` exists,
-inject as system message:
-
-```
-[work] <contents>
-```
-
-Loaded in full (no truncation — file is short by design).
-Injected after diary, before conversation history.
+On session start, if `groups/<folder>/work.md` exists, inject as system
+message (full content, no truncation). Injected after diary, before
+conversation history.
 
 ## Triggers
 
-1. **`/work` skill** — agent-initiated, anytime
-2. **Pre-session nudge** — if work.md exists and is >24h old,
-   gateway adds annotation: "work.md is stale — update or
-   clear with /work"
-3. **Session end** — no automatic write (agent decides)
+1. `/work` skill — agent-initiated anytime
+2. Pre-session nudge — if work.md >24h old, gateway annotates:
+   "work.md is stale — update or clear with /work"
+3. Session end — no automatic write
 
-## Relationship to other layers
+## Layer comparison
 
 | Layer     | Timeframe  | Content           |
 | --------- | ---------- | ----------------- |
@@ -76,7 +63,3 @@ Injected after diary, before conversation history.
 | episodes  | Week/month | Aggregated        |
 | facts     | Permanent  | Concepts/entities |
 | MEMORY.md | Persistent | Tacit knowledge   |
-
-work.md is the most volatile — updated frequently,
-often fully rewritten. Diary captures the history
-that work.md cycles through.

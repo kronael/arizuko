@@ -1,89 +1,42 @@
 ---
-status: draft
+status: unshipped
 ---
 
 # LinkedIn Channel (`linkd`)
 
-## Problem
+Inbound feed items / mentions / comments on own posts. Outbound
+publishing (posts, comment replies, articles).
 
-LinkedIn is where professional conversations, articles, and post engagement
-happen. An agent that can author posts, track mentions, and reply to comments
-on your behalf closes the loop between chat-based interaction and public
-professional presence.
+DMs and InMail require LinkedIn partner program — out of scope.
 
-## Scope
+## Daemon
 
-**In scope:**
+Go daemon, same pattern as `mastd`/`bskyd`. Polls LinkedIn API,
+registers with gated as channel `linkedin`.
 
-- Inbound: feed items, mentions, comments on own posts → delivered to agent
-- Outbound: publish posts, reply to comments, publish articles
-- Content authoring: agent drafts → human approves → publishes
+- `linkd/main.go`
+- `template/services/linkd.toml`
 
-**Out of scope (requires LinkedIn partner program):**
+## Auth
 
-- Direct messages API
-- InMail
+OAuth2 PKCE. Scopes: `r_liteprofile`, `w_member_social`,
+`r_organization_social` (optional). Token in data dir. proxyd
+`/auth/linkedin` handles callback, writes to file, linkd reads.
 
-## Open Questions
+## Flow
 
-1. **OAuth flow** — proxyd `/auth/linkedin` callback already supports generic
-   OAuth2. Does it need changes or does linkd handle its own token refresh?
+Inbound: poll `/v2/shares?q=owners&owners=<urn>` for own posts, then
+`/v2/socialActions/<post-urn>/comments` for new comments. Also poll
+`/v2/networkUpdates` for mentions. Deliver each comment with `verb=comment`,
+`chat_jid=linkedin:<urn>`.
 
-2. **Polling vs webhook** — LinkedIn doesn't offer webhooks for personal feed.
-   Poll interval: how aggressive? 5min? 15min? Rate limits are strict (100
-   req/day on free tier).
+Outbound: `POST /send` → `linkd` → `POST /v2/ugcPosts` or
+`POST /v2/socialActions/<urn>/comments`. `/send-file` uses Assets API
+(register upload → upload bytes → reference in post).
 
-3. **Content approval gate** — should agent-authored posts go through an
-   approval step (deliver draft to user first) or publish directly when
-   instructed? Probably configurable: `LINKEDIN_AUTO_PUBLISH=false`.
-
-4. **Article vs post** — LinkedIn Articles (long-form) vs Posts (short, with
-   media) are different API endpoints. Spec both or start with posts only?
-
-5. **Organization pages** — personal profile only, or also org pages the user
-   manages? Scopes differ (`w_organization_social`).
-
-6. **JID format** — personal profile: `linkedin:<urn:li:person:xxx>` or
-   `linkedin:<vanityName>`? Stable URN is better.
-
-## Design
-
-### Daemon: `linkd`
-
-Go daemon, same pattern as `mastd`/`bskyd`. Polls LinkedIn API, registers
-with gated as channel `linkedin`.
-
-```
-linkd/main.go
-template/services/linkd.toml
-```
-
-### Auth
-
-OAuth2 PKCE flow. Scopes: `r_liteprofile`, `w_member_social`,
-`r_organization_social` (optional). Token stored in data dir. proxyd
-`/auth/linkedin` handles callback, writes token to file, linkd reads it.
-
-### Inbound flow
-
-Poll `/v2/shares?q=owners&owners=<urn>` for own posts, then
-`/v2/socialActions/<post-urn>/comments` for new comments. Deliver each
-comment as a message to gateway with `verb=comment`, `chat_jid=linkedin:<urn>`.
-
-Also poll `/v2/networkUpdates` or LinkedIn notifications endpoint for mentions.
-
-### Outbound flow
-
-`POST /send` → `linkd` → `POST /v2/ugcPosts` (publish post) or
-`POST /v2/socialActions/<urn>/comments` (reply to comment).
-
-`/send-file` → attach image/video to UGC post via LinkedIn Assets API
-(two-step: register upload → upload bytes → reference in post).
-
-### Service template
+## Service template
 
 ```toml
-# template/services/linkd.toml
 image = "arizuko:latest"
 entrypoint = ["linkd"]
 
@@ -99,9 +52,18 @@ LINKEDIN_POLL_INTERVAL = "300s"
 LINKEDIN_AUTO_PUBLISH = "false"
 ```
 
-## Code pointers (when built)
+## Open
 
-- `linkd/main.go` — poll loop, OAuth token refresh, channel registration
-- `auth/` — token storage pattern (reuse existing JWT/OAuth primitives)
-- `proxyd/` — `/auth/linkedin` callback route to add
-- `template/services/linkd.toml` — compose service definition
+- Poll interval (5 vs 15 min; free tier rate limit 100 req/day)
+- Content approval gate: draft to user first, or publish directly?
+  `LINKEDIN_AUTO_PUBLISH=false` default.
+- Articles vs Posts (different endpoints — start with posts)
+- Personal profile vs org pages (different scopes)
+- JID format: `linkedin:<urn:li:person:xxx>` (stable) vs vanityName
+
+## Files
+
+- `linkd/main.go` — poll loop, OAuth refresh, channel registration
+- `auth/` — token storage (reuse existing primitives)
+- `proxyd/` — `/auth/linkedin` callback
+- `template/services/linkd.toml`

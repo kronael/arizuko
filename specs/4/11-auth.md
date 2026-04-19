@@ -1,10 +1,10 @@
 ---
-status: draft
+status: shipped
 ---
 
 # auth
 
-**Status**: shipped — `auth/` package (identity.go, policy.go, web.go, jwt.go, oauth.go, middleware.go)
+`auth/` package: identity.go, policy.go, web.go, jwt.go, oauth.go, middleware.go.
 
 Authorization policy engine. Consumers call it to check
 whether a caller is allowed to perform an action.

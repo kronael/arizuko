@@ -1,38 +1,16 @@
 ---
-status: spec
+status: unshipped
 ---
 
-# Message MCP -- v2
+# Message history MCP
 
-MCP tools for agent-side message history queries.
+Agent-side tools to query message history:
 
-## Tools
+- `get_history(jid?, limit?, since?, until?)` → `<messages>` XML
+- `get_thread(jid)` → all messages in a channel thread
 
-### `get_history`
+Rationale: agents currently have no way to look up messages outside
+their sliding window. Needed by `recall-messages` skill (see
+[b-memory-skills-standalone.md](b-memory-skills-standalone.md) OQ-1).
 
-```
-get_history(jid?, limit?, since?, until?)
-```
-
-Returns messages as XML (`<messages>` format). For old
-message lookup, reply sources outside sliding window,
-thread history.
-
-### `get_thread`
-
-```
-get_thread(jid)
-```
-
-All messages in a channel thread (Discord, email, Telegram
-forum topic).
-
-## Channel hierarchy context
-
-With hierarchical JIDs: `get_history("discord/srv/ch/*")`.
-For v2, parent channel ID passed explicitly.
-
-## Open
-
-- MCP server interface design
-- Auth: agent can only query own group's messages
+Unblockers: add MCP tool in `ipc/`, scope by calling group's folder.

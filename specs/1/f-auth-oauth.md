@@ -1,12 +1,11 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # Auth OAuth
 
 HTTP auth layer for the web UI. Local accounts + OAuth providers.
+Code: `auth/`.
 
 ## Token model
 

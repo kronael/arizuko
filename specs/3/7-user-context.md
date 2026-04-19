@@ -6,17 +6,13 @@ status: shipped
 
 Per-user memory files. Agent-controlled like facts.
 
-## Design
-
-One file per user, managed by the agent:
+## File
 
 ```
 ~/users/<channel>-<id>.md
 ```
 
-Examples: `tg-123456.md`, `wa-REDACTED@lid.md`, `dc-789.md`
-
-### File format
+Examples: `tg-123456.md`, `dc-789.md`.
 
 ```markdown
 ---
@@ -24,8 +20,7 @@ name: Alice
 first_seen: 2026-03-06
 ---
 
-Backend developer. Works on validator-bonds.
-Prefers concise answers with code refs.
+Backend developer. Works on validator-bonds. Prefers concise answers.
 
 ## Recent
 
@@ -33,62 +28,36 @@ Prefers concise answers with code refs.
 - 2026-03-08: debugging validator issue
 ```
 
-Frontmatter: identity fields. Body: stable knowledge + interaction log.
+- Profile (<20 lines): role, expertise, preferences.
+- Recent (~50 lines max): high-level interactions, diary-like scope.
+- Auto-compact Recent when >50 lines (drop oldest).
 
-- Profile section: role, expertise, preferences (<20 lines)
-- Recent section: high-level interactions, diary-like scope (~50 lines max)
-- Auto-compact Recent when >50 lines: drop oldest entries
+## Gateway signal
 
-### Gateway signal
-
-Gateway injects user identity, not full content:
+Inject user identity, not content:
 
 ```xml
 <user id="tg-123456" name="Alice" memory="~/users/tg-123456.md" />
 ```
 
 - `id`: channel-native sender ID
-- `name`: from file frontmatter (omitted if no file or no name)
-- `memory`: path if file exists, omitted if no file yet
+- `name`: from frontmatter (omitted if absent)
+- `memory`: path if file exists
 
-Agent decides when to read the full file. Gateway extracts just the name from YAML frontmatter.
+Agent decides when to read the full file.
 
-### Agent reads/writes
+## Agent behaviour
 
-Agent uses `/users` skill to:
-
-- Read user file when context would help
-- Update profile when learning something durable (role, expertise, style)
-- Log meaningful interactions in Recent section (not every message)
-
-### What to log
-
-Similar to diary scope — only notable interactions:
-
-- Questions about specific topics
-- Completed tasks or deliverables
-- Preferences expressed
-- Context that might be useful later
-
-NOT routine greetings or small talk.
+`/users` skill: read when context helps, update profile on durable
+learning, log meaningful interactions (not small talk).
 
 ## Scope
 
-Per-group. `users/alice` in group A ≠ `users/alice` in group B.
+Per-group. `users/alice` in group A ≠ group B. Cross-channel identity
+is out of scope (see `specs/5/9-identities.md`).
 
-Cross-channel identity (same person on telegram + whatsapp) is out of scope — see 5/9-identities.
+## Files
 
-## Changes
-
-```
-src/router.ts
-  - inject <user> tag with id, name, memory path
-
-ant/skills/users/SKILL.md
-  - /users skill for read/write
-
-container/CLAUDE.md
-  - document users/ pattern
-```
-
-~5 lines gateway + skill.
+- `router/` — inject `<user>` tag
+- `ant/skills/users/SKILL.md`
+- `container/CLAUDE.md` — document users/ pattern

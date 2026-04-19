@@ -1,32 +1,21 @@
 ---
-status: draft
+status: unshipped
 ---
 
 # Session Recovery
 
-**Status**: not started
-
-When a session ends abnormally (error_during_execution, error_max_turns),
-the new session starts cold — no memory of prior work. The agent cannot
-continue without being told what happened.
-
-## Problem
-
-- `error_during_execution`: JSONL is corrupted; new session starts blank
-- `error_max_turns`: clean JSONL exists but new session doesn't reference it
-- In both cases the user has to re-explain context or say "continue" blindly
+When a session ends abnormally (`error_during_execution`,
+`error_max_turns`), the new session starts cold. User has to re-explain.
 
 ## Design
 
-On session eviction or turn-limit hit, gateway generates a **recovery
-note** and injects it as the first user message of the new session.
-
-### Recovery note content
+On eviction or turn-limit hit, gateway generates a **recovery note** and
+injects it as the first user message of the next session.
 
 ```
 [session recovery]
 Previous session: <sessionId>
-Ended: <reason> (error_during_execution | max_turns_reached)
+Ended: <reason>
 
 Summary of prior work (extracted from JSONL):
 <last N assistant messages, truncated to ~2000 chars>
@@ -34,36 +23,29 @@ Summary of prior work (extracted from JSONL):
 Pick up where the previous session left off.
 ```
 
-### How to extract the summary
+### Summary extraction
 
-For `error_max_turns`: the summary query already runs (see agent-runner).
-Gateway receives it as an output result — store it and prepend to next
-session's prompt.
+- `error_max_turns`: reuse the summary query already run by agent-runner;
+  gateway stores the output and prepends to next session's prompt.
+- `error_during_execution`: read JSONL, extract last 3-5 assistant text
+  messages before the error marker.
 
-For `error_during_execution`: read the JSONL, extract the last 3-5
-assistant text messages before the error, concatenate as the summary.
+### Implementation (gateway)
 
-### Implementation
+1. On eviction, read old JSONL, extract last assistant texts.
+2. Store `recoveryNote` keyed by group folder.
+3. On next `runAgent` for that group, prepend and clear.
 
-Gateway side (`index.ts`):
+Agent-runner: no change (note arrives as user prompt).
 
-1. On session eviction, read the old JSONL and extract last assistant texts
-2. Store as `recoveryNote` in memory (keyed by group folder)
-3. On next `runAgent` call for that group, prepend recovery note to prompt
-4. Clear `recoveryNote` after use
+### Alternative for large JSONL
 
-Agent-runner side: no change needed — the note arrives as part of the
-user prompt, giving Claude full context on first turn.
-
-### Alternative: inject as media
-
-If the JSONL is large, compress and attach as a file reference
-(`/workspace/media/recovery-<sessionId>.txt`) rather than inlining.
-Agent reads it with `Read` on first turn.
+Write `/workspace/media/recovery-<sessionId>.txt`, reference via path.
+Agent reads with `Read` on first turn.
 
 ## Constraints
 
-- Recovery note injected once only — not repeated on subsequent messages
-- Max inline size: 2000 chars; above that, write to media file
-- For `error_during_execution`, skip messages after the error marker
-- Do not surface session IDs to the user (internal detail)
+- Injected once only.
+- Max inline 2000 chars; above that, use media file.
+- Skip messages after error marker for `error_during_execution`.
+- Do not surface session IDs to user.

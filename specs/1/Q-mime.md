@@ -1,13 +1,12 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # MIME Pipeline
 
 Media attachment processing. Runs on every inbound message before
-container spawn -- downloads, transcribes, annotates.
+container spawn — downloads, transcribes, annotates. Code:
+`gateway/enrich_*.go`.
 
 ## Enricher pipeline model
 

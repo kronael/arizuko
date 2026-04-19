@@ -1,12 +1,11 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # Email Channel
 
 IMAP inbound + SMTP outbound. Single account per instance.
+Adapter: `emaid/`.
 
 ## JID format
 

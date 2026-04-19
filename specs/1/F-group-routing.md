@@ -1,8 +1,11 @@
 ---
-status: draft
+status: shipped
 ---
 
 # Gateway Routing
+
+Code: `router/`, `gateway/`. `daemon:` / `builtin:` target prefixes are
+reserved but not yet implemented.
 
 One flat routes table. Messages flow through three strictly ordered
 layers in the gateway: commands (code), prefixes (code), routing (data).
@@ -59,12 +62,12 @@ seq  match                                     target
 destination kind, the gateway dispatches accordingly. Otherwise it is
 treated as a folder path.
 
-| target                 | routed to                               |
-| ---------------------- | --------------------------------------- |
+| target                    | routed to                               |
+| ------------------------- | --------------------------------------- |
 | `REDACTED/content`        | folder (agent container)                |
 | `folder:REDACTED/content` | same — `folder:` prefix is optional     |
-| `daemon:onbod`         | HTTP POST to registered daemon (future) |
-| `builtin:ping`         | in-gateway handler (future)             |
+| `daemon:onbod`            | HTTP POST to registered daemon (future) |
+| `builtin:ping`            | in-gateway handler (future)             |
 
 `folder:` is optional so existing rows don't need re-keying. Only new
 explicit daemon/builtin rows need the prefix.

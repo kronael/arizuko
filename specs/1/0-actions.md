@@ -1,10 +1,11 @@
 ---
-status: draft
+status: partial
 ---
 
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
-
 # Gateway Actions
+
+Sidecar actions (`configure_sidecar`, `request_sidecar`, `stop_sidecar`,
+`list_sidecars`) are specified but not yet implemented; rest shipped.
 
 ## Action table
 

@@ -1,10 +1,10 @@
 ---
-status: draft
+status: partial
 ---
 
 # Prototypes
 
-**Status**: shipped (spawn and copy work; cleanup job pending)
+Spawn and copy shipped. Cleanup/TTL job deferred.
 
 A group's `prototype/` subdirectory defines what its children look
 like. When a child is spawned (via auto-threading or onboarding),

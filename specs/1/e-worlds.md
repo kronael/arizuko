@@ -1,12 +1,11 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # Worlds
 
-World = first folder segment of a group path.
+World = first folder segment of a group path. Enforced by
+`IsAuthorizedRoutingTarget` in `gateway/`.
 
 ```
 worldOf('atlas/support') === 'atlas'

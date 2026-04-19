@@ -1,10 +1,8 @@
 ---
-status: draft
+status: shipped
 ---
 
 # Action Grants
-
-**Status**: shipped
 
 Grant rules control which MCP actions a container can call.
 Rules derived from routing + tier at spawn, injected into

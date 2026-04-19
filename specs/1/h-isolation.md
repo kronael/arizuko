@@ -1,13 +1,12 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # MCP Tool Isolation
 
 MCP servers in their own docker containers with controlled
-communication. Builds on V-sidecars.md.
+communication. Builds on `V-sidecars.md`. gVisor/Firecracker
+sections are future work. Code: `container/`, `ipc/`.
 
 ## settings.json merge order
 

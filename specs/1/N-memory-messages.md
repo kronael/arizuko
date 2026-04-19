@@ -1,12 +1,11 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # Memory: Messages
 
 Recent message history piped to agent on each invocation.
+Assembled by `router.FormatMessages`.
 
 ## Stdin XML envelope structure
 

@@ -1,13 +1,11 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # Agent Self-Extension
 
 Agent extends itself across sessions via Claude Code inside a
-container with persistent `~/.claude/`.
+container with persistent `~/.claude/`. Lives in `ant/`.
 
 ## SDK-native mechanisms
 

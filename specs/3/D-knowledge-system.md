@@ -1,50 +1,43 @@
 ---
-status: draft
+status: partial
 ---
-
-## <!-- trimmed 2026-03-15: layer status table removed, rich facts only -->
-
-## status: partial
 
 # Knowledge System
 
-The pattern underlying diary, facts, episodes, and user context.
+Pattern underlying diary, facts, episodes, user context.
 
-## The Pattern
+## Pattern
 
 Given a directory of markdown files:
 
-1. **Index** -- scan files, extract summaries (frontmatter or first N lines)
-2. **Select** -- choose which to inject (by recency, sender, relevance)
-3. **Inject** -- insert selected summaries into agent prompt context
-4. **Nudge** -- at defined moments, prompt agent to write/update files
+1. **Index** — scan, extract summaries (frontmatter or first N lines).
+2. **Select** — choose which to inject (recency, sender, relevance).
+3. **Inject** — insert into agent prompt context.
+4. **Nudge** — at defined moments, prompt agent to write/update.
 
-## Push vs Pull
+## Push vs pull
 
-**Push layers** -- small corpus, gateway injects automatically:
+Push (small corpus, gateway injects):
 
-- **Diary** (`diary/*.md`) -- date-keyed, 2 most recent, injected on
-  session start. Agent writes via `/diary` skill. Shipped.
-- **User context** (`users/*.md`) -- sender-keyed, match by message
-  sender, inject on every message.
-- **Episodes** (`episodes/*.md`) -- event-keyed, inject on session start.
+- **Diary** (`diary/*.md`) — date-keyed, 2 most recent on session start.
+  Agent writes via `/diary`. Shipped.
+- **User context** (`users/*.md`) — sender-keyed, match by message sender.
+- **Episodes** (`episodes/*.md`) — event-keyed, session start.
 
-**Pull layers** -- large corpus, agent searches on demand:
+Pull (large corpus, agent searches):
 
-- **Facts** (`facts/*.md`) -- topic-keyed, too many to inject. Agent
-  uses search tool (RAG/grep). Researcher subagent writes; verifier
-  reviews before merge.
+- **Facts** (`facts/*.md`) — topic-keyed. Agent uses search tool (grep/RAG).
+  Researcher writes, verifier reviews.
 
-Push and pull are fundamentally different. Push needs gateway code
-(read, format XML, inject). Pull needs a search tool and write process.
-Don't unify them.
+Push needs gateway code (read, format XML, inject). Pull needs search +
+write process. Don't unify.
 
-## Injection XML Format
+## Injection XML
 
 ```xml
 <knowledge layer="diary" count="2">
-  <entry key="20260306" age="today">summary text</entry>
-  <entry key="20260305" age="yesterday">summary text</entry>
+  <entry key="20260306" age="today">summary</entry>
+  <entry key="20260305" age="yesterday">summary</entry>
 </knowledge>
 
 <knowledge layer="user" count="1">
@@ -59,14 +52,12 @@ Don't unify them.
 - Skill-based: `/diary`, `/research`
 - Scheduled: cron triggers researcher
 
-Nudge text comes from skill config, not hardcoded in gateway.
+Nudge text comes from skill config, not gateway.
 
-## Open Questions
+## Open
 
-- Push layers: declarative (config) or imperative (code per layer)?
-  Start with code; abstract only if third layer matches first two.
-- Performance: 500 fact files? Cache index in memory, refresh on change.
-- Researcher quality: auto-commit or require review? Unreviewed
-  auto-injection is a misinformation pipeline.
-- Can agent self-inject by reading files instead of gateway injection?
-  (Injection is optimization for consistent context.)
+- Push layers: declarative or imperative? Start imperative; abstract when
+  a third layer matches the first two.
+- 500 fact files? Cache index in memory, refresh on change.
+- Researcher quality: auto-commit or review gate?
+- Whether agent self-injection can replace gateway injection.

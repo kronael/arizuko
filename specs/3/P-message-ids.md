@@ -1,23 +1,19 @@
 ---
-status: draft
+status: partial
 ---
-
-## <!-- trimmed 2026-03-15: TS removed, acceptance criteria removed, rich facts only -->
-
-## status: spec
 
 # Message IDs: Reply and Forward Metadata
 
 Enrich inbound messages with channel-native IDs for reply threading
 and forward attribution.
 
-## New Fields on NewMessage
+## New fields on NewMessage
 
-- `reply_to_id` -- channel-native ID of replied-to message
-- `forwarded_from_id` -- source chat/channel ID (where available)
-- `forwarded_msgid` -- original message ID (channel posts only)
+- `reply_to_id` — channel-native ID of replied-to message
+- `forwarded_from_id` — source chat/channel ID
+- `forwarded_msgid` — original message ID (channel posts only)
 
-## Channel Coverage: reply_to_id
+## reply_to_id coverage
 
 | Channel  | Source                          | Available |
 | -------- | ------------------------------- | --------- |
@@ -27,7 +23,7 @@ and forward attribution.
 | Mastodon | `status.inReplyToId`            | yes       |
 | Email    | thread-based, no per-message ID | n/a       |
 
-## Channel Coverage: forward IDs
+## Forward coverage
 
 | Channel  | Source                                          | Available                  |
 | -------- | ----------------------------------------------- | -------------------------- |
@@ -36,22 +32,21 @@ and forward attribution.
 | Discord  | `MessageReferenceType.Forward`                  | no sender metadata exposed |
 | WhatsApp | `ctxInfo.isForwarded = true`                    | no original source         |
 
-Only Telegram channel posts carry recoverable origin ID.
+Only Telegram channel posts carry a recoverable origin ID.
 
-## Updated XML Format
+## XML
 
 ```xml
-<forwarded_from sender="Tech News" chat="telegram:-100123456" id="456"/>
-<reply_to sender="Alice" id="789">quoted message text</reply_to>
+<forwarded_from sender="Tech News" chat="telegram:-100..." id="456"/>
+<reply_to sender="Alice" id="789">quoted text</reply_to>
 ```
 
-`id` on both tags is channel-native. Omit if absent. `chat`/`id` on
-`<forwarded_from>` only when both present (Telegram channel posts).
+`id` is channel-native. Omit if absent. `<forwarded_from>` `chat`/`id`
+only when both present (Telegram channel posts).
 
 ## send_message replyTo
 
-`send_message` gains optional `replyTo?: string`. Agents pass the
-`reply_to_id` from session context.
+Optional `replyTo?: string`. Agent passes `reply_to_id` from context.
 
 | Channel  | Implementation                     | Status   |
 | -------- | ---------------------------------- | -------- |
@@ -61,8 +56,8 @@ Only Telegram channel posts carry recoverable origin ID.
 | Mastodon | `client.reply(id, text)` stub      | verify   |
 | Email    | `In-Reply-To` header, thread-based | n/a      |
 
-## Open: WhatsApp Reply Limitation
+## WhatsApp limitation
 
-Baileys `sendMessage` requires `{ quoted: WAMessage }` -- the full
-original message object, not just an ID. Would need to fetch from
-history or cache. Deferred.
+Baileys `sendMessage` requires `{ quoted: WAMessage }` — the full
+original object, not just an ID. Would need history/cache fetch.
+Deferred.

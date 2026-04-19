@@ -2,45 +2,40 @@
 status: shipped
 ---
 
-## <!-- trimmed 2026-03-15: TS signatures removed, rich facts only -->
-
-## status: shipped
-
 # Generic Container Commands
 
-Decouple container sandbox from the command inside it. Container
-provides environment (mounts, user, timezone, tools). Command is
-caller-supplied. Claude agent runner is default, not the only one.
+Decouple container sandbox from the command inside. Container provides
+environment (mounts, user, timezone, tools). Command is caller-supplied.
+Claude agent runner is default, not the only one.
 
-## Two Paths
+## Two paths
 
 **Agent path** (no command supplied):
 
 - Seed skills, CLAUDE.md, output-styles, settings, gateway-caps
-- Write ContainerInput JSON to stdin
+- Write `ContainerInput` JSON to stdin
 - Parse OUTPUT_START/END markers from stdout
 - Track sessions in DB
 
 **Raw path** (command supplied):
 
-- Skip all agent ceremony
+- Skip agent ceremony
 - Optionally pipe plain text to stdin
-- Accumulated stdout IS the result (no marker parsing)
+- Accumulated stdout IS the result (no markers)
 - No session tracking
 - Same timeout, logging, cleanup
 
-## Task Scheduler Column
+## Task scheduler
 
-`scheduled_tasks.command` (nullable TEXT). When set, raw mode.
-When null, agent mode. `prompt` and `command` are mutually exclusive.
+`scheduled_tasks.command` (nullable TEXT). Set = raw mode. Null = agent
+mode. `prompt` and `command` are mutually exclusive.
 
-## Routing Table Syntax
+## Routing target syntax
 
 ```
 target = "atlas"                     -> agent on atlas folder
 target = "atlas|bash -c 'echo hi'"   -> bash in atlas sandbox
 ```
 
-Pipe delimiter separates folder from command. No pipe = agent default.
-Folder determines sandbox (mounts, permissions, tier). Command
+Pipe separates folder from command. Folder determines sandbox; command
 determines what runs.

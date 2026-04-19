@@ -1,15 +1,13 @@
 ---
-status: draft
+status: partial
 ---
 
 # Extensions System
 
-**Status**: shipped (partial) — sidecars implemented, plugins deferred (updated 2026-03-24)
+Extension points in arizuko. Sidecars and skills shipped; plugin
+marketplace deferred.
 
-Extension points and plugin architecture for arizuko.
-Goal: make the system extensible without modifying core code.
-
-## Extension Points Summary
+## Extension Points
 
 | Point         | Location            | Extensible By | Mechanism        |
 | ------------- | ------------------- | ------------- | ---------------- |
@@ -22,102 +20,39 @@ Goal: make the system extensible without modifying core code.
 | Tasks         | timed/              | Agent         | IPC actions      |
 | Diary         | diary/              | Agent         | File-based       |
 
-## 1. Action Registry
+## Sidecars (shipped)
 
-Shipped as `ipc/` package. All 16 MCP tools registered in
-a single handler with gateway callbacks injected at creation
-time. Agent discovers tools via MCP `tools/list`. Authorization
-via `auth.Authorize` at runtime.
+Per-group `GroupConfig.Sidecars`. MCP over unix socket in
+`/workspace/ipc/`. Persistent daemons started by compose (like `ipc`,
+`timed`) — survive agent restarts. Discovery via MCP `tools/list`;
+agent merges tools from each socket. Env passthrough via compose; no
+scoped tokens — sidecar runs at agent's trust level.
 
-See `specs/7/10-ipc.md` for tool list and architecture,
-`specs/7/11-auth.md` for tier assignments.
+## Skills (shipped)
 
-## 2. Channel Interface
+Three scopes, no inheritance:
 
-Channels are now external HTTP processes, not Go interfaces.
-See `specs/7/1-channel-protocol.md` for the full protocol
-spec including registration, capabilities, auth, and
-transport options.
+- `ant/skills/` — global, baked into image, read-only
+- `groups/<folder>/.claude/skills/` — per-group, persistent
+- `.claude/skills/` — per-session, seeded from global on first spawn
 
-## 3. Sidecar System
+Canonical definitions at `/workspace/self/ant/skills/` (ro mount) for
+`/migrate` diffing. `MIGRATION_VERSION` integer + `/migrate` skill
+drive upgrades. Name collisions across sidecars = error at spawn.
 
-**Current**: Per-group sidecar config in `GroupConfig.Sidecars`.
-Launched as separate containers with Unix socket IPC.
-
-### Decided
-
-1. **Sidecar protocol**: MCP over unix socket uniformly. All
-   sidecars expose MCP tools on a socket in `/workspace/ipc/`.
-   Same transport as `ipc` — agent connects via MCP client.
-   No HTTP, no gRPC. One protocol means one client library.
-
-2. **Sidecar lifecycle**: persistent daemons, not per-agent.
-   Like `ipc` and `timed` — started by compose, run
-   continuously, survive agent container restarts. Shared
-   sidecars between groups are possible via socket path.
-
-3. **Sidecar discovery**: via MCP `tools/list`. Agent connects
-   to each socket in `/workspace/ipc/`, calls `tools/list`,
-   merges available tools. No manifest, no gateway query.
-
-4. **Sidecar auth**: env var passthrough (current). Sidecars
-   inherit group-scoped env from compose config. No scoped
-   tokens in v1 — sidecar runs at the same trust level as
-   the agent it serves.
-
-## 4. Skills System
-
-**Current**: `ant/skills/` seeded into agent session.
-Each skill has `SKILL.md` with prompt injection.
-
-### Decided
-
-1. **Skill loading**: on spawn, if destination does not exist.
-   Gateway copies `ant/skills/` to session dir on first
-   spawn per group. Agent owns its copy — changes persist.
-   Canonical definitions at `/workspace/self/ant/skills/`
-   (read-only mount) for `/migrate` diffing.
-
-2. **Skill dependencies**: deferred. No dependency resolution
-   in v1. Skills are standalone units. If a skill needs another,
-   document it in SKILL.md — human ensures both are present.
-
-3. **Skill scope**: three levels, no inheritance:
-   - `ant/skills/` — global, baked into image (read-only)
-   - `groups/<folder>/.claude/skills/` — per-group, persistent
-   - `.claude/skills/` — per-session, seeded from global on
-     first spawn, then agent-owned
-
-4. **Skill updates**: `MIGRATION_VERSION` integer + `/migrate`
-   skill. Root agent runs `/migrate`, which diffs canonical vs
-   session skills for every group, copies changed skill dirs,
-   runs numbered migration `.md` scripts. No hot reload.
-
-5. **Skill marketplace**: deferred indefinitely. No external
-   skill install in v1.
-
-### Skill format
+Skill format:
 
 ```
 <name>/
-  SKILL.md              # Required: prompt injection
-  CLAUDE.md             # Optional: additional context
-  migrations/           # Optional: numbered upgrade scripts
+  SKILL.md              # required: prompt injection
+  CLAUDE.md             # optional
+  migrations/           # optional numbered upgrade scripts
 ```
 
-## 5. Routing Rules
+## Permission tiers (shipped)
 
-Flat routes table (shipped). Keyed by `jid` + `seq`.
-6 rule types: command, verb, pattern, keyword, sender,
-default. First match wins.
-
-Agents modify routing via MCP `set_routing_rules` tool
-(tier 0-2). Dynamic — no restart needed.
-
-## 6. Permission Tiers
-
-**Decided**: folder-depth model. 4 tiers, no inheritance,
-no escalation in v1, no custom tiers.
+Folder-depth model. Tier = `min(folder.split("/").length, 3)`, except
+`root` = 0. Registration rejects depth > 3.
 
 | Tier | Name   | Depth | Example             |
 | ---- | ------ | ----- | ------------------- |
@@ -126,35 +61,15 @@ no escalation in v1, no custom tiers.
 | 2    | agent  | 2     | `atlas/support`     |
 | 3    | worker | 3+    | `atlas/support/web` |
 
-Tier = `min(folder.split("/").length, 3)`, except `root`
-which is always 0. Folders deeper than 3 are clamped to
-worker. Registration rejects depth > 3.
+No inheritance, no escalation, no custom tiers. `escalate_group` sends
+a message to the parent; it does not grant permissions. See
+`11-auth.md` and `19-action-grants.md`.
 
-No inheritance — tier computed from depth, not parent.
-No escalation — agents cannot temporarily gain higher
-tier. `escalate_group` sends a message to the parent,
-it does not grant permissions.
+## Plugin marketplace
 
-No custom tiers or named roles. The 4-tier model covers
-all current needs. Capabilities are implicit in tier
-number via `maxTier` on each action in the registry.
+Deferred. Current model: docker containers with `.toml` configs in
+data-dir `services/` directory, included in compose generation.
 
-See `specs/7/11-auth.md` for per-action tier assignments
-and mount enforcement table.
+## Non-goals
 
-## 7. Plugin Architecture
-
-Plugins are docker containers with `.toml` configs in the
-data dir `services/` directory. See `specs/7/0-architecture.md`
-for the compose generation format.
-
-**Deferred**. Discovery, install workflow, versioning,
-security, and dependency resolution are all deferred until
-built-in channels and sidecars are validated. The current
-model (\*.toml + compose generation) works.
-
-## Non-goals (for now)
-
-- External plugin marketplace (deferred indefinitely)
-- Hot reload (deferred)
-- WebAssembly support (deferred)
+External marketplace, hot reload, WebAssembly.

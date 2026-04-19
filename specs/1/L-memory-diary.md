@@ -1,12 +1,10 @@
 ---
-status: draft
+status: shipped
 ---
-
-<!-- trimmed 2026-03-15: TS removed, rich facts only -->
 
 # Memory: Diary
 
-Agent-written daily notes. The diary IS the task log.
+Agent-written daily notes. The diary IS the task log. Reader: `diary/`.
 
 ## Two-layer model
 

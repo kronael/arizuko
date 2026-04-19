@@ -1,13 +1,11 @@
 ---
-status: draft
+status: unshipped
 ---
-
-## status: unshipped
 
 # Social Actions — Outbound
 
-Outbound actions for social platforms. Entries in the existing action
-registry, exposed as MCP tools. Gateway resolves platform from JID prefix.
+Outbound actions for social platforms. Entries in the action registry,
+exposed as MCP tools. Gateway resolves platform from JID prefix.
 
 ## Shipped actions
 
@@ -16,7 +14,7 @@ registry, exposed as MCP tools. Gateway resolves platform from JID prefix.
 | `reply` | All adapters via `send_message` MCP tool (replyTo set) |
 | `post`  | reditd, bskyd internal (submit_post / create_post)     |
 
-## Planned actions (unshipped)
+## Planned actions
 
 | Action        | Platforms (shipped adapters only)   |
 | ------------- | ----------------------------------- |
@@ -37,10 +35,10 @@ registry, exposed as MCP tools. Gateway resolves platform from JID prefix.
 | `unlock`      | reddit, discord                     |
 | `kick`        | discord                             |
 
-## Schema Shapes
+## Tool shapes
 
-All use generic verbs as MCP tool names. `jid` determines platform
-via prefix. `target` is platform-native ID.
+Generic verbs as MCP tool names. `jid` determines platform via prefix.
+`target` is platform-native ID.
 
 - **post**: jid, content, media (file paths)
 - **reply**: jid, target, content
@@ -54,9 +52,9 @@ via prefix. `target` is platform-native ID.
 
 ## Decisions
 
-- **Media upload**: file path on disk. Agent writes to group folder,
+- Media upload: file path on disk. Agent writes to group folder;
   gateway uploads via platform client. No presigned URLs, no base64.
-- **Rate limits**: exponential backoff (1s, 2s, 4s, max 60s). Return
+- Rate limits: exponential backoff (1s, 2s, 4s, max 60s). Return
   `{ error: 'rate_limited', retry_after_ms }`. Agent decides retry.
-- **Content length**: gateway validates per platform. On exceed: return
-  error with max length, don't truncate or split. Agent rewrites.
+- Content length: gateway validates per platform. On exceed return
+  error with max length; don't truncate or split. Agent rewrites.
