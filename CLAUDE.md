@@ -34,6 +34,13 @@ Pre-commit hooks configured via `.pre-commit-config.yaml`.
 
 See ARCHITECTURE.md for package graph, message flow, container model.
 
+## Docs layout
+
+Root UPPERCASE files: `ARCHITECTURE.md`, `SECURITY.md`, `ROUTING.md`,
+`CHANGELOG.md`, `CLAUDE.md`. Per-daemon detail lives next to the source
+(e.g. `ipc/SECURITY.md`). No `docs/` directory — add a per-daemon
+`SECURITY.md` when its threat model outgrows a row in the root table.
+
 ## Layout
 
 ```

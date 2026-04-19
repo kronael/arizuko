@@ -1,42 +1,42 @@
 # Security
 
-arizuko's security model, threat boundaries, and hardening notes. Each
-daemon with non-trivial security surface has its own `SECURITY.md` next
-to its source — this file is the index and the cross-cutting model.
+arizuko's security model and boundaries. Daemons with non-trivial
+surface ship their own `SECURITY.md` next to the source; this file is
+the index and cross-cutting model.
 
 ## Model
 
-arizuko is a **multi-tenant agent router**. Every security boundary
-maps to one of three axes:
+Three isolation axes:
 
-1. **Group isolation** — agents in one group must not see another
-   group's files, sockets, DB rows, or messages.
-2. **User isolation** — users reach groups only via ACL entries in
-   `user_groups`. OAuth + JWT verify identity at the proxy edge.
-3. **Daemon isolation** — daemons share SQLite but own disjoint
-   schemas; adapters reach gated only via the internal docker
-   network + a shared `CHANNEL_SECRET`.
+1. **Group isolation** — per-group bind mounts; no path inside one
+   group's container resolves to another group's files or sockets.
+2. **User isolation** — users reach groups only via `user_groups` rows.
+   OAuth → JWT at the proxy edge; `auth.MatchGroups` enforces.
+3. **Daemon isolation** — adapters reach gated only over the internal
+   docker network with a shared `CHANNEL_SECRET` bearer token.
 
-The boundaries and where they live:
+## Boundaries
 
-| Boundary                | Mechanism                                                                              | Location                                                   |
-| ----------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Group filesystem        | Per-group bind mount; `folders.GroupPath` validates folder, refuses `..`, reserved     | `groupfolder/folder.go`, `container/runner.go buildMounts` |
-| Group MCP socket        | Per-group bind mount of `ipcDir` → `/workspace/ipc`; `folders.IpcPath` validates       | `container/runner.go buildMounts`                          |
-| MCP peer identity       | `SO_PEERCRED` peer-uid check on each accepted conn                                     | `ipc/ipc.go ServeMCP`, see `ipc/SECURITY.md`               |
-| Container resource      | Docker `--memory`, `--cpus`, `--pids-limit`, `--read-only` flags                       | `container/runner.go buildArgs`                            |
-| Agent exec capability   | `bypassPermissions` in-container but mounts are scoped to the group                    | `ant/src/index.ts`, `container/runner.go`                  |
-| Web routes              | Proxyd path table; `/pub/*` anon, `/slink/*` token, everything else JWT                | `proxyd/`                                                  |
-| Authn                   | GitHub / Google / Discord OAuth → JWT (1h) + refresh cookie (30d)                      | `auth/`                                                    |
-| Authz                   | `user_groups` ACL, `auth.MatchGroups`, grants engine                                   | `auth/`, `grants/`                                         |
-| Channel ingress         | Shared `CHANNEL_SECRET` HMAC; adapter → gated over internal docker network only        | `chanlib/`, `api/`                                         |
-| Rate limits             | Onboarding gates (per-day), slink (per-token), webd MCP (per-user)                     | `onbod/`, `webd/`                                          |
-| Sender identity in chat | Ant stamps `userID` = sha256(folder) in MCP calls; gateway verifies tool-group mapping | `ant/src/index.ts`, `ipc/ipc.go`                           |
+| Boundary             | Mechanism                                                                  | Location                                                       |
+| -------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Group filesystem     | Per-group bind mount; `Resolver.GroupPath` rejects `..`, `\`, reserved     | `groupfolder/folder.go`, `container/runner.go` (`buildMounts`) |
+| Group MCP socket     | Per-group mount of `ipcDir` → `/workspace/ipc`; `Resolver.IpcPath` rejects | `container/runner.go` (`buildMounts`)                          |
+| MCP peer identity    | `SO_PEERCRED` peer-uid check on each accepted conn                         | `ipc/ipc.go` (`ServeMCP`), see `ipc/SECURITY.md`               |
+| Agent exec scope     | `bypassPermissions` inside container; mounts scoped to the group           | `ant/src/index.ts`, `container/runner.go`                      |
+| Additional mounts    | `ValidateAdditionalMounts` + `ValidateFilePath` blocklist/symlink guard    | `mountsec/`                                                    |
+| Web routes           | `/pub/*` + `/health` public; `/slink/*` token + 10/min/IP; rest JWT        | `proxyd/main.go`                                               |
+| Slink identity relay | proxyd signs `X-Folder` via HMAC; webd verifies                            | `proxyd/main.go`, `auth.SignHMAC`                              |
+| Authn                | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)      | `auth/web.go`, `auth/oauth.go`                                 |
+| Login throttle       | 5 POST `/auth/login` per IP per 15min, in-memory                           | `auth/web.go`                                                  |
+| Authz                | `user_groups` ACL → `auth.MatchGroups`; grants engine for agent tools      | `auth/acl.go`, `grants/`                                       |
+| Channel ingress      | `Authorization: Bearer <CHANNEL_SECRET>`; docker-network only              | `chanlib/run.go`, `chanlib/chanlib.go` (`Auth`), `api/api.go`  |
+| Onboarding rate cap  | Per-gate daily limit from `onboarding_gates` table                         | `onbod/main.go` (`admitFromQueue`)                             |
 
-Anything not in this table is **not** a security boundary. In
-particular: socket filesystem permissions alone do not separate
-containers, and host root always wins — arizuko does not try to defend
-against the host operator.
+Anything not in this table is not a security boundary. In particular:
+socket filesystem permissions alone do not separate containers, and
+host root always wins — arizuko does not defend against the host
+operator. The agent container runs with `bypassPermissions`; the
+boundary is the mount set, not the tool policy.
 
 ## Trust zones
 
@@ -50,7 +50,7 @@ against the host operator.
 │  │                                                     │ │
 │  │  ┌─ agent container (per-group, partially trusted) ┐│ │
 │  │  │  claude code + ant/ + skills                    ││ │
-│  │  │  can run arbitrary Bash, Edit, WebFetch         ││ │
+│  │  │  runs arbitrary Bash/Edit/WebFetch              ││ │
 │  │  │  scoped to /workspace/ipc + group mounts        ││ │
 │  │  └─────────────────────────────────────────────────┘│ │
 │  └─────────────────────────────────────────────────────┘ │
@@ -61,32 +61,25 @@ against the host operator.
 └──────────────────────────────────────────────────────────┘
 ```
 
-## Per-daemon security docs
+## Per-daemon docs
 
-Daemons with security-relevant surface ship their own `SECURITY.md`:
+- [`ipc/SECURITY.md`](ipc/SECURITY.md) — MCP channel, `SO_PEERCRED`
+  check, per-group mount isolation, incident history
 
-- [`ipc/SECURITY.md`](ipc/SECURITY.md) — MCP channel, peer-uid check,
-  per-group mount isolation, incident history
-
-Other daemons do not have a dedicated file yet; their guarantees are
-summarized in the table above. Add a `SECURITY.md` next to the daemon
-when its threat model grows past a table row.
+Other daemons do not have a dedicated file yet; guarantees are in the
+table above. Add one next to the daemon when its threat model outgrows
+a row.
 
 ## Incident log
 
-### 2026-04-17 → 2026-04-19 — MCP token preamble outage
-
-A per-connection token preamble added to `ipc.ServeMCP` in commit
-`2774394` was enforced on the server side but never implemented on the
-client side (ant's socat bridge writes no preamble). Every MCP tool
-call was silently rejected for ~48h. Agents appeared to lose memory
-because `get_history` and every other gateway tool was unreachable.
-
-Fixed in v0.29.3 (disable preamble) and replaced in v0.29.4 with
-kernel-attested `SO_PEERCRED` peer-uid check. Full writeup:
+**2026-04-17 → 2026-04-19 — MCP token preamble outage.** Commit
+`2774394` added a server-side token preamble to `ipc.ServeMCP` with no
+matching client (ant's socat bridge cannot write a preamble). Every MCP
+call rejected for ~48h; agents appeared amnesic. Fixed v0.29.3 (disable)
+and replaced v0.29.4 with `SO_PEERCRED`. Full writeup:
 [`ipc/SECURITY.md`](ipc/SECURITY.md).
 
 ## Reporting
 
-Internal issue — log to `bugs.md` with reproducer and severity. No
-public security channel yet; arizuko is single-operator per instance.
+Log to `bugs.md` with reproducer and severity. No public channel —
+arizuko is single-operator per instance.
