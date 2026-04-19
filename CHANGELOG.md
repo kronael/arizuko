@@ -9,6 +9,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.29.3] — 2026-04-19
+
+### Fixed
+
+- **ipc**: MCP token preamble enforcement disabled. Ant's socat bridge
+  (`/ant/src/index.ts`, settings.json mcpServers.arizuko) connects to
+  the unix socket and sends MCP JSON-RPC directly — it never wrote the
+  `{"token":"<hex>"}\n` preamble that `ipc.ServeMCP` required, so every
+  MCP connection was rejected and every `get_history`/`get_facts`/any
+  gateway tool failed silently. Symptom: agents replied "nemám záznam"
+  / "no context" because `get_history` was unreachable. Fix: pass empty
+  token to `ServeMCP`; socket is already 0660 + chowned to container
+  uid, filesystem perms are the real isolation boundary.
+
 ## [v0.29.2] — 2026-04-17
 
 ### Added
