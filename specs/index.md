@@ -8,5 +8,5 @@
 | [4/](4/)     | dashboards, memory, products — deferred           | deferred  |
 | [5/](5/)     | agent extensions & workflows — future             | future    |
 | [6/](6/)     | products — deferred                               | deferred  |
-| [8/](8/)     | grants, onboarding, access control                | active    |
+| [7/](7/)     | grants, onboarding, access control                | active    |
 | [res/](res/) | resources — research, examples, references        | reference |
