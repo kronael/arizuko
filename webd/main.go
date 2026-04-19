@@ -21,11 +21,9 @@ type config struct {
 	listenURL      string
 	routerURL      string
 	channelSecret  string
-	authSecret     string
-	hmacSecret     string
-	storeDir       string
-	assistantName  string
-	trustedProxies []string
+	hmacSecret    string
+	storeDir      string
+	assistantName string
 }
 
 func loadConfig() config {
@@ -39,7 +37,6 @@ func loadConfig() config {
 		listenURL:     chanlib.EnvOr("WEBD_URL", "http://webd:8080"),
 		routerURL:     chanlib.EnvOr("ROUTER_URL", "http://gated:8080"),
 		channelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
-		authSecret:    coreCfg.AuthSecret,
 		hmacSecret:    loadHMACSecret(),
 		storeDir:      coreCfg.StoreDir,
 		assistantName: chanlib.EnvOr("ASSISTANT_NAME", "assistant"),
