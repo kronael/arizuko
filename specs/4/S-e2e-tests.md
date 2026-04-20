@@ -1,59 +1,73 @@
 ---
-status: unshipped
+status: planned
 ---
 
-# E2E Integration Tests
+# Per-daemon integration tests
 
-`gateway/gateway_test.go` is pure unit tests — `store.OpenMem()` +
-`mockChannel`, never calls `container.Run()`. The full path — message
-→ queue → docker → output markers → channel send — is untested.
+Each daemon gets one `<daemon>/integration_test.go` exercising its
+HTTP/socket boundary against an in-memory shared DB. No docker, no
+mockagent image, no new deps. Fills the gap where unit tests with
+mocks diverge from real wiring.
 
-Fixes by replacing the real agent image with a mock binary that
-speaks the same stdin/stdout protocol.
+## Shared helpers
 
-## Mock agent protocol
+`tests/test_utils.go` (package `testutils`), ~150 LOC:
 
-Reads `container.Input` JSON from stdin. Parses last line of `prompt`
-for a command prefix. Writes output wrapped in
-`---ARIZUKO_OUTPUT_START---`/`---ARIZUKO_OUTPUT_END---`.
+- `NewInstance(t) *Inst` — tmpdir + `store.OpenMem()` + JWT signer +
+  registered channels
+- `FakeChannel` — implements `chanlib.BotHandler`, records outbound calls
+- `FakePlatform` — `httptest.Server` stub for platform REST APIs
+- `AssertMessage(db, jid, text)`, `WaitForRow(db, query, timeout)`
 
-| Prompt prefix    | Behavior                                                    |
-| ---------------- | ----------------------------------------------------------- |
-| `echo:<text>`    | success, `result=<text>`, new session id                    |
-| `delay:<ms>`     | sleep, then `echo:ok`                                       |
-| `empty`          | `{"status":"success","result":null}` — tests no-output path |
-| `error:<text>`   | `{"status":"error","error":"<text>"}`, exit 1               |
-| `session_error`  | no markers, exit 0 — triggers session eviction              |
-| `heartbeat:<ms>` | emit heartbeats then `echo:ok` — tests idle timer reset     |
-| `mcp:<tool>`     | connect `/workspace/ipc/gated.sock` via socat, call tool    |
-| `file:<relpath>` | write file, call MCP `send_file`                            |
+## Prerequisite refactor
 
-## Layout
+Extract `container.Runner` interface from `container.Run()` so a
+`FakeRunner` can be injected in `gateway/integration_test.go`. ~50 LOC.
 
-```
-tests/
-  e2e/
-    e2e_test.go     //go:build e2e
-    harness.go      start gated, return client
-    channel.go      FakeChannel implementing core.Channel
-  mockagent/
-    main.go         ~150 LOC
-    Dockerfile      alpine + mockagent binary
-```
+## Per-daemon matrix
 
-`make e2e` runs `go test -tags e2e ./tests/e2e/...`. Not in `make test`.
+| Daemon    | File                          | Cases                                                                  |
+| --------- | ----------------------------- | ---------------------------------------------------------------------- |
+| gated     | `gateway/integration_test.go` | TestPollLoop_RealRun (FakeRunner markers → callback → cursor advances) |
+| container | `container/run_test.go`       | Table-driven: docker arg assembly + marker parsing (exec.Command stub) |
+| timed     | `tests/microservice_test.go`  | TestCronFiresMessage (active task, `TickOnce`, row appears)            |
+| onbod     | `onbod/integration_test.go`   | TestOnboardingFlow, TestOAuthCallback, TestGateRateLimit               |
+| dashd     | `dashd/integration_test.go`   | TestMemoryEndpoint, TestGroupList, TestTaskList                        |
+| webd      | `webd/integration_test.go`    | TestSlinkWebsocketEcho, TestSlinkMCPBridge                             |
+| proxyd    | `proxyd/integration_test.go`  | TestAuthGate_401, TestPubPathOpen, TestReverseProxy                    |
+| teled     | `teled/integration_test.go`   | TestBotHandler_Send/React (FakePlatform stub of Telegram API)          |
+| discd     | `discd/integration_test.go`   | TestBotHandler_Send/React/Post/DeletePost                              |
+| mastd     | `mastd/integration_test.go`   | TestBotHandler_Send/React/Post/DeletePost                              |
+| bskyd     | `bskyd/integration_test.go`   | TestBotHandler_Send/React/Post/DeletePost                              |
+| reditd    | `reditd/integration_test.go`  | TestBotHandler_Send/Post/DeletePost                                    |
+| emaid     | `emaid/integration_test.go`   | TestBotHandler_Send (IMAP/SMTP stubs)                                  |
+| linkd     | `linkd/integration_test.go`   | TestBotHandler_Send                                                    |
+| whapd     | `whapd/src/__tests__/`        | Vitest TS integration against fake WhatsApp endpoint                   |
+| ipc       | `tests/integration_test.go`   | TestMCPSocketRoundtrip (ipc.Server on tmp socket, tool call)           |
 
-## Test cases
+## Make targets
 
-TC-01 echo, TC-02 empty result, TC-03 session continuity, TC-04
-session error recovery, TC-05 agent error + cursor rollback, TC-06
-concurrent container limit, TC-07 idle timeout, TC-08 heartbeat
-resets, TC-09 MCP send_message, TC-10 send_file, TC-11 multi-group
-routing, TC-12 scheduler injection, TC-13 reply threading.
+- `make test` — fast unit tests, unchanged
+- `make test-integration` — new, runs integration suite
 
-## Why
+## Build order
 
-Unit tests never hit: `container.Run()`, `queue.GroupQueue` under
-concurrency, `ipc.ServeMCP`, real cursor rollback, heartbeat timer
-reset, session eviction via SDK `error_during_execution`. TC-01,
-TC-04, TC-05 catch the most production failures.
+1. `tests/test_utils.go` + `container.Runner` interface — blocking
+2. Fan out four buckets in parallel:
+   - A: gated, container, timed, MCP round-trip
+   - B: onbod, dashd
+   - C: webd, proxyd
+   - D: adapters (teled, discd, mastd, bskyd, reditd, emaid, linkd, whapd)
+
+## Why not docker-based e2e
+
+Per-container docker e2e (mockagent binary + compose harness) was the
+earlier aspirational scope. Most of what it would test is already
+covered by unit tests with mocks (`gateway_test.go`, `microservice_test.go`).
+The genuine gaps — `container.Run()` exec path, MCP socket round-trip —
+are addressed here without new infra or deps.
+
+Full multi-daemon swarm coverage (systemd + compose + real docker)
+remains only via manual deploy to krons. Documented as a known gap
+in `ARCHITECTURE.md`; acceptable trade-off vs building docker-in-docker
+CI.
