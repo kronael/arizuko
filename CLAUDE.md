@@ -37,9 +37,14 @@ See ARCHITECTURE.md for package graph, message flow, container model.
 ## Docs layout
 
 Root UPPERCASE files: `ARCHITECTURE.md`, `SECURITY.md`, `ROUTING.md`,
-`CHANGELOG.md`, `CLAUDE.md`. Per-daemon detail lives next to the source
-(e.g. `ipc/SECURITY.md`). No `docs/` directory — add a per-daemon
-`SECURITY.md` when its threat model outgrows a row in the root table.
+`EXTENDING.md`, `CHANGELOG.md`, `CLAUDE.md`. Per-daemon detail lives
+next to the source (e.g. `ipc/SECURITY.md`). No `docs/` directory —
+add a per-daemon `SECURITY.md` when its threat model outgrows a row
+in the root table.
+
+Keep `EXTENDING.md` current as extension points evolve (channels,
+actions, routing, mounts, skills, tasks, diary; skill scopes;
+permission tiers).
 
 ## Layout
 

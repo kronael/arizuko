@@ -1,22 +1,18 @@
----
-status: shipped
----
+# Extending arizuko
 
-# Extensions System
+Catalog of extension points. Keep current as the system evolves.
 
-Extension points in arizuko.
+## Extension points
 
-## Extension Points
-
-| Point         | Location            | Extensible By | Mechanism        |
+| Point         | Location            | Extensible by | Mechanism        |
 | ------------- | ------------------- | ------------- | ---------------- |
 | Channels      | external containers | Developer     | HTTP protocol    |
 | Actions       | MCP tools           | Agent/Plugin  | Registry + MCP   |
-| Routing Rules | router/             | Agent         | MCP tools        |
-| Mounts        | container/          | Agent         | Container config |
-| Skills        | ant/skills/         | Agent         | File-based       |
-| Tasks         | timed/              | Agent         | IPC actions      |
-| Diary         | diary/              | Agent         | File-based       |
+| Routing rules | `router/`           | Agent         | MCP tools        |
+| Mounts        | `container/`        | Agent         | Container config |
+| Skills        | `ant/skills/`       | Agent         | File-based       |
+| Tasks         | `timed/`            | Agent         | IPC actions      |
+| Diary         | `diary/`            | Agent         | File-based       |
 
 ## Skills
 
@@ -30,7 +26,7 @@ Canonical definitions at `/workspace/self/ant/skills/` (ro mount) for
 `/migrate` diffing. `MIGRATION_VERSION` integer + `/migrate` skill
 drive upgrades.
 
-Skill format:
+Skill layout:
 
 ```
 <name>/
@@ -53,4 +49,4 @@ Folder-depth model. Tier = `min(folder.split("/").length, 3)`, except
 
 No inheritance, no escalation, no custom tiers. `escalate_group` sends
 a message to the parent; it does not grant permissions. See
-`11-auth.md` and `19-action-grants.md`.
+`specs/4/11-auth.md` and `specs/4/19-action-grants.md`.
