@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"net/smtp"
 	"strings"
 	"testing"
 
@@ -64,6 +65,97 @@ func TestBotHandler_Send_ThreadNotFound(t *testing.T) {
 	_, err := s.Send(chanlib.SendRequest{ChatJID: "email:missing", Content: "x"})
 	if err == nil || !strings.Contains(err.Error(), "thread not found") {
 		t.Errorf("err = %v, want 'thread not found'", err)
+	}
+}
+
+// TestBotHandler_Send_Success stubs smtpSender to prove the happy path:
+// thread lookup → RFC822 assembly → handler returns success. Verifies the
+// assembled message carries the expected headers (From/To/Subject/Date/
+// In-Reply-To/References) and body, and that envelope addresses + auth
+// credentials are forwarded intact.
+func TestBotHandler_Send_Success(t *testing.T) {
+	db := newTestDB(t)
+	defer db.Close()
+
+	_, err := db.Exec(
+		`INSERT INTO email_threads (thread_id, from_address, root_msg_id)
+		 VALUES (?, ?, ?)`,
+		"thread-ok", "user@example.com", "root-123@example.com",
+	)
+	if err != nil {
+		t.Fatalf("seed thread: %v", err)
+	}
+
+	var gotAddr, gotFrom string
+	var gotTo []string
+	var gotMsg []byte
+	var gotAuth smtp.Auth
+	orig := smtpSender
+	smtpSender = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+		gotAddr = addr
+		gotAuth = a
+		gotFrom = from
+		gotTo = to
+		gotMsg = msg
+		return nil
+	}
+	defer func() { smtpSender = orig }()
+
+	cfg := config{
+		Name:     "email",
+		Account:  "bot@example.com",
+		Password: "pw",
+		SMTPHost: "smtp.example.com",
+		SMTPPort: "587",
+	}
+	s := newServer(cfg, db, newAttRegistry())
+
+	resp, err := s.Send(chanlib.SendRequest{ChatJID: "email:thread-ok", Content: "hello body"})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if resp != "" {
+		t.Errorf("resp = %q, want empty", resp)
+	}
+
+	if gotAddr != "smtp.example.com:587" {
+		t.Errorf("addr = %q", gotAddr)
+	}
+	if gotFrom != "bot@example.com" {
+		t.Errorf("from = %q", gotFrom)
+	}
+	if len(gotTo) != 1 || gotTo[0] != "user@example.com" {
+		t.Errorf("to = %v", gotTo)
+	}
+	if gotAuth == nil {
+		t.Errorf("auth not forwarded")
+	}
+	// PlainAuth exposes credentials via the Start handshake — drive it.
+	proto, resp0, err := gotAuth.Start(&smtp.ServerInfo{Name: "smtp.example.com", TLS: true, Auth: []string{"PLAIN"}})
+	if err != nil {
+		t.Fatalf("auth start: %v", err)
+	}
+	if proto != "PLAIN" {
+		t.Errorf("auth proto = %q", proto)
+	}
+	if !strings.Contains(string(resp0), "bot@example.com") || !strings.Contains(string(resp0), "pw") {
+		t.Errorf("auth payload missing creds: %q", resp0)
+	}
+
+	m := string(gotMsg)
+	for _, want := range []string{
+		"From: bot@example.com\r\n",
+		"To: user@example.com\r\n",
+		"Subject: Re: (arizuko)\r\n",
+		"Date: ",
+		"In-Reply-To: <root-123@example.com>\r\n",
+		"References: <root-123@example.com>\r\n",
+		"Content-Type: text/plain; charset=utf-8\r\n",
+		"\r\nhello body",
+	} {
+		if !strings.Contains(m, want) {
+			t.Errorf("message missing %q; got:\n%s", want, m)
+		}
 	}
 }
 
