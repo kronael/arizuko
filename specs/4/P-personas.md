@@ -30,5 +30,5 @@ migrations: use conditional steps in migration `.md` files.
 - Group folder: `SOUL.md`, `CLAUDE.md`, `facts/`
 - Tier 2/3: ro mounts over inherited files
 
-Products (`products.md`) deliver curated persona + skill bundles
+Products (`R-products.md`) deliver curated persona + skill bundles
 per group, selected at creation.

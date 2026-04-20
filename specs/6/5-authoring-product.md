@@ -4,7 +4,7 @@ status: deferred
 
 # Authoring product
 
-A product (per `specs/4/products.md`): `template/products/author/`
+A product (per `specs/4/R-products.md`): `template/products/author/`
 with `SOUL.md` (voice), `HELLO.md` (greeting), `SYSTEM.md`, `CLAUDE.md`,
 and skills `draft/`, `publish/`, `content-audit/` (plus reused
 `research/`, `web/`). `arizuko group add <name> --product author`
