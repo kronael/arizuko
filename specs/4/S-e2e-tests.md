@@ -1,5 +1,5 @@
 ---
-status: planned
+status: shipped
 ---
 
 # Per-daemon integration tests

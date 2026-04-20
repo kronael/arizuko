@@ -9,6 +9,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Testing
+
+- Per-daemon integration tests landed for all daemons (gated, container,
+  timed, onbod, dashd, webd, proxyd, teled, discd, mastd, bskyd, reditd,
+  emaid, linkd, whapd) plus MCP socket round-trip.
+- New `tests/testutils` package with `FakeChannel`, `FakePlatform`,
+  `NewInstance` helpers.
+- `container.Runner` interface extracted for test injection; `run_test.go`
+  covers docker arg assembly and marker parsing.
+- `gateway/integration_test.go` exercises poll loop + runner contract.
+- `emaid`: SMTP send happy-path via injectable sender.
+- `whapd`: vitest integration test for send handler.
+
 ### Changed
 
 - **chanlib**: absorbed cross-package primitives. Single `URLCache` (12-hex
