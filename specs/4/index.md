@@ -25,13 +25,13 @@ are deferred.
 - [chanlib-refactor.md](chanlib-refactor.md) — adapter boilerplate moved to chanlib
 - [social-adapters.md](social-adapters.md) — teled, discd, emaid, bskyd, mastd, reditd, whapd
 - [task-logs.md](task-logs.md) — task_run_logs schema
+- [P-personas.md](P-personas.md) — versioning, image distribution, persona files
 
 ## Partial
 
 - [24-recall.md](24-recall.md) — v1 LLM grep shipped; v2 FTS5+sqlite-vec planned
 - [Q-dash-memory.md](Q-dash-memory.md) — view shipped; edit endpoints open
 - [X-extensions.md](X-extensions.md) — skills shipped; marketplace deferred
-- [Z-versioning-personas.md](Z-versioning-personas.md) — versioning shipped; plugin composition deferred
 
 ## Unshipped
 
