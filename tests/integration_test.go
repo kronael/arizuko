@@ -2,8 +2,12 @@ package tests
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,8 +15,12 @@ import (
 	"testing"
 	"time"
 
+	mcpclient "github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/onvos/arizuko/api"
 	"github.com/onvos/arizuko/chanreg"
+	"github.com/onvos/arizuko/ipc"
 	"github.com/onvos/arizuko/store"
 )
 
@@ -372,4 +380,120 @@ func getJSONWithToken(h http.Handler, path, token string) *httptest.ResponseReco
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	return w
+}
+
+// connIO adapts a net.Conn to transport.NewIO's (reader, writeCloser).
+// Closing the writer closes the underlying conn (once).
+type connIO struct{ net.Conn }
+
+func (c connIO) Close() error { return c.Conn.Close() }
+
+// openRawSQLite opens a second handle on the shared messages.db file,
+// used by tests to bypass store method filters.
+func openRawSQLite(path string) (*sql.DB, error) {
+	return sql.Open("sqlite", path+"?_busy_timeout=5000")
+}
+
+// TestMCPSocketRoundtrip binds ipc.ServeMCP on a tmpdir unix socket,
+// dials it, drives the MCP handshake over the socket, calls send_message,
+// and asserts the gated SendMessage callback fired and a messages row
+// with the outbound text landed in the store via recordOutbound.
+func TestMCPSocketRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(filepath.Join(dir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	var (
+		sentMu sync.Mutex
+		sent   []struct{ jid, text string }
+	)
+	gated := ipc.GatedFns{
+		SendMessage: func(jid, text string) (string, error) {
+			sentMu.Lock()
+			sent = append(sent, struct{ jid, text string }{jid, text})
+			sentMu.Unlock()
+			return "platform-mid-1", nil
+		},
+	}
+	db := ipc.StoreFns{PutMessage: s.PutMessage}
+
+	sock := filepath.Join(dir, "mcp.sock")
+	// expectedUID <= 0 disables SO_PEERCRED check for the test.
+	stop, err := ipc.ServeMCP(sock, gated, db, "world", []string{"*"}, -1)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	tr := transport.NewIO(conn, connIO{conn}, io.NopCloser(bytes.NewReader(nil)))
+	c := mcpclient.NewClient(tr)
+	t.Cleanup(func() { _ = c.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := c.Start(ctx); err != nil {
+		t.Fatalf("client start: %v", err)
+	}
+	if _, err := c.Initialize(ctx, mcp.InitializeRequest{
+		Params: mcp.InitializeParams{
+			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+			ClientInfo:      mcp.Implementation{Name: "tests", Version: "1"},
+		},
+	}); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+
+	res, err := c.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "send_message",
+			Arguments: map[string]any{
+				"chatJid": "tg:42",
+				"text":    "hello from mcp",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool error: %+v", res.Content)
+	}
+
+	sentMu.Lock()
+	got := append([]struct{ jid, text string }(nil), sent...)
+	sentMu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("SendMessage calls = %d, want 1", len(got))
+	}
+	if got[0].jid != "tg:42" || got[0].text != "hello from mcp" {
+		t.Errorf("got %+v", got[0])
+	}
+
+	// recordOutbound wrote a PutMessage row with FromMe=true, BotMsg=true.
+	// Re-open the DB file directly so we can inspect without the
+	// MessagesBefore bot-filter.
+	dsn := filepath.Join(dir, "store", "messages.db")
+	raw, err := openRawSQLite(dsn)
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	defer raw.Close()
+	var content string
+	var fromMe int
+	if err := raw.QueryRow(
+		`SELECT content, is_from_me FROM messages WHERE chat_jid = ? AND is_from_me = 1`,
+		"tg:42").Scan(&content, &fromMe); err != nil {
+		t.Fatalf("outbound row not found: %v", err)
+	}
+	if content != "hello from mcp" || fromMe != 1 {
+		t.Errorf("outbound row: content=%q fromMe=%d", content, fromMe)
+	}
 }
