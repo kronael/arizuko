@@ -36,6 +36,7 @@ type Gateway struct {
 	store   *store.Store
 	queue   *queue.GroupQueue
 	folders *groupfolder.Resolver
+	runner  container.Runner
 
 	mu       sync.RWMutex
 	channels []core.Channel
@@ -65,6 +66,7 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 		cfg:       cfg,
 		store:     s,
 		queue:     queue.New(cfg.MaxContainers, cfg.IpcDir),
+		runner:    container.DockerRunner{},
 		steeredTs: make(map[string]time.Time),
 		folders: &groupfolder.Resolver{
 			GroupsDir: cfg.GroupsDir,
@@ -73,6 +75,9 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 		impulse: newImpulseGate(),
 	}
 }
+
+// SetRunner overrides the container runner. Test-only entry point.
+func (g *Gateway) SetRunner(r container.Runner) { g.runner = r }
 
 func (g *Gateway) AddChannel(ch core.Channel) {
 	g.mu.Lock()
@@ -783,7 +788,7 @@ func (g *Gateway) runAgentWithOpts(
 		StoreFns:   g.storeFns,
 	}
 
-	out := container.Run(g.cfg, g.folders, input)
+	out := g.runner.Run(g.cfg, g.folders, input)
 
 	if isolated {
 		return out

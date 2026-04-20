@@ -109,6 +109,20 @@ type Output struct {
 
 type OnOutputFn func(result, status string)
 
+// Runner runs a containerized agent invocation. The default implementation
+// is DockerRunner (package-level Run). Tests inject fakes.
+type Runner interface {
+	Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output
+}
+
+// DockerRunner is the production Runner backed by the docker CLI.
+type DockerRunner struct{}
+
+// Run delegates to the package-level Run.
+func (DockerRunner) Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
+	return Run(cfg, folders, in)
+}
+
 type volumeMount struct {
 	Host      string
 	Container string
