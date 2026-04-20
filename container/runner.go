@@ -33,6 +33,11 @@ const (
 	containerHome     = "/home/node"
 )
 
+// execCommand is the hook used to spawn the docker CLI. Tests override it
+// to avoid the real runtime while still exercising arg assembly and
+// marker parsing.
+var execCommand = exec.Command
+
 var (
 	safeNameRe  = regexp.MustCompile(`[^a-zA-Z0-9-]`)
 	skillNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
@@ -163,7 +168,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	start := time.Now()
 
-	cmd := exec.Command(Bin, args...)
+	cmd := execCommand(Bin, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return Output{Error: "stdin pipe: " + err.Error()}
