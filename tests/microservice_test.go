@@ -165,6 +165,71 @@ func TestTaskNextRunUpdate(t *testing.T) {
 	}
 }
 
+// TestCronFiresMessage exercises the timed → gated contract: insert an
+// active scheduled_task with next_run in the past, simulate timed's
+// atomic claim + message insert, and verify gated's store sees the row
+// appear in the messages table carrying the task's prompt.
+func TestCronFiresMessage(t *testing.T) {
+	s, db := openSharedDB(t)
+
+	now := time.Now()
+	past := now.Add(-time.Second)
+	cronExpr := "* * * * *"
+	if err := s.CreateTask(core.Task{
+		ID: "fires-1", Owner: "main", ChatJID: "tg:500",
+		Prompt: "daily standup", Cron: cronExpr, NextRun: &past,
+		Status: "active", Created: now,
+	}); err != nil {
+		t.Fatal("CreateTask:", err)
+	}
+
+	// Replicate timed.fire(): atomic claim due rows then insert a message
+	// per claimed task. gated's messages loop consumes inserted rows.
+	claimAt := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(
+		`UPDATE scheduled_tasks SET status='firing'
+		 WHERE status='active' AND next_run <= ?`, claimAt,
+	); err != nil {
+		t.Fatal("claim:", err)
+	}
+	rows, err := db.Query(
+		`SELECT id, chat_jid, prompt FROM scheduled_tasks WHERE status='firing'`)
+	if err != nil {
+		t.Fatal("select firing:", err)
+	}
+	defer rows.Close()
+	var fired int
+	for rows.Next() {
+		var id, jid, prompt string
+		if err := rows.Scan(&id, &jid, &prompt); err != nil {
+			t.Fatal("scan:", err)
+		}
+		fired++
+		if _, err := db.Exec(timedInsertMsg,
+			"sched-"+id, jid, prompt, time.Now().Format(time.RFC3339),
+		); err != nil {
+			t.Fatal("insert msg:", err)
+		}
+	}
+	if fired != 1 {
+		t.Fatalf("fired = %d, want 1", fired)
+	}
+
+	msgs, _, err := s.NewMessages([]string{"tg:500"}, time.Time{}, "Bot")
+	if err != nil {
+		t.Fatal("NewMessages:", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("messages for tg:500 = %d, want 1", len(msgs))
+	}
+	if msgs[0].Content != "daily standup" {
+		t.Errorf("content = %q, want %q", msgs[0].Content, "daily standup")
+	}
+	if msgs[0].Sender != "timed" {
+		t.Errorf("sender = %q, want timed", msgs[0].Sender)
+	}
+}
+
 func TestOneShotTaskNullsNextRun(t *testing.T) {
 	s, db := openSharedDB(t)
 
