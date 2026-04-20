@@ -184,7 +184,7 @@ func deriveTier1Rules(jids []string) []string {
 }
 
 func deriveTier2Rules(jids []string) []string {
-	r := append([]string{"send_message", "send_reply"}, platformRules(jids)...)
+	r := append([]string{"send_message", "send_file", "send_reply"}, platformRules(jids)...)
 	r = append(r, "share_mount(readonly=true)")
 	return r
 }

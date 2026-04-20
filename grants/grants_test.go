@@ -328,6 +328,15 @@ func TestDeriveRules_Tier2(t *testing.T) {
 			hasBasic = true
 		}
 	}
+	hasFile := false
+	for _, r := range rules {
+		if r == "send_file" {
+			hasFile = true
+		}
+	}
+	if !hasFile {
+		t.Error("missing hardcoded send_file rule for tier 2")
+	}
 	if !hasTelegram {
 		t.Error("missing telegram rule for own route")
 	}
