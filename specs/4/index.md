@@ -33,8 +33,7 @@ are deferred.
 - [Q-dash-memory.md](Q-dash-memory.md) — view shipped; edit endpoints open
 - [X-extensions.md](X-extensions.md) — skills shipped; marketplace deferred
 
-## Unshipped
+## Planned
 
-- [G-instance-repos.md](G-instance-repos.md) — instance configs as git repos (`--from`)
+- [products.md](products.md) — curated persona+skill templates + instance blueprints (`--from`)
 - [e2e-tests.md](e2e-tests.md) — mock-agent-based end-to-end tests
-- [products.md](products.md) — curated persona+skill templates (`ant/products/<name>/`)

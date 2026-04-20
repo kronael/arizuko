@@ -1,12 +1,13 @@
 ---
-status: unshipped
+status: planned
 ---
 
 # Products — Agent Personality Templates
 
 A product is a curated agent configuration: persona + skills + behavior.
 Users pick a product when creating a group, instead of getting all
-35 skills + generic SOUL.md.
+35 skills + generic SOUL.md. Products also ship as distributable
+instance blueprints (git-repo form, like Helm charts).
 
 ## Layout
 
@@ -61,6 +62,29 @@ func SeedGroupDir(cfg core.Config, folder, product string)
 Reads `ant/products/<product>/`, seeds core skills + product skills,
 copies SOUL.md / HELLO.md / SYSTEM.md / facts/ / tasks.toml if
 present, writes `.product` marker.
+
+## Instance blueprints
+
+Products also distribute as full-instance git repos:
+
+```
+arizuko-<product>/
+├── .env.example        # config template, tokens as placeholders
+├── PRODUCT.md
+├── SOUL.md
+├── groups/root/        # CLAUDE.md, facts/, tasks.toml
+└── README.md
+```
+
+CLI:
+
+```bash
+arizuko create <name> --from <repo-url-or-path>
+arizuko update <name> --from <repo-url>   # merge groups/, keep .env
+```
+
+Clone → `/srv/data/arizuko_<name>/` → copy `.env.example` → `.env` →
+copy groups/ → generate systemd unit → register groups.
 
 ## Not in scope
 
