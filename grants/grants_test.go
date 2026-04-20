@@ -243,6 +243,7 @@ func TestDeriveRules_Tier1(t *testing.T) {
 	hasMgmt := false
 	hasGetRoutes := false
 	hasListTasks := false
+	hasFile := false
 	for _, r := range rules {
 		if r == "send_message(jid=discord:*)" {
 			hasDiscord = true
@@ -259,6 +260,12 @@ func TestDeriveRules_Tier1(t *testing.T) {
 		if r == "list_tasks" {
 			hasListTasks = true
 		}
+		if r == "send_file" {
+			hasFile = true
+		}
+	}
+	if !hasFile {
+		t.Error("missing hardcoded send_file rule for tier 1")
 	}
 	if !hasDiscord {
 		t.Error("missing discord rule")

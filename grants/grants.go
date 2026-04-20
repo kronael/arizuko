@@ -178,7 +178,8 @@ func platformRules(jids []string) []string {
 }
 
 func deriveTier1Rules(jids []string) []string {
-	r := append(platformRules(jids), tier1FixedActions...)
+	r := append([]string{"send_message", "send_file", "send_reply"}, platformRules(jids)...)
+	r = append(r, tier1FixedActions...)
 	r = append(r, "share_mount(readonly=false)")
 	return r
 }
