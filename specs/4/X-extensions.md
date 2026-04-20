@@ -1,11 +1,10 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Extensions System
 
-Extension points in arizuko. Skills shipped; plugin marketplace
-deferred.
+Extension points in arizuko.
 
 ## Extension Points
 
@@ -19,7 +18,7 @@ deferred.
 | Tasks         | timed/              | Agent         | IPC actions      |
 | Diary         | diary/              | Agent         | File-based       |
 
-## Skills (shipped)
+## Skills
 
 Three scopes, no inheritance:
 
@@ -40,7 +39,7 @@ Skill format:
   migrations/           # optional numbered upgrade scripts
 ```
 
-## Permission tiers (shipped)
+## Permission tiers
 
 Folder-depth model. Tier = `min(folder.split("/").length, 3)`, except
 `root` = 0. Registration rejects depth > 3.
@@ -55,12 +54,3 @@ Folder-depth model. Tier = `min(folder.split("/").length, 3)`, except
 No inheritance, no escalation, no custom tiers. `escalate_group` sends
 a message to the parent; it does not grant permissions. See
 `11-auth.md` and `19-action-grants.md`.
-
-## Plugin marketplace
-
-Deferred. Current model: docker containers with `.toml` configs in
-data-dir `services/` directory, included in compose generation.
-
-## Non-goals
-
-External marketplace, hot reload, WebAssembly.
