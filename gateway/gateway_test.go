@@ -1190,7 +1190,10 @@ func TestRecoverPendingMessages(t *testing.T) {
 	}
 }
 
-func TestRecoverPendingMessages_SkipsErrored(t *testing.T) {
+func TestRecoverPendingMessages_RecoversErrored(t *testing.T) {
+	// A chat marked errored must still be retried when pending messages
+	// exist — the errored flag is a status signal, not a block. The
+	// circuit breaker (queue/queue.go) handles repeat-failure protection.
 	gw, s := testGateway(t)
 	gw.cfg.MaxContainers = 10
 
@@ -1214,8 +1217,8 @@ func TestRecoverPendingMessages_SkipsErrored(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if recovered["telegram:-100"] {
-		t.Error("errored JID should not be recovered")
+	if !recovered["telegram:-100"] {
+		t.Error("errored JID should still be recovered on startup")
 	}
 }
 

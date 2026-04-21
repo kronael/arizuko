@@ -10,7 +10,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-//go:embed migrations
+//go:embed migrations/*.sql
 var migrationFS embed.FS
 
 const serviceName = "store"
@@ -59,11 +59,6 @@ func OpenMem() (*Store, error) {
 
 func (s *Store) Close() error {
 	return s.db.Close()
-}
-
-// DB exposes the underlying handle for callers that need ad-hoc queries.
-func (s *Store) DB() *sql.DB {
-	return s.db
 }
 
 // Migrate applies store's embedded SQL migrations to db. Used by test

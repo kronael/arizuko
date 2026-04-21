@@ -1,14 +1,16 @@
-# 064 — per-migration announcement dispatch
+# 064 — migration announcements are LLM-managed
 
-New skill: `/announce-migrations`. Root-only. Paired `.md` alongside
-each `store/migrations/NNNN-*.sql` is inserted into `announcements`
-at migration time; gated drops a `system_message` into the root
-group on startup when any pending rows exist.
+Earlier drafts tried to drive migration announcements from gated
+(startup sysmsg + `announcements`/`announcement_sent` tables). That
+path was ripped out.
 
-Root fan-out sends each `.md` to every `chats.jid` exactly once,
-keyed by `announcement_sent(service, version, user_jid)`. Inner
-groups get a one-line `system_message` (origin=`migration`) on
-completion — no broadcast there.
+Announcements are now entirely LLM-driven via `/migrate`:
 
-Replaces release-level CHANGELOG broadcasts from migration 060 with
-granular per-migration notes.
+- Root runs `/migrate`, reads the latest `CHANGELOG.md` entry, and
+  fans it out to every registered group using `~/.announced-version`
+  as the idempotency claim.
+- Per-migration granularity is not worth the infra complexity — one
+  short message per release is enough.
+
+Nothing runs on gated startup. Nothing writes to a DB ledger. Best
+effort from the root agent.

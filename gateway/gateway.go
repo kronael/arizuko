@@ -173,9 +173,6 @@ func (g *Gateway) Run(ctx context.Context) error {
 	}
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetHasPendingFn(func(jid string) bool {
-		if g.store.IsChatErrored(jid) {
-			return false
-		}
 		return g.store.HasPendingMessages(jid, g.cfg.Name)
 	})
 	g.queue.SetNotifyErrorFn(func(jid string, err error) {
@@ -1587,9 +1584,6 @@ func (g *Gateway) delegateViaMessage(
 
 func (g *Gateway) recoverPendingMessages() {
 	for _, jid := range g.store.PendingChatJIDs(g.cfg.Name) {
-		if g.store.IsChatErrored(jid) {
-			continue
-		}
 		slog.Info("recovering pending messages", "jid", jid)
 		g.queue.EnqueueMessageCheck(jid)
 	}

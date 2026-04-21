@@ -9,18 +9,6 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-### Added
-
-- Per-migration announcements. Paired `.md` next to any
-  `store/migrations/NNNN-*.sql` lives in the embedded FS — no DB
-  caching. On startup, `gated` drops one `system_message`
-  (origin=`migration`) into the root group containing every pending
-  announcement as `<announcement service=… version=…>` blocks. The new
-  `/announce-migrations` root skill fans each body out to every
-  `chats.jid` exactly once, keyed by
-  `announcement_sent(service, version, user_jid)`, and notifies inner
-  groups via a one-line system message.
-
 ### Fixed
 
 - `grants`: tier-1 now hardcodes `send_message`/`send_file`/`send_reply`.
@@ -31,6 +19,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   (`<messages><message ...>`) as real user activity. Previous heuristic
   discarded them along with tool-result turns, producing false "no
   user activity" summaries.
+- `gateway`: chats with `errored=1` are no longer permanently
+  quarantined. The flag was blocking `HasPendingMessages` and startup
+  recovery, so a single agent failure silenced the chat until a
+  manual `UPDATE chats SET errored=0` — despite the user-facing "send
+  another message to retry" hint. Removed both gates; the queue's
+  circuit breaker (3-strike reset on new message) is the real
+  repeat-failure guard. Flag kept for dashboard visibility.
 
 ### Testing
 
