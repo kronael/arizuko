@@ -101,8 +101,6 @@ func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
 
 
 func (g *Gateway) cmdNew(chatJid string, group core.Group, arg string) bool {
-	g.store.ClearChatErrored(chatJid)
-
 	label := "Session cleared."
 	followup := ""
 	if strings.HasPrefix(arg, "#") {

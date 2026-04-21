@@ -1190,10 +1190,7 @@ func TestRecoverPendingMessages(t *testing.T) {
 	}
 }
 
-func TestRecoverPendingMessages_RecoversErrored(t *testing.T) {
-	// A chat marked errored must still be retried when pending messages
-	// exist — the errored flag is a status signal, not a block. The
-	// circuit breaker (queue/queue.go) handles repeat-failure protection.
+func TestRecoverPendingMessages_SkipsErroredMessage(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.MaxContainers = 10
 
@@ -1206,19 +1203,31 @@ func TestRecoverPendingMessages_RecoversErrored(t *testing.T) {
 		return true, nil
 	})
 
+	jid := "telegram:-100"
+	now := time.Now()
 	s.PutMessage(core.Message{
-		ID: "m1", ChatJID: "telegram:-100", Sender: "user",
-		Content: "hello", Timestamp: time.Now(),
+		ID: "m1", ChatJID: jid, Sender: "user",
+		Content: "poison", Timestamp: now.Add(-time.Second),
 	})
-	s.MarkChatErrored("telegram:-100")
+	s.PutMessage(core.Message{
+		ID: "m2", ChatJID: jid, Sender: "user",
+		Content: "fresh", Timestamp: now,
+	})
+	if err := s.MarkMessagesErrored([]string{"m1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !s.HasPendingMessages(jid, gw.cfg.Name) {
+		t.Fatal("expected pending (m2 is not errored)")
+	}
 
 	gw.recoverPendingMessages()
 	time.Sleep(100 * time.Millisecond)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if !recovered["telegram:-100"] {
-		t.Error("errored JID should still be recovered on startup")
+	if !recovered[jid] {
+		t.Error("chat should still be recovered when only some messages are errored")
 	}
 }
 

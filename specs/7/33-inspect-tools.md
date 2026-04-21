@@ -54,7 +54,7 @@ pattern as existing MCP tools.
   - `inspect_logs` → exec `journalctl` bounded by `--until` + `-n`
   - `inspect_health` → `/health` endpoints + `docker ps` over the
     docker socket (root group only; tier ≥1 gets agent-scoped subset)
-  - `inspect_routing` → `routes` + `chats.errored` join
+  - `inspect_routing` → `routes` + `messages.errored` aggregation
   - `inspect_tasks` → `scheduled_tasks` + recent `task_run_logs`
   - `inspect_session` → `sessions` row + current `messages.db` cursor
 

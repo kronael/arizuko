@@ -19,13 +19,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   (`<messages><message ...>`) as real user activity. Previous heuristic
   discarded them along with tool-result turns, producing false "no
   user activity" summaries.
-- `gateway`: chats with `errored=1` are no longer permanently
-  quarantined. The flag was blocking `HasPendingMessages` and startup
-  recovery, so a single agent failure silenced the chat until a
-  manual `UPDATE chats SET errored=0` — despite the user-facing "send
-  another message to retry" hint. Removed both gates; the queue's
-  circuit breaker (3-strike reset on new message) is the real
-  repeat-failure guard. Flag kept for dashboard visibility.
+- `gateway`: agent failure now quarantines the offending message, not
+  the whole chat. Previously a single crash set `chats.errored=1`,
+  silencing all future traffic until manual sqlite clear — one poison
+  message could take a chat offline indefinitely. Now the failing
+  batch is flagged `messages.errored=1` and the chat stays active;
+  unrelated messages flow normally, and the poison input is never
+  replayed to the agent. `chats.errored` column removed (migration
+  0030).
 
 ### Testing
 

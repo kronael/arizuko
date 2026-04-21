@@ -174,7 +174,7 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 		dst *int
 	}{
 		{`SELECT COUNT(*) FROM channels`, &chanCount},
-		{`SELECT COUNT(*) FROM chats WHERE errored=1`, &erroredCount},
+		{`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`, &erroredCount},
 		{`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`, &failedTasks},
 	} {
 		if err := d.db.QueryRow(q.sql).Scan(q.dst); err != nil {
@@ -234,7 +234,7 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 		{`SELECT COUNT(*) FROM groups`, &groupCount},
 		{`SELECT COUNT(*) FROM sessions`, &sessionCount},
 		{`SELECT COUNT(*) FROM channels`, &chanCount},
-		{`SELECT COUNT(*) FROM chats WHERE errored=1`, &erroredCount},
+		{`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`, &erroredCount},
 	} {
 		if err := d.db.QueryRow(q.sql).Scan(q.dst); err != nil {
 			slog.Warn("status: scan", "sql", q.sql, "err", err)

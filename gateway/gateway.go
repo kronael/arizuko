@@ -367,7 +367,6 @@ func (g *Gateway) pollOnce() {
 			slog.Info("poll: steered messages into running container",
 				"jid", chatJid, "count", len(texts))
 			g.store.SetLastReplyID(chatJid, g.effectiveTopic(chatJid, last.Topic), last.ID)
-			g.store.ClearChatErrored(chatJid)
 			g.recordSteeredTs(chatJid, chatMsgs)
 			continue
 		}
@@ -442,7 +441,6 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	slog.Debug("process: completed all sender batches",
 		"jid", chatJid, "group", group.Folder, "batches", len(senderBatches))
 	g.advanceAgentCursor(chatJid, msgs)
-	g.store.ClearChatErrored(chatJid)
 	return true, nil
 }
 
@@ -551,8 +549,12 @@ func (g *Gateway) processSenderBatch(
 			return true
 		}
 		g.store.SetAgentCursor(chatJid, agentTs)
-		g.sendMessage(deliverTo, "Failed: agent error, will retry on next message.")
-		g.store.MarkChatErrored(chatJid)
+		g.sendMessage(deliverTo, "Failed: agent error on that message. Try rephrasing or send a different message.")
+		ids := make([]string, len(msgs))
+		for i, m := range msgs {
+			ids[i] = m.ID
+		}
+		g.store.MarkMessagesErrored(ids)
 		return false
 	}
 
@@ -606,8 +608,12 @@ func (g *Gateway) processWebTopics(
 				g.advanceAgentCursor(chatJid, topicMsgs)
 				return true, nil
 			}
-			g.sendMessage(chatJid, "Failed: agent error, will retry on next message.")
-			g.store.MarkChatErrored(chatJid)
+			g.sendMessage(chatJid, "Failed: agent error on that message. Try rephrasing or send a different message.")
+			ids := make([]string, len(topicMsgs))
+			for i, m := range topicMsgs {
+				ids[i] = m.ID
+			}
+			g.store.MarkMessagesErrored(ids)
 			return false, fmt.Errorf("agent: %s", out.Error)
 		}
 
@@ -618,7 +624,6 @@ func (g *Gateway) processWebTopics(
 		g.advanceAgentCursor(chatJid, topicMsgs)
 	}
 
-	g.store.ClearChatErrored(chatJid)
 	return true, nil
 }
 
@@ -1006,7 +1011,6 @@ func (g *Gateway) injectMessage(jid, content, sender, senderName string) (string
 	if err := g.store.PutMessage(msg); err != nil {
 		return "", err
 	}
-	g.store.ClearChatErrored(jid)
 	return id, nil
 }
 

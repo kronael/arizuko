@@ -139,8 +139,8 @@ func TestPollLoop_RealRun(t *testing.T) {
 
 // TestPollLoop_RunnerError: runner returns an error with no streamed
 // output. processGroupMessages must surface a failure so the queue's
-// caller can react, and the chat must be marked errored so the queue
-// stops retrying until a new message arrives.
+// caller can react, and the offending message must be marked errored
+// so it never feeds the agent again.
 func TestPollLoop_RunnerError(t *testing.T) {
 	gw, s, _, runner := newGWWithFake(t)
 	runner.OutError = "agent blew up"
@@ -162,8 +162,8 @@ func TestPollLoop_RunnerError(t *testing.T) {
 	if err == nil || ok {
 		t.Fatalf("processGroupMessages: ok=%v err=%v, want failure", ok, err)
 	}
-	if !s.IsChatErrored(jid) {
-		t.Error("chat should be marked errored after runner failure with no output")
+	if s.HasPendingMessages(jid, gw.cfg.Name) {
+		t.Error("poison message should be quarantined (errored=1), leaving no pending")
 	}
 }
 

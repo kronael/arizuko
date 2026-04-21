@@ -10,29 +10,9 @@ import (
 	"github.com/onvos/arizuko/router"
 )
 
-func (s *Store) MarkChatErrored(jid string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO chats (jid, errored) VALUES (?, 1)
-		 ON CONFLICT(jid) DO UPDATE SET errored = 1`,
-		jid,
-	)
-	return err
-}
-
-func (s *Store) ClearChatErrored(jid string) error {
-	_, err := s.db.Exec(`UPDATE chats SET errored = 0 WHERE jid = ?`, jid)
-	return err
-}
-
-func (s *Store) IsChatErrored(jid string) bool {
-	var errored int
-	s.db.QueryRow(`SELECT errored FROM chats WHERE jid = ?`, jid).Scan(&errored)
-	return errored != 0
-}
-
 func (s *Store) CountErroredChats() int {
 	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE errored = 1`).Scan(&n)
+	s.db.QueryRow(`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored = 1`).Scan(&n)
 	return n
 }
 

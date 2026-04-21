@@ -58,6 +58,7 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 			`SELECT `+msgCols+` FROM messages
 			 WHERE timestamp > ?
 			   AND is_bot_message = 0
+			   AND errored = 0
 			   AND sender NOT LIKE ?
 			 ORDER BY timestamp ASC
 			 LIMIT 200`,
@@ -75,6 +76,7 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 			 WHERE chat_jid IN `+ph+`
 			   AND timestamp > ?
 			   AND is_bot_message = 0
+			   AND errored = 0
 			   AND sender NOT LIKE ?
 			 ORDER BY timestamp ASC
 			 LIMIT 200`,
@@ -107,10 +109,28 @@ func (s *Store) HasPendingMessages(jid, botName string) bool {
 	s.db.QueryRow(
 		`SELECT EXISTS(SELECT 1 FROM messages
 		 WHERE chat_jid = ? AND timestamp > ? AND is_bot_message = 0
+		   AND errored = 0
 		   AND sender NOT LIKE ?)`,
 		jid, cursor.Format(time.RFC3339Nano), botName+"%",
 	).Scan(&n)
 	return n == 1
+}
+
+// MarkMessagesErrored flags the given message IDs as poison so future
+// runs skip them. The chat itself stays active; new inbound messages
+// retrigger processing normally.
+func (s *Store) MarkMessagesErrored(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	q := `UPDATE messages SET errored = 1 WHERE id IN (?` +
+		strings.Repeat(",?", len(ids)-1) + `)`
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	_, err := s.db.Exec(q, args...)
+	return err
 }
 
 func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]core.Message, error) {
@@ -119,6 +139,7 @@ func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]co
 		 WHERE chat_jid = ?
 		   AND timestamp > ?
 		   AND is_bot_message = 0
+		   AND errored = 0
 		   AND sender NOT LIKE ?
 		 ORDER BY timestamp ASC
 		 LIMIT 100`,
