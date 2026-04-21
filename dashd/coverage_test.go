@@ -27,8 +27,7 @@ func testDBFile(t *testing.T) *sql.DB {
 		`CREATE TABLE sessions (group_folder TEXT PRIMARY KEY, session_id TEXT)`,
 		`CREATE TABLE channels (name TEXT, url TEXT)`,
 		`CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL DEFAULT '')`,
-		`CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, source TEXT NOT NULL DEFAULT '', verb TEXT)`,
-		`CREATE TABLE chats (jid TEXT PRIMARY KEY, errored INTEGER DEFAULT 0)`,
+		`CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, source TEXT NOT NULL DEFAULT '', verb TEXT, errored INTEGER NOT NULL DEFAULT 0)`,
 		`CREATE TABLE task_run_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, run_at TEXT, duration_ms INTEGER, status TEXT, result TEXT, error TEXT)`,
 		`CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER DEFAULT 0, match TEXT, target TEXT, impulse_config TEXT)`,
 	} {
@@ -47,7 +46,10 @@ func TestStatusWithChannels(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO channels(name, url) VALUES('tel', 'http://t/'), ('disc', 'http://d/')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO chats(jid, errored) VALUES('a', 0), ('b', 1)`); err != nil {
+	if _, err := db.Exec(
+		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, errored)
+		 VALUES('m1', 'a', 'u', 'ok', '2026-01-01T00:00:00Z', 0),
+		       ('m2', 'b', 'u', 'bad', '2026-01-01T00:00:00Z', 1)`); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{db: db, dbPath: "/tmp/x.db"}

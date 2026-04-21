@@ -1222,12 +1222,46 @@ func TestRecoverPendingMessages_SkipsErroredMessage(t *testing.T) {
 	}
 
 	gw.recoverPendingMessages()
-	time.Sleep(100 * time.Millisecond)
 
-	mu.Lock()
-	defer mu.Unlock()
-	if !recovered[jid] {
-		t.Error("chat should still be recovered when only some messages are errored")
+	deadline := time.After(2 * time.Second)
+	for {
+		mu.Lock()
+		done := recovered[jid]
+		mu.Unlock()
+		if done {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Error("chat should still be recovered when only some messages are errored")
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+// MarkMessagesErrored must hide rows from all three read paths: HasPendingMessages,
+// NewMessages, MessagesSince. Covers the quarantine contract added in 0030.
+func TestMarkMessagesErrored_HidesFromReads(t *testing.T) {
+	gw, s := testGateway(t)
+
+	jid := "telegram:1"
+	now := time.Now()
+	s.PutMessage(core.Message{ID: "m1", ChatJID: jid, Sender: "u", Content: "poison", Timestamp: now})
+	if err := s.MarkMessagesErrored([]string{"m1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if s.HasPendingMessages(jid, gw.cfg.Name) {
+		t.Error("HasPendingMessages should return false when only errored msgs exist")
+	}
+	msgs, _, _ := s.NewMessages([]string{jid}, time.Time{}, gw.cfg.Name)
+	if len(msgs) != 0 {
+		t.Errorf("NewMessages returned errored rows: %+v", msgs)
+	}
+	since, _ := s.MessagesSince(jid, time.Time{}, gw.cfg.Name)
+	if len(since) != 0 {
+		t.Errorf("MessagesSince returned errored rows: %+v", since)
 	}
 }
 
