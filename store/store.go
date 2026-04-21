@@ -61,6 +61,11 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// DB exposes the underlying handle for callers that need ad-hoc queries.
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 // Migrate applies store's embedded SQL migrations to db. Used by test
 // fixtures in other packages that open a raw *sql.DB.
 func Migrate(db *sql.DB) error {
