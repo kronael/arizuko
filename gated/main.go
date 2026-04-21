@@ -43,6 +43,10 @@ func main() {
 	}
 	defer s.Close()
 
+	if err := announceStartup(s); err != nil {
+		slog.Error("announce startup", "err", err)
+	}
+
 	gw := gateway.New(cfg, s)
 
 	// Reuse the live channel per adapter so api.handleOutbound preserves the
