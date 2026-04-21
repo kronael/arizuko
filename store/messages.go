@@ -46,7 +46,7 @@ func nilIfEmpty(s string) *string {
 const msgCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp,
 	is_from_me, is_bot_message, COALESCE(forwarded_from,''),
 	COALESCE(reply_to_id,''), COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''),
-	topic, routed_to, verb, attachments, source`
+	topic, routed_to, verb, attachments, source, errored`
 
 // NewMessages returns new inbound messages since `since`. If jids is empty,
 // no chat_jid filter is applied (all new messages from all chats).
@@ -58,7 +58,6 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 			`SELECT `+msgCols+` FROM messages
 			 WHERE timestamp > ?
 			   AND is_bot_message = 0
-			   AND errored = 0
 			   AND sender NOT LIKE ?
 			 ORDER BY timestamp ASC
 			 LIMIT 200`,
@@ -76,7 +75,6 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 			 WHERE chat_jid IN `+ph+`
 			   AND timestamp > ?
 			   AND is_bot_message = 0
-			   AND errored = 0
 			   AND sender NOT LIKE ?
 			 ORDER BY timestamp ASC
 			 LIMIT 200`,
@@ -109,16 +107,16 @@ func (s *Store) HasPendingMessages(jid, botName string) bool {
 	s.db.QueryRow(
 		`SELECT EXISTS(SELECT 1 FROM messages
 		 WHERE chat_jid = ? AND timestamp > ? AND is_bot_message = 0
-		   AND errored = 0
 		   AND sender NOT LIKE ?)`,
 		jid, cursor.Format(time.RFC3339Nano), botName+"%",
 	).Scan(&n)
 	return n == 1
 }
 
-// MarkMessagesErrored flags the given message IDs as poison so future
-// runs skip them. The chat itself stays active; new inbound messages
-// retrigger processing normally.
+// MarkMessagesErrored annotates the given message IDs so the next agent
+// run sees them tagged "errored" and can try a different approach. The
+// messages stay visible to all read paths; only the circuit breaker
+// prunes them via DeleteErroredMessages.
 func (s *Store) MarkMessagesErrored(ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -133,13 +131,19 @@ func (s *Store) MarkMessagesErrored(ids []string) error {
 	return err
 }
 
+// DeleteErroredMessages hard-prunes all errored rows for a chat.
+// Called by the circuit breaker hard-reset path.
+func (s *Store) DeleteErroredMessages(chatJid string) error {
+	_, err := s.db.Exec(`DELETE FROM messages WHERE chat_jid = ? AND errored = 1`, chatJid)
+	return err
+}
+
 func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]core.Message, error) {
 	rows, err := s.db.Query(
 		`SELECT `+msgCols+` FROM messages
 		 WHERE chat_jid = ?
 		   AND timestamp > ?
 		   AND is_bot_message = 0
-		   AND errored = 0
 		   AND sender NOT LIKE ?
 		 ORDER BY timestamp ASC
 		 LIMIT 100`,
@@ -171,15 +175,16 @@ func collectMessages(rows *sql.Rows) ([]core.Message, error) {
 func scanMessage(r rowScanner) (core.Message, error) {
 	var m core.Message
 	var ts string
-	var fromMe, botMsg int
+	var fromMe, botMsg, errored int
 	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content,
 		&ts, &fromMe, &botMsg, &m.ForwardedFrom,
 		&m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
-		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source); err != nil {
+		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored); err != nil {
 		return m, err
 	}
 	m.FromMe = fromMe != 0
 	m.BotMsg = botMsg != 0
+	m.Errored = errored != 0
 	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
 	return m, nil
 }

@@ -28,6 +28,7 @@ type Message struct {
 	Verb          string // event type: "message" (default), "join", "edit", "delete", etc.
 	Attachments   string // JSON-encoded []chanlib.InboundAttachment
 	Source        string // adapter name that handled this row (inbound: receiver; outbound: deliverer)
+	Errored       bool   // set when a previous agent run failed on this message; re-fed tagged for retry
 }
 
 type Group struct {

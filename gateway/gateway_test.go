@@ -1190,7 +1190,8 @@ func TestRecoverPendingMessages(t *testing.T) {
 	}
 }
 
-func TestRecoverPendingMessages_SkipsErroredMessage(t *testing.T) {
+// Errored messages are included in recovery (retry semantics, not quarantine).
+func TestRecoverPendingMessages_IncludesErroredMessage(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.MaxContainers = 10
 
@@ -1207,18 +1208,19 @@ func TestRecoverPendingMessages_SkipsErroredMessage(t *testing.T) {
 	now := time.Now()
 	s.PutMessage(core.Message{
 		ID: "m1", ChatJID: jid, Sender: "user",
-		Content: "poison", Timestamp: now.Add(-time.Second),
-	})
-	s.PutMessage(core.Message{
-		ID: "m2", ChatJID: jid, Sender: "user",
-		Content: "fresh", Timestamp: now,
+		Content: "failed-last-time", Timestamp: now,
 	})
 	if err := s.MarkMessagesErrored([]string{"m1"}); err != nil {
 		t.Fatal(err)
 	}
 
 	if !s.HasPendingMessages(jid, gw.cfg.Name) {
-		t.Fatal("expected pending (m2 is not errored)")
+		t.Fatal("expected pending (errored row must remain visible)")
+	}
+
+	msgs, _ := s.MessagesSince(jid, time.Time{}, gw.cfg.Name)
+	if len(msgs) != 1 || !msgs[0].Errored {
+		t.Fatalf("expected errored-tagged message, got %+v", msgs)
 	}
 
 	gw.recoverPendingMessages()
@@ -1233,16 +1235,17 @@ func TestRecoverPendingMessages_SkipsErroredMessage(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Error("chat should still be recovered when only some messages are errored")
+			t.Error("chat with errored-only messages should still be recovered")
 			return
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
 }
 
-// MarkMessagesErrored must hide rows from all three read paths: HasPendingMessages,
-// NewMessages, MessagesSince. Covers the quarantine contract added in 0030.
-func TestMarkMessagesErrored_HidesFromReads(t *testing.T) {
+// MarkMessagesErrored must keep rows visible to all three read paths
+// (annotate/retry semantics, not filter). Scanned rows carry Errored=true
+// so the prompt formatter can tag them for the agent.
+func TestMarkMessagesErrored_VisibleToReads(t *testing.T) {
 	gw, s := testGateway(t)
 
 	jid := "telegram:1"
@@ -1252,16 +1255,16 @@ func TestMarkMessagesErrored_HidesFromReads(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if s.HasPendingMessages(jid, gw.cfg.Name) {
-		t.Error("HasPendingMessages should return false when only errored msgs exist")
+	if !s.HasPendingMessages(jid, gw.cfg.Name) {
+		t.Error("HasPendingMessages should return true for errored rows (retry semantics)")
 	}
 	msgs, _, _ := s.NewMessages([]string{jid}, time.Time{}, gw.cfg.Name)
-	if len(msgs) != 0 {
-		t.Errorf("NewMessages returned errored rows: %+v", msgs)
+	if len(msgs) != 1 || !msgs[0].Errored {
+		t.Errorf("NewMessages should return errored row tagged: %+v", msgs)
 	}
 	since, _ := s.MessagesSince(jid, time.Time{}, gw.cfg.Name)
-	if len(since) != 0 {
-		t.Errorf("MessagesSince returned errored rows: %+v", since)
+	if len(since) != 1 || !since[0].Errored {
+		t.Errorf("MessagesSince should return errored row tagged: %+v", since)
 	}
 }
 
@@ -1429,5 +1432,31 @@ func TestReadWhisperLanguages_Missing(t *testing.T) {
 	langs := readWhisperLanguages(dir)
 	if langs != nil {
 		t.Errorf("readWhisperLanguages = %v, want nil", langs)
+	}
+}
+
+// Circuit-breaker hard reset: errored messages for the chat are deleted
+// and the group's session is cleared so the next inbound starts fresh.
+func TestOnCircuitBreakerOpen_PrunesAndResetsSession(t *testing.T) {
+	gw, s := testGateway(t)
+	jid := "telegram:42"
+	setGroup(gw, jid, core.Group{Folder: "grp", Name: "G"})
+	s.SetSession("grp", "", "sess-abc")
+
+	now := time.Now()
+	s.PutMessage(core.Message{ID: "m1", ChatJID: jid, Sender: "u", Content: "boom", Timestamp: now})
+	s.PutMessage(core.Message{ID: "m2", ChatJID: jid, Sender: "u", Content: "fresh", Timestamp: now.Add(time.Second)})
+	if err := s.MarkMessagesErrored([]string{"m1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.onCircuitBreakerOpen(jid, fmt.Errorf("too many failures"))
+
+	msgs, _ := s.MessagesSince(jid, time.Time{}, gw.cfg.Name)
+	if len(msgs) != 1 || msgs[0].ID != "m2" {
+		t.Errorf("after prune want only m2 remaining, got %+v", msgs)
+	}
+	if id, _ := s.GetSession("grp", ""); id != "" {
+		t.Errorf("session should be cleared, got %q", id)
 	}
 }

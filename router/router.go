@@ -119,6 +119,9 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 			b.WriteString(escapeXml(m.ChatJID))
 			b.WriteString(`"`)
 		}
+		if m.Errored {
+			b.WriteString(` errored="true"`)
+		}
 		b.WriteString(`>`)
 		if m.ReplyToText != "" {
 			b.WriteString(`<reply_to sender="`)

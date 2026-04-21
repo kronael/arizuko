@@ -162,8 +162,13 @@ func TestPollLoop_RunnerError(t *testing.T) {
 	if err == nil || ok {
 		t.Fatalf("processGroupMessages: ok=%v err=%v, want failure", ok, err)
 	}
-	if s.HasPendingMessages(jid, gw.cfg.Name) {
-		t.Error("poison message should be quarantined (errored=1), leaving no pending")
+	// Annotate/retry semantics: the failed message stays visible, tagged errored.
+	if !s.HasPendingMessages(jid, gw.cfg.Name) {
+		t.Error("errored message should remain pending for retry (annotate semantics)")
+	}
+	msgs, _ := s.MessagesSince(jid, time.Time{}, gw.cfg.Name)
+	if len(msgs) != 1 || !msgs[0].Errored {
+		t.Errorf("expected 1 errored-tagged message, got %+v", msgs)
 	}
 }
 

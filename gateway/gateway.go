@@ -175,10 +175,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 	g.queue.SetHasPendingFn(func(jid string) bool {
 		return g.store.HasPendingMessages(jid, g.cfg.Name)
 	})
-	g.queue.SetNotifyErrorFn(func(jid string, err error) {
-		msg := fmt.Sprintf("⚠️ Agent error: %v\n\nSend another message to retry.", err)
-		g.sendMessage(jid, msg)
-	})
+	g.queue.SetNotifyErrorFn(g.onCircuitBreakerOpen)
 
 	for _, ch := range g.channels {
 		if err := ch.Connect(ctx); err != nil {
@@ -433,7 +430,8 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		}
 
 		if !g.processSenderBatch(group, chatJid, batch, agentTs) {
-			g.advanceAgentCursor(chatJid, msgs)
+			// Keep cursor where it was; errored rows stay visible so
+			// they're re-fed (tagged) on the next run.
 			return false, fmt.Errorf("sender batch failed: %s", last.Sender)
 		}
 	}
@@ -703,6 +701,20 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 			})
 		}
 	}, &hadOutput
+}
+
+// onCircuitBreakerOpen hard-resets a chat after repeated agent failures:
+// prunes errored messages and clears the session so the next inbound
+// starts from a clean slate.
+func (g *Gateway) onCircuitBreakerOpen(jid string, err error) {
+	if pruneErr := g.store.DeleteErroredMessages(jid); pruneErr != nil {
+		slog.Warn("prune errored messages failed", "jid", jid, "err", pruneErr)
+	}
+	if folder := g.store.DefaultFolderForJID(jid); folder != "" {
+		g.store.DeleteSession(folder, "")
+	}
+	msg := fmt.Sprintf("⚠️ Agent error: %v\n\nSend another message to retry.", err)
+	g.sendMessage(jid, msg)
 }
 
 const sessionIdleExpiry = 2 * 24 * time.Hour
