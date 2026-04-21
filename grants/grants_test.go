@@ -217,6 +217,73 @@ func addRoute(t *testing.T, s *store.Store, jid, target string) {
 	}
 }
 
+// addRouteRoomOnly inserts a route whose match is `room=X` only, mirroring
+// what the /add_route MCP tool and SetupGroup write in production.
+func addRouteRoomOnly(t *testing.T, s *store.Store, roomOnly, target string) {
+	t.Helper()
+	_, err := s.AddRoute(core.Route{
+		Match:  "room=" + roomOnly,
+		Target: target,
+	})
+	if err != nil {
+		t.Fatalf("AddRoute: %v", err)
+	}
+}
+
+func TestDeriveRules_Tier1_RoomOnlyRoute(t *testing.T) {
+	s := openTestStore(t)
+	addRouteRoomOnly(t, s, "-1003805633088", "world/sub")
+
+	rules := DeriveRules(s, "world/sub", 1, "world")
+	var hasMsg, hasFile, hasReply bool
+	for _, r := range rules {
+		switch r {
+		case "send_message":
+			hasMsg = true
+		case "send_file":
+			hasFile = true
+		case "send_reply":
+			hasReply = true
+		}
+	}
+	if !hasMsg {
+		t.Error("tier-1 room-only route: missing send_message")
+	}
+	if !hasFile {
+		t.Error("tier-1 room-only route: missing send_file")
+	}
+	if !hasReply {
+		t.Error("tier-1 room-only route: missing send_reply")
+	}
+}
+
+func TestDeriveRules_Tier2_RoomOnlyRoute(t *testing.T) {
+	s := openTestStore(t)
+	addRouteRoomOnly(t, s, "-1003805633088", "world/sub")
+
+	rules := DeriveRules(s, "world/sub", 2, "world")
+	var hasMsg, hasFile, hasReply bool
+	for _, r := range rules {
+		switch r {
+		case "send_message":
+			hasMsg = true
+		case "send_file":
+			hasFile = true
+		case "send_reply":
+			hasReply = true
+		}
+	}
+	if !hasMsg {
+		t.Error("tier-2 room-only route: missing send_message")
+	}
+	if !hasFile {
+		t.Error("tier-2 room-only route: missing send_file")
+	}
+	if !hasReply {
+		t.Error("tier-2 room-only route: missing send_reply")
+	}
+}
+
 func TestDeriveRules_Tier0(t *testing.T) {
 	rules := DeriveRules(nil, "root", 0, "root")
 	if len(rules) != 1 || rules[0] != "*" {
