@@ -9,6 +9,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- `grants`: tier-1 now hardcodes `send_message`/`send_file`/`send_reply`.
+  Production routes store `room=X` without a `platform=` key, so
+  `platformRules` returned empty and tier-1 agents had no send rules.
+  Tier-2 got the same fix on the same day.
+- `compact-memories` skill: recognizes XML-wrapped telegram messages
+  (`<messages><message ...>`) as real user activity. Previous heuristic
+  discarded them along with tool-result turns, producing false "no
+  user activity" summaries.
+
 ### Testing
 
 - Per-daemon integration tests landed for all daemons (gated, container,

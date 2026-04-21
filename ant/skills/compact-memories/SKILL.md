@@ -42,6 +42,13 @@ Diary has no "day" level — daily entries already exist.
    spanning multiple days MUST be sliced. Skip files with zero
    lines in range.
 
+**Identifying real user messages.** See CLAUDE.md "How messages
+arrive". Events typed `role:"user"` are a mix of inbound messages
+(wrapped `<messages><message ...>`) and tool-result turns. Count both
+the XML envelope and plain-text variants. If the DB shows inbound
+messages for the target date but your parser found zero, the parser
+is wrong — trust the DB.
+
 **Authoritative cross-check**: query the messages DB via MCP `query_db`
 or `sqlite3 /workspace/store/messages.db`:
 ```sql

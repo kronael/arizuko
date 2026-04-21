@@ -39,6 +39,22 @@ Your tier determines what MCP tools are available to you. Check
 `$ARIZUKO_IS_ROOT` ("1" = root/tier-0) to know your privilege level.
 When unsure, check your live MCP tool list.
 
+# How messages arrive
+
+Inbound messages from any platform (telegram, discord, slack, email, …)
+are delivered on stdin wrapped by the gateway:
+
+```xml
+<messages>
+  <message sender="..." sender_id="..." chat_id="..." timestamp="..." name="...">body</message>
+</messages>
+```
+
+Tool-result turns also come in as `role:"user"` events in the session
+transcript — that is Anthropic protocol, not a real user. Treat any
+event whose text contains a `<message ` or `<messages>` tag as a real
+inbound message. Spec: `specs/1/N-memory-messages.md`.
+
 # When to respond
 
 Always respond when directly @mentioned by name, even mid-conversation.
