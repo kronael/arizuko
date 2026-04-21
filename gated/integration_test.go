@@ -19,7 +19,6 @@ func seedRootAndChat(t *testing.T, s *store.Store) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Known jid — seed via cursor write.
 	s.SetAgentCursor("tg:42", time.Now().Add(-time.Hour))
 }
 
@@ -31,34 +30,22 @@ func TestAnnounceStartup_InsertsOnce(t *testing.T) {
 	defer s.Close()
 	seedRootAndChat(t, s)
 
-	if err := s.InsertAnnouncement(store.Announcement{
-		Service: "store", Version: 99, Body: "upgrade!",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
 	if err := announceStartup(s); err != nil {
 		t.Fatal(err)
 	}
-	flushed := s.FlushSysMsgs("main")
-	if flushed == "" {
+	if s.FlushSysMsgs("main") == "" {
 		t.Fatal("expected system message after first announceStartup")
 	}
 
-	// Second call: no new sysmsg. Re-announce only inserts if absent.
-	// Since FlushSysMsgs deleted the previous one, we also have to
-	// re-insert the pending announcement state (still pending).
+	// Second call after flush: still pending (no RecordSent), re-inserts.
 	if err := announceStartup(s); err != nil {
 		t.Fatal(err)
 	}
-	flushed2 := s.FlushSysMsgs("main")
-	// Still pending → will insert again after flush.
-	if flushed2 == "" {
+	if s.FlushSysMsgs("main") == "" {
 		t.Fatal("expected second insert after prior flush (still pending)")
 	}
 
-	// Now simulate two consecutive startups without flushing in between:
-	// the second must NOT duplicate.
+	// Two consecutive startups without flushing → must not duplicate.
 	if err := announceStartup(s); err != nil {
 		t.Fatal(err)
 	}
@@ -75,13 +62,19 @@ func TestAnnounceStartup_InsertsOnce(t *testing.T) {
 	}
 }
 
-func TestAnnounceStartup_NoPending_NoMsg(t *testing.T) {
+func TestAnnounceStartup_AllDelivered_NoMsg(t *testing.T) {
 	s, err := store.OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 	seedRootAndChat(t, s)
+
+	for _, a := range s.Announcements() {
+		if err := s.RecordSent(a.Service, a.Version, "tg:42"); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	if err := announceStartup(s); err != nil {
 		t.Fatal(err)

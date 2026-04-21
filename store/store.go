@@ -10,7 +10,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-//go:embed migrations/*.sql
+//go:embed migrations
 var migrationFS embed.FS
 
 const serviceName = "store"

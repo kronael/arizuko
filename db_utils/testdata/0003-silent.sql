@@ -1,1 +1,0 @@
-CREATE TABLE t3 (id INTEGER);

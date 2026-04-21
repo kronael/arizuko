@@ -5,8 +5,11 @@ description: Root-only fan-out of per-migration upgrade notes. Use when a system
 
 # Announce migrations
 
-Root group owns fan-out of paired migration `.md` bodies to every jid
-arizuko talks to. Keyed by **jid** in the `announcement_sent` ledger.
+Root group owns fan-out of migration upgrade notes to every jid arizuko
+talks to. Delivery is tracked per-(service, version, jid) in the
+`announcement_sent` ledger. The incoming `migration/pending` system
+message carries full bodies as `<announcement service="..." version="...">`
+blocks — that is the source.
 
 ## Root-only
 
@@ -22,16 +25,12 @@ trap 'mcpc @s close' EXIT
 DB=/workspace/store/messages.db
 ```
 
-## 1. List pending announcements
+## 1. Parse announcements from the triggering sysmsg
 
-```bash
-sqlite3 -separator '|' "$DB" \
-  "SELECT service, version, body FROM announcements ORDER BY service, version"
-```
+Split the sysmsg body on `<announcement service="S" version="V">…</announcement>`
+blocks. For each, fan out the inner body.
 
 ## 2. Iterate known outbound jids
-
-Authoritative jid set = `chats.jid`.
 
 ```bash
 jids=$(sqlite3 "$DB" "SELECT jid FROM chats")
@@ -60,8 +59,7 @@ done
 ## 4. Notify inner groups
 
 After fan-out, drop a one-liner `system_message` into every active inner
-group's stream (origin=`migration`). Inner agents react however they
-want on next turn — re-read skills, note in diary.
+group (origin=`migration`). Agents react on next turn.
 
 ```bash
 for folder in $(sqlite3 "$DB" \
@@ -77,4 +75,4 @@ done
 
 - Adapter offline → `send_message` queues in outbox, normal retry path.
 - Crash mid-fanout → ledger has per-jid rows, re-run skips them.
-- Missing `.md` for a migration → no announcements row, nothing to do.
+- No `<announcement>` blocks in sysmsg → nothing pending, skip.

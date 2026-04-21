@@ -27,31 +27,20 @@ arizuko upgraded — v0.26.0
 - web dashboard at krons.fiu.wtf/dash
 ```
 
-## Trigger
+## Trigger — files are the source
 
-`db_utils.Migrate` already loops pending migrations. After a
-migration's tx commits, if paired `.md` exists, it lands in:
-
-```sql
-CREATE TABLE announcements (
-  service    TEXT NOT NULL,
-  version    INTEGER NOT NULL,
-  body       TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  PRIMARY KEY (service, version)
-);
-```
-
-(Bootstrap migration creates this table first.)
+`.md` files live alongside `.sql` migrations in `store/migrations/` and
+are embedded into the `gated` binary via `//go:embed migrations`. No DB
+table caches bodies — `store.Announcements()` scans the embedded FS at
+query time.
 
 ## Delivery — root dispatches, per-jid once
 
-Root agent (the `root` group) owns fanout. It has the `arizuko` binary
-CLI and the authority to speak on each channel's behalf. On startup,
-`gated` inserts a single message into the `root` group describing which
-migrations have pending announcements; the root agent reads the `.md`
-bodies and dispatches via its normal outbound MCP tools (`send_message`
-per jid).
+Root agent owns fanout. On startup, `gated` inserts one `system_message`
+(origin=`migration`) into the root group containing every pending
+announcement as `<announcement service="…" version="…">…</announcement>`
+blocks parsed from the `.md` bodies. The root skill parses these blocks
+and dispatches via `send_message` per jid.
 
 The `announcement_sent(service, version, user_jid)` ledger keys by **jid**,
 not by group. Each jid that arizuko talks to gets each announcement
@@ -93,14 +82,13 @@ completely for now.
 
 ## Files
 
-- `db_utils/db_utils.go` — write `announcements` row after tx commit
-  if paired `.md` is present
-- `gated/main.go` — on startup, insert one system message into the
-  root group listing pending announcements
-- Root agent's CLAUDE.md / a skill — handles dispatch via `send_message`
-  - writes to `announcement_sent`
-- `store/migrations/NNNN-announcements.sql` — create tables
-  (`announcements` + `announcement_sent` keyed by jid)
+- `store/announcements.go` — scans embedded migrations FS for `.md`
+  files; `UnsentTo(jid)`, `AnyPending(jids)`, `RecordSent(...)`
+- `gated/announce.go` — on startup, if any jid is still owed any
+  announcement, enqueue one root `system_message` with full bodies
+- `ant/skills/announce-migrations/SKILL.md` — root-only fan-out skill
+- `store/migrations/NNNN-announcements.sql` — creates `announcement_sent`
+  ledger (jid-keyed)
 - `store/migrations/NNNN-<feature>.md` — per release
 
 ## Out of scope

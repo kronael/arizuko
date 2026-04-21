@@ -9,8 +9,8 @@ import (
 )
 
 // announceStartup writes one system message into the root group listing
-// pending migration announcements. Deduplicates by checking for an
-// existing unread (unflushed) migration system message first.
+// pending migration announcements. Deduplicates by skipping if an
+// unflushed migration sysmsg already exists.
 func announceStartup(s *store.Store) error {
 	db := s.DB()
 	root, err := rootFolder(db)
@@ -21,23 +21,22 @@ func announceStartup(s *store.Store) error {
 	if err != nil {
 		return err
 	}
-	pend, err := s.PendingAnnouncements(jids)
-	if err != nil || len(pend) == 0 {
-		return err
+	if !s.AnyPending(jids) {
+		return nil
 	}
 	if hasPendingMigrationSysMsg(db, root) {
 		return nil
 	}
 	var b strings.Builder
-	b.WriteString("Pending announcements:\n")
-	for _, a := range pend {
-		fmt.Fprintf(&b, "- %s v%d\n", a.Service, a.Version)
+	b.WriteString("Pending announcements. Fan each out to every jid in `chats` " +
+		"not yet recorded in `announcement_sent`, then record delivery.\n\n")
+	for _, a := range s.Announcements() {
+		fmt.Fprintf(&b, "<announcement service=%q version=%d>\n%s\n</announcement>\n",
+			a.Service, a.Version, strings.TrimSpace(a.Body))
 	}
 	return s.EnqueueSysMsg(root, "migration", "pending", b.String())
 }
 
-// rootFolder returns the folder of the single root group (no parent).
-// Simplest correct shape: first active group with empty parent.
 func rootFolder(db *sql.DB) (string, error) {
 	var folder string
 	err := db.QueryRow(
@@ -51,7 +50,6 @@ func rootFolder(db *sql.DB) (string, error) {
 	return folder, err
 }
 
-// knownJIDs returns every jid arizuko has ever seen in chats.
 func knownJIDs(db *sql.DB) ([]string, error) {
 	rows, err := db.Query(`SELECT jid FROM chats`)
 	if err != nil {
