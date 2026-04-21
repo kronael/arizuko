@@ -9,6 +9,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- Per-migration announcements. Paired `.md` next to any
+  `store/migrations/NNNN-*.sql` is captured into a new `announcements`
+  table at migration time. On startup, `gated` drops one
+  `system_message` (origin=`migration`) into the root group listing
+  pending versions; the new `/announce-migrations` root skill fans
+  each body out to every `chats.jid` exactly once, keyed by
+  `announcement_sent(service, version, user_jid)`, and notifies inner
+  groups via a one-line system message.
+
 ### Fixed
 
 - `grants`: tier-1 now hardcodes `send_message`/`send_file`/`send_reply`.
