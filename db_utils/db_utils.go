@@ -73,7 +73,24 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("%s: commit: %w", f, err)
 		}
+		mdName := strings.TrimSuffix(f, ".sql") + ".md"
+		if body, err := fsys.ReadFile(dir + "/" + mdName); err == nil && announceTableExists(db) {
+			if _, err := db.Exec(
+				`INSERT OR IGNORE INTO announcements (service, version, body, created_at)
+				 VALUES (?,?,?,?)`,
+				service, ver, string(body), time.Now().Format(time.RFC3339)); err != nil {
+				return fmt.Errorf("%s: announce: %w", f, err)
+			}
+		}
 		max = ver
 	}
 	return nil
+}
+
+func announceTableExists(db *sql.DB) bool {
+	var n int
+	db.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='announcements'`,
+	).Scan(&n)
+	return n > 0
 }
