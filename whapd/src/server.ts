@@ -79,8 +79,9 @@ export function startServer(
 ): http.Server {
   const srv = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
-      json(res, 200, {
-        status: 'ok',
+      const ok = isConnected();
+      json(res, ok ? 200 : 503, {
+        status: ok ? 'ok' : 'disconnected',
         name: 'whatsapp',
         jid_prefixes: ['whatsapp:'],
       });

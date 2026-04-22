@@ -51,12 +51,23 @@ function auth() {
 }
 
 describe('GET /health', () => {
-  it('returns ok without auth', async () => {
+  it('returns ok without auth when connected', async () => {
+    connected = true;
     const r = await fetch(`${BASE}/health`);
     expect(r.status).toBe(200);
     const b = await r.json();
     expect(b.status).toBe('ok');
     expect(b.name).toBe('whatsapp');
+  });
+
+  it('returns 503 disconnected when session not connected (e.g. QR pending)', async () => {
+    connected = false;
+    const r = await fetch(`${BASE}/health`);
+    expect(r.status).toBe(503);
+    const b = await r.json();
+    expect(b.status).toBe('disconnected');
+    expect(b.name).toBe('whatsapp');
+    connected = true;
   });
 });
 
