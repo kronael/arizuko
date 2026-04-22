@@ -45,11 +45,30 @@ and `/workspace/self/ant/CLAUDE.md` to `~/.claude/`. Canonical latest
 at `/workspace/self/ant/skills/`. Run `/migrate` to sync updates and
 apply pending migrations.
 
-Latest migration version: **64**. Compare:
+Latest migration version: **65**. Compare:
 
 ```bash
 cat ~/.claude/skills/self/MIGRATION_VERSION
 ```
+
+## Autocalls
+
+Every prompt opens with an `<autocalls>` block: gateway-resolved facts
+that are always fresh. Treat as ground truth. Don't call a tool to
+re-fetch these.
+
+```xml
+<autocalls>
+now: 2026-04-22T14:30:00Z
+instance: krons
+folder: mayai/support
+tier: 2
+session: abcdef12
+</autocalls>
+```
+
+Fields: `now` (UTC RFC3339), `instance`, `folder`, `tier`, `session`
+(short id; line omitted when no session). Missing lines = empty value.
 
 ## System messages
 
@@ -112,6 +131,10 @@ Live in your session — callable directly, no skill invocation needed.
 | `get_routes`     | Get routes for a JID                                                      |
 | `delete_route`   | Delete a route by ID                                                      |
 | `get_history`    | Fetch message history for a chat (paginated)                              |
+| `inspect_messages` | Read local DB rows for a JID (pagination: `before`, `limit`)            |
+| `inspect_routing`  | Routes + JID→folder + errored-message aggregate                         |
+| `inspect_tasks`    | Scheduled tasks + recent `task_run_logs` (pass `task_id` for runs)      |
+| `inspect_session`  | Current session_id + recent `session_log` entries                       |
 | `reset_session`  | Clear this group's session and start fresh                                |
 | `get_web_host`   | Get web hostname for a vhost (tier 0-1 only)                              |
 | `set_web_host`   | Set web hostname mapping in vhosts.json (tier 0 only)                     |

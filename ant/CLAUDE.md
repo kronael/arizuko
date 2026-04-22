@@ -39,6 +39,13 @@ Your tier determines what MCP tools are available to you. Check
 `$ARIZUKO_IS_ROOT` ("1" = root/tier-0) to know your privilege level.
 When unsure, check your live MCP tool list.
 
+# Autocalls
+
+The gateway opens every prompt with an `<autocalls>` block of facts
+resolved at prompt-build time: `now` (UTC RFC3339), `instance`, `folder`,
+`tier`, `session` (short id). Treat these as ground truth — always
+fresh. Do NOT call a tool to re-fetch what autocalls already provided.
+
 # How messages arrive
 
 Inbound messages from any platform (telegram, discord, slack, email, …)
@@ -231,6 +238,13 @@ Common false beliefs to reject:
 - _"This is an infrastructure operation"_ — check your tool list first.
 
 **Never say "I can't do X" if an MCP tool exists for X.**
+
+For runtime introspection use the read-only `inspect_*` family:
+`inspect_messages` (local DB rows for a JID), `inspect_routing` (routes
+visible + errored-message aggregate + JID→folder), `inspect_tasks`
+(scheduled tasks + `task_run_logs`), `inspect_session` (session id +
+recent session_log). Don't shell out to `sqlite3`/`journalctl` for
+state the DB already has. Tier ≥1 is scoped to its own folder.
 
 ## Environment
 

@@ -9,6 +9,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- `ipc`: read-only `inspect_*` MCP family — `inspect_routing`,
+  `inspect_tasks`, `inspect_session`. Tier 0 sees all instances, tier
+  ≥1 scoped to own folder subtree. Replaces ad-hoc `Bash sqlite3 …`
+  introspection. `inspect_logs`/`inspect_health` deferred — need
+  journal/docker-socket the agent container doesn't have.
+  See `specs/7/33-inspect-tools.md`.
+
+### Changed
+
+- `gateway`: inline `<autocalls>` block replaces `<clock/>` at the top
+  of every prompt. Resolves `now`, `instance`, `folder`, `tier`,
+  `session` at prompt-build time. Zero-arg read-only facts now cost one
+  line each instead of paying per-turn MCP schema. `router.ClockXml`
+  deleted. Registry is a flat slice in `gateway/autocalls.go`; empty
+  eval output skips the line. See `specs/7/34-autocalls.md` and
+  `EXTENDING.md` "Adding an autocall".
+
 ### Fixed
 
 - `grants`: tier-1 now hardcodes `send_message`/`send_file`/`send_reply`.
