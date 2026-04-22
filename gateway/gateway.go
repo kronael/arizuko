@@ -170,6 +170,28 @@ func (g *Gateway) Run(ctx context.Context) error {
 		SetLastReplyID:      g.store.SetLastReplyID,
 		MessagesBefore:      g.store.MessagesBefore,
 		JIDRoutedToFolder:   g.store.JIDRoutedToFolder,
+		ErroredChats: func(folder string, isRoot bool) []ipc.ErroredChat {
+			rows := g.store.ErroredChats(folder, isRoot)
+			out := make([]ipc.ErroredChat, len(rows))
+			for i, r := range rows {
+				out[i] = ipc.ErroredChat{ChatJID: r.ChatJID, Count: r.Count, LastAt: r.LastAt, RoutedTo: r.RoutedTo}
+			}
+			return out
+		},
+		TaskRunLogs: func(taskID string, limit int) []ipc.TaskRunLog {
+			rows := g.store.TaskRunLogs(taskID, limit)
+			out := make([]ipc.TaskRunLog, len(rows))
+			for i, r := range rows {
+				out[i] = ipc.TaskRunLog{
+					ID: r.ID, TaskID: r.TaskID, RunAt: r.RunAt,
+					DurationMS: r.DurationMS, Status: r.Status,
+					Result: r.Result, Error: r.Error,
+				}
+			}
+			return out
+		},
+		RecentSessions: g.store.RecentSessions,
+		GetSession:     g.store.GetSession,
 	}
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetHasPendingFn(func(jid string) bool {

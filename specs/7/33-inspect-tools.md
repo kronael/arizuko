@@ -1,6 +1,11 @@
 ---
-status: unshipped
+status: shipped
 ---
+
+> Shipped 2026-04-22: `inspect_messages`, `inspect_routing`,
+> `inspect_tasks`, `inspect_session`. `inspect_logs` and
+> `inspect_health` deferred — require journal / docker-socket access
+> the agent container doesn't have.
 
 # Inspect Tools — operational introspection MCP surface
 

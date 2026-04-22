@@ -72,6 +72,29 @@ type StoreFns struct {
 	SetGrants           func(folder string, rules []string) error
 	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
 	JIDRoutedToFolder   func(jid, folder string) bool
+	ErroredChats        func(folder string, isRoot bool) []ErroredChat
+	TaskRunLogs         func(taskID string, limit int) []TaskRunLog
+	RecentSessions      func(folder string, n int) []core.SessionRecord
+	GetSession          func(folder, topic string) (string, bool)
+}
+
+// ErroredChat mirrors store.ErroredChat to avoid an ipc→store import.
+type ErroredChat struct {
+	ChatJID  string    `json:"chat_jid"`
+	Count    int       `json:"count"`
+	LastAt   time.Time `json:"last_at"`
+	RoutedTo string    `json:"routed_to"`
+}
+
+// TaskRunLog mirrors store.TaskRunLog.
+type TaskRunLog struct {
+	ID         int64     `json:"id"`
+	TaskID     string    `json:"task_id"`
+	RunAt      time.Time `json:"run_at"`
+	DurationMS int64     `json:"duration_ms"`
+	Status     string    `json:"status"`
+	Result     string    `json:"result,omitempty"`
+	Error      string    `json:"error,omitempty"`
 }
 
 // maxMCPConns bounds concurrent in-flight MCP connections per group.
@@ -1009,6 +1032,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 	}
+
+	registerInspect(srv, db, id, folder)
 
 	if id.Tier <= 1 {
 		granted("get_web_host", "Get virtual host mapping for a folder",
