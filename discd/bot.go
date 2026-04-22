@@ -53,6 +53,12 @@ func (b *bot) stop() {
 	b.session.Close()
 }
 
+// isConnected reports whether the Discord gateway websocket is live.
+// discordgo flips DataReady on READY and clears it on Close/disconnect.
+func (b *bot) isConnected() bool {
+	return b.session != nil && b.session.DataReady
+}
+
 func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if m == nil || m.Author == nil || m.Author.Bot {
 		return

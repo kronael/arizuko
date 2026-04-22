@@ -49,12 +49,12 @@ func (s *stubFiles) FileURL(id string) (string, bool) {
 func testMastServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "mastodon", ChannelSecret: secret}
-	return newServer(cfg, &stubPoster{}, &stubFiles{})
+	return newServer(cfg, &stubPoster{}, &stubFiles{}, func() bool { return true })
 }
 
 func TestMastPost(t *testing.T) {
 	bot := &stubPoster{postID: "99"}
-	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{})
+	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "content": "toot"})
 	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -69,7 +69,7 @@ func TestMastPost(t *testing.T) {
 
 func TestMastReact(t *testing.T) {
 	bot := &stubPoster{}
-	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{})
+	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "target_id": "t1"})
 	req := httptest.NewRequest("POST", "/react", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -84,7 +84,7 @@ func TestMastReact(t *testing.T) {
 
 func TestMastDeletePost(t *testing.T) {
 	bot := &stubPoster{}
-	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{})
+	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "target_id": "t1"})
 	req := httptest.NewRequest("POST", "/delete-post", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -113,6 +113,21 @@ func TestMastHealth(t *testing.T) {
 	}
 	if resp["name"] != "mastodon" {
 		t.Errorf("name = %v, want mastodon", resp["name"])
+	}
+}
+
+func TestMastHealthDisconnected(t *testing.T) {
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, &stubFiles{}, func() bool { return false })
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 503 {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "disconnected" {
+		t.Errorf("status = %v", resp["status"])
 	}
 }
 
@@ -204,7 +219,7 @@ func TestMastAuthNoSecret(t *testing.T) {
 }
 
 func TestMastSendError(t *testing.T) {
-	s := newServer(config{Name: "mastodon"}, &stubPoster{err: errors.New("boom")}, &stubFiles{})
+	s := newServer(config{Name: "mastodon"}, &stubPoster{err: errors.New("boom")}, &stubFiles{}, func() bool { return true })
 	body, _ := json.Marshal(map[string]string{"chat_jid": "mastodon:1", "content": "hi"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -234,7 +249,7 @@ func TestMastFileProxy(t *testing.T) {
 	defer cdn.Close()
 
 	fr := &stubFiles{urls: map[string]string{"att123": cdn.URL + "/media/att123.jpg"}}
-	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr)
+	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr, func() bool { return true })
 
 	req := httptest.NewRequest("GET", "/files/att123", nil)
 	req.Header.Set("Authorization", "Bearer sec")
@@ -255,7 +270,7 @@ func TestMastFileProxy(t *testing.T) {
 
 func TestMastFileProxyNotFound(t *testing.T) {
 	fr := &stubFiles{urls: map[string]string{}}
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr)
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr, func() bool { return true })
 
 	req := httptest.NewRequest("GET", "/files/unknown", nil)
 	w := httptest.NewRecorder()
@@ -268,7 +283,7 @@ func TestMastFileProxyNotFound(t *testing.T) {
 
 func TestMastFileProxyNoAuth(t *testing.T) {
 	fr := &stubFiles{urls: map[string]string{"att1": "http://cdn/x"}}
-	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr)
+	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr, func() bool { return true })
 
 	req := httptest.NewRequest("GET", "/files/att1", nil)
 	w := httptest.NewRecorder()
@@ -280,7 +295,7 @@ func TestMastFileProxyNoAuth(t *testing.T) {
 }
 
 func TestMastFileProxyEmptyID(t *testing.T) {
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, &stubFiles{})
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, &stubFiles{}, func() bool { return true })
 
 	req := httptest.NewRequest("GET", "/files/", nil)
 	w := httptest.NewRecorder()
@@ -298,7 +313,7 @@ func TestMastFileProxyCDNError(t *testing.T) {
 	defer cdn.Close()
 
 	fr := &stubFiles{urls: map[string]string{"att1": cdn.URL + "/x"}}
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr)
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr, func() bool { return true })
 
 	req := httptest.NewRequest("GET", "/files/att1", nil)
 	w := httptest.NewRecorder()

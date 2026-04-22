@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
@@ -59,11 +60,16 @@ type poller struct {
 	db      *sql.DB
 	dialTLS func(string, *imapclient.Options) (*imapclient.Client, error)
 	reg     *attRegistry
+	// connected reflects IMAP liveness: true between successful imapConnect
+	// and the corresponding Logout/close, or after a successful poll cycle.
+	connected atomic.Bool
 }
 
 func newPoller(cfg config, db *sql.DB, reg *attRegistry) *poller {
 	return &poller{cfg: cfg, db: db, dialTLS: imapclient.DialTLS, reg: reg}
 }
+
+func (p *poller) isConnected() bool { return p.connected.Load() }
 
 // imapConnect dials, logs in and selects INBOX. Caller must Logout.
 func imapConnect(
@@ -131,6 +137,8 @@ func (p *poller) runIdle(ctx context.Context, rc *chanlib.RouterClient) error {
 		return err
 	}
 	defer c.Logout()
+	p.connected.Store(true)
+	defer p.connected.Store(false)
 
 	if err := p.fetchUnseen(c, rc); err != nil {
 		return fmt.Errorf("initial fetch: %w", err)
@@ -224,9 +232,11 @@ func (p *poller) runPoll(ctx context.Context, rc *chanlib.RouterClient) {
 func (p *poller) poll(_ context.Context, rc *chanlib.RouterClient) error {
 	c, err := imapConnect(p.cfg, p.dialTLS, nil)
 	if err != nil {
+		p.connected.Store(false)
 		return err
 	}
 	defer c.Logout()
+	p.connected.Store(true)
 	return p.fetchUnseen(c, rc)
 }
 

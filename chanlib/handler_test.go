@@ -39,7 +39,11 @@ func (m *mockBot) Typing(jid string, on bool) {
 }
 
 func mux(bot *mockBot) http.Handler {
-	return NewAdapterMux("test", "secret", []string{"test:"}, bot)
+	return NewAdapterMux("test", "secret", []string{"test:"}, bot, func() bool { return true })
+}
+
+func muxConn(bot *mockBot, connected func() bool) http.Handler {
+	return NewAdapterMux("test", "secret", []string{"test:"}, bot, connected)
 }
 
 func TestHandlerSend(t *testing.T) {
@@ -234,21 +238,43 @@ func TestHandlerTypingInvalidJSON(t *testing.T) {
 }
 
 func TestHandlerHealth(t *testing.T) {
-	bot := &mockBot{}
-	h := mux(bot)
-	req := httptest.NewRequest("GET", "/health", nil)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
+	for _, tt := range []struct {
+		name      string
+		connected bool
+		wantCode  int
+		wantStat  string
+	}{
+		{"connected", true, 200, "ok"},
+		{"disconnected", false, 503, "disconnected"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bot := &mockBot{}
+			connected := tt.connected
+			h := muxConn(bot, func() bool { return connected })
+			req := httptest.NewRequest("GET", "/health", nil)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
 
-	if w.Code != 200 {
-		t.Fatalf("status = %d", w.Code)
+			if w.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d", w.Code, tt.wantCode)
+			}
+			var resp map[string]any
+			json.NewDecoder(w.Body).Decode(&resp)
+			if resp["status"] != tt.wantStat {
+				t.Errorf("status = %v, want %v", resp["status"], tt.wantStat)
+			}
+			if resp["name"] != "test" {
+				t.Errorf("name = %v", resp["name"])
+			}
+		})
 	}
-	var resp map[string]any
-	json.NewDecoder(w.Body).Decode(&resp)
-	if resp["status"] != "ok" {
-		t.Errorf("status = %v", resp["status"])
-	}
-	if resp["name"] != "test" {
-		t.Errorf("name = %v", resp["name"])
-	}
+}
+
+func TestHandlerPanicsOnNilIsConnected(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when isConnected is nil")
+		}
+	}()
+	NewAdapterMux("test", "secret", []string{"test:"}, &mockBot{}, nil)
 }

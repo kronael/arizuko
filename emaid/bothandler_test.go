@@ -45,7 +45,7 @@ func TestBotHandler_Send(t *testing.T) {
 		SMTPHost: "127.0.0.1",
 		SMTPPort: itoa(addr.Port),
 	}
-	s := newServer(cfg, db, newAttRegistry())
+	s := newServer(cfg, db, newAttRegistry(), func() bool { return true })
 
 	_, err = s.Send(chanlib.SendRequest{ChatJID: "email:thread-1", Content: "hello"})
 	if err == nil {
@@ -61,7 +61,7 @@ func TestBotHandler_Send(t *testing.T) {
 func TestBotHandler_Send_ThreadNotFound(t *testing.T) {
 	db := newTestDB(t)
 	defer db.Close()
-	s := newServer(config{Name: "email"}, db, newAttRegistry())
+	s := newServer(config{Name: "email"}, db, newAttRegistry(), func() bool { return true })
 	_, err := s.Send(chanlib.SendRequest{ChatJID: "email:missing", Content: "x"})
 	if err == nil || !strings.Contains(err.Error(), "thread not found") {
 		t.Errorf("err = %v, want 'thread not found'", err)
@@ -108,7 +108,7 @@ func TestBotHandler_Send_Success(t *testing.T) {
 		SMTPHost: "smtp.example.com",
 		SMTPPort: "587",
 	}
-	s := newServer(cfg, db, newAttRegistry())
+	s := newServer(cfg, db, newAttRegistry(), func() bool { return true })
 
 	resp, err := s.Send(chanlib.SendRequest{ChatJID: "email:thread-ok", Content: "hello body"})
 	if err != nil {

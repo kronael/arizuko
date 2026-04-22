@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf16"
 
@@ -28,7 +29,13 @@ type bot struct {
 	mentionRe *regexp.Regexp
 	typing    *chanlib.TypingRefresher
 	offsetMu  sync.Mutex
+	// connected reflects the long-poll liveness to Telegram's Bot API.
+	// Set true after getMe in newBot; cleared when the updates channel closes
+	// (auth revocation or unrecoverable transport failure).
+	connected atomic.Bool
 }
+
+func (b *bot) isConnected() bool { return b.connected.Load() }
 
 func newBot(cfg config) (*bot, error) {
 	api, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
@@ -37,6 +44,7 @@ func newBot(cfg config) (*bot, error) {
 	}
 	slog.Info("telegram connected", "username", api.Self.UserName)
 	b := &bot{api: api, cfg: cfg, done: make(chan struct{})}
+	b.connected.Store(true)
 	b.typing = chanlib.NewTypingRefresher(4*time.Second, 10*time.Minute, b.sendTyping, nil)
 	if cfg.AssistantName != "" {
 		b.mentionRe = regexp.MustCompile(
@@ -101,6 +109,7 @@ func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
 			return
 		case u, ok := <-ch:
 			if !ok {
+				b.connected.Store(false)
 				return
 			}
 			delivered := true

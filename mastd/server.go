@@ -15,17 +15,18 @@ type fileResolver interface {
 }
 
 type server struct {
-	cfg   config
-	mc    chanlib.BotHandler
-	files fileResolver
+	cfg         config
+	mc          chanlib.BotHandler
+	files       fileResolver
+	isConnected func() bool
 }
 
-func newServer(cfg config, mc chanlib.BotHandler, fr fileResolver) *server {
-	return &server{cfg: cfg, mc: mc, files: fr}
+func newServer(cfg config, mc chanlib.BotHandler, fr fileResolver, isConnected func() bool) *server {
+	return &server{cfg: cfg, mc: mc, files: fr, isConnected: isConnected}
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"mastodon:"}, s.mc)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"mastodon:"}, s.mc, s.isConnected)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))
 	return mux
 }

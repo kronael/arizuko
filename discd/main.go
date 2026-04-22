@@ -29,7 +29,7 @@ func main() {
 			// Wire b.files BEFORE opening the websocket. Events fire as
 			// soon as Open returns; deferring this creates a race where an
 			// inbound message with attachments dereferences nil b.files.
-			srv := newServer(cfg, b)
+			srv := newServer(cfg, b, b.isConnected)
 			b.files = srv.files
 			if err := b.start(rc); err != nil {
 				slog.Error("discord connect failed", "err", err)

@@ -22,7 +22,7 @@ func testServer(t *testing.T, secret string) (*server, *sql.DB) {
 	t.Helper()
 	db := newTestDB(t)
 	cfg := config{Name: "email", ChannelSecret: secret, DataDir: t.TempDir()}
-	return newServer(cfg, db, newAttRegistry()), db
+	return newServer(cfg, db, newAttRegistry(), func() bool { return true }), db
 }
 
 func TestHandleSend_NoThread(t *testing.T) {
@@ -53,6 +53,22 @@ func TestHandleHealth(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	if resp["status"] != "ok" || resp["name"] != "email" {
 		t.Errorf("health = %v", resp)
+	}
+}
+
+func TestHandleHealthDisconnected(t *testing.T) {
+	db := newTestDB(t)
+	s := newServer(config{Name: "email"}, db, newAttRegistry(), func() bool { return false })
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 503 {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "disconnected" {
+		t.Errorf("status = %v", resp["status"])
 	}
 }
 
@@ -167,7 +183,7 @@ func TestFileProxyAuthRequired(t *testing.T) {
 	reg.put("1-0", attMeta{Mime: "text/plain", Filename: "file.txt", Size: 4, Part: []int{1}})
 
 	db := newTestDB(t)
-	s := newServer(config{Name: "email", ChannelSecret: "secret123", DataDir: t.TempDir()}, db, reg)
+	s := newServer(config{Name: "email", ChannelSecret: "secret123", DataDir: t.TempDir()}, db, reg, func() bool { return true })
 
 	req := httptest.NewRequest("GET", "/files/1/0", nil)
 	w := httptest.NewRecorder()

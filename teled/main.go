@@ -30,7 +30,7 @@ func main() {
 				return nil, nil, err
 			}
 			go b.poll(ctx, rc)
-			return newServer(cfg, b).handler(), b.stop, nil
+			return newServer(cfg, b, b.isConnected).handler(), b.stop, nil
 		},
 	})
 }

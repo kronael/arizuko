@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/onvos/arizuko/chanlib"
@@ -32,6 +33,26 @@ type redditClient struct {
 	cursors   map[string]string
 	skipFirst map[string]bool
 	files     *chanlib.URLCache
+	// lastPollOK is the wall clock of the most recent successful poll.
+	// isConnected treats the adapter as healthy when a poll succeeded in the
+	// last pollStaleAfter; newly-started clients are healthy after auth.
+	lastPollOK atomic.Int64
+}
+
+// pollStaleAfter is the tolerance before /health flips to 503.
+// Reddit polls every 30s; 3m accommodates transient 429s and network blips.
+const pollStaleAfter = 3 * time.Minute
+
+func (rc *redditClient) isConnected() bool {
+	last := rc.lastPollOK.Load()
+	if last == 0 {
+		return false
+	}
+	return time.Since(time.Unix(last, 0)) < pollStaleAfter
+}
+
+func (rc *redditClient) markPollOK() {
+	rc.lastPollOK.Store(time.Now().Unix())
 }
 
 func newRedditClient(cfg config) (*redditClient, error) {
@@ -99,6 +120,7 @@ func (rc *redditClient) refreshToken() error {
 	rc.token = tr.AccessToken
 	rc.expiresAt = time.Now().Add(time.Duration(tr.ExpiresIn-60) * time.Second)
 	rc.mu.Unlock()
+	rc.markPollOK()
 	slog.Info("reddit authenticated", "user", rc.cfg.Username)
 	return nil
 }
@@ -272,6 +294,7 @@ func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClien
 	if json.NewDecoder(resp.Body).Decode(&l) != nil {
 		return
 	}
+	rc.markPollOK()
 
 	// Skip first poll for new sources (no persisted cursor) to avoid replaying history.
 	// Still advance the cursor to the latest so subsequent polls start from here.

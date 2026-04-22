@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/onvos/arizuko/chanlib"
@@ -33,7 +34,12 @@ type linkClient struct {
 	seen      map[string]bool // inbound dedup
 	stateFile string
 	interval  time.Duration
+	// authed tracks OAuth validity; set true after successful token/me fetch,
+	// cleared when refresh fails.
+	authed atomic.Bool
 }
+
+func (lc *linkClient) isConnected() bool { return lc.authed.Load() }
 
 type state struct {
 	AccessToken  string    `json:"access_token"`
@@ -82,6 +88,7 @@ func newLinkClient(cfg config) (*linkClient, error) {
 			return nil, fmt.Errorf("fetch /v2/me: %w", err)
 		}
 	}
+	lc.authed.Store(true)
 	slog.Info("linkedin connected", "urn", lc.meURN, "name", lc.meName)
 	return lc, nil
 }
@@ -158,8 +165,10 @@ func (lc *linkClient) refreshAccessToken() error {
 		return fmt.Errorf("token decode: %w", err)
 	}
 	if resp.StatusCode != 200 || tr.AccessToken == "" {
+		lc.authed.Store(false)
 		return fmt.Errorf("token refresh: status %d: %s", resp.StatusCode, tr.ErrorDesc)
 	}
+	lc.authed.Store(true)
 	lc.mu.Lock()
 	lc.token = tr.AccessToken
 	if tr.RefreshToken != "" {

@@ -93,7 +93,17 @@ func (NoFileSender) SendFile(_, _, _, _ string) error { return errSendFile }
 
 var errSendFile = errors.New("send-file not supported")
 
-func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler) *http.ServeMux {
+// NewAdapterMux wires up the standard adapter HTTP surface.
+// isConnected must report whether the adapter's live connection to the
+// platform is up (bot API reachable, websocket open, streaming attached,
+// IMAP IDLE active, or last-poll within tolerance). /health returns 503
+// when it reports false so Docker HEALTHCHECK flips correctly. Adapters
+// with no long-lived connection (pure pollers post-auth) pass a closure
+// that returns true once auth succeeds.
+func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isConnected func() bool) *http.ServeMux {
+	if isConnected == nil {
+		panic("chanlib.NewAdapterMux: isConnected must not be nil")
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /send", Auth(secret, handleSend(bot)))
 	mux.HandleFunc("POST /send-file", Auth(secret, handleSendFile(bot)))
@@ -101,7 +111,7 @@ func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler) *http
 	mux.HandleFunc("POST /post", Auth(secret, handlePost(bot)))
 	mux.HandleFunc("POST /react", Auth(secret, handleReact(bot)))
 	mux.HandleFunc("POST /delete-post", Auth(secret, handleDeletePost(bot)))
-	mux.HandleFunc("GET /health", handleHealth(name, prefixes))
+	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected))
 	if hp, ok := bot.(HistoryProvider); ok {
 		mux.HandleFunc("GET /v1/history", Auth(secret, handleHistory(hp)))
 	}
@@ -300,8 +310,16 @@ func handleDeletePost(bot BotHandler) http.HandlerFunc {
 	}
 }
 
-func handleHealth(name string, prefixes []string) http.HandlerFunc {
+func handleHealth(name string, prefixes []string, isConnected func() bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
+		if !isConnected() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "disconnected", "name": name, "jid_prefixes": prefixes,
+			})
+			return
+		}
 		WriteJSON(w, map[string]any{
 			"status": "ok", "name": name, "jid_prefixes": prefixes,
 		})

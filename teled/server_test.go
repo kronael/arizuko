@@ -35,11 +35,11 @@ func (b *stubBot) Typing(_ string, on bool) { b.typings = append(b.typings, on) 
 
 func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}
-	return newServer(config{Name: "telegram", ChannelSecret: secret}, sb).handler(), sb
+	return newServer(config{Name: "telegram", ChannelSecret: secret}, sb, func() bool { return true }).handler(), sb
 }
 
 func testHandler(secret string) (http.Handler, *server) {
-	s := newServer(config{Name: "telegram", ChannelSecret: secret}, &stubBot{})
+	s := newServer(config{Name: "telegram", ChannelSecret: secret}, &stubBot{}, func() bool { return true })
 	return s.handler(), s
 }
 
@@ -135,6 +135,21 @@ func TestServerHealth(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	if resp["status"] != "ok" || resp["name"] != "telegram" {
 		t.Errorf("health = %v", resp)
+	}
+}
+
+func TestServerHealthDisconnected(t *testing.T) {
+	s := newServer(config{Name: "telegram"}, &stubBot{}, func() bool { return false })
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 503 {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "disconnected" {
+		t.Errorf("status = %v", resp["status"])
 	}
 }
 

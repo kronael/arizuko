@@ -23,18 +23,19 @@ var allowedRedditHosts = map[string]bool{
 }
 
 type server struct {
-	cfg       config
-	rc        chanlib.BotHandler
-	files     *chanlib.URLCache
-	safeFetch func(string) bool
+	cfg         config
+	rc          chanlib.BotHandler
+	files       *chanlib.URLCache
+	safeFetch   func(string) bool
+	isConnected func() bool
 }
 
-func newServer(cfg config, rc chanlib.BotHandler, files *chanlib.URLCache) *server {
-	return &server{cfg: cfg, rc: rc, files: files, safeFetch: isSafeFetchURL}
+func newServer(cfg config, rc chanlib.BotHandler, files *chanlib.URLCache, isConnected func() bool) *server {
+	return &server{cfg: cfg, rc: rc, files: files, safeFetch: isSafeFetchURL, isConnected: isConnected}
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"reddit:"}, s.rc)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"reddit:"}, s.rc, s.isConnected)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))
 	return mux
 }

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/onvos/arizuko/chanlib"
@@ -30,7 +31,13 @@ type bskyClient struct {
 	mu      sync.RWMutex // guards session
 	session session
 	http    *http.Client
+	// authed reflects whether the most recent auth/refresh succeeded.
+	// Set true in createSession/refreshSession; cleared when both refresh
+	// and create fail in the xrpc 401 handler.
+	authed atomic.Bool
 }
+
+func (bc *bskyClient) isConnected() bool { return bc.authed.Load() }
 
 func newBskyClient(cfg config) (*bskyClient, error) {
 	bc := &bskyClient{cfg: cfg, http: &http.Client{Timeout: 15 * time.Second}}
@@ -125,6 +132,7 @@ func (bc *bskyClient) createSession() error {
 		return err
 	}
 	bc.storeSession(s)
+	bc.authed.Store(true)
 	slog.Info("bluesky authenticated", "did", s.DID)
 	return nil
 }
@@ -148,6 +156,7 @@ func (bc *bskyClient) refreshSession(refreshJwt string) error {
 		return err
 	}
 	bc.storeSession(s)
+	bc.authed.Store(true)
 	return nil
 }
 
@@ -551,6 +560,7 @@ func (bc *bskyClient) xrpc(method, nsid string, params map[string]string, body, 
 		refreshErr := bc.refreshSession(bc.getSession().RefreshJwt)
 		if refreshErr != nil {
 			if cerr := bc.createSession(); cerr != nil {
+				bc.authed.Store(false)
 				return fmt.Errorf("xrpc %s: 401 and re-auth failed: refresh=%v create=%w",
 					nsid, refreshErr, cerr)
 			}

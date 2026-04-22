@@ -32,7 +32,7 @@ func (s *stubBot) Send(r chanlib.SendRequest) (string, error) {
 func (s *stubBot) Typing(string, bool) {}
 
 func TestHealth(t *testing.T) {
-	s := newServer(config{Name: "linkedin"}, &stubBot{})
+	s := newServer(config{Name: "linkedin"}, &stubBot{}, func() bool { return true })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -51,7 +51,7 @@ func TestHealth(t *testing.T) {
 }
 
 func TestSendAuthRequired(t *testing.T) {
-	s := newServer(config{Name: "linkedin", ChannelSecret: "s"}, &stubBot{})
+	s := newServer(config{Name: "linkedin", ChannelSecret: "s"}, &stubBot{}, func() bool { return true })
 	body, _ := json.Marshal(map[string]string{"chat_jid": "linkedin:x", "content": "hi"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	w := httptest.NewRecorder()

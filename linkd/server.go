@@ -7,14 +7,15 @@ import (
 )
 
 type server struct {
-	cfg config
-	bot chanlib.BotHandler
+	cfg         config
+	bot         chanlib.BotHandler
+	isConnected func() bool
 }
 
-func newServer(cfg config, bot chanlib.BotHandler) *server {
-	return &server{cfg: cfg, bot: bot}
+func newServer(cfg config, bot chanlib.BotHandler, isConnected func() bool) *server {
+	return &server{cfg: cfg, bot: bot, isConnected: isConnected}
 }
 
 func (s *server) handler() http.Handler {
-	return chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"linkedin:"}, s.bot)
+	return chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"linkedin:"}, s.bot, s.isConnected)
 }

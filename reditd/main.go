@@ -27,7 +27,7 @@ func main() {
 			}
 			rc.loadCursors()
 			go rc.poll(ctx, router)
-			return newServer(cfg, rc, rc.files).handler(), nil, nil
+			return newServer(cfg, rc, rc.files, rc.isConnected).handler(), nil, nil
 		},
 	})
 }

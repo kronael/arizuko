@@ -57,7 +57,7 @@ func (sb *stubBot) Typing(_ string, on bool) {
 func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}
 	cfg := config{Name: "discord", ChannelSecret: secret}
-	return newServer(cfg, sb).handler(), sb
+	return newServer(cfg, sb, func() bool { return true }).handler(), sb
 }
 
 func TestServerPost(t *testing.T) {
@@ -207,6 +207,21 @@ func TestServerHealth(t *testing.T) {
 	}
 }
 
+func TestServerHealthDisconnected(t *testing.T) {
+	s := newServer(config{Name: "discord"}, &stubBot{}, func() bool { return false })
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 503 {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "disconnected" {
+		t.Errorf("status = %v", resp["status"])
+	}
+}
+
 func TestServerNoSecret(t *testing.T) {
 	h, sb := stubHandler("")
 	body, _ := json.Marshal(map[string]string{"chat_jid": "discord:123", "content": "hi"})
@@ -229,7 +244,7 @@ func TestServerFileProxy(t *testing.T) {
 	}))
 	defer cdn.Close()
 
-	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{})
+	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{}, func() bool { return true })
 	id := srv.files.Put(cdn.URL + "/image.png")
 	h := srv.handler()
 
@@ -249,7 +264,7 @@ func TestServerFileProxy(t *testing.T) {
 }
 
 func TestServerFileProxyNotFound(t *testing.T) {
-	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{})
+	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{}, func() bool { return true })
 	h := srv.handler()
 	req := httptest.NewRequest("GET", "/files/missing", nil)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -261,7 +276,7 @@ func TestServerFileProxyNotFound(t *testing.T) {
 }
 
 func TestServerFileProxyAuth(t *testing.T) {
-	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{})
+	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{}, func() bool { return true })
 	srv.files.Put("http://example.com/img.jpg")
 	h := srv.handler()
 	req := httptest.NewRequest("GET", "/files/abc", nil)

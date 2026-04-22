@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/mattn/go-mastodon"
@@ -22,7 +23,12 @@ type mastoClient struct {
 	me     *mastodon.Account
 	http   *http.Client
 	files  *chanlib.URLCache
+	// streaming reflects the user-stream websocket liveness. Set true after
+	// StreamingWSUser returns and cleared when the stream closes or errors.
+	streaming atomic.Bool
 }
+
+func (mc *mastoClient) isConnected() bool { return mc.streaming.Load() }
 
 func newMastoClient(cfg config) (*mastoClient, error) {
 	c := mastodon.NewClient(&mastodon.Config{
@@ -74,6 +80,8 @@ func (mc *mastoClient) streamOnce(ctx context.Context, rc *chanlib.RouterClient)
 	if err != nil {
 		return fmt.Errorf("streaming connect: %w", err)
 	}
+	mc.streaming.Store(true)
+	defer mc.streaming.Store(false)
 	// Drain events on exit so the library's sender goroutine can finish.
 	defer func() {
 		go func() {

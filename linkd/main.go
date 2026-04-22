@@ -25,7 +25,7 @@ func main() {
 				return nil, nil, err
 			}
 			go lc.poll(ctx, rc)
-			return newServer(cfg, lc).handler(), nil, nil
+			return newServer(cfg, lc, lc.isConnected).handler(), nil, nil
 		},
 	})
 }
