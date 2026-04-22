@@ -521,7 +521,18 @@ func (g *Gateway) processSenderBatch(
 	g.emitSystemEvents(group, chatJid)
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
 	observed := g.store.ObservedMessagesSince(group.Folder, chatJid, agentTs.Format(time.RFC3339Nano))
-	prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n" + router.FormatMessages(msgs, observed)
+	topic := g.effectiveTopic(chatJid, last.Topic)
+	sessionID, _ := g.store.GetSession(group.Folder, topic)
+	autoBlock := renderAutocalls(AutocallCtx{
+		Instance:  g.cfg.Name,
+		Folder:    group.Folder,
+		ChatJID:   chatJid,
+		Topic:     topic,
+		SessionID: sessionID,
+		Tier:      auth.Resolve(group.Folder).Tier,
+		Now:       time.Now(),
+	})
+	prompt := sysMsgs + autoBlock + router.FormatMessages(msgs, observed)
 
 	if deliverCh != nil {
 		slog.Debug("typing start", "jid", deliverTo, "channel", deliverCh.Name())
@@ -531,7 +542,6 @@ func (g *Gateway) processSenderBatch(
 	}
 
 	isolated := strings.HasPrefix(last.Sender, "timed-isolated")
-	topic := g.effectiveTopic(chatJid, last.Topic)
 	onOutput, hadOutput := g.makeOutputCallback(deliverCh, deliverTo, topic, last.ID, group.Folder)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		onOutput, isolated, topic, last.ID, len(msgs))
@@ -585,13 +595,23 @@ func (g *Gateway) processWebTopics(
 		last := topicMsgs[len(topicMsgs)-1]
 
 		sysMsgs := g.store.FlushSysMsgs(group.Folder)
-		prompt := sysMsgs + router.ClockXml(g.cfg.Timezone) + "\n" + router.FormatMessages(topicMsgs)
+		effectiveTopic := g.effectiveTopic(chatJid, topic)
+		sessionID, _ := g.store.GetSession(group.Folder, effectiveTopic)
+		autoBlock := renderAutocalls(AutocallCtx{
+			Instance:  g.cfg.Name,
+			Folder:    group.Folder,
+			ChatJID:   chatJid,
+			Topic:     effectiveTopic,
+			SessionID: sessionID,
+			Tier:      auth.Resolve(group.Folder).Tier,
+			Now:       time.Now(),
+		})
+		prompt := sysMsgs + autoBlock + router.FormatMessages(topicMsgs)
 
 		if ch != nil {
 			ch.Typing(chatJid, true)
 		}
 
-		effectiveTopic := g.effectiveTopic(chatJid, topic)
 		onOutput, hadOutput := g.makeOutputCallback(ch, chatJid, effectiveTopic, last.ID, group.Folder)
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 			onOutput, false, effectiveTopic, last.ID, len(topicMsgs))

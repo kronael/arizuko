@@ -21,18 +21,6 @@ func escapeXml(s string) string {
 	return s
 }
 
-func ClockXml(tz string) string {
-	loc := time.UTC
-	if tz != "" {
-		if l, err := time.LoadLocation(tz); err == nil {
-			loc = l
-		}
-	}
-	now := time.Now().In(loc)
-	return fmt.Sprintf(`<clock time="%s" tz="%s"/>`,
-		now.Format("2006-01-02T15:04:05Z07:00"), loc.String())
-}
-
 func timeAgo(t time.Time) string {
 	d := time.Since(t)
 	switch {
