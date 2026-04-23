@@ -544,17 +544,7 @@ func (g *Gateway) processSenderBatch(
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
 	observed := g.store.ObservedMessagesSince(group.Folder, chatJid, agentTs.Format(time.RFC3339Nano))
 	topic := g.effectiveTopic(chatJid, last.Topic)
-	sessionID, _ := g.store.GetSession(group.Folder, topic)
-	autoBlock := renderAutocalls(AutocallCtx{
-		Instance:  g.cfg.Name,
-		Folder:    group.Folder,
-		ChatJID:   chatJid,
-		Topic:     topic,
-		SessionID: sessionID,
-		Tier:      auth.Resolve(group.Folder).Tier,
-		Now:       time.Now(),
-	})
-	prompt := sysMsgs + autoBlock + router.FormatMessages(msgs, observed)
+	prompt := sysMsgs + g.autocallsBlock(group.Folder, chatJid, topic) + router.FormatMessages(msgs, observed)
 
 	if deliverCh != nil {
 		slog.Debug("typing start", "jid", deliverTo, "channel", deliverCh.Name())
@@ -618,17 +608,7 @@ func (g *Gateway) processWebTopics(
 
 		sysMsgs := g.store.FlushSysMsgs(group.Folder)
 		effectiveTopic := g.effectiveTopic(chatJid, topic)
-		sessionID, _ := g.store.GetSession(group.Folder, effectiveTopic)
-		autoBlock := renderAutocalls(AutocallCtx{
-			Instance:  g.cfg.Name,
-			Folder:    group.Folder,
-			ChatJID:   chatJid,
-			Topic:     effectiveTopic,
-			SessionID: sessionID,
-			Tier:      auth.Resolve(group.Folder).Tier,
-			Now:       time.Now(),
-		})
-		prompt := sysMsgs + autoBlock + router.FormatMessages(topicMsgs)
+		prompt := sysMsgs + g.autocallsBlock(group.Folder, chatJid, effectiveTopic) + router.FormatMessages(topicMsgs)
 
 		if ch != nil {
 			ch.Typing(chatJid, true)

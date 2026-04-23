@@ -312,16 +312,15 @@ func handleDeletePost(bot BotHandler) http.HandlerFunc {
 
 func handleHealth(name string, prefixes []string, isConnected func() bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
-		if !isConnected() {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"status": "disconnected", "name": name, "jid_prefixes": prefixes,
-			})
-			return
+		ok := isConnected()
+		status, code := "ok", http.StatusOK
+		if !ok {
+			status, code = "disconnected", http.StatusServiceUnavailable
 		}
-		WriteJSON(w, map[string]any{
-			"status": "ok", "name": name, "jid_prefixes": prefixes,
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": status, "name": name, "jid_prefixes": prefixes,
 		})
 	}
 }

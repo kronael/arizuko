@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/onvos/arizuko/auth"
 )
 
 // AutocallCtx carries the facts an autocall may resolve at prompt-build
@@ -35,6 +37,21 @@ var autocalls = []autocall{
 		}
 		return id
 	}},
+}
+
+// autocallsBlock builds the autocalls XML for a (folder, chat, topic).
+// Reads Tier from auth and session id from the store.
+func (g *Gateway) autocallsBlock(folder, chatJid, topic string) string {
+	sessionID, _ := g.store.GetSession(folder, topic)
+	return renderAutocalls(AutocallCtx{
+		Instance:  g.cfg.Name,
+		Folder:    folder,
+		ChatJID:   chatJid,
+		Topic:     topic,
+		SessionID: sessionID,
+		Tier:      auth.Resolve(folder).Tier,
+		Now:       time.Now(),
+	})
 }
 
 // renderAutocalls produces the <autocalls>...</autocalls> block. Empty
