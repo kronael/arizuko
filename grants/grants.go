@@ -163,7 +163,7 @@ func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []
 	case 2:
 		return deriveTier2Rules(jidsIn(folder))
 	default:
-		return []string{"send_reply"}
+		return []string{"send_reply", "send_file"}
 	}
 }
 

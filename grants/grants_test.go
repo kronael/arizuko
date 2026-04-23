@@ -293,8 +293,14 @@ func TestDeriveRules_Tier0(t *testing.T) {
 
 func TestDeriveRules_Tier3Plus(t *testing.T) {
 	rules := DeriveRules(nil, "leaf", 3, "leaf")
-	if len(rules) != 1 || rules[0] != "send_reply" {
-		t.Fatalf("tier 3+ = %v, want [send_reply]", rules)
+	want := map[string]bool{"send_reply": true, "send_file": true}
+	if len(rules) != len(want) {
+		t.Fatalf("tier 3+ = %v, want %v", rules, want)
+	}
+	for _, r := range rules {
+		if !want[r] {
+			t.Fatalf("tier 3+ unexpected rule %q (got %v)", r, rules)
+		}
 	}
 }
 
