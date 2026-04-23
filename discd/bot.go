@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -16,12 +17,15 @@ import (
 )
 
 type bot struct {
-	session *discordgo.Session
-	cfg     config
-	rc      *chanlib.RouterClient
-	typing  *chanlib.TypingRefresher
-	files   *chanlib.URLCache
+	session       *discordgo.Session
+	cfg           config
+	rc            *chanlib.RouterClient
+	typing        *chanlib.TypingRefresher
+	files         *chanlib.URLCache
+	lastInboundAt atomic.Int64
 }
+
+func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
 
 var _ chanlib.BotHandler = (*bot)(nil)
 
@@ -34,6 +38,7 @@ func newBot(cfg config) (*bot, error) {
 		discordgo.IntentsDirectMessages |
 		discordgo.IntentMessageContent
 	b := &bot{session: s, cfg: cfg}
+	b.lastInboundAt.Store(time.Now().Unix())
 	b.typing = chanlib.NewTypingRefresher(8*time.Second, 10*time.Minute, b.sendTyping, nil)
 	return b, nil
 }
@@ -109,6 +114,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 		return
 	}
+	b.lastInboundAt.Store(time.Now().Unix())
 	slog.Debug("inbound", "chat_jid", jid, "sender_jid", "discord:"+m.Author.ID, "message_id", m.ID, "content_len", len(content))
 }
 

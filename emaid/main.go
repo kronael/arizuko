@@ -28,7 +28,7 @@ func main() {
 			reg := newAttRegistry()
 			p := newPoller(cfg, db, reg)
 			go p.run(ctx, rc)
-			return newServer(cfg, db, reg, p.isConnected).handler(), func() { db.Close() }, nil
+			return newServer(cfg, db, reg, p.isConnected, p.LastInboundAt).handler(), func() { db.Close() }, nil
 		},
 	})
 }

@@ -34,13 +34,16 @@ type bskyClient struct {
 	// authed reflects whether the most recent auth/refresh succeeded.
 	// Set true in createSession/refreshSession; cleared when both refresh
 	// and create fail in the xrpc 401 handler.
-	authed atomic.Bool
+	authed        atomic.Bool
+	lastInboundAt atomic.Int64
 }
 
-func (bc *bskyClient) isConnected() bool { return bc.authed.Load() }
+func (bc *bskyClient) isConnected() bool    { return bc.authed.Load() }
+func (bc *bskyClient) LastInboundAt() int64 { return bc.lastInboundAt.Load() }
 
 func newBskyClient(cfg config) (*bskyClient, error) {
 	bc := &bskyClient{cfg: cfg, http: &http.Client{Timeout: 15 * time.Second}}
+	bc.lastInboundAt.Store(time.Now().Unix())
 	if err := bc.auth(); err != nil {
 		return nil, err
 	}
@@ -279,6 +282,7 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		slog.Error("deliver failed", "jid", jid, "err", err)
 		return
 	}
+	bc.lastInboundAt.Store(time.Now().Unix())
 	slog.Debug("inbound", "chat_jid", jid, "sender_jid", jid, "message_id", uriToKey(n.URI), "content_len", len(content), "verb", verb)
 }
 

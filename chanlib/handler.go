@@ -100,9 +100,15 @@ var errSendFile = errors.New("send-file not supported")
 // when it reports false so Docker HEALTHCHECK flips correctly. Adapters
 // with no long-lived connection (pure pollers post-auth) pass a closure
 // that returns true once auth succeeds.
-func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isConnected func() bool) *http.ServeMux {
+// lastInboundAt returns the unix seconds of the most recent successful
+// inbound delivery to the router. If the timestamp is older than the
+// adapter's staleness threshold, /health returns 503 status:"stale".
+func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isConnected func() bool, lastInboundAt func() int64) *http.ServeMux {
 	if isConnected == nil {
 		panic("chanlib.NewAdapterMux: isConnected must not be nil")
+	}
+	if lastInboundAt == nil {
+		panic("chanlib.NewAdapterMux: lastInboundAt must not be nil")
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /send", Auth(secret, handleSend(bot)))
@@ -111,7 +117,7 @@ func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isCon
 	mux.HandleFunc("POST /post", Auth(secret, handlePost(bot)))
 	mux.HandleFunc("POST /react", Auth(secret, handleReact(bot)))
 	mux.HandleFunc("POST /delete-post", Auth(secret, handleDeletePost(bot)))
-	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected))
+	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt))
 	if hp, ok := bot.(HistoryProvider); ok {
 		mux.HandleFunc("GET /v1/history", Auth(secret, handleHistory(hp)))
 	}
@@ -310,17 +316,43 @@ func handleDeletePost(bot BotHandler) http.HandlerFunc {
 	}
 }
 
-func handleHealth(name string, prefixes []string, isConnected func() bool) http.HandlerFunc {
+// staleThresholds sets per-adapter tolerance before /health flips to stale.
+// Realtime streaming/long-poll adapters use 5m; email uses 10m because IDLE
+// + poll-fallback is naturally lumpier. Adapters not listed fall back to the
+// 5m default.
+var staleThresholds = map[string]time.Duration{
+	"email": 10 * time.Minute,
+}
+
+const defaultStaleThreshold = 5 * time.Minute
+
+func handleHealth(name string, prefixes []string, isConnected func() bool, lastInboundAt func() int64) http.HandlerFunc {
+	threshold := defaultStaleThreshold
+	if t, ok := staleThresholds[name]; ok {
+		threshold = t
+	}
 	return func(w http.ResponseWriter, _ *http.Request) {
-		ok := isConnected()
 		status, code := "ok", http.StatusOK
-		if !ok {
+		var staleSec int64
+		switch {
+		case !isConnected():
 			status, code = "disconnected", http.StatusServiceUnavailable
+		default:
+			last := lastInboundAt()
+			staleSec = time.Now().Unix() - last
+			if last > 0 && staleSec > int64(threshold.Seconds()) {
+				status, code = "stale", http.StatusServiceUnavailable
+			}
+		}
+		resp := map[string]any{
+			"status": status, "name": name, "jid_prefixes": prefixes,
+			"last_inbound_at": lastInboundAt(),
+		}
+		if status == "stale" {
+			resp["stale_seconds"] = staleSec
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": status, "name": name, "jid_prefixes": prefixes,
-		})
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }

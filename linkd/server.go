@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/onvos/arizuko/chanlib"
 )
@@ -17,5 +18,8 @@ func newServer(cfg config, bot chanlib.BotHandler, isConnected func() bool) *ser
 }
 
 func (s *server) handler() http.Handler {
-	return chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"linkedin:"}, s.bot, s.isConnected)
+	// linkd is a stub adapter with no inbound plumbing; report "now" so
+	// /health never flips stale while auth is valid.
+	lastInbound := func() int64 { return time.Now().Unix() }
+	return chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"linkedin:"}, s.bot, s.isConnected, lastInbound)
 }

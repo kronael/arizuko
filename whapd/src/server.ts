@@ -69,6 +69,9 @@ function extToMime(filename: string): string {
   return m[ext] ?? 'application/octet-stream';
 }
 
+// whatsapp adapter uses the 5m realtime threshold (matches the Go default).
+const STALE_THRESHOLD_SECONDS = 5 * 60;
+
 export function startServer(
   addr: string,
   secret: string,
@@ -76,15 +79,29 @@ export function startServer(
   isConnected: () => boolean,
   queueOutbound: (jid: string, text: string) => void,
   setTyping: (jid: string, on: boolean) => void,
+  lastInboundAt: () => number,
 ): http.Server {
   const srv = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
-      const ok = isConnected();
-      json(res, ok ? 200 : 503, {
-        status: ok ? 'ok' : 'disconnected',
+      const last = lastInboundAt();
+      const staleSec = Math.floor(Date.now() / 1000) - last;
+      let status = 'ok';
+      let code = 200;
+      if (!isConnected()) {
+        status = 'disconnected';
+        code = 503;
+      } else if (last > 0 && staleSec > STALE_THRESHOLD_SECONDS) {
+        status = 'stale';
+        code = 503;
+      }
+      const body: Record<string, unknown> = {
+        status,
         name: 'whatsapp',
         jid_prefixes: ['whatsapp:'],
-      });
+        last_inbound_at: last,
+      };
+      if (status === 'stale') body['stale_seconds'] = staleSec;
+      json(res, code, body);
       return;
     }
 

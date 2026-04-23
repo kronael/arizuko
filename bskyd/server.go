@@ -12,17 +12,18 @@ import (
 var proxyClient = &http.Client{Timeout: 30 * time.Second}
 
 type server struct {
-	cfg         config
-	bc          chanlib.BotHandler
-	isConnected func() bool
+	cfg           config
+	bc            chanlib.BotHandler
+	isConnected   func() bool
+	lastInboundAt func() int64
 }
 
-func newServer(cfg config, bc chanlib.BotHandler, isConnected func() bool) *server {
-	return &server{cfg: cfg, bc: bc, isConnected: isConnected}
+func newServer(cfg config, bc chanlib.BotHandler, isConnected func() bool, lastInboundAt func() int64) *server {
+	return &server{cfg: cfg, bc: bc, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"bluesky:"}, s.bc, s.isConnected)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"bluesky:"}, s.bc, s.isConnected, s.lastInboundAt)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))
 	return mux
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 type mockBot struct {
@@ -39,11 +40,17 @@ func (m *mockBot) Typing(jid string, on bool) {
 }
 
 func mux(bot *mockBot) http.Handler {
-	return NewAdapterMux("test", "secret", []string{"test:"}, bot, func() bool { return true })
+	return NewAdapterMux("test", "secret", []string{"test:"}, bot,
+		func() bool { return true }, func() int64 { return time.Now().Unix() })
 }
 
 func muxConn(bot *mockBot, connected func() bool) http.Handler {
-	return NewAdapterMux("test", "secret", []string{"test:"}, bot, connected)
+	return NewAdapterMux("test", "secret", []string{"test:"}, bot, connected,
+		func() int64 { return time.Now().Unix() })
+}
+
+func muxFull(bot *mockBot, connected func() bool, lastInbound func() int64) http.Handler {
+	return NewAdapterMux("test", "secret", []string{"test:"}, bot, connected, lastInbound)
 }
 
 func TestHandlerSend(t *testing.T) {
@@ -276,5 +283,53 @@ func TestHandlerPanicsOnNilIsConnected(t *testing.T) {
 			t.Fatal("expected panic when isConnected is nil")
 		}
 	}()
-	NewAdapterMux("test", "secret", []string{"test:"}, &mockBot{}, nil)
+	NewAdapterMux("test", "secret", []string{"test:"}, &mockBot{}, nil,
+		func() int64 { return 0 })
+}
+
+func TestHandlerPanicsOnNilLastInboundAt(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when lastInboundAt is nil")
+		}
+	}()
+	NewAdapterMux("test", "secret", []string{"test:"}, &mockBot{},
+		func() bool { return true }, nil)
+}
+
+func TestHandlerHealthStale(t *testing.T) {
+	bot := &mockBot{}
+	old := time.Now().Add(-10 * time.Minute).Unix()
+	h := muxFull(bot, func() bool { return true }, func() int64 { return old })
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 503 {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "stale" {
+		t.Errorf("status = %v, want stale", resp["status"])
+	}
+	if _, ok := resp["stale_seconds"]; !ok {
+		t.Errorf("stale_seconds missing")
+	}
+}
+
+func TestHandlerHealthDisconnectedBeatsStale(t *testing.T) {
+	bot := &mockBot{}
+	old := time.Now().Add(-10 * time.Minute).Unix()
+	h := muxFull(bot, func() bool { return false }, func() int64 { return old })
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 503 {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "disconnected" {
+		t.Errorf("status = %v, want disconnected", resp["status"])
+	}
 }

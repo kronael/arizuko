@@ -22,7 +22,7 @@ func testServer(t *testing.T, secret string) (*server, *sql.DB) {
 	t.Helper()
 	db := newTestDB(t)
 	cfg := config{Name: "email", ChannelSecret: secret, DataDir: t.TempDir()}
-	return newServer(cfg, db, newAttRegistry(), func() bool { return true }), db
+	return newServer(cfg, db, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() }), db
 }
 
 func TestHandleSend_NoThread(t *testing.T) {
@@ -58,7 +58,7 @@ func TestHandleHealth(t *testing.T) {
 
 func TestHandleHealthDisconnected(t *testing.T) {
 	db := newTestDB(t)
-	s := newServer(config{Name: "email"}, db, newAttRegistry(), func() bool { return false })
+	s := newServer(config{Name: "email"}, db, newAttRegistry(), func() bool { return false }, func() int64 { return time.Now().Unix() })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -183,7 +183,7 @@ func TestFileProxyAuthRequired(t *testing.T) {
 	reg.put("1-0", attMeta{Mime: "text/plain", Filename: "file.txt", Size: 4, Part: []int{1}})
 
 	db := newTestDB(t)
-	s := newServer(config{Name: "email", ChannelSecret: "secret123", DataDir: t.TempDir()}, db, reg, func() bool { return true })
+	s := newServer(config{Name: "email", ChannelSecret: "secret123", DataDir: t.TempDir()}, db, reg, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/1/0", nil)
 	w := httptest.NewRecorder()

@@ -11,6 +11,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- `chanlib`: channel-level liveness. Adapter `/health` now flips 503
+  `{status:"stale"}` when no inbound message has been successfully
+  delivered to the router within the staleness threshold (5m realtime,
+  10m email), catching "connected but not flowing" breakages (e.g.
+  whapd Baileys socket open but messages.upsert silent). Response
+  includes `last_inbound_at` (unix seconds) and `stale_seconds` when
+  stale. Order: disconnected > stale > ok.
 - `ipc`: read-only `inspect_*` MCP family — `inspect_routing`,
   `inspect_tasks`, `inspect_session`. Tier 0 sees all instances, tier
   ≥1 scoped to own folder subtree. Replaces ad-hoc `Bash sqlite3 …`

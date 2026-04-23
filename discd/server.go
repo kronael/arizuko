@@ -11,18 +11,19 @@ import (
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type server struct {
-	cfg         config
-	bot         chanlib.BotHandler
-	files       *chanlib.URLCache
-	isConnected func() bool
+	cfg           config
+	bot           chanlib.BotHandler
+	files         *chanlib.URLCache
+	isConnected   func() bool
+	lastInboundAt func() int64
 }
 
-func newServer(cfg config, b chanlib.BotHandler, isConnected func() bool) *server {
-	return &server{cfg: cfg, bot: b, files: chanlib.NewURLCache(0), isConnected: isConnected}
+func newServer(cfg config, b chanlib.BotHandler, isConnected func() bool, lastInboundAt func() int64) *server {
+	return &server{cfg: cfg, bot: b, files: chanlib.NewURLCache(0), isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"discord:"}, s.bot, s.isConnected)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"discord:"}, s.bot, s.isConnected, s.lastInboundAt)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))
 	return mux
 }

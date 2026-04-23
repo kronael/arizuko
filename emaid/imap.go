@@ -62,14 +62,18 @@ type poller struct {
 	reg     *attRegistry
 	// connected reflects IMAP liveness: true between successful imapConnect
 	// and the corresponding Logout/close, or after a successful poll cycle.
-	connected atomic.Bool
+	connected     atomic.Bool
+	lastInboundAt atomic.Int64
 }
 
 func newPoller(cfg config, db *sql.DB, reg *attRegistry) *poller {
-	return &poller{cfg: cfg, db: db, dialTLS: imapclient.DialTLS, reg: reg}
+	p := &poller{cfg: cfg, db: db, dialTLS: imapclient.DialTLS, reg: reg}
+	p.lastInboundAt.Store(time.Now().Unix())
+	return p
 }
 
-func (p *poller) isConnected() bool { return p.connected.Load() }
+func (p *poller) isConnected() bool    { return p.connected.Load() }
+func (p *poller) LastInboundAt() int64 { return p.lastInboundAt.Load() }
 
 // imapConnect dials, logs in and selects INBOX. Caller must Logout.
 func imapConnect(
@@ -358,6 +362,7 @@ func (p *poller) handleMsg(
 		slog.Error("deliver failed", "jid", jid, "err", err)
 		return nil
 	}
+	p.lastInboundAt.Store(time.Now().Unix())
 
 	// Pass UIDSet to Store — the library detects UIDSet and issues UID STORE.
 	// Surface the error: if mark-seen fails, the next fetchUnseen will

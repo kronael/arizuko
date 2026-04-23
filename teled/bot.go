@@ -32,10 +32,12 @@ type bot struct {
 	// connected reflects the long-poll liveness to Telegram's Bot API.
 	// Set true after getMe in newBot; cleared when the updates channel closes
 	// (auth revocation or unrecoverable transport failure).
-	connected atomic.Bool
+	connected     atomic.Bool
+	lastInboundAt atomic.Int64
 }
 
-func (b *bot) isConnected() bool { return b.connected.Load() }
+func (b *bot) isConnected() bool      { return b.connected.Load() }
+func (b *bot) LastInboundAt() int64   { return b.lastInboundAt.Load() }
 
 func newBot(cfg config) (*bot, error) {
 	api, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
@@ -45,6 +47,7 @@ func newBot(cfg config) (*bot, error) {
 	slog.Info("telegram connected", "username", api.Self.UserName)
 	b := &bot{api: api, cfg: cfg, done: make(chan struct{})}
 	b.connected.Store(true)
+	b.lastInboundAt.Store(time.Now().Unix())
 	b.typing = chanlib.NewTypingRefresher(4*time.Second, 10*time.Minute, b.sendTyping, nil)
 	if cfg.AssistantName != "" {
 		b.mentionRe = regexp.MustCompile(
@@ -196,6 +199,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 		return false
 	}
+	b.lastInboundAt.Store(time.Now().Unix())
 	slog.Debug("inbound", "chat_jid", jid, "sender_jid", im.Sender, "message_id", im.ID, "content_len", len(content))
 	return true
 }

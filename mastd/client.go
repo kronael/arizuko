@@ -25,10 +25,12 @@ type mastoClient struct {
 	files  *chanlib.URLCache
 	// streaming reflects the user-stream websocket liveness. Set true after
 	// StreamingWSUser returns and cleared when the stream closes or errors.
-	streaming atomic.Bool
+	streaming     atomic.Bool
+	lastInboundAt atomic.Int64
 }
 
-func (mc *mastoClient) isConnected() bool { return mc.streaming.Load() }
+func (mc *mastoClient) isConnected() bool    { return mc.streaming.Load() }
+func (mc *mastoClient) LastInboundAt() int64 { return mc.lastInboundAt.Load() }
 
 func newMastoClient(cfg config) (*mastoClient, error) {
 	c := mastodon.NewClient(&mastodon.Config{
@@ -41,11 +43,13 @@ func newMastoClient(cfg config) (*mastoClient, error) {
 		return nil, fmt.Errorf("mastodon auth: %w", err)
 	}
 	slog.Info("mastodon connected", "account", me.Acct)
-	return &mastoClient{
+	mc := &mastoClient{
 		cfg: cfg, client: c, me: me,
 		http:  &http.Client{Timeout: 30 * time.Second},
 		files: chanlib.NewURLCache(cfg.FileCacheSize),
-	}, nil
+	}
+	mc.lastInboundAt.Store(time.Now().Unix())
+	return mc, nil
 }
 
 func (mc *mastoClient) stream(ctx context.Context, rc *chanlib.RouterClient) {
@@ -114,6 +118,7 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *chanlib.
 		slog.Error("deliver failed", "jid", msg.ChatJID, "err", err)
 		return
 	}
+	mc.lastInboundAt.Store(time.Now().Unix())
 	slog.Debug("inbound", "chat_jid", msg.ChatJID, "sender_jid", msg.Sender, "message_id", msg.ID, "content_len", len(msg.Content), "verb", msg.Verb)
 }
 

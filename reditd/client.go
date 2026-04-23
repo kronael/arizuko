@@ -36,8 +36,11 @@ type redditClient struct {
 	// lastPollOK is the wall clock of the most recent successful poll.
 	// isConnected treats the adapter as healthy when a poll succeeded in the
 	// last pollStaleAfter; newly-started clients are healthy after auth.
-	lastPollOK atomic.Int64
+	lastPollOK    atomic.Int64
+	lastInboundAt atomic.Int64
 }
+
+func (rc *redditClient) LastInboundAt() int64 { return rc.lastInboundAt.Load() }
 
 // pollStaleAfter is the tolerance before /health flips to 503.
 // Reddit polls every 30s; 3m accommodates transient 429s and network blips.
@@ -63,6 +66,7 @@ func newRedditClient(cfg config) (*redditClient, error) {
 		skipFirst: map[string]bool{},
 		files:     chanlib.NewURLCache(1000),
 	}
+	rc.lastInboundAt.Store(time.Now().Unix())
 	if err := rc.refreshToken(); err != nil {
 		return nil, err
 	}
@@ -374,7 +378,9 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 	}
 	if err := router.SendMessage(msg); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
+		return
 	}
+	rc.lastInboundAt.Store(time.Now().Unix())
 }
 
 // FetchHistory pulls a subreddit listing (newest-first). JID shape

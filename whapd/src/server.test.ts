@@ -28,6 +28,7 @@ let server: ReturnType<typeof startServer>;
 let stub = makeStub();
 let connected = true;
 let typingCalls: { jid: string; on: boolean }[] = [];
+let lastInboundAt = Math.floor(Date.now() / 1000);
 
 beforeAll(() => {
   server = startServer(
@@ -39,6 +40,7 @@ beforeAll(() => {
     (jid, on) => {
       typingCalls.push({ jid, on });
     },
+    () => lastInboundAt,
   );
 });
 
@@ -68,6 +70,17 @@ describe('GET /health', () => {
     expect(b.status).toBe('disconnected');
     expect(b.name).toBe('whatsapp');
     connected = true;
+  });
+
+  it('returns 503 stale when inbound has not flowed within the threshold', async () => {
+    connected = true;
+    lastInboundAt = Math.floor(Date.now() / 1000) - 10 * 60;
+    const r = await fetch(`${BASE}/health`);
+    expect(r.status).toBe(503);
+    const b = await r.json();
+    expect(b.status).toBe('stale');
+    expect(typeof b.stale_seconds).toBe('number');
+    lastInboundAt = Math.floor(Date.now() / 1000);
   });
 });
 

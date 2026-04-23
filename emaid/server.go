@@ -21,19 +21,20 @@ const historyLimitMax = 50
 type server struct {
 	chanlib.NoFileSender
 	chanlib.NoSocial
-	cfg         config
-	db          *sql.DB
-	reg         *attRegistry
-	dialTLS     func(string, *imapclient.Options) (*imapclient.Client, error)
-	isConnected func() bool
+	cfg           config
+	db            *sql.DB
+	reg           *attRegistry
+	dialTLS       func(string, *imapclient.Options) (*imapclient.Client, error)
+	isConnected   func() bool
+	lastInboundAt func() int64
 }
 
-func newServer(cfg config, db *sql.DB, reg *attRegistry, isConnected func() bool) *server {
-	return &server{cfg: cfg, db: db, reg: reg, dialTLS: imapclient.DialTLS, isConnected: isConnected}
+func newServer(cfg config, db *sql.DB, reg *attRegistry, isConnected func() bool, lastInboundAt func() int64) *server {
+	return &server{cfg: cfg, db: db, reg: reg, dialTLS: imapclient.DialTLS, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"email:"}, s, s.isConnected)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"email:"}, s, s.isConnected, s.lastInboundAt)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))
 	return mux
 }

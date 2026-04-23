@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/onvos/arizuko/chanlib"
 )
@@ -35,11 +36,11 @@ func (b *stubBot) Typing(_ string, on bool) { b.typings = append(b.typings, on) 
 
 func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}
-	return newServer(config{Name: "telegram", ChannelSecret: secret}, sb, func() bool { return true }).handler(), sb
+	return newServer(config{Name: "telegram", ChannelSecret: secret}, sb, func() bool { return true }, func() int64 { return time.Now().Unix() }).handler(), sb
 }
 
 func testHandler(secret string) (http.Handler, *server) {
-	s := newServer(config{Name: "telegram", ChannelSecret: secret}, &stubBot{}, func() bool { return true })
+	s := newServer(config{Name: "telegram", ChannelSecret: secret}, &stubBot{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	return s.handler(), s
 }
 
@@ -139,7 +140,7 @@ func TestServerHealth(t *testing.T) {
 }
 
 func TestServerHealthDisconnected(t *testing.T) {
-	s := newServer(config{Name: "telegram"}, &stubBot{}, func() bool { return false })
+	s := newServer(config{Name: "telegram"}, &stubBot{}, func() bool { return false }, func() int64 { return time.Now().Unix() })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)

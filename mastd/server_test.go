@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/onvos/arizuko/chanlib"
 )
@@ -49,12 +50,12 @@ func (s *stubFiles) FileURL(id string) (string, bool) {
 func testMastServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "mastodon", ChannelSecret: secret}
-	return newServer(cfg, &stubPoster{}, &stubFiles{}, func() bool { return true })
+	return newServer(cfg, &stubPoster{}, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 }
 
 func TestMastPost(t *testing.T) {
 	bot := &stubPoster{postID: "99"}
-	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true })
+	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "content": "toot"})
 	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -69,7 +70,7 @@ func TestMastPost(t *testing.T) {
 
 func TestMastReact(t *testing.T) {
 	bot := &stubPoster{}
-	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true })
+	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "target_id": "t1"})
 	req := httptest.NewRequest("POST", "/react", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -84,7 +85,7 @@ func TestMastReact(t *testing.T) {
 
 func TestMastDeletePost(t *testing.T) {
 	bot := &stubPoster{}
-	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true })
+	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "target_id": "t1"})
 	req := httptest.NewRequest("POST", "/delete-post", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -117,7 +118,7 @@ func TestMastHealth(t *testing.T) {
 }
 
 func TestMastHealthDisconnected(t *testing.T) {
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, &stubFiles{}, func() bool { return false })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, &stubFiles{}, func() bool { return false }, func() int64 { return time.Now().Unix() })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -219,7 +220,7 @@ func TestMastAuthNoSecret(t *testing.T) {
 }
 
 func TestMastSendError(t *testing.T) {
-	s := newServer(config{Name: "mastodon"}, &stubPoster{err: errors.New("boom")}, &stubFiles{}, func() bool { return true })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{err: errors.New("boom")}, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]string{"chat_jid": "mastodon:1", "content": "hi"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -249,7 +250,7 @@ func TestMastFileProxy(t *testing.T) {
 	defer cdn.Close()
 
 	fr := &stubFiles{urls: map[string]string{"att123": cdn.URL + "/media/att123.jpg"}}
-	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr, func() bool { return true })
+	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/att123", nil)
 	req.Header.Set("Authorization", "Bearer sec")
@@ -270,7 +271,7 @@ func TestMastFileProxy(t *testing.T) {
 
 func TestMastFileProxyNotFound(t *testing.T) {
 	fr := &stubFiles{urls: map[string]string{}}
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr, func() bool { return true })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/unknown", nil)
 	w := httptest.NewRecorder()
@@ -283,7 +284,7 @@ func TestMastFileProxyNotFound(t *testing.T) {
 
 func TestMastFileProxyNoAuth(t *testing.T) {
 	fr := &stubFiles{urls: map[string]string{"att1": "http://cdn/x"}}
-	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr, func() bool { return true })
+	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/att1", nil)
 	w := httptest.NewRecorder()
@@ -295,7 +296,7 @@ func TestMastFileProxyNoAuth(t *testing.T) {
 }
 
 func TestMastFileProxyEmptyID(t *testing.T) {
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, &stubFiles{}, func() bool { return true })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/", nil)
 	w := httptest.NewRecorder()
@@ -313,7 +314,7 @@ func TestMastFileProxyCDNError(t *testing.T) {
 	defer cdn.Close()
 
 	fr := &stubFiles{urls: map[string]string{"att1": cdn.URL + "/x"}}
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr, func() bool { return true })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/att1", nil)
 	w := httptest.NewRecorder()

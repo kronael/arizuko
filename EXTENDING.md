@@ -52,13 +52,22 @@ operations (those stay in `control_*`). Tier 0 sees all instances; tier
 
 ## Adapter `/health` contract
 
-`chanlib.NewAdapterMux` requires a non-nil `isConnected func() bool`
-(panics otherwise). `GET /health` returns 200 `{status:"healthy",...}`
-only when `isConnected()` is true; otherwise 503
-`{status:"disconnected"}`. "Connected" means the platform side is live
-(baileys socket open, mastodon stream up, …) — not just that the
-process started. Docker `HEALTHCHECK` flips the container to
-`unhealthy` automatically. Every Go adapter and `whapd` implement it.
+`chanlib.NewAdapterMux` requires non-nil `isConnected func() bool` and
+`lastInboundAt func() int64` (panics otherwise). `GET /health` returns
+200 `{status:"ok",...}` only when `isConnected()` is true AND the most
+recent successful inbound delivery is within the adapter's staleness
+threshold; otherwise 503. Priority: `disconnected` (platform link down)
+
+> `stale` (connected but messages not flowing) > `ok`. The staleness
+> threshold is 5 minutes for realtime/long-poll adapters and 10 minutes
+> for email (IDLE + slower poll fallback); see `staleThresholds` in
+> `chanlib/handler.go`. Adapters plumb `lastInboundAt` as an
+> `atomic.Int64` (Unix seconds), initialized at startup and updated
+> **only** after a successful `rc.SendMessage` on the inbound path —
+> NOT on heartbeat, outbound, or zero-returning polls. The `/health`
+> payload includes `last_inbound_at` always and `stale_seconds` when
+> stale. Docker `HEALTHCHECK` flips the container to `unhealthy`
+> automatically in all 503 cases. Every Go adapter and `whapd` implement it.
 
 ## Skills
 

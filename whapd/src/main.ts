@@ -149,6 +149,10 @@ const listenURL = env('LISTEN_URL', 'http://whapd:9002');
 const rc = new RouterClient(routerURL, channelSecret);
 let reconnectAttempts = 0;
 let connected = false;
+// Unix seconds of the most recent successful inbound delivery to the
+// router. Initialized so /health doesn't flip stale before the first
+// message. Updated only after rc.sendMessage resolves.
+let lastInboundAt = Math.floor(Date.now() / 1000);
 
 const outboundQueue: { jid: string; text: string }[] = [];
 let flushing = false;
@@ -333,6 +337,7 @@ async function connect(): Promise<void> {
               }
             : {}),
         });
+        lastInboundAt = Math.floor(Date.now() / 1000);
       } catch (e) {
         log('error', 'deliver failed', { jid: chatJid, err: String(e) });
       }
@@ -434,6 +439,7 @@ async function main() {
     isConnected,
     queueOutbound,
     setTyping,
+    () => lastInboundAt,
   );
 
   async function shutdown() {
