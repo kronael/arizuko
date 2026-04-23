@@ -1,6 +1,6 @@
 ---
 name: migrate
-description: Intelligently sync skills and files across groups with conflict resolution. Root group only. Use when asked to "migrate", "sync skills", "update skills", or "run migrations".
+description: Intelligently sync skills and files across groups with conflict resolution. Root group only. Use when asked to "migrate", "sync skills", "update skills", or "run migrations", OR after pulling a new agent image / observing a bumped `ant/skills/self/MIGRATION_VERSION`. Do NOT invoke on routine prompts, fresh sessions, or user messages unrelated to release plumbing — this is a root-only release operation, not a greeting path.
 ---
 
 # Migrate
@@ -161,18 +161,22 @@ awk '/^## \[v[0-9]/{if(++n==1){print;next};exit} n==1' \
 Keep the message short — one screenful, plain bullets, title names the
 version. One message per release, not per migration.
 
-Fan out via `refresh_groups` → look up each folder's primary JID from
-the `routes` table → `send_message`:
+Fan out via `refresh_groups` → resolve each folder's primary JID from
+`inspect_routing` (routes with `match` prefix `room=` point at a JID) →
+`send_message`:
 
 ```bash
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
 trap 'mcpc @s close' EXIT
 
+routes=$(mcpc @s tools-call inspect_routing)
+
 mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
   | while read folder; do
-    jid=$(sqlite3 /workspace/store/messages.db \
-      "SELECT substr(match, 6) FROM routes WHERE target = '$folder' \
-       AND match LIKE 'room=%' LIMIT 1")
+    jid=$(echo "$routes" | jq -r --arg f "$folder" '
+      .routes[] | select(.target == $f)
+                | .match | select(startswith("room=")) | sub("^room=";"")
+    ' | head -1)
     test -n "$jid" && mcpc @s tools-call send_message \
       jid:="$jid" text:="$MSG"
   done

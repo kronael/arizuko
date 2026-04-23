@@ -2,7 +2,12 @@
 name: compact-memories
 description: >
   Compress episodes (session transcripts) or diary entries into
-  progressive day/week/month summaries. Run on schedule or manually.
+  progressive day/week/month summaries. Invoke when the scheduled cron
+  prompt fires (`/compact-memories episodes|diary day|week|month`), or
+  when the user explicitly asks to "compact", "summarise yesterday", or
+  "roll up the week". Do NOT self-trigger mid-conversation, and do NOT
+  recompact a period whose output file already exists unless the user
+  asks for a redo — compaction is lossy and expensive.
 user-invocable: true
 arg: <store> <level>
 ---
@@ -49,15 +54,12 @@ the XML envelope and plain-text variants. If the DB shows inbound
 messages for the target date but your parser found zero, the parser
 is wrong — trust the DB.
 
-**Authoritative cross-check**: query the messages DB via MCP `query_db`
-or `sqlite3 /workspace/store/messages.db`:
-```sql
-SELECT sender, substr(content, 1, 200), timestamp
-FROM messages WHERE date(timestamp) = 'YYYY-MM-DD'
-ORDER BY timestamp
-```
-Catches MCP tool calls, steered messages, scheduled tasks the
-transcripts might miss.
+**Authoritative cross-check**: use the `inspect_messages` MCP tool per
+chat. Get the list of chats visible to this group from `inspect_routing`
+(each `routes[].match` of the form `room=<jid>` gives a JID); then for
+each JID call `inspect_messages chat_jid:="$jid"` and filter the
+returned rows to the target date. This catches tool calls, steered
+messages, and scheduled tasks the transcripts might miss.
 
 **Episodes week/month / diary week/month**: Glob the lower-level files
 for the target period.
