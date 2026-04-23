@@ -50,6 +50,16 @@ operations (those stay in `control_*`). Tier 0 sees all instances; tier
 ≥1 is scoped to its own folder subtree. Extend by adding a handler to
 `registerInspect` and wiring a fn into `ipc.StoreFns`.
 
+## Adapter `/health` contract
+
+`chanlib.NewAdapterMux` requires a non-nil `isConnected func() bool`
+(panics otherwise). `GET /health` returns 200 `{status:"healthy",...}`
+only when `isConnected()` is true; otherwise 503
+`{status:"disconnected"}`. "Connected" means the platform side is live
+(baileys socket open, mastodon stream up, …) — not just that the
+process started. Docker `HEALTHCHECK` flips the container to
+`unhealthy` automatically. Every Go adapter and `whapd` implement it.
+
 ## Skills
 
 Three scopes, no inheritance:

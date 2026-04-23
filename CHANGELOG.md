@@ -30,6 +30,12 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- `chanlib`: adapter `/health` now requires platform-connected, not
+  just process-up. `NewAdapterMux` takes a required `isConnected
+func() bool`; `/health` returns 503 `{status:"disconnected"}` when
+  the platform link is down (whapd showing QR, mastd stream dropped,
+  …). Docker `HEALTHCHECK` flips the container `(unhealthy)`
+  automatically. All Go adapters + whapd updated.
 - `grants`: tier-1 now hardcodes `send_message`/`send_file`/`send_reply`.
   Production routes store `room=X` without a `platform=` key, so
   `platformRules` returned empty and tier-1 agents had no send rules.
@@ -38,14 +44,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   (`<messages><message ...>`) as real user activity. Previous heuristic
   discarded them along with tool-result turns, producing false "no
   user activity" summaries.
-- `gateway`: agent failure now quarantines the offending message, not
-  the whole chat. Previously a single crash set `chats.errored=1`,
-  silencing all future traffic until manual sqlite clear — one poison
-  message could take a chat offline indefinitely. Now the failing
-  batch is flagged `messages.errored=1` and the chat stays active;
-  unrelated messages flow normally, and the poison input is never
-  replayed to the agent. `chats.errored` column removed (migration
-  0030).
+- `gateway`: `errored` is now message-level, not chat-level. Previously
+  a single crash set `chats.errored=1`, silencing the whole chat until
+  a manual sqlite clear. Now `store.MarkMessagesErrored` tags the
+  failing batch (`messages.errored=1`); the rows are re-fed to the
+  agent next poll with `errored="true"` in the prompt so it can try
+  differently. After 3 consecutive chat-level failures the circuit
+  breaker (`gateway.onCircuitBreakerOpen`) calls
+  `store.DeleteErroredMessages` + resets the session — no permanent
+  quarantine. `chats.errored` column dropped (migration 0030).
 
 ### Testing
 

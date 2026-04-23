@@ -189,6 +189,14 @@ sudo docker ps --filter "name=arizuko-" --format "{{.Names}} {{.Status}}"
 
 Red flags: `"error in message loop"`, `"container timeout"`, `"circuit breaker open"`.
 
+Adapter `/health` returns 503 `{status:"disconnected"}` when the
+platform side is down even if the process is up (whapd showing QR,
+mastd stream dropped, …). Check on the host:
+
+```bash
+sudo curl -s -o /dev/null -w '%{http_code}\n' http://localhost:<port>/health
+```
+
 ## Shipping changes
 
 1. Add entry to `CHANGELOG.md`
@@ -214,8 +222,11 @@ Red flags: `"error in message loop"`, `"container timeout"`, `"circuit breaker o
 Healthchecks green but the agent doesn't reply — usually one of:
 
 1. **`arizuko-ant` image missing**. Look for `pull access denied for arizuko-ant` in journalctl. Fix: `sudo make -C ant image`.
-2. **Adapter silent**. Check `sudo journalctl -u arizuko_<inst> --since "10 min ago" | grep -viE health`.
-3. **Container exit 125** in gated logs = image/compose mismatch, not a code bug.
+2. **Adapter disconnected**. `docker ps` shows `(unhealthy)` or `/health`
+   returns 503 — platform link is down. whapd waits for QR scan, mastd
+   stream dropped, etc. Check adapter logs, not gated's.
+3. **Adapter silent**. `sudo journalctl -u arizuko_<inst> --since "10 min ago" | grep -viE health`.
+4. **Container exit 125** in gated logs = image/compose mismatch, not a code bug.
 
 Docker log driver is `none` — use `journalctl -u arizuko_<inst>`, not `docker logs`.
 

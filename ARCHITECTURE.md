@@ -48,7 +48,9 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
   → queue.EnqueueMessageCheck → processGroupMessages
     → enrichAttachments: download media → Whisper for voice
     → store.EnrichMessage + MessagesSince + FlushSysMsgs
-    → router.FormatMessages (XML batch) + grants.DeriveRules → start.json
+    → gateway.renderAutocalls (<autocalls> block, prompt top)
+    → router.FormatMessages (XML batch, errored rows tagged
+      errored="true") + grants.DeriveRules → start.json
     → container.Run → stream output → router.FormatOutbound
     → HTTPChannel.Send → POST /send
 ```
@@ -138,28 +140,28 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 
 ## SQLite Schema
 
-| Table              | Key columns                                                                     |
-| ------------------ | ------------------------------------------------------------------------------- |
-| `chats`            | jid (PK), errored, agent_cursor, sticky_group, sticky_topic                     |
-| `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic |
-| `groups`           | folder (PK), name, container_config, slink_token, parent, state, spawn_ttl_days |
-| `routes`           | id (PK), seq, match, target, impulse_config                                     |
-| `sessions`         | group_folder + topic (PK), session_id                                           |
-| `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error               |
-| `system_messages`  | id, group_id, origin, event, body                                               |
-| `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode          |
-| `task_run_logs`    | id (PK), task_id, run_at, duration_ms, status, error                            |
-| `router_state`     | key (PK), value                                                                 |
-| `channels`         | name (PK), url, jid_prefixes, capabilities                                      |
-| `auth_users`       | sub (unique), username (unique), hash, name                                     |
-| `auth_sessions`    | token_hash (PK), user_sub, expires_at                                           |
-| `user_groups`      | user_sub + folder (PK), granted_at                                              |
-| `user_jids`        | user_sub + jid (PK), jid (unique), claimed                                      |
-| `grant_rules`      | folder (PK), rules (JSON)                                                       |
-| `grants`           | id, jid, role, granted_by, granted_at                                           |
-| `chat_reply_state` | jid + topic (PK), last_reply_id                                                 |
-| `email_threads`    | thread_id (PK), chat_jid, subject                                               |
-| `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at  |
+| Table              | Key columns                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------- |
+| `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic                                       |
+| `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored |
+| `groups`           | folder (PK), name, container_config, slink_token, parent, state, spawn_ttl_days          |
+| `routes`           | id (PK), seq, match, target, impulse_config                                              |
+| `sessions`         | group_folder + topic (PK), session_id                                                    |
+| `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error                        |
+| `system_messages`  | id, group_id, origin, event, body                                                        |
+| `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode                   |
+| `task_run_logs`    | id (PK), task_id, run_at, duration_ms, status, error                                     |
+| `router_state`     | key (PK), value                                                                          |
+| `channels`         | name (PK), url, jid_prefixes, capabilities                                               |
+| `auth_users`       | sub (unique), username (unique), hash, name                                              |
+| `auth_sessions`    | token_hash (PK), user_sub, expires_at                                                    |
+| `user_groups`      | user_sub + folder (PK), granted_at                                                       |
+| `user_jids`        | user_sub + jid (PK), jid (unique), claimed                                               |
+| `grant_rules`      | folder (PK), rules (JSON)                                                                |
+| `grants`           | id, jid, role, granted_by, granted_at                                                    |
+| `chat_reply_state` | jid + topic (PK), last_reply_id                                                          |
+| `email_threads`    | thread_id (PK), chat_jid, subject                                                        |
+| `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at           |
 
 WAL mode, 5s busy timeout, migrations via `db_utils.Migrate` (`migrations`
 table keyed by service+version).
@@ -351,11 +353,38 @@ by `/recall`. Compression: daily → weekly → monthly. Spec:
 
 ## Error Handling
 
-- Per-chat `errored` flag in `chats`
-- Agent error, no output: cursor rolled back, flag set, retry
-- Agent error with output: cursor advances, partial preserved
-- Queue circuit breaker: 3 failures → stop until new message
-- Container timeout: graceful `docker stop` → `Process.Kill`
+Per-message `errored` flag (`messages.errored`, migration 0030). No
+per-chat quarantine.
+
+- Agent error, no output: `store.MarkMessagesErrored(ids)` tags the
+  failing batch; cursor stays so the batch reappears next poll. The
+  prompt carries `errored="true"` on those rows so the agent sees
+  it failed the last attempt and must try differently.
+- Agent error with output: same tag + cursor advances (partial work
+  preserved).
+- Queue circuit breaker: 3 consecutive failures →
+  `gateway.onCircuitBreakerOpen` calls `store.DeleteErroredMessages`
+  and resets the session. No permanent quarantine — the next inbound
+  message gets a clean run.
+- Container timeout: graceful `docker stop` → `Process.Kill`.
+
+## Prompt Assembly
+
+Every prompt begins with an `<autocalls>` block
+(`gateway/autocalls.go`) — zero-arg, one-line facts resolved at
+build time. Ships `now`, `instance`, `folder`, `tier`, `session`.
+Cheaper than an MCP tool when the schema cost exceeds the data
+returned; agent sees the value, pays no per-turn call. Empty eval
+output skips the line. See `EXTENDING.md` for adding one.
+
+## MCP Surface
+
+Action tools (`send_*`, `schedule_task`, `register_group`,
+`set_routes`, …) mutate state. Read-only introspection lives in
+the `inspect_*` family (`ipc/inspect.go`): `inspect_messages`,
+`inspect_routing`, `inspect_tasks`, `inspect_session`. Tier 0 sees
+all instances; tier ≥1 is scoped to its own folder subtree. Full
+tool table in `ant/skills/self/SKILL.md`.
 
 ## Mount Security (mountsec)
 
