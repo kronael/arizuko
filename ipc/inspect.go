@@ -18,7 +18,7 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 
 	if db.ListRoutes != nil && db.DefaultFolderForJID != nil {
 		srv.AddTool(mcp.NewTool("inspect_routing",
-			mcp.WithDescription("Inspect routing state: routes visible to this group, JID→folder resolution, and errored-message aggregate per chat. Pass jid to resolve a single JID."),
+			mcp.WithDescription("Return routes visible to this group plus the errored-chat aggregate; pass jid to also resolve that JID to its folder. Use when a message isn't reaching the expected group, or to triage delivery failures. Not for per-chat message rows (inspect_messages) or raw route listing without error context (list_routes)."),
 			mcp.WithString("jid"),
 			mcp.WithNumber("limit"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -52,7 +52,7 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 
 	if db.ListTasks != nil {
 		srv.AddTool(mcp.NewTool("inspect_tasks",
-			mcp.WithDescription("Inspect scheduled tasks visible to this group and recent task_run_logs. Pass task_id for run-log detail."),
+			mcp.WithDescription("Return tasks visible to this group; pass task_id for that task's recent run logs (durations, errors). Use to debug why a scheduled prompt didn't fire or failed. Not for creating/editing tasks (schedule_task, pause_task, cancel_task)."),
 			mcp.WithString("task_id"),
 			mcp.WithNumber("limit"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -81,7 +81,7 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 
 	if db.GetSession != nil && db.RecentSessions != nil {
 		srv.AddTool(mcp.NewTool("inspect_session",
-			mcp.WithDescription("Inspect session state for this group: current session_id, recent session_log entries (message count, last error, last context reset)."),
+			mcp.WithDescription("Return current session_id for this group/topic plus recent session_log rows (message counts, last error, last reset). Use to check whether context is healthy, find the last error, or confirm a reset took. Not for clearing state (reset_session)."),
 			mcp.WithString("topic"),
 			mcp.WithNumber("limit"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

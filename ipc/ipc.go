@@ -311,7 +311,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	registerRaw("send_message", "Send a text message to a chat",
+	registerRaw("send_message", "Deliver a new top-level message to a chat. Use for the normal reply to the user's last message or for a proactive notification. Not for threaded replies to a specific earlier message (send_reply) or file delivery (send_file — its caption replaces this call).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -338,7 +338,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	registerRaw("send_reply", "Send a reply to a chat, optionally threading to a message",
+	registerRaw("send_reply", "Deliver a message threaded to a specific earlier message (quote/reply UI on the platform). Use when disambiguating which message you're answering in an active chat, or when replyToId is known. Defaults to the last outbound reply id if omitted. Not for fresh top-level messages (send_message).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -365,7 +365,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	registerRaw("send_file", "Send a file to a chat. Use caption as the message text — do not send a separate text message when sending a file.",
+	registerRaw("send_file", "Deliver a file from the group workspace (~/) to a chat. Use when the user asked for a file (image, doc, CSV, audio) or when output would exceed a chat-reasonable length. `caption` IS the accompanying message — never follow with send_message. Not for inline text the user can read in-chat.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("filepath", mcp.Required()),
@@ -399,7 +399,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	granted("reset_session", "Clear the agent session for a group",
+	granted("reset_session", "Drop the Claude session for a group so the next message starts fresh context. Use when the user asks for /new, when context is confused/polluted, or before a topic switch. Not for injecting content (inject_message) — this discards, it doesn't add.",
 		[]mcp.ToolOption{mcp.WithString("groupFolder", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			gf := req.GetString("groupFolder", "")
@@ -417,7 +417,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	granted("inject_message", "Inject a message into the store for a chat",
+	granted("inject_message", "Write a synthetic inbound message into the store as if received from chat, triggering the normal agent loop. Use for programmatic prompts, tests, or scheduling one-off runs from tool code. Not for clearing context (reset_session) or sending output to users (send_message).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("content", mcp.Required()),
@@ -446,7 +446,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 
 	granted("register_group",
-		"Register a new agent group at an explicit folder and add a default route from jid to that folder. Set fromPrototype=true to also copy this group's prototype/ directory into the child.",
+		"Create a child agent group and route a jid to it. Use when onboarding a new chat into its own isolated workspace/session, or when spinning up a sub-agent from this group's prototype/ (fromPrototype=true). Not for promoting work up (escalate_group) or handing a task to an existing child (delegate_group).",
 		[]mcp.ToolOption{
 			mcp.WithString("jid", mcp.Required()),
 			mcp.WithString("name"),
@@ -515,7 +515,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(map[string]any{"registered": true, "folder": gfld, "jid": jid})
 		})
 
-	granted("escalate_group", "Escalate a task to the parent group",
+	granted("escalate_group", "Hand a prompt up to this group's parent folder; the parent responds back through this child. Use when the request exceeds this group's authority/tier or needs operator review. Not for peer/child handoff (delegate_group) or creating a new group (register_group). Depth capped at 1.",
 		[]mcp.ToolOption{
 			mcp.WithString("prompt", mcp.Required()),
 			mcp.WithString("chatJid", mcp.Required()),
@@ -560,7 +560,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 
 	if id.Tier <= 2 {
 		srv.AddTool(mcp.NewTool("refresh_groups",
-			mcp.WithDescription("Reload the list of registered groups"),
+			mcp.WithDescription("Return folder/name/parent for every registered group. Use to discover delegation targets or audit the group tree. Not for routing details (inspect_routing) or per-group tasks (inspect_tasks)."),
 		), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if gated.GetGroups == nil {
 				return toolErr("refresh_groups not configured")
@@ -579,7 +579,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	granted("delegate_group", "Delegate a task to a child group",
+	granted("delegate_group", "Hand a prompt down to a specific child group for async execution; the child runs in its own session and workspace. Use to offload specialist work to an existing child without blocking this chat. Not for parent handoff (escalate_group) or creating the child (register_group). Depth capped at 1.",
 		[]mcp.ToolOption{
 			mcp.WithString("group", mcp.Required()),
 			mcp.WithString("prompt", mcp.Required()),
@@ -616,7 +616,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(map[string]any{"queued": true})
 		})
 
-	granted("list_routes", "List all routes visible to this group", nil,
+	granted("list_routes", "Return the routing table rows this group can see. Use for a raw route dump; prefer inspect_routing when you also want JID→folder resolution or errored-chat context.", nil,
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.ListRoutes == nil {
 				return toolErr("list_routes not configured")
@@ -625,9 +625,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 
 	granted("set_routes",
-		"Replace all routes whose target is this folder or under this folder. "+
-			"Each route has seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), "+
-			"target (folder path, or folder:/daemon:/builtin: prefix).",
+		"Bulk-overwrite the full routing table for this folder subtree. Use only for wholesale reconfiguration where you've already read the current set. Prefer add_route/delete_route for targeted edits — this clobbers everything else. "+
+			"Each route: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix).",
 		[]mcp.ToolOption{mcp.WithString("routes", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.SetRoutes == nil {
@@ -653,9 +652,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 
 	granted("add_route",
-		"Add a single route. "+
-			"Fields: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), "+
-			"target (folder path, or folder:/daemon:/builtin: prefix).",
+		"Append one routing rule. Use for targeted routing changes (route one chat, one platform pattern) — preferred over set_routes for everything except full rewrites. "+
+			"Fields: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix).",
 		[]mcp.ToolOption{mcp.WithString("route", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.AddRoute == nil {
@@ -679,7 +677,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(map[string]any{"id": rid})
 		})
 
-	granted("delete_route", "Delete a route by ID",
+	granted("delete_route", "Remove one routing rule by id. Use after list_routes/inspect_routing to surgically drop a rule. Not for bulk clear (set_routes with empty array).",
 		[]mcp.ToolOption{mcp.WithNumber("id", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.DeleteRoute == nil || db.GetRoute == nil {
@@ -704,7 +702,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 
 	granted("schedule_task",
-		"Schedule a recurring or one-time task. cron: cron expression or interval in ms",
+		"Create a scheduled prompt that fires against a target chat. Use when the user asks for reminders, recurring checks, or deferred work. `cron` accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 timestamp for a one-shot. Not for immediate execution (send_message/inject_message).",
 		[]mcp.ToolOption{
 			mcp.WithString("targetJid", mcp.Required()),
 			mcp.WithString("prompt", mcp.Required()),
@@ -775,13 +773,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		desc string
 		exec func(taskID string) error
 	}{
-		{"pause_task", "Pause a scheduled task", func(tid string) error {
+		{"pause_task", "Mark a scheduled task paused so it stops firing but is preserved. Use when suspending a task temporarily. Not for permanent removal (cancel_task).", func(tid string) error {
 			return db.UpdateTaskStatus(tid, core.TaskPaused)
 		}},
-		{"resume_task", "Resume a paused scheduled task", func(tid string) error {
+		{"resume_task", "Re-activate a paused task so it resumes firing on its schedule. Use to undo pause_task. No effect on already-active or cancelled tasks.", func(tid string) error {
 			return db.UpdateTaskStatus(tid, core.TaskActive)
 		}},
-		{"cancel_task", "Cancel and delete a scheduled task", func(tid string) error {
+		{"cancel_task", "Permanently delete a scheduled task. Use when the task is no longer wanted. Not for temporary suspension (pause_task) — this cannot be undone.", func(tid string) error {
 			return db.DeleteTask(tid)
 		}},
 	}
@@ -807,7 +805,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		}
 	}
 
-	granted("list_tasks", "List scheduled tasks visible to this group", nil,
+	granted("list_tasks", "Return scheduled tasks visible to this group. Use for a plain task dump; prefer inspect_tasks when you also want task_run_logs or per-task history.", nil,
 		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.ListTasks == nil {
 				return toolErr("list_tasks not configured")
@@ -817,7 +815,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 
 	if id.Tier <= 1 {
 		srv.AddTool(mcp.NewTool("get_grants",
-			mcp.WithDescription("Get grant rules for a folder (tier 0-1 only)"),
+			mcp.WithDescription("Read the MCP grant rule list for a folder. Use to audit what a group is permitted to do before adjusting. Tier 0-1 only. Pair with set_grants to change."),
 			mcp.WithString("folder", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.GetGrants == nil {
@@ -834,7 +832,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 
 		srv.AddTool(mcp.NewTool("set_grants",
-			mcp.WithDescription("Set grant rules for a folder (tier 0-1 only)"),
+			mcp.WithDescription("Overwrite the full grant rule list for a folder. Use when changing what tools/targets a group may invoke; read first with get_grants. Tier 0-1 only. Takes effect on next MCP session."),
 			mcp.WithString("folder", mcp.Required()),
 			mcp.WithString("rules", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -897,14 +895,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			})
 		}
 		srv.AddTool(mcp.NewTool("inspect_messages",
-			mcp.WithDescription("Read local message DB for a chat — outbound audit, errored rows, routing introspection. For conversation context prefer fetch_history."),
+			mcp.WithDescription("Return rows from the local messages.db for one chat_jid, including outbound/bot rows and errored entries. Use for routing/delivery audits or to verify what the store recorded. Not for conversation context before replying (fetch_history) — this shows DB truth, not platform history."),
 			mcp.WithString("chat_jid", mcp.Required()),
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
 		), inspectMessages)
 		// Back-compat alias; remove after next agent release.
 		srv.AddTool(mcp.NewTool("get_history",
-			mcp.WithDescription("DEPRECATED alias for inspect_messages. Use fetch_history for conversation context."),
+			mcp.WithDescription("DEPRECATED alias for inspect_messages. Do not use in new code — pick inspect_messages for DB audit or fetch_history for conversation context."),
 			mcp.WithString("chat_jid", mcp.Required()),
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
@@ -913,7 +911,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 
 	if gated.FetchPlatformHistory != nil {
 		srv.AddTool(mcp.NewTool("fetch_history",
-			mcp.WithDescription("Fetch conversation history from the channel (platform API). Writes to the local cache; falls back to cache when the adapter is unreachable."),
+			mcp.WithDescription("Pull authoritative conversation history from the channel adapter and cache it. Use to reconstruct context before replying, especially on first contact or after a reset_session. Falls back to local cache if the adapter is down. Not for DB/routing audits (inspect_messages)."),
 			mcp.WithString("chat_jid", mcp.Required()),
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
@@ -956,7 +954,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	}
 
 	if id.Tier == 0 {
-		granted("set_web_host", "Set a virtual host mapping (hostname → folder)",
+		granted("set_web_host", "Bind a hostname to a group folder in vhosts.json so proxyd serves that folder at that host. Use when exposing a group's web/ via a custom domain. Tier 0 only.",
 			[]mcp.ToolOption{
 				mcp.WithString("hostname", mcp.Required()),
 				mcp.WithString("folder", mcp.Required()),
@@ -991,7 +989,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	}
 
 	srv.AddTool(mcp.NewTool("get_work",
-		mcp.WithDescription("Read the current work.md for this group"),
+		mcp.WithDescription("Read this group's work.md — current work, blockers, next steps. Use at the start of a turn to recover what was in-flight. Returns empty content when the file doesn't exist."),
 	), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if gated.GroupsDir == "" {
 			return toolErr("get_work not configured")
@@ -1008,7 +1006,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 
 	if id.Tier <= 2 {
 		srv.AddTool(mcp.NewTool("set_work",
-			mcp.WithDescription("Overwrite work.md for this group (current work, blockers, next steps)"),
+			mcp.WithDescription("Overwrite this group's work.md with a fresh snapshot of current work, blockers, and next steps. Use at turn end to checkpoint state for the next session. This replaces the file — read with get_work first if merging."),
 			mcp.WithString("content", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if gated.GroupsDir == "" {
@@ -1036,7 +1034,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	registerInspect(srv, db, id, folder)
 
 	if id.Tier <= 1 {
-		granted("get_web_host", "Get virtual host mapping for a folder",
+		granted("get_web_host", "Return the hostname currently bound to a folder (or this folder by default). Use to verify vhost wiring before pointing users at a URL. Tier 0-1; non-root can only query own folder.",
 			[]mcp.ToolOption{mcp.WithString("folder")},
 			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				targetFolder := req.GetString("folder", folder)
