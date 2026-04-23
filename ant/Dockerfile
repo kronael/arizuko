@@ -7,6 +7,7 @@
 FROM node:22-slim
 
 # Pinned tool versions — bump intentionally, never use `latest`.
+# Exception: the Anthropic SDK + CLI auto-update on every build (see below).
 ENV YT_DLP_VERSION=2024.12.23 \
     YQ_VERSION=v4.44.3 \
     HADOLINT_VERSION=v2.12.0 \
@@ -180,6 +181,11 @@ RUN uv pip install --system --break-system-packages \
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
+# Anthropic SDK auto-updates to latest on every image build; overrides
+# the version pinned in package-lock.json. System tools above stay pinned
+# for reproducibility — quality regressions in third-party system tools
+# are rare; regressions in Anthropic SDK are fixed by upstream fast.
+RUN npm install @anthropic-ai/claude-agent-sdk@latest
 COPY . ./
 COPY output-styles/ /home/node/.claude/output-styles/
 RUN npm run build && rm -rf dist
