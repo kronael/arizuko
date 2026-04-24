@@ -9,4 +9,5 @@
 | [5/](5/)     | agent extensions & workflows — future             | future    |
 | [6/](6/)     | products — deferred                               | deferred  |
 | [7/](7/)     | grants, onboarding, access control                | active    |
+| [8/](8/)     | later — committed direction, not scheduled        | planned   |
 | [res/](res/) | resources — research, examples, references        | reference |

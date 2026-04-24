@@ -18,7 +18,6 @@ status: future
 | [C-message-mcp.md](C-message-mcp.md)                           | partial   | `get_history` shipped; `get_thread` pending                        |
 | [D-message-wal.md](D-message-wal.md)                           | unshipped | WAL for reliable pipe-to-container message delivery                |
 | [E-plugins.md](E-plugins.md)                                   | unshipped | Agent proposes, operator approves plugin system                    |
-| [G-agent-backends.md](G-agent-backends.md)                     | rejected  | Codex / Pi as ant backends — not shipping                          |
 | [H-call-llm-mcp.md](H-call-llm-mcp.md)                         | unshipped | `call_llm` tool for non-Claude models via OpenRouter               |
 | [J-sse.md](J-sse.md)                                           | partial   | Groups are the SSE auth boundary                                   |
 | [M-webdav.md](M-webdav.md)                                     | shipped   | dufs + proxyd Basic Auth, per-group workspace over WebDAV          |
@@ -30,7 +29,6 @@ status: future
 | [S-jid-format.md](S-jid-format.md)                             | unshipped | `platform:account/id` JID, account resolved after Connect          |
 | [T-voice-synthesis.md](T-voice-synthesis.md)                   | unshipped | `ttsd` + `send_voice` MCP tool                                     |
 | [Z-cli-chat.md](Z-cli-chat.md)                                 | unshipped | `arizuko chat` — interactive terminal agent                        |
-| [a-crackbox-sandboxing.md](a-crackbox-sandboxing.md)           | planned   | QEMU/KVM resident-VM sandboxing via crackbox                       |
 | [b-memory-skills-standalone.md](b-memory-skills-standalone.md) | unshipped | Memory skills as standalone distribution                           |
 | [c-agent-services.md](c-agent-services.md)                     | unshipped | `servd` for agent-declared persistent services                     |
 | [d-self-improvement.md](d-self-improvement.md)                 | unshipped | Scheduled self-eval via timed cron                                 |
