@@ -337,6 +337,12 @@ Attachment paths appear in message content as:
 - `path` is absolute — use directly with file tools
 - Voice is pre-transcribed; prefer `transcript` over re-transcribing
 - Files persist (no auto-cleanup)
+
+Inbound PDFs, images, markdown, JSON, and source-code attachments arrive
+as on-disk files at `path=...`. Use `Read` (or the equivalent in your
+available tool set) to inspect them directly — do NOT claim "I can't
+display this" or ask the user to paste content. Voice/video transcripts
+are already pre-decoded; prefer `transcript=` over re-transcribing.
 - If the message has `[Document: name]` with NO `<attachment path=…>`
   tag, the file did NOT arrive. Do NOT claim you read it. Reply: "The
   file didn't reach me — please re-share as a file attachment." Log to

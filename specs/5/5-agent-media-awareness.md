@@ -1,5 +1,5 @@
 ---
-status: unshipped
+status: shipped
 ---
 
 # Agent media awareness
@@ -15,3 +15,9 @@ instruction. Fixes observed "I can't display this" responses.
 Unblockers: write the CLAUDE.md section, update
 `ant/skills/howto/SKILL.md`, add migration entry, bump
 MIGRATION_VERSION.
+
+> Shipped 2026-04-24: `ant/CLAUDE.md` "Inbound media attachments"
+> section now tells the agent explicitly that PDFs/images/markdown/
+> JSON/source attachments are on-disk files readable via `Read` — no
+> "I can't display this" fallback. Migration `071-media-awareness.md`;
+> MIGRATION_VERSION bumped 70 → 71.
