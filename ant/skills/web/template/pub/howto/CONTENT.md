@@ -95,7 +95,7 @@ You  [voice: can you summarise the last three tickets?]
 
 A **world** is your top-level workspace — your own files, diary, memory, skills, and web space. Worlds are isolated from each other: no cross-reads, no shared state. Inside a world, you can nest **groups** (also called rooms): subspaces for specific projects or channels.
 
-Every group sits on a tier. Tier 1 is your world root — full send + management tools. Tier 2 sub-groups can send but not manage routing. Tier 3+ can only reply in-thread. The agent knows its own tier and only exposes tools appropriate to it. Groups are the unit of ACLs, sessions, and web URLs.
+Every group sits on a tier. Tier 1 is your world root — full send + management tools. Tier 2 sub-groups can send but not manage routing. Tier 3+ reply in-thread and can still attach files via `send_file`. The agent knows its own tier and only exposes tools appropriate to it. Groups are the unit of ACLs, sessions, and web URLs.
 
 ```
 myworld/              tier 1 — your world root
@@ -112,7 +112,7 @@ myworld/project-a/notes/   tier 3 — nested further, reply-only
 The agent maintains four knowledge layers, each a folder of markdown files under its workspace:
 
 - **Diary** (`diary/YYYYMMDD.md`) — daily work log, written at session end. The last 14 days are injected at session start.
-- **Facts** (`facts/<topic>.md`) — researched knowledge with `verified_at` timestamps. Stale entries (>14 days) get refreshed before being used.
+- **Facts** (`facts/<topic>.md`) — researched knowledge with `verified_at` timestamps, written only via the `/find` skill. Stale entries (>14 days) get refreshed before being used.
 - **Users** (`users/<id>.md`) — per-user preferences, role, history. The agent adapts without you repeating yourself.
 - **Episodes** — compressed session summaries, daily rolling up into weekly, then monthly. Month-old work is recalled without re-reading every message.
 
@@ -154,6 +154,8 @@ On top of that, the last 14 days of diary and any user-specific notes are always
 **TLDR:** The agent can query its own routing, messages, tasks, and session state — read-only.
 
 When you ask "why didn't that message reach the other group?" or "what tasks are scheduled?", the agent uses `inspect_routing`, `inspect_messages`, `inspect_tasks`, and `inspect_session` — read-only views into the gateway's database, scoped to its own group. No shelling out to logs or DB consoles.
+
+On adapters that support it (Telegram, Discord, Mastodon, Bluesky, Reddit, LinkedIn, email — everything except WhatsApp), the agent can also call `fetch_history` to pull prior messages from the channel for backfill or search.
 
 ```
 you    is my weather task still running?
@@ -245,22 +247,22 @@ convert this video to mp3 and send it back
 
 ## 14 — Dashboard & Health
 
-**TLDR:** `/dash/` shows status, tasks, memory. Adapters report stale when a channel goes silent.
+**TLDR:** `/dash/` is the operator dashboard (auth-gated). `/pub/` is public static content. Adapters report `stale` when a channel goes silent.
 
-Log in via OAuth (Google, GitHub, Discord) or Telegram login. Pause or cancel tasks, browse per-group memory and configuration, and approve onboarding requests — all from one place.
+Log in via OAuth (GitHub, Google, Discord) or Telegram login at `/auth/login`. The dashboard lives at `/dash/` — six views served by `dashd`. `/pub/` is a separate namespace for public static files (docs, web apps), not the dashboard.
+
+| Path             | What it shows                                              |
+| ---------------- | ---------------------------------------------------------- |
+| `/dash/`         | Portal — one-glance health of every subsystem              |
+| `/dash/status/`  | Channels, groups, active containers, errored messages      |
+| `/dash/tasks/`   | Scheduled tasks · run history · pause / cancel             |
+| `/dash/activity/`| Recent messages · routing decisions                        |
+| `/dash/groups/`  | Routing table · per-group config · message counts          |
+| `/dash/memory/`  | Browse diary, facts, users, CLAUDE.md per group            |
 
 Each adapter publishes a `/health` endpoint that flips to `stale` when inbound traffic stops flowing, not just when the process dies. A silent Telegram bot, a dropped Mastodon stream, a logged-out WhatsApp session — all surface as unhealthy before you wonder why nobody's replying.
 
-```
-https://bot.example.com/dash/
-
-Status      channels · groups · active containers · errors
-Tasks       scheduled jobs · run history · pause / cancel
-Groups      routing table · group config · message counts
-Memory      browse MEMORY.md · CLAUDE.md per group
-Activity    last 50 messages · routing decisions
-Onboarding  approve / reject new user requests
-```
+Messages that crash the agent get quarantined with an `errored` flag; three consecutive errors on one JID auto-reset the session so a single poisoned prompt can't wedge a group forever.
 
 ---
 
