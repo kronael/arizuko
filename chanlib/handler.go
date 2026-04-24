@@ -318,10 +318,13 @@ func handleDeletePost(bot BotHandler) http.HandlerFunc {
 
 // staleThresholds sets per-adapter tolerance before /health flips to stale.
 // Realtime streaming/long-poll adapters use 5m; email uses 10m because IDLE
-// + poll-fallback is naturally lumpier. Adapters not listed fall back to the
-// 5m default.
+// + poll-fallback is naturally lumpier. Reddit uses 1h because low-traffic
+// subreddits may legitimately have no new submissions for long stretches
+// while the poller is perfectly healthy (isConnected covers that).
+// Adapters not listed fall back to the 5m default.
 var staleThresholds = map[string]time.Duration{
-	"email": 10 * time.Minute,
+	"email":  10 * time.Minute,
+	"reddit": 60 * time.Minute,
 }
 
 const defaultStaleThreshold = 5 * time.Minute
