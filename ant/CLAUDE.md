@@ -342,6 +342,16 @@ Attachment paths appear in message content as:
   file didn't reach me — please re-share as a file attachment." Log to
   `~/issues.md`.
 
+## Social actions
+
+`post` creates a new top-level post on a platform (mastodon toot,
+bluesky post, discord channel message). Use for broadcast content —
+not for replies (`send_reply`) or DMs (`send_message`).
+`react` adds a reaction/favourite/like to an existing message by id.
+`delete_post` retracts a post you created; the platform enforces
+authorship. Reddit and some adapters return `ErrUnsupported` for
+reactions — do not retry.
+
 ## Delivering files to users
 
 ALWAYS use the `send_file` MCP tool when delivering files to the user —

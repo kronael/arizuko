@@ -142,6 +142,8 @@ func MatchingRules(rules []string, action string) []string {
 
 var platformSendActions = []string{"send_message", "send_file", "send_reply"}
 
+var platformPostActions = []string{"post", "react", "delete_post"}
+
 var tier1FixedActions = []string{
 	"schedule_task", "register_group", "escalate_group", "delegate_group",
 	"get_routes", "set_routes", "add_route", "delete_route",
@@ -163,7 +165,7 @@ func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []
 	case 2:
 		return deriveTier2Rules(jidsIn(folder))
 	default:
-		return []string{"send_reply", "send_file"}
+		return []string{"send_reply", "send_file", "react"}
 	}
 }
 
@@ -171,6 +173,9 @@ func platformRules(jids []string) []string {
 	var rules []string
 	for _, p := range extractPlatforms(jids) {
 		for _, a := range platformSendActions {
+			rules = append(rules, a+"(jid="+p+":*)")
+		}
+		for _, a := range platformPostActions {
 			rules = append(rules, a+"(jid="+p+":*)")
 		}
 	}

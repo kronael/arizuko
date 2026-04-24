@@ -399,6 +399,89 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
+	registerRaw("post", "Create a new top-level post on a platform (mastodon toot, bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (send_reply), direct messages (send_message), or file delivery (send_file). Tier 0-2 only.",
+		[]mcp.ToolOption{
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("content", mcp.Required()),
+			mcp.WithArray("media"),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chatJid", "")
+			if !grantslib.CheckAction(rules, "post", map[string]string{"jid": jid}) {
+				return toolErr("post: not permitted")
+			}
+			if gated.Post == nil {
+				return toolErr("post not configured")
+			}
+			content := req.GetString("content", "")
+			var mediaPaths []string
+			if raw := req.GetStringSlice("media", nil); len(raw) > 0 {
+				for _, fp := range raw {
+					rel, err := workspaceRel(fp)
+					if err != nil {
+						return toolErr(err.Error())
+					}
+					localPath := filepath.Join(gated.GroupsDir, folder, rel)
+					groupRoot := filepath.Join(gated.GroupsDir, folder)
+					if _, err := mountsec.ValidateFilePath(localPath, groupRoot); err != nil {
+						return toolErr("media path outside group dir")
+					}
+					mediaPaths = append(mediaPaths, localPath)
+				}
+			}
+			slog.Info("post", "folder", folder, "jid", jid, "media", len(mediaPaths))
+			platformID, err := gated.Post(jid, content, mediaPaths)
+			if err != nil {
+				return toolErr(err.Error())
+			}
+			recordOutbound(db, jid, content, "", platformID, folder, "")
+			return toolJSON(map[string]any{"ok": true, "id": platformID})
+		})
+
+	registerRaw("react", "Add a reaction to an existing message (unicode emoji on discord, favourite on mastodon, like on bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Not for textual responses (send_reply) or new posts (post). Platform decides what reaction strings are valid; unsupported platforms return an error.",
+		[]mcp.ToolOption{
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("targetId", mcp.Required()),
+			mcp.WithString("reaction", mcp.Required()),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chatJid", "")
+			if !grantslib.CheckAction(rules, "react", map[string]string{"jid": jid}) {
+				return toolErr("react: not permitted")
+			}
+			if gated.React == nil {
+				return toolErr("react not configured")
+			}
+			targetID := req.GetString("targetId", "")
+			reaction := req.GetString("reaction", "")
+			slog.Info("react", "folder", folder, "jid", jid, "target", targetID, "reaction", reaction)
+			if err := gated.React(jid, targetID, reaction); err != nil {
+				return toolErr(err.Error())
+			}
+			return toolOK()
+		})
+
+	registerRaw("delete_post", "Delete a post/message previously created by this agent (platform enforces authorship). Use to retract an incorrect or superseded post. Not for editing (no edit tool — delete and re-post) or for hiding inbound messages. Tier 0-2 only.",
+		[]mcp.ToolOption{
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("targetId", mcp.Required()),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chatJid", "")
+			if !grantslib.CheckAction(rules, "delete_post", map[string]string{"jid": jid}) {
+				return toolErr("delete_post: not permitted")
+			}
+			if gated.DeletePost == nil {
+				return toolErr("delete_post not configured")
+			}
+			targetID := req.GetString("targetId", "")
+			slog.Info("delete_post", "folder", folder, "jid", jid, "target", targetID)
+			if err := gated.DeletePost(jid, targetID); err != nil {
+				return toolErr(err.Error())
+			}
+			return toolOK()
+		})
+
 	granted("reset_session", "Drop the Claude session for a group so the next message starts fresh context. Use when the user asks for /new, when context is confused/polluted, or before a topic switch. Not for injecting content (inject_message) — this discards, it doesn't add.",
 		[]mcp.ToolOption{mcp.WithString("groupFolder", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

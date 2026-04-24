@@ -293,7 +293,7 @@ func TestDeriveRules_Tier0(t *testing.T) {
 
 func TestDeriveRules_Tier3Plus(t *testing.T) {
 	rules := DeriveRules(nil, "leaf", 3, "leaf")
-	want := map[string]bool{"send_reply": true, "send_file": true}
+	want := map[string]bool{"send_reply": true, "send_file": true, "react": true}
 	if len(rules) != len(want) {
 		t.Fatalf("tier 3+ = %v, want %v", rules, want)
 	}
@@ -301,6 +301,57 @@ func TestDeriveRules_Tier3Plus(t *testing.T) {
 		if !want[r] {
 			t.Fatalf("tier 3+ unexpected rule %q (got %v)", r, rules)
 		}
+	}
+	// post and delete_post must NOT be present at tier 3+.
+	if CheckAction(rules, "post", map[string]string{"jid": "mastodon:home"}) {
+		t.Error("tier 3+ must not allow post")
+	}
+	if CheckAction(rules, "delete_post", map[string]string{"jid": "mastodon:home"}) {
+		t.Error("tier 3+ must not allow delete_post")
+	}
+}
+
+func TestDeriveRules_Tier1_PostActions(t *testing.T) {
+	s := openTestStore(t)
+	addRoute(t, s, "mastodon:home", "main")
+	addRoute(t, s, "discord:200", "main")
+
+	rules := DeriveRules(s, "main", 1, "main")
+	want := []string{
+		"post(jid=mastodon:*)",
+		"react(jid=mastodon:*)",
+		"delete_post(jid=mastodon:*)",
+		"post(jid=discord:*)",
+		"react(jid=discord:*)",
+		"delete_post(jid=discord:*)",
+	}
+	set := map[string]bool{}
+	for _, r := range rules {
+		set[r] = true
+	}
+	for _, w := range want {
+		if !set[w] {
+			t.Errorf("tier 1: missing rule %q (got %v)", w, rules)
+		}
+	}
+}
+
+func TestDeriveRules_Tier2_PostActions(t *testing.T) {
+	s := openTestStore(t)
+	addRoute(t, s, "bluesky:at://x", "main/child")
+
+	rules := DeriveRules(s, "main/child", 2, "main")
+	if !CheckAction(rules, "post", map[string]string{"jid": "bluesky:at://foo"}) {
+		t.Error("tier 2: bluesky route should allow post(jid=bluesky:*)")
+	}
+	if !CheckAction(rules, "react", map[string]string{"jid": "bluesky:at://foo"}) {
+		t.Error("tier 2: bluesky route should allow react(jid=bluesky:*)")
+	}
+	if !CheckAction(rules, "delete_post", map[string]string{"jid": "bluesky:at://foo"}) {
+		t.Error("tier 2: bluesky route should allow delete_post(jid=bluesky:*)")
+	}
+	if CheckAction(rules, "post", map[string]string{"jid": "telegram:123"}) {
+		t.Error("tier 2: telegram not routed, post should be denied")
 	}
 }
 

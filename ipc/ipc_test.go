@@ -127,6 +127,41 @@ func TestAllToolsRegistered(t *testing.T) {
 	}
 }
 
+func TestSocialActionsRegistered(t *testing.T) {
+	var postCalls, reactCalls, deleteCalls int
+	gated := GatedFns{
+		Post: func(jid, content string, media []string) (string, error) {
+			postCalls++
+			return "pid-1", nil
+		},
+		React: func(jid, target, reaction string) error {
+			reactCalls++
+			return nil
+		},
+		DeletePost: func(jid, target string) error {
+			deleteCalls++
+			return nil
+		},
+		GroupsDir: "/tmp/groups",
+		WebDir:    "/tmp/web",
+	}
+	// Rules permit all three actions for mastodon only. Tier-0 (folder="world").
+	rules := []string{
+		"post(jid=mastodon:*)",
+		"react(jid=mastodon:*)",
+		"delete_post(jid=mastodon:*)",
+	}
+	srv := buildMCPServer(gated, StoreFns{}, "world", rules)
+	if srv == nil {
+		t.Fatal("expected non-nil server")
+	}
+	// With no matching rules, tools must not register at all (registerRaw early-returns).
+	srv2 := buildMCPServer(gated, StoreFns{}, "w/a/b/c", []string{"send_reply"})
+	if srv2 == nil {
+		t.Fatal("expected non-nil server for tier-3 subset")
+	}
+}
+
 func TestSendReply(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },

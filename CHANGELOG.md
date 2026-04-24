@@ -11,6 +11,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- `ipc`: `post` / `react` / `delete_post` MCP tools — wire adapter-level
+  implementations to the agent MCP surface. Platform-scoped grants derived
+  per tier; `react` available at tier 3 (reply-adjacent).
 - `chanlib`: channel-level liveness. Adapter `/health` now flips 503
   `{status:"stale"}` when no inbound message has been successfully
   delivered to the router within the staleness threshold (5m realtime,
