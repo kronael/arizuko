@@ -32,7 +32,7 @@ router. Outbound posts use `app.bsky.feed.post`.
 ## Limitations
 
 - Outbound file/media upload is not implemented. `post`, `send_reply`,
-  and `react` are wired; `send_file` is not.
+  and `like` are wired; `send_file` is not.
 
 ## Health signal
 

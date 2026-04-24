@@ -100,17 +100,17 @@ func TestBotHandler_Send(t *testing.T) {
 	assertPath(t, rec, "POST", "/channels/ch-1/messages")
 }
 
-func TestBotHandler_React(t *testing.T) {
+func TestBotHandler_Like(t *testing.T) {
 	rec := &recorded{}
 	srv := newRecordingDiscordServer(t, rec)
 	defer srv.Close()
 	defer mockAllDiscordEndpoints(srv.URL)()
 
 	b := &bot{session: newTestSession(t)}
-	if err := b.React(chanlib.ReactRequest{
+	if err := b.Like(chanlib.LikeRequest{
 		ChatJID: "discord:ch-1", TargetID: "msg-99", Reaction: "🔥",
 	}); err != nil {
-		t.Fatalf("React: %v", err)
+		t.Fatalf("Like: %v", err)
 	}
 	// URL is /channels/<ch>/messages/<mid>/reactions/<emoji>/<user>
 	var ok bool

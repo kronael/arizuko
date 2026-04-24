@@ -203,7 +203,7 @@ func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.Inbo
 		}
 		msg.ID = "fav-" + string(n.Status.ID) + "-" + string(acc.ID)
 		msg.Content = "❤️"
-		msg.Verb = "react"
+		msg.Verb = "like"
 	case "reblog":
 		if n.Status == nil {
 			return chanlib.InboundMsg{}, false
@@ -249,7 +249,7 @@ func (mc *mastoClient) Post(req chanlib.PostRequest) (string, error) {
 	return string(status.ID), nil
 }
 
-func (mc *mastoClient) React(req chanlib.ReactRequest) error {
+func (mc *mastoClient) Like(req chanlib.LikeRequest) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if _, err := mc.client.Favourite(ctx, mastodon.ID(req.TargetID)); err != nil {

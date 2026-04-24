@@ -22,14 +22,14 @@ type SendRequest struct {
 
 // BotHandler is the interface adapters implement for outbound messaging.
 // Send returns the sent message ID (may be ""); Typing is fire-and-forget.
-// Post, React, DeletePost are social-action primitives — adapters that
+// Post, Like, DeletePost are social-action primitives — adapters that
 // don't support them should embed NoSocial to get "unsupported" defaults.
 type BotHandler interface {
 	Send(req SendRequest) (string, error)
 	SendFile(jid, path, name, caption string) error
 	Typing(jid string, on bool)
 	Post(req PostRequest) (string, error)
-	React(req ReactRequest) error
+	Like(req LikeRequest) error
 	DeletePost(req DeleteRequest) error
 }
 
@@ -39,7 +39,7 @@ type PostRequest struct {
 	MediaPaths []string `json:"media_paths,omitempty"`
 }
 
-type ReactRequest struct {
+type LikeRequest struct {
 	ChatJID  string `json:"chat_jid"`
 	TargetID string `json:"target_id"`
 	Reaction string `json:"reaction"`
@@ -55,12 +55,12 @@ type DeleteRequest struct {
 var ErrUnsupported = errors.New("unsupported")
 
 // NoSocial is a zero-value mixin providing "unsupported" defaults for
-// Post, React, DeletePost. Adapters that implement a subset embed this
+// Post, Like, DeletePost. Adapters that implement a subset embed this
 // and override the relevant method(s).
 type NoSocial struct{}
 
 func (NoSocial) Post(PostRequest) (string, error) { return "", ErrUnsupported }
-func (NoSocial) React(ReactRequest) error         { return ErrUnsupported }
+func (NoSocial) Like(LikeRequest) error           { return ErrUnsupported }
 func (NoSocial) DeletePost(DeleteRequest) error   { return ErrUnsupported }
 
 // HistoryRequest is the query for platform-side history fetch.
@@ -115,7 +115,7 @@ func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isCon
 	mux.HandleFunc("POST /send-file", Auth(secret, handleSendFile(bot)))
 	mux.HandleFunc("POST /typing", Auth(secret, handleTyping(bot)))
 	mux.HandleFunc("POST /post", Auth(secret, handlePost(bot)))
-	mux.HandleFunc("POST /react", Auth(secret, handleReact(bot)))
+	mux.HandleFunc("POST /like", Auth(secret, handleLike(bot)))
 	mux.HandleFunc("POST /delete-post", Auth(secret, handleDeletePost(bot)))
 	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt))
 	if hp, ok := bot.(HistoryProvider); ok {
@@ -276,15 +276,15 @@ func handlePost(bot BotHandler) http.HandlerFunc {
 	}
 }
 
-func handleReact(bot BotHandler) http.HandlerFunc {
+func handleLike(bot BotHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
-		var req ReactRequest
+		var req LikeRequest
 		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" {
 			WriteErr(w, 400, "chat_jid and target_id required")
 			return
 		}
-		if err := bot.React(req); err != nil {
+		if err := bot.Like(req); err != nil {
 			if errors.Is(err, ErrUnsupported) {
 				WriteErr(w, 501, "unsupported")
 				return

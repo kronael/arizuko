@@ -134,7 +134,7 @@ func TestSocialActionsRegistered(t *testing.T) {
 			postCalls++
 			return "pid-1", nil
 		},
-		React: func(jid, target, reaction string) error {
+		Like: func(jid, target, reaction string) error {
 			reactCalls++
 			return nil
 		},
@@ -148,7 +148,7 @@ func TestSocialActionsRegistered(t *testing.T) {
 	// Rules permit all three actions for mastodon only. Tier-0 (folder="world").
 	rules := []string{
 		"post(jid=mastodon:*)",
-		"react(jid=mastodon:*)",
+		"like(jid=mastodon:*)",
 		"delete_post(jid=mastodon:*)",
 	}
 	srv := buildMCPServer(gated, StoreFns{}, "world", rules)

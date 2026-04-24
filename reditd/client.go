@@ -479,7 +479,7 @@ func (rc *redditClient) Post(req chanlib.PostRequest) (string, error) {
 	return "", nil
 }
 
-func (rc *redditClient) React(chanlib.ReactRequest) error { return chanlib.ErrUnsupported }
+func (rc *redditClient) Like(chanlib.LikeRequest) error { return chanlib.ErrUnsupported }
 
 func (rc *redditClient) DeletePost(req chanlib.DeleteRequest) error {
 	data := url.Values{"id": {req.TargetID}}

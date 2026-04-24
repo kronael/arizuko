@@ -29,7 +29,7 @@ type GatedFns struct {
 	SendReply           func(jid, text, replyToId string) (string, error)
 	SendDocument        func(jid, path, filename, caption string) error
 	Post                func(jid, content string, mediaPaths []string) (string, error)
-	React               func(jid, targetID, reaction string) error
+	Like                func(jid, targetID, reaction string) error
 	DeletePost          func(jid, targetID string) error
 	ClearSession        func(folder string)
 	InjectMessage       func(jid, content, sender, senderName string) (string, error)
@@ -438,7 +438,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("react", "Add a reaction to an existing message (unicode emoji on discord, favourite on mastodon, like on bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Not for textual responses (send_reply) or new posts (post). Platform decides what reaction strings are valid; unsupported platforms return an error.",
+	registerRaw("like", "Like an existing message (unicode emoji on discord, favourite on mastodon, like on bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Not for textual responses (send_reply) or new posts (post). Platform decides what reaction strings are valid; unsupported platforms return an error.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("targetId", mcp.Required()),
@@ -446,16 +446,16 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "react", map[string]string{"jid": jid}) {
-				return toolErr("react: not permitted")
+			if !grantslib.CheckAction(rules, "like", map[string]string{"jid": jid}) {
+				return toolErr("like: not permitted")
 			}
-			if gated.React == nil {
-				return toolErr("react not configured")
+			if gated.Like == nil {
+				return toolErr("like not configured")
 			}
 			targetID := req.GetString("targetId", "")
 			reaction := req.GetString("reaction", "")
-			slog.Info("react", "folder", folder, "jid", jid, "target", targetID, "reaction", reaction)
-			if err := gated.React(jid, targetID, reaction); err != nil {
+			slog.Info("like", "folder", folder, "jid", jid, "target", targetID, "reaction", reaction)
+			if err := gated.Like(jid, targetID, reaction); err != nil {
 				return toolErr(err.Error())
 			}
 			return toolOK()

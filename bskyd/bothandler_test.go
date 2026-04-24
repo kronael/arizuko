@@ -59,7 +59,7 @@ func TestBotHandler_Post(t *testing.T) {
 	}
 }
 
-func TestBotHandler_React(t *testing.T) {
+func TestBotHandler_Like(t *testing.T) {
 	m := newBskyMock()
 	defer m.close()
 	bc := newTestClient(t, m)
@@ -67,14 +67,14 @@ func TestBotHandler_React(t *testing.T) {
 		t.Fatal(err)
 	}
 	targetURI := "at://did:plc:other/app.bsky.feed.post/rkeyXYZ"
-	if err := bc.React(chanlib.ReactRequest{
+	if err := bc.Like(chanlib.LikeRequest{
 		ChatJID: "bluesky:x", TargetID: targetURI, Reaction: "👍",
 	}); err != nil {
-		t.Fatalf("React: %v", err)
+		t.Fatalf("Like: %v", err)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// React creates a feed.like record.
+	// Like creates a feed.like record.
 	if len(m.createRecords) != 1 {
 		t.Fatalf("createRecords = %d", len(m.createRecords))
 	}

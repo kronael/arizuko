@@ -347,10 +347,10 @@ Attachment paths appear in message content as:
 `post` creates a new top-level post on a platform (mastodon toot,
 bluesky post, discord channel message). Use for broadcast content —
 not for replies (`send_reply`) or DMs (`send_message`).
-`react` adds a reaction/favourite/like to an existing message by id.
+`like` adds a like/favourite/reaction to an existing message by id.
 `delete_post` retracts a post you created; the platform enforces
 authorship. Reddit and some adapters return `ErrUnsupported` for
-reactions — do not retry.
+likes — do not retry.
 
 ## Delivering files to users
 

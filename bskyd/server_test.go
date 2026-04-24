@@ -19,7 +19,7 @@ type stubCreator struct {
 	postID   string
 	postErr  error
 	postReq  chanlib.PostRequest
-	reactReq chanlib.ReactRequest
+	reactReq chanlib.LikeRequest
 	reactErr error
 	delReq   chanlib.DeleteRequest
 	delErr   error
@@ -29,7 +29,7 @@ func (s *stubCreator) Post(r chanlib.PostRequest) (string, error) {
 	s.postReq = r
 	return s.postID, s.postErr
 }
-func (s *stubCreator) React(r chanlib.ReactRequest) error {
+func (s *stubCreator) Like(r chanlib.LikeRequest) error {
 	s.reactReq = r
 	return s.reactErr
 }
@@ -287,13 +287,13 @@ func TestBskyPost(t *testing.T) {
 	}
 }
 
-func TestBskyReact(t *testing.T) {
+func TestBskyLike(t *testing.T) {
 	stub := &stubCreator{}
 	s := newServer(config{Name: "bluesky"}, stub, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{
 		"chat_jid": "bluesky:did:plc:me", "target_id": "at://x/app.bsky.feed.post/y", "reaction": "like",
 	})
-	req := httptest.NewRequest("POST", "/react", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/like", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -301,7 +301,7 @@ func TestBskyReact(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	if stub.reactReq.TargetID != "at://x/app.bsky.feed.post/y" {
-		t.Errorf("react req = %+v", stub.reactReq)
+		t.Errorf("like req = %+v", stub.reactReq)
 	}
 }
 

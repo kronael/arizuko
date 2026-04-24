@@ -75,7 +75,7 @@ type SentFile struct {
 	JID, Path, Name, Caption string
 }
 
-// ReactionCall records a React call.
+// ReactionCall records a Like call.
 type ReactionCall struct {
 	JID, TargetID, Reaction string
 }
@@ -161,7 +161,7 @@ func (f *FakeChannel) Post(_ context.Context, jid, content string, media []strin
 	return fmt.Sprintf("post-%d", len(f.Posts)), nil
 }
 
-func (f *FakeChannel) React(_ context.Context, jid, target, reaction string) error {
+func (f *FakeChannel) Like(_ context.Context, jid, target, reaction string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Reactions = append(f.Reactions, ReactionCall{jid, target, reaction})

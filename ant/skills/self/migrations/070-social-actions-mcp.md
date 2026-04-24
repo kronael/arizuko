@@ -12,3 +12,5 @@ Use `post` for broadcast/announcement content, `send_message` for a
 normal top-level reply, `send_reply` for a threaded quote. Platform
 errors pass through unchanged — e.g. Reddit returns `ErrUnsupported`
 for reactions; do not retry.
+
+Renamed `react` → `like` in migration 071.

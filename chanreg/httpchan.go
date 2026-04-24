@@ -17,7 +17,7 @@ import (
 )
 
 // ErrUnsupported is returned when an adapter responds 501 to a social
-// verb (post/react/delete-post) because the underlying platform doesn't
+// verb (post/like/delete-post) because the underlying platform doesn't
 // support that action.
 var ErrUnsupported = errors.New("unsupported")
 
@@ -220,23 +220,23 @@ func (h *HTTPChannel) Post(ctx context.Context, jid, content string, mediaPaths 
 	return r.ID, nil
 }
 
-// React attaches a reaction (emoji / like / upvote) to a post or message.
-func (h *HTTPChannel) React(ctx context.Context, jid, targetID, reaction string) error {
+// Like attaches a like/favourite/emoji reaction to a post or message.
+func (h *HTTPChannel) Like(ctx context.Context, jid, targetID, reaction string) error {
 	b, _ := json.Marshal(map[string]string{
 		"chat_jid":  jid,
 		"target_id": targetID,
 		"reaction":  reaction,
 	})
-	resp, err := h.post(ctx, "/react", b)
+	resp, err := h.post(ctx, "/like", b)
 	if err != nil {
-		return fmt.Errorf("channel %s react: %w", h.entry.Name, err)
+		return fmt.Errorf("channel %s like: %w", h.entry.Name, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotImplemented {
 		return ErrUnsupported
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("channel %s react: status %d", h.entry.Name, resp.StatusCode)
+		return fmt.Errorf("channel %s like: status %d", h.entry.Name, resp.StatusCode)
 	}
 	return nil
 }

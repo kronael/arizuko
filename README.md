@@ -103,7 +103,7 @@ layered docs and is not indexed here.
 | diary + MEMORY.md prompt layer                           | [diary/diary.go](diary/diary.go)                                                   | [specs/1/L-memory-diary.md](specs/1/L-memory-diary.md)           |
 | recall episodes (daily→weekly→monthly)                   | [container/episodes.go](container/episodes.go)                                     | [specs/4/24-recall.md](specs/4/24-recall.md)                     |
 | send_file + file delivery                                | [ipc/ipc.go](ipc/ipc.go), [chanlib/handler.go](chanlib/handler.go)                 | —                                                                |
-| social actions — post / react / delete_post              | [ipc/ipc.go](ipc/ipc.go)                                                           | —                                                                |
+| social actions — post / like / delete_post               | [ipc/ipc.go](ipc/ipc.go)                                                           | —                                                                |
 | fetch_history + inspect_messages (history on 7 adapters) | [ipc/ipc.go](ipc/ipc.go), [ipc/inspect.go](ipc/inspect.go)                         | —                                                                |
 | voice transcription (Whisper sidecar)                    | [sidecar/README.md](sidecar/README.md)                                             | —                                                                |
 | virtual-host routing (per-group `/dash/<group>/`)        | [proxyd/main.go](proxyd/main.go)                                                   | [specs/6/3-chat-ui.md](specs/6/3-chat-ui.md)                     |

@@ -19,7 +19,7 @@ type stubPoster struct {
 	postReq  chanlib.PostRequest
 	postID   string
 	postErr  error
-	reactReq chanlib.ReactRequest
+	reactReq chanlib.LikeRequest
 	reactErr error
 	delReq   chanlib.DeleteRequest
 	delErr   error
@@ -31,7 +31,7 @@ func (s *stubPoster) Post(r chanlib.PostRequest) (string, error) {
 	s.postReq = r
 	return s.postID, s.postErr
 }
-func (s *stubPoster) React(r chanlib.ReactRequest) error {
+func (s *stubPoster) Like(r chanlib.LikeRequest) error {
 	s.reactReq = r
 	return s.reactErr
 }
@@ -68,18 +68,18 @@ func TestMastPost(t *testing.T) {
 	}
 }
 
-func TestMastReact(t *testing.T) {
+func TestMastLike(t *testing.T) {
 	bot := &stubPoster{}
 	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "target_id": "t1"})
-	req := httptest.NewRequest("POST", "/react", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/like", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
 	if bot.reactReq.TargetID != "t1" {
-		t.Errorf("react req = %+v", bot.reactReq)
+		t.Errorf("like req = %+v", bot.reactReq)
 	}
 }
 

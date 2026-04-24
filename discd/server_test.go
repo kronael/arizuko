@@ -19,7 +19,7 @@ type stubBot struct {
 	postReq  chanlib.PostRequest
 	postID   string
 	postErr  error
-	reactReq chanlib.ReactRequest
+	reactReq chanlib.LikeRequest
 	reactErr error
 	delReq   chanlib.DeleteRequest
 	delErr   error
@@ -29,7 +29,7 @@ func (sb *stubBot) Post(r chanlib.PostRequest) (string, error) {
 	sb.postReq = r
 	return sb.postID, sb.postErr
 }
-func (sb *stubBot) React(r chanlib.ReactRequest) error {
+func (sb *stubBot) Like(r chanlib.LikeRequest) error {
 	sb.reactReq = r
 	return sb.reactErr
 }
@@ -82,12 +82,12 @@ func TestServerPost(t *testing.T) {
 	}
 }
 
-func TestServerReact(t *testing.T) {
+func TestServerLike(t *testing.T) {
 	h, sb := stubHandler("secret")
 	body, _ := json.Marshal(map[string]any{
 		"chat_jid": "discord:123", "target_id": "m1", "reaction": "🎉",
 	})
-	req := httptest.NewRequest("POST", "/react", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/like", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -95,7 +95,7 @@ func TestServerReact(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	if sb.reactReq.TargetID != "m1" || sb.reactReq.Reaction != "🎉" {
-		t.Errorf("react req = %+v", sb.reactReq)
+		t.Errorf("like req = %+v", sb.reactReq)
 	}
 }
 

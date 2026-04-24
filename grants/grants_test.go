@@ -293,7 +293,7 @@ func TestDeriveRules_Tier0(t *testing.T) {
 
 func TestDeriveRules_Tier3Plus(t *testing.T) {
 	rules := DeriveRules(nil, "leaf", 3, "leaf")
-	want := map[string]bool{"send_reply": true, "send_file": true, "react": true}
+	want := map[string]bool{"send_reply": true, "send_file": true, "like": true}
 	if len(rules) != len(want) {
 		t.Fatalf("tier 3+ = %v, want %v", rules, want)
 	}
@@ -319,10 +319,10 @@ func TestDeriveRules_Tier1_PostActions(t *testing.T) {
 	rules := DeriveRules(s, "main", 1, "main")
 	want := []string{
 		"post(jid=mastodon:*)",
-		"react(jid=mastodon:*)",
+		"like(jid=mastodon:*)",
 		"delete_post(jid=mastodon:*)",
 		"post(jid=discord:*)",
-		"react(jid=discord:*)",
+		"like(jid=discord:*)",
 		"delete_post(jid=discord:*)",
 	}
 	set := map[string]bool{}
@@ -344,8 +344,8 @@ func TestDeriveRules_Tier2_PostActions(t *testing.T) {
 	if !CheckAction(rules, "post", map[string]string{"jid": "bluesky:at://foo"}) {
 		t.Error("tier 2: bluesky route should allow post(jid=bluesky:*)")
 	}
-	if !CheckAction(rules, "react", map[string]string{"jid": "bluesky:at://foo"}) {
-		t.Error("tier 2: bluesky route should allow react(jid=bluesky:*)")
+	if !CheckAction(rules, "like", map[string]string{"jid": "bluesky:at://foo"}) {
+		t.Error("tier 2: bluesky route should allow like(jid=bluesky:*)")
 	}
 	if !CheckAction(rules, "delete_post", map[string]string{"jid": "bluesky:at://foo"}) {
 		t.Error("tier 2: bluesky route should allow delete_post(jid=bluesky:*)")

@@ -34,7 +34,7 @@ API.
 
 ## Limitations
 
-- Inbound upvotes/downvotes are not mapped to the `react` verb. Reddit's
+- Inbound upvotes/downvotes are not mapped to the `like` verb. Reddit's
   API does not surface individual vote events via subscription: `/message/
 inbox.json` delivers replies/mentions/PMs only, and `/r/<sr>/new.json`
   delivers new submissions. Vote state is only exposed as aggregate

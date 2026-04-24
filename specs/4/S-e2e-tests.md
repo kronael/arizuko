@@ -35,10 +35,10 @@ Extract `container.Runner` interface from `container.Run()` so a
 | dashd     | `dashd/integration_test.go`   | TestMemoryEndpoint, TestGroupList, TestTaskList                        |
 | webd      | `webd/integration_test.go`    | TestSlinkWebsocketEcho, TestSlinkMCPBridge                             |
 | proxyd    | `proxyd/integration_test.go`  | TestAuthGate_401, TestPubPathOpen, TestReverseProxy                    |
-| teled     | `teled/integration_test.go`   | TestBotHandler_Send/React (FakePlatform stub of Telegram API)          |
-| discd     | `discd/integration_test.go`   | TestBotHandler_Send/React/Post/DeletePost                              |
-| mastd     | `mastd/integration_test.go`   | TestBotHandler_Send/React/Post/DeletePost                              |
-| bskyd     | `bskyd/integration_test.go`   | TestBotHandler_Send/React/Post/DeletePost                              |
+| teled     | `teled/integration_test.go`   | TestBotHandler_Send/Like (FakePlatform stub of Telegram API)           |
+| discd     | `discd/integration_test.go`   | TestBotHandler_Send/Like/Post/DeletePost                               |
+| mastd     | `mastd/integration_test.go`   | TestBotHandler_Send/Like/Post/DeletePost                               |
+| bskyd     | `bskyd/integration_test.go`   | TestBotHandler_Send/Like/Post/DeletePost                               |
 | reditd    | `reditd/integration_test.go`  | TestBotHandler_Send/Post/DeletePost                                    |
 | emaid     | `emaid/integration_test.go`   | TestBotHandler_Send (IMAP/SMTP stubs)                                  |
 | linkd     | `linkd/integration_test.go`   | TestBotHandler_Send                                                    |

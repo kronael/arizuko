@@ -376,7 +376,7 @@ func (bc *bskyClient) Post(req chanlib.PostRequest) (string, error) {
 	return result.URI, nil
 }
 
-func (bc *bskyClient) React(req chanlib.ReactRequest) error {
+func (bc *bskyClient) Like(req chanlib.LikeRequest) error {
 	cid, err := bc.getPostCID(req.TargetID)
 	if err != nil {
 		return fmt.Errorf("bluesky like: get cid: %w", err)

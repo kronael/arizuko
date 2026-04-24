@@ -382,9 +382,9 @@ output skips the line. See `EXTENDING.md` for adding one.
 ## MCP Surface
 
 Action tools (`send_*`, `schedule_task`, `register_group`,
-`set_routes`, …) mutate state. Social actions `post`, `react`,
+`set_routes`, …) mutate state. Social actions `post`, `like`,
 `delete_post` (`ipc/ipc.go`) are tier 0-2; platform adapters that
-implement `Post`/`React`/`DeletePost` (discd, mastd, bskyd; reditd
+implement `Post`/`Like`/`DeletePost` (discd, mastd, bskyd; reditd
 for `delete_post`) service them, others return "not configured".
 Read-only introspection lives in the `inspect_*` family
 (`ipc/inspect.go`): `inspect_messages`, `inspect_routing`,

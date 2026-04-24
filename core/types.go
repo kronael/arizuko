@@ -103,13 +103,13 @@ type HistoryFetcher interface {
 }
 
 // Socializer is the optional channel capability for social-graph verbs:
-// standalone posts, reactions, and post deletion. Reply sends route through
+// standalone posts, likes, and post deletion. Reply sends route through
 // Send(...) with replyTo set, so they're not here. Adapters that don't
 // implement these should return a sentinel "unsupported" error; callers
 // map that to a structured MCP response.
 type Socializer interface {
 	Post(ctx context.Context, jid, content string, mediaPaths []string) (string, error)
-	React(ctx context.Context, jid, targetID, reaction string) error
+	Like(ctx context.Context, jid, targetID, reaction string) error
 	DeletePost(ctx context.Context, jid, targetID string) error
 }
 

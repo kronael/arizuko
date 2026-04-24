@@ -205,14 +205,14 @@ func (b *bot) Post(req chanlib.PostRequest) (string, error) {
 	return msg.ID, nil
 }
 
-func (b *bot) React(req chanlib.ReactRequest) error {
+func (b *bot) Like(req chanlib.LikeRequest) error {
 	chID := strings.TrimPrefix(req.ChatJID, "discord:")
 	emoji := req.Reaction
 	if emoji == "" {
 		emoji = "👍"
 	}
 	if err := b.session.MessageReactionAdd(chID, req.TargetID, emoji); err != nil {
-		return fmt.Errorf("discord react: %w", err)
+		return fmt.Errorf("discord like: %w", err)
 	}
 	return nil
 }

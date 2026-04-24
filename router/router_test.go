@@ -229,7 +229,7 @@ func TestResolveRouteTemplate(t *testing.T) {
 
 func TestRouteMatchVerb(t *testing.T) {
 	routes := []core.Route{
-		{Seq: 0, Match: "verb=react", Target: "reactions"},
+		{Seq: 0, Match: "verb=like", Target: "reactions"},
 		{Seq: 1, Match: "verb=follow", Target: "followers"},
 		{Seq: 2, Match: "", Target: "inbox"},
 	}
@@ -237,7 +237,7 @@ func TestRouteMatchVerb(t *testing.T) {
 		msg  core.Message
 		want string
 	}{
-		{core.Message{Verb: "react", Content: "❤️"}, "reactions"},
+		{core.Message{Verb: "like", Content: "❤️"}, "reactions"},
 		{core.Message{Verb: "follow", Content: "x followed you"}, "followers"},
 		{core.Message{Verb: "message", Content: "hi"}, "inbox"},
 	}
@@ -252,7 +252,7 @@ func TestRouteMatchVerb(t *testing.T) {
 func TestFormatMessagesPlatformVerb(t *testing.T) {
 	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
 	msgs := []core.Message{
-		{ChatJID: "mastodon:123", Sender: "mastodon:123", Content: "liked", Verb: "react", Timestamp: ts},
+		{ChatJID: "mastodon:123", Sender: "mastodon:123", Content: "liked", Verb: "like", Timestamp: ts},
 		{ChatJID: "reddit:456", Sender: "reddit:alice", Content: "followed", Verb: "follow", Timestamp: ts},
 		{ChatJID: "telegram:789", Sender: "telegram:789", Content: "hi", Verb: "message", Timestamp: ts},
 	}
@@ -263,8 +263,8 @@ func TestFormatMessagesPlatformVerb(t *testing.T) {
 	if !strings.Contains(got, `platform="reddit"`) {
 		t.Fatal("should include reddit platform attr")
 	}
-	if !strings.Contains(got, `verb="react"`) {
-		t.Fatal("should include react verb attr")
+	if !strings.Contains(got, `verb="like"`) {
+		t.Fatal("should include like verb attr")
 	}
 	if !strings.Contains(got, `verb="follow"`) {
 		t.Fatal("should include follow verb attr")

@@ -91,14 +91,14 @@ func TestBotHandler_Post(t *testing.T) {
 	}
 }
 
-func TestBotHandler_React(t *testing.T) {
+func TestBotHandler_Like(t *testing.T) {
 	m := newMastoMock(t)
 	mc := newTestMasto(t, m.srv.URL)
 
-	if err := mc.React(chanlib.ReactRequest{
+	if err := mc.Like(chanlib.LikeRequest{
 		ChatJID: "mastodon:user", TargetID: "42", Reaction: "⭐",
 	}); err != nil {
-		t.Fatalf("React: %v", err)
+		t.Fatalf("Like: %v", err)
 	}
 	ok := false
 	for _, p := range m.paths() {

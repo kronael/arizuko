@@ -38,7 +38,7 @@ func (s *stubSender) Post(r chanlib.PostRequest) (string, error) {
 	s.postReq = r
 	return s.postID, s.postErr
 }
-func (s *stubSender) React(chanlib.ReactRequest) error { return chanlib.ErrUnsupported }
+func (s *stubSender) Like(chanlib.LikeRequest) error { return chanlib.ErrUnsupported }
 func (s *stubSender) DeletePost(r chanlib.DeleteRequest) error {
 	s.delReq = r
 	return s.delErr
@@ -323,10 +323,10 @@ func TestReditDeletePost(t *testing.T) {
 	}
 }
 
-func TestReditReactUnsupported(t *testing.T) {
+func TestReditLikeUnsupported(t *testing.T) {
 	s := newServer(config{Name: "reddit"}, &stubSender{}, chanlib.NewURLCache(100), func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "reddit:sub", "target_id": "t3_abc", "reaction": "👍"})
-	req := httptest.NewRequest("POST", "/react", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/like", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)

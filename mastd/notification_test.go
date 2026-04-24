@@ -180,7 +180,7 @@ func TestHandleNotification_Favourite(t *testing.T) {
 	}
 	mc.handleNotification(n, rc)
 	got := mr.last()
-	if got.Verb != "react" {
+	if got.Verb != "like" {
 		t.Errorf("verb = %q", got.Verb)
 	}
 	if got.ID != "fav-s9-9" {

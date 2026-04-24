@@ -118,7 +118,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		},
 		SendDocument: g.sendDocument,
 		Post:         g.postToJID,
-		React:        g.reactOnJID,
+		Like:         g.likeOnJID,
 		DeletePost:   g.deletePostOnJID,
 		ClearSession: g.clearSession,
 		GroupsDir:    g.cfg.GroupsDir,
@@ -1008,14 +1008,14 @@ func (g *Gateway) postToJID(jid, content string, mediaPaths []string) (string, e
 	return s.Post(ctx, jid, content, mediaPaths)
 }
 
-func (g *Gateway) reactOnJID(jid, targetID, reaction string) error {
+func (g *Gateway) likeOnJID(jid, targetID, reaction string) error {
 	s, err := g.channelSocial(jid)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return s.React(ctx, jid, targetID, reaction)
+	return s.Like(ctx, jid, targetID, reaction)
 }
 
 func (g *Gateway) deletePostOnJID(jid, targetID string) error {

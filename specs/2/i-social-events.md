@@ -2,6 +2,10 @@
 status: shipped
 ---
 
+> Renamed 2026-04-24: `react` → `like` for semantic alignment with platform
+> UI (favourite/like/heart). Downvote counterpart (reddit, future) will be
+> `score_down`, not `hate`.
+
 # Social Events — Unified Inbound Model
 
 Normalize inbound events into typed InboundEvent. Gateway filters
@@ -9,7 +13,9 @@ by impulse weights, routes by verb. Agents see a uniform stream.
 
 ## Verbs
 
-`message, reply, post, react, repost, follow, join, edit, delete, close`
+`message, reply, post, like, repost, follow, join, edit, delete, close`
+
+- `score_down` (future — for platforms with explicit downvote: reddit primarily)
 
 ## Platform mapping
 
@@ -30,7 +36,7 @@ by impulse weights, routes by verb. Agents see a uniform stream.
 | Comment on our post | reply   | post_id | post_id    | -           |
 | u/ mention          | message | post_id | comment_id | yes         |
 | New post in r/sub   | post    | -       | -          | -           |
-| Upvote on our post  | react   | -       | post_id    | -           |
+| Upvote on our post  | like    | -       | post_id    | -           |
 
 ### Mastodon / Bluesky
 
@@ -39,7 +45,7 @@ by impulse weights, routes by verb. Agents see a uniform stream.
 | DM (direct vis.)  | message | -         | -         | -           |
 | @mention          | message | status_id | -         | yes         |
 | Reply to our post | reply   | status_id | status_id | -           |
-| Favourite/like    | react   | -         | status_id | -           |
+| Favourite/like    | like    | -         | status_id | -           |
 | Boost/repost      | repost  | -         | status_id | -           |
 | New follower      | follow  | -         | -         | -           |
 
@@ -65,7 +71,7 @@ threshold never reached.
 | message | 100     |                              |
 | reply   | 100     |                              |
 | post    | 100     | tune down if feed is noisy   |
-| react   | 100     | tune to 5 for "20 = trigger" |
+| like    | 100     | tune to 5 for "20 = trigger" |
 | repost  | 100     | tune to 10 if noisy          |
 | follow  | 100     | tune to 10 if noisy          |
 | close   | 100     | triggers thread lifecycle    |
@@ -79,7 +85,7 @@ Weight 0 = drop. Operator sets `weights` and `threshold` per group.
 
 - Immediate (weight >= threshold): individual message with full content.
 - Batched (weight < threshold): plain text bracket summary,
-  e.g. `[5 reactions on post abc123, 3 reposts, 10 new followers]`.
+  e.g. `[5 likes on post abc123, 3 reposts, 10 new followers]`.
 
 ## Agent XML format
 
@@ -104,5 +110,5 @@ Attributes: `platform`, `verb` always. `mentions_me` when mentioned.
 ## Decisions
 
 - Batch summary is plain text in brackets, not XML.
-- React content is the platform-native string (emoji, "upvote", etc.).
+- Like content is the platform-native string (emoji, "upvote", etc.).
 - Auth failure: log error, mark channel disconnected, reconnect next tick.
