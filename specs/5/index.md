@@ -30,7 +30,7 @@ status: future
 | [S-jid-format.md](S-jid-format.md)                             | unshipped | `platform:account/id` JID, account resolved after Connect          |
 | [T-voice-synthesis.md](T-voice-synthesis.md)                   | unshipped | `ttsd` + `send_voice` MCP tool                                     |
 | [Z-cli-chat.md](Z-cli-chat.md)                                 | unshipped | `arizuko chat` — interactive terminal agent                        |
-| [a-crackbox-sandboxing.md](a-crackbox-sandboxing.md)           | rejected  | QEMU/KVM resident-VM sandboxing via crackbox                       |
+| [a-crackbox-sandboxing.md](a-crackbox-sandboxing.md)           | planned   | QEMU/KVM resident-VM sandboxing via crackbox                       |
 | [b-memory-skills-standalone.md](b-memory-skills-standalone.md) | unshipped | Memory skills as standalone distribution                           |
 | [c-agent-services.md](c-agent-services.md)                     | unshipped | `servd` for agent-declared persistent services                     |
 | [d-self-improvement.md](d-self-improvement.md)                 | unshipped | Scheduled self-eval via timed cron                                 |
