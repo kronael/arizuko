@@ -12,11 +12,11 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 ### Changed
 
 - Social-event verb and MCP tool renamed `react` → `like`. Downvote
-  counterpart for reddit (future) will be `score_down`.
+  counterpart for reddit (future) will be `dislike`.
 
 ### Added
 
-- `ipc`: `post` / `like` / `delete_post` MCP tools — wire adapter-level
+- `ipc`: `post` / `like` / `delete` MCP tools — wire adapter-level
   implementations to the agent MCP surface. Platform-scoped grants derived
   per tier; `like` available at tier 3 (reply-adjacent).
 - `chanlib`: channel-level liveness. Adapter `/health` now flips 503

@@ -83,7 +83,7 @@ func TestBotHandler_Like(t *testing.T) {
 	}
 }
 
-func TestBotHandler_DeletePost(t *testing.T) {
+func TestBotHandler_Delete(t *testing.T) {
 	// Use a dedicated server so we can register deleteRecord.
 	var deleteHits int32
 	var gotBody map[string]any
@@ -107,10 +107,10 @@ func TestBotHandler_DeletePost(t *testing.T) {
 		t.Fatal(err)
 	}
 	targetURI := "at://did:plc:me/app.bsky.feed.post/rkeyDEL"
-	if err := bc.DeletePost(chanlib.DeleteRequest{
+	if err := bc.Delete(chanlib.DeleteRequest{
 		ChatJID: "bluesky:me", TargetID: targetURI,
 	}); err != nil {
-		t.Fatalf("DeletePost: %v", err)
+		t.Fatalf("Delete: %v", err)
 	}
 	if atomic.LoadInt32(&deleteHits) != 1 {
 		t.Errorf("deleteHits = %d", atomic.LoadInt32(&deleteHits))

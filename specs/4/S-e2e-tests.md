@@ -36,10 +36,10 @@ Extract `container.Runner` interface from `container.Run()` so a
 | webd      | `webd/integration_test.go`    | TestSlinkWebsocketEcho, TestSlinkMCPBridge                             |
 | proxyd    | `proxyd/integration_test.go`  | TestAuthGate_401, TestPubPathOpen, TestReverseProxy                    |
 | teled     | `teled/integration_test.go`   | TestBotHandler_Send/Like (FakePlatform stub of Telegram API)           |
-| discd     | `discd/integration_test.go`   | TestBotHandler_Send/Like/Post/DeletePost                               |
-| mastd     | `mastd/integration_test.go`   | TestBotHandler_Send/Like/Post/DeletePost                               |
-| bskyd     | `bskyd/integration_test.go`   | TestBotHandler_Send/Like/Post/DeletePost                               |
-| reditd    | `reditd/integration_test.go`  | TestBotHandler_Send/Post/DeletePost                                    |
+| discd     | `discd/integration_test.go`   | TestBotHandler_Send/Like/Post/Delete                                   |
+| mastd     | `mastd/integration_test.go`   | TestBotHandler_Send/Like/Post/Delete                                   |
+| bskyd     | `bskyd/integration_test.go`   | TestBotHandler_Send/Like/Post/Delete                                   |
+| reditd    | `reditd/integration_test.go`  | TestBotHandler_Send/Post/Delete                                        |
 | emaid     | `emaid/integration_test.go`   | TestBotHandler_Send (IMAP/SMTP stubs)                                  |
 | linkd     | `linkd/integration_test.go`   | TestBotHandler_Send                                                    |
 | whapd     | `whapd/src/__tests__/`        | Vitest TS integration against fake WhatsApp endpoint                   |

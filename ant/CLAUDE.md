@@ -348,7 +348,7 @@ Attachment paths appear in message content as:
 bluesky post, discord channel message). Use for broadcast content —
 not for replies (`send_reply`) or DMs (`send_message`).
 `like` adds a like/favourite/reaction to an existing message by id.
-`delete_post` retracts a post you created; the platform enforces
+`delete` retracts a post you created; the platform enforces
 authorship. Reddit and some adapters return `ErrUnsupported` for
 likes — do not retry.
 

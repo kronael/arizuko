@@ -383,9 +383,9 @@ output skips the line. See `EXTENDING.md` for adding one.
 
 Action tools (`send_*`, `schedule_task`, `register_group`,
 `set_routes`, …) mutate state. Social actions `post`, `like`,
-`delete_post` (`ipc/ipc.go`) are tier 0-2; platform adapters that
-implement `Post`/`Like`/`DeletePost` (discd, mastd, bskyd; reditd
-for `delete_post`) service them, others return "not configured".
+`delete` (`ipc/ipc.go`) are tier 0-2; platform adapters that
+implement `Post`/`Like`/`Delete` (discd, mastd, bskyd; reditd
+for `delete`) service them, others return "not configured".
 Read-only introspection lives in the `inspect_*` family
 (`ipc/inspect.go`): `inspect_messages`, `inspect_routing`,
 `inspect_tasks`, `inspect_session`. Tier 0 sees all instances;

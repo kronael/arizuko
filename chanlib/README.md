@@ -15,7 +15,7 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 - `Run(opts RunOpts)` — the adapter main loop: register, start, serve, deregister on signal
 - `RunOpts` — name, router url, secret, listen addr, prefixes, caps, start hook
 - `NewRouterClient(url, secret) *RouterClient` — signed POST helpers
-- `NewAdapterMux(name, secret, prefixes, bot, isConnected, lastInboundAt)` — standard handler tree (`/send`, `/send-file`, `/typing`, `/post`, `/react`, `/delete-post`, `/health`, `/v1/history`)
+- `NewAdapterMux(name, secret, prefixes, bot, isConnected, lastInboundAt)` — standard handler tree (`/send`, `/send-file`, `/typing`, `/post`, `/react`, `/delete`, `/health`, `/v1/history`)
 - `BotHandler`, `HistoryProvider`, `FileSender`, `NoSocial`, `NoFileSender` — adapter-side interfaces
 - `TypingRefresher` — presence re-sender with hard TTL
 - `URLCache` — short-ID proxy for CDN URLs (discd, mastd, reditd)

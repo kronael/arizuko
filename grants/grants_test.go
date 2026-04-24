@@ -302,12 +302,12 @@ func TestDeriveRules_Tier3Plus(t *testing.T) {
 			t.Fatalf("tier 3+ unexpected rule %q (got %v)", r, rules)
 		}
 	}
-	// post and delete_post must NOT be present at tier 3+.
+	// post and delete must NOT be present at tier 3+.
 	if CheckAction(rules, "post", map[string]string{"jid": "mastodon:home"}) {
 		t.Error("tier 3+ must not allow post")
 	}
-	if CheckAction(rules, "delete_post", map[string]string{"jid": "mastodon:home"}) {
-		t.Error("tier 3+ must not allow delete_post")
+	if CheckAction(rules, "delete", map[string]string{"jid": "mastodon:home"}) {
+		t.Error("tier 3+ must not allow delete")
 	}
 }
 
@@ -320,10 +320,10 @@ func TestDeriveRules_Tier1_PostActions(t *testing.T) {
 	want := []string{
 		"post(jid=mastodon:*)",
 		"like(jid=mastodon:*)",
-		"delete_post(jid=mastodon:*)",
+		"delete(jid=mastodon:*)",
 		"post(jid=discord:*)",
 		"like(jid=discord:*)",
-		"delete_post(jid=discord:*)",
+		"delete(jid=discord:*)",
 	}
 	set := map[string]bool{}
 	for _, r := range rules {
@@ -347,8 +347,8 @@ func TestDeriveRules_Tier2_PostActions(t *testing.T) {
 	if !CheckAction(rules, "like", map[string]string{"jid": "bluesky:at://foo"}) {
 		t.Error("tier 2: bluesky route should allow like(jid=bluesky:*)")
 	}
-	if !CheckAction(rules, "delete_post", map[string]string{"jid": "bluesky:at://foo"}) {
-		t.Error("tier 2: bluesky route should allow delete_post(jid=bluesky:*)")
+	if !CheckAction(rules, "delete", map[string]string{"jid": "bluesky:at://foo"}) {
+		t.Error("tier 2: bluesky route should allow delete(jid=bluesky:*)")
 	}
 	if CheckAction(rules, "post", map[string]string{"jid": "telegram:123"}) {
 		t.Error("tier 2: telegram not routed, post should be denied")

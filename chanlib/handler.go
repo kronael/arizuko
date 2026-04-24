@@ -22,7 +22,7 @@ type SendRequest struct {
 
 // BotHandler is the interface adapters implement for outbound messaging.
 // Send returns the sent message ID (may be ""); Typing is fire-and-forget.
-// Post, Like, DeletePost are social-action primitives — adapters that
+// Post, Like, Delete are social-action primitives — adapters that
 // don't support them should embed NoSocial to get "unsupported" defaults.
 type BotHandler interface {
 	Send(req SendRequest) (string, error)
@@ -30,7 +30,7 @@ type BotHandler interface {
 	Typing(jid string, on bool)
 	Post(req PostRequest) (string, error)
 	Like(req LikeRequest) error
-	DeletePost(req DeleteRequest) error
+	Delete(req DeleteRequest) error
 }
 
 type PostRequest struct {
@@ -55,13 +55,13 @@ type DeleteRequest struct {
 var ErrUnsupported = errors.New("unsupported")
 
 // NoSocial is a zero-value mixin providing "unsupported" defaults for
-// Post, Like, DeletePost. Adapters that implement a subset embed this
+// Post, Like, Delete. Adapters that implement a subset embed this
 // and override the relevant method(s).
 type NoSocial struct{}
 
 func (NoSocial) Post(PostRequest) (string, error) { return "", ErrUnsupported }
 func (NoSocial) Like(LikeRequest) error           { return ErrUnsupported }
-func (NoSocial) DeletePost(DeleteRequest) error   { return ErrUnsupported }
+func (NoSocial) Delete(DeleteRequest) error       { return ErrUnsupported }
 
 // HistoryRequest is the query for platform-side history fetch.
 // Before is RFC3339; empty means "latest". Limit is clamped by the adapter.
@@ -116,7 +116,7 @@ func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isCon
 	mux.HandleFunc("POST /typing", Auth(secret, handleTyping(bot)))
 	mux.HandleFunc("POST /post", Auth(secret, handlePost(bot)))
 	mux.HandleFunc("POST /like", Auth(secret, handleLike(bot)))
-	mux.HandleFunc("POST /delete-post", Auth(secret, handleDeletePost(bot)))
+	mux.HandleFunc("POST /delete", Auth(secret, handleDelete(bot)))
 	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt))
 	if hp, ok := bot.(HistoryProvider); ok {
 		mux.HandleFunc("GET /v1/history", Auth(secret, handleHistory(hp)))
@@ -296,7 +296,7 @@ func handleLike(bot BotHandler) http.HandlerFunc {
 	}
 }
 
-func handleDeletePost(bot BotHandler) http.HandlerFunc {
+func handleDelete(bot BotHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
 		var req DeleteRequest
@@ -304,7 +304,7 @@ func handleDeletePost(bot BotHandler) http.HandlerFunc {
 			WriteErr(w, 400, "chat_jid and target_id required")
 			return
 		}
-		if err := bot.DeletePost(req); err != nil {
+		if err := bot.Delete(req); err != nil {
 			if errors.Is(err, ErrUnsupported) {
 				WriteErr(w, 501, "unsupported")
 				return

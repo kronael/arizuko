@@ -258,7 +258,7 @@ func (mc *mastoClient) Like(req chanlib.LikeRequest) error {
 	return nil
 }
 
-func (mc *mastoClient) DeletePost(req chanlib.DeleteRequest) error {
+func (mc *mastoClient) Delete(req chanlib.DeleteRequest) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := mc.client.DeleteStatus(ctx, mastodon.ID(req.TargetID)); err != nil {

@@ -86,7 +86,7 @@ type PostCall struct {
 	Media        []string
 }
 
-// DeleteCall records a DeletePost call.
+// DeleteCall records a Delete call.
 type DeleteCall struct {
 	JID, TargetID string
 }
@@ -168,7 +168,7 @@ func (f *FakeChannel) Like(_ context.Context, jid, target, reaction string) erro
 	return nil
 }
 
-func (f *FakeChannel) DeletePost(_ context.Context, jid, target string) error {
+func (f *FakeChannel) Delete(_ context.Context, jid, target string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Deletes = append(f.Deletes, DeleteCall{jid, target})

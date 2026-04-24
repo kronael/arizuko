@@ -33,7 +33,7 @@ func (sb *stubBot) Like(r chanlib.LikeRequest) error {
 	sb.reactReq = r
 	return sb.reactErr
 }
-func (sb *stubBot) DeletePost(r chanlib.DeleteRequest) error {
+func (sb *stubBot) Delete(r chanlib.DeleteRequest) error {
 	sb.delReq = r
 	return sb.delErr
 }
@@ -99,10 +99,10 @@ func TestServerLike(t *testing.T) {
 	}
 }
 
-func TestServerDeletePost(t *testing.T) {
+func TestServerDelete(t *testing.T) {
 	h, sb := stubHandler("secret")
 	body, _ := json.Marshal(map[string]any{"chat_jid": "discord:123", "target_id": "m1"})
-	req := httptest.NewRequest("POST", "/delete-post", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/delete", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

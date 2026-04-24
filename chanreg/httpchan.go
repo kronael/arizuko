@@ -17,7 +17,7 @@ import (
 )
 
 // ErrUnsupported is returned when an adapter responds 501 to a social
-// verb (post/like/delete-post) because the underlying platform doesn't
+// verb (post/like/delete) because the underlying platform doesn't
 // support that action.
 var ErrUnsupported = errors.New("unsupported")
 
@@ -241,22 +241,22 @@ func (h *HTTPChannel) Like(ctx context.Context, jid, targetID, reaction string) 
 	return nil
 }
 
-// DeletePost removes a post or message authored by the bot.
-func (h *HTTPChannel) DeletePost(ctx context.Context, jid, targetID string) error {
+// Delete removes a post or message authored by the bot.
+func (h *HTTPChannel) Delete(ctx context.Context, jid, targetID string) error {
 	b, _ := json.Marshal(map[string]string{
 		"chat_jid":  jid,
 		"target_id": targetID,
 	})
-	resp, err := h.post(ctx, "/delete-post", b)
+	resp, err := h.post(ctx, "/delete", b)
 	if err != nil {
-		return fmt.Errorf("channel %s delete-post: %w", h.entry.Name, err)
+		return fmt.Errorf("channel %s delete: %w", h.entry.Name, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotImplemented {
 		return ErrUnsupported
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("channel %s delete-post: status %d", h.entry.Name, resp.StatusCode)
+		return fmt.Errorf("channel %s delete: status %d", h.entry.Name, resp.StatusCode)
 	}
 	return nil
 }

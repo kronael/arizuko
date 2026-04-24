@@ -110,7 +110,7 @@ type HistoryFetcher interface {
 type Socializer interface {
 	Post(ctx context.Context, jid, content string, mediaPaths []string) (string, error)
 	Like(ctx context.Context, jid, targetID, reaction string) error
-	DeletePost(ctx context.Context, jid, targetID string) error
+	Delete(ctx context.Context, jid, targetID string) error
 }
 
 type SessionRecord struct {

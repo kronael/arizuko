@@ -88,16 +88,16 @@ func TestBotHandler_Post(t *testing.T) {
 	}
 }
 
-func TestBotHandler_DeletePost(t *testing.T) {
+func TestBotHandler_Delete(t *testing.T) {
 	m := newRedditMock()
 	srv := httptest.NewServer(m.handler())
 	defer srv.Close()
 
 	rc := makeRedditClient(t, srv)
-	if err := rc.DeletePost(chanlib.DeleteRequest{
+	if err := rc.Delete(chanlib.DeleteRequest{
 		ChatJID: "reddit:bob", TargetID: "t3_abc",
 	}); err != nil {
-		t.Fatalf("DeletePost: %v", err)
+		t.Fatalf("Delete: %v", err)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

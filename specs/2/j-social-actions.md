@@ -4,7 +4,7 @@ status: shipped
 
 > Renamed 2026-04-24: `react` → `like` for semantic alignment with platform
 > UI (favourite/like/heart). Downvote counterpart (reddit, future) will be
-> `score_down`, not `hate`.
+> `dislike`, not `hate`.
 
 # Social Actions — Outbound
 
@@ -18,27 +18,27 @@ not chat primitives, handled out-of-band by operators.
 
 ## Actions
 
-| Action        | Platforms                           | Status  |
-| ------------- | ----------------------------------- | ------- |
-| `reply`       | all adapters                        | shipped |
-| `post`        | reditd, bskyd, mastd, discd         | partial |
-| `like`        | discord, mastodon, bluesky          | partial |
-| `delete_post` | discord, mastodon, bluesky, reddit  | partial |
-| `close`       | gateway (marks thread group closed) | planned |
-| `delete`      | gateway (removes thread group)      | planned |
+| Action       | Platforms                           | Status  |
+| ------------ | ----------------------------------- | ------- |
+| `reply`      | all adapters                        | shipped |
+| `post`       | reditd, bskyd, mastd, discd         | partial |
+| `like`       | discord, mastodon, bluesky          | partial |
+| `delete`     | discord, mastodon, bluesky, reddit  | shipped |
+| `close`      | gateway (marks thread group closed) | planned |
+| `drop_group` | gateway (removes thread group)      | planned |
 
-> Updated 2026-04-24: `like` and `delete_post` are implemented at the
-> adapter + gateway layer on the listed platforms but are not yet
-> registered as MCP tools in `ipc/ipc.go`, so the agent cannot call them.
-> MCP tool registration pending.
+> Updated 2026-04-24: `like` and `delete` are implemented at the
+> adapter + gateway layer on the listed platforms and registered as
+> MCP tools in `ipc/ipc.go`. Planned gateway-level group verb renamed
+> `delete` → `drop_group` to avoid collision with the platform tool.
 
 ## Tool shapes
 
 - `post`: `{ jid, content, media? }`
 - `reply`: `{ jid, target, content }` (shipped as `send_message`/`send_reply`)
 - `like`: `{ jid, target, reaction? }`
-- `delete_post`: `{ jid, target }`
-- `close` / `delete`: `{ group }`
+- `delete`: `{ jid, target }`
+- `close` / `drop_group`: `{ group }`
 
 ## Decisions
 

@@ -41,7 +41,7 @@ inbox.json` delivers replies/mentions/PMs only, and `/r/<sr>/new.json`
   `score`/`ups`/`likes` counts on polled things, not as discrete events.
   Inbound verbs remain `message`, `reply`, or `post` (`client.go:340`).
 - Outbound file/media upload is not implemented. `post`, `send_reply`,
-  and `delete_post` are wired; `send_file` is not.
+  and `delete` are wired; `send_file` is not.
 
 ## Health signal
 

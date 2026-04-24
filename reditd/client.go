@@ -481,7 +481,7 @@ func (rc *redditClient) Post(req chanlib.PostRequest) (string, error) {
 
 func (rc *redditClient) Like(chanlib.LikeRequest) error { return chanlib.ErrUnsupported }
 
-func (rc *redditClient) DeletePost(req chanlib.DeleteRequest) error {
+func (rc *redditClient) Delete(req chanlib.DeleteRequest) error {
 	data := url.Values{"id": {req.TargetID}}
 	resp, err := rc.do("POST", "/api/del", nil, data)
 	if err != nil {

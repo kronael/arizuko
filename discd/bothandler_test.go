@@ -154,17 +154,17 @@ func TestBotHandler_Post(t *testing.T) {
 	}
 }
 
-func TestBotHandler_DeletePost(t *testing.T) {
+func TestBotHandler_Delete(t *testing.T) {
 	rec := &recorded{}
 	srv := newRecordingDiscordServer(t, rec)
 	defer srv.Close()
 	defer mockAllDiscordEndpoints(srv.URL)()
 
 	b := &bot{session: newTestSession(t)}
-	if err := b.DeletePost(chanlib.DeleteRequest{
+	if err := b.Delete(chanlib.DeleteRequest{
 		ChatJID: "discord:ch-1", TargetID: "msg-99",
 	}); err != nil {
-		t.Fatalf("DeletePost: %v", err)
+		t.Fatalf("Delete: %v", err)
 	}
 	assertPath(t, rec, "DELETE", "/channels/ch-1/messages/msg-99")
 }

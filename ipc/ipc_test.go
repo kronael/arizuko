@@ -138,7 +138,7 @@ func TestSocialActionsRegistered(t *testing.T) {
 			reactCalls++
 			return nil
 		},
-		DeletePost: func(jid, target string) error {
+		Delete: func(jid, target string) error {
 			deleteCalls++
 			return nil
 		},
@@ -149,7 +149,7 @@ func TestSocialActionsRegistered(t *testing.T) {
 	rules := []string{
 		"post(jid=mastodon:*)",
 		"like(jid=mastodon:*)",
-		"delete_post(jid=mastodon:*)",
+		"delete(jid=mastodon:*)",
 	}
 	srv := buildMCPServer(gated, StoreFns{}, "world", rules)
 	if srv == nil {

@@ -111,14 +111,14 @@ func TestBotHandler_Like(t *testing.T) {
 	}
 }
 
-func TestBotHandler_DeletePost(t *testing.T) {
+func TestBotHandler_Delete(t *testing.T) {
 	m := newMastoMock(t)
 	mc := newTestMasto(t, m.srv.URL)
 
-	if err := mc.DeletePost(chanlib.DeleteRequest{
+	if err := mc.Delete(chanlib.DeleteRequest{
 		ChatJID: "mastodon:user", TargetID: "99",
 	}); err != nil {
-		t.Fatalf("DeletePost: %v", err)
+		t.Fatalf("Delete: %v", err)
 	}
 	if !contains(m.paths(), "DELETE /api/v1/statuses/99") {
 		t.Errorf("no DELETE: %v", m.paths())

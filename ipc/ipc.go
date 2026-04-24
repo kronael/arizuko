@@ -30,7 +30,7 @@ type GatedFns struct {
 	SendDocument        func(jid, path, filename, caption string) error
 	Post                func(jid, content string, mediaPaths []string) (string, error)
 	Like                func(jid, targetID, reaction string) error
-	DeletePost          func(jid, targetID string) error
+	Delete              func(jid, targetID string) error
 	ClearSession        func(folder string)
 	InjectMessage       func(jid, content, sender, senderName string) (string, error)
 	RegisterGroup       func(jid string, group core.Group) error
@@ -461,22 +461,22 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	registerRaw("delete_post", "Delete a post/message previously created by this agent (platform enforces authorship). Use to retract an incorrect or superseded post. Not for editing (no edit tool — delete and re-post) or for hiding inbound messages. Tier 0-2 only.",
+	registerRaw("delete", "Delete a post/message previously created by this agent (platform enforces authorship). Use to retract an incorrect or superseded post. Not for editing (no edit tool — delete and re-post) or for hiding inbound messages. Tier 0-2 only.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("targetId", mcp.Required()),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "delete_post", map[string]string{"jid": jid}) {
-				return toolErr("delete_post: not permitted")
+			if !grantslib.CheckAction(rules, "delete", map[string]string{"jid": jid}) {
+				return toolErr("delete: not permitted")
 			}
-			if gated.DeletePost == nil {
-				return toolErr("delete_post not configured")
+			if gated.Delete == nil {
+				return toolErr("delete not configured")
 			}
 			targetID := req.GetString("targetId", "")
-			slog.Info("delete_post", "folder", folder, "jid", jid, "target", targetID)
-			if err := gated.DeletePost(jid, targetID); err != nil {
+			slog.Info("delete", "folder", folder, "jid", jid, "target", targetID)
+			if err := gated.Delete(jid, targetID); err != nil {
 				return toolErr(err.Error())
 			}
 			return toolOK()

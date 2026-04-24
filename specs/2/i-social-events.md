@@ -4,7 +4,7 @@ status: shipped
 
 > Renamed 2026-04-24: `react` → `like` for semantic alignment with platform
 > UI (favourite/like/heart). Downvote counterpart (reddit, future) will be
-> `score_down`, not `hate`.
+> `dislike`, not `hate`.
 
 # Social Events — Unified Inbound Model
 
@@ -15,7 +15,7 @@ by impulse weights, routes by verb. Agents see a uniform stream.
 
 `message, reply, post, like, repost, follow, join, edit, delete, close`
 
-- `score_down` (future — for platforms with explicit downvote: reddit primarily)
+- `dislike` (future — for platforms with explicit downvote: reddit primarily)
 
 ## Platform mapping
 

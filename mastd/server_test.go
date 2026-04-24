@@ -35,7 +35,7 @@ func (s *stubPoster) Like(r chanlib.LikeRequest) error {
 	s.reactReq = r
 	return s.reactErr
 }
-func (s *stubPoster) DeletePost(r chanlib.DeleteRequest) error {
+func (s *stubPoster) Delete(r chanlib.DeleteRequest) error {
 	s.delReq = r
 	return s.delErr
 }
@@ -83,11 +83,11 @@ func TestMastLike(t *testing.T) {
 	}
 }
 
-func TestMastDeletePost(t *testing.T) {
+func TestMastDelete(t *testing.T) {
 	bot := &stubPoster{}
 	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "target_id": "t1"})
-	req := httptest.NewRequest("POST", "/delete-post", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/delete", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
 	if w.Code != 200 {

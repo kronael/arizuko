@@ -397,7 +397,7 @@ func (bc *bskyClient) Like(req chanlib.LikeRequest) error {
 	return nil
 }
 
-func (bc *bskyClient) DeletePost(req chanlib.DeleteRequest) error {
+func (bc *bskyClient) Delete(req chanlib.DeleteRequest) error {
 	parts := strings.Split(req.TargetID, "/")
 	if len(parts) < 5 {
 		return fmt.Errorf("bluesky delete: target_id must be an at:// URI")

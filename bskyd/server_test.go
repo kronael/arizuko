@@ -33,7 +33,7 @@ func (s *stubCreator) Like(r chanlib.LikeRequest) error {
 	s.reactReq = r
 	return s.reactErr
 }
-func (s *stubCreator) DeletePost(r chanlib.DeleteRequest) error {
+func (s *stubCreator) Delete(r chanlib.DeleteRequest) error {
 	s.delReq = r
 	return s.delErr
 }
@@ -305,13 +305,13 @@ func TestBskyLike(t *testing.T) {
 	}
 }
 
-func TestBskyDeletePost(t *testing.T) {
+func TestBskyDelete(t *testing.T) {
 	stub := &stubCreator{}
 	s := newServer(config{Name: "bluesky"}, stub, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{
 		"chat_jid": "bluesky:did:plc:me", "target_id": "at://did:plc:me/app.bsky.feed.post/abc",
 	})
-	req := httptest.NewRequest("POST", "/delete-post", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/delete", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)

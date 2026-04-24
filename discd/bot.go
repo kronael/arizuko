@@ -217,7 +217,7 @@ func (b *bot) Like(req chanlib.LikeRequest) error {
 	return nil
 }
 
-func (b *bot) DeletePost(req chanlib.DeleteRequest) error {
+func (b *bot) Delete(req chanlib.DeleteRequest) error {
 	chID := strings.TrimPrefix(req.ChatJID, "discord:")
 	if err := b.session.ChannelMessageDelete(chID, req.TargetID); err != nil {
 		return fmt.Errorf("discord delete: %w", err)
