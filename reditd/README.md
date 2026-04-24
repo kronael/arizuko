@@ -34,8 +34,12 @@ API.
 
 ## Limitations
 
-- Inbound upvotes/downvotes are not mapped to the `react` verb. Inbound
-  verbs are `message`, `reply`, or `post` only (`client.go:340`).
+- Inbound upvotes/downvotes are not mapped to the `react` verb. Reddit's
+  API does not surface individual vote events via subscription: `/message/
+inbox.json` delivers replies/mentions/PMs only, and `/r/<sr>/new.json`
+  delivers new submissions. Vote state is only exposed as aggregate
+  `score`/`ups`/`likes` counts on polled things, not as discrete events.
+  Inbound verbs remain `message`, `reply`, or `post` (`client.go:340`).
 - Outbound file/media upload is not implemented. `post`, `send_reply`,
   and `delete_post` are wired; `send_file` is not.
 
