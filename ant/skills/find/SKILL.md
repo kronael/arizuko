@@ -1,12 +1,12 @@
 ---
-name: facts
+name: find
 description: Research a topic and produce verified facts in facts/. Use when
   /recall-memories finds no match or when asked to research something.
 user-invocable: true
 arg: <question or topic to research>
 ---
 
-# Facts
+# Find
 
 Research → verify → write to `facts/` for future recall via `/recall-memories`.
 ALWAYS use subagents — never research in main context.

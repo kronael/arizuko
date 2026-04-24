@@ -202,7 +202,7 @@ agent Cancelled.
 Type `/skill-name` at the start of your message to invoke one. The agent can also create new skills by writing a `SKILL.md` file — capabilities persist across sessions. Ask "what skills do you have?" to see the full list.
 
 ```
-/hello  /self  /facts  /recall-memories
+/hello  /self  /find  /recall-memories
 /compact-memories  /diary  /web  /howto
 /users  /migrate  /info  /commit
 

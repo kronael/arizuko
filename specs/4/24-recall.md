@@ -21,10 +21,10 @@ frontmatter. Adding a store = one string. No recall code changes.
 
 ```
 question -> /recall -> matches? -> agent reads files -> answer
-                    -> no match -> /facts (research) -> answer
+                    -> no match -> /find (research) -> answer
 ```
 
-`/recall` = retrieval (cheap). `/facts` = research + creation (expensive).
+`/recall` = retrieval (cheap). `/find` = research + creation (expensive).
 
 ## LLM semantic grep
 

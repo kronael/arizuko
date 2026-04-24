@@ -132,11 +132,11 @@ Use the right store — never write directly to `facts/`:
 - **Something happened / was decided** → `/diary` skill
 - **Learned something about a user** → `/users` skill
 - **Need researched knowledge on a topic** → `/recall-memories <topic>` first;
-  if no match, `/facts <topic>` to research and write verified facts
-- **Facts are stale** (`verified_at` older than 14 days) → `/facts <topic>` to refresh
+  if no match, `/find <topic>` to research and write verified facts
+- **Facts are stale** (`verified_at` older than 14 days) → `/find <topic>` to refresh
 
 Never write `facts/*.md` files by hand. Facts are researched and verified
-by the `/facts` skill, not casually noted.
+by the `/find` skill, not casually noted.
 
 # Recording user-reported issues
 

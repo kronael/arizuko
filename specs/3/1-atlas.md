@@ -9,7 +9,7 @@ status: shipped
 YAML markdown knowledge files in `groups/root/facts/`. Schema: `path`,
 `category`, `topic`, `verified_at`, `header` (dense summary). 85+ files.
 
-`/facts` skill handles retrieval (explore subagent scans headers),
+`/find` skill handles retrieval (explore subagent scans headers),
 research (web + codebase search, write/update files), and verification
 (cross-check + stamp `verified_at`). Age gate: 14 days triggers refresh.
 

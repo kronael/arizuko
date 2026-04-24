@@ -6,7 +6,7 @@ status: shipped
 
 Product config that turns a group into a codebase Q&A agent with background
 research. Agent answers questions about a mounted codebase; when knowledge
-base doesn't fully answer, it researches via `/facts` and writes verified
+base doesn't fully answer, it researches via `/find` and writes verified
 fact files. In production as REDACTED Atlas since March 2026.
 
 ## Architecture
@@ -46,7 +46,7 @@ verification:
 ---
 ```
 
-### /facts skill
+### /find skill
 
 Two-phase:
 
@@ -83,14 +83,14 @@ only trivial application needed. No interpretation, no inference, no
 Decision tree:
 
 - Fact fully answers + fresh (verified_at < 14 days) → answer from it
-- Fact fully answers but stale → run `/facts` to refresh, then answer
-- No fact fully answers → run `/facts` to research, then answer
+- Fact fully answers but stale → run `/find` to refresh, then answer
+- No fact fully answers → run `/find` to research, then answer
 
 Always deliberate in `<think>` before answering:
 
 1. List candidate facts found by scanning headers
 2. For each candidate: does it directly answer? what gap remains?
-3. Verdict: use, refresh (`/facts`), or research from scratch
+3. Verdict: use, refresh (`/find`), or research from scratch
 
 Never guess. Never claim code behavior without citing file:line evidence.
 
@@ -99,7 +99,7 @@ Never guess. Never claim code behavior without citing file:line evidence.
 When no fact is relevant:
 
 1. Emit `<status>researching...</status>`
-2. Run `/facts` with the specific question
+2. Run `/find` with the specific question
 3. Wait for results, answer from new facts
 
 ## Evidence Standard
@@ -154,7 +154,7 @@ Channel: Telegram, requires_trigger=0
 
 ## Open questions
 
-- `/facts` skill has no hard timeout — relies on container session timeout.
+- `/find` skill has no hard timeout — relies on container session timeout.
 - Dedup across re-research (agent checks existing facts first).
 - Semantic search (embeddings) deferred; strict relevance rule compensates.
 - Multi-codebase: current `EXTRA_MOUNTS` supports comma-separated mounts.

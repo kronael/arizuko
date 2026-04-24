@@ -23,7 +23,7 @@ Search all memory stores for information relevant to a question.
 ## After results
 
 Deliberate in `<think>`: list matched files, what each says, whether it
-answers, what gap remains. Verdict: use it, refresh via `/facts`, or
+answers, what gap remains. Verdict: use it, refresh via `/find`, or
 research fresh.
 
 **Weight corrections over conclusions.** Trust user corrections verbatim;

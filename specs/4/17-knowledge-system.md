@@ -111,10 +111,10 @@ facts/     diary/     users/     episodes/
 Each store = directory of `*.md` files with `summary:` in YAML
 frontmatter. Adding a store = one string. No code changes.
 
-### Separation from `/facts`
+### Separation from `/find`
 
 - **`/recall`** — retrieval only. Scan, match, return. No writing.
-- **`/facts`** — research only. Create/refresh via subagents.
+- **`/find`** — research only. Create/refresh via subagents.
 
 ### v1: LLM semantic grep (shipped)
 
@@ -126,7 +126,7 @@ question -> /recall -> Explore subagent greps summary: fields
          -> judges relevance per file
          -> returns: path, store, why it matches
          -> agent reads matched files
-         -> answers or escalates to /facts if gaps remain
+         -> answers or escalates to /find if gaps remain
 ```
 
 Explore protocol:

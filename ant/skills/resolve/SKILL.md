@@ -35,7 +35,7 @@ grep -ril "<term>" ~/diary/ ~/facts/ ~/users/ 2>/dev/null | head -5
 ```
 
 If a fact's `verified_at` is >14 days old and the task needs accurate
-data, refresh via `/facts <topic>`. Delete facts that are wrong.
+data, refresh via `/find <topic>`. Delete facts that are wrong.
 
 ## 3. Dispatch (new task only)
 
