@@ -1,12 +1,14 @@
 ---
-status: rejected
+status: planned
+phase: next
 aka: antbox
 ---
 
 # Antbox — QEMU sandboxing via crackbox
 
-> Rejected 2026-04-24: Docker remains sufficient. VM-level isolation
-> not pursued; revisit if isolation becomes a hard requirement.
+> 2026-04-24: Planned as next-phase work. Not yet scheduled but
+> committed in direction. Docker remains the current backend until
+> this ships.
 
 Replace Docker with QEMU/KVM VMs via crackbox
 (`/home/onvos/app/crackbox`). Resident VM per group (ephemeral ~30s
