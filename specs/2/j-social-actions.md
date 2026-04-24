@@ -18,10 +18,15 @@ not chat primitives, handled out-of-band by operators.
 | ------------- | ----------------------------------- | ------- |
 | `reply`       | all adapters                        | shipped |
 | `post`        | reditd, bskyd, mastd, discd         | partial |
-| `react`       | discord, mastodon, bluesky          | planned |
-| `delete_post` | discord, mastodon, bluesky, reddit  | planned |
+| `react`       | discord, mastodon, bluesky          | partial |
+| `delete_post` | discord, mastodon, bluesky, reddit  | partial |
 | `close`       | gateway (marks thread group closed) | planned |
 | `delete`      | gateway (removes thread group)      | planned |
+
+> Updated 2026-04-24: `react` and `delete_post` are implemented at the
+> adapter + gateway layer on the listed platforms but are not yet
+> registered as MCP tools in `ipc/ipc.go`, so the agent cannot call them.
+> MCP tool registration pending.
 
 ## Tool shapes
 

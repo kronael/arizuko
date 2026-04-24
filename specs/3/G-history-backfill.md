@@ -2,6 +2,12 @@
 status: shipped
 ---
 
+> Shipped 2026-04-22 (commits `d94c0af`, `847cb4a`, `44122e1`):
+> `fetch_history` + `inspect_messages` registered in `ipc/ipc.go:897-953`;
+> FetchHistory implemented on discd, bskyd, mastd, reditd, emaid, teled,
+> linkd. whapd deferred (Baileys unreliable). Decision block below kept
+> for historical context.
+
 # History Fetch (channel-first) + Inspect Tools
 
 Rename and split today's single `get_history` into two distinct tools

@@ -9,10 +9,12 @@ in `groups.slink_token`; proxyd resolves it on `/slink/*` requests.
 
 ## Token design
 
-- 16-char random, URL-safe (96 bits)
+- 32 random bytes, base64url-encoded (~43 chars, 256 bits)
 - Public, freely shared in page source
 - Generated once at registration, never rotated
 - Security via rate limiting, not token secrecy
+
+> Updated 2026-04-24: token is 32 bytes / 256 bits / ~43 base64url chars per core/types.go:129.
 
 ## Rate limiting tiers
 

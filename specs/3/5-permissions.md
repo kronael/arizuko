@@ -22,14 +22,18 @@ Tier = `min(folder.split('/').length, 3)`.
 
 | Action         | Tier 0     | Tier 1       | Tier 2      | Tier 3  |
 | -------------- | ---------- | ------------ | ----------- | ------- |
-| send_message   | any target | same world   | own JID     | own JID |
-| send_file      | any target | same world   | own JID     | denied  |
+| send_message   | any target | same world   | own JID     | denied  |
+| send_file      | any target | same world   | own JID     | own JID |
 | schedule_task  | any target | same world   | own group   | denied  |
 | register_group | children   | own world    | denied      | denied  |
 | set_routing    | any group  | own children | denied      | denied  |
 | delegate_group | any desc.  | own subtree  | own subtree | denied  |
 | escalate_group | denied     | denied       | parent      | parent  |
 | refresh_groups | allowed    | denied       | denied      | denied  |
+
+> Updated 2026-04-24: tier 3+ can send_file (and send_reply), but not
+> send_message. See `grants/grants.go:166` and commit `db288f4`
+> ([feat] grants: tier 3+ can send files).
 
 ## Mount enforcement
 
