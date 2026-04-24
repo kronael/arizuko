@@ -54,15 +54,6 @@ New subsystems and channel types. `specs/7/`
 - workflows: multi-step workflow primitives
 - feed adapters: reddit, twitter, facebook, gmail, webdav
 
-## v2m2 — Go rewrite
-
-Gateway rewrite in Go. Agent container stays TypeScript. `specs/7/`
-
-- Single static binary, no node_modules
-- Native concurrency (goroutines vs polling loops)
-- Same SQLite schema, same .env, same IPC protocol
-- Drop-in replacement for TS gateway
-
 ## Atlas
 
 Product-specific roadmap. `specs/atlas/`
