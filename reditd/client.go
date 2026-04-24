@@ -44,7 +44,7 @@ func (rc *redditClient) LastInboundAt() int64 { return rc.lastInboundAt.Load() }
 
 // pollStaleAfter is the tolerance before /health flips to 503.
 // Reddit polls every 30s; 3m accommodates transient 429s and network blips.
-const pollStaleAfter = 3 * time.Minute
+const pollStaleAfter = 15 * time.Minute
 
 func (rc *redditClient) isConnected() bool {
 	last := rc.lastPollOK.Load()
@@ -262,7 +262,11 @@ type listing struct {
 }
 
 func (rc *redditClient) poll(ctx context.Context, router *chanlib.RouterClient) {
-	ticker := time.NewTicker(30 * time.Second)
+	interval := rc.cfg.PollInterval
+	if interval < time.Second {
+		interval = 5 * time.Minute
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {

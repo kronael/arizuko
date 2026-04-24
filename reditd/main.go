@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/onvos/arizuko/chanlib"
 )
@@ -46,6 +47,7 @@ type config struct {
 	ListenURL     string
 	DataDir       string
 	MaxFileBytes  int64
+	PollInterval  time.Duration
 }
 
 func loadConfig() config {
@@ -69,5 +71,14 @@ func loadConfig() config {
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://reditd:9006"),
 		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/reditd"),
 		MaxFileBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
+		PollInterval:  parseDuration(chanlib.EnvOr("REDDIT_POLL_INTERVAL", "5m")),
 	}
+}
+
+func parseDuration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil || d < time.Second {
+		return 5 * time.Minute
+	}
+	return d
 }
