@@ -1,8 +1,11 @@
 ---
-status: superseded
+status: rejected
 ---
 
 # Alternative agent backends — not shipping
+
+> Rejected 2026-04-24: Staying on Claude Agent SDK. Codex/Pi adoption
+> not pursued given SDK maturity + MCP integration.
 
 Evaluated Codex CLI and pi-coding-agent as ant backends behind an
 `AgentDriver` interface (`run`, `steer`, `abort`, `sessionId`) with

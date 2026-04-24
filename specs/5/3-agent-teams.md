@@ -1,8 +1,12 @@
 ---
-status: superseded
+status: rejected
 ---
 
 # Agent Teams — disabled
+
+> Rejected 2026-04-24: Superseded by subagent model via Agent SDK.
+> Claude Code Teams had orphan risk + wrong mount semantics. Not
+> pursuing.
 
 Claude Code's experimental Agent Teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`,
 `TeamCreate`/`TeamDelete`/`SendMessage`) not used.
