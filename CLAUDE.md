@@ -85,6 +85,7 @@ bskyd/             Bluesky adapter (Go)
 reditd/            Reddit adapter (Go)
 whapd/             WhatsApp adapter (TypeScript)
 emaid/             Email adapter (IMAP/SMTP, Go)
+linkd/             LinkedIn adapter (Go)
 cfg/               Instance config files (per-deploy .env snapshots)
 ```
 
@@ -116,16 +117,17 @@ All config via `.env` in data dir or env vars (`core.LoadConfig`).
 Infra: `ASSISTANT_NAME`, `CONTAINER_IMAGE`, `CONTAINER_TIMEOUT`,
 `IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`, `API_PORT`, `CHANNEL_SECRET`,
 `HOST_DATA_DIR`, `HOST_APP_DIR`, `WEB_HOST`, `AUTH_SECRET`, `AUTH_BASE_URL`,
-`TZ`, `LOG_LEVEL`, `ARIZUKO_DEV`.
+`TZ`, `ARIZUKO_DEV`.
 Media: `MEDIA_ENABLED`, `MEDIA_MAX_FILE_BYTES`, `WHISPER_BASE_URL`,
 `VOICE_TRANSCRIPTION_ENABLED`, `VIDEO_TRANSCRIPTION_ENABLED`, `WHISPER_MODEL`.
 OAuth: `GITHUB_CLIENT_ID/SECRET`, `GITHUB_ALLOWED_ORG`,
 `DISCORD_CLIENT_ID/SECRET`, `GOOGLE_CLIENT_ID/SECRET`, `GOOGLE_ALLOWED_EMAILS`.
 Flags: `ONBOARDING_ENABLED` (true/false), `IMPULSE_ENABLED`,
 `SEND_DISABLED_CHANNELS`, `SEND_DISABLED_GROUPS`, `ONBOARDING_PLATFORMS`.
-Onboarding: `ONBOARDING_PROTOTYPE`, `ONBOARDING_GREETING`,
+Onboarding (onbod): `ONBOARDING_PROTOTYPE`, `ONBOARDING_GREETING`,
 `ONBOARDING_GATES` (format `*:50/day` or `github:org=X:10/day,google:domain=Y:20/day`).
-Gates write to `onboarding.gate` + `onboarding.queued_at` columns (migration 0027).
+Gates write to `onboarding.gate` + `onboarding.queued_at` columns (migration 0027);
+per-gate state lives in `onboarding_gates` (migration 0029).
 Daemon-specific: `DATA_DIR`, `DATABASE`, `DB_PATH`, `DASH_PORT`,
 `ROUTER_URL`, `ONBOD_LISTEN_ADDR`, `ONBOARD_POLL_INTERVAL`.
 
@@ -139,13 +141,14 @@ arizuko group <inst> list|add|rm   manage groups
 arizuko group <inst> grant <sub> <pattern>   add user_groups ACL row
 arizuko group <inst> ungrant <sub> <pattern>
 arizuko group <inst> grants [<sub>]
+arizuko gate <inst> list|add|rm|enable|disable   manage onboarding_gates rows
 arizuko status <instance>      show compose services + channels
 arizuko pair <instance> <svc>  docker compose run --rm a service
 ```
 
 Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`,
-`mastd`, `bskyd`, `reditd`, `emaid`, `whapd`, `onbod`, `dashd`, `webd`,
-`proxyd`. Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
+`mastd`, `bskyd`, `reditd`, `emaid`, `linkd`, `whapd`, `onbod`, `dashd`,
+`webd`, `proxyd`. Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
 
 ## Service Architecture
 
@@ -167,6 +170,7 @@ Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 | `reditd`   | daemon  | Reddit adapter                                        |
 | `whapd`    | daemon  | WhatsApp adapter (TypeScript)                         |
 | `emaid`    | daemon  | Email adapter (IMAP/SMTP)                             |
+| `linkd`    | daemon  | LinkedIn adapter                                      |
 | `ipc`      | library | MCP server, identity stamping                         |
 | `auth`     | library | Authorization policy, JWT, OAuth                      |
 | `grants`   | library | Grant rule engine                                     |

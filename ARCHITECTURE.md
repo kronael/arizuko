@@ -25,7 +25,7 @@ onbod/    onboarding state machine + gated admission queue
 dashd/    operator dashboard (HTMX, read-only SQLite)
 webd/     web chat channel adapter (HTTP/SSE, registers as "web")
 proxyd/   reverse proxy: auth, vhost routing, slink rate limiting
-teled/ discd/ mastd/ bskyd/ reditd/ emaid/ whapd/  channel adapters
+teled/ discd/ mastd/ bskyd/ reditd/ emaid/ whapd/ linkd/  channel adapters
 grants/   CheckAction, NarrowRules, MatchingRules, DeriveRules
 chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
           proxy cache for discd/mastd/reditd), fsutil (CopyDirNoSymlinks,
@@ -162,6 +162,8 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `chat_reply_state` | jid + topic (PK), last_reply_id                                                          |
 | `email_threads`    | thread_id (PK), chat_jid, subject                                                        |
 | `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at           |
+| `onboarding_gates` | gate (PK), limit_per_day, enabled                                                        |
+| `invitations`      | token (PK), folder, created_by, created_at, uses, max_uses, expires                      |
 
 WAL mode, 5s busy timeout, migrations via `db_utils.Migrate` (`migrations`
 table keyed by service+version).
@@ -258,7 +260,7 @@ filtered by grants.
 
 Bundled catalog at `template/services/` (ships in image, Ansible extracts to
 `/srv/app/arizuko/template/services/`): `teled.toml`, `whapd.toml`,
-`discd.toml`, `bskyd.toml`, `mastd.toml`, `reditd.toml`.
+`discd.toml`, `bskyd.toml`, `mastd.toml`, `reditd.toml`, `linkd.toml`.
 
 TOML format:
 
