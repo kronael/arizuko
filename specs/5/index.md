@@ -11,7 +11,6 @@ status: future
 | [27-detached-containers.md](27-detached-containers.md)         | unshipped | File-based output + reclaim for gated-restart survival             |
 | [3-agent-messaging.md](3-agent-messaging.md)                   | unshipped | Slink links as universal agent-to-agent inboxes                    |
 | [3-agent-teams.md](3-agent-teams.md)                           | rejected  | Claude Code Agent Teams disabled; subagents stay                   |
-| [5-agent-media-awareness.md](5-agent-media-awareness.md)       | unshipped | Teach agent to Read attached PDFs/images                           |
 | [6-evangelist.md](6-evangelist.md)                             | deferred  | Community-engagement agent (scrape → score → draft → review)       |
 | [6-extend-gateway-self.md](6-extend-gateway-self.md)           | unshipped | Root agent modifying gateway codebase (plugin dir or agent branch) |
 | [9-identities.md](9-identities.md)                             | unshipped | Link one user across multiple platform subs                        |

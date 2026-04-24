@@ -334,15 +334,9 @@ Attachment paths appear in message content as:
 <attachment path="/home/node/media/20260329/msgid-1.ogg" mime="audio/ogg" filename="voice.ogg" transcript="hello world"/>
 ```
 
-- `path` is absolute — use directly with file tools
-- Voice is pre-transcribed; prefer `transcript` over re-transcribing
-- Files persist (no auto-cleanup)
-
-Inbound PDFs, images, markdown, JSON, and source-code attachments arrive
-as on-disk files at `path=...`. Use `Read` (or the equivalent in your
-available tool set) to inspect them directly — do NOT claim "I can't
-display this" or ask the user to paste content. Voice/video transcripts
-are already pre-decoded; prefer `transcript=` over re-transcribing.
+- `path` is absolute — `Read` it directly (PDFs, images, markdown, JSON, code all work). Never say "I can't display this".
+- Voice/video is pre-transcribed; prefer `transcript=` over re-transcribing.
+- Files persist (no auto-cleanup).
 - If the message has `[Document: name]` with NO `<attachment path=…>`
   tag, the file did NOT arrive. Do NOT claim you read it. Reply: "The
   file didn't reach me — please re-share as a file attachment." Log to
