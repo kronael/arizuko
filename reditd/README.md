@@ -1,0 +1,47 @@
+# reditd
+
+Reddit channel adapter.
+
+## Purpose
+
+Polls configured subreddits + inbox for new posts/mentions via the Reddit
+API, posts inbound to the router. Outbound uses Reddit's comment/submit
+API.
+
+## Responsibilities
+
+- Script-app OAuth with `REDDIT_CLIENT_ID/SECRET` + username/password.
+- Poll subreddits in `REDDIT_SUBREDDITS` + inbox; cursors persisted in `cursors.json`.
+- Post inbound as `reddit:<thing_id>` JIDs.
+- Handle `/send`, `/v1/history`.
+
+## Entry points
+
+- Binary: `reditd/main.go`
+- Listen: `$LISTEN_ADDR` (default `:9006`)
+- Router registration: `reddit:` prefix, caps `send_text`, `fetch_history`.
+
+## Dependencies
+
+- `chanlib`
+
+## Configuration
+
+- `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USERNAME`, `REDDIT_PASSWORD`
+- `REDDIT_SUBREDDITS` (comma-separated)
+- `REDDIT_USER_AGENT` (default `arizuko/1.0`)
+- `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR`, `LISTEN_URL`, `DATA_DIR`
+
+## Health signal
+
+`GET /health` returns 503 when OAuth token refresh is failing or rate
+limit is saturated.
+
+## Files
+
+- `main.go`, `client.go`, `server.go`
+- `cursors.json` — per-subreddit poll cursors (read/written at runtime)
+
+## Related docs
+
+- `specs/4/1-channel-protocol.md`

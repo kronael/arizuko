@@ -1,54 +1,143 @@
 # arizuko
 
-Multitenant Claude agent router. Runs real Claude Code CLI inside Docker
-containers. Routes messages from channel adapters (Telegram, Discord, Mastodon,
-Bluesky, Reddit, WhatsApp, email, web) to per-group containerized agents,
-streams responses back.
+Multitenant Claude agent router. External channel adapters (Telegram,
+Discord, Mastodon, Bluesky, Reddit, Email, WhatsApp, LinkedIn, web chat)
+register with the router over HTTP; per-group Claude Code agents run in
+Docker containers with an MCP socket bridged in for controlled side
+effects. Go, SQLite (WAL), Docker.
 
-Go, SQLite, Docker.
+## What it does
 
-## Quick Start
+Routes inbound messages from any registered channel to the right agent
+container, keyed by group folder. Each group owns its own session state,
+diary, skills, and ACLs. Agents can spawn children, schedule cron tasks,
+delegate to siblings, and act on behalf of users subject to grant rules.
+One SQLite DB (`messages.db`) is the single source of truth; `gated`
+owns the schema, other daemons connect read/write.
 
-```bash
-make build    # ./arizuko + daemon binaries
-make images   # all docker images (router + adapters + agent)
-make agent    # agent docker image only
+## Architecture at a glance
 
-arizuko create foo                      # seed instance
-vim /srv/data/arizuko_foo/.env          # configure
-arizuko group foo add tg:-123456789     # register group
-arizuko run foo                         # generate + docker compose up
+```
+adapter (teled/discd/…) --HTTP--> gated (api + gateway)
+                                    │
+                                    ├── store (messages.db, WAL)
+                                    ├── container (docker run agent)
+                                    │     └── MCP over unix socket (ipc)
+                                    └── chanreg (adapter health, outbound)
+
+timed   — scheduler, writes messages
+onbod   — onboarding, OAuth, gated admission
+webd    — web chat channel adapter
+proxyd  — auth-gated reverse proxy
+dashd   — operator dashboards (read-only)
 ```
 
-## Group Management
+Full graph, message flow, container lifecycle, SQLite schema in
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Subsystems
+
+### Daemons
+
+| name   | role                                                    | README                               |
+| ------ | ------------------------------------------------------- | ------------------------------------ |
+| gated  | HTTP API + message loop + container runner; owns schema | [gated/README.md](gated/README.md)   |
+| timed  | cron/interval scheduler                                 | [timed/README.md](timed/README.md)   |
+| onbod  | onboarding, OAuth, gated admission queue                | [onbod/README.md](onbod/README.md)   |
+| dashd  | read-only HTMX operator dashboards                      | [dashd/README.md](dashd/README.md)   |
+| webd   | web channel: websocket hub, slink, MCP bridge           | [webd/README.md](webd/README.md)     |
+| proxyd | auth-gated reverse proxy                                | [proxyd/README.md](proxyd/README.md) |
+| teled  | Telegram adapter                                        | [teled/README.md](teled/README.md)   |
+| discd  | Discord adapter                                         | [discd/README.md](discd/README.md)   |
+| mastd  | Mastodon adapter                                        | [mastd/README.md](mastd/README.md)   |
+| bskyd  | Bluesky adapter                                         | [bskyd/README.md](bskyd/README.md)   |
+| reditd | Reddit adapter                                          | [reditd/README.md](reditd/README.md) |
+| emaid  | Email (IMAP/SMTP) adapter                               | [emaid/README.md](emaid/README.md)   |
+| whapd  | WhatsApp adapter (TypeScript, Baileys)                  | [whapd/README.md](whapd/README.md)   |
+| linkd  | LinkedIn adapter (stub)                                 | [linkd/README.md](linkd/README.md)   |
+
+### Libraries
+
+| name        | role                                                        | README                                         |
+| ----------- | ----------------------------------------------------------- | ---------------------------------------------- |
+| cmd/arizuko | CLI entrypoint (`create`, `run`, `group`, `gate`, `status`) | [cmd/arizuko/README.md](cmd/arizuko/README.md) |
+| gateway     | poll loop, routing, autocalls, impulse gate                 | [gateway/README.md](gateway/README.md)         |
+| core        | types, config, `Channel` interface                          | [core/README.md](core/README.md)               |
+| store       | SQLite access + migrations                                  | [store/README.md](store/README.md)             |
+| api         | router-side HTTP API                                        | [api/README.md](api/README.md)                 |
+| chanreg     | channel registry + `HTTPChannel`                            | [chanreg/README.md](chanreg/README.md)         |
+| chanlib     | shared HTTP/auth primitives for adapters                    | [chanlib/README.md](chanlib/README.md)         |
+| router      | message formatting, route evaluation                        | [router/README.md](router/README.md)           |
+| queue       | per-group concurrency + circuit breaker                     | [queue/README.md](queue/README.md)             |
+| container   | docker runner + skill seeding                               | [container/README.md](container/README.md)     |
+| compose     | `docker-compose.yml` generator                              | [compose/README.md](compose/README.md)         |
+| ipc         | MCP server on unix socket                                   | [ipc/README.md](ipc/README.md)                 |
+| auth        | identity, JWT, OAuth, policy, HMAC                          | [auth/README.md](auth/README.md)               |
+| grants      | grant rule engine                                           | [grants/README.md](grants/README.md)           |
+| diary       | diary reader for prompt injection                           | [diary/README.md](diary/README.md)             |
+| db_utils    | embedded-FS migration runner                                | [db_utils/README.md](db_utils/README.md)       |
+| theme       | shared CSS/HTML helpers                                     | [theme/README.md](theme/README.md)             |
+| groupfolder | group-folder path validation                                | [groupfolder/README.md](groupfolder/README.md) |
+| mountsec    | mount allowlist + path validation                           | [mountsec/README.md](mountsec/README.md)       |
+| template    | instance seed files + adapter TOMLs                         | [template/README.md](template/README.md)       |
+| sidecar     | whisper transcription image                                 | [sidecar/README.md](sidecar/README.md)         |
+
+The `ant/` directory (in-container agent, TypeScript) has its own
+layered docs and is not indexed here.
+
+## Features
+
+| feature                                                  | code                                                                               | spec                                                             |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| autocalls — prompt-time fact injection                   | [gateway/autocalls.go](gateway/autocalls.go)                                       | [specs/7/34-autocalls.md](specs/7/34-autocalls.md)               |
+| inspect-tools — read-only MCP introspection              | [ipc/inspect.go](ipc/inspect.go)                                                   | [specs/7/33-inspect-tools.md](specs/7/33-inspect-tools.md)       |
+| channel liveness — /health flips stale on silent inbound | [chanlib/handler.go](chanlib/handler.go)                                           | —                                                                |
+| message-level `errored` quarantine + retry               | [store/messages.go](store/messages.go), [gateway/gateway.go](gateway/gateway.go)   | —                                                                |
+| grants / ACL engine                                      | [grants/grants.go](grants/grants.go)                                               | [specs/7/28-acl.md](specs/7/28-acl.md)                           |
+| onboarding + OAuth + gated admission                     | [onbod/main.go](onbod/main.go)                                                     | [specs/7/27-mass-onboarding.md](specs/7/27-mass-onboarding.md)   |
+| slink short-token chat                                   | [webd/slink.go](webd/slink.go)                                                     | [specs/7/28c-slink.md](specs/7/28c-slink.md)                     |
+| scheduler (cron + interval)                              | [timed/main.go](timed/main.go)                                                     | [specs/4/8-scheduler-service.md](specs/4/8-scheduler-service.md) |
+| impulse gate — weight-based batching                     | [gateway/impulse.go](gateway/impulse.go)                                           | —                                                                |
+| sticky group/topic routing                               | [gateway/commands.go](gateway/commands.go), [store/messages.go](store/messages.go) | —                                                                |
+| operator dashboards                                      | [dashd/main.go](dashd/main.go)                                                     | [specs/7/25-dashboards.md](specs/7/25-dashboards.md)             |
+| diary + MEMORY.md prompt layer                           | [diary/diary.go](diary/diary.go)                                                   | [specs/1/L-memory-diary.md](specs/1/L-memory-diary.md)           |
+| recall episodes (daily→weekly→monthly)                   | [container/episodes.go](container/episodes.go)                                     | [specs/4/24-recall.md](specs/4/24-recall.md)                     |
+| send_file + file delivery                                | [ipc/ipc.go](ipc/ipc.go), [chanlib/handler.go](chanlib/handler.go)                 | —                                                                |
+| voice transcription (Whisper sidecar)                    | [sidecar/README.md](sidecar/README.md)                                             | —                                                                |
+| prototype-based child spawn                              | [container/runtime.go](container/runtime.go)                                       | [specs/4/26-prototypes.md](specs/4/26-prototypes.md)             |
+| mount security + symlink guards                          | [mountsec/mountsec.go](mountsec/mountsec.go)                                       | —                                                                |
+| router→channel retry outbox                              | [chanreg/httpchan.go](chanreg/httpchan.go)                                         | —                                                                |
+| typing refresh (TTL-capped)                              | [chanlib/typing.go](chanlib/typing.go)                                             | —                                                                |
+| inter-daemon HMAC header signing                         | [auth/hmac.go](auth/hmac.go)                                                       | —                                                                |
+
+## Docs
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — package graph, message flow, schema
+- [ROUTING.md](ROUTING.md) — routing rules and examples
+- [SECURITY.md](SECURITY.md) — threat model
+- [EXTENDING.md](EXTENDING.md) — add channels, tools, skills, autocalls
+- [CHANGELOG.md](CHANGELOG.md) — shipped changes
+- [ROADMAP.md](ROADMAP.md) — planned work
+- [MIGRATION.md](MIGRATION.md) — kanipi → arizuko
+- [specs/](specs/) — per-phase specifications
+- [CLAUDE.md](CLAUDE.md) — project-specific patterns, env vars
+
+## Build & run
 
 ```bash
-arizuko group <instance> list                       # registered groups
-arizuko group <instance> add <jid> <name> [folder]  # register + default route
-arizuko group <instance> rm  <folder>               # unregister
-arizuko group <instance> grant   <sub> <pattern>    # add user_groups ACL
-arizuko group <instance> ungrant <sub> <pattern>    # remove grant
-arizuko group <instance> grants  [<sub>]            # list grants
+make build           # ./arizuko + daemon binaries
+make test            # go test ./... -count=1
+make images          # all docker images
+make agent           # agent image only
+
+arizuko create foo                         # seed /srv/data/arizuko_foo
+vim /srv/data/arizuko_foo/.env             # configure
+arizuko group foo add tg:-123456789 main   # register first group
+arizuko run foo                            # generate compose + up
 ```
 
-Pattern is a glob matched against folder paths: `**` = operator, `*` = any
-root folder, `pub/*` = one segment under `pub/`, literal = exact.
-
-First group defaults to folder `main` with direct mode; subsequent groups use
-trigger mode (`@assistant_name`).
-
-## Development
-
-```bash
-make build    # go build → ./arizuko
-make lint     # go vet ./...
-make test     # go test ./... -count=1
-make clean
-```
-
-Pre-commit hooks via `.pre-commit-config.yaml`. See
-[ARCHITECTURE.md](ARCHITECTURE.md) for package graph, schema, message flow.
-See [MIGRATION.md](MIGRATION.md) for kanipi migration notes.
+Env vars, data dir layout, and the full toolchain sit in
+[CLAUDE.md](CLAUDE.md).
 
 ## Thanks
 
@@ -56,18 +145,14 @@ See [MIGRATION.md](MIGRATION.md) for kanipi migration notes.
 | -------------------------------------------------------- | ----------------- | ----------- | --------------------------------------------------- |
 | [nanoclaw](https://github.com/qwibitai/nanoclaw)         | qwibitai          | MIT         | Container-per-session model                         |
 | [kanipi](https://github.com/kronael/kanipi)              | kronael           | MIT         | TS proof-of-concept; routing, MCP IPC, skill system |
-| [ElizaOS](https://github.com/elizaOS/eliza)              | elizaOS           | MIT         | character.json persona model, plugin thinking       |
+| [ElizaOS](https://github.com/elizaOS/eliza)              | elizaOS           | MIT         | character.json persona model                        |
 | [Claude Code](https://github.com/anthropics/claude-code) | Anthropic         | Proprietary | The agent runtime                                   |
 | [smolagents](https://github.com/huggingface/smolagents)  | Hugging Face      | Apache-2.0  | Code-as-action framing                              |
-| [OpenClaw](https://github.com/openclaw/openclaw)         | Peter Steinberger | MIT         | Multi-channel binding, single-process gateway       |
+| [OpenClaw](https://github.com/openclaw/openclaw)         | Peter Steinberger | MIT         | Multi-channel binding                               |
 | [NemoClaw](https://github.com/NVIDIA/NemoClaw)           | NVIDIA            | Apache-2.0  | Landlock + seccomp + netns sandboxing               |
 | [Muaddib](https://github.com/pasky/muaddib)              | Petr Baudis       | MIT         | QEMU micro-VM isolation, 3-tier chronicle memory    |
 | [Hermes](https://github.com/NousResearch/hermes-agent)   | Nous Research     | MIT         | Self-improving skill learning across sessions       |
 | [takopi](https://github.com/banteg/takopi)               | banteg            | MIT         | Telegram dispatch, progress streaming               |
-
-If you build on arizuko:
-
-> Built on [arizuko](https://github.com/kronael/arizuko) by kronael. © 2026 kronael (MIT)
 
 ## License
 
