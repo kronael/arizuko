@@ -2,6 +2,9 @@
 status: partial
 ---
 
+> Gap: `get_thread(jid)` is not registered in `ipc/ipc.go`. Only
+> `get_history` and adapter-backed `fetch_history` exist today.
+
 # Message history MCP
 
 Agent-side tools to query message history:

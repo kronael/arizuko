@@ -1,5 +1,5 @@
 ---
-status: draft
+status: unshipped
 ---
 
 # 29 — rate limits and credits

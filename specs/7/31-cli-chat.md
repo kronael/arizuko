@@ -1,6 +1,5 @@
 ---
-status: draft
-phase: 8
+status: unshipped
 depends: [29-local-cli]
 ---
 

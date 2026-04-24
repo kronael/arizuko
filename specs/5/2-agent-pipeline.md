@@ -1,6 +1,11 @@
 ---
-status: partial
+status: shipped
 ---
+
+> Shipped: both shapes rely only on existing primitives. Orchestration
+> uses slink (`1/W-slink.md`) + `send_message`. Workflows use the Claude
+> Code Agent tool inside a container. No gateway work outstanding;
+> declarative workflow syntax tracked separately in `6/6-workflows.md`.
 
 # Agent orchestration & workflows
 

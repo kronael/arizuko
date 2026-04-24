@@ -2,6 +2,11 @@
 status: partial
 ---
 
+> Gaps: `local:` prefix still referenced in router; outbound still
+> callback-driven (no `status` column on messages); `send_file` is a
+> distinct MCP tool (see `ipc/ipc.go:368`), not folded into
+> `send_message(..., files=[])`.
+
 # Unified message routing
 
 Single message table, single router decision point, uniform

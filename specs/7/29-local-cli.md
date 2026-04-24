@@ -1,6 +1,5 @@
 ---
-status: draft
-phase: next
+status: unshipped
 ---
 
 # Local CLI

@@ -7,7 +7,7 @@ status: future
 | Spec                                                           | Status     | Hook                                                               |
 | -------------------------------------------------------------- | ---------- | ------------------------------------------------------------------ |
 | [0-agent-code-modification.md](0-agent-code-modification.md)   | unshipped  | Staging area for root-agent-proposed gateway changes               |
-| [2-agent-pipeline.md](2-agent-pipeline.md)                     | partial    | Orchestration (slink) vs workflows (Agent tool)                    |
+| [2-agent-pipeline.md](2-agent-pipeline.md)                     | shipped    | Orchestration (slink) vs workflows (Agent tool)                    |
 | [27-detached-containers.md](27-detached-containers.md)         | unshipped  | File-based output + reclaim for gated-restart survival             |
 | [3-agent-messaging.md](3-agent-messaging.md)                   | unshipped  | Slink links as universal agent-to-agent inboxes                    |
 | [3-agent-teams.md](3-agent-teams.md)                           | superseded | Claude Code Agent Teams disabled; subagents stay                   |

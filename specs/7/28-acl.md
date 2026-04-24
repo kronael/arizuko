@@ -1,6 +1,5 @@
 ---
-status: implemented
-phase: next
+status: shipped
 ---
 
 # ACL: glob-matched user_groups

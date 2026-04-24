@@ -1,6 +1,5 @@
 ---
-status: implemented
-phase: shipped
+status: shipped
 supersedes: [4/21-onboarding.md]
 ---
 
