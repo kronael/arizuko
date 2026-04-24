@@ -29,6 +29,11 @@ router. Outbound posts use `app.bsky.feed.post`.
 - `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR`, `LISTEN_URL`
 - `DATA_DIR`, `MEDIA_MAX_FILE_BYTES`
 
+## Limitations
+
+- Outbound file/media upload is not implemented. `post`, `send_reply`,
+  and `react` are wired; `send_file` is not.
+
 ## Health signal
 
 `GET /health` returns 503 when auth session is invalid or poll is failing.

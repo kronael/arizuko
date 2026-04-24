@@ -30,6 +30,11 @@ posts inbound to the router. Outbound uses the Mastodon REST API.
 - `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR`, `LISTEN_URL`
 - `MEDIA_MAX_FILE_BYTES`, `MASTODON_FILE_CACHE_SIZE` (default 1000)
 
+## Limitations
+
+- Outbound file/media upload is not implemented. `post`, `send_reply`,
+  and `react` are wired; `send_file` is not.
+
 ## Health signal
 
 `GET /health` flips to 503 when the notification stream drops. Mastodon

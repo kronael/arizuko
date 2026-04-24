@@ -32,6 +32,13 @@ API.
 - `REDDIT_USER_AGENT` (default `arizuko/1.0`)
 - `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR`, `LISTEN_URL`, `DATA_DIR`
 
+## Limitations
+
+- Inbound upvotes/downvotes are not mapped to the `react` verb. Inbound
+  verbs are `message`, `reply`, or `post` only (`client.go:340`).
+- Outbound file/media upload is not implemented. `post`, `send_reply`,
+  and `delete_post` are wired; `send_file` is not.
+
 ## Health signal
 
 `GET /health` returns 503 when OAuth token refresh is failing or rate
