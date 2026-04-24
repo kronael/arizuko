@@ -2,7 +2,14 @@
 status: shipped
 ---
 
-# Group Permissions
+# MCP Tool Authorization (per tier)
+
+Scope: **which MCP tools an agent in a given folder can call.** Tier
+is derived from folder depth; actions are scoped to tier 0-3.
+
+For the broader auth picture — how `groups`, `user_groups`, `routes`
+compose to produce the grant rules — see
+[`specs/7/36-auth-landscape.md`](../7/36-auth-landscape.md).
 
 Four-tier permission model. Core enforcement shipped. Escalation
 response wiring shipped: `LocalChannel.Send` now enqueues a message
