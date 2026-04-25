@@ -19,8 +19,6 @@ import (
 const historyLimitMax = 50
 
 type server struct {
-	chanlib.NoFileSender
-	chanlib.NoSocial
 	cfg           config
 	db            *sql.DB
 	reg           *attRegistry
@@ -33,31 +31,36 @@ func newServer(cfg config, db *sql.DB, reg *attRegistry, isConnected func() bool
 	return &server{cfg: cfg, db: db, reg: reg, dialTLS: imapclient.DialTLS, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
-// Forward unsupported on Email: SMTP has no native forward primitive
-// (Fwd: is just a `send` with a re-formatted body).
+// Email is chat-only: no feed, no reactions, sent mail is immutable, and
+// SMTP has no native forward primitive. Every social verb is a hint
+// pointing the agent at `send` with the original quoted in the body.
+
+func (s *server) SendFile(_, _, _, _ string) error {
+	return chanlib.Unsupported("send_file", "email", "MIME attachments not implemented; inline the content in `send` body.")
+}
+func (s *server) Post(chanlib.PostRequest) (string, error) {
+	return "", chanlib.Unsupported("post", "email", "Email has no public feed. Use `send` to address a recipient directly.")
+}
+func (s *server) Like(chanlib.LikeRequest) error {
+	return chanlib.Unsupported("like", "email", "Email has no reactions. Use `send` with textual acknowledgement.")
+}
+func (s *server) Delete(chanlib.DeleteRequest) error {
+	return chanlib.Unsupported("delete", "email", "Sent email is immutable. Send a retraction via `send` referencing the original Message-ID in In-Reply-To.")
+}
 func (s *server) Forward(chanlib.ForwardRequest) (string, error) {
-	return "", chanlib.Unsupported("forward", "email",
-		"Email has no native forward primitive. Use `send(jid=<target>, content=\"---- Forwarded message ----\\n\\n<original>\")` and set `In-Reply-To` if you have the source Message-ID.")
+	return "", chanlib.Unsupported("forward", "email", "Email has no native forward primitive. Use `send(jid=<target>, content=\"---- Forwarded message ----\\n\\n<original>\")`.")
 }
-
 func (s *server) Quote(chanlib.QuoteRequest) (string, error) {
-	return "", chanlib.Unsupported("quote", "email",
-		"Email has no quote primitive. Use `send` with the quoted text inlined.")
+	return "", chanlib.Unsupported("quote", "email", "Email has no quote primitive. Use `send` with the quoted text inlined.")
 }
-
 func (s *server) Repost(chanlib.RepostRequest) (string, error) {
-	return "", chanlib.Unsupported("repost", "email",
-		"Email is not a feed. Use `send` to relay content.")
+	return "", chanlib.Unsupported("repost", "email", "Email is not a feed. Use `send` to relay content.")
 }
-
 func (s *server) Dislike(chanlib.DislikeRequest) error {
-	return chanlib.Unsupported("dislike", "email",
-		"Email has no reactions. Use `reply` with textual feedback.")
+	return chanlib.Unsupported("dislike", "email", "Email has no reactions. Use `send` with textual feedback.")
 }
-
 func (s *server) Edit(chanlib.EditRequest) error {
-	return chanlib.Unsupported("edit", "email",
-		"Sent email is immutable. Compose a corrigendum via `send` referencing the original Message-ID in In-Reply-To.")
+	return chanlib.Unsupported("edit", "email", "Sent email is immutable. Compose a corrigendum via `send` referencing the original Message-ID in In-Reply-To.")
 }
 
 func (s *server) handler() http.Handler {

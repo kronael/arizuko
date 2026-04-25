@@ -16,6 +16,22 @@ preserve the conversation JID.
 - Handle `/send`, `/v1/history`.
 - Serve attachments through an in-process registry.
 
+## Verb support
+
+| Verb            | Native | Notes                                                     |
+| --------------- | ------ | --------------------------------------------------------- |
+| `send`          | yes    | SMTP; `In-Reply-To` set from the thread's root Message-ID |
+| `fetch_history` | yes    | IMAP search by Message-ID + References                    |
+| `send_file`     | hint   | MIME attachments not implemented; inline in `send`        |
+| `post`          | hint   | no public feed                                            |
+| `like`          | hint   | no reactions                                              |
+| `dislike`       | hint   | no reactions                                              |
+| `delete`        | hint   | sent mail is immutable                                    |
+| `edit`          | hint   | sent mail is immutable                                    |
+| `forward`       | hint   | no native primitive; `Fwd:` is a re-styled `send`         |
+| `quote`         | hint   | no quote primitive; inline the quoted text                |
+| `repost`        | hint   | not a feed                                                |
+
 ## Entry points
 
 - Binary: `emaid/main.go`

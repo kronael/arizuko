@@ -19,13 +19,11 @@ import (
 type mastoClient struct {
 	chanlib.NoFileSender
 	chanlib.NoSocial
-	cfg    config
-	client *mastodon.Client
-	me     *mastodon.Account
-	http   *http.Client
-	files  *chanlib.URLCache
-	// streaming reflects the user-stream websocket liveness. Set true after
-	// StreamingWSUser returns and cleared when the stream closes or errors.
+	cfg           config
+	client        *mastodon.Client
+	me            *mastodon.Account
+	http          *http.Client
+	files         *chanlib.URLCache
 	streaming     atomic.Bool
 	lastInboundAt atomic.Int64
 }
@@ -123,11 +121,6 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *chanlib.
 	slog.Debug("inbound", "chat_jid", msg.ChatJID, "sender_jid", msg.Sender, "message_id", msg.ID, "content_len", len(msg.Content), "verb", msg.Verb)
 }
 
-// FetchHistory returns notifications from the target account, newest-first
-// platform order reversed to oldest-first. JID shape `mastodon:<account_id>`;
-// we paginate `/api/v1/notifications` with max_id and filter by account.
-// Mastodon servers have instance-dependent depth limits; we don't mark
-// capped unless we detect truncation via empty pagination.
 func (mc *mastoClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
 	jid := req.ChatJID
 	if !strings.HasPrefix(jid, "mastodon:") {
@@ -150,7 +143,6 @@ func (mc *mastoClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.History
 	}
 	before := req.Before
 	out := make([]chanlib.InboundMsg, 0, len(notes))
-	// Reverse for oldest-first.
 	for i := len(notes) - 1; i >= 0; i-- {
 		n := notes[i]
 		if string(n.Account.ID) != accountID {
@@ -168,8 +160,6 @@ func (mc *mastoClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.History
 	return chanlib.HistoryResponse{Source: "platform", Messages: out}, nil
 }
 
-// notificationToMsg converts a notification to an InboundMsg.
-// Returns ok=false for types we skip.
 func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.InboundMsg, bool) {
 	acc := n.Account
 	jid := "mastodon:" + string(acc.ID)
@@ -227,12 +217,14 @@ func (mc *mastoClient) Send(req chanlib.SendRequest) (string, error) {
 	if req.ReplyTo != "" {
 		toot.InReplyToID = mastodon.ID(req.ReplyTo)
 	}
-	_, err := mc.client.PostStatus(context.Background(), toot)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	st, err := mc.client.PostStatus(ctx, toot)
 	if err != nil {
 		return "", err
 	}
-	slog.Debug("send", "chat_jid", req.ChatJID, "source", "mastodon")
-	return "", nil
+	slog.Debug("send", "chat_jid", req.ChatJID, "source", "mastodon", "id", st.ID)
+	return string(st.ID), nil
 }
 
 func (mc *mastoClient) Typing(string, bool) {}
@@ -241,8 +233,9 @@ func (mc *mastoClient) Post(req chanlib.PostRequest) (string, error) {
 	if len(req.MediaPaths) > 0 {
 		return "", fmt.Errorf("mastodon post: media upload not implemented")
 	}
-	toot := &mastodon.Toot{Status: req.Content}
-	status, err := mc.client.PostStatus(context.Background(), toot)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	status, err := mc.client.PostStatus(ctx, &mastodon.Toot{Status: req.Content})
 	if err != nil {
 		return "", fmt.Errorf("mastodon post: %w", err)
 	}
@@ -268,19 +261,16 @@ func (mc *mastoClient) Delete(req chanlib.DeleteRequest) error {
 	return nil
 }
 
-// Forward unsupported on Mastodon.
 func (mc *mastoClient) Forward(chanlib.ForwardRequest) (string, error) {
 	return "", chanlib.Unsupported("forward", "mastodon",
 		"Mastodon has no forward primitive. Use `repost(source_msg_id=...)` to amplify, or `post(content=\"<commentary>\\n\\n<permalink>\")` to relay with text.")
 }
 
-// Quote unsupported on Mastodon.
 func (mc *mastoClient) Quote(chanlib.QuoteRequest) (string, error) {
 	return "", chanlib.Unsupported("quote", "mastodon",
 		"Mastodon has no quote primitive. Use `post(content=\"<your take>\\n\\nvia: <permalink>\")` to share with commentary, or `repost(source_msg_id=...)` to amplify without commentary.")
 }
 
-// Repost: native boost via Reblog.
 func (mc *mastoClient) Repost(req chanlib.RepostRequest) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -294,13 +284,11 @@ func (mc *mastoClient) Repost(req chanlib.RepostRequest) (string, error) {
 	return string(st.ID), nil
 }
 
-// Dislike unsupported on Mastodon.
 func (mc *mastoClient) Dislike(chanlib.DislikeRequest) error {
 	return chanlib.Unsupported("dislike", "mastodon",
 		"Mastodon has no native downvote. Consider `reply` with a textual rebuttal instead of a sentiment signal.")
 }
 
-// Edit: native UpdateStatus.
 func (mc *mastoClient) Edit(req chanlib.EditRequest) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
