@@ -19,7 +19,23 @@ attachments (cached via `chanlib.URLCache`).
 
 - Binary: `discd/main.go`
 - Listen: `$LISTEN_ADDR` (default `:9002`)
-- Router registration: `discord:` prefix, caps `send_text`, `send_file`, `typing`, `fetch_history`.
+- Router registration: `discord:` prefix, caps `send_text`, `send_file`, `typing`, `fetch_history`, `edit`, `quote`.
+
+## Verb support
+
+| Verb        | Status | Notes                                                                       |
+| ----------- | ------ | --------------------------------------------------------------------------- |
+| `send`      | native | `POST /channels/{ch}/messages`; chunks at 2000 chars; honours `reply_to`    |
+| `send_file` | native | multipart upload                                                            |
+| `reply`     | native | via `send` with `reply_to` (message_reference)                              |
+| `edit`      | native | `PATCH /channels/{ch}/messages/{id}`                                        |
+| `delete`    | native | `DELETE /channels/{ch}/messages/{id}`                                       |
+| `like`      | native | emoji reaction (default 👍)                                                 |
+| `quote`     | native | reply with own commentary (`message_reference` to source)                   |
+| `dislike`   | hint   | redirects to `like(emoji='👎')` — Discord has one reaction primitive        |
+| `forward`   | hint   | redirects to `send` with quoted text — no native forward in arizuko's model |
+| `post`      | hint   | redirects to `send` — Discord channels are the post surface, no broadcast   |
+| `repost`    | hint   | redirects to `send` — no retweet equivalent                                 |
 
 ## Dependencies
 

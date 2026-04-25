@@ -62,8 +62,6 @@ func (b *bot) stop() {
 	b.session.Close()
 }
 
-// isConnected reports whether the Discord gateway websocket is live.
-// discordgo flips DataReady on READY and clears it on Close/disconnect.
 func (b *bot) isConnected() bool {
 	return b.session != nil && b.session.DataReady
 }
@@ -122,15 +120,11 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	slog.Debug("inbound", "chat_jid", jid, "sender_jid", "discord:"+m.Author.ID, "message_id", m.ID, "content_len", len(content))
 }
 
-// onReactionAdd emits an InboundMsg with verb=like/dislike for each
-// emoji reaction added to a message. The bot's own reactions are skipped.
-// Custom guild emoji (Emoji.ID != "") are reported with verb=like and the
-// emoji name as Reaction; classification is approximate.
+// onReactionAdd emits verb=like/dislike for each reaction; bot's own reactions skipped.
 func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAdd) {
 	if m == nil || m.MessageReaction == nil {
 		return
 	}
-	// skip our own reactions
 	if b.session.State != nil && b.session.State.User != nil && m.UserID == b.session.State.User.ID {
 		return
 	}
@@ -161,8 +155,10 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 	b.lastInboundAt.Store(time.Now().Unix())
 }
 
+func chanID(jid string) string { return strings.TrimPrefix(jid, "discord:") }
+
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
-	chID := strings.TrimPrefix(req.ChatJID, "discord:")
+	chID := chanID(req.ChatJID)
 	if req.ThreadID != "" {
 		chID = req.ThreadID
 	}
@@ -197,7 +193,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 }
 
 func (b *bot) SendFile(jid, path, name, caption string) error {
-	chID := strings.TrimPrefix(jid, "discord:")
+	chID := chanID(jid)
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("discord open file: %w", err)
@@ -218,29 +214,42 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 
 func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
 
-func (b *bot) Post(req chanlib.PostRequest) (string, error) {
-	chID := strings.TrimPrefix(req.ChatJID, "discord:")
-	if chID == "" {
-		return "", fmt.Errorf("discord post: empty channel id")
+func (b *bot) Post(chanlib.PostRequest) (string, error) {
+	return "", chanlib.Unsupported("post", "discord",
+		"Discord has no broadcast-feed primitive. Use `send(jid=discord:<channel_id>, content=...)` — channels are the post surface.")
+}
+
+func (b *bot) Like(req chanlib.LikeRequest) error {
+	emoji := req.Reaction
+	if emoji == "" {
+		emoji = "👍"
 	}
-	send := &discordgo.MessageSend{Content: req.Content}
-	var openedFiles []*os.File
-	defer func() {
-		for _, f := range openedFiles {
-			f.Close()
-		}
-	}()
-	for _, p := range req.MediaPaths {
-		f, err := os.Open(p)
-		if err != nil {
-			return "", fmt.Errorf("discord post open %s: %w", p, err)
-		}
-		openedFiles = append(openedFiles, f)
-		send.Files = append(send.Files, &discordgo.File{Name: filepath.Base(p), Reader: f})
+	if err := b.session.MessageReactionAdd(chanID(req.ChatJID), req.TargetID, emoji); err != nil {
+		return fmt.Errorf("discord like: %w", err)
 	}
-	msg, err := b.session.ChannelMessageSendComplex(chID, send)
+	return nil
+}
+
+func (b *bot) Delete(req chanlib.DeleteRequest) error {
+	if err := b.session.ChannelMessageDelete(chanID(req.ChatJID), req.TargetID); err != nil {
+		return fmt.Errorf("discord delete: %w", err)
+	}
+	return nil
+}
+
+func (b *bot) Forward(chanlib.ForwardRequest) (string, error) {
+	return "", chanlib.Unsupported("forward", "discord",
+		"Discord has no native forward. Use `send(jid=<target>, content=\"<quoted text>\\n\\n— from <source>\")` to relay manually.")
+}
+
+// Quote: same-channel reply with own commentary referencing the source.
+func (b *bot) Quote(req chanlib.QuoteRequest) (string, error) {
+	msg, err := b.session.ChannelMessageSendReply(
+		chanID(req.ChatJID), req.Comment,
+		&discordgo.MessageReference{MessageID: req.SourceMsgID},
+	)
 	if err != nil {
-		return "", fmt.Errorf("discord post: %w", err)
+		return "", fmt.Errorf("discord quote: %w", err)
 	}
 	if msg == nil {
 		return "", nil
@@ -248,56 +257,18 @@ func (b *bot) Post(req chanlib.PostRequest) (string, error) {
 	return msg.ID, nil
 }
 
-func (b *bot) Like(req chanlib.LikeRequest) error {
-	chID := strings.TrimPrefix(req.ChatJID, "discord:")
-	emoji := req.Reaction
-	if emoji == "" {
-		emoji = "👍"
-	}
-	if err := b.session.MessageReactionAdd(chID, req.TargetID, emoji); err != nil {
-		return fmt.Errorf("discord like: %w", err)
-	}
-	return nil
-}
-
-func (b *bot) Delete(req chanlib.DeleteRequest) error {
-	chID := strings.TrimPrefix(req.ChatJID, "discord:")
-	if err := b.session.ChannelMessageDelete(chID, req.TargetID); err != nil {
-		return fmt.Errorf("discord delete: %w", err)
-	}
-	return nil
-}
-
-// Forward unsupported: Discord has no native forward primitive.
-func (b *bot) Forward(chanlib.ForwardRequest) (string, error) {
-	return "", chanlib.Unsupported("forward", "discord",
-		"Discord has no native forward. Use `send(jid=<target>, content=\"<quoted text>\\n\\n— from <source>\")` to relay manually.")
-}
-
-// Quote unsupported: Discord has no quote primitive.
-func (b *bot) Quote(chanlib.QuoteRequest) (string, error) {
-	return "", chanlib.Unsupported("quote", "discord",
-		"Discord has no quote primitive. Use `send` referencing the source message URL with your commentary.")
-}
-
-// Repost unsupported.
 func (b *bot) Repost(chanlib.RepostRequest) (string, error) {
 	return "", chanlib.Unsupported("repost", "discord",
 		"Discord has no repost. Use `send` to manually re-share content with attribution.")
 }
 
-// Dislike unsupported: Discord has no downvote primitive — emoji
-// reactions are the same mechanism as `like`. Hint redirects to
-// like(emoji="👎") so the agent uses one outbound primitive.
 func (b *bot) Dislike(chanlib.DislikeRequest) error {
 	return chanlib.Unsupported("dislike", "discord",
 		"Discord uses emoji reactions, not a downvote primitive. Use `like(target_id=..., emoji=\"👎\")` (or any negative emoji like 💩, 😡) to express disagreement.")
 }
 
-// Edit: native PATCH /channels/{ch}/messages/{id}.
 func (b *bot) Edit(req chanlib.EditRequest) error {
-	chID := strings.TrimPrefix(req.ChatJID, "discord:")
-	if _, err := b.session.ChannelMessageEdit(chID, req.TargetID, req.Content); err != nil {
+	if _, err := b.session.ChannelMessageEdit(chanID(req.ChatJID), req.TargetID, req.Content); err != nil {
 		return fmt.Errorf("discord edit: %w", err)
 	}
 	return nil
@@ -306,11 +277,8 @@ func (b *bot) Edit(req chanlib.EditRequest) error {
 // discordEpochMs is the Discord snowflake epoch (2015-01-01T00:00:00Z).
 const discordEpochMs = 1420070400000
 
-// FetchHistory pulls recent messages from Discord for the given channel.
-// Limit is clamped to [1, 100] per Discord API; Before is translated to a
-// snowflake ID so the API returns messages strictly older than that time.
 func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
-	chID := strings.TrimPrefix(req.ChatJID, "discord:")
+	chID := chanID(req.ChatJID)
 	if chID == "" {
 		return chanlib.HistoryResponse{}, fmt.Errorf("invalid chat_jid")
 	}
@@ -377,14 +345,12 @@ func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse,
 }
 
 func (b *bot) sendTyping(jid string) {
-	chID := strings.TrimPrefix(jid, "discord:")
-	if err := b.session.ChannelTyping(chID); err != nil {
+	if err := b.session.ChannelTyping(chanID(jid)); err != nil {
 		slog.Warn("discord typing failed", "jid", jid, "err", err)
 	}
 }
 
-// isRateLimit returns true if err is a Discord 429 / rate-limit error.
-// Prefers the typed discordgo errors; falls back to substring match.
+// isRateLimit detects Discord 429 errors via typed discordgo errors with substring fallback.
 func isRateLimit(err error) bool {
 	if err == nil {
 		return false

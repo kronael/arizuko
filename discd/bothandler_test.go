@@ -125,33 +125,35 @@ func TestBotHandler_Like(t *testing.T) {
 	}
 }
 
-func TestBotHandler_Post(t *testing.T) {
+func TestBotHandler_Quote(t *testing.T) {
 	rec := &recorded{}
 	srv := newRecordingDiscordServer(t, rec)
 	defer srv.Close()
 	defer mockAllDiscordEndpoints(srv.URL)()
 
 	b := &bot{session: newTestSession(t)}
-	id, err := b.Post(chanlib.PostRequest{ChatJID: "discord:ch-1", Content: "new post"})
+	id, err := b.Quote(chanlib.QuoteRequest{
+		ChatJID: "discord:ch-1", SourceMsgID: "src-7", Comment: "good point",
+	})
 	if err != nil {
-		t.Fatalf("Post: %v", err)
+		t.Fatalf("Quote: %v", err)
 	}
 	if id != "msg-ok" {
 		t.Errorf("id = %q", id)
 	}
-	// Look for the body containing the content.
 	found := false
 	for _, r := range rec.snapshot() {
 		if r.Method == "POST" && strings.HasSuffix(r.Path, "/messages") {
 			var body map[string]any
 			json.Unmarshal([]byte(r.Body), &body)
-			if body["content"] == "new post" {
+			ref, _ := body["message_reference"].(map[string]any)
+			if body["content"] == "good point" && ref != nil && ref["message_id"] == "src-7" {
 				found = true
 			}
 		}
 	}
 	if !found {
-		t.Errorf("post body not captured: %+v", rec.snapshot())
+		t.Errorf("quote body/ref not captured: %+v", rec.snapshot())
 	}
 }
 
@@ -190,7 +192,7 @@ func TestBotHandler_UnsupportedHints(t *testing.T) {
 		err  error
 	}{
 		{"forward", mustErr(b.Forward(chanlib.ForwardRequest{}))},
-		{"quote", mustErr(b.Quote(chanlib.QuoteRequest{}))},
+		{"post", mustErr(b.Post(chanlib.PostRequest{}))},
 		{"repost", mustErr(b.Repost(chanlib.RepostRequest{}))},
 		{"dislike", b.Dislike(chanlib.DislikeRequest{})},
 	}
