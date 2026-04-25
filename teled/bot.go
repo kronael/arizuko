@@ -100,14 +100,25 @@ func (b *bot) saveOffset(offset int) {
 	}
 }
 
+// do issues a Bot API method call and returns the raw Result JSON.
+// Wraps tgbotapi.MakeRequest for methods (setMessageReaction,
+// deleteMessage, getUpdates) added after the v6.5 typed surface.
+func (b *bot) do(method string, params tgbotapi.Params) (json.RawMessage, error) {
+	resp, err := b.api.MakeRequest(method, params)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
 // rawUpdate is a hybrid Update parser that exposes both Message (the
 // type the bundled tgbotapi understands) and MessageReaction (added in
 // Bot API 6.4 but not modelled by matterbridge/telegram-bot-api v6.5.0).
 // Decoded directly from getUpdates' Result array.
 type rawUpdate struct {
-	UpdateID         int                `json:"update_id"`
-	Message          *tgbotapi.Message  `json:"message,omitempty"`
-	MessageReaction  *messageReactionUpdated `json:"message_reaction,omitempty"`
+	UpdateID        int                     `json:"update_id"`
+	Message         *tgbotapi.Message       `json:"message,omitempty"`
+	MessageReaction *messageReactionUpdated `json:"message_reaction,omitempty"`
 }
 
 type reactionType struct {
@@ -167,18 +178,16 @@ func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
 }
 
 func (b *bot) fetchUpdates(offset int) ([]rawUpdate, error) {
-	au, _ := json.Marshal([]string{"message", "message_reaction"})
-	params := tgbotapi.Params{
+	result, err := b.do("getUpdates", tgbotapi.Params{
 		"offset":          strconv.Itoa(offset),
 		"timeout":         "30",
-		"allowed_updates": string(au),
-	}
-	resp, err := b.api.MakeRequest("getUpdates", params)
+		"allowed_updates": `["message","message_reaction"]`,
+	})
 	if err != nil {
 		return nil, err
 	}
 	var out []rawUpdate
-	if err := json.Unmarshal(resp.Result, &out); err != nil {
+	if err := json.Unmarshal(result, &out); err != nil {
 		return nil, fmt.Errorf("decode updates: %w", err)
 	}
 	return out, nil
@@ -460,16 +469,47 @@ func (b *bot) setReaction(chatJID, targetID, emoji, tool string) error {
 	if err != nil {
 		return fmt.Errorf("telegram %s: invalid target_id: %w", tool, err)
 	}
-	reaction := fmt.Sprintf(`[{"type":"emoji","emoji":%q}]`, emoji)
-	params := tgbotapi.Params{
+	_, err = b.do("setMessageReaction", tgbotapi.Params{
 		"chat_id":    strconv.FormatInt(chatID, 10),
 		"message_id": strconv.Itoa(msgID),
-		"reaction":   reaction,
-	}
-	if _, err := b.api.MakeRequest("setMessageReaction", params); err != nil {
+		"reaction":   fmt.Sprintf(`[{"type":"emoji","emoji":%q}]`, emoji),
+	})
+	if err != nil {
 		return fmt.Errorf("telegram %s: %w", tool, err)
 	}
 	return nil
+}
+
+// Delete: native deleteMessage. Bots can delete their own messages, plus
+// any message in groups/channels they admin (with can_delete_messages right).
+func (b *bot) Delete(req chanlib.DeleteRequest) error {
+	chatID, err := parseChatID(req.ChatJID)
+	if err != nil {
+		return fmt.Errorf("telegram delete: %w", err)
+	}
+	msgID, err := strconv.Atoi(req.TargetID)
+	if err != nil {
+		return fmt.Errorf("telegram delete: invalid target_id: %w", err)
+	}
+	_, err = b.do("deleteMessage", tgbotapi.Params{
+		"chat_id":    strconv.FormatInt(chatID, 10),
+		"message_id": strconv.Itoa(msgID),
+	})
+	if err != nil {
+		return fmt.Errorf("telegram delete: %w", err)
+	}
+	return nil
+}
+
+// Post: Telegram bots post to channels they admin via the same
+// sendMessage primitive as Send (channel chat_id is just another chat).
+// Media uploads belong on /send-file; this path is text-only.
+func (b *bot) Post(req chanlib.PostRequest) (string, error) {
+	if len(req.MediaPaths) > 0 {
+		return "", chanlib.Unsupported("post", "telegram",
+			"Telegram post does not bundle media. Call `send_file(chat_jid, path)` per attachment.")
+	}
+	return b.Send(chanlib.SendRequest{ChatJID: req.ChatJID, Content: req.Content})
 }
 
 // Edit: native editMessageText for own bot messages.

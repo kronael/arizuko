@@ -22,9 +22,14 @@ func main() {
 			"send_file":     true,
 			"typing":        true,
 			"fetch_history": true, // adapter replies "unsupported" at call time
+			"post":          true,
 			"fwd":           true,
 			"edit":          true,
 			"like":          true,
+			"delete":        true,
+			"dislike":       true, // returns hint pointing at like(👎)
+			"quote":         true, // returns hint pointing at reply
+			"repost":        true, // returns hint pointing at forward
 		},
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)
