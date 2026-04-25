@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -99,33 +100,124 @@ func (b *bot) saveOffset(offset int) {
 	}
 }
 
+// rawUpdate is a hybrid Update parser that exposes both Message (the
+// type the bundled tgbotapi understands) and MessageReaction (added in
+// Bot API 6.4 but not modelled by matterbridge/telegram-bot-api v6.5.0).
+// Decoded directly from getUpdates' Result array.
+type rawUpdate struct {
+	UpdateID         int                `json:"update_id"`
+	Message          *tgbotapi.Message  `json:"message,omitempty"`
+	MessageReaction  *messageReactionUpdated `json:"message_reaction,omitempty"`
+}
+
+type reactionType struct {
+	Type  string `json:"type"`
+	Emoji string `json:"emoji,omitempty"`
+}
+
+type messageReactionUpdated struct {
+	Chat struct {
+		ID int64 `json:"id"`
+	} `json:"chat"`
+	MessageID   int             `json:"message_id"`
+	User        *tgbotapi.User  `json:"user,omitempty"`
+	Date        int64           `json:"date"`
+	OldReaction []reactionType  `json:"old_reaction"`
+	NewReaction []reactionType  `json:"new_reaction"`
+}
+
 func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
 	defer close(b.done)
 	offset := b.loadOffset()
-	uc := tgbotapi.NewUpdate(offset)
-	uc.Timeout = 30
-	ch := b.api.GetUpdatesChan(uc)
 	ctx, b.cancel = context.WithCancel(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case u, ok := <-ch:
-			if !ok {
-				b.connected.Store(false)
+		default:
+		}
+		updates, err := b.fetchUpdates(offset)
+		if err != nil {
+			// transport / 5xx — back off and retry.
+			slog.Warn("getUpdates failed", "err", err)
+			select {
+			case <-ctx.Done():
 				return
+			case <-time.After(3 * time.Second):
 			}
+			continue
+		}
+		for _, u := range updates {
 			delivered := true
-			if u.Message != nil {
+			switch {
+			case u.Message != nil:
 				delivered = b.handle(u.Message, rc)
+			case u.MessageReaction != nil:
+				delivered = b.handleReaction(u.MessageReaction, rc)
 			}
-			// Advance offset only after successful delivery so Telegram
-			// redelivers on next long-poll if the router was unreachable.
 			if delivered {
-				b.saveOffset(u.UpdateID + 1)
+				offset = u.UpdateID + 1
+				b.saveOffset(offset)
+			} else {
+				// stop advancing on first failure so Telegram redelivers.
+				break
 			}
 		}
 	}
+}
+
+func (b *bot) fetchUpdates(offset int) ([]rawUpdate, error) {
+	au, _ := json.Marshal([]string{"message", "message_reaction"})
+	params := tgbotapi.Params{
+		"offset":          strconv.Itoa(offset),
+		"timeout":         "30",
+		"allowed_updates": string(au),
+	}
+	resp, err := b.api.MakeRequest("getUpdates", params)
+	if err != nil {
+		return nil, err
+	}
+	var out []rawUpdate
+	if err := json.Unmarshal(resp.Result, &out); err != nil {
+		return nil, fmt.Errorf("decode updates: %w", err)
+	}
+	return out, nil
+}
+
+// handleReaction emits an InboundMsg for newly-added emoji reactions. We
+// only care about reactions that were added (present in NewReaction but
+// not in OldReaction); reaction removals are dropped. Unicode emoji only
+// — custom_emoji reactions are skipped.
+func (b *bot) handleReaction(r *messageReactionUpdated, rc *chanlib.RouterClient) bool {
+	old := map[string]bool{}
+	for _, e := range r.OldReaction {
+		if e.Type == "emoji" {
+			old[e.Emoji] = true
+		}
+	}
+	for _, e := range r.NewReaction {
+		if e.Type != "emoji" || old[e.Emoji] {
+			continue
+		}
+		jid := "telegram:" + strconv.FormatInt(r.Chat.ID, 10)
+		im := chanlib.InboundMsg{
+			ID:         strconv.Itoa(r.MessageID) + ":r:" + e.Emoji,
+			ChatJID:    jid,
+			Sender:     "telegram:" + userID(r.User),
+			SenderName: userName(r.User),
+			Content:    e.Emoji,
+			Timestamp:  r.Date,
+			Verb:       chanlib.ClassifyEmoji(e.Emoji),
+			ReplyTo:    strconv.Itoa(r.MessageID),
+			Reaction:   e.Emoji,
+		}
+		if err := rc.SendMessage(im); err != nil {
+			slog.Error("deliver reaction failed", "jid", jid, "err", err)
+			return false
+		}
+		b.lastInboundAt.Store(time.Now().Unix())
+	}
+	return true
 }
 
 func (b *bot) stop() {
@@ -133,7 +225,6 @@ func (b *bot) stop() {
 		b.cancel()
 	}
 	b.typing.Stop()
-	b.api.StopReceivingUpdates()
 	// Wait for poll goroutine to exit so any in-flight saveOffset completes.
 	select {
 	case <-b.done:
@@ -342,10 +433,41 @@ func (b *bot) Repost(chanlib.RepostRequest) (string, error) {
 		"Telegram has no repost primitive. Use `forward(target_jid=..., source_msg_id=\"<sourceChatJid>|<id>\")` to relay.")
 }
 
-// Dislike unsupported.
-func (b *bot) Dislike(chanlib.DislikeRequest) error {
-	return chanlib.Unsupported("dislike", "telegram",
-		"Telegram has no native downvote. Use `reply` with textual disagreement instead.")
+// Dislike: native setMessageReaction with 👎 (Bot API 6.4+).
+func (b *bot) Dislike(req chanlib.DislikeRequest) error {
+	return b.setReaction(req.ChatJID, req.TargetID, "👎", "dislike")
+}
+
+// Like: native setMessageReaction. Reaction emoji defaults to 👍 when
+// req.Reaction is empty. Telegram constrains reactions to a fixed
+// per-chat allow-list; the API call fails for unsupported emojis.
+func (b *bot) Like(req chanlib.LikeRequest) error {
+	emoji := req.Reaction
+	if emoji == "" {
+		emoji = "👍"
+	}
+	return b.setReaction(req.ChatJID, req.TargetID, emoji, "like")
+}
+
+func (b *bot) setReaction(chatJID, targetID, emoji, tool string) error {
+	chatID, err := parseChatID(chatJID)
+	if err != nil {
+		return fmt.Errorf("telegram %s: %w", tool, err)
+	}
+	msgID, err := strconv.Atoi(targetID)
+	if err != nil {
+		return fmt.Errorf("telegram %s: invalid target_id: %w", tool, err)
+	}
+	reaction := fmt.Sprintf(`[{"type":"emoji","emoji":%q}]`, emoji)
+	params := tgbotapi.Params{
+		"chat_id":    strconv.FormatInt(chatID, 10),
+		"message_id": strconv.Itoa(msgID),
+		"reaction":   reaction,
+	}
+	if _, err := b.api.MakeRequest("setMessageReaction", params); err != nil {
+		return fmt.Errorf("telegram %s: %w", tool, err)
+	}
+	return nil
 }
 
 // Edit: native editMessageText for own bot messages.

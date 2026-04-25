@@ -480,9 +480,8 @@ func (rc *redditClient) Post(req chanlib.PostRequest) (string, error) {
 	return "", nil
 }
 
-func (rc *redditClient) Like(chanlib.LikeRequest) error {
-	return chanlib.Unsupported("like", "reddit",
-		"Reddit upvote via /api/vote is a follow-up; use `reply` to engage textually for now.")
+func (rc *redditClient) Like(req chanlib.LikeRequest) error {
+	return rc.vote(req.TargetID, 1, "like")
 }
 
 func (rc *redditClient) Forward(chanlib.ForwardRequest) (string, error) {
@@ -500,9 +499,28 @@ func (rc *redditClient) Repost(chanlib.RepostRequest) (string, error) {
 		"Reddit has no repost primitive. Use `post` to cross-post with attribution.")
 }
 
-func (rc *redditClient) Dislike(chanlib.DislikeRequest) error {
-	return chanlib.Unsupported("dislike", "reddit",
-		"Reddit downvote via /api/vote is a follow-up; use `reply` with disagreement instead.")
+func (rc *redditClient) Dislike(req chanlib.DislikeRequest) error {
+	return rc.vote(req.TargetID, -1, "dislike")
+}
+
+// vote casts an up/down vote on a thing (post or comment). dir is 1 (up),
+// 0 (clear), or -1 (down). Reddit thing names are prefixed (`t1_` comments,
+// `t3_` posts); bare ids are passed through unchanged — callers persist
+// the full thing name when capturing inbound message IDs (see thingToMsg).
+func (rc *redditClient) vote(targetID string, dir int, tool string) error {
+	if targetID == "" {
+		return fmt.Errorf("reddit %s: empty target_id", tool)
+	}
+	data := url.Values{
+		"id":  {targetID},
+		"dir": {fmt.Sprintf("%d", dir)},
+	}
+	resp, err := rc.do("POST", "/api/vote", nil, data)
+	if err != nil {
+		return fmt.Errorf("reddit %s: %w", tool, err)
+	}
+	resp.Body.Close()
+	return nil
 }
 
 func (rc *redditClient) Edit(chanlib.EditRequest) error {

@@ -19,7 +19,10 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"reddit:"},
-		Caps:          map[string]bool{"send_text": true, "fetch_history": true},
+		Caps: map[string]bool{
+			"send_text": true, "fetch_history": true,
+			"like": true, "dislike": true,
+		},
 		Start: func(ctx context.Context, router *chanlib.RouterClient) (http.Handler, func(), error) {
 			rc, err := newRedditClient(cfg)
 			if err != nil {

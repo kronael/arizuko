@@ -267,13 +267,27 @@ export function startServer(
     }
 
     if (req.method === 'POST' && req.url === '/dislike') {
-      json(res, 501, {
-        ok: false,
-        error: 'unsupported',
-        tool: 'dislike',
-        platform: 'whatsapp',
-        hint: 'WhatsApp has no native downvote. Use `reply` with textual disagreement.',
-      });
+      const body = (await readBody(req)) as {
+        chat_jid: string;
+        target_id: string;
+      };
+      const s = sock();
+      if (!s || !isConnected()) {
+        json(res, 502, { ok: false, error: 'not connected' });
+        return;
+      }
+      try {
+        const waJid = toWaJid(body.chat_jid);
+        await s.sendMessage(waJid, {
+          react: {
+            text: '👎',
+            key: { remoteJid: waJid, id: body.target_id, fromMe: false },
+          },
+        } as any);
+        json(res, 200, { ok: true });
+      } catch (e: unknown) {
+        json(res, 502, { ok: false, error: String(e) });
+      }
       return;
     }
 
@@ -289,13 +303,29 @@ export function startServer(
     }
 
     if (req.method === 'POST' && req.url === '/like') {
-      json(res, 501, {
-        ok: false,
-        error: 'unsupported',
-        tool: 'like',
-        platform: 'whatsapp',
-        hint: 'WhatsApp message reactions are not implemented; use `reply` with text instead.',
-      });
+      const body = (await readBody(req)) as {
+        chat_jid: string;
+        target_id: string;
+        reaction?: string;
+      };
+      const s = sock();
+      if (!s || !isConnected()) {
+        json(res, 502, { ok: false, error: 'not connected' });
+        return;
+      }
+      try {
+        const waJid = toWaJid(body.chat_jid);
+        const text = body.reaction || '👍';
+        await s.sendMessage(waJid, {
+          react: {
+            text,
+            key: { remoteJid: waJid, id: body.target_id, fromMe: false },
+          },
+        } as any);
+        json(res, 200, { ok: true });
+      } catch (e: unknown) {
+        json(res, 502, { ok: false, error: String(e) });
+      }
       return;
     }
 

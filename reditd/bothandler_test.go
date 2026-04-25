@@ -26,6 +26,7 @@ func (m *redditMock) handler() http.Handler {
 	mux.HandleFunc("/api/submit", m.recordForm)
 	mux.HandleFunc("/api/comment", m.recordForm)
 	mux.HandleFunc("/api/del", m.recordForm)
+	mux.HandleFunc("/api/vote", m.recordForm)
 	return mux
 }
 
@@ -115,11 +116,41 @@ func TestBotHandler_UnsupportedHints_Reditd(t *testing.T) {
 	if _, err := rc.Forward(chanlib.ForwardRequest{}); !reditdHasHint(err) {
 		t.Errorf("forward: missing hint err=%v", err)
 	}
-	if err := rc.Dislike(chanlib.DislikeRequest{}); !reditdHasHint(err) {
-		t.Errorf("dislike: missing hint err=%v", err)
-	}
 	if err := rc.Edit(chanlib.EditRequest{}); !reditdHasHint(err) {
 		t.Errorf("edit: missing hint err=%v", err)
+	}
+}
+
+func TestBotHandler_LikeDislike_Reditd(t *testing.T) {
+	m := newRedditMock()
+	srv := httptest.NewServer(m.handler())
+	defer srv.Close()
+	rc := makeRedditClient(t, srv)
+
+	if err := rc.Like(chanlib.LikeRequest{TargetID: "t3_abc"}); err != nil {
+		t.Fatalf("Like: %v", err)
+	}
+	if err := rc.Dislike(chanlib.DislikeRequest{TargetID: "t1_def"}); err != nil {
+		t.Fatalf("Dislike: %v", err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if got := m.forms["/api/vote"].Get("dir"); got != "-1" {
+		// last write wins; map keeps only the last form per path
+		t.Errorf("/api/vote dir = %q, want -1 (after Dislike)", got)
+	}
+	if got := m.forms["/api/vote"].Get("id"); got != "t1_def" {
+		t.Errorf("/api/vote id = %q, want t1_def", got)
+	}
+	// at least two votes recorded
+	var voteCount int
+	for _, p := range m.paths {
+		if p == "/api/vote" {
+			voteCount++
+		}
+	}
+	if voteCount != 2 {
+		t.Errorf("vote count = %d, want 2", voteCount)
 	}
 }
 

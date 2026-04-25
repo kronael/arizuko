@@ -450,6 +450,72 @@ describe('extractReplyMeta', () => {
   });
 });
 
+describe('POST /like and /dislike', () => {
+  it('like: calls sendMessage with react payload using thumbs-up by default', async () => {
+    stub = makeStub();
+    connected = true;
+    const r = await fetch(`${BASE}/like`, {
+      method: 'POST',
+      body: JSON.stringify({
+        chat_jid: 'whatsapp:12345',
+        target_id: 'MID1',
+      }),
+      headers: { 'Content-Type': 'application/json', ...auth() },
+    });
+    expect(r.status).toBe(200);
+    const call = stub.calls.find((c) => c.method === 'sendMessage');
+    expect(call).toBeTruthy();
+    const content = call!.args[1] as Record<string, any>;
+    expect(content.react.text).toBe('👍');
+    expect(content.react.key.id).toBe('MID1');
+  });
+
+  it('like: honors custom reaction emoji', async () => {
+    stub = makeStub();
+    const r = await fetch(`${BASE}/like`, {
+      method: 'POST',
+      body: JSON.stringify({
+        chat_jid: 'whatsapp:12345',
+        target_id: 'MID2',
+        reaction: '🎉',
+      }),
+      headers: { 'Content-Type': 'application/json', ...auth() },
+    });
+    expect(r.status).toBe(200);
+    const call = stub.calls.find((c) => c.method === 'sendMessage');
+    const content = call!.args[1] as Record<string, any>;
+    expect(content.react.text).toBe('🎉');
+  });
+
+  it('dislike: sends thumbs-down react', async () => {
+    stub = makeStub();
+    const r = await fetch(`${BASE}/dislike`, {
+      method: 'POST',
+      body: JSON.stringify({
+        chat_jid: 'whatsapp:12345',
+        target_id: 'MID3',
+      }),
+      headers: { 'Content-Type': 'application/json', ...auth() },
+    });
+    expect(r.status).toBe(200);
+    const call = stub.calls.find((c) => c.method === 'sendMessage');
+    const content = call!.args[1] as Record<string, any>;
+    expect(content.react.text).toBe('👎');
+    expect(content.react.key.id).toBe('MID3');
+  });
+
+  it('like: returns 502 when not connected', async () => {
+    connected = false;
+    const r = await fetch(`${BASE}/like`, {
+      method: 'POST',
+      body: JSON.stringify({ chat_jid: 'whatsapp:12345', target_id: 'X' }),
+      headers: { 'Content-Type': 'application/json', ...auth() },
+    });
+    expect(r.status).toBe(502);
+    connected = true;
+  });
+});
+
 describe('flushQueue', () => {
   it('returns empty result for empty queue', async () => {
     const q: string[] = [];

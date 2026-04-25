@@ -24,6 +24,8 @@ func main() {
 			"fetch_history": true, // adapter replies "unsupported" at call time
 			"fwd":           true,
 			"edit":          true,
+			"like":          true,
+			"dislike":       true,
 		},
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)

@@ -25,6 +25,8 @@ export class RouterClient {
           typing: true,
           fwd: true,
           edit: true,
+          like: true,
+          dislike: true,
         },
       },
       this.secret,
@@ -49,6 +51,8 @@ export class RouterClient {
     reply_to?: string;
     reply_to_text?: string;
     reply_to_sender?: string;
+    verb?: string;
+    reaction?: string;
   }): Promise<void> {
     const r = await this.post('/v1/messages', msg, this.token);
     if (!r.ok) throw new Error(`deliver: ${r.error}`);
