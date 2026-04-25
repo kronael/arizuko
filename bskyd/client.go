@@ -414,6 +414,78 @@ func (bc *bskyClient) Delete(req chanlib.DeleteRequest) error {
 	return nil
 }
 
+// Forward unsupported on Bluesky.
+func (bc *bskyClient) Forward(chanlib.ForwardRequest) (string, error) {
+	return "", chanlib.Unsupported("forward", "bluesky",
+		"Bluesky has no forward primitive. Use `repost(source_msg_id=...)` to amplify, or `quote(comment=...)` to share with commentary.")
+}
+
+// Quote: native quote-post via embed.record on a new post.
+func (bc *bskyClient) Quote(req chanlib.QuoteRequest) (string, error) {
+	cid, err := bc.getPostCID(req.SourceMsgID)
+	if err != nil {
+		return "", fmt.Errorf("bluesky quote: get cid: %w", err)
+	}
+	record := map[string]any{
+		"$type":     "app.bsky.feed.post",
+		"text":      req.Comment,
+		"createdAt": time.Now().UTC().Format(time.RFC3339),
+		"embed": map[string]any{
+			"$type":  "app.bsky.embed.record",
+			"record": map[string]string{"uri": req.SourceMsgID, "cid": cid},
+		},
+	}
+	body := map[string]any{
+		"repo":       bc.getSession().DID,
+		"collection": "app.bsky.feed.post",
+		"record":     record,
+	}
+	var result struct {
+		URI string `json:"uri"`
+	}
+	if err := bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, &result); err != nil {
+		return "", fmt.Errorf("bluesky quote: %w", err)
+	}
+	return result.URI, nil
+}
+
+// Repost: native repost record.
+func (bc *bskyClient) Repost(req chanlib.RepostRequest) (string, error) {
+	cid, err := bc.getPostCID(req.SourceMsgID)
+	if err != nil {
+		return "", fmt.Errorf("bluesky repost: get cid: %w", err)
+	}
+	record := map[string]any{
+		"$type":     "app.bsky.feed.repost",
+		"subject":   map[string]string{"uri": req.SourceMsgID, "cid": cid},
+		"createdAt": time.Now().UTC().Format(time.RFC3339),
+	}
+	body := map[string]any{
+		"repo":       bc.getSession().DID,
+		"collection": "app.bsky.feed.repost",
+		"record":     record,
+	}
+	var result struct {
+		URI string `json:"uri"`
+	}
+	if err := bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, &result); err != nil {
+		return "", fmt.Errorf("bluesky repost: %w", err)
+	}
+	return result.URI, nil
+}
+
+// Dislike unsupported on Bluesky.
+func (bc *bskyClient) Dislike(chanlib.DislikeRequest) error {
+	return chanlib.Unsupported("dislike", "bluesky",
+		"Bluesky has no native downvote. Use `reply` with textual disagreement instead.")
+}
+
+// Edit unsupported on Bluesky (record edits not yet stable in API).
+func (bc *bskyClient) Edit(chanlib.EditRequest) error {
+	return chanlib.Unsupported("edit", "bluesky",
+		"Bluesky records are immutable. Use `delete(target_id=...)` then `post(content=...)` to retract-and-resend.")
+}
+
 type feedViewPost struct {
 	Post struct {
 		URI    string `json:"uri"`

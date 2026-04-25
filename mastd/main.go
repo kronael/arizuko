@@ -18,7 +18,7 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"mastodon:"},
-		Caps:          map[string]bool{"send_text": true, "fetch_history": true},
+		Caps:          map[string]bool{"send_text": true, "fetch_history": true, "repost": true, "edit": true},
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			mc, err := newMastoClient(cfg)
 			if err != nil {

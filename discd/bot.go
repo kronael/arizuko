@@ -226,6 +226,42 @@ func (b *bot) Delete(req chanlib.DeleteRequest) error {
 	return nil
 }
 
+// Forward unsupported: Discord has no native forward primitive.
+func (b *bot) Forward(chanlib.ForwardRequest) (string, error) {
+	return "", chanlib.Unsupported("forward", "discord",
+		"Discord has no native forward. Use `send(jid=<target>, content=\"<quoted text>\\n\\n— from <source>\")` to relay manually.")
+}
+
+// Quote unsupported: Discord has no quote primitive.
+func (b *bot) Quote(chanlib.QuoteRequest) (string, error) {
+	return "", chanlib.Unsupported("quote", "discord",
+		"Discord has no quote primitive. Use `send` referencing the source message URL with your commentary.")
+}
+
+// Repost unsupported.
+func (b *bot) Repost(chanlib.RepostRequest) (string, error) {
+	return "", chanlib.Unsupported("repost", "discord",
+		"Discord has no repost. Use `send` to manually re-share content with attribution.")
+}
+
+// Dislike: native 👎 reaction.
+func (b *bot) Dislike(req chanlib.DislikeRequest) error {
+	chID := strings.TrimPrefix(req.ChatJID, "discord:")
+	if err := b.session.MessageReactionAdd(chID, req.TargetID, "👎"); err != nil {
+		return fmt.Errorf("discord dislike: %w", err)
+	}
+	return nil
+}
+
+// Edit: native PATCH /channels/{ch}/messages/{id}.
+func (b *bot) Edit(req chanlib.EditRequest) error {
+	chID := strings.TrimPrefix(req.ChatJID, "discord:")
+	if _, err := b.session.ChannelMessageEdit(chID, req.TargetID, req.Content); err != nil {
+		return fmt.Errorf("discord edit: %w", err)
+	}
+	return nil
+}
+
 // discordEpochMs is the Discord snowflake epoch (2015-01-01T00:00:00Z).
 const discordEpochMs = 1420070400000
 

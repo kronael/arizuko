@@ -302,6 +302,69 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 
 func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
 
+// Forward: native forwardMessage. SourceMsgID is encoded as
+// "<sourceChatJid>|<msgId>" so we know which chat to forward from.
+func (b *bot) Forward(req chanlib.ForwardRequest) (string, error) {
+	parts := strings.SplitN(req.SourceMsgID, "|", 2)
+	if len(parts) != 2 {
+		return "", chanlib.Unsupported("forward", "telegram",
+			"telegram forward needs source_msg_id formatted as \"<sourceChatJid>|<messageId>\".")
+	}
+	fromID, err := parseChatID(parts[0])
+	if err != nil {
+		return "", fmt.Errorf("telegram forward: source chat: %w", err)
+	}
+	msgID, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("telegram forward: message id: %w", err)
+	}
+	toID, err := parseChatID(req.TargetJID)
+	if err != nil {
+		return "", fmt.Errorf("telegram forward: target chat: %w", err)
+	}
+	cfg := tgbotapi.NewForward(toID, fromID, msgID)
+	sent, err := b.api.Send(cfg)
+	if err != nil {
+		return "", fmt.Errorf("telegram forward: %w", err)
+	}
+	return strconv.Itoa(sent.MessageID), nil
+}
+
+// Quote unsupported: telegram has no native quote primitive.
+func (b *bot) Quote(chanlib.QuoteRequest) (string, error) {
+	return "", chanlib.Unsupported("quote", "telegram",
+		"Telegram has no quote primitive. Use `reply(replyToId=...)` to thread, or `send` referencing the source.")
+}
+
+// Repost unsupported.
+func (b *bot) Repost(chanlib.RepostRequest) (string, error) {
+	return "", chanlib.Unsupported("repost", "telegram",
+		"Telegram has no repost primitive. Use `forward(target_jid=..., source_msg_id=\"<sourceChatJid>|<id>\")` to relay.")
+}
+
+// Dislike unsupported.
+func (b *bot) Dislike(chanlib.DislikeRequest) error {
+	return chanlib.Unsupported("dislike", "telegram",
+		"Telegram has no native downvote. Use `reply` with textual disagreement instead.")
+}
+
+// Edit: native editMessageText for own bot messages.
+func (b *bot) Edit(req chanlib.EditRequest) error {
+	id, err := parseChatID(req.ChatJID)
+	if err != nil {
+		return err
+	}
+	msgID, err := strconv.Atoi(req.TargetID)
+	if err != nil {
+		return fmt.Errorf("telegram edit: invalid target_id: %w", err)
+	}
+	cfg := tgbotapi.NewEditMessageText(id, msgID, req.Content)
+	if _, err := b.api.Send(cfg); err != nil {
+		return fmt.Errorf("telegram edit: %w", err)
+	}
+	return nil
+}
+
 // FetchHistory honestly reports that Telegram's Bot API cannot fetch
 // arbitrary chat history. getUpdates is offset-based and 24h-capped;
 // getHistory / forwardMessages require MTProto (user API), which the

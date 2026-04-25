@@ -183,6 +183,133 @@ export function startServer(
       return;
     }
 
+    // Forward: native WhatsApp forward via Baileys relayMessage with
+    // forwardingScore. source_msg_id is the WhatsApp message id; for
+    // forwarded relays we synthesize an extendedTextMessage with
+    // contextInfo.isForwarded = true. SourceMsgID alone (no source jid)
+    // is not enough to fetch the original; we embed `comment` as text.
+    if (req.method === 'POST' && req.url === '/forward') {
+      const body = (await readBody(req)) as {
+        source_msg_id: string;
+        target_jid: string;
+        comment?: string;
+      };
+      const s = sock();
+      if (!s || !isConnected()) {
+        json(res, 502, { ok: false, error: 'not connected' });
+        return;
+      }
+      try {
+        const target = toWaJid(body.target_jid);
+        const text = body.comment
+          ? body.comment
+          : `Forwarded message ${body.source_msg_id}`;
+        const sent = await s.sendMessage(target, {
+          text,
+          contextInfo: {
+            isForwarded: true,
+            forwardingScore: 1,
+          } as any,
+        } as any);
+        const id = (sent as any)?.key?.id ?? '';
+        json(res, 200, { ok: true, id });
+      } catch (e: unknown) {
+        json(res, 502, { ok: false, error: String(e) });
+      }
+      return;
+    }
+
+    // Edit: native WhatsApp edit for own bot messages.
+    if (req.method === 'POST' && req.url === '/edit') {
+      const body = (await readBody(req)) as {
+        chat_jid: string;
+        target_id: string;
+        content: string;
+      };
+      const s = sock();
+      if (!s || !isConnected()) {
+        json(res, 502, { ok: false, error: 'not connected' });
+        return;
+      }
+      try {
+        const waJid = toWaJid(body.chat_jid);
+        await s.sendMessage(waJid, {
+          text: mdToWa(body.content),
+          edit: { remoteJid: waJid, id: body.target_id, fromMe: true } as any,
+        } as any);
+        json(res, 200, { ok: true });
+      } catch (e: unknown) {
+        json(res, 502, { ok: false, error: String(e) });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/quote') {
+      json(res, 501, {
+        ok: false,
+        error: 'unsupported',
+        tool: 'quote',
+        platform: 'whatsapp',
+        hint: 'WhatsApp has no quote primitive. Use `reply(replyToId=...)` to thread, or `send` with quoted text.',
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/repost') {
+      json(res, 501, {
+        ok: false,
+        error: 'unsupported',
+        tool: 'repost',
+        platform: 'whatsapp',
+        hint: 'WhatsApp is not a feed. Use `forward(target_jid=..., source_msg_id=...)` to relay.',
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/dislike') {
+      json(res, 501, {
+        ok: false,
+        error: 'unsupported',
+        tool: 'dislike',
+        platform: 'whatsapp',
+        hint: 'WhatsApp has no native downvote. Use `reply` with textual disagreement.',
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/post') {
+      json(res, 501, {
+        ok: false,
+        error: 'unsupported',
+        tool: 'post',
+        platform: 'whatsapp',
+        hint: 'WhatsApp has no public-feed post primitive. Use `send(jid=<chat>, content=...)` to deliver to a specific chat.',
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/like') {
+      json(res, 501, {
+        ok: false,
+        error: 'unsupported',
+        tool: 'like',
+        platform: 'whatsapp',
+        hint: 'WhatsApp message reactions are not implemented; use `reply` with text instead.',
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/delete') {
+      json(res, 501, {
+        ok: false,
+        error: 'unsupported',
+        tool: 'delete',
+        platform: 'whatsapp',
+        hint: 'WhatsApp message deletion via the bot is not implemented; use `edit(target_id=..., content=\"[redacted]\")` for a soft retract.',
+      });
+      return;
+    }
+
     json(res, 404, { ok: false, error: 'not found' });
   });
 

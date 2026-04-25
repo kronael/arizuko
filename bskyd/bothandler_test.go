@@ -122,3 +122,24 @@ func TestBotHandler_Delete(t *testing.T) {
 		t.Errorf("collection = %v", gotBody["collection"])
 	}
 }
+
+func TestBotHandler_UnsupportedHints_Bskyd(t *testing.T) {
+	bc := &bskyClient{}
+	if _, err := bc.Forward(chanlib.ForwardRequest{}); !bskyHasHint(err) {
+		t.Errorf("forward: missing hint err=%v", err)
+	}
+	if err := bc.Dislike(chanlib.DislikeRequest{}); !bskyHasHint(err) {
+		t.Errorf("dislike: missing hint err=%v", err)
+	}
+	if err := bc.Edit(chanlib.EditRequest{}); !bskyHasHint(err) {
+		t.Errorf("edit: missing hint err=%v", err)
+	}
+}
+
+func bskyHasHint(err error) bool {
+	if err == nil {
+		return false
+	}
+	ue, ok := err.(*chanlib.UnsupportedError)
+	return ok && ue.Hint != ""
+}

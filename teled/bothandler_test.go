@@ -88,3 +88,24 @@ func newTeledBotForPlatform(t *testing.T, fp *testutils.FakePlatform) *bot {
 	b.mentionRe = regexp.MustCompile(`(?i)^@Ari\b`)
 	return b
 }
+
+func TestBotHandler_UnsupportedHints_Teled(t *testing.T) {
+	b := &bot{}
+	if _, err := b.Quote(chanlib.QuoteRequest{}); !teledHasHint(err) {
+		t.Errorf("quote: missing hint err=%v", err)
+	}
+	if _, err := b.Repost(chanlib.RepostRequest{}); !teledHasHint(err) {
+		t.Errorf("repost: missing hint err=%v", err)
+	}
+	if err := b.Dislike(chanlib.DislikeRequest{}); !teledHasHint(err) {
+		t.Errorf("dislike: missing hint err=%v", err)
+	}
+}
+
+func teledHasHint(err error) bool {
+	if err == nil {
+		return false
+	}
+	ue, ok := err.(*chanlib.UnsupportedError)
+	return ok && ue.Hint != ""
+}

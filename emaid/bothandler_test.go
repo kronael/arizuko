@@ -173,3 +173,21 @@ func itoa(i int) string {
 	}
 	return string(b)
 }
+
+func TestBotHandler_UnsupportedHints_Emaid(t *testing.T) {
+	s := &server{}
+	if _, err := s.Forward(chanlib.ForwardRequest{}); !emaidHasHint(err) {
+		t.Errorf("forward: missing hint err=%v", err)
+	}
+	if err := s.Edit(chanlib.EditRequest{}); !emaidHasHint(err) {
+		t.Errorf("edit: missing hint err=%v", err)
+	}
+}
+
+func emaidHasHint(err error) bool {
+	if err == nil {
+		return false
+	}
+	ue, ok := err.(*chanlib.UnsupportedError)
+	return ok && ue.Hint != ""
+}

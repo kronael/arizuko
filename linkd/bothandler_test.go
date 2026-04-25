@@ -54,3 +54,21 @@ func TestBotHandler_Send(t *testing.T) {
 		t.Errorf("actor = %v", gotBody["actor"])
 	}
 }
+
+func TestBotHandler_UnsupportedHints_Linkd(t *testing.T) {
+	lc := &linkClient{}
+	if _, err := lc.Forward(chanlib.ForwardRequest{}); !linkdHasHint(err) {
+		t.Errorf("forward: missing hint err=%v", err)
+	}
+	if err := lc.Edit(chanlib.EditRequest{}); !linkdHasHint(err) {
+		t.Errorf("edit: missing hint err=%v", err)
+	}
+}
+
+func linkdHasHint(err error) bool {
+	if err == nil {
+		return false
+	}
+	ue, ok := err.(*chanlib.UnsupportedError)
+	return ok && ue.Hint != ""
+}

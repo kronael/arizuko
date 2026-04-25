@@ -480,7 +480,35 @@ func (rc *redditClient) Post(req chanlib.PostRequest) (string, error) {
 	return "", nil
 }
 
-func (rc *redditClient) Like(chanlib.LikeRequest) error { return chanlib.ErrUnsupported }
+func (rc *redditClient) Like(chanlib.LikeRequest) error {
+	return chanlib.Unsupported("like", "reddit",
+		"Reddit upvote via /api/vote is a follow-up; use `reply` to engage textually for now.")
+}
+
+func (rc *redditClient) Forward(chanlib.ForwardRequest) (string, error) {
+	return "", chanlib.Unsupported("forward", "reddit",
+		"Reddit has no forward primitive. Use `post` to cross-post the content with attribution.")
+}
+
+func (rc *redditClient) Quote(chanlib.QuoteRequest) (string, error) {
+	return "", chanlib.Unsupported("quote", "reddit",
+		"Reddit has no quote primitive. Use `post(content=\"<commentary>\\n\\n>quoted text\")` with markdown blockquote.")
+}
+
+func (rc *redditClient) Repost(chanlib.RepostRequest) (string, error) {
+	return "", chanlib.Unsupported("repost", "reddit",
+		"Reddit has no repost primitive. Use `post` to cross-post with attribution.")
+}
+
+func (rc *redditClient) Dislike(chanlib.DislikeRequest) error {
+	return chanlib.Unsupported("dislike", "reddit",
+		"Reddit downvote via /api/vote is a follow-up; use `reply` with disagreement instead.")
+}
+
+func (rc *redditClient) Edit(chanlib.EditRequest) error {
+	return chanlib.Unsupported("edit", "reddit",
+		"Reddit submission edit is not implemented (comment edit via /api/editusertext is a follow-up). Use `delete` then `post`.")
+}
 
 func (rc *redditClient) Delete(req chanlib.DeleteRequest) error {
 	data := url.Values{"id": {req.TargetID}}

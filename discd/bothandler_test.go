@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -178,3 +179,30 @@ func assertPath(t *testing.T, rec *recorded, method, path string) {
 	}
 	t.Errorf("no %s %s recorded; saw %+v", method, path, rec.snapshot())
 }
+
+// TestBotHandler_UnsupportedHints asserts the new verbs that aren't
+// natively supported on Discord return *chanlib.UnsupportedError with a
+// hint referencing a concrete alternative tool.
+func TestBotHandler_UnsupportedHints(t *testing.T) {
+	b := &bot{session: newTestSession(t)}
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"forward", mustErr(b.Forward(chanlib.ForwardRequest{}))},
+		{"quote", mustErr(b.Quote(chanlib.QuoteRequest{}))},
+		{"repost", mustErr(b.Repost(chanlib.RepostRequest{}))},
+	}
+	for _, c := range cases {
+		var ue *chanlib.UnsupportedError
+		if !errors.As(c.err, &ue) {
+			t.Errorf("%s: want *UnsupportedError, got %v", c.name, c.err)
+			continue
+		}
+		if ue.Hint == "" {
+			t.Errorf("%s: empty hint", c.name)
+		}
+	}
+}
+
+func mustErr(_ string, e error) error { return e }

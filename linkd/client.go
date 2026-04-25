@@ -41,6 +41,29 @@ type linkClient struct {
 
 func (lc *linkClient) isConnected() bool { return lc.authed.Load() }
 
+// Social verbs: LinkedIn share/comment APIs are read-only via this adapter
+// today. Each new verb returns Unsupported with a concrete alternative.
+func (lc *linkClient) Forward(chanlib.ForwardRequest) (string, error) {
+	return "", chanlib.Unsupported("forward", "linkedin",
+		"LinkedIn has no forward primitive. Use `post(content=\"<commentary>\\n\\n<source url>\")` to share with attribution.")
+}
+func (lc *linkClient) Quote(chanlib.QuoteRequest) (string, error) {
+	return "", chanlib.Unsupported("quote", "linkedin",
+		"LinkedIn quote-share is not implemented. Use `post(content=\"<your take>\\n\\n<source url>\")`.")
+}
+func (lc *linkClient) Repost(chanlib.RepostRequest) (string, error) {
+	return "", chanlib.Unsupported("repost", "linkedin",
+		"LinkedIn repost is not implemented. Use `post` with the source link.")
+}
+func (lc *linkClient) Dislike(chanlib.DislikeRequest) error {
+	return chanlib.Unsupported("dislike", "linkedin",
+		"LinkedIn has no native downvote. Use `reply` with disagreement instead.")
+}
+func (lc *linkClient) Edit(chanlib.EditRequest) error {
+	return chanlib.Unsupported("edit", "linkedin",
+		"LinkedIn share edit is not implemented. Use `delete` then `post`.")
+}
+
 type state struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`

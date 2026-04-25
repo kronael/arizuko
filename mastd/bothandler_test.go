@@ -133,3 +133,36 @@ func contains(xs []string, s string) bool {
 	}
 	return false
 }
+
+func TestBotHandler_UnsupportedHints_Mastd(t *testing.T) {
+	mc := &mastoClient{}
+	if _, err := mc.Forward(chanlib.ForwardRequest{}); !hasHint(err) {
+		t.Errorf("forward: missing hint err=%v", err)
+	}
+	if _, err := mc.Quote(chanlib.QuoteRequest{}); !hasHint(err) {
+		t.Errorf("quote: missing hint err=%v", err)
+	}
+	if err := mc.Dislike(chanlib.DislikeRequest{}); !hasHint(err) {
+		t.Errorf("dislike: missing hint err=%v", err)
+	}
+}
+
+func hasHint(err error) bool {
+	var ue *chanlib.UnsupportedError
+	if !errorsAs(err, &ue) {
+		return false
+	}
+	return ue.Hint != ""
+}
+
+// errorsAs is a thin wrapper to keep the import surface tight.
+func errorsAs(err error, target **chanlib.UnsupportedError) bool {
+	if err == nil {
+		return false
+	}
+	if ue, ok := err.(*chanlib.UnsupportedError); ok {
+		*target = ue
+		return true
+	}
+	return false
+}

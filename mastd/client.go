@@ -268,6 +268,49 @@ func (mc *mastoClient) Delete(req chanlib.DeleteRequest) error {
 	return nil
 }
 
+// Forward unsupported on Mastodon.
+func (mc *mastoClient) Forward(chanlib.ForwardRequest) (string, error) {
+	return "", chanlib.Unsupported("forward", "mastodon",
+		"Mastodon has no forward primitive. Use `repost(source_msg_id=...)` to amplify, or `post(content=\"<commentary>\\n\\n<permalink>\")` to relay with text.")
+}
+
+// Quote unsupported on Mastodon.
+func (mc *mastoClient) Quote(chanlib.QuoteRequest) (string, error) {
+	return "", chanlib.Unsupported("quote", "mastodon",
+		"Mastodon has no quote primitive. Use `post(content=\"<your take>\\n\\nvia: <permalink>\")` to share with commentary, or `repost(source_msg_id=...)` to amplify without commentary.")
+}
+
+// Repost: native boost via Reblog.
+func (mc *mastoClient) Repost(req chanlib.RepostRequest) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	st, err := mc.client.Reblog(ctx, mastodon.ID(req.SourceMsgID))
+	if err != nil {
+		return "", fmt.Errorf("mastodon repost: %w", err)
+	}
+	if st == nil {
+		return "", nil
+	}
+	return string(st.ID), nil
+}
+
+// Dislike unsupported on Mastodon.
+func (mc *mastoClient) Dislike(chanlib.DislikeRequest) error {
+	return chanlib.Unsupported("dislike", "mastodon",
+		"Mastodon has no native downvote. Consider `reply` with a textual rebuttal instead of a sentiment signal.")
+}
+
+// Edit: native UpdateStatus.
+func (mc *mastoClient) Edit(req chanlib.EditRequest) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	toot := &mastodon.Toot{Status: req.Content}
+	if _, err := mc.client.UpdateStatus(ctx, toot, mastodon.ID(req.TargetID)); err != nil {
+		return fmt.Errorf("mastodon edit: %w", err)
+	}
+	return nil
+}
+
 func (mc *mastoClient) extractAttachments(s *mastodon.Status) []chanlib.InboundAttachment {
 	var atts []chanlib.InboundAttachment
 	for _, a := range s.MediaAttachments {

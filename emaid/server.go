@@ -33,6 +33,33 @@ func newServer(cfg config, db *sql.DB, reg *attRegistry, isConnected func() bool
 	return &server{cfg: cfg, db: db, reg: reg, dialTLS: imapclient.DialTLS, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
+// Forward unsupported on Email: SMTP has no native forward primitive
+// (Fwd: is just a `send` with a re-formatted body).
+func (s *server) Forward(chanlib.ForwardRequest) (string, error) {
+	return "", chanlib.Unsupported("forward", "email",
+		"Email has no native forward primitive. Use `send(jid=<target>, content=\"---- Forwarded message ----\\n\\n<original>\")` and set `In-Reply-To` if you have the source Message-ID.")
+}
+
+func (s *server) Quote(chanlib.QuoteRequest) (string, error) {
+	return "", chanlib.Unsupported("quote", "email",
+		"Email has no quote primitive. Use `send` with the quoted text inlined.")
+}
+
+func (s *server) Repost(chanlib.RepostRequest) (string, error) {
+	return "", chanlib.Unsupported("repost", "email",
+		"Email is not a feed. Use `send` to relay content.")
+}
+
+func (s *server) Dislike(chanlib.DislikeRequest) error {
+	return chanlib.Unsupported("dislike", "email",
+		"Email has no reactions. Use `reply` with textual feedback.")
+}
+
+func (s *server) Edit(chanlib.EditRequest) error {
+	return chanlib.Unsupported("edit", "email",
+		"Sent email is immutable. Compose a corrigendum via `send` referencing the original Message-ID in In-Reply-To.")
+}
+
 func (s *server) handler() http.Handler {
 	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"email:"}, s, s.isConnected, s.lastInboundAt)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))

@@ -109,3 +109,24 @@ func TestBotHandler_Delete(t *testing.T) {
 		t.Errorf("id = %q", form.Get("id"))
 	}
 }
+
+func TestBotHandler_UnsupportedHints_Reditd(t *testing.T) {
+	rc := &redditClient{}
+	if _, err := rc.Forward(chanlib.ForwardRequest{}); !reditdHasHint(err) {
+		t.Errorf("forward: missing hint err=%v", err)
+	}
+	if err := rc.Dislike(chanlib.DislikeRequest{}); !reditdHasHint(err) {
+		t.Errorf("dislike: missing hint err=%v", err)
+	}
+	if err := rc.Edit(chanlib.EditRequest{}); !reditdHasHint(err) {
+		t.Errorf("edit: missing hint err=%v", err)
+	}
+}
+
+func reditdHasHint(err error) bool {
+	if err == nil {
+		return false
+	}
+	ue, ok := err.(*chanlib.UnsupportedError)
+	return ok && ue.Hint != ""
+}
