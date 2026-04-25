@@ -327,6 +327,39 @@ func handleTyping(bot BotHandler) http.HandlerFunc {
 	}
 }
 
+// writeBotResult writes the response for a social-action call. nil err →
+// 200 with {"ok":true} plus "id" when non-empty. *UnsupportedError → 501
+// with structured tool/platform/hint body. Plain ErrUnsupported → 501
+// {"ok":false,"error":"unsupported"}. Any other error → 502 with err text.
+func writeBotResult(w http.ResponseWriter, id string, err error) {
+	if err == nil {
+		resp := map[string]any{"ok": true}
+		if id != "" {
+			resp["id"] = id
+		}
+		WriteJSON(w, resp)
+		return
+	}
+	var ue *UnsupportedError
+	if errors.As(err, &ue) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(501)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       false,
+			"error":    "unsupported",
+			"tool":     ue.Tool,
+			"platform": ue.Platform,
+			"hint":     ue.Hint,
+		})
+		return
+	}
+	if errors.Is(err, ErrUnsupported) {
+		WriteErr(w, 501, "unsupported")
+		return
+	}
+	WriteErr(w, 502, err.Error())
+}
+
 func handlePost(bot BotHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
@@ -336,18 +369,7 @@ func handlePost(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		id, err := bot.Post(req)
-		if err != nil {
-			if writeUnsupported(w, err) {
-				return
-			}
-			WriteErr(w, 502, err.Error())
-			return
-		}
-		resp := map[string]any{"ok": true}
-		if id != "" {
-			resp["id"] = id
-		}
-		WriteJSON(w, resp)
+		writeBotResult(w, id, err)
 	}
 }
 
@@ -359,14 +381,7 @@ func handleLike(bot BotHandler) http.HandlerFunc {
 			WriteErr(w, 400, "chat_jid and target_id required")
 			return
 		}
-		if err := bot.Like(req); err != nil {
-			if writeUnsupported(w, err) {
-				return
-			}
-			WriteErr(w, 502, err.Error())
-			return
-		}
-		WriteJSON(w, map[string]any{"ok": true})
+		writeBotResult(w, "", bot.Like(req))
 	}
 }
 
@@ -378,14 +393,7 @@ func handleDelete(bot BotHandler) http.HandlerFunc {
 			WriteErr(w, 400, "chat_jid and target_id required")
 			return
 		}
-		if err := bot.Delete(req); err != nil {
-			if writeUnsupported(w, err) {
-				return
-			}
-			WriteErr(w, 502, err.Error())
-			return
-		}
-		WriteJSON(w, map[string]any{"ok": true})
+		writeBotResult(w, "", bot.Delete(req))
 	}
 }
 
@@ -398,18 +406,7 @@ func handleForward(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		id, err := bot.Forward(req)
-		if err != nil {
-			if writeUnsupported(w, err) {
-				return
-			}
-			WriteErr(w, 502, err.Error())
-			return
-		}
-		resp := map[string]any{"ok": true}
-		if id != "" {
-			resp["id"] = id
-		}
-		WriteJSON(w, resp)
+		writeBotResult(w, id, err)
 	}
 }
 
@@ -422,18 +419,7 @@ func handleQuote(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		id, err := bot.Quote(req)
-		if err != nil {
-			if writeUnsupported(w, err) {
-				return
-			}
-			WriteErr(w, 502, err.Error())
-			return
-		}
-		resp := map[string]any{"ok": true}
-		if id != "" {
-			resp["id"] = id
-		}
-		WriteJSON(w, resp)
+		writeBotResult(w, id, err)
 	}
 }
 
@@ -446,18 +432,7 @@ func handleRepost(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		id, err := bot.Repost(req)
-		if err != nil {
-			if writeUnsupported(w, err) {
-				return
-			}
-			WriteErr(w, 502, err.Error())
-			return
-		}
-		resp := map[string]any{"ok": true}
-		if id != "" {
-			resp["id"] = id
-		}
-		WriteJSON(w, resp)
+		writeBotResult(w, id, err)
 	}
 }
 
@@ -469,14 +444,7 @@ func handleDislike(bot BotHandler) http.HandlerFunc {
 			WriteErr(w, 400, "chat_jid and target_id required")
 			return
 		}
-		if err := bot.Dislike(req); err != nil {
-			if writeUnsupported(w, err) {
-				return
-			}
-			WriteErr(w, 502, err.Error())
-			return
-		}
-		WriteJSON(w, map[string]any{"ok": true})
+		writeBotResult(w, "", bot.Dislike(req))
 	}
 }
 
@@ -488,40 +456,8 @@ func handleEdit(bot BotHandler) http.HandlerFunc {
 			WriteErr(w, 400, "chat_jid, target_id and content required")
 			return
 		}
-		if err := bot.Edit(req); err != nil {
-			if writeUnsupported(w, err) {
-				return
-			}
-			WriteErr(w, 502, err.Error())
-			return
-		}
-		WriteJSON(w, map[string]any{"ok": true})
+		writeBotResult(w, "", bot.Edit(req))
 	}
-}
-
-// writeUnsupported writes a 501 response when err is unsupported. If err
-// carries structured *UnsupportedError, the body includes tool/platform/
-// hint; otherwise plain {"ok":false,"error":"unsupported"}. Returns true
-// when err was an unsupported variant and the response was written.
-func writeUnsupported(w http.ResponseWriter, err error) bool {
-	var ue *UnsupportedError
-	if errors.As(err, &ue) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(501)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":       false,
-			"error":    "unsupported",
-			"tool":     ue.Tool,
-			"platform": ue.Platform,
-			"hint":     ue.Hint,
-		})
-		return true
-	}
-	if errors.Is(err, ErrUnsupported) {
-		WriteErr(w, 501, "unsupported")
-		return true
-	}
-	return false
 }
 
 // staleThresholds sets per-adapter tolerance before /health flips to stale.
