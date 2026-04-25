@@ -27,6 +27,7 @@ type session struct {
 
 type bskyClient struct {
 	chanlib.NoFileSender
+	chanlib.NoSocial
 	cfg     config
 	mu      sync.RWMutex // guards session
 	session session

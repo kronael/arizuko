@@ -3,6 +3,7 @@ package ipc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/onvos/arizuko/auth"
+	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/core"
 	grantslib "github.com/onvos/arizuko/grants"
 	"github.com/onvos/arizuko/mountsec"
@@ -31,6 +33,11 @@ type GatedFns struct {
 	Post                func(jid, content string, mediaPaths []string) (string, error)
 	Like                func(jid, targetID, reaction string) error
 	Delete              func(jid, targetID string) error
+	Forward             func(sourceMsgID, targetJID, comment string) (string, error)
+	Quote               func(jid, sourceMsgID, comment string) (string, error)
+	Repost              func(jid, sourceMsgID string) (string, error)
+	Dislike             func(jid, targetID string) error
+	Edit                func(jid, targetID, content string) error
 	ClearSession        func(folder string)
 	InjectMessage       func(jid, content, sender, senderName string) (string, error)
 	RegisterGroup       func(jid string, group core.Group) error
@@ -190,6 +197,28 @@ func peerCred(c net.Conn) (*unix.Ucred, error) {
 
 func toolErr(msg string) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultError(msg), nil
+}
+
+// toolUnsupported formats a *chanlib.UnsupportedError as a tool error
+// carrying the platform-specific hint, so the agent learns the
+// alternative instead of dead-ending.
+func toolUnsupported(ue *chanlib.UnsupportedError) (*mcp.CallToolResult, error) {
+	msg := fmt.Sprintf("unsupported: %s on %s", ue.Tool, ue.Platform)
+	if ue.Hint != "" {
+		msg = msg + "\nhint: " + ue.Hint
+	}
+	return mcp.NewToolResultError(msg), nil
+}
+
+// toolMaybeUnsupported wraps toolErr/toolUnsupported. If err carries a
+// structured *chanlib.UnsupportedError, the hint is rendered; otherwise
+// err.Error() is rendered as a plain tool error.
+func toolMaybeUnsupported(err error) (*mcp.CallToolResult, error) {
+	var ue *chanlib.UnsupportedError
+	if errors.As(err, &ue) {
+		return toolUnsupported(ue)
+	}
+	return toolErr(err.Error())
 }
 
 func toolJSON(v any) (*mcp.CallToolResult, error) {
@@ -432,7 +461,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			slog.Info("post", "folder", folder, "jid", jid, "media", len(mediaPaths))
 			platformID, err := gated.Post(jid, content, mediaPaths)
 			if err != nil {
-				return toolErr(err.Error())
+				return toolMaybeUnsupported(err)
 			}
 			recordOutbound(db, jid, content, "", platformID, folder, "")
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
@@ -456,7 +485,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			reaction := req.GetString("reaction", "")
 			slog.Info("like", "folder", folder, "jid", jid, "target", targetID, "reaction", reaction)
 			if err := gated.Like(jid, targetID, reaction); err != nil {
-				return toolErr(err.Error())
+				return toolMaybeUnsupported(err)
 			}
 			return toolOK()
 		})
@@ -477,7 +506,121 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			targetID := req.GetString("targetId", "")
 			slog.Info("delete", "folder", folder, "jid", jid, "target", targetID)
 			if err := gated.Delete(jid, targetID); err != nil {
-				return toolErr(err.Error())
+				return toolMaybeUnsupported(err)
+			}
+			return toolOK()
+		})
+
+	registerRaw("forward", "Redeliver an existing message to a different chat with provenance preserved (Telegram forward, WhatsApp forward, email Fwd:). Use to relay an inbound message to another chat without paraphrasing. Not for replying within the same chat (`reply`) or amplifying on a public feed (`repost` / `quote`).",
+		[]mcp.ToolOption{
+			mcp.WithString("sourceMsgId", mcp.Required()),
+			mcp.WithString("targetJid", mcp.Required()),
+			mcp.WithString("comment"),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			target := req.GetString("targetJid", "")
+			if !grantslib.CheckAction(rules, "forward", map[string]string{"jid": target}) {
+				return toolErr("forward: not permitted")
+			}
+			if gated.Forward == nil {
+				return toolErr("forward not configured")
+			}
+			sourceMsgID := req.GetString("sourceMsgId", "")
+			comment := req.GetString("comment", "")
+			slog.Info("forward", "folder", folder, "source", sourceMsgID, "target", target)
+			id, err := gated.Forward(sourceMsgID, target, comment)
+			if err != nil {
+				return toolMaybeUnsupported(err)
+			}
+			return toolJSON(map[string]any{"ok": true, "id": id})
+		})
+
+	registerRaw("quote", "Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only — Mastodon has no quote primitive and returns unsupported with a hint to use `post(content=..., source_url=...)`. Not for in-chat threaded replies (`reply`) or simple amplification (`repost`).",
+		[]mcp.ToolOption{
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("sourceMsgId", mcp.Required()),
+			mcp.WithString("comment", mcp.Required()),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chatJid", "")
+			if !grantslib.CheckAction(rules, "quote", map[string]string{"jid": jid}) {
+				return toolErr("quote: not permitted")
+			}
+			if gated.Quote == nil {
+				return toolErr("quote not configured")
+			}
+			sourceMsgID := req.GetString("sourceMsgId", "")
+			comment := req.GetString("comment", "")
+			slog.Info("quote", "folder", folder, "jid", jid, "source", sourceMsgID)
+			id, err := gated.Quote(jid, sourceMsgID, comment)
+			if err != nil {
+				return toolMaybeUnsupported(err)
+			}
+			return toolJSON(map[string]any{"ok": true, "id": id})
+		})
+
+	registerRaw("repost", "Amplify a message on your own feed without added text (Mastodon boost, Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (`quote`) or sending a copy to a different chat (`forward`).",
+		[]mcp.ToolOption{
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("sourceMsgId", mcp.Required()),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chatJid", "")
+			if !grantslib.CheckAction(rules, "repost", map[string]string{"jid": jid}) {
+				return toolErr("repost: not permitted")
+			}
+			if gated.Repost == nil {
+				return toolErr("repost not configured")
+			}
+			sourceMsgID := req.GetString("sourceMsgId", "")
+			slog.Info("repost", "folder", folder, "jid", jid, "source", sourceMsgID)
+			id, err := gated.Repost(jid, sourceMsgID)
+			if err != nil {
+				return toolMaybeUnsupported(err)
+			}
+			return toolJSON(map[string]any{"ok": true, "id": id})
+		})
+
+	registerRaw("dislike", "Endorse-negative on a message (Discord 👎 reaction). Native only — Mastodon, Bluesky, and most platforms have no native downvote and return unsupported with a hint.",
+		[]mcp.ToolOption{
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("targetId", mcp.Required()),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chatJid", "")
+			if !grantslib.CheckAction(rules, "dislike", map[string]string{"jid": jid}) {
+				return toolErr("dislike: not permitted")
+			}
+			if gated.Dislike == nil {
+				return toolErr("dislike not configured")
+			}
+			targetID := req.GetString("targetId", "")
+			slog.Info("dislike", "folder", folder, "jid", jid, "target", targetID)
+			if err := gated.Dislike(jid, targetID); err != nil {
+				return toolMaybeUnsupported(err)
+			}
+			return toolOK()
+		})
+
+	registerRaw("edit", "Modify a message previously sent by this agent in-place (Discord, Mastodon, Bluesky, Telegram own bot messages). Preserves the platform message id. Not for retract-and-resend (use `delete` then `post`/`send`). Email is unsupported.",
+		[]mcp.ToolOption{
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("targetId", mcp.Required()),
+			mcp.WithString("content", mcp.Required()),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chatJid", "")
+			if !grantslib.CheckAction(rules, "edit", map[string]string{"jid": jid}) {
+				return toolErr("edit: not permitted")
+			}
+			if gated.Edit == nil {
+				return toolErr("edit not configured")
+			}
+			targetID := req.GetString("targetId", "")
+			content := req.GetString("content", "")
+			slog.Info("edit", "folder", folder, "jid", jid, "target", targetID)
+			if err := gated.Edit(jid, targetID, content); err != nil {
+				return toolMaybeUnsupported(err)
 			}
 			return toolOK()
 		})

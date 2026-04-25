@@ -120,6 +120,11 @@ func (g *Gateway) Run(ctx context.Context) error {
 		Post:         g.postToJID,
 		Like:         g.likeOnJID,
 		Delete:       g.deleteOnJID,
+		Forward:      g.forwardToJID,
+		Quote:        g.quoteToJID,
+		Repost:       g.repostToJID,
+		Dislike:      g.dislikeOnJID,
+		Edit:         g.editOnJID,
 		ClearSession: g.clearSession,
 		GroupsDir:    g.cfg.GroupsDir,
 		WebDir:       g.cfg.WebDir,
@@ -1026,6 +1031,65 @@ func (g *Gateway) deleteOnJID(jid, targetID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return s.Delete(ctx, jid, targetID)
+}
+
+func (g *Gateway) forwardToJID(sourceMsgID, targetJID, comment string) (string, error) {
+	if !g.canSendToJID(targetJID) {
+		return "", nil
+	}
+	s, err := g.channelSocial(targetJID)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Forward(ctx, sourceMsgID, targetJID, comment)
+}
+
+func (g *Gateway) quoteToJID(jid, sourceMsgID, comment string) (string, error) {
+	if !g.canSendToJID(jid) {
+		return "", nil
+	}
+	s, err := g.channelSocial(jid)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Quote(ctx, jid, sourceMsgID, comment)
+}
+
+func (g *Gateway) repostToJID(jid, sourceMsgID string) (string, error) {
+	if !g.canSendToJID(jid) {
+		return "", nil
+	}
+	s, err := g.channelSocial(jid)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Repost(ctx, jid, sourceMsgID)
+}
+
+func (g *Gateway) dislikeOnJID(jid, targetID string) error {
+	s, err := g.channelSocial(jid)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Dislike(ctx, jid, targetID)
+}
+
+func (g *Gateway) editOnJID(jid, targetID, content string) error {
+	s, err := g.channelSocial(jid)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Edit(ctx, jid, targetID, content)
 }
 
 func (g *Gateway) clearSession(folder string) {

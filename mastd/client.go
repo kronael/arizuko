@@ -18,6 +18,7 @@ import (
 
 type mastoClient struct {
 	chanlib.NoFileSender
+	chanlib.NoSocial
 	cfg    config
 	client *mastodon.Client
 	me     *mastodon.Account

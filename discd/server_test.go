@@ -13,6 +13,7 @@ import (
 )
 
 type stubBot struct {
+	chanlib.NoSocial
 	sent     []stubSend
 	files    []stubFile
 	typings  []bool

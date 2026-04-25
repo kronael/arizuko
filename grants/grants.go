@@ -142,7 +142,11 @@ func MatchingRules(rules []string, action string) []string {
 
 var platformSendActions = []string{"send", "send_file", "reply"}
 
-var platformPostActions = []string{"post", "like", "delete"}
+// platformChatActions are platform-scoped chat verbs (per-target jid).
+var platformChatActions = []string{"forward"}
+
+// platformFeedActions are platform-scoped feed/post verbs.
+var platformFeedActions = []string{"post", "quote", "repost", "like", "dislike", "delete", "edit"}
 
 var tier1FixedActions = []string{
 	"schedule_task", "register_group", "escalate_group", "delegate_group",
@@ -175,7 +179,10 @@ func platformRules(jids []string) []string {
 		for _, a := range platformSendActions {
 			rules = append(rules, a+"(jid="+p+":*)")
 		}
-		for _, a := range platformPostActions {
+		for _, a := range platformChatActions {
+			rules = append(rules, a+"(jid="+p+":*)")
+		}
+		for _, a := range platformFeedActions {
 			rules = append(rules, a+"(jid="+p+":*)")
 		}
 	}

@@ -175,6 +175,18 @@ func (f *FakeChannel) Delete(_ context.Context, jid, target string) error {
 	return nil
 }
 
+func (f *FakeChannel) Forward(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+func (f *FakeChannel) Quote(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+func (f *FakeChannel) Repost(_ context.Context, _, _ string) (string, error) {
+	return "", nil
+}
+func (f *FakeChannel) Dislike(_ context.Context, _, _ string) error { return nil }
+func (f *FakeChannel) Edit(_ context.Context, _, _, _ string) error { return nil }
+
 // Snapshots (return copies) for assertions:
 
 func (f *FakeChannel) Sent() []SentMsg {

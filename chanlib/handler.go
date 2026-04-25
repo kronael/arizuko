@@ -23,8 +23,10 @@ type SendRequest struct {
 
 // BotHandler is the interface adapters implement for outbound messaging.
 // Send returns the sent message ID (may be ""); Typing is fire-and-forget.
-// Post, Like, Delete are social-action primitives — adapters that
-// don't support them should embed NoSocial to get "unsupported" defaults.
+// Post/Like/Delete and Forward/Quote/Repost/Dislike/Edit are social
+// primitives — adapters that don't support a verb should embed NoSocial
+// to get *UnsupportedError defaults, or override with a per-platform
+// Unsupported(...) carrying a concrete hint.
 type BotHandler interface {
 	Send(req SendRequest) (string, error)
 	SendFile(jid, path, name, caption string) error
@@ -32,6 +34,11 @@ type BotHandler interface {
 	Post(req PostRequest) (string, error)
 	Like(req LikeRequest) error
 	Delete(req DeleteRequest) error
+	Forward(req ForwardRequest) (string, error)
+	Quote(req QuoteRequest) (string, error)
+	Repost(req RepostRequest) (string, error)
+	Dislike(req DislikeRequest) error
+	Edit(req EditRequest) error
 }
 
 type PostRequest struct {
@@ -49,6 +56,34 @@ type LikeRequest struct {
 type DeleteRequest struct {
 	ChatJID  string `json:"chat_jid"`
 	TargetID string `json:"target_id"`
+}
+
+type ForwardRequest struct {
+	SourceMsgID string `json:"source_msg_id"`
+	TargetJID   string `json:"target_jid"`
+	Comment     string `json:"comment,omitempty"`
+}
+
+type QuoteRequest struct {
+	ChatJID     string `json:"chat_jid"`
+	SourceMsgID string `json:"source_msg_id"`
+	Comment     string `json:"comment"`
+}
+
+type RepostRequest struct {
+	ChatJID     string `json:"chat_jid"`
+	SourceMsgID string `json:"source_msg_id"`
+}
+
+type DislikeRequest struct {
+	ChatJID  string `json:"chat_jid"`
+	TargetID string `json:"target_id"`
+}
+
+type EditRequest struct {
+	ChatJID  string `json:"chat_jid"`
+	TargetID string `json:"target_id"`
+	Content  string `json:"content"`
 }
 
 // ErrUnsupported marks a social action not implemented on this platform.
@@ -90,9 +125,14 @@ func Unsupported(tool, platform, hint string) error {
 // and override the relevant method(s).
 type NoSocial struct{}
 
-func (NoSocial) Post(PostRequest) (string, error) { return "", ErrUnsupported }
-func (NoSocial) Like(LikeRequest) error           { return ErrUnsupported }
-func (NoSocial) Delete(DeleteRequest) error       { return ErrUnsupported }
+func (NoSocial) Post(PostRequest) (string, error)       { return "", ErrUnsupported }
+func (NoSocial) Like(LikeRequest) error                 { return ErrUnsupported }
+func (NoSocial) Delete(DeleteRequest) error             { return ErrUnsupported }
+func (NoSocial) Forward(ForwardRequest) (string, error) { return "", ErrUnsupported }
+func (NoSocial) Quote(QuoteRequest) (string, error)     { return "", ErrUnsupported }
+func (NoSocial) Repost(RepostRequest) (string, error)   { return "", ErrUnsupported }
+func (NoSocial) Dislike(DislikeRequest) error           { return ErrUnsupported }
+func (NoSocial) Edit(EditRequest) error                 { return ErrUnsupported }
 
 // HistoryRequest is the query for platform-side history fetch.
 // Before is RFC3339; empty means "latest". Limit is clamped by the adapter.
@@ -148,6 +188,11 @@ func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isCon
 	mux.HandleFunc("POST /post", Auth(secret, handlePost(bot)))
 	mux.HandleFunc("POST /like", Auth(secret, handleLike(bot)))
 	mux.HandleFunc("POST /delete", Auth(secret, handleDelete(bot)))
+	mux.HandleFunc("POST /forward", Auth(secret, handleForward(bot)))
+	mux.HandleFunc("POST /quote", Auth(secret, handleQuote(bot)))
+	mux.HandleFunc("POST /repost", Auth(secret, handleRepost(bot)))
+	mux.HandleFunc("POST /dislike", Auth(secret, handleDislike(bot)))
+	mux.HandleFunc("POST /edit", Auth(secret, handleEdit(bot)))
 	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt))
 	if hp, ok := bot.(HistoryProvider); ok {
 		mux.HandleFunc("GET /v1/history", Auth(secret, handleHistory(hp)))
@@ -334,6 +379,116 @@ func handleDelete(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		if err := bot.Delete(req); err != nil {
+			if writeUnsupported(w, err) {
+				return
+			}
+			WriteErr(w, 502, err.Error())
+			return
+		}
+		WriteJSON(w, map[string]any{"ok": true})
+	}
+}
+
+func handleForward(bot BotHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
+		var req ForwardRequest
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.SourceMsgID == "" || req.TargetJID == "" {
+			WriteErr(w, 400, "source_msg_id and target_jid required")
+			return
+		}
+		id, err := bot.Forward(req)
+		if err != nil {
+			if writeUnsupported(w, err) {
+				return
+			}
+			WriteErr(w, 502, err.Error())
+			return
+		}
+		resp := map[string]any{"ok": true}
+		if id != "" {
+			resp["id"] = id
+		}
+		WriteJSON(w, resp)
+	}
+}
+
+func handleQuote(bot BotHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
+		var req QuoteRequest
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.SourceMsgID == "" {
+			WriteErr(w, 400, "chat_jid and source_msg_id required")
+			return
+		}
+		id, err := bot.Quote(req)
+		if err != nil {
+			if writeUnsupported(w, err) {
+				return
+			}
+			WriteErr(w, 502, err.Error())
+			return
+		}
+		resp := map[string]any{"ok": true}
+		if id != "" {
+			resp["id"] = id
+		}
+		WriteJSON(w, resp)
+	}
+}
+
+func handleRepost(bot BotHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
+		var req RepostRequest
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.SourceMsgID == "" {
+			WriteErr(w, 400, "chat_jid and source_msg_id required")
+			return
+		}
+		id, err := bot.Repost(req)
+		if err != nil {
+			if writeUnsupported(w, err) {
+				return
+			}
+			WriteErr(w, 502, err.Error())
+			return
+		}
+		resp := map[string]any{"ok": true}
+		if id != "" {
+			resp["id"] = id
+		}
+		WriteJSON(w, resp)
+	}
+}
+
+func handleDislike(bot BotHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
+		var req DislikeRequest
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" {
+			WriteErr(w, 400, "chat_jid and target_id required")
+			return
+		}
+		if err := bot.Dislike(req); err != nil {
+			if writeUnsupported(w, err) {
+				return
+			}
+			WriteErr(w, 502, err.Error())
+			return
+		}
+		WriteJSON(w, map[string]any{"ok": true})
+	}
+}
+
+func handleEdit(bot BotHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
+		var req EditRequest
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" || req.Content == "" {
+			WriteErr(w, 400, "chat_jid, target_id and content required")
+			return
+		}
+		if err := bot.Edit(req); err != nil {
 			if writeUnsupported(w, err) {
 				return
 			}

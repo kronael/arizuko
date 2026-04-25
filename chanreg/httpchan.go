@@ -290,6 +290,125 @@ func (h *HTTPChannel) Delete(ctx context.Context, jid, targetID string) error {
 	return nil
 }
 
+// Forward redelivers an existing message to a different chat (Telegram
+// forwardMessage, WhatsApp forward, email Fwd:). Returns ErrUnsupported
+// when the adapter doesn't advertise the `fwd` capability.
+func (h *HTTPChannel) Forward(ctx context.Context, sourceMsgID, targetJID, comment string) (string, error) {
+	if !h.entry.HasCap("fwd") {
+		return "", chanlib.Unsupported("forward", h.entry.Name, "adapter does not advertise capability")
+	}
+	body := map[string]string{"source_msg_id": sourceMsgID, "target_jid": targetJID}
+	if comment != "" {
+		body["comment"] = comment
+	}
+	b, _ := json.Marshal(body)
+	resp, err := h.post(ctx, "/forward", b)
+	if err != nil {
+		return "", fmt.Errorf("channel %s forward: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotImplemented {
+		return "", decodeUnsupported(resp.Body, "forward", h.entry.Name)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("channel %s forward: status %d", h.entry.Name, resp.StatusCode)
+	}
+	var r struct {
+		ID string `json:"id"`
+	}
+	json.NewDecoder(resp.Body).Decode(&r)
+	return r.ID, nil
+}
+
+// Quote republishes a message on the bot's feed with added commentary.
+func (h *HTTPChannel) Quote(ctx context.Context, jid, sourceMsgID, comment string) (string, error) {
+	if !h.entry.HasCap("quote") {
+		return "", chanlib.Unsupported("quote", h.entry.Name, "adapter does not advertise capability")
+	}
+	body := map[string]string{"chat_jid": jid, "source_msg_id": sourceMsgID, "comment": comment}
+	b, _ := json.Marshal(body)
+	resp, err := h.post(ctx, "/quote", b)
+	if err != nil {
+		return "", fmt.Errorf("channel %s quote: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotImplemented {
+		return "", decodeUnsupported(resp.Body, "quote", h.entry.Name)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("channel %s quote: status %d", h.entry.Name, resp.StatusCode)
+	}
+	var r struct {
+		ID string `json:"id"`
+	}
+	json.NewDecoder(resp.Body).Decode(&r)
+	return r.ID, nil
+}
+
+// Repost amplifies a message on the bot's feed without commentary.
+func (h *HTTPChannel) Repost(ctx context.Context, jid, sourceMsgID string) (string, error) {
+	if !h.entry.HasCap("repost") {
+		return "", chanlib.Unsupported("repost", h.entry.Name, "adapter does not advertise capability")
+	}
+	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "source_msg_id": sourceMsgID})
+	resp, err := h.post(ctx, "/repost", b)
+	if err != nil {
+		return "", fmt.Errorf("channel %s repost: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotImplemented {
+		return "", decodeUnsupported(resp.Body, "repost", h.entry.Name)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("channel %s repost: status %d", h.entry.Name, resp.StatusCode)
+	}
+	var r struct {
+		ID string `json:"id"`
+	}
+	json.NewDecoder(resp.Body).Decode(&r)
+	return r.ID, nil
+}
+
+// Dislike attaches a downvote/negative reaction to a message.
+func (h *HTTPChannel) Dislike(ctx context.Context, jid, targetID string) error {
+	if !h.entry.HasCap("dislike") {
+		return chanlib.Unsupported("dislike", h.entry.Name, "adapter does not advertise capability")
+	}
+	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "target_id": targetID})
+	resp, err := h.post(ctx, "/dislike", b)
+	if err != nil {
+		return fmt.Errorf("channel %s dislike: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotImplemented {
+		return decodeUnsupported(resp.Body, "dislike", h.entry.Name)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("channel %s dislike: status %d", h.entry.Name, resp.StatusCode)
+	}
+	return nil
+}
+
+// Edit modifies a previously-sent bot message in place.
+func (h *HTTPChannel) Edit(ctx context.Context, jid, targetID, content string) error {
+	if !h.entry.HasCap("edit") {
+		return chanlib.Unsupported("edit", h.entry.Name, "adapter does not advertise capability")
+	}
+	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "target_id": targetID, "content": content})
+	resp, err := h.post(ctx, "/edit", b)
+	if err != nil {
+		return fmt.Errorf("channel %s edit: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotImplemented {
+		return decodeUnsupported(resp.Body, "edit", h.entry.Name)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("channel %s edit: status %d", h.entry.Name, resp.StatusCode)
+	}
+	return nil
+}
+
 func (h *HTTPChannel) Disconnect() error { return nil }
 
 func (h *HTTPChannel) HealthCheck() error { return healthPing(h.client, h.entry.URL) }

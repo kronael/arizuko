@@ -111,6 +111,11 @@ type Socializer interface {
 	Post(ctx context.Context, jid, content string, mediaPaths []string) (string, error)
 	Like(ctx context.Context, jid, targetID, reaction string) error
 	Delete(ctx context.Context, jid, targetID string) error
+	Forward(ctx context.Context, sourceMsgID, targetJID, comment string) (string, error)
+	Quote(ctx context.Context, jid, sourceMsgID, comment string) (string, error)
+	Repost(ctx context.Context, jid, sourceMsgID string) (string, error)
+	Dislike(ctx context.Context, jid, targetID string) error
+	Edit(ctx context.Context, jid, targetID, content string) error
 }
 
 type SessionRecord struct {
