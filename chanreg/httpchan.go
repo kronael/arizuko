@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,12 +13,42 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 // ErrUnsupported is returned when an adapter responds 501 to a social
 // verb (post/like/delete) because the underlying platform doesn't
-// support that action.
-var ErrUnsupported = errors.New("unsupported")
+// support that action. Aliased to chanlib.ErrUnsupported so existing
+// errors.Is(err, ErrUnsupported) checks chain through structured
+// *chanlib.UnsupportedError values too.
+var ErrUnsupported = chanlib.ErrUnsupported
+
+// decodeUnsupported reads a 501 body into a structured *chanlib.UnsupportedError.
+// On parse failure or empty body, it returns plain ErrUnsupported.
+func decodeUnsupported(body io.Reader, fallbackTool, fallbackPlatform string) error {
+	var b struct {
+		Tool     string `json:"tool"`
+		Platform string `json:"platform"`
+		Hint     string `json:"hint"`
+	}
+	if body == nil {
+		return ErrUnsupported
+	}
+	if err := json.NewDecoder(body).Decode(&b); err != nil {
+		return ErrUnsupported
+	}
+	if b.Hint == "" && b.Tool == "" && b.Platform == "" {
+		return ErrUnsupported
+	}
+	if b.Tool == "" {
+		b.Tool = fallbackTool
+	}
+	if b.Platform == "" {
+		b.Platform = fallbackPlatform
+	}
+	return &chanlib.UnsupportedError{Tool: b.Tool, Platform: b.Platform, Hint: b.Hint}
+}
 
 const maxOutbox = 1000
 
@@ -208,7 +237,7 @@ func (h *HTTPChannel) Post(ctx context.Context, jid, content string, mediaPaths 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotImplemented {
-		return "", ErrUnsupported
+		return "", decodeUnsupported(resp.Body, "post", h.entry.Name)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("channel %s post: status %d", h.entry.Name, resp.StatusCode)
@@ -233,7 +262,7 @@ func (h *HTTPChannel) Like(ctx context.Context, jid, targetID, reaction string) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotImplemented {
-		return ErrUnsupported
+		return decodeUnsupported(resp.Body, "like", h.entry.Name)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("channel %s like: status %d", h.entry.Name, resp.StatusCode)
@@ -253,7 +282,7 @@ func (h *HTTPChannel) Delete(ctx context.Context, jid, targetID string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotImplemented {
-		return ErrUnsupported
+		return decodeUnsupported(resp.Body, "delete", h.entry.Name)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("channel %s delete: status %d", h.entry.Name, resp.StatusCode)

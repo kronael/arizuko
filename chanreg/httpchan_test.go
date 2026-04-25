@@ -1,10 +1,14 @@
 package chanreg
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/onvos/arizuko/chanlib"
 )
 
 func TestHTTPChannelOwns(t *testing.T) {
@@ -228,5 +232,44 @@ func TestHTTPChannelDrainOutbox(t *testing.T) {
 	}
 	if ch.QueueLen() != 0 {
 		t.Errorf("queue len = %d after drain", ch.QueueLen())
+	}
+}
+
+// TestHTTPChannelPost501JSON: 501 with structured body decodes into
+// *chanlib.UnsupportedError carrying hint.
+func TestHTTPChannelPost501JSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(501)
+		w.Write([]byte(`{"ok":false,"error":"unsupported","tool":"post","platform":"x","hint":"use send"}`))
+	}))
+	defer srv.Close()
+	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"}}
+	ch := NewHTTPChannel(e, "secret")
+	_, err := ch.Post(context.Background(), "x:1", "hi", nil)
+	var ue *chanlib.UnsupportedError
+	if !errors.As(err, &ue) {
+		t.Fatalf("want *UnsupportedError, got %T: %v", err, err)
+	}
+	if ue.Hint != "use send" {
+		t.Errorf("hint = %q", ue.Hint)
+	}
+	// Legacy errors.Is must still chain.
+	if !errors.Is(err, ErrUnsupported) {
+		t.Error("errors.Is(err, ErrUnsupported) must be true")
+	}
+}
+
+// TestHTTPChannelPost501Plain: 501 with empty body falls back to plain ErrUnsupported.
+func TestHTTPChannelPost501Plain(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(501)
+	}))
+	defer srv.Close()
+	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"}}
+	ch := NewHTTPChannel(e, "secret")
+	_, err := ch.Post(context.Background(), "x:1", "hi", nil)
+	if !errors.Is(err, ErrUnsupported) {
+		t.Errorf("want ErrUnsupported, got %v", err)
 	}
 }

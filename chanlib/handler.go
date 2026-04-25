@@ -3,6 +3,7 @@ package chanlib
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -53,6 +54,36 @@ type DeleteRequest struct {
 // ErrUnsupported marks a social action not implemented on this platform.
 // Adapter HTTP layer maps this to 501.
 var ErrUnsupported = errors.New("unsupported")
+
+// UnsupportedError is the structured form of ErrUnsupported. When an
+// adapter returns one of these (instead of a plain ErrUnsupported), the
+// HTTP layer encodes Tool/Platform/Hint into the 501 body so the agent
+// receives a concrete alternative. Is(target) reports true when target
+// is ErrUnsupported, so legacy errors.Is(err, ErrUnsupported) checks
+// keep working across the stack.
+type UnsupportedError struct {
+	Tool     string `json:"tool"`
+	Platform string `json:"platform"`
+	Hint     string `json:"hint"`
+}
+
+func (e *UnsupportedError) Error() string {
+	if e == nil {
+		return "unsupported"
+	}
+	if e.Hint == "" {
+		return fmt.Sprintf("unsupported: %s on %s", e.Tool, e.Platform)
+	}
+	return fmt.Sprintf("unsupported: %s on %s: %s", e.Tool, e.Platform, e.Hint)
+}
+
+func (e *UnsupportedError) Is(target error) bool { return target == ErrUnsupported }
+
+// Unsupported builds a structured UnsupportedError. Adapters use it to
+// teach the agent a concrete alternative for the (tool, platform) pair.
+func Unsupported(tool, platform, hint string) error {
+	return &UnsupportedError{Tool: tool, Platform: platform, Hint: hint}
+}
 
 // NoSocial is a zero-value mixin providing "unsupported" defaults for
 // Post, Like, Delete. Adapters that implement a subset embed this
@@ -261,8 +292,7 @@ func handlePost(bot BotHandler) http.HandlerFunc {
 		}
 		id, err := bot.Post(req)
 		if err != nil {
-			if errors.Is(err, ErrUnsupported) {
-				WriteErr(w, 501, "unsupported")
+			if writeUnsupported(w, err) {
 				return
 			}
 			WriteErr(w, 502, err.Error())
@@ -285,8 +315,7 @@ func handleLike(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		if err := bot.Like(req); err != nil {
-			if errors.Is(err, ErrUnsupported) {
-				WriteErr(w, 501, "unsupported")
+			if writeUnsupported(w, err) {
 				return
 			}
 			WriteErr(w, 502, err.Error())
@@ -305,8 +334,7 @@ func handleDelete(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		if err := bot.Delete(req); err != nil {
-			if errors.Is(err, ErrUnsupported) {
-				WriteErr(w, 501, "unsupported")
+			if writeUnsupported(w, err) {
 				return
 			}
 			WriteErr(w, 502, err.Error())
@@ -314,6 +342,31 @@ func handleDelete(bot BotHandler) http.HandlerFunc {
 		}
 		WriteJSON(w, map[string]any{"ok": true})
 	}
+}
+
+// writeUnsupported writes a 501 response when err is unsupported. If err
+// carries structured *UnsupportedError, the body includes tool/platform/
+// hint; otherwise plain {"ok":false,"error":"unsupported"}. Returns true
+// when err was an unsupported variant and the response was written.
+func writeUnsupported(w http.ResponseWriter, err error) bool {
+	var ue *UnsupportedError
+	if errors.As(err, &ue) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(501)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       false,
+			"error":    "unsupported",
+			"tool":     ue.Tool,
+			"platform": ue.Platform,
+			"hint":     ue.Hint,
+		})
+		return true
+	}
+	if errors.Is(err, ErrUnsupported) {
+		WriteErr(w, 501, "unsupported")
+		return true
+	}
+	return false
 }
 
 // staleThresholds sets per-adapter tolerance before /health flips to stale.

@@ -333,3 +333,68 @@ func TestHandlerHealthDisconnectedBeatsStale(t *testing.T) {
 		t.Errorf("status = %v, want disconnected", resp["status"])
 	}
 }
+
+// TestHandlerPostUnsupportedStructured asserts that when bot.Post returns
+// *UnsupportedError, the 501 body carries tool/platform/hint.
+func TestHandlerPostUnsupportedStructured(t *testing.T) {
+	b := &mockBotPost{err: Unsupported("post", "test", "use send instead")}
+	h := mux(&mockBot{}) // need a fresh mux pointing at b
+	_ = h
+	mux2 := NewAdapterMux("test", "secret", []string{"test:"}, b,
+		func() bool { return true }, func() int64 { return time.Now().Unix() })
+	body, _ := json.Marshal(map[string]string{"chat_jid": "test:1", "content": "x"})
+	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	mux2.ServeHTTP(w, req)
+	if w.Code != 501 {
+		t.Fatalf("status = %d, want 501", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["tool"] != "post" || resp["platform"] != "test" || resp["hint"] != "use send instead" {
+		t.Errorf("body = %v", resp)
+	}
+}
+
+// TestHandlerPostUnsupportedPlain asserts that plain ErrUnsupported still
+// produces the legacy {"ok":false,"error":"unsupported"} body.
+func TestHandlerPostUnsupportedPlain(t *testing.T) {
+	b := &mockBotPost{err: ErrUnsupported}
+	mux2 := NewAdapterMux("test", "secret", []string{"test:"}, b,
+		func() bool { return true }, func() int64 { return time.Now().Unix() })
+	body, _ := json.Marshal(map[string]string{"chat_jid": "test:1", "content": "x"})
+	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	mux2.ServeHTTP(w, req)
+	if w.Code != 501 {
+		t.Fatalf("status = %d, want 501", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["error"] != "unsupported" {
+		t.Errorf("body = %v", resp)
+	}
+	if _, has := resp["hint"]; has {
+		t.Errorf("plain unsupported should not carry hint, got %v", resp)
+	}
+}
+
+// TestUnsupportedErrorIs verifies errors.Is chain through structured value.
+func TestUnsupportedErrorIs(t *testing.T) {
+	e := Unsupported("forward", "mastodon", "no native primitive")
+	if !errors.Is(e, ErrUnsupported) {
+		t.Error("structured UnsupportedError must satisfy errors.Is(ErrUnsupported)")
+	}
+}
+
+type mockBotPost struct {
+	NoFileSender
+	NoSocial
+	err error
+}
+
+func (m *mockBotPost) Send(SendRequest) (string, error)    { return "", nil }
+func (m *mockBotPost) Typing(string, bool)                 {}
+func (m *mockBotPost) Post(PostRequest) (string, error)    { return "", m.err }
