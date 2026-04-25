@@ -1,0 +1,16 @@
+image = "arizuko-twitter:latest"
+entrypoint = ["bun", "dist/main.js"]
+volumes = ["${DATA_DIR}/store/twitter-auth:/srv/data/store/twitter-auth"]
+
+[environment]
+ROUTER_URL = "http://gated:8080"
+CHANNEL_SECRET = "${CHANNEL_SECRET}"
+ASSISTANT_NAME = "${ASSISTANT_NAME}"
+LISTEN_ADDR = ":8080"
+LISTEN_URL = "http://twitd:8080"
+TWITTER_AUTH_DIR = "/srv/data/store/twitter-auth"
+TWITTER_USERNAME = "${TWITTER_USERNAME}"
+TWITTER_PASSWORD = "${TWITTER_PASSWORD}"
+TWITTER_EMAIL = "${TWITTER_EMAIL}"
+TWITTER_2FA_SECRET = "${TWITTER_2FA_SECRET}"
+TWITTER_POLL_INTERVAL = "${TWITTER_POLL_INTERVAL}"

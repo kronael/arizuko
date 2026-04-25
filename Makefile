@@ -26,6 +26,7 @@ images:
 	$(DOCKER) image prune -af
 	$(DOCKER) build -t arizuko .
 	$(DOCKER) build -t arizuko-whatsapp -f whapd/Dockerfile .
+	$(DOCKER) build -t arizuko-twitter -f twitd/Dockerfile .
 	make -C ant image DOCKER="$(DOCKER)"
 	make vite-image
 

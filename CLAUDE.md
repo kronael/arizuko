@@ -84,6 +84,7 @@ mastd/             Mastodon adapter (Go)
 bskyd/             Bluesky adapter (Go)
 reditd/            Reddit adapter (Go)
 whapd/             WhatsApp adapter (TypeScript)
+twitd/             X/Twitter adapter (TypeScript, browser emulation)
 emaid/             Email adapter (IMAP/SMTP, Go)
 linkd/             LinkedIn adapter (Go)
 cfg/               Instance config files (per-deploy .env snapshots)
@@ -147,7 +148,7 @@ arizuko pair <instance> <svc>  docker compose run --rm a service
 ```
 
 Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`,
-`mastd`, `bskyd`, `reditd`, `emaid`, `linkd`, `whapd`, `onbod`, `dashd`,
+`mastd`, `bskyd`, `reditd`, `emaid`, `linkd`, `whapd`, `twitd`, `onbod`, `dashd`,
 `webd`, `proxyd`. Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
 
 ## Service Architecture
@@ -169,6 +170,7 @@ Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
 | `bskyd`    | daemon  | Bluesky adapter                                       |
 | `reditd`   | daemon  | Reddit adapter                                        |
 | `whapd`    | daemon  | WhatsApp adapter (TypeScript)                         |
+| `twitd`    | daemon  | X/Twitter adapter (TypeScript, browser emulation)     |
 | `emaid`    | daemon  | Email adapter (IMAP/SMTP)                             |
 | `linkd`    | daemon  | LinkedIn adapter                                      |
 | `ipc`      | library | MCP server, identity stamping                         |

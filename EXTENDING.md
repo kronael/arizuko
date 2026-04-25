@@ -95,19 +95,19 @@ The 11 outbound MCP verbs and their per-platform native support. An
 empty cell means the adapter returns `*UnsupportedError` with a
 concrete hint.
 
-| Verb        | discd | mastd | bskyd | reditd | teled | emaid | linkd | whapd |
-| ----------- | ----- | ----- | ----- | ------ | ----- | ----- | ----- | ----- |
-| `send`      | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     |
-| `reply`     | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     |
-| `send_file` | ✓     |       |       |        | ✓     |       |       | ✓     |
-| `post`      | ✓     | ✓     | ✓     | ✓      |       |       |       |       |
-| `like`      | ✓     | ✓     | ✓     | ✓      | ✓     |       |       | ✓     |
-| `delete`    | ✓     | ✓     | ✓     | ✓      |       |       |       |       |
-| `forward`   |       |       |       |        | ✓     |       |       | ✓     |
-| `quote`     |       |       | ✓     |        |       |       |       |       |
-| `repost`    |       | ✓     | ✓     |        |       |       |       |       |
-| `dislike`   |       |       |       | ✓      |       |       |       |       |
-| `edit`      | ✓     | ✓     |       |        | ✓     |       |       | ✓     |
+| Verb        | discd | mastd | bskyd | reditd | teled | emaid | linkd | whapd | twitd |
+| ----------- | ----- | ----- | ----- | ------ | ----- | ----- | ----- | ----- | ----- |
+| `send`      | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
+| `reply`     | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
+| `send_file` | ✓     |       |       |        | ✓     |       |       | ✓     | ✓     |
+| `post`      | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
+| `like`      | ✓     | ✓     | ✓     | ✓      | ✓     |       |       | ✓     | ✓     |
+| `delete`    | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
+| `forward`   |       |       |       |        | ✓     |       |       | ✓     |       |
+| `quote`     |       |       | ✓     |        |       |       |       |       | ✓     |
+| `repost`    |       | ✓     | ✓     |        |       |       |       |       | ✓     |
+| `dislike`   |       |       |       | ✓      |       |       |       |       |       |
+| `edit`      | ✓     | ✓     |       |        | ✓     |       |       | ✓     |       |
 
 ## Inspect tools
 

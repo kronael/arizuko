@@ -9,6 +9,23 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- `twitd`: X / Twitter adapter via browser emulation
+  (`agent-twitter-client@0.0.18`, the ai16z fork of
+  `@the-convocation/twitter-scraper`). No official Twitter API.
+  Bun + TypeScript daemon mirroring `whapd`'s shape. JID prefix `x:`
+  with `home`, `tweet/<id>`, `dm/<id>`, `user/<handle>` surfaces.
+  Native verbs: `send` (DM), `post`, `reply`, `repost`, `quote`,
+  `like`, `delete`, `send_file`. Hint-only: `forward`, `dislike`,
+  `edit`. Auth via 3 paths in priority order: cookie file
+  (`$TWITTER_AUTH_DIR/cookies.json`), username/password env vars,
+  `--pair` CLI. Cookies rotate atomically to `cookies.json.bak`.
+  Polling loop drains mentions on `TWITTER_POLL_INTERVAL` (default
+  90s); cursors persist in `cursors.json`. Risks documented in
+  `twitd/README.md`: account suspensions, library churn, 2FA
+  challenges, web-side rate limits.
+
 ### Changed
 
 - `dislike` outbound is no longer native on `discd`, `teled`, `whapd` —
