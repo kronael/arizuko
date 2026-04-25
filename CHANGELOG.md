@@ -9,6 +9,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- `like` / `dislike` are now native on `reditd` (POST /api/vote dir=±1),
+  `teled` (Bot API setMessageReaction), and `whapd` (Baileys reactions).
+  Previously hint-only on these adapters; now real platform calls.
+- Inbound emoji-reaction events emit synthetic `like` / `dislike` verbs
+  on `discd` (MessageReactionAdd), `teled` (message_reaction updates,
+  Bot API 6.4+), and `whapd` (`messages.reaction` Baileys event). The
+  raw emoji is carried on `InboundMsg.Reaction`.
+- `chanlib.ClassifyEmoji(emoji)` shared classifier — small explicit
+  negative set; everything else (including unknown) → `like`.
+- `teled` long-poll loop replaced with a custom `getUpdates` caller
+  (allowed_updates includes `message_reaction`) since
+  matterbridge/telegram-bot-api v6.5.0 doesn't model the type.
+
 ### Changed
 
 - Social-event verb and MCP tool renamed `react` → `like`. Downvote

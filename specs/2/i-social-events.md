@@ -109,6 +109,22 @@ Attributes: `platform`, `verb` always. `mentions_me` when mentioned.
 | Mastodon | `mastodon:{id}`     | `mastodon:{id}:feed` |
 | Bluesky  | `bluesky:{did}`     | `bluesky:{did}:feed` |
 
+## Reaction events
+
+When inbound `like` / `dislike` is triggered by a platform emoji
+reaction (Discord MessageReactionAdd, Telegram message_reaction
+update, WhatsApp messages.reaction), the adapter sets
+`InboundMsg.Reaction` to the raw emoji and uses
+`chanlib.ClassifyEmoji` to map sentiment:
+
+- Negatives → `dislike`: 👎 💩 😡 🤬 💔 🤮 😢
+- Everything else (including unknown emoji) → `like`
+
+The adapter is signaling "someone reacted, here's what they used"; the
+agent gets the actual emoji string for nuance. `Content` carries the
+emoji as well so existing renderers without `Reaction` awareness still
+display something meaningful.
+
 ## Decisions
 
 - Batch summary is plain text in brackets, not XML.

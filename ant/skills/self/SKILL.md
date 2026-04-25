@@ -45,7 +45,7 @@ and `/workspace/self/ant/CLAUDE.md` to `~/.claude/`. Canonical latest
 at `/workspace/self/ant/skills/`. Run `/migrate` to sync updates and
 apply pending migrations.
 
-Latest migration version: **73**. Compare:
+Latest migration version: **74**. Compare:
 
 ```bash
 cat ~/.claude/skills/self/MIGRATION_VERSION
@@ -117,7 +117,7 @@ Live in your session — callable directly, no skill invocation needed.
 | `send_file`      | Send a file from workspace to user as document attachment                 |
 | `post`           | Create a new top-level post on a feed/timeline (mastodon, bluesky, …)     |
 | `like`           | Like/favourite/react to an existing message                               |
-| `dislike`        | Endorse-negative on a message (Discord 👎; unsupported elsewhere)          |
+| `dislike`        | Endorse-negative (discord 👎, reddit downvote, telegram 👎, whatsapp 👎)   |
 | `delete`         | Delete a message previously created by this agent                         |
 | `edit`           | Modify a message previously sent by this agent in-place                   |
 | `forward`        | Redeliver an existing message to a different chat (telegram, whatsapp)    |
