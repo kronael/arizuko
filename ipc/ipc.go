@@ -311,25 +311,25 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 
-	registerRaw("send_message", "Deliver a new top-level message to a chat. Use for the normal reply to the user's last message or for a proactive notification. Not for threaded replies to a specific earlier message (send_reply) or file delivery (send_file — its caption replaces this call).",
+	registerRaw("send", "Deliver a new top-level message to a chat. Use for the normal reply to the user's last message or for a proactive notification. Not for threaded replies to a specific earlier message (`reply`) or file delivery (`send_file` — its caption replaces this call).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "send_message", map[string]string{"jid": jid}) {
-				return toolErr("send_message: not permitted")
+			if !grantslib.CheckAction(rules, "send", map[string]string{"jid": jid}) {
+				return toolErr("send: not permitted")
 			}
 			if gated.SendMessage == nil {
-				return toolErr("send_message not configured")
+				return toolErr("send not configured")
 			}
 			text := req.GetString("text", "")
 			snippet := text
 			if len(snippet) > 60 {
 				snippet = snippet[:60]
 			}
-			slog.Info("send_message", "folder", folder, "jid", jid, "text", snippet)
+			slog.Info("send", "folder", folder, "jid", jid, "text", snippet)
 			platformID, err := gated.SendMessage(jid, text)
 			if err != nil {
 				return toolErr(err.Error())
@@ -338,7 +338,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	registerRaw("send_reply", "Deliver a message threaded to a specific earlier message (quote/reply UI on the platform). Use when disambiguating which message you're answering in an active chat, or when replyToId is known. Defaults to the last outbound reply id if omitted. Not for fresh top-level messages (send_message).",
+	registerRaw("reply", "Deliver a message threaded to a specific earlier message (quote/reply UI on the platform). Use when disambiguating which message you're answering in an active chat, or when replyToId is known. Defaults to the last outbound reply id if omitted. Not for fresh top-level messages (`send`).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -346,11 +346,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "send_reply", map[string]string{"jid": jid}) {
-				return toolErr("send_reply: not permitted")
+			if !grantslib.CheckAction(rules, "reply", map[string]string{"jid": jid}) {
+				return toolErr("reply: not permitted")
 			}
 			if gated.SendReply == nil {
-				return toolErr("send_reply not configured")
+				return toolErr("reply not configured")
 			}
 			text := req.GetString("text", "")
 			replyToID := req.GetString("replyToId", "")
@@ -365,7 +365,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	registerRaw("send_file", "Deliver a file from the group workspace (~/) to a chat. Works on every platform whose channel registered the tool — don't second-guess by platform name (telegram, discord, whatsapp all supported). Use when the user asked for a file (image, doc, CSV, audio) or when output would exceed a chat-reasonable length. `caption` IS the accompanying message — never follow with send_message. Not for inline text the user can read in-chat.",
+	registerRaw("send_file", "Deliver a file from the group workspace (~/) to a chat. Works on every platform whose channel registered the tool — don't second-guess by platform name (telegram, discord, whatsapp all supported). Use when the user asked for a file (image, doc, CSV, audio) or when output would exceed a chat-reasonable length. `caption` IS the accompanying message — never follow with `send`. Not for inline text the user can read in-chat.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("filepath", mcp.Required()),
@@ -399,7 +399,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	registerRaw("post", "Create a new top-level post on a platform (mastodon toot, bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (send_reply), direct messages (send_message), or file delivery (send_file). Tier 0-2 only.",
+	registerRaw("post", "Create a new top-level post on a platform (mastodon toot, bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Tier 0-2 only.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("content", mcp.Required()),
@@ -438,7 +438,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("like", "Like an existing message (unicode emoji on discord, favourite on mastodon, like on bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Not for textual responses (send_reply) or new posts (post). Platform decides what reaction strings are valid; unsupported platforms return an error.",
+	registerRaw("like", "Like an existing message (unicode emoji on discord, favourite on mastodon, like on bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Not for textual responses (`reply`) or new posts (`post`). Platform decides what reaction strings are valid; unsupported platforms return an error.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("targetId", mcp.Required()),
@@ -500,7 +500,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	granted("inject_message", "Write a synthetic inbound message into the store as if received from chat, triggering the normal agent loop. Use for programmatic prompts, tests, or scheduling one-off runs from tool code. Not for clearing context (reset_session) or sending output to users (send_message).",
+	granted("inject_message", "Write a synthetic inbound message into the store as if received from chat, triggering the normal agent loop. Use for programmatic prompts, tests, or scheduling one-off runs from tool code. Not for clearing context (reset_session) or sending output to users (`send`).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("content", mcp.Required()),
@@ -785,7 +785,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 
 	granted("schedule_task",
-		"Create a scheduled prompt that fires against a target chat. Use when the user asks for reminders, recurring checks, or deferred work. `cron` accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 timestamp for a one-shot. Not for immediate execution (send_message/inject_message).",
+		"Create a scheduled prompt that fires against a target chat. Use when the user asks for reminders, recurring checks, or deferred work. `cron` accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 timestamp for a one-shot. Not for immediate execution (`send`/inject_message).",
 		[]mcp.ToolOption{
 			mcp.WithString("targetJid", mcp.Required()),
 			mcp.WithString("prompt", mcp.Required()),

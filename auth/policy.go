@@ -13,7 +13,7 @@ type AuthzTarget struct {
 
 func Authorize(id Identity, tool string, target AuthzTarget) error {
 	switch tool {
-	case "send_message", "send_file", "list_tasks":
+	case "send", "send_file", "list_tasks":
 		return nil
 	case "reset_session":
 		if target.TargetFolder != id.Folder &&

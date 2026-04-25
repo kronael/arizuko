@@ -16,10 +16,10 @@ with matching rules in the manifest.
 ```
 
 ```
-send_message                     allow send_message, any params
-send_message(jid=telegram:*)     allow send_message, only telegram
-!send_message                    deny send_message
-send_reply                       allow reply in same thread
+send                     allow send, any params
+send(jid=telegram:*)     allow send, only telegram
+!send                    deny send
+reply                       allow reply in same thread
 send_file(!jid)                  allow send_file, jid must NOT be present
 *                                allow everything (root default)
 ```
@@ -32,7 +32,7 @@ send_file(!jid)                  allow send_file, jid must NOT be present
 - No parens or `()` = any params (equivalent)
 - Last match wins; no match = deny
 
-Action names match MCP tool names: `send_message`, `send_reply`,
+Action names match MCP tool names: `send`, `reply`,
 `send_file`, `schedule_task`, `delegate_group`, etc.
 Platform scoping via `jid` param (e.g. `jid=telegram:*`, `jid=discord:*`).
 
@@ -46,9 +46,9 @@ which JIDs have routes to the group.
   at least one route whose target folder is a descendant of
   the tier-1 group's world root (i.e., `target = world OR
 target LIKE world || '/%'` in the routes table).
-- **Tier 2** — `send_message`, `send_reply`, plus actions on
+- **Tier 2** — `send`, `reply`, plus actions on
   platforms routed to self or children.
-- **Tier 3+ (leaf)** — `send_reply` only. Same chat/thread.
+- **Tier 3+ (leaf)** — `reply` only. Same chat/thread.
 
 ## Overrides (DB)
 
@@ -68,7 +68,7 @@ audit trail — not `(folder, rules TEXT JSON)` as originally specced above.
 ## Token in start.json
 
 ```json
-{ "grants": ["send_reply", "!send_message"] }
+{ "grants": ["reply", "!send"] }
 ```
 
 ## Agent manifest
@@ -76,7 +76,7 @@ audit trail — not `(folder, rules TEXT JSON)` as originally specced above.
 Denied actions omitted. Allowed actions include matching rules:
 
 ```json
-{ "name": "send_reply", "grants": ["send_reply"] }
+{ "name": "reply", "grants": ["reply"] }
 ```
 
 ## Delegation
@@ -89,7 +89,7 @@ rules always pass through unchanged. Result: delegation can only
 restrict, never expand.
 
 `delegate_group` `grants` param: JSON string array, e.g.
-`["send_reply","!send_file"]`. Empty or absent = no narrowing.
+`["reply","!send_file"]`. Empty or absent = no narrowing.
 
 ## Module: `grants/`
 
@@ -126,11 +126,11 @@ from route source JIDs in scope.
 "register_group", "escalate_group", "get_routes", "set_routes",
 "add_route", "delete_route", "list_tasks", "pause_task",
 "resume_task", "cancel_task"]` plus, for each platform P in
-  world: `["send_message(jid=P:*)", "send_reply(jid=P:*)",
+  world: `["send(jid=P:*)", "reply(jid=P:*)",
 "send_file(jid=P:*)"]`
 - **Tier 2**: for each platform P routed to self or children:
-  `["send_message(jid=P:*)", "send_reply(jid=P:*)"]`
-- **Tier 3+**: `["send_reply"]`
+  `["send(jid=P:*)", "reply(jid=P:*)"]`
+- **Tier 3+**: `["reply"]`
 
 DB override rules are appended after defaults.
 

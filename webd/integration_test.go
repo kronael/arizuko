@@ -137,7 +137,7 @@ func TestSlinkWebsocketEcho(t *testing.T) {
 }
 
 // TestSlinkMCPBridge exercises the MCP-over-HTTP endpoint with proxyd-signed
-// user headers. Confirms send_message tool routes through webd → store +
+// user headers. Confirms send tool routes through webd → store +
 // router, mirroring the websocket/MCP bridge intent.
 func TestSlinkMCPBridge(t *testing.T) {
 	ii := newIntegServer(t)
@@ -176,7 +176,7 @@ func TestSlinkMCPBridge(t *testing.T) {
 
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: "send_message",
+			Name: "send",
 			Arguments: map[string]any{
 				"folder": "alpha", "content": "bridge-ping", "topic": "tb",
 			},

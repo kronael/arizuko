@@ -395,7 +395,7 @@ func openRawSQLite(path string) (*sql.DB, error) {
 }
 
 // TestMCPSocketRoundtrip binds ipc.ServeMCP on a tmpdir unix socket,
-// dials it, drives the MCP handshake over the socket, calls send_message,
+// dials it, drives the MCP handshake over the socket, calls send,
 // and asserts the gated SendMessage callback fired and a messages row
 // with the outbound text landed in the store via recordOutbound.
 func TestMCPSocketRoundtrip(t *testing.T) {
@@ -453,7 +453,7 @@ func TestMCPSocketRoundtrip(t *testing.T) {
 
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: "send_message",
+			Name: "send",
 			Arguments: map[string]any{
 				"chatJid": "tg:42",
 				"text":    "hello from mcp",

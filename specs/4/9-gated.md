@@ -205,7 +205,7 @@ ipc handles all MCP tools directly and calls gateway
 functions as callbacks. gated exposes these callbacks to
 ipc at server creation time:
 
-- Messaging: `send_message`, `send_file`, `inject_message`
+- Messaging: `send`, `send_file`, `inject_message`
 - Groups: `register_group`, `delegate_group`, `escalate_group`
 - Sessions: `reset_session`
 - Routing: `get_routes`, `set_routes`, `add_route`, `delete_route`

@@ -376,7 +376,7 @@ func TestTelegramWidgetVerify(t *testing.T) {
 
 func TestAuthorizeBasicTools(t *testing.T) {
 	id := Resolve("world/parent/child")
-	for _, tool := range []string{"send_message", "send_file", "list_tasks"} {
+	for _, tool := range []string{"send", "send_file", "list_tasks"} {
 		if err := Authorize(id, tool, AuthzTarget{}); err != nil {
 			t.Errorf("%s should be allowed for all tiers: %v", tool, err)
 		}

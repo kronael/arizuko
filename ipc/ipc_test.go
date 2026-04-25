@@ -120,8 +120,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		t.Fatal("expected non-nil server")
 	}
 
-	// tier-3 with send_reply only — most tools absent
-	srv2 := buildMCPServer(gated, db, "w/a/b/c", []string{"send_reply"})
+	// tier-3 with reply only — most tools absent
+	srv2 := buildMCPServer(gated, db, "w/a/b/c", []string{"reply"})
 	if srv2 == nil {
 		t.Fatal("expected non-nil server for tier-3")
 	}
@@ -156,7 +156,7 @@ func TestSocialActionsRegistered(t *testing.T) {
 		t.Fatal("expected non-nil server")
 	}
 	// With no matching rules, tools must not register at all (registerRaw early-returns).
-	srv2 := buildMCPServer(gated, StoreFns{}, "w/a/b/c", []string{"send_reply"})
+	srv2 := buildMCPServer(gated, StoreFns{}, "w/a/b/c", []string{"reply"})
 	if srv2 == nil {
 		t.Fatal("expected non-nil server for tier-3 subset")
 	}
@@ -171,7 +171,7 @@ func TestSendReply(t *testing.T) {
 		GroupsDir:     "/tmp/groups",
 		WebDir:        "/tmp/web",
 	}
-	srv := buildMCPServer(gated, StoreFns{}, "world", []string{"send_reply"})
+	srv := buildMCPServer(gated, StoreFns{}, "world", []string{"reply"})
 	if srv == nil {
 		t.Fatal("expected non-nil server")
 	}

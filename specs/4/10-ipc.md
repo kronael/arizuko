@@ -64,8 +64,8 @@ functions are injected as callbacks at server creation time.
 
 | Tool             | Domain        | Gating                    |
 | ---------------- | ------------- | ------------------------- |
-| `send_message`   | messaging     | grants                    |
-| `send_reply`     | messaging     | grants                    |
+| `send`           | messaging     | grants                    |
+| `reply`          | messaging     | grants                    |
 | `send_file`      | messaging     | grants                    |
 | `inject_message` | messaging     | grants                    |
 | `register_group` | groups        | grants + auth.Authorize   |
@@ -121,12 +121,12 @@ Root-tier callers retain the ability to delete routes they don't own.
 ## Request flow
 
 ```
-agent calls send_message("hello")
+agent calls send("hello")
   → ipc receives on /ipc/andy-research/gated.sock
   → resolves: folder=andy/research, tier=1
-  → calls auth.Authorize: can tier=1 from andy/research do send_message?
+  → calls auth.Authorize: can tier=1 from andy/research do send?
   → auth: allow (tier 1 ≤ min tier 3)
-  → ipc executes send_message via gateway callback
+  → ipc executes send via gateway callback
   → result returned to agent
 ```
 

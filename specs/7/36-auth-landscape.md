@@ -69,12 +69,12 @@ See [`grants/grants.go:151-178`](../../grants/grants.go).
 
 ### Where each table is consulted
 
-| Gate                                                                    | Reads from                                  | Produces                                                  |
-| ----------------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------- |
-| who can send a message from outside the container to this folder at all | `user_groups` glob vs folder                | yes/no at API surface                                     |
-| what tools does the agent in folder F have                              | `groups` (tier from folder depth)           | tier slot                                                 |
-| which platforms does that folder's tools scope to                       | `routes` where `target` matches folder      | platform-scoped rules like `send_message(jid=telegram:*)` |
-| does a specific tool call pass                                          | `grants.CheckAction(rules, action, params)` | yes/no at MCP call                                        |
+| Gate                                                                    | Reads from                                  | Produces                                          |
+| ----------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------- |
+| who can send a message from outside the container to this folder at all | `user_groups` glob vs folder                | yes/no at API surface                             |
+| what tools does the agent in folder F have                              | `groups` (tier from folder depth)           | tier slot                                         |
+| which platforms does that folder's tools scope to                       | `routes` where `target` matches folder      | platform-scoped rules like `send(jid=telegram:*)` |
+| does a specific tool call pass                                          | `grants.CheckAction(rules, action, params)` | yes/no at MCP call                                |
 
 ### Example
 
@@ -92,8 +92,8 @@ routed to folder `atlas/support`:
 5. **RoutedJIDs** — `RouteSourceJIDsInWorld("atlas")` returns all
    `telegram:*`, `discord:*`, etc. JIDs routed to any atlas subgroup.
 6. **Rules** — `grants.DeriveRules` produces:
-   - Tier 1 base: `send_message`, `send_reply`, `send_file`
-   - Per-platform: `send_message(jid=telegram:*)`, `post(jid=telegram:*)`, ...
+   - Tier 1 base: `send`, `reply`, `send_file`
+   - Per-platform: `send(jid=telegram:*)`, `post(jid=telegram:*)`, ...
    - Tier-1 fixed: `schedule_task`, `register_group`, `delegate_group`, ...
    - `share_mount(readonly=false)`
 7. **MCP** — IPC server filters registration by these rules. Calls
@@ -109,7 +109,7 @@ routed to folder `atlas/support`:
 - **No silent inheritance.** Each folder derives its own rules from
   its own routes. Children don't inherit parent's JIDs.
 - **Route presence gates platform access.** No route for
-  `bluesky:*` to folder F → no `send_message(jid=bluesky:*)` rule →
+  `bluesky:*` to folder F → no `send(jid=bluesky:*)` rule →
   agent can't post to Bluesky from F even if an adapter is running.
 
 ## Specs this unifies

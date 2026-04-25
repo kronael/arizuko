@@ -112,8 +112,8 @@ Live in your session — callable directly, no skill invocation needed.
 
 | Tool             | Description                                                               |
 | ---------------- | ------------------------------------------------------------------------- |
-| `send_message`   | Send a text message to a chat (use jid param to target)                   |
-| `send_reply`     | Reply to current conversation (auto-injects replyTo); returns `messageId` |
+| `send`   | Send a text message to a chat (use jid param to target)                   |
+| `reply`     | Reply to current conversation (auto-injects replyTo); returns `messageId` |
 | `send_file`      | Send a file from workspace to user as document attachment                 |
 | `inject_message` | Inject a message into the store for a chat (system-generated)             |
 | `schedule_task`  | Schedule recurring or one-time agent task                                 |
@@ -151,7 +151,7 @@ mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
 trap 'mcpc @s close' EXIT
 
 mcpc @s tools-list
-mcpc @s tools-call send_message jid:="$JID" text:="hello"
+mcpc @s tools-call send jid:="$JID" text:="hello"
 mcpc @s tools-call send_file filepath:=/home/node/foo.pdf \
      filename:="foo.pdf" caption:="here you go"
 ```

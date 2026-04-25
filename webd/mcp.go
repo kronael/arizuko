@@ -69,7 +69,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 		return mcp.NewToolResultText(string(data)), nil
 	})
 
-	srv.AddTool(mcp.NewTool("send_message",
+	srv.AddTool(mcp.NewTool("send",
 		mcp.WithDescription("Send a message to a group. Returns the message id + topic."),
 		mcp.WithString("folder", mcp.Required()),
 		mcp.WithString("content", mcp.Required()),

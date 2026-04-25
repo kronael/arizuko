@@ -80,7 +80,7 @@ as the default group.
 
 All tools from `ipc.buildMCPServer` at tier 0:
 
-- `send_message`, `send_reply`, `send_file` — message any chat
+- `send`, `reply`, `send_file` — message any chat
 - `inject_message` — write directly to the message store
 - `register_group`, `delegate_group`, `escalate_group` — group management
 - `reset_session` — clear agent sessions

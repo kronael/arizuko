@@ -10,11 +10,11 @@ import (
 // --- ParseRule ---
 
 func TestParseRule_Allow(t *testing.T) {
-	r := ParseRule("send_message")
+	r := ParseRule("send")
 	if r.Deny {
 		t.Fatal("expected allow")
 	}
-	if r.Action != "send_message" {
+	if r.Action != "send" {
 		t.Fatalf("action = %q", r.Action)
 	}
 	if r.Params != nil {
@@ -23,21 +23,21 @@ func TestParseRule_Allow(t *testing.T) {
 }
 
 func TestParseRule_Deny(t *testing.T) {
-	r := ParseRule("!send_message")
+	r := ParseRule("!send")
 	if !r.Deny {
 		t.Fatal("expected deny")
 	}
-	if r.Action != "send_message" {
+	if r.Action != "send" {
 		t.Fatalf("action = %q", r.Action)
 	}
 }
 
 func TestParseRule_ParamAllow(t *testing.T) {
-	r := ParseRule("send_message(jid=telegram:*)")
+	r := ParseRule("send(jid=telegram:*)")
 	if r.Deny {
 		t.Fatal("expected allow")
 	}
-	if r.Action != "send_message" {
+	if r.Action != "send" {
 		t.Fatalf("action = %q", r.Action)
 	}
 	pr, ok := r.Params["jid"]
@@ -53,8 +53,8 @@ func TestParseRule_ParamAllow(t *testing.T) {
 }
 
 func TestParseRule_EmptyParens(t *testing.T) {
-	r := ParseRule("send_message()")
-	if r.Action != "send_message" {
+	r := ParseRule("send()")
+	if r.Action != "send" {
 		t.Fatalf("action = %q", r.Action)
 	}
 	// empty parens means no param constraints
@@ -73,20 +73,20 @@ func TestParseRule_Wildcard(t *testing.T) {
 // --- matchGlob ---
 
 func TestMatchGlob_Exact(t *testing.T) {
-	if !matchGlob("send_message", "send_message", notWordChar) {
+	if !matchGlob("send", "send", notWordChar) {
 		t.Fatal("exact match failed")
 	}
-	if matchGlob("send_message", "send_reply", notWordChar) {
+	if matchGlob("send", "reply", notWordChar) {
 		t.Fatal("should not match different name")
 	}
 }
 
 func TestMatchGlob_Star(t *testing.T) {
-	if !matchGlob("*", "send_message", notWordChar) {
-		t.Fatal("* should match send_message")
+	if !matchGlob("*", "send", notWordChar) {
+		t.Fatal("* should match send")
 	}
-	if !matchGlob("send_*", "send_message", notWordChar) {
-		t.Fatal("send_* should match send_message")
+	if !matchGlob("send_*", "send_file", notWordChar) {
+		t.Fatal("send_* should match send_file")
 	}
 	// * should NOT match ':' (non-word char)
 	if matchGlob("*", "send:message", notWordChar) {
@@ -97,80 +97,80 @@ func TestMatchGlob_Star(t *testing.T) {
 // --- CheckAction ---
 
 func TestCheckAction_NoRules(t *testing.T) {
-	if CheckAction(nil, "send_message", nil) {
+	if CheckAction(nil, "send", nil) {
 		t.Fatal("no rules = deny")
 	}
 }
 
 func TestCheckAction_EmptyRules(t *testing.T) {
-	if CheckAction([]string{}, "send_message", nil) {
+	if CheckAction([]string{}, "send", nil) {
 		t.Fatal("empty rules = deny")
 	}
 }
 
 func TestCheckAction_AllowAll(t *testing.T) {
-	if !CheckAction([]string{"*"}, "send_message", nil) {
+	if !CheckAction([]string{"*"}, "send", nil) {
 		t.Fatal("* should allow everything")
 	}
 }
 
 func TestCheckAction_DenyAfterAllow(t *testing.T) {
-	rules := []string{"*", "!send_message"}
-	if CheckAction(rules, "send_message", nil) {
+	rules := []string{"*", "!send"}
+	if CheckAction(rules, "send", nil) {
 		t.Fatal("last rule is deny, should be denied")
 	}
 	// other actions still allowed
-	if !CheckAction(rules, "send_reply", nil) {
-		t.Fatal("send_reply should still be allowed")
+	if !CheckAction(rules, "reply", nil) {
+		t.Fatal("reply should still be allowed")
 	}
 }
 
 func TestCheckAction_AllowAfterDeny(t *testing.T) {
-	rules := []string{"!send_message", "send_message"}
-	if !CheckAction(rules, "send_message", nil) {
+	rules := []string{"!send", "send"}
+	if !CheckAction(rules, "send", nil) {
 		t.Fatal("last rule is allow, should be allowed")
 	}
 }
 
 func TestCheckAction_ParamMatch(t *testing.T) {
-	rules := []string{"send_message(jid=telegram:*)"}
+	rules := []string{"send(jid=telegram:*)"}
 	params := map[string]string{"jid": "telegram:123456"}
-	if !CheckAction(rules, "send_message", params) {
+	if !CheckAction(rules, "send", params) {
 		t.Fatal("should be allowed for telegram jid")
 	}
 }
 
 func TestCheckAction_ParamMismatch(t *testing.T) {
-	rules := []string{"send_message(jid=telegram:*)"}
+	rules := []string{"send(jid=telegram:*)"}
 	params := map[string]string{"jid": "discord:789"}
-	if CheckAction(rules, "send_message", params) {
+	if CheckAction(rules, "send", params) {
 		t.Fatal("should be denied for discord jid")
 	}
 }
 
 func TestCheckAction_NilParamsWithParamConstraint(t *testing.T) {
 	// Rule requires jid param; nil input params must not panic or silently match.
-	rules := []string{"send_message(jid=telegram:*)"}
-	if CheckAction(rules, "send_message", nil) {
+	rules := []string{"send(jid=telegram:*)"}
+	if CheckAction(rules, "send", nil) {
 		t.Fatal("nil params must not silently match a param-constrained rule")
 	}
 }
 
 func TestCheckAction_NoMatch_Deny(t *testing.T) {
-	rules := []string{"send_reply"}
-	if CheckAction(rules, "send_message", nil) {
+	rules := []string{"reply"}
+	if CheckAction(rules, "send", nil) {
 		t.Fatal("unmatched action should be denied")
 	}
 }
 
 func TestCheckAction_MultipleParams(t *testing.T) {
-	rules := []string{"send_message(jid=telegram:*, type=text)"}
+	rules := []string{"send(jid=telegram:*, type=text)"}
 	params := map[string]string{"jid": "telegram:123", "type": "text"}
-	if !CheckAction(rules, "send_message", params) {
+	if !CheckAction(rules, "send", params) {
 		t.Fatal("should allow when all params match")
 	}
 	params2 := map[string]string{"jid": "telegram:123", "type": "image"}
-	if CheckAction(rules, "send_message", params2) {
+	if CheckAction(rules, "send", params2) {
 		t.Fatal("should deny when type doesn't match")
 	}
 }
@@ -178,16 +178,16 @@ func TestCheckAction_MultipleParams(t *testing.T) {
 // --- MatchingRules ---
 
 func TestMatchingRules(t *testing.T) {
-	rules := []string{"send_message", "!send_message", "send_reply", "send_message(jid=tg:*)"}
-	got := MatchingRules(rules, "send_message")
+	rules := []string{"send", "!send", "reply", "send(jid=tg:*)"}
+	got := MatchingRules(rules, "send")
 	if len(got) != 3 {
 		t.Fatalf("expected 3 matching, got %d: %v", len(got), got)
 	}
 }
 
 func TestMatchingRules_Wildcard(t *testing.T) {
-	rules := []string{"*", "send_reply"}
-	got := MatchingRules(rules, "send_message")
+	rules := []string{"*", "reply"}
+	got := MatchingRules(rules, "send")
 	if len(got) != 1 || got[0] != "*" {
 		t.Fatalf("expected [*], got %v", got)
 	}
@@ -238,22 +238,22 @@ func TestDeriveRules_Tier1_RoomOnlyRoute(t *testing.T) {
 	var hasMsg, hasFile, hasReply bool
 	for _, r := range rules {
 		switch r {
-		case "send_message":
+		case "send":
 			hasMsg = true
 		case "send_file":
 			hasFile = true
-		case "send_reply":
+		case "reply":
 			hasReply = true
 		}
 	}
 	if !hasMsg {
-		t.Error("tier-1 room-only route: missing send_message")
+		t.Error("tier-1 room-only route: missing send")
 	}
 	if !hasFile {
 		t.Error("tier-1 room-only route: missing send_file")
 	}
 	if !hasReply {
-		t.Error("tier-1 room-only route: missing send_reply")
+		t.Error("tier-1 room-only route: missing reply")
 	}
 }
 
@@ -265,22 +265,22 @@ func TestDeriveRules_Tier2_RoomOnlyRoute(t *testing.T) {
 	var hasMsg, hasFile, hasReply bool
 	for _, r := range rules {
 		switch r {
-		case "send_message":
+		case "send":
 			hasMsg = true
 		case "send_file":
 			hasFile = true
-		case "send_reply":
+		case "reply":
 			hasReply = true
 		}
 	}
 	if !hasMsg {
-		t.Error("tier-2 room-only route: missing send_message")
+		t.Error("tier-2 room-only route: missing send")
 	}
 	if !hasFile {
 		t.Error("tier-2 room-only route: missing send_file")
 	}
 	if !hasReply {
-		t.Error("tier-2 room-only route: missing send_reply")
+		t.Error("tier-2 room-only route: missing reply")
 	}
 }
 
@@ -293,7 +293,7 @@ func TestDeriveRules_Tier0(t *testing.T) {
 
 func TestDeriveRules_Tier3Plus(t *testing.T) {
 	rules := DeriveRules(nil, "leaf", 3, "leaf")
-	want := map[string]bool{"send_reply": true, "send_file": true, "like": true}
+	want := map[string]bool{"reply": true, "send_file": true, "like": true, "edit": true}
 	if len(rules) != len(want) {
 		t.Fatalf("tier 3+ = %v, want %v", rules, want)
 	}
@@ -369,10 +369,10 @@ func TestDeriveRules_Tier1(t *testing.T) {
 	hasListTasks := false
 	hasFile := false
 	for _, r := range rules {
-		if r == "send_message(jid=discord:*)" {
+		if r == "send(jid=discord:*)" {
 			hasDiscord = true
 		}
-		if r == "send_message(jid=telegram:*)" {
+		if r == "send(jid=telegram:*)" {
 			hasTelegram = true
 		}
 		if r == "schedule_task" {
@@ -419,10 +419,10 @@ func TestDeriveRules_Tier1_WorldScope(t *testing.T) {
 	hasDiscord := false
 	hasSlack := false
 	for _, r := range rules {
-		if r == "send_message(jid=discord:*)" {
+		if r == "send(jid=discord:*)" {
 			hasDiscord = true
 		}
-		if r == "send_message(jid=slack:*)" {
+		if r == "send(jid=slack:*)" {
 			hasSlack = true
 		}
 	}
@@ -446,16 +446,16 @@ func TestDeriveRules_Tier2(t *testing.T) {
 	hasSlack := false
 	hasBasic := false
 	for _, r := range rules {
-		if r == "send_message(jid=telegram:*)" {
+		if r == "send(jid=telegram:*)" {
 			hasTelegram = true
 		}
-		if r == "send_message(jid=discord:*)" {
+		if r == "send(jid=discord:*)" {
 			hasDiscord = true
 		}
-		if r == "send_message(jid=slack:*)" {
+		if r == "send(jid=slack:*)" {
 			hasSlack = true
 		}
-		if r == "send_message" || r == "send_reply" {
+		if r == "send" || r == "reply" {
 			hasBasic = true
 		}
 	}
@@ -478,7 +478,7 @@ func TestDeriveRules_Tier2(t *testing.T) {
 		t.Error("should not have slack rule (different target)")
 	}
 	if !hasBasic {
-		t.Error("missing basic send_message/send_reply rules")
+		t.Error("missing basic send/reply rules")
 	}
 }
 

@@ -102,7 +102,7 @@ func TestMCP_ListGroups_FiltersByGrants(t *testing.T) {
 	}
 }
 
-// send_message with a valid grant: message hits store + router with authed sub.
+// send with a valid grant: message hits store + router with authed sub.
 func TestMCP_SendMessage_AllowedFolder(t *testing.T) {
 	s, srv := newMCPTestServer(t)
 	groups, _ := json.Marshal([]string{"main"})
@@ -115,7 +115,7 @@ func TestMCP_SendMessage_AllowedFolder(t *testing.T) {
 	ctx := context.Background()
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: "send_message",
+			Name: "send",
 			Arguments: map[string]any{
 				"folder": "main", "content": "hi bot", "topic": "t1",
 			},
@@ -143,7 +143,7 @@ func TestMCP_SendMessage_AllowedFolder(t *testing.T) {
 	}
 }
 
-// send_message outside the grant list: forbidden tool-result error.
+// send outside the grant list: forbidden tool-result error.
 func TestMCP_SendMessage_ForbiddenFolder(t *testing.T) {
 	_, srv := newMCPTestServer(t)
 	groups, _ := json.Marshal([]string{"main"})
@@ -155,7 +155,7 @@ func TestMCP_SendMessage_ForbiddenFolder(t *testing.T) {
 	ctx := context.Background()
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: "send_message",
+			Name: "send",
 			Arguments: map[string]any{
 				"folder": "secret", "content": "leak", "topic": "t1",
 			},
@@ -184,7 +184,7 @@ func TestMCP_GetHistory(t *testing.T) {
 	ctx := context.Background()
 	_, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: "send_message",
+			Name: "send",
 			Arguments: map[string]any{
 				"folder": "main", "content": "first", "topic": "ring",
 			},
