@@ -13,9 +13,11 @@ by impulse weights, routes by verb. Agents see a uniform stream.
 
 ## Verbs
 
-`message, reply, post, like, repost, follow, join, edit, delete, close`
+`message, reply, post, like, repost, follow, join, edit, delete, close,
+forward, quote, dislike`
 
-- `dislike` (future — for platforms with explicit downvote: reddit primarily)
+- Inbound `forward` / `quote` / `dislike` are passthrough categories
+  for platforms that emit them; routing has no special-case handling.
 
 ## Platform mapping
 

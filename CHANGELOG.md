@@ -13,6 +13,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 - Social-event verb and MCP tool renamed `react` → `like`. Downvote
   counterpart for reddit (future) will be `dislike`.
+- Verb taxonomy: MCP tools `send_message` → `send`, `send_reply` →
+  `reply` (hard cutover, no aliases). Stored grant rules rewritten by
+  migration `0031-grant-renames.sql`. Agent migration 073.
+
+### Added
+
+- Five new MCP tools end-to-end: `forward`, `quote`, `repost`,
+  `dislike`, `edit`. Native implementations: forward (Telegram,
+  WhatsApp), quote (Bluesky), repost (Mastodon, Bluesky), dislike
+  (Discord), edit (Discord, Mastodon, Telegram, WhatsApp). Adapters
+  without native primitives return a structured `*UnsupportedError`
+  with a per-(tool, platform) hint pointing at a concrete alternative,
+  so the agent learns instead of dead-ending.
+- `chanlib.UnsupportedError{Tool, Platform, Hint}` — typed unsupported
+  error. `errors.Is(err, chanlib.ErrUnsupported)` chains so existing
+  call sites are unaffected. Adapter HTTP 501 carries the hint as JSON
+  body; chanreg decodes; ipc renders as `unsupported: <tool> on
+<platform>\nhint: <alt>` in the tool result.
+- `grants`: `platformChatActions` (`forward`) split from
+  `platformFeedActions` (`post`, `quote`, `repost`, `like`, `dislike`,
+  `delete`, `edit`). Tier 3+ default gains `edit` so leaf rooms can
+  correct their own messages: `{reply, send_file, like, edit}`.
 
 ### Added
 

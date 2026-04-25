@@ -188,3 +188,41 @@ Platform prefix extracted as the part before `:` in each JID.
 
 - Grant expiry / TTL
 - Rule inheritance across worlds
+
+## Action lists (post-073)
+
+Three platform-scoped lists in `grants/grants.go`:
+
+- `platformSendActions = {send, send_file, reply}` — one-off chat
+  delivery; per-platform `(jid=<plat>:*)` rules.
+- `platformChatActions = {forward}` — chat verbs that act on an
+  external chat by relaying a source message.
+- `platformFeedActions = {post, quote, repost, like, dislike, delete,
+edit}` — feed/timeline-scoped social verbs.
+
+`platformRules` iterates all three over the routed-platform set. Tier
+0 = `*`. Tier 1 = world-scope routes + tier-1 management. Tier 2 =
+folder-scope routes + RO share_mount. Tier 3+ = `{reply, send_file,
+like, edit}` so leaf rooms can edit their own outputs without gaining
+broadcast/post authority.
+
+## Structured unsupported errors
+
+When an adapter has no native primitive for a verb, it returns
+`*chanlib.UnsupportedError` carrying `{Tool, Platform, Hint}`. The
+HTTP wire format on 501 is:
+
+```json
+{
+  "ok": false,
+  "error": "unsupported",
+  "tool": "quote",
+  "platform": "mastodon",
+  "hint": "..."
+}
+```
+
+`chanreg.HTTPChannel` decodes the body into a typed value; ipc renders
+it as a tool error with both lines: `unsupported: quote on mastodon\nhint: ...`.
+`errors.Is(err, chanlib.ErrUnsupported)` chains so existing call sites
+remain compatible.

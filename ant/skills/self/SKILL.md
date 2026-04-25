@@ -45,7 +45,7 @@ and `/workspace/self/ant/CLAUDE.md` to `~/.claude/`. Canonical latest
 at `/workspace/self/ant/skills/`. Run `/migrate` to sync updates and
 apply pending migrations.
 
-Latest migration version: **72**. Compare:
+Latest migration version: **73**. Compare:
 
 ```bash
 cat ~/.claude/skills/self/MIGRATION_VERSION
@@ -112,9 +112,17 @@ Live in your session — callable directly, no skill invocation needed.
 
 | Tool             | Description                                                               |
 | ---------------- | ------------------------------------------------------------------------- |
-| `send`   | Send a text message to a chat (use jid param to target)                   |
-| `reply`     | Reply to current conversation (auto-injects replyTo); returns `messageId` |
+| `send`           | Send a text message to a chat (use jid param to target)                   |
+| `reply`          | Reply to current conversation (auto-injects replyTo); returns `messageId` |
 | `send_file`      | Send a file from workspace to user as document attachment                 |
+| `post`           | Create a new top-level post on a feed/timeline (mastodon, bluesky, …)     |
+| `like`           | Like/favourite/react to an existing message                               |
+| `dislike`        | Endorse-negative on a message (Discord 👎; unsupported elsewhere)          |
+| `delete`         | Delete a message previously created by this agent                         |
+| `edit`           | Modify a message previously sent by this agent in-place                   |
+| `forward`        | Redeliver an existing message to a different chat (telegram, whatsapp)    |
+| `quote`          | Republish on your feed with commentary (bluesky native; mastodon: post)   |
+| `repost`         | Amplify a message on your feed (mastodon boost, bluesky repost)           |
 | `inject_message` | Inject a message into the store for a chat (system-generated)             |
 | `schedule_task`  | Schedule recurring or one-time agent task                                 |
 | `pause_task`     | Pause a scheduled task                                                    |

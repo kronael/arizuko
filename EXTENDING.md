@@ -51,8 +51,17 @@ picks. Two principles follow.
 states _use when X_ and _not for Y_, naming the sibling tool that
 covers Y. The model picks instantly instead of reasoning about
 disambiguation at call time. See `ipc/ipc.go` registrations
-(`send_reply`, `like`, `reset_session`, `register_group`, …) for the
+(`reply`, `like`, `reset_session`, `register_group`, …) for the
 canonical pattern.
+
+**No surrogates — `Unsupported(...)` with a hint.** When a verb has no
+native primitive on a platform, the adapter returns
+`chanlib.Unsupported(tool, platform, hint)` carrying a concrete
+alternative tool the agent should call instead. Do not synthesize a
+fake implementation by gluing other primitives together. The hint
+travels through HTTP 501 → `*chanlib.UnsupportedError` →
+`toolMaybeUnsupported` and is rendered to the agent as
+`unsupported: <tool> on <platform>\nhint: <alternative>`.
 
 **Distinct intents → distinct tool names.** Default to one tool per
 intent. A sharp per-intent description outperforms a fuzzy umbrella
@@ -79,6 +88,26 @@ The autocall-vs-MCP-tool decision (above) is the same principle on a
 different axis: minimize the model's per-turn cost of choosing and
 calling. Zero-arg pure-read facts → autocall. Distinct intents →
 distinct tools.
+
+## Verb support matrix
+
+The 11 outbound MCP verbs and their per-platform native support. An
+empty cell means the adapter returns `*UnsupportedError` with a
+concrete hint.
+
+| Verb        | discd | mastd | bskyd | reditd | teled | emaid | linkd | whapd |
+| ----------- | ----- | ----- | ----- | ------ | ----- | ----- | ----- | ----- |
+| `send`      | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     |
+| `reply`     | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     |
+| `send_file` | ✓     |       |       |        | ✓     |       |       | ✓     |
+| `post`      | ✓     | ✓     | ✓     | ✓      |       |       |       |       |
+| `like`      | ✓     | ✓     | ✓     |        |       |       |       |       |
+| `delete`    | ✓     | ✓     | ✓     | ✓      |       |       |       |       |
+| `forward`   |       |       |       |        | ✓     |       |       | ✓     |
+| `quote`     |       |       | ✓     |        |       |       |       |       |
+| `repost`    |       | ✓     | ✓     |        |       |       |       |       |
+| `dislike`   | ✓     |       |       |        |       |       |       |       |
+| `edit`      | ✓     | ✓     |       |        | ✓     |       |       | ✓     |
 
 ## Inspect tools
 
