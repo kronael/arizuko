@@ -27,6 +27,7 @@ func (m *redditMock) handler() http.Handler {
 	mux.HandleFunc("/api/comment", m.recordForm)
 	mux.HandleFunc("/api/del", m.recordForm)
 	mux.HandleFunc("/api/vote", m.recordForm)
+	mux.HandleFunc("/api/editusertext", m.recordForm)
 	return mux
 }
 
@@ -116,8 +117,34 @@ func TestBotHandler_UnsupportedHints_Reditd(t *testing.T) {
 	if _, err := rc.Forward(chanlib.ForwardRequest{}); !reditdHasHint(err) {
 		t.Errorf("forward: missing hint err=%v", err)
 	}
-	if err := rc.Edit(chanlib.EditRequest{}); !reditdHasHint(err) {
-		t.Errorf("edit: missing hint err=%v", err)
+	if _, err := rc.Quote(chanlib.QuoteRequest{}); !reditdHasHint(err) {
+		t.Errorf("quote: missing hint err=%v", err)
+	}
+	if _, err := rc.Repost(chanlib.RepostRequest{}); !reditdHasHint(err) {
+		t.Errorf("repost: missing hint err=%v", err)
+	}
+}
+
+func TestBotHandler_Edit_Reditd(t *testing.T) {
+	m := newRedditMock()
+	srv := httptest.NewServer(m.handler())
+	defer srv.Close()
+	rc := makeRedditClient(t, srv)
+
+	if err := rc.Edit(chanlib.EditRequest{TargetID: "t1_abc", Content: "edited"}); err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	form, ok := m.forms["/api/editusertext"]
+	if !ok {
+		t.Fatalf("no /api/editusertext; paths=%v", m.paths)
+	}
+	if form.Get("thing_id") != "t1_abc" {
+		t.Errorf("thing_id = %q", form.Get("thing_id"))
+	}
+	if form.Get("text") != "edited" {
+		t.Errorf("text = %q", form.Get("text"))
 	}
 }
 

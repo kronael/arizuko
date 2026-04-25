@@ -44,7 +44,6 @@ type redditClient struct {
 func (rc *redditClient) LastInboundAt() int64 { return rc.lastInboundAt.Load() }
 
 // pollStaleAfter is the tolerance before /health flips to 503.
-// Reddit polls every 30s; 3m accommodates transient 429s and network blips.
 const pollStaleAfter = 15 * time.Minute
 
 func (rc *redditClient) isConnected() bool {
@@ -327,9 +326,7 @@ func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClien
 	}
 }
 
-// thingToMsg converts a reddit thing to an InboundMsg. jid is the chat JID
-// (caller decides r_<sr> vs direct sender JID). Returns ok=false if the thing
-// has no usable content.
+// thingToMsg converts a reddit thing to an InboundMsg. ok=false if no content.
 func (rc *redditClient) thingToMsg(t thing, jid string) (chanlib.InboundMsg, bool) {
 	d := t.Data
 	content := d.Body
@@ -496,17 +493,14 @@ func (rc *redditClient) Quote(chanlib.QuoteRequest) (string, error) {
 
 func (rc *redditClient) Repost(chanlib.RepostRequest) (string, error) {
 	return "", chanlib.Unsupported("repost", "reddit",
-		"Reddit has no repost primitive. Use `post` to cross-post with attribution.")
+		"Reddit's crosspost API is unstable. Use `post(content=\"...\", url=<original-permalink>)` to share with attribution.")
 }
 
 func (rc *redditClient) Dislike(req chanlib.DislikeRequest) error {
 	return rc.vote(req.TargetID, -1, "dislike")
 }
 
-// vote casts an up/down vote on a thing (post or comment). dir is 1 (up),
-// 0 (clear), or -1 (down). Reddit thing names are prefixed (`t1_` comments,
-// `t3_` posts); bare ids are passed through unchanged — callers persist
-// the full thing name when capturing inbound message IDs (see thingToMsg).
+// vote casts /api/vote dir=±1 on a thing (t1_ comment or t3_ post).
 func (rc *redditClient) vote(targetID string, dir int, tool string) error {
 	if targetID == "" {
 		return fmt.Errorf("reddit %s: empty target_id", tool)
@@ -523,9 +517,19 @@ func (rc *redditClient) vote(targetID string, dir int, tool string) error {
 	return nil
 }
 
-func (rc *redditClient) Edit(chanlib.EditRequest) error {
-	return chanlib.Unsupported("edit", "reddit",
-		"Reddit submission edit is not implemented (comment edit via /api/editusertext is a follow-up). Use `delete` then `post`.")
+// Edit updates a self-post (t3_) or comment (t1_) via /api/editusertext.
+// Link submissions return a Reddit API error; surfaced as-is.
+func (rc *redditClient) Edit(req chanlib.EditRequest) error {
+	if req.TargetID == "" {
+		return fmt.Errorf("reddit edit: empty target_id")
+	}
+	data := url.Values{"thing_id": {req.TargetID}, "text": {req.Content}}
+	resp, err := rc.do("POST", "/api/editusertext", nil, data)
+	if err != nil {
+		return fmt.Errorf("reddit edit: %w", err)
+	}
+	resp.Body.Close()
+	return nil
 }
 
 func (rc *redditClient) Delete(req chanlib.DeleteRequest) error {

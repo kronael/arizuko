@@ -21,7 +21,7 @@ func main() {
 		Prefixes:      []string{"reddit:"},
 		Caps: map[string]bool{
 			"send_text": true, "fetch_history": true,
-			"like": true, "dislike": true,
+			"like": true, "dislike": true, "edit": true,
 		},
 		Start: func(ctx context.Context, router *chanlib.RouterClient) (http.Handler, func(), error) {
 			rc, err := newRedditClient(cfg)

@@ -19,7 +19,24 @@ API.
 
 - Binary: `reditd/main.go`
 - Listen: `$LISTEN_ADDR` (default `:9006`)
-- Router registration: `reddit:` prefix, caps `send_text`, `fetch_history`.
+- Router registration: `reddit:` prefix, caps `send_text`, `fetch_history`,
+  `like`, `dislike`, `edit`.
+
+## Verb coverage
+
+| Verb        | Reddit primitive                                                | Status                                                 |
+| ----------- | --------------------------------------------------------------- | ------------------------------------------------------ |
+| `send`      | `/api/comment` (with reply); else `/api/submit` to user profile | native                                                 |
+| `send_file` | media-asset upload (3-step)                                     | not implemented                                        |
+| `reply`     | `/api/comment thing_id=...`                                     | native (via `send` with `reply_to`)                    |
+| `post`      | `/api/submit kind=self`                                         | native                                                 |
+| `like`      | `/api/vote dir=1`                                               | native                                                 |
+| `dislike`   | `/api/vote dir=-1`                                              | native (only platform with true downvote)              |
+| `delete`    | `/api/del`                                                      | native                                                 |
+| `forward`   | none                                                            | hint → use `post` with attribution                     |
+| `quote`     | none (markdown `> ` only)                                       | hint → `post(content="...\n\n> <quote>")`              |
+| `repost`    | crosspost API (unstable)                                        | hint → `post(content=..., url=<original>)`             |
+| `edit`      | `/api/editusertext`                                             | native (self-posts + comments; link submissions error) |
 
 ## Dependencies
 
