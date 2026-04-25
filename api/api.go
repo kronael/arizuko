@@ -182,6 +182,7 @@ type messageReq struct {
 	ReplyToSender string `json:"reply_to_sender"`
 	Topic         string `json:"topic,omitempty"`
 	Verb          string `json:"verb,omitempty"`
+	Reaction      string `json:"reaction,omitempty"`
 	Attachments   []chanlib.InboundAttachment `json:"attachments"`
 	// WhatsApp flat fields (whapd sends these instead of attachments array)
 	Attachment     string `json:"attachment,omitempty"`      // base64

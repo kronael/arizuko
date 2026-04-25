@@ -52,6 +52,9 @@ type InboundMsg struct {
 	ReplyToText   string              `json:"reply_to_text,omitempty"`
 	ReplyToSender string              `json:"reply_to_sender,omitempty"`
 	Attachments   []InboundAttachment `json:"attachments,omitempty"`
+	// Reaction carries the source emoji when Verb is "like" or "dislike"
+	// triggered by an inbound reaction event. Empty for content messages.
+	Reaction string `json:"reaction,omitempty"`
 }
 
 type RouterClient struct {
