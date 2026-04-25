@@ -325,165 +325,227 @@ func blobExt(mime string) string {
 	return ".bin"
 }
 
+// createRecord posts a record to com.atproto.repo.createRecord and returns
+// the URI assigned by the PDS. Centralises the repo/collection/record
+// envelope shared by Send/Post/Like/Quote/Repost/SendFile.
+func (bc *bskyClient) createRecord(collection string, record map[string]any) (string, error) {
+	body := map[string]any{
+		"repo":       bc.getSession().DID,
+		"collection": collection,
+		"record":     record,
+	}
+	var result struct {
+		URI string `json:"uri"`
+	}
+	if err := bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, &result); err != nil {
+		return "", err
+	}
+	return result.URI, nil
+}
+
+// strongRef builds a {uri, cid} reference by fetching the target's CID.
+func (bc *bskyClient) strongRef(uri string) (map[string]string, error) {
+	cid, err := bc.getPostCID(uri)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"uri": uri, "cid": cid}, nil
+}
+
+func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
+
 func (bc *bskyClient) Send(req chanlib.SendRequest) (string, error) {
 	record := map[string]any{
 		"$type":     "app.bsky.feed.post",
 		"text":      req.Content,
-		"createdAt": time.Now().UTC().Format(time.RFC3339),
+		"createdAt": nowRFC3339(),
 	}
 	if req.ReplyTo != "" {
-		cid, err := bc.getPostCID(req.ReplyTo)
+		ref, err := bc.strongRef(req.ReplyTo)
 		if err != nil {
 			return "", fmt.Errorf("get parent cid: %w", err)
 		}
-		ref := map[string]string{"uri": req.ReplyTo, "cid": cid}
 		record["reply"] = map[string]any{"root": ref, "parent": ref}
 	}
-	body := map[string]any{
-		"repo":       bc.getSession().DID,
-		"collection": "app.bsky.feed.post",
-		"record":     record,
-	}
-	if err := bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, nil); err != nil {
+	if _, err := bc.createRecord("app.bsky.feed.post", record); err != nil {
 		return "", err
 	}
-	slog.Debug("send", "chat_jid", req.ChatJID, "source", "bluesky")
 	return "", nil
 }
 
 func (bc *bskyClient) Typing(string, bool) {}
 
-func (bc *bskyClient) Post(req chanlib.PostRequest) (string, error) {
-	if len(req.MediaPaths) > 0 {
-		return "", fmt.Errorf("bluesky post: media upload not implemented")
+func (bc *bskyClient) SendFile(_, path, name, caption string) error {
+	embed, err := bc.uploadImageEmbed(path, name)
+	if err != nil {
+		return fmt.Errorf("bluesky send_file: %w", err)
 	}
+	_, err = bc.createRecord("app.bsky.feed.post", map[string]any{
+		"$type":     "app.bsky.feed.post",
+		"text":      caption,
+		"createdAt": nowRFC3339(),
+		"embed":     embed,
+	})
+	return err
+}
+
+func (bc *bskyClient) Post(req chanlib.PostRequest) (string, error) {
 	record := map[string]any{
 		"$type":     "app.bsky.feed.post",
 		"text":      req.Content,
-		"createdAt": time.Now().UTC().Format(time.RFC3339),
+		"createdAt": nowRFC3339(),
 	}
-	body := map[string]any{
-		"repo":       bc.getSession().DID,
-		"collection": "app.bsky.feed.post",
-		"record":     record,
+	if len(req.MediaPaths) > 0 {
+		embed, err := bc.uploadImageEmbed(req.MediaPaths[0], "")
+		if err != nil {
+			return "", fmt.Errorf("bluesky post: %w", err)
+		}
+		record["embed"] = embed
 	}
-	var result struct {
-		URI string `json:"uri"`
-		CID string `json:"cid"`
-	}
-	if err := bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, &result); err != nil {
+	uri, err := bc.createRecord("app.bsky.feed.post", record)
+	if err != nil {
 		return "", fmt.Errorf("bluesky post: %w", err)
 	}
-	return result.URI, nil
+	return uri, nil
 }
 
 func (bc *bskyClient) Like(req chanlib.LikeRequest) error {
-	cid, err := bc.getPostCID(req.TargetID)
+	ref, err := bc.strongRef(req.TargetID)
 	if err != nil {
-		return fmt.Errorf("bluesky like: get cid: %w", err)
-	}
-	record := map[string]any{
-		"$type":     "app.bsky.feed.like",
-		"subject":   map[string]string{"uri": req.TargetID, "cid": cid},
-		"createdAt": time.Now().UTC().Format(time.RFC3339),
-	}
-	body := map[string]any{
-		"repo":       bc.getSession().DID,
-		"collection": "app.bsky.feed.like",
-		"record":     record,
-	}
-	if err := bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, nil); err != nil {
 		return fmt.Errorf("bluesky like: %w", err)
 	}
-	return nil
+	_, err = bc.createRecord("app.bsky.feed.like", map[string]any{
+		"$type":     "app.bsky.feed.like",
+		"subject":   ref,
+		"createdAt": nowRFC3339(),
+	})
+	return err
 }
 
 func (bc *bskyClient) Delete(req chanlib.DeleteRequest) error {
-	parts := strings.Split(req.TargetID, "/")
-	if len(parts) < 5 {
-		return fmt.Errorf("bluesky delete: target_id must be an at:// URI")
-	}
-	body := map[string]any{
-		"repo":       parts[2],
-		"collection": "app.bsky.feed.post",
-		"rkey":       parts[len(parts)-1],
-	}
-	if err := bc.xrpc("POST", "com.atproto.repo.deleteRecord", nil, body, nil); err != nil {
+	repo, rkey, err := splitATURI(req.TargetID)
+	if err != nil {
 		return fmt.Errorf("bluesky delete: %w", err)
 	}
-	return nil
+	body := map[string]any{
+		"repo":       repo,
+		"collection": "app.bsky.feed.post",
+		"rkey":       rkey,
+	}
+	return bc.xrpc("POST", "com.atproto.repo.deleteRecord", nil, body, nil)
 }
 
-// Forward unsupported on Bluesky.
 func (bc *bskyClient) Forward(chanlib.ForwardRequest) (string, error) {
 	return "", chanlib.Unsupported("forward", "bluesky",
 		"Bluesky has no forward primitive. Use `repost(source_msg_id=...)` to amplify, or `quote(comment=...)` to share with commentary.")
 }
 
-// Quote: native quote-post via embed.record on a new post.
 func (bc *bskyClient) Quote(req chanlib.QuoteRequest) (string, error) {
-	cid, err := bc.getPostCID(req.SourceMsgID)
+	ref, err := bc.strongRef(req.SourceMsgID)
 	if err != nil {
-		return "", fmt.Errorf("bluesky quote: get cid: %w", err)
-	}
-	record := map[string]any{
-		"$type":     "app.bsky.feed.post",
-		"text":      req.Comment,
-		"createdAt": time.Now().UTC().Format(time.RFC3339),
-		"embed": map[string]any{
-			"$type":  "app.bsky.embed.record",
-			"record": map[string]string{"uri": req.SourceMsgID, "cid": cid},
-		},
-	}
-	body := map[string]any{
-		"repo":       bc.getSession().DID,
-		"collection": "app.bsky.feed.post",
-		"record":     record,
-	}
-	var result struct {
-		URI string `json:"uri"`
-	}
-	if err := bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, &result); err != nil {
 		return "", fmt.Errorf("bluesky quote: %w", err)
 	}
-	return result.URI, nil
+	return bc.createRecord("app.bsky.feed.post", map[string]any{
+		"$type":     "app.bsky.feed.post",
+		"text":      req.Comment,
+		"createdAt": nowRFC3339(),
+		"embed": map[string]any{
+			"$type":  "app.bsky.embed.record",
+			"record": ref,
+		},
+	})
 }
 
-// Repost: native repost record.
 func (bc *bskyClient) Repost(req chanlib.RepostRequest) (string, error) {
-	cid, err := bc.getPostCID(req.SourceMsgID)
+	ref, err := bc.strongRef(req.SourceMsgID)
 	if err != nil {
-		return "", fmt.Errorf("bluesky repost: get cid: %w", err)
-	}
-	record := map[string]any{
-		"$type":     "app.bsky.feed.repost",
-		"subject":   map[string]string{"uri": req.SourceMsgID, "cid": cid},
-		"createdAt": time.Now().UTC().Format(time.RFC3339),
-	}
-	body := map[string]any{
-		"repo":       bc.getSession().DID,
-		"collection": "app.bsky.feed.repost",
-		"record":     record,
-	}
-	var result struct {
-		URI string `json:"uri"`
-	}
-	if err := bc.xrpc("POST", "com.atproto.repo.createRecord", nil, body, &result); err != nil {
 		return "", fmt.Errorf("bluesky repost: %w", err)
 	}
-	return result.URI, nil
+	return bc.createRecord("app.bsky.feed.repost", map[string]any{
+		"$type":     "app.bsky.feed.repost",
+		"subject":   ref,
+		"createdAt": nowRFC3339(),
+	})
 }
 
-// Dislike unsupported on Bluesky.
 func (bc *bskyClient) Dislike(chanlib.DislikeRequest) error {
 	return chanlib.Unsupported("dislike", "bluesky",
 		"Bluesky has no native downvote. Use `reply` with textual disagreement instead.")
 }
 
-// Edit unsupported on Bluesky (record edits not yet stable in API).
+// Edit: putRecord succeeds at the PDS but Bluesky's appview ignores updates
+// to app.bsky.feed.post records, so the edit never reaches the feed. Stay
+// a hint until the appview prohibition is lifted.
 func (bc *bskyClient) Edit(chanlib.EditRequest) error {
 	return chanlib.Unsupported("edit", "bluesky",
-		"Bluesky records are immutable. Use `delete(target_id=...)` then `post(content=...)` to retract-and-resend.")
+		"Bluesky's appview rejects post edits. Use `delete(target_id=...)` then `post(content=...)` to retract-and-resend.")
+}
+
+// uploadImageEmbed reads a local file, uploads it as a blob, and returns
+// an app.bsky.embed.images embed referencing the uploaded blob.
+func (bc *bskyClient) uploadImageEmbed(path, alt string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+	blob, err := bc.uploadBlob(data, mimeFromExt(path))
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"$type":  "app.bsky.embed.images",
+		"images": []map[string]any{{"alt": alt, "image": blob}},
+	}, nil
+}
+
+func (bc *bskyClient) uploadBlob(data []byte, mime string) (map[string]any, error) {
+	req, err := http.NewRequest("POST", bc.cfg.Service+"/xrpc/com.atproto.repo.uploadBlob", bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", mime)
+	req.Header.Set("Authorization", "Bearer "+bc.getSession().AccessJwt)
+	req.Header.Set("User-Agent", chanlib.UserAgent)
+	resp, err := chanlib.DoWithRetry(bc.http, req)
+	if err != nil {
+		return nil, fmt.Errorf("uploadBlob: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, &httpStatusError{Code: resp.StatusCode, Body: string(b), Op: "uploadBlob"}
+	}
+	var result struct {
+		Blob map[string]any `json:"blob"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return result.Blob, nil
+}
+
+func mimeFromExt(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	}
+	return "application/octet-stream"
+}
+
+// splitATURI parses an at://<repo>/<collection>/<rkey> URI into its repo
+// and rkey components.
+func splitATURI(uri string) (repo, rkey string, err error) {
+	parts := strings.Split(uri, "/")
+	if len(parts) < 5 {
+		return "", "", fmt.Errorf("invalid at:// uri: %s", uri)
+	}
+	return parts[2], parts[len(parts)-1], nil
 }
 
 type feedViewPost struct {
@@ -579,14 +641,14 @@ func (bc *bskyClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryR
 }
 
 func (bc *bskyClient) getPostCID(uri string) (string, error) {
-	parts := strings.Split(uri, "/")
-	if len(parts) < 5 {
-		return "", fmt.Errorf("invalid uri: %s", uri)
+	repo, rkey, err := splitATURI(uri)
+	if err != nil {
+		return "", err
 	}
 	var result struct {
 		CID string `json:"cid"`
 	}
-	params := map[string]string{"repo": parts[2], "collection": "app.bsky.feed.post", "rkey": parts[len(parts)-1]}
+	params := map[string]string{"repo": repo, "collection": "app.bsky.feed.post", "rkey": rkey}
 	if err := bc.xrpc("GET", "com.atproto.repo.getRecord", params, nil, &result); err != nil {
 		return "", err
 	}

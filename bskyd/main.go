@@ -17,7 +17,11 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"bluesky:"},
-		Caps:          map[string]bool{"send_text": true, "fetch_history": true, "quote": true, "repost": true},
+		Caps: map[string]bool{
+			"send_text": true, "send_file": true, "fetch_history": true,
+			"post": true, "like": true, "delete": true,
+			"quote": true, "repost": true,
+		},
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			bc, err := newBskyClient(cfg)
 			if err != nil {
