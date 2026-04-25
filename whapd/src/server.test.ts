@@ -518,6 +518,56 @@ describe('POST /like and /dislike', () => {
   });
 });
 
+describe('POST /delete', () => {
+  it('calls sendMessage with delete key for own message', async () => {
+    stub = makeStub();
+    connected = true;
+    const r = await fetch(`${BASE}/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ chat_jid: 'whatsapp:12345', target_id: 'MX' }),
+      headers: { 'Content-Type': 'application/json', ...auth() },
+    });
+    expect(r.status).toBe(200);
+    const call = stub.calls.find((c) => c.method === 'sendMessage');
+    expect(call).toBeTruthy();
+    const content = call!.args[1] as Record<string, any>;
+    expect(content.delete.id).toBe('MX');
+    expect(content.delete.fromMe).toBe(true);
+  });
+
+  it('returns 502 when not connected', async () => {
+    connected = false;
+    const r = await fetch(`${BASE}/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ chat_jid: 'whatsapp:12345', target_id: 'X' }),
+      headers: { 'Content-Type': 'application/json', ...auth() },
+    });
+    expect(r.status).toBe(502);
+    connected = true;
+  });
+});
+
+describe('POST /send with reply_to', () => {
+  it('passes a quoted stub when reply_to is provided', async () => {
+    stub = makeStub();
+    connected = true;
+    const r = await fetch(`${BASE}/send`, {
+      method: 'POST',
+      body: JSON.stringify({
+        chat_jid: 'whatsapp:12345',
+        content: 'reply body',
+        reply_to: 'PARENT_ID',
+      }),
+      headers: { 'Content-Type': 'application/json', ...auth() },
+    });
+    expect(r.status).toBe(200);
+    const call = stub.calls.find((c) => c.method === 'sendMessage');
+    expect(call).toBeTruthy();
+    const opts = call!.args[2] as Record<string, any>;
+    expect(opts?.quoted?.key?.id).toBe('PARENT_ID');
+  });
+});
+
 describe('flushQueue', () => {
   it('returns empty result for empty queue', async () => {
     const q: string[] = [];

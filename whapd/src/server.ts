@@ -1,16 +1,22 @@
 import http from 'node:http';
 import Busboy from 'busboy';
-import type { WASocket } from '@whiskeysockets/baileys';
+import type { WAMessage, WASocket } from '@whiskeysockets/baileys';
 import { log } from './log.js';
 
 interface SendReq {
   chat_jid: string;
   content: string;
+  reply_to?: string;
 }
 
 interface TypingReq {
   chat_jid: string;
   on: boolean;
+}
+
+interface KeyedReq {
+  chat_jid: string;
+  target_id: string;
 }
 
 function mdToWa(text: string): string {
@@ -20,6 +26,13 @@ function mdToWa(text: string): string {
 function toWaJid(jid: string): string {
   const bare = jid.replace(/^whatsapp:/, '');
   return bare.includes('@') ? bare : `${bare}@s.whatsapp.net`;
+}
+
+function quotedStub(remoteJid: string, id: string): WAMessage {
+  return {
+    key: { remoteJid, id, fromMe: false },
+    message: { conversation: '' },
+  } as WAMessage;
 }
 
 function parseMultipart(req: http.IncomingMessage): Promise<{
@@ -51,26 +64,76 @@ function parseMultipart(req: http.IncomingMessage): Promise<{
   });
 }
 
+const MIME_BY_EXT = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.pdf': 'application/pdf',
+} satisfies Record<string, string>;
+
 function extToMime(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
-  const m: Record<string, string> = {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.mp4': 'video/mp4',
-    '.mov': 'video/quicktime',
-    '.mp3': 'audio/mpeg',
-    '.ogg': 'audio/ogg',
-    '.m4a': 'audio/mp4',
-    '.pdf': 'application/pdf',
-  };
-  return m[ext] ?? 'application/octet-stream';
+  return (
+    (MIME_BY_EXT as Record<string, string>)[ext] ?? 'application/octet-stream'
+  );
 }
 
-// whatsapp adapter uses the 5m realtime threshold (matches the Go default).
+// 5-min staleness matches the chanlib Go default.
 const STALE_THRESHOLD_SECONDS = 5 * 60;
+
+function json(res: http.ServerResponse, code: number, body: unknown) {
+  res.writeHead(code, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+function unsupported(res: http.ServerResponse, tool: string, hint: string) {
+  json(res, 501, {
+    ok: false,
+    error: 'unsupported',
+    tool,
+    platform: 'whatsapp',
+    hint,
+  });
+}
+
+async function readBody<T = Record<string, unknown>>(
+  req: http.IncomingMessage,
+): Promise<T> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  return JSON.parse(Buffer.concat(chunks).toString()) as T;
+}
+
+// requireSock returns the live socket or writes 502 and returns null.
+function requireSock(
+  res: http.ServerResponse,
+  sock: () => WASocket | null,
+  isConnected: () => boolean,
+): WASocket | null {
+  const s = sock();
+  if (!s || !isConnected()) {
+    json(res, 502, { ok: false, error: 'not connected' });
+    return null;
+  }
+  return s;
+}
+
+// act runs the action and writes 200 ok / 502 error. Optional id is included on success.
+async function act(res: http.ServerResponse, fn: () => Promise<string | void>) {
+  try {
+    const id = (await fn()) ?? '';
+    json(res, 200, id ? { ok: true, id } : { ok: true });
+  } catch (e) {
+    json(res, 502, { ok: false, error: String(e) });
+  }
+}
 
 export function startServer(
   addr: string,
@@ -113,220 +176,187 @@ export function startServer(
       }
     }
 
-    if (req.method === 'POST' && req.url === '/send') {
-      const body = (await readBody(req)) as SendReq;
-      const waJid = toWaJid(body.chat_jid);
-      const text = mdToWa(body.content);
-      const s = sock();
-      if (!s || !isConnected()) {
-        queueOutbound(waJid, text);
-        json(res, 200, { ok: true, queued: true });
-        return;
-      }
-      try {
-        await s.sendMessage(waJid, { text });
-        json(res, 200, { ok: true });
-      } catch {
-        queueOutbound(waJid, text);
-        json(res, 200, { ok: true, queued: true });
-      }
+    if (req.method !== 'POST') {
+      json(res, 404, { ok: false, error: 'not found' });
       return;
     }
 
-    if (req.method === 'POST' && req.url === '/send-file') {
-      const s = sock();
-      if (!s || !isConnected()) {
-        json(res, 502, { ok: false, error: 'not connected' });
-        return;
-      }
-      try {
-        const { chatJid, filename, caption, fileBytes } =
-          await parseMultipart(req);
-        if (!chatJid) {
-          json(res, 400, { ok: false, error: 'chat_jid required' });
+    switch (req.url) {
+      case '/send': {
+        const body = await readBody<SendReq>(req);
+        const waJid = toWaJid(body.chat_jid);
+        const text = mdToWa(body.content);
+        const s = sock();
+        if (!s || !isConnected()) {
+          queueOutbound(waJid, text);
+          json(res, 200, { ok: true, queued: true });
           return;
         }
-        if (!fileBytes) {
-          json(res, 400, { ok: false, error: 'file required' });
-          return;
+        try {
+          const opts = body.reply_to
+            ? { quoted: quotedStub(waJid, body.reply_to) }
+            : undefined;
+          await s.sendMessage(waJid, { text }, opts);
+          json(res, 200, { ok: true });
+        } catch {
+          queueOutbound(waJid, text);
+          json(res, 200, { ok: true, queued: true });
         }
-        const mime = extToMime(filename || 'file.bin');
-        const cap = caption || undefined;
-        const content: Record<string, unknown> = { mimetype: mime };
-        if (mime.startsWith('image/')) {
-          content['image'] = fileBytes;
-          content['caption'] = cap;
-        } else if (mime.startsWith('video/')) {
-          content['video'] = fileBytes;
-          content['caption'] = cap;
-        } else if (mime.startsWith('audio/')) {
-          content['audio'] = fileBytes;
-        } else {
-          content['document'] = fileBytes;
-          content['fileName'] = filename || 'file';
-          content['caption'] = cap;
-        }
-        await s.sendMessage(toWaJid(chatJid), content as any);
-        json(res, 200, { ok: true });
-      } catch (e: unknown) {
-        json(res, 502, { ok: false, error: String(e) });
-      }
-      return;
-    }
-
-    if (req.method === 'POST' && req.url === '/typing') {
-      const body = (await readBody(req)) as TypingReq;
-      const waJid = toWaJid(body.chat_jid);
-      log('debug', 'typing', { jid: waJid, on: body.on });
-      setTyping(waJid, body.on);
-      json(res, 200, { ok: true });
-      return;
-    }
-
-    // Forward: native WhatsApp forward via Baileys relayMessage with
-    // forwardingScore. source_msg_id is the WhatsApp message id; for
-    // forwarded relays we synthesize an extendedTextMessage with
-    // contextInfo.isForwarded = true. SourceMsgID alone (no source jid)
-    // is not enough to fetch the original; we embed `comment` as text.
-    if (req.method === 'POST' && req.url === '/forward') {
-      const body = (await readBody(req)) as {
-        source_msg_id: string;
-        target_jid: string;
-        comment?: string;
-      };
-      const s = sock();
-      if (!s || !isConnected()) {
-        json(res, 502, { ok: false, error: 'not connected' });
         return;
       }
-      try {
+
+      case '/send-file': {
+        const s = requireSock(res, sock, isConnected);
+        if (!s) return;
+        try {
+          const { chatJid, filename, caption, fileBytes } =
+            await parseMultipart(req);
+          if (!chatJid) {
+            json(res, 400, { ok: false, error: 'chat_jid required' });
+            return;
+          }
+          if (!fileBytes) {
+            json(res, 400, { ok: false, error: 'file required' });
+            return;
+          }
+          const mime = extToMime(filename || 'file.bin');
+          const cap = caption || undefined;
+          const content: Record<string, unknown> = { mimetype: mime };
+          if (mime.startsWith('image/')) {
+            content['image'] = fileBytes;
+            content['caption'] = cap;
+          } else if (mime.startsWith('video/')) {
+            content['video'] = fileBytes;
+            content['caption'] = cap;
+          } else if (mime.startsWith('audio/')) {
+            content['audio'] = fileBytes;
+          } else {
+            content['document'] = fileBytes;
+            content['fileName'] = filename || 'file';
+            content['caption'] = cap;
+          }
+          await s.sendMessage(toWaJid(chatJid), content as any);
+          json(res, 200, { ok: true });
+        } catch (e) {
+          json(res, 502, { ok: false, error: String(e) });
+        }
+        return;
+      }
+
+      case '/typing': {
+        const body = await readBody<TypingReq>(req);
+        const waJid = toWaJid(body.chat_jid);
+        log('debug', 'typing', { jid: waJid, on: body.on });
+        setTyping(waJid, body.on);
+        json(res, 200, { ok: true });
+        return;
+      }
+
+      case '/like': {
+        const body = await readBody<KeyedReq & { reaction?: string }>(req);
+        const s = requireSock(res, sock, isConnected);
+        if (!s) return;
+        const waJid = toWaJid(body.chat_jid);
+        await act(res, async () => {
+          await s.sendMessage(waJid, {
+            react: {
+              text: body.reaction || '👍',
+              key: { remoteJid: waJid, id: body.target_id, fromMe: false },
+            },
+          } as any);
+        });
+        return;
+      }
+
+      case '/delete': {
+        const body = await readBody<KeyedReq>(req);
+        const s = requireSock(res, sock, isConnected);
+        if (!s) return;
+        const waJid = toWaJid(body.chat_jid);
+        await act(res, async () => {
+          await s.sendMessage(waJid, {
+            delete: { remoteJid: waJid, id: body.target_id, fromMe: true },
+          } as any);
+        });
+        return;
+      }
+
+      case '/edit': {
+        const body = await readBody<{
+          chat_jid: string;
+          target_id: string;
+          content: string;
+        }>(req);
+        const s = requireSock(res, sock, isConnected);
+        if (!s) return;
+        const waJid = toWaJid(body.chat_jid);
+        await act(res, async () => {
+          await s.sendMessage(waJid, {
+            text: mdToWa(body.content),
+            edit: { remoteJid: waJid, id: body.target_id, fromMe: true },
+          } as any);
+        });
+        return;
+      }
+
+      // Best-effort forward: Baileys needs the original WAMessage to relay
+      // properly; we only have the id, so we synthesize an extendedTextMessage
+      // tagged isForwarded.
+      case '/forward': {
+        const body = await readBody<{
+          source_msg_id: string;
+          target_jid: string;
+          comment?: string;
+        }>(req);
+        const s = requireSock(res, sock, isConnected);
+        if (!s) return;
         const target = toWaJid(body.target_jid);
-        const text = body.comment
-          ? body.comment
-          : `Forwarded message ${body.source_msg_id}`;
-        const sent = await s.sendMessage(target, {
-          text,
-          contextInfo: {
-            isForwarded: true,
-            forwardingScore: 1,
-          } as any,
-        } as any);
-        const id = (sent as any)?.key?.id ?? '';
-        json(res, 200, { ok: true, id });
-      } catch (e: unknown) {
-        json(res, 502, { ok: false, error: String(e) });
-      }
-      return;
-    }
-
-    // Edit: native WhatsApp edit for own bot messages.
-    if (req.method === 'POST' && req.url === '/edit') {
-      const body = (await readBody(req)) as {
-        chat_jid: string;
-        target_id: string;
-        content: string;
-      };
-      const s = sock();
-      if (!s || !isConnected()) {
-        json(res, 502, { ok: false, error: 'not connected' });
-        return;
-      }
-      try {
-        const waJid = toWaJid(body.chat_jid);
-        await s.sendMessage(waJid, {
-          text: mdToWa(body.content),
-          edit: { remoteJid: waJid, id: body.target_id, fromMe: true } as any,
-        } as any);
-        json(res, 200, { ok: true });
-      } catch (e: unknown) {
-        json(res, 502, { ok: false, error: String(e) });
-      }
-      return;
-    }
-
-    if (req.method === 'POST' && req.url === '/quote') {
-      json(res, 501, {
-        ok: false,
-        error: 'unsupported',
-        tool: 'quote',
-        platform: 'whatsapp',
-        hint: 'WhatsApp has no quote primitive. Use `reply(replyToId=...)` to thread, or `send` with quoted text.',
-      });
-      return;
-    }
-
-    if (req.method === 'POST' && req.url === '/repost') {
-      json(res, 501, {
-        ok: false,
-        error: 'unsupported',
-        tool: 'repost',
-        platform: 'whatsapp',
-        hint: 'WhatsApp is not a feed. Use `forward(target_jid=..., source_msg_id=...)` to relay.',
-      });
-      return;
-    }
-
-    if (req.method === 'POST' && req.url === '/dislike') {
-      json(res, 501, {
-        ok: false,
-        error: 'unsupported',
-        tool: 'dislike',
-        platform: 'whatsapp',
-        hint: 'WhatsApp uses emoji reactions, not a downvote primitive. Use `like(target_id=..., emoji="👎")` to express disagreement.',
-      });
-      return;
-    }
-
-    if (req.method === 'POST' && req.url === '/post') {
-      json(res, 501, {
-        ok: false,
-        error: 'unsupported',
-        tool: 'post',
-        platform: 'whatsapp',
-        hint: 'WhatsApp has no public-feed post primitive. Use `send(jid=<chat>, content=...)` to deliver to a specific chat.',
-      });
-      return;
-    }
-
-    if (req.method === 'POST' && req.url === '/like') {
-      const body = (await readBody(req)) as {
-        chat_jid: string;
-        target_id: string;
-        reaction?: string;
-      };
-      const s = sock();
-      if (!s || !isConnected()) {
-        json(res, 502, { ok: false, error: 'not connected' });
-        return;
-      }
-      try {
-        const waJid = toWaJid(body.chat_jid);
-        const text = body.reaction || '👍';
-        await s.sendMessage(waJid, {
-          react: {
+        const text = body.comment || `Forwarded message ${body.source_msg_id}`;
+        await act(res, async () => {
+          const sent = await s.sendMessage(target, {
             text,
-            key: { remoteJid: waJid, id: body.target_id, fromMe: false },
-          },
-        } as any);
-        json(res, 200, { ok: true });
-      } catch (e: unknown) {
-        json(res, 502, { ok: false, error: String(e) });
+            contextInfo: { isForwarded: true, forwardingScore: 1 },
+          } as any);
+          return (sent as any)?.key?.id ?? '';
+        });
+        return;
       }
-      return;
-    }
 
-    if (req.method === 'POST' && req.url === '/delete') {
-      json(res, 501, {
-        ok: false,
-        error: 'unsupported',
-        tool: 'delete',
-        platform: 'whatsapp',
-        hint: 'WhatsApp message deletion via the bot is not implemented; use `edit(target_id=..., content=\"[redacted]\")` for a soft retract.',
-      });
-      return;
-    }
+      case '/quote':
+        unsupported(
+          res,
+          'quote',
+          'WhatsApp has no quote primitive. Use `reply(replyToId=...)` to thread, or `send` with quoted text.',
+        );
+        return;
 
-    json(res, 404, { ok: false, error: 'not found' });
+      case '/repost':
+        unsupported(
+          res,
+          'repost',
+          'WhatsApp is not a feed. Use `forward(target_jid=..., source_msg_id=...)` to relay.',
+        );
+        return;
+
+      case '/dislike':
+        unsupported(
+          res,
+          'dislike',
+          'WhatsApp uses emoji reactions, not a downvote primitive. Use `like(target_id=..., emoji="👎")` to express disagreement.',
+        );
+        return;
+
+      case '/post':
+        unsupported(
+          res,
+          'post',
+          'WhatsApp has no public-feed post primitive. Use `send(jid=<chat>, content=...)` to deliver to a specific chat.',
+        );
+        return;
+
+      default:
+        json(res, 404, { ok: false, error: 'not found' });
+    }
   });
 
   const [host, port] = parseAddr(addr);
@@ -340,17 +370,4 @@ function parseAddr(addr: string): [string, string] {
   if (addr.startsWith(':')) return ['0.0.0.0', addr.slice(1)];
   const i = addr.lastIndexOf(':');
   return [addr.slice(0, i), addr.slice(i + 1)];
-}
-
-function json(res: http.ServerResponse, code: number, body: unknown) {
-  res.writeHead(code, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(body));
-}
-
-async function readBody(
-  req: http.IncomingMessage,
-): Promise<Record<string, any>> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  return JSON.parse(Buffer.concat(chunks).toString());
 }
