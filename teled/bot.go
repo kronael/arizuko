@@ -433,9 +433,11 @@ func (b *bot) Repost(chanlib.RepostRequest) (string, error) {
 		"Telegram has no repost primitive. Use `forward(target_jid=..., source_msg_id=\"<sourceChatJid>|<id>\")` to relay.")
 }
 
-// Dislike: native setMessageReaction with 👎 (Bot API 6.4+).
-func (b *bot) Dislike(req chanlib.DislikeRequest) error {
-	return b.setReaction(req.ChatJID, req.TargetID, "👎", "dislike")
+// Dislike unsupported: Telegram has no downvote primitive — emoji
+// reactions are the same mechanism as `like`.
+func (b *bot) Dislike(chanlib.DislikeRequest) error {
+	return chanlib.Unsupported("dislike", "telegram",
+		"Telegram uses emoji reactions, not a downvote primitive. Use `like(target_id=..., emoji=\"👎\")` to express disagreement.")
 }
 
 // Like: native setMessageReaction. Reaction emoji defaults to 👍 when

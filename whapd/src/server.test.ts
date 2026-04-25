@@ -487,7 +487,7 @@ describe('POST /like and /dislike', () => {
     expect(content.react.text).toBe('🎉');
   });
 
-  it('dislike: sends thumbs-down react', async () => {
+  it('dislike: returns 501 with hint pointing at like(emoji=👎)', async () => {
     stub = makeStub();
     const r = await fetch(`${BASE}/dislike`, {
       method: 'POST',
@@ -497,11 +497,13 @@ describe('POST /like and /dislike', () => {
       }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
-    expect(r.status).toBe(200);
-    const call = stub.calls.find((c) => c.method === 'sendMessage');
-    const content = call!.args[1] as Record<string, any>;
-    expect(content.react.text).toBe('👎');
-    expect(content.react.key.id).toBe('MID3');
+    expect(r.status).toBe(501);
+    const body = (await r.json()) as Record<string, unknown>;
+    expect(body['error']).toBe('unsupported');
+    expect(body['tool']).toBe('dislike');
+    expect(body['platform']).toBe('whatsapp');
+    expect(String(body['hint'])).toContain('like');
+    expect(String(body['hint'])).toContain('👎');
   });
 
   it('like: returns 502 when not connected', async () => {

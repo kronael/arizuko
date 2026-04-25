@@ -286,13 +286,12 @@ func (b *bot) Repost(chanlib.RepostRequest) (string, error) {
 		"Discord has no repost. Use `send` to manually re-share content with attribution.")
 }
 
-// Dislike: native 👎 reaction.
-func (b *bot) Dislike(req chanlib.DislikeRequest) error {
-	chID := strings.TrimPrefix(req.ChatJID, "discord:")
-	if err := b.session.MessageReactionAdd(chID, req.TargetID, "👎"); err != nil {
-		return fmt.Errorf("discord dislike: %w", err)
-	}
-	return nil
+// Dislike unsupported: Discord has no downvote primitive — emoji
+// reactions are the same mechanism as `like`. Hint redirects to
+// like(emoji="👎") so the agent uses one outbound primitive.
+func (b *bot) Dislike(chanlib.DislikeRequest) error {
+	return chanlib.Unsupported("dislike", "discord",
+		"Discord uses emoji reactions, not a downvote primitive. Use `like(target_id=..., emoji=\"👎\")` (or any negative emoji like 💩, 😡) to express disagreement.")
 }
 
 // Edit: native PATCH /channels/{ch}/messages/{id}.

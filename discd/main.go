@@ -19,7 +19,7 @@ func main() {
 		Prefixes:      []string{"discord:"},
 		Caps: map[string]bool{
 			"send_text": true, "send_file": true, "typing": true, "fetch_history": true,
-			"dislike": true, "edit": true,
+			"edit": true,
 		},
 		Start: func(_ context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)

@@ -99,7 +99,7 @@ func TestBotHandler_UnsupportedHints_Teled(t *testing.T) {
 	}
 }
 
-func TestBotHandler_LikeDislike_Teled(t *testing.T) {
+func TestBotHandler_Like_Teled(t *testing.T) {
 	fp := testutils.NewFakePlatform()
 	defer fp.Close()
 	fp.On("POST /bot"+testToken+"/getMe", func(testutils.PlatformReq) (int, any) {
@@ -119,20 +119,26 @@ func TestBotHandler_LikeDislike_Teled(t *testing.T) {
 	if err := b.Like(chanlib.LikeRequest{ChatJID: "telegram:555", TargetID: "42"}); err != nil {
 		t.Fatalf("Like: %v", err)
 	}
-	if err := b.Dislike(chanlib.DislikeRequest{ChatJID: "telegram:555", TargetID: "42"}); err != nil {
-		t.Fatalf("Dislike: %v", err)
-	}
-	if len(seen) != 2 {
-		t.Fatalf("setMessageReaction calls = %d, want 2", len(seen))
+	if len(seen) != 1 {
+		t.Fatalf("setMessageReaction calls = %d, want 1", len(seen))
 	}
 	if !strings.Contains(seen[0].Get("reaction"), "👍") {
 		t.Errorf("Like reaction = %q, want 👍", seen[0].Get("reaction"))
 	}
-	if !strings.Contains(seen[1].Get("reaction"), "👎") {
-		t.Errorf("Dislike reaction = %q, want 👎", seen[1].Get("reaction"))
-	}
 	if seen[0].Get("chat_id") != "555" || seen[0].Get("message_id") != "42" {
 		t.Errorf("chat_id/message_id wrong: %v", seen[0])
+	}
+}
+
+func TestBotHandler_DislikeHint_Teled(t *testing.T) {
+	b := &bot{}
+	err := b.Dislike(chanlib.DislikeRequest{})
+	ue, ok := err.(*chanlib.UnsupportedError)
+	if !ok || ue.Hint == "" {
+		t.Fatalf("dislike: want *UnsupportedError with hint, got %v", err)
+	}
+	if !strings.Contains(ue.Hint, "like") || !strings.Contains(ue.Hint, "👎") {
+		t.Errorf("dislike hint missing like/👎: %q", ue.Hint)
 	}
 }
 

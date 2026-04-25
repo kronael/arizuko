@@ -9,6 +9,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- `dislike` outbound is no longer native on `discd`, `teled`, `whapd` —
+  emoji reactions are mechanically `like(emoji=...)`. Those adapters now
+  return `*UnsupportedError` whose hint redirects to
+  `like(target_id=..., emoji="👎")`. Native `dislike` stays on `reditd`
+  (Reddit has a true downvote primitive). Inbound emoji classification
+  is unchanged. Agent migration 075.
+
 ### Added
 
 - `like` / `dislike` are now native on `reditd` (POST /api/vote dir=±1),

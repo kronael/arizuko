@@ -26,7 +26,6 @@ export class RouterClient {
           fwd: true,
           edit: true,
           like: true,
-          dislike: true,
         },
       },
       this.secret,

@@ -192,6 +192,7 @@ func TestBotHandler_UnsupportedHints(t *testing.T) {
 		{"forward", mustErr(b.Forward(chanlib.ForwardRequest{}))},
 		{"quote", mustErr(b.Quote(chanlib.QuoteRequest{}))},
 		{"repost", mustErr(b.Repost(chanlib.RepostRequest{}))},
+		{"dislike", b.Dislike(chanlib.DislikeRequest{})},
 	}
 	for _, c := range cases {
 		var ue *chanlib.UnsupportedError
@@ -202,6 +203,15 @@ func TestBotHandler_UnsupportedHints(t *testing.T) {
 		if ue.Hint == "" {
 			t.Errorf("%s: empty hint", c.name)
 		}
+	}
+	// Dislike hint must redirect to like(emoji="👎").
+	err := b.Dislike(chanlib.DislikeRequest{})
+	var ue *chanlib.UnsupportedError
+	if !errors.As(err, &ue) {
+		t.Fatalf("dislike: want *UnsupportedError, got %v", err)
+	}
+	if !strings.Contains(ue.Hint, "like") || !strings.Contains(ue.Hint, "👎") {
+		t.Errorf("dislike hint missing like/👎: %q", ue.Hint)
 	}
 }
 

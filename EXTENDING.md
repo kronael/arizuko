@@ -106,7 +106,7 @@ concrete hint.
 | `forward`   |       |       |       |        | ✓     |       |       | ✓     |
 | `quote`     |       |       | ✓     |        |       |       |       |       |
 | `repost`    |       | ✓     | ✓     |        |       |       |       |       |
-| `dislike`   | ✓     |       |       | ✓      | ✓     |       |       | ✓     |
+| `dislike`   |       |       |       | ✓      |       |       |       |       |
 | `edit`      | ✓     | ✓     |       |        | ✓     |       |       | ✓     |
 
 ## Inspect tools
