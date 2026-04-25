@@ -56,26 +56,32 @@ function makeMockScraper(): {
 }
 
 describe('parseJid', () => {
-  it('parses x:home', () => {
-    expect(parseJid('x:home')).toEqual({ kind: 'home', id: '' });
+  it('parses twitter:home', () => {
+    expect(parseJid('twitter:home')).toEqual({ kind: 'home', id: '' });
   });
-  it('parses x:tweet/<id>', () => {
-    expect(parseJid('x:tweet/12345')).toEqual({ kind: 'tweet', id: '12345' });
+  it('parses twitter:tweet/<id>', () => {
+    expect(parseJid('twitter:tweet/12345')).toEqual({
+      kind: 'tweet',
+      id: '12345',
+    });
   });
-  it('parses x:dm/<conv>', () => {
-    expect(parseJid('x:dm/conv-1')).toEqual({ kind: 'dm', id: 'conv-1' });
+  it('parses twitter:dm/<conv>', () => {
+    expect(parseJid('twitter:dm/conv-1')).toEqual({ kind: 'dm', id: 'conv-1' });
   });
-  it('parses x:user/<handle>', () => {
-    expect(parseJid('x:user/alice')).toEqual({ kind: 'user', id: 'alice' });
+  it('parses twitter:user/<handle>', () => {
+    expect(parseJid('twitter:user/alice')).toEqual({
+      kind: 'user',
+      id: 'alice',
+    });
   });
   it('returns unknown for unrecognised kinds', () => {
-    expect(parseJid('x:weird/xyz').kind).toBe('unknown');
+    expect(parseJid('twitter:weird/xyz').kind).toBe('unknown');
   });
 });
 
 describe('stripTweetPrefix', () => {
-  it('extracts id from x:tweet/<id>', () => {
-    expect(stripTweetPrefix('x:tweet/777')).toBe('777');
+  it('extracts id from twitter:tweet/<id>', () => {
+    expect(stripTweetPrefix('twitter:tweet/777')).toBe('777');
   });
   it('passes bare numeric ids through', () => {
     expect(stripTweetPrefix('777')).toBe('777');

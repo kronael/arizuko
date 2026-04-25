@@ -14,7 +14,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - `twitd`: X / Twitter adapter via browser emulation
   (`agent-twitter-client@0.0.18`, the ai16z fork of
   `@the-convocation/twitter-scraper`). No official Twitter API.
-  Bun + TypeScript daemon mirroring `whapd`'s shape. JID prefix `x:`
+  Bun + TypeScript daemon mirroring `whapd`'s shape. JID prefix `twitter:`
   with `home`, `tweet/<id>`, `dm/<id>`, `user/<handle>` surfaces.
   Native verbs: `send` (DM), `post`, `reply`, `repost`, `quote`,
   `like`, `delete`, `send_file`. Hint-only: `forward`, `dislike`,

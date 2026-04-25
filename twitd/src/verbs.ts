@@ -5,9 +5,9 @@ export interface ParsedJid {
   id: string;
 }
 
-// parseJid splits "x:<kind>/<id>" or "x:home" into kind+id.
+// parseJid splits "x:<kind>/<id>" or "twitter:home" into kind+id.
 export function parseJid(jid: string): ParsedJid {
-  const bare = jid.replace(/^x:/, '');
+  const bare = jid.replace(/^twitter:/, '');
   if (bare === 'home') return { kind: 'home', id: '' };
   const slash = bare.indexOf('/');
   if (slash < 0) return { kind: 'unknown', id: bare };
@@ -49,7 +49,7 @@ export async function readResponseId(
   return '';
 }
 
-// send delivers a DM to a conversation parsed from "x:dm/<conv_id>".
+// send delivers a DM to a conversation parsed from "twitter:dm/<conv_id>".
 export async function send(
   s: Scraper,
   chatJid: string,
@@ -57,11 +57,11 @@ export async function send(
 ): Promise<void> {
   const j = parseJid(chatJid);
   if (j.kind !== 'dm')
-    throw new Error(`send requires x:dm/<id>, got ${chatJid}`);
+    throw new Error(`send requires twitter:dm/<id>, got ${chatJid}`);
   await s.sendDirectMessage(j.id, text);
 }
 
-// post writes a tweet to the user's timeline. chatJid is "x:home" (or "x:user/<self>");
+// post writes a tweet to the user's timeline. chatJid is "twitter:home" (or "twitter:user/<self>");
 // we don't read it — the library always posts as the authenticated user.
 export async function post(
   s: Scraper,
@@ -72,7 +72,7 @@ export async function post(
   return readResponseId(r);
 }
 
-// reply threads a tweet under replyTo (a tweet_id, e.g. "x:tweet/<id>" parsed).
+// reply threads a tweet under replyTo (a tweet_id, e.g. "twitter:tweet/<id>" parsed).
 export async function reply(
   s: Scraper,
   replyTo: string,
@@ -110,7 +110,7 @@ export async function del(s: Scraper, target: string): Promise<void> {
   await s.deleteTweet(stripTweetPrefix(target));
 }
 
-// stripTweetPrefix accepts either a bare id "1234..." or "x:tweet/1234..." / "tweet/1234".
+// stripTweetPrefix accepts either a bare id "1234..." or "twitter:tweet/1234..." / "tweet/1234".
 export function stripTweetPrefix(target: string): string {
   const j = parseJid(target);
   if (j.kind === 'tweet') return j.id;

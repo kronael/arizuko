@@ -26,12 +26,12 @@ of `@the-convocation/twitter-scraper`).
 
 ## JID format
 
-| Surface                              | JID                      |
-| ------------------------------------ | ------------------------ |
-| User timeline (mentions arrive here) | `x:home`                 |
-| Specific tweet (reply / like target) | `x:tweet/<tweet_id>`     |
-| DM conversation                      | `x:dm/<conversation_id>` |
-| User profile                         | `x:user/<username>`      |
+| Surface                              | JID                            |
+| ------------------------------------ | ------------------------------ |
+| User timeline (mentions arrive here) | `twitter:home`                 |
+| Specific tweet (reply / like target) | `twitter:tweet/<tweet_id>`     |
+| DM conversation                      | `twitter:dm/<conversation_id>` |
+| User profile                         | `twitter:user/<username>`      |
 
 ## Auth (3 paths, priority order)
 

@@ -52,7 +52,7 @@ rotation). Atomic write via temp + rename.
 
 ## JID format
 
-Prefix is `x:` (matches platform's current name; shorter than
+Prefix is `twitter:` (matches platform's current name; shorter than
 `twitter:`).
 
 | Surface                              | JID                      |
@@ -164,7 +164,7 @@ multi-source polling.
 
 ## Decisions
 
-- JID prefix is `x:`, not `twitter:` — matches the platform's
+- JID prefix is `twitter:`, not `twitter:` — matches the platform's
   current name and is shorter.
 - Cookie file is the supported auth path; password login is a
   fallback, pair-mode is an operator convenience.

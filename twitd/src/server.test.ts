@@ -95,7 +95,7 @@ describe('GET /health', () => {
     const b = await r.json();
     expect(b.status).toBe('ok');
     expect(b.name).toBe('twitter');
-    expect(b.jid_prefixes).toEqual(['x:']);
+    expect(b.jid_prefixes).toEqual(['twitter:']);
   });
 
   it('returns 503 disconnected when scraper not connected', async () => {
@@ -176,7 +176,10 @@ describe('POST /reply', () => {
     stub = makeStub();
     const r = await fetch(`${BASE}/reply`, {
       method: 'POST',
-      body: JSON.stringify({ reply_to: 'x:tweet/1234', content: 'reply' }),
+      body: JSON.stringify({
+        reply_to: 'twitter:tweet/1234',
+        content: 'reply',
+      }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
     expect(r.status).toBe(200);
@@ -204,7 +207,7 @@ describe('POST /repost', () => {
     stub = makeStub();
     const r = await fetch(`${BASE}/repost`, {
       method: 'POST',
-      body: JSON.stringify({ target_id: 'x:tweet/9999' }),
+      body: JSON.stringify({ target_id: 'twitter:tweet/9999' }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
     expect(r.status).toBe(200);
@@ -219,7 +222,7 @@ describe('POST /quote', () => {
     const r = await fetch(`${BASE}/quote`, {
       method: 'POST',
       body: JSON.stringify({
-        target_id: 'x:tweet/77',
+        target_id: 'twitter:tweet/77',
         content: 'my take',
       }),
       headers: { 'Content-Type': 'application/json', ...auth() },
@@ -236,7 +239,7 @@ describe('POST /quote', () => {
     stub = makeStub();
     const r = await fetch(`${BASE}/quote`, {
       method: 'POST',
-      body: JSON.stringify({ target_id: 'x:tweet/77', content: '' }),
+      body: JSON.stringify({ target_id: 'twitter:tweet/77', content: '' }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
     expect(r.status).toBe(501);
@@ -251,7 +254,7 @@ describe('POST /like', () => {
     stub = makeStub();
     const r = await fetch(`${BASE}/like`, {
       method: 'POST',
-      body: JSON.stringify({ target_id: 'x:tweet/abc' }),
+      body: JSON.stringify({ target_id: 'twitter:tweet/abc' }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
     expect(r.status).toBe(200);
@@ -265,7 +268,7 @@ describe('POST /delete', () => {
     stub = makeStub();
     const r = await fetch(`${BASE}/delete`, {
       method: 'POST',
-      body: JSON.stringify({ target_id: 'x:tweet/del1' }),
+      body: JSON.stringify({ target_id: 'twitter:tweet/del1' }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
     expect(r.status).toBe(200);
@@ -280,7 +283,7 @@ describe('POST /send (DM)', () => {
     const r = await fetch(`${BASE}/send`, {
       method: 'POST',
       body: JSON.stringify({
-        chat_jid: 'x:dm/conv-42',
+        chat_jid: 'twitter:dm/conv-42',
         content: 'hi there',
       }),
       headers: { 'Content-Type': 'application/json', ...auth() },
@@ -295,12 +298,12 @@ describe('POST /send (DM)', () => {
     stub = makeStub();
     const r = await fetch(`${BASE}/send`, {
       method: 'POST',
-      body: JSON.stringify({ chat_jid: 'x:home', content: 'hi' }),
+      body: JSON.stringify({ chat_jid: 'twitter:home', content: 'hi' }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
     expect(r.status).toBe(502);
     const b = await r.json();
-    expect(String(b.error)).toContain('x:dm');
+    expect(String(b.error)).toContain('twitter:dm');
   });
 });
 

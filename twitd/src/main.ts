@@ -110,8 +110,8 @@ async function pollOnce(state: CursorState): Promise<CursorState> {
           : undefined;
         const msg: InboundMsg = {
           id,
-          chat_jid: 'x:home',
-          sender: `x:user/${sender}`,
+          chat_jid: 'twitter:home',
+          sender: `twitter:user/${sender}`,
           sender_name: String(tw['name'] ?? sender),
           content: String(tw['text'] ?? ''),
           timestamp: Number(tw['timestamp']) || Math.floor(Date.now() / 1000),

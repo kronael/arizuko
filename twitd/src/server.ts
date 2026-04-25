@@ -98,7 +98,7 @@ export function startServer(
       const body: Record<string, unknown> = {
         status,
         name: 'twitter',
-        jid_prefixes: ['x:'],
+        jid_prefixes: ['twitter:'],
         connected: isConnected(),
         last_inbound_at: last,
       };
@@ -222,7 +222,7 @@ export function startServer(
           const mediaType = extToMime(filename || 'file.bin');
           const media = [{ data: fileBytes, mediaType }];
           await act(res, async () => {
-            const j = v.parseJid(chatJid || 'x:home');
+            const j = v.parseJid(chatJid || 'twitter:home');
             if (j.kind === 'dm') {
               // Library doesn't expose DM media; fall back to text-only with note.
               await s.sendDirectMessage(
@@ -244,7 +244,7 @@ export function startServer(
         unsupported(
           res,
           'forward',
-          'X has no DM forward primitive. Use `send(chat_jid="x:dm/<id>", content=...)` with the original quoted in the body and a permalink.',
+          'X has no DM forward primitive. Use `send(chat_jid="twitter:dm/<id>", content=...)` with the original quoted in the body and a permalink.',
         );
         return;
 
