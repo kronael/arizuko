@@ -17,7 +17,14 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"linkedin:"},
-		Caps:          map[string]bool{"send_text": true, "fetch_history": true},
+		Caps: map[string]bool{
+			"send_text":     true,
+			"fetch_history": true,
+			"post":          true,
+			"like":          true,
+			"delete":        true,
+			"repost":        true,
+		},
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			lc, err := newLinkClient(cfg)
 			if err != nil {

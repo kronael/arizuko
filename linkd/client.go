@@ -22,7 +22,6 @@ import (
 
 type linkClient struct {
 	chanlib.NoFileSender
-	chanlib.NoSocial
 	cfg       config
 	http      *http.Client
 	mu        sync.Mutex
@@ -41,27 +40,24 @@ type linkClient struct {
 
 func (lc *linkClient) isConnected() bool { return lc.authed.Load() }
 
-// Social verbs: LinkedIn share/comment APIs are read-only via this adapter
-// today. Each new verb returns Unsupported with a concrete alternative.
+// Native social verbs implemented below: Post, Like, Delete, Repost.
+// Hints with platform reasoning for the rest.
+
 func (lc *linkClient) Forward(chanlib.ForwardRequest) (string, error) {
 	return "", chanlib.Unsupported("forward", "linkedin",
-		"LinkedIn has no forward primitive. Use `post(content=\"<commentary>\\n\\n<source url>\")` to share with attribution.")
+		"LinkedIn DM forward requires partner-only messaging permissions. Use `repost(source_msg_id=<urn>)` to amplify on the feed, or `post(content=\"<commentary>\\n\\n<permalink>\")` to share with attribution.")
 }
 func (lc *linkClient) Quote(chanlib.QuoteRequest) (string, error) {
 	return "", chanlib.Unsupported("quote", "linkedin",
-		"LinkedIn quote-share is not implemented. Use `post(content=\"<your take>\\n\\n<source url>\")`.")
-}
-func (lc *linkClient) Repost(chanlib.RepostRequest) (string, error) {
-	return "", chanlib.Unsupported("repost", "linkedin",
-		"LinkedIn repost is not implemented. Use `post` with the source link.")
+		"LinkedIn has no distinct quote primitive — `repost` is the share-with-commentary verb. Either call `repost(source_msg_id=<urn>)` (no commentary), or `post(content=\"<your take>\\n\\n<permalink>\")` to add commentary.")
 }
 func (lc *linkClient) Dislike(chanlib.DislikeRequest) error {
 	return chanlib.Unsupported("dislike", "linkedin",
-		"LinkedIn has no native downvote. Use `reply` with disagreement instead.")
+		"LinkedIn has no native downvote. Use `reply` with textual disagreement instead of a sentiment signal.")
 }
 func (lc *linkClient) Edit(chanlib.EditRequest) error {
 	return chanlib.Unsupported("edit", "linkedin",
-		"LinkedIn share edit is not implemented. Use `delete` then `post`.")
+		"LinkedIn UGC post edit requires the versioned `/rest/posts` PARTIAL_UPDATE API which is not wired up here. Use `delete(target_id=<urn>)` then `post(...)` to republish.")
 }
 
 type state struct {
@@ -494,33 +490,62 @@ func (lc *linkClient) Send(req chanlib.SendRequest) (string, error) {
 }
 
 func (lc *linkClient) postShare(text string) (string, error) {
+	return lc.ugcPost(text, "")
+}
+
+// ugcPost publishes a /v2/ugcPosts entry. When ref is non-empty it is
+// embedded as the reshared share URN, producing a LinkedIn "reshare"
+// (with optional commentary). text may be empty for a bare reshare.
+func (lc *linkClient) ugcPost(text, ref string) (string, error) {
 	lc.mu.Lock()
 	author := lc.meURN
 	lc.mu.Unlock()
+	share := map[string]any{
+		"shareCommentary":    map[string]string{"text": text},
+		"shareMediaCategory": "NONE",
+	}
 	body := ugcPostBody{
 		Author:         author,
 		LifecycleState: "PUBLISHED",
 		SpecificContent: map[string]any{
-			"com.linkedin.ugc.ShareContent": map[string]any{
-				"shareCommentary":    map[string]string{"text": text},
-				"shareMediaCategory": "NONE",
-			},
+			"com.linkedin.ugc.ShareContent": share,
 		},
 		Visibility: map[string]string{
 			"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
 		},
+	}
+	if ref != "" {
+		// LinkedIn reshare: reference the original share URN at the
+		// top level of the ugcPost body. The platform copies media +
+		// preview from the source.
+		// https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/shares/ugc-post-api#reshare-another-users-post
+		raw, _ := json.Marshal(map[string]any{
+			"author":          author,
+			"lifecycleState":  "PUBLISHED",
+			"specificContent": body.SpecificContent,
+			"visibility":      body.Visibility,
+			"referenceUgcPost": ref,
+		})
+		resp, err := lc.do("POST", "/v2/ugcPosts", nil, strings.NewReader(string(raw)))
+		if err != nil {
+			return "", err
+		}
+		return readUGCID(resp, "ugcPosts(reshare)")
 	}
 	b, _ := json.Marshal(body)
 	resp, err := lc.do("POST", "/v2/ugcPosts", nil, strings.NewReader(string(b)))
 	if err != nil {
 		return "", err
 	}
+	return readUGCID(resp, "ugcPosts")
+}
+
+func readUGCID(resp *http.Response, label string) (string, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return "", fmt.Errorf("ugcPosts: status %d: %s", resp.StatusCode, string(raw))
+		return "", fmt.Errorf("%s: status %d: %s", label, resp.StatusCode, string(raw))
 	}
-	// LinkedIn returns the new URN in the x-restli-id header or a JSON body.
 	if id := resp.Header.Get("X-RestLi-Id"); id != "" {
 		return id, nil
 	}
@@ -529,6 +554,74 @@ func (lc *linkClient) postShare(text string) (string, error) {
 	}
 	json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&out)
 	return out.ID, nil
+}
+
+// Post publishes a top-level UGC share. Honors LINKEDIN_AUTO_PUBLISH=false
+// as a safety guard, mirroring Send's behaviour.
+func (lc *linkClient) Post(req chanlib.PostRequest) (string, error) {
+	if len(req.MediaPaths) > 0 {
+		return "", chanlib.Unsupported("send_file", "linkedin",
+			"LinkedIn UGC media upload (image/video/document) requires a separate /assets register-upload + binary PUT flow not wired up here. Use `post(content=...)` with a URL in the text — LinkedIn auto-renders link previews.")
+	}
+	if !lc.cfg.AutoPublish {
+		return "", fmt.Errorf("LINKEDIN_AUTO_PUBLISH=false; refusing to publish new post")
+	}
+	return lc.postShare(req.Content)
+}
+
+// Like calls /v2/socialActions/{urn}/likes. TargetID is the share/activity/ugcPost URN.
+func (lc *linkClient) Like(req chanlib.LikeRequest) error {
+	urn := strings.TrimPrefix(req.TargetID, "linkedin:")
+	if !isPostURN(urn) {
+		return fmt.Errorf("like: target_id must be a LinkedIn share/activity/ugcPost URN, got %q", urn)
+	}
+	lc.mu.Lock()
+	actor := lc.meURN
+	lc.mu.Unlock()
+	body, _ := json.Marshal(map[string]string{"actor": actor, "object": urn})
+	path := "/v2/socialActions/" + url.PathEscape(urn) + "/likes"
+	resp, err := lc.do("POST", path, nil, strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("like: status %d: %s", resp.StatusCode, string(raw))
+	}
+	return nil
+}
+
+// Delete removes an own UGC post via DELETE /v2/ugcPosts/{urn}.
+func (lc *linkClient) Delete(req chanlib.DeleteRequest) error {
+	urn := strings.TrimPrefix(req.TargetID, "linkedin:")
+	if !isPostURN(urn) {
+		return fmt.Errorf("delete: target_id must be a LinkedIn share/activity/ugcPost URN, got %q", urn)
+	}
+	path := "/v2/ugcPosts/" + url.PathEscape(urn)
+	resp, err := lc.do("DELETE", path, nil, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("delete: status %d: %s", resp.StatusCode, string(raw))
+	}
+	return nil
+}
+
+// Repost reshares another user's UGC post by referencing its URN in a new
+// ugcPost. Empty commentary = bare reshare.
+func (lc *linkClient) Repost(req chanlib.RepostRequest) (string, error) {
+	urn := strings.TrimPrefix(req.SourceMsgID, "linkedin:")
+	if !isPostURN(urn) {
+		return "", fmt.Errorf("repost: source_msg_id must be a LinkedIn share/activity/ugcPost URN, got %q", urn)
+	}
+	if !lc.cfg.AutoPublish {
+		return "", fmt.Errorf("LINKEDIN_AUTO_PUBLISH=false; refusing to publish reshare")
+	}
+	return lc.ugcPost("", urn)
 }
 
 func (lc *linkClient) postComment(postURN, text, parentComment string) (string, error) {
