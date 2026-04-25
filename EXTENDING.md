@@ -41,6 +41,45 @@ Add an entry to the registry slice in `gateway/autocalls.go`:
 Then update `ant/skills/self/SKILL.md` autocalls section and ship a
 migration under `ant/skills/self/migrations/`.
 
+## Designing MCP tools for LLMs
+
+The MCP description is the model's training material every turn. It is
+read on every prompt, costs tokens, and shapes which tool the model
+picks. Two principles follow.
+
+**Descriptions answer "when", not just "what".** Every tool description
+states _use when X_ and _not for Y_, naming the sibling tool that
+covers Y. The model picks instantly instead of reasoning about
+disambiguation at call time. See `ipc/ipc.go` registrations
+(`send_reply`, `like`, `reset_session`, `register_group`, …) for the
+canonical pattern.
+
+**Distinct intents → distinct tool names.** Default to one tool per
+intent. A sharp per-intent description outperforms a fuzzy umbrella
+description with a `kind`/`mode`/`type` enum: the umbrella forces the
+model to disambiguate at call time and dilutes signal in every other
+tool's description by proximity.
+
+Only collapse two names into one tool when the action is mechanically
+identical AND the same description naturally covers both — e.g.
+`send_reply` covers comment/reply because both create a threaded
+response to a parent message. Do NOT collapse repost/forward/quote
+into `share(kind=…)`; three intents, three tools.
+
+Architectural overlap under the hood is fine. Email's `forward` may
+compile to `send` + `Fwd:` subject; Telegram's `forward` uses a native
+protocol field. Both expose `forward` as a distinct MCP tool because
+the agent's intent is the same ("show X this thing I saw"). The
+adapter does the translation.
+
+UNIX precedent: `cp` / `mv` / `ln` are three commands with three man
+pages, not `relocate(kind=copy|move|link)`.
+
+The autocall-vs-MCP-tool decision (above) is the same principle on a
+different axis: minimize the model's per-turn cost of choosing and
+calling. Zero-arg pure-read facts → autocall. Distinct intents →
+distinct tools.
+
 ## Inspect tools
 
 Read-only MCP introspection family, registered in `ipc/inspect.go`:
