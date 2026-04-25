@@ -20,6 +20,15 @@ import { TypingRefresher } from './typing.js';
 
 const logger = pino({ level: 'warn' });
 
+// Mirror chanlib.ClassifyEmoji: only negatives are listed; everything
+// else (including unknown emoji) defaults to "like" — adapter signals
+// "someone reacted, here's what they used"; the agent gets the actual
+// emoji as InboundMsg.reaction.
+const NEGATIVE_EMOJI = new Set(['👎', '💩', '😡', '🤬', '💔', '🤮', '😢']);
+function classifyEmoji(emoji: string): 'like' | 'dislike' {
+  return NEGATIVE_EMOJI.has(emoji) ? 'dislike' : 'like';
+}
+
 function env(k: string, def?: string): string {
   const v = process.env[k] || def;
   if (!v) {
@@ -285,6 +294,46 @@ async function connect(): Promise<void> {
       flushOutboundQueue().catch((e) =>
         log('error', 'queue flush failed', { err: String(e) }),
       );
+    }
+  });
+
+  // Inbound emoji reactions: classify to like/dislike, propagate so
+  // the gateway can route the engagement signal. Reaction removal
+  // (text falsey) is dropped — we only signal additions.
+  sock.ev.on('messages.reaction', async (events) => {
+    for (const ev of events) {
+      const text = ev.reaction?.text;
+      if (!text) continue;
+      const jid = ev.key.remoteJid;
+      if (!jid || jid === 'status@broadcast') continue;
+      const targetId = ev.key.id || '';
+      const senderJid =
+        (ev.reaction.key as any)?.participant ||
+        (ev.key as any).participant ||
+        jid;
+      const verb = classifyEmoji(text);
+      try {
+        await rc.sendMessage({
+          id: `${targetId}:r:${text}`,
+          chat_jid: `whatsapp:${jid}`,
+          sender: `whatsapp:${senderJid}`,
+          sender_name: senderJid.split('@')[0],
+          content: text,
+          timestamp:
+            Number(ev.reaction.senderTimestampMs) > 0
+              ? Math.floor(Number(ev.reaction.senderTimestampMs) / 1000)
+              : Math.floor(Date.now() / 1000),
+          verb,
+          reaction: text,
+          reply_to: targetId,
+        });
+        lastInboundAt = Math.floor(Date.now() / 1000);
+      } catch (e) {
+        log('error', 'deliver reaction failed', {
+          jid: `whatsapp:${jid}`,
+          err: String(e),
+        });
+      }
     }
   });
 

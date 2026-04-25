@@ -37,7 +37,9 @@ func newBot(cfg config) (*bot, error) {
 	}
 	s.Identify.Intents = discordgo.IntentsGuildMessages |
 		discordgo.IntentsDirectMessages |
-		discordgo.IntentMessageContent
+		discordgo.IntentMessageContent |
+		discordgo.IntentsGuildMessageReactions |
+		discordgo.IntentsDirectMessageReactions
 	b := &bot{session: s, cfg: cfg}
 	b.lastInboundAt.Store(time.Now().Unix())
 	b.typing = chanlib.NewTypingRefresher(8*time.Second, 10*time.Minute, b.sendTyping, nil)
@@ -47,6 +49,7 @@ func newBot(cfg config) (*bot, error) {
 func (b *bot) start(rc *chanlib.RouterClient) error {
 	b.rc = rc
 	b.session.AddHandler(b.onMessage)
+	b.session.AddHandler(b.onReactionAdd)
 	if err := b.session.Open(); err != nil {
 		return fmt.Errorf("discord open: %w", err)
 	}
@@ -117,6 +120,45 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
 	slog.Debug("inbound", "chat_jid", jid, "sender_jid", "discord:"+m.Author.ID, "message_id", m.ID, "content_len", len(content))
+}
+
+// onReactionAdd emits an InboundMsg with verb=like/dislike for each
+// emoji reaction added to a message. The bot's own reactions are skipped.
+// Custom guild emoji (Emoji.ID != "") are reported with verb=like and the
+// emoji name as Reaction; classification is approximate.
+func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAdd) {
+	if m == nil || m.MessageReaction == nil {
+		return
+	}
+	// skip our own reactions
+	if b.session.State != nil && b.session.State.User != nil && m.UserID == b.session.State.User.ID {
+		return
+	}
+	emoji := m.Emoji.Name
+	if emoji == "" {
+		return
+	}
+	jid := "discord:" + m.ChannelID
+	verb := chanlib.ClassifyEmoji(emoji)
+	senderName := ""
+	if m.Member != nil && m.Member.User != nil {
+		senderName = m.Member.User.Username
+	}
+	if err := b.rc.SendMessage(chanlib.InboundMsg{
+		ID:         m.MessageID + ":r:" + emoji,
+		ChatJID:    jid,
+		Sender:     "discord:" + m.UserID,
+		SenderName: senderName,
+		Content:    emoji,
+		Timestamp:  time.Now().Unix(),
+		Verb:       verb,
+		ReplyTo:    m.MessageID,
+		Reaction:   emoji,
+	}); err != nil {
+		slog.Error("deliver reaction failed", "jid", jid, "err", err)
+		return
+	}
+	b.lastInboundAt.Store(time.Now().Unix())
 }
 
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {

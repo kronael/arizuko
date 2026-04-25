@@ -528,6 +528,40 @@ func TestOnMessage_EmptyContentAndNoAttachments_Skipped(t *testing.T) {
 	}
 }
 
+func TestOnReactionAdd_LikeAndDislike(t *testing.T) {
+	mr := newDiscdRouterMock()
+	defer mr.close()
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc.SetToken("tok")
+
+	sess := newTestSession(t)
+	b := &bot{session: sess, cfg: config{}, rc: rc}
+
+	b.onReactionAdd(sess, &discordgo.MessageReactionAdd{MessageReaction: &discordgo.MessageReaction{
+		UserID: "u1", MessageID: "m1", ChannelID: "ch-1",
+		Emoji: discordgo.Emoji{Name: "👍"},
+	}})
+	b.onReactionAdd(sess, &discordgo.MessageReactionAdd{MessageReaction: &discordgo.MessageReaction{
+		UserID: "u2", MessageID: "m2", ChannelID: "ch-1",
+		Emoji: discordgo.Emoji{Name: "👎"},
+	}})
+
+	mr.mu.Lock()
+	defer mr.mu.Unlock()
+	if len(mr.msgs) != 2 {
+		t.Fatalf("got %d msgs, want 2", len(mr.msgs))
+	}
+	if mr.msgs[0].Verb != "like" || mr.msgs[0].Reaction != "👍" {
+		t.Errorf("msg[0] verb=%q reaction=%q", mr.msgs[0].Verb, mr.msgs[0].Reaction)
+	}
+	if mr.msgs[1].Verb != "dislike" || mr.msgs[1].Reaction != "👎" {
+		t.Errorf("msg[1] verb=%q reaction=%q", mr.msgs[1].Verb, mr.msgs[1].Reaction)
+	}
+	if mr.msgs[0].ReplyTo != "m1" {
+		t.Errorf("ReplyTo = %q, want m1", mr.msgs[0].ReplyTo)
+	}
+}
+
 func TestLoadConfig_Defaults(t *testing.T) {
 	t.Setenv("DISCORD_BOT_TOKEN", "tok")
 	t.Setenv("ROUTER_URL", "http://router:7000")
