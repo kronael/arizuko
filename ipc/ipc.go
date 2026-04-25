@@ -467,163 +467,142 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("like", "Like an existing message (unicode emoji on discord, favourite on mastodon, like on bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Not for textual responses (`reply`) or new posts (`post`). Platform decides what reaction strings are valid; unsupported platforms return an error.",
-		[]mcp.ToolOption{
-			mcp.WithString("chatJid", mcp.Required()),
-			mcp.WithString("targetId", mcp.Required()),
-			mcp.WithString("reaction", mcp.Required()),
-		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "like", map[string]string{"jid": jid}) {
-				return toolErr("like: not permitted")
+	// Simple social actions: extract string args, grant-check by jidArg,
+	// nil-check hook, call, return OK or {ok,id} JSON. Send/reply/send_file/post
+	// stay inlined upstream because they each have unique pre/post logic
+	// (recordOutbound, workspace path validation, default replyToId from DB).
+	type socialAct struct {
+		name     string
+		desc     string
+		args     []string // first arg is grant-check jid (unless jidArg overrides)
+		jidArg   string   // arg name used for grant-check; defaults to args[0]
+		optional map[string]bool
+		call     func(a map[string]string) (string, error) // id may be ""
+		idOut    bool                                       // true → JSON {ok,id}; false → "ok"
+	}
+	regSocial := func(s socialAct) {
+		opts := make([]mcp.ToolOption, 0, len(s.args))
+		for _, a := range s.args {
+			if s.optional[a] {
+				opts = append(opts, mcp.WithString(a))
+			} else {
+				opts = append(opts, mcp.WithString(a, mcp.Required()))
 			}
+		}
+		jidArg := s.jidArg
+		if jidArg == "" {
+			jidArg = s.args[0]
+		}
+		registerRaw(s.name, s.desc, opts,
+			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				vals := make(map[string]string, len(s.args))
+				for _, a := range s.args {
+					vals[a] = req.GetString(a, "")
+				}
+				jid := vals[jidArg]
+				if !grantslib.CheckAction(rules, s.name, map[string]string{"jid": jid}) {
+					return toolErr(s.name + ": not permitted")
+				}
+				slog.Info(s.name, "folder", folder, "jid", jid)
+				id, err := s.call(vals)
+				if err != nil {
+					return toolMaybeUnsupported(err)
+				}
+				if s.idOut {
+					return toolJSON(map[string]any{"ok": true, "id": id})
+				}
+				return toolOK()
+			})
+	}
+
+	regSocial(socialAct{
+		name: "like",
+		desc: "Like an existing message (unicode emoji on discord, favourite on mastodon, like on bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Not for textual responses (`reply`) or new posts (`post`). Platform decides what reaction strings are valid; unsupported platforms return an error.",
+		args: []string{"chatJid", "targetId", "reaction"},
+		call: func(a map[string]string) (string, error) {
 			if gated.Like == nil {
-				return toolErr("like not configured")
+				return "", errors.New("like not configured")
 			}
-			targetID := req.GetString("targetId", "")
-			reaction := req.GetString("reaction", "")
-			slog.Info("like", "folder", folder, "jid", jid, "target", targetID, "reaction", reaction)
-			if err := gated.Like(jid, targetID, reaction); err != nil {
-				return toolMaybeUnsupported(err)
-			}
-			return toolOK()
-		})
-
-	registerRaw("delete", "Delete a post/message previously created by this agent (platform enforces authorship). Use to retract an incorrect or superseded post. Not for editing (no edit tool — delete and re-post) or for hiding inbound messages. Tier 0-2 only.",
-		[]mcp.ToolOption{
-			mcp.WithString("chatJid", mcp.Required()),
-			mcp.WithString("targetId", mcp.Required()),
+			return "", gated.Like(a["chatJid"], a["targetId"], a["reaction"])
 		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "delete", map[string]string{"jid": jid}) {
-				return toolErr("delete: not permitted")
-			}
+	})
+
+	regSocial(socialAct{
+		name: "delete",
+		desc: "Delete a post/message previously created by this agent (platform enforces authorship). Use to retract an incorrect or superseded post. Not for editing (no edit tool — delete and re-post) or for hiding inbound messages. Tier 0-2 only.",
+		args: []string{"chatJid", "targetId"},
+		call: func(a map[string]string) (string, error) {
 			if gated.Delete == nil {
-				return toolErr("delete not configured")
+				return "", errors.New("delete not configured")
 			}
-			targetID := req.GetString("targetId", "")
-			slog.Info("delete", "folder", folder, "jid", jid, "target", targetID)
-			if err := gated.Delete(jid, targetID); err != nil {
-				return toolMaybeUnsupported(err)
-			}
-			return toolOK()
-		})
-
-	registerRaw("forward", "Redeliver an existing message to a different chat with provenance preserved (Telegram forward, WhatsApp forward, email Fwd:). Use to relay an inbound message to another chat without paraphrasing. Not for replying within the same chat (`reply`) or amplifying on a public feed (`repost` / `quote`).",
-		[]mcp.ToolOption{
-			mcp.WithString("sourceMsgId", mcp.Required()),
-			mcp.WithString("targetJid", mcp.Required()),
-			mcp.WithString("comment"),
+			return "", gated.Delete(a["chatJid"], a["targetId"])
 		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			target := req.GetString("targetJid", "")
-			if !grantslib.CheckAction(rules, "forward", map[string]string{"jid": target}) {
-				return toolErr("forward: not permitted")
-			}
+	})
+
+	regSocial(socialAct{
+		name:     "forward",
+		desc:     "Redeliver an existing message to a different chat with provenance preserved (Telegram forward, WhatsApp forward, email Fwd:). Use to relay an inbound message to another chat without paraphrasing. Not for replying within the same chat (`reply`) or amplifying on a public feed (`repost` / `quote`).",
+		args:     []string{"sourceMsgId", "targetJid", "comment"},
+		jidArg:   "targetJid",
+		optional: map[string]bool{"comment": true},
+		idOut:    true,
+		call: func(a map[string]string) (string, error) {
 			if gated.Forward == nil {
-				return toolErr("forward not configured")
+				return "", errors.New("forward not configured")
 			}
-			sourceMsgID := req.GetString("sourceMsgId", "")
-			comment := req.GetString("comment", "")
-			slog.Info("forward", "folder", folder, "source", sourceMsgID, "target", target)
-			id, err := gated.Forward(sourceMsgID, target, comment)
-			if err != nil {
-				return toolMaybeUnsupported(err)
-			}
-			return toolJSON(map[string]any{"ok": true, "id": id})
-		})
-
-	registerRaw("quote", "Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only — Mastodon has no quote primitive and returns unsupported with a hint to use `post(content=..., source_url=...)`. Not for in-chat threaded replies (`reply`) or simple amplification (`repost`).",
-		[]mcp.ToolOption{
-			mcp.WithString("chatJid", mcp.Required()),
-			mcp.WithString("sourceMsgId", mcp.Required()),
-			mcp.WithString("comment", mcp.Required()),
+			return gated.Forward(a["sourceMsgId"], a["targetJid"], a["comment"])
 		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "quote", map[string]string{"jid": jid}) {
-				return toolErr("quote: not permitted")
-			}
+	})
+
+	regSocial(socialAct{
+		name:  "quote",
+		desc:  "Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only — Mastodon has no quote primitive and returns unsupported with a hint to use `post(content=..., source_url=...)`. Not for in-chat threaded replies (`reply`) or simple amplification (`repost`).",
+		args:  []string{"chatJid", "sourceMsgId", "comment"},
+		idOut: true,
+		call: func(a map[string]string) (string, error) {
 			if gated.Quote == nil {
-				return toolErr("quote not configured")
+				return "", errors.New("quote not configured")
 			}
-			sourceMsgID := req.GetString("sourceMsgId", "")
-			comment := req.GetString("comment", "")
-			slog.Info("quote", "folder", folder, "jid", jid, "source", sourceMsgID)
-			id, err := gated.Quote(jid, sourceMsgID, comment)
-			if err != nil {
-				return toolMaybeUnsupported(err)
-			}
-			return toolJSON(map[string]any{"ok": true, "id": id})
-		})
-
-	registerRaw("repost", "Amplify a message on your own feed without added text (Mastodon boost, Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (`quote`) or sending a copy to a different chat (`forward`).",
-		[]mcp.ToolOption{
-			mcp.WithString("chatJid", mcp.Required()),
-			mcp.WithString("sourceMsgId", mcp.Required()),
+			return gated.Quote(a["chatJid"], a["sourceMsgId"], a["comment"])
 		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "repost", map[string]string{"jid": jid}) {
-				return toolErr("repost: not permitted")
-			}
+	})
+
+	regSocial(socialAct{
+		name:  "repost",
+		desc:  "Amplify a message on your own feed without added text (Mastodon boost, Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (`quote`) or sending a copy to a different chat (`forward`).",
+		args:  []string{"chatJid", "sourceMsgId"},
+		idOut: true,
+		call: func(a map[string]string) (string, error) {
 			if gated.Repost == nil {
-				return toolErr("repost not configured")
+				return "", errors.New("repost not configured")
 			}
-			sourceMsgID := req.GetString("sourceMsgId", "")
-			slog.Info("repost", "folder", folder, "jid", jid, "source", sourceMsgID)
-			id, err := gated.Repost(jid, sourceMsgID)
-			if err != nil {
-				return toolMaybeUnsupported(err)
-			}
-			return toolJSON(map[string]any{"ok": true, "id": id})
-		})
-
-	registerRaw("dislike", "Endorse-negative on a message (Discord 👎 reaction). Native only — Mastodon, Bluesky, and most platforms have no native downvote and return unsupported with a hint.",
-		[]mcp.ToolOption{
-			mcp.WithString("chatJid", mcp.Required()),
-			mcp.WithString("targetId", mcp.Required()),
+			return gated.Repost(a["chatJid"], a["sourceMsgId"])
 		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "dislike", map[string]string{"jid": jid}) {
-				return toolErr("dislike: not permitted")
-			}
+	})
+
+	regSocial(socialAct{
+		name: "dislike",
+		desc: "Endorse-negative on a message (Discord 👎 reaction). Native only — Mastodon, Bluesky, and most platforms have no native downvote and return unsupported with a hint.",
+		args: []string{"chatJid", "targetId"},
+		call: func(a map[string]string) (string, error) {
 			if gated.Dislike == nil {
-				return toolErr("dislike not configured")
+				return "", errors.New("dislike not configured")
 			}
-			targetID := req.GetString("targetId", "")
-			slog.Info("dislike", "folder", folder, "jid", jid, "target", targetID)
-			if err := gated.Dislike(jid, targetID); err != nil {
-				return toolMaybeUnsupported(err)
-			}
-			return toolOK()
-		})
-
-	registerRaw("edit", "Modify a message previously sent by this agent in-place (Discord, Mastodon, Bluesky, Telegram own bot messages). Preserves the platform message id. Not for retract-and-resend (use `delete` then `post`/`send`). Email is unsupported.",
-		[]mcp.ToolOption{
-			mcp.WithString("chatJid", mcp.Required()),
-			mcp.WithString("targetId", mcp.Required()),
-			mcp.WithString("content", mcp.Required()),
+			return "", gated.Dislike(a["chatJid"], a["targetId"])
 		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "edit", map[string]string{"jid": jid}) {
-				return toolErr("edit: not permitted")
-			}
+	})
+
+	regSocial(socialAct{
+		name: "edit",
+		desc: "Modify a message previously sent by this agent in-place (Discord, Mastodon, Bluesky, Telegram own bot messages). Preserves the platform message id. Not for retract-and-resend (use `delete` then `post`/`send`). Email is unsupported.",
+		args: []string{"chatJid", "targetId", "content"},
+		call: func(a map[string]string) (string, error) {
 			if gated.Edit == nil {
-				return toolErr("edit not configured")
+				return "", errors.New("edit not configured")
 			}
-			targetID := req.GetString("targetId", "")
-			content := req.GetString("content", "")
-			slog.Info("edit", "folder", folder, "jid", jid, "target", targetID)
-			if err := gated.Edit(jid, targetID, content); err != nil {
-				return toolMaybeUnsupported(err)
-			}
-			return toolOK()
-		})
+			return "", gated.Edit(a["chatJid"], a["targetId"], a["content"])
+		},
+	})
 
 	granted("reset_session", "Drop the Claude session for a group so the next message starts fresh context. Use when the user asks for /new, when context is confused/polluted, or before a topic switch. Not for injecting content (inject_message) — this discards, it doesn't add.",
 		[]mcp.ToolOption{mcp.WithString("groupFolder", mcp.Required())},
