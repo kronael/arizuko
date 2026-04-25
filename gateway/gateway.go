@@ -1000,96 +1000,81 @@ func (g *Gateway) channelSocial(jid string) (core.Socializer, error) {
 	return s, nil
 }
 
+// socialCall resolves the channel for jid, sets up a 30s context, and
+// invokes fn. Used by every per-verb dispatch wrapper below.
+func socialCall[T any](g *Gateway, jid string, fn func(s core.Socializer, ctx context.Context) (T, error)) (T, error) {
+	var zero T
+	s, err := g.channelSocial(jid)
+	if err != nil {
+		return zero, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return fn(s, ctx)
+}
+
 func (g *Gateway) postToJID(jid, content string, mediaPaths []string) (string, error) {
 	if !g.canSendToJID(jid) {
 		return "", nil
 	}
-	s, err := g.channelSocial(jid)
-	if err != nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return s.Post(ctx, jid, content, mediaPaths)
+	return socialCall(g, jid, func(s core.Socializer, ctx context.Context) (string, error) {
+		return s.Post(ctx, jid, content, mediaPaths)
+	})
 }
 
 func (g *Gateway) likeOnJID(jid, targetID, reaction string) error {
-	s, err := g.channelSocial(jid)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return s.Like(ctx, jid, targetID, reaction)
+	_, err := socialCall(g, jid, func(s core.Socializer, ctx context.Context) (struct{}, error) {
+		return struct{}{}, s.Like(ctx, jid, targetID, reaction)
+	})
+	return err
 }
 
 func (g *Gateway) deleteOnJID(jid, targetID string) error {
-	s, err := g.channelSocial(jid)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return s.Delete(ctx, jid, targetID)
+	_, err := socialCall(g, jid, func(s core.Socializer, ctx context.Context) (struct{}, error) {
+		return struct{}{}, s.Delete(ctx, jid, targetID)
+	})
+	return err
 }
 
 func (g *Gateway) forwardToJID(sourceMsgID, targetJID, comment string) (string, error) {
 	if !g.canSendToJID(targetJID) {
 		return "", nil
 	}
-	s, err := g.channelSocial(targetJID)
-	if err != nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return s.Forward(ctx, sourceMsgID, targetJID, comment)
+	return socialCall(g, targetJID, func(s core.Socializer, ctx context.Context) (string, error) {
+		return s.Forward(ctx, sourceMsgID, targetJID, comment)
+	})
 }
 
 func (g *Gateway) quoteToJID(jid, sourceMsgID, comment string) (string, error) {
 	if !g.canSendToJID(jid) {
 		return "", nil
 	}
-	s, err := g.channelSocial(jid)
-	if err != nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return s.Quote(ctx, jid, sourceMsgID, comment)
+	return socialCall(g, jid, func(s core.Socializer, ctx context.Context) (string, error) {
+		return s.Quote(ctx, jid, sourceMsgID, comment)
+	})
 }
 
 func (g *Gateway) repostToJID(jid, sourceMsgID string) (string, error) {
 	if !g.canSendToJID(jid) {
 		return "", nil
 	}
-	s, err := g.channelSocial(jid)
-	if err != nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return s.Repost(ctx, jid, sourceMsgID)
+	return socialCall(g, jid, func(s core.Socializer, ctx context.Context) (string, error) {
+		return s.Repost(ctx, jid, sourceMsgID)
+	})
 }
 
 func (g *Gateway) dislikeOnJID(jid, targetID string) error {
-	s, err := g.channelSocial(jid)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return s.Dislike(ctx, jid, targetID)
+	_, err := socialCall(g, jid, func(s core.Socializer, ctx context.Context) (struct{}, error) {
+		return struct{}{}, s.Dislike(ctx, jid, targetID)
+	})
+	return err
 }
 
 func (g *Gateway) editOnJID(jid, targetID, content string) error {
-	s, err := g.channelSocial(jid)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return s.Edit(ctx, jid, targetID, content)
+	_, err := socialCall(g, jid, func(s core.Socializer, ctx context.Context) (struct{}, error) {
+		return struct{}{}, s.Edit(ctx, jid, targetID, content)
+	})
+	return err
 }
 
 func (g *Gateway) clearSession(folder string) {
