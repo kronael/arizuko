@@ -214,6 +214,26 @@ func (s *Store) GroupByFolder(folder string) (core.Group, bool) {
 	return scanGroupFull(row)
 }
 
+// SetChatIsGroup upserts the is_group classification for a chat_jid.
+// Adapters call this (via the router) on each inbound; the latest
+// classification wins.
+func (s *Store) SetChatIsGroup(jid string, isGroup bool) error {
+	_, err := s.db.Exec(
+		`INSERT INTO chats (jid, is_group) VALUES (?, ?)
+		 ON CONFLICT(jid) DO UPDATE SET is_group = excluded.is_group`,
+		jid, btoi(isGroup),
+	)
+	return err
+}
+
+// GetChatIsGroup returns the stored classification; false (single-user)
+// when the row is missing or has the default value.
+func (s *Store) GetChatIsGroup(jid string) bool {
+	var n int
+	s.db.QueryRow(`SELECT is_group FROM chats WHERE jid = ?`, jid).Scan(&n)
+	return n != 0
+}
+
 func (s *Store) SetStickyGroup(jid, folder string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO chats (jid, sticky_group) VALUES (?, ?)

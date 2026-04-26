@@ -219,6 +219,7 @@ func (b *bot) handleReaction(r *messageReactionUpdated, rc *chanlib.RouterClient
 			Verb:       chanlib.ClassifyEmoji(e.Emoji),
 			ReplyTo:    strconv.Itoa(r.MessageID),
 			Reaction:   e.Emoji,
+			IsGroup:    r.Chat.ID < 0,
 		}
 		if err := rc.SendMessage(im); err != nil {
 			slog.Error("deliver reaction failed", "jid", jid, "err", err)
@@ -286,6 +287,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 		Timestamp:   int64(msg.Date),
 		Topic:       topic,
 		Attachments: res.attachments,
+		IsGroup:     msg.Chat.ID < 0,
 	}
 	if r := msg.ReplyToMessage; r != nil {
 		im.ReplyTo = strconv.Itoa(r.MessageID)

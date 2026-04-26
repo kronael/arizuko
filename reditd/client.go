@@ -366,6 +366,9 @@ func (rc *redditClient) thingToMsg(t thing, jid string) (chanlib.InboundMsg, boo
 		Topic:       topic,
 		Verb:        verb,
 		Attachments: atts,
+		// t4 is a private inbox message (DM); t1/t3 (comment/submission)
+		// always live inside a subreddit and are multi-actor.
+		IsGroup: t.Kind != "t4",
 	}, true
 }
 

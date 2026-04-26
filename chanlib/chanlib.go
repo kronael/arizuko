@@ -55,6 +55,12 @@ type InboundMsg struct {
 	// Reaction carries the source emoji when Verb is "like" or "dislike"
 	// triggered by an inbound reaction event. Empty for content messages.
 	Reaction string `json:"reaction,omitempty"`
+	// IsGroup classifies the chat: true for group chats / channels /
+	// public threads, false for DMs / 1:1 threads / slink. The router
+	// upserts this onto chats.is_group; the secrets resolver reads it
+	// to decide whether user-scope secrets are safe to inject. Adapters
+	// set this on every inbound — the latest classification wins.
+	IsGroup bool `json:"is_group,omitempty"`
 }
 
 type RouterClient struct {

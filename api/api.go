@@ -184,6 +184,7 @@ type messageReq struct {
 	Verb          string `json:"verb,omitempty"`
 	Reaction      string `json:"reaction,omitempty"`
 	Attachments   []chanlib.InboundAttachment `json:"attachments"`
+	IsGroup       bool                        `json:"is_group,omitempty"`
 	// WhatsApp flat fields (whapd sends these instead of attachments array)
 	Attachment     string `json:"attachment,omitempty"`      // base64
 	AttachmentMime string `json:"attachment_mime,omitempty"`
@@ -257,6 +258,10 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, http.StatusInternalServerError, "store failed")
 		slog.Error("store message failed", "err", err)
 		return
+	}
+
+	if err := s.store.SetChatIsGroup(req.ChatJID, req.IsGroup); err != nil {
+		slog.Warn("set chat is_group failed", "jid", req.ChatJID, "err", err)
 	}
 
 	chanlib.WriteJSON(w, map[string]any{"ok": true})

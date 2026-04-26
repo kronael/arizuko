@@ -447,6 +447,9 @@ func (lc *linkClient) deliverComment(router *chanlib.RouterClient, postURN strin
 		Topic:      postURN,
 		Verb:       verb,
 		ReplyTo:    replyTo,
+		// Comments on a public LinkedIn post: multi-actor by definition.
+		// DM inbound (when added) should classify per-conversation.
+		IsGroup: true,
 	}
 	if err := router.SendMessage(msg); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)

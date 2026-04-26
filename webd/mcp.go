@@ -108,6 +108,8 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 			SenderName: name,
 			Content:    content,
 			Timestamp:  m.Timestamp.Unix(),
+			// Web MCP: each call carries one authenticated sub. Single-user.
+			IsGroup: false,
 		}); err != nil {
 			return mcp.NewToolResultError("router: " + err.Error()), nil
 		}

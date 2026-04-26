@@ -279,6 +279,10 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		Topic:       topic,
 		Verb:        verb,
 		Attachments: atts,
+		// All current bskyd inbound is feed-side (replies, mentions,
+		// likes on public posts). DM API isn't wired yet; when it is,
+		// classify those handlers IsGroup=false.
+		IsGroup: true,
 	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 		return

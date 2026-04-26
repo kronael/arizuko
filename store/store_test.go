@@ -533,6 +533,52 @@ func TestPutMessage_InheritsStickyTopic(t *testing.T) {
 	}
 }
 
+func TestChatIsGroup_DefaultsFalse(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	if s.GetChatIsGroup("never-seen") {
+		t.Fatal("missing chat should default to single-user (is_group=0)")
+	}
+}
+
+func TestChatIsGroup_RoundTrip(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	if err := s.SetChatIsGroup("telegram:-100", true); err != nil {
+		t.Fatal(err)
+	}
+	if !s.GetChatIsGroup("telegram:-100") {
+		t.Fatal("expected is_group=true after Set")
+	}
+	if err := s.SetChatIsGroup("telegram:-100", false); err != nil {
+		t.Fatal(err)
+	}
+	if s.GetChatIsGroup("telegram:-100") {
+		t.Fatal("expected is_group=false after second Set")
+	}
+}
+
+func TestChatIsGroup_PreservesOtherCols(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	jid := "telegram:42"
+	if err := s.SetStickyGroup(jid, "support"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetChatIsGroup(jid, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetStickyGroup(jid); got != "support" {
+		t.Fatalf("sticky_group lost on is_group upsert: got %q", got)
+	}
+	if !s.GetChatIsGroup(jid) {
+		t.Fatal("is_group not persisted")
+	}
+}
+
 func TestUserGroupsNoRows(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()

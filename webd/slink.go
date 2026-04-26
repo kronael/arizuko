@@ -224,6 +224,8 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		SenderName: senderName,
 		Content:    content,
 		Timestamp:  m.Timestamp.Unix(),
+		// slink: one token == one anonymous human; always single-user.
+		IsGroup: false,
 	}); err != nil {
 		http.Error(w, "router unavailable", http.StatusBadGateway)
 		return

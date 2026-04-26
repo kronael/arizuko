@@ -117,6 +117,9 @@ async function pollOnce(state: CursorState): Promise<CursorState> {
           timestamp: Number(tw['timestamp']) || Math.floor(Date.now() / 1000),
           verb: inReplyTo ? 'reply' : 'message',
           ...(inReplyTo ? { reply_to: inReplyTo } : {}),
+          // Mentions/replies on the public timeline are multi-actor;
+          // DM API isn't wired in twitd yet.
+          is_group: true,
         };
         try {
           await rc.sendMessage(msg);

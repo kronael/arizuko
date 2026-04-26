@@ -188,6 +188,9 @@ func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.Inbo
 		msg.Topic = topic
 		msg.Verb = verb
 		msg.Attachments = mc.extractAttachments(n.Status)
+		// visibility=direct → DM; everything else (public, unlisted,
+		// private/followers-only) is multi-actor and treated as group.
+		msg.IsGroup = n.Status.Visibility != "direct"
 	case "favourite":
 		if n.Status == nil {
 			return chanlib.InboundMsg{}, false
@@ -195,6 +198,7 @@ func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.Inbo
 		msg.ID = "fav-" + string(n.Status.ID) + "-" + string(acc.ID)
 		msg.Content = "❤️"
 		msg.Verb = "like"
+		msg.IsGroup = n.Status.Visibility != "direct"
 	case "reblog":
 		if n.Status == nil {
 			return chanlib.InboundMsg{}, false
@@ -202,6 +206,7 @@ func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.Inbo
 		msg.ID = "reblog-" + string(n.Status.ID) + "-" + string(acc.ID)
 		msg.Content = string(n.Status.ID)
 		msg.Verb = "repost"
+		msg.IsGroup = n.Status.Visibility != "direct"
 	case "follow":
 		msg.ID = "follow-" + string(acc.ID)
 		msg.Content = name + " followed you"

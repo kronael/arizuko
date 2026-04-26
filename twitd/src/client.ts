@@ -16,6 +16,7 @@ export interface InboundMsg {
   reply_to_sender?: string;
   verb?: string;
   reaction?: string;
+  is_group?: boolean;
 }
 
 export class RouterClient {

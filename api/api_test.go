@@ -148,6 +148,34 @@ func TestDeliverMessage(t *testing.T) {
 	}
 }
 
+func TestDeliverMessage_PersistsIsGroup(t *testing.T) {
+	srv, reg, s := setup(t)
+	h := srv.Handler()
+
+	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+
+	w := postJSON(h, "/v1/messages", messageReq{
+		ChatJID: "tg:-100", Content: "hi", IsGroup: true,
+	}, token)
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if !s.GetChatIsGroup("tg:-100") {
+		t.Error("expected chats.is_group=1 after delivery with IsGroup=true")
+	}
+
+	// A subsequent inbound classified single-user must overwrite (last-wins).
+	w = postJSON(h, "/v1/messages", messageReq{
+		ChatJID: "tg:-100", Content: "hi again", IsGroup: false,
+	}, token)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if s.GetChatIsGroup("tg:-100") {
+		t.Error("expected last-wins flip back to single-user")
+	}
+}
+
 func TestDeliverMessageBadToken(t *testing.T) {
 	srv, _, _ := setup(t)
 	h := srv.Handler()

@@ -31,6 +31,24 @@ type Message struct {
 	Errored       bool   // set when a previous agent run failed on this message; re-fed tagged for retry
 }
 
+// Chat is the persisted state for a chat_jid: routing stickiness,
+// agent cursor, and the group/dm classification set by the adapter on
+// first inbound.
+type Chat struct {
+	JID          string
+	IsGroup      bool
+	AgentCursor  *time.Time
+	StickyGroup  string
+	StickyTopic  string
+}
+
+// IsSingleUser reports whether this chat is provably 1:1 with one
+// human. False for group chats, channels, public threads. The Phase C
+// secrets resolver gates user-scope secret injection on this predicate:
+// in multi-user contexts personal credentials would leak across users
+// sharing the spawn.
+func (c Chat) IsSingleUser() bool { return !c.IsGroup }
+
 type Group struct {
 	Name       string
 	Folder     string

@@ -326,6 +326,7 @@ async function connect(): Promise<void> {
           verb,
           reaction: text,
           reply_to: targetId,
+          is_group: jid.endsWith('@g.us'),
         });
         lastInboundAt = Math.floor(Date.now() / 1000);
       } catch (e) {
@@ -369,6 +370,9 @@ async function connect(): Promise<void> {
           content,
           timestamp:
             Number(msg.messageTimestamp) || Math.floor(Date.now() / 1000),
+          // jid suffix `@g.us` = WhatsApp group; everything else (`@s.whatsapp.net`,
+          // broadcast lists) is treated as 1:1 here. Group DMs use `@g.us` too.
+          is_group: jid.endsWith('@g.us'),
           ...(mediaBuffer
             ? {
                 attachment: mediaBuffer.toString('base64'),

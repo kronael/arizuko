@@ -358,6 +358,9 @@ func (p *poller) handleMsg(
 		Content:     content,
 		Timestamp:   ts,
 		Attachments: atts,
+		// Email threads are 1:1 by default. Mailing-list inbound is a
+		// future extension that should set IsGroup=true here.
+		IsGroup: false,
 	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 		return nil

@@ -102,6 +102,10 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if err == nil && (ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread) {
 		topic = m.ChannelID
 	}
+	// Anything other than a 1:1 DM is multi-user (guild text, threads,
+	// group DMs). On lookup error fall back to multi-user; user-scope
+	// secrets stay closed by default.
+	isGroup := !(err == nil && ch.Type == discordgo.ChannelTypeDM)
 
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:          m.ID,
@@ -112,6 +116,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		Timestamp:   m.Timestamp.Unix(),
 		Topic:       topic,
 		Attachments: atts,
+		IsGroup:     isGroup,
 	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
 		return
@@ -148,6 +153,7 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 		Verb:       verb,
 		ReplyTo:    m.MessageID,
 		Reaction:   emoji,
+		IsGroup:    m.GuildID != "",
 	}); err != nil {
 		slog.Error("deliver reaction failed", "jid", jid, "err", err)
 		return
