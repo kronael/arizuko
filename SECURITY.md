@@ -38,6 +38,29 @@ host root always wins — arizuko does not defend against the host
 operator. The agent container runs with `bypassPermissions`; the
 boundary is the mount set, not the tool policy.
 
+## Identity header trust
+
+`proxyd` is the **sole signer** of identity headers
+(`X-User-Sub`, `X-User-Name`, `X-User-Groups`, `X-User-Sig`).
+Every other HTTP-receiving backend MUST verify the signature via the
+centralized middleware in `auth/middleware.go`:
+
+- `auth.RequireSigned(secret)` — strict, redirect-on-fail. Use on
+  always-authed backends (e.g. `webd/server.go:44` constructs it once
+  and stamps it on every private route).
+- `auth.StripUnsigned(secret)` — lenient, scrub-spoofed-and-continue.
+  Use on backends mixing public + authed flows (e.g. `onbod/main.go:81`
+  protects `/onboard` and `/invite/{token}` so unauthenticated landings
+  still work but a forged `X-User-Sub` never reaches a handler).
+
+Crypto lives in `auth/hmac.go` (`SignHMAC`, `VerifyUserSig`,
+`UserSigMessage`) and is shared by both signer and verifiers. Never
+inline a `VerifyUserSig` call in handler code — go through the
+middleware. The single exception is in `webd/slink.go` where signed
+identity is one of two acceptable identities (the other being
+anonymous-from-trusted-IP); even there, the call is a boolean
+"is this user known?" check, not an authentication gate.
+
 ## Trust zones
 
 ```

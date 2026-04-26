@@ -100,6 +100,15 @@ cfg/               Instance config files (per-deploy .env snapshots)
   chat command for management. Infra (ports, timeouts, images, paths) stays
   as env vars in `.env`.
 
+### Trust boundaries
+
+`proxyd` is the sole signer of identity headers (`auth.SignHMAC`).
+Every other HTTP-receiving backend (`webd`, `onbod`, future) MUST
+verify via `auth/middleware.go` — `auth.RequireSigned` for
+always-authed routes, `auth.StripUnsigned` for backends mixing
+public + authed flows. Never inline an `auth.VerifyUserSig` call
+in handler code; never trust `X-User-Sub` without a sig check.
+
 ## Data Dir
 
 `/srv/data/arizuko_<name>/` per instance:
