@@ -24,12 +24,13 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|gate|invite|status|pair|generate> ...")
+		fmt.Println("usage: arizuko <run|create|group|gate|invite|chat|status|pair|generate> ...")
 		fmt.Println("  group  <instance> list | add | rm | grant | ungrant | grants")
 		fmt.Println("  gate   <instance> list | add | rm | enable | disable")
 		fmt.Println("  invite <instance> create <target_glob> [--max-uses N] [--expires DURATION]")
 		fmt.Println("  invite <instance> list [--issued-by SUB]")
 		fmt.Println("  invite <instance> revoke <token>")
+		fmt.Println("  chat   <instance>  — interactive Claude Code session bound to root MCP socket")
 		os.Exit(1)
 	}
 
@@ -40,6 +41,7 @@ func main() {
 		"group":    cmdGroup,
 		"gate":     cmdGate,
 		"invite":   cmdInvite,
+		"chat":     cmdChat,
 		"status":   cmdStatus,
 		"pair":     cmdPair,
 	}
@@ -490,6 +492,50 @@ func cmdInvite(args []string) {
 
 	default:
 		die("unknown invite action: %s", action)
+	}
+}
+
+// cmdChat launches `claude` (Claude Code CLI) wired to the instance's root
+// IPC socket via socat. Local-operator only — socket access is the auth.
+func cmdChat(args []string) {
+	need(args, 1, "arizuko chat <instance>")
+	dataDir := mustInstanceDir(args[0])
+
+	sock := filepath.Join(dataDir, "ipc", "main", "gated.sock")
+	if _, err := os.Stat(sock); err != nil {
+		die("no IPC socket at %s — is the instance running?", sock)
+	}
+	if _, err := exec.LookPath("claude"); err != nil {
+		die("'claude' not in PATH — install Claude Code CLI first")
+	}
+	if _, err := exec.LookPath("socat"); err != nil {
+		die("'socat' not in PATH — install socat first")
+	}
+
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"arizuko": map[string]any{
+				"command": "socat",
+				"args":    []string{"STDIO", "UNIX-CONNECT:" + sock},
+			},
+		},
+	}
+	tmp, err := os.CreateTemp("", "arizuko-chat-*.json")
+	if err != nil {
+		die("Failed: temp file: %v", err)
+	}
+	defer os.Remove(tmp.Name())
+	if err := json.NewEncoder(tmp).Encode(cfg); err != nil {
+		die("Failed: write config: %v", err)
+	}
+	tmp.Close()
+
+	cmd := exec.Command("claude", "--mcp-config", tmp.Name())
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		die("Failed: claude: %v", err)
 	}
 }
 
