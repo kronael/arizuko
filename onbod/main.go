@@ -82,15 +82,15 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("GET /onboard", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /onboard", verifySignedIdentity(cfg, func(w http.ResponseWriter, r *http.Request) {
 		handleOnboard(w, r, db, cfg)
-	})
-	mux.HandleFunc("POST /onboard", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	mux.HandleFunc("POST /onboard", verifySignedIdentity(cfg, func(w http.ResponseWriter, r *http.Request) {
 		handleOnboardPost(w, r, db, cfg)
-	})
-	mux.HandleFunc("GET /invite/{token}", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	mux.HandleFunc("GET /invite/{token}", verifySignedIdentity(cfg, func(w http.ResponseWriter, r *http.Request) {
 		handleInvite(w, r, db, cfg)
-	})
+	}))
 
 	srv := &http.Server{Addr: cfg.listenAddr, Handler: mux}
 	go func() {
@@ -250,9 +250,28 @@ func genToken() string {
 	return hex.EncodeToString(b)
 }
 
+// verifySignedIdentity strips X-User-* headers from any request that
+// claims a sub but lacks a valid HMAC signature from proxyd. Public
+// flows (token-landing, /invite, unauthenticated GET /onboard) keep
+// working because they tolerate empty userSub. Spoofed identity headers
+// (someone reaching onbod directly with a forged X-User-Sub) get
+// scrubbed before any handler sees them.
+func verifySignedIdentity(cfg config, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-User-Sub") != "" && !auth.VerifyUserSig(cfg.authSecret, r) {
+			slog.Warn("onbod: user sig verify failed",
+				"path", r.URL.Path,
+				"attempted_sub", r.Header.Get("X-User-Sub"),
+				"remote", r.Header.Get("X-Forwarded-For"))
+			for _, h := range []string{"X-User-Sub", "X-User-Name", "X-User-Groups", "X-User-Sig"} {
+				r.Header.Del(h)
+			}
+		}
+		next(w, r)
+	}
+}
+
 func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
-	// TODO(proxyd-auth): X-User-Sub is trusted unconditionally; see comment
-	// in handleOnboardPost for the shared-secret-HMAC plan.
 	token := r.URL.Query().Get("token")
 	userSub := r.Header.Get("X-User-Sub")
 
@@ -396,12 +415,6 @@ func checkCSRF(r *http.Request) bool {
 }
 
 func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
-	// TODO(proxyd-auth): X-User-Sub is trusted unconditionally. When onbod is
-	// reachable without proxyd in front (dev, misconfigured networks, exposed
-	// port), anyone can impersonate any user by setting the header. Add a
-	// shared-secret header (e.g. X-Proxyd-Auth = HMAC(secret, X-User-Sub))
-	// verified here; see /home/onvos/app/arizuko/proxyd/main.go where the
-	// header is set (around line 387).
 	userSub := r.Header.Get("X-User-Sub")
 	if userSub == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
