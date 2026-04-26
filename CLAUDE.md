@@ -109,6 +109,22 @@ always-authed routes, `auth.StripUnsigned` for backends mixing
 public + authed flows. Never inline an `auth.VerifyUserSig` call
 in handler code; never trust `X-User-Sub` without a sig check.
 
+### Subagent worktrees
+
+When spawning Agent subagents that make non-trivial changes
+(touches >5 files, schema migrations, new specs, cross-package
+refactors), pass `isolation: "worktree"` so the agent works in an
+isolated git checkout. This prevents conflicts if multiple subs
+run in parallel or if you're editing the main tree alongside.
+
+Trivial changes (single-file edits, doc tweaks, one-line fixes,
+typo runs) can run on the shared tree — worktree creation
+overhead isn't worth it.
+
+The Agent tool cleans up the worktree automatically if the agent
+made no changes; otherwise the worktree path + branch are
+returned in the result for review.
+
 ## Design principles
 
 ### Simple stays simple, complex goes deeper
