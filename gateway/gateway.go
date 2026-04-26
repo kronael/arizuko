@@ -153,6 +153,22 @@ func (g *Gateway) Run(ctx context.Context) error {
 			}
 			return g.spawnFromPrototype(parentFolder, childJID)
 		},
+		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
+			inv, err := g.store.CreateInvite(targetGlob, issuedBySub, maxUses, expiresAt)
+			if err != nil {
+				return ipc.InviteInfo{}, err
+			}
+			return ipc.InviteInfo{
+				Token:       inv.Token,
+				TargetGlob:  inv.TargetGlob,
+				IssuedBySub: inv.IssuedBySub,
+				IssuedAt:    inv.IssuedAt,
+				ExpiresAt:   inv.ExpiresAt,
+				MaxUses:     inv.MaxUses,
+				UsedCount:   inv.UsedCount,
+			}, nil
+		},
+		AcceptURLBase: g.cfg.AuthBaseURL,
 	}
 	g.storeFns = ipc.StoreFns{
 		CreateTask: g.store.CreateTask,

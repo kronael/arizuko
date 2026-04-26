@@ -55,12 +55,12 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT, created_at TEXT, context_mode TEXT);
 		CREATE TABLE user_jids (user_sub TEXT NOT NULL, jid TEXT NOT NULL, claimed TEXT NOT NULL, PRIMARY KEY (user_sub, jid));
 		CREATE UNIQUE INDEX idx_user_jids_jid ON user_jids(jid);
-		CREATE TABLE user_groups (user_sub TEXT NOT NULL, folder TEXT NOT NULL, PRIMARY KEY (user_sub, folder));
+		CREATE TABLE user_groups (user_sub TEXT NOT NULL, folder TEXT NOT NULL, granted_at TEXT, PRIMARY KEY (user_sub, folder));
 		CREATE TABLE auth_users (id INTEGER PRIMARY KEY AUTOINCREMENT, sub TEXT UNIQUE, username TEXT, hash TEXT, name TEXT, created_at TEXT);
 		CREATE TABLE auth_sessions (token_hash TEXT PRIMARY KEY, user_sub TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
 		CREATE TABLE channels (name TEXT PRIMARY KEY, url TEXT, capabilities TEXT);
 		CREATE TABLE onboarding_gates (gate TEXT PRIMARY KEY, limit_per_day INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);
-		CREATE TABLE invitations (token TEXT PRIMARY KEY, folder TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, uses INTEGER NOT NULL DEFAULT 0, max_uses INTEGER NOT NULL DEFAULT 1, expires TEXT);
+		CREATE TABLE invites (token TEXT PRIMARY KEY, target_glob TEXT NOT NULL, issued_by_sub TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT, max_uses INTEGER NOT NULL DEFAULT 1, used_count INTEGER NOT NULL DEFAULT 0);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -727,30 +727,40 @@ func TestNoGatesLegacyBehavior(t *testing.T) {
 	}
 }
 
-// --- Invitation tests ---
+// --- Invite tests ---
+
+// createInvite is a test helper that mints an invite via the new store API.
+func createInvite(t *testing.T, db *sql.DB, targetGlob, issuedBy string, maxUses int) string {
+	t.Helper()
+	inv, err := store.New(db).CreateInvite(targetGlob, issuedBy, maxUses, nil)
+	if err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+	return inv.Token
+}
 
 func TestInviteCreation(t *testing.T) {
 	db := testDB(t)
-	token := createInvitation(db, "alice", "telegram:1", 3)
+	token := createInvite(t, db, "alice", "telegram:1", 3)
 	if len(token) != 64 {
 		t.Errorf("expected 64-char hex token, got %d", len(token))
 	}
 
-	var folder, createdBy string
-	var maxUses, uses int
-	db.QueryRow(`SELECT folder, created_by, max_uses, uses FROM invitations WHERE token = ?`,
-		token).Scan(&folder, &createdBy, &maxUses, &uses)
-	if folder != "alice" {
-		t.Errorf("want folder=alice, got %q", folder)
+	var glob, issuedBy string
+	var maxUses, used int
+	db.QueryRow(`SELECT target_glob, issued_by_sub, max_uses, used_count FROM invites WHERE token = ?`,
+		token).Scan(&glob, &issuedBy, &maxUses, &used)
+	if glob != "alice" {
+		t.Errorf("want target_glob=alice, got %q", glob)
 	}
-	if createdBy != "telegram:1" {
-		t.Errorf("want created_by=telegram:1, got %q", createdBy)
+	if issuedBy != "telegram:1" {
+		t.Errorf("want issued_by_sub=telegram:1, got %q", issuedBy)
 	}
 	if maxUses != 3 {
 		t.Errorf("want max_uses=3, got %d", maxUses)
 	}
-	if uses != 0 {
-		t.Errorf("want uses=0, got %d", uses)
+	if used != 0 {
+		t.Errorf("want used_count=0, got %d", used)
 	}
 }
 
@@ -763,7 +773,7 @@ func TestInviteConsume(t *testing.T) {
 	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed)
 		VALUES ('github:bob', 'telegram:99', '2026-01-01')`)
 
-	token := createInvitation(db, "alice", "telegram:1", 1)
+	token := createInvite(t, db, "alice", "telegram:1", 1)
 
 	cfg := config{authBaseURL: "https://example.com"}
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
@@ -793,18 +803,18 @@ func TestInviteConsume(t *testing.T) {
 		t.Errorf("want 1 route for room=99→alice, got %d", n)
 	}
 
-	// Uses should be incremented
-	var uses int
-	db.QueryRow(`SELECT uses FROM invitations WHERE token = ?`, token).Scan(&uses)
-	if uses != 1 {
-		t.Errorf("want uses=1, got %d", uses)
+	// used_count should be incremented
+	var used int
+	db.QueryRow(`SELECT used_count FROM invites WHERE token = ?`, token).Scan(&used)
+	if used != 1 {
+		t.Errorf("want used_count=1, got %d", used)
 	}
 }
 
 func TestInviteExpired(t *testing.T) {
 	db := testDB(t)
 	past := "2020-01-01T00:00:00Z"
-	db.Exec(`INSERT INTO invitations (token, folder, created_by, created_at, max_uses, expires)
+	db.Exec(`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, max_uses, expires_at)
 		VALUES ('expired-tok', 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, ?)`, past)
 
 	cfg := config{}
@@ -825,7 +835,7 @@ func TestInviteExpired(t *testing.T) {
 
 func TestInviteMaxUses(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO invitations (token, folder, created_by, created_at, uses, max_uses)
+	db.Exec(`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, used_count, max_uses)
 		VALUES ('used-tok', 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, 1)`)
 
 	cfg := config{}
@@ -846,7 +856,7 @@ func TestInviteMaxUses(t *testing.T) {
 
 func TestInviteAuthRequired(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO invitations (token, folder, created_by, created_at, max_uses)
+	db.Exec(`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, max_uses)
 		VALUES ('auth-tok', 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1)`)
 
 	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
@@ -1103,7 +1113,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 		VALUES ('github:bob', 'bob', 'Bob', '', '2026-01-01')`)
 	db.Exec(`INSERT INTO groups (folder, name, parent, added_at)
 		VALUES ('alice', 'alice', NULL, '2026-01-01')`)
-	tok := createInvitation(db, "alice", "telegram:1", 1)
+	tok := createInvite(t, db, "alice", "telegram:1", 1)
 
 	// First consume.
 	req := httptest.NewRequest("GET", "/invite/"+tok, nil)
@@ -1429,7 +1439,7 @@ func TestStateMachineMigrated(t *testing.T) {
 // Invite: auth_return cookie is also set when unauthenticated (regression guard).
 func TestInviteSetsCookieFlagsHTTPS(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO invitations (token, folder, created_by, created_at, max_uses)
+	db.Exec(`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, max_uses)
 		VALUES ('tok', 'alice', 'x', '2026-01-01T00:00:00Z', 1)`)
 	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
 	req := httptest.NewRequest("GET", "/invite/tok", nil)
@@ -1780,23 +1790,6 @@ func TestLoadConfigBadPollInterval(t *testing.T) {
 	}
 	if cfg.pollInterval != 10*time.Second {
 		t.Errorf("want default 10s, got %v", cfg.pollInterval)
-	}
-}
-
-// createInvitation writes the row and returns a 64-char hex token.
-func TestCreateInvitation(t *testing.T) {
-	db := testDB(t)
-	tok := createInvitation(db, "alice", "op", 3)
-	if len(tok) != 64 {
-		t.Errorf("want 64-char hex token, got %d", len(tok))
-	}
-	var folder, createdBy string
-	var maxUses, uses int
-	db.QueryRow(`SELECT folder, created_by, max_uses, uses FROM invitations WHERE token=?`, tok).
-		Scan(&folder, &createdBy, &maxUses, &uses)
-	if folder != "alice" || createdBy != "op" || maxUses != 3 || uses != 0 {
-		t.Errorf("row mismatch: folder=%q createdBy=%q max=%d uses=%d",
-			folder, createdBy, maxUses, uses)
 	}
 }
 

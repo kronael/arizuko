@@ -203,9 +203,14 @@ func (g *Gateway) cmdInvite(chatJid string, group core.Group, arg string) bool {
 		}
 		maxUses = n
 	}
-	token := g.store.CreateInvitationToken(group.Folder, chatJid, maxUses)
+	inv, err := g.store.CreateInvite(group.Folder, chatJid, maxUses, nil)
+	if err != nil {
+		slog.Error("create invite", "folder", group.Folder, "err", err)
+		g.sendMessage(chatJid, "Failed to create invite.")
+		return true
+	}
 	base := strings.TrimRight(g.cfg.AuthBaseURL, "/")
-	link := base + "/invite/" + token
+	link := base + "/invite/" + inv.Token
 	label := fmt.Sprintf("Invite link (%d use", maxUses)
 	if maxUses > 1 {
 		label += "s"

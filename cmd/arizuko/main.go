@@ -24,9 +24,12 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|gate|status|pair|generate> ...")
-		fmt.Println("  group <instance> list | add | rm | grant | ungrant | grants")
-		fmt.Println("  gate  <instance> list | add | rm | enable | disable")
+		fmt.Println("usage: arizuko <run|create|group|gate|invite|status|pair|generate> ...")
+		fmt.Println("  group  <instance> list | add | rm | grant | ungrant | grants")
+		fmt.Println("  gate   <instance> list | add | rm | enable | disable")
+		fmt.Println("  invite <instance> create <target_glob> [--max-uses N] [--expires DURATION]")
+		fmt.Println("  invite <instance> list [--issued-by SUB]")
+		fmt.Println("  invite <instance> revoke <token>")
 		os.Exit(1)
 	}
 
@@ -36,6 +39,7 @@ func main() {
 		"create":   cmdCreate,
 		"group":    cmdGroup,
 		"gate":     cmdGate,
+		"invite":   cmdInvite,
 		"status":   cmdStatus,
 		"pair":     cmdPair,
 	}
@@ -382,6 +386,110 @@ func cmdGate(args []string) {
 
 	default:
 		die("unknown gate action: %s", action)
+	}
+}
+
+func cmdInvite(args []string) {
+	need(args, 2, "arizuko invite <instance> <create|list|revoke> ...")
+	instance, action := args[0], args[1]
+
+	dataDir := mustInstanceDir(instance)
+	s, err := store.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		die("Failed: open db: %v", err)
+	}
+	defer s.Close()
+
+	switch action {
+	case "create":
+		need(args, 3, "arizuko invite <instance> create <target_glob> [--max-uses N] [--expires DURATION]")
+		targetGlob := args[2]
+		maxUses := 1
+		var expiresAt *time.Time
+		rest := args[3:]
+		for i := 0; i < len(rest); i++ {
+			switch rest[i] {
+			case "--max-uses":
+				if i+1 >= len(rest) {
+					die("--max-uses requires a value")
+				}
+				n, err := strconv.Atoi(rest[i+1])
+				if err != nil || n < 1 {
+					die("invalid --max-uses %q", rest[i+1])
+				}
+				maxUses = n
+				i++
+			case "--expires":
+				if i+1 >= len(rest) {
+					die("--expires requires a duration")
+				}
+				d, err := time.ParseDuration(rest[i+1])
+				if err != nil {
+					die("invalid --expires %q: %v", rest[i+1], err)
+				}
+				t := time.Now().Add(d)
+				expiresAt = &t
+				i++
+			default:
+				die("unknown invite create flag: %s", rest[i])
+			}
+		}
+		inv, err := s.CreateInvite(targetGlob, "cli", maxUses, expiresAt)
+		if err != nil {
+			die("Failed: %v", err)
+		}
+		fmt.Printf("token: %s\n", inv.Token)
+		fmt.Printf("target_glob: %s\n", inv.TargetGlob)
+		fmt.Printf("max_uses: %d\n", inv.MaxUses)
+		if inv.ExpiresAt != nil {
+			fmt.Printf("expires_at: %s\n", inv.ExpiresAt.Format(time.RFC3339))
+		}
+
+	case "list":
+		issuedBy := ""
+		rest := args[2:]
+		for i := 0; i < len(rest); i++ {
+			if rest[i] == "--issued-by" {
+				if i+1 >= len(rest) {
+					die("--issued-by requires a value")
+				}
+				issuedBy = rest[i+1]
+				i++
+			} else {
+				die("unknown invite list flag: %s", rest[i])
+			}
+		}
+		invs, err := s.ListInvites(issuedBy)
+		if err != nil {
+			die("Failed: %v", err)
+		}
+		if len(invs) == 0 {
+			fmt.Println("no invites")
+			return
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "TOKEN\tTARGET_GLOB\tISSUED_BY\tISSUED_AT\tEXPIRES_AT\tUSED")
+		for _, inv := range invs {
+			exp := "-"
+			if inv.ExpiresAt != nil {
+				exp = inv.ExpiresAt.Format(time.RFC3339)
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d/%d\n",
+				inv.Token, inv.TargetGlob, inv.IssuedBySub,
+				inv.IssuedAt.Format(time.RFC3339), exp,
+				inv.UsedCount, inv.MaxUses)
+		}
+		tw.Flush()
+
+	case "revoke":
+		need(args, 3, "arizuko invite <instance> revoke <token>")
+		if err := s.RevokeInvite(args[2]); err != nil {
+			die("Failed: %v", err)
+		}
+		fmt.Printf("invite revoked: %s\n", args[2])
+
+	default:
+		die("unknown invite action: %s", action)
 	}
 }
 

@@ -649,48 +649,36 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		return
 	}
 
-	// Check existence + expiry first for clearer user-facing messages.
-	var expires sql.NullString
-	if err := db.QueryRow(
-		`SELECT expires FROM invitations WHERE token = ?`, token,
-	).Scan(&expires); err != nil {
+	st := store.New(db)
+
+	// Existence + expiry preflight gives clearer user-facing copy than the
+	// single "unavailable" we'd report after a failed atomic consume.
+	inv, err := st.GetInvite(token)
+	if err != nil {
 		slog.Warn("invite invalid", "reason", "not_found",
 			"token_hash", chanlib.ShortHash(token), "user", userSub)
 		renderPage(w, "Invalid Invite",
 			template.HTML("<p>This invite link is invalid or does not exist.</p>"))
 		return
 	}
-	if expires.Valid && expires.String != "" {
-		exp, _ := time.Parse(time.RFC3339, expires.String)
-		if !exp.IsZero() && time.Now().After(exp) {
-			slog.Warn("invite invalid", "reason", "expired",
-				"token_hash", chanlib.ShortHash(token), "user", userSub)
-			renderPage(w, "Invite Expired",
-				template.HTML("<p>This invite link has expired.</p>"))
-			return
-		}
+	if inv.ExpiresAt != nil && time.Now().After(*inv.ExpiresAt) {
+		slog.Warn("invite invalid", "reason", "expired",
+			"token_hash", chanlib.ShortHash(token), "user", userSub)
+		renderPage(w, "Invite Expired",
+			template.HTML("<p>This invite link has expired.</p>"))
+		return
 	}
 
-	// Atomic consume: guard uses < max_uses inside the UPDATE itself so
-	// concurrent redemptions of a 1-use invite cannot both succeed.
-	var folder string
-	err := db.QueryRow(
-		`UPDATE invitations SET uses = uses + 1
-		 WHERE token = ? AND uses < max_uses
-		 RETURNING folder`, token,
-	).Scan(&folder)
+	consumed, err := st.ConsumeInvite(token, userSub)
 	if err != nil {
 		slog.Warn("invite invalid", "reason", "exhausted",
-			"token_hash", chanlib.ShortHash(token), "user", userSub)
+			"token_hash", chanlib.ShortHash(token), "user", userSub, "err", err)
 		renderPage(w, "Invite Used",
 			template.HTML("<p>This invite link has already been used the maximum number of times.</p>"))
 		return
 	}
 
-	db.Exec(
-		`INSERT OR IGNORE INTO user_groups (user_sub, folder) VALUES (?, ?)`,
-		userSub, folder)
-
+	target := consumed.TargetGlob
 	if rows, err := db.Query(
 		`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub,
 	); err == nil {
@@ -704,23 +692,13 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		for _, jid := range jids {
 			db.Exec(
 				`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
-				"room="+core.JidRoom(jid), folder)
+				"room="+core.JidRoom(jid), target)
 		}
 	}
 
 	slog.Info("invite accepted", "token_hash", chanlib.ShortHash(token),
-		"folder", folder, "user", userSub)
+		"target_glob", target, "user", userSub)
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
-}
-
-func createInvitation(db *sql.DB, folder, createdBy string, maxUses int) string {
-	token := genToken()
-	now := time.Now().Format(time.RFC3339)
-	db.Exec(
-		`INSERT INTO invitations (token, folder, created_by, created_at, max_uses)
-		 VALUES (?, ?, ?, ?, ?)`,
-		token, folder, createdBy, now, maxUses)
-	return token
 }
 
 // renderPage writes a full HTML page. body is template.HTML; callers MUST

@@ -79,6 +79,15 @@ func Authorize(id Identity, tool string, target AuthzTarget) error {
 			return fmt.Errorf("unauthorized: can only manage grants in own world")
 		}
 		return nil
+	case "invite_create":
+		if id.Tier >= 2 {
+			return fmt.Errorf("unauthorized: tier %d cannot issue invites", id.Tier)
+		}
+		// tier 0: anywhere. tier 1: target must be inside caller's world.
+		if id.Tier == 1 && !isInWorld(id.Folder, target.TargetFolder) {
+			return fmt.Errorf("unauthorized: target outside own world")
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown tool: %s", tool)
 	}

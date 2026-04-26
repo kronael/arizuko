@@ -47,8 +47,21 @@ type GatedFns struct {
 	SpawnGroup          func(parentFolder, childJID string) (core.Group, error)
 	UpdateGroupConfig   func(folder string, cfg core.GroupConfig) error
 	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
-	GroupsDir           string
-	WebDir              string
+	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
+	AcceptURLBase        string // base URL where /invite/<token> is served (e.g. https://app.example.com)
+	GroupsDir            string
+	WebDir               string
+}
+
+// InviteInfo mirrors store.Invite for the ipc layer (ipc must not import store).
+type InviteInfo struct {
+	Token       string     `json:"token"`
+	TargetGlob  string     `json:"target_glob"`
+	IssuedBySub string     `json:"issued_by_sub"`
+	IssuedAt    time.Time  `json:"issued_at"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	MaxUses     int        `json:"max_uses"`
+	UsedCount   int        `json:"used_count"`
 }
 
 // PlatformHistory is the decoded channel-side history response surfaced to
@@ -1062,6 +1075,55 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(map[string]any{"ok": true, "folder": gf, "count": len(newRules)})
 		})
 	}
+
+	registerRaw("invite_create",
+		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets a user_groups row matching target_glob. Use to onboard new collaborators to a world or sub-folder you own. The agent's authority must cover target_glob — you can't issue access you don't have. Tier 0-1 only.",
+		[]mcp.ToolOption{
+			mcp.WithString("target_glob", mcp.Required()),
+			mcp.WithNumber("max_uses"),
+			mcp.WithString("expires_at"),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.CreateInvite == nil {
+				return toolErr("invite_create not configured")
+			}
+			targetGlob := req.GetString("target_glob", "")
+			if targetGlob == "" {
+				return toolErr("target_glob required")
+			}
+			if err := auth.Authorize(id, "invite_create", auth.AuthzTarget{TargetFolder: targetGlob}); err != nil {
+				return toolErr(err.Error())
+			}
+			maxUses := req.GetInt("max_uses", 1)
+			if maxUses < 1 {
+				maxUses = 1
+			}
+			var expiresAt *time.Time
+			if exp := req.GetString("expires_at", ""); exp != "" {
+				t, err := time.Parse(time.RFC3339, exp)
+				if err != nil {
+					return toolErr("invalid expires_at: " + err.Error())
+				}
+				expiresAt = &t
+			}
+			inv, err := gated.CreateInvite(targetGlob, "agent:"+folder, maxUses, expiresAt)
+			if err != nil {
+				return toolErr(err.Error())
+			}
+			out := map[string]any{
+				"token":       inv.Token,
+				"target_glob": inv.TargetGlob,
+				"max_uses":    inv.MaxUses,
+			}
+			if inv.ExpiresAt != nil {
+				out["expires_at"] = inv.ExpiresAt.Format(time.RFC3339)
+			}
+			if gated.AcceptURLBase != "" {
+				out["accept_url"] = strings.TrimRight(gated.AcceptURLBase, "/") + "/invite/" + inv.Token
+			}
+			slog.Info("invite_create", "folder", folder, "target_glob", targetGlob, "max_uses", maxUses)
+			return toolJSON(out)
+		})
 
 	if db.MessagesBefore != nil {
 		inspectMessages := func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
