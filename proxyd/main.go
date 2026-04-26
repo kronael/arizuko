@@ -89,21 +89,13 @@ func parseTrustedProxies(s string) []*net.IPNet {
 	return out
 }
 
-// clientHeaderNames are proxyd-owned; stripped on entry and repopulated
-// only after auth or slink-token resolution.
-var clientHeaderNames = []string{
-	"X-User-Sub",
-	"X-User-Name",
-	"X-User-Groups",
-	"X-User-Sig",
-	"X-Folder",
-	"X-Group-Name",
-	"X-Slink-Token",
-	"X-Slink-Sig",
-}
-
+// stripClientHeaders deletes proxyd-owned headers on entry; they are
+// repopulated only after auth or slink-token resolution.
 func stripClientHeaders(r *http.Request) {
-	for _, h := range clientHeaderNames {
+	for _, h := range []string{
+		"X-User-Sub", "X-User-Name", "X-User-Groups", "X-User-Sig",
+		"X-Folder", "X-Group-Name", "X-Slink-Token", "X-Slink-Sig",
+	} {
 		r.Header.Del(h)
 	}
 }
@@ -478,7 +470,14 @@ func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []stri
 	return r2
 }
 
-func (s *server) authByCookie(r *http.Request) *http.Request {
+// tryAuth returns an identity-stamped request if the caller has a valid
+// Bearer JWT or refresh-token cookie; otherwise nil.
+func (s *server) tryAuth(r *http.Request) *http.Request {
+	if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
+		if c, err := auth.VerifyJWT([]byte(s.cfg.authSecret), strings.TrimPrefix(hdr, "Bearer ")); err == nil {
+			return s.setUserHeaders(r, c.Sub, c.Name, c.Groups)
+		}
+	}
 	if s.st == nil {
 		return nil
 	}
@@ -495,20 +494,6 @@ func (s *server) authByCookie(r *http.Request) *http.Request {
 		return nil
 	}
 	return s.setUserHeaders(r, u.Sub, u.Name, s.st.UserGroups(u.Sub))
-}
-
-// tryAuth returns an identity-stamped request if the caller has a valid
-// Bearer JWT or refresh-token cookie; otherwise the original request.
-func (s *server) tryAuth(r *http.Request) *http.Request {
-	if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
-		if c, err := auth.VerifyJWT([]byte(s.cfg.authSecret), strings.TrimPrefix(hdr, "Bearer ")); err == nil {
-			return s.setUserHeaders(r, c.Sub, c.Name, c.Groups)
-		}
-	}
-	if a := s.authByCookie(r); a != nil {
-		return a
-	}
-	return nil
 }
 
 func (s *server) optionalAuth(next http.HandlerFunc) http.HandlerFunc {
