@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -30,24 +31,6 @@ type Message struct {
 	Source        string // adapter name that handled this row (inbound: receiver; outbound: deliverer)
 	Errored       bool   // set when a previous agent run failed on this message; re-fed tagged for retry
 }
-
-// Chat is the persisted state for a chat_jid: routing stickiness,
-// agent cursor, and the group/dm classification set by the adapter on
-// first inbound.
-type Chat struct {
-	JID          string
-	IsGroup      bool
-	AgentCursor  *time.Time
-	StickyGroup  string
-	StickyTopic  string
-}
-
-// IsSingleUser reports whether this chat is provably 1:1 with one
-// human. False for group chats, channels, public threads. The Phase C
-// secrets resolver gates user-scope secret injection on this predicate:
-// in multi-user contexts personal credentials would leak across users
-// sharing the spawn.
-func (c Chat) IsSingleUser() bool { return !c.IsGroup }
 
 type Group struct {
 	Name       string
@@ -155,6 +138,17 @@ func GenSlinkToken() string {
 		panic(fmt.Sprintf("crypto/rand failed: %v", err))
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// GenHexToken returns a 256-bit hex-encoded random token. Panics on
+// RNG failure. Used for invite tokens and CSRF cookies — anywhere a
+// 64-char hex string is wanted.
+func GenHexToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
+	return hex.EncodeToString(b)
 }
 
 var instanceNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,31}$`)

@@ -1837,20 +1837,6 @@ func TestCSRFRejectedWhenFormMissing(t *testing.T) {
 	}
 }
 
-// genToken yields unique 64-char hex strings.
-func TestGenTokenUnique(t *testing.T) {
-	seen := map[string]bool{}
-	for i := 0; i < 64; i++ {
-		tk := genToken()
-		if len(tk) != 64 {
-			t.Fatalf("want 64 chars, got %d", len(tk))
-		}
-		if seen[tk] {
-			t.Fatal("duplicate token from genToken")
-		}
-		seen[tk] = true
-	}
-}
 
 // Small helper: drain a body without importing io at the top of the file.
 func readAll(r interface{ Read(p []byte) (int, error) }) ([]byte, error) {

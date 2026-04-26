@@ -1,12 +1,11 @@
 package store
 
 import (
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"time"
+
+	"github.com/onvos/arizuko/core"
 )
 
 type Invite struct {
@@ -24,14 +23,6 @@ type Invite struct {
 // "invalid or used" page; the cause is logged at the call site.
 var ErrInviteUnavailable = errors.New("invite unavailable")
 
-func newInviteToken() string {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Sprintf("crypto/rand failed: %v", err))
-	}
-	return hex.EncodeToString(b)
-}
-
 func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (*Invite, error) {
 	if targetGlob == "" {
 		return nil, errors.New("target_glob required")
@@ -42,7 +33,7 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 	if maxUses < 1 {
 		maxUses = 1
 	}
-	token := newInviteToken()
+	token := core.GenHexToken()
 	now := time.Now().UTC()
 	var expStr sql.NullString
 	if expiresAt != nil {

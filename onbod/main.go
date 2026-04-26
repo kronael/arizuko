@@ -2,10 +2,8 @@ package main
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/subtle"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -228,7 +226,7 @@ func promptUnprompted(db *sql.DB, cfg config) {
 	now := time.Now().Format(time.RFC3339)
 	expires := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
 	for _, jid := range pending {
-		token := genToken()
+		token := core.GenHexToken()
 		db.Exec(`UPDATE onboarding SET token = ?, token_expires = ?, prompted_at = ? WHERE jid = ?`,
 			token, expires, now, jid)
 
@@ -243,13 +241,6 @@ func promptUnprompted(db *sql.DB, cfg config) {
 	}
 }
 
-func genToken() string {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Sprintf("crypto/rand failed: %v", err))
-	}
-	return hex.EncodeToString(b)
-}
 
 func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
 	token := r.URL.Query().Get("token")
@@ -379,7 +370,7 @@ func ensureCSRFToken(w http.ResponseWriter, r *http.Request, cfg config) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: csrfCookieName, Value: genToken(), Path: "/",
+		Name: csrfCookieName, Value: core.GenHexToken(), Path: "/",
 		MaxAge: 86400, HttpOnly: false, // JS does not read it; scripts can't cross-origin anyway
 		Secure: cfg.secureCookie, SameSite: http.SameSiteStrictMode,
 	})

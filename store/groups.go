@@ -215,12 +215,13 @@ func (s *Store) GroupByFolder(folder string) (core.Group, bool) {
 }
 
 // SetChatIsGroup upserts the is_group classification for a chat_jid.
-// Adapters call this (via the router) on each inbound; the latest
-// classification wins.
+// Adapters call this on every inbound; the WHERE on the UPDATE branch
+// suppresses no-op writes once the classification is stable.
 func (s *Store) SetChatIsGroup(jid string, isGroup bool) error {
 	_, err := s.db.Exec(
 		`INSERT INTO chats (jid, is_group) VALUES (?, ?)
-		 ON CONFLICT(jid) DO UPDATE SET is_group = excluded.is_group`,
+		 ON CONFLICT(jid) DO UPDATE SET is_group = excluded.is_group
+		 WHERE chats.is_group != excluded.is_group`,
 		jid, btoi(isGroup),
 	)
 	return err
