@@ -78,17 +78,18 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	stripUnsigned := auth.StripUnsigned(cfg.authSecret)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("GET /onboard", verifySignedIdentity(cfg, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
 		handleOnboard(w, r, db, cfg)
 	}))
-	mux.HandleFunc("POST /onboard", verifySignedIdentity(cfg, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
 		handleOnboardPost(w, r, db, cfg)
 	}))
-	mux.HandleFunc("GET /invite/{token}", verifySignedIdentity(cfg, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /invite/{token}", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
 		handleInvite(w, r, db, cfg)
 	}))
 
@@ -248,27 +249,6 @@ func genToken() string {
 		panic(fmt.Sprintf("crypto/rand failed: %v", err))
 	}
 	return hex.EncodeToString(b)
-}
-
-// verifySignedIdentity strips X-User-* headers from any request that
-// claims a sub but lacks a valid HMAC signature from proxyd. Public
-// flows (token-landing, /invite, unauthenticated GET /onboard) keep
-// working because they tolerate empty userSub. Spoofed identity headers
-// (someone reaching onbod directly with a forged X-User-Sub) get
-// scrubbed before any handler sees them.
-func verifySignedIdentity(cfg config, next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-User-Sub") != "" && !auth.VerifyUserSig(cfg.authSecret, r) {
-			slog.Warn("onbod: user sig verify failed",
-				"path", r.URL.Path,
-				"attempted_sub", r.Header.Get("X-User-Sub"),
-				"remote", r.Header.Get("X-Forwarded-For"))
-			for _, h := range []string{"X-User-Sub", "X-User-Name", "X-User-Groups", "X-User-Sig"} {
-				r.Header.Del(h)
-			}
-		}
-		next(w, r)
-	}
 }
 
 func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {

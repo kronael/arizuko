@@ -31,14 +31,18 @@ const maxFormBody = 64 << 10
 const maxTopicLen = 128
 
 type server struct {
-	cfg config
-	st  *store.Store
-	hub *hub
-	rc  *chanlib.RouterClient
+	cfg         config
+	st          *store.Store
+	hub         *hub
+	rc          *chanlib.RouterClient
+	requireUser func(http.HandlerFunc) http.HandlerFunc
 }
 
 func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient) *server {
-	return &server{cfg: cfg, st: st, hub: h, rc: rc}
+	return &server{
+		cfg: cfg, st: st, hub: h, rc: rc,
+		requireUser: auth.RequireSigned(cfg.hmacSecret),
+	}
 }
 
 func (s *server) handler() http.Handler {
@@ -95,26 +99,6 @@ func loadHMACSecret() string {
 	return ""
 }
 
-
-// requireUser checks that X-User-Sub is present AND signed by proxyd.
-// Without the signature check, a misconfigured compose (no proxyd in
-// front) would let any client forge identity headers.
-func (s *server) requireUser(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !auth.VerifyUserSig(s.cfg.hmacSecret, r) {
-			attemptedSub := r.Header.Get("X-User-Sub")
-			slog.Warn("user sig verify failed", "path", r.URL.Path,
-				"attempted_sub", attemptedSub,
-				"remote", r.Header.Get("X-Forwarded-For"))
-			for _, h := range []string{"X-User-Sub", "X-User-Name", "X-User-Groups", "X-User-Sig"} {
-				r.Header.Del(h)
-			}
-			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
-			return
-		}
-		next(w, r)
-	}
-}
 
 func userGroups(r *http.Request) []string {
 	var out []string
