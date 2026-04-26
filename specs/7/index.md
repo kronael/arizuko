@@ -18,4 +18,4 @@ dynamic channels, inspect tools, autocalls, tenant self-service.
 - [32-dynamic-channels.md](32-dynamic-channels.md) `unshipped` — DB-backed channels, dashboard-managed creds, web pairing
 - [33-inspect-tools.md](33-inspect-tools.md) `shipped` — inspect\_\* MCP family (messages, routing, tasks, session)
 - [34-autocalls.md](34-autocalls.md) `shipped` — inline fact injection when schema cost > content cost
-- [35-tenant-self-service.md](35-tenant-self-service.md) `planned` — pluggable AuthProvider for cross-adapter pairing (depends on 32)
+- [35-tenant-self-service.md](35-tenant-self-service.md) `shipped` — canonical org-chart model: invites, secrets, chats.kind, topic kinds, ops matrix

@@ -1,137 +1,200 @@
 ---
-status: planned
-phase: held
-depends_on: [7/32-dynamic-channels.md]
+status: shipped
 ---
 
-# Pluggable Authentication / Handshake Service
+# Tenant self-service — the arizuko org-chart model
 
-A cross-adapter, user-facing pairing surface. Today each adapter has its
-own ad-hoc credential mechanism: whapd via QR/pairing-code, teled via
-`TELEGRAM_TOKEN` env, discd via `DISCORD_BOT_TOKEN`, mastd via
-`MASTODON_ACCESS_TOKEN`, bskyd via handle+password, emaid via IMAP/SMTP
-creds, OAuth providers via browser redirect. Onboarding a new channel
-means editing `.env` files on the host. Non-operable by end users.
+> Reference + planning spec. Nails down vocabulary, primitives,
+> operations, and implementation phases. Code primitives this depends
+> on: groups (existing), user_groups (existing), routes (existing),
+> chats (existing — extends one column), plus two new tables (invites,
+> secrets). Three implementation phases lined up after this lands.
 
-Goal: a single service that accepts the pairing flow for any supported
-channel, guides the user through it (QR, pairing code, OAuth redirect,
-token paste), persists the result in the DB, and signals the adapter
-to pick it up.
+## Vocabulary
 
-## Concept — borrow from Anthropic's console
+A **group** is a folder identified by a path. Depth determines default
+grant behavior; segment names are advisory. See [`ant/CLAUDE.md`
+Tenancy section] for the depth → label cross-walk.
 
-Anthropic's API console has a clean flow for "add a key / connect a
-service": named surface, credential input with masking, test-call step,
-persisted per-account with rotation + revocation. The arizuko analogue
-lives inside dashd (authenticated UI) with per-user or per-group scope.
+A **topic** is the transient work-unit overlaid on a group. Many
+topics per group. Topics have a `kind` (task / project / meeting /
+question / discussion / incident).
 
-## Pluggable interface
+## The org-chart framing
 
-Define an `AuthProvider` interface in Go that each adapter implements:
+arizuko encodes a working organization:
+
+| Real-org concept      | arizuko primitive             |
+| --------------------- | ----------------------------- |
+| Organization          | world (top-level group)       |
+| Department / function | sub-group at depth 2          |
+| Team / role           | sub-group at depth 3+         |
+| Job description       | grant rule list               |
+| Mailroom / dispatcher | routes table (JID → folder)   |
+| Reporting structure   | folder hierarchy              |
+| Chain of command      | escalate / delegate verbs     |
+| Hiring                | invite + grant                |
+| Off-boarding          | revoke grant                  |
+| Org-wide tools        | world (tier 1) secrets        |
+| Team-specific tools   | sub-group secrets             |
+| Personal tools        | user-scope secrets (1:1 only) |
+| Ticket / case         | topic                         |
+
+This isn't metaphor — every element 1:1-maps to standard org concepts.
+
+## Invites
+
+`invites` table — opaque tokens that produce `user_groups` rows on
+acceptance.
+
+```sql
+CREATE TABLE invites (
+  token         TEXT PRIMARY KEY,
+  target_glob   TEXT NOT NULL,         -- e.g. "atlas/**" or "atlas/support"
+  issued_by_sub TEXT NOT NULL,
+  issued_at     DATETIME NOT NULL,
+  expires_at    DATETIME,              -- nullable
+  max_uses      INTEGER NOT NULL DEFAULT 1,
+  used_count    INTEGER NOT NULL DEFAULT 0
+);
+```
+
+Lifecycle:
+
+1. Issuer (with grants on `target_glob`) calls `invite_create(target_glob, max_uses, expires_at)` → `token`
+2. Recipient visits `/invite/<token>` → OAuth login → token consumed
+3. On accept: `INSERT INTO user_groups (user_sub, glob)` — realized grant
+4. `used_count` increments; row stays for audit even after exhaustion
+
+## Secrets
+
+`secrets` table — two scope kinds.
+
+```sql
+CREATE TABLE secrets (
+  scope_kind    TEXT NOT NULL,         -- "folder" | "user"
+  scope_id      TEXT NOT NULL,         -- folder path OR user_sub
+  key           TEXT NOT NULL,
+  enc_value     BLOB NOT NULL,         -- AES-GCM(AUTH_SECRET)
+  created_at    DATETIME NOT NULL,
+  PRIMARY KEY (scope_kind, scope_id, key)
+);
+```
+
+Resolution at container spawn for folder F, chat_jid C:
 
 ```
-type AuthProvider interface {
-    Name() string                          // "whatsapp", "telegram", "discord", ...
-    Modes() []AuthMode                     // {qr, pairing_code, oauth, token_paste}
-    Begin(req BeginRequest) (*Session, error)   // starts flow, returns session id
-    Poll(sessionId string) (*Status, error)      // returns in-progress / done / failed
-    Cancel(sessionId string) error
-}
+1. folder_secrets = walk F → root, last-wins
+2. is_single_user = chats.kind in {"dm", "slink"}
+3. if is_single_user:
+       user_sub = unique user mapped to C
+       user_secrets = lookup secrets where scope_kind="user", scope_id=user_sub
+       env = base ∪ folder_secrets ∪ user_secrets
+   else:
+       env = base ∪ folder_secrets
 ```
 
-Each mode is discoverable. UI renders based on the modes list: QR shows
-an image, pairing code asks for a phone number then displays the 8-char
-code, OAuth redirects to the provider, token paste is just a form.
+Last-wins per key: deeper folder overrides shallower. User secrets
+overlay folder secrets when single-user.
 
-## UI
+## chats.kind
 
-Lives in dashd at `/dash/channels/`. Tier-0 operators see all channels,
-tier-1 group owners can add their own. The page lists existing channels
-with their status (connected / stale / disconnected), plus an "Add
-channel" button that opens a provider picker.
+Add column `chats.kind TEXT` with values: `dm | group | feed | room | slink`.
 
-## Storage
+Adapter sets at first inbound on a chat_jid:
 
-`channels` DB table (from `7/32-dynamic-channels.md` — this spec
-consumes that one, does not redefine it):
+| Adapter | dm-attestation                  | group-attestation               |
+| ------- | ------------------------------- | ------------------------------- |
+| teled   | chat.id > 0                     | chat.id < 0                     |
+| discd   | channel.type == DM              | channel.type == GuildText       |
+| mastd   | visibility=direct on inbound    | otherwise                       |
+| bskyd   | DM API endpoint                 | feed event                      |
+| reditd  | inbox-message.kind == "t4" (DM) | submission/comment in subreddit |
+| whapd   | jid not ending in `g.us`        | jid ending in `g.us`            |
+| emaid   | 1:1 by default                  | mailing list (future)           |
+| webd    | slink                           | (n/a)                           |
+| twitd   | DM API                          | mention/reply on public tweet   |
 
-| column     | type    | note                            |
-| ---------- | ------- | ------------------------------- |
-| id         | integer | pk                              |
-| adapter    | text    | "whatsapp" \| "telegram" \| ... |
-| scope      | text    | "instance" \| "group:<folder>"  |
-| label      | text    | user-supplied nickname          |
-| secret_ref | text    | path into secrets backend       |
-| status     | text    | "pairing" \| "active" \| "dead" |
-| created_by | text    | user sub                        |
-| created_at | text    | ISO                             |
+Predicate `is_single_user(chat_jid) := chats.kind in {"dm", "slink"}`.
 
-Secrets live in an external backend (SOPS-encrypted file or vault), not
-inline in the DB. `secret_ref` is the key; adapter reads the actual
-credentials at runtime.
+## Topic kinds
 
-## Pairing session lifecycle
+Topics carry an optional `kind` attribute:
 
-1. User clicks "Add WhatsApp" → dashd calls `AuthProvider.Begin` on a
-   running whapd instance via /v1/auth/begin RPC.
-2. whapd returns a session id + QR image bytes (or "awaiting phone
-   number" prompt).
-3. Browser polls `/dash/channels/<session>/status` every 2s until
-   `done` or `failed`.
-4. On `done`, whapd writes creds to the secrets backend under
-   `secret_ref`, returns success. dashd inserts the `channels` row.
-5. Adapter picks up the new row via DB notify or periodic reload,
-   connects, starts reporting via /health.
+- `task` — goal-oriented, has due-date, completes
+- `project` — multi-step, has milestones, long-running
+- `meeting` — scheduled, has attendees, has start/end
+- `question` — single-resolution Q&A
+- `discussion` — open-ended, may not complete
+- `incident` — urgent, postmortem at end
+- `thread` (default) — generic conversation
 
-## Out of scope (this spec)
+Kind drives kind-specific workflow operations (`set_due` on tasks,
+`set_attendees` on meetings, etc.). Kind is metadata on the topic
+node, not a separate hierarchy level.
 
-- Multi-tenant secret isolation (key encryption per group) — assume
-  single-tenant for v1, layer tenancy on top later.
-- Auto-rotation of expiring tokens — separate spec.
-- The `channels` table design itself — owned by `7/32-dynamic-channels`.
+## Operations matrix
 
-## Prerequisite: structure + docs reiteration
+Three orthogonal axes: hierarchy depth × operation group × actor.
 
-Before building this, arizuko's adapter/service architecture needs to
-be reconsidered and re-documented. Current state:
+```
+Operation group      | Subjects                    | Actor       | Surface
+---------------------|-----------------------------|-------------|----------
+structural           | groups (any depth)          | human+agent | CLI / dashd / MCP
+membership           | invites + user_groups       | human       | CLI / dashd
+workflow             | topics (incl. kinds)        | human+agent | MCP / chat / dashd
+```
 
-- Seven Go adapters + one TypeScript. Each has its own main.go /
-  main.ts with slightly different conventions (config loading,
-  healthcheck pattern, register-with-router, graceful shutdown, etc).
-- `chanlib` already unifies HTTP contract (auth, send, send-file,
-  /health with `isConnected` + `lastInboundAt`). But pairing / auth
-  is NOT in chanlib; it's per-adapter.
-- ARCHITECTURE.md describes message flow but does not describe the
-  credential lifecycle (how secrets reach an adapter, who rotates,
-  what happens when they expire). EXTENDING.md has /health contract
-  but no auth contract.
+Verbs:
 
-Tasks to clear the deck before implementing this spec:
+- **Structural**: create, rename, archive, move, clone
+- **Membership**: invite, accept_invite, grant, revoke, attach_channel
+- **Workflow**: set_kind, set_due, set_assignee, complete, reopen,
+  split, merge, delegate (push down), escalate (push up), move_topic
+  (relocate to different group)
 
-1. **Audit each adapter's current credential source** (env var vs
-   config file vs CLI flag). Produce a table.
-2. **Unify healthcheck + auth responses** in chanlib. Extend
-   `NewAdapterMux` with auth endpoints (`/v1/auth/begin`,
-   `/v1/auth/poll`, `/v1/auth/cancel`).
-3. **Write ARCHITECTURE.md "Credential lifecycle" section**: how
-   secrets are read, where they live, how adapters react to changes.
-4. **Write EXTENDING.md "Adding an adapter" section** that references
-   the unified auth contract once step 2 lands.
-5. **Pick a secrets backend**. Current `sops` install in `ant/` is
-   a hint — could extend to gateway-level secrets. OR leave pluggable
-   via interface, default to filesystem-SOPS.
+Existing arizuko already implements: `register_group`, `escalate_group`,
+`delegate_group`, `schedule_task`, `pause_task`, `resume_task`,
+`cancel_task`, `set_routes`, `add_route`, `delete_route`. New verbs
+land via three sub-specs (40/41/42) only if surface grows past inline
+description here.
 
-Only after 1-5 is this spec's implementation work viable. Otherwise
-the abstraction gets built on sand and every adapter becomes a special
-case.
+## Implementation phases
 
-## Open questions
+Each phase is one or two commits. Build/test green at every step.
 
-- Should dashd render QR images or should the adapter render them and
-  dashd just proxy? (Adapter-rendered keeps QR generation out of dashd's
-  dependency graph.)
-- Per-user vs per-group vs per-instance channel scope — who "owns" a
-  channel? Onboarding + grants implications.
-- Handling of logout/revocation initiated from the platform side
-  (Baileys' `code: 401` "session invalidated") — where does the alert
-  surface? dashd? operator email? Slack webhook?
+| Phase | What                                                                                                          | Lift     |
+| ----- | ------------------------------------------------------------------------------------------------------------- | -------- |
+| A     | This spec (you are reading it)                                                                                | shipped  |
+| B     | `invites` table + invite-create / accept handlers in onbod + dashd                                            | 3-4 days |
+| C     | `secrets` table + resolution at container spawn (`container/runner.go`)                                       | 4-5 days |
+| D     | `chats.kind` column + adapter classification on first contact                                                 | 2-3 days |
+| E     | dashd structural + membership UI (`/dash/<group>/structure`, `/dash/<group>/people`, `/dash/<group>/secrets`) | 5-7 days |
+| F     | Topic kinds metadata + workflow ops MCP tools                                                                 | 3-4 days |
+| G     | Cross-group operations (move_topic, split, merge)                                                             | 3-4 days |
+
+Ship in order; each phase is useful even if later phases never land.
+
+## What this consolidates
+
+Specs already shipped or planned that this references (do not duplicate
+their content):
+
+- `7/27-mass-onboarding.md` — gates and admission queue (shipped)
+- `7/28-acl.md` — `user_groups` glob ACL (shipped)
+- `7/32-dynamic-channels.md` — channel adapter credentials (special case
+  of folder-scope secrets); planned
+- `7/33-inspect-tools.md` — read-only introspection (shipped)
+- `7/36-auth-landscape.md` — composition mechanics (shipped)
+- `7/37-auth-tunneling.md` — web-based credential capture; planned
+- `7/38-cli-auth-helper.md` — CLI auth dispatcher; planned
+
+Channels become a _consumer_ of the secrets table (channel-creds-as-folder-scope-secrets-with-platform-validators). Auth-tunnel writes to the same secrets table.
+
+## Out of scope (future)
+
+- Time-bounded grants (`expires_at` on user_groups) — additive, ship later
+- Audit log of permission changes — separate spec when needed
+- Substitute / on-call rotation for routing — additive
+- Cross-org collaboration — disallowed by design (orgs are isolation
+  boundaries)
