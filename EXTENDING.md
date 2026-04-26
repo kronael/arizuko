@@ -161,15 +161,17 @@ Skill layout:
 ## Permission tiers
 
 Folder-depth model. Tier = `min(folder.split("/").length, 3)`, except
-`root` = 0. Registration rejects depth > 3.
+`root` = 0. Path is identity; depth picks the tier slot.
 
-| Tier | Name   | Depth | Example             |
-| ---- | ------ | ----- | ------------------- |
-| 0    | root   | 0     | `root`              |
-| 1    | world  | 1     | `atlas`             |
-| 2    | agent  | 2     | `atlas/support`     |
-| 3    | worker | 3+    | `atlas/support/web` |
+| Tier | Depth | Example             |
+| ---- | ----- | ------------------- |
+| 0    | 0     | `root`              |
+| 1    | 1     | `atlas`             |
+| 2    | 2     | `atlas/support`     |
+| 3+   | 3+    | `atlas/support/web` |
 
-No inheritance, no escalation, no custom tiers. `escalate_group` sends
-a message to the parent; it does not grant permissions. See
-`specs/4/11-auth.md` and `specs/4/19-action-grants.md`.
+Suggested human labels per depth (`world / org / branch / unit /
+thread`) live in `ant/CLAUDE.md` — advisory only, the system reads
+paths, not labels. No inheritance, no escalation, no custom tiers.
+`escalate_group` sends a message to the parent; it does not grant
+permissions. See `specs/4/11-auth.md` and `specs/4/19-action-grants.md`.

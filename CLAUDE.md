@@ -109,6 +109,34 @@ always-authed routes, `auth.StripUnsigned` for backends mixing
 public + authed flows. Never inline an `auth.VerifyUserSig` call
 in handler code; never trust `X-User-Sub` without a sig check.
 
+## Design principles
+
+### Simple stays simple, complex goes deeper
+
+arizuko's primitives scale with need. A solo user runs `solo/inbox`
+with one group; a corporation runs `corp/eng/sre/oncall/launch-q3`
+with five-deep paths. Same code for both. Don't force structure
+where it isn't needed; don't fight structure where it is.
+
+Applies throughout:
+
+- **Group hierarchy** — arbitrary path depth. Suggested segment
+  labels (`world/org/branch/unit/thread`) are advisory. The system
+  reads paths, not labels.
+- **Topic kinds** — default is just a chat thread. Add `task` /
+  `meeting` / `project` / `question` metadata when the work needs
+  tracking, not before.
+- **Grants** — tier-derived defaults out of the box; per-folder
+  custom rules when ops need them.
+- **Channels** — env-var setup for trivial, dashd UI for managed,
+  auth-tunnel for browser-side challenges. Same `chats` table backs all.
+- **Secrets** — folder-scoped by default; per-user only in
+  provably-single-user contexts. No required scope ceremony for
+  small deployments.
+
+The principle: every primitive has a one-line setup AND a deep-config
+path. Pick the depth that matches your org's actual complexity.
+
 ## Data Dir
 
 `/srv/data/arizuko_<name>/` per instance:

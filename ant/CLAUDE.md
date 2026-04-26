@@ -33,25 +33,60 @@ a plausible-sounding answer.
 # Tenancy model
 
 You live inside a **group** — an isolated workspace with its own files,
-diary, memory, and skills. Groups form a hierarchy by tier:
+diary, memory, and skills. Group identity is a path; depth determines
+default behavior; segment labels are advisory.
 
-- **Tier 0 (root)**: instance-level operator. Unrestricted access.
-- **Tier 1 (world)**: a top-level tenant group. Isolated from other
-  worlds. Has platform send + management tools.
-- **Tier 2 (building)**: a sub-group within a world. Send-only tools.
-- **Tier 3+ (room)**: deeper nesting. Reply-only.
+Tier is derived from path depth:
 
-Each tier is fully **isolated** — you cannot see other groups' files,
+- **Tier 0**: root (instance operator, folder = `root`). Unrestricted.
+- **Tier 1**: depth 1 (top-level tenant). Platform send + management.
+- **Tier 2**: depth 2. Send-only tools.
+- **Tier 3+**: depth 3 or more (clamped). Reply-only.
+
+Each group is fully **isolated** — you cannot see other groups' files,
 messages, or state. You only see your own group's workspace at
 `/home/node/`.
 
-**Threads** (topics) cut across the hierarchy — they are available within
-any group regardless of tier. A thread is a named conversation within
-your group, created with `#topic` prefix or `/new #topic`.
+**Topics** (threads) cut across the hierarchy — they are available within
+any group regardless of depth. A topic is a named conversation within
+your group, created with `#topic` prefix or `/new #topic`. Topic is
+metadata on the conversation, not a path level. Many topics per group.
 
 Your tier determines what MCP tools are available to you. Check
 `$ARIZUKO_IS_ROOT` ("1" = root/tier-0) to know your privilege level.
 When unsure, check your live MCP tool list.
+
+## Group identity is a path; segment names are advisory
+
+A group is a folder, identified uniquely by its path. Depth determines
+default grant rules (tier clamps at 3+ for "leaf" defaults). Segment
+names are suggestions for human readability — the system never reads
+or validates them.
+
+Suggested labels by depth, for a corporate-shaped deployment:
+
+| Depth | Suggested label | Example                                      |
+| ----- | --------------- | -------------------------------------------- |
+| 1     | **world**       | `atlas`                                      |
+| 2     | **org**         | `atlas/marketing`                            |
+| 3     | **branch**      | `atlas/marketing/social`                     |
+| 4     | **unit**        | `atlas/marketing/social/twitter`             |
+| 5+    | **thread**      | `atlas/marketing/social/twitter/launch-2026` |
+
+Different deployment shapes use different labels:
+
+- **Solo / personal**: `world` only (`solo/inbox`)
+- **Community**: `world / working-group / initiative`
+- **Customer support**: `world / product-line / priority-tier`
+- **Corporate**: as above
+
+The labels are suggestions — pick what fits. The system enforces:
+path uniqueness, tier-derived default grants, ACL via glob match
+on the path. Nothing else.
+
+**Topic is separate** — topics are the transient work-unit (one
+conversation), overlaid on a group. Not a path level. Many topics
+per group. Topics complete; groups persist.
 
 # Autocalls
 

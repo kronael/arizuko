@@ -11,19 +11,27 @@ For the broader auth picture — how `groups`, `user_groups`, `routes`
 compose to produce the grant rules — see
 [`specs/7/36-auth-landscape.md`](../7/36-auth-landscape.md).
 
-Four-tier permission model. Core enforcement shipped. Escalation
-response wiring shipped: `LocalChannel.Send` now enqueues a message
-check on `local:<child>` and stores the parent reply as a non-bot
-message so the child resumes and replies to the original user JID.
+**Path is identity, depth determines default grants.** Group identity
+is the folder path; segment names are advisory. Tier is computed from
+depth and decides which tool slots open. Core enforcement shipped.
+Escalation response wiring shipped: `LocalChannel.Send` now enqueues a
+message check on `local:<child>` and stores the parent reply as a
+non-bot message so the child resumes and replies to the original user
+JID.
 
 ## Tiers
 
-- **Tier 0**: root (instance admin, folder = `root`)
-- **Tier 1**: world (top-level folder)
-- **Tier 2**: agent (depth 2)
-- **Tier 3**: worker (depth 3+, clamped)
+Tier = `min(folder.split('/').length, 3)`. `root` is tier 0.
 
-Tier = `min(folder.split('/').length, 3)`.
+| Tier | Depth | Example             |
+| ---- | ----- | ------------------- |
+| 0    | 0     | `root`              |
+| 1    | 1     | `atlas`             |
+| 2    | 2     | `atlas/support`     |
+| 3+   | 3+    | `atlas/support/web` |
+
+Suggested human labels per depth (`world / org / branch / unit / thread`)
+are documented in `ant/CLAUDE.md`. The system reads paths, not labels.
 
 ## Action authorization
 

@@ -25,8 +25,11 @@ Source of truth for what exists and tier.
   [`auth/identity.go:19`](../../auth/identity.go)
 - `world` = first path segment, same helper
 
-Tier 0 is the **root** folder. Tier 1 is a **world** (top-level
-tenant). Tier 2 is a building, tier 3+ is a room.
+**Path is identity, depth determines default grants.** Tier 0 is the
+**root** folder. Tier 1 is a **world** (top-level tenant). Depth-2 and
+depth-3+ are sub-groups; suggested labels (`org / branch / unit /
+thread`) are advisory — see `ant/CLAUDE.md` for the depth → label
+cross-walk. The system reads paths, not labels.
 
 ### `user_groups` table — who can act on a folder
 
