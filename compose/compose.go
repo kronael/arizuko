@@ -228,9 +228,6 @@ type svcDef struct {
 	ports       []string
 	environment map[string]string
 	dependsOn   string
-	// noHealth skips the standard /health healthcheck. Set for daemons
-	// without an HTTP server (timed) or without /health (vited).
-	noHealth bool
 }
 
 // yamlQuote emits a double-quoted YAML scalar with escapes for control
@@ -301,24 +298,12 @@ func writeSvc(def svcDef) string {
 		dep = "gated"
 	}
 	fmt.Fprintf(&b, "    depends_on: [%s]\n", dep)
-	if !def.noHealth {
-		b.WriteString(healthBlock)
-	}
+	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }
 
 func gatedService(app, flavor, dataDir string, env map[string]string) string {
-	apiPort := envOr(env, "API_PORT", "8080")
-	hostApp := envOr(env, "HOST_APP_DIR", "")
-
-	// API_PORT override pins gated's internal listen to 8080 (unified).
-	// Host-publish side uses the .env value as external port.
-	environment := map[string]string{
-		"API_PORT": "8080",
-		"DATA_DIR": "/srv/app/home",
-	}
-
 	var b strings.Builder
 	b.WriteString("  gated:\n")
 	fmt.Fprintf(&b, "    container_name: %s_gated_%s\n", app, flavor)
@@ -331,16 +316,21 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("    volumes:\n")
 	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
 	b.WriteString("      - /var/run/docker.sock:/var/run/docker.sock\n")
-	if hostApp != "" {
+	if hostApp := envOr(env, "HOST_APP_DIR", ""); hostApp != "" {
 		fmt.Fprintf(&b, "      - %s:/srv/app/arizuko:ro\n", hostApp)
 	}
 	b.WriteString("    ports:\n")
-	fmt.Fprintf(&b, "      - '%s:8080'\n", apiPort)
+	fmt.Fprintf(&b, "      - '%s:8080'\n", envOr(env, "API_PORT", "8080"))
 	b.WriteString("    extra_hosts:\n")
 	b.WriteString("      - 'host.docker.internal:host-gateway'\n")
 	b.WriteString(envFileFor("gated"))
+	// API_PORT override pins gated's internal listen to 8080 (unified).
+	// Host-publish side uses the .env value as external port.
 	b.WriteString("    environment:\n")
-	writeEnv(&b, environment)
+	writeEnv(&b, map[string]string{
+		"API_PORT": "8080",
+		"DATA_DIR": "/srv/app/home",
+	})
 	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
