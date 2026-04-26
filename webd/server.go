@@ -13,6 +13,7 @@ import (
 
 	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/chanlib"
+	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
 )
 
@@ -98,7 +99,6 @@ func loadHMACSecret() string {
 	}
 	return ""
 }
-
 
 func userGroups(r *http.Request) []string {
 	var out []string
@@ -190,4 +190,11 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	chanlib.WriteJSON(w, map[string]any{
 		"status": "ok", "name": "web", "jid_prefixes": []string{"web:"},
 	})
+}
+
+func messageRole(m core.Message) string {
+	if m.BotMsg {
+		return "assistant"
+	}
+	return "user"
 }

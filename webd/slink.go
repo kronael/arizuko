@@ -323,12 +323,8 @@ func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 			msgs, _ := s.st.MessagesSinceTopic(folder, topic, t, 50)
 			flusher, _ := w.(http.Flusher)
 			for _, m := range msgs {
-				role := "user"
-				if m.BotMsg {
-					role = "assistant"
-				}
 				data, _ := json.Marshal(map[string]any{
-					"id": m.ID, "role": role, "content": m.Content,
+					"id": m.ID, "role": messageRole(m), "content": m.Content,
 					"created_at": m.Timestamp.Format(time.RFC3339),
 				})
 				fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)

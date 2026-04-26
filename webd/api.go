@@ -59,11 +59,7 @@ func (s *server) handleAPIMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]msgOut, len(msgs))
 	for i, m := range msgs {
-		role := "user"
-		if m.BotMsg {
-			role = "assistant"
-		}
-		out[i] = msgOut{m.ID, role, m.Content, m.Name, m.Timestamp, m.ReplyToID}
+		out[i] = msgOut{m.ID, messageRole(m), m.Content, m.Name, m.Timestamp, m.ReplyToID}
 	}
 	chanlib.WriteJSON(w, map[string]any{"data": out, "has_more": len(msgs) == 50})
 }

@@ -55,11 +55,7 @@ func (s *server) handleXMessages(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
-		cls := "user"
-		if m.BotMsg {
-			cls = "assistant"
-		}
 		fmt.Fprintf(w, `<div class="msg %s" id="msg-%s"><p>%s</p><time>%s</time></div>`,
-			cls, m.ID, htmlEscape(m.Content), m.Timestamp.Format("15:04"))
+			messageRole(m), m.ID, htmlEscape(m.Content), m.Timestamp.Format("15:04"))
 	}
 }

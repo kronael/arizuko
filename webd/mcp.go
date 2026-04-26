@@ -156,11 +156,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 		}
 		out := make([]msgOut, len(msgs))
 		for i, m := range msgs {
-			role := "user"
-			if m.BotMsg {
-				role = "assistant"
-			}
-			out[i] = msgOut{m.ID, role, m.Content, m.Name, m.Timestamp}
+			out[i] = msgOut{m.ID, messageRole(m), m.Content, m.Name, m.Timestamp}
 		}
 		data, _ := json.Marshal(map[string]any{"messages": out, "count": len(out), "folder": g.Folder})
 		return mcp.NewToolResultText(string(data)), nil
