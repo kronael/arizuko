@@ -1,7 +1,6 @@
 package store
 
 import (
-	"database/sql"
 	"strconv"
 	"strings"
 	"time"
@@ -41,14 +40,13 @@ func (s *Store) GetTask(id string) (core.Task, bool) {
 }
 
 func (s *Store) ListTasks(folder string, isRoot bool) []core.Task {
-	var rows *sql.Rows
-	var err error
+	owner := folder
 	if isRoot {
-		rows, err = s.db.Query(`SELECT ` + taskCols + ` FROM scheduled_tasks ORDER BY created_at DESC`)
-	} else {
-		rows, err = s.db.Query(
-			`SELECT `+taskCols+` FROM scheduled_tasks WHERE owner = ? ORDER BY created_at DESC`, folder)
+		owner = ""
 	}
+	rows, err := s.db.Query(
+		`SELECT `+taskCols+` FROM scheduled_tasks
+		 WHERE (? = '' OR owner = ?) ORDER BY created_at DESC`, owner, owner)
 	if err != nil {
 		return nil
 	}

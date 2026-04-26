@@ -1,8 +1,6 @@
 package store
 
 import (
-	"database/sql"
-
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/router"
 )
@@ -76,16 +74,14 @@ func (s *Store) DeleteRoute(id int64) error {
 }
 
 func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
-	var rows *sql.Rows
-	var err error
+	scope := folder
 	if isRoot {
-		rows, err = s.db.Query(`SELECT ` + routeCols + ` FROM routes ORDER BY seq, id`)
-	} else {
-		rows, err = s.db.Query(
-			`SELECT `+routeCols+` FROM routes
-			 WHERE target = ? OR target LIKE ?||'/%'
-			 ORDER BY seq, id`, folder, folder)
+		scope = ""
 	}
+	rows, err := s.db.Query(
+		`SELECT `+routeCols+` FROM routes
+		 WHERE (? = '' OR target = ? OR target LIKE ?||'/%')
+		 ORDER BY seq, id`, scope, scope, scope)
 	if err != nil {
 		return nil
 	}

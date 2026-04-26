@@ -1,9 +1,6 @@
 package store
 
-import (
-	"database/sql"
-	"time"
-)
+import "time"
 
 // ErroredChat aggregates errored messages per chat, scoped to a folder
 // subtree (or all chats when isRoot=true). A chat is considered scoped
@@ -18,21 +15,16 @@ type ErroredChat struct {
 // ErroredChats returns per-chat errored-message aggregates. Root sees
 // all; non-root sees only chats whose routed_to resolves inside folder.
 func (s *Store) ErroredChats(folder string, isRoot bool) []ErroredChat {
-	var rows *sql.Rows
-	var err error
+	scope := folder
 	if isRoot {
-		rows, err = s.db.Query(
-			`SELECT chat_jid, COUNT(*), MAX(timestamp), COALESCE(MAX(routed_to),'')
-			 FROM messages WHERE errored = 1
-			 GROUP BY chat_jid ORDER BY MAX(timestamp) DESC`)
-	} else {
-		rows, err = s.db.Query(
-			`SELECT chat_jid, COUNT(*), MAX(timestamp), COALESCE(MAX(routed_to),'')
-			 FROM messages WHERE errored = 1
-			   AND (routed_to = ? OR routed_to LIKE ?||'/%')
-			 GROUP BY chat_jid ORDER BY MAX(timestamp) DESC`,
-			folder, folder)
+		scope = ""
 	}
+	rows, err := s.db.Query(
+		`SELECT chat_jid, COUNT(*), MAX(timestamp), COALESCE(MAX(routed_to),'')
+		 FROM messages WHERE errored = 1
+		   AND (? = '' OR routed_to = ? OR routed_to LIKE ?||'/%')
+		 GROUP BY chat_jid ORDER BY MAX(timestamp) DESC`,
+		scope, scope, scope)
 	if err != nil {
 		return nil
 	}

@@ -1,9 +1,6 @@
 package store
 
-import (
-	"database/sql"
-	"time"
-)
+import "time"
 
 type AuthUser struct {
 	ID        int64
@@ -30,30 +27,26 @@ func (s *Store) CreateAuthUser(sub, username, hash, name string) error {
 	return err
 }
 
-func (s *Store) AuthUserBySub(sub string) (AuthUser, bool) {
+const authUserCols = `id, sub, username, hash, name, created_at`
+
+func scanAuthUser(r rowScanner) (AuthUser, bool) {
 	var u AuthUser
 	var created string
-	err := s.db.QueryRow(
-		`SELECT id, sub, username, hash, name, created_at FROM auth_users WHERE sub = ?`, sub,
-	).Scan(&u.ID, &u.Sub, &u.Username, &u.Hash, &u.Name, &created)
-	if err != nil {
+	if err := r.Scan(&u.ID, &u.Sub, &u.Username, &u.Hash, &u.Name, &created); err != nil {
 		return u, false
 	}
 	u.CreatedAt, _ = time.Parse(time.RFC3339, created)
 	return u, true
 }
 
+func (s *Store) AuthUserBySub(sub string) (AuthUser, bool) {
+	return scanAuthUser(s.db.QueryRow(
+		`SELECT `+authUserCols+` FROM auth_users WHERE sub = ?`, sub))
+}
+
 func (s *Store) AuthUserByUsername(username string) (AuthUser, bool) {
-	var u AuthUser
-	var created string
-	err := s.db.QueryRow(
-		`SELECT id, sub, username, hash, name, created_at FROM auth_users WHERE username = ?`, username,
-	).Scan(&u.ID, &u.Sub, &u.Username, &u.Hash, &u.Name, &created)
-	if err != nil {
-		return u, false
-	}
-	u.CreatedAt, _ = time.Parse(time.RFC3339, created)
-	return u, true
+	return scanAuthUser(s.db.QueryRow(
+		`SELECT `+authUserCols+` FROM auth_users WHERE username = ?`, username))
 }
 
 func (s *Store) CreateAuthSession(tokenHash, userSub string, expiresAt time.Time) error {
@@ -134,20 +127,10 @@ func (s *Store) Ungrant(sub, pattern string) (int64, error) {
 }
 
 func (s *Store) Grants(sub string) ([]Grant, error) {
-	var (
-		rows *sql.Rows
-		err  error
-	)
-	if sub != "" {
-		rows, err = s.db.Query(
-			`SELECT user_sub, folder, COALESCE(granted_at, '')
-			 FROM user_groups WHERE user_sub = ?
-			 ORDER BY user_sub, folder`, sub)
-	} else {
-		rows, err = s.db.Query(
-			`SELECT user_sub, folder, COALESCE(granted_at, '')
-			 FROM user_groups ORDER BY user_sub, folder`)
-	}
+	rows, err := s.db.Query(
+		`SELECT user_sub, folder, COALESCE(granted_at, '')
+		 FROM user_groups WHERE (? = '' OR user_sub = ?)
+		 ORDER BY user_sub, folder`, sub, sub)
 	if err != nil {
 		return nil, err
 	}

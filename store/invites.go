@@ -57,13 +57,11 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 	}, nil
 }
 
-func scanInvite(row interface {
-	Scan(...any) error
-}) (*Invite, error) {
+func scanInvite(row rowScanner) (*Invite, error) {
 	var (
-		inv         Invite
-		issuedAt    string
-		expiresAt   sql.NullString
+		inv       Invite
+		issuedAt  string
+		expiresAt sql.NullString
 	)
 	if err := row.Scan(&inv.Token, &inv.TargetGlob, &inv.IssuedBySub, &issuedAt,
 		&expiresAt, &inv.MaxUses, &inv.UsedCount); err != nil {

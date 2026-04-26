@@ -1,17 +1,10 @@
 package store
 
-import (
-	"database/sql"
-	"encoding/json"
-)
+import "encoding/json"
 
 func (s *Store) GetGrants(folder string) []string {
 	var raw string
-	err := s.db.QueryRow(`SELECT rules FROM grant_rules WHERE folder = ?`, folder).Scan(&raw)
-	if err == sql.ErrNoRows {
-		return nil
-	}
-	if err != nil {
+	if err := s.db.QueryRow(`SELECT rules FROM grant_rules WHERE folder = ?`, folder).Scan(&raw); err != nil {
 		return nil
 	}
 	var rules []string

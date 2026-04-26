@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"strings"
@@ -245,12 +246,9 @@ func (s *Store) SetStickyGroup(jid, folder string) error {
 }
 
 func (s *Store) GetStickyGroup(jid string) string {
-	var folder *string
+	var folder sql.NullString
 	s.db.QueryRow(`SELECT sticky_group FROM chats WHERE jid = ?`, jid).Scan(&folder)
-	if folder == nil {
-		return ""
-	}
-	return *folder
+	return folder.String
 }
 
 func (s *Store) SetStickyTopic(jid, topic string) error {
@@ -263,10 +261,7 @@ func (s *Store) SetStickyTopic(jid, topic string) error {
 }
 
 func (s *Store) GetStickyTopic(jid string) string {
-	var topic *string
+	var topic sql.NullString
 	s.db.QueryRow(`SELECT sticky_topic FROM chats WHERE jid = ?`, jid).Scan(&topic)
-	if topic == nil {
-		return ""
-	}
-	return *topic
+	return topic.String
 }
