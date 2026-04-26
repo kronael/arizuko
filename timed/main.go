@@ -130,13 +130,14 @@ func fire(db *sql.DB, tz string) {
 	defer rows.Close()
 
 	type task struct {
-		id, jid, prompt, contextMode string
-		cronExpr                     *string
+		id, jid, prompt, cronExpr, contextMode string
 	}
 	var due []task
 	for rows.Next() {
 		var t task
-		rows.Scan(&t.id, &t.jid, &t.prompt, &t.cronExpr, &t.contextMode)
+		var cronExpr sql.NullString
+		rows.Scan(&t.id, &t.jid, &t.prompt, &cronExpr, &t.contextMode)
+		t.cronExpr = cronExpr.String
 		due = append(due, t)
 	}
 
@@ -158,17 +159,12 @@ func fire(db *sql.DB, tz string) {
 			continue
 		}
 
-		cronVal := ""
-		if t.cronExpr != nil {
-			cronVal = *t.cronExpr
-		}
-		nextRun := computeNextRun(cronVal, tz, t.id)
-
+		nextRun := computeNextRun(t.cronExpr, tz, t.id)
 		switch {
 		case nextRun != "":
 			db.Exec(`UPDATE scheduled_tasks SET status = 'active', next_run = ? WHERE id = ?`,
 				nextRun, t.id)
-		case cronVal == "":
+		case t.cronExpr == "":
 			db.Exec(`UPDATE scheduled_tasks SET status = 'completed', next_run = NULL WHERE id = ?`,
 				t.id)
 		default:
@@ -177,7 +173,7 @@ func fire(db *sql.DB, tz string) {
 
 		logRun(db, t.id, "success", "", time.Since(start).Milliseconds())
 		slog.Info("fired task",
-			"id", t.id, "jid", t.jid, "cron", cronVal,
+			"id", t.id, "jid", t.jid, "cron", t.cronExpr,
 			"context_mode", t.contextMode, "next_run", nextRun)
 	}
 }
