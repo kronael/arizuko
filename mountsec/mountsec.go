@@ -60,10 +60,8 @@ func ValidateFilePath(path, root string) (string, error) {
 }
 
 // ValidateAdditionalMounts validates each requested mount against the
-// allowlist. An empty Allowlist{} means "additional mounts are disabled"
-// and every mount is rejected (returned list is nil). Callers must pass
-// a configured Allowlist to enable mounts. This is documented behavior,
-// not a bug: empty-allowlist = deny-by-default.
+// allowlist. Empty Allowlist{} = deny-by-default; every mount is
+// rejected. Callers must pass a configured Allowlist to enable mounts.
 func ValidateAdditionalMounts(
 	mounts []AdditionalMount,
 	groupName string,
@@ -156,22 +154,16 @@ func expandHome(p string) string {
 	return p
 }
 
-// matchesBlocked splits real into path components and returns the first
-// pattern that matches a component exactly. Substring matching was
-// removed: legitimate paths whose names merely contain a blocked
-// substring are no longer falsely flagged, and loose substring overlaps
-// no longer create false security.
+// matchesBlocked returns the first pattern that exactly matches a
+// component of real. Component-level (not substring) so paths whose
+// names merely contain a blocked substring don't false-positive.
 func matchesBlocked(real string, patterns []string) string {
 	parts := strings.Split(filepath.Clean(real), string(filepath.Separator))
-	set := make(map[string]struct{}, len(parts))
-	for _, p := range parts {
-		if p != "" {
-			set[p] = struct{}{}
-		}
-	}
 	for _, pat := range patterns {
-		if _, ok := set[pat]; ok {
-			return pat
+		for _, p := range parts {
+			if p == pat {
+				return pat
+			}
 		}
 	}
 	return ""

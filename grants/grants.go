@@ -140,13 +140,16 @@ func MatchingRules(rules []string, action string) []string {
 	return out
 }
 
-var platformSendActions = []string{"send", "send_file", "reply"}
+var basicSendActions = []string{"send", "send_file", "reply"}
 
-// platformChatActions are platform-scoped chat verbs (per-target jid).
-var platformChatActions = []string{"forward"}
-
-// platformFeedActions are platform-scoped feed/post verbs.
-var platformFeedActions = []string{"post", "quote", "repost", "like", "dislike", "delete", "edit"}
+// platformActions: every verb that is platform-scoped via (jid=platform:*).
+// Send verbs appear here AND ungated (basicSendActions) so a tier-1/2 group
+// can address any target on any routed platform.
+var platformActions = []string{
+	"send", "send_file", "reply",
+	"forward",
+	"post", "quote", "repost", "like", "dislike", "delete", "edit",
+}
 
 var tier1FixedActions = []string{
 	"schedule_task", "register_group", "escalate_group", "delegate_group",
@@ -165,9 +168,12 @@ func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []
 	case 0:
 		return []string{"*"}
 	case 1:
-		return deriveTier1Rules(jidsIn(worldFolder))
+		r := append(append([]string{}, basicSendActions...), platformRules(jidsIn(worldFolder))...)
+		r = append(r, tier1FixedActions...)
+		return append(r, "share_mount(readonly=false)")
 	case 2:
-		return deriveTier2Rules(jidsIn(folder))
+		r := append(append([]string{}, basicSendActions...), platformRules(jidsIn(folder))...)
+		return append(r, "share_mount(readonly=true)")
 	default:
 		return []string{"reply", "send_file", "like", "edit"}
 	}
@@ -176,30 +182,11 @@ func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []
 func platformRules(jids []string) []string {
 	var rules []string
 	for _, p := range extractPlatforms(jids) {
-		for _, a := range platformSendActions {
-			rules = append(rules, a+"(jid="+p+":*)")
-		}
-		for _, a := range platformChatActions {
-			rules = append(rules, a+"(jid="+p+":*)")
-		}
-		for _, a := range platformFeedActions {
+		for _, a := range platformActions {
 			rules = append(rules, a+"(jid="+p+":*)")
 		}
 	}
 	return rules
-}
-
-func deriveTier1Rules(jids []string) []string {
-	r := append([]string{"send", "send_file", "reply"}, platformRules(jids)...)
-	r = append(r, tier1FixedActions...)
-	r = append(r, "share_mount(readonly=false)")
-	return r
-}
-
-func deriveTier2Rules(jids []string) []string {
-	r := append([]string{"send", "send_file", "reply"}, platformRules(jids)...)
-	r = append(r, "share_mount(readonly=true)")
-	return r
 }
 
 func extractPlatforms(jids []string) []string {
