@@ -69,36 +69,36 @@ var gatewayCommands = []gatewayCommand{
 	}},
 }
 
-func lookupCommand(raw string) *gatewayCommand {
+// lookupCommand returns the matching command and its argument tail, or
+// (nil, "") when raw is not a known gateway command.
+func lookupCommand(raw string) (*gatewayCommand, string) {
 	t := cmdText(raw)
 	if !strings.HasPrefix(t, "/") {
-		return nil
+		return nil, ""
 	}
-	head, _, _ := strings.Cut(t, " ")
-	head = strings.ToLower(head)
+	head, arg, _ := strings.Cut(t, " ")
 	// Telegram appends @botname to commands (e.g. /new@rhias_fiu_bot)
-	head, _, _ = strings.Cut(head, "@")
+	head, _, _ = strings.Cut(strings.ToLower(head), "@")
 	for i := range gatewayCommands {
 		if gatewayCommands[i].name == head {
-			return &gatewayCommands[i]
+			return &gatewayCommands[i], arg
 		}
 	}
-	return nil
+	return nil, ""
 }
 
 func isGatewayCommand(raw string) bool {
-	return lookupCommand(raw) != nil
+	cmd, _ := lookupCommand(raw)
+	return cmd != nil
 }
 
 func (g *Gateway) handleCommand(msg core.Message, group core.Group) bool {
-	cmd := lookupCommand(msg.Content)
+	cmd, arg := lookupCommand(msg.Content)
 	if cmd == nil {
 		return false
 	}
-	_, arg, _ := strings.Cut(cmdText(msg.Content), " ")
 	return cmd.handler(g, msg, group, arg)
 }
-
 
 func (g *Gateway) cmdNew(chatJid string, group core.Group, arg string) bool {
 	label := "Session cleared."

@@ -386,7 +386,7 @@ func (g *Gateway) pollOnce() {
 			continue
 		}
 
-		if g.tryExternalRoute(routes, last, group, chatJid, "poll") {
+		if g.tryExternalRoute(routes, last, group, chatJid) {
 			g.advanceAgentCursor(chatJid, chatMsgs)
 			continue
 		}
@@ -468,7 +468,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	for _, batch := range senderBatches {
 		last := batch[len(batch)-1]
 
-		if g.tryExternalRoute(routes, last, group, chatJid, "process") {
+		if g.tryExternalRoute(routes, last, group, chatJid) {
 			continue
 		}
 
@@ -508,21 +508,20 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 // then the data-driven routing layer (routes table). Returns true if the
 // message was absorbed, meaning the caller should skip further processing.
 func (g *Gateway) tryExternalRoute(
-	routes []core.Route, msg core.Message, group core.Group, chatJid, phase string,
+	routes []core.Route, msg core.Message, group core.Group, chatJid string,
 ) bool {
 	if g.handlePrefixLayer(msg, group, chatJid) {
-		slog.Debug("routed via prefix layer",
-			"phase", phase, "jid", chatJid, "sender", msg.Sender)
+		slog.Debug("routed via prefix layer", "jid", chatJid, "sender", msg.Sender)
 		return true
 	}
 
 	target := g.resolveTarget(msg, routes, group.Folder)
 	if target != "" && router.IsAuthorizedRoutingTarget(group.Folder, target) {
 		slog.Debug("delegating to child",
-			"phase", phase, "jid", chatJid, "sender", msg.Sender, "target", target)
+			"jid", chatJid, "sender", msg.Sender, "target", target)
 		if err := g.delegateViaMessage(target, msg.Content, chatJid, 0); err != nil {
 			slog.Warn("delegate failed",
-				"phase", phase, "jid", chatJid, "sender", msg.Sender, "target", target, "err", err)
+				"jid", chatJid, "sender", msg.Sender, "target", target, "err", err)
 		}
 		return true
 	}
@@ -973,9 +972,6 @@ func containsFold(list []string, s string) bool {
 }
 
 func (g *Gateway) canSendToJID(jid string) bool {
-	if len(g.cfg.SendDisabledChannels) == 0 {
-		return true
-	}
 	prefix, _, _ := strings.Cut(jid, ":")
 	return !containsFold(g.cfg.SendDisabledChannels, prefix)
 }
@@ -1029,6 +1025,14 @@ func socialCall[T any](g *Gateway, jid string, fn func(s core.Socializer, ctx co
 	return fn(s, ctx)
 }
 
+// socialDo is socialCall for verbs that return only an error.
+func socialDo(g *Gateway, jid string, fn func(s core.Socializer, ctx context.Context) error) error {
+	_, err := socialCall(g, jid, func(s core.Socializer, ctx context.Context) (struct{}, error) {
+		return struct{}{}, fn(s, ctx)
+	})
+	return err
+}
+
 func (g *Gateway) postToJID(jid, content string, mediaPaths []string) (string, error) {
 	if !g.canSendToJID(jid) {
 		return "", nil
@@ -1039,17 +1043,15 @@ func (g *Gateway) postToJID(jid, content string, mediaPaths []string) (string, e
 }
 
 func (g *Gateway) likeOnJID(jid, targetID, reaction string) error {
-	_, err := socialCall(g, jid, func(s core.Socializer, ctx context.Context) (struct{}, error) {
-		return struct{}{}, s.Like(ctx, jid, targetID, reaction)
+	return socialDo(g, jid, func(s core.Socializer, ctx context.Context) error {
+		return s.Like(ctx, jid, targetID, reaction)
 	})
-	return err
 }
 
 func (g *Gateway) deleteOnJID(jid, targetID string) error {
-	_, err := socialCall(g, jid, func(s core.Socializer, ctx context.Context) (struct{}, error) {
-		return struct{}{}, s.Delete(ctx, jid, targetID)
+	return socialDo(g, jid, func(s core.Socializer, ctx context.Context) error {
+		return s.Delete(ctx, jid, targetID)
 	})
-	return err
 }
 
 func (g *Gateway) forwardToJID(sourceMsgID, targetJID, comment string) (string, error) {
@@ -1080,17 +1082,15 @@ func (g *Gateway) repostToJID(jid, sourceMsgID string) (string, error) {
 }
 
 func (g *Gateway) dislikeOnJID(jid, targetID string) error {
-	_, err := socialCall(g, jid, func(s core.Socializer, ctx context.Context) (struct{}, error) {
-		return struct{}{}, s.Dislike(ctx, jid, targetID)
+	return socialDo(g, jid, func(s core.Socializer, ctx context.Context) error {
+		return s.Dislike(ctx, jid, targetID)
 	})
-	return err
 }
 
 func (g *Gateway) editOnJID(jid, targetID, content string) error {
-	_, err := socialCall(g, jid, func(s core.Socializer, ctx context.Context) (struct{}, error) {
-		return struct{}{}, s.Edit(ctx, jid, targetID, content)
+	return socialDo(g, jid, func(s core.Socializer, ctx context.Context) error {
+		return s.Edit(ctx, jid, targetID, content)
 	})
-	return err
 }
 
 func (g *Gateway) clearSession(folder string) {
@@ -1462,36 +1462,30 @@ func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
 		return false
 	}
 
-	switch {
-	case content == "@":
-		g.store.SetStickyGroup(chatJid, "")
-		g.sendMessage(chatJid, "routing reset to default")
-		return true
-
-	case strings.HasPrefix(content, "@"):
-		name := content[1:]
-		_, ok := g.store.GroupByFolder(name)
-
-		if ok {
-			g.store.SetStickyGroup(chatJid, name)
-			g.sendMessage(chatJid, fmt.Sprintf("routing → %s", name))
-		} else {
+	name := content[1:]
+	switch content[0] {
+	case '@':
+		if name == "" {
+			g.store.SetStickyGroup(chatJid, "")
+			g.sendMessage(chatJid, "routing reset to default")
+			return true
+		}
+		if _, ok := g.store.GroupByFolder(name); !ok {
 			g.sendMessage(chatJid, fmt.Sprintf("Failed: group %q not found", name))
+			return true
+		}
+		g.store.SetStickyGroup(chatJid, name)
+		g.sendMessage(chatJid, fmt.Sprintf("routing → %s", name))
+		return true
+	case '#':
+		g.store.SetStickyTopic(chatJid, name)
+		if name == "" {
+			g.sendMessage(chatJid, "topic reset to default")
+		} else {
+			g.sendMessage(chatJid, fmt.Sprintf("topic → %s", name))
 		}
 		return true
-
-	case content == "#":
-		g.store.SetStickyTopic(chatJid, "")
-		g.sendMessage(chatJid, "topic reset to default")
-		return true
-
-	case strings.HasPrefix(content, "#"):
-		topic := content[1:]
-		g.store.SetStickyTopic(chatJid, topic)
-		g.sendMessage(chatJid, fmt.Sprintf("topic → %s", topic))
-		return true
 	}
-
 	return false
 }
 
