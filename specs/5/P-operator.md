@@ -1,29 +1,27 @@
 ---
-status: unshipped
+status: note
 ---
 
-# Operator agent (proactive)
+# Operator agent (proactive) — design note
 
-A tier-0 group that monitors events and initiates messages to the
-operator. Distinguished by `groups.is_operator` flag (single-row
-constraint); operator JID in `router_state['operator_jid']`.
+Operator is **not a role or flag** — it is emergent from the user
+ACL. Any user with a `**` row in `user_groups` is "the operator";
+`MatchGroups` handles tier-0 visibility uniformly. There is no
+`groups.is_operator` flag, no `router_state['operator_jid']`
+sentinel, and no nil-default routing target.
 
-Triggers:
+The earlier draft proposed a single-row `is_operator` flag plus a
+distinguished JID slot. That model was rejected — see
+`feedback_operator_implicit` in project memory. Cross-group event
+notification (errors, scheduled health checks, listener digests)
+should resolve "where to send" by consulting `user_groups` for
+`**`-grant holders and routing into their existing folders, not by
+seeding a flagged group.
 
-- **Error** — `gated` circuit breaker/persistent error → `InsertSysMsg`
-  into operator group as `<error group="X">...</error>`.
-- **Scheduled** — hourly health-check task with
-  `<health_check>...</health_check>` prompt. Silence = success.
-- **Listener digest** — future; listener groups post to operator
-  instead of direct.
+What still needs design before any proactive-operator work ships:
 
-Agent uses existing `send_message` to reach operator JID on any
-channel; default tier-0 grants cover the needed tools.
-[feedback_operator_implicit] memory: operator may not even need this
-flag — emergent from `**` grant. Reconcile before shipping.
+- error/health-check trigger plumbing (`InsertSysMsg` from `gated`)
+- dedup/rate-limit policy for error bursts
+- listener-digest delivery format
 
-Rationale: `notify/` is fire-and-forget strings; some events need
-reasoning ("wake me at 3am?").
-
-Unblockers: schema, `InsertSysMsg` plumbing, default SOUL.md, operator
-seeding in `arizuko create`. Dedup/rate-limit policy for error bursts.
+These are mechanism questions; the addressing question is settled.

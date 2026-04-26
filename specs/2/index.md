@@ -6,3 +6,4 @@ status: shipped
 
 - [i-social-events.md](i-social-events.md) — shipped — verb enum, platform mapping, impulse filter
 - [j-social-actions.md](j-social-actions.md) — shipped — reply + post + like + delete across adapters
+- [k-twitter-adapter.md](k-twitter-adapter.md) — shipped — twitd: X/Twitter via browser-emulation (TypeScript)

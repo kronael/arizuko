@@ -1,9 +1,16 @@
 ---
 status: deferred
 source: hermes-agent peel (2026-04-11)
+overlaps_with: 5/d-self-improvement.md
 ---
 
 # Self-eval via sub-query at container exit
+
+> Overlaps with [`5/d-self-improvement.md`](../5/d-self-improvement.md).
+> Both produce agent-driven critique + memory updates; this spec
+> triggers via sub-`query()` at container exit, the other via `timed`
+> cron. Treat as candidates for unification when either ships — pick
+> one trigger shape, not both.
 
 After main turn completes, run a second restricted `query()` in the
 same container to review and persist findings. Fires every N

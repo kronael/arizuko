@@ -1,6 +1,5 @@
 ---
-status: planned
-phase: next
+status: shipped
 ---
 
 # twitd — X/Twitter Adapter via Browser-Emulation

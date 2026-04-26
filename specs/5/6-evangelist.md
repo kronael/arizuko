@@ -1,8 +1,16 @@
 ---
-status: deferred
+status: superseded
+superseded_by: 6/4-hitl-firewall.md, 6/5-authoring-product.md
 ---
 
 # Evangelist
+
+> Superseded by [`6/4-hitl-firewall.md`](../6/4-hitl-firewall.md) and
+> [`6/5-authoring-product.md`](../6/5-authoring-product.md). The
+> generalized "scrape → score → draft → review → post" pipeline is
+> covered by the authoring product running on top of the HITL firewall
+> queue. Evangelist becomes a configuration of those, not a distinct
+> daemon. Kept here for historical framing.
 
 Community-engagement agent. Polls external sources (reddit first),
 scores relevance, drafts responses, routes to human via dashd for
