@@ -226,20 +226,10 @@ func UserContextXml(sender, groupDir string) string {
 }
 
 func IsAuthorizedRoutingTarget(source, target string) bool {
-	srcRoot := strings.SplitN(source, "/", 2)[0]
-	if srcRoot == "root" {
+	if strings.SplitN(source, "/", 2)[0] == "root" {
 		return true
 	}
-	tgtRoot := strings.SplitN(target, "/", 2)[0]
-	if srcRoot != tgtRoot {
-		return false
-	}
-	if len(target) <= len(source) {
-		return false
-	}
-	suffix := target[len(source):]
-	return strings.HasPrefix(suffix, "/") && len(suffix) > 1 &&
-		strings.IndexByte(suffix[1:], '/') == -1
+	return path.Dir(target) == source
 }
 
 func expandTarget(target string, msg core.Message) string {

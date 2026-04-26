@@ -195,16 +195,14 @@ func writeIpcFile(ipcFolder, text string) error {
 
 func (q *GroupQueue) Shutdown() {
 	q.mu.Lock()
+	defer q.mu.Unlock()
 	q.shuttingDown = true
-
 	var detached []string
 	for _, s := range q.groups {
 		if s.active && s.containerName != "" {
 			detached = append(detached, s.containerName)
 		}
 	}
-	q.mu.Unlock()
-
 	slog.Info("GroupQueue shutting down (containers detached, not killed)",
 		"activeCount", q.activeCount, "detachedContainers", detached)
 }
