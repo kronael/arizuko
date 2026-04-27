@@ -208,7 +208,18 @@ func emailDomain(sub string) string {
 	return ""
 }
 
+// promptCoolDown is the minimum interval between re-prompts for a JID
+// whose user_sub never bound. Prevents thrashing if the user clicks the
+// link, bails on OAuth, and re-messages repeatedly.
+const promptCoolDown = 30 * time.Minute
+
 func promptUnprompted(db *sql.DB, cfg config) {
+	// Two-bucket pickup: fresh rows that have never been prompted, plus
+	// stale rows where the user clicked the old link but never finished
+	// OAuth (status=token_used, user_sub still NULL). The stale bucket
+	// is gated by promptCoolDown to avoid re-spamming.
+	resetRow(db)
+
 	rows, err := db.Query(
 		`SELECT jid FROM onboarding WHERE status = 'awaiting_message' AND prompted_at IS NULL`)
 	if err != nil {
@@ -238,6 +249,27 @@ func promptUnprompted(db *sql.DB, cfg config) {
 		}
 		sendReply(cfg, jid, prompt)
 		slog.Info("sent auth link", "jid", jid)
+	}
+}
+
+// resetRow flips token_used rows whose user_sub never bound back to
+// awaiting_message, clearing token + prompted_at so the main loop
+// re-mints. Only rows older than promptCoolDown are eligible — a row
+// reset here will be picked up on the same promptUnprompted call.
+func resetRow(db *sql.DB) {
+	cutoff := time.Now().Add(-promptCoolDown).Format(time.RFC3339)
+	res, err := db.Exec(
+		`UPDATE onboarding
+		 SET status = 'awaiting_message', token = NULL, prompted_at = NULL
+		 WHERE status = 'token_used' AND user_sub IS NULL
+		   AND prompted_at IS NOT NULL AND prompted_at < ?`,
+		cutoff)
+	if err != nil {
+		slog.Error("resetRow update", "err", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		slog.Info("reset stale onboarding rows for re-prompt", "count", n)
 	}
 }
 

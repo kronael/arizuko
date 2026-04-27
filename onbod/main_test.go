@@ -1939,6 +1939,41 @@ func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 	}
 }
 
+// TestPromptUnprompted_ResetsTokenUsedWithoutUserSub: the production-bug
+// scenario. User clicked link (status moved to token_used in the old
+// flow), bailed on OAuth without binding user_sub, returns and messages
+// the bot. The next promptUnprompted cycle resets the row and mints a
+// fresh token.
+func TestPromptUnprompted_ResetsTokenUsedWithoutUserSub(t *testing.T) {
+	db := testDB(t)
+	// 31 minutes ago — past the 30-minute cool-down.
+	stale := time.Now().Add(-31 * time.Minute).Format(time.RFC3339)
+	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, prompted_at, created)
+		VALUES ('telegram:1', 'token_used', NULL, '2099-01-01T00:00:00Z', ?, '2026-01-01')`, stale)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := config{authBaseURL: "https://example.com", gatedURL: srv.URL}
+	promptUnprompted(db, cfg)
+
+	var status string
+	var token, prompted sql.NullString
+	db.QueryRow(`SELECT status, token, prompted_at FROM onboarding WHERE jid='telegram:1'`).
+		Scan(&status, &token, &prompted)
+	if status != "awaiting_message" {
+		t.Errorf("want status reset to awaiting_message, got %s", status)
+	}
+	if !token.Valid || len(token.String) != 64 {
+		t.Errorf("want fresh 64-char hex token, got %+v", token)
+	}
+	if !prompted.Valid {
+		t.Error("want prompted_at re-set")
+	}
+}
+
 // TestPromptUnprompted_DoesNotResetClaimedRow: rows whose user_sub is
 // already bound MUST NOT be re-prompted. The user has authenticated;
 // re-sending a link would be redundant and confusing.
