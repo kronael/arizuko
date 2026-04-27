@@ -169,18 +169,21 @@ Name changed; mechanism identical.
 `prototype/.claude/` seeding: kanipi only. Skills now live under
 `/workspace/self`. Move any baseline files into the skills system.
 
-Prototype spawning (`create --from`): not ported. Groups start from template.
+Prototype spawning is wired via `ONBOARDING_PROTOTYPE` env (operator
+default) and `register_group fromPrototype=true` (per-call). New groups
+clone from `groups/<prototype>/` instead of bare `template/`.
 
 ## Features Not Ported
 
-| Feature                       | Notes                                      |
-| ----------------------------- | ------------------------------------------ |
-| `refresh_groups` IPC          | Adapters sync via HTTP registration        |
-| Twitter / Facebook channels   | mastd/bskyd/reditd are separate Go daemons |
-| `prototype/.claude/` seed     | Prototype concept removed                  |
-| File transfer (`/file ...`)   | Not ported                                 |
-| Per-group web prefix / vhosts | Not implemented                            |
-| Cross-channel preemption      | Not implemented                            |
+| Feature                     | Notes                                     |
+| --------------------------- | ----------------------------------------- |
+| `refresh_groups` IPC        | Adapters sync via HTTP registration       |
+| Twitter / Facebook channels | mastd/bskyd/reditd/twitd separate daemons |
+| File transfer (`/file ...`) | Not ported                                |
+| Cross-channel preemption    | Not implemented                           |
+
+Previously listed as not-ported, now shipped: prototype spawning (see
+above), per-group web prefix / vhosts (proxyd `vhosts.json` hot-reload).
 
 ## Data Directory
 
