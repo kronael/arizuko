@@ -68,6 +68,28 @@ function loadAgentMcpServers(): Record<string, McpServerConfig> {
   }
 }
 
+// Inject secrets into each MCP server's env so spawned MCP processes inherit them.
+function injectMcpEnv(
+  servers: Record<string, McpServerConfig>,
+  secrets: Record<string, string | undefined>,
+): Record<string, McpServerConfig> {
+  const definedSecrets: Record<string, string> = {};
+  for (const [k, v] of Object.entries(secrets)) {
+    if (v !== undefined) definedSecrets[k] = v;
+  }
+  const out: Record<string, McpServerConfig> = {};
+  for (const [name, cfg] of Object.entries(servers)) {
+    out[name] = { ...cfg, env: { ...cfg.env, ...definedSecrets } };
+  }
+  // Always include arizuko MCP (socat to gated socket).
+  out.arizuko = {
+    command: 'socat',
+    args: ['STDIO', 'UNIX-CONNECT:/workspace/ipc/gated.sock'],
+    env: definedSecrets,
+  };
+  return out;
+}
+
 function buildSystemPrompt(ci: ContainerInput):
     string | { type: 'preset'; preset: 'claude_code' } {
   const parts = [ci.systemMd, ci.soul, readOutputStyle()].filter(Boolean);
@@ -445,13 +467,7 @@ async function runQuery(
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user'],
-        mcpServers: {
-          ...agentMcpServers,
-          arizuko: {
-            command: 'socat',
-            args: ['STDIO', 'UNIX-CONNECT:/workspace/ipc/gated.sock'],
-          },
-        },
+        mcpServers: injectMcpEnv(agentMcpServers, sdkEnv),
         hooks: {
           PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
           PreToolUse: [{ matcher: 'Bash', hooks: [createSanitizeBashHook()] }],
