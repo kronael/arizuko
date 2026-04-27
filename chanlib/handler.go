@@ -296,8 +296,12 @@ func handleSendFile(bot BotHandler) http.HandlerFunc {
 			WriteErr(w, 500, "temp file failed")
 			return
 		}
-		io.Copy(tmp, file)
-		tmp.Close()
+		_, copyErr := io.Copy(tmp, file)
+		closeErr := tmp.Close()
+		if copyErr != nil || closeErr != nil {
+			WriteErr(w, 500, "temp file write failed")
+			return
+		}
 		if err := bot.SendFile(jid, localPath, name, caption); err != nil {
 			WriteErr(w, 502, err.Error())
 			return
