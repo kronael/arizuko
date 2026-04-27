@@ -71,27 +71,36 @@ format change, no DB migration of existing rows.
 
 ## Code types
 
+The JID is a valid URI — opaque-path form per RFC 3986. Build on
+`net/url`:
+
 ```go
-type JID string
+type JID struct{ u *url.URL }
 
-func (j JID) Platform() string  // left of first ':'
-func (j JID) Path() string      // right of first ':'
+func ParseJID(s string) (JID, error)         // wraps url.Parse + validation
+func (j JID) Platform() string               // u.Scheme
+func (j JID) Path() string                   // u.Opaque (adapter splits further)
+func (j JID) String() string                 // u.String (handles percent-encoding)
 
-type ChatJID JID  // distinct named type for destination/scope identifiers
-type UserJID JID  // distinct named type for sender/identity identifiers
+type ChatJID struct{ JID }                   // resource is a chat/destination kind
+type UserJID struct{ JID }                   // resource is a user identity
 
 func ParseChatJID(s string) (ChatJID, error)
 func ParseUserJID(s string) (UserJID, error)
 ```
 
 `Message.ChatJID` becomes `ChatJID`. `Message.Sender` becomes
-`UserJID`. The compiler refuses to swap them. Parsers reject the
-empty string and any value lacking a `:`.
+`UserJID`. The compiler refuses to swap them. `ParseChatJID` and
+`ParseUserJID` validate kind by inspecting the first path segment.
+
+Why net/url: free URI-spec compliance; free percent-encoding for
+platform IDs that contain reserved chars (Bluesky DIDs contain `:`);
+future-extensible if query params or fragments are ever needed.
 
 Adapters keep their own helpers for platform-side construction
-(snowflake widths, sign-bit hacks, server suffixes). The core type is
-deliberately thin — `JID` is just a string with a platform prefix and
-a path.
+(snowflake widths, sign-bit hacks, server suffixes) and platform-side
+parsing of `j.Path()` per their schema. Core just guarantees a valid
+URI shape.
 
 ## Routing
 
