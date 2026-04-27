@@ -1070,6 +1070,35 @@ func TestDavAllow(t *testing.T) {
 	}
 }
 
+// Bare root on a vhost (`GET /`) must rewrite to `/<world>/`, not `/<world>`.
+// path.Clean strips the trailing slash, which broke static-file serving on
+// custom domains (lore.krons.cx returned wrong content; lore.krons.cx/ worked).
+func TestProxydVhostRootPreservesTrailingSlash(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+	s.vh = &vhosts{entries: map[string]string{"lore.example.com": "lore"}}
+
+	cases := []struct {
+		in, want string
+	}{
+		{"/", "/lore/"},
+		{"/sub/", "/lore/sub/"},
+		{"/sub", "/lore/sub"},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest("GET", c.in, nil)
+		req.Host = "lore.example.com"
+		w := httptest.NewRecorder()
+		s.route(w, req)
+		if w.Code != 200 {
+			t.Fatalf("%s: status = %d, want 200", c.in, w.Code)
+		}
+		if got := w.Header().Get("X-Upstream-Path"); got != c.want {
+			t.Errorf("%s: upstream path = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // Path traversal in a vhost request is rejected before any proxy hop.
 func TestProxydVhostRejectsDotDotInSubPath(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")

@@ -320,7 +320,14 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		r.URL.Path = path.Clean("/" + world + "/" + strings.TrimPrefix(rawPath, "/"))
+		// path.Clean strips trailing slashes; preserve them so static
+		// handlers serve `<world>/index.html` for bare-root requests.
+		trailing := rawPath == "" || rawPath == "/" || strings.HasSuffix(rawPath, "/")
+		cleaned := path.Clean("/" + world + "/" + strings.TrimPrefix(rawPath, "/"))
+		if trailing && !strings.HasSuffix(cleaned, "/") {
+			cleaned += "/"
+		}
+		r.URL.Path = cleaned
 		r.URL.RawPath = ""
 		if s.viteProxy != nil {
 			s.viteProxy.ServeHTTP(w, r)
