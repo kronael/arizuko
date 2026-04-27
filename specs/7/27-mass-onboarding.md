@@ -86,11 +86,11 @@ awaiting_message, prompted_at IS NULL:
   → SET prompted_at = now, token = <token>
 
 awaiting_message, prompted_at IS NOT NULL:
-  → user hasn't clicked yet; resend link on new message
+  → link sent; user hasn't bound identity yet
   → token expires after 24h (new token on next message)
 
 token_used:
-  → user clicked link, OAuth in progress
+  → user_sub bound (OAuth complete), token cleared
 
 queued (gates only):
   → user passed OAuth, waiting for admission
@@ -99,6 +99,27 @@ queued (gates only):
 approved:
   → done — JID linked, world exists, route active
 ```
+
+## Token lifecycle
+
+The link is **replay-safe**. Token presentation and identity-bind are
+two separate steps:
+
+- **Presentation** (`GET /onboard?token=X`) is idempotent. Validates
+  the token, sets `onboard_jid` cookie, redirects to OAuth. Status
+  stays `awaiting_message`. Token stays set. Re-clickable.
+- **Identity-bind** (post-OAuth `GET /onboard` with `X-User-Sub`) is
+  the single-shot. Atomic UPDATE binds `user_sub`, sets status to
+  `token_used`, clears the token. After this, `?token=X` replays
+  fail validation (token gone).
+
+If the user clicks the link, bails on OAuth, and returns: the link
+still works. If 30 minutes pass with `status=token_used` AND
+`user_sub IS NULL` (which can happen if onboarding rows ever land in
+that state without binding) AND the user re-messages the bot, the
+row is reset to `awaiting_message` and a fresh token is minted on
+the next `promptUnprompted` cycle. The 30-minute cool-down prevents
+thrashing under repeated click-and-bail.
 
 ## Schema
 
@@ -131,8 +152,10 @@ CREATE TABLE user_groups (
 
 ### GET /onboard?token=<hex>
 
-Token landing. Validates token, consumes it (status → token_used),
-sets `onboard_jid` cookie, redirects to OAuth.
+Token landing. Validates token (does NOT consume it), sets
+`onboard_jid` cookie, redirects to OAuth. Idempotent — re-clickable
+until the user completes OAuth and the dashboard binds `user_sub`.
+See "Token lifecycle" above.
 
 ### GET /onboard (authenticated)
 

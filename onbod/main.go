@@ -263,17 +263,19 @@ func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg confi
 }
 
 func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, token string) {
-	// Atomic consume: single UPDATE ... RETURNING guards status, token, and
-	// expiry. Concurrent requests with the same token race here — only one
-	// wins. Prevents SELECT-then-UPDATE replays.
+	// Token presentation is idempotent: validate the token, bind the JID
+	// to a cookie, redirect to OAuth. The token is NOT cleared here. The
+	// one-shot is the user_sub claim in handleDashboard. This makes the
+	// link safe to re-click if the user bails out of OAuth and returns.
 	now := time.Now().Format(time.RFC3339)
 	var jid string
 	err := db.QueryRow(
-		`UPDATE onboarding
-		 SET status = 'token_used', token = NULL
-		 WHERE token = ? AND status = 'awaiting_message'
-		   AND (token_expires IS NULL OR token_expires > ?)
-		 RETURNING jid`, token, now).Scan(&jid)
+		`SELECT jid FROM onboarding
+		 WHERE token = ?
+		   AND status IN ('awaiting_message', 'token_used')
+		   AND user_sub IS NULL
+		   AND (token_expires IS NULL OR token_expires > ?)`,
+		token, now).Scan(&jid)
 	if err != nil {
 		slog.Warn("onboard token invalid",
 			"token_hash", chanlib.ShortHash(token), "remote", r.RemoteAddr)
@@ -281,7 +283,7 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 			template.HTML("<p>This link is invalid, already used, or has expired.</p>"))
 		return
 	}
-	slog.Info("onboard token consumed", "jid", jid, "token_hash", chanlib.ShortHash(token))
+	slog.Info("onboard token presented", "jid", jid, "token_hash", chanlib.ShortHash(token))
 
 	http.SetCookie(w, &http.Cookie{
 		Name: "onboard_jid", Value: jid, Path: "/",
@@ -293,6 +295,9 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 	})
 
 	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
+		// Already authenticated — bind identity now (consumes the token)
+		// and route to the dashboard.
+		claimOnboarding(db, jid, userSub)
 		linkJID(db, jid, userSub)
 		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 		return
@@ -301,26 +306,38 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 }
 
+// claimOnboarding atomically binds an onboarding row to a user_sub and
+// clears the token. Returns true if the claim succeeded (single-shot).
+// Subsequent visits to /onboard?token=X find user_sub IS NOT NULL and
+// fail validation in handleTokenLanding — replay-safe at identity-bind.
+func claimOnboarding(db *sql.DB, jid, userSub string) bool {
+	res, err := db.Exec(
+		`UPDATE onboarding
+		 SET user_sub = ?, status = 'token_used', token = NULL
+		 WHERE jid = ? AND user_sub IS NULL`,
+		userSub, jid)
+	if err != nil {
+		slog.Error("claim onboarding", "jid", jid, "err", err)
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n == 1
+}
+
 func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, userSub string) {
-	// Second-platform auto-link: consume pending JID cookie and route it into
-	// the user's existing world. Atomic claim prevents replay: once the
-	// onboarding row is claimed (user_sub set), a stolen cookie can no longer
-	// bind the victim's JID to a different account.
+	// Identity-bind: consume pending JID cookie and route it into the
+	// user's existing world. claimOnboarding is the single-shot — once
+	// user_sub is set, a stolen cookie can no longer bind the victim's
+	// JID to a different account, and the token (now NULL) cannot be
+	// re-presented at /onboard?token=X.
 	if c, err := r.Cookie("onboard_jid"); err == nil && c.Value != "" {
-		res, err := db.Exec(
-			`UPDATE onboarding SET user_sub = ?
-			 WHERE jid = ? AND status = 'token_used' AND user_sub IS NULL`,
-			userSub, c.Value)
-		var n int64
-		if err == nil {
-			n, _ = res.RowsAffected()
-		}
+		claimed := claimOnboarding(db, c.Value, userSub)
 		// Single-use cookie: clear regardless of claim outcome.
 		http.SetCookie(w, &http.Cookie{
 			Name: "onboard_jid", Value: "", Path: "/",
 			MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
 		})
-		if n == 1 {
+		if claimed {
 			linkJID(db, c.Value, userSub)
 			var folder string
 			if err := db.QueryRow(

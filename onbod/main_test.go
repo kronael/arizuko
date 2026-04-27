@@ -106,23 +106,27 @@ func TestTokenLandingValid(t *testing.T) {
 		t.Errorf("want redirect to /auth/login, got %s", loc)
 	}
 
-	// Token should be consumed: status='token_used', token=NULL
+	// Token presentation is idempotent — token persists, status unchanged.
+	// The single-shot is the user_sub claim in handleDashboard, not here.
 	var status string
 	var token sql.NullString
 	db.QueryRow(`SELECT status, token FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &token)
-	if status != "token_used" {
-		t.Errorf("want status=token_used, got %s", status)
+	if status != "awaiting_message" {
+		t.Errorf("want status=awaiting_message after presentation, got %s", status)
 	}
-	if token.Valid {
-		t.Errorf("want token=NULL, got %q", token.String)
+	if !token.Valid || token.String != "abc123" {
+		t.Errorf("want token=abc123 still set, got %q (valid=%v)", token.String, token.Valid)
 	}
 
-	// Second use of same token should fail (show invalid page)
-	req2 := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
-	w2 := httptest.NewRecorder()
-	handleOnboard(w2, req2, db, cfg)
-	if w2.Code != http.StatusOK {
-		t.Errorf("want 200 (error page) on reuse, got %d", w2.Code)
+	// onboard_jid cookie should be set so OAuth round-trip can identify JID.
+	var jidCookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "onboard_jid" {
+			jidCookie = c
+		}
+	}
+	if jidCookie == nil || jidCookie.Value != "telegram:1" {
+		t.Errorf("want onboard_jid=telegram:1 cookie, got %+v", jidCookie)
 	}
 }
 
@@ -316,29 +320,64 @@ func TestLinkJID(t *testing.T) {
 	}
 }
 
-func TestTokenDoubleUse(t *testing.T) {
+// TestHandleTokenLanding_AllowsReplay: the user clicks the link, bails on
+// OAuth, and clicks again. Both clicks must succeed — token presentation
+// is idempotent. The single-shot is at identity-bind in handleDashboard.
+func TestHandleTokenLanding_AllowsReplay(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
+		VALUES ('telegram:1', 'awaiting_message', 'tok-replay', '2099-01-01T00:00:00Z', '2026-01-01')`)
+
+	cfg := config{authBaseURL: "https://example.com"}
+
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest("GET", "/onboard?token=tok-replay", nil)
+		w := httptest.NewRecorder()
+		handleOnboard(w, req, db, cfg)
+		if w.Code != http.StatusSeeOther {
+			t.Fatalf("click %d: want 303, got %d", i+1, w.Code)
+		}
+		if loc := w.Header().Get("Location"); loc != "/auth/login" {
+			t.Fatalf("click %d: want /auth/login, got %s", i+1, loc)
+		}
+	}
+
+	var status string
+	var token sql.NullString
+	db.QueryRow(`SELECT status, token FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &token)
+	if status != "awaiting_message" {
+		t.Errorf("want awaiting_message after replay, got %s", status)
+	}
+	if !token.Valid || token.String != "tok-replay" {
+		t.Errorf("want token preserved across replays, got %q", token.String)
+	}
+}
+
+// TestHandleTokenLanding_DoesNotConsumeOnGet: explicit assertion that GET
+// of the token landing endpoint is not a state-changing operation on the
+// onboarding row beyond cookies.
+func TestHandleTokenLanding_DoesNotConsumeOnGet(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
 		VALUES ('telegram:1', 'awaiting_message', 'tok-once', '2099-01-01T00:00:00Z', '2026-01-01')`)
 
 	cfg := config{authBaseURL: "https://example.com"}
-
-	req1 := httptest.NewRequest("GET", "/onboard?token=tok-once", nil)
-	w1 := httptest.NewRecorder()
-	handleOnboard(w1, req1, db, cfg)
+	req := httptest.NewRequest("GET", "/onboard?token=tok-once", nil)
+	w := httptest.NewRecorder()
+	handleOnboard(w, req, db, cfg)
 
 	var status string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)
-	if status != "token_used" {
-		t.Fatalf("first use: expected token_used, got %s", status)
+	var token, userSub sql.NullString
+	db.QueryRow(`SELECT status, token, user_sub FROM onboarding WHERE jid = 'telegram:1'`).
+		Scan(&status, &token, &userSub)
+	if status != "awaiting_message" {
+		t.Errorf("status changed by GET: %s", status)
 	}
-
-	req2 := httptest.NewRequest("GET", "/onboard?token=tok-once", nil)
-	w2 := httptest.NewRecorder()
-	handleOnboard(w2, req2, db, cfg)
-
-	if w2.Code != http.StatusOK {
-		t.Errorf("second use: want 200 (error page), got %d", w2.Code)
+	if !token.Valid || token.String == "" {
+		t.Errorf("token cleared by GET")
+	}
+	if userSub.Valid {
+		t.Errorf("user_sub set by GET: %q", userSub.String)
 	}
 }
 
@@ -1411,24 +1450,33 @@ func TestStateMachineMigrated(t *testing.T) {
 		t.Fatal("prompt did not set token")
 	}
 
-	// 2) token landing → token_used
+	// 2) token landing (presentation is idempotent — status & token unchanged)
 	req := httptest.NewRequest("GET", "/onboard?token="+tok.String, nil)
 	w := httptest.NewRecorder()
 	handleOnboard(w, req, db, cfg)
 	var st string
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
-	if st != "token_used" {
-		t.Fatalf("after landing want token_used, got %s", st)
+	if st != "awaiting_message" {
+		t.Fatalf("presentation should not change status, got %s", st)
 	}
 
-	// 3) linkJID with gates active → queued
+	// 3) identity-bind → token_used (claim happens at user_sub binding)
+	if !claimOnboarding(db, "telegram:7", "github:alice") {
+		t.Fatal("claimOnboarding should succeed")
+	}
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
+	if st != "token_used" {
+		t.Fatalf("after claim want token_used, got %s", st)
+	}
+
+	// 4) linkJID with gates active → queued
 	linkJID(db, "telegram:7", "github:alice")
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
 	if st != "queued" {
 		t.Fatalf("after linkJID+gate want queued, got %s", st)
 	}
 
-	// 4) admit from queue → approved
+	// 5) admit from queue → approved
 	admitFromQueue(db)
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
 	if st != "approved" {
@@ -1837,6 +1885,107 @@ func TestCSRFRejectedWhenFormMissing(t *testing.T) {
 	}
 }
 
+
+// TestHandleDashboard_ConsumesAtUserSubBind: the post-OAuth dashboard
+// visit is where the token gets cleared and user_sub gets bound. After
+// the bind, the same token presented at /onboard?token=X must fail.
+func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
+		VALUES ('telegram:1', 'awaiting_message', 'tok-bind', '2099-01-01T00:00:00Z', '2026-01-01')`)
+	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
+		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('github:alice', 'alice')`)
+
+	cfg := config{authBaseURL: "https://example.com"}
+
+	// 1) Unauthenticated GET — token persists.
+	req1 := httptest.NewRequest("GET", "/onboard?token=tok-bind", nil)
+	w1 := httptest.NewRecorder()
+	handleOnboard(w1, req1, db, cfg)
+	var token sql.NullString
+	db.QueryRow(`SELECT token FROM onboarding WHERE jid='telegram:1'`).Scan(&token)
+	if !token.Valid || token.String != "tok-bind" {
+		t.Fatalf("token cleared by GET: %+v", token)
+	}
+
+	// 2) Post-OAuth dashboard hit with cookie + X-User-Sub binds identity.
+	req2 := httptest.NewRequest("GET", "/onboard", nil)
+	req2.Header.Set("X-User-Sub", "github:alice")
+	req2.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "telegram:1"})
+	w2 := httptest.NewRecorder()
+	handleOnboard(w2, req2, db, cfg)
+
+	var status string
+	var tokenAfter, userSubAfter sql.NullString
+	db.QueryRow(`SELECT status, token, user_sub FROM onboarding WHERE jid='telegram:1'`).
+		Scan(&status, &tokenAfter, &userSubAfter)
+	if !userSubAfter.Valid || userSubAfter.String != "github:alice" {
+		t.Errorf("user_sub not bound: %+v", userSubAfter)
+	}
+	if tokenAfter.Valid {
+		t.Errorf("token not cleared after bind: %q", tokenAfter.String)
+	}
+	if status != "approved" { // no gates, linkJID promotes through
+		t.Errorf("want approved after linkJID, got %s", status)
+	}
+
+	// 3) Replaying the original token after the bind must fail.
+	req3 := httptest.NewRequest("GET", "/onboard?token=tok-bind", nil)
+	w3 := httptest.NewRecorder()
+	handleOnboard(w3, req3, db, cfg)
+	if w3.Code != http.StatusOK {
+		t.Errorf("post-bind replay: want 200 (error page), got %d", w3.Code)
+	}
+}
+
+// TestPromptUnprompted_DoesNotResetClaimedRow: rows whose user_sub is
+// already bound MUST NOT be re-prompted. The user has authenticated;
+// re-sending a link would be redundant and confusing.
+func TestPromptUnprompted_DoesNotResetClaimedRow(t *testing.T) {
+	db := testDB(t)
+	stale := time.Now().Add(-31 * time.Minute).Format(time.RFC3339)
+	db.Exec(`INSERT INTO onboarding (jid, status, token, user_sub, prompted_at, created)
+		VALUES ('telegram:1', 'token_used', NULL, 'github:alice', ?, '2026-01-01')`, stale)
+
+	cfg := config{authBaseURL: "https://example.com"}
+	promptUnprompted(db, cfg)
+
+	var status string
+	var token sql.NullString
+	db.QueryRow(`SELECT status, token FROM onboarding WHERE jid='telegram:1'`).
+		Scan(&status, &token)
+	if status != "token_used" {
+		t.Errorf("claimed row was reset: status=%s", status)
+	}
+	if token.Valid {
+		t.Errorf("claimed row got token re-minted: %q", token.String)
+	}
+}
+
+// TestPromptUnprompted_DoesNotResetWithinCoolDown: a row prompted < 30
+// minutes ago must not be re-prompted yet. Prevents thrashing if the
+// user clicks-and-bails repeatedly.
+func TestPromptUnprompted_DoesNotResetWithinCoolDown(t *testing.T) {
+	db := testDB(t)
+	fresh := time.Now().Add(-5 * time.Minute).Format(time.RFC3339)
+	db.Exec(`INSERT INTO onboarding (jid, status, token, prompted_at, created)
+		VALUES ('telegram:1', 'token_used', NULL, ?, '2026-01-01')`, fresh)
+
+	cfg := config{authBaseURL: "https://example.com"}
+	promptUnprompted(db, cfg)
+
+	var status string
+	var token sql.NullString
+	db.QueryRow(`SELECT status, token FROM onboarding WHERE jid='telegram:1'`).
+		Scan(&status, &token)
+	if status != "token_used" {
+		t.Errorf("row reset within cool-down: status=%s", status)
+	}
+	if token.Valid {
+		t.Errorf("token re-minted within cool-down: %q", token.String)
+	}
+}
 
 // Small helper: drain a body without importing io at the top of the file.
 func readAll(r interface{ Read(p []byte) (int, error) }) ([]byte, error) {

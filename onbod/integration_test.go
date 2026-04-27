@@ -122,10 +122,12 @@ func TestOnboardingFlow(t *testing.T) {
 	if onboardJID == nil || onboardJID.Value != jid {
 		t.Fatalf("onboard_jid cookie not set; cookies=%v", resp.Cookies())
 	}
+	// Token presentation is idempotent — status & token unchanged. The
+	// claim happens at user_sub binding (post-OAuth dashboard hit) below.
 	var status string
 	inst.DB.QueryRow(`SELECT status FROM onboarding WHERE jid = ?`, jid).Scan(&status)
-	if status != "token_used" {
-		t.Errorf("status = %q, want token_used", status)
+	if status != "awaiting_message" {
+		t.Errorf("status = %q, want awaiting_message (presentation idempotent)", status)
 	}
 
 	// Seed the auth_users row + POST create_world (fake proxyd by
