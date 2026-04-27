@@ -163,13 +163,15 @@ func WriteErr(w http.ResponseWriter, code int, msg string) {
 
 // Auth validates the Bearer token against secret; empty secret passes all.
 func Auth(secret string, next http.HandlerFunc) http.HandlerFunc {
+	if secret == "" {
+		return next
+	}
+	secretBytes := []byte(secret)
 	return func(w http.ResponseWriter, r *http.Request) {
-		if secret != "" {
-			tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if subtle.ConstantTimeCompare([]byte(tok), []byte(secret)) != 1 {
-				WriteErr(w, 401, "invalid secret")
-				return
-			}
+		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(tok), secretBytes) != 1 {
+			WriteErr(w, 401, "invalid secret")
+			return
 		}
 		next(w, r)
 	}
@@ -253,12 +255,12 @@ func ShortHash(s string) string {
 }
 
 func MustEnv(k string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
+	v := os.Getenv(k)
+	if v == "" {
+		slog.Error("required env var missing", "key", k)
+		os.Exit(1)
 	}
-	slog.Error("required env var missing", "key", k)
-	os.Exit(1)
-	return ""
+	return v
 }
 
 // EnvBytes parses a positive int64 from env var k, returning def on

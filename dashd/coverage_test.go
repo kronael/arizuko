@@ -469,18 +469,6 @@ func TestRenderCappedFileTruncation(t *testing.T) {
 	}
 }
 
-// --- nullStr ---
-
-func TestNullStr(t *testing.T) {
-	if got := nullStr(sql.NullString{}); got != "" {
-		t.Errorf("invalid NullString = %q, want empty", got)
-	}
-	if got := nullStr(sql.NullString{Valid: true, String: "v"}); got != "v" {
-		t.Errorf("valid NullString = %q, want v", got)
-	}
-}
-
-
 // --- auth header pass-through: dashd trusts X-User-Sub from proxyd,
 // but does not gate on it. Ensure handlers process requests with it set. ---
 

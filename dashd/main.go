@@ -59,6 +59,8 @@ func safeJoin(base, leaf string) (string, error) {
 	return real, nil
 }
 
+var esc = template.HTMLEscapeString
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
@@ -217,7 +219,7 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 
 func pageTop(w http.ResponseWriter, title string) {
 	fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s<h1>%s</h1>`,
-		dashHead(title), dashNav, template.HTMLEscapeString(title))
+		dashHead(title), dashNav, esc(title))
 }
 
 const pageBot = `</div></body></html>`
@@ -248,9 +250,9 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	} else if erroredCount > 0 {
 		bannerClass = "banner-warn"
 	}
-	fmt.Fprintf(w, `<div class="%s">%s</div>`, bannerClass, template.HTMLEscapeString(bannerText))
+	fmt.Fprintf(w, `<div class="%s">%s</div>`, bannerClass, esc(bannerText))
 
-	fmt.Fprintf(w, `<p><b>DB:</b> %s</p>`, template.HTMLEscapeString(d.dbPath))
+	fmt.Fprintf(w, `<p><b>DB:</b> %s</p>`, esc(d.dbPath))
 	fmt.Fprintf(w, `<p>Groups: %d &nbsp; Active sessions: %d</p>`, groupCount, sessionCount)
 
 	rows, err := d.db.Query(`SELECT name, url FROM channels ORDER BY name LIMIT 500`)
@@ -264,18 +266,18 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td></tr>`,
-				template.HTMLEscapeString(name), template.HTMLEscapeString(url))
+				esc(name), esc(url))
 		}
 		if err := rows.Err(); err != nil {
 			slog.Warn("status: channels rows", "err", err)
 			fmt.Fprintf(w, `<tr><td colspan=2>rows error: %s</td></tr>`,
-				template.HTMLEscapeString(err.Error()))
+				esc(err.Error()))
 		}
 		fmt.Fprint(w, `</table>`)
 	} else {
 		slog.Warn("status: query channels", "err", err)
 		fmt.Fprintf(w, `<p class="banner-err">channels query error: %s</p>`,
-			template.HTMLEscapeString(err.Error()))
+			esc(err.Error()))
 	}
 
 	fmt.Fprint(w, pageBot)
@@ -303,7 +305,7 @@ func (d *dash) writeTaskRows(w http.ResponseWriter) {
 		 FROM scheduled_tasks ORDER BY owner, id LIMIT 500`)
 	if err != nil {
 		slog.Warn("tasks: query", "err", err)
-		fmt.Fprintf(w, `<tr><td colspan=6>error: %s</td></tr>`, template.HTMLEscapeString(err.Error()))
+		fmt.Fprintf(w, `<tr><td colspan=6>error: %s</td></tr>`, esc(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -313,22 +315,22 @@ func (d *dash) writeTaskRows(w http.ResponseWriter) {
 		if err := rows.Scan(&id, &owner, &cron, &status, &createdAt, &nextRun); err != nil {
 			slog.Warn("tasks: scan row", "err", err)
 			fmt.Fprintf(w, `<tr><td colspan=6>scan error: %s</td></tr>`,
-				template.HTMLEscapeString(err.Error()))
+				esc(err.Error()))
 			continue
 		}
 		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-			template.HTMLEscapeString(id),
-			template.HTMLEscapeString(owner),
-			template.HTMLEscapeString(nullStr(cron)),
-			template.HTMLEscapeString(status),
-			template.HTMLEscapeString(createdAt),
-			template.HTMLEscapeString(nullStr(nextRun)),
+			esc(id),
+			esc(owner),
+			esc(cron.String),
+			esc(status),
+			esc(createdAt),
+			esc(nextRun.String),
 		)
 	}
 	if err := rows.Err(); err != nil {
 		slog.Warn("tasks: rows", "err", err)
 		fmt.Fprintf(w, `<tr><td colspan=6>rows error: %s</td></tr>`,
-			template.HTMLEscapeString(err.Error()))
+			esc(err.Error()))
 	}
 }
 
@@ -354,7 +356,7 @@ func (d *dash) writeActivityRows(w http.ResponseWriter) {
 		 FROM messages ORDER BY timestamp DESC LIMIT 50`)
 	if err != nil {
 		slog.Warn("activity: query", "err", err)
-		fmt.Fprintf(w, `<tr><td colspan=6>error: %s</td></tr>`, template.HTMLEscapeString(err.Error()))
+		fmt.Fprintf(w, `<tr><td colspan=6>error: %s</td></tr>`, esc(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -364,22 +366,22 @@ func (d *dash) writeActivityRows(w http.ResponseWriter) {
 		if err := rows.Scan(&ts, &source, &chatJID, &sender, &verb, &content); err != nil {
 			slog.Warn("activity: scan row", "err", err)
 			fmt.Fprintf(w, `<tr><td colspan=6>scan error: %s</td></tr>`,
-				template.HTMLEscapeString(err.Error()))
+				esc(err.Error()))
 			continue
 		}
 		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-			template.HTMLEscapeString(ts),
-			template.HTMLEscapeString(source),
-			template.HTMLEscapeString(chatJID),
-			template.HTMLEscapeString(sender),
-			template.HTMLEscapeString(nullStr(verb)),
-			template.HTMLEscapeString(content),
+			esc(ts),
+			esc(source),
+			esc(chatJID),
+			esc(sender),
+			esc(verb.String),
+			esc(content),
 		)
 	}
 	if err := rows.Err(); err != nil {
 		slog.Warn("activity: rows", "err", err)
 		fmt.Fprintf(w, `<tr><td colspan=6>rows error: %s</td></tr>`,
-			template.HTMLEscapeString(err.Error()))
+			esc(err.Error()))
 	}
 }
 
@@ -390,7 +392,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	rows, err := d.db.Query(`SELECT folder, parent, name, state FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
 		slog.Warn("groups: query", "err", err)
-		fmt.Fprintf(w, `<p>error: %s</p>`, template.HTMLEscapeString(err.Error()))
+		fmt.Fprintf(w, `<p>error: %s</p>`, esc(err.Error()))
 		fmt.Fprint(w, pageBot)
 		return
 	}
@@ -402,7 +404,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&folder, &parent, &name, &state); err != nil {
 			slog.Warn("groups: scan row", "err", err)
 			fmt.Fprintf(w, `<p class="banner-err">scan error: %s</p>`,
-				template.HTMLEscapeString(err.Error()))
+				esc(err.Error()))
 			continue
 		}
 		label := ""
@@ -410,14 +412,14 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 			label = " (root)"
 		}
 		fmt.Fprintf(w, `<details><summary>%s — %s%s [%s]</summary><div class="group-detail">`,
-			template.HTMLEscapeString(folder),
-			template.HTMLEscapeString(name),
+			esc(folder),
+			esc(name),
 			label,
-			template.HTMLEscapeString(state),
+			esc(state),
 		)
 		fmt.Fprintf(w, `<p>Folder: %s &nbsp; Parent: %s</p>`,
-			template.HTMLEscapeString(folder),
-			template.HTMLEscapeString(nullStr(parent)),
+			esc(folder),
+			esc(parent.String),
 		)
 		d.writeGroupRoutes(w, folder)
 		fmt.Fprint(w, `</div></details>`)
@@ -425,7 +427,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	if err := rows.Err(); err != nil {
 		slog.Warn("groups: rows", "err", err)
 		fmt.Fprintf(w, `<p class="banner-err">rows error: %s</p>`,
-			template.HTMLEscapeString(err.Error()))
+			esc(err.Error()))
 	}
 	fmt.Fprint(w, pageBot)
 }
@@ -437,7 +439,7 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 	if err != nil {
 		slog.Warn("groups: routes query", "err", err, "folder", folder)
 		fmt.Fprintf(w, `<p class="banner-err">routes error: %s</p>`,
-			template.HTMLEscapeString(err.Error()))
+			esc(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -454,8 +456,8 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 		}
 		fmt.Fprintf(w, `<tr><td>%d</td><td>%s</td><td>%s</td></tr>`,
 			seq,
-			template.HTMLEscapeString(match),
-			template.HTMLEscapeString(target),
+			esc(match),
+			esc(target),
 		)
 		n++
 	}
@@ -625,7 +627,7 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("memory: groups query", "err", err)
 		fmt.Fprintf(w, `<p class="banner-err">groups query error: %s</p>`,
-			template.HTMLEscapeString(err.Error()))
+			esc(err.Error()))
 	} else {
 		defer rows.Close()
 		fmt.Fprint(w, `<form method="get">
@@ -642,9 +644,9 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 				sel = ` selected`
 			}
 			fmt.Fprintf(w, `<option value="%s"%s>%s</option>`,
-				template.HTMLEscapeString(folder),
+				esc(folder),
 				sel,
-				template.HTMLEscapeString(folder),
+				esc(folder),
 			)
 		}
 		if err := rows.Err(); err != nil {
@@ -697,11 +699,11 @@ func renderCappedFile(w http.ResponseWriter, groupDir, leaf string, showMissing 
 		if errors.Is(err, errEscape) {
 			slog.Warn("memory: symlink escape", "file", leaf, "groupDir", groupDir)
 			fmt.Fprintf(w, `<p><em>%s unavailable (symlink escape)</em></p>`,
-				template.HTMLEscapeString(leaf))
+				esc(leaf))
 			return
 		}
 		if os.IsNotExist(err) && showMissing {
-			fmt.Fprintf(w, `<p><em>%s not found</em></p>`, template.HTMLEscapeString(leaf))
+			fmt.Fprintf(w, `<p><em>%s not found</em></p>`, esc(leaf))
 		}
 		return
 	}
@@ -709,7 +711,7 @@ func renderCappedFile(w http.ResponseWriter, groupDir, leaf string, showMissing 
 	if err != nil {
 		slog.Warn("memory: read file", "err", err, "path", path)
 		if showMissing {
-			fmt.Fprintf(w, `<p><em>%s read error</em></p>`, template.HTMLEscapeString(leaf))
+			fmt.Fprintf(w, `<p><em>%s read error</em></p>`, esc(leaf))
 		}
 		return
 	}
@@ -724,10 +726,10 @@ func renderCappedFile(w http.ResponseWriter, groupDir, leaf string, showMissing 
 	}
 	if leaf == "MEMORY.md" {
 		fmt.Fprintf(w, `<p><small>%d bytes, modified %s%s</small></p><pre>%s</pre>`,
-			len(data), mtime, truncNote, template.HTMLEscapeString(string(data)))
+			len(data), mtime, truncNote, esc(string(data)))
 	} else {
 		fmt.Fprintf(w, `<details><summary>%s%s</summary><pre>%s</pre></details>`,
-			template.HTMLEscapeString(leaf), truncNote, template.HTMLEscapeString(string(data)))
+			esc(leaf), truncNote, esc(string(data)))
 	}
 }
 
@@ -766,7 +768,7 @@ func renderEntries(w http.ResponseWriter, groupDir, sub, title string, openDetai
 		openAttr = " open"
 	}
 	fmt.Fprintf(w, `<h2>%s</h2><details%s><summary>%s</summary><ul>`,
-		template.HTMLEscapeString(title), openAttr, template.HTMLEscapeString(summaryLabel))
+		esc(title), openAttr, esc(summaryLabel))
 	shown := 0
 	for i := total - 1; i >= 0 && shown < limit; i-- {
 		e := mdFiles[i]
@@ -779,8 +781,8 @@ func renderEntries(w http.ResponseWriter, groupDir, sub, title string, openDetai
 		}
 		summary := mdSummary(leafPath)
 		fmt.Fprintf(w, `<li><b>%s</b> %s</li>`,
-			template.HTMLEscapeString(e.Name()),
-			template.HTMLEscapeString(summary),
+			esc(e.Name()),
+			esc(summary),
 		)
 		shown++
 	}
@@ -800,13 +802,6 @@ func mdSummary(path string) string {
 		if l != "" && l != "---" {
 			return l
 		}
-	}
-	return ""
-}
-
-func nullStr(n sql.NullString) string {
-	if n.Valid {
-		return n.String
 	}
 	return ""
 }
