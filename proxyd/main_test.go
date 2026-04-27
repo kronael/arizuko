@@ -938,6 +938,138 @@ func TestDavRouteNotConfigured(t *testing.T) {
 	}
 }
 
+// Sensitive write-blocks: PUT/DELETE/MOVE/COPY/MKCOL/POST/PROPPATCH on
+// `.env`, `*.pem`, or under `.git/` are 403 even for the rightful group.
+func TestProxydDavBlocksSensitiveWrites(t *testing.T) {
+	s, up := testDavServer(t)
+	defer up.Close()
+
+	cases := []struct {
+		name, method, path string
+	}{
+		{"env_put", "PUT", "/dav/myg/.env"},
+		{"env_delete", "DELETE", "/dav/myg/.env"},
+		{"env_move", "MOVE", "/dav/myg/.env"},
+		{"pem_put", "PUT", "/dav/myg/keys/server.pem"},
+		{"pem_propppatch", "PROPPATCH", "/dav/myg/server.pem"},
+		{"git_dir_put", "PUT", "/dav/myg/.git/config"},
+		{"git_mkcol", "MKCOL", "/dav/myg/.git"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := httptest.NewRequest(c.method, c.path, nil)
+			req.Header.Set("X-User-Groups", `["myg"]`)
+			w := httptest.NewRecorder()
+			s.davRoute(w, req)
+			if w.Code != http.StatusForbidden {
+				t.Errorf("%s %s: status = %d, want 403", c.method, c.path, w.Code)
+			}
+		})
+	}
+}
+
+// Read methods on sensitive files still pass through (operator can inspect).
+func TestProxydDavReadsSensitiveAllowed(t *testing.T) {
+	s, up := testDavServer(t)
+	defer up.Close()
+
+	for _, m := range []string{"GET", "HEAD", "OPTIONS", "PROPFIND"} {
+		req := httptest.NewRequest(m, "/dav/myg/.env", nil)
+		req.Header.Set("X-User-Groups", `["myg"]`)
+		w := httptest.NewRecorder()
+		s.davRoute(w, req)
+		if w.Code != 200 {
+			t.Errorf("%s /dav/myg/.env: status = %d, want 200", m, w.Code)
+		}
+	}
+}
+
+// `<group>/logs/...` is read-only — any non-read method is 403, reads pass.
+func TestProxydDavLogsReadOnly(t *testing.T) {
+	s, up := testDavServer(t)
+	defer up.Close()
+
+	// Writes blocked.
+	for _, m := range []string{"PUT", "POST", "DELETE", "MOVE", "COPY", "MKCOL", "PROPPATCH"} {
+		req := httptest.NewRequest(m, "/dav/myg/logs/run.log", nil)
+		req.Header.Set("X-User-Groups", `["myg"]`)
+		w := httptest.NewRecorder()
+		s.davRoute(w, req)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("%s /dav/myg/logs/run.log: status = %d, want 403", m, w.Code)
+		}
+	}
+
+	// Reads allowed.
+	for _, m := range []string{"GET", "HEAD", "OPTIONS", "PROPFIND"} {
+		req := httptest.NewRequest(m, "/dav/myg/logs/run.log", nil)
+		req.Header.Set("X-User-Groups", `["myg"]`)
+		w := httptest.NewRecorder()
+		s.davRoute(w, req)
+		if w.Code != 200 {
+			t.Errorf("%s /dav/myg/logs/run.log: status = %d, want 200", m, w.Code)
+		}
+	}
+
+	// Bare `<group>/logs` (no trailing slash) also read-only.
+	req := httptest.NewRequest("DELETE", "/dav/myg/logs", nil)
+	req.Header.Set("X-User-Groups", `["myg"]`)
+	w := httptest.NewRecorder()
+	s.davRoute(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("DELETE /dav/myg/logs: status = %d, want 403", w.Code)
+	}
+}
+
+// Writes outside logs and sensitive paths still go through.
+func TestProxydDavOrdinaryWriteAllowed(t *testing.T) {
+	s, up := testDavServer(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("PUT", "/dav/myg/notes/todo.md", nil)
+	req.Header.Set("X-User-Groups", `["myg"]`)
+	w := httptest.NewRecorder()
+	s.davRoute(w, req)
+	if w.Code != 200 {
+		t.Errorf("PUT /dav/myg/notes/todo.md: status = %d, want 200", w.Code)
+	}
+}
+
+// davAllow unit tests — exercise the matcher directly for boundary cases.
+func TestDavAllow(t *testing.T) {
+	cases := []struct {
+		method, rest string
+		want         bool
+	}{
+		// Reads always allowed.
+		{"GET", "g/logs/x", true},
+		{"PROPFIND", "g/.env", true},
+		{"HEAD", "g/sub/key.pem", true},
+		// Sensitive writes blocked.
+		{"PUT", "g/.env", false},
+		{"DELETE", "g/sub/.env", false},
+		{"PUT", "g/sub/server.pem", false},
+		{"MOVE", "g/.git/HEAD", false},
+		{"MKCOL", "g/.git", false},
+		// logs read-only.
+		{"PUT", "g/logs/file", false},
+		{"DELETE", "g/logs", false},
+		{"GET", "g/logs", true},
+		// Innocuous writes pass.
+		{"PUT", "g/notes/file.md", true},
+		{"MKCOL", "g/sub", true},
+		// Non-`.env` similarly named files — only exact `.env` segment blocks.
+		{"PUT", "g/env.txt", true},
+		{"PUT", "g/.envrc", true},
+	}
+	for _, c := range cases {
+		got := davAllow(c.method, c.rest)
+		if got != c.want {
+			t.Errorf("davAllow(%q, %q) = %v, want %v", c.method, c.rest, got, c.want)
+		}
+	}
+}
+
 // Path traversal in a vhost request is rejected before any proxy hop.
 func TestProxydVhostRejectsDotDotInSubPath(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")

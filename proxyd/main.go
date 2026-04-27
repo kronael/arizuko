@@ -445,13 +445,51 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	group := strings.SplitN(rest, "/", 2)[0]
-	if auth.MatchGroups(gs, group) {
-		s.davProxy.ServeHTTP(w, r)
+	if !auth.MatchGroups(gs, group) {
+		slog.Warn("dav forbidden", "sub", r.Header.Get("X-User-Sub"),
+			"group", group, "path", r.URL.Path)
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	slog.Warn("dav forbidden", "sub", r.Header.Get("X-User-Sub"),
-		"group", group, "path", r.URL.Path)
-	http.Error(w, "Forbidden", http.StatusForbidden)
+	if !davAllow(r.Method, rest) {
+		slog.Warn("dav blocked", "sub", r.Header.Get("X-User-Sub"),
+			"method", r.Method, "path", r.URL.Path)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	s.davProxy.ServeHTTP(w, r)
+}
+
+// davReadMethods are HTTP/WebDAV verbs that don't mutate the workspace.
+var davReadMethods = map[string]bool{
+	"GET": true, "HEAD": true, "OPTIONS": true, "PROPFIND": true,
+}
+
+// davAllow enforces two protections on top of group-scoped routing:
+//   - sensitive paths (`.env`, `*.pem`, anything under `.git/`) cannot be
+//     written via WebDAV.
+//   - any path under `<group>/logs/` is read-only.
+//
+// rest is the path after `/dav/`, e.g. `myworld/logs/foo.log` or
+// `myworld/.env`. Returns false to block.
+func davAllow(method, rest string) bool {
+	read := davReadMethods[method]
+	parts := strings.Split(rest, "/")
+
+	// logs/ read-only — `<group>/logs` or `<group>/logs/...`
+	if len(parts) >= 2 && parts[1] == "logs" && !read {
+		return false
+	}
+
+	// Sensitive-path write block on any segment.
+	if !read {
+		for _, p := range parts {
+			if p == ".env" || strings.HasSuffix(p, ".pem") || p == ".git" {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []string) *http.Request {

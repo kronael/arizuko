@@ -21,6 +21,10 @@ Config: `WEBDAV_ENABLED` (default `true` since 2026-04-27),
   check against the path's `<group>` segment.
 - Rewrite from `/dav/<group>/<rest>` to `/<group>/<rest>` before
   forwarding.
+- proxyd `davAllow` middleware: blocks writes (PUT/POST/MKCOL/DELETE/
+  MOVE/COPY/PROPPATCH) on `.env`, `*.pem`, `.git/**` segments; makes
+  `<group>/logs/**` read-only (any non-read method → 403). Read methods
+  (GET/HEAD/OPTIONS/PROPFIND) pass through unchanged.
 
 ## What was originally specced but is NOT shipped
 
@@ -35,9 +39,8 @@ Config: `WEBDAV_ENABLED` (default `true` since 2026-04-27),
     `WEBDAV_GROUPS` JSON scope, OR
   - declare cookie/Bearer the canonical answer and remove the
     Basic-Auth language from this spec.
-- **`logs/` read-only proxy gate** + **`.env`/`*.pem`/`.git/**`write-block**. Not in`proxyd/main.go`today. dufs serves what's
-on disk; the protective MIME / pattern blocks listed here aren't
-enforced. Implement as a small middleware before`s.davProxy.ServeHTTP`.
+- (shipped) `logs/` read-only and `.env` / `*.pem` / `.git/**`
+  write-block — see `davAllow` in `proxyd/main.go`.
 
 Rationale: dufs over Caddy+mholt/caddy-webdav — ships UI, simpler
 deploy, same security model.
