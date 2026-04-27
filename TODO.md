@@ -45,6 +45,14 @@ similar, resolved at seed time by `container/runner.go`.
 
 ## Next (small wins)
 
+- **JID model evolution** — four debts queued in
+  `specs/5/S-jid-format.md` ("Adjacent open evolution work"): chat-jid
+  vs user-jid as distinct types, unified struct representation
+  (string-prefix → typed), consistent `<resource>/<id>` naming across
+  platforms (kill `t1_/t2_/t3_/t4_`), guild always in Discord JID. Pick
+  up together when JID gets focus — most invasive done early before
+  Discord rooms accumulate. Concept doc draft at `template/web/pub/
+concepts/jid.html` waits on this.
 - **Daemon test gaps** — `dashd` and `proxyd` have partial coverage
   but miss auth gate + path-traversal tests. (`whapd` now at 37 tests
   across server/reply/queue/typing; remaining gaps listed below.)
