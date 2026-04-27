@@ -429,8 +429,9 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 		b.WriteString("    ports:\n")
 		fmt.Fprintf(&b, "      - '%s:8080'\n", davPort)
 	}
+	// sigoden/dufs's entrypoint is already /bin/dufs; pass only args.
 	b.WriteString("    command:\n")
-	b.WriteString("      - dufs\n      - --port\n      - '8080'\n      - /data\n")
+	b.WriteString("      - --port\n      - '8080'\n      - /data\n")
 	b.WriteString("    depends_on: [gated]\n")
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
