@@ -34,7 +34,7 @@ Primary methods (by domain):
 ## Files
 
 - `store.go` — `Open`, `Migrate`, connection setup
-- `messages.go`, `groups.go`, `sessions.go`, `tasks.go`, `auth.go`, `grants.go`, `routes.go`, `onboarding.go`, `invitations.go`, `inspect.go`
+- `messages.go`, `groups.go`, `sessions.go`, `tasks.go`, `auth.go`, `grants.go`, `routes.go`, `onboarding.go`, `invites.go`, `inspect.go`
 - `migrations/NNNN-*.sql` — numbered migrations
 
 ## Related docs

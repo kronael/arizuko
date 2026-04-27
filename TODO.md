@@ -1,21 +1,11 @@
 # TODO
 
-Active backlog. See ROADMAP.md for version-level strategy.
+Active backlog. See `specs/index.md` for phase status, `CHANGELOG.md`
+for shipped milestones.
 
 ## Now
 
 _(empty)_
-
-## Verified shipped (2026-04-11)
-
-- **audit-log source semantics** (`specs/3/c-audit-log.md`): all write
-  paths in gateway/ipc/onbod/timed/api use `source=''` for outbound
-  and `source=<adapter>` for inbound. Live DB legacy `agent`/`mcp`
-  rows are pre-fix historical data (latest 2026-04-10 22:50). Post-fix
-  messages are correct. GREEN.
-- **onbod welcome `source=''`**: `onbod/main.go:334` explicitly sets
-  `source=''` on welcome insert, `onbod/main_test.go:191` asserts
-  it. GREEN.
 
 ## Products, templates, and skill mixins
 

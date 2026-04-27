@@ -54,6 +54,7 @@ Full graph, message flow, container lifecycle, SQLite schema in
 | reditd | Reddit adapter                                          | [reditd/README.md](reditd/README.md) |
 | emaid  | Email (IMAP/SMTP) adapter                               | [emaid/README.md](emaid/README.md)   |
 | whapd  | WhatsApp adapter (TypeScript, Baileys)                  | [whapd/README.md](whapd/README.md)   |
+| twitd  | X/Twitter adapter (TypeScript, browser emulation)       | [twitd/README.md](twitd/README.md)   |
 | linkd  | LinkedIn adapter (stub)                                 | [linkd/README.md](linkd/README.md)   |
 
 ### Libraries
@@ -87,31 +88,17 @@ layered docs and is not indexed here.
 
 ## Features
 
-| feature                                                  | code                                                                               | spec                                                             |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| autocalls — prompt-time fact injection                   | [gateway/autocalls.go](gateway/autocalls.go)                                       | [specs/7/34-autocalls.md](specs/7/34-autocalls.md)               |
-| inspect-tools — read-only MCP introspection              | [ipc/inspect.go](ipc/inspect.go)                                                   | [specs/7/33-inspect-tools.md](specs/7/33-inspect-tools.md)       |
-| channel liveness — /health flips stale on silent inbound | [chanlib/handler.go](chanlib/handler.go)                                           | —                                                                |
-| message-level `errored` quarantine + retry               | [store/messages.go](store/messages.go), [gateway/gateway.go](gateway/gateway.go)   | —                                                                |
-| grants / ACL engine                                      | [grants/grants.go](grants/grants.go)                                               | [specs/7/28-acl.md](specs/7/28-acl.md)                           |
-| onboarding + OAuth + gated admission                     | [onbod/main.go](onbod/main.go)                                                     | [specs/7/27-mass-onboarding.md](specs/7/27-mass-onboarding.md)   |
-| slink short-token chat                                   | [webd/slink.go](webd/slink.go)                                                     | [specs/7/28c-slink.md](specs/7/28c-slink.md)                     |
-| scheduler (cron + interval)                              | [timed/main.go](timed/main.go)                                                     | [specs/4/8-scheduler-service.md](specs/4/8-scheduler-service.md) |
-| impulse gate — weight-based batching                     | [gateway/impulse.go](gateway/impulse.go)                                           | —                                                                |
-| sticky group/topic routing                               | [gateway/commands.go](gateway/commands.go), [store/messages.go](store/messages.go) | —                                                                |
-| operator dashboards                                      | [dashd/main.go](dashd/main.go)                                                     | [specs/7/25-dashboards.md](specs/7/25-dashboards.md)             |
-| diary + MEMORY.md prompt layer                           | [diary/diary.go](diary/diary.go)                                                   | [specs/1/L-memory-diary.md](specs/1/L-memory-diary.md)           |
-| recall episodes (daily→weekly→monthly)                   | [container/episodes.go](container/episodes.go)                                     | [specs/4/24-recall.md](specs/4/24-recall.md)                     |
-| send_file + file delivery                                | [ipc/ipc.go](ipc/ipc.go), [chanlib/handler.go](chanlib/handler.go)                 | —                                                                |
-| social actions — post / like / delete                    | [ipc/ipc.go](ipc/ipc.go)                                                           | —                                                                |
-| fetch_history + inspect_messages (history on 7 adapters) | [ipc/ipc.go](ipc/ipc.go), [ipc/inspect.go](ipc/inspect.go)                         | —                                                                |
-| voice transcription (Whisper sidecar)                    | [sidecar/README.md](sidecar/README.md)                                             | —                                                                |
-| virtual-host routing (per-group `/dash/<group>/`)        | [proxyd/main.go](proxyd/main.go)                                                   | [specs/6/3-chat-ui.md](specs/6/3-chat-ui.md)                     |
-| prototype-based child spawn                              | [container/runtime.go](container/runtime.go)                                       | [specs/4/26-prototypes.md](specs/4/26-prototypes.md)             |
-| mount security + symlink guards                          | [mountsec/mountsec.go](mountsec/mountsec.go)                                       | —                                                                |
-| router→channel retry outbox                              | [chanreg/httpchan.go](chanreg/httpchan.go)                                         | —                                                                |
-| typing refresh (TTL-capped)                              | [chanlib/typing.go](chanlib/typing.go)                                             | —                                                                |
-| inter-daemon HMAC header signing                         | [auth/hmac.go](auth/hmac.go)                                                       | —                                                                |
+| feature                                 | code                                                       | spec                                                             |
+| --------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| multitenant routing + delegation        | [gateway/](gateway/), [router/](router/)                   | [ROUTING.md](ROUTING.md)                                         |
+| MCP tooling (action + inspect families) | [ipc/ipc.go](ipc/ipc.go), [ipc/inspect.go](ipc/inspect.go) | [specs/7/33-inspect-tools.md](specs/7/33-inspect-tools.md)       |
+| channel adapters (HTTP protocol)        | [chanlib/](chanlib/), `<adapter>/`                         | [specs/4/1-channel-protocol.md](specs/4/1-channel-protocol.md)   |
+| web auth + onboarding (OAuth, gated)    | [proxyd/](proxyd/), [onbod/](onbod/)                       | [specs/7/27-mass-onboarding.md](specs/7/27-mass-onboarding.md)   |
+| scheduler (cron + interval)             | [timed/main.go](timed/main.go)                             | [specs/4/8-scheduler-service.md](specs/4/8-scheduler-service.md) |
+| containerized agents (per-group, MCP)   | [container/](container/), [ant/](ant/)                     | [ARCHITECTURE.md](ARCHITECTURE.md)                               |
+
+Full feature history in [CHANGELOG.md](CHANGELOG.md); current spec status
+in [specs/index.md](specs/index.md).
 
 ## Docs
 

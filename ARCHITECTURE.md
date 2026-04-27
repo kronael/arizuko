@@ -142,7 +142,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 
 | Table              | Key columns                                                                              |
 | ------------------ | ---------------------------------------------------------------------------------------- |
-| `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic                                       |
+| `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group                             |
 | `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored |
 | `groups`           | folder (PK), name, container_config, slink_token, parent, state, spawn_ttl_days          |
 | `routes`           | id (PK), seq, match, target, impulse_config                                              |
@@ -163,7 +163,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `email_threads`    | thread_id (PK), chat_jid, subject                                                        |
 | `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at           |
 | `onboarding_gates` | gate (PK), limit_per_day, enabled                                                        |
-| `invitations`      | token (PK), folder, created_by, created_at, uses, max_uses, expires                      |
+| `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count      |
 
 WAL mode, 5s busy timeout, migrations via `db_utils.Migrate` (`migrations`
 table keyed by service+version).
@@ -172,7 +172,7 @@ table keyed by service+version).
 `api.handleMessage`; outbound reads `store.LatestSource(jid)`. All agent
 output, delegation, and escalation flow through `PutMessage` — bot rows are
 `is_from_me=1 is_bot_message=1` and filtered from inbound polling. `topic`
-and `routed_to` capture audit metadata. Spec: `specs/7/22-audit-log.md`.
+and `routed_to` capture audit metadata. Spec: `specs/3/c-audit-log.md`.
 
 ## Container Lifecycle
 
@@ -334,7 +334,7 @@ Standalone read-only HTMX portal on `:8080` (configurable via `DASH_PORT`
 env; exposed on host only if `DASH_PORT` is set in compose, otherwise
 accessed via proxyd at `/dash/`). Opens SQLite read-only. Six views: portal,
 status, tasks, activity, groups, memory. Auth enforced by proxyd's
-`requireAuth` middleware. Spec: `specs/7/25-dashboards.md`.
+`requireAuth` middleware. Spec: `specs/3/d-dashboards.md`.
 
 URLs: `/dash/` portal, `/dash/<name>/` page, `/dash/<name>/x/<frag>` HTMX
 partial.
