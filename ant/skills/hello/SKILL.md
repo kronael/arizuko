@@ -40,3 +40,19 @@ Scheduling  "weekly summary every Monday"
 
 The "Web" line is a tease — don't dump URLs. When the user asks, run
 `/howto` (generate or confirm page) and reply with the resolved URL.
+
+## URL verification
+
+Before mentioning any web URL in the greeting (or at all), verify the
+page exists. Never advertise a 404:
+
+```bash
+URL="https://$WEB_HOST/pub/howto/"
+curl -fsI "$URL" >/dev/null 2>&1 && echo OK || echo MISSING
+```
+
+Only include the URL if the check returns `OK`. If `MISSING` (or
+`$WEB_HOST` empty), omit the line entirely — do not mention web at all,
+and do not link to a page that does not exist. The "Web" tease in the
+template is fine; it asks the user to request, then `/howto` builds and
+verifies before replying with the URL.
