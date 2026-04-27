@@ -7,11 +7,16 @@ of what you just did. One-sentence replies are fine. Exceptions only
 when explicitly asked or the task requires it: generating content
 (specs, docs, prose), multi-step plans, root-cause walkthroughs.
 
-## What is arizuko
+## Essence
 
-Multitenant Claude agent router. External channel adapters register via
-HTTP; router routes messages to containerized Claude agents. Docker compose
-orchestration.
+arizuko is a multitenant Claude agent router built on plain primitives:
+Go daemons, SQLite WAL, HTTP between adapters and `gated`, MCP over a
+unix socket, Docker per-group containers. Every primitive scales —
+`solo/inbox` and `corp/eng/sre/oncall` run the same code. Schema and
+migrations live in `gated`; everything else is a thin daemon talking to
+it. Read `README.md` for the daemon map, `ARCHITECTURE.md` for message
+flow, the per-package `README.md` for details, this file for the
+operator runbook + the philosophy.
 
 ## Build & Test
 
@@ -48,47 +53,9 @@ permission tiers).
 
 ## Layout
 
-```
-cmd/arizuko/       CLI entrypoint (generate, run, create, group, status, pair)
-core/              Config, types, Channel interface
-store/             SQLite (messages.db), migrations
-gateway/           Main loop + commands
-container/         Docker runner + runtime
-ant/               In-container agent (TypeScript, skills, Dockerfile)
-queue/             Per-group concurrency
-router/            Message formatting + routing
-chanreg/           Channel registry + HTTP proxy
-api/               Router HTTP API server
-compose/           Docker-compose generation
-ipc/               MCP server (unix socket, runtime auth)
-auth/              Identity, authorization, JWT, OAuth, middleware
-diary/             Diary annotations
-groupfolder/       Path validation
-mountsec/          Mount security
-template/          Instance seed files; services/ has adapter TOMLs, web/ has Vite scaffold
-sidecar/           whisper transcription service image
-gated/             Gateway daemon
-timed/             Scheduler daemon
-onbod/             Onboarding daemon (gated admission queue + OAuth link)
-dashd/             Operator dashboards (HTMX)
-webd/              Web channel daemon (websocket hub, slink, MCP bridge)
-proxyd/            Web proxy (/pub/ public, /* auth-gated)
-grants/            Grant rule engine (library)
-chanlib/           Shared HTTP + auth primitives, URLCache, fsutil, env
-                   helpers, ShortHash (library; used beyond adapters)
-db_utils/          SQL migration runner (library)
-theme/             Shared CSS/HTML helpers (library)
-teled/             Telegram adapter (Go)
-discd/             Discord adapter (Go)
-mastd/             Mastodon adapter (Go)
-bskyd/             Bluesky adapter (Go)
-reditd/            Reddit adapter (Go)
-whapd/             WhatsApp adapter (TypeScript)
-twitd/             X/Twitter adapter (TypeScript, browser emulation)
-emaid/             Email adapter (IMAP/SMTP, Go)
-linkd/             LinkedIn adapter (Go)
-cfg/               Instance config files (per-deploy .env snapshots)
-```
+See `ARCHITECTURE.md` for the package graph and `README.md` for the
+daemon + library tables. Schema and migrations live in `store/` (gated
+owns them). Per-package details co-located in each `<pkg>/README.md`.
 
 ## Conventions
 
@@ -102,12 +69,10 @@ cfg/               Instance config files (per-deploy .env snapshots)
 
 ### Trust boundaries
 
-`proxyd` is the sole signer of identity headers (`auth.SignHMAC`).
-Every other HTTP-receiving backend (`webd`, `onbod`, future) MUST
-verify via `auth/middleware.go` — `auth.RequireSigned` for
-always-authed routes, `auth.StripUnsigned` for backends mixing
-public + authed flows. Never inline an `auth.VerifyUserSig` call
-in handler code; never trust `X-User-Sub` without a sig check.
+`proxyd` signs identity headers; every backend verifies via
+`auth/middleware.go` (`RequireSigned` strict / `StripUnsigned` lenient).
+Never trust `X-User-Sub` without a sig check. Full trust model in
+`SECURITY.md`.
 
 ### Subagent worktrees
 
@@ -166,76 +131,28 @@ path. Pick the depth that matches your org's actual complexity.
 
 ## Config
 
-All config via `.env` in data dir or env vars (`core.LoadConfig`).
-
-Infra: `ASSISTANT_NAME`, `CONTAINER_IMAGE`, `CONTAINER_TIMEOUT`,
-`IDLE_TIMEOUT`, `MAX_CONCURRENT_CONTAINERS`, `API_PORT`, `CHANNEL_SECRET`,
-`HOST_DATA_DIR`, `HOST_APP_DIR`, `WEB_HOST`, `AUTH_SECRET`, `AUTH_BASE_URL`,
-`TZ`, `ARIZUKO_DEV`.
-Media: `MEDIA_ENABLED`, `MEDIA_MAX_FILE_BYTES`, `WHISPER_BASE_URL`,
-`VOICE_TRANSCRIPTION_ENABLED`, `VIDEO_TRANSCRIPTION_ENABLED`, `WHISPER_MODEL`.
-OAuth: `GITHUB_CLIENT_ID/SECRET`, `GITHUB_ALLOWED_ORG`,
-`DISCORD_CLIENT_ID/SECRET`, `GOOGLE_CLIENT_ID/SECRET`, `GOOGLE_ALLOWED_EMAILS`.
-Flags: `ONBOARDING_ENABLED` (true/false), `IMPULSE_ENABLED`,
-`SEND_DISABLED_CHANNELS`, `SEND_DISABLED_GROUPS`, `ONBOARDING_PLATFORMS`.
-Onboarding (onbod): `ONBOARDING_PROTOTYPE`, `ONBOARDING_GREETING`,
-`ONBOARDING_GATES` (format `*:50/day` or `github:org=X:10/day,google:domain=Y:20/day`).
-Gates write to `onboarding.gate` + `onboarding.queued_at` columns (migration 0027);
-per-gate state lives in `onboarding_gates` (migration 0029).
-Daemon-specific: `DATA_DIR`, `DATABASE`, `DB_PATH`, `DASH_PORT`,
-`ROUTER_URL`, `ONBOD_LISTEN_ADDR`, `ONBOARD_POLL_INTERVAL`.
+`.env` in data dir or env vars (`core.LoadConfig`). Anchor vars:
+`CHANNEL_SECRET`, `AUTH_SECRET`, `HOST_DATA_DIR`, `CONTAINER_IMAGE`,
+`WEB_HOST`, `ASSISTANT_NAME`. Per-daemon vars documented in each
+`<daemon>/README.md`. Business state (gates, grants, onboarding) lives
+in the DB; infra toggles live in env.
 
 ## Entrypoint
 
 ```
-arizuko generate <instance>    write docker-compose.yml to data dir
-arizuko run <instance>         generate + docker compose up
 arizuko create <name>          seed data dir, .env, default group
-arizuko group <inst> list|add|rm   manage groups
-arizuko group <inst> grant <sub> <pattern>   add user_groups ACL row
-arizuko group <inst> ungrant <sub> <pattern>
-arizuko group <inst> grants [<sub>]
-arizuko gate <inst> list|add|rm|enable|disable   manage onboarding_gates rows
-arizuko status <instance>      show compose services + channels
-arizuko pair <instance> <svc>  docker compose run --rm a service
+arizuko run <instance>         generate compose + docker compose up
 ```
 
-Daemons are standalone binaries: `gated`, `timed`, `teled`, `discd`,
-`mastd`, `bskyd`, `reditd`, `emaid`, `linkd`, `whapd`, `twitd`, `onbod`, `dashd`,
-`webd`, `proxyd`. Go daemons: `<name>/main.go`. TS daemons: `<name>/src/main.ts`.
+Full command list in `cmd/arizuko/README.md`. Daemons are standalone
+binaries (`gated`, `timed`, ...); see README for the full table.
 
 ## Service Architecture
 
-Daemons end in `d` (4+d naming), libraries don't. Shared SQLite DB (WAL mode).
-
-| Name       | Type    | Role                                                  |
-| ---------- | ------- | ----------------------------------------------------- |
-| `gated`    | daemon  | Message loop, routing, containers                     |
-| `timed`    | daemon  | Cron poll, writes to messages                         |
-| `onbod`    | daemon  | Onboarding: OAuth link, gated admission queue         |
-| `dashd`    | daemon  | Operator dashboards (HTMX)                            |
-| `webd`     | daemon  | Web channel: websocket hub, slink, MCP bridge         |
-| `proxyd`   | daemon  | Web proxy: /pub/ public, /\* auth-gated               |
-| `vited`    | service | Vite dev server (compose-generated, arizuko-vite img) |
-| `teled`    | daemon  | Telegram adapter                                      |
-| `discd`    | daemon  | Discord adapter                                       |
-| `mastd`    | daemon  | Mastodon adapter                                      |
-| `bskyd`    | daemon  | Bluesky adapter                                       |
-| `reditd`   | daemon  | Reddit adapter                                        |
-| `whapd`    | daemon  | WhatsApp adapter (TypeScript)                         |
-| `twitd`    | daemon  | X/Twitter adapter (TypeScript, browser emulation)     |
-| `emaid`    | daemon  | Email adapter (IMAP/SMTP)                             |
-| `linkd`    | daemon  | LinkedIn adapter                                      |
-| `ipc`      | library | MCP server, identity stamping                         |
-| `auth`     | library | Authorization policy, JWT, OAuth                      |
-| `grants`   | library | Grant rule engine                                     |
-| `chanlib`  | library | HTTP + auth, URLCache, fsutil, env, ShortHash         |
-| `db_utils` | library | SQL migration runner                                  |
-| `theme`    | library | Shared CSS/HTML helpers                               |
-
-**Schema ownership**: `gated` (via `store/`) owns `messages.db`. All
-migrations in `store/migrations/`. Other daemons connect read/write but
-never run migrations. `store.Migrate(db)` for test fixtures.
+Daemons end in `d`. Libraries don't. Shared SQLite (WAL). The full
+daemon + library table lives in `README.md` — don't duplicate it here.
+`gated` owns the schema; everything else connects read/write but never
+migrates.
 
 ## Operational check (post-deploy)
 
