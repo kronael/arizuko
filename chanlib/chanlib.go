@@ -217,6 +217,15 @@ func EnvInt(k string, fallback int) int {
 	return n
 }
 
+// EnvBool returns os.Getenv(k) == "true", or fallback on empty.
+func EnvBool(k string, fallback bool) bool {
+	s := os.Getenv(k)
+	if s == "" {
+		return fallback
+	}
+	return s == "true"
+}
+
 // EnvDur parses os.Getenv(k) as integer milliseconds and returns the
 // resulting duration, or fallback on empty/parse-error. The ms encoding
 // matches core's legacy behavior for CONTAINER_TIMEOUT, IDLE_TIMEOUT, etc.

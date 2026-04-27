@@ -135,9 +135,10 @@ func LoadConfig() (*Config, error) {
 }
 
 var (
-	envOr  = chanlib.EnvOr
-	envInt = chanlib.EnvInt
-	envDur = chanlib.EnvDur
+	envOr   = chanlib.EnvOr
+	envInt  = chanlib.EnvInt
+	envBool = chanlib.EnvBool
+	envDur  = chanlib.EnvDur
 )
 
 func resolveTimezone() string {

@@ -271,6 +271,9 @@ func fetchGoogleUser(ctx context.Context, token string) (sub, name, email string
 		return "", "", "", false, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", "", "", false, fmt.Errorf("google userinfo: %s", resp.Status)
+	}
 	var u struct {
 		Sub           string `json:"sub"`
 		Name          string `json:"name"`
@@ -279,6 +282,9 @@ func fetchGoogleUser(ctx context.Context, token string) (sub, name, email string
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&u); err != nil {
 		return "", "", "", false, err
+	}
+	if u.Sub == "" {
+		return "", "", "", false, fmt.Errorf("google userinfo: empty sub")
 	}
 	return u.Sub, u.Name, u.Email, u.EmailVerified, nil
 }
@@ -333,6 +339,13 @@ func handleTelegram(cfg *core.Config, s *store.Store, secret []byte, secure bool
 }
 
 func createOAuthSession(w http.ResponseWriter, r *http.Request, s *store.Store, secret []byte, sub, name string, secure bool) {
+	// Reject "provider:" without identity. Caller passes "provider:id" — anything
+	// shorter means the upstream returned no usable id and would collide cross-provider.
+	if i := strings.Index(sub, ":"); i < 0 || i == len(sub)-1 {
+		slog.Error("oauth empty identity", "sub", sub)
+		http.Error(w, "oauth failed", http.StatusBadGateway)
+		return
+	}
 	if _, ok := s.AuthUserBySub(sub); !ok {
 		username := sub
 		if err := s.CreateAuthUser(sub, username, "", name); err != nil {
@@ -466,11 +479,19 @@ func fetchGitHubUser(ctx context.Context, token string) (string, string, error) 
 		return "", "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", "", fmt.Errorf("github user: %s", resp.Status)
+	}
 	var u struct {
 		Login string `json:"login"`
 		Name  string `json:"name"`
 	}
-	json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&u)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&u); err != nil {
+		return "", "", err
+	}
+	if u.Login == "" {
+		return "", "", fmt.Errorf("github user: empty login")
+	}
 	name := u.Name
 	if name == "" {
 		name = u.Login
@@ -515,12 +536,20 @@ func fetchDiscordUser(ctx context.Context, token string) (string, string, error)
 		return "", "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", "", fmt.Errorf("discord user: %s", resp.Status)
+	}
 	var u struct {
 		ID       string `json:"id"`
 		Username string `json:"username"`
 		Global   string `json:"global_name"`
 	}
-	json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&u)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&u); err != nil {
+		return "", "", err
+	}
+	if u.ID == "" {
+		return "", "", fmt.Errorf("discord user: empty id")
+	}
 	name := u.Global
 	if name == "" {
 		name = u.Username
