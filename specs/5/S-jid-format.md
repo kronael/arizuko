@@ -108,6 +108,41 @@ get an explicit `@dm` realm.
 Slots into (3) cleanly: `discord:channel/<channel_id>@<guild_id>` for
 guild messages, `discord:channel/<channel_id>@dm` for DMs.
 
+### Design discipline
+
+Three constraints that shape the typed model:
+
+**No legacy.** Hard cutover, no compat shim, no string-form coexisting
+with typed-form. Every JID-writing site rebuilds. A one-shot migration
+rewrites every `messages.chat_jid`, `messages.sender`, `messages.routed_to`,
+and `routes.match` value across all production DBs (parallel pattern to
+migration 0032 invitations → invites). Old `room=12345` route forms
+become `resource=group room=12345` in the new schema.
+
+**One URL = one resource.** A URL identifies exactly one resource. The
+old JID violates this: `telegram:1234` is ambiguous (user-DM or group,
+disambiguated by sign-bit hack), `reddit:t1_xyz` and `reddit:t2_<user>`
+share the `reddit:` prefix carrying different resource kinds, and
+`messages.chat_jid`/`messages.sender` are both `string` despite identifying
+distinct resource families. The typed model enforces single-resource at
+both layers:
+
+- **Wire form**: resource in the path. `telegram:user/1234` is a user;
+  `telegram:group/1234` is a group. Distinct strings, no overloading.
+- **Code form**: distinct types. `Message.ChatJID` is `ChatJID`,
+  `Message.Sender` is `UserJID`. Compiler refuses to swap them.
+
+The discriminator is structural at both levels.
+
+**Adapter-local parse is fine.** A canonical `core.ParseChatJID` /
+`core.ParseUserJID` handles the standard `<platform>:<resource>/<id>[@<realm>]`
+form. Adapters MAY have their own helpers for platform-side specifics
+(discord knows snowflake widths, telegram knows sign-bit semantics on
+its raw chat_id, whatsapp knows `@lid` vs `@s.whatsapp.net` user kinds).
+The contract is one-way: adapters MUST emit JIDs in canonical form on
+inbound; HOW they build them from platform-native ids is private. Core
+never needs to know a platform's internal id format.
+
 ### Sequencing
 
 (2) is the foundation — types come first. (1) follows naturally on (2).
