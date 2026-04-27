@@ -236,6 +236,18 @@ func (s *Store) GetChatIsGroup(jid string) bool {
 	return n != 0
 }
 
+// UserSubByJID returns the user_sub mapped to a JID via user_jids, or false
+// if no row exists. Used by container spawn to resolve user-scoped secrets
+// in single-user chats.
+func (s *Store) UserSubByJID(jid string) (string, bool) {
+	var sub string
+	err := s.db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = ?`, jid).Scan(&sub)
+	if err != nil {
+		return "", false
+	}
+	return sub, true
+}
+
 func (s *Store) SetStickyGroup(jid, folder string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO chats (jid, sticky_group) VALUES (?, ?)

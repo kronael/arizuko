@@ -102,6 +102,19 @@ type Input struct {
 	OnOutput    OnOutputFn       `json:"-"`
 	GatedFns    ipc.GatedFns     `json:"-"`
 	StoreFns    ipc.StoreFns     `json:"-"`
+
+	// SecretsResolver resolves folder + user secrets at spawn time.
+	// nil disables injection (only `base` env from gated process is used).
+	SecretsResolver SecretsResolver `json:"-"`
+}
+
+// SecretsResolver is the subset of *store.Store the container runner needs to
+// resolve folder + user secrets at spawn. See specs/7/35-tenant-self-service.md.
+type SecretsResolver interface {
+	FolderSecretsResolved(folder string) (map[string]string, error)
+	UserSecrets(userSub string) (map[string]string, error)
+	GetChatIsGroup(jid string) bool
+	UserSubByJID(jid string) (string, bool)
 }
 
 type Output struct {
@@ -207,7 +220,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		return Output{Error: "start: " + err.Error()}
 	}
 
-	in.Secrets = readSecrets()
+	in.Secrets = resolveSpawnEnv(in.SecretsResolver, readSecrets(), in.Folder, in.ChatJID)
 	in.AsstName = cfg.Name
 	payload, _ := json.Marshal(in)
 	in.Secrets = nil
@@ -681,6 +694,50 @@ func readSecrets() map[string]string {
 		}
 	}
 	return s
+}
+
+// mergeSecrets returns a ∪ b with b overlaying a. Either may be nil.
+func mergeSecrets(a, b map[string]string) map[string]string {
+	out := make(map[string]string, len(a)+len(b))
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		out[k] = v
+	}
+	return out
+}
+
+// resolveSpawnEnv composes the env injected into the agent container per
+// specs/7/35-tenant-self-service.md §Resolution: base ∪ folder ∪ user
+// (user only when chat is single-user). When resolver is nil or its
+// secrets API is disabled (no AUTH_SECRET), returns base unchanged.
+func resolveSpawnEnv(
+	resolver SecretsResolver, base map[string]string, folder, chatJID string,
+) map[string]string {
+	if resolver == nil {
+		return base
+	}
+	folderSecrets, err := resolver.FolderSecretsResolved(folder)
+	if err != nil {
+		// ErrSecretCipherNotConfigured (no AUTH_SECRET) and any DB error
+		// fall through quietly — base env still flows.
+		slog.Debug("folder secrets resolve skipped", "folder", folder, "err", err)
+		return base
+	}
+	merged := mergeSecrets(base, folderSecrets)
+
+	if !resolver.GetChatIsGroup(chatJID) {
+		if userSub, ok := resolver.UserSubByJID(chatJID); ok {
+			userSecrets, err := resolver.UserSecrets(userSub)
+			if err == nil {
+				merged = mergeSecrets(merged, userSecrets)
+			} else {
+				slog.Debug("user secrets resolve skipped", "user_sub", userSub, "err", err)
+			}
+		}
+	}
+	return merged
 }
 
 func seedSettings(
