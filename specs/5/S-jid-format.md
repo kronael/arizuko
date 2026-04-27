@@ -11,16 +11,16 @@ prefix (`telegram:1234` is user-DM or group, sign-bit hack disambiguates;
 `messages.chat_jid` / `messages.sender` are both `string` despite
 identifying chats vs users.
 
-## Wire form (URI-compliant)
+## Wire form
 
 ```
 <platform>:<resource>/<id>[?<key>=<value>...]
 ```
 
-Scheme = platform, path = `<resource>/<id>`, optional query parameters
-for realm/scope/account. Standard `scheme:path?query` per RFC 3986.
+Optional query params carry realm / scope / account when needed. The
+form is a valid URI (`scheme:path?query`).
 
-Examples (one per archetype):
+Examples:
 
 ```
 telegram:user/123                       # DM
