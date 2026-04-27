@@ -695,13 +695,20 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 			return
 		}
 		hadOutput = true
-		if !g.canSendToGroup(groupFolder) {
-			slog.Debug("send suppressed by SEND_DISABLED_GROUPS", "group", groupFolder)
-			return
+		muted := !g.canSendToGroup(groupFolder)
+		if muted {
+			slog.Info("group muted, recording without platform send",
+				"group", groupFolder, "jid", chatJid)
+		}
+		send := func(t, reply, thread string) (string, error) {
+			if muted {
+				return "", nil
+			}
+			return sendOnce(t, reply, thread)
 		}
 		stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
 		for _, s := range statuses {
-			sentID, err := sendOnce("⏳ "+s, "", "")
+			sentID, err := send("⏳ "+s, "", "")
 			if err != nil {
 				slog.Error("send status failed",
 					"jid", chatJid, "group", groupFolder, "err", err)
@@ -720,7 +727,7 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 			})
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
-			sentID, err := sendOnce(clean, replyTo, topic)
+			sentID, err := send(clean, replyTo, topic)
 			if err != nil {
 				slog.Error("send reply failed",
 					"jid", chatJid, "group", groupFolder, "err", err)
