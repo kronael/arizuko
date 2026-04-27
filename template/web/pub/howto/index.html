@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>getting started</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.2em 0; }
+    .prose dt { color: var(--accent3); font-weight: bold; margin-top: 0.6em; }
+    .prose dd { margin: 0.1em 0 0 1.2em; color: var(--fg); }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>getting started</h1>
+    <p class="dim back"><a href="/pub/">&larr; hub</a></p>
+
+    <h2>what this is</h2>
+    <p>arizuko is a multitenant Claude agent router. Channel adapters (telegram, discord, web, &hellip;) push messages over HTTP; the router routes each message to a per-group containerized Claude agent and streams the reply back.</p>
+    <p>One deployment, many groups, many channels. The agent in each group is a Claude Code CLI process &mdash; full tool use, MCP, skills, hooks.</p>
+
+    <h2>what you can do here</h2>
+    <ul>
+      <li>sign in at <a href="/auth/login"><code>/auth/login</code></a> to reach dashboards and your chat.</li>
+      <li>chat anonymously at <code>/slink/&lt;token&gt;</code> when an operator shares a link &mdash; no login required.</li>
+      <li>browse public apps from the <a href="/pub/">hub</a>. Each app is a static site under a group&rsquo;s <code>web/pub/</code> directory.</li>
+    </ul>
+
+    <h2>glossary</h2>
+    <dl>
+      <dt>group</dt>
+      <dd>A workspace. Files, diary, skills, and one agent live here.</dd>
+      <dt>agent</dt>
+      <dd>The Claude Code instance for a group. Runs in a Docker container, started on demand.</dd>
+      <dt>channel</dt>
+      <dd>Where messages flow in and out: telegram, discord, web, email, and so on. Adapters are independent daemons.</dd>
+      <dt>skill</dt>
+      <dd>A markdown file the agent loads on start. Encodes one capability or convention.</dd>
+      <dt>slink</dt>
+      <dd>A shareable chat link bound to a group. Anyone with the URL can talk to the agent &mdash; no login.</dd>
+    </dl>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

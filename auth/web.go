@@ -86,7 +86,7 @@ func handleLoginPage(cfg *core.Config) http.HandlerFunc {
 <div class="page-center">
 <form method="POST" action="/auth/login" class="card card-sm" style="padding:2rem">
 <h1 style="text-align:center;margin-bottom:.1em">arizuko</h1>
-<p class="sub">sign in</p>
+<p class="sub">Claude agent gateway &middot; sign in</p>
 <input name="username" placeholder="username" required autofocus style="margin-bottom:.5rem">
 <input name="password" type="password" placeholder="password" required style="margin-bottom:1rem">
 <button type="submit" style="width:100%%">login</button>

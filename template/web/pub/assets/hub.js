@@ -25,6 +25,9 @@
     initTheme();
     var btn = document.querySelector('.theme-toggle');
     if (btn) btn.addEventListener('click', toggle);
+    var grid = document.querySelector('.grid');
+    var empty = document.querySelector('.empty');
+    if (grid && empty && grid.children.length > 0) empty.style.display = 'none';
   }
 
   if (document.readyState === 'loading') {
