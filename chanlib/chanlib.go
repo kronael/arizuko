@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -66,6 +67,15 @@ type InboundMsg struct {
 type RouterClient struct {
 	url, secret, token string
 	client             *http.Client
+
+	// regParams persisted across Register so SendMessage can re-register
+	// transparently after a 401 (e.g. router auto-deregistered the channel
+	// while the adapter's platform link was down).
+	regName     string
+	regURL      string
+	regPrefixes []string
+	regCaps     map[string]bool
+	regMu       sync.Mutex
 }
 
 func NewRouterClient(url, secret string) *RouterClient {
@@ -93,9 +103,30 @@ func (r *RouterClient) Register(name, url string, prefixes []string, caps map[st
 		slog.Error("channel registration rejected", "name", name, "reason", resp.Error)
 		return "", fmt.Errorf("register: %s", resp.Error)
 	}
+	r.regMu.Lock()
 	r.token = resp.Token
+	r.regName = name
+	r.regURL = url
+	r.regPrefixes = prefixes
+	r.regCaps = caps
+	r.regMu.Unlock()
 	slog.Info("channel registered", "name", name)
 	return resp.Token, nil
+}
+
+// reregister re-runs Register with the saved params. Returns the new token.
+// Called by SendMessage on 401 to recover from a router-side
+// auto-deregister without operator intervention.
+func (r *RouterClient) reregister() error {
+	r.regMu.Lock()
+	name, url, prefixes, caps := r.regName, r.regURL, r.regPrefixes, r.regCaps
+	r.regMu.Unlock()
+	if name == "" {
+		return fmt.Errorf("re-register: no saved params (Register was never called)")
+	}
+	slog.Warn("re-registering channel after 401", "name", name)
+	_, err := r.Register(name, url, prefixes, caps)
+	return err
 }
 
 func (r *RouterClient) Deregister() error {
@@ -108,7 +139,16 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
 			slog.Warn("send retry", "err", last)
-			time.Sleep(500 * time.Millisecond)
+			// 401 = router has no record of our token; re-register before retry.
+			// On any other error, just back off and try again.
+			if isAuthErr(last) {
+				if rerr := r.reregister(); rerr != nil {
+					slog.Error("re-register failed", "err", rerr)
+					return last
+				}
+			} else {
+				time.Sleep(500 * time.Millisecond)
+			}
 		}
 		var resp struct {
 			OK    bool   `json:"ok"`
@@ -124,6 +164,12 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 		last = fmt.Errorf("deliver: %s", resp.Error)
 	}
 	return last
+}
+
+// isAuthErr reports whether err is the router's 401 ("invalid token"),
+// indicating our channel registration has been dropped.
+func isAuthErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "status 401")
 }
 
 func (r *RouterClient) Post(path string, body any, auth string, out any) error {

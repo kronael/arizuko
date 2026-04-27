@@ -334,3 +334,49 @@ func TestSendMessageBothFail(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// On 401 from /v1/messages (router has auto-deregistered our channel),
+// SendMessage must call Register again with the saved params, get a
+// fresh token, and retry. Without this the adapter loops forever
+// hitting 401 and platform messages back up indefinitely.
+func TestSendMessage_401_TriggersReregisterAndRetries(t *testing.T) {
+	var sendCalls, registerCalls atomic.Int32
+	var firstSendIs401 atomic.Bool
+	firstSendIs401.Store(true)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/channels/register":
+			registerCalls.Add(1)
+			w.Write([]byte(`{"ok":true,"token":"new-tok"}`))
+		case "/v1/messages":
+			sendCalls.Add(1)
+			if firstSendIs401.Swap(false) {
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"ok":false,"error":"invalid token"}`))
+				return
+			}
+			// On retry, succeed
+			w.Write([]byte(`{"ok":true}`))
+		}
+	}))
+	defer srv.Close()
+
+	rc := NewRouterClient(srv.URL, "s")
+	if _, err := rc.Register("tg", srv.URL, []string{"telegram:"}, nil); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if registerCalls.Load() != 1 {
+		t.Fatalf("first register: calls = %d, want 1", registerCalls.Load())
+	}
+
+	if err := rc.SendMessage(InboundMsg{ID: "1", Content: "hi"}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if sendCalls.Load() != 2 {
+		t.Errorf("send calls = %d, want 2 (initial 401 + retry)", sendCalls.Load())
+	}
+	if registerCalls.Load() != 2 {
+		t.Errorf("register calls = %d, want 2 (initial + recovery)", registerCalls.Load())
+	}
+}
