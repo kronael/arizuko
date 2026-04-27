@@ -35,11 +35,11 @@
     </ul>
 
     <h2>auth</h2>
-    <p>Basic Auth. Each account has a per-user WebDAV token, separate from the web JWT. Tokens are issued from <code>/dash/profile</code>.</p>
-    <p>Operators set <code>WEBDAV_GROUPS</code> as a JSON array on the user to scope which folders the token can reach. Default is deny &mdash; without an entry, the token sees nothing.</p>
+    <p>Same auth as <code>/dash/</code>. Sign in at <code>/auth/login</code> &mdash; the JWT cookie that protects the dashboard also gates <code>/dav/</code>. WebDAV clients that don&rsquo;t carry browser cookies need a Bearer token: get one from <code>/dash/profile</code> and configure your client to send <code>Authorization: Bearer &lt;jwt&gt;</code>.</p>
+    <p>proxyd checks the user&rsquo;s <code>X-User-Groups</code> claim against <code>&lt;group&gt;</code> in the path. Without a matching grant the request returns 403.</p>
 
     <h2>security</h2>
-    <p>proxyd validates Basic Auth, strips the Authorization header, then rewrites <code>/dav/&lt;group&gt;/&lt;rest&gt;</code> to <code>/&lt;group&gt;/&lt;rest&gt;</code> and forwards to dufs. <code>.env</code>, <code>*.pem</code>, and <code>.git/**</code> are write-blocked. <code>logs/</code> is read-only.</p>
+    <p>proxyd validates the JWT, strips the Authorization header, then rewrites <code>/dav/&lt;group&gt;/&lt;rest&gt;</code> to <code>/&lt;group&gt;/&lt;rest&gt;</code> and forwards to dufs (which sees only the rewritten path, never the user&rsquo;s credentials).</p>
 
     <h2>common uses</h2>
     <ul>
