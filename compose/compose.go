@@ -205,7 +205,7 @@ func Generate(dataDir string) (string, error) {
 		b.WriteString(timedService(app, flavor, dataDir, env))
 		if profile == "full" {
 			b.WriteString(dashdService(app, flavor, dataDir, env))
-			if webPort != "" && envOr(env, "WEBDAV_ENABLED", "") == "true" {
+			if webPort != "" && envOr(env, "WEBDAV_ENABLED", "true") == "true" {
 				b.WriteString(davdService(app, flavor, dataDir, env))
 			}
 			if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
@@ -391,7 +391,7 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 	// feature-gated targets (davd, onbod) need explicit addressing so
 	// proxyd's "empty = disabled" check keeps them as 404s when off.
 	environment := map[string]string{}
-	if envOr(env, "WEBDAV_ENABLED", "") == "true" {
+	if envOr(env, "WEBDAV_ENABLED", "true") == "true" {
 		environment["DAV_ADDR"] = "http://davd:8080"
 	}
 	if envOr(env, "ONBOARDING_ENABLED", "") == "true" {

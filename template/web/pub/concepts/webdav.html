@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>webdav</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.2em 0; }
+    .prose dt { color: var(--accent3); font-weight: bold; margin-top: 0.6em; }
+    .prose dd { margin: 0.1em 0 0 1.2em; color: var(--fg); }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>webdav</h1>
+    <p class="dim back">concepts / webdav &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+
+    <h2>what it does</h2>
+    <p>Per-group workspaces exposed over WebDAV. Mount <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code> in any WebDAV-aware client &mdash; Finder, Windows Explorer, rclone, cyberduck &mdash; to read and write the group&rsquo;s files: media, logs, diary, facts, users, conversations, skills.</p>
+
+    <h2>what you see</h2>
+    <p>Open <code>/dav/&lt;group&gt;/</code> and you get a directory listing of the group&rsquo;s workspace:</p>
+    <ul>
+      <li><code>media/</code> &mdash; downloaded inbound attachments, by date</li>
+      <li><code>logs/</code> &mdash; agent run logs (read-only)</li>
+      <li><code>diary/</code> &mdash; the agent&rsquo;s dated notes</li>
+      <li><code>facts/</code> &mdash; durable facts the agent has learned</li>
+      <li><code>users/</code> &mdash; per-user notes and state</li>
+      <li><code>conversations/</code> &mdash; chat transcripts</li>
+      <li><code>.claude/skills/</code> &mdash; the agent&rsquo;s loaded skills</li>
+    </ul>
+
+    <h2>auth</h2>
+    <p>Basic Auth. Each account has a per-user WebDAV token, separate from the web JWT. Tokens are issued from <code>/dash/profile</code>.</p>
+    <p>Operators set <code>WEBDAV_GROUPS</code> as a JSON array on the user to scope which folders the token can reach. Default is deny &mdash; without an entry, the token sees nothing.</p>
+
+    <h2>security</h2>
+    <p>proxyd validates Basic Auth, strips the Authorization header, then rewrites <code>/dav/&lt;group&gt;/&lt;rest&gt;</code> to <code>/&lt;group&gt;/&lt;rest&gt;</code> and forwards to dufs. <code>.env</code>, <code>*.pem</code>, and <code>.git/**</code> are write-blocked. <code>logs/</code> is read-only.</p>
+
+    <h2>common uses</h2>
+    <ul>
+      <li>browse a group&rsquo;s files from your file manager</li>
+      <li>sync files in and out with rclone (<code>rclone sync ./local krons:/dav/&lt;group&gt;/media/</code>)</li>
+      <li>mount once and edit memory directly with your usual tools</li>
+      <li>download large attachments without going through the bot</li>
+    </ul>
+
+    <h2>when to disable</h2>
+    <p>Set <code>WEBDAV_ENABLED=false</code> in the instance <code>.env</code> if exposing the workspace over HTTPS isn&rsquo;t the model you want. The dufs container is omitted from the compose output and proxyd returns 404 for <code>/dav/*</code>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

@@ -177,7 +177,7 @@ func TestGenerateWithWebDAV(t *testing.T) {
 	}
 }
 
-func TestGenerateWithoutWebDAV(t *testing.T) {
+func TestGenerateWebDAVDefaultOn(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
@@ -187,8 +187,29 @@ func TestGenerateWithoutWebDAV(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(out, "davd:") {
+		t.Error("davd service should be present by default (WEBDAV_ENABLED defaults to true)")
+	}
+	if !strings.Contains(out, "DAV_ADDR") {
+		t.Error("proxyd should receive DAV_ADDR by default")
+	}
+}
+
+func TestGenerateWebDAVDisabled(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"WEBDAV_ENABLED=false\nWEB_PORT=443\nAPI_PORT=8080\n"), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(out, "davd:") {
-		t.Error("davd service should not be present when WEBDAV_ENABLED is not set")
+		t.Error("davd service should be absent when WEBDAV_ENABLED=false")
+	}
+	if strings.Contains(out, "DAV_ADDR") {
+		t.Error("proxyd should not receive DAV_ADDR when WEBDAV_ENABLED=false")
 	}
 }
 
