@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -404,39 +405,22 @@ func cmdInvite(args []string) {
 
 	switch action {
 	case "create":
-		need(args, 3, "arizuko invite <instance> create <target_glob> [--max-uses N] [--expires DURATION]")
-		targetGlob := args[2]
-		maxUses := 1
-		var expiresAt *time.Time
-		rest := args[3:]
-		for i := 0; i < len(rest); i++ {
-			switch rest[i] {
-			case "--max-uses":
-				if i+1 >= len(rest) {
-					die("--max-uses requires a value")
-				}
-				n, err := strconv.Atoi(rest[i+1])
-				if err != nil || n < 1 {
-					die("invalid --max-uses %q", rest[i+1])
-				}
-				maxUses = n
-				i++
-			case "--expires":
-				if i+1 >= len(rest) {
-					die("--expires requires a duration")
-				}
-				d, err := time.ParseDuration(rest[i+1])
-				if err != nil {
-					die("invalid --expires %q: %v", rest[i+1], err)
-				}
-				t := time.Now().Add(d)
-				expiresAt = &t
-				i++
-			default:
-				die("unknown invite create flag: %s", rest[i])
-			}
+		fs := flag.NewFlagSet("invite create", flag.ExitOnError)
+		maxUses := fs.Int("max-uses", 1, "max uses")
+		expDur := fs.Duration("expires", 0, "expires after this duration")
+		fs.Parse(args[2:])
+		if fs.NArg() < 1 {
+			die("usage: arizuko invite <instance> create <target_glob> [--max-uses N] [--expires DURATION]")
 		}
-		inv, err := s.CreateInvite(targetGlob, "cli", maxUses, expiresAt)
+		if *maxUses < 1 {
+			die("invalid --max-uses %d", *maxUses)
+		}
+		var expiresAt *time.Time
+		if *expDur > 0 {
+			t := time.Now().Add(*expDur)
+			expiresAt = &t
+		}
+		inv, err := s.CreateInvite(fs.Arg(0), "cli", *maxUses, expiresAt)
 		if err != nil {
 			die("Failed: %v", err)
 		}
@@ -448,20 +432,10 @@ func cmdInvite(args []string) {
 		}
 
 	case "list":
-		issuedBy := ""
-		rest := args[2:]
-		for i := 0; i < len(rest); i++ {
-			if rest[i] == "--issued-by" {
-				if i+1 >= len(rest) {
-					die("--issued-by requires a value")
-				}
-				issuedBy = rest[i+1]
-				i++
-			} else {
-				die("unknown invite list flag: %s", rest[i])
-			}
-		}
-		invs, err := s.ListInvites(issuedBy)
+		fs := flag.NewFlagSet("invite list", flag.ExitOnError)
+		issuedBy := fs.String("issued-by", "", "filter by issuer sub")
+		fs.Parse(args[2:])
+		invs, err := s.ListInvites(*issuedBy)
 		if err != nil {
 			die("Failed: %v", err)
 		}
