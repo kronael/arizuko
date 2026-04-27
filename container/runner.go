@@ -147,6 +147,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	mounts := buildMounts(cfg, in, groupDir, root, folders)
 	in = prepareInput(cfg, in, groupDir)
 
+	ipcDir, _ := folders.IpcPath(in.Folder)
+
 	containerName := in.Name
 	if containerName == "" {
 		safe := safeNameRe.ReplaceAllString(in.Folder, "-")
@@ -182,8 +184,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		return Output{Error: "stderr pipe: " + err.Error()}
 	}
 
-	var stopMCP func()
-	if ipcDir, err := folders.IpcPath(in.Folder); err == nil {
+	stopMCP := func() {}
+	if ipcDir != "" {
 		sockPath := groupfolder.IpcSocket(ipcDir)
 		// Expected peer uid for SO_PEERCRED check and socket chown.
 		// Defaults to 1000 (ant image's `node` user). In dev, the host
@@ -201,9 +203,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 
 	if err := cmd.Start(); err != nil {
-		if stopMCP != nil {
-			stopMCP()
-		}
+		stopMCP()
 		return Output{Error: "start: " + err.Error()}
 	}
 
@@ -249,24 +249,27 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 
 	var timedOut atomic.Bool
+	var stopOnce sync.Once
 	stopContainer := func(reason string) {
-		timedOut.Store(true)
-		slog.Info("container stopping",
-			"reason", reason, "group", in.Folder, "container", containerName)
-		stop := exec.Command(
-			Bin, StopContainerArgs(containerName)...)
-		if err := stop.Run(); err != nil {
-			slog.Warn("graceful stop failed, killing container",
-				"group", in.Folder, "container", containerName, "err", err)
-			// docker stop failed: kill the container itself via docker kill.
-			// cmd.Process.Kill() only kills the local docker CLI client,
-			// leaving the container running (orphan).
-			if kerr := exec.Command(Bin, "kill", containerName).Run(); kerr != nil {
-				slog.Warn("docker kill failed, forcing removal",
-					"group", in.Folder, "container", containerName, "err", kerr)
-				exec.Command(Bin, "rm", "-f", containerName).Run()
+		stopOnce.Do(func() {
+			timedOut.Store(true)
+			slog.Info("container stopping",
+				"reason", reason, "group", in.Folder, "container", containerName)
+			stop := exec.Command(
+				Bin, StopContainerArgs(containerName)...)
+			if err := stop.Run(); err != nil {
+				slog.Warn("graceful stop failed, killing container",
+					"group", in.Folder, "container", containerName, "err", err)
+				// docker stop failed: kill the container itself via docker kill.
+				// cmd.Process.Kill() only kills the local docker CLI client,
+				// leaving the container running (orphan).
+				if kerr := exec.Command(Bin, "kill", containerName).Run(); kerr != nil {
+					slog.Warn("docker kill failed, forcing removal",
+						"group", in.Folder, "container", containerName, "err", kerr)
+					exec.Command(Bin, "rm", "-f", containerName).Run()
+				}
 			}
-		}
+		})
 	}
 	deadline := time.AfterFunc(cfgTimeout, func() {
 		stopContainer("hard deadline")
@@ -280,7 +283,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			}
 			slog.Info("soft deadline firing, warning agent",
 				"group", in.Folder, "container", containerName)
-			if ipcDir, err := folders.IpcPath(in.Folder); err == nil {
+			if ipcDir != "" {
 				inputDir := groupfolder.IpcInputDir(ipcDir)
 				os.MkdirAll(inputDir, 0o755)
 				name := fmt.Sprintf("%d-deadline.json", time.Now().UnixMilli())
@@ -395,9 +398,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		softDeadline.Stop()
 	}
 
-	if stopMCP != nil {
-		stopMCP()
-	}
+	stopMCP()
 
 	elapsed := time.Since(start)
 

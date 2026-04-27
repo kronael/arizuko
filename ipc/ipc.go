@@ -243,9 +243,9 @@ func toolOK() (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText("ok"), nil
 }
 
-func recordOutbound(db StoreFns, jid, text, replyToID, platformID, folder, topic string) {
+func recordOutbound(db StoreFns, jid, text, platformID, folder string) {
 	if platformID != "" && db.SetLastReplyID != nil {
-		db.SetLastReplyID(jid, topic, platformID)
+		db.SetLastReplyID(jid, "", platformID)
 	}
 	if db.PutMessage != nil {
 		db.PutMessage(core.Message{
@@ -258,7 +258,6 @@ func recordOutbound(db StoreFns, jid, text, replyToID, platformID, folder, topic
 			BotMsg:    true,
 			ReplyToID: platformID,
 			RoutedTo:  jid,
-			Topic:     topic,
 		})
 	}
 }
@@ -388,7 +387,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err != nil {
 				return toolErr(err.Error())
 			}
-			recordOutbound(db, jid, text, "", platformID, folder, "")
+			recordOutbound(db, jid, text, platformID, folder)
 			return toolOK()
 		})
 
@@ -415,7 +414,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err != nil {
 				return toolErr(err.Error())
 			}
-			recordOutbound(db, jid, text, replyToID, platformID, folder, "")
+			recordOutbound(db, jid, text, platformID, folder)
 			return toolOK()
 		})
 
@@ -488,7 +487,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}
-			recordOutbound(db, jid, content, "", platformID, folder, "")
+			recordOutbound(db, jid, content, platformID, folder)
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
