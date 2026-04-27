@@ -249,6 +249,81 @@ func TestRouteMatchVerb(t *testing.T) {
 	}
 }
 
+// RouteMatches uses path.Match per "key=glob" predicate, AND'd across
+// fields. Operators rely on these semantics when scoping routes.
+func TestRouteMatch_GlobFields(t *testing.T) {
+	cases := []struct {
+		name  string
+		match string
+		msg   core.Message
+		want  bool
+	}{
+		{
+			name:  "room=* matches non-empty room",
+			match: "room=*",
+			msg:   core.Message{ChatJID: "discord:123"},
+			want:  true,
+		},
+		{
+			name:  "chat_jid=discord:* matches discord",
+			match: "chat_jid=discord:*",
+			msg:   core.Message{ChatJID: "discord:42"},
+			want:  true,
+		},
+		{
+			name:  "chat_jid=discord:* rejects telegram",
+			match: "chat_jid=discord:*",
+			msg:   core.Message{ChatJID: "telegram:42"},
+			want:  false,
+		},
+		{
+			name:  "platform AND room match",
+			match: "platform=discord room=12345",
+			msg:   core.Message{ChatJID: "discord:12345"},
+			want:  true,
+		},
+		{
+			name:  "multi-field rejects wrong platform",
+			match: "platform=discord room=12345",
+			msg:   core.Message{ChatJID: "telegram:12345"},
+			want:  false,
+		},
+		{
+			name:  "multi-field rejects wrong room",
+			match: "platform=discord room=12345",
+			msg:   core.Message{ChatJID: "discord:99999"},
+			want:  false,
+		},
+		{
+			name:  "bracket glob matches",
+			match: "sender=telegram:user[0-9]*",
+			msg:   core.Message{Sender: "telegram:user42"},
+			want:  true,
+		},
+		{
+			name:  "bracket glob rejects non-digit",
+			match: "sender=telegram:user[0-9]*",
+			msg:   core.Message{Sender: "telegram:bot"},
+			want:  false,
+		},
+		{
+			name:  "empty match matches all",
+			match: "",
+			msg:   core.Message{ChatJID: "anything:any"},
+			want:  true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RouteMatches(core.Route{Match: tc.match}, tc.msg)
+			if got != tc.want {
+				t.Errorf("RouteMatches(%q, %+v) = %v, want %v",
+					tc.match, tc.msg, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFormatMessagesPlatformVerb(t *testing.T) {
 	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
 	msgs := []core.Message{

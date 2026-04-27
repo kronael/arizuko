@@ -392,6 +392,26 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 	return msgs, nil
 }
 
+// MessagesAll returns all rows (inbound + bot) for jid, newest first.
+// Unlike MessagesBefore it does not filter is_bot_message; used by tests
+// asserting the mute path persists outbound while skipping platform send.
+func (s *Store) MessagesAll(jid string, limit int) ([]core.Message, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	rows, err := s.db.Query(
+		`SELECT `+msgCols+` FROM messages
+		 WHERE chat_jid = ?
+		 ORDER BY timestamp DESC
+		 LIMIT ?`,
+		jid, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return collectMessages(rows)
+}
+
 // JIDRoutedToFolder reports whether jid resolves (via the routes table)
 // to folder or any descendant of folder.
 func (s *Store) JIDRoutedToFolder(jid, folder string) bool {

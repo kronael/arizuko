@@ -943,6 +943,48 @@ func TestMakeOutputCallback_StripsThinksAndStatus(t *testing.T) {
 	}
 }
 
+// SEND_DISABLED_GROUPS mute mode (ebb3225): outbound persists to the
+// messages table but the channel.Send call is skipped. hadOutput must
+// still flip so the gateway sees the agent produced something.
+func TestMakeOutputCallback_MutedGroup(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.SendDisabledGroups = []string{"grp"}
+	ch := &testChannel{name: "tc", jids: []string{"telegram"}}
+	gw.AddChannel(ch)
+	setGroup(gw, "telegram:12345", core.Group{Folder: "grp", Name: "Test"})
+
+	cb, hadOutput := gw.makeOutputCallback(ch, "telegram:12345", "", "msg-1", "grp")
+	cb("hello world", "")
+
+	if got := len(ch.getSent()); got != 0 {
+		t.Errorf("muted group: channel.Send called %d times, want 0", got)
+	}
+	if !*hadOutput {
+		t.Error("hadOutput should flip even when group is muted")
+	}
+
+	rows, err := s.MessagesAll("telegram:12345", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("muted group: persisted row count = %d, want 1", len(rows))
+	}
+	m := rows[0]
+	if m.Content != "hello world" {
+		t.Errorf("Content = %q, want %q", m.Content, "hello world")
+	}
+	if !m.BotMsg {
+		t.Error("BotMsg should be true for outbound")
+	}
+	if m.Sender != "grp" {
+		t.Errorf("Sender = %q, want %q", m.Sender, "grp")
+	}
+	if m.RoutedTo != "telegram:12345" {
+		t.Errorf("RoutedTo = %q, want %q", m.RoutedTo, "telegram:12345")
+	}
+}
+
 func TestMakeOutputCallback_ThreadID(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
