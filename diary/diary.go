@@ -1,6 +1,7 @@
 package diary
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -52,9 +53,8 @@ func WriteRecovery(groupDir, reason, errMsg string) {
 	dir := filepath.Join(groupDir, "diary")
 	os.MkdirAll(dir, 0755)
 	file := filepath.Join(dir, now.Format("20060102")+".md")
-	_, err := os.Stat(file)
 	var entry string
-	if err != nil {
+	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
 		entry = fmt.Sprintf("---\nsummary: \"session ended: %s\"\n---\n", reason)
 	}
 	entry += fmt.Sprintf("\n## Recovery (%s)\nReason: %s\nError: %s\n",

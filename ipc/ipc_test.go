@@ -47,26 +47,6 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 }
 
 
-func TestFolderForJid(t *testing.T) {
-	db := StoreFns{
-		DefaultFolderForJID: func(jid string) string {
-			if jid == "tg:1" {
-				return "world/a"
-			}
-			return ""
-		},
-	}
-	if f := folderForJid(db, "tg:1"); f != "world/a" {
-		t.Errorf("got %q, want world/a", f)
-	}
-	if f := folderForJid(db, "missing"); f != "" {
-		t.Errorf("got %q, want empty", f)
-	}
-	if f := folderForJid(StoreFns{}, "anything"); f != "" {
-		t.Errorf("nil DefaultFolderForJID: got %q, want empty", f)
-	}
-}
-
 func TestRouteTargetWithin(t *testing.T) {
 	cases := []struct {
 		target, owner string

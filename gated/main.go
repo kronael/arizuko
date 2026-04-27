@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -85,7 +86,7 @@ func main() {
 	}
 	go func() {
 		slog.Info("api server starting", "addr", addr)
-		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("api server error", "err", err)
 		}
 	}()

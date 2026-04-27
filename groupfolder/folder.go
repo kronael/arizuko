@@ -21,7 +21,7 @@ func isValidFolder(folder string) bool {
 	if folder == "" || folder != strings.TrimSpace(folder) {
 		return false
 	}
-	if strings.Contains(folder, "..") || strings.Contains(folder, `\`) {
+	if strings.Contains(folder, "..") || strings.ContainsAny(folder, "\\\x00") {
 		return false
 	}
 	for _, seg := range strings.Split(folder, "/") {

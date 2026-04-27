@@ -263,11 +263,23 @@ func recordOutbound(db StoreFns, jid, text, replyToID, platformID, folder, topic
 	}
 }
 
-func folderForJid(db StoreFns, jid string) string {
-	if db.DefaultFolderForJID == nil {
-		return ""
+// validHostname accepts a DNS-ish hostname: letters/digits/dot/hyphen/colon
+// (for optional :port). Rejects schemes, paths, whitespace, control chars.
+func validHostname(h string) bool {
+	if h == "" || len(h) > 253 {
+		return false
 	}
-	return db.DefaultFolderForJID(jid)
+	for _, r := range h {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == ':':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // routeTargetWithin reports whether target refers to owner's own folder
@@ -938,7 +950,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				contextMode = "group"
 			}
 
-			targetFolder := folderForJid(db, targetJid)
+			targetFolder := ""
+			if db.DefaultFolderForJID != nil {
+				targetFolder = db.DefaultFolderForJID(targetJid)
+			}
 			if targetFolder == "" {
 				return toolErr("target group not registered")
 			}
@@ -1232,8 +1247,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				if hostname == "" {
 					return toolErr("hostname required")
 				}
-				if strings.Contains(hostname, "/") || strings.Contains(hostname, "://") {
-					return toolErr("hostname must not contain scheme or path")
+				if !validHostname(hostname) {
+					return toolErr("invalid hostname")
 				}
 				if targetFolder == "" {
 					return toolErr("folder required")
