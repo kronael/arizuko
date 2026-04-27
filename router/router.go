@@ -264,13 +264,32 @@ func msgField(msg core.Message, key string) string {
 // RouteMatches reports whether every "key=glob" predicate in r.Match matches
 // the corresponding field of msg. Empty match expression matches everything.
 // Malformed tokens (no '=' or empty key) are skipped.
+//
+// Glob semantics:
+//   - key=<exact>  value equals <exact>
+//   - key=<glob>   value matches glob (path.Match: * doesn't cross /)
+//   - key=*        value is present (non-empty); bare * silently rejects empty
+//   - key=         value is absent (empty)
+//   - omit key     unconstrained — no filter on this field
 func RouteMatches(r core.Route, msg core.Message) bool {
 	for _, f := range strings.Fields(r.Match) {
 		k, pat, ok := strings.Cut(f, "=")
 		if !ok || k == "" {
 			continue
 		}
-		m, err := path.Match(pat, msgField(msg, k))
+		val := msgField(msg, k)
+		if pat == "" {
+			// "key=" — value must be empty/absent
+			if val != "" {
+				return false
+			}
+			continue
+		}
+		// Any non-empty pattern requires non-empty value (so bare * rejects empty).
+		if val == "" {
+			return false
+		}
+		m, err := path.Match(pat, val)
 		if err != nil || !m {
 			return false
 		}
