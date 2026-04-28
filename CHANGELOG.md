@@ -11,6 +11,110 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- `store`: `secrets` table — AES-GCM encrypted folder/user-scoped k=v
+  store keyed off `sha256(AUTH_SECRET)`. `SetSecret` / `GetSecret` /
+  `ListSecrets` / `DeleteSecret` + `FolderSecretsResolved(folder)` for
+  parent-walk last-wins resolution + `UserSecrets(sub)` overlay.
+  Migration 0034.
+- `container`: folder + user secrets resolved at agent spawn and injected
+  into env (both SDK process and MCP server children). Single-user chats
+  (`chats.is_group=0`) get `UserSecrets(UserSubByJID(jid))` overlaid;
+  group chats get folder-scope only. `gated` opens store via
+  `OpenWithSecret(AuthSecret)`; empty `AUTH_SECRET` no-ops gracefully.
+- `proxyd`: WebDAV write-block + logs read-only middleware. Writes to
+  `.env`, `*.pem`, any `.git` segment → 403; non-read methods on
+  `<group>/logs/**` → 403. Reads pass through.
+- `webdav`: default-on for new instances (`WEBDAV_ENABLED=true` in
+  generated compose). Existing instances pick up on next compose regen.
+  Per-group dufs container at `/dav/<group>/`. Concepts page at
+  `/pub/concepts/webdav.html`.
+- `arizuko chat`: interactive Claude Code session bound to root MCP
+  socket. Local-operator only — socket access == root.
+- `invites` rewrite (phase B of specs/7/35 tenant self-service):
+  token-issuance vs realized-grant separation, atomic `ConsumeInvite`,
+  `target_glob` replaces folder so a single token grants a path
+  subtree. New CLI `arizuko invite <inst> create|list|revoke`,
+  `invite_create` MCP tool (tier 0/1, target inside own world),
+  `GET /invite/<token>`. Migration 0032 atomically rewrites the old
+  `invitations` table; agent migration 076.
+- `chats.is_group` column + per-adapter classification (Discord DM,
+  Telegram negative chat.id, Mastodon visibility, Reddit modmail,
+  etc.). Predicate `core.Chat.IsSingleUser()` gates user-scope
+  secret injection at spawn. Migration 0033.
+- `linkd`: LinkedIn adapter (OAuth2, poll + publish, chanlib-based).
+  Native `post` (UGC, gated by `LINKEDIN_AUTO_PUBLISH`), `like`,
+  `reply` (comments), `repost` (reshare), `delete`. Default port `:9010`.
+- `fetch_history` MCP tool — channel-first history fetch with local-DB
+  fallback. Native impls on `discd` (Discord messages before-cursor),
+  `bskyd` (getAuthorFeed), `reditd` (subreddit `new.json`), `mastd`
+  (notifications by account), `linkd` (UGC comments), `emaid` (IMAP
+  SEARCH). `teled` and `whapd` return honest unsupported.
+- `gateway`: ship 4+1 partial spec gaps —
+  - `escalate_group` parent reply now routes back to the child chat
+  - `dashd`: `PUT/DELETE /dash/memory/<folder>/<rel>` with path allowlist
+  - `gateway`: `/status` auto-reply; `/approve`/`/reject` stubs
+  - `container`/`ipc`: `work.md` + `get_work`/`set_work` MCP tools
+  - `ipc`: `list_sidecars` + `configure_sidecar`
+- `gateway`: mute mode — `SEND_DISABLED_GROUPS` now records outbound to
+  `messages` table (visible in dashd / inspect_messages) while skipping
+  the platform send. Previously short-circuited before `PutMessage`.
+- `auth`: shared identity-sig middleware (`auth.RequireSigned` strict,
+  `auth.StripUnsigned` lenient). Replaces duplicated `webd` /
+  `onbod` middlewares; same crypto, same header-strip on failure.
+
+### Changed
+
+- `grants`: tier 3+ now derives `[send_reply, send_file]` (file send
+  was missing on leaf rooms — agents reported "no file-sending tool
+  available" because the tool was absent from MCP surface).
+- `reditd`: default poll interval 30s → 5min (configurable via
+  `REDDIT_POLL_INTERVAL`); `pollStaleAfter` 3min → 15min to match.
+- `router`: glob semantics tightened — `key=*` now requires non-empty
+  value, `key=` requires empty, exact/glob/omit unchanged. Operators
+  get a clean three-state semantic (Go's `path.Match("*", "")` was
+  matching empty).
+- `twitd`: JID prefix `x:` → `twitter:` for naming convention parity
+  with all other adapters (full platform name).
+- `ant`: persona is opt-in. Removed "read SOUL.md, embody its persona"
+  from session preamble; `/soul` skill remains for explicit invocation.
+  New baseline `Rigor` section in `ant/CLAUDE.md` — cite sources, verify
+  numbers, refuse fabrication. Agent migrations 067, 068.
+- `ant`: skill `/facts` renamed to `/find`. Agent migration 069.
+- `ant`: `@anthropic-ai/claude-agent-sdk` auto-updates to `@latest` on
+  every image build (was pinned in `package-lock.json` while the CLI
+  was already auto-updating).
+
+### Fixed
+
+- `onbod`: replay-safe onboard link. Token presentation is now
+  idempotent (SELECT only); single-shot consume happens at user_sub
+  binding in `handleDashboard`. Previously a user clicking the link,
+  bouncing through OAuth, and returning would hit "Invalid Link"
+  because the token was consumed on first click without binding.
+- `onbod`: rows stuck at `status=token_used` + `user_sub IS NULL` after
+  30-min cool-down are reset to `awaiting_message` so the user gets a
+  fresh link via the original channel. Pairs with the replay fix.
+- `chanlib`: adapter re-registers on 401 from `/v1/messages` and retries
+  once. When `gated` auto-deregisters a stale channel, the adapter's
+  per-channel token becomes invalid; previously delivery looped on 401
+  forever (krons logged ~40/min for hours). `RouterClient` now caches
+  Register params and re-issues on 401.
+- `proxyd`: vhost bare-root preserves trailing slash. `GET /` on a
+  custom vhost (e.g. `lore.krons.cx`) was rewritten to `/<world>` (no
+  trailing slash) — static upstreams serve `index.html` only at
+  `/<world>/`, so bare host returned wrong content.
+- `compose`: dufs entrypoint already runs `/bin/dufs`; dropped redundant
+  `'dufs'` arg that caused exit 2 → restart loop on `sigoden/dufs:latest`.
+- `onbod`: verifies `X-User-Sub` HMAC signature; strips spoofed identity
+  headers if `X-User-Sig` invalid. Closes the trust hole flagged by
+  TODOs at `handleOnboard` / `handleOnboardPost`.
+
+### Removed
+
+- `container` / `ipc`: per-group MCP sidecar subsystem (unused).
+
+### Added
+
 - `twitd`: X / Twitter adapter via browser emulation
   (`agent-twitter-client@0.0.18`, the ai16z fork of
   `@the-convocation/twitter-scraper`). No official Twitter API.
