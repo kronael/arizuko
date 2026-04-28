@@ -1,10 +1,14 @@
 package ipc
 
 import (
+	"bufio"
+	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -267,6 +271,116 @@ func TestServeMCP_PeerCredAcceptsMatchingUID(t *testing.T) {
 	// Expect timeout (server is waiting for MCP input), not EOF.
 	if err == nil || !strings.Contains(err.Error(), "timeout") {
 		t.Fatalf("expected read timeout, got err=%v", err)
+	}
+}
+
+func TestServeMCP_SubmitTurn(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+
+	var mu sync.Mutex
+	var got []TurnResult
+	gated := GatedFns{
+		SubmitTurn: func(folder string, t TurnResult) error {
+			mu.Lock()
+			defer mu.Unlock()
+			if folder != "world" {
+				return errors.New("wrong folder: " + folder)
+			}
+			got = append(got, t)
+			return nil
+		},
+	}
+
+	stop, err := ServeMCP(sock, gated, StoreFns{}, "world", nil, 0)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	c, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	req := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "submit_turn",
+		"params": map[string]any{
+			"turn_id":    "msg-42",
+			"session_id": "sess-1",
+			"status":     "success",
+			"result":     "hello",
+		},
+	}
+	b, _ := json.Marshal(req)
+	c.Write(append(b, '\n'))
+
+	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	resp, err := bufio.NewReader(c).ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	var parsed struct {
+		Result map[string]any `json:"result"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(resp, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if parsed.Error != nil {
+		t.Fatalf("submit_turn returned error: %s", parsed.Error.Message)
+	}
+	if parsed.Result["ok"] != true {
+		t.Errorf("expected result.ok=true, got %+v", parsed.Result)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 SubmitTurn call, got %d", len(got))
+	}
+	if got[0].TurnID != "msg-42" || got[0].SessionID != "sess-1" || got[0].Status != "success" || got[0].Result != "hello" {
+		t.Errorf("payload mismatch: %+v", got[0])
+	}
+}
+
+func TestServeMCP_SubmitTurnHiddenFromToolsList(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+
+	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "world", []string{"*"}, 0)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	c, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	req := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/list",
+		"params":  map[string]any{},
+	}
+	b, _ := json.Marshal(req)
+	c.Write(append(b, '\n'))
+
+	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	resp, err := bufio.NewReader(c).ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	if strings.Contains(string(resp), "submit_turn") {
+		t.Fatalf("tools/list leaked submit_turn:\n%s", resp)
 	}
 }
 

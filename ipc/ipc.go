@@ -1,6 +1,7 @@
 package ipc
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,9 +50,21 @@ type GatedFns struct {
 	UpdateGroupConfig   func(folder string, cfg core.GroupConfig) error
 	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
 	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
+	SubmitTurn           func(folder string, t TurnResult) error
 	AcceptURLBase        string // base URL where /invite/<token> is served (e.g. https://app.example.com)
 	GroupsDir            string
 	WebDir               string
+}
+
+// TurnResult is the agent-submitted turn payload. The MCP `submit_turn`
+// method (hidden from tools/list) deserialises into this and calls
+// GatedFns.SubmitTurn. Idempotency is enforced by gated on (folder, TurnID).
+type TurnResult struct {
+	TurnID    string `json:"turn_id"`
+	SessionID string `json:"session_id,omitempty"`
+	Status    string `json:"status"` // success | error
+	Result    string `json:"result,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // InviteInfo mirrors store.Invite for the ipc layer (ipc must not import store).
@@ -145,9 +159,7 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 	slog.Info("mcp server listening",
 		"folder", folder, "sock", sockPath, "peer_uid", expectedUID)
 
-	// Build server once; every connection multiplexes onto it.
 	srv := buildMCPServer(gated, db, folder, rules)
-	stdioSrv := server.NewStdioServer(srv)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sem := make(chan struct{}, maxMCPConns)
@@ -182,7 +194,7 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 						return
 					}
 				}
-				stdioSrv.Listen(ctx, c, c)
+				serveConn(ctx, c, srv, gated, folder)
 			}(conn)
 		}
 	}()
@@ -192,6 +204,108 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 		ln.Close()
 		os.Remove(sockPath)
 	}, nil
+}
+
+// serveConn reads JSON-RPC frames from c, intercepts `submit_turn`
+// (hidden from tools/list — agent-only persistence channel), and
+// delegates everything else to srv.HandleMessage. Each frame is one
+// line of JSON. Concurrent writes are serialised; out-of-band server
+// notifications are not used on this path.
+func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated GatedFns, folder string) {
+	r := bufio.NewReader(c)
+	var writeMu sync.Mutex
+	writeJSON := func(v any) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		b, err := json.Marshal(v)
+		if err != nil {
+			return
+		}
+		c.Write(append(b, '\n'))
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		line, err := r.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		raw := trimLine(line)
+		if len(raw) == 0 {
+			continue
+		}
+
+		var head struct {
+			Method string `json:"method"`
+			ID     any    `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &head); err != nil {
+			writeJSON(map[string]any{
+				"jsonrpc": "2.0", "id": nil,
+				"error": map[string]any{"code": -32700, "message": "parse error"},
+			})
+			continue
+		}
+
+		if head.Method == "submit_turn" {
+			handleSubmitTurn(raw, head.ID, gated, folder, writeJSON)
+			continue
+		}
+
+		resp := srv.HandleMessage(ctx, raw)
+		if resp != nil {
+			writeJSON(resp)
+		}
+	}
+}
+
+func trimLine(b []byte) []byte {
+	for len(b) > 0 && (b[len(b)-1] == '\n' || b[len(b)-1] == '\r') {
+		b = b[:len(b)-1]
+	}
+	return b
+}
+
+func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
+	var req struct {
+		Params TurnResult `json:"params"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		write(map[string]any{
+			"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32602, "message": "invalid params: " + err.Error()},
+		})
+		return
+	}
+	if req.Params.TurnID == "" {
+		write(map[string]any{
+			"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32602, "message": "turn_id required"},
+		})
+		return
+	}
+	if gated.SubmitTurn == nil {
+		write(map[string]any{
+			"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32603, "message": "submit_turn not configured"},
+		})
+		return
+	}
+	if err := gated.SubmitTurn(folder, req.Params); err != nil {
+		write(map[string]any{
+			"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32603, "message": err.Error()},
+		})
+		return
+	}
+	slog.Debug("submit_turn ok", "folder", folder,
+		"turn_id", req.Params.TurnID, "session", req.Params.SessionID,
+		"status", req.Params.Status)
+	write(map[string]any{
+		"jsonrpc": "2.0", "id": id,
+		"result": map[string]any{"ok": true},
+	})
 }
 
 // peerCred returns SO_PEERCRED for a unix-socket peer — kernel-attested
