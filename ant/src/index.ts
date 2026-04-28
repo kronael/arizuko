@@ -2,12 +2,14 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { query, HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
+import { submitTurn } from './mcp.js';
 
 interface ContainerInput {
   prompt: string;
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
+  messageId?: string;
   isScheduledTask?: boolean;
   assistantName?: string;
   secrets?: Record<string, string>;
@@ -44,9 +46,6 @@ const MAX_QUEUE = 100;
 const MAX_STDIN_BYTES = 1024 * 1024;
 const QUERY_TIMEOUT_MS = 15 * 60_000;
 
-const OUTPUT_START_MARKER = '---ARIZUKO_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---ARIZUKO_OUTPUT_END---';
-const HEARTBEAT_INTERVAL_MS = 30_000;
 const PROGRESS_INTERVAL_MS = 15 * 60_000;
 
 function escapeForSteering(s: string): string {
@@ -170,16 +169,22 @@ async function readStdin(): Promise<string> {
   });
 }
 
-function writeOutput(output: ContainerOutput): void {
-  console.log(OUTPUT_START_MARKER);
-  console.log(JSON.stringify(output));
-  console.log(OUTPUT_END_MARKER);
-}
-
-function writeHeartbeat(): void {
-  console.log(OUTPUT_START_MARKER);
-  console.log(JSON.stringify({ heartbeat: true }));
-  console.log(OUTPUT_END_MARKER);
+async function deliverTurn(turnID: string, output: ContainerOutput): Promise<void> {
+  if (!turnID) {
+    log(`deliverTurn skipped: no turn_id (status=${output.status})`);
+    return;
+  }
+  try {
+    await submitTurn({
+      turn_id: turnID,
+      session_id: output.newSessionId,
+      status: output.status,
+      result: output.result ?? undefined,
+      error: output.error,
+    });
+  } catch (err) {
+    log(`submit_turn failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 function log(message: string): void {
@@ -392,6 +397,7 @@ async function runQuery(
   sessionId: string | undefined,
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
+  turnID: string,
   resumeAt?: string,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; sessionError: boolean }> {
   const stream = new MessageStream();
@@ -433,7 +439,6 @@ async function runQuery(
     }
   } catch { /* /workspace/extra absent */ }
 
-  const heartbeat = setInterval(writeHeartbeat, HEARTBEAT_INTERVAL_MS);
   const agentMcpServers = loadAgentMcpServers();
 
   const abortController = new AbortController();
@@ -511,7 +516,7 @@ async function runQuery(
           log('Session error, will retry without session');
           sessionError = true;
         } else {
-          writeOutput({ status: 'success', result: textResult || null, newSessionId });
+          await deliverTurn(turnID, { status: 'success', result: textResult || null, newSessionId });
         }
       }
     }
@@ -520,13 +525,11 @@ async function runQuery(
       log(`SDK threw after result (ignored): ${err instanceof Error ? err.message : String(err)}`);
     } else {
       clearTimeout(timeoutTimer);
-      clearInterval(heartbeat);
       throw err;
     }
   }
 
   clearTimeout(timeoutTimer);
-  clearInterval(heartbeat);
   ipcPolling = false;
   wakeup = null;
 
@@ -551,7 +554,7 @@ async function runQuery(
     })) {
       if (msg.type === 'result') {
         const txt = (msg as { result?: string }).result ?? null;
-        writeOutput({ status: 'success', result: txt ?? 'ran out of turns; say "continue" to resume.', newSessionId });
+        await deliverTurn(turnID, { status: 'success', result: txt ?? 'ran out of turns; say "continue" to resume.', newSessionId });
       }
     }
   }
@@ -560,7 +563,7 @@ async function runQuery(
 }
 
 async function main(): Promise<void> {
-  let containerInput: ContainerInput;
+  let containerInput!: ContainerInput;
 
   let privateTmpDir: string | null = null;
   try {
@@ -582,11 +585,7 @@ async function main(): Promise<void> {
       log(`Received input for group: ${containerInput.groupFolder}`);
     } catch (err) {
       cleanupSecrets();
-      writeOutput({
-        status: 'error',
-        result: null,
-        error: `Failed to parse input: ${err instanceof Error ? err.message : String(err)}`,
-      });
+      log(`Failed to parse input: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
     }
 
@@ -613,12 +612,15 @@ async function main(): Promise<void> {
       prompt += '\n' + pending.join('\n');
     }
 
+    const seedTurnID = containerInput.messageId || `boot-${Date.now()}`;
+    let turnIndex = 0;
     let resumeAt: string | undefined;
     try {
       while (true) {
         log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-        const queryResult = await runQuery(prompt, sessionId, containerInput, sdkEnv, resumeAt);
+        const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
+        const queryResult = await runQuery(prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
         if (queryResult.sessionError && sessionId) {
           log(`Session error on resume, retrying with fresh session (was: ${sessionId})`);
           sessionId = undefined;
@@ -637,10 +639,6 @@ async function main(): Promise<void> {
           break;
         }
 
-        if (!containerInput.sessionId) {
-          writeOutput({ status: 'success', result: null, newSessionId: sessionId });
-        }
-
         log('Query ended, checking for next IPC message...');
 
         const nextMessage = checkIpcMessage();
@@ -649,13 +647,15 @@ async function main(): Promise<void> {
           break;
         }
 
-        log(`Got new message (${nextMessage.length} chars), starting new query`);
+        turnIndex++;
+        log(`Got new message (${nextMessage.length} chars), starting new query (turn ${turnIndex})`);
         prompt = nextMessage;
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       log(`Agent error: ${errorMessage}`);
-      writeOutput({
+      const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
+      await deliverTurn(turnID, {
         status: 'error',
         result: null,
         newSessionId: sessionId,
@@ -670,8 +670,6 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   const errorMessage = err instanceof Error ? err.message : String(err);
-  try {
-    writeOutput({ status: 'error', result: null, error: `Unhandled: ${errorMessage}` });
-  } catch { /* stdout already closed */ }
+  log(`Unhandled error: ${errorMessage}`);
   process.exit(1);
 });
