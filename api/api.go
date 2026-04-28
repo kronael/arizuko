@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -264,7 +265,35 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("set chat is_group failed", "jid", req.ChatJID, "err", err)
 	}
 
+	tryConsumeLinkCode(s.store, req.Sender, req.Content)
+
 	chanlib.WriteJSON(w, map[string]any{"ok": true})
+}
+
+// linkCodeRe matches the wire form minted by /auth/link-code:
+// "link-" + 12 lowercase hex chars. Leading/trailing whitespace OK;
+// any other surrounding text fails the match — code-only messages
+// trigger the bind, conversational mentions don't.
+var linkCodeRe = regexp.MustCompile(`^link-[0-9a-f]{12}$`)
+
+// tryConsumeLinkCode binds sender to an identity when content is a bare
+// link code. No-op for non-code content, unknown codes, expired codes.
+// Errors are logged but never surfaced — link-code consumption is a
+// side effect of the inbound path, never blocks delivery.
+func tryConsumeLinkCode(st *store.Store, sender, content string) {
+	if sender == "" {
+		return
+	}
+	code := strings.TrimSpace(content)
+	if !linkCodeRe.MatchString(code) {
+		return
+	}
+	idID, err := st.ConsumeLinkCode(code, sender)
+	if err != nil {
+		slog.Info("link code rejected", "sender", sender, "err", err)
+		return
+	}
+	slog.Info("identity claim via link code", "identity", idID, "sender", sender)
 }
 
 type channelDTO struct {
