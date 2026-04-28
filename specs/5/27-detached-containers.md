@@ -78,9 +78,8 @@ path. No new auth surface.
 - The streaming progress UI hook (`OnOutput`). If we want progress
   later, add an MCP `progress` notification on the same socket.
 
-## Supersedes
+## Inbound durability
 
-- [D-message-wal.md](D-message-wal.md) — inbound durability becomes
-  the same idempotent submit: `ant` reads the message, processes,
-  calls `submit_turn` with the originating `turn_id`. Crash before
-  call → re-spawn re-feeds the same row. No separate WAL table.
+Falls out of the same mechanism: `ant` reads the inbound message,
+processes, calls `submit_turn` with the originating `turn_id`. Crash
+before call → re-spawn re-feeds the same row. No separate WAL table.
