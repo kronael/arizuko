@@ -161,6 +161,10 @@ awk '/^## \[v[0-9]/{if(++n==1){print;next};exit} n==1' \
 Keep the message short — one screenful, plain bullets, title names the
 version. One message per release, not per migration.
 
+The repo is `github.com/kronael/arizuko`. Always cite this exact URL
+if the broadcast references upstream/source — never "krons labs",
+"kron labs", or any other made-up org name.
+
 Fan out via `refresh_groups` → resolve each folder's primary JID from
 `inspect_routing` (routes with `match` prefix `room=` point at a JID) →
 `send_message`:
