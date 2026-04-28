@@ -160,3 +160,30 @@ func TestHealthPing_Non200(t *testing.T) {
 		t.Error("healthPing should return error for non-200 status")
 	}
 }
+
+// Stale means platform is quiet but adapter is alive. Must not be treated
+// as a hard failure — gated would auto-deregister an otherwise-healthy
+// channel after 3 stale ticks (5m * 3 = 15min of platform silence).
+func TestHealthPing_StaleIsNotFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(503)
+		_, _ = w.Write([]byte(`{"status":"stale","stale_seconds":600}`))
+	}))
+	defer srv.Close()
+
+	if err := healthPing(srv.Client(), srv.URL); err != nil {
+		t.Errorf("stale health must not error, got %v", err)
+	}
+}
+
+func TestHealthPing_DisconnectedIsFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(503)
+		_, _ = w.Write([]byte(`{"status":"disconnected"}`))
+	}))
+	defer srv.Close()
+
+	if err := healthPing(srv.Client(), srv.URL); err == nil {
+		t.Error("disconnected health must error")
+	}
+}

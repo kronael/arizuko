@@ -2,7 +2,9 @@ package chanreg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -30,16 +32,24 @@ func (r *Registry) StartHealthLoop(ctx context.Context) {
 
 var healthClient = &http.Client{Timeout: 10 * time.Second}
 
+// healthPing returns nil for ok or stale (adapter alive, platform quiet);
+// returns an error for disconnected, transport failures, or unexpected status.
 func healthPing(c *http.Client, baseURL string) error {
 	resp, err := c.Get(baseURL + "/health")
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health: status %d", resp.StatusCode)
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return nil
 	}
-	return nil
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	var b struct{ Status string }
+	_ = json.Unmarshal(body, &b)
+	if b.Status == "stale" {
+		return nil
+	}
+	return fmt.Errorf("health: status %d %s", resp.StatusCode, b.Status)
 }
 
 func (r *Registry) checkAll() {
