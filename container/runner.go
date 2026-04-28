@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -27,15 +28,12 @@ import (
 )
 
 const (
-	outputStartMarker = "---ARIZUKO_OUTPUT_START---"
-	outputEndMarker   = "---ARIZUKO_OUTPUT_END---"
-	maxOutputSize     = 10 * 1024 * 1024 // 10MB
-	containerHome     = "/home/node"
+	maxOutputSize = 10 * 1024 * 1024 // 10MB
+	containerHome = "/home/node"
 )
 
 // execCommand is the hook used to spawn the docker CLI. Tests override it
-// to avoid the real runtime while still exercising arg assembly and
-// marker parsing.
+// to avoid the real runtime while still exercising arg assembly.
 var execCommand = exec.Command
 
 var (
@@ -99,7 +97,6 @@ type Input struct {
 	Config      core.GroupConfig `json:"-"`
 	SlinkToken  string           `json:"-"`
 	Annotations []string         `json:"-"`
-	OnOutput    OnOutputFn       `json:"-"`
 	GatedFns    ipc.GatedFns     `json:"-"`
 	StoreFns    ipc.StoreFns     `json:"-"`
 
@@ -124,8 +121,6 @@ type Output struct {
 	Error        string `json:"error,omitempty"`
 	HadOutput    bool   `json:"-"`
 }
-
-type OnOutputFn func(result, status string)
 
 // Runner runs a containerized agent invocation. The default implementation
 // is DockerRunner (package-level Run). Tests inject fakes.
@@ -184,13 +179,10 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	start := time.Now()
 
 	cmd := execCommand(Bin, args...)
+	cmd.Stdout = io.Discard
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return Output{Error: "stdin pipe: " + err.Error()}
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return Output{Error: "stdout pipe: " + err.Error()}
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -320,90 +312,6 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		stopContainer("idle timeout")
 	})
 
-	var (
-		parseBuf     strings.Builder
-		fullBuf      strings.Builder
-		hadStreaming bool
-		newSessionID string
-		idleResets   int
-	)
-	// Cap idle-timer resets driven by streaming output. A compromised
-	// agent could otherwise emit markers forever to defeat idle cleanup.
-	// The hard deadline still bounds absolute runtime.
-	const maxIdleResetsFromOutput = 20
-
-	reader := bufio.NewReader(stdout)
-	buf := make([]byte, 32*1024)
-	for {
-		n, readErr := reader.Read(buf)
-		if n > 0 {
-			chunk := string(buf[:n])
-
-			if fullBuf.Len() < maxOutputSize {
-				rem := maxOutputSize - fullBuf.Len()
-				if len(chunk) > rem {
-					fullBuf.WriteString(chunk[:rem])
-					slog.Warn("container stdout truncated",
-						"group", in.Folder, "size", fullBuf.Len())
-				} else {
-					fullBuf.WriteString(chunk)
-				}
-			}
-
-			if parseBuf.Len() < maxOutputSize {
-				parseBuf.WriteString(chunk)
-			}
-			for {
-				s := parseBuf.String()
-				si := strings.Index(s, outputStartMarker)
-				if si == -1 {
-					break
-				}
-				ei := strings.Index(s[si:], outputEndMarker)
-				if ei == -1 {
-					break // incomplete pair, wait for more
-				}
-				ei += si
-
-				js := strings.TrimSpace(
-					s[si+len(outputStartMarker) : ei])
-				rest := s[ei+len(outputEndMarker):]
-				parseBuf.Reset()
-				parseBuf.WriteString(rest)
-
-				var parsed struct {
-					Status    string `json:"status"`
-					Result    string `json:"result"`
-					SessionID string `json:"newSessionId"`
-					Error     string `json:"error"`
-				}
-				if err := json.Unmarshal(
-					[]byte(js), &parsed,
-				); err != nil {
-					slog.Warn("failed to parse streamed output",
-						"group", in.Folder, "err", err)
-					continue
-				}
-
-				hadStreaming = true
-				if parsed.SessionID != "" {
-					newSessionID = parsed.SessionID
-				}
-				if idleResets < maxIdleResetsFromOutput {
-					timer.Reset(cfg.IdleTimeout)
-					idleResets++
-				}
-
-				if in.OnOutput != nil {
-					in.OnOutput(parsed.Result, parsed.Status)
-				}
-			}
-		}
-		if readErr != nil {
-			break
-		}
-	}
-
 	exitErr := cmd.Wait()
 	timer.Stop()
 	deadline.Stop()
@@ -429,27 +337,14 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	ts := time.Now().Format("2006-01-02T15-04-05")
 	logFile := filepath.Join(logsDir, "container-"+ts+".log")
 	to := timedOut.Load()
-	writeLog(logFile, in, containerName, elapsed, code,
-		to, hadStreaming, fullBuf.String(), stderrStr, mounts)
+	writeLog(logFile, in, containerName, elapsed, code, to, stderrStr, mounts)
 
 	slog.Info("container exited",
 		"group", in.Folder, "container", containerName, "code", code,
-		"duration", elapsed,
-		"timedOut", to, "hadOutput", hadStreaming)
+		"duration", elapsed, "timedOut", to)
 
 	if to {
-		if hadStreaming {
-			slog.Info(
-				"container timed out after output (idle cleanup)",
-				"group", in.Folder, "container", containerName,
-				"duration", elapsed)
-			return Output{
-				Status:       "success",
-				NewSessionID: newSessionID,
-				HadOutput:    true,
-			}
-		}
-		slog.Error("container timed out with no output",
+		slog.Error("container timed out",
 			"group", in.Folder, "container", containerName,
 			"duration", elapsed)
 		return Output{
@@ -468,44 +363,13 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			tail = tail[len(tail)-200:]
 		}
 		return Output{
-			Status:       "error",
-			NewSessionID: newSessionID,
-			HadOutput:    hadStreaming,
+			Status: "error",
 			Error: fmt.Sprintf(
 				"Container exited with code %d: %s", code, tail),
 		}
 	}
 
-	if hadStreaming {
-		slog.Info("container completed (streaming mode)",
-			"group", in.Folder, "duration", elapsed,
-			"newSessionId", newSessionID)
-		return Output{
-			Status:       "success",
-			NewSessionID: newSessionID,
-			HadOutput:    true,
-		}
-	}
-
-	allStdout := fullBuf.String()
-	si := strings.LastIndex(allStdout, outputStartMarker)
-	ei := strings.LastIndex(allStdout, outputEndMarker)
-	if si != -1 && ei > si {
-		js := strings.TrimSpace(allStdout[si+len(outputStartMarker) : ei])
-		var out Output
-		if json.Unmarshal([]byte(js), &out) == nil {
-			slog.Info("container completed",
-				"group", in.Folder, "duration", elapsed,
-				"status", out.Status,
-				"hasResult", out.Result != "")
-			return out
-		}
-	}
-
-	return Output{
-		Status: "error",
-		Error:  "no parseable output from container",
-	}
+	return Output{Status: "success"}
 }
 
 func prepareInput(cfg *core.Config, in Input, groupDir string) Input {
@@ -944,8 +808,8 @@ func cpDir(src, dst string) {
 func writeLog(
 	path string, in Input,
 	cname string, dur time.Duration,
-	code int, timedOut, hadOutput bool,
-	stdout, stderr string,
+	code int, timedOut bool,
+	stderr string,
 	mounts []volumeMount,
 ) {
 	isErr := code != 0 || timedOut
@@ -960,9 +824,6 @@ func writeLog(
 	fmt.Fprintf(&b, "=== Container Run Log%s ===\n", suffix)
 	fmt.Fprintf(&b, "Timestamp: %s\nGroup: %s\nContainer: %s\nDuration: %s\nExit Code: %d\n",
 		time.Now().Format(time.RFC3339), in.Folder, cname, dur, code)
-	if timedOut {
-		fmt.Fprintf(&b, "Had Streaming Output: %v\n", hadOutput)
-	}
 
 	b.WriteString("\n=== Mounts ===\n")
 	for _, m := range mounts {
@@ -982,7 +843,6 @@ func writeLog(
 		ij, _ := json.MarshalIndent(in, "", "  ")
 		b.Write(ij)
 		fmt.Fprintf(&b, "\n\n=== Stderr ===\n%s\n", stderr)
-		fmt.Fprintf(&b, "\n=== Stdout ===\n%s\n", stdout)
 	} else {
 		sid := in.SessionID
 		if sid == "" {

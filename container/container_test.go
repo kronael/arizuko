@@ -407,89 +407,6 @@ func TestBuildArgsCustomUser(t *testing.T) {
 	}
 }
 
-func TestOutputMarkerParsing(t *testing.T) {
-	payload := Output{
-		Status:       "success",
-		Result:       "done",
-		NewSessionID: "sess-123",
-	}
-	js, _ := json.Marshal(payload)
-	raw := "some noise\n" +
-		outputStartMarker + "\n" + string(js) + "\n" +
-		outputEndMarker + "\nmore noise"
-
-	si := strings.LastIndex(raw, outputStartMarker)
-	ei := strings.LastIndex(raw, outputEndMarker)
-	if si == -1 || ei <= si {
-		t.Fatal("markers not found")
-	}
-
-	extracted := strings.TrimSpace(
-		raw[si+len(outputStartMarker) : ei])
-	var got Output
-	if err := json.Unmarshal([]byte(extracted), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Status != "success" {
-		t.Errorf("status = %q", got.Status)
-	}
-	if got.Result != "done" {
-		t.Errorf("result = %q", got.Result)
-	}
-	if got.NewSessionID != "sess-123" {
-		t.Errorf("session = %q", got.NewSessionID)
-	}
-}
-
-func TestOutputMarkerStreaming(t *testing.T) {
-	p1 := Output{Result: "first", Status: "streaming"}
-	p2 := Output{Result: "second", Status: "success", NewSessionID: "s2"}
-	js1, _ := json.Marshal(p1)
-	js2, _ := json.Marshal(p2)
-
-	raw := outputStartMarker + string(js1) + outputEndMarker +
-		"noise" +
-		outputStartMarker + string(js2) + outputEndMarker
-
-	var results []Output
-	var buf strings.Builder
-	buf.WriteString(raw)
-
-	for {
-		s := buf.String()
-		si := strings.Index(s, outputStartMarker)
-		if si == -1 {
-			break
-		}
-		ei := strings.Index(s[si:], outputEndMarker)
-		if ei == -1 {
-			break
-		}
-		ei += si
-
-		js := strings.TrimSpace(s[si+len(outputStartMarker) : ei])
-		rest := s[ei+len(outputEndMarker):]
-		buf.Reset()
-		buf.WriteString(rest)
-
-		var o Output
-		if err := json.Unmarshal([]byte(js), &o); err != nil {
-			t.Fatal(err)
-		}
-		results = append(results, o)
-	}
-
-	if len(results) != 2 {
-		t.Fatalf("got %d results, want 2", len(results))
-	}
-	if results[0].Result != "first" {
-		t.Errorf("[0].Result = %q", results[0].Result)
-	}
-	if results[1].NewSessionID != "s2" {
-		t.Errorf("[1].SessionID = %q", results[1].NewSessionID)
-	}
-}
-
 func TestInputJSON(t *testing.T) {
 	in := Input{
 		Prompt:    "hello",
@@ -542,8 +459,7 @@ func TestWriteLog(t *testing.T) {
 		{Host: "/h2", Container: "/c2", RO: true},
 	}
 
-	writeLog(p, in, "cname", 5*time.Second, 0,
-		false, true, "stdout", "stderr", mounts)
+	writeLog(p, in, "cname", 5*time.Second, 0, false, "stderr", mounts)
 
 	data, err := os.ReadFile(p)
 	if err != nil {
@@ -572,16 +488,12 @@ func TestWriteLogTimeout(t *testing.T) {
 	d := t.TempDir()
 	p := filepath.Join(d, "test.log")
 
-	writeLog(p, Input{Folder: "g"}, "c", time.Second, 1,
-		true, false, "", "", nil)
+	writeLog(p, Input{Folder: "g"}, "c", time.Second, 1, true, "", nil)
 
 	data, _ := os.ReadFile(p)
 	s := string(data)
 	if !strings.Contains(s, "TIMEOUT") {
 		t.Error("missing TIMEOUT header")
-	}
-	if !strings.Contains(s, "Had Streaming Output: false") {
-		t.Error("missing streaming output flag")
 	}
 }
 

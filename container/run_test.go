@@ -68,55 +68,28 @@ func makeCfg(t *testing.T) (*core.Config, *groupfolder.Resolver, string) {
 	return cfg, folders, tmp
 }
 
-func TestRun_MarkerParsing(t *testing.T) {
-	okPayload := `{"status":"success","result":"hi","newSessionId":"s1"}`
+func TestRun_ExitCodes(t *testing.T) {
 	cases := []struct {
-		name       string
-		stdout     string
-		exitCode   int
-		wantStatus string
-		wantResult string
-		wantErr    bool
+		name     string
+		exitCode int
+		wantErr  bool
 	}{
-		{
-			name:       "basic markers",
-			stdout:     outputStartMarker + okPayload + outputEndMarker,
-			wantStatus: "success",
-			wantResult: "hi",
-		},
-		{
-			name:       "text before and after markers",
-			stdout:     "noise\n" + outputStartMarker + okPayload + outputEndMarker + "\ntrailing",
-			wantStatus: "success",
-			wantResult: "hi",
-		},
-		{
-			name:     "no markers → error",
-			stdout:   "just some text no markers",
-			wantErr:  true,
-		},
-		{
-			name:     "exit code 1 → error",
-			stdout:   "",
-			exitCode: 1,
-			wantErr:  true,
-		},
+		{name: "clean exit", exitCode: 0, wantErr: false},
+		{name: "exit code 1 -> error", exitCode: 1, wantErr: true},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			cfg, folders, _ := makeCfg(t)
 			var captured []string
-			restore := fakeExec(t, &captured, c.stdout, c.exitCode)
+			restore := fakeExec(t, &captured, "", c.exitCode)
 			defer restore()
 
-			var streamed string
 			out := Run(cfg, folders, Input{
-				Prompt:   "hello",
-				ChatJID:  "tg:1",
-				Folder:   "g",
-				Name:     "arizuko-test-x",
-				OnOutput: func(result, _ string) { streamed = result },
+				Prompt:  "hello",
+				ChatJID: "tg:1",
+				Folder:  "g",
+				Name:    "arizuko-test-x",
 			})
 
 			if c.wantErr {
@@ -125,11 +98,8 @@ func TestRun_MarkerParsing(t *testing.T) {
 				}
 				return
 			}
-			if out.Status != c.wantStatus {
-				t.Errorf("status=%q want %q (out=%+v)", out.Status, c.wantStatus, out)
-			}
-			if streamed != c.wantResult {
-				t.Errorf("streamed=%q want %q", streamed, c.wantResult)
+			if out.Status != "success" {
+				t.Errorf("status=%q want success (out=%+v)", out.Status, out)
 			}
 		})
 	}
@@ -138,8 +108,7 @@ func TestRun_MarkerParsing(t *testing.T) {
 func TestRun_DockerArgAssembly(t *testing.T) {
 	cfg, folders, _ := makeCfg(t)
 	var captured []string
-	payload := `{"status":"success","result":"ok"}`
-	restore := fakeExec(t, &captured, outputStartMarker+payload+outputEndMarker, 0)
+	restore := fakeExec(t, &captured, "", 0)
 	defer restore()
 
 	out := Run(cfg, folders, Input{
