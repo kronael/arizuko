@@ -52,6 +52,12 @@ type Gateway struct {
 	// to advance the cursor past steered messages on completion.
 	steeredTs map[string]time.Time
 
+	// turnsMu guards inFlightTurns. Each entry is the active run for a
+	// folder; submit_turn over MCP looks itself up here and invokes the
+	// per-run callback (text delivery + session capture).
+	turnsMu       sync.Mutex
+	inFlightTurns map[string]*turnState
+
 	impulse *impulseGate
 
 	// ctx is the gateway's root context set at Run. Used to abort
@@ -59,21 +65,34 @@ type Gateway struct {
 	ctx context.Context
 }
 
+// turnState is the per-active-run state needed to absorb submit_turn
+// callbacks coming back over MCP.
+type turnState struct {
+	onOutput     func(result, status string)
+	newSessionID string
+	lastError    string
+}
+
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 func New(cfg *core.Config, s *store.Store) *Gateway {
-	return &Gateway{
-		cfg:       cfg,
-		store:     s,
-		queue:     queue.New(cfg.MaxContainers, cfg.IpcDir),
-		runner:    container.DockerRunner{},
-		steeredTs: make(map[string]time.Time),
+	g := &Gateway{
+		cfg:           cfg,
+		store:         s,
+		queue:         queue.New(cfg.MaxContainers, cfg.IpcDir),
+		runner:        container.DockerRunner{},
+		steeredTs:     make(map[string]time.Time),
+		inFlightTurns: make(map[string]*turnState),
 		folders: &groupfolder.Resolver{
 			GroupsDir: cfg.GroupsDir,
 			IpcDir:    cfg.IpcDir,
 		},
 		impulse: newImpulseGate(),
 	}
+	// Bind submit_turn at construction so the agent path is wired even
+	// in unit tests that drive runAgentWithOpts without calling Run().
+	g.gatedFns.SubmitTurn = g.handleSubmitTurn
+	return g
 }
 
 // SetRunner overrides the container runner. Test-only entry point.
@@ -168,6 +187,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 				UsedCount:   inv.UsedCount,
 			}, nil
 		},
+		SubmitTurn:    g.handleSubmitTurn,
 		AcceptURLBase: g.cfg.AuthBaseURL,
 	}
 	g.storeFns = ipc.StoreFns{
@@ -852,14 +872,21 @@ func (g *Gateway) runAgentWithOpts(
 		Channel:         chanName,
 		MessageID:       msgID,
 		Sender:          sender,
-		OnOutput:        onOutput,
 		Grants:          rules,
 		GatedFns:        g.gatedFns,
 		StoreFns:        g.storeFns,
 		SecretsResolver: g.store,
 	}
 
+	st := g.beginTurnRun(group.Folder, onOutput)
+	defer g.endTurnRun(group.Folder)
 	out := g.runner.Run(g.cfg, g.folders, input)
+	if st.newSessionID != "" {
+		out.NewSessionID = st.newSessionID
+	}
+	if out.Error == "" && st.lastError != "" {
+		out.Error = st.lastError
+	}
 
 	if isolated {
 		return out
@@ -1699,6 +1726,54 @@ func (g *Gateway) recoverPendingMessages() {
 		slog.Info("recovering pending messages", "jid", jid)
 		g.queue.EnqueueMessageCheck(jid)
 	}
+}
+
+// beginTurnRun registers a turnState for folder so submit_turn calls
+// from the agent can reach the per-run output callback. Returns the
+// state pointer; caller must endTurnRun(folder) when the run finishes.
+func (g *Gateway) beginTurnRun(folder string, onOutput func(result, status string)) *turnState {
+	st := &turnState{onOutput: onOutput}
+	g.turnsMu.Lock()
+	g.inFlightTurns[folder] = st
+	g.turnsMu.Unlock()
+	return st
+}
+
+func (g *Gateway) endTurnRun(folder string) {
+	g.turnsMu.Lock()
+	delete(g.inFlightTurns, folder)
+	g.turnsMu.Unlock()
+}
+
+func (g *Gateway) handleSubmitTurn(folder string, t ipc.TurnResult) error {
+	recorded, err := g.store.RecordTurnResult(folder, t.TurnID, t.SessionID, t.Status)
+	if err != nil {
+		return fmt.Errorf("record turn: %w", err)
+	}
+	if !recorded {
+		slog.Info("submit_turn duplicate, ignoring",
+			"folder", folder, "turn_id", t.TurnID, "status", t.Status)
+		return nil
+	}
+
+	g.turnsMu.Lock()
+	st := g.inFlightTurns[folder]
+	g.turnsMu.Unlock()
+	if st == nil {
+		slog.Warn("submit_turn with no in-flight run",
+			"folder", folder, "turn_id", t.TurnID)
+		return nil
+	}
+	if t.SessionID != "" {
+		st.newSessionID = t.SessionID
+	}
+	if t.Error != "" {
+		st.lastError = t.Error
+	}
+	if st.onOutput != nil && t.Result != "" {
+		st.onOutput(t.Result, t.Status)
+	}
+	return nil
 }
 
 func onboardingAllowed(jid string, platforms []string) bool {

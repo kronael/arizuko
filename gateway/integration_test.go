@@ -10,14 +10,15 @@ import (
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/groupfolder"
+	"github.com/onvos/arizuko/ipc"
 	"github.com/onvos/arizuko/store"
 	"github.com/onvos/arizuko/tests/testutils"
 )
 
 // fakeRunner implements container.Runner for gateway integration tests.
-// It records inputs and returns a pre-programmed output; it also invokes
-// the streaming OnOutput callback when StreamText is non-empty, mimicking
-// the real runner's marker-parsing streaming behavior.
+// It records inputs and returns a pre-programmed output; when StreamText
+// is non-empty it invokes the gateway's SubmitTurn callback via the
+// in-process GatedFns hook, mimicking the real agent submitting a turn.
 type fakeRunner struct {
 	mu         sync.Mutex
 	gotInputs  []container.Input
@@ -36,8 +37,13 @@ func (f *fakeRunner) Run(
 	if f.OutError != "" {
 		return container.Output{Status: "error", Error: f.OutError}
 	}
-	if f.StreamText != "" && in.OnOutput != nil {
-		in.OnOutput(f.StreamText, "success")
+	if f.StreamText != "" && in.GatedFns.SubmitTurn != nil {
+		in.GatedFns.SubmitTurn(in.Folder, ipc.TurnResult{
+			TurnID:    in.MessageID,
+			SessionID: "fake-sess",
+			Status:    "success",
+			Result:    f.StreamText,
+		})
 		return container.Output{Status: "success", HadOutput: true}
 	}
 	status := f.OutStatus
