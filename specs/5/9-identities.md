@@ -1,5 +1,5 @@
 ---
-status: unshipped
+status: shipped
 ---
 
 # Cross-channel identity

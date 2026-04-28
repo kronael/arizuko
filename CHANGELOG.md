@@ -117,6 +117,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- Cross-channel identity (spec 5/9). New `identities` /
+  `identity_claims` / `identity_codes` tables (migration 0035) link
+  multiple platform sender subs to a canonical user. New endpoint
+  `POST /auth/link-code` mints a 10-minute, single-shot
+  `link-XXXXXXXXXXXX` code; the gateway intercepts inbound messages
+  whose body is a bare code and binds the sender sub to the issuer's
+  identity (transport-layer auth — never burns an agent turn). New
+  read-only MCP tool `inspect_identity(sub)` returns
+  `{identity:{id,name,created_at}, subs:[...]}` so agents can
+  recognize the same user across channels. Advisory only — agents
+  query, never enforce. New CLI: `arizuko identity list | link <sub>
+[--name N] [--id ID] | unlink <sub>`. Agent migration 077.
+
 - `twitd`: X / Twitter adapter via browser emulation
   (`agent-twitter-client@0.0.18`, the ai16z fork of
   `@the-convocation/twitter-scraper`). No official Twitter API.
