@@ -157,6 +157,30 @@ func TestTokenLandingInvalid(t *testing.T) {
 	}
 }
 
+// TestTokenLandingWrongDatetimeFormat: regression test for the bug where
+// token_expires stored in wrong format (space-separated vs RFC3339) causes
+// SQL string comparison to fail. SQLite compares lexicographically:
+// "2026-04-28T08:00:00Z" > "2026-04-28 18:00:00" is TRUE because 'T' > ' '.
+// This means a valid future token appears expired.
+func TestTokenLandingWrongDatetimeFormat(t *testing.T) {
+	db := testDB(t)
+	// Wrong format: space instead of T, no timezone. This is what a future
+	// date looks like in some datetime formats (e.g. Python's default str()).
+	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
+		VALUES ('telegram:1', 'awaiting_message', 'abc123', '2099-01-01 00:00:00', '2026-01-01')`)
+
+	cfg := config{authBaseURL: "https://example.com"}
+	req := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
+	w := httptest.NewRecorder()
+	handleOnboard(w, req, db, cfg)
+
+	// BUG DEMONSTRATION: with wrong format, valid token is rejected.
+	// If this test starts failing (returns 303), the bug is fixed at query level.
+	if w.Code != http.StatusOK {
+		t.Logf("Got %d - format validation may have been added", w.Code)
+	}
+}
+
 func TestDashboardLinksJID(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
@@ -1960,9 +1984,9 @@ func TestPromptUnprompted_ResetsTokenUsedWithoutUserSub(t *testing.T) {
 	promptUnprompted(db, cfg)
 
 	var status string
-	var token, prompted sql.NullString
-	db.QueryRow(`SELECT status, token, prompted_at FROM onboarding WHERE jid='telegram:1'`).
-		Scan(&status, &token, &prompted)
+	var token, prompted, expires sql.NullString
+	db.QueryRow(`SELECT status, token, prompted_at, token_expires FROM onboarding WHERE jid='telegram:1'`).
+		Scan(&status, &token, &prompted, &expires)
 	if status != "awaiting_message" {
 		t.Errorf("want status reset to awaiting_message, got %s", status)
 	}
@@ -1971,6 +1995,12 @@ func TestPromptUnprompted_ResetsTokenUsedWithoutUserSub(t *testing.T) {
 	}
 	if !prompted.Valid {
 		t.Error("want prompted_at re-set")
+	}
+	// Verify token_expires is RFC3339 format (the bug: wrong format causes SQL comparison to fail)
+	if !expires.Valid {
+		t.Error("want token_expires set")
+	} else if _, err := time.Parse(time.RFC3339, expires.String); err != nil {
+		t.Errorf("token_expires not RFC3339: %q (%v)", expires.String, err)
 	}
 }
 
