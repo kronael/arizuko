@@ -35,6 +35,12 @@ func TestInspectToolsRegistered(t *testing.T) {
 			return []core.SessionRecord{{ID: 1, Folder: f, SessionID: "s1", StartedAt: now}}
 		},
 		GetSession: func(f, topic string) (string, bool) { return "s1", true },
+		GetIdentityForSub: func(sub string) (Identity, []string, bool) {
+			if sub == "tg:123" {
+				return Identity{ID: "ident-1", Name: "alice", CreatedAt: now}, []string{"tg:123", "discord:7"}, true
+			}
+			return Identity{}, nil, false
+		},
 	}
 	gated := GatedFns{GroupsDir: "/tmp/groups", WebDir: "/tmp/web"}
 
@@ -45,5 +51,11 @@ func TestInspectToolsRegistered(t *testing.T) {
 	// tier-2 — scoped to own folder
 	if srv := buildMCPServer(gated, db, "world/a/b", []string{"*"}); srv == nil {
 		t.Fatal("tier-2 server nil")
+	}
+	// inspect_identity must be a no-op when StoreFns.GetIdentityForSub is nil.
+	dbNoIdent := db
+	dbNoIdent.GetIdentityForSub = nil
+	if srv := buildMCPServer(gated, dbNoIdent, "world", []string{"*"}); srv == nil {
+		t.Fatal("server nil with no identity hook")
 	}
 }

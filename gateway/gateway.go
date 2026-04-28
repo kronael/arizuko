@@ -213,6 +213,13 @@ func (g *Gateway) Run(ctx context.Context) error {
 		},
 		RecentSessions: g.store.RecentSessions,
 		GetSession:     g.store.GetSession,
+		GetIdentityForSub: func(sub string) (ipc.Identity, []string, bool) {
+			idn, subs, ok := g.store.GetIdentityForSub(sub)
+			if !ok {
+				return ipc.Identity{}, nil, false
+			}
+			return ipc.Identity{ID: idn.ID, Name: idn.Name, CreatedAt: idn.CreatedAt}, subs, true
+		},
 	}
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetHasPendingFn(func(jid string) bool {

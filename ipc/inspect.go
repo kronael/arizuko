@@ -99,4 +99,21 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 			})
 		})
 	}
+
+	if db.GetIdentityForSub != nil {
+		srv.AddTool(mcp.NewTool("inspect_identity",
+			mcp.WithDescription("Resolve a platform sender sub (e.g. tg:123, discord:abc) to its canonical identity and the full set of subs claimed by that identity. Use to recognize a user across channels (\"is the WhatsApp tg:42 the same person as the Discord user discord:7?\"). Advisory only — agents query, never enforce. Returns {identity:null, subs:[]} when the sub is unclaimed."),
+			mcp.WithString("sub", mcp.Required()),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			sub := req.GetString("sub", "")
+			if sub == "" {
+				return toolErr("sub required")
+			}
+			idn, subs, ok := db.GetIdentityForSub(sub)
+			if !ok {
+				return toolJSON(map[string]any{"sub": sub, "identity": nil, "subs": []string{}})
+			}
+			return toolJSON(map[string]any{"sub": sub, "identity": idn, "subs": subs})
+		})
+	}
 }

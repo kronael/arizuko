@@ -96,6 +96,14 @@ type StoreFns struct {
 	TaskRunLogs         func(taskID string, limit int) []TaskRunLog
 	RecentSessions      func(folder string, n int) []core.SessionRecord
 	GetSession          func(folder, topic string) (string, bool)
+	GetIdentityForSub   func(sub string) (Identity, []string, bool)
+}
+
+// Identity mirrors store.Identity; ipc must not import store.
+type Identity struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ErroredChat mirrors store.ErroredChat to avoid an ipc→store import.
