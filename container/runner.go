@@ -223,6 +223,11 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	var stderrBuf strings.Builder
 	var stderrMu sync.Mutex
+	// resetIdle is wired to the idle timer below; declared early so the
+	// stderr goroutine can reach it. Capped to bound runaway agents.
+	var idleResets atomic.Int32
+	const maxIdleResets = 240 // 60s * 240 = 4h max via idle resets
+	resetIdle := func() {}
 	go func() {
 		sc := bufio.NewScanner(stderr)
 		sc.Buffer(make([]byte, 64*1024), maxOutputSize)
@@ -231,6 +236,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			if strings.HasPrefix(line, "[ant]") {
 				slog.Info("container agent",
 					"group", in.Folder, "line", line)
+				if idleResets.Add(1) <= maxIdleResets {
+					resetIdle()
+				}
 			} else {
 				slog.Debug("container stderr",
 					"group", in.Folder, "line", line)
@@ -311,6 +319,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	timer := time.AfterFunc(cfg.IdleTimeout, func() {
 		stopContainer("idle timeout")
 	})
+	resetIdle = func() { timer.Reset(cfg.IdleTimeout) }
 
 	exitErr := cmd.Wait()
 	timer.Stop()
