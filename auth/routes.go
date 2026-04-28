@@ -11,11 +11,13 @@ import (
 func RegisterRoutes(mux *http.ServeMux, s *store.Store, cfg *core.Config) {
 	secret := []byte(cfg.AuthSecret)
 	secure := strings.HasPrefix(authBaseURL(cfg), "https://")
+	require := RequireSigned(cfg.AuthSecret)
 
 	mux.HandleFunc("GET /auth/login", handleLoginPage(cfg))
 	mux.HandleFunc("POST /auth/login", handleLogin(s, secret, secure))
 	mux.HandleFunc("POST /auth/refresh", handleRefresh(s, secret, secure))
 	mux.HandleFunc("POST /auth/logout", handleLogout(s, secure))
+	mux.HandleFunc("POST /auth/link-code", require(handleLinkCode(s)))
 
 	if cfg.GitHubClientID != "" {
 		mux.HandleFunc("GET /auth/github",

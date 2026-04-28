@@ -1,0 +1,62 @@
+package auth
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/onvos/arizuko/store"
+)
+
+// linkCodeTTL is the validity window of a /auth/link-code mint. Long
+// enough to switch apps and paste in a chat, short enough to avoid
+// drive-by linking from an old leaked code.
+const linkCodeTTL = 10 * time.Minute
+
+// handleLinkCode mints a one-shot link code bound to the caller's
+// identity. If the caller has no identity yet, one is created and
+// their JWT sub is auto-claimed (so the code's purpose is to add a
+// *second* sub via in-chat detection).
+func handleLinkCode(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sub := r.Header.Get("X-User-Sub")
+		if sub == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		idn, _, ok := s.GetIdentityForSub(sub)
+		if !ok {
+			name := r.Header.Get("X-User-Name")
+			if name == "" {
+				name = sub
+			}
+			created, err := s.CreateIdentity(name)
+			if err != nil {
+				slog.Error("create identity", "sub", sub, "err", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if err := s.LinkSub(created.ID, sub); err != nil {
+				slog.Error("link self sub", "sub", sub, "err", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			idn = created
+		}
+		code, err := s.MintLinkCode(idn.ID, linkCodeTTL)
+		if err != nil {
+			slog.Error("mint link code", "identity", idn.ID, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		slog.Info("link code minted", "identity", idn.ID, "sub", sub)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"code":       code,
+			"ttl":        int(linkCodeTTL.Seconds()),
+			"expires_at": time.Now().Add(linkCodeTTL).Format(time.RFC3339),
+			"identity":   idn.ID,
+		})
+	}
+}
