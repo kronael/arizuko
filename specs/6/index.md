@@ -14,3 +14,6 @@ status: deferred
 | [6-workflows.md](6-workflows.md)                     | deferred | workflowd daemon, TOML flow files over shared SQLite bus           |
 | [7-self-learning.md](7-self-learning.md)             | deferred | Skill-guard PreToolUse hook (hermes peel)                          |
 | [8-self-eval-skill.md](8-self-eval-skill.md)         | deferred | Self-eval sub-query at container exit                              |
+| [9-crackbox-standalone.md](9-crackbox-standalone.md) | draft    | Minimal isolated sandbox for Claude                                |
+| [10-crackbox-arizuko.md](10-crackbox-arizuko.md)     | draft    | Crackbox integration into arizuko                                  |
+| [11-crackbox-secrets.md](11-crackbox-secrets.md)     | draft    | Proxy-based secrets injection                                      |
