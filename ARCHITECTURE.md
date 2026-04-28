@@ -189,9 +189,10 @@ and `routed_to` capture audit metadata. Spec: `specs/3/c-audit-log.md`.
    - Env: `WEB_PREFIX` (`pub` for root, `pub/<folder>` for children),
      `ARIZUKO_IS_ROOT`, `ARIZUKO_DELEGATE_DEPTH`, `WEB_HOST`,
      `ARIZUKO_ASSISTANT_NAME`, plus group overrides
-   - `docker run -i --rm`; parse output between
-     `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---`
-   - Output: `{ status, result, newSessionId, error }`
+   - `docker run -i --rm`; spawn + wait. Per-turn results arrive
+     over MCP (`submit_turn`), not stdout.
+   - Output: `{ status, error }` from runner; `newSessionId` and
+     `result` flow back to gateway via `submit_turn` callbacks.
    - Timer timeout: graceful stop then kill
    - Log: `groups/<folder>/logs/container-<ts>.log`
 

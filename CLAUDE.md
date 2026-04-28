@@ -61,7 +61,8 @@ owns them). Per-package details co-located in each `<pkg>/README.md`.
 
 - JSONL files use `.jl` extension (not `.jsonl`)
 - XML tags for prompt structure, JSON for IPC/MCP/structured output
-- Container output delimited by `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---`
+- Per-turn agent output delivered via the `submit_turn` JSON-RPC
+  method on the same MCP unix socket; hidden from `tools/list`
 - IPC: MCP over unix socket, socat bridge into container
 - Business features (gates, grants, onboarding) are DB-backed with CLI +
   chat command for management. Infra (ports, timeouts, images, paths) stays

@@ -37,25 +37,35 @@ clock (clockXml) -> system messages (flushSystemMessages)
 `pendingArgs`: raw text following a command trigger (e.g.,
 `/ask what is X` -> `"what is X"`). Consumed once, deleted after read.
 
-## ContainerOutput (stdout JSON)
+## Per-turn output (`submit_turn` JSON-RPC)
 
-Wrapped in sentinel markers:
+Per-turn results return over the gated MCP unix socket via the
+`submit_turn` method (hidden from `tools/list`):
 
+```jsonc
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "submit_turn",
+  "params": {
+    "turn_id": "<originating message id>",
+    "session_id": "abc123",
+    "status": "success",
+    "result": "...",
+  },
+}
 ```
----ARIZUKO_OUTPUT_START---
-{"status":"success","result":"...","newSessionId":"abc123"}
----ARIZUKO_OUTPUT_END---
-```
 
-| Field          | Type             | Notes                     |
-| -------------- | ---------------- | ------------------------- |
-| `status`       | `success\|error` |                           |
-| `result`       | `string\|null`   | null = silent             |
-| `newSessionId` | string?          | Persisted by host         |
-| `error`        | string?          | When `status === 'error'` |
+| Field        | Type             | Notes                       |
+| ------------ | ---------------- | --------------------------- |
+| `turn_id`    | string           | Idempotency key with folder |
+| `status`     | `success\|error` |                             |
+| `result`     | string?          | Empty/missing = silent      |
+| `session_id` | string?          | Persisted by host           |
+| `error`      | string?          | When `status === 'error'`   |
 
-Multiple marker pairs per run (streaming). `<internal>` tags
-in `result` stripped before sending.
+One `submit_turn` per turn. `<internal>` tags in `result` stripped
+before sending.
 
 ## SOUL.md and SYSTEM.md Injection
 

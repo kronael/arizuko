@@ -129,6 +129,23 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   recognize the same user across channels. Advisory only — agents
   query, never enforce. New CLI: `arizuko identity list | link <sub>
 [--name N] [--id ID] | unlink <sub>`. Agent migration 077.
+- `submit_turn` JSON-RPC method on the gated MCP socket: agent
+  delivers per-turn results (`turn_id`, `session_id`, `status`,
+  `result`) over the existing unix socket. Hidden from `tools/list`;
+  registered as a raw method handler so the LLM never sees it.
+  Idempotent on `(folder, turn_id)` via the new `turn_results`
+  table (migration 0036). Replaces the stdout-marker delivery path —
+  a single channel for ant→gated where there used to be two
+  (specs/5/27-detached-containers.md). Agent migration 078.
+
+### Removed (submit_turn cutover)
+
+- `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---` stdout
+  markers. The marker scanner in `container/runner.go` is gone:
+  `Run` now spawns and waits for exit, no stdout parsing. Heartbeat
+  messages are gone (the marker scanner that needed them is gone).
+  `OnOutput` field on `container.Input` is removed; per-turn delivery
+  arrives through `submit_turn` instead.
 
 - `twitd`: X / Twitter adapter via browser emulation
   (`agent-twitter-client@0.0.18`, the ai16z fork of
