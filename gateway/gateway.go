@@ -245,6 +245,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 	g.queue.SetHasPendingFn(func(jid string) bool {
 		return g.store.HasPendingMessages(jid, g.cfg.Name)
 	})
+	g.queue.SetFolderForJidFn(g.folderForJid)
 	g.queue.SetNotifyErrorFn(g.onCircuitBreakerOpen)
 
 	for _, ch := range g.channels {
@@ -1455,6 +1456,21 @@ func (g *Gateway) resolveGroup(msg core.Message) (core.Group, bool) {
 		return g.store.GroupByFolder(folder)
 	}
 	return core.Group{}, false
+}
+
+// folderForJid maps a chat JID to its destination group folder so the
+// queue can serialize concurrent runs by folder. Returns "" when no
+// folder can be determined (queue then falls back to JID-only guard).
+func (g *Gateway) folderForJid(jid string) string {
+	for _, prefix := range []string{"local:", "web:"} {
+		if folder, ok := strings.CutPrefix(jid, prefix); ok {
+			if _, exists := g.store.GroupByFolder(folder); exists {
+				return folder
+			}
+			return ""
+		}
+	}
+	return g.store.DefaultFolderForJID(jid)
 }
 
 func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolder string) string {

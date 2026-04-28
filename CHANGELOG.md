@@ -9,6 +9,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- `queue`: serialize concurrent runs by group folder. Two JIDs that route
+  to the same folder (e.g. `telegram:...` from `recoverPendingMessages`
+  and `local:atlas` from `checkMigrationVersion` at startup) no longer
+  spawn parallel containers. The second JID parks on the waiting list
+  and resumes after the first finishes. Eliminates duplicated agent log
+  lines (auto-migrate, session init, message turns) at deploy time.
+
 ## [v0.30.0] — 2026-04-28
 
 ### Added

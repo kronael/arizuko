@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -242,6 +243,70 @@ func TestSendMessages_WritesOneFilePerMessage(t *testing.T) {
 		if !seen[text] {
 			t.Errorf("missing file with text=%q", text)
 		}
+	}
+}
+
+// Two JIDs that map to the same folder must serialize: only one container
+// runs at a time, the other waits and starts after the first finishes.
+// Regression: at startup, recoverPendingMessages and checkMigrationVersion
+// would enqueue different JIDs (telegram:..., local:atlas) for the same
+// folder, spawning two parallel containers that double-narrated logs.
+func TestEnqueueSerializesByFolder(t *testing.T) {
+	q := New(5, t.TempDir())
+	q.SetFolderForJidFn(func(jid string) string {
+		switch jid {
+		case "telegram:atlas", "local:atlas":
+			return "atlas"
+		}
+		return ""
+	})
+
+	// hasPending=false so each finishing run does NOT self-restart;
+	// drainWaitingLocked is what we want to exercise here.
+	q.SetHasPendingFn(func(string) bool { return false })
+
+	var concurrent atomic.Int32
+	var maxSeen atomic.Int32
+	seenJids := map[string]bool{}
+	var smu sync.Mutex
+	gate := make(chan struct{})
+	q.SetProcessMessagesFn(func(jid string) (bool, error) {
+		n := concurrent.Add(1)
+		if n > maxSeen.Load() {
+			maxSeen.Store(n)
+		}
+		smu.Lock()
+		seenJids[jid] = true
+		smu.Unlock()
+		<-gate
+		concurrent.Add(-1)
+		return true, nil
+	})
+
+	q.EnqueueMessageCheck("telegram:atlas")
+	q.EnqueueMessageCheck("local:atlas")
+
+	time.Sleep(80 * time.Millisecond)
+	if got := concurrent.Load(); got != 1 {
+		t.Fatalf("expected 1 concurrent run for shared folder, got %d", got)
+	}
+	q.mu.Lock()
+	waiting := len(q.waitingGroups)
+	q.mu.Unlock()
+	if waiting != 1 {
+		t.Fatalf("expected 1 jid waiting on folder, got %d", waiting)
+	}
+
+	close(gate)
+	time.Sleep(150 * time.Millisecond)
+
+	if maxSeen.Load() != 1 {
+		t.Fatalf("expected max concurrency 1, got %d", maxSeen.Load())
+	}
+	smu.Lock()
+	defer smu.Unlock()
+	if !seenJids["telegram:atlas"] || !seenJids["local:atlas"] {
+		t.Fatalf("both JIDs must run; saw %v", seenJids)
 	}
 }
 
