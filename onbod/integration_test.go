@@ -90,13 +90,19 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Errorf("outbound body missing jid: %q", reqs[0].Body)
 	}
 
-	var token string
+	var token, tokenExpires string
 	if err := inst.DB.QueryRow(
-		`SELECT token FROM onboarding WHERE jid = ?`, jid).Scan(&token); err != nil {
+		`SELECT token, token_expires FROM onboarding WHERE jid = ?`, jid).Scan(&token, &tokenExpires); err != nil {
 		t.Fatalf("read token: %v", err)
 	}
 	if len(token) != 64 {
 		t.Fatalf("want 64-char token, got %d", len(token))
+	}
+	// token_expires must be RFC3339 — SQL string comparison in
+	// handleTokenLanding ('token_expires > now') breaks if writer uses
+	// space-separated form (space < T) and reader uses RFC3339.
+	if _, err := time.Parse(time.RFC3339, tokenExpires); err != nil {
+		t.Errorf("token_expires not RFC3339: %q (%v)", tokenExpires, err)
 	}
 
 	// Consume the token. Use a client that does NOT follow redirects so
