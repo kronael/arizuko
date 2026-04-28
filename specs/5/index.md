@@ -8,7 +8,7 @@ status: future
 | -------------------------------------------------------------- | ---------- | ------------------------------------------------------------------ |
 | [0-agent-code-modification.md](0-agent-code-modification.md)   | unshipped  | Staging area for root-agent-proposed gateway changes               |
 | [2-agent-pipeline.md](2-agent-pipeline.md)                     | shipped    | Orchestration (slink) vs workflows (Agent tool)                    |
-| [27-detached-containers.md](27-detached-containers.md)         | unshipped  | File-based output + reclaim for gated-restart survival             |
+| [27-detached-containers.md](27-detached-containers.md)         | unshipped  | Collapse stdout markers onto MCP `submit_turn`; supersedes D       |
 | [28-mass-onboarding.md](28-mass-onboarding.md)                 | shipped    | Self-service onboarding, username=world, web auth gate             |
 | [29-acl.md](29-acl.md)                                         | shipped    | Glob-matched user_groups, no operator/user distinction             |
 | [30-inspect-tools.md](30-inspect-tools.md)                     | shipped    | inspect\_\* MCP family (messages, routing, tasks, session)         |
@@ -20,7 +20,7 @@ status: future
 | [6-extend-gateway-self.md](6-extend-gateway-self.md)           | unshipped  | Root agent modifying gateway codebase (plugin dir or agent branch) |
 | [9-identities.md](9-identities.md)                             | unshipped  | Link one user across multiple platform subs                        |
 | [C-message-mcp.md](C-message-mcp.md)                           | partial    | `get_history` shipped; `get_thread` pending                        |
-| [D-message-wal.md](D-message-wal.md)                           | unshipped  | WAL for reliable pipe-to-container message delivery                |
+| [D-message-wal.md](D-message-wal.md)                           | superseded | Superseded by 27 — idempotent `submit_turn(turn_id)` is the WAL    |
 | [E-plugins.md](E-plugins.md)                                   | unshipped  | Agent proposes, operator approves plugin system                    |
 | [H-call-llm-mcp.md](H-call-llm-mcp.md)                         | unshipped  | `call_llm` tool for non-Claude models via OpenRouter               |
 | [J-sse.md](J-sse.md)                                           | partial    | Groups are the SSE auth boundary                                   |
