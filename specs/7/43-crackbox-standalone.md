@@ -23,28 +23,55 @@ Default-deny networking with per-sandbox domain allowlist.
 
 ## CLI
 
+Mimics Docker. Default persists (no --rm), explicit rm to remove.
+
 ```bash
 # Run isolated sandbox
-crackbox run .                          # current dir, attach
+crackbox run .                          # create + start + attach, persists
 crackbox run ~/project                  # specific path
 crackbox run -d .                       # detached, returns ID
+crackbox run --rm .                     # ephemeral, removes on exit
 crackbox run --allow github.com .       # with initial allowlist
+crackbox run --timeout 30m .            # auto-stop after 30min idle
 
-# Manage
-crackbox ls                             # list running sandboxes
-crackbox stop <id>                      # stop sandbox
-crackbox rm <id>                        # remove sandbox
+# Lifecycle (like docker)
+crackbox start <id>                     # start stopped sandbox
+crackbox stop <id>                      # stop running sandbox
+crackbox rm <id>                        # remove stopped sandbox
+crackbox rm -f <id>                     # force remove running
+
+# List
+crackbox ls                             # list running
+crackbox ls -a                          # list all (including stopped)
 
 # Network rules (while running)
 crackbox allow <id> github.com          # add domain
 crackbox allow <id> 8.8.8.8             # add IP
 crackbox allow <id> --all               # full internet
 crackbox deny <id> github.com           # remove rule
-crackbox list <id>                      # show allowlist
+crackbox rules <id>                     # show allowlist
 
-# Connect
-crackbox ssh <id>                       # SSH into sandbox
-crackbox exec <id> <cmd>                # run command
+# Connect / Execute
+crackbox exec <id> bash                 # run command (like docker exec)
+crackbox exec -it <id> bash             # interactive (default if tty)
+crackbox ssh <id>                       # SSH into sandbox (QEMU only)
+crackbox attach <id>                    # attach to running sandbox
+```
+
+## States
+
+Same as Docker:
+
+```
+        run
+         │
+         ▼
+     ┌───────┐    stop    ┌─────────┐    rm     ┌─────────┐
+     │running│ ─────────► │ stopped │ ────────► │ removed │
+     └───────┘            └─────────┘           └─────────┘
+         ▲                     │
+         │        start        │
+         └─────────────────────┘
 ```
 
 ## Backends
