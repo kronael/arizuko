@@ -9,6 +9,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.30.0] — 2026-04-28
+
 ### Added
 
 - `store`: `secrets` table — AES-GCM encrypted folder/user-scoped k=v
