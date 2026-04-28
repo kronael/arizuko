@@ -59,29 +59,29 @@ Full graph, message flow, container lifecycle, SQLite schema in
 
 ### Libraries
 
-| name        | role                                                        | README                                         |
-| ----------- | ----------------------------------------------------------- | ---------------------------------------------- |
-| cmd/arizuko | CLI entrypoint (`create`, `run`, `group`, `gate`, `status`) | [cmd/arizuko/README.md](cmd/arizuko/README.md) |
-| gateway     | poll loop, routing, autocalls, impulse gate                 | [gateway/README.md](gateway/README.md)         |
-| core        | types, config, `Channel` interface                          | [core/README.md](core/README.md)               |
-| store       | SQLite access + migrations                                  | [store/README.md](store/README.md)             |
-| api         | router-side HTTP API                                        | [api/README.md](api/README.md)                 |
-| chanreg     | channel registry + `HTTPChannel`                            | [chanreg/README.md](chanreg/README.md)         |
-| chanlib     | shared HTTP/auth primitives for adapters                    | [chanlib/README.md](chanlib/README.md)         |
-| router      | message formatting, route evaluation                        | [router/README.md](router/README.md)           |
-| queue       | per-group concurrency + circuit breaker                     | [queue/README.md](queue/README.md)             |
-| container   | docker runner + skill seeding                               | [container/README.md](container/README.md)     |
-| compose     | `docker-compose.yml` generator                              | [compose/README.md](compose/README.md)         |
-| ipc         | MCP server on unix socket                                   | [ipc/README.md](ipc/README.md)                 |
-| auth        | identity, JWT, OAuth, policy, HMAC                          | [auth/README.md](auth/README.md)               |
-| grants      | grant rule engine                                           | [grants/README.md](grants/README.md)           |
-| diary       | diary reader for prompt injection                           | [diary/README.md](diary/README.md)             |
-| db_utils    | embedded-FS migration runner                                | [db_utils/README.md](db_utils/README.md)       |
-| theme       | shared CSS/HTML helpers                                     | [theme/README.md](theme/README.md)             |
-| groupfolder | group-folder path validation                                | [groupfolder/README.md](groupfolder/README.md) |
-| mountsec    | mount allowlist + path validation                           | [mountsec/README.md](mountsec/README.md)       |
-| template    | instance seed files + adapter TOMLs                         | [template/README.md](template/README.md)       |
-| sidecar     | whisper transcription image                                 | [sidecar/README.md](sidecar/README.md)         |
+| name        | role                                                                          | README                                         |
+| ----------- | ----------------------------------------------------------------------------- | ---------------------------------------------- |
+| cmd/arizuko | CLI entrypoint (`create`, `run`, `group`, `gate`, `invite`, `chat`, `status`) | [cmd/arizuko/README.md](cmd/arizuko/README.md) |
+| gateway     | poll loop, routing, autocalls, impulse gate                                   | [gateway/README.md](gateway/README.md)         |
+| core        | types, config, `Channel` interface                                            | [core/README.md](core/README.md)               |
+| store       | SQLite access + migrations                                                    | [store/README.md](store/README.md)             |
+| api         | router-side HTTP API                                                          | [api/README.md](api/README.md)                 |
+| chanreg     | channel registry + `HTTPChannel`                                              | [chanreg/README.md](chanreg/README.md)         |
+| chanlib     | shared HTTP/auth primitives for adapters                                      | [chanlib/README.md](chanlib/README.md)         |
+| router      | message formatting, route evaluation                                          | [router/README.md](router/README.md)           |
+| queue       | per-group concurrency + circuit breaker                                       | [queue/README.md](queue/README.md)             |
+| container   | docker runner + skill seeding                                                 | [container/README.md](container/README.md)     |
+| compose     | `docker-compose.yml` generator                                                | [compose/README.md](compose/README.md)         |
+| ipc         | MCP server on unix socket                                                     | [ipc/README.md](ipc/README.md)                 |
+| auth        | identity, JWT, OAuth, policy, HMAC                                            | [auth/README.md](auth/README.md)               |
+| grants      | grant rule engine                                                             | [grants/README.md](grants/README.md)           |
+| diary       | diary reader for prompt injection                                             | [diary/README.md](diary/README.md)             |
+| db_utils    | embedded-FS migration runner                                                  | [db_utils/README.md](db_utils/README.md)       |
+| theme       | shared CSS/HTML helpers                                                       | [theme/README.md](theme/README.md)             |
+| groupfolder | group-folder path validation                                                  | [groupfolder/README.md](groupfolder/README.md) |
+| mountsec    | mount allowlist + path validation                                             | [mountsec/README.md](mountsec/README.md)       |
+| template    | instance seed files + adapter TOMLs                                           | [template/README.md](template/README.md)       |
+| sidecar     | whisper transcription image                                                   | [sidecar/README.md](sidecar/README.md)         |
 
 The `ant/` directory (in-container agent, TypeScript) has its own
 layered docs and is not indexed here.

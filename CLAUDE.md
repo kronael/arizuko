@@ -76,47 +76,24 @@ Never trust `X-User-Sub` without a sig check. Full trust model in
 
 ### Subagent worktrees
 
-When spawning Agent subagents that make non-trivial changes
-(touches >5 files, schema migrations, new specs, cross-package
-refactors), pass `isolation: "worktree"` so the agent works in an
-isolated git checkout. This prevents conflicts if multiple subs
-run in parallel or if you're editing the main tree alongside.
-
-Trivial changes (single-file edits, doc tweaks, one-line fixes,
-typo runs) can run on the shared tree — worktree creation
-overhead isn't worth it.
-
-The Agent tool cleans up the worktree automatically if the agent
-made no changes; otherwise the worktree path + branch are
-returned in the result for review.
+For non-trivial agent work (>5 files, migrations, new specs,
+cross-package refactors), pass `isolation: "worktree"` to avoid
+conflicts with parallel subs or main-tree edits. Trivial edits
+run on the shared tree. The Agent tool cleans up empty worktrees
+automatically; otherwise it returns the worktree path + branch.
 
 ## Design principles
 
 ### Simple stays simple, complex goes deeper
 
-arizuko's primitives scale with need. A solo user runs `solo/inbox`
-with one group; a corporation runs `corp/eng/sre/oncall/launch-q3`
-with five-deep paths. Same code for both. Don't force structure
-where it isn't needed; don't fight structure where it is.
-
-Applies throughout:
-
-- **Group hierarchy** — arbitrary path depth. Suggested segment
-  labels (`world/org/branch/unit/thread`) are advisory. The system
-  reads paths, not labels.
-- **Topic kinds** — default is just a chat thread. Add `task` /
-  `meeting` / `project` / `question` metadata when the work needs
-  tracking, not before.
-- **Grants** — tier-derived defaults out of the box; per-folder
-  custom rules when ops need them.
-- **Channels** — env-var setup for trivial, dashd UI for managed,
-  auth-tunnel for browser-side challenges. Same `chats` table backs all.
-- **Secrets** — folder-scoped by default; per-user only in
-  provably-single-user contexts. No required scope ceremony for
-  small deployments.
-
-The principle: every primitive has a one-line setup AND a deep-config
-path. Pick the depth that matches your org's actual complexity.
+arizuko's primitives scale with need. `solo/inbox` and
+`corp/eng/sre/oncall/launch-q3` run the same code. Every primitive
+has a one-line setup AND a deep-config path: group hierarchy
+(arbitrary depth), topic kinds (default thread or `task`/`meeting`),
+grants (tier defaults or per-folder rules), channels (env-var
+trivial, dashd UI managed), secrets (folder-scoped by default,
+user-scoped when needed). Don't force structure where it isn't
+needed; don't fight it where it is.
 
 ## Data Dir
 
@@ -142,6 +119,8 @@ in the DB; infra toggles live in env.
 ```
 arizuko create <name>          seed data dir, .env, default group
 arizuko run <instance>         generate compose + docker compose up
+arizuko chat <instance>        interactive Claude Code on root MCP socket
+arizuko invite <instance> ...  issue/list/revoke onboarding invites
 ```
 
 Full command list in `cmd/arizuko/README.md`. Daemons are standalone
@@ -209,8 +188,3 @@ Docker log driver is `none` — use `journalctl -u arizuko_<inst>`, not `docker 
 ## Migrating from kanipi
 
 See `MIGRATION.md`.
-
-## Related projects
-
-- `/home/onvos/app/eliza-atlas` — ElizaOS fork; reference for facts/memory
-- `/home/onvos/app/refs/brainpro` — reference for daily notes pattern

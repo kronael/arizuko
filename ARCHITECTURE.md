@@ -25,7 +25,7 @@ onbod/    onboarding state machine + gated admission queue
 dashd/    operator dashboard (HTMX, read-only SQLite)
 webd/     web chat channel adapter (HTTP/SSE, registers as "web")
 proxyd/   reverse proxy: auth, vhost routing, slink rate limiting
-teled/ discd/ mastd/ bskyd/ reditd/ emaid/ whapd/ linkd/  channel adapters
+teled/ discd/ mastd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/  channel adapters
 grants/   CheckAction, NarrowRules, MatchingRules, DeriveRules
 chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
           proxy cache for discd/mastd/reditd), fsutil (CopyDirNoSymlinks,
@@ -164,6 +164,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at           |
 | `onboarding_gates` | gate (PK), limit_per_day, enabled                                                        |
 | `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count      |
+| `secrets`          | scope_kind + scope_id + key (PK), enc_value (AES-GCM(AUTH_SECRET)), created_at           |
 
 WAL mode, 5s busy timeout, migrations via `db_utils.Migrate` (`migrations`
 table keyed by service+version).
@@ -381,16 +382,17 @@ output skips the line. See `EXTENDING.md` for adding one.
 
 ## MCP Surface
 
-Action tools (`send_*`, `schedule_task`, `register_group`,
-`set_routes`, …) mutate state. Social actions `post`, `like`,
-`delete` (`ipc/ipc.go`) are tier 0-2; platform adapters that
-implement `Post`/`Like`/`Delete` (discd, mastd, bskyd; reditd
-for `delete`) service them, others return "not configured".
-Read-only introspection lives in the `inspect_*` family
-(`ipc/inspect.go`): `inspect_messages`, `inspect_routing`,
-`inspect_tasks`, `inspect_session`. Tier 0 sees all instances;
-tier ≥1 is scoped to its own folder subtree. Full tool table in
-`ant/skills/self/SKILL.md`.
+Action tools mutate state: messaging (`send`, `reply`, `send_file`,
+`forward`, `edit`), feed (`post`, `quote`, `repost`, `like`,
+`dislike`, `delete`), control (`schedule_task`, `register_group`,
+`set_routes`, …). Adapters lacking a native primitive return a
+typed `chanlib.UnsupportedError` whose hint redirects to a
+concrete alternative (e.g. `dislike` on emoji platforms hints
+`like(emoji='👎')`). Read-only introspection lives in the
+`inspect_*` family (`ipc/inspect.go`): `inspect_messages`,
+`inspect_routing`, `inspect_tasks`, `inspect_session`. Tier 0
+sees all instances; tier ≥1 is scoped to its own folder subtree.
+Full tool table in `ant/skills/self/SKILL.md`.
 
 ## Mount Security (mountsec)
 
