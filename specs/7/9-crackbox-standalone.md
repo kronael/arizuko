@@ -116,19 +116,6 @@ Raw IP traffic (not HTTP) blocked by iptables unless explicitly allowed.
 └──────────────────────────────────────────────────────────┘
 ```
 
-## Zero config
-
-```bash
-# Install
-curl -L https://... | sudo sh
-
-# Use
-crackbox run .
-```
-
-No daemon. No config files. No images to pull (base baked in or
-downloaded once). Just works.
-
 ## Data directory
 
 ```
@@ -145,71 +132,11 @@ downloaded once). Just works.
         └── workspace/            # mounted into sandbox
 ```
 
-## What's inside
+## Base image
 
-Alpine Linux with Claude Code pre-installed:
+Alpine Linux + Claude Code + standard dev tools (Go, Node, Python, Rust,
+git, ripgrep). Built once, downloaded on first run.
 
-- Languages: Go, Node.js, Python 3.14 (uv), Bun, Rust
-- Tools: git, vim, ripgrep, fd, jq, curl
-- claude-code CLI ready to use
+## Out of scope
 
-## Architecture
-
-```go
-// ~900 LOC total
-crackbox/
-├── crackbox.go      // Isolation type, Run/Stop/Allow/Deny
-├── proxy.go         // HTTP proxy, per-sandbox allowlist (~230 LOC)
-├── netfilter.go     // iptables rules (~150 LOC)
-├── backend.go       // Backend interface
-├── docker.go        // DockerBackend (~80 LOC)
-├── qemu.go          // QEMUBackend (~200 LOC)
-└── cmd/crackbox/
-    └── main.go      // CLI (~200 LOC)
-```
-
-## Implementation
-
-### Phase 1: Port from existing crackbox
-
-1. Copy `internal/vm/proxy.go` → `crackbox/proxy.go`
-2. Copy `internal/vm/netfilter.go` → `crackbox/netfilter.go`
-3. Abstract VM-specific code into Backend interface
-4. Add DockerBackend
-
-### Phase 2: Simplify CLI
-
-1. Single `crackbox` binary (no daemon)
-2. Remove web dashboard, payments, Telegram bot
-3. Remove multi-user features
-4. Keep: run, ls, stop, rm, allow, deny, ssh, exec
-
-### Phase 3: Polish
-
-1. Auto-download base image on first run
-2. XDG-compliant data directory
-3. Man page, shell completions
-4. Package for Homebrew, apt, etc.
-
-## Comparison
-
-```
-Feature              Docker          Crackbox
-─────────────────────────────────────────────
-Install              complex         curl | sh
-Config               daemon, compose none
-Images               registries      one base, baked
-Network isolation    opt-in          default
-CLI surface          100+ commands   10 commands
-Learning curve       days            minutes
-```
-
-## Non-goals
-
-- General container runtime (use Docker/Podman)
-- Orchestration (use K8s)
-- Image management (one base image)
-- Multi-user (single user tool)
-- Production deployment (dev/sandbox only)
-
-Crackbox is **not** Docker. It's a Claude sandbox with network isolation.
+General container runtime, orchestration, multi-user, production deployment.
