@@ -12,14 +12,24 @@ attachments (cached via `chanlib.URLCache`).
 
 - Authenticate with `DISCORD_BOT_TOKEN`, open gateway websocket.
 - Post inbound to router with `discord:<channel_id>` JIDs.
-- Handle `/send`, `/send-file`, `/typing`, `/v1/history`.
-- Proxy CDN file fetches through short-token URLs.
+- Emit synthetic `like` / `dislike` inbound events on
+  `MessageReactionAdd` (raw emoji on `InboundMsg.Reaction`,
+  classified via `chanlib.ClassifyEmoji`).
+- Handle `/send`, `/send-file`, `/typing`, `/like`, `/edit`,
+  `/delete`, `/quote`, `/v1/history` (others are 501-with-hint via
+  `chanlib.UnsupportedError`).
+- Proxy CDN file fetches through short-token URLs (shared
+  `chanlib.URLCache`).
 
 ## Entry points
 
 - Binary: `discd/main.go`
 - Listen: `$LISTEN_ADDR` (default `:9002`)
-- Router registration: `discord:` prefix, caps `send_text`, `send_file`, `typing`, `fetch_history`, `edit`, `quote`.
+- Router registration: `discord:` prefix, caps `send_text`,
+  `send_file`, `typing`, `fetch_history`, `like`, `edit`, `delete`,
+  `quote`. Hint-only verbs (`forward`, `post`, `repost`, `dislike`)
+  are still served so the agent reaches the structured hint instead of
+  a generic "capability not advertised".
 
 ## Verb support
 
