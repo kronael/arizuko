@@ -25,13 +25,14 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|gate|invite|chat|status|pair|generate> ...")
-		fmt.Println("  group  <instance> list | add | rm | grant | ungrant | grants")
-		fmt.Println("  gate   <instance> list | add | rm | enable | disable")
-		fmt.Println("  invite <instance> create <target_glob> [--max-uses N] [--expires DURATION]")
-		fmt.Println("  invite <instance> list [--issued-by SUB]")
-		fmt.Println("  invite <instance> revoke <token>")
-		fmt.Println("  chat   <instance>  — interactive Claude Code session bound to root MCP socket")
+		fmt.Println("usage: arizuko <run|create|group|gate|invite|identity|chat|status|pair|generate> ...")
+		fmt.Println("  group    <instance> list | add | rm | grant | ungrant | grants")
+		fmt.Println("  gate     <instance> list | add | rm | enable | disable")
+		fmt.Println("  invite   <instance> create <target_glob> [--max-uses N] [--expires DURATION]")
+		fmt.Println("  invite   <instance> list [--issued-by SUB]")
+		fmt.Println("  invite   <instance> revoke <token>")
+		fmt.Println("  identity <instance> list | link <sub> [--name NAME] [--id ID] | unlink <sub>")
+		fmt.Println("  chat     <instance>  — interactive Claude Code session bound to root MCP socket")
 		os.Exit(1)
 	}
 
@@ -42,6 +43,7 @@ func main() {
 		"group":    cmdGroup,
 		"gate":     cmdGate,
 		"invite":   cmdInvite,
+		"identity": cmdIdentity,
 		"chat":     cmdChat,
 		"status":   cmdStatus,
 		"pair":     cmdPair,
@@ -467,6 +469,111 @@ func cmdInvite(args []string) {
 	default:
 		die("unknown invite action: %s", action)
 	}
+}
+
+func cmdIdentity(args []string) {
+	need(args, 2, "arizuko identity <instance> <list|link|unlink> ...")
+	instance, action := args[0], args[1]
+
+	dataDir := mustInstanceDir(instance)
+	s, err := store.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		die("Failed: open db: %v", err)
+	}
+	defer s.Close()
+
+	switch action {
+	case "list":
+		if err := runIdentityList(s, os.Stdout); err != nil {
+			die("Failed: %v", err)
+		}
+	case "link":
+		fs := flag.NewFlagSet("identity link", flag.ExitOnError)
+		name := fs.String("name", "", "identity display name (used when creating)")
+		idArg := fs.String("id", "", "existing identity id (skip creation)")
+		fs.Parse(args[2:])
+		if fs.NArg() < 1 {
+			die("usage: arizuko identity <instance> link <sub> [--name NAME] [--id ID]")
+		}
+		if err := runIdentityLink(s, fs.Arg(0), *idArg, *name, os.Stdout); err != nil {
+			die("Failed: %v", err)
+		}
+	case "unlink":
+		need(args, 3, "arizuko identity <instance> unlink <sub>")
+		if err := runIdentityUnlink(s, args[2], os.Stdout); err != nil {
+			die("Failed: %v", err)
+		}
+	default:
+		die("unknown identity action: %s", action)
+	}
+}
+
+func runIdentityList(s *store.Store, w io.Writer) error {
+	idents, err := s.ListIdentities()
+	if err != nil {
+		return err
+	}
+	if len(idents) == 0 {
+		fmt.Fprintln(w, "no identities")
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tNAME\tCREATED_AT\tSUBS")
+	for _, idn := range idents {
+		subs, _ := s.SubsForIdentity(idn.ID)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+			idn.ID, idn.Name, idn.CreatedAt.Format(time.RFC3339),
+			strings.Join(subs, ","))
+	}
+	return tw.Flush()
+}
+
+// runIdentityLink binds sub to an identity. If id is empty, a new identity
+// is created with name (defaulting to sub) and sub becomes its first claim.
+// If id is provided, sub is added to that existing identity.
+func runIdentityLink(s *store.Store, sub, id, name string, w io.Writer) error {
+	if sub == "" {
+		return fmt.Errorf("sub required")
+	}
+	if id == "" {
+		dn := name
+		if dn == "" {
+			dn = sub
+		}
+		idn, err := s.CreateIdentity(dn)
+		if err != nil {
+			return err
+		}
+		if err := s.LinkSub(idn.ID, sub); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "created identity %s (%s) and linked %s\n", idn.ID, idn.Name, sub)
+		return nil
+	}
+	if _, ok := s.GetIdentity(id); !ok {
+		return fmt.Errorf("identity %s not found", id)
+	}
+	if err := s.LinkSub(id, sub); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "linked %s -> %s\n", sub, id)
+	return nil
+}
+
+func runIdentityUnlink(s *store.Store, sub string, w io.Writer) error {
+	if sub == "" {
+		return fmt.Errorf("sub required")
+	}
+	ok, err := s.UnlinkSub(sub)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		fmt.Fprintf(w, "no claim to remove for %s\n", sub)
+		return nil
+	}
+	fmt.Fprintf(w, "unlinked %s\n", sub)
+	return nil
 }
 
 // cmdChat launches `claude` (Claude Code CLI) wired to the instance's root
