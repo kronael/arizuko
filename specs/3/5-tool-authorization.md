@@ -9,7 +9,7 @@ is derived from folder depth; actions are scoped to tier 0-3.
 
 For the broader auth picture — how `groups`, `user_groups`, `routes`
 compose to produce the grant rules — see
-[`specs/7/36-auth-landscape.md`](../7/36-auth-landscape.md).
+[`specs/5/33-auth-landscape.md`](../5/33-auth-landscape.md).
 
 **Path is identity, depth determines default grants.** Group identity
 is the folder path; segment names are advisory. Tier is computed from

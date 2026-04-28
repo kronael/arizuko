@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: 43-crackbox-standalone
+depends: 9-crackbox-standalone
 ---
 
 # Crackbox integration into arizuko

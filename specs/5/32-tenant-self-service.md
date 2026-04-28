@@ -180,14 +180,14 @@ Ship in order; each phase is useful even if later phases never land.
 Specs already shipped or planned that this references (do not duplicate
 their content):
 
-- `7/27-mass-onboarding.md` — gates and admission queue (shipped)
-- `7/28-acl.md` — `user_groups` glob ACL (shipped)
-- `7/32-dynamic-channels.md` — channel adapter credentials (special case
+- `5/28-mass-onboarding.md` — gates and admission queue (shipped)
+- `5/29-acl.md` — `user_groups` glob ACL (shipped)
+- `7/6-dynamic-channels.md` — channel adapter credentials (special case
   of folder-scope secrets); planned
-- `7/33-inspect-tools.md` — read-only introspection (shipped)
-- `7/36-auth-landscape.md` — composition mechanics (shipped)
-- `7/37-auth-tunneling.md` — web-based credential capture; planned
-- `7/38-cli-auth-helper.md` — CLI auth dispatcher; planned
+- `5/30-inspect-tools.md` — read-only introspection (shipped)
+- `5/33-auth-landscape.md` — composition mechanics (shipped)
+- `7/7-auth-tunneling.md` — web-based credential capture; planned
+- `7/8-cli-auth-helper.md` — CLI auth dispatcher; planned
 
 Channels become a _consumer_ of the secrets table (channel-creds-as-folder-scope-secrets-with-platform-validators). Auth-tunnel writes to the same secrets table.
 

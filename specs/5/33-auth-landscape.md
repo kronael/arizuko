@@ -6,7 +6,7 @@ status: shipped
 > Grounded in `auth/identity.go`, `grants/grants.go`, `store/routes.go`,
 > `store/groups.go` (user_groups table). Written 2026-04-24 to fill
 > the gap between `3/5-tool-authorization.md` (tool × tier matrix) and
-> `7/28-acl.md` (user × folder ACL) — neither alone explains the whole.
+> `5/29-acl.md` (user × folder ACL) — neither alone explains the whole.
 
 # Auth Landscape — how `groups`, `user_groups`, `routes` compose into grants
 
@@ -39,7 +39,7 @@ Glob ACL. One row per (user-sub, glob) grant.
   [`store/migrations/0006-user-groups.sql`](../../store/migrations)
 - `glob` is a folder pattern: `**` (operator), `atlas`, `atlas/**`, `atlas/support`
 - Who is "operator" is emergent: any user with a `**` row. No tier-0
-  sentinel; see [`7/28-acl.md`](28-acl.md) for the full ACL model.
+  sentinel; see [`5/29-acl.md`](28-acl.md) for the full ACL model.
 
 ### `routes` table — what JIDs route where
 
@@ -118,7 +118,7 @@ routed to folder `atlas/support`:
 ## Specs this unifies
 
 - [`3/5-tool-authorization.md`](../3/5-tool-authorization.md) — the tier × action matrix
-- [`7/28-acl.md`](28-acl.md) — the `user_groups` glob model
+- [`5/29-acl.md`](28-acl.md) — the `user_groups` glob model
 - [`1/F-group-routing.md`](../1/F-group-routing.md) — the `routes` match language
 - [`3/V-platform-permissions.md`](../3/V-platform-permissions.md) — deferred; its
   concern is now addressed by `RoutedJIDs + platformRules` composition

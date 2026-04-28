@@ -9,6 +9,12 @@ status: future
 | [0-agent-code-modification.md](0-agent-code-modification.md)   | unshipped  | Staging area for root-agent-proposed gateway changes               |
 | [2-agent-pipeline.md](2-agent-pipeline.md)                     | shipped    | Orchestration (slink) vs workflows (Agent tool)                    |
 | [27-detached-containers.md](27-detached-containers.md)         | unshipped  | File-based output + reclaim for gated-restart survival             |
+| [28-mass-onboarding.md](28-mass-onboarding.md)                 | shipped    | Self-service onboarding, username=world, web auth gate             |
+| [29-acl.md](29-acl.md)                                         | shipped    | Glob-matched user_groups, no operator/user distinction             |
+| [30-inspect-tools.md](30-inspect-tools.md)                     | shipped    | inspect\_\* MCP family (messages, routing, tasks, session)         |
+| [31-autocalls.md](31-autocalls.md)                             | shipped    | Inline fact injection when schema cost > content cost              |
+| [32-tenant-self-service.md](32-tenant-self-service.md)         | shipped    | Org-chart model: invites, secrets, chats.kind, topic kinds         |
+| [33-auth-landscape.md](33-auth-landscape.md)                   | shipped    | Auth composition mechanics                                         |
 | [3-agent-messaging.md](3-agent-messaging.md)                   | unshipped  | Slink links as universal agent-to-agent inboxes                    |
 | [6-evangelist.md](6-evangelist.md)                             | superseded | superseded by 6/4-hitl-firewall + 6/5-authoring-product            |
 | [6-extend-gateway-self.md](6-extend-gateway-self.md)           | unshipped  | Root agent modifying gateway codebase (plugin dir or agent branch) |
