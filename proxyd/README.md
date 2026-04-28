@@ -17,6 +17,19 @@ headers with an HMAC secret shared with `webd`.
 - Rewrite `X-Forwarded-*` from `TRUSTED_PROXIES` CIDRs only.
 - Poll `web/vhosts.json` every 5s for per-vhost overrides.
 
+## WebDAV write-block
+
+Paths under `/dav/` reach `dufs` only after a `davAllow` check on top
+of the group-scoped routing:
+
+- Any path under `<group>/logs/` is read-only (read methods: `GET`,
+  `HEAD`, `OPTIONS`, `PROPFIND`).
+- Sensitive segments are write-blocked anywhere in the path: `.env`,
+  any `*.pem`, any `.git` (so a workspace `git/` clone, the agent's
+  `.env`, and TLS keys can't be exfiltrated/overwritten via WebDAV).
+
+Blocked requests log `"dav blocked"` and return `403 Forbidden`.
+
 ## Entry points
 
 - Binary: `proxyd/main.go`

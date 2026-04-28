@@ -19,6 +19,10 @@ beyond `docker` for `run` and `pair`).
   - `arizuko pair <instance> <svc>` — `docker compose run --rm`
   - `arizuko group <inst> list | add | rm | grant | ungrant | grants`
   - `arizuko gate  <inst> list | add | rm | enable | disable`
+  - `arizuko invite <inst> create <target_glob> [--max-uses N] [--expires DURATION]`
+  - `arizuko invite <inst> list [--issued-by SUB]`
+  - `arizuko invite <inst> revoke <token>`
+  - `arizuko chat <instance>` — interactive Claude Code session bound to root MCP socket
 
 ## Dependencies
 
