@@ -25,11 +25,14 @@ Three isolation axes:
 | Agent exec scope     | `bypassPermissions` inside container; mounts scoped to the group           | `ant/src/index.ts`, `container/runner.go`                      |
 | Additional mounts    | `ValidateAdditionalMounts` + `ValidateFilePath` blocklist/symlink guard    | `mountsec/`                                                    |
 | Web routes           | `/pub/*` + `/health` public; `/slink/*` token + 10/min/IP; rest JWT        | `proxyd/main.go`                                               |
+| WebDAV write-block   | `.env` / `*.pem` / `.git` write-blocked; `<group>/logs/` read-only         | `proxyd/main.go` (`davAllow`)                                  |
 | Slink identity relay | proxyd signs `X-Folder` via HMAC; webd verifies                            | `proxyd/main.go`, `auth.SignHMAC`                              |
 | Authn                | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)      | `auth/web.go`, `auth/oauth.go`                                 |
 | Login throttle       | 5 POST `/auth/login` per IP per 15min, in-memory                           | `auth/web.go`                                                  |
 | Authz                | `user_groups` ACL → `auth.MatchGroups`; grants engine for agent tools      | `auth/acl.go`, `grants/`                                       |
 | Channel ingress      | `Authorization: Bearer <CHANNEL_SECRET>`; docker-network only              | `chanlib/run.go`, `chanlib/chanlib.go` (`Auth`), `api/api.go`  |
+| Secrets at rest      | AES-GCM(`AUTH_SECRET`) over folder/user-scoped k=v rows                    | `store/secrets.go`, migration `0034-secrets.sql`               |
+| Secret injection     | Resolved at container spawn; folder always, user only in 1:1 chats         | `container/runner.go` (`resolveSpawnEnv`)                      |
 | Onboarding rate cap  | Per-gate daily limit from `onboarding_gates` table                         | `onbod/main.go` (`admitFromQueue`)                             |
 
 Anything not in this table is not a security boundary. In particular:

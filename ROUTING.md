@@ -3,57 +3,93 @@
 How messages get from a chat to the right agent group, and how replies
 get back.
 
+## Platform JID prefixes
+
+Each adapter declares the `platform:` prefixes it owns when it registers
+with gated. The post-`:` portion is platform-private; routing predicates
+treat it as an opaque string with `path.Match` glob semantics over `/`.
+
+| Adapter | Prefix      | Example                           |
+| ------- | ----------- | --------------------------------- |
+| discd   | `discord:`  | `discord:guild/123/456`           |
+| teled   | `telegram:` | `telegram:12345`                  |
+| whapd   | `whatsapp:` | `whatsapp:1234567@s.whatsapp.net` |
+| mastd   | `mastodon:` | `mastodon:host/account/123`       |
+| reditd  | `reddit:`   | `reddit:t1_xyz`                   |
+| bskyd   | `bluesky:`  | `bluesky:user/<did>`              |
+| linkd   | `linkedin:` | `linkedin:user/<urn>`             |
+| emaid   | `email:`    | `email:address/foo@bar.com`       |
+| twitd   | `twitter:`  | `twitter:home`, `twitter:dm/<id>` |
+| webd    | `web:`      | `web:slink/<token>`               |
+
+`core.JidPlatform("twitter:dm/abc")` returns `twitter`; `core.JidRoom`
+returns `dm/abc`. Use `platform=` predicates to match a whole platform
+and `room=` globs to filter by kind/segment.
+
 ## Route Table
 
-The `routes` table maps chat JIDs to group folders. Each row is a rule.
+The `routes` table is a flat list of rules evaluated against every
+inbound message. Schema (after migration 0022):
 
 | Column           | Type   | Purpose                                                  |
 | ---------------- | ------ | -------------------------------------------------------- |
 | `id`             | int PK | Auto-increment                                           |
-| `jid`            | text   | Chat JID or platform prefix (e.g. `telegram:12345`)      |
 | `seq`            | int    | Evaluation order (lower = earlier)                       |
-| `type`           | text   | Rule type (see below)                                    |
-| `match`          | text   | Pattern to match against — meaning depends on type       |
+| `match`          | text   | Space-separated `key=glob` predicates (AND)              |
 | `target`         | text   | Group folder to route to                                 |
 | `impulse_config` | text   | Optional JSON — controls whether a match fires the agent |
 
-A JID can have multiple routes. They are evaluated in `seq` order; first
-match wins. Platform-prefix routes (e.g. `telegram:`) act as wildcards for
-all JIDs on that platform. Per-JID routes are checked before prefix routes.
+There is no `jid` or `type` column. Rules are filtered entirely by the
+`match` expression. Rules are evaluated in `seq` order; first rule whose
+predicates all match wins.
 
 ```sql
--- Example: telegram chat 12345 routes to atlas/content by default
-INSERT INTO routes (jid, seq, type, match, target)
-VALUES ('telegram:12345', 0, 'default', NULL, 'atlas/content');
+-- All telegram chats default to atlas/content
+INSERT INTO routes (seq, match, target)
+VALUES (0, 'platform=telegram', 'atlas/content');
 
--- Example: all Discord chats fall back to atlas/social
-INSERT INTO routes (jid, seq, type, match, target)
-VALUES ('discord:', 9999, 'default', NULL, 'atlas/social');
+-- A specific telegram chat overrides
+INSERT INTO routes (seq, match, target)
+VALUES (-10, 'chat_jid=telegram:12345', 'atlas/legal');
+
+-- All Discord chats fall back to atlas/social
+INSERT INTO routes (seq, match, target)
+VALUES (9999, 'platform=discord', 'atlas/social');
 ```
 
-### Route lookup
+### Match expression
 
-`store.GetRoutes(jid)` returns all routes for a JID, ordered by
-specificity (exact JID first, then platform prefix) and then `seq`:
+`router.RouteMatches` parses `match` as a whitespace-separated list of
+`key=glob` predicates, AND'd together. An empty `match` matches every
+message.
+
+| Key        | Source                                 |
+| ---------- | -------------------------------------- |
+| `platform` | `core.JidPlatform(msg.ChatJID)`        |
+| `room`     | `core.JidRoom(msg.ChatJID)` (post-`:`) |
+| `chat_jid` | `msg.ChatJID` (full JID)               |
+| `sender`   | `msg.Sender`                           |
+| `verb`     | `msg.Verb` (e.g. `join`, `like`)       |
+
+Glob semantics use `path.Match` over `/`-separated segments:
+
+| Pattern      | Meaning                                       |
+| ------------ | --------------------------------------------- |
+| `key=exact`  | value equals `exact`                          |
+| `key=<glob>` | value matches glob (`*` `?` `[…]`, `*` ≠ `/`) |
+| `key=*`      | value is present (non-empty)                  |
+| `key=`       | value is absent (empty)                       |
+| omit key     | unconstrained — no filter on this field       |
 
 ```sql
-SELECT * FROM routes WHERE jid = ? OR jid = ?  -- ? = jid, ? = platform prefix
-ORDER BY CASE jid WHEN ? THEN 0 ELSE 1 END, seq ASC
+-- Reddit submissions only (kind=submission), any sub
+INSERT INTO routes (seq, match, target)
+VALUES (0, 'platform=reddit verb=post', 'atlas/posts');
+
+-- All twitter DMs (twitter:dm/<conv>) but not timeline/tweets
+INSERT INTO routes (seq, match, target)
+VALUES (0, 'platform=twitter room=dm/*', 'atlas/dm');
 ```
-
-## Route Types
-
-`router.routeMatches(route, msg)` tests each type:
-
-| Type      | Match field | Matches when                                          |
-| --------- | ----------- | ----------------------------------------------------- |
-| `default` | (empty)     | Always matches — catchall for a JID                   |
-| `command` | `/code`     | Message starts with `/code` or equals `/code`         |
-| `prefix`  | `@` or `#`  | Message contains `@name` or `#topic` (inline routing) |
-| `verb`    | `join`      | Message verb equals the match (case-insensitive)      |
-| `pattern` | regex       | Regex matches message content (max 200 chars)         |
-| `keyword` | `help`      | Substring match on content (case-insensitive)         |
-| `sender`  | regex       | Regex matches sender name                             |
 
 ### Target expansion
 
@@ -62,46 +98,40 @@ This creates per-user child groups:
 
 ```sql
 -- Each Discord user gets their own group under atlas/
-INSERT INTO routes (jid, seq, type, match, target)
-VALUES ('discord:', 0, 'default', NULL, 'atlas/{sender}');
+INSERT INTO routes (seq, match, target)
+VALUES (0, 'platform=discord', 'atlas/{sender}');
 -- discord:alice → atlas/dc-alice, discord:bob → atlas/dc-bob
 ```
 
-### Prefix routes (@ and #)
+### Inline `@name` / `#topic` prefix layer
 
-When a group is registered at tier <= 2, two prefix routes are
-auto-inserted with negative `seq` values (so they evaluate before
-user-defined routes):
+The `@` and `#` prefix layer is **not** in the routes table; it lives
+in `gateway.handlePrefixLayer`. An anchored regex
+(`^\s*@(\w[\w-]*)` / `^\s*#(\w[\w-]*)`) matches a sigil at the very
+start of `msg.Content`; mid-content `@handle` or `#hashtag` (e.g.
+forwarded tweets) do not trigger.
 
-```sql
-INSERT INTO routes (jid, seq, type, match, target)
-VALUES (?, -2, 'prefix', '@', ?),   -- @ prefix → parent folder
-       (?, -1, 'prefix', '#', ?);   -- # prefix → parent folder
-```
-
-The prefix route itself does not route to the folder directly. Instead,
-`findPrefixRoute` detects that the message contains `@name` or `#topic`,
-and the gateway dispatches based on the parsed name:
-
-- **`@name` in message content**: gateway looks up `<target>/<name>` as a
-  child group. If found, delegates the message (with `@name` stripped) to
-  that child group's agent.
+- **`@name`** at start of message: gateway looks up
+  `<current-group>/<name>` as a child group. If found, delegates the
+  message (with `@name` stripped) to that child group's agent.
 
   ```
-  User sends: "@content write a blog post about cats"
-  Prefix route match: @ → atlas
+  User in group atlas sends: "@content write a blog post about cats"
+  parsePrefix → name="content", rest="write a blog post about cats"
   Child lookup: atlas/content exists
-  Delegation: "write a blog post about cats" → atlas/content agent
+  Delegation: "write about cats" → atlas/content agent
   ```
 
-- **`#topic` in message content**: gateway runs the message (with `#topic`
-  stripped) in a topic-scoped session within the parent group.
+- **`#topic`** at start of message: gateway runs the message (with
+  `#topic` stripped) in a topic-scoped session within the current group.
 
   ```
-  User sends: "#support my account is locked"
-  Prefix route match: # → atlas
+  User in atlas sends: "#support my account is locked"
   Agent runs: "my account is locked" in session (atlas, #support)
   ```
+
+If a referenced child group doesn't exist, the prefix is left in place
+and the message falls through to the agent unchanged.
 
 ## Resolution Order
 
@@ -109,12 +139,15 @@ When a message arrives, the gateway resolves which group handles it
 through several layers. The full resolution in `resolveTarget`:
 
 ```
-1. Reply chain     — msg.ReplyToID set → look up routed_to on the
-                     original message → route to that group
-2. Sticky group    — chat has sticky_group set → route there
-3. Route table     — router.ResolveRoute(msg, routes) → first match
-4. Default group   — routes with type=default, no match field
+1. Reply chain  — msg.ReplyToID set → look up routed_to on the
+                  original message → route to that group
+2. Sticky group — chat has sticky_group set → route there
+3. Route table  — router.ResolveRoute(msg, routes) → first matching
+                  rule wins (catchall = empty match expression)
 ```
+
+The inline `@name` / `#topic` prefix layer is handled separately in
+`gateway.handlePrefixLayer`, before route-table lookup.
 
 If the resolved target differs from the current group AND is an
 authorized child (same world, direct child), the message is delegated
@@ -226,11 +259,11 @@ func resolveTarget(msg, routes, selfFolder) string {
 ### Example: reply routing in action
 
 ```
-Routes: telegram:12345 → atlas (default)
+Routes: match='platform=telegram' → atlas
 Groups: atlas, atlas/content, atlas/social
 
 1. User sends: "@content write about cats"
-   → prefix route matches, delegates to atlas/content
+   → prefix layer matches, delegates to atlas/content
    → atlas/content replies: "Here's a post about cats..." (routed_to=atlas/content)
 
 2. User replies to that message: "make it shorter"
@@ -240,7 +273,7 @@ Groups: atlas, atlas/content, atlas/social
 
 3. User sends a new message (no reply): "hello"
    → no reply chain, no sticky
-   → default route → atlas
+   → route 'platform=telegram' → atlas
 ```
 
 ### Reply chain for outbound threading
@@ -314,10 +347,12 @@ A concrete walkthrough from user message to agent reply.
 ```
 Instance: REDACTED
 Groups: atlas (root), atlas/content (tier 2), atlas/social (tier 2)
-Routes:
-  telegram:12345  seq=-2  prefix  @  atlas
-  telegram:12345  seq=-1  prefix  #  atlas
-  telegram:12345  seq=0   default    atlas
+Routes (in routes table):
+  seq=0  match='platform=telegram'  target=atlas
+
+Prefix layer (in gateway code, not table):
+  @<name> at message start → delegate to atlas/<name>
+  #<name> at message start → topic-scoped session in atlas
 ```
 
 ### User sends "hello" to telegram:12345
@@ -328,10 +363,11 @@ Routes:
      sender:"telegram:67890", content:"hello", topic:""})
 3. gateway.pollOnce():
    - store.NewMessages(["telegram:12345"], since) → [{id:"tg-789",...}]
-   - groupForJid("telegram:12345") → atlas (via default route)
+   - groupForJid("telegram:12345") → atlas (via 'platform=telegram' route)
    - handleStickyCommand? No (not a sticky command)
    - handleCommand? No (not /new, /ping, etc.)
-   - tryExternalRoute? No prefix match, resolveTarget returns ""
+   - handlePrefixLayer? No '@' or '#' at message start
+   - tryExternalRoute? resolveTarget returns "" (already in target group)
    - impulse gate? If enabled, checks weight threshold
    - queue.EnqueueMessageCheck("telegram:12345")
 4. processGroupMessages("telegram:12345"):
@@ -352,9 +388,9 @@ Routes:
 ```
 1-2. Same as above, message stored
 3. gateway.pollOnce():
-   - findPrefixRoute → matches @ prefix route
+   - handlePrefixLayer matches ^\s*@(\w[\w-]*)
    - parsePrefix("@content write about cats") → name="content", rest="write about cats"
-   - handlePrefixRoute: child = atlas/content, exists
+   - child = atlas/content, exists
    - delegateViaMessage("atlas/content", "write about cats", "telegram:12345")
 4. delegateViaMessage:
    - store.PutMessage({chat_jid:"local:atlas/content",
@@ -385,13 +421,13 @@ A single chat JID can route messages to different groups based on
 content, replies, and sticky state.
 
 ```
-telegram:12345 routes:
-  seq=-2  prefix  @  atlas           # @ inline routing
-  seq=-1  prefix  #  atlas           # # topic routing
-  seq=0   default    atlas           # catchall
+Routes table:
+  seq=0  match='platform=telegram'  target=atlas    # catchall
+
+Prefix layer is built-in; no table rows needed.
 
 Possible message flows in the same chat:
-  "hello"                → atlas (default)
+  "hello"                → atlas (route)
   "@content draft post"  → atlas/content (prefix @)
   [reply to content msg] → atlas/content (reply chain)
   "#support help me"     → atlas, session=#support (prefix #)
