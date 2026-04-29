@@ -59,7 +59,7 @@ that:
    is mechanical:
 
    ```
-   $ grep -r 'github.com/kronael/arizuko' <component>/
+   $ grep -rE 'github.com/[^/]+/arizuko/(store|core|gateway|api|chanlib|chanreg|router|queue|ipc|grants|onbod|webd|gated)' <component>/
    <empty>
    ```
 
@@ -106,7 +106,7 @@ What does not belong:
 - A `<component>/.env` reader that knows about arizuko's keys.
 - A `<component>/migrations/` directory that touches `messages.db`.
 - A `<component>/CLAUDE.md` describing arizuko conventions.
-- A dependency on `github.com/kronael/arizuko/...` other than for
+- A dependency on `github.com/onvos/arizuko/...` other than for
   test fixtures explicitly under the component's own `testdata/`.
 
 ## Domain vs mechanism
@@ -215,7 +215,7 @@ second consumer.
 The pattern is in force when, for every component listed in the
 catalog above:
 
-- `grep -r 'github.com/kronael/arizuko' <component>/` returns
+- `grep -rE 'github\.com/[^/]+/arizuko/(store\|core\|gateway\|api\|chanlib\|chanreg\|router\|queue|ipc\|grants\|onbod|webd|gated)' <component>/` returns
   nothing outside the component's own `package` declarations.
 - `make -C <component> build && make -C <component> test` passes
   on a host with no arizuko process and no arizuko data directory.

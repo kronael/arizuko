@@ -61,6 +61,15 @@ concepts/jid.html` waits on this.
   agents can discover + fetch skills on demand instead of bundling
   everything in the image. Prior art: Hermes Agent's `skills browse` /
   `skills search`.
+- **Module-path mismatch** — `go.mod` declares `github.com/onvos/arizuko`
+  but the canonical GitHub home is `github.com/kronael/arizuko`. All Go
+  imports use the stale `onvos/` prefix. Fixing requires a module rename
+  - sweep across every `import` line. Until done: orthogonality tests
+    must use owner-agnostic regex (`github\.com/[^/]+/arizuko/...`), and
+    shippable sibling components like `crackbox/` carry the stale prefix
+    too. Eventually each shippable component gets its own go.mod
+    (`github.com/kronael/<comp>`) so external users can `go get` it
+    without forking arizuko.
 - **Split gated into focused daemons** — `gated` today blends ~70%
   message work (poll loop, persist, route, deliver), ~20% container
   orchestration, ~10% channel registration + health. Name is also

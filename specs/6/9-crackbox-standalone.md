@@ -184,4 +184,4 @@ Listed for visibility, deferred:
   the same allow/deny result with no code changes in the daemon.
 - `make -C crackbox build && make -C crackbox test` passes on a
   host with no arizuko process and no arizuko data directory.
-- `grep -r 'github.com/kronael/arizuko' crackbox/` returns empty.
+- `grep -rE 'github\.com/[^/]+/arizuko/(store\|core\|gateway\|api\|chanlib\|chanreg\|router\|queue|ipc\|grants\|onbod|webd|gated)' crackbox/` returns empty.

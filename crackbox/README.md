@@ -72,9 +72,19 @@ and the test fixtures are ported from
 ## Orthogonality
 
 ```sh
-grep -r 'github.com/kronael/arizuko' crackbox/  # returns empty
+grep -rE 'github\.com/[^/]+/arizuko/(store|core|gateway|api|chanlib|chanreg|router|queue|ipc|grants|onbod|webd|gated)' crackbox/  # returns empty
 ```
 
-This component imports nothing from arizuko. Consumers (arizuko's
-gated, future tools) import `github.com/onvos/arizuko/crackbox/pkg/...`
-or invoke the CLI.
+The grep is owner-agnostic on purpose — `arizuko`'s `go.mod` carries
+a stale `onvos/` owner while the canonical GitHub home is
+`github.com/kronael/arizuko`. The orthogonality property is "no
+arizuko-internal subpackage is imported," not "the owner string
+matches X."
+
+This component imports nothing from arizuko-internal packages.
+Consumers (arizuko's gated, future tools) import
+`<arizuko-module>/crackbox/pkg/...` or invoke the CLI.
+
+Long-term: `crackbox/` gets its own `go.mod` so external users can
+`go get github.com/kronael/crackbox`. Until then, the import path
+follows the parent module.

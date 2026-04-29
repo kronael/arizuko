@@ -99,7 +99,7 @@ One refactor commit
   `entrypoint: ["crackbox", "proxy", "serve"]`) instead of
   `egred`. Same wire shape, new name.
 - Drop arizuko-internal imports from the crackbox tree. Verify:
-  `grep -r 'github.com/kronael/arizuko/store' arizuko/crackbox/`
+  `grep -rE 'github.com/[^/]+/arizuko/(store|core|gateway|api)' arizuko/crackbox/`
   returns empty.
 - Keep `arizuko/cmd/arizuko/network.go`, `arizuko/store/network.go`
   and migration 0037 in arizuko — folder ancestry is arizuko
@@ -137,5 +137,5 @@ Same as today's verified end-to-end, after the rework:
 - `arizuko network krons resolve atlas` returns the seeded list
   (`anthropic.com`, `api.anthropic.com`) plus any folder additions.
 - All existing tests pass.
-- `grep -r 'github.com/kronael/arizuko' arizuko/crackbox/` returns
+- `grep -rE 'github\.com/[^/]+/arizuko/(store\|core\|gateway\|api\|chanlib\|chanreg\|router\|queue|ipc\|grants\|onbod|webd|gated)' arizuko/crackbox/` returns
   empty.
