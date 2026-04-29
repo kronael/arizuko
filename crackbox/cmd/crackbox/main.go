@@ -70,7 +70,7 @@ func cmdProxy(args []string) {
 	})))
 
 	reg := admin.NewRegistry()
-	api := admin.NewAPI(reg)
+	api := admin.NewAPIWithProxy(reg, *listen)
 	px := proxy.New(reg)
 
 	proxySrv := px.Server(*listen)
@@ -112,7 +112,7 @@ func cmdRun(args []string) {
 	id := fs.String("id", "", "id label for logs (default: random)")
 	image := fs.String("image", "alpine:3.20", "container image to run user command in")
 	proxyImg := fs.String("proxy-image", envOr("CRACKBOX_IMAGE", "crackbox:latest"), "crackbox proxy image")
-	subnet := fs.String("subnet", envOr("CRACKBOX_SUBNET", "10.99.0.0/16"), "Docker network subnet")
+	subnet := fs.String("subnet", envOr("CRACKBOX_SUBNET", "10.88.0.0/16"), "Docker network subnet")
 	quiet := fs.Bool("quiet", false, "suppress crackbox-prefixed status lines")
 	fs.Parse(args)
 

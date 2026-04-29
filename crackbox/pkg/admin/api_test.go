@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -64,13 +65,42 @@ func TestRegisterValidation(t *testing.T) {
 }
 
 func TestHealth(t *testing.T) {
-	api := NewAPI(NewRegistry())
+	// Stand up a stub proxy listener so the /health self-test passes.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	api := NewAPIWithProxy(NewRegistry(), ln.Addr().String())
 	srv := httptest.NewServer(api.Routes())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/health")
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("health: %v %d", err, statusCodeOf(resp))
+	}
+}
+
+func TestHealthProxyDown(t *testing.T) {
+	// Bind then close to claim a port that's now unbound.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+
+	api := NewAPIWithProxy(NewRegistry(), addr)
+	srv := httptest.NewServer(api.Routes())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/health")
+	if err != nil {
+		t.Fatalf("health: %v", err)
+	}
+	if resp.StatusCode != 503 {
+		t.Errorf("proxy-down should be 503, got %d", resp.StatusCode)
 	}
 }
 

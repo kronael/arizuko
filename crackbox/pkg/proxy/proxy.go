@@ -1,7 +1,6 @@
 // Package proxy implements the forward HTTP / CONNECT-tunnel HTTPS proxy
-// that gates traffic by per-source-IP allowlist. The lookup is delegated
-// to an Allower (admin.Registry satisfies it) so the proxy doesn't depend
-// on any specific registry implementation.
+// that gates traffic by per-source-IP allowlist. Lookups go directly to
+// admin.Registry — there is one registry, no need for an interface.
 package proxy
 
 import (
@@ -11,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/onvos/arizuko/crackbox/pkg/admin"
 )
 
 const (
@@ -18,16 +19,23 @@ const (
 	httpReadHeader = 5 * time.Second
 )
 
-// Allower is the contract the proxy needs from a registry.
-type Allower interface {
-	Allow(ip, host string) (id string, ok bool)
+// defaultClient bounds upstream behavior: per-call total deadline, header
+// timeout, idle pool. Without this an unresponsive upstream pegs goroutines
+// and sockets indefinitely.
+var defaultClient = &http.Client{
+	Timeout: 60 * time.Second,
+	Transport: &http.Transport{
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConnsPerHost:   16,
+	},
 }
 
 type Proxy struct {
-	allow Allower
+	allow *admin.Registry
 }
 
-func New(allow Allower) *Proxy {
+func New(allow *admin.Registry) *Proxy {
 	return &Proxy{allow: allow}
 }
 
@@ -107,7 +115,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 	if !strings.HasPrefix(target, "http") {
 		target = "http://" + r.Host + r.URL.RequestURI()
 	}
-	out, err := http.NewRequest(r.Method, target, r.Body)
+	out, err := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -120,7 +128,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 			out.Header.Add(k, v)
 		}
 	}
-	resp, err := http.DefaultClient.Do(out)
+	resp, err := defaultClient.Do(out)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

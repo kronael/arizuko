@@ -168,7 +168,21 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			"arizuko-%s-%s-%d", cfg.Name, safe, time.Now().UnixMilli())
 	}
 
-	args := buildArgs(cfg, mounts, containerName, in.Egress.Network)
+	// Pre-assign an egress IP and register with crackbox BEFORE docker run,
+	// so the container's first outbound CONNECT cannot race the registry.
+	// On register failure the container is never spawned — otherwise the
+	// agent would run with HTTPS_PROXY set but every CONNECT 403s.
+	egressIP, eerr := registerEgress(in.Egress, in.Folder)
+	if eerr != nil {
+		if in.Egress.Enabled() {
+			return Output{Status: "error", Error: "egress register: " + eerr.Error()}
+		}
+		slog.Warn("egress register failed",
+			"group", in.Folder, "container", containerName, "err", eerr)
+	}
+	defer unregisterEgress(in.Egress, egressIP)
+
+	args := buildArgs(cfg, mounts, containerName, in.Egress, egressIP)
 
 	logsDir := filepath.Join(groupDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
@@ -215,13 +229,6 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		stopMCP()
 		return Output{Error: "start: " + err.Error()}
 	}
-
-	egressIP, eerr := registerEgress(in.Egress, in.Folder, containerName)
-	if eerr != nil {
-		slog.Warn("egress register failed",
-			"group", in.Folder, "container", containerName, "err", eerr)
-	}
-	defer unregisterEgress(in.Egress, egressIP)
 
 	in.Secrets = resolveSpawnEnv(in.SecretsResolver, readSecrets(), in.Folder, in.ChatJID)
 	in.AsstName = cfg.Name
@@ -525,7 +532,7 @@ func buildMounts(
 }
 
 func buildArgs(
-	cfg *core.Config, mounts []volumeMount, name, network string,
+	cfg *core.Config, mounts []volumeMount, name string, egress EgressConfig, ip string,
 ) []string {
 	args := []string{
 		"run", "-i", "--rm",
@@ -533,11 +540,18 @@ func buildArgs(
 		"--shm-size=1g",
 		"-e", "TZ=" + cfg.Timezone,
 	}
-	if network != "" {
+	if egress.Network != "" {
+		proxy := egress.ProxyURL
+		if proxy == "" {
+			proxy = "http://crackbox:3128"
+		}
+		args = append(args, "--network", egress.Network)
+		if ip != "" {
+			args = append(args, "--ip", ip)
+		}
 		args = append(args,
-			"--network", network,
-			"-e", "HTTP_PROXY=http://crackbox:3128",
-			"-e", "HTTPS_PROXY=http://crackbox:3128",
+			"-e", "HTTP_PROXY="+proxy,
+			"-e", "HTTPS_PROXY="+proxy,
 			"-e", "NO_PROXY=localhost,127.0.0.1,gated,crackbox",
 			"-e", "NODE_OPTIONS=--require=/app/proxy-shim.js")
 	}

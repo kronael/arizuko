@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/onvos/arizuko/crackbox/pkg/admin"
 )
 
 type Client struct {
@@ -23,30 +25,22 @@ func New(adminURL string) *Client {
 	}
 }
 
-type registerReq struct {
-	IP        string   `json:"ip"`
-	ID        string   `json:"id"`
-	Allowlist []string `json:"allowlist"`
-}
-
 type unregisterReq struct {
 	IP string `json:"ip"`
 }
 
+// StateEntry is the shared wire shape; alias to admin.WireEntry so a
+// schema change forces both sides to update in lockstep.
+type StateEntry = admin.WireEntry
+
 func (c *Client) Register(ip, id string, allowlist []string) error {
-	body, _ := json.Marshal(registerReq{IP: ip, ID: id, Allowlist: allowlist})
+	body, _ := json.Marshal(StateEntry{IP: ip, ID: id, Allowlist: allowlist})
 	return c.post("/v1/register", body)
 }
 
 func (c *Client) Unregister(ip string) error {
 	body, _ := json.Marshal(unregisterReq{IP: ip})
 	return c.post("/v1/unregister", body)
-}
-
-type StateEntry struct {
-	IP        string   `json:"ip"`
-	ID        string   `json:"id"`
-	Allowlist []string `json:"allowlist"`
 }
 
 func (c *Client) State() ([]StateEntry, error) {
@@ -63,6 +57,21 @@ func (c *Client) State() ([]StateEntry, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// Health probes the admin /health endpoint. Short timeout: callers use it
+// to wait for the listener to bind, not for liveness over a long horizon.
+func (c *Client) Health() error {
+	hc := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := hc.Get(c.base + "/health")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("health: status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func (c *Client) post(path string, body []byte) error {

@@ -8,6 +8,7 @@ package run
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -28,7 +29,7 @@ type Args struct {
 	Allow     []string // allowlist
 	ID        string   // optional, generated if empty
 	ProxyImg  string   // crackbox proxy image (default: crackbox:latest)
-	NetSubnet string   // default 10.99.0.0/16
+	NetSubnet string   // default 10.88.0.0/16
 	Quiet     bool     // suppress non-error log output
 }
 
@@ -42,7 +43,7 @@ func Run(a Args) (int, error) {
 		a.ProxyImg = "crackbox:latest"
 	}
 	if a.NetSubnet == "" {
-		a.NetSubnet = "10.99.0.0/16"
+		a.NetSubnet = "10.88.0.0/16"
 	}
 	if a.ID == "" {
 		a.ID = "crackbox-" + randTag()
@@ -70,18 +71,24 @@ func Run(a Args) (int, error) {
 	if err != nil {
 		return 1, fmt.Errorf("proxy ip: %w", err)
 	}
-	if !a.Quiet {
-		// proxy needs a moment for its admin listener to bind.
-		time.Sleep(300 * time.Millisecond)
-	}
 
 	cli := client.New(fmt.Sprintf("http://%s:3129", proxyIP))
+
+	// Wait for the admin listener to actually answer. Without this, a
+	// --quiet run races (no sleep) and the first Register hits a closed
+	// port. Poll instead of sleeping a fixed duration.
+	if err := waitHealthy(cli, 5*time.Second); err != nil {
+		return 1, fmt.Errorf("proxy health: %w", err)
+	}
 
 	// Pre-assign the user container's IP so we can register it before the
 	// container starts. Otherwise IP is only known post-start, and a
 	// fast-running command can fire (and fail) traffic before register
 	// completes.
-	userIP := pickUserIP(a.NetSubnet)
+	userIP, err := pickUserIP(a.NetSubnet)
+	if err != nil {
+		return 1, fmt.Errorf("pick user ip: %w", err)
+	}
 	logf(a, "registering %s -> %v", userIP, a.Allow)
 	if err := cli.Register(userIP, a.ID, a.Allow); err != nil {
 		return 1, fmt.Errorf("register: %w", err)
@@ -158,23 +165,63 @@ func randTag() string {
 	return hex.EncodeToString(b)
 }
 
-// pickUserIP returns a host IP within the subnet far enough from the
-// gateway and the auto-assigned proxy address (typically .2). Default
-// fallback assumes a /16 subnet starting at .0.
-func pickUserIP(subnet string) string {
-	// Best-effort: parse the network and emit <network>.0.100. Anything
-	// invalid falls back to 10.99.0.100.
+// pickUserIP returns a random host IP within the IPv4 subnet, avoiding
+// the network address, the gateway (.1), and the broadcast address.
+// Rejects IPv6 and any prefix that yields fewer than 8 host addresses.
+func pickUserIP(subnet string) (string, error) {
 	_, n, err := net.ParseCIDR(subnet)
 	if err != nil {
-		return "10.99.0.100"
+		return "", fmt.Errorf("parse subnet %q: %w", subnet, err)
 	}
-	ip := n.IP.To4()
-	if ip == nil {
-		return "10.99.0.100"
+	ip4 := n.IP.To4()
+	if ip4 == nil {
+		return "", fmt.Errorf("ipv6 subnet not supported: %s", subnet)
 	}
-	ip = append([]byte{}, ip...)
-	ip[3] = 100
-	return net.IP(ip).String()
+	ones, bits := n.Mask.Size()
+	if bits != 32 {
+		return "", fmt.Errorf("non-ipv4 mask in %s", subnet)
+	}
+	hostBits := bits - ones
+	if hostBits < 3 {
+		return "", fmt.Errorf("subnet %s too small (need /29 or larger)", subnet)
+	}
+	size := uint32(1) << uint(hostBits)
+	// reserve .0 (network), .1 (gateway), broadcast (size-1), and avoid .2
+	// which docker often assigns to the first attached container.
+	const reservedLow = 3
+	usable := size - reservedLow - 1
+	if usable < 1 {
+		return "", fmt.Errorf("subnet %s yields no usable host addresses", subnet)
+	}
+	var rb [4]byte
+	if _, err := rand.Read(rb[:]); err != nil {
+		return "", fmt.Errorf("rand: %w", err)
+	}
+	off := reservedLow + binary.BigEndian.Uint32(rb[:])%usable
+	base := binary.BigEndian.Uint32(ip4)
+	out := make(net.IP, 4)
+	binary.BigEndian.PutUint32(out, base+off)
+	return out.String(), nil
+}
+
+// waitHealthy polls the admin /health endpoint until it answers 2xx or
+// the deadline elapses. Replaces the racy fixed sleep that --quiet
+// previously skipped entirely.
+func waitHealthy(cli *client.Client, deadline time.Duration) error {
+	end := time.Now().Add(deadline)
+	var lastErr error
+	for time.Now().Before(end) {
+		if err := cli.Health(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("timed out")
+	}
+	return lastErr
 }
 
 func logf(a Args, format string, args ...interface{}) {

@@ -1,11 +1,11 @@
 package container
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"log/slog"
-	"os/exec"
-	"strings"
-	"time"
+	"net"
 
 	"github.com/onvos/arizuko/crackbox/pkg/client"
 )
@@ -16,59 +16,82 @@ type EgressConfig struct {
 	// Network is the Docker network name to attach the agent to. Empty
 	// disables egress isolation entirely.
 	Network string
-	// AdminURL is the HTTP base URL of the crackbox proxy admin API
+	// Subnet is the CIDR of the agents network — used to pick a fresh IP
+	// per spawn so we can register with crackbox *before* the container
+	// starts (avoids the agent firing traffic before its IP is known).
+	Subnet string
+	// ProxyURL is what the agent's HTTP_PROXY/HTTPS_PROXY env points at
+	// (e.g. http://crackbox:3128).
+	ProxyURL string
+	// AdminURL is the HTTP base URL of the crackbox admin API
 	// (e.g. http://crackbox:3129).
 	AdminURL string
-	// AllowlistFn returns the resolved allowlist for a folder. May return
-	// nil for "default-deny" (no rules) — crackbox treats that as a block.
-	AllowlistFn func(folder string) ([]string, error)
+	// AllowlistFn returns the resolved allowlist for an opaque id (in
+	// arizuko's case the folder, but crackbox treats it as a label).
+	AllowlistFn func(id string) ([]string, error)
 }
 
 func (e EgressConfig) Enabled() bool {
 	return e.Network != "" && e.AdminURL != ""
 }
 
-// inspectContainerIP returns the IPv4 address assigned to <containerName>
-// on <network>. Polled briefly because docker run + network attach is
-// async; the IP is set within ~50ms in practice.
-func inspectContainerIP(containerName, network string) (string, error) {
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		out, err := exec.Command(Bin, "inspect", "-f",
-			fmt.Sprintf(`{{(index .NetworkSettings.Networks %q).IPAddress}}`, network),
-			containerName,
-		).Output()
-		if err == nil {
-			ip := strings.TrimSpace(string(out))
-			if ip != "" && ip != "<no value>" {
-				return ip, nil
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
+// PickIP returns a random host address inside the configured subnet.
+// /16 default has 65k addresses, so collisions with running containers
+// are vanishingly rare; docker run --ip would error if it ever happens.
+func (e EgressConfig) PickIP() (string, error) {
+	_, n, err := net.ParseCIDR(e.Subnet)
+	if err != nil {
+		return "", fmt.Errorf("egress subnet %q: %w", e.Subnet, err)
 	}
-	return "", fmt.Errorf("could not inspect IP for %s on %s", containerName, network)
+	ip4 := n.IP.To4()
+	if ip4 == nil {
+		return "", fmt.Errorf("egress subnet %q: ipv4 only in v1", e.Subnet)
+	}
+	ones, _ := n.Mask.Size()
+	if ones >= 31 {
+		return "", fmt.Errorf("egress subnet %q: too small", e.Subnet)
+	}
+	hostBits := 32 - ones
+	// Reserve .1 (gateway), .2/.3 (typically the proxy + first auto-assign).
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	r := binary.BigEndian.Uint32(b[:])
+	mask := uint32(1)<<uint(hostBits) - 1
+	host := r & mask
+	if host < 4 {
+		host += 100 // avoid reserved low addresses
+	}
+	if host == mask { // broadcast
+		host--
+	}
+	netInt := binary.BigEndian.Uint32(ip4) &^ mask
+	var out [4]byte
+	binary.BigEndian.PutUint32(out[:], netInt|host)
+	return net.IP(out[:]).String(), nil
 }
 
-// registerEgress informs crackbox about a newly-spawned container. Returns
-// the container's IP for unregister; returns empty + nil error if egress is
-// disabled (caller treats as no-op).
-func registerEgress(cfg EgressConfig, folder, containerName string) (ip string, _ error) {
+// registerEgress informs crackbox about a to-be-spawned container, returning
+// the pre-assigned IP. Caller must pass --ip <ip> to docker run so the
+// container actually lands on this address. Disabled config is a no-op.
+func registerEgress(cfg EgressConfig, id string) (ip string, _ error) {
 	if !cfg.Enabled() {
 		return "", nil
 	}
-	ip, err := inspectContainerIP(containerName, cfg.Network)
+	ip, err := cfg.PickIP()
 	if err != nil {
-		return "", fmt.Errorf("inspect ip: %w", err)
+		return "", err
 	}
-	allowlist, err := cfg.AllowlistFn(folder)
+	allowlist, err := cfg.AllowlistFn(id)
 	if err != nil {
 		return "", fmt.Errorf("resolve allowlist: %w", err)
 	}
-	if err := client.New(cfg.AdminURL).Register(ip, folder, allowlist); err != nil {
+	if err := client.New(cfg.AdminURL).Register(ip, id, allowlist); err != nil {
 		return "", fmt.Errorf("crackbox register: %w", err)
 	}
 	slog.Info("egress registered",
-		"folder", folder, "ip", ip, "rules", len(allowlist))
+		"id", id, "ip", ip, "rules", len(allowlist))
 	return ip, nil
 }
 
