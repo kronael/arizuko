@@ -35,7 +35,7 @@ func inspectContainerIP(containerName, network string) (string, error) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		out, err := exec.Command(Bin, "inspect", "-f",
-			fmt.Sprintf("{{.NetworkSettings.Networks.%s.IPAddress}}", network),
+			fmt.Sprintf(`{{(index .NetworkSettings.Networks %q).IPAddress}}`, network),
 			containerName,
 		).Output()
 		if err == nil {

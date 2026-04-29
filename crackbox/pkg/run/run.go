@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -76,11 +77,19 @@ func Run(a Args) (int, error) {
 
 	cli := client.New(fmt.Sprintf("http://%s:3129", proxyIP))
 
-	// Pre-create the user container (without starting) so we know its IP
-	// before traffic flows. `docker create` returns the container ID.
-	logf(a, "creating user container %s", userName)
+	// Pre-assign the user container's IP so we can register it before the
+	// container starts. Otherwise IP is only known post-start, and a
+	// fast-running command can fire (and fail) traffic before register
+	// completes.
+	userIP := pickUserIP(a.NetSubnet)
+	logf(a, "registering %s -> %v", userIP, a.Allow)
+	if err := cli.Register(userIP, a.ID, a.Allow); err != nil {
+		return 1, fmt.Errorf("register: %w", err)
+	}
+
+	logf(a, "creating user container %s @ %s", userName, userIP)
 	createArgs := []string{"create",
-		"--name", userName, "--network", netName,
+		"--name", userName, "--network", netName, "--ip", userIP,
 		"-i",
 		"-e", fmt.Sprintf("HTTP_PROXY=http://%s:3128", proxyIP),
 		"-e", fmt.Sprintf("HTTPS_PROXY=http://%s:3128", proxyIP),
@@ -93,16 +102,7 @@ func Run(a Args) (int, error) {
 	}
 	defer docker("rm", "-f", userName)
 
-	userIP, err := waitForIP(userName, netName, 2*time.Second)
-	if err != nil {
-		return 1, fmt.Errorf("user ip: %w", err)
-	}
-	logf(a, "registering %s -> %v", userIP, a.Allow)
-	if err := cli.Register(userIP, a.ID, a.Allow); err != nil {
-		return 1, fmt.Errorf("register: %w", err)
-	}
-
-	logf(a, "starting user container")
+	logf(a, "starting + attaching")
 	cmd := exec.Command("docker", "start", "-a", userName)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -139,7 +139,7 @@ func waitForIP(name, network string, deadline time.Duration) (string, error) {
 	end := time.Now().Add(deadline)
 	for time.Now().Before(end) {
 		out, err := exec.Command("docker", "inspect", "-f",
-			fmt.Sprintf("{{.NetworkSettings.Networks.%s.IPAddress}}", network),
+			fmt.Sprintf(`{{(index .NetworkSettings.Networks %q).IPAddress}}`, network),
 			name).Output()
 		if err == nil {
 			ip := strings.TrimSpace(string(out))
@@ -156,6 +156,25 @@ func randTag() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// pickUserIP returns a host IP within the subnet far enough from the
+// gateway and the auto-assigned proxy address (typically .2). Default
+// fallback assumes a /16 subnet starting at .0.
+func pickUserIP(subnet string) string {
+	// Best-effort: parse the network and emit <network>.0.100. Anything
+	// invalid falls back to 10.99.0.100.
+	_, n, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return "10.99.0.100"
+	}
+	ip := n.IP.To4()
+	if ip == nil {
+		return "10.99.0.100"
+	}
+	ip = append([]byte{}, ip...)
+	ip[3] = 100
+	return net.IP(ip).String()
 }
 
 func logf(a Args, format string, args ...interface{}) {
