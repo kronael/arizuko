@@ -56,6 +56,7 @@ var daemonKeys = map[string][]string{
 		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
 		"IMPULSE_ENABLED", "SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
+		"EGRESS_NETWORK", "EGRED_API",
 	},
 	"timed": {"CHANNEL_SECRET"},
 	"onbod": {
@@ -243,13 +244,7 @@ func egredService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("  egred:\n")
 	fmt.Fprintf(&b, "    container_name: %s_egred_%s\n", app, flavor)
 	b.WriteString("    image: arizuko-egred:latest\n")
-	b.WriteString("    cap_add: ['NET_ADMIN']\n")
 	b.WriteString("    networks: [agents, default]\n")
-	b.WriteString("    environment:\n")
-	writeEnv(&b, map[string]string{
-		"EGRED_INTERNAL_SUBNET": envOr(env, "EGRESS_SUBNET", "10.99.0.0/16"),
-		"EGRED_PROXY_PORT":      "3128",
-	})
 	b.WriteString("    healthcheck:\n")
 	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:3129/health']\n")
 	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n")

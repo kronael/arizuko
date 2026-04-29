@@ -534,7 +534,12 @@ func buildArgs(
 		"-e", "TZ=" + cfg.Timezone,
 	}
 	if network != "" {
-		args = append(args, "--network", network)
+		args = append(args,
+			"--network", network,
+			"-e", "HTTP_PROXY=http://egred:3128",
+			"-e", "HTTPS_PROXY=http://egred:3128",
+			"-e", "NO_PROXY=localhost,127.0.0.1,gated,egred",
+			"-e", "NODE_OPTIONS=--require=/app/proxy-shim.js")
 	}
 
 	uid := os.Getuid()

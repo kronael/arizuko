@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,29 +22,24 @@ func main() {
 	proxy := NewProxy(allow)
 	api := NewAPI(allow)
 
-	plis, err := net.Listen("tcp", cfg.proxyAddr)
-	if err != nil {
-		slog.Error("proxy listen", "addr", cfg.proxyAddr, "err", err)
-		os.Exit(1)
-	}
-	slog.Info("egred up",
-		"proxy", cfg.proxyAddr,
-		"api", cfg.apiAddr,
-	)
+	proxySrv := proxy.Server()
+	proxySrv.Addr = cfg.proxyAddr
 
-	go func() {
-		if err := proxy.Serve(plis); err != nil {
-			slog.Error("proxy serve", "err", err)
-		}
-	}()
-
-	srv := &http.Server{
+	apiSrv := &http.Server{
 		Addr:              cfg.apiAddr,
 		Handler:           api.Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+
+	slog.Info("egred up", "proxy", cfg.proxyAddr, "api", cfg.apiAddr)
+
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := proxySrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("proxy serve", "err", err)
+		}
+	}()
+	go func() {
+		if err := apiSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("api serve", "err", err)
 		}
 	}()
@@ -55,11 +49,10 @@ func main() {
 	<-stop
 
 	slog.Info("egred shutting down")
-	plis.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	srv.Shutdown(ctx)
-	proxy.Wait()
+	proxySrv.Shutdown(ctx)
+	apiSrv.Shutdown(ctx)
 }
 
 type config struct {

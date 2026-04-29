@@ -1,106 +1,150 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"io"
 	"log/slog"
 	"net"
-	"strconv"
-	"sync"
+	"net/http"
+	"strings"
 	"time"
 )
 
 const (
-	peekDeadline = 10 * time.Second
-	dialTimeout  = 10 * time.Second
-	httpPeekMax  = 8192
+	dialTimeout    = 10 * time.Second
+	httpReadHeader = 5 * time.Second
 )
 
-// Proxy accepts intercepted connections (via iptables REDIRECT), peeks the
-// hostname (SNI for :443, Host header for :80), checks the per-source-IP
-// allowlist, and splices to the original destination.
+// Proxy is a forward HTTP/HTTPS proxy. Agent containers are configured with
+// HTTPS_PROXY=http://egred:3128 (transparent path was rejected — Docker
+// bridges put the host on the gateway, not egred). For HTTP requests we
+// forward and check the Host header. For HTTPS, we honor CONNECT and check
+// the host:port target — no MITM, no TLS termination.
 type Proxy struct {
 	allow *Allowlist
-	wg    sync.WaitGroup
 }
 
 func NewProxy(allow *Allowlist) *Proxy {
 	return &Proxy{allow: allow}
 }
 
-func (p *Proxy) Serve(l net.Listener) error {
-	for {
-		c, err := l.Accept()
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				return nil
-			}
-			slog.Warn("accept", "err", err)
-			continue
-		}
-		p.wg.Add(1)
-		go func(c net.Conn) {
-			defer p.wg.Done()
-			p.handle(c)
-		}(c)
+func (p *Proxy) Server() *http.Server {
+	return &http.Server{
+		Handler:           p,
+		ReadHeaderTimeout: httpReadHeader,
 	}
 }
 
-func (p *Proxy) Wait() { p.wg.Wait() }
+func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	src, _, _ := net.SplitHostPort(r.RemoteAddr)
 
-func (p *Proxy) handle(c net.Conn) {
-	defer c.Close()
-	tcp, ok := c.(*net.TCPConn)
+	if r.Method == http.MethodConnect {
+		p.handleConnect(w, r, src)
+		return
+	}
+	p.handleHTTP(w, r, src)
+}
+
+// handleConnect tunnels HTTPS opaquely once the host passes the allowlist.
+func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, src string) {
+	host, _, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		host = r.Host
+	}
+	folder, ok := p.allow.Allow(src, host)
 	if !ok {
-		slog.Warn("non-tcp conn", "remote", c.RemoteAddr())
+		slog.Info("deny connect", "src", src, "folder", folder, "host", host)
+		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
-	srcIP, _, _ := net.SplitHostPort(c.RemoteAddr().String())
-	dst, err := originalDst(tcp)
+
+	upstream, err := net.DialTimeout("tcp", r.Host, dialTimeout)
 	if err != nil {
-		slog.Warn("orig dst", "src", srcIP, "err", err)
-		return
-	}
-	dstHost, dstPort, _ := net.SplitHostPort(dst)
-	port, _ := strconv.Atoi(dstPort)
-
-	pc := newPeekedConn(c)
-
-	host, err := peekHost(pc, port)
-	if err != nil {
-		slog.Info("peek host", "src", srcIP, "dst", dst, "err", err)
-		return
-	}
-
-	folder, allowed := p.allow.Allow(srcIP, host)
-	if !allowed {
-		slog.Info("deny",
-			"src", srcIP, "folder", folder,
-			"host", host, "dst", dst, "port", port)
-		return
-	}
-	slog.Info("allow",
-		"src", srcIP, "folder", folder,
-		"host", host, "dst", dst)
-
-	upstream, err := net.DialTimeout("tcp", net.JoinHostPort(dstHost, dstPort), dialTimeout)
-	if err != nil {
-		slog.Info("upstream dial", "host", host, "dst", dst, "err", err)
+		slog.Info("upstream dial", "host", r.Host, "err", err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer upstream.Close()
-	splice(pc, upstream)
+
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "no hijack", http.StatusInternalServerError)
+		return
+	}
+	client, _, err := hj.Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer client.Close()
+	if _, err := client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+		return
+	}
+	slog.Info("allow connect", "src", src, "folder", folder, "host", host)
+	splice(client, upstream)
 }
 
-func peekHost(c *peekedConn, port int) (string, error) {
-	switch port {
-	case 443:
-		return peekTLSHostname(c, peekDeadline)
-	case 80:
-		return peekHTTPHost(c, httpPeekMax, peekDeadline)
-	default:
-		return "", errors.New("only :80 and :443 supported")
+// handleHTTP forwards plain-HTTP requests after host allowlist check.
+func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
+	host := r.Host
+	if r.URL != nil && r.URL.Host != "" {
+		host = r.URL.Host
 	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	folder, ok := p.allow.Allow(src, host)
+	if !ok {
+		slog.Info("deny http", "src", src, "folder", folder, "host", host)
+		http.Error(w, "denied", http.StatusForbidden)
+		return
+	}
+
+	target := r.URL.String()
+	if !strings.HasPrefix(target, "http") {
+		target = "http://" + r.Host + r.URL.RequestURI()
+	}
+	out, err := http.NewRequest(r.Method, target, r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	for k, vv := range r.Header {
+		if isHopByHop(k) {
+			continue
+		}
+		for _, v := range vv {
+			out.Header.Add(k, v)
+		}
+	}
+	resp, err := http.DefaultClient.Do(out)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	for k, vv := range resp.Header {
+		if isHopByHop(k) {
+			continue
+		}
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+	slog.Info("allow http", "src", src, "folder", folder, "host", host, "status", resp.StatusCode)
+}
+
+func isHopByHop(h string) bool {
+	switch strings.ToLower(h) {
+	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+		"te", "trailers", "transfer-encoding", "upgrade":
+		return true
+	}
+	return false
 }
 
 func splice(a, b net.Conn) {
@@ -109,3 +153,7 @@ func splice(a, b net.Conn) {
 	go func() { _, _ = io.Copy(b, a); done <- struct{}{} }()
 	<-done
 }
+
+// silence imports during the rewrite (peek/origdst no longer used here).
+var _ = bufio.NewReader
+var _ = errors.New

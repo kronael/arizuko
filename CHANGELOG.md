@@ -11,14 +11,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
-- `egred`: new daemon — transparent egress proxy for agent containers.
-  Default-deny network egress with per-folder allowlist. Listens on
-  `:3128` for redirected traffic and `:3129` for register/unregister
-  HTTP API. Peeks SNI on `:443` and `Host:` header on `:80`, splices
-  to upstream when allowed. No client cooperation required (transparent
-  via iptables REDIRECT in egred's own netns). Allowlist core ported
-  from `crackbox/internal/vm` (proxy.go isAllowed + netfilter.go
-  validators) including its test fixtures.
+- `egred`: new daemon — forward HTTP/HTTPS proxy with per-folder
+  allowlist for agent containers. Listens on `:3128` for proxy
+  traffic (HTTP forward + CONNECT tunnel for HTTPS) and `:3129`
+  for register/unregister HTTP API. Allowlist matched by hostname
+  on the per-source-IP map. No MITM, no TLS termination. Allowlist
+  core (`isAllowed`, `looksLikeDomain`, `looksLikeIP`) ported from
+  `crackbox/internal/vm/{proxy,netfilter}.go` including test
+  fixtures. (A transparent / iptables REDIRECT design was prototyped
+  first and rejected: Docker user-defined bridges put the host on
+  the gateway IP, not a container, so egred could not intercept
+  packets.)
+- `ant`: `proxy-shim.js` — tiny `NODE_OPTIONS=--require` shim that
+  wires Node's built-in fetch (undici) to honor `HTTPS_PROXY`. Auto-
+  loaded when egress isolation is on. curl/wget/pip/go/npm honor
+  the env vars natively.
 - `store`: `network_rules` table — per-folder domain/IP allowlist.
   `AddNetworkRule` / `RemoveNetworkRule` / `ListNetworkRules` /
   `AllNetworkRules` / `ResolveAllowlist(folder)` (folder-walk + dedupe).

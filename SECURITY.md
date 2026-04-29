@@ -95,11 +95,13 @@ agent containers attach to a Docker `internal: true` network with no
 default route to the internet. The only path out is via `egred`, which
 runs on both the internal network and the project default bridge.
 
-- iptables rules in egred's own netns REDIRECT `:80,:443` traffic from
-  the internal subnet to its proxy listener (CAP_NET_ADMIN scoped to
-  the egred container, never granted to gated or agents).
-- Proxy peeks the SNI for `:443` or `Host:` header for `:80`. No TLS
-  termination, no MITM, no certificate plumbing.
+- Agent containers receive `HTTPS_PROXY=http://egred:3128` at spawn
+  plus `NODE_OPTIONS=--require=/app/proxy-shim.js` so Node's built-in
+  fetch honors the proxy (curl/wget/pip/go/npm honor it natively).
+  egred forwards HTTP and CONNECT-tunnels HTTPS without decrypting.
+- Non-cooperating clients fail closed: the internal Docker network
+  has no default route, so a client that ignores `HTTPS_PROXY` cannot
+  reach the internet at all.
 - Per-source-IP allowlist populated by gated at container spawn from
   `store.ResolveAllowlist(folder)` (folder ancestry walk + dedupe).
 - Default seed: `anthropic.com`, `api.anthropic.com`. Operators add
@@ -113,7 +115,7 @@ Caveats:
   it does not prevent leaking secrets to an allowed domain.
 - Spec 11 (proxy-side placeholder injection) is deferred. Adding it
   later would require terminating TLS for selected hosts; the current
-  transparent design is intentionally MITM-free.
+  forward-proxy design is intentionally MITM-free.
 - IPv6 is not redirected by the entrypoint script.
 
 ## Per-daemon docs
