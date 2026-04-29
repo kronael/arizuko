@@ -6,6 +6,7 @@ status: planned
 
 Specs committed in direction but not scheduled. Each needs a dedicated sprint.
 
-| spec                                                 | status  | description                                      |
-| ---------------------------------------------------- | ------- | ------------------------------------------------ |
-| [a-crackbox-sandboxing.md](a-crackbox-sandboxing.md) | planned | QEMU/KVM resident-VM sandboxing replacing Docker |
+| spec                                                     | status  | description                                                   |
+| -------------------------------------------------------- | ------- | ------------------------------------------------------------- |
+| [a-crackbox-sandboxing.md](a-crackbox-sandboxing.md)     | planned | QEMU/KVM resident-VM sandboxing replacing Docker              |
+| [b-orthogonal-components.md](b-orthogonal-components.md) | planned | Sibling shippable components: crackbox, gateway, mcp-firewall |
