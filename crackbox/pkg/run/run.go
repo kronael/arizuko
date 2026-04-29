@@ -49,9 +49,12 @@ func Run(a Args) (int, error) {
 		a.ID = "crackbox-" + randTag()
 	}
 
-	netName := "crackbox-" + randTag()
-	proxyName := "crackbox-proxy-" + randTag()
-	userName := "crackbox-user-" + randTag()
+	// Share one tag across the network + both containers so they're easy to
+	// grep together in `docker ps` / `docker network ls`.
+	tag := randTag()
+	netName := "crackbox-" + tag
+	proxyName := "crackbox-proxy-" + tag
+	userName := "crackbox-user-" + tag
 
 	logf(a, "creating network %s", netName)
 	if err := docker("network", "create", "--internal=false", "--subnet", a.NetSubnet, netName); err != nil {

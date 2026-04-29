@@ -150,7 +150,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 func isHopByHop(h string) bool {
 	switch strings.ToLower(h) {
 	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
-		"te", "trailers", "transfer-encoding", "upgrade":
+		"proxy-connection", "te", "trailers", "transfer-encoding", "upgrade":
 		return true
 	}
 	return false
