@@ -1,5 +1,6 @@
 ---
-status: planned
+status: shipped
+shipped: 2026-04-29
 ---
 
 # Crackbox — forward proxy with per-source allowlists

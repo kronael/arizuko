@@ -1,5 +1,6 @@
 ---
-status: planned
+status: shipped
+shipped: 2026-04-29
 depends: 9-crackbox-standalone
 ---
 
