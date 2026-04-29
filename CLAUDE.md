@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+## Identity is configured, never derived
+
+NEVER `filepath.Base()` a runtime path to discover project name, container name, network name, or instance flavor. Compose generation writes those into env vars; daemons read them, never reverse-engineer them. Cost an outage on krons (2026-04-29): auto-deriving from container's `/srv/app/home` got `home` instead of `arizuko_krons`, every spawn failed `docker network connect`, and the queue replayed the failure forever.
+
 ## Canonical paths
 
 - GitHub: `github.com/kronael/arizuko` — the real home of this project

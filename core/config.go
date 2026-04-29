@@ -139,27 +139,10 @@ func LoadConfig() (*Config, error) {
 	// Default the network prefix + crackbox container name from the
 	// instance flavor (data-dir basename) when env doesn't override.
 	// Compose names crackbox <app>_crackbox_<flavor> — match that.
-	{
-		project := filepath.Base(c.ProjectRoot)
-		app, flavor, _ := strings.Cut(project, "_")
-		if app == "" {
-			app = "arizuko"
-		}
-		if c.EgressNetworkPrefix == "" {
-			if flavor != "" {
-				c.EgressNetworkPrefix = app + "_" + flavor
-			} else {
-				c.EgressNetworkPrefix = app
-			}
-		}
-		if c.EgressCrackbox == "" {
-			if flavor != "" {
-				c.EgressCrackbox = app + "_crackbox_" + flavor
-			} else {
-				c.EgressCrackbox = app + "_crackbox"
-			}
-		}
-	}
+	// Validation of EgressNetworkPrefix / EgressCrackbox lives in gated
+	// (the only daemon that uses egress isolation), not here — other
+	// daemons (onbod, webd, proxyd) call LoadConfig too and must not
+	// fail just because they share an .env that has EGRESS_ISOLATION.
 
 	dev := os.Getenv("ARIZUKO_DEV") == "true" || os.Getenv("ARIZUKO_DEV") == "1"
 	if !dev && c.ChannelSecret == "" {

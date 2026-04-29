@@ -616,7 +616,13 @@ func (g *Gateway) processSenderBatch(
 		if *hadOutput {
 			return true
 		}
-		g.store.SetAgentCursor(chatJid, agentTs)
+		// Advance the cursor PAST the failed batch so the next poll
+		// doesn't re-feed the same messages. Without this, a permanent
+		// failure (e.g. egress register can't reach a misconfigured
+		// crackbox) replays every inbound message forever and burns
+		// every channel's poll loop. Errored messages stay flagged in
+		// the DB for the agent to see if it does run later.
+		g.store.SetAgentCursor(chatJid, last.Timestamp)
 		g.sendMessage(deliverTo, "Failed: agent error on that message. Try rephrasing or send a different message.")
 		ids := make([]string, len(msgs))
 		for i, m := range msgs {

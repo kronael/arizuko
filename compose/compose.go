@@ -56,7 +56,7 @@ var daemonKeys = map[string][]string{
 		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
 		"IMPULSE_ENABLED", "SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
-		"EGRESS_ISOLATION", "EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX",
+		"EGRESS_ISOLATION", "EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX", "EGRESS_CRACKBOX",
 		"CRACKBOX_CONTAINER", "CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL",
 		"CRACKBOX_ADMIN_SECRET",
 	},
@@ -149,6 +149,36 @@ func Generate(dataDir string) (string, error) {
 			env[k] = v
 		}
 	}
+
+	// Compose owns the project name (it generates the YAML and writes
+	// container/network names). When egress isolation is on, write the
+	// derived names explicitly into env so daemons inside containers
+	// don't have to guess from filesystem paths.
+	project := filepath.Base(dataDir)
+	app, flavor, _ := strings.Cut(project, "_")
+	if !identRE.MatchString(app) {
+		return "", fmt.Errorf("invalid compose project app %q (derived from data dir basename)", app)
+	}
+	if flavor != "" && !identRE.MatchString(flavor) {
+		return "", fmt.Errorf("invalid instance flavor %q (derived from data dir basename)", flavor)
+	}
+	if envOr(env, "EGRESS_ISOLATION", "") == "true" {
+		if _, ok := env["EGRESS_NETWORK_PREFIX"]; !ok {
+			if flavor != "" {
+				env["EGRESS_NETWORK_PREFIX"] = app + "_" + flavor
+			} else {
+				env["EGRESS_NETWORK_PREFIX"] = app
+			}
+		}
+		if _, ok := env["EGRESS_CRACKBOX"]; !ok {
+			if flavor != "" {
+				env["EGRESS_CRACKBOX"] = app + "_crackbox_" + flavor
+			} else {
+				env["EGRESS_CRACKBOX"] = app + "_crackbox"
+			}
+		}
+	}
+
 	// Per-daemon env files: non-fatal if it fails; log for triage.
 	if werr := writeEnvFiles(dataDir, env); werr != nil {
 		fmt.Fprintf(os.Stderr, "compose: writeEnvFiles: %v\n", werr)
@@ -183,15 +213,6 @@ func Generate(dataDir string) (string, error) {
 		services = append(services, svc{name, cfg})
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
-
-	project := filepath.Base(dataDir)
-	app, flavor, _ := strings.Cut(project, "_")
-	if !identRE.MatchString(app) {
-		return "", fmt.Errorf("invalid compose project app %q (derived from data dir basename)", app)
-	}
-	if flavor != "" && !identRE.MatchString(flavor) {
-		return "", fmt.Errorf("invalid instance flavor %q (derived from data dir basename)", flavor)
-	}
 
 	profile := envOr(env, "PROFILE", "full")
 

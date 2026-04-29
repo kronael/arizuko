@@ -168,9 +168,11 @@ func TestPollLoop_RunnerError(t *testing.T) {
 	if err == nil || ok {
 		t.Fatalf("processGroupMessages: ok=%v err=%v, want failure", ok, err)
 	}
-	// Annotate/retry semantics: the failed message stays visible, tagged errored.
-	if !s.HasPendingMessages(jid, gw.cfg.Name) {
-		t.Error("errored message should remain pending for retry (annotate semantics)")
+	// Failure semantics: cursor advances past the failed batch so the
+	// poll loop doesn't replay it forever. The message is marked errored
+	// in the DB but the cursor moved on.
+	if s.HasPendingMessages(jid, gw.cfg.Name) {
+		t.Error("errored message should not stay pending — cursor must advance to prevent infinite retry")
 	}
 	msgs, _ := s.MessagesSince(jid, time.Time{}, gw.cfg.Name)
 	if len(msgs) != 1 || !msgs[0].Errored {

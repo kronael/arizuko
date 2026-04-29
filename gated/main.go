@@ -30,6 +30,13 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
+	if cfg.EgressEnabled {
+		if cfg.EgressNetworkPrefix == "" || cfg.EgressCrackbox == "" {
+			slog.Error("config",
+				"err", "EGRESS_ISOLATION=true requires EGRESS_NETWORK_PREFIX and EGRESS_CRACKBOX (compose generation should set them)")
+			os.Exit(1)
+		}
+	}
 	slog.Info("gated starting",
 		"poll_interval", cfg.PollInterval,
 		"max_containers", cfg.MaxContainers,
