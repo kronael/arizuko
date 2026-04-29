@@ -61,6 +61,15 @@ concepts/jid.html` waits on this.
   agents can discover + fetch skills on demand instead of bundling
   everything in the image. Prior art: Hermes Agent's `skills browse` /
   `skills search`.
+- **Split gated into focused daemons** — `gated` today blends ~70%
+  message work (poll loop, persist, route, deliver), ~20% container
+  orchestration, ~10% channel registration + health. Name is also
+  generic ("gateway" = any HTTP boundary). Candidate split: `msgd`
+  (messages + routing + DB owner), `runnd` (container spawn + MCP
+  socket), keep channel registration small enough to live in either.
+  Invasive — gated is referenced everywhere. Pick up when one of the
+  three concerns starts hurting (e.g. container orchestration grows
+  into spec 9 QEMU backend, or channel registry grows tiers).
 
 ## Microservice port — open phases
 

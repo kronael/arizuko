@@ -56,6 +56,7 @@ Full graph, message flow, container lifecycle, SQLite schema in
 | whapd  | WhatsApp adapter (TypeScript, Baileys)                  | [whapd/README.md](whapd/README.md)   |
 | twitd  | X/Twitter adapter (TypeScript, browser emulation)       | [twitd/README.md](twitd/README.md)   |
 | linkd  | LinkedIn adapter (stub)                                 | [linkd/README.md](linkd/README.md)   |
+| egred  | egress proxy (default-deny + per-folder allowlist)      | [egred/README.md](egred/README.md)   |
 
 ### Libraries
 

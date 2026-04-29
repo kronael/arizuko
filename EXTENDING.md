@@ -14,6 +14,7 @@ Catalog of extension points. Keep current as the system evolves.
 | Skills        | `ant/skills/`          | Agent         | File-based       |
 | Tasks         | `timed/`               | Agent         | IPC actions      |
 | Diary         | `diary/`               | Agent         | File-based       |
+| Network rules | `store/network.go`     | Operator      | CLI + DB rows    |
 
 ## Adding an autocall
 

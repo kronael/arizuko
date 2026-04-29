@@ -1,6 +1,19 @@
 ---
-status: draft
+status: shipped
 depends: 9-crackbox-standalone
+shipped:
+  - egred daemon (transparent proxy, SNI/Host peek, iptables REDIRECT)
+  - network_rules table + folder-walk allowlist resolver
+  - container/egress.go register/unregister glue
+  - compose egred service + agents internal network (EGRESS_ISOLATION=true)
+  - arizuko network <instance> CLI
+deferred:
+  - QEMU backend (spec 9)
+  - MCP tools request_network / list_network_rules (CLI only for now)
+  - per-user network rules (per-folder only)
+  - traffic logging / audit
+  - secret placeholder injection (spec 11 — left as separate work; would
+    require selective MITM and is intentionally out of scope here)
 ---
 
 # Crackbox integration into arizuko

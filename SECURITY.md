@@ -34,6 +34,7 @@ Three isolation axes:
 | Secrets at rest      | AES-GCM(`AUTH_SECRET`) over folder/user-scoped k=v rows                    | `store/secrets.go`, migration `0034-secrets.sql`               |
 | Secret injection     | Resolved at container spawn; folder always, user only in 1:1 chats         | `container/runner.go` (`resolveSpawnEnv`)                      |
 | Onboarding rate cap  | Per-gate daily limit from `onboarding_gates` table                         | `onbod/main.go` (`admitFromQueue`)                             |
+| Network egress       | Default-deny; per-folder allowlist enforced by transparent proxy           | `egred/`, `store/network.go`, `container/egress.go`            |
 
 Anything not in this table is not a security boundary. In particular:
 socket filesystem permissions alone do not separate containers, and
@@ -86,6 +87,34 @@ anonymous-from-trusted-IP); even there, the call is a boolean
 │  └─────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────┘
 ```
+
+## Network egress isolation
+
+When `EGRESS_ISOLATION=true` and `arizuko-egred:latest` is running,
+agent containers attach to a Docker `internal: true` network with no
+default route to the internet. The only path out is via `egred`, which
+runs on both the internal network and the project default bridge.
+
+- iptables rules in egred's own netns REDIRECT `:80,:443` traffic from
+  the internal subnet to its proxy listener (CAP_NET_ADMIN scoped to
+  the egred container, never granted to gated or agents).
+- Proxy peeks the SNI for `:443` or `Host:` header for `:80`. No TLS
+  termination, no MITM, no certificate plumbing.
+- Per-source-IP allowlist populated by gated at container spawn from
+  `store.ResolveAllowlist(folder)` (folder ancestry walk + dedupe).
+- Default seed: `anthropic.com`, `api.anthropic.com`. Operators add
+  rules via `arizuko network <instance> allow <folder> <target>`.
+- Unknown source IP or unmatched host → connection closed silently.
+
+Caveats:
+
+- Agent secrets (per spec 5/32) are still injected as env into the
+  container. The allowlist restricts _where_ the agent can reach;
+  it does not prevent leaking secrets to an allowed domain.
+- Spec 11 (proxy-side placeholder injection) is deferred. Adding it
+  later would require terminating TLS for selected hosts; the current
+  transparent design is intentionally MITM-free.
+- IPv6 is not redirected by the entrypoint script.
 
 ## Per-daemon docs
 

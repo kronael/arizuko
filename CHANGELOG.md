@@ -9,6 +9,29 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- `egred`: new daemon — transparent egress proxy for agent containers.
+  Default-deny network egress with per-folder allowlist. Listens on
+  `:3128` for redirected traffic and `:3129` for register/unregister
+  HTTP API. Peeks SNI on `:443` and `Host:` header on `:80`, splices
+  to upstream when allowed. No client cooperation required (transparent
+  via iptables REDIRECT in egred's own netns). Allowlist core ported
+  from `crackbox/internal/vm` (proxy.go isAllowed + netfilter.go
+  validators) including its test fixtures.
+- `store`: `network_rules` table — per-folder domain/IP allowlist.
+  `AddNetworkRule` / `RemoveNetworkRule` / `ListNetworkRules` /
+  `AllNetworkRules` / `ResolveAllowlist(folder)` (folder-walk + dedupe).
+  Default seed: `anthropic.com`, `api.anthropic.com`. Migration 0037.
+- `container`: optional egress isolation via `EgressConfig`. When
+  `EGRESS_NETWORK` + `EGRED_API` are set, agent containers spawn on
+  the named Docker network and gated registers their IP with egred.
+  Allowlist resolved per-folder via `store.ResolveAllowlist`.
+- `compose`: emits `egred` service block + `agents` internal network
+  when `EGRESS_ISOLATION=true`. CAP_NET_ADMIN granted to egred only.
+- `arizuko network <instance> allow|deny|list|resolve` — CLI for
+  managing per-folder allowlist rules.
+
 ### Fixed
 
 - `queue`: serialize concurrent runs by group folder. Two JIDs that route

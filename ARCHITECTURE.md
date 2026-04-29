@@ -284,6 +284,15 @@ before start; Ansible via `arizuko_instances[].extra_services`.
 onbod auto-included when `ONBOARDING_ENABLED=true`. All daemons
 listen on :8080 inside containers.
 
+`egred` and an `agents` internal network are emitted when
+`EGRESS_ISOLATION=true`. The internal network has no default route to
+the internet; egred is the only container with both NICs (internal +
+default bridge). gated spawns agent containers on the `agents` network
+and registers their per-spawn IP with egred via HTTP. egred enforces
+the per-folder allowlist via SNI/Host peek + iptables REDIRECT in its
+own netns. See `egred/README.md` and `SECURITY.md` (Network egress
+isolation).
+
 ## Onboarding (onbod/)
 
 Self-service token-based onboarding with optional gated admission.
