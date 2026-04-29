@@ -26,6 +26,9 @@ type EgressConfig struct {
 	// AdminURL is the HTTP base URL of the crackbox admin API
 	// (e.g. http://crackbox:3129).
 	AdminURL string
+	// AdminSecret is the optional bearer token sent on register/unregister.
+	// Empty disables auth (must match crackbox-side config).
+	AdminSecret string
 	// AllowlistFn returns the resolved allowlist for an opaque id (in
 	// arizuko's case the folder, but crackbox treats it as a label).
 	AllowlistFn func(id string) ([]string, error)
@@ -87,7 +90,7 @@ func registerEgress(cfg EgressConfig, id string) (ip string, _ error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve allowlist: %w", err)
 	}
-	if err := client.New(cfg.AdminURL).Register(ip, id, allowlist); err != nil {
+	if err := newClient(cfg).Register(ip, id, allowlist); err != nil {
 		return "", fmt.Errorf("crackbox register: %w", err)
 	}
 	slog.Info("egress registered",
@@ -99,7 +102,11 @@ func unregisterEgress(cfg EgressConfig, ip string) {
 	if !cfg.Enabled() || ip == "" {
 		return
 	}
-	if err := client.New(cfg.AdminURL).Unregister(ip); err != nil {
+	if err := newClient(cfg).Unregister(ip); err != nil {
 		slog.Warn("egress unregister", "ip", ip, "err", err)
 	}
+}
+
+func newClient(cfg EgressConfig) *client.Client {
+	return client.New(cfg.AdminURL, cfg.AdminSecret)
 }

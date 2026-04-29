@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -9,12 +10,13 @@ import (
 )
 
 // API exposes register/unregister/state/health endpoints used by consumers
-// (e.g. arizuko gated) to populate the registry. Authentication is by
-// network position: only reachable from the trusted internal network.
-// No HMAC; bind address is internal-only.
+// (e.g. arizuko gated) to populate the registry. Mutating endpoints
+// (register/unregister) optionally require a bearer token; read-only
+// endpoints (state/health) are always open.
 type API struct {
 	reg       *Registry
 	proxyAddr string // host:port for the /health self-test
+	secret    string // optional bearer token; empty disables auth
 }
 
 func NewAPI(reg *Registry) *API {
@@ -32,6 +34,29 @@ func NewAPIWithProxy(reg *Registry, proxyAddr string) *API {
 		proxyAddr = "127.0.0.1:3128"
 	}
 	return &API{reg: reg, proxyAddr: proxyAddr}
+}
+
+// WithSecret enables bearer-token auth on mutating endpoints. Empty
+// secret leaves auth disabled (backwards-compatible).
+func (a *API) WithSecret(secret string) *API {
+	a.secret = secret
+	return a
+}
+
+// authOK returns true if no secret is configured or if the request
+// carries a matching Authorization: Bearer <secret> header. Constant-time
+// compare avoids timing leaks.
+func (a *API) authOK(r *http.Request) bool {
+	if a.secret == "" {
+		return true
+	}
+	h := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if !strings.HasPrefix(h, prefix) {
+		return false
+	}
+	got := h[len(prefix):]
+	return subtle.ConstantTimeCompare([]byte(got), []byte(a.secret)) == 1
 }
 
 // WireEntry is the shared wire shape for register requests and state
@@ -64,6 +89,10 @@ func (a *API) register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method", http.StatusMethodNotAllowed)
 		return
 	}
+	if !a.authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	var req RegisterReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -80,6 +109,10 @@ func (a *API) register(w http.ResponseWriter, r *http.Request) {
 func (a *API) unregister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method", http.StatusMethodNotAllowed)
+		return
+	}
+	if !a.authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	var req UnregisterReq

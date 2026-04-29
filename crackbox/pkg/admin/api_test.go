@@ -130,3 +130,63 @@ func statusCodeOf(r *http.Response) int {
 	}
 	return r.StatusCode
 }
+
+func TestRegisterAuth(t *testing.T) {
+	reg := NewRegistry()
+	api := NewAPI(reg).WithSecret("s3cr3t")
+	srv := httptest.NewServer(api.Routes())
+	defer srv.Close()
+
+	body := `{"ip":"10.99.0.5","id":"x","allowlist":["github.com"]}`
+
+	// No auth header → 401
+	resp, err := http.Post(srv.URL+"/v1/register", "application/json", strings.NewReader(body))
+	if err != nil || resp.StatusCode != 401 {
+		t.Fatalf("no-auth register: %v %d", err, statusCodeOf(resp))
+	}
+	if _, _, ok := reg.Lookup("10.99.0.5"); ok {
+		t.Errorf("unauthenticated register should not mutate registry")
+	}
+
+	// Wrong token → 401
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/register", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer wrong")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 401 {
+		t.Fatalf("bad-token register: %v %d", err, statusCodeOf(resp))
+	}
+
+	// Correct token → 204
+	req, _ = http.NewRequest("POST", srv.URL+"/v1/register", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer s3cr3t")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 204 {
+		t.Fatalf("good-token register: %v %d", err, statusCodeOf(resp))
+	}
+	if _, _, ok := reg.Lookup("10.99.0.5"); !ok {
+		t.Errorf("authenticated register did not land in registry")
+	}
+
+	// State stays open even with secret configured.
+	resp, err = http.Get(srv.URL + "/v1/state")
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("state should not require auth: %v %d", err, statusCodeOf(resp))
+	}
+}
+
+func TestUnregisterAuth(t *testing.T) {
+	reg := NewRegistry()
+	reg.Set("10.99.0.5", "x", []string{"github.com"})
+	api := NewAPI(reg).WithSecret("s3cr3t")
+	srv := httptest.NewServer(api.Routes())
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/unregister", "application/json",
+		strings.NewReader(`{"ip":"10.99.0.5"}`))
+	if err != nil || resp.StatusCode != 401 {
+		t.Fatalf("no-auth unregister: %v %d", err, statusCodeOf(resp))
+	}
+	if _, _, ok := reg.Lookup("10.99.0.5"); !ok {
+		t.Errorf("unauthenticated unregister mutated registry")
+	}
+}

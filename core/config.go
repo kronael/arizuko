@@ -58,10 +58,11 @@ type Config struct {
 	WhisperModel  string
 
 	// Egress isolation (crackbox). Disabled when EgressNetwork is empty.
-	EgressNetwork  string // Docker network name to attach agent containers to
-	EgressAPI      string // crackbox admin HTTP API base URL (e.g. http://crackbox:3129)
-	EgressProxyURL string // HTTP(S)_PROXY value for the agent (e.g. http://crackbox:3128)
-	EgressSubnet   string // CIDR of the agents network; used to pre-assign IPs
+	EgressNetwork     string // Docker network name to attach agent containers to
+	EgressAPI         string // crackbox admin HTTP API base URL (e.g. http://crackbox:3129)
+	EgressProxyURL    string // HTTP(S)_PROXY value for the agent (e.g. http://crackbox:3128)
+	EgressSubnet      string // CIDR of the agents network; used to pre-assign IPs
+	EgressAdminSecret string // optional bearer token for crackbox admin API mutations
 }
 
 func LoadConfigFrom(dir string) (*Config, error) {
@@ -122,10 +123,11 @@ func LoadConfig() (*Config, error) {
 		VideoEnabled:  envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 		WhisperModel:  envOr("WHISPER_MODEL", "turbo"),
 
-		EgressNetwork:  envOr("EGRESS_NETWORK", ""),
-		EgressAPI:      envOr("CRACKBOX_ADMIN_API", ""),
-		EgressProxyURL: envOr("CRACKBOX_PROXY_URL", "http://crackbox:3128"),
-		EgressSubnet:   envOr("EGRESS_SUBNET", "10.99.0.0/16"),
+		EgressNetwork:     envOr("EGRESS_NETWORK", ""),
+		EgressAPI:         envOr("CRACKBOX_ADMIN_API", ""),
+		EgressProxyURL:    envOr("CRACKBOX_PROXY_URL", "http://crackbox:3128"),
+		EgressSubnet:      envOr("EGRESS_SUBNET", "10.99.0.0/16"),
+		EgressAdminSecret: envOr("CRACKBOX_ADMIN_SECRET", ""),
 	}
 
 	dev := os.Getenv("ARIZUKO_DEV") == "true" || os.Getenv("ARIZUKO_DEV") == "1"

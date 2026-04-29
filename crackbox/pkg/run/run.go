@@ -75,7 +75,7 @@ func Run(a Args) (int, error) {
 		return 1, fmt.Errorf("proxy ip: %w", err)
 	}
 
-	cli := client.New(fmt.Sprintf("http://%s:3129", proxyIP))
+	cli := client.New(fmt.Sprintf("http://%s:3129", proxyIP), "")
 
 	// Wait for the admin listener to actually answer. Without this, a
 	// --quiet run races (no sleep) and the first Register hits a closed

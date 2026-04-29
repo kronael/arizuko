@@ -69,8 +69,25 @@ func cmdProxy(args []string) {
 		Level: slog.LevelInfo,
 	})))
 
-	reg := admin.NewRegistry()
-	api := admin.NewAPIWithProxy(reg, *listen)
+	statePath := os.Getenv("CRACKBOX_STATE_PATH")
+	var reg *admin.Registry
+	if statePath != "" {
+		r, err := admin.NewPersistentRegistry(statePath)
+		if err != nil {
+			slog.Error("registry load", "path", statePath, "err", err)
+			os.Exit(1)
+		}
+		reg = r
+		slog.Info("registry persistent", "path", statePath)
+	} else {
+		reg = admin.NewRegistry()
+	}
+
+	secret := os.Getenv("CRACKBOX_ADMIN_SECRET")
+	if secret == "" {
+		slog.Warn("CRACKBOX_ADMIN_SECRET unset: admin API mutations are unauthenticated")
+	}
+	api := admin.NewAPIWithProxy(reg, *listen).WithSecret(secret)
 	px := proxy.New(reg)
 
 	proxySrv := px.Server(*listen)
@@ -148,7 +165,7 @@ func cmdState(args []string) {
 	adminURL := fs.String("admin", envOr("CRACKBOX_ADMIN", "http://localhost:3129"), "admin api base url")
 	fs.Parse(args)
 
-	cli := client.New(*adminURL)
+	cli := client.New(*adminURL, "")
 	state, err := cli.State()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "state:", err)

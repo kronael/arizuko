@@ -57,6 +57,7 @@ var daemonKeys = map[string][]string{
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
 		"IMPULSE_ENABLED", "SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
 		"EGRESS_NETWORK", "EGRESS_SUBNET", "CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL",
+		"CRACKBOX_ADMIN_SECRET",
 	},
 	"timed": {"CHANNEL_SECRET"},
 	"onbod": {
@@ -80,7 +81,7 @@ var daemonKeys = map[string][]string{
 	"emaid":  {"CHANNEL_SECRET", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"},
 	"whapd":  {"CHANNEL_SECRET"},
 	"twitd":  {"CHANNEL_SECRET", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
-	"crackbox": {"CRACKBOX_PROXY_ADDR", "CRACKBOX_ADMIN_ADDR"},
+	"crackbox": {"CRACKBOX_PROXY_ADDR", "CRACKBOX_ADMIN_ADDR", "CRACKBOX_ADMIN_SECRET", "CRACKBOX_STATE_PATH"},
 }
 
 // envFileFor returns the scoped env_file block for a daemon, falling back to
@@ -246,6 +247,13 @@ func crackboxService(app, flavor, dataDir string, env map[string]string) string 
 	b.WriteString("    image: crackbox:latest\n")
 	b.WriteString("    command: ['proxy', 'serve']\n")
 	b.WriteString("    networks: [agents, default]\n")
+	b.WriteString("    volumes:\n")
+	fmt.Fprintf(&b, "      - %s/crackbox:/data/crackbox\n", dataDir)
+	b.WriteString(envFileFor("crackbox"))
+	b.WriteString("    environment:\n")
+	writeEnv(&b, map[string]string{
+		"CRACKBOX_STATE_PATH": "/data/crackbox/state.json",
+	})
 	b.WriteString("    healthcheck:\n")
 	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:3129/health']\n")
 	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n")

@@ -882,6 +882,7 @@ func (g *Gateway) runAgentWithOpts(
 			Subnet:      g.cfg.EgressSubnet,
 			ProxyURL:    g.cfg.EgressProxyURL,
 			AdminURL:    g.cfg.EgressAPI,
+			AdminSecret: g.cfg.EgressAdminSecret,
 			AllowlistFn: g.store.ResolveAllowlist,
 		},
 	}

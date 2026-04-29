@@ -14,14 +14,19 @@ import (
 )
 
 type Client struct {
-	base string
-	http *http.Client
+	base   string
+	secret string
+	http   *http.Client
 }
 
-func New(adminURL string) *Client {
+// New returns an admin client. secret is the optional bearer token sent
+// on mutating calls (Register/Unregister); empty disables auth.
+// State/Health are always unauthenticated.
+func New(adminURL, secret string) *Client {
 	return &Client{
-		base: adminURL,
-		http: &http.Client{Timeout: 10 * time.Second},
+		base:   adminURL,
+		secret: secret,
+		http:   &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -75,7 +80,15 @@ func (c *Client) Health() error {
 }
 
 func (c *Client) post(path string, body []byte) error {
-	resp, err := c.http.Post(c.base+path, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, c.base+path, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
+	}
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
 	}

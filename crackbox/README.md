@@ -49,13 +49,25 @@ crackbox/
 
 ## Configuration
 
-| Var                   | Default                 | Used by              |
-| --------------------- | ----------------------- | -------------------- |
-| `CRACKBOX_PROXY_ADDR` | `:3128`                 | `proxy serve` listen |
-| `CRACKBOX_ADMIN_ADDR` | `:3129`                 | `proxy serve` admin  |
-| `CRACKBOX_IMAGE`      | `crackbox:latest`       | `run` proxy image    |
-| `CRACKBOX_SUBNET`     | `10.99.0.0/16`          | `run` Docker subnet  |
-| `CRACKBOX_ADMIN`      | `http://localhost:3129` | `state`              |
+| Var                     | Default                 | Used by                                                        |
+| ----------------------- | ----------------------- | -------------------------------------------------------------- |
+| `CRACKBOX_PROXY_ADDR`   | `:3128`                 | `proxy serve` listen                                           |
+| `CRACKBOX_ADMIN_ADDR`   | `:3129`                 | `proxy serve` admin                                            |
+| `CRACKBOX_ADMIN_SECRET` | (unset)                 | bearer token for `/v1/register`+`/v1/unregister`; empty = open |
+| `CRACKBOX_STATE_PATH`   | (unset)                 | persist registry to JSON file; empty = RAM-only                |
+| `CRACKBOX_IMAGE`        | `crackbox:latest`       | `run` proxy image                                              |
+| `CRACKBOX_SUBNET`       | `10.99.0.0/16`          | `run` Docker subnet                                            |
+| `CRACKBOX_ADMIN`        | `http://localhost:3129` | `state`                                                        |
+
+`CRACKBOX_ADMIN_SECRET` empty leaves mutating endpoints unauthenticated
+and logs a warning. The same secret must be set on both the daemon and
+each consumer (e.g. arizuko's `gated`). Read-only endpoints
+(`/v1/state`, `/health`) never require auth.
+
+`CRACKBOX_STATE_PATH` empty keeps the registry in memory; restarts drop
+state. When set, every `Set`/`Remove` rewrites the file atomically and
+startup reloads it. Corrupt or missing files reset to empty (logged as
+warnings) — a stale snapshot can never block startup.
 
 ## Don't reinvent supervision
 
