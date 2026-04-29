@@ -1,5 +1,5 @@
 build:
-	go build -o egred .
+	go build -o crackbox ./cmd/crackbox/
 
 test:
 	go test ./... -count=1
@@ -8,6 +8,6 @@ lint:
 	go vet ./...
 
 clean:
-	rm -f egred
+	rm -f crackbox
 
 .PHONY: build test lint clean

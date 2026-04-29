@@ -1,8 +1,10 @@
-package main
+// Package proxy implements the forward HTTP / CONNECT-tunnel HTTPS proxy
+// that gates traffic by per-source-IP allowlist. The lookup is delegated
+// to an Allower (admin.Registry satisfies it) so the proxy doesn't depend
+// on any specific registry implementation.
+package proxy
 
 import (
-	"bufio"
-	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -16,21 +18,22 @@ const (
 	httpReadHeader = 5 * time.Second
 )
 
-// Proxy is a forward HTTP/HTTPS proxy. Agent containers are configured with
-// HTTPS_PROXY=http://egred:3128 (transparent path was rejected — Docker
-// bridges put the host on the gateway, not egred). For HTTP requests we
-// forward and check the Host header. For HTTPS, we honor CONNECT and check
-// the host:port target — no MITM, no TLS termination.
-type Proxy struct {
-	allow *Allowlist
+// Allower is the contract the proxy needs from a registry.
+type Allower interface {
+	Allow(ip, host string) (id string, ok bool)
 }
 
-func NewProxy(allow *Allowlist) *Proxy {
+type Proxy struct {
+	allow Allower
+}
+
+func New(allow Allower) *Proxy {
 	return &Proxy{allow: allow}
 }
 
-func (p *Proxy) Server() *http.Server {
+func (p *Proxy) Server(addr string) *http.Server {
 	return &http.Server{
+		Addr:              addr,
 		Handler:           p,
 		ReadHeaderTimeout: httpReadHeader,
 	}
@@ -46,15 +49,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.handleHTTP(w, r, src)
 }
 
-// handleConnect tunnels HTTPS opaquely once the host passes the allowlist.
 func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, src string) {
 	host, _, err := net.SplitHostPort(r.Host)
 	if err != nil {
 		host = r.Host
 	}
-	folder, ok := p.allow.Allow(src, host)
+	id, ok := p.allow.Allow(src, host)
 	if !ok {
-		slog.Info("deny connect", "src", src, "folder", folder, "host", host)
+		slog.Info("deny connect", "src", src, "id", id, "host", host)
 		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
@@ -81,11 +83,10 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, src string
 	if _, err := client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
 		return
 	}
-	slog.Info("allow connect", "src", src, "folder", folder, "host", host)
+	slog.Info("allow connect", "src", src, "id", id, "host", host)
 	splice(client, upstream)
 }
 
-// handleHTTP forwards plain-HTTP requests after host allowlist check.
 func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 	host := r.Host
 	if r.URL != nil && r.URL.Host != "" {
@@ -95,9 +96,9 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 		host = h
 	}
 
-	folder, ok := p.allow.Allow(src, host)
+	id, ok := p.allow.Allow(src, host)
 	if !ok {
-		slog.Info("deny http", "src", src, "folder", folder, "host", host)
+		slog.Info("deny http", "src", src, "id", id, "host", host)
 		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
@@ -135,7 +136,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 	}
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
-	slog.Info("allow http", "src", src, "folder", folder, "host", host, "status", resp.StatusCode)
+	slog.Info("allow http", "src", src, "id", id, "host", host, "status", resp.StatusCode)
 }
 
 func isHopByHop(h string) bool {
@@ -153,7 +154,3 @@ func splice(a, b net.Conn) {
 	go func() { _, _ = io.Copy(b, a); done <- struct{}{} }()
 	<-done
 }
-
-// silence imports during the rewrite (peek/origdst no longer used here).
-var _ = bufio.NewReader
-var _ = errors.New

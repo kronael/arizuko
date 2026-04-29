@@ -104,7 +104,7 @@ type Input struct {
 	// nil disables injection (only `base` env from gated process is used).
 	SecretsResolver SecretsResolver `json:"-"`
 
-	// Egress optionally enables crackbox/egred network isolation. Zero
+	// Egress optionally enables crackbox network isolation. Zero
 	// value disables it; agent spawns on the default Docker bridge.
 	Egress EgressConfig `json:"-"`
 }
@@ -536,9 +536,9 @@ func buildArgs(
 	if network != "" {
 		args = append(args,
 			"--network", network,
-			"-e", "HTTP_PROXY=http://egred:3128",
-			"-e", "HTTPS_PROXY=http://egred:3128",
-			"-e", "NO_PROXY=localhost,127.0.0.1,gated,egred",
+			"-e", "HTTP_PROXY=http://crackbox:3128",
+			"-e", "HTTPS_PROXY=http://crackbox:3128",
+			"-e", "NO_PROXY=localhost,127.0.0.1,gated,crackbox",
 			"-e", "NODE_OPTIONS=--require=/app/proxy-shim.js")
 	}
 

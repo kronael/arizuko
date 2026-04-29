@@ -56,7 +56,7 @@ var daemonKeys = map[string][]string{
 		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
 		"IMPULSE_ENABLED", "SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
-		"EGRESS_NETWORK", "EGRED_API",
+		"EGRESS_NETWORK", "CRACKBOX_ADMIN_API", "EGRED_API",
 	},
 	"timed": {"CHANNEL_SECRET"},
 	"onbod": {
@@ -80,7 +80,7 @@ var daemonKeys = map[string][]string{
 	"emaid":  {"CHANNEL_SECRET", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"},
 	"whapd":  {"CHANNEL_SECRET"},
 	"twitd":  {"CHANNEL_SECRET", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
-	"egred":  {"EGRED_INTERNAL_SUBNET", "EGRED_PROXY_PORT", "EGRED_API_ADDR", "EGRED_PROXY_ADDR"},
+	"crackbox": {"CRACKBOX_PROXY_ADDR", "CRACKBOX_ADMIN_ADDR"},
 }
 
 // envFileFor returns the scoped env_file block for a daemon, falling back to
@@ -219,7 +219,7 @@ func Generate(dataDir string) (string, error) {
 		b.WriteString(renderService(app, flavor, s.name, s.cfg, env))
 	}
 	if envOr(env, "EGRESS_ISOLATION", "") == "true" {
-		b.WriteString(egredService(app, flavor, dataDir, env))
+		b.WriteString(crackboxService(app, flavor, dataDir, env))
 		b.WriteString(networksBlock(envOr(env, "EGRESS_SUBNET", "10.99.0.0/16")))
 	}
 	return b.String(), nil
@@ -227,7 +227,7 @@ func Generate(dataDir string) (string, error) {
 
 // networksBlock declares the internal network that agent containers attach
 // to. internal: true means no outgoing internet access on this bridge —
-// the only path out is via egred's second NIC on the project default network.
+// the only path out is via crackbox's second NIC on the project default network.
 func networksBlock(subnet string) string {
 	var b strings.Builder
 	b.WriteString("\nnetworks:\n")
@@ -239,11 +239,12 @@ func networksBlock(subnet string) string {
 	return b.String()
 }
 
-func egredService(app, flavor, dataDir string, env map[string]string) string {
+func crackboxService(app, flavor, dataDir string, env map[string]string) string {
 	var b strings.Builder
-	b.WriteString("  egred:\n")
-	fmt.Fprintf(&b, "    container_name: %s_egred_%s\n", app, flavor)
-	b.WriteString("    image: arizuko-egred:latest\n")
+	b.WriteString("  crackbox:\n")
+	fmt.Fprintf(&b, "    container_name: %s_crackbox_%s\n", app, flavor)
+	b.WriteString("    image: crackbox:latest\n")
+	b.WriteString("    command: ['proxy', 'serve']\n")
 	b.WriteString("    networks: [agents, default]\n")
 	b.WriteString("    healthcheck:\n")
 	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:3129/health']\n")

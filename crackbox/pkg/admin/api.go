@@ -1,30 +1,29 @@
-package main
+package admin
 
 import (
 	"encoding/json"
 	"net/http"
 )
 
-// API exposes register/unregister/list endpoints used by gated when an agent
-// container spawns or exits. Authentication is by network position: only
-// reachable from the internal Docker network where gated and egred share a
-// trust boundary. No HMAC here — bind address is internal-only.
-
+// API exposes register/unregister/state/health endpoints used by consumers
+// (e.g. arizuko gated) to populate the registry. Authentication is by
+// network position: only reachable from the trusted internal network.
+// No HMAC; bind address is internal-only.
 type API struct {
-	allow *Allowlist
+	reg *Registry
 }
 
-func NewAPI(allow *Allowlist) *API {
-	return &API{allow: allow}
+func NewAPI(reg *Registry) *API {
+	return &API{reg: reg}
 }
 
-type registerReq struct {
+type RegisterReq struct {
 	IP        string   `json:"ip"`
-	Folder    string   `json:"folder"`
+	ID        string   `json:"id"`
 	Allowlist []string `json:"allowlist"`
 }
 
-type unregisterReq struct {
+type UnregisterReq struct {
 	IP string `json:"ip"`
 }
 
@@ -42,7 +41,7 @@ func (a *API) register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method", http.StatusMethodNotAllowed)
 		return
 	}
-	var req registerReq
+	var req RegisterReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -51,7 +50,7 @@ func (a *API) register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ip required", http.StatusBadRequest)
 		return
 	}
-	a.allow.Set(req.IP, req.Folder, req.Allowlist)
+	a.reg.Set(req.IP, req.ID, req.Allowlist)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -60,25 +59,25 @@ func (a *API) unregister(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method", http.StatusMethodNotAllowed)
 		return
 	}
-	var req unregisterReq
+	var req UnregisterReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	a.allow.Remove(req.IP)
+	a.reg.Remove(req.IP)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) state(w http.ResponseWriter, r *http.Request) {
-	snap := a.allow.Snapshot()
+	snap := a.reg.Snapshot()
 	type item struct {
 		IP        string   `json:"ip"`
-		Folder    string   `json:"folder"`
+		ID        string   `json:"id"`
 		Allowlist []string `json:"allowlist"`
 	}
 	out := make([]item, 0, len(snap))
 	for ip, e := range snap {
-		out = append(out, item{IP: ip, Folder: e.folder, Allowlist: e.allowlist})
+		out = append(out, item{IP: ip, ID: e.ID, Allowlist: e.Allowlist})
 	}
 	w.Header().Set("content-type", "application/json")
 	json.NewEncoder(w).Encode(out)

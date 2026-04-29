@@ -9,6 +9,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- `egred/` → `crackbox/` (specs 6/9 + 6/10): the network-isolation
+  proxy moves to a sibling component (per `specs/8/b-orthogonal-components.md`)
+  with its own CLI, `pkg/proxy`, `pkg/match`, `pkg/admin`, `pkg/run`,
+  `pkg/client` layout. No semantic change — daemon-mode wire shape
+  (admin API at `:3129`, proxy at `:3128`) stays identical. Adds
+  `crackbox run --allow X -- <cmd>` for standalone single-shot use
+  on a developer laptop. Image renamed `arizuko-egred` → `crackbox`.
+  Container env now points at `http://crackbox:3128`. arizuko's
+  `container/egress.go` switches to `crackbox.Client`.
+
 ### Added
 
 - `egred`: new daemon — forward HTTP/HTTPS proxy with per-folder

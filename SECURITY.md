@@ -34,7 +34,7 @@ Three isolation axes:
 | Secrets at rest      | AES-GCM(`AUTH_SECRET`) over folder/user-scoped k=v rows                    | `store/secrets.go`, migration `0034-secrets.sql`               |
 | Secret injection     | Resolved at container spawn; folder always, user only in 1:1 chats         | `container/runner.go` (`resolveSpawnEnv`)                      |
 | Onboarding rate cap  | Per-gate daily limit from `onboarding_gates` table                         | `onbod/main.go` (`admitFromQueue`)                             |
-| Network egress       | Default-deny; per-folder allowlist enforced by transparent proxy           | `egred/`, `store/network.go`, `container/egress.go`            |
+| Network egress       | Default-deny; per-folder allowlist enforced by forward proxy               | `crackbox/`, `store/network.go`, `container/egress.go`         |
 
 Anything not in this table is not a security boundary. In particular:
 socket filesystem permissions alone do not separate containers, and
@@ -90,15 +90,15 @@ anonymous-from-trusted-IP); even there, the call is a boolean
 
 ## Network egress isolation
 
-When `EGRESS_ISOLATION=true` and `arizuko-egred:latest` is running,
+When `EGRESS_ISOLATION=true` and `crackbox:latest` is running,
 agent containers attach to a Docker `internal: true` network with no
-default route to the internet. The only path out is via `egred`, which
-runs on both the internal network and the project default bridge.
+default route to the internet. The only path out is via `crackbox`,
+which runs on both the internal network and the project default bridge.
 
-- Agent containers receive `HTTPS_PROXY=http://egred:3128` at spawn
+- Agent containers receive `HTTPS_PROXY=http://crackbox:3128` at spawn
   plus `NODE_OPTIONS=--require=/app/proxy-shim.js` so Node's built-in
   fetch honors the proxy (curl/wget/pip/go/npm honor it natively).
-  egred forwards HTTP and CONNECT-tunnels HTTPS without decrypting.
+  crackbox forwards HTTP and CONNECT-tunnels HTTPS without decrypting.
 - Non-cooperating clients fail closed: the internal Docker network
   has no default route, so a client that ignores `HTTPS_PROXY` cannot
   reach the internet at all.

@@ -1,8 +1,7 @@
-package main
+package admin
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,20 +10,20 @@ import (
 )
 
 func TestRegisterUnregister(t *testing.T) {
-	allow := NewAllowlist()
-	api := NewAPI(allow)
+	reg := NewRegistry()
+	api := NewAPI(reg)
 	srv := httptest.NewServer(api.Routes())
 	defer srv.Close()
 
-	body := `{"ip":"10.99.0.5","folder":"acme/eng","allowlist":["github.com","npmjs.org"]}`
+	body := `{"ip":"10.99.0.5","id":"acme/eng","allowlist":["github.com","npmjs.org"]}`
 	resp, err := http.Post(srv.URL+"/v1/register", "application/json", strings.NewReader(body))
 	if err != nil || resp.StatusCode != 204 {
 		t.Fatalf("register: %v %d", err, statusCodeOf(resp))
 	}
 
-	folder, list, ok := allow.Lookup("10.99.0.5")
-	if !ok || folder != "acme/eng" || len(list) != 2 {
-		t.Fatalf("lookup: %v %v %v", folder, list, ok)
+	id, list, ok := reg.Lookup("10.99.0.5")
+	if !ok || id != "acme/eng" || len(list) != 2 {
+		t.Fatalf("lookup: %v %v %v", id, list, ok)
 	}
 
 	resp, err = http.Get(srv.URL + "/v1/state")
@@ -34,7 +33,7 @@ func TestRegisterUnregister(t *testing.T) {
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	if !bytes.Contains(b, []byte(`"acme/eng"`)) {
-		t.Errorf("state body missing folder: %s", b)
+		t.Errorf("state body missing id: %s", b)
 	}
 
 	resp, err = http.Post(srv.URL+"/v1/unregister", "application/json",
@@ -42,18 +41,18 @@ func TestRegisterUnregister(t *testing.T) {
 	if err != nil || resp.StatusCode != 204 {
 		t.Fatalf("unregister: %v %d", err, statusCodeOf(resp))
 	}
-	if _, _, ok := allow.Lookup("10.99.0.5"); ok {
+	if _, _, ok := reg.Lookup("10.99.0.5"); ok {
 		t.Errorf("post-unregister still present")
 	}
 }
 
 func TestRegisterValidation(t *testing.T) {
-	api := NewAPI(NewAllowlist())
+	api := NewAPI(NewRegistry())
 	srv := httptest.NewServer(api.Routes())
 	defer srv.Close()
 
 	resp, _ := http.Post(srv.URL+"/v1/register", "application/json",
-		strings.NewReader(`{"folder":"x"}`))
+		strings.NewReader(`{"id":"x"}`))
 	if resp.StatusCode != 400 {
 		t.Errorf("missing ip should 400, got %d", resp.StatusCode)
 	}
@@ -65,7 +64,7 @@ func TestRegisterValidation(t *testing.T) {
 }
 
 func TestHealth(t *testing.T) {
-	api := NewAPI(NewAllowlist())
+	api := NewAPI(NewRegistry())
 	srv := httptest.NewServer(api.Routes())
 	defer srv.Close()
 
@@ -75,16 +74,29 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestRegistryAllow(t *testing.T) {
+	r := NewRegistry()
+	r.Set("10.99.0.5", "acme/eng", []string{"github.com", "anthropic.com"})
+
+	if id, ok := r.Allow("10.99.0.5", "api.github.com"); !ok || id != "acme/eng" {
+		t.Errorf("Allow allowed-host: ok=%v id=%q", ok, id)
+	}
+	if _, ok := r.Allow("10.99.0.5", "evil.com"); ok {
+		t.Errorf("Allow denied-host should fail")
+	}
+	if _, ok := r.Allow("10.99.0.99", "github.com"); ok {
+		t.Errorf("Allow unknown-IP should fail")
+	}
+
+	r.Remove("10.99.0.5")
+	if _, _, ok := r.Lookup("10.99.0.5"); ok {
+		t.Errorf("Remove did not clear")
+	}
+}
+
 func statusCodeOf(r *http.Response) int {
 	if r == nil {
 		return 0
 	}
 	return r.StatusCode
 }
-
-// Compile-time guard: registerReq decodes a real body
-var _ = func() bool {
-	var req registerReq
-	_ = json.Unmarshal([]byte(`{"ip":"x"}`), &req)
-	return true
-}()

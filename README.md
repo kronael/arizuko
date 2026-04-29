@@ -56,7 +56,6 @@ Full graph, message flow, container lifecycle, SQLite schema in
 | whapd  | WhatsApp adapter (TypeScript, Baileys)                  | [whapd/README.md](whapd/README.md)   |
 | twitd  | X/Twitter adapter (TypeScript, browser emulation)       | [twitd/README.md](twitd/README.md)   |
 | linkd  | LinkedIn adapter (stub)                                 | [linkd/README.md](linkd/README.md)   |
-| egred  | egress proxy (default-deny + per-folder allowlist)      | [egred/README.md](egred/README.md)   |
 
 ### Libraries
 
@@ -86,6 +85,15 @@ Full graph, message flow, container lifecycle, SQLite schema in
 
 The `ant/` directory (in-container agent, TypeScript) has its own
 layered docs and is not indexed here.
+
+### Components (orthogonal siblings)
+
+Shippable separately, usable outside arizuko. No imports of
+arizuko-internal packages. See [`specs/8/b-orthogonal-components.md`](specs/8/b-orthogonal-components.md).
+
+| name     | role                                         | README                                   |
+| -------- | -------------------------------------------- | ---------------------------------------- |
+| crackbox | forward proxy daemon + per-source allowlists | [crackbox/README.md](crackbox/README.md) |
 
 ## Features
 

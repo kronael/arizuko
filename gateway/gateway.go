@@ -879,7 +879,7 @@ func (g *Gateway) runAgentWithOpts(
 		SecretsResolver: g.store,
 		Egress: container.EgressConfig{
 			Network:     g.cfg.EgressNetwork,
-			EgredAPI:    g.cfg.EgressAPI,
+			AdminURL:    g.cfg.EgressAPI,
 			AllowlistFn: g.store.ResolveAllowlist,
 		},
 	}

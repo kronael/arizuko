@@ -1,31 +1,31 @@
 package container
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/onvos/arizuko/crackbox/pkg/client"
 )
 
-// EgressConfig holds the optional crackbox/egred isolation settings. Zero
-// value disables isolation; spawn falls back to the default Docker bridge.
+// EgressConfig holds the optional crackbox isolation settings. Zero value
+// disables isolation; spawn falls back to the default Docker bridge.
 type EgressConfig struct {
 	// Network is the Docker network name to attach the agent to. Empty
 	// disables egress isolation entirely.
 	Network string
-	// EgredAPI is the HTTP base URL of egred (e.g. http://egred:3129).
-	EgredAPI string
+	// AdminURL is the HTTP base URL of the crackbox proxy admin API
+	// (e.g. http://crackbox:3129).
+	AdminURL string
 	// AllowlistFn returns the resolved allowlist for a folder. May return
-	// nil for "default-deny" (no rules) — egred treats that as a block.
+	// nil for "default-deny" (no rules) — crackbox treats that as a block.
 	AllowlistFn func(folder string) ([]string, error)
 }
 
 func (e EgressConfig) Enabled() bool {
-	return e.Network != "" && e.EgredAPI != ""
+	return e.Network != "" && e.AdminURL != ""
 }
 
 // inspectContainerIP returns the IPv4 address assigned to <containerName>
@@ -49,8 +49,8 @@ func inspectContainerIP(containerName, network string) (string, error) {
 	return "", fmt.Errorf("could not inspect IP for %s on %s", containerName, network)
 }
 
-// registerEgress informs egred about a newly-spawned container. Returns the
-// container's IP for unregister; returns empty + nil error if egress is
+// registerEgress informs crackbox about a newly-spawned container. Returns
+// the container's IP for unregister; returns empty + nil error if egress is
 // disabled (caller treats as no-op).
 func registerEgress(cfg EgressConfig, folder, containerName string) (ip string, _ error) {
 	if !cfg.Enabled() {
@@ -64,19 +64,8 @@ func registerEgress(cfg EgressConfig, folder, containerName string) (ip string, 
 	if err != nil {
 		return "", fmt.Errorf("resolve allowlist: %w", err)
 	}
-	body, _ := json.Marshal(map[string]interface{}{
-		"ip":        ip,
-		"folder":    folder,
-		"allowlist": allowlist,
-	})
-	resp, err := http.Post(cfg.EgredAPI+"/v1/register",
-		"application/json", bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("egred register: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("egred register: status %d", resp.StatusCode)
+	if err := client.New(cfg.AdminURL).Register(ip, folder, allowlist); err != nil {
+		return "", fmt.Errorf("crackbox register: %w", err)
 	}
 	slog.Info("egress registered",
 		"folder", folder, "ip", ip, "rules", len(allowlist))
@@ -87,12 +76,7 @@ func unregisterEgress(cfg EgressConfig, ip string) {
 	if !cfg.Enabled() || ip == "" {
 		return
 	}
-	body, _ := json.Marshal(map[string]string{"ip": ip})
-	resp, err := http.Post(cfg.EgredAPI+"/v1/unregister",
-		"application/json", bytes.NewReader(body))
-	if err != nil {
+	if err := client.New(cfg.AdminURL).Unregister(ip); err != nil {
 		slog.Warn("egress unregister", "ip", ip, "err", err)
-		return
 	}
-	resp.Body.Close()
 }
