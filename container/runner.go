@@ -103,6 +103,10 @@ type Input struct {
 	// SecretsResolver resolves folder + user secrets at spawn time.
 	// nil disables injection (only `base` env from gated process is used).
 	SecretsResolver SecretsResolver `json:"-"`
+
+	// Egress optionally enables crackbox/egred network isolation. Zero
+	// value disables it; agent spawns on the default Docker bridge.
+	Egress EgressConfig `json:"-"`
 }
 
 // SecretsResolver is the subset of *store.Store the container runner needs to
@@ -164,7 +168,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			"arizuko-%s-%s-%d", cfg.Name, safe, time.Now().UnixMilli())
 	}
 
-	args := buildArgs(cfg, mounts, containerName)
+	args := buildArgs(cfg, mounts, containerName, in.Egress.Network)
 
 	logsDir := filepath.Join(groupDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
@@ -211,6 +215,13 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		stopMCP()
 		return Output{Error: "start: " + err.Error()}
 	}
+
+	egressIP, eerr := registerEgress(in.Egress, in.Folder, containerName)
+	if eerr != nil {
+		slog.Warn("egress register failed",
+			"group", in.Folder, "container", containerName, "err", eerr)
+	}
+	defer unregisterEgress(in.Egress, egressIP)
 
 	in.Secrets = resolveSpawnEnv(in.SecretsResolver, readSecrets(), in.Folder, in.ChatJID)
 	in.AsstName = cfg.Name
@@ -514,13 +525,16 @@ func buildMounts(
 }
 
 func buildArgs(
-	cfg *core.Config, mounts []volumeMount, name string,
+	cfg *core.Config, mounts []volumeMount, name, network string,
 ) []string {
 	args := []string{
 		"run", "-i", "--rm",
 		"--name", name,
 		"--shm-size=1g",
 		"-e", "TZ=" + cfg.Timezone,
+	}
+	if network != "" {
+		args = append(args, "--network", network)
 	}
 
 	uid := os.Getuid()

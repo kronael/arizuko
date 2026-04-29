@@ -56,6 +56,10 @@ type Config struct {
 	VoiceEnabled  bool
 	VideoEnabled  bool
 	WhisperModel  string
+
+	// Egress isolation (crackbox / egred). Disabled when EgressNetwork is empty.
+	EgressNetwork string // Docker network name to attach agent containers to
+	EgressAPI     string // egred HTTP API base URL (e.g. http://egred:3129)
 }
 
 func LoadConfigFrom(dir string) (*Config, error) {
@@ -115,6 +119,9 @@ func LoadConfig() (*Config, error) {
 		VoiceEnabled:  envOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
 		VideoEnabled:  envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 		WhisperModel:  envOr("WHISPER_MODEL", "turbo"),
+
+		EgressNetwork: envOr("EGRESS_NETWORK", ""),
+		EgressAPI:     envOr("EGRED_API", ""),
 	}
 
 	dev := os.Getenv("ARIZUKO_DEV") == "true" || os.Getenv("ARIZUKO_DEV") == "1"

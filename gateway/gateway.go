@@ -877,6 +877,11 @@ func (g *Gateway) runAgentWithOpts(
 		GatedFns:        g.gatedFns,
 		StoreFns:        g.storeFns,
 		SecretsResolver: g.store,
+		Egress: container.EgressConfig{
+			Network:     g.cfg.EgressNetwork,
+			EgredAPI:    g.cfg.EgressAPI,
+			AllowlistFn: g.store.ResolveAllowlist,
+		},
 	}
 
 	st := g.beginTurnRun(group.Folder, onOutput)

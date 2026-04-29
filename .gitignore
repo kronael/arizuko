@@ -45,4 +45,5 @@ bskyd/bskyd
 reditd/reditd
 reditd/cursors.json
 linkd/linkd
+egred/egred
 *.py

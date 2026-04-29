@@ -1,4 +1,4 @@
-DAEMONS = gated onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd linkd
+DAEMONS = gated onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd linkd egred
 
 # DOCKER may be overridden by the caller for hosts where the invoking user is
 # in the docker group (then `make images DOCKER=docker`). Default is
@@ -6,7 +6,7 @@ DAEMONS = gated onbod dashd proxyd webd timed teled discd emaid mastd bskyd redi
 DOCKER ?= sudo docker
 
 build:
-	go build -o arizuko cmd/arizuko/main.go
+	go build -o arizuko ./cmd/arizuko/
 	$(foreach d,$(DAEMONS),make -C $(d) build;)
 
 lint:
@@ -27,6 +27,7 @@ images:
 	$(DOCKER) build -t arizuko .
 	$(DOCKER) build -t arizuko-whatsapp -f whapd/Dockerfile .
 	$(DOCKER) build -t arizuko-twitter -f twitd/Dockerfile .
+	$(DOCKER) build -t arizuko-egred -f egred/Dockerfile .
 	make -C ant image DOCKER="$(DOCKER)"
 	make vite-image
 

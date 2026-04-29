@@ -79,6 +79,7 @@ var daemonKeys = map[string][]string{
 	"emaid":  {"CHANNEL_SECRET", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"},
 	"whapd":  {"CHANNEL_SECRET"},
 	"twitd":  {"CHANNEL_SECRET", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
+	"egred":  {"EGRED_INTERNAL_SUBNET", "EGRED_PROXY_PORT", "EGRED_API_ADDR", "EGRED_PROXY_ADDR"},
 }
 
 // envFileFor returns the scoped env_file block for a daemon, falling back to
@@ -216,7 +217,44 @@ func Generate(dataDir string) (string, error) {
 	for _, s := range services {
 		b.WriteString(renderService(app, flavor, s.name, s.cfg, env))
 	}
+	if envOr(env, "EGRESS_ISOLATION", "") == "true" {
+		b.WriteString(egredService(app, flavor, dataDir, env))
+		b.WriteString(networksBlock(envOr(env, "EGRESS_SUBNET", "10.99.0.0/16")))
+	}
 	return b.String(), nil
+}
+
+// networksBlock declares the internal network that agent containers attach
+// to. internal: true means no outgoing internet access on this bridge —
+// the only path out is via egred's second NIC on the project default network.
+func networksBlock(subnet string) string {
+	var b strings.Builder
+	b.WriteString("\nnetworks:\n")
+	b.WriteString("  agents:\n")
+	b.WriteString("    internal: true\n")
+	b.WriteString("    ipam:\n")
+	b.WriteString("      config:\n")
+	fmt.Fprintf(&b, "        - subnet: %s\n", subnet)
+	return b.String()
+}
+
+func egredService(app, flavor, dataDir string, env map[string]string) string {
+	var b strings.Builder
+	b.WriteString("  egred:\n")
+	fmt.Fprintf(&b, "    container_name: %s_egred_%s\n", app, flavor)
+	b.WriteString("    image: arizuko-egred:latest\n")
+	b.WriteString("    cap_add: ['NET_ADMIN']\n")
+	b.WriteString("    networks: [agents, default]\n")
+	b.WriteString("    environment:\n")
+	writeEnv(&b, map[string]string{
+		"EGRED_INTERNAL_SUBNET": envOr(env, "EGRESS_SUBNET", "10.99.0.0/16"),
+		"EGRED_PROXY_PORT":      "3128",
+	})
+	b.WriteString("    healthcheck:\n")
+	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:3129/health']\n")
+	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n")
+	b.WriteString("    restart: on-failure\n")
+	return b.String()
 }
 
 type svcDef struct {

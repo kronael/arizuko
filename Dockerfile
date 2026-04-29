@@ -6,7 +6,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=1 go build -o /arizuko cmd/arizuko/main.go
+RUN CGO_ENABLED=1 go build -o /arizuko ./cmd/arizuko/
 RUN CGO_ENABLED=1 go build -o /gated ./gated/
 RUN CGO_ENABLED=1 go build -o /timed ./timed/
 RUN CGO_ENABLED=0 go build -o /teled ./teled/

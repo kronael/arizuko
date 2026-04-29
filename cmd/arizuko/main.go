@@ -32,6 +32,7 @@ func main() {
 		fmt.Println("  invite   <instance> list [--issued-by SUB]")
 		fmt.Println("  invite   <instance> revoke <token>")
 		fmt.Println("  identity <instance> list | link <sub> [--name NAME] [--id ID] | unlink <sub>")
+		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
 		fmt.Println("  chat     <instance>  — interactive Claude Code session bound to root MCP socket")
 		os.Exit(1)
 	}
@@ -47,6 +48,7 @@ func main() {
 		"chat":     cmdChat,
 		"status":   cmdStatus,
 		"pair":     cmdPair,
+		"network":  cmdNetwork,
 	}
 	fn, ok := cmds[os.Args[1]]
 	if !ok {
