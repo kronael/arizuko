@@ -56,7 +56,8 @@ var daemonKeys = map[string][]string{
 		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
 		"IMPULSE_ENABLED", "SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
-		"EGRESS_NETWORK", "EGRESS_SUBNET", "CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL",
+		"EGRESS_ISOLATION", "EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX",
+		"CRACKBOX_CONTAINER", "CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL",
 		"CRACKBOX_ADMIN_SECRET",
 	},
 	"timed": {"CHANNEL_SECRET"},
@@ -221,32 +222,20 @@ func Generate(dataDir string) (string, error) {
 	}
 	if envOr(env, "EGRESS_ISOLATION", "") == "true" {
 		b.WriteString(crackboxService(app, flavor, dataDir, env))
-		b.WriteString(networksBlock(envOr(env, "EGRESS_SUBNET", "10.99.0.0/16")))
 	}
 	return b.String(), nil
 }
 
-// networksBlock declares the internal network that agent containers attach
-// to. internal: true means no outgoing internet access on this bridge —
-// the only path out is via crackbox's second NIC on the project default network.
-func networksBlock(subnet string) string {
-	var b strings.Builder
-	b.WriteString("\nnetworks:\n")
-	b.WriteString("  agents:\n")
-	b.WriteString("    internal: true\n")
-	b.WriteString("    ipam:\n")
-	b.WriteString("      config:\n")
-	fmt.Fprintf(&b, "        - subnet: %s\n", subnet)
-	return b.String()
-}
-
+// crackboxService emits the crackbox proxy service. No `agents` network
+// here — folder networks are created at runtime by gated and crackbox is
+// attached to each via `docker network connect`. Crackbox stays on the
+// compose default bridge so it has outbound internet access.
 func crackboxService(app, flavor, dataDir string, env map[string]string) string {
 	var b strings.Builder
 	b.WriteString("  crackbox:\n")
 	fmt.Fprintf(&b, "    container_name: %s_crackbox_%s\n", app, flavor)
 	b.WriteString("    image: crackbox:latest\n")
 	b.WriteString("    command: ['proxy', 'serve']\n")
-	b.WriteString("    networks: [agents, default]\n")
 	b.WriteString("    volumes:\n")
 	fmt.Fprintf(&b, "      - %s/crackbox:/data/crackbox\n", dataDir)
 	b.WriteString(envFileFor("crackbox"))

@@ -221,6 +221,28 @@ func TestInterpolate(t *testing.T) {
 	}
 }
 
+func TestGenerateEgressIsolation(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"EGRESS_ISOLATION=true\nCRACKBOX_ADMIN_API=http://crackbox:3129\nAPI_PORT=8080\n"), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "  crackbox:\n") {
+		t.Error("crackbox service missing")
+	}
+	// No `agents` shared network — folder networks are runtime-managed by gated.
+	if strings.Contains(out, "\nnetworks:\n") {
+		t.Error("compose still declares networks block — folder networks should be runtime-managed, not compose")
+	}
+	if strings.Contains(out, "networks: [agents") || strings.Contains(out, "networks: [agents, default]") {
+		t.Error("crackbox should not attach to a static `agents` network")
+	}
+}
+
 func TestRouterEnvPassthrough(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)

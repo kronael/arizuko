@@ -878,12 +878,14 @@ func (g *Gateway) runAgentWithOpts(
 		StoreFns:        g.storeFns,
 		SecretsResolver: g.store,
 		Egress: container.EgressConfig{
-			Network:     g.cfg.EgressNetwork,
-			Subnet:      g.cfg.EgressSubnet,
-			ProxyURL:    g.cfg.EgressProxyURL,
-			AdminURL:    g.cfg.EgressAPI,
-			AdminSecret: g.cfg.EgressAdminSecret,
-			AllowlistFn: g.store.ResolveAllowlist,
+			Enabled:           g.cfg.EgressEnabled,
+			NetworkPrefix:     g.cfg.EgressNetworkPrefix,
+			CrackboxContainer: g.cfg.EgressCrackbox,
+			ParentSubnet:      g.cfg.EgressParentSubnet,
+			ProxyURL:          g.cfg.EgressProxyURL,
+			AdminURL:          g.cfg.EgressAPI,
+			AdminSecret:       g.cfg.EgressAdminSecret,
+			AllowlistFn:       g.store.ResolveAllowlist,
 		},
 	}
 

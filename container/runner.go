@@ -172,9 +172,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	// so the container's first outbound CONNECT cannot race the registry.
 	// On register failure the container is never spawned — otherwise the
 	// agent would run with HTTPS_PROXY set but every CONNECT 403s.
-	egressIP, eerr := registerEgress(in.Egress, in.Folder)
+	egressNet, egressIP, eerr := registerEgress(in.Egress, in.Folder)
 	if eerr != nil {
-		if in.Egress.Enabled() {
+		if in.Egress.active() {
 			return Output{Status: "error", Error: "egress register: " + eerr.Error()}
 		}
 		slog.Warn("egress register failed",
@@ -182,7 +182,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 	defer unregisterEgress(in.Egress, egressIP)
 
-	args := buildArgs(cfg, mounts, containerName, in.Egress, egressIP)
+	args := buildArgs(cfg, mounts, containerName, in.Egress, egressNet, egressIP)
 
 	logsDir := filepath.Join(groupDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
@@ -532,7 +532,7 @@ func buildMounts(
 }
 
 func buildArgs(
-	cfg *core.Config, mounts []volumeMount, name string, egress EgressConfig, ip string,
+	cfg *core.Config, mounts []volumeMount, name string, egress EgressConfig, network, ip string,
 ) []string {
 	args := []string{
 		"run", "-i", "--rm",
@@ -540,12 +540,12 @@ func buildArgs(
 		"--shm-size=1g",
 		"-e", "TZ=" + cfg.Timezone,
 	}
-	if egress.Network != "" {
+	if network != "" {
 		proxy := egress.ProxyURL
 		if proxy == "" {
 			proxy = "http://crackbox:3128"
 		}
-		args = append(args, "--network", egress.Network)
+		args = append(args, "--network", network)
 		if ip != "" {
 			args = append(args, "--ip", ip)
 		}

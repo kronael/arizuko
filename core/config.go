@@ -57,12 +57,16 @@ type Config struct {
 	VideoEnabled  bool
 	WhisperModel  string
 
-	// Egress isolation (crackbox). Disabled when EgressNetwork is empty.
-	EgressNetwork     string // Docker network name to attach agent containers to
-	EgressAPI         string // crackbox admin HTTP API base URL (e.g. http://crackbox:3129)
-	EgressProxyURL    string // HTTP(S)_PROXY value for the agent (e.g. http://crackbox:3128)
-	EgressSubnet      string // CIDR of the agents network; used to pre-assign IPs
-	EgressAdminSecret string // optional bearer token for crackbox admin API mutations
+	// Egress isolation (crackbox). Disabled when EgressEnabled is false.
+	// Per-folder networks are created lazily under EgressNetworkPrefix
+	// with /24s carved from EgressParentSubnet.
+	EgressEnabled       bool   // master switch
+	EgressNetworkPrefix string // e.g. "arizuko_krons" — folder networks are <prefix>_<sanitized-folder>
+	EgressCrackbox      string // crackbox container name (attached to every folder network)
+	EgressAPI           string // crackbox admin HTTP API base URL (e.g. http://crackbox:3129)
+	EgressProxyURL      string // HTTP(S)_PROXY value for the agent (e.g. http://crackbox:3128)
+	EgressParentSubnet  string // parent CIDR carved into per-folder /24s (default 10.99.0.0/16)
+	EgressAdminSecret   string // optional bearer token for crackbox admin API mutations
 }
 
 func LoadConfigFrom(dir string) (*Config, error) {
@@ -123,11 +127,38 @@ func LoadConfig() (*Config, error) {
 		VideoEnabled:  envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 		WhisperModel:  envOr("WHISPER_MODEL", "turbo"),
 
-		EgressNetwork:     envOr("EGRESS_NETWORK", ""),
-		EgressAPI:         envOr("CRACKBOX_ADMIN_API", ""),
-		EgressProxyURL:    envOr("CRACKBOX_PROXY_URL", "http://crackbox:3128"),
-		EgressSubnet:      envOr("EGRESS_SUBNET", "10.99.0.0/16"),
-		EgressAdminSecret: envOr("CRACKBOX_ADMIN_SECRET", ""),
+		EgressEnabled:       envOr("EGRESS_ISOLATION", "") == "true",
+		EgressNetworkPrefix: envOr("EGRESS_NETWORK_PREFIX", ""),
+		EgressCrackbox:      envOr("CRACKBOX_CONTAINER", ""),
+		EgressAPI:           envOr("CRACKBOX_ADMIN_API", ""),
+		EgressProxyURL:      envOr("CRACKBOX_PROXY_URL", "http://crackbox:3128"),
+		EgressParentSubnet:  envOr("EGRESS_SUBNET", "10.99.0.0/16"),
+		EgressAdminSecret:   envOr("CRACKBOX_ADMIN_SECRET", ""),
+	}
+
+	// Default the network prefix + crackbox container name from the
+	// instance flavor (data-dir basename) when env doesn't override.
+	// Compose names crackbox <app>_crackbox_<flavor> — match that.
+	{
+		project := filepath.Base(c.ProjectRoot)
+		app, flavor, _ := strings.Cut(project, "_")
+		if app == "" {
+			app = "arizuko"
+		}
+		if c.EgressNetworkPrefix == "" {
+			if flavor != "" {
+				c.EgressNetworkPrefix = app + "_" + flavor
+			} else {
+				c.EgressNetworkPrefix = app
+			}
+		}
+		if c.EgressCrackbox == "" {
+			if flavor != "" {
+				c.EgressCrackbox = app + "_crackbox_" + flavor
+			} else {
+				c.EgressCrackbox = app + "_crackbox"
+			}
+		}
 	}
 
 	dev := os.Getenv("ARIZUKO_DEV") == "true" || os.Getenv("ARIZUKO_DEV") == "1"

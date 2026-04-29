@@ -11,6 +11,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- `container`: per-folder egress network isolation. Each agent's folder
+  now gets its own internal Docker network (`<prefix>_<sanitized-folder>`)
+  carved as a /24 inside `EGRESS_SUBNET` (default `10.99.0.0/16` -> 256
+  /24 slots). Crackbox is the sole shared container, attached to every
+  folder network at agent-spawn time via `docker network connect`.
+  East-west compromise containment: a hijacked agent in folder A can no
+  longer ARP/scan agents in folder B — only crackbox is reachable.
+  Networks persist for the instance lifetime; operators can
+  `docker network rm <name>` to reclaim slots. New env: `EGRESS_ISOLATION`
+  (master switch, replaces the old `EGRESS_NETWORK=<name>` enable
+  signal), `EGRESS_NETWORK_PREFIX` (defaults to `<app>_<flavor>`),
+  `CRACKBOX_CONTAINER` (defaults to `<app>_crackbox_<flavor>`).
+  `EgressConfig.Network`/`Subnet`/`Enabled()` replaced with
+  `Enabled bool`/`NetworkPrefix`/`CrackboxContainer`/`ParentSubnet`.
+  Compose no longer declares an `agents` network — folder networks are
+  runtime-managed by gated.
 - `egred/` → `crackbox/` (specs 6/9 + 6/10): the network-isolation
   proxy moves to a sibling component (per `specs/8/b-orthogonal-components.md`)
   with its own CLI, `pkg/proxy`, `pkg/match`, `pkg/admin`, `pkg/run`,
