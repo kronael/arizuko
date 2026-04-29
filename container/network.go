@@ -141,12 +141,30 @@ func ensureFolderNetwork(prefix, crackbox, parent, folder string) (string, strin
 		return netName, existingSubnet, nil
 	}
 
-	subnet, err := pickFolderSubnet(defaultNetMgr, parent, folder)
-	if err != nil {
-		return "", "", err
+	// pickFolderSubnet probes our internal allocator state, but Docker
+	// may already have networks (e.g. orphans from a previous instance
+	// name) sitting on the same /24. Retry with the next slot when
+	// `network create` returns "Pool overlaps". Bounded by slot count.
+	var subnet string
+	for attempt := 0; attempt < 8; attempt++ {
+		s, err := pickFolderSubnet(defaultNetMgr, parent, folder)
+		if err != nil {
+			return "", "", err
+		}
+		err = createNetwork(netName, s)
+		if err == nil {
+			subnet = s
+			break
+		}
+		if !strings.Contains(err.Error(), "Pool overlaps") {
+			return "", "", err
+		}
+		// Mark this slot taken so pickFolderSubnet probes the next one.
+		defaultNetMgr.markAllocated(s)
+		slog.Warn("egress subnet overlap, retrying", "subnet", s, "folder", folder)
 	}
-	if err := createNetwork(netName, subnet); err != nil {
-		return "", "", err
+	if subnet == "" {
+		return "", "", fmt.Errorf("could not find a free subnet for folder %q in parent %s", folder, parent)
 	}
 	defaultNetMgr.markAllocated(subnet)
 	if err := connectCrackbox(crackbox, netName); err != nil {

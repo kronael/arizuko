@@ -129,7 +129,7 @@ func LoadConfig() (*Config, error) {
 
 		EgressEnabled:       envOr("EGRESS_ISOLATION", "") == "true",
 		EgressNetworkPrefix: envOr("EGRESS_NETWORK_PREFIX", ""),
-		EgressCrackbox:      envOr("CRACKBOX_CONTAINER", ""),
+		EgressCrackbox:      envOr("EGRESS_CRACKBOX", ""),
 		EgressAPI:           envOr("CRACKBOX_ADMIN_API", ""),
 		EgressProxyURL:      envOr("CRACKBOX_PROXY_URL", "http://crackbox:3128"),
 		EgressParentSubnet:  envOr("EGRESS_SUBNET", "10.99.0.0/16"),
