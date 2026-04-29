@@ -205,10 +205,10 @@ changes. The root `CHANGELOG.md` continues to track arizuko-wide
 changes and references component changelogs by path.
 
 Docker image tags follow arizuko's tag (`arizuko-<component>:vX.Y.Z`,
-matching `arizuko:vX.Y.Z`). If a component eventually needs an
-independent release cadence, the move is `go.work` + a sub-module
-plus a separate tag namespace. Don't do this until there is a real
-second consumer.
+matching `arizuko:vX.Y.Z`). Components stay in arizuko's single
+`go.mod` — we don't split them into separate Go modules. External
+users consume components through their CLI and Docker image, not as
+imported Go libraries.
 
 ## Acceptance
 

@@ -10,9 +10,11 @@
   grep (e.g. arizuko-internal subpackages: `store`, `core`, `gateway`, `api`),
   not the module owner string.
 - Shippable sibling components (`crackbox/`, future `gateway/`, `mcpfw/`) are
-  meant to be usable outside arizuko. Long-term they get their own
-  `go.mod` so external users can `go get github.com/kronael/<comp>`. Today
-  they share arizuko's go.mod — known and tracked.
+  designed to be usable outside arizuko _as binaries_ (the CLI, Docker
+  image, and HTTP/CLI contracts) — but they share arizuko's single
+  `go.mod`. We don't split them into separate modules; orthogonality is
+  enforced by the import-graph rule (no arizuko-internal subpackage
+  imports), not by module separation.
 
 ## Response Style
 

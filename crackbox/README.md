@@ -97,6 +97,7 @@ This component imports nothing from arizuko-internal packages.
 Consumers (arizuko's gated, future tools) import
 `<arizuko-module>/crackbox/pkg/...` or invoke the CLI.
 
-Long-term: `crackbox/` gets its own `go.mod` so external users can
-`go get github.com/kronael/crackbox`. Until then, the import path
-follows the parent module.
+Crackbox shares arizuko's single `go.mod` and stays that way —
+orthogonality is enforced by the import graph (the grep above), not
+by module separation. External users consume crackbox as a CLI or
+Docker image, not as a Go library.
