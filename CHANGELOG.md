@@ -9,6 +9,77 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.31.1] — 2026-04-30
+
+Day-after polish + production-deploy fixes for crackbox. All three
+instances (krons, sloth, marinade) now run the same image with
+default-deny egress.
+
+### Added
+
+- `crackbox`: transparent-proxy listener on `:3127` (default-on,
+  disable via `~/.crackboxrc`). Reads `SO_ORIGINAL_DST`, peeks
+  SNI/Host header, runs the same allowlist as the forward path.
+- `crackbox`: TOML config file lookup (`--config`,
+  `$XDG_CONFIG_HOME/crackbox/crackbox.toml`, `~/.crackboxrc`,
+  `/etc/crackbox.toml`). Precedence: flags > env > config > defaults.
+- `pkg/match.Host`: bare `*` allowlist entry matches any host.
+  Used by tier 0/1 spawns to route through the proxy for logging
+  and future secret injection without name filtering.
+- `Makefile::smoke INSTANCE=<name>` — post-deploy verification.
+- Public web docs at `/pub/crackbox/` (landing) + `/pub/crackbox/reference/`
+  (commands, config, threat model, library).
+
+### Changed
+
+- Egress is now controlled by the presence of `CRACKBOX_ADMIN_API`
+  env. The `EGRESS_ISOLATION` boolean is gone — set the URL or
+  don't. Operators can drop `EGRESS_ISOLATION=true` from their .env.
+- Tier 0 (root) and tier 1 (world) bots route through crackbox with
+  a `*` wildcard appended to their resolved allowlist. Strict
+  filtering applies only to tier 2+ (buildings + rooms).
+- `compose/compose.go` now writes `EGRESS_NETWORK_PREFIX` and
+  `EGRESS_CRACKBOX` into gated's env file explicitly. No more
+  filesystem-path-derivation inside daemons.
+
+### Fixed
+
+- Path-derivation outage: `core/config.go` no longer parses
+  `filepath.Base(c.ProjectRoot)` to guess the network prefix.
+  Inside a daemon container that yielded `home`; on krons the
+  bug caused every `docker network connect` to fail and the
+  retry loop replayed every inbound message forever. Compose
+  generation owns the project name and writes it into env.
+- Retry-loop bound: `gateway.processSenderBatch` advances the
+  cursor past a failed batch instead of resetting to the prior
+  cursor. A permanent failure no longer blocks the queue.
+- Subnet-overlap retry: when `docker network create` reports
+  "Pool overlaps with other one on this address space" (orphan
+  network from a prior instance name), the allocator retries
+  with the next /24 slot up to 8 attempts.
+- `EgressCrackbox` was reading `CRACKBOX_CONTAINER` env while
+  compose wrote `EGRESS_CRACKBOX`. Renamed to read the right
+  one. New regression test pins every `EGRESS_*` env var to its
+  config field.
+- Admin auth: `CRACKBOX_ADMIN_SECRET` bearer token on `/v1/register`
+  and `/v1/unregister` (read-only endpoints stay open). Empty
+  secret keeps prior behavior + warns at startup.
+- Registry persistence: optional `CRACKBOX_STATE_PATH` writes the
+  registry to a JSON file atomically on every Set/Remove. Survives
+  container restart.
+- `/health` on the admin port now self-tests the proxy listener
+  via `net.Dial`. Returns 503 `{"status":"proxy_down"}` if the
+  proxy is dead — no more silent admin-green-but-proxy-broken.
+
+### Wisdom
+
+- "Identity is configured, never derived." `CLAUDE.md` and global
+  `~/.claude/CLAUDE.md` updated. Don't `filepath.Base()` a runtime
+  path to guess project / container / network names.
+- "Components stay in single go.mod." Sibling tools live in arizuko's
+  monorepo with one `go.mod`; orthogonality is enforced by the
+  import graph, not module separation.
+
 ## [v0.31.0] — 2026-04-29
 
 Headline: **crackbox** ships as a sibling component with default-deny
