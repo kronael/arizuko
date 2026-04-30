@@ -172,6 +172,14 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	// so the container's first outbound CONNECT cannot race the registry.
 	// On register failure the container is never spawned — otherwise the
 	// agent would run with HTTPS_PROXY set but every CONNECT 403s.
+	// Tier 0 (root bot) and tier 1 (world) bypass egress isolation —
+	// they're operator-controlled trusted bots that legitimately need
+	// broad internet access. Tier 2+ (buildings and rooms) keep the
+	// per-folder allowlist enforcement.
+	if tierOf(in.Folder, root) <= 1 {
+		in.Egress = EgressConfig{}
+	}
+
 	// registerEgress returns nil error when egress is off (no-op).
 	// A non-nil error therefore means egress was on and we couldn't
 	// register — fail the spawn rather than start a container that
