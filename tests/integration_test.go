@@ -20,6 +20,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/onvos/arizuko/api"
 	"github.com/onvos/arizuko/chanreg"
+	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/ipc"
 	"github.com/onvos/arizuko/store"
 )
@@ -418,7 +419,15 @@ func TestMCPSocketRoundtrip(t *testing.T) {
 			return "platform-mid-1", nil
 		},
 	}
-	db := ipc.StoreFns{PutMessage: s.PutMessage}
+	// Outbound JID auth requires a route covering tg:42 → world's subtree.
+	// Add it before calling send (per specs/4/11-auth.md outbound auth).
+	if _, err := s.AddRoute(core.Route{Match: "room=42", Target: "world"}); err != nil {
+		t.Fatalf("AddRoute: %v", err)
+	}
+	db := ipc.StoreFns{
+		PutMessage:          s.PutMessage,
+		DefaultFolderForJID: s.DefaultFolderForJID,
+	}
 
 	sock := filepath.Join(dir, "mcp.sock")
 	// expectedUID <= 0 disables SO_PEERCRED check for the test.

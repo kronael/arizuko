@@ -13,8 +13,11 @@ type AuthzTarget struct {
 
 func Authorize(id Identity, tool string, target AuthzTarget) error {
 	switch tool {
-	case "send", "send_file", "list_tasks":
+	case "list_tasks":
 		return nil
+	case "send", "send_file", "reply", "post", "like", "dislike",
+		"delete", "edit", "forward", "quote", "repost":
+		return authorizeOutbound(id, tool, target)
 	case "reset_session":
 		if target.TargetFolder != id.Folder &&
 			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
@@ -91,4 +94,27 @@ func Authorize(id Identity, tool string, target AuthzTarget) error {
 	default:
 		return fmt.Errorf("unknown tool: %s", tool)
 	}
+}
+
+// authorizeOutbound enforces subtree containment for outbound chat
+// verbs (send, send_file, reply, post, like, dislike, delete, edit,
+// forward, quote, repost). The caller resolves the target JID's
+// owning folder via the routes table and passes it as
+// target.TargetFolder. The rule is plain folder containment: callers
+// can address chats whose folder is `id.Folder` or under it. No
+// tier bypass — even the instance root cannot direct-send cross-world.
+// Inter-world communication uses `delegate_group` / `escalate_group`,
+// which thread through their own authorization. Empty TargetFolder
+// means the JID is unrouted; addressed only by callers that own the
+// chat's notional namespace, which today is no one — denied.
+func authorizeOutbound(id Identity, tool string, target AuthzTarget) error {
+	if target.TargetFolder == "" {
+		return fmt.Errorf("forbidden: chat has no route in this instance (%s)", tool)
+	}
+	if target.TargetFolder == id.Folder ||
+		strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
+		return nil
+	}
+	return fmt.Errorf("forbidden: chat belongs to folder %s, not in subtree of %s (%s)",
+		target.TargetFolder, id.Folder, tool)
 }

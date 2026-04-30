@@ -403,6 +403,28 @@ func validHostname(h string) bool {
 	return true
 }
 
+// authorizeJID resolves the owning folder of jid via the routes table
+// and runs auth.Authorize with action against that folder. Outbound
+// chat verbs (send, send_file, reply, post, like, ...) thread through
+// here so a tier-1 rhias agent cannot dispatch to a JID owned by happy.
+// Tier 0 is unrestricted; unrouted JIDs are reachable only by tier 0.
+// db.DefaultFolderForJID may be nil in trivial test setups — in that
+// case we fall back to a tier-only check (tier 0 allow, others deny).
+func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
+	target := ""
+	if db.DefaultFolderForJID != nil {
+		target = db.DefaultFolderForJID(jid)
+	}
+	if err := auth.Authorize(id, action, auth.AuthzTarget{TargetFolder: target}); err != nil {
+		if target == "" {
+			return fmt.Errorf("forbidden: chat %s has no route in this instance", jid)
+		}
+		return fmt.Errorf("forbidden: chat %s belongs to folder %s, not in subtree of %s",
+			jid, target, id.Folder)
+	}
+	return nil
+}
+
 // routeTargetWithin reports whether target refers to owner's own folder
 // or a descendant. Typed prefixes (folder:, daemon:, builtin:) are
 // normalized before comparison; daemon:/builtin: targets are never
@@ -496,6 +518,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if !grantslib.CheckAction(rules, "send", map[string]string{"jid": jid}) {
 				return toolErr("send: not permitted")
 			}
+			if err := authorizeJID(id, "send", jid, db); err != nil {
+				return toolErr(err.Error())
+			}
 			if gated.SendMessage == nil {
 				return toolErr("send not configured")
 			}
@@ -524,6 +549,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if !grantslib.CheckAction(rules, "reply", map[string]string{"jid": jid}) {
 				return toolErr("reply: not permitted")
 			}
+			if err := authorizeJID(id, "reply", jid, db); err != nil {
+				return toolErr(err.Error())
+			}
 			if gated.SendReply == nil {
 				return toolErr("reply not configured")
 			}
@@ -551,6 +579,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			jid := req.GetString("chatJid", "")
 			if !grantslib.CheckAction(rules, "send_file", map[string]string{"jid": jid}) {
 				return toolErr("send_file: not permitted")
+			}
+			if err := authorizeJID(id, "send_file", jid, db); err != nil {
+				return toolErr(err.Error())
 			}
 			if gated.SendDocument == nil {
 				return toolErr("send_file not configured")
@@ -584,6 +615,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			jid := req.GetString("chatJid", "")
 			if !grantslib.CheckAction(rules, "post", map[string]string{"jid": jid}) {
 				return toolErr("post: not permitted")
+			}
+			if err := authorizeJID(id, "post", jid, db); err != nil {
+				return toolErr(err.Error())
 			}
 			if gated.Post == nil {
 				return toolErr("post not configured")
@@ -648,6 +682,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				jid := vals[jidArg]
 				if !grantslib.CheckAction(rules, s.name, map[string]string{"jid": jid}) {
 					return toolErr(s.name + ": not permitted")
+				}
+				if err := authorizeJID(id, s.name, jid, db); err != nil {
+					return toolErr(err.Error())
 				}
 				slog.Info(s.name, "folder", folder, "jid", jid)
 				id, err := s.call(vals)

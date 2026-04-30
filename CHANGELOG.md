@@ -9,6 +9,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- **Outbound MCP authorization**: `send`, `send_file`, `like`, `delete`,
+  `forward`, `quote`, `repost`, `dislike`, `edit`, `post` now resolve
+  the JID's owning folder via the `routes` table and call
+  `auth.Authorize` with `AuthzTarget{Folder: targetFolder}`. Tier 0
+  unrestricted; tier 1+ confined to subtree of caller's folder;
+  unrouted JIDs reachable only by root. Closes a hole where any agent
+  could send to any JID by name regardless of routing ownership.
+  Surface symptom: tier-1 world agents fan-out broadcasting (e.g.,
+  release announcements) to chats that route to other worlds — the
+  same chat receiving N copies of a release notice. After this fix
+  each world's broadcast naturally stays within its own subtree
+  because routing is 1:1; no cross-world overlap possible.
+
 ## [v0.32.0] — 2026-04-30
 
 Slink becomes the universal "drop a message, observe the round"

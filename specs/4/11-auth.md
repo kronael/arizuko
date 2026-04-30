@@ -67,6 +67,27 @@ Some actions require ownership validation beyond tier:
   only modify routes targeting own subtree
 - `delegate_group`: target must be a child of caller's folder
 
+### Outbound JID authorization
+
+Outbound chat verbs (`send`, `send_file`, `reply`, `post`,
+`like`, `dislike`, `delete`, `edit`, `forward`, `quote`,
+`repost`) thread the target JID's resolved owning folder
+through `Authorize` with `AuthzTarget{TargetFolder: ...}`. The
+folder is looked up via the `routes` table at the IPC layer
+(`store.DefaultFolderForJID`). The rule is plain subtree
+containment: a caller in folder `X` can address chats whose
+folder is `X` or under `X/...`. **No tier bypass** — even
+the instance root cannot direct-send to a JID that routes
+to a different world. Inter-world communication uses
+`delegate_group` / `escalate_group`. Unrouted JIDs are
+denied for every caller.
+
+This was added to close a hole where tier-1 world agents
+were spamming cross-world chats during release-broadcast
+fan-out (multiple worlds independently calling `send` to
+the same JID via memory of past chats, irrespective of
+routing ownership).
+
 ### Scope containment
 
 Callers can only act within their own subtree:
@@ -74,6 +95,9 @@ Callers can only act within their own subtree:
 - `andy/research` can act on `andy/research/*`
 - `andy/research` cannot act on `andy/ops/*`
 - `andy` (tier 0) can act on everything under `andy/`
+- Outbound JID containment follows the same rule, applied
+  to the JID's routed target folder rather than to the
+  caller's own.
 
 ## Tables owned
 
