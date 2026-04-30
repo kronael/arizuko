@@ -35,3 +35,4 @@ status: future
 | [b-memory-skills-standalone.md](b-memory-skills-standalone.md) | unshipped  | Memory skills as standalone distribution                           |
 | [c-agent-services.md](c-agent-services.md)                     | unshipped  | `servd` for agent-declared persistent services                     |
 | [d-self-improvement.md](d-self-improvement.md)                 | unshipped  | Scheduled self-eval via timed cron                                 |
+| [e-replaceability-research.md](e-replaceability-research.md)   | research   | Audit each shipped component against off-the-shelf alternatives    |
