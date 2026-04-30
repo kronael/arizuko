@@ -56,7 +56,7 @@ var daemonKeys = map[string][]string{
 		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
 		"IMPULSE_ENABLED", "SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
-		"EGRESS_ISOLATION", "EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX", "EGRESS_CRACKBOX",
+		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX", "EGRESS_CRACKBOX",
 		"CRACKBOX_CONTAINER", "CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL",
 		"CRACKBOX_ADMIN_SECRET",
 	},
@@ -162,7 +162,10 @@ func Generate(dataDir string) (string, error) {
 	if flavor != "" && !identRE.MatchString(flavor) {
 		return "", fmt.Errorf("invalid instance flavor %q (derived from data dir basename)", flavor)
 	}
-	if envOr(env, "EGRESS_ISOLATION", "") == "true" {
+	// CRACKBOX_ADMIN_API is the master switch for egress: when set, the
+	// crackbox service is emitted and gated gets the per-folder network
+	// derivations it needs. No separate EGRESS_ISOLATION boolean.
+	if envOr(env, "CRACKBOX_ADMIN_API", "") != "" {
 		if _, ok := env["EGRESS_NETWORK_PREFIX"]; !ok {
 			if flavor != "" {
 				env["EGRESS_NETWORK_PREFIX"] = app + "_" + flavor
@@ -241,7 +244,7 @@ func Generate(dataDir string) (string, error) {
 	for _, s := range services {
 		b.WriteString(renderService(app, flavor, s.name, s.cfg, env))
 	}
-	if envOr(env, "EGRESS_ISOLATION", "") == "true" {
+	if envOr(env, "CRACKBOX_ADMIN_API", "") != "" {
 		b.WriteString(crackboxService(app, flavor, dataDir, env))
 	}
 	return b.String(), nil

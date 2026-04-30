@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>crackbox · reference</title>
+  <title>crackbox &middot; reference</title>
   <link rel="stylesheet" href="/pub/assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
@@ -19,56 +19,18 @@
 </head>
 <body>
   <div class="hub-container prose">
-    <h1>crackbox · reference</h1>
-    <p class="dim back">configuration, daemon API, threat model &middot; <a href="/pub/crackbox/">&larr; crackbox</a></p>
-
-    <h2>the model</h2>
-    <p>One daemon. One registry: <code>source-IP &rarr; (id, allowlist)</code>. One pure <code>matchHost</code> function. Two listeners are two ways to enter the same daemon &mdash; the proxy can&rsquo;t tell which way a connection arrived.</p>
-
-    <h2>two ways traffic arrives</h2>
-    <p><strong>Forward.</strong> Workload sets <code>HTTPS_PROXY=http://crackbox:3128</code>. crackbox accepts HTTP forward requests and CONNECT tunnels for HTTPS, reads the destination from the request line, runs the allowlist, splices on success.</p>
-    <p><strong>Transparent.</strong> Client side runs <code>iptables ... REDIRECT --to-ports 3127</code> on outbound :80/:443. crackbox reads the pre-NAT destination via <code>SO_ORIGINAL_DST</code>, peeks the SNI (443) or <code>Host:</code> (80), runs the same allowlist, splices. Linux only; v1 handles ports 80 and 443.</p>
-    <p>Both share the same registry and the same <code>Allow(ip, host)</code>. Bind both, neither, or one &mdash; whatever fits your topology.</p>
+    <h1>crackbox &middot; reference</h1>
+    <p class="dim back">commands, config, behavior, integration &middot; <a href="/pub/crackbox/">&larr; crackbox</a></p>
 
     <h2>commands</h2>
     <pre><code>crackbox proxy serve [--config &lt;path&gt;] [--listen :3128] [--admin :3129] [--transparent :3127]
 crackbox run --allow &lt;list&gt; [--id &lt;name&gt;] [--image &lt;img&gt;] -- &lt;cmd&gt;...
 crackbox state [--admin &lt;url&gt;]</code></pre>
     <ul>
-      <li><code>proxy serve</code> &mdash; long-lived daemon. Lifecycle owned by Docker compose or systemd; no idle-shutdown or auto-restart inside the binary.</li>
+      <li><code>proxy serve</code> &mdash; long-lived daemon. Lifecycle owned by Docker compose or systemd; no idle-shutdown, no auto-restart inside the binary.</li>
       <li><code>run</code> &mdash; one-shot wrapper. Creates a private Docker network, starts the daemon on it, registers one entry, runs the workload with <code>HTTPS_PROXY</code> set, tears everything down on exit.</li>
       <li><code>state</code> &mdash; query a running daemon&rsquo;s registry.</li>
     </ul>
-
-    <h2>admin API</h2>
-    <p>The daemon exposes an HTTP control plane on the admin listener (default <code>:3129</code>):</p>
-    <ul>
-      <li><code>POST /v1/register</code> &mdash; body <code>{"ip": "...", "id": "...", "allowlist": ["host1", "host2"]}</code></li>
-      <li><code>POST /v1/unregister</code> &mdash; body <code>{"ip": "..."}</code></li>
-      <li><code>GET /v1/state</code> &mdash; current registry as JSON</li>
-      <li><code>GET /health</code> &mdash; liveness + TCP self-test against the proxy listener; returns 503 <code>{"status":"proxy_down"}</code> if the proxy port is dead</li>
-    </ul>
-    <p>Bearer-token auth on mutating endpoints when <code>CRACKBOX_ADMIN_SECRET</code> is set; <code>/v1/state</code> and <code>/health</code> stay open. Empty secret leaves mutations unauthenticated and logs a warning.</p>
-
-    <h2>matching rules</h2>
-    <p>Host name only. Exact, subdomain-aware, case-insensitive, trailing dot stripped. Nothing else.</p>
-    <ul>
-      <li>no IP-level rules</li>
-      <li>no path-level rules</li>
-      <li>no per-method rules</li>
-      <li>ports 80 and 443 only</li>
-    </ul>
-
-    <h2>what it doesn&rsquo;t do</h2>
-    <ul>
-      <li>no TLS interception or MITM</li>
-      <li>no secret injection into outbound requests</li>
-      <li>no response scanning or content filtering</li>
-      <li>no traffic auditing or per-request logs</li>
-      <li>no runtime allowlist mutation (no <code>crackbox allow</code> / <code>deny</code>)</li>
-      <li>no supervision &mdash; lifecycle belongs to Docker compose or systemd</li>
-    </ul>
-    <p>Each one is a separate concern composed with a separate tool.</p>
 
     <h2>configuration file</h2>
     <p>Optional TOML, looked up in order: <code>--config</code> path, <code>$XDG_CONFIG_HOME/crackbox/crackbox.toml</code>, <code>~/.crackboxrc</code>, <code>/etc/crackbox.toml</code>. Missing file is fine. Precedence: flags &gt; env &gt; config &gt; defaults.</p>
@@ -99,14 +61,43 @@ path = ""                      # registry persistence; empty = RAM-only</code></
     <h2>persistence</h2>
     <p><code>CRACKBOX_STATE_PATH</code> empty keeps the registry RAM-only; restarts drop state. When set, every <code>register</code> / <code>unregister</code> rewrites the file atomically (tmp + rename) and startup reloads it. Corrupt or missing files reset to empty with a warning &mdash; a stale snapshot can never block startup.</p>
 
-    <h2>threat model</h2>
-    <p>Non-cooperating clients fail closed. <code>crackbox run</code> puts the workload on a Docker network with no default route; clients that ignore <code>HTTPS_PROXY</code> simply can&rsquo;t reach anything off-network. A workload can&rsquo;t escape its allowlist by setting <code>HTTPS_PROXY=""</code> &mdash; there&rsquo;s no other path out.</p>
-    <p>Most tooling honors proxy environment variables natively: curl, wget, pip, npm, git, go, apt. Node&rsquo;s <code>fetch</code> needs a one-line shim to set the global agent. That&rsquo;s the only common gotcha.</p>
-    <p>Trust assumption: source IP within the daemon&rsquo;s network is honest. The network topology has to be such that only your workload can reach the proxy on its registered IP. <code>crackbox run</code> arranges this for you with a private Docker network. In service deployments you arrange it yourself.</p>
-
     <h2>uninstall</h2>
     <pre><code>docker rmi crackbox:latest
 docker network ls | grep crackbox- | awk '{print $1}' | xargs -n1 docker network rm</code></pre>
+
+    <h2>matching</h2>
+    <p>The registry is <code>source-IP &rarr; (id, allowlist)</code>. One pure <code>matchHost</code> function decides every connection. Host name only: exact, subdomain-aware, case-insensitive, trailing dot stripped. No IP rules, no path rules, no per-method rules. Ports 80 and 443 only.</p>
+
+    <h2>how traffic arrives</h2>
+    <p><strong>Forward.</strong> Workload sets <code>HTTPS_PROXY=http://crackbox:3128</code>. crackbox accepts HTTP forward requests and CONNECT tunnels for HTTPS, reads the destination from the request line, splices on success.</p>
+    <p><strong>Transparent.</strong> Client side runs <code>iptables ... REDIRECT --to-ports 3127</code> on outbound :80/:443. crackbox reads the pre-NAT destination via <code>SO_ORIGINAL_DST</code>, peeks the SNI (443) or <code>Host:</code> (80), splices. Linux only.</p>
+    <p>Both share the same registry and the same allowlist check. Bind both, neither, or one &mdash; whatever fits the topology.</p>
+
+    <h2>what it doesn&rsquo;t do</h2>
+    <ul>
+      <li>no TLS interception or MITM</li>
+      <li>no secret injection into outbound requests</li>
+      <li>no response scanning or content filtering</li>
+      <li>no traffic auditing or per-request logs</li>
+      <li>no runtime allowlist mutation outside the admin API</li>
+      <li>no supervision &mdash; lifecycle belongs to Docker compose or systemd</li>
+    </ul>
+    <p>Each one is a separate concern composed with a separate tool.</p>
+
+    <h2>threat model</h2>
+    <p>Non-cooperating clients fail closed. <code>crackbox run</code> puts the workload on a Docker network with no default route; clients that ignore <code>HTTPS_PROXY</code> simply can&rsquo;t reach anything off-network. Setting <code>HTTPS_PROXY=""</code> doesn&rsquo;t help &mdash; there&rsquo;s no other path out.</p>
+    <p>Most tooling honors proxy environment variables natively: curl, wget, pip, npm, git, go, apt. Node&rsquo;s <code>fetch</code> needs a one-line shim to set the global agent. That&rsquo;s the only common gotcha.</p>
+    <p>Trust assumption: source IP within the daemon&rsquo;s network is honest. The topology has to be such that only your workload can reach the proxy on its registered IP. <code>crackbox run</code> arranges this with a private Docker network. In service deployments you arrange it yourself.</p>
+
+    <h2>admin API</h2>
+    <p>The daemon exposes an HTTP control plane on the admin listener (default <code>:3129</code>):</p>
+    <ul>
+      <li><code>POST /v1/register</code> &mdash; body <code>{"ip": "...", "id": "...", "allowlist": ["host1", "host2"]}</code></li>
+      <li><code>POST /v1/unregister</code> &mdash; body <code>{"ip": "..."}</code></li>
+      <li><code>GET /v1/state</code> &mdash; current registry as JSON</li>
+      <li><code>GET /health</code> &mdash; liveness + TCP self-test against the proxy listener; returns 503 <code>{"status":"proxy_down"}</code> if the proxy port is dead</li>
+    </ul>
+    <p>Bearer-token auth on mutating endpoints when <code>CRACKBOX_ADMIN_SECRET</code> is set; <code>/v1/state</code> and <code>/health</code> stay open. Empty secret leaves mutations unauthenticated and logs a warning.</p>
 
     <h2>library</h2>
     <p>Go consumers can import the daemon&rsquo;s packages directly:</p>

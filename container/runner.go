@@ -172,13 +172,13 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	// so the container's first outbound CONNECT cannot race the registry.
 	// On register failure the container is never spawned — otherwise the
 	// agent would run with HTTPS_PROXY set but every CONNECT 403s.
+	// registerEgress returns nil error when egress is off (no-op).
+	// A non-nil error therefore means egress was on and we couldn't
+	// register — fail the spawn rather than start a container that
+	// will 403 every outbound call.
 	egressNet, egressIP, eerr := registerEgress(in.Egress, in.Folder)
 	if eerr != nil {
-		if in.Egress.active() {
-			return Output{Status: "error", Error: "egress register: " + eerr.Error()}
-		}
-		slog.Warn("egress register failed",
-			"group", in.Folder, "container", containerName, "err", eerr)
+		return Output{Status: "error", Error: "egress register: " + eerr.Error()}
 	}
 	defer unregisterEgress(in.Egress, egressIP)
 

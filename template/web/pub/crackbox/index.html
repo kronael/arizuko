@@ -8,7 +8,7 @@
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.4em 0; }
+    .prose li { margin: 0.3em 0; }
     .prose pre { margin: 0.6em 0; }
     .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
     .back { font-size: 0.85em; }
@@ -19,41 +19,37 @@
     <h1>crackbox</h1>
     <p class="dim back">a sandbox proxy for untrusted code &middot; <a href="/pub/">&larr; hub</a></p>
 
-    <p class="lede">Run an AI agent, a CI script, or any other untrusted code with a tight allowlist of hosts it can reach. Everything else is silently blocked.</p>
+    <p class="lede">Run an AI agent, a CI script, or any other untrusted command with a tight allowlist of hosts it can reach. Everything else is silently blocked.</p>
 
     <h2>why</h2>
-    <p>Every AI agent and CI script wants the network. You want it to reach <code>github.com</code> and <code>api.anthropic.com</code> &mdash; not <code>evil.com</code>, not your internal services, not random crypto miners shipped in a compromised npm package.</p>
-    <p>Browser permission prompts, iptables-per-process, and egress firewalls outside the host either don&rsquo;t fit the shape or don&rsquo;t know who is calling. crackbox is a tiny proxy you put in front of the workload and tell it what hosts are allowed.</p>
+    <p>Agents and build scripts want the network. You want them to reach <code>github.com</code> and <code>api.anthropic.com</code> &mdash; not your internal services, not crypto miners shipped in a compromised npm package, not whoever a prompt injection points them at.</p>
+    <p>Browser permission prompts don&rsquo;t fit. Per-process iptables is fiddly. Network-level egress firewalls don&rsquo;t know which process is calling. crackbox is a small proxy you put in front of the workload and tell what hosts are allowed.</p>
 
-    <h2>30 seconds</h2>
-    <pre><code>docker pull crackbox:latest
+    <h2>show me</h2>
+    <pre><code># build the image once
+git clone https://github.com/kronael/arizuko &amp;&amp; cd arizuko/crackbox
+docker build -t crackbox:latest .
 
-# allowed → 200
+# allowed -&gt; 200
 crackbox run --allow github.com -- curl -s -o /dev/null -w '%{http_code}\n' https://github.com
 
-# unlisted → blocked
+# unlisted -&gt; blocked
 crackbox run --allow github.com -- curl -s -o /dev/null -w '%{http_code}\n' https://example.com
 
-# python image, install one package, nothing else
+# python image, install one package, nothing else reachable
 crackbox run --image python:3 --allow pypi.org,files.pythonhosted.org -- pip install requests</code></pre>
     <p>Subdomains match the parent (<code>--allow github.com</code> covers <code>api.github.com</code>). Comma-separated for multiple hosts. <code>--allow ""</code> blocks everything.</p>
 
     <h2>good for</h2>
     <ul>
-      <li><strong>AI agents.</strong> An agent that can <code>curl</code> the open internet is one prompt-injection away from talking to whoever the attacker wants. Pin it to the few hosts it actually needs.</li>
+      <li><strong>AI agents.</strong> An agent that can <code>curl</code> the open internet is one prompt injection away from talking to whoever the attacker wants.</li>
       <li><strong>CI &amp; build steps.</strong> &ldquo;<code>npm install</code> only talks to the registry&rdquo; is a sentence you can mean.</li>
-      <li><strong>Dev tools and demos.</strong> Run a tutorial repo, an unfamiliar binary, an LLM-generated script &mdash; with the assurance that whatever the workload does, it can&rsquo;t exfiltrate to anywhere unexpected.</li>
+      <li><strong>Unfamiliar binaries.</strong> Tutorial repos, LLM-generated scripts, vendor blobs &mdash; whatever they do, they can&rsquo;t exfiltrate to anywhere unexpected.</li>
     </ul>
 
-    <h2>two shapes</h2>
-    <p>For one-off runs, <code>crackbox run --allow X -- &lt;cmd&gt;</code> is a single command. It spins up a private Docker network, runs the proxy on it, runs your workload, tears everything down on exit.</p>
-    <p>For service deployments where many short-lived workloads come and go, run the proxy as a long-lived daemon and register each workload with it as it starts. See the <a href="/pub/crackbox/reference/">reference</a> for the daemon API, configuration file, and the rest.</p>
-
-    <h2>install</h2>
-    <pre><code>docker pull crackbox:latest</code></pre>
-    <p>One image, ~15&nbsp;MB. Linux only. Open source &mdash; see the GitHub repository for source, issues, and the changelog.</p>
-
-    <p class="dim" style="margin-top: 2em;">Reference: <a href="/pub/crackbox/reference/">configuration, daemon API, threat model, every knob</a>.</p>
+    <h2>where do I start</h2>
+    <p>For one-off runs, <code>crackbox run --allow X -- &lt;cmd&gt;</code> is the whole interface. It spins up a private Docker network, runs the proxy on it, runs your workload, tears everything down on exit.</p>
+    <p>For service deployments where short-lived workloads come and go, run the proxy as a long-lived daemon and register each workload with it as it starts. The <a href="/pub/crackbox/reference/">reference</a> covers the daemon, admin API, config file, env vars, and threat model.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="/pub/assets/hub.js"></script>

@@ -884,7 +884,6 @@ func (g *Gateway) runAgentWithOpts(
 		StoreFns:        g.storeFns,
 		SecretsResolver: g.store,
 		Egress: container.EgressConfig{
-			Enabled:           g.cfg.EgressEnabled,
 			NetworkPrefix:     g.cfg.EgressNetworkPrefix,
 			CrackboxContainer: g.cfg.EgressCrackbox,
 			ParentSubnet:      g.cfg.EgressParentSubnet,

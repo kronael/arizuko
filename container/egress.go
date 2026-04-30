@@ -18,9 +18,6 @@ import (
 // agent container lands on its folder's network and reaches crackbox
 // via Docker DNS (which returns the network-scoped A record).
 type EgressConfig struct {
-	// Enabled is true when egress isolation is on. When false, agents
-	// spawn on the default Docker bridge with no proxy.
-	Enabled bool
 	// NetworkPrefix is prepended to the sanitized folder name to form
 	// the per-folder Docker network name (e.g. "arizuko_krons"). The
 	// prefix should be unique per arizuko instance to avoid collisions
@@ -46,9 +43,10 @@ type EgressConfig struct {
 	AllowlistFn func(id string) ([]string, error)
 }
 
-// active returns whether the config is sufficient to enable egress for a spawn.
+// active returns whether the config is sufficient to enable egress for a
+// spawn. AdminURL presence is the master switch — set the URL or don't.
 func (e EgressConfig) active() bool {
-	return e.Enabled && e.AdminURL != "" && e.NetworkPrefix != "" && e.CrackboxContainer != ""
+	return e.AdminURL != "" && e.NetworkPrefix != "" && e.CrackboxContainer != ""
 }
 
 // PickIP returns a random host address inside the supplied /24 subnet.

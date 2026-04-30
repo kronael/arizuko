@@ -30,10 +30,10 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
-	if cfg.EgressEnabled {
+	if cfg.EgressAPI != "" {
 		if cfg.EgressNetworkPrefix == "" || cfg.EgressCrackbox == "" {
 			slog.Error("config",
-				"err", "EGRESS_ISOLATION=true requires EGRESS_NETWORK_PREFIX and EGRESS_CRACKBOX (compose generation should set them)")
+				"err", "egress on (CRACKBOX_ADMIN_API set) requires EGRESS_NETWORK_PREFIX + EGRESS_CRACKBOX (compose generation should set them)")
 			os.Exit(1)
 		}
 	}

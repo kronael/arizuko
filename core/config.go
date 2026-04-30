@@ -57,10 +57,11 @@ type Config struct {
 	VideoEnabled  bool
 	WhisperModel  string
 
-	// Egress isolation (crackbox). Disabled when EgressEnabled is false.
+	// Egress isolation (crackbox). Enabled when EgressAPI is non-empty.
+	// No separate EGRESS_ISOLATION switch — set the API URL or don't.
 	// Per-folder networks are created lazily under EgressNetworkPrefix
-	// with /24s carved from EgressParentSubnet.
-	EgressEnabled       bool   // master switch
+	// with /24s carved from EgressParentSubnet. Egress is enabled when
+	// EgressAPI is non-empty; no separate switch.
 	EgressNetworkPrefix string // e.g. "arizuko_krons" — folder networks are <prefix>_<sanitized-folder>
 	EgressCrackbox      string // crackbox container name (attached to every folder network)
 	EgressAPI           string // crackbox admin HTTP API base URL (e.g. http://crackbox:3129)
@@ -127,7 +128,6 @@ func LoadConfig() (*Config, error) {
 		VideoEnabled:  envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 		WhisperModel:  envOr("WHISPER_MODEL", "turbo"),
 
-		EgressEnabled:       envOr("EGRESS_ISOLATION", "") == "true",
 		EgressNetworkPrefix: envOr("EGRESS_NETWORK_PREFIX", ""),
 		EgressCrackbox:      envOr("EGRESS_CRACKBOX", ""),
 		EgressAPI:           envOr("CRACKBOX_ADMIN_API", ""),
@@ -136,13 +136,9 @@ func LoadConfig() (*Config, error) {
 		EgressAdminSecret:   envOr("CRACKBOX_ADMIN_SECRET", ""),
 	}
 
-	// Default the network prefix + crackbox container name from the
-	// instance flavor (data-dir basename) when env doesn't override.
-	// Compose names crackbox <app>_crackbox_<flavor> — match that.
 	// Validation of EgressNetworkPrefix / EgressCrackbox lives in gated
 	// (the only daemon that uses egress isolation), not here — other
-	// daemons (onbod, webd, proxyd) call LoadConfig too and must not
-	// fail just because they share an .env that has EGRESS_ISOLATION.
+	// daemons call LoadConfig too and must not fail when egress is on.
 
 	dev := os.Getenv("ARIZUKO_DEV") == "true" || os.Getenv("ARIZUKO_DEV") == "1"
 	if !dev && c.ChannelSecret == "" {
