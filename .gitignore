@@ -22,11 +22,11 @@ package-lock.json
 .vscode
 .claude/*
 !.claude/skills/
-HEAD
-config
-hooks
-objects
-refs
+/HEAD
+/config
+/hooks
+/objects
+/refs
 .refs/
 old/
 /arizuko

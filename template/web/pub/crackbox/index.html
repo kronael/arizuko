@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>crackbox</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.2em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .prose dt { color: var(--accent3); font-weight: bold; margin-top: 0.6em; }
+    .prose dd { margin: 0.1em 0 0 1.2em; color: var(--fg); }
+    .back { font-size: 0.85em; }
+    table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.9em; }
+    th, td { border: 1px solid var(--border); padding: 0.3em 0.7em; text-align: left; }
+    th { color: var(--accent3); }
+    td code { background: transparent; padding: 0; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>crackbox</h1>
+    <p class="dim back">a sandbox proxy for untrusted code &middot; <a href="/pub/">&larr; hub</a></p>
+
+    <h2>what it is</h2>
+    <p>A forward HTTP/HTTPS proxy with a per-source-IP allowlist registry. One binary, one image, one daemon. It takes opaque ids and host lists; it doesn&rsquo;t know who you are or what you&rsquo;re running.</p>
+    <p>You point a workload&rsquo;s <code>HTTPS_PROXY</code> at it. Egress to listed hosts goes through. Everything else returns <code>403</code>.</p>
+
+    <h2>why it exists</h2>
+    <p>Default-deny network is hard to retrofit. You want <code>curl https://github.com</code> from a CI job or AI agent to work, and <code>curl https://evil.com</code> to fail, with the policy decided at spawn time and not embedded in the workload.</p>
+    <p>iptables rules per process are awkward. Egress firewalls outside the host don&rsquo;t see who is calling. crackbox sits in between: a tiny proxy that the workload talks to and that knows who the workload is by source IP.</p>
+
+    <h2>the model</h2>
+    <p>One daemon. One registry: <code>source-IP &rarr; (id, allowlist)</code>. One <code>matchHost</code> function. That&rsquo;s the whole mechanism.</p>
+    <ul>
+      <li><code>crackbox proxy serve</code> runs the daemon. Long-lived. Listens on <code>:3128</code> for forward HTTP and CONNECT-tunneled HTTPS, on <code>:3129</code> for the admin API.</li>
+      <li><code>crackbox run --allow X -- &lt;cmd&gt;</code> is convenience sugar: it creates a Docker network, starts the daemon on it, registers one entry for the about-to-run container, then runs your command with <code>HTTPS_PROXY</code> set. On exit, everything is torn down.</li>
+    </ul>
+    <p>Same code path either way. The proxy can&rsquo;t tell whether the registry holds one entry because a CLI just registered it, or one entry because some long-running consumer happens to have one workload spawned. There is no &ldquo;single-shot mode&rdquo; branch anywhere inside the daemon.</p>
+
+    <h2>try it</h2>
+    <pre><code>docker pull crackbox:latest
+
+# allowed host returns 200
+crackbox run --allow github.com -- curl -s -o /dev/null -w '%{http_code}\n' https://github.com
+
+# unlisted host returns 403
+crackbox run --allow github.com -- curl -s -o /dev/null -w '%{http_code}\n' https://example.com
+
+# python image, install one package, nothing else
+crackbox run --image python:3 --allow pypi.org,files.pythonhosted.org -- pip install requests</code></pre>
+    <p>Multiple hosts: comma-separated. Subdomains match the parent (<code>--allow github.com</code> covers <code>api.github.com</code>). Empty list (<code>--allow ""</code>) blocks everything.</p>
+
+    <h2>service mode</h2>
+    <p>When you want a long-running proxy that many short-lived workloads register against, run the daemon directly:</p>
+    <pre><code>crackbox proxy serve --listen :3128 --admin :3129</code></pre>
+    <p>Then drive the registry over the admin API:</p>
+    <ul>
+      <li><code>POST /v1/register</code> &mdash; body <code>{"ip": "...", "id": "...", "allowlist": ["host1", "host2"]}</code></li>
+      <li><code>POST /v1/unregister</code> &mdash; body <code>{"ip": "..."}</code></li>
+      <li><code>GET /v1/state</code> &mdash; current registry snapshot</li>
+      <li><code>GET /health</code> &mdash; liveness; performs a TCP self-test against the proxy listener and returns 503 <code>{"status":"proxy_down"}</code> if the proxy port is dead</li>
+    </ul>
+    <p>Optional bearer-token auth on the mutating endpoints via <code>CRACKBOX_ADMIN_SECRET</code>. Read-only <code>/v1/state</code> and <code>/health</code> stay open. Empty secret leaves mutations unauthenticated and logs a warning at startup.</p>
+    <p>Optional disk persistence via <code>CRACKBOX_STATE_PATH</code>. Each <code>register</code> / <code>unregister</code> rewrites the file atomically (tmp + rename). Startup reloads it. Corrupt or missing file resets to empty with a warning &mdash; a stale snapshot can never block startup. Empty path keeps the registry RAM-only.</p>
+
+    <h2>transparent mode</h2>
+    <p>Same daemon, second way to receive traffic. Forward mode wants the client to set <code>HTTPS_PROXY</code>; transparent mode wants the client side to <code>iptables REDIRECT</code> port-80/443 traffic to crackbox. The daemon reads the pre-NAT destination via <code>SO_ORIGINAL_DST</code>, peeks SNI (443) or <code>Host:</code> (80), runs the same per-source-IP allowlist, splices on success.</p>
+    <p>The transparent listener is bound by default on <code>:3127</code>. Idle when nothing redirects to it &mdash; binding costs nothing. Disable with <code>--transparent ""</code> or set <code>transparent_listen = ""</code> in the config file. Linux only; v1 handles ports 80 and 443.</p>
+    <pre><code>sudo iptables -t nat -A OUTPUT -p tcp --dport 443 \
+  -m owner --uid-owner tester \
+  -j REDIRECT --to-ports 3127</code></pre>
+    <p>Same registry, same <code>matchHost</code>, same <code>Allow()</code>. Two listeners is just two ways into one daemon.</p>
+
+    <h2>configuration file</h2>
+    <p>Optional TOML, looked up in order: <code>--config</code> path, <code>$XDG_CONFIG_HOME/crackbox/crackbox.toml</code>, <code>~/.crackboxrc</code>, <code>/etc/crackbox.toml</code>. Missing file is fine &mdash; defaults apply. Precedence: flags &gt; env &gt; config file &gt; defaults.</p>
+    <pre><code>[proxy]
+listen = ":3128"
+admin_listen = ":3129"
+transparent_listen = ":3127"   # set to "" to disable
+
+[admin]
+secret = ""                    # bearer token; empty disables auth
+
+[state]
+path = ""                      # registry persistence; empty = RAM-only</code></pre>
+
+    <h2>configuration</h2>
+    <table>
+      <tr><th>env var</th><th>default</th><th>used by</th></tr>
+      <tr><td><code>CRACKBOX_PROXY_ADDR</code></td><td><code>:3128</code></td><td>proxy listen address</td></tr>
+      <tr><td><code>CRACKBOX_ADMIN_ADDR</code></td><td><code>:3129</code></td><td>admin API listen address</td></tr>
+      <tr><td><code>CRACKBOX_TRANSPARENT_ADDR</code></td><td><code>:3127</code></td><td>transparent-mode listener; empty = disabled</td></tr>
+      <tr><td><code>CRACKBOX_ADMIN_SECRET</code></td><td>(unset)</td><td>bearer token for mutating endpoints</td></tr>
+      <tr><td><code>CRACKBOX_STATE_PATH</code></td><td>(unset)</td><td>JSON file for registry persistence</td></tr>
+      <tr><td><code>CRACKBOX_IMAGE</code></td><td><code>crackbox:latest</code></td><td><code>crackbox run</code> proxy image</td></tr>
+      <tr><td><code>CRACKBOX_SUBNET</code></td><td><code>10.99.0.0/16</code></td><td><code>crackbox run</code> Docker subnet</td></tr>
+      <tr><td><code>CRACKBOX_ADMIN</code></td><td><code>http://localhost:3129</code></td><td><code>crackbox state</code> target</td></tr>
+    </table>
+
+    <h2>what gets matched</h2>
+    <p>Host name only. The matcher is exact, subdomain-aware, case-insensitive, and strips a trailing dot. Nothing else.</p>
+    <ul>
+      <li>no IP-level rules</li>
+      <li>no path-level rules</li>
+      <li>no per-method rules</li>
+      <li>ports 80 and 443</li>
+    </ul>
+    <p>One pure function, three lines. That&rsquo;s the entire policy surface.</p>
+
+    <h2>what it doesn&rsquo;t do</h2>
+    <ul>
+      <li>no TLS interception or MITM</li>
+      <li>no secret injection into outbound requests</li>
+      <li>no response scanning or content filtering</li>
+      <li>no traffic auditing or per-request logs</li>
+      <li>no runtime allowlist mutation (<code>crackbox allow</code> / <code>deny</code>)</li>
+      <li>no supervision, idle-shutdown, or auto-restart &mdash; lifecycle belongs to Docker compose or systemd</li>
+    </ul>
+    <p>The single mechanism is small on purpose. Everything above is a separate concern that you compose with a separate tool.</p>
+
+    <h2>threat model</h2>
+    <p>Non-cooperating clients fail closed. <code>crackbox run</code> puts the workload on a Docker network with no default route; clients that ignore <code>HTTPS_PROXY</code> simply can&rsquo;t reach anything off-network. A workload can&rsquo;t escape its allowlist by setting <code>HTTPS_PROXY=""</code> &mdash; there&rsquo;s no other path out.</p>
+    <p>Most tooling honors proxy environment variables natively: curl, wget, pip, npm, git, go, apt. Node&rsquo;s <code>fetch</code> needs a one-line shim to set the global agent. That&rsquo;s the only common gotcha.</p>
+    <p>Trust assumption: source IP within the daemon&rsquo;s network is honest. The network topology has to be such that only your workload can reach the proxy on its registered IP. <code>crackbox run</code> arranges this for you with a private Docker network. In service mode you arrange it yourself.</p>
+
+    <h2>install</h2>
+    <pre><code>docker pull crackbox:latest</code></pre>
+    <p>One image, ~15&nbsp;MB. Daemon RAM stays around 15&ndash;20&nbsp;MB regardless of registry size. <code>crackbox run</code> adds one user container plus a Docker network, around 10&nbsp;MB extra and roughly half a second of spawn latency.</p>
+
+    <h2>uninstall</h2>
+    <pre><code>docker rmi crackbox:latest
+docker network ls | grep crackbox- | awk '{print $1}' | xargs -n1 docker network rm</code></pre>
+
+    <h2>license / source</h2>
+    <p>Open source. crackbox lives in the arizuko monorepo as one consumer&rsquo;s working tree, but the binary, image, and HTTP/CLI contracts are designed to stand alone. See the GitHub repository for source, issues, and the changelog.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/onvos/arizuko/crackbox/pkg/admin"
 	"github.com/onvos/arizuko/crackbox/pkg/client"
+	"github.com/onvos/arizuko/crackbox/pkg/config"
 	"github.com/onvos/arizuko/crackbox/pkg/proxy"
 	"github.com/onvos/arizuko/crackbox/pkg/run"
 )
@@ -49,10 +51,23 @@ func usage() {
 	fmt.Fprint(os.Stderr, `crackbox — forward-proxy daemon with per-source allowlist
 
 usage:
-  crackbox proxy serve [--listen :3128 --admin :3129]
+  crackbox proxy serve [--config <path>] [--listen :3128] [--admin :3129] [--transparent :3127]
   crackbox run --allow <list> [--id <name>] [--image <img>] -- <cmd>...
   crackbox state [--admin <url>]
 `)
+}
+
+// resolveAddr applies precedence: flag > env > config-file value.
+// flagSet says whether the user passed the flag (so empty-string flag
+// can override a non-empty env/config).
+func resolveAddr(flagVal string, flagSet bool, envName, fileVal string) string {
+	if flagSet {
+		return flagVal
+	}
+	if v := os.Getenv(envName); v != "" {
+		return v
+	}
+	return fileVal
 }
 
 func cmdProxy(args []string) {
@@ -61,15 +76,33 @@ func cmdProxy(args []string) {
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet("proxy serve", flag.ExitOnError)
-	listen := fs.String("listen", envOr("CRACKBOX_PROXY_ADDR", ":3128"), "proxy listen addr")
-	adminAddr := fs.String("admin", envOr("CRACKBOX_ADMIN_ADDR", ":3129"), "admin api listen addr")
+	cfgPath := fs.String("config", "", "path to TOML config (overrides default search)")
+	listen := fs.String("listen", "", "proxy listen addr (overrides config + env)")
+	adminAddr := fs.String("admin", "", "admin api listen addr")
+	transparent := fs.String("transparent", "", "transparent-mode listen addr (\"\" = disable)")
 	fs.Parse(args[1:])
+
+	flagSet := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { flagSet[f.Name] = true })
 
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
 
-	statePath := os.Getenv("CRACKBOX_STATE_PATH")
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
+	if cfg.Source != "" {
+		slog.Info("config loaded", "path", cfg.Source)
+	}
+
+	proxyAddr := resolveAddr(*listen, flagSet["listen"], "CRACKBOX_PROXY_ADDR", cfg.Proxy.Listen)
+	adminListen := resolveAddr(*adminAddr, flagSet["admin"], "CRACKBOX_ADMIN_ADDR", cfg.Proxy.AdminListen)
+	transparentAddr := resolveAddr(*transparent, flagSet["transparent"], "CRACKBOX_TRANSPARENT_ADDR", cfg.Proxy.TransparentListen)
+
+	statePath := envOr("CRACKBOX_STATE_PATH", cfg.State.Path)
 	var reg *admin.Registry
 	if statePath != "" {
 		r, err := admin.NewPersistentRegistry(statePath)
@@ -83,21 +116,25 @@ func cmdProxy(args []string) {
 		reg = admin.NewRegistry()
 	}
 
-	secret := os.Getenv("CRACKBOX_ADMIN_SECRET")
+	secret := envOr("CRACKBOX_ADMIN_SECRET", cfg.Admin.Secret)
 	if secret == "" {
-		slog.Warn("CRACKBOX_ADMIN_SECRET unset: admin API mutations are unauthenticated")
+		slog.Warn("admin secret unset: admin API mutations are unauthenticated")
 	}
-	api := admin.NewAPIWithProxy(reg, *listen).WithSecret(secret)
+	api := admin.NewAPIWithProxy(reg, proxyAddr).WithSecret(secret)
 	px := proxy.New(reg)
 
-	proxySrv := px.Server(*listen)
+	proxySrv := px.Server(proxyAddr)
 	apiSrv := &http.Server{
-		Addr:              *adminAddr,
+		Addr:              adminListen,
 		Handler:           api.Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	slog.Info("crackbox up", "proxy", *listen, "admin", *adminAddr)
+	transparentLog := transparentAddr
+	if transparentLog == "" {
+		transparentLog = "disabled"
+	}
+	slog.Info("crackbox up", "proxy", proxyAddr, "admin", adminListen, "transparent", transparentLog)
 
 	go func() {
 		if err := proxySrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -112,6 +149,21 @@ func cmdProxy(args []string) {
 		}
 	}()
 
+	var transparentLis net.Listener
+	if transparentAddr != "" {
+		l, err := net.Listen("tcp", transparentAddr)
+		if err != nil {
+			slog.Error("transparent listen", "addr", transparentAddr, "err", err)
+			os.Exit(1)
+		}
+		transparentLis = l
+		go func() {
+			if err := px.ServeTransparent(l); err != nil {
+				slog.Error("transparent serve", "err", err)
+			}
+		}()
+	}
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
@@ -121,6 +173,9 @@ func cmdProxy(args []string) {
 	defer cancel()
 	proxySrv.Shutdown(ctx)
 	apiSrv.Shutdown(ctx)
+	if transparentLis != nil {
+		transparentLis.Close()
+	}
 }
 
 func cmdRun(args []string) {
