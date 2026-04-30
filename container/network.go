@@ -213,7 +213,14 @@ func createNetwork(name, subnet string) error {
 // Idempotent: re-attaching an already-connected container returns an
 // error string we tolerate.
 func connectCrackbox(crackbox, network string) error {
-	out, err := execCommand(Bin, "network", "connect", network, crackbox).CombinedOutput()
+	// `--alias crackbox` makes the short hostname resolve via Docker's
+	// embedded DNS on this network. Without it the agent container's
+	// HTTPS_PROXY=http://crackbox:3128 silently fails DNS resolution
+	// (the compose service-name alias only applies to the project's
+	// default network, not the per-folder networks gated creates at
+	// runtime).
+	out, err := execCommand(Bin, "network", "connect",
+		"--alias", "crackbox", network, crackbox).CombinedOutput()
 	if err == nil {
 		slog.Info("egress crackbox attached", "container", crackbox, "network", network)
 		return nil
