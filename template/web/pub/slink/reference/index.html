@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>slink &middot; reference</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.2em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.9em; }
+    th, td { border: 1px solid var(--border); padding: 0.3em 0.7em; text-align: left; vertical-align: top; }
+    th { color: var(--accent3); }
+    td code { background: transparent; padding: 0; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>slink &middot; reference</h1>
+    <p class="dim back">protocol, endpoints, semantics &middot; <a href="/pub/slink/">&larr; slink</a></p>
+
+    <h2>token design</h2>
+    <ul>
+      <li>32 random bytes, base64url-encoded (~43 chars, 256 bits).</li>
+      <li>Public by design &mdash; freely shared in page source, bookmarks, scripts.</li>
+      <li>Generated once at group registration, never rotated.</li>
+      <li>Lives in <code>groups.slink_token</code>; <code>proxyd</code> resolves it on every <code>/slink/*</code> request.</li>
+      <li>Security comes from rate limiting, not secrecy. Treat a leaked token like a leaked rate-limit bucket, not like a leaked password.</li>
+    </ul>
+
+    <h2>rate limit tiers</h2>
+    <table>
+      <tr><th>caller</th><th>bucket</th><th>limit</th></tr>
+      <tr><td>anonymous (no JWT)</td><td>shared per token</td><td>10 req/min across all anon callers</td></tr>
+      <tr><td>authenticated (JWT)</td><td>per JWT <code>sub</code></td><td>60 req/min</td></tr>
+      <tr><td>agent / operator</td><td>&mdash;</td><td>unlimited</td></tr>
+    </table>
+    <p>Tunable via <code>SLINK_ANON_RPM</code> / <code>SLINK_AUTH_RPM</code> in the instance <code>.env</code>.</p>
+
+    <h2>sender identity</h2>
+    <ul>
+      <li>Valid JWT &rarr; <code>sender = jwt.sub</code>, <code>sender_name = jwt.name</code>.</li>
+      <li>No <code>Authorization</code> header &rarr; <code>sender = anon:&lt;ip-hash&gt;</code>, no name.</li>
+      <li>Malformed JWT &rarr; <code>401</code>. Omitting the header is fine; sending a broken one is not.</li>
+    </ul>
+
+    <h2>round-handle protocol</h2>
+    <p>A <em>round</em> is one container spawn: exactly one inbound batch in, exactly one <code>submit_turn</code> out. The protocol exposes the round as a first-class object with a stable handle so a caller can wait on it, page through frames, or stream them over SSE.</p>
+    <p><code>turn_id</code> = the originating inbound <code>messages.id</code>. That id is the round handle &mdash; the caller doesn&rsquo;t mint it; the POST response hands it back.</p>
+
+    <h3>endpoints</h3>
+    <table>
+      <tr><th>method</th><th>path</th><th>purpose</th></tr>
+      <tr><td>POST</td><td><code>/slink/&lt;token&gt;</code></td><td>inject a message; returns <code>turn_id</code></td></tr>
+      <tr><td>POST</td><td><code>/slink/&lt;token&gt;?steer=&lt;turn_id&gt;</code></td><td>inject as follow-up to an in-flight round</td></tr>
+      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/turn/&lt;id&gt;</code></td><td>snapshot: status + all assistant frames</td></tr>
+      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/turn/&lt;id&gt;?after=&lt;msg_id&gt;</code></td><td>cursor page: frames after <code>&lt;msg_id&gt;</code></td></tr>
+      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/turn/&lt;id&gt;/status</code></td><td>cheap status check, no frame payload</td></tr>
+      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/turn/&lt;id&gt;/sse</code></td><td>live SSE stream + terminal <code>round_done</code></td></tr>
+    </table>
+
+    <h3>POST</h3>
+    <p>Body: <code>content=&lt;text&gt;&amp;topic=&lt;optional&gt;</code> (form) or <code>{"content":"...","topic":"..."}</code> (JSON).</p>
+    <p>Default response (JSON):</p>
+    <pre><code>{
+  "user": { "id": "msg_abc", "content": "...", "created_at": "..." },
+  "turn_id": "msg_abc",
+  "status": "pending"
+}</code></pre>
+    <p><code>turn_id == user.id</code> for the first message of a round.</p>
+    <p>Content negotiation:</p>
+    <ul>
+      <li><code>Accept: text/html</code> &mdash; legacy HTMX fragment used by the browser chat widget.</li>
+      <li><code>Accept: text/event-stream</code> &mdash; legacy SSE upgrade keyed on <code>(folder, topic)</code>; preserved for the chat widget. New clients should POST normally and then open <code>/turn/&lt;id&gt;/sse</code> on the round handle.</li>
+    </ul>
+
+    <h3>GET turn snapshot / cursor</h3>
+    <pre><code>GET /slink/&lt;token&gt;/turn/&lt;id&gt;
+GET /slink/&lt;token&gt;/turn/&lt;id&gt;?after=&lt;msg_id&gt;</code></pre>
+    <p>Returns:</p>
+    <pre><code>{
+  "turn_id": "msg_abc",
+  "status": "pending|done|failed",
+  "frames": [
+    {"id":"out_001","content":"...","created_at":"...","kind":"message"},
+    {"id":"out_002","content":"...","created_at":"...","kind":"status"}
+  ],
+  "last_frame_id": "out_002"
+}</code></pre>
+    <p><code>frames[]</code> is ordered by <code>created_at</code> ascending; each <code>id</code> is a stable <code>messages.id</code>. Use it as <code>?after=&lt;id&gt;</code> on the next call to fetch only new frames.</p>
+    <p><code>kind</code>:</p>
+    <ul>
+      <li><code>message</code> &mdash; the agent&rsquo;s reply.</li>
+      <li><code>status</code> &mdash; an interim <code>&lt;status&gt;</code> block from the agent&rsquo;s status protocol (rendered as the <code>&#9203;</code> prefix on the platform side).</li>
+    </ul>
+    <p>Stop polling once <code>status == "done"</code>. <code>"failed"</code> carries an <code>error</code> field with a short message.</p>
+
+    <h3>GET status (cheap)</h3>
+    <pre><code>GET /slink/&lt;token&gt;/turn/&lt;id&gt;/status</code></pre>
+    <pre><code>{
+  "turn_id": "msg_abc",
+  "status": "pending",
+  "frames_count": 2,
+  "last_frame_id": "out_002"
+}</code></pre>
+    <p>Use this to decide between &ldquo;poll once and stop&rdquo; vs &ldquo;open SSE&rdquo; without paying for the frame payload.</p>
+
+    <h3>GET SSE stream</h3>
+    <pre><code>GET /slink/&lt;token&gt;/turn/&lt;id&gt;/sse</code></pre>
+    <p>Events:</p>
+    <ul>
+      <li><code>event: message</code> / <code>event: status</code> &mdash; same payload shape as a snapshot frame, one per <code>&lt;status&gt;</code> block or final reply.</li>
+      <li><code>event: round_done</code> &mdash; fires exactly once after <code>submit_turn</code>. Payload <code>{turn_id, status, error?}</code>. The server then closes the stream.</li>
+    </ul>
+    <p><code>Last-Event-Id</code> reconnect is supported. On reconnect the server replays frames whose id is greater than the last seen id (same query as <code>?after=&lt;id&gt;</code>) before resuming live.</p>
+
+    <h3>steering</h3>
+    <pre><code>POST /slink/&lt;token&gt;?steer=&lt;turn_id&gt;   body: content=...</code></pre>
+    <p>Inject a follow-up tied to an already-issued round. Two outcomes, both HTTP 200:</p>
+    <ul>
+      <li><strong>Round still pending.</strong> The Claude Agent SDK does not support mid-turn input injection &mdash; the in-flight LLM context is frozen until the current turn produces its final response. So &ldquo;steering&rdquo; is semantically &ldquo;cut to the front of the next-turn queue&rdquo;: per-folder serialization makes the steered message the immediate next round. Response carries <code>chained_from: "&lt;original_turn_id&gt;"</code>.</li>
+      <li><strong>Round already done.</strong> The steer becomes a fresh round; <code>chained_from</code> is omitted.</li>
+    </ul>
+    <p>Either way, observe progress through the same handle endpoints on the new <code>turn_id</code>.</p>
+
+    <h2>browser chat UI (legacy path)</h2>
+    <p>The widget served at <code>GET /slink/&lt;token&gt;</code> uses the legacy <code>POST /slink/&lt;token&gt;</code> (HTML fragment) + <code>GET /slink/stream</code> SSE combo, keyed on <code>(folder, topic)</code> rather than on a turn handle. It continues to work and is unchanged. New consumers should use the round-handle endpoints; the widget will migrate when there&rsquo;s a UX reason.</p>
+
+    <h2>hub keying</h2>
+    <p>The webd SSE hub stays keyed by <code>(folder, topic)</code>. The round-handle SSE handler subscribes to that key and filters frames whose payload <code>turn_id</code> matches the requested round. The gateway notifies webd via <code>POST /v1/round_done</code> when <code>submit_turn</code> lands; webd publishes a <code>round_done</code> frame on <code>(folder, topic)</code> so any open round-handle SSE subscriber can disconnect cleanly.</p>
+
+    <h2>schema dependencies</h2>
+    <ul>
+      <li><code>messages.turn_id</code> (migration 0038, indexed) &mdash; every outbound assistant message produced inside a run carries the inbound message id that triggered it. Paging is exact via foreign key, not a time-window correlation.</li>
+      <li><code>turn_results(folder, turn_id)</code> (migration 0036) &mdash; one row per completed round; consumed by the snapshot and status endpoints.</li>
+    </ul>
+
+    <h2>retention</h2>
+    <p>Rounds are durable until the underlying message is pruned. Today messages and turn_results are kept indefinitely; when a retention policy is added it covers both tables uniformly.</p>
+
+    <h2>operator CLI</h2>
+    <pre><code>arizuko send &lt;instance&gt; &lt;folder&gt; "&lt;msg&gt;" [--wait | --stream | --steer &lt;turn_id&gt;]
+arizuko send &lt;instance&gt; &lt;folder&gt; --stdin            # read body from stdin</code></pre>
+    <ul>
+      <li><code>--wait</code> &mdash; poll <code>/turn/&lt;id&gt;?after=&lt;last&gt;</code> until <code>status != "pending"</code>; print frames as they arrive.</li>
+      <li><code>--stream</code> &mdash; same, but over <code>/turn/&lt;id&gt;/sse</code>; closes on <code>round_done</code>.</li>
+      <li><code>--steer &lt;turn_id&gt;</code> &mdash; POST with <code>?steer=&lt;turn_id&gt;</code>.</li>
+    </ul>
+    <p>Reads <code>slink_token</code> from the instance store and <code>WEB_HOST</code> from the instance <code>.env</code>; posts via slink. No new transport, no new auth.</p>
+
+    <h2>MCP transport note</h2>
+    <p>POST + SSE on <code>/slink/&lt;token&gt;</code> is structurally the deprecated MCP SSE transport (v2024-11-05). A future variant could expose a standards-compliant MCP Streamable HTTP endpoint for native Claude Desktop connection without changing the round-handle semantics.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

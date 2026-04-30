@@ -9,6 +9,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.32.0] — 2026-04-30
+
+Slink becomes the universal "drop a message, observe the round"
+surface. Each agent run is exposed as a first-class object with a
+stable handle (`turn_id`), pageable assistant frames, an SSE stream
+that closes cleanly on round_done, and steering for chained
+follow-ups. New `arizuko send` CLI for server-side use; full public
+docs at `/pub/slink/`. Rolls up the v0.31.1 follow-on fixes
+(crackbox DNS alias, davd healthcheck, migration 079).
+
 ### Added
 
 - **Slink round-handle protocol** (`specs/1/W-slink.md`). Each agent
@@ -34,6 +44,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - Gateway → webd `POST /v1/round_done` notification (channel-secret
   authed). Fires from `handleSubmitTurn` only when the round was on
   a `web:` chat. Enables the SSE terminal event.
+- **`arizuko send <instance> <folder> "<msg>" [--wait | --stream | --steer <turn_id>]`** —
+  operator CLI to inject messages from the server into any group via
+  the slink round-handle protocol. Trivial wrapper; reads
+  `slink_token` + `WEB_HOST` from instance state, posts, optionally
+  polls or streams the round to stdout.
+- Public web docs at `/pub/slink/` (landing) +
+  `/pub/slink/reference/` (full protocol reference).
+- Agent migration 080 documents the round-handle protocol for ants.
+- Spec `specs/5/e-replaceability-research.md`: audit each shipped
+  homegrown component (crackbox, future messaging-gateway,
+  mcp-firewall, gated container orchestration) against off-the-shelf
+  alternatives (squid, mitmproxy, envoy, NATS, Anthropic permission
+  system). Bias toward replacement.
 
 ### Changed
 
@@ -45,6 +68,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `turn_id`; webd handleSend stamps it on its outbound `core.Message`
   and includes it in the SSE assistant payload so subscribers can
   filter by turn.
+
+### Fixed
+
+- `container/network`: `docker network connect --alias crackbox`
+  on per-folder networks. The `crackbox` short-name DNS only resolved
+  on Docker Compose's default network; agent containers on per-folder
+  networks hit DNS-fail on `HTTPS_PROXY=http://crackbox:3128` and
+  hung 30 min until idle timeout. Fixes 1-2 minute reply latency
+  observed on krons after v0.31.1.
+- `davd`: wrap `sigoden/dufs` in alpine to add a `/health` probe.
+  dufs ships distroless (no shell, no wget), so no healthcheck was
+  possible. Multi-stage Dockerfile keeps the dufs binary, adds wget +
+  ca-certificates + standard `HEALTHCHECK` probing root. Image:
+  `arizuko-davd:latest`.
 
 ## [v0.31.1] — 2026-04-30
 
