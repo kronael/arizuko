@@ -1,11 +1,13 @@
 ---
-status: unshipped
+status: planned
 ---
 
-# Local CLI
+# Local CLI — `arizuko send`
 
 A CLI tool for local programs/scripts to send messages to groups.
-Complements the web/platform channels with a local unix interface.
+Trivial wrapper over the slink round-handle protocol
+([../1/W-slink.md](../1/W-slink.md)) — no separate transport, no new
+auth, no new schema.
 
 ## Use cases
 
@@ -15,49 +17,53 @@ Complements the web/platform channels with a local unix interface.
 - Local dev tools interacting with groups
 - Monitoring alerts routed to operator groups
 
-## Basic shape
+## Shape
 
 ```bash
-# send a message
-arizuko send <group> "deploy completed successfully"
+# fire and forget — print the turn_id, exit 0
+arizuko send <instance> <folder> "deploy completed"
 
-# pipe stdin
-tail -f /var/log/app.log | arizuko send <group> --stdin
+# wait for the round to finish, stream assistant frames to stdout
+arizuko send <instance> <folder> "what's the status?" --wait
 
-# send a file
-arizuko send <group> --file ./report.pdf
+# stream as SSE (lower latency, same content)
+arizuko send <instance> <folder> "..." --stream
 
-# read recent messages
-arizuko read <group> --last 10
+# pipe stdin as message body
+tail -n 20 /var/log/app.log | arizuko send <instance> <folder> --stdin
 
-# interactive session
-arizuko chat <group>
+# steer an in-flight round (fall back to fresh round on chain miss)
+arizuko send <instance> <folder> "actually focus on errors" \
+  --steer <turn_id>
 ```
 
-## Open questions
+Exit codes: `0` on `status=done`, `1` on `failed`, `124` on `--wait`
+timeout, `2` on usage / network errors.
 
-1. **Auth**: how does the CLI authenticate? Options:
-   - Unix socket (same host = trusted, like docker.sock)
-   - API token from `.env` or `~/.config/arizuko/token`
-   - Reuse existing `CHANNEL_SECRET` as local bearer token
-   - No auth (localhost-only API, bind 127.0.0.1)
+## Resolved design
 
-2. **Transport**: HTTP to gated API, or direct SQLite write, or
-   unix socket to a local daemon?
-   - HTTP to gated: simplest, works remotely too, but needs auth
-   - Direct SQLite: fast, no daemon needed, but coupling
-   - Unix socket: clean, local-only by design
+Earlier drafts of this spec listed open questions about transport,
+auth, and JID format. The slink round-handle protocol settles them:
 
-3. **JID format**: what does the sender look like?
-   - `local:<username>` or `cli:<hostname>`?
-   - Should it go through routing or bypass directly to the group?
+- **Transport**: HTTP to local webd over loopback. No new daemon, no
+  separate socket, no direct sqlite writes from the CLI.
+- **Auth**: server-side CLI reads the instance's `groups.slink_token`
+  for the target folder directly out of `messages.db`. The token is
+  what slink already uses for HTTP auth, so once the CLI has it, it
+  hits `/slink/<token>` like any other client.
+- **JID format**: messages arrive on `web:<folder>` (the same chat
+  slink uses). Sender is `cli:<hostname>` (set on the CLI side via
+  the form `sender_name`).
+- **Streaming**: SSE on `/slink/<token>/turn/<id>/sse` — round-scoped,
+  closes cleanly on `round_done`. Polling via `?after=<msg_id>` for
+  cron-style callers that don't want a long-lived connection.
+- **Multi-group / read / chat**: out of scope for the first ship.
+  `arizuko chat` already exists as a separate command (root MCP
+  socket); `read` is doable later via `inspect_messages`.
 
-4. **Scope**: just send/read, or also manage (routes, groups, users)?
-   The `arizuko` binary already has `group list|add|rm` and `status`.
-   Should messaging be added there or be a separate tool?
+## Implementation
 
-5. **Streaming**: should `arizuko chat` stream responses via SSE
-   (like slink) or poll? Or use the existing webd SSE endpoint?
-
-6. **Multi-group**: can you send to multiple groups at once?
-   `arizuko send alice/ bob/ "message"` or topic-based fan-out?
+~80 LOC: open `messages.db`, look up `slink_token` for the folder,
+HTTP POST to `127.0.0.1:<webd-port>/slink/<token>` with the message,
+then either return immediately (default) or poll/stream the round.
+No new server-side code.

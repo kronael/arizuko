@@ -17,6 +17,14 @@ JSON-RPC method on the connection layer so the LLM never sees it.
 Gateway already plumbs `Input.MessageID`; ant carries it through and
 includes it in the submit_turn payload.
 
+The same `turn_id` is exposed externally as the round-handle in the
+slink protocol (see [../1/W-slink.md](../1/W-slink.md)). Outbound
+assistant messages produced inside a run are stamped with this
+`turn_id` (`messages.turn_id`, migration 0038) so callers can fetch
+"all replies from this run" by foreign-key lookup. `turn_results`
+gains `inbound_msg_ids` (JSON array) at submit_turn time so the
+batch the turn consumed is recoverable.
+
 ## Rationale
 
 - Restart safety becomes a property of persistence. The agent records

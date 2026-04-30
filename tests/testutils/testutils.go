@@ -67,7 +67,7 @@ func NewInstance(t *testing.T) *Inst {
 
 // SentMsg records a Send call on FakeChannel.
 type SentMsg struct {
-	JID, Text, ReplyTo, ThreadID string
+	JID, Text, ReplyTo, ThreadID, TurnID string
 }
 
 // SentFile records a SendFile call.
@@ -127,13 +127,13 @@ func (f *FakeChannel) Owns(jid string) bool {
 	return false
 }
 
-func (f *FakeChannel) Send(jid, text, replyTo, threadID string) (string, error) {
+func (f *FakeChannel) Send(jid, text, replyTo, threadID, turnID string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.SendErr != nil {
 		return "", f.SendErr
 	}
-	f.SentMessages = append(f.SentMessages, SentMsg{jid, text, replyTo, threadID})
+	f.SentMessages = append(f.SentMessages, SentMsg{jid, text, replyTo, threadID, turnID})
 	return fmt.Sprintf("fake-%d", len(f.SentMessages)), nil
 }
 

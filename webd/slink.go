@@ -161,6 +161,27 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "content required", http.StatusBadRequest)
 		return
 	}
+
+	// Round-handle steering: ?steer=<turn_id> reuses the in-flight round's
+	// topic so the new message lands in the same chat queue. The gateway's
+	// per-folder queue serializes runs, so the steer effectively becomes
+	// the immediate next round (chained_from set in the response). When
+	// the round has already finished, the steer falls back to a fresh
+	// round with a new topic.
+	steerTurn := strings.TrimSpace(r.URL.Query().Get("steer"))
+	chainedFrom := ""
+	if steerTurn != "" {
+		jid := "web:" + g.Folder
+		stTopic := s.st.TopicByMessageID(steerTurn, jid)
+		if stTopic != "" {
+			info, _ := s.st.GetTurnResult(g.Folder, steerTurn)
+			if info.Status == "pending" {
+				topic = stTopic
+				chainedFrom = steerTurn
+			}
+		}
+	}
+
 	if topic == "" {
 		topic = fmt.Sprintf("t%d", time.Now().UnixMilli())
 	}
@@ -247,7 +268,14 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	case wantSSE:
 		serveSSE(w, r, ch)
 	case wantJSON:
-		resp := map[string]any{"user": userPayload}
+		resp := map[string]any{
+			"user":    userPayload,
+			"turn_id": m.ID,
+			"status":  "pending",
+		}
+		if chainedFrom != "" {
+			resp["chained_from"] = chainedFrom
+		}
 		if wait > 0 {
 			ctx, cancel := context.WithTimeout(r.Context(), time.Duration(wait)*time.Second)
 			if a, ok := waitForAssistant(ctx, ch); ok {

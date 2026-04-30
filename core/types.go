@@ -30,6 +30,7 @@ type Message struct {
 	Attachments   string // JSON-encoded []chanlib.InboundAttachment
 	Source        string // adapter name that handled this row (inbound: receiver; outbound: deliverer)
 	Errored       bool   // set when a previous agent run failed on this message; re-fed tagged for retry
+	TurnID        string // for outbound: the inbound message id that triggered the run; for inbound: empty
 }
 
 type Group struct {
@@ -89,7 +90,7 @@ type Task struct {
 type Channel interface {
 	Name() string
 	Connect(ctx context.Context) error
-	Send(jid, text, replyTo, threadID string) (string, error)
+	Send(jid, text, replyTo, threadID, turnID string) (string, error)
 	SendFile(jid, path, name, caption string) error
 	Owns(jid string) bool
 	Typing(jid string, on bool) error

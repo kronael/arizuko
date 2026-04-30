@@ -28,8 +28,9 @@ Auth planes (resolved at proxyd):
 - Slink → `X-Folder` + `X-Group-Name` + `X-Slink-Token` with
   10 req/min/IP rate limit.
 
-URL namespaces: `/slink/*` (slink, HTML fragment), `/api/*` (JWT, JSON),
-`/x/*` (JWT, HTMX fragment).
+URL namespaces: `/slink/*` (slink, HTML fragment + JSON round-handle
+endpoints, see [../1/W-slink.md](../1/W-slink.md)), `/api/*` (JWT,
+JSON), `/x/*` (JWT, HTMX fragment).
 
 Note: `local:` prefix retained — it describes origin (internal/
 scheduler), not destination.

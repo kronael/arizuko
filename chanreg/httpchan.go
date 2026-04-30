@@ -66,6 +66,7 @@ type outMsg struct {
 	Content  string
 	ReplyTo  string
 	ThreadID string
+	TurnID   string
 	IsFile   bool
 	Path     string
 	Name     string
@@ -86,11 +87,11 @@ func (h *HTTPChannel) Connect(_ context.Context) error { return nil }
 
 func (h *HTTPChannel) Owns(jid string) bool { return h.entry.Owns(jid) }
 
-func (h *HTTPChannel) Send(jid, text, replyTo, threadID string) (string, error) {
-	return h.SendCtx(context.Background(), jid, text, replyTo, threadID)
+func (h *HTTPChannel) Send(jid, text, replyTo, threadID, turnID string) (string, error) {
+	return h.SendCtx(context.Background(), jid, text, replyTo, threadID, turnID)
 }
 
-func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID string) (string, error) {
+func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID, turnID string) (string, error) {
 	if !h.entry.HasCap("send_text") {
 		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
@@ -103,6 +104,9 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID 
 	}
 	if threadID != "" {
 		body["thread_id"] = threadID
+	}
+	if turnID != "" {
+		body["turn_id"] = turnID
 	}
 	b, _ := json.Marshal(body)
 
@@ -118,7 +122,7 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID 
 		}
 		err = fmt.Errorf("status %d", httpResp.StatusCode)
 	}
-	h.enqueue(outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID})
+	h.enqueue(outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID, TurnID: turnID})
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
@@ -190,6 +194,34 @@ func (h *HTTPChannel) Typing(jid string, on bool) error {
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		slog.Warn("typing: non-2xx response", "channel", h.entry.Name, "status", resp.StatusCode)
+	}
+	return nil
+}
+
+// PostRoundDone signals the channel that the agent's run for turnID has
+// closed. Used by webd to emit a terminal round_done SSE frame on slink
+// round-handle subscriptions. 404 from the channel is treated as
+// "channel doesn't implement round-handle protocol" — not an error.
+func (h *HTTPChannel) PostRoundDone(folder, turnID, status, errMsg string) error {
+	body := map[string]string{
+		"folder":  folder,
+		"turn_id": turnID,
+		"status":  status,
+	}
+	if errMsg != "" {
+		body["error"] = errMsg
+	}
+	b, _ := json.Marshal(body)
+	resp, err := h.post(context.Background(), "/v1/round_done", b)
+	if err != nil {
+		return fmt.Errorf("channel %s round_done: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("channel %s round_done: status %d", h.entry.Name, resp.StatusCode)
 	}
 	return nil
 }
@@ -424,7 +456,7 @@ func (h *HTTPChannel) DrainOutbox() {
 		if m.IsFile {
 			err = h.SendFile(m.JID, m.Path, m.Name, m.Caption)
 		} else {
-			_, err = h.Send(m.JID, m.Content, m.ReplyTo, m.ThreadID)
+			_, err = h.Send(m.JID, m.Content, m.ReplyTo, m.ThreadID, m.TurnID)
 		}
 		if err != nil {
 			slog.Warn("outbox drain failed", "channel", h.entry.Name,

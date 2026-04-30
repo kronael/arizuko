@@ -703,6 +703,7 @@ func (g *Gateway) processWebTopics(
 
 func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID, groupFolder string) (func(string, string), *bool) {
 	var hadOutput bool
+	turnID := firstMsgID
 	replyTo := firstMsgID
 
 	sendOnce := func(text, replyToID, threadID string) (string, error) {
@@ -721,7 +722,7 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 		if c == nil {
 			return "", fmt.Errorf("no channel for jid %s", chatJid)
 		}
-		return c.Send(chatJid, text, replyToID, threadID)
+		return c.Send(chatJid, text, replyToID, threadID, turnID)
 	}
 
 	return func(text, _ string) {
@@ -758,6 +759,7 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 				RoutedTo:  chatJid,
 				Topic:     topic,
 				ReplyToID: sentID,
+				TurnID:    turnID,
 			})
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
@@ -781,6 +783,7 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 				ReplyToID: sentID,
 				RoutedTo:  chatJid,
 				Topic:     topic,
+				TurnID:    turnID,
 			})
 		}
 	}, &hadOutput
@@ -1047,7 +1050,7 @@ func (g *Gateway) sendMessageReply(jid, text, replyTo, threadID string) (string,
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.Send(jid, text, replyTo, threadID)
+	return ch.Send(jid, text, replyTo, threadID, "")
 }
 
 func (g *Gateway) sendDocument(jid, path, name, caption string) error {
@@ -1787,6 +1790,8 @@ func (g *Gateway) handleSubmitTurn(folder string, t ipc.TurnResult) error {
 		return nil
 	}
 
+	g.publishRoundDone(folder, t.TurnID, t.Status, t.Error)
+
 	g.turnsMu.Lock()
 	st := g.inFlightTurns[folder]
 	g.turnsMu.Unlock()
@@ -1805,6 +1810,25 @@ func (g *Gateway) handleSubmitTurn(folder string, t ipc.TurnResult) error {
 		st.onOutput(t.Result, t.Status)
 	}
 	return nil
+}
+
+// publishRoundDone notifies the web channel that a round closed so /sse
+// streams subscribed via the slink round-handle protocol can emit a
+// terminal round_done event and disconnect. No-op for chats that aren't
+// served by webd.
+func (g *Gateway) publishRoundDone(folder, turnID, status, errMsg string) {
+	ch := g.findChannelForJID("web:" + folder)
+	if ch == nil {
+		return
+	}
+	hc, ok := ch.(*chanreg.HTTPChannel)
+	if !ok {
+		return
+	}
+	if err := hc.PostRoundDone(folder, turnID, status, errMsg); err != nil {
+		slog.Warn("round_done publish failed",
+			"folder", folder, "turn_id", turnID, "err", err)
+	}
 }
 
 func onboardingAllowed(jid string, platforms []string) bool {

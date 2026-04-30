@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/onvos/arizuko/core"
 )
 
 // POST without Accept=text/event-stream returns an HTML bubble fragment.
@@ -127,11 +129,101 @@ func TestSlinkPost_JSON(t *testing.T) {
 	if user["content"] != "ping" || user["role"] != "user" || user["topic"] != "t-json" {
 		t.Errorf("user payload wrong: %+v", user)
 	}
+	if got["turn_id"] != user["id"] {
+		t.Errorf("turn_id should equal user.id (=inbound msg_id), got: %v vs %v", got["turn_id"], user["id"])
+	}
+	if got["status"] != "pending" {
+		t.Errorf("status should be pending on async-default response, got: %v", got["status"])
+	}
 	if _, has := got["assistant"]; has {
 		t.Errorf("assistant unexpectedly present without ?wait: %+v", got)
 	}
 	if len(mr.sent()) != 1 {
 		t.Errorf("router did not receive exactly one message: %+v", mr.sent())
+	}
+}
+
+// TurnSnapshot returns frames from store.TurnFrames matching the given id;
+// asserts ordering, status transition, cursor paging.
+func TestTurnSnapshot_PagingAndStatus(t *testing.T) {
+	s, _, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	// Seed one inbound (= turn_id), then a few outbound frames stamped with it.
+	turnID := "msg-inbound-1"
+	chatJID := "web:" + g.Folder
+	t0 := time.Now()
+	mk := func(id, sender, content string, bot bool, tid string, off time.Duration) core.Message {
+		return core.Message{
+			ID: id, ChatJID: chatJID, Sender: sender, Content: content,
+			Timestamp: t0.Add(off), BotMsg: bot, TurnID: tid,
+		}
+	}
+	if err := st.PutMessage(mk(turnID, "user", "ping", false, "", 0)); err != nil {
+		t.Fatalf("seed inbound: %v", err)
+	}
+	if err := st.PutMessage(mk("out-1", "main", "first reply", true, turnID, 1*time.Millisecond)); err != nil {
+		t.Fatalf("seed out1: %v", err)
+	}
+	if err := st.PutMessage(mk("out-2", "main", "second reply", true, turnID, 2*time.Millisecond)); err != nil {
+		t.Fatalf("seed out2: %v", err)
+	}
+
+	// Snapshot, full.
+	req := httptest.NewRequest("GET", "/slink/"+g.SlinkToken+"/turn/"+turnID, nil)
+	req.SetPathValue("token", g.SlinkToken)
+	req.SetPathValue("id", turnID)
+	w := httptest.NewRecorder()
+	s.handleTurnSnapshot(w, req)
+	if w.Code != 200 {
+		t.Fatalf("snapshot status %d: %s", w.Code, w.Body.String())
+	}
+	var snap map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if snap["status"] != "pending" {
+		t.Errorf("status before submit_turn should be pending, got: %v", snap["status"])
+	}
+	frames, _ := snap["frames"].([]any)
+	if len(frames) != 2 {
+		t.Fatalf("frames count = %d, want 2: %+v", len(frames), snap)
+	}
+	if snap["last_frame_id"] != "out-2" {
+		t.Errorf("last_frame_id = %v, want out-2", snap["last_frame_id"])
+	}
+
+	// Cursor paging — only frames after out-1 should come back.
+	req = httptest.NewRequest("GET", "/slink/"+g.SlinkToken+"/turn/"+turnID+"?after=out-1", nil)
+	req.SetPathValue("token", g.SlinkToken)
+	req.SetPathValue("id", turnID)
+	w = httptest.NewRecorder()
+	s.handleTurnSnapshot(w, req)
+	json.Unmarshal(w.Body.Bytes(), &snap)
+	frames, _ = snap["frames"].([]any)
+	if len(frames) != 1 {
+		t.Fatalf("paged frames = %d, want 1", len(frames))
+	}
+
+	// Status flips to "success" once turn_results lands.
+	if _, err := st.RecordTurnResult(g.Folder, turnID, "session-1", "success"); err != nil {
+		t.Fatalf("record turn: %v", err)
+	}
+	req = httptest.NewRequest("GET", "/slink/"+g.SlinkToken+"/turn/"+turnID+"/status", nil)
+	req.SetPathValue("token", g.SlinkToken)
+	req.SetPathValue("id", turnID)
+	w = httptest.NewRecorder()
+	s.handleTurnStatus(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status endpoint = %d", w.Code)
+	}
+	var stat map[string]any
+	json.Unmarshal(w.Body.Bytes(), &stat)
+	if stat["status"] != "success" {
+		t.Errorf("status after RecordTurnResult = %v, want success", stat["status"])
+	}
+	if int(stat["frames_count"].(float64)) != 2 {
+		t.Errorf("frames_count = %v, want 2", stat["frames_count"])
 	}
 }
 

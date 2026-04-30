@@ -56,12 +56,17 @@ func (s *server) handler() http.Handler {
 	// Channel callbacks from gated (authenticated with channel secret).
 	mux.HandleFunc("POST /send", chanlib.Auth(s.cfg.channelSecret, s.handleSend))
 	mux.HandleFunc("POST /typing", chanlib.Auth(s.cfg.channelSecret, s.handleTyping))
+	mux.HandleFunc("POST /v1/round_done", chanlib.Auth(s.cfg.channelSecret, s.handleRoundDone))
 	mux.HandleFunc("GET /health", s.handleHealth)
 
 	// Public slink endpoints (token-gated internally).
 	mux.HandleFunc("GET /slink/{token}", s.handleSlinkPage)
 	mux.HandleFunc("POST /slink/{token}", s.handleSlinkPost)
 	mux.HandleFunc("GET /slink/stream", s.handleSlinkStream)
+	// Slink round-handle protocol — see specs/1/W-slink.md.
+	mux.HandleFunc("GET /slink/{token}/turn/{id}", s.handleTurnSnapshot)
+	mux.HandleFunc("GET /slink/{token}/turn/{id}/status", s.handleTurnStatus)
+	mux.HandleFunc("GET /slink/{token}/turn/{id}/sse", s.handleTurnSSE)
 
 	// MCP streamable-HTTP endpoint — single per-instance, JWT-gated. The
 	// authed user can reach any folder in their user_groups ACL; each

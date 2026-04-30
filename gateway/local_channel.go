@@ -35,7 +35,7 @@ func (c *LocalChannel) SendFile(_, _, _, _ string) error {
 	return fmt.Errorf("local channel does not support file sending")
 }
 
-func (c *LocalChannel) Send(jid, text, replyTo, threadID string) (string, error) {
+func (c *LocalChannel) Send(jid, text, replyTo, threadID, turnID string) (string, error) {
 	if !c.Owns(jid) {
 		return "", fmt.Errorf("local channel does not own jid: %s", jid)
 	}
@@ -49,6 +49,7 @@ func (c *LocalChannel) Send(jid, text, replyTo, threadID string) (string, error)
 		Timestamp: time.Now(),
 		ReplyToID: replyTo,
 		Topic:     threadID,
+		TurnID:    turnID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("store message: %w", err)

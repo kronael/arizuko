@@ -9,6 +9,43 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **Slink round-handle protocol** (`specs/1/W-slink.md`). Each agent
+  run is exposed as a first-class object keyed by `turn_id` (= the
+  inbound message id). Default `POST /slink/<token>` returns
+  `{user, turn_id, status:pending}` synchronously and the round can
+  be observed via:
+  - `GET /slink/<token>/turn/<id>` — snapshot (status + frames)
+  - `GET /slink/<token>/turn/<id>?after=<msg_id>` — cursor paging
+  - `GET /slink/<token>/turn/<id>/status` — cheap status check
+  - `GET /slink/<token>/turn/<id>/sse` — live stream + `round_done`
+    Round_done arrives as an SSE event after `submit_turn`, then the
+    stream closes. Cursor uses `messages.id` (same convention as
+    `get_history`'s `before`).
+- **Steering**: `POST /slink/<token>?steer=<turn_id>` injects a
+  follow-up that lands on the in-flight round's topic. Per-folder
+  queue serialization makes it the immediate next round; response
+  carries `chained_from`. If the round has already finished, the
+  steer becomes a fresh round (no `chained_from`).
+- `messages.turn_id` (migration 0038) — gateway stamps every
+  outbound assistant message with the inbound msg_id that triggered
+  the run. Indexed; replaces time-window correlation.
+- Gateway → webd `POST /v1/round_done` notification (channel-secret
+  authed). Fires from `handleSubmitTurn` only when the round was on
+  a `web:` chat. Enables the SSE terminal event.
+
+### Changed
+
+- `core.Channel.Send(jid, text, replyTo, threadID, turnID)` —
+  signature widened by one positional `turnID` so adapters can carry
+  it through the wire. All three implementations
+  (`HTTPChannel`, `LocalChannel`, `FakeChannel`) updated.
+- `chanlib.SendRequest` body to webd's `/send` carries optional
+  `turn_id`; webd handleSend stamps it on its outbound `core.Message`
+  and includes it in the SSE assistant payload so subscribers can
+  filter by turn.
+
 ## [v0.31.1] — 2026-04-30
 
 Day-after polish + production-deploy fixes for crackbox. All three

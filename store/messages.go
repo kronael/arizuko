@@ -16,14 +16,14 @@ func (s *Store) PutMessage(m core.Message) error {
 		`INSERT OR IGNORE INTO messages
 		 (id, chat_jid, sender, sender_name, content, timestamp,
 		  is_from_me, is_bot_message, forwarded_from,
-		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source, turn_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatJID, m.Sender, m.Name, m.Content,
 		m.Timestamp.Format(time.RFC3339Nano),
 		btoi(m.FromMe), btoi(m.BotMsg),
 		nilIfEmpty(m.ForwardedFrom),
 		nilIfEmpty(m.ReplyToID), nilIfEmpty(m.ReplyToText), nilIfEmpty(m.ReplyToSender),
-		m.Topic, m.RoutedTo, m.Verb, m.Attachments, m.Source,
+		m.Topic, m.RoutedTo, m.Verb, m.Attachments, m.Source, nilIfEmpty(m.TurnID),
 	)
 	return err
 }
@@ -46,7 +46,7 @@ func nilIfEmpty(s string) *string {
 const msgCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp,
 	is_from_me, is_bot_message, COALESCE(forwarded_from,''),
 	COALESCE(reply_to_id,''), COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''),
-	topic, routed_to, verb, attachments, source, errored`
+	topic, routed_to, verb, attachments, source, errored, COALESCE(turn_id,'')`
 
 // NewMessages returns new inbound messages since `since`. If jids is empty,
 // no chat_jid filter is applied (all new messages from all chats).
@@ -179,7 +179,7 @@ func scanMessage(r rowScanner) (core.Message, error) {
 	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content,
 		&ts, &fromMe, &botMsg, &m.ForwardedFrom,
 		&m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
-		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored); err != nil {
+		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored, &m.TurnID); err != nil {
 		return m, err
 	}
 	m.FromMe = fromMe != 0

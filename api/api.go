@@ -155,7 +155,7 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 	// outbox survives across failed sends. Fall back to constructing one
 	// when no gateway hook is wired (tests, bootstrap).
 	ch := s.resolveChannel(entry)
-	if _, err := ch.SendCtx(r.Context(), req.JID, req.Text, "", ""); err != nil {
+	if _, err := ch.SendCtx(r.Context(), req.JID, req.Text, "", "", ""); err != nil {
 		chanlib.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}

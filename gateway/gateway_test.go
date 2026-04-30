@@ -47,7 +47,7 @@ func (m *mockChannel) Owns(jid string) bool {
 	return false
 }
 
-func (m *mockChannel) Send(jid, text, _, _ string) (string, error) {
+func (m *mockChannel) Send(jid, text, _, _, _ string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sent = append(m.sent, sentMsg{jid, text})
@@ -827,7 +827,7 @@ func (c *testChannel) Owns(jid string) bool {
 	return false
 }
 
-func (c *testChannel) Send(jid, text, replyTo, threadID string) (string, error) {
+func (c *testChannel) Send(jid, text, replyTo, threadID, _ string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.sendErr != nil {
