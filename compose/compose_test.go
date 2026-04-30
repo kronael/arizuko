@@ -166,8 +166,8 @@ func TestGenerateWithWebDAV(t *testing.T) {
 	if !strings.Contains(out, "davd:") {
 		t.Error("missing davd service")
 	}
-	if !strings.Contains(out, "sigoden/dufs") {
-		t.Error("davd should use sigoden/dufs image")
+	if !strings.Contains(out, "arizuko-davd") {
+		t.Error("davd should use arizuko-davd image (sigoden/dufs wrapped with healthcheck)")
 	}
 	if !strings.Contains(out, "/data:ro") {
 		t.Error("davd should mount /data:ro (read-only)")

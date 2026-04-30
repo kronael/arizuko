@@ -477,16 +477,19 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 	var b strings.Builder
 	b.WriteString("  davd:\n")
 	fmt.Fprintf(&b, "    container_name: %s_davd_%s\n", app, flavor)
-	b.WriteString("    image: sigoden/dufs:latest\n")
+	// arizuko-davd is sigoden/dufs wrapped in alpine — same binary,
+	// adds wget for the healthcheck (dufs is distroless).
+	b.WriteString("    image: arizuko-davd:latest\n")
 	fmt.Fprintf(&b, "    volumes:\n      - %s/groups:/data:ro\n", dataDir)
-	// Host-side dav port exposure for direct access, if DAV_PORT is set.
 	if davPort := envOr(env, "DAV_PORT", ""); davPort != "" {
 		b.WriteString("    ports:\n")
 		fmt.Fprintf(&b, "      - '%s:8080'\n", davPort)
 	}
-	// sigoden/dufs's entrypoint is already /bin/dufs; pass only args.
 	b.WriteString("    command:\n")
 	b.WriteString("      - --port\n      - '8080'\n      - /data\n")
+	b.WriteString("    healthcheck:\n")
+	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:8080/']\n")
+	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n")
 	b.WriteString("    depends_on: [gated]\n")
 	b.WriteString("    restart: on-failure\n")
 	return b.String()

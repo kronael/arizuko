@@ -59,6 +59,7 @@ images:
 	$(DOCKER) build -t arizuko-whatsapp -f whapd/Dockerfile .
 	$(DOCKER) build -t arizuko-twitter -f twitd/Dockerfile .
 	$(DOCKER) build -t crackbox -f crackbox/Dockerfile .
+	$(DOCKER) build -t arizuko-davd -f davd/Dockerfile .
 	make -C ant image DOCKER="$(DOCKER)"
 	make vite-image
 
