@@ -9,6 +9,50 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.31.0] — 2026-04-29
+
+Headline: **crackbox** ships as a sibling component with default-deny
+network egress, per-folder Docker network isolation (east-west
+containment), admin auth on mutating endpoints, on-disk registry
+persistence, and a standalone `crackbox run --allow X -- <cmd>` CLI
+for use on a developer laptop with no arizuko around. Replaces the
+`egred/` prototype shipped earlier the same day. Specs 6/9 + 6/10 +
+8/b shipped.
+
+### Added (since v0.30.0 not already covered below)
+
+- `crackbox/pkg/admin`: optional bearer-token auth on `/v1/register`
+  and `/v1/unregister` (env `CRACKBOX_ADMIN_SECRET`). Read-only
+  `/v1/state` and `/health` stay open. Empty secret keeps the prior
+  behavior + warns at startup.
+- `crackbox/pkg/admin`: optional registry persistence via JSON file
+  (env `CRACKBOX_STATE_PATH`). Atomic `tmp + rename` per mutation;
+  corrupt or missing file resets to empty with a warning. Survives
+  container restart and `docker compose down/up`. Empty path keeps
+  the prior RAM-only behavior.
+- `crackbox/pkg/admin /health` performs a TCP self-test against the
+  proxy listener and returns 503 `{status:"proxy_down"}` if the proxy
+  port is dead. Catches the "admin green, proxy crashed" silent fail.
+
+### Fixed (regressions from the same release cycle)
+
+- `core/config.go`: dropped the auto-derive of egress network prefix /
+  crackbox container name from `filepath.Base(c.ProjectRoot)`. Inside
+  a daemon container, ProjectRoot is `/srv/app/home`, so derivation
+  returned `home` instead of the host's `arizuko_<flavor>`. Compose
+  generation (which knows the project name) now writes
+  `EGRESS_NETWORK_PREFIX` and `EGRESS_CRACKBOX` into gated's env file
+  explicitly. Daemons read env, never parse paths.
+- `gateway`: bound the failure-retry loop. `processSenderBatch` on
+  failure now advances the cursor past the failed batch; previously it
+  reset to the prior cursor, replaying the same broken spawn forever
+  whenever any permanent error (e.g. egress register against a
+  missing crackbox container) hit.
+- `container/network.go`: when `docker network create` returns "Pool
+  overlaps with other one on this address space" (orphan from a prior
+  instance name on the same /24), the allocator now retries with the
+  next slot up to 8 times instead of looping forever.
+
 ### Changed
 
 - `container`: per-folder egress network isolation. Each agent's folder
