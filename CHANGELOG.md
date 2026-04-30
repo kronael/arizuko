@@ -9,20 +9,27 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.32.1] — 2026-04-30
+
+Closes the cross-world spam vector revealed by v0.32.0's release
+broadcast: tier-1 world agents were sending to chats that route to
+OTHER worlds' folders, producing the same release notice 2-4× per
+chat. Outbound MCP now enforces JID-folder ownership; subtree
+containment is the only rule.
+
 ### Fixed
 
-- **Outbound MCP authorization**: `send`, `send_file`, `like`, `delete`,
-  `forward`, `quote`, `repost`, `dislike`, `edit`, `post` now resolve
-  the JID's owning folder via the `routes` table and call
-  `auth.Authorize` with `AuthzTarget{Folder: targetFolder}`. Tier 0
-  unrestricted; tier 1+ confined to subtree of caller's folder;
-  unrouted JIDs reachable only by root. Closes a hole where any agent
-  could send to any JID by name regardless of routing ownership.
-  Surface symptom: tier-1 world agents fan-out broadcasting (e.g.,
-  release announcements) to chats that route to other worlds — the
-  same chat receiving N copies of a release notice. After this fix
-  each world's broadcast naturally stays within its own subtree
-  because routing is 1:1; no cross-world overlap possible.
+- **Outbound MCP authorization**: `send`, `send_file`, `reply`,
+  `post`, `like`, `dislike`, `delete`, `edit`, `forward`, `quote`,
+  `repost` resolve the JID's owning folder via the `routes` table
+  (`store.DefaultFolderForJID`) and check subtree containment via
+  `auth.Authorize`. Caller folder must equal target folder or be a
+  proper ancestor (target == X or target under X/). No tier bypass —
+  even the instance root cannot direct-send to a JID that routes to
+  a different world. Inter-world communication uses `delegate_group`
+  / `escalate_group`. Unrouted JIDs are denied for every caller.
+  Spec: `specs/4/11-auth.md` "Outbound JID authorization." Agent
+  migration 081.
 
 ## [v0.32.0] — 2026-04-30
 
