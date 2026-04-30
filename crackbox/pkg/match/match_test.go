@@ -24,6 +24,9 @@ func TestHost(t *testing.T) {
 		{"empty allowlist blocks all", nil, "github.com", false},
 		{"ip in allowlist skipped (no host match)", []string{"1.2.3.4"}, "1.2.3.4", false},
 		{"multiple entries", []string{"foo.com", "bar.org", "baz.net"}, "api.bar.org", true},
+		{"wildcard allows anything", []string{"*"}, "evil.example", true},
+		{"wildcard alongside others", []string{"github.com", "*"}, "anywhere.org", true},
+		{"wildcard ignored if not literal star", []string{"*.com"}, "github.com", false},
 	}
 	for _, tc := range tests {
 		got := Host(tc.allowlist, tc.host)

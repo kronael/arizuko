@@ -39,10 +39,16 @@ func LooksLikeIP(target string) bool {
 
 // Host returns true if host is allowed by the given allowlist.
 // Match rules: exact, subdomain, case-insensitive, trailing-dot stripped.
-// IP entries in the allowlist are skipped — host filtering is name-based.
+// A bare "*" entry allows everything (used by trusted callers that
+// still want traffic to flow through the proxy for logging / future
+// secret injection but don't need name filtering). IP entries in the
+// allowlist are skipped — host filtering is name-based.
 func Host(allowlist []string, host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	for _, allowed := range allowlist {
+		if allowed == "*" {
+			return true
+		}
 		if LooksLikeIP(allowed) {
 			continue
 		}

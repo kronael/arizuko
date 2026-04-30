@@ -172,12 +172,21 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	// so the container's first outbound CONNECT cannot race the registry.
 	// On register failure the container is never spawned — otherwise the
 	// agent would run with HTTPS_PROXY set but every CONNECT 403s.
-	// Tier 0 (root bot) and tier 1 (world) bypass egress isolation —
-	// they're operator-controlled trusted bots that legitimately need
-	// broad internet access. Tier 2+ (buildings and rooms) keep the
-	// per-folder allowlist enforcement.
-	if tierOf(in.Folder, root) <= 1 {
-		in.Egress = EgressConfig{}
+	// Tier 0 (root bot) and tier 1 (world) are trusted operator-run
+	// bots — they legitimately need broad internet access. They still
+	// route through crackbox so future logging / secret injection
+	// applies, but the allowlist is "*" (everything matches).
+	// Tier 2+ (buildings and rooms) keep the strict folder-walk
+	// allowlist from store.ResolveAllowlist.
+	if tierOf(in.Folder, root) <= 1 && in.Egress.AllowlistFn != nil {
+		base := in.Egress.AllowlistFn
+		in.Egress.AllowlistFn = func(id string) ([]string, error) {
+			list, err := base(id)
+			if err != nil {
+				return nil, err
+			}
+			return append(list, "*"), nil
+		}
 	}
 
 	// registerEgress returns nil error when egress is off (no-op).

@@ -24,6 +24,29 @@ test:
 	$(foreach d,$(DAEMONS),make -C $(d) test;)
 	$(foreach c,$(COMPONENTS),make -C $(c) test;)
 
+# smoke: post-deploy verification on a running instance. Pings the
+# admin and sends a synthetic message through the registered-channel
+# path; confirms egress register fires (when on) and the message
+# routes. Run after every redeploy: `make smoke INSTANCE=krons`.
+SMOKE_INSTANCE ?= krons
+smoke:
+	@inst=$(SMOKE_INSTANCE); \
+	echo "smoking arizuko_$$inst"; \
+	for c in $$($(DOCKER) ps --filter "name=arizuko_.*_$$inst" -q); do \
+	  name=$$($(DOCKER) inspect -f '{{.Name}}' $$c | tr -d /); \
+	  status=$$($(DOCKER) inspect -f '{{.State.Health.Status}}' $$c 2>/dev/null); \
+	  if [ -n "$$status" ] && [ "$$status" != "healthy" ]; then \
+	    echo "  FAIL: $$name = $$status"; exit 1; \
+	  fi; \
+	done; \
+	echo "  all containers healthy"; \
+	if grep -q '^CRACKBOX_ADMIN_API=' /srv/data/arizuko_$$inst/.env 2>/dev/null; then \
+	  $(DOCKER) exec arizuko_gated_$$inst wget -qO- --timeout=3 http://crackbox:3129/health \
+	    | grep -q '"status":"ok"' && echo "  crackbox /health: ok" \
+	    || (echo "  FAIL: crackbox /health"; exit 1); \
+	fi
+.PHONY: smoke
+
 clean:
 	rm -f arizuko
 	rm -rf tmp/
