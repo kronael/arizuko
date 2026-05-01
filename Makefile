@@ -1,4 +1,4 @@
-DAEMONS = gated onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd linkd
+DAEMONS = gated onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd linkd ttsd
 # COMPONENTS are sibling tools shipped alongside arizuko (see specs/8/b).
 # They live in this monorepo but are orthogonal: their code does not import
 # arizuko-internal packages. Each has its own Makefile, README, and image.
@@ -60,6 +60,7 @@ images:
 	$(DOCKER) build -t arizuko-twitter -f twitd/Dockerfile .
 	$(DOCKER) build -t crackbox -f crackbox/Dockerfile .
 	$(DOCKER) build -t arizuko-davd -f davd/Dockerfile .
+	$(DOCKER) build -t arizuko-ttsd -f ttsd/Dockerfile .
 	make -C ant image DOCKER="$(DOCKER)"
 	make vite-image
 
