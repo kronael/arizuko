@@ -36,8 +36,8 @@ throttle admission.
 
 ## Health signal
 
-`GET /health` returns 200 when DB is reachable. Queue latency surfaces in
-the `/onboard/queue/<token>` page (auto-refreshes every 30s).
+`GET /health` returns 200 when DB is reachable. Queued users see their
+position on `/onboard` (auto-refreshes every 30s).
 
 ## Files
 
@@ -47,5 +47,5 @@ the `/onboard/queue/<token>` page (auto-refreshes every 30s).
 ## Related docs
 
 - `specs/4/26-prototypes.md` (prototype mechanic)
-- `specs/7/27-mass-onboarding.md`
+- `specs/5/28-mass-onboarding.md`
 - `ARCHITECTURE.md` (Onboarding section)
