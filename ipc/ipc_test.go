@@ -384,6 +384,131 @@ func TestServeMCP_SubmitTurnHiddenFromToolsList(t *testing.T) {
 	}
 }
 
+// callTool runs an MCP tools/call over the socket and returns the parsed
+// payload of result.content[0].text (which is JSON for the get_thread tool).
+func callTool(t *testing.T, sock, name string, args map[string]any) (map[string]any, string) {
+	t.Helper()
+	c, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+	req := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/call",
+		"params":  map[string]any{"name": name, "arguments": args},
+	}
+	b, _ := json.Marshal(req)
+	c.Write(append(b, '\n'))
+	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	resp, err := bufio.NewReader(c).ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var parsed struct {
+		Result struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+			IsError bool `json:"isError"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(resp, &parsed); err != nil {
+		t.Fatalf("unmarshal %q: %v", resp, err)
+	}
+	if parsed.Error != nil {
+		t.Fatalf("rpc error: %s", parsed.Error.Message)
+	}
+	if len(parsed.Result.Content) == 0 {
+		t.Fatalf("no content: %s", resp)
+	}
+	text := parsed.Result.Content[0].Text
+	if parsed.Result.IsError {
+		return nil, text
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		t.Fatalf("unmarshal payload %q: %v", text, err)
+	}
+	return payload, ""
+}
+
+func TestServeMCP_GetThread_HappyPath(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+	now := time.Now()
+	called := 0
+	db := StoreFns{
+		MessagesByThread: func(jid, topic string, before time.Time, limit int) ([]core.Message, error) {
+			called++
+			if jid != "telegram:group/-100" || topic != "t1" {
+				t.Errorf("MessagesByThread args: jid=%q topic=%q", jid, topic)
+			}
+			return []core.Message{
+				{ID: "m1", ChatJID: jid, Sender: "u1", Content: "hi", Timestamp: now, Topic: topic},
+			}, nil
+		},
+		JIDRoutedToFolder: func(jid, folder string) bool { return true },
+	}
+	stop, err := ServeMCP(sock, GatedFns{}, db, "world", []string{"*"}, 0)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	payload, errText := callTool(t, sock, "get_thread", map[string]any{
+		"chat_jid": "telegram:group/-100",
+		"topic":    "t1",
+	})
+	if errText != "" {
+		t.Fatalf("get_thread error: %s", errText)
+	}
+	if called != 1 {
+		t.Fatalf("MessagesByThread call count = %d, want 1", called)
+	}
+	if payload["count"].(float64) != 1 {
+		t.Fatalf("count = %v, want 1", payload["count"])
+	}
+	if payload["source"] != "local-db" {
+		t.Fatalf("source = %v, want local-db", payload["source"])
+	}
+}
+
+func TestServeMCP_GetThread_CrossGroupDenied(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+	called := 0
+	db := StoreFns{
+		MessagesByThread: func(jid, topic string, before time.Time, limit int) ([]core.Message, error) {
+			called++
+			return nil, nil
+		},
+		// Tier-2 (folder "world/a/b") asking about a jid routed to a different folder.
+		JIDRoutedToFolder: func(jid, folder string) bool { return false },
+	}
+	stop, err := ServeMCP(sock, GatedFns{}, db, "world/a/b", []string{"*"}, 0)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	_, errText := callTool(t, sock, "get_thread", map[string]any{
+		"chat_jid": "telegram:group/-999",
+		"topic":    "t1",
+	})
+	if !strings.Contains(errText, "access_denied") {
+		t.Fatalf("expected access_denied, got %q", errText)
+	}
+	if called != 0 {
+		t.Fatalf("MessagesByThread should not be called on denial; got %d", called)
+	}
+}
+
 func TestServeMCP_PeerCredRejectsWrongUID(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"

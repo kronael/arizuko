@@ -105,6 +105,7 @@ type StoreFns struct {
 	GetGrants           func(folder string) []string
 	SetGrants           func(folder string, rules []string) error
 	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
+	MessagesByThread    func(jid, topic string, before time.Time, limit int) ([]core.Message, error)
 	JIDRoutedToFolder   func(jid, folder string) bool
 	ErroredChats        func(folder string, isRoot bool) []ErroredChat
 	TaskRunLogs         func(taskID string, limit int) []TaskRunLog
@@ -1347,6 +1348,54 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
 		), inspectMessages)
+	}
+
+	if db.MessagesByThread != nil {
+		srv.AddTool(mcp.NewTool("get_thread",
+			mcp.WithDescription("Return rows from the local messages.db scoped to one thread (chat_jid + topic). Use when a chat fans out into per-topic conversations (Telegram forum topics, web-chat topics) and you want history for a single thread, not the whole chat. Not for whole-chat history (inspect_messages) or platform-truth context (fetch_history)."),
+			mcp.WithString("chat_jid", mcp.Required()),
+			mcp.WithString("topic", mcp.Required()),
+			mcp.WithNumber("limit"),
+			mcp.WithString("before"),
+		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chat_jid", "")
+			if jid == "" {
+				return toolErr("chat_jid required")
+			}
+			topic := req.GetString("topic", "")
+			if topic == "" {
+				return toolErr("topic required")
+			}
+			if id.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
+				return toolErr("access_denied: jid not routed to your group")
+			}
+			limitVal := req.GetInt("limit", 50)
+			if limitVal <= 0 || limitVal > 100 {
+				limitVal = 50
+			}
+			var before time.Time
+			if beforeStr := req.GetString("before", ""); beforeStr != "" {
+				t, err := time.Parse(time.RFC3339, beforeStr)
+				if err != nil {
+					return toolErr("invalid before timestamp: " + err.Error())
+				}
+				before = t
+			}
+			msgs, err := db.MessagesByThread(jid, topic, before, limitVal)
+			if err != nil {
+				return toolErr("get_thread: " + err.Error())
+			}
+			oldest := ""
+			if len(msgs) > 0 {
+				oldest = msgs[len(msgs)-1].Timestamp.Format(time.RFC3339)
+			}
+			return toolJSON(map[string]any{
+				"messages": router.FormatMessages(msgs),
+				"count":    len(msgs),
+				"oldest":   oldest,
+				"source":   "local-db",
+			})
+		})
 	}
 
 	if gated.FetchPlatformHistory != nil {

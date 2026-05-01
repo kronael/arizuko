@@ -210,6 +210,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		GetLastReplyID:      g.store.GetLastReplyID,
 		SetLastReplyID:      g.store.SetLastReplyID,
 		MessagesBefore:      g.store.MessagesBefore,
+		MessagesByThread:    g.store.MessagesByThread,
 		JIDRoutedToFolder:   g.store.JIDRoutedToFolder,
 		ErroredChats: func(folder string, isRoot bool) []ipc.ErroredChat {
 			rows := g.store.ErroredChats(folder, isRoot)
