@@ -254,14 +254,56 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	if name == "" {
 		name = filepath.Base(path)
 	}
+	// Discord renders images, videos, and audio inline based on
+	// ContentType. Setting it explicitly here so the rich-media bubble
+	// fires even when the upstream filename has an ambiguous/missing
+	// extension (.bin, no ext, etc).
 	_, err = b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
 		Content: caption,
-		Files:   []*discordgo.File{{Name: name, Reader: f}},
+		Files: []*discordgo.File{{
+			Name:        name,
+			ContentType: discordMimeFor(name),
+			Reader:      f,
+		}},
 	})
 	if err != nil {
 		return fmt.Errorf("discord sendfile: %w", err)
 	}
 	return nil
+}
+
+// discordMimeFor maps known extensions to MIME types so Discord's UI
+// renders rich previews (image bubble, video player, audio player)
+// instead of a blank attachment chip. Unknown → empty string ⇒ Discord
+// picks application/octet-stream and the user sees a generic file.
+func discordMimeFor(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".mp4":
+		return "video/mp4"
+	case ".mov":
+		return "video/quicktime"
+	case ".webm":
+		return "video/webm"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".ogg", ".opus":
+		return "audio/ogg"
+	case ".m4a":
+		return "audio/mp4"
+	case ".flac":
+		return "audio/flac"
+	case ".pdf":
+		return "application/pdf"
+	}
+	return ""
 }
 
 func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }

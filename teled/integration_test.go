@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -27,6 +29,7 @@ type tgMock struct {
 	fileSrv   *httptest.Server
 	username  string
 	lastSent  []map[string]any
+	fileMethods []string
 	actionHits int32
 	// force an error on the next sendMessage call (for 400 fallback)
 	failMarkdownOnce int32
@@ -39,7 +42,14 @@ func newTGMock() *tgMock {
 		// URL is /bot<token>/<method>
 		parts := strings.Split(r.URL.Path, "/")
 		method := parts[len(parts)-1]
-		r.ParseForm()
+		// File-upload methods come in as multipart/form-data; the rest
+		// are application/x-www-form-urlencoded handled by ParseForm.
+		ct := r.Header.Get("Content-Type")
+		if strings.HasPrefix(ct, "multipart/form-data") {
+			r.ParseMultipartForm(32 << 20)
+		} else {
+			r.ParseForm()
+		}
 		switch method {
 		case "getMe":
 			writeTGOK(w, map[string]any{
@@ -70,6 +80,17 @@ func newTGMock() *tgMock {
 			fid := r.Form.Get("file_id")
 			writeTGOK(w, map[string]any{
 				"file_id": fid, "file_path": "photos/" + fid + ".jpg",
+			})
+		case "sendPhoto", "sendVideo", "sendAudio", "sendAnimation",
+			"sendDocument", "sendVoice":
+			m.mu.Lock()
+			m.fileMethods = append(m.fileMethods, method)
+			idx := len(m.fileMethods)
+			m.mu.Unlock()
+			writeTGOK(w, map[string]any{
+				"message_id": 1000 + idx,
+				"chat": map[string]any{"id": 1},
+				"date": 1700000000,
 			})
 		default:
 			writeTGOK(w, map[string]any{})
@@ -175,6 +196,67 @@ func TestBotSend_HTMLFallbackOnBadEntity(t *testing.T) {
 	defer m.mu.Unlock()
 	if len(m.lastSent) != 1 {
 		t.Fatalf("want 1 successful send (fallback), got %d", len(m.lastSent))
+	}
+}
+
+// TestBotSendFile_DispatchesByExtension asserts the SendFile switch
+// routes each known extension to the matching Telegram bot API method
+// (sendPhoto, sendVideo, sendAnimation, sendAudio, sendVoice, sendDocument).
+// Voice goes through SendVoice, not SendFile — included to lock the
+// boundary between the two.
+func TestBotSendFile_DispatchesByExtension(t *testing.T) {
+	cases := []struct {
+		ext     string
+		method  string
+		isVoice bool
+	}{
+		{".png", "sendPhoto", false},
+		{".jpg", "sendPhoto", false},
+		{".jpeg", "sendPhoto", false},
+		{".webp", "sendPhoto", false},
+		{".mp4", "sendVideo", false},
+		{".mov", "sendVideo", false},
+		{".webm", "sendVideo", false},
+		{".gif", "sendAnimation", false},
+		{".mp3", "sendAudio", false},
+		{".m4a", "sendAudio", false},
+		{".flac", "sendAudio", false},
+		{".ogg", "sendAudio", false},
+		{".pdf", "sendDocument", false},
+		{".bin", "sendDocument", false},
+		// SendVoice route — distinct from SendFile.
+		{".ogg", "sendVoice", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ext+"-"+tc.method, func(t *testing.T) {
+			m := newTGMock()
+			defer m.close()
+			b := newTestBot(t, m, config{Name: "telegram"})
+			defer b.typing.Stop()
+
+			tmp, err := os.CreateTemp("", "teled-dispatch-*"+tc.ext)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tmp.WriteString("payload")
+			tmp.Close()
+			defer os.Remove(tmp.Name())
+
+			if tc.isVoice {
+				if _, err := b.SendVoice("telegram:123", tmp.Name(), ""); err != nil {
+					t.Fatalf("SendVoice: %v", err)
+				}
+			} else {
+				if err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), ""); err != nil {
+					t.Fatalf("SendFile: %v", err)
+				}
+			}
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			if len(m.fileMethods) != 1 || m.fileMethods[0] != tc.method {
+				t.Errorf("ext %s want %q got %v", tc.ext, tc.method, m.fileMethods)
+			}
+		})
 	}
 }
 

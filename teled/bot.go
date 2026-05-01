@@ -379,7 +379,7 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 		p := tgbotapi.NewPhoto(id, f)
 		p.Caption = caption
 		m = p
-	case ".mp4", ".mov":
+	case ".mp4", ".mov", ".webm":
 		v := tgbotapi.NewVideo(id, f)
 		v.Caption = caption
 		m = v
@@ -387,7 +387,9 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 		a := tgbotapi.NewAnimation(id, f)
 		a.Caption = caption
 		m = a
-	case ".mp3", ".ogg":
+	case ".mp3", ".m4a", ".flac", ".ogg":
+		// .ogg goes here as music attachment; voice notes use SendVoice
+		// (separate MCP tool / endpoint with sendVoice/ptt semantics).
 		a := tgbotapi.NewAudio(id, f)
 		a.Caption = caption
 		m = a

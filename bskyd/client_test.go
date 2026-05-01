@@ -104,6 +104,35 @@ func TestNotificationFilter_SkipRead(t *testing.T) {
 	}
 }
 
+// TestSendFile_NonImageReturnsUnsupported asserts non-image extensions
+// route through chanlib.Unsupported instead of attempting an image-blob
+// upload that would 502 with an opaque error from the PDS.
+func TestSendFile_NonImageReturnsUnsupported(t *testing.T) {
+	bc := &bskyClient{}
+	cases := []string{"clip.mp4", "audio.mp3", "doc.pdf", "spreadsheet.csv", "noext"}
+	for _, name := range cases {
+		err := bc.SendFile("bluesky:abc", "/tmp/x", name, "caption")
+		if err == nil {
+			t.Errorf("%s: want error, got nil", name)
+			continue
+		}
+		// Plain-error chain check rather than type-assert to keep the
+		// dependency on chanlib.ErrUnsupported in a single import path.
+		if !contains(err.Error(), "unsupported") {
+			t.Errorf("%s: err = %v, want 'unsupported' in message", name, err)
+		}
+	}
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
 // TestURIToKey verifies the last path segment is extracted as the record key.
 func TestURIToKey(t *testing.T) {
 	cases := []struct {

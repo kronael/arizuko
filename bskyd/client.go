@@ -397,18 +397,32 @@ func (bc *bskyClient) Send(req chanlib.SendRequest) (string, error) {
 
 func (bc *bskyClient) Typing(string, bool) {}
 
+// SendFile dispatches by extension. Bluesky's PDS only accepts image
+// blobs in app.bsky.feed.post embeds (no native video/audio/document);
+// non-image extensions return a structured Unsupported teaching the
+// agent to send a link in the post text instead.
 func (bc *bskyClient) SendFile(_, path, name, caption string) error {
-	embed, err := bc.uploadImageEmbed(path, name)
-	if err != nil {
-		return fmt.Errorf("bluesky send_file: %w", err)
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == "" {
+		ext = strings.ToLower(filepath.Ext(path))
 	}
-	_, err = bc.createRecord("app.bsky.feed.post", map[string]any{
-		"$type":     "app.bsky.feed.post",
-		"text":      caption,
-		"createdAt": nowRFC3339(),
-		"embed":     embed,
-	})
-	return err
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif":
+		embed, err := bc.uploadImageEmbed(path, name)
+		if err != nil {
+			return fmt.Errorf("bluesky send_file: %w", err)
+		}
+		_, err = bc.createRecord("app.bsky.feed.post", map[string]any{
+			"$type":     "app.bsky.feed.post",
+			"text":      caption,
+			"createdAt": nowRFC3339(),
+			"embed":     embed,
+		})
+		return err
+	default:
+		return chanlib.Unsupported("send_file", "bluesky",
+			"Bluesky's PDS embed surface only accepts image blobs (.jpg/.png/.webp/.gif). For video/audio/documents host the file elsewhere and `send(content=<url>)` — Bluesky auto-renders a link card.")
+	}
 }
 
 func (bc *bskyClient) Post(req chanlib.PostRequest) (string, error) {
