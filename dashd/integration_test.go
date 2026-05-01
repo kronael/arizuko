@@ -120,7 +120,7 @@ func TestTaskList(t *testing.T) {
 			`INSERT INTO scheduled_tasks
 			 (id, owner, chat_jid, prompt, cron, status, created_at)
 			 VALUES (?, ?, ?, ?, ?, 'active', ?)`,
-			tk.id, tk.owner, "local:"+tk.owner, "do stuff", tk.cron, now); err != nil {
+			tk.id, tk.owner, tk.owner, "do stuff", tk.cron, now); err != nil {
 			t.Fatal(err)
 		}
 	}

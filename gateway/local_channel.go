@@ -19,17 +19,27 @@ func NewLocalChannel(s *store.Store) *LocalChannel {
 	return &LocalChannel{store: s}
 }
 
-// SetEnqueue wires a callback so local: messages land as queued input
+// SetEnqueue wires a callback so in-system messages land as queued input
 // for the target group (wakes escalation recipients).
 func (c *LocalChannel) SetEnqueue(fn func(jid string)) {
 	c.enqueue = fn
 }
 
-func (c *LocalChannel) Name() string                    { return "local" }
-func (c *LocalChannel) Connect(context.Context) error   { return nil }
-func (c *LocalChannel) Disconnect() error               { return nil }
-func (c *LocalChannel) Typing(string, bool) error       { return nil }
-func (c *LocalChannel) Owns(jid string) bool            { return strings.HasPrefix(jid, "local:") }
+func (c *LocalChannel) Name() string                  { return "local" }
+func (c *LocalChannel) Connect(context.Context) error { return nil }
+func (c *LocalChannel) Disconnect() error             { return nil }
+func (c *LocalChannel) Typing(string, bool) error     { return nil }
+
+// Owns claims bare folder-path JIDs (no `:`) that match a registered
+// group. Real channel JIDs always contain `platform:`; folder paths
+// never do, so the absence of `:` is a sufficient marker.
+func (c *LocalChannel) Owns(jid string) bool {
+	if jid == "" || strings.Contains(jid, ":") {
+		return false
+	}
+	_, ok := c.store.GroupByFolder(jid)
+	return ok
+}
 
 func (c *LocalChannel) SendFile(_, _, _, _ string) error {
 	return fmt.Errorf("local channel does not support file sending")

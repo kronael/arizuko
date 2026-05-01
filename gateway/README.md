@@ -37,7 +37,7 @@ without spamming the platform. Tests assert the invariant
 - `(*Gateway).AddChannel(c core.Channel)`, `RemoveChannel(name)`
 - `AutocallCtx` — context passed to autocall evaluators (`autocalls.go`)
 - `ImpulseCfg`, `ParseImpulseCfg(raw)` — per-route impulse gate config
-- `NewLocalChannel(s)` — in-process channel for `local:` JIDs
+- `NewLocalChannel(s)` — in-process channel for bare folder-path JIDs (group-to-group)
 
 ## Dependencies
 
@@ -50,7 +50,7 @@ without spamming the platform. Tests assert the invariant
 - `commands.go` — gateway command dispatch (e.g. `/sticky`, `/reset`)
 - `impulse.go` — weight-based batching gate
 - `spawn.go` — child group spawn helpers
-- `local_channel.go` — `local:` CLI channel
+- `local_channel.go` — in-process channel for bare folder-path JIDs (group-to-group)
 
 ## Related docs
 

@@ -4,7 +4,9 @@ status: shipped
 
 # JID Format
 
-All JIDs use `platform:account/id`. `local:folder` has no account segment.
+All JIDs use `platform:account/id`. In-system / inter-group messages
+address groups by bare folder path (no prefix); `:` distinguishes
+real channel JIDs from folder paths.
 
 ## Clock header
 

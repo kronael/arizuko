@@ -931,11 +931,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			slog.Info("escalating to parent", "sourceGroup", folder, "parent", parent, "depth", depth, "replyTo", replyTo)
 			wrapped := fmt.Sprintf("<escalation_origin folder=%q jid=%q reply_to=%q/>\n%s", folder, chatJid, replyTo, prompt)
-			// Return address: response goes back to this child via local channel
-			fwdFrom := "local:" + folder
+			// Return address: response goes back to this child via local channel.
+			// Bare folder paths (no `:`) address groups directly.
+			fwdFrom := folder
 			if err := db.PutMessage(core.Message{
 				ID:            core.MsgID("escalate"),
-				ChatJID:       "local:" + parent,
+				ChatJID:       parent,
 				Sender:        "escalate",
 				Content:       wrapped,
 				Timestamp:     time.Now(),
@@ -943,7 +944,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}); err != nil {
 				return toolErr(err.Error())
 			}
-			gated.EnqueueMessageCheck("local:" + parent)
+			gated.EnqueueMessageCheck(parent)
 			return toolJSON(map[string]any{"queued": true, "parent": parent})
 		})
 
@@ -993,7 +994,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			slog.Info("delegating to child", "sourceGroup", folder, "child", target, "depth", depth)
 			if err := db.PutMessage(core.Message{
 				ID:            core.MsgID("delegate"),
-				ChatJID:       "local:" + target,
+				ChatJID:       target,
 				Sender:        "delegate",
 				Content:       prompt,
 				Timestamp:     time.Now(),
@@ -1001,7 +1002,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}); err != nil {
 				return toolErr(err.Error())
 			}
-			gated.EnqueueMessageCheck("local:" + target)
+			gated.EnqueueMessageCheck(target)
 			return toolJSON(map[string]any{"queued": true})
 		})
 

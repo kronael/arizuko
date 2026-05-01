@@ -495,7 +495,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
 		return
 	}
-	if err := store.New(db).SeedDefaultTasks(folder, "local:"+folder); err != nil {
+	if err := store.New(db).SeedDefaultTasks(folder, folder); err != nil {
 		slog.Warn("create world: seed default tasks", "folder", folder, "err", err)
 	}
 

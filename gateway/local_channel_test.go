@@ -14,12 +14,13 @@ func TestLocalChannelSend_EnqueuesAndStoresAsInbound(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
+	s.PutGroup(core.Group{Folder: "child", Name: "Child"})
 
 	lc := NewLocalChannel(s)
 	var enqueued []string
 	lc.SetEnqueue(func(jid string) { enqueued = append(enqueued, jid) })
 
-	id, err := lc.Send("local:child", "parent reply", "", "", "")
+	id, err := lc.Send("child", "parent reply", "", "", "")
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -27,9 +28,7 @@ func TestLocalChannelSend_EnqueuesAndStoresAsInbound(t *testing.T) {
 		t.Fatal("no message id returned")
 	}
 
-	// Message must be visible to MessagesSince (i.e. not a bot message),
-	// so the child agent wakes up and can forward to the original user.
-	msgs, err := s.MessagesSince("local:child", time.Time{}, "nobot")
+	msgs, err := s.MessagesSince("child", time.Time{}, "nobot")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,12 +42,12 @@ func TestLocalChannelSend_EnqueuesAndStoresAsInbound(t *testing.T) {
 		t.Errorf("escalation reply not stored as inbound non-bot message: %+v", msgs)
 	}
 
-	if len(enqueued) != 1 || enqueued[0] != "local:child" {
+	if len(enqueued) != 1 || enqueued[0] != "child" {
 		t.Errorf("enqueue not invoked for local recipient: %v", enqueued)
 	}
 }
 
-func TestLocalChannelSend_RejectsNonLocal(t *testing.T) {
+func TestLocalChannelSend_RejectsExternalJID(t *testing.T) {
 	s, err := store.OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +56,20 @@ func TestLocalChannelSend_RejectsNonLocal(t *testing.T) {
 
 	lc := NewLocalChannel(s)
 	if _, err := lc.Send("telegram:1", "x", "", "", ""); err == nil {
-		t.Error("non-local jid should be rejected")
+		t.Error("external jid should be rejected")
+	}
+}
+
+func TestLocalChannelOwns_UnknownFolderRejected(t *testing.T) {
+	s, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	lc := NewLocalChannel(s)
+	if lc.Owns("does-not-exist") {
+		t.Error("Owns should reject unregistered folder")
 	}
 }
 

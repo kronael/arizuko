@@ -250,7 +250,7 @@ func TestCmdRoot_DelegatesToRoot(t *testing.T) {
 	msg.Content = "/root hello from child"
 	gw.handleCommand(msg, grp)
 
-	delegated, _ := s.MessagesSince("local:world", time.Time{}, "nobot")
+	delegated, _ := s.MessagesSince("world", time.Time{}, "nobot")
 	found := false
 	for _, m := range delegated {
 		if m.Content == "hello from child" && m.Sender == "delegate" {
@@ -302,14 +302,14 @@ func TestResolveGroup_NotFound(t *testing.T) {
 	}
 }
 
-func TestResolveGroup_LocalPrefix(t *testing.T) {
+func TestResolveGroup_BareFolder(t *testing.T) {
 	gw, s := testGateway(t)
 	s.PutGroup(core.Group{Folder: "beta", Name: "Beta"})
 
-	msg := core.Message{ChatJID: "local:beta", Verb: "message"}
+	msg := core.Message{ChatJID: "beta", Verb: "message"}
 	gr, ok := gw.resolveGroup(msg)
 	if !ok {
-		t.Fatal("resolveGroup returned false for local: prefix")
+		t.Fatal("resolveGroup returned false for bare folder JID")
 	}
 	if gr.Name != "Beta" {
 		t.Errorf("name = %q, want %q", gr.Name, "Beta")
@@ -1102,8 +1102,8 @@ func TestCheckMigrationVersion(t *testing.T) {
 
 	gw.checkMigrationVersion()
 
-	// Should have injected a message into local:myworld
-	msgs, _ := s.MessagesSince("local:myworld", time.Time{}, "nobot")
+	// Should have injected a message into myworld
+	msgs, _ := s.MessagesSince("myworld", time.Time{}, "nobot")
 	found := false
 	for _, m := range msgs {
 		if strings.Contains(m.Content, "System update") && m.Sender == "system" {
@@ -1111,11 +1111,11 @@ func TestCheckMigrationVersion(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("expected auto-migration message in local:myworld")
+		t.Error("expected auto-migration message in myworld")
 	}
 
 	// Child group should NOT have a migration message
-	childMsgs, _ := s.MessagesSince("local:myworld/child", time.Time{}, "nobot")
+	childMsgs, _ := s.MessagesSince("myworld/child", time.Time{}, "nobot")
 	for _, m := range childMsgs {
 		if strings.Contains(m.Content, "System update") {
 			t.Error("child group should not get auto-migration message")
@@ -1137,7 +1137,7 @@ func TestCheckMigrationVersion_UpToDate(t *testing.T) {
 
 	gw.checkMigrationVersion()
 
-	msgs, _ := s.MessagesSince("local:uptodate", time.Time{}, "nobot")
+	msgs, _ := s.MessagesSince("uptodate", time.Time{}, "nobot")
 	for _, m := range msgs {
 		if strings.Contains(m.Content, "System update") {
 			t.Error("should not trigger migration when up to date")
@@ -1157,7 +1157,7 @@ func TestCheckMigrationVersion_NoVersionFile(t *testing.T) {
 
 	gw.checkMigrationVersion()
 
-	msgs, _ := s.MessagesSince("local:fresh", time.Time{}, "nobot")
+	msgs, _ := s.MessagesSince("fresh", time.Time{}, "nobot")
 	found := false
 	for _, m := range msgs {
 		if strings.Contains(m.Content, "System update") && m.Sender == "system" {
@@ -1196,13 +1196,13 @@ func TestRecoverPendingMessages(t *testing.T) {
 		Content: "hi", Timestamp: time.Now(),
 	})
 	s.PutMessage(core.Message{
-		ID: "m3", ChatJID: "local:mygroup", Sender: "system",
+		ID: "m3", ChatJID: "mygroup", Sender: "system",
 		Content: "task", Timestamp: time.Now(),
 	})
 
 	gw.recoverPendingMessages()
 
-	want := []string{"telegram:-100", "discord:200", "local:mygroup"}
+	want := []string{"telegram:-100", "discord:200", "mygroup"}
 	deadline := time.After(2 * time.Second)
 	for {
 		mu.Lock()

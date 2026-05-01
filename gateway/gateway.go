@@ -153,7 +153,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 			if err := container.SetupGroup(g.cfg, folder, ""); err != nil {
 				return err
 			}
-			return g.store.SeedDefaultTasks(folder, "local:"+folder)
+			return g.store.SeedDefaultTasks(folder, folder)
 		},
 		GetGroups:           g.store.AllGroups,
 		EnqueueMessageCheck: g.queue.EnqueueMessageCheck,
@@ -327,12 +327,12 @@ func (g *Gateway) checkMigrationVersion() {
 			agent, latest)
 		g.store.PutMessage(core.Message{
 			ID:        core.MsgID("auto-migrate-" + gr.Folder),
-			ChatJID:   "local:" + gr.Folder,
+			ChatJID:   gr.Folder,
 			Sender:    "system",
 			Content:   prompt,
 			Timestamp: time.Now(),
 		})
-		g.queue.EnqueueMessageCheck("local:" + gr.Folder)
+		g.queue.EnqueueMessageCheck(gr.Folder)
 
 		// Notify child groups directly — don't rely on root agent.
 		note := fmt.Sprintf("System update: skills v%d → v%d applied. "+
@@ -343,7 +343,7 @@ func (g *Gateway) checkMigrationVersion() {
 			}
 			g.store.PutMessage(core.Message{
 				ID:        core.MsgID("auto-migrate-notify-" + child.Folder),
-				ChatJID:   "local:" + child.Folder,
+				ChatJID:   child.Folder,
 				Sender:    "system",
 				Content:   note,
 				Timestamp: time.Now(),
@@ -954,7 +954,7 @@ func (g *Gateway) findChannelByName(name string) core.Channel {
 
 // findChannelForJID picks an outbound channel for jid by looking up the
 // most recent inbound message's source. Falls back to a prefix match if
-// no source is recorded (e.g. local: / web: JIDs that bypass adapters).
+// no source is recorded (e.g. bare folder / web: JIDs that bypass adapters).
 func (g *Gateway) findChannelForJID(jid string) core.Channel {
 	if ch := g.findChannelByName(g.store.LatestSource(jid)); ch != nil {
 		return ch
@@ -1465,9 +1465,15 @@ func escalationWorker(prompt string) string {
 }
 
 func (g *Gateway) resolveGroup(msg core.Message) (core.Group, bool) {
-	for _, prefix := range []string{"local:", "web:"} {
-		if folder, ok := strings.CutPrefix(msg.ChatJID, prefix); ok {
-			return g.store.GroupByFolder(folder)
+	if folder, ok := strings.CutPrefix(msg.ChatJID, "web:"); ok {
+		return g.store.GroupByFolder(folder)
+	}
+	// Bare folder paths (no `:`) address groups directly when the path
+	// matches a registered group; otherwise fall through to route lookup
+	// so external JIDs lacking `:` (e.g. test fixtures) still resolve.
+	if !strings.Contains(msg.ChatJID, ":") {
+		if gr, ok := g.store.GroupByFolder(msg.ChatJID); ok {
+			return gr, true
 		}
 	}
 	folder := router.ResolveRoute(msg, g.store.AllRoutes())
@@ -1481,12 +1487,15 @@ func (g *Gateway) resolveGroup(msg core.Message) (core.Group, bool) {
 // queue can serialize concurrent runs by folder. Returns "" when no
 // folder can be determined (queue then falls back to JID-only guard).
 func (g *Gateway) folderForJid(jid string) string {
-	for _, prefix := range []string{"local:", "web:"} {
-		if folder, ok := strings.CutPrefix(jid, prefix); ok {
-			if _, exists := g.store.GroupByFolder(folder); exists {
-				return folder
-			}
-			return ""
+	if folder, ok := strings.CutPrefix(jid, "web:"); ok {
+		if _, exists := g.store.GroupByFolder(folder); exists {
+			return folder
+		}
+		return ""
+	}
+	if !strings.Contains(jid, ":") {
+		if _, exists := g.store.GroupByFolder(jid); exists {
+			return jid
 		}
 	}
 	return g.store.DefaultFolderForJID(jid)
@@ -1727,7 +1736,7 @@ func (g *Gateway) delegateViaMessage(
 	// For escalation, override return address to go back to the child
 	fwdFrom := originJid
 	if worker := escalationWorker(prompt); worker != "" {
-		fwdFrom = "local:" + worker
+		fwdFrom = worker
 	}
 
 	if _, found := g.store.GroupByFolder(targetFolder); !found {
@@ -1746,13 +1755,13 @@ func (g *Gateway) delegateViaMessage(
 
 	g.store.PutMessage(core.Message{
 		ID:            core.MsgID("delegate"),
-		ChatJID:       "local:" + targetFolder,
+		ChatJID:       targetFolder,
 		Sender:        "delegate",
 		Content:       prompt,
 		Timestamp:     time.Now(),
 		ForwardedFrom: fwdFrom,
 	})
-	g.queue.EnqueueMessageCheck("local:" + targetFolder)
+	g.queue.EnqueueMessageCheck(targetFolder)
 	return nil
 }
 

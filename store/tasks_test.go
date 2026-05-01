@@ -12,7 +12,7 @@ func TestSeedDefaultTasks(t *testing.T) {
 	}
 	defer s.Close()
 
-	if err := s.SeedDefaultTasks("alice", "local:alice"); err != nil {
+	if err := s.SeedDefaultTasks("alice", "alice"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -36,8 +36,8 @@ func TestSeedDefaultTasks(t *testing.T) {
 			t.Fatal(err)
 		}
 		seen[id] = true
-		if jid != "local:alice" {
-			t.Errorf("want chat_jid=local:alice, got %q", jid)
+		if jid != "alice" {
+			t.Errorf("want chat_jid=alice, got %q", jid)
 		}
 		if status != "active" {
 			t.Errorf("want status=active, got %q", status)
@@ -54,7 +54,7 @@ func TestSeedDefaultTasks(t *testing.T) {
 	}
 
 	// Idempotent: second seed does not duplicate.
-	if err := s.SeedDefaultTasks("alice", "local:alice"); err != nil {
+	if err := s.SeedDefaultTasks("alice", "alice"); err != nil {
 		t.Fatal(err)
 	}
 	s.db.QueryRow(`SELECT COUNT(*) FROM scheduled_tasks WHERE owner = ?`, "alice").Scan(&n)

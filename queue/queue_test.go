@@ -249,13 +249,13 @@ func TestSendMessages_WritesOneFilePerMessage(t *testing.T) {
 // Two JIDs that map to the same folder must serialize: only one container
 // runs at a time, the other waits and starts after the first finishes.
 // Regression: at startup, recoverPendingMessages and checkMigrationVersion
-// would enqueue different JIDs (telegram:..., local:atlas) for the same
+// would enqueue different JIDs (telegram:..., atlas) for the same
 // folder, spawning two parallel containers that double-narrated logs.
 func TestEnqueueSerializesByFolder(t *testing.T) {
 	q := New(5, t.TempDir())
 	q.SetFolderForJidFn(func(jid string) string {
 		switch jid {
-		case "telegram:atlas", "local:atlas":
+		case "telegram:atlas", "atlas":
 			return "atlas"
 		}
 		return ""
@@ -284,7 +284,7 @@ func TestEnqueueSerializesByFolder(t *testing.T) {
 	})
 
 	q.EnqueueMessageCheck("telegram:atlas")
-	q.EnqueueMessageCheck("local:atlas")
+	q.EnqueueMessageCheck("atlas")
 
 	time.Sleep(80 * time.Millisecond)
 	if got := concurrent.Load(); got != 1 {
@@ -305,7 +305,7 @@ func TestEnqueueSerializesByFolder(t *testing.T) {
 	}
 	smu.Lock()
 	defer smu.Unlock()
-	if !seenJids["telegram:atlas"] || !seenJids["local:atlas"] {
+	if !seenJids["telegram:atlas"] || !seenJids["atlas"] {
 		t.Fatalf("both JIDs must run; saw %v", seenJids)
 	}
 }

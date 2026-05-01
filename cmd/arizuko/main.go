@@ -187,7 +187,7 @@ func cmdCreate(args []string) {
 	if err := container.SetupGroup(cfg, "main", ""); err != nil {
 		slog.Warn("failed to setup group dir", "folder", "main", "err", err)
 	}
-	if err := s.SeedDefaultTasks("main", "local:main"); err != nil {
+	if err := s.SeedDefaultTasks("main", "main"); err != nil {
 		slog.Warn("failed to seed default tasks", "folder", "main", "err", err)
 	}
 	s.Close()
@@ -226,7 +226,7 @@ func cmdGroup(args []string) {
 		if err := container.SetupGroup(cfg, folder, ""); err != nil {
 			die("Failed: setup group dir: %v", err)
 		}
-		if err := s.SeedDefaultTasks(folder, "local:"+folder); err != nil {
+		if err := s.SeedDefaultTasks(folder, folder); err != nil {
 			slog.Warn("failed to seed default tasks", "folder", folder, "err", err)
 		}
 

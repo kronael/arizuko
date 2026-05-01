@@ -393,9 +393,9 @@ Prefix layer (in gateway code, not table):
    - child = atlas/content, exists
    - delegateViaMessage("atlas/content", "write about cats", "telegram:12345")
 4. delegateViaMessage:
-   - store.PutMessage({chat_jid:"local:atlas/content",
+   - store.PutMessage({chat_jid:"atlas/content",
        forwarded_from:"telegram:12345", content:"write about cats", ...})
-   - queue.EnqueueMessageCheck("local:atlas/content")
+   - queue.EnqueueMessageCheck("atlas/content")
    - Child agent runs, produces output
    - processSenderBatch sees forwarded_from → routes reply back to
      telegram:12345 with routed_to=atlas/content
