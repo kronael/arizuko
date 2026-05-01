@@ -1,14 +1,18 @@
 package store
 
-import "time"
+import (
+	"database/sql"
+	"time"
+)
 
 type AuthUser struct {
-	ID        int64
-	Sub       string
-	Username  string
-	Hash      string
-	Name      string
-	CreatedAt time.Time
+	ID           int64
+	Sub          string
+	Username     string
+	Hash         string
+	Name         string
+	CreatedAt    time.Time
+	LinkedToSub  string // empty = canonical; non-empty = points at canonical sub
 }
 
 type AuthSession struct {
@@ -27,15 +31,19 @@ func (s *Store) CreateAuthUser(sub, username, hash, name string) error {
 	return err
 }
 
-const authUserCols = `id, sub, username, hash, name, created_at`
+const authUserCols = `id, sub, username, hash, name, created_at, linked_to_sub`
 
 func scanAuthUser(r rowScanner) (AuthUser, bool) {
 	var u AuthUser
 	var created string
-	if err := r.Scan(&u.ID, &u.Sub, &u.Username, &u.Hash, &u.Name, &created); err != nil {
+	var linked sql.NullString
+	if err := r.Scan(&u.ID, &u.Sub, &u.Username, &u.Hash, &u.Name, &created, &linked); err != nil {
 		return u, false
 	}
 	u.CreatedAt, _ = time.Parse(time.RFC3339, created)
+	if linked.Valid {
+		u.LinkedToSub = linked.String
+	}
 	return u, true
 }
 
@@ -48,6 +56,69 @@ func (s *Store) AuthUserByUsername(username string) (AuthUser, bool) {
 	return scanAuthUser(s.db.QueryRow(
 		`SELECT `+authUserCols+` FROM auth_users WHERE username = ?`, username))
 }
+
+// CanonicalSub returns sub if it's canonical, else the sub it's linked to.
+// Unknown subs pass through unchanged. Single resolve point: every JWT
+// mint runs through this so downstream sees only canonical subs.
+func (s *Store) CanonicalSub(sub string) string {
+	u, ok := s.AuthUserBySub(sub)
+	if !ok || u.LinkedToSub == "" {
+		return sub
+	}
+	return u.LinkedToSub
+}
+
+// LinkSubToCanonical attaches newSub to canonical. canonical must already
+// exist in auth_users and itself be canonical (no chains). If newSub is
+// new it is inserted; if it exists it is updated.
+func (s *Store) LinkSubToCanonical(newSub, name, canonical string) error {
+	if newSub == "" || canonical == "" || newSub == canonical {
+		return errInvalidLink
+	}
+	c, ok := s.AuthUserBySub(canonical)
+	if !ok || c.LinkedToSub != "" {
+		return errInvalidLink
+	}
+	if existing, ok := s.AuthUserBySub(newSub); ok {
+		if existing.LinkedToSub == canonical {
+			return nil
+		}
+		_, err := s.db.Exec(
+			`UPDATE auth_users SET linked_to_sub = ?, name = ? WHERE sub = ?`,
+			canonical, name, newSub)
+		return err
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO auth_users (sub, username, hash, name, created_at, linked_to_sub)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		newSub, newSub, "", name, time.Now().Format(time.RFC3339), canonical,
+	)
+	return err
+}
+
+// LinkedSubs returns every sub linked to canonical (excluding canonical itself).
+func (s *Store) LinkedSubs(canonical string) []string {
+	rows, err := s.db.Query(
+		`SELECT sub FROM auth_users WHERE linked_to_sub = ? ORDER BY sub`, canonical)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var x string
+		if err := rows.Scan(&x); err == nil && x != "" {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+type errInvalidLinkType struct{}
+
+func (errInvalidLinkType) Error() string { return "invalid link target" }
+
+var errInvalidLink error = errInvalidLinkType{}
 
 func (s *Store) CreateAuthSession(tokenHash, userSub string, expiresAt time.Time) error {
 	_, err := s.db.Exec(
