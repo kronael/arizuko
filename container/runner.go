@@ -526,7 +526,9 @@ func buildMounts(
 		}
 	}
 
-	if fi, err := os.Stat(cfg.WebDir); err == nil && fi.IsDir() && strings.Count(in.Folder, "/") <= 2 {
+	// specs/4/18-web-vhosts.md: tier 0 mounts the full web tree;
+	// tier 1 mounts its own world subdir; tier 2+ get nothing.
+	if fi, err := os.Stat(cfg.WebDir); err == nil && fi.IsDir() && tierOf(in.Folder, root) <= 1 {
 		webHost := cfg.WebDir
 		if !root {
 			webHost = filepath.Join(cfg.WebDir, world)
