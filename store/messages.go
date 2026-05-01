@@ -12,20 +12,89 @@ func (s *Store) PutMessage(m core.Message) error {
 	if m.Topic == "" {
 		m.Topic = s.GetStickyTopic(m.ChatJID)
 	}
+	if m.Status == "" {
+		m.Status = core.MessageStatusSent
+	}
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO messages
 		 (id, chat_jid, sender, sender_name, content, timestamp,
 		  is_from_me, is_bot_message, forwarded_from,
-		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source, turn_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source, turn_id, status)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatJID, m.Sender, m.Name, m.Content,
 		m.Timestamp.Format(time.RFC3339Nano),
 		btoi(m.FromMe), btoi(m.BotMsg),
 		nilIfEmpty(m.ForwardedFrom),
 		nilIfEmpty(m.ReplyToID), nilIfEmpty(m.ReplyToText), nilIfEmpty(m.ReplyToSender),
-		m.Topic, m.RoutedTo, m.Verb, m.Attachments, m.Source, nilIfEmpty(m.TurnID),
+		m.Topic, m.RoutedTo, m.Verb, m.Attachments, m.Source, nilIfEmpty(m.TurnID), m.Status,
 	)
 	return err
+}
+
+// MarkMessageStatus transitions a message from 'pending' to a terminal
+// state ('sent' or 'failed'). No-op if the row doesn't exist.
+func (s *Store) MarkMessageStatus(id, status string) error {
+	_, err := s.db.Exec(`UPDATE messages SET status = ? WHERE id = ?`, status, id)
+	return err
+}
+
+// MarkMessageDelivered transitions a pending row to 'sent' and records the
+// platform-side message ID returned by the adapter (stored in reply_to_id
+// per the existing bot-row convention).
+func (s *Store) MarkMessageDelivered(id, platformID string) error {
+	_, err := s.db.Exec(
+		`UPDATE messages SET status = 'sent', reply_to_id = ? WHERE id = ?`,
+		nilIfEmpty(platformID), id,
+	)
+	return err
+}
+
+// PendingOutboundOlderThan returns outbound (is_bot_message=1) rows whose
+// status is 'pending' and timestamp is older than the cutoff. Used by the
+// gateway's poll loop to retry delivery for crash-recovered or
+// adapter-flap rows. Limit caps the result set.
+func (s *Store) PendingOutboundOlderThan(cutoff time.Time, limit int) ([]core.Message, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.db.Query(
+		`SELECT `+msgCols+`, status FROM messages
+		 WHERE status = 'pending' AND is_bot_message = 1
+		   AND timestamp <= ?
+		 ORDER BY timestamp ASC
+		 LIMIT ?`,
+		cutoff.Format(time.RFC3339Nano), limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []core.Message
+	for rows.Next() {
+		m, err := scanMessageWithStatus(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+func scanMessageWithStatus(r rowScanner) (core.Message, error) {
+	var m core.Message
+	var ts string
+	var fromMe, botMsg, errored int
+	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content,
+		&ts, &fromMe, &botMsg, &m.ForwardedFrom,
+		&m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
+		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored, &m.Status); err != nil {
+		return m, err
+	}
+	m.FromMe = fromMe != 0
+	m.BotMsg = botMsg != 0
+	m.Errored = errored != 0
+	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
+	return m, nil
 }
 
 func (s *Store) EnrichMessage(id, content string) error {

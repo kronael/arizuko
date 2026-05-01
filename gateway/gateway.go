@@ -355,12 +355,62 @@ func (g *Gateway) checkMigrationVersion() {
 }
 
 func (g *Gateway) messageLoop(ctx context.Context) {
+	go g.outboundRetryLoop(ctx)
 	for {
 		g.pollOnce()
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(g.cfg.PollInterval):
+		}
+	}
+}
+
+// outboundRetryLoop polls the messages table for rows with status='pending'
+// older than retryAge and re-dispatches them to the owning channel. This
+// is the recovery path for crashes mid-send and adapter reconnects: the
+// fast in-line path in makeOutputCallback marks 'sent' on success, so
+// 'pending' rows are by definition the failed-or-crashed slice. After
+// outboundMaxAge the row is marked 'failed' and stops being retried.
+func (g *Gateway) outboundRetryLoop(ctx context.Context) {
+	const (
+		retryEvery     = 30 * time.Second
+		retryAge       = 30 * time.Second
+		outboundMaxAge = 24 * time.Hour
+	)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(retryEvery):
+		}
+		g.retryPendingOutbound(retryAge, outboundMaxAge)
+	}
+}
+
+func (g *Gateway) retryPendingOutbound(retryAge, maxAge time.Duration) {
+	rows, err := g.store.PendingOutboundOlderThan(time.Now().Add(-retryAge), 50)
+	if err != nil {
+		slog.Warn("outbound retry: scan pending failed", "err", err)
+		return
+	}
+	for _, m := range rows {
+		if time.Since(m.Timestamp) > maxAge {
+			slog.Warn("outbound retry: giving up after max age",
+				"jid", m.ChatJID, "msg_id", m.ID, "age", time.Since(m.Timestamp))
+			if err := g.store.MarkMessageStatus(m.ID, core.MessageStatusFailed); err != nil {
+				slog.Warn("outbound retry: mark failed", "msg_id", m.ID, "err", err)
+			}
+			continue
+		}
+		platformID, err := g.dispatchOutbound(nil, m.ChatJID, m.Content, "", m.Topic, m.TurnID)
+		if err != nil {
+			slog.Debug("outbound retry: dispatch still failing",
+				"jid", m.ChatJID, "msg_id", m.ID, "err", err)
+			continue
+		}
+		if err := g.store.MarkMessageDelivered(m.ID, platformID); err != nil {
+			slog.Warn("outbound retry: mark delivered", "msg_id", m.ID, "err", err)
 		}
 	}
 }
@@ -707,23 +757,48 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 	turnID := firstMsgID
 	replyTo := firstMsgID
 
-	sendOnce := func(text, replyToID, threadID string) (string, error) {
-		if !g.canSendToJID(chatJid) {
-			return "", nil
+	// putAndDeliver writes the bot row with status='pending', invokes the
+	// adapter, then transitions the row to 'sent' or leaves it 'pending'
+	// for the gateway poll loop to retry. Returns the platform-side ID
+	// (may be ""), used to chain reply threading on the next send.
+	putAndDeliver := func(text, replyToID, threadID string) string {
+		muted := !g.canSendToGroup(groupFolder)
+		if muted {
+			slog.Info("group muted, recording without platform send",
+				"group", groupFolder, "jid", chatJid)
 		}
-		// Late-bind the channel: the adapter may have registered AFTER
-		// this callback was built (startup race, adapter restart,
-		// health-flap). Without this, a nil capture persists for the
-		// lifetime of the run and every send silently fails with
-		// "no channel for jid" even once the channel is live.
-		c := ch
-		if c == nil {
-			c = g.findChannelForJID(chatJid)
+
+		row := core.Message{
+			ID:        core.MsgID("out"),
+			ChatJID:   chatJid,
+			Sender:    groupFolder,
+			Content:   text,
+			Timestamp: time.Now(),
+			FromMe:    true,
+			BotMsg:    true,
+			RoutedTo:  chatJid,
+			Topic:     threadID,
+			TurnID:    turnID,
+			Status:    core.MessageStatusPending,
 		}
-		if c == nil {
-			return "", fmt.Errorf("no channel for jid %s", chatJid)
+		if muted || !g.canSendToJID(chatJid) {
+			// Suppressed: persist as already-sent so the poll loop ignores it.
+			row.Status = core.MessageStatusSent
+			g.store.PutMessage(row)
+			return ""
 		}
-		return c.Send(chatJid, text, replyToID, threadID, turnID)
+		g.store.PutMessage(row)
+
+		platformID, err := g.dispatchOutbound(ch, chatJid, text, replyToID, threadID, turnID)
+		if err != nil {
+			slog.Error("dispatch outbound failed (poll loop will retry)",
+				"jid", chatJid, "group", groupFolder, "msg_id", row.ID, "err", err)
+			return ""
+		}
+		if err := g.store.MarkMessageDelivered(row.ID, platformID); err != nil {
+			slog.Warn("mark delivered failed", "msg_id", row.ID, "err", err)
+		}
+		return platformID
 	}
 
 	return func(text, _ string) {
@@ -731,63 +806,33 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 			return
 		}
 		hadOutput = true
-		muted := !g.canSendToGroup(groupFolder)
-		if muted {
-			slog.Info("group muted, recording without platform send",
-				"group", groupFolder, "jid", chatJid)
-		}
-		send := func(t, reply, thread string) (string, error) {
-			if muted {
-				return "", nil
-			}
-			return sendOnce(t, reply, thread)
-		}
+
 		stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
 		for _, s := range statuses {
-			sentID, err := send("⏳ "+s, "", "")
-			if err != nil {
-				slog.Error("send status failed",
-					"jid", chatJid, "group", groupFolder, "err", err)
-			}
-			g.store.PutMessage(core.Message{
-				ID:        core.MsgID("out"),
-				ChatJID:   chatJid,
-				Sender:    groupFolder,
-				Content:   s,
-				Timestamp: time.Now(),
-				FromMe:    true,
-				BotMsg:    true,
-				RoutedTo:  chatJid,
-				Topic:     topic,
-				ReplyToID: sentID,
-				TurnID:    turnID,
-			})
+			putAndDeliver("⏳ "+s, "", "")
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
-			sentID, err := send(clean, replyTo, topic)
-			if err != nil {
-				slog.Error("send reply failed",
-					"jid", chatJid, "group", groupFolder, "err", err)
-			}
+			sentID := putAndDeliver(clean, replyTo, topic)
 			if sentID != "" {
 				replyTo = sentID
 				g.store.SetLastReplyID(chatJid, topic, sentID)
 			}
-			g.store.PutMessage(core.Message{
-				ID:        core.MsgID("out"),
-				ChatJID:   chatJid,
-				Sender:    groupFolder,
-				Content:   clean,
-				Timestamp: time.Now(),
-				FromMe:    true,
-				BotMsg:    true,
-				ReplyToID: sentID,
-				RoutedTo:  chatJid,
-				Topic:     topic,
-				TurnID:    turnID,
-			})
 		}
 	}, &hadOutput
+}
+
+// dispatchOutbound resolves the channel for chatJid (late-binding so a
+// just-registered adapter is picked up) and calls Send. Returns the
+// platform-side message ID and any send error.
+func (g *Gateway) dispatchOutbound(ch core.Channel, chatJid, text, replyToID, threadID, turnID string) (string, error) {
+	c := ch
+	if c == nil {
+		c = g.findChannelForJID(chatJid)
+	}
+	if c == nil {
+		return "", fmt.Errorf("no channel for jid %s", chatJid)
+	}
+	return c.Send(chatJid, text, replyToID, threadID, turnID)
 }
 
 // onCircuitBreakerOpen hard-resets a chat after repeated agent failures:
