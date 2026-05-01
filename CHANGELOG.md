@@ -9,6 +9,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+> Your agent can now pull message history for a single thread —
+> one Telegram forum topic, one web-chat topic — without sifting
+> through the whole chat.
+
+### Added
+
+- **`get_thread` MCP tool**: scoped local-DB query keyed on
+  (chat_jid, topic). Sits next to `inspect_messages` (whole chat,
+  DB truth) and `fetch_history` (whole chat, platform truth);
+  shares the new `store.MessagesByThread` helper with web chat's
+  `MessagesByTopic`. Tier-gated like `inspect_messages` — non-root
+  callers only see JIDs routed to their folder. Spec
+  `specs/5/C-message-mcp.md` is now shipped. Agent migration 084.
+
 ### Changed
 
 - **CHANGELOG entries open with a `>` blockquote summary** in plain

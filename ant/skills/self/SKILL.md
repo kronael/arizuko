@@ -45,7 +45,7 @@ and `/workspace/self/ant/CLAUDE.md` to `~/.claude/`. Canonical latest
 at `/workspace/self/ant/skills/`. Run `/migrate` to sync updates and
 apply pending migrations.
 
-Latest migration version: **83**. Compare:
+Latest migration version: **84**. Compare:
 
 ```bash
 cat ~/.claude/skills/self/MIGRATION_VERSION
@@ -139,6 +139,7 @@ Live in your session — callable directly, no skill invocation needed.
 | `get_routes`     | Get routes for a JID                                                      |
 | `delete_route`   | Delete a route by ID                                                      |
 | `get_history`    | Fetch message history for a chat (paginated)                              |
+| `get_thread`     | Read local DB rows for one (chat_jid, topic) thread                       |
 | `inspect_messages` | Read local DB rows for a JID (pagination: `before`, `limit`)            |
 | `inspect_routing`  | Routes + JID→folder + errored-message aggregate                         |
 | `inspect_tasks`    | Scheduled tasks + recent `task_run_logs` (pass `task_id` for runs)      |
