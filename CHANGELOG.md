@@ -12,9 +12,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > Your agent can now pull thread-scoped message history (`get_thread`)
 > and external agents can drive any group through a slink-token-bound
 > MCP endpoint at `/slink/<token>/mcp` — no JWT, just the token.
+> If you log in with a second OAuth provider while signed in, you'll
+> now be asked whether to link the new account to your current one or
+> log out first — no more silent duplicate users.
 
 ### Added
 
+- **OAuth account linking + collision UX**: a new
+  `auth_users.linked_to_sub` column collapses linked provider subs
+  onto a canonical sub at JWT mint time (single resolve point in
+  `auth.issueSession`). The OAuth callback fans out to seven cases
+  — link-already / link-conflict / link-new / passive collision /
+  etc. — and renders a small HTML page with two buttons (link to
+  current, or log out and become the other) when the new sub
+  doesn't fit silently. `/dash/profile` lists the user's linked
+  subs and one "Link account" button per supported provider.
+  Migration `0040-auth-users-linked-to-sub.sql`. Agent migration 086.
 - **`get_thread` MCP tool**: scoped local-DB query keyed on
   (chat_jid, topic). Sits next to `inspect_messages` (whole chat,
   DB truth) and `fetch_history` (whole chat, platform truth);
