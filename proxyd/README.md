@@ -15,7 +15,7 @@ headers with an HMAC secret shared with `webd`.
 - Inject `X-User-Sub`, `X-User-Groups`, signature (`PROXYD_HMAC_SECRET`).
 - Route by prefix: `/pub/*` public, `/dash/*` → dashd, `/dav/*` → dufs, `/slink/*` rate-limited, `/*` → webd.
 - Rewrite `X-Forwarded-*` from `TRUSTED_PROXIES` CIDRs only.
-- Poll `web/vhosts.json` every 5s for per-vhost overrides.
+- Poll `web/vhosts.json` every 5s for hostname → world routing (`specs/4/18-web-vhosts.md`).
 
 ## WebDAV write-block
 

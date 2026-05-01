@@ -120,7 +120,7 @@ login. `webd.requireFolder` checks `X-User-Groups` on folder-specific
 endpoints.
 
 WebDAV requires `DAV_ADDR`; the dufs container mounts `groups/` read-only.
-proxyd reads `web/vhosts.json` every 5s. Full protocol: `specs/6/3-chat-ui.md`.
+proxyd reads `web/vhosts.json` every 5s. Full protocol: `specs/4/18-web-vhosts.md`.
 
 ## Auth Hardening
 
