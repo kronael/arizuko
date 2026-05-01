@@ -17,7 +17,7 @@ read-only fact (current time, instance, folder, tier, session id, …)
 evaluated at prompt-build time. This replaces the per-turn `<clock/>`
 MCP roundtrip — the deleted `router.ClockXml` shape — and keeps
 zero-arg facts to one prompt line each. Autocalls returning empty
-strings are skipped. See `specs/7/34-autocalls.md` and EXTENDING for
+strings are skipped. See `specs/5/31-autocalls.md` and EXTENDING for
 adding one.
 
 ## Mute mode
@@ -56,4 +56,4 @@ without spamming the platform. Tests assert the invariant
 
 - `ARCHITECTURE.md` (Message Flow)
 - `ROUTING.md`
-- `specs/7/34-autocalls.md`
+- `specs/5/31-autocalls.md`

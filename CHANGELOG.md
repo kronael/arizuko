@@ -669,7 +669,7 @@ for use on a developer laptop with no arizuko around. Replaces the
   `session` at prompt-build time. Zero-arg read-only facts now cost one
   line each instead of paying per-turn MCP schema. `router.ClockXml`
   deleted. Registry is a flat slice in `gateway/autocalls.go`; empty
-  eval output skips the line. See `specs/7/34-autocalls.md` and
+  eval output skips the line. See `specs/5/31-autocalls.md` and
   `EXTENDING.md` "Adding an autocall".
 
 ### Fixed
