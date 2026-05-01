@@ -253,10 +253,10 @@ func TestFetchMsgToInbound(t *testing.T) {
 	if im.ID != "m1@example.com" {
 		t.Errorf("id = %q", im.ID)
 	}
-	if im.ChatJID != "email:tid123" {
+	if im.ChatJID != "email:thread/tid123" {
 		t.Errorf("jid = %q", im.ChatJID)
 	}
-	if im.Sender != "email:alice@example.com" {
+	if im.Sender != "email:address/alice@example.com" {
 		t.Errorf("sender = %q", im.Sender)
 	}
 	if im.SenderName != "Alice" {

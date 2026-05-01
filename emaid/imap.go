@@ -348,12 +348,12 @@ func (p *poller) handleMsg(
 		content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
 	}
 
-	jid := "email:" + threadID
+	jid := "email:thread/" + threadID
 
 	if err := rc.SendMessage(chanlib.InboundMsg{
 		ID:          msgID,
 		ChatJID:     jid,
-		Sender:      "email:" + fromAddr,
+		Sender:      "email:address/" + fromAddr,
 		SenderName:  fromName,
 		Content:     content,
 		Timestamp:   ts,

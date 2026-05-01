@@ -149,8 +149,17 @@ func (s *server) fetchPart(uid imap.UID, section []int, maxBytes int64) ([]byte,
 	return data, nil
 }
 
+// threadIDFromJID accepts both legacy `email:<thread>` and typed
+// `email:thread/<thread>` forms.
+func threadIDFromJID(jid string) string {
+	if strings.HasPrefix(jid, "email:thread/") {
+		return strings.TrimPrefix(jid, "email:thread/")
+	}
+	return strings.TrimPrefix(jid, "email:")
+}
+
 func (s *server) Send(req chanlib.SendRequest) (string, error) {
-	threadID := strings.TrimPrefix(req.ChatJID, "email:")
+	threadID := threadIDFromJID(req.ChatJID)
 	var t emailThread
 	row := s.db.QueryRow(
 		`SELECT thread_id, from_address, root_msg_id FROM email_threads WHERE thread_id = ?`, threadID)
@@ -166,7 +175,7 @@ func (s *server) Typing(string, bool) {}
 // the given date. `Before` is date-only per IMAP spec. Limit clamps at 50.
 // Returns `platform` source with the most recent `Limit` messages.
 func (s *server) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
-	threadID := strings.TrimPrefix(req.ChatJID, "email:")
+	threadID := threadIDFromJID(req.ChatJID)
 	var t emailThread
 	row := s.db.QueryRow(
 		`SELECT thread_id, from_address, root_msg_id FROM email_threads WHERE thread_id = ?`, threadID)
@@ -273,8 +282,8 @@ func fetchMsgToInbound(
 	}
 	return chanlib.InboundMsg{
 		ID:          msgID,
-		ChatJID:     "email:" + threadID,
-		Sender:      "email:" + fromAddr,
+		ChatJID:     "email:thread/" + threadID,
+		Sender:      "email:address/" + fromAddr,
 		SenderName:  fromName,
 		Content:     content,
 		Timestamp:   env.Date.Unix(),
