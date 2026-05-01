@@ -23,7 +23,7 @@ func testDBFile(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	for _, q := range []string{
-		`CREATE TABLE groups (folder TEXT PRIMARY KEY, name TEXT, added_at TEXT, parent TEXT, state TEXT NOT NULL DEFAULT 'active')`,
+		`CREATE TABLE groups (folder TEXT PRIMARY KEY, name TEXT, added_at TEXT, parent TEXT)`,
 		`CREATE TABLE sessions (group_folder TEXT PRIMARY KEY, session_id TEXT)`,
 		`CREATE TABLE channels (name TEXT, url TEXT)`,
 		`CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL DEFAULT '')`,
@@ -223,11 +223,11 @@ func TestGroupsWithRoutes(t *testing.T) {
 	db := testDBFile(t)
 	defer db.Close()
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent, state) VALUES('root','Root','',NULL,'active')`); err != nil {
+		`INSERT INTO groups(folder, name, added_at, parent) VALUES('root','Root','',NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent, state) VALUES('root/child','Child','','root','active')`); err != nil {
+		`INSERT INTO groups(folder, name, added_at, parent) VALUES('root/child','Child','','root')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(
@@ -259,7 +259,7 @@ func TestGroupsRoutesEmpty(t *testing.T) {
 	db := testDBFile(t)
 	defer db.Close()
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent, state) VALUES('g1','G1','',NULL,'active')`); err != nil {
+		`INSERT INTO groups(folder, name, added_at, parent) VALUES('g1','G1','',NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{db: db}
@@ -297,11 +297,11 @@ func TestHandleMemoryDropdown(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent, state) VALUES('alpha','A','',NULL,'active')`); err != nil {
+		`INSERT INTO groups(folder, name, added_at, parent) VALUES('alpha','A','',NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent, state) VALUES('beta','B','',NULL,'active')`); err != nil {
+		`INSERT INTO groups(folder, name, added_at, parent) VALUES('beta','B','',NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{db: db, groupsDir: t.TempDir()}
@@ -336,7 +336,7 @@ func TestHandleMemorySelectedGroup(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent, state) VALUES(?, 'G','',NULL,'active')`, folder); err != nil {
+		`INSERT INTO groups(folder, name, added_at, parent) VALUES(?, 'G','',NULL)`, folder); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{db: db, groupsDir: groups}

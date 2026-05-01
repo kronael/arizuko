@@ -22,7 +22,7 @@ func testDB(t *testing.T) *sql.DB {
 	for _, q := range []string{
 		`CREATE TABLE groups (
 			folder TEXT PRIMARY KEY, name TEXT,
-			added_at TEXT, parent TEXT, state TEXT NOT NULL DEFAULT 'active')`,
+			added_at TEXT, parent TEXT)`,
 		`CREATE TABLE sessions (group_folder TEXT PRIMARY KEY, session_id TEXT)`,
 		`CREATE TABLE channels (name TEXT, url TEXT)`,
 		`CREATE TABLE scheduled_tasks (

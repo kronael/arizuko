@@ -390,7 +390,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTop(w, "Groups")
 
-	rows, err := d.db.Query(`SELECT folder, parent, name, state FROM groups ORDER BY folder LIMIT 500`)
+	rows, err := d.db.Query(`SELECT folder, parent, name FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
 		slog.Warn("groups: query", "err", err)
 		fmt.Fprintf(w, `<p>error: %s</p>`, esc(err.Error()))
@@ -400,9 +400,9 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var folder, name, state string
+		var folder, name string
 		var parent sql.NullString
-		if err := rows.Scan(&folder, &parent, &name, &state); err != nil {
+		if err := rows.Scan(&folder, &parent, &name); err != nil {
 			slog.Warn("groups: scan row", "err", err)
 			fmt.Fprintf(w, `<p class="banner-err">scan error: %s</p>`,
 				esc(err.Error()))
@@ -412,11 +412,10 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		if !parent.Valid || parent.String == "" {
 			label = " (root)"
 		}
-		fmt.Fprintf(w, `<details><summary>%s — %s%s [%s]</summary><div class="group-detail">`,
+		fmt.Fprintf(w, `<details><summary>%s — %s%s</summary><div class="group-detail">`,
 			esc(folder),
 			esc(name),
 			label,
-			esc(state),
 		)
 		fmt.Fprintf(w, `<p>Folder: %s &nbsp; Parent: %s</p>`,
 			esc(folder),
