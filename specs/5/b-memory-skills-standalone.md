@@ -24,37 +24,29 @@ my-agent/
 
 That's the unit. Everything else is delivery mechanism.
 
-## Three commands
+## One command, IO mode by flag
 
 ```
-ant chat   <folder>                       — interactive terminal chat
-ant run    <folder> [--prompt=<text>]     — one-shot subprocess (cron, batch)
-ant serve  <folder> [--socket=<path>]     — expose as MCP server for other systems
+ant <folder>                              # interactive chat (stdin/stdout)
+ant <folder> --prompt="<text>"            # one-shot, exit on completion
+ant <folder> --mcp [--socket=<path>]      # expose as MCP server
+ant <folder> --sandbox=none|dockbox|crackbox   # optional isolation
 ```
 
-`ant chat` is the daily-driver. `ant run` is what arizuko's scheduler
-calls. `ant serve` is what other agents (or arizuko's gated) call when
-driving this agent programmatically.
+The runtime is the same in every mode: spawn `claude` with the
+folder's skills + secrets + workspace mounted, operator runbook
+injected, diary writes routed to `<folder>/diary/`, MCP servers
+wired per `MCP.json`. The flags only pick where input comes from
+and where output goes:
 
-All three share the same runtime: spawn `claude` with the folder's
-skills + secrets + workspace mounted, the operator runbook injected,
-diary writes routed to `<folder>/diary/`, MCP servers wired per
-`MCP.json`.
+- default — terminal stdin/stdout, interactive
+- `--prompt` — single message in, response out, exit
+- `--mcp` — listen on a socket, accept JSON-RPC `send_message` /
+  `get_round` (same shape as slink-MCP), other systems drive it
 
-## Sandbox (optional)
-
-```
-ant chat <folder> [--sandbox=none|dockbox|crackbox]
-```
-
-- `none` (default for `ant chat`) — agent runs on the host
-- `dockbox` (default for `ant run` / `ant serve`) — Docker container,
-  workspace mount, restricted egress
-- `crackbox` — KVM VM via `crackbox/pkg/host` (phase 6/12)
-
-Sandbox is not the product; it's a deployment toggle. A "claude in a
-sandbox with skills" by itself is just claude — what makes ant ant
-is the folder.
+`--sandbox` is orthogonal to all three IO modes — pick any
+combination. Default sandbox: `none` for terminal use, `dockbox`
+when arizuko's `gated` invokes ant.
 
 ## Skills curation
 
@@ -99,7 +91,7 @@ Unblockers (carried over from the prior R-ant-go-cli spec):
 
 ```
 ant/
-  cmd/ant/main.go           — CLI: chat, run, serve
+  cmd/ant/main.go           — CLI: ant &lt;folder&gt; [--prompt|--mcp] [--sandbox]
   pkg/agent/                — folder loader, skill resolver, memory wiring
   pkg/host/                 — sandbox abstraction (dockbox + crackbox)
   pkg/runtime/              — claude-CLI driver, hooks, IPC
@@ -115,8 +107,9 @@ ant/
 
 1. **What is ant?** Run a Claude agent from a folder. The folder
    defines persona, skills, memory.
-2. **How do I run it?** `ant chat <folder>` — needs `ANTHROPIC_API_KEY`
-   in env or the folder's `secrets/`.
+2. **How do I run it?** `ant <folder>` — needs `ANTHROPIC_API_KEY`
+   in env or the folder's `secrets/`. Add `--prompt="..."` for
+   one-shot, `--mcp` to expose as a server.
 3. **Why a folder?** Agents are forkable, version-controllable,
    shareable. Copy the folder, tweak SOUL.md, ship a new agent.
 
@@ -126,11 +119,12 @@ No marketing. No feature matrix. Three questions.
 
 - Each `groups/<folder>/` IS an ant folder. Same shape, same skills,
   same memory layout.
-- `arizuko chat <instance> [group]` routes to `ant chat
+- `arizuko chat <instance> [group]` routes to `ant
 <data-dir>/groups/<group>` under the hood. Defaults to the root
   group when `[group]` is omitted (today's behavior).
-- `gated` spawns agents via `ant run --sandbox=dockbox <group-folder>`
-  (or via the `ant:latest` image directly, which is the same thing).
+- `gated` spawns agents via `ant <group-folder> --prompt="<input>"
+--sandbox=dockbox` (or via the `ant:latest` image directly,
+  which is the same thing).
 - arizuko adds: channels, queue, scheduler, cron, A2A routing, web UI.
   The agents themselves are ant.
 
@@ -143,12 +137,12 @@ No marketing. No feature matrix. Three questions.
 ## Acceptance
 
 - `mkdir my-agent && cp -r examples/starter/* my-agent/ &&
-ant chat my-agent` works without arizuko anywhere on the system
+ant my-agent` works without arizuko anywhere on the system
 - The agent persists diary writes across restarts (folder is the
   source of truth)
 - arizuko's compose continues to work unchanged: it consumes
   `ant:latest` image the same way today; `arizuko chat <inst> <group>`
-  routes via `ant chat`
+  routes via `ant`
 - `ant/` has zero arizuko-internal Go imports — same orthogonality
   test as `crackbox/`
 
