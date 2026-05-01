@@ -2,40 +2,109 @@
 status: unshipped
 ---
 
-# Memory skills — standalone distribution
+# Ant standalone — Claude Code distribution
 
-Extract the memory system (skills + prompt-time injection) for use
-outside arizuko.
+Make `ant/` a shippable sibling of `crackbox/`: own CLI, own Docker
+image, own docs, runnable outside arizuko. arizuko keeps consuming it
+exactly as it does crackbox today (via the binary + image contract,
+not by importing internals).
 
-Two layers:
+## What ant becomes
 
-- **Portable** — `diary`, `facts`, `recall-memories`, `compact-memories`,
-  `users` SKILL.md files + memory-routing CLAUDE.md snippet. Plain
-  markdown, loaded by Claude Code natively. No arizuko deps.
-- **Not portable without replacement** — `recall-messages` (needs
-  `get_history` IPC, see [C-message-mcp.md](C-message-mcp.md)),
-  `schedule_task` MCP (needs `timed`), gateway injection of
-  diary/episodes/user summaries (reimplement in ~100 LOC each).
+A minimal Claude Code distribution that bundles:
 
-Distribution: single git repo `memory-skills/` with `skills/`,
-`CLAUDE-memory-section.md`, `inject/{diary,episodes,router}.go`
-extracted. No npm, no build. Users copy to `~/.claude/skills/` and
-paste the CLAUDE.md snippet.
+- the `claude` CLI
+- a curated skill set (memory + workflow + tooling, ~38 today —
+  prune aggressively before public release)
+- a sandbox-spawn entrypoint: `ant run` boots the agent inside
+  dockbox (Docker today) or crackbox (KVM, when phase 6/12 lands)
 
-Rationale: the memory layer has zero runtime deps; easy to share
-without the full router.
+Outside-arizuko use case: drop a folder, get a Claude agent running
+in an isolated sandbox with secrets, skills, and memory wired up. No
+gateway, no SQLite bus, no group hierarchy.
 
-Open questions:
+## Components
 
-1. `get_history` IPC: implement in arizuko, or document
-   `recall-messages` as arizuko-only?
-2. `recall` binary (v2 FTS5+vector) not in repo/Dockerfile; fall-back
-   grep path is what runs today. Keep v2 path in skill or remove?
-3. `compact-memories` hardcodes `.claude/projects/-home-node/*.jsonl`.
-   Portable path: `$(ls -t ~/.claude/projects/*/*.jsonl | head -1 |
-xargs dirname)`.
-4. `schedule_task` parameter mismatch: skill uses `targetFolder`/
-   `schedule_type`/`schedule_value`; MCP takes `targetJid`/`cron`/
-   `contextMode`. Verify.
-5. License: AGPL on prompt text (not code) is awkward. Decide
-   CC0/MIT for the skill files before public release.
+```
+ant/
+  cmd/ant/main.go    — CLI: `ant run`, `ant chat`, `ant exec`
+  pkg/host/          — sandbox abstraction (dockbox impl shipped;
+                       crackbox impl pulls in github.com/onvos/arizuko/
+                       crackbox/pkg/host once that lib is stable)
+  Dockerfile         — agent image (today's image, kept)
+  skills/            — curated SKILL.md files
+  README.md          — what ant is, how to run it
+  CLAUDE.md          — operator runbook
+```
+
+CLI shape mirrors crackbox:
+
+```
+ant run [--sandbox=dockbox|crackbox] [--workspace=<dir>] [--skill=<glob>...]
+ant chat <workspace>
+ant exec <workspace> -- <cmd>
+```
+
+## Skills curation (the prune)
+
+Today's 38 skills are arizuko-shaped (gateway-coupled, channel-aware).
+Public ant ships only the portable subset:
+
+- **Keep**: `diary`, `facts`, `recall-memories`, `compact-memories`,
+  `users`, `commit`, `dispatch`, `find`, `bash`, `cli`, plus a memory-
+  routing `CLAUDE.md` snippet
+- **Drop**: anything that imports gated IPC tools (`recall-messages`,
+  `schedule_task`, slink-\* skills, channel-aware variants)
+- **Decision**: which skills stay = which work with ZERO arizuko
+  dependency. Rule: if `grep -l '@gated\|@arizuko\|gated\.sock' SKILL.md`
+  matches, it's arizuko-only and goes to a separate `ant-arizuko/skills/`
+  bundle that arizuko's compose layers on top.
+
+## Sandbox abstraction
+
+`ant run` resolves the sandbox backend:
+
+- `--sandbox=dockbox` (default) — Docker container, today's path
+- `--sandbox=crackbox` — KVM VM via `crackbox/pkg/host` (phase 6/12)
+
+The interface is the same: spawn → workspace mount + secret env →
+run agent → wait → return. Same contract as `crackbox run --kvm`.
+
+## Docs
+
+`ant/README.md` answers three questions in <300 words:
+
+1. What is ant? (Claude Code + memory + sandbox spawn, one binary)
+2. How do I run it? (`ant run` in a workspace dir; needs `OPENAI_API_KEY`
+   or `ANTHROPIC_API_KEY` in env)
+3. How does it differ from running `claude` directly? (sandboxed,
+   bundled skills, persistent memory, restricted egress)
+
+No marketing. No feature matrix. Three questions, three answers.
+
+## Out of scope
+
+- Plugin system / dynamic skill loading — see [E-plugins.md](E-plugins.md)
+- Cross-agent messaging / slink — that's arizuko-shaped, not ant
+- Workflow engine / scheduler — `timed` stays in arizuko
+
+## Acceptance
+
+- `cd ~/some-project && ant run` boots a Claude agent in a Docker
+  container with the workspace mounted and the API key in env
+- The agent has memory persistence (diary writes survive restart)
+- arizuko's compose continues to work unchanged (it consumes
+  `ant:latest` image the same way it does today)
+- `ant/` has zero arizuko-internal Go imports — same orthogonality
+  test as `crackbox/`
+
+## Relation to other specs
+
+- [R-ant-go-cli.md](R-ant-go-cli.md) — the Go rewrite; this spec
+  subsumes it. Mark R-ant-go-cli as folded-into-this when this lands.
+- [../6/12-crackbox-sandboxing.md](../6/12-crackbox-sandboxing.md) —
+  ant's `--sandbox=crackbox` backend depends on `crackbox/pkg/host`
+  being stable.
+- [Z-cli-chat.md](Z-cli-chat.md) — `arizuko chat` is arizuko's
+  variant of `ant chat`; once ant ships, arizuko's `chat` can be a
+  thin wrapper.

@@ -5,14 +5,13 @@ status: unshipped
 # Oracle — ask another model
 
 Experimental. One narrow question: how does Claude consult a second
-model when uncertain? Today's answer: a **codex skill** in
-`ant/skills/oracle-codex/`. The skill drives the `codex` CLI as a
-subprocess, returns its answer as text. No new daemon, no new MCP
-endpoint.
+model when uncertain? Today's answer: an **oracle skill** in
+`ant/skills/oracle/` that drives the `codex` CLI as a subprocess and
+returns its answer as text. No new daemon, no new MCP endpoint.
 
 ## Scope (this pass)
 
-- `ant/skills/oracle-codex/SKILL.md` — when to invoke (disagreement
+- `ant/skills/oracle/SKILL.md` — when to invoke (disagreement
   with self, second opinion on tricky algorithm, library Claude
   doesn't know well)
 - A `codex` binary on the agent container's PATH (add to `ant/Dockerfile`)
@@ -32,7 +31,7 @@ routing layer. Don't build that until the second oracle exists.
 
 ## Acceptance
 
-- Folder with `OPENAI_API_KEY` in its secrets and the `oracle-codex`
+- Folder with `OPENAI_API_KEY` in its secrets and the `oracle`
   skill enabled can ask Codex a question and get an answer
 - Folder without the secret falls back gracefully (skill reports the
   missing key, doesn't crash)
