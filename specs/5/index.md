@@ -6,7 +6,6 @@ status: future
 
 | Spec                                                           | Status    | Hook                                                               |
 | -------------------------------------------------------------- | --------- | ------------------------------------------------------------------ |
-| [0-agent-code-modification.md](0-agent-code-modification.md)   | unshipped | Staging area for root-agent-proposed gateway changes               |
 | [2-agent-pipeline.md](2-agent-pipeline.md)                     | shipped   | Orchestration (slink) vs workflows (Agent tool)                    |
 | [28-mass-onboarding.md](28-mass-onboarding.md)                 | shipped   | Self-service onboarding, username=world, web auth gate             |
 | [29-acl.md](29-acl.md)                                         | shipped   | Glob-matched user_groups, no operator/user distinction             |
@@ -14,7 +13,6 @@ status: future
 | [31-autocalls.md](31-autocalls.md)                             | shipped   | Inline fact injection when schema cost > content cost              |
 | [32-tenant-self-service.md](32-tenant-self-service.md)         | shipped   | Org-chart model: invites, secrets, chats.kind, topic kinds         |
 | [33-auth-landscape.md](33-auth-landscape.md)                   | shipped   | Auth composition mechanics                                         |
-| [6-extend-gateway-self.md](6-extend-gateway-self.md)           | unshipped | Root agent modifying gateway codebase (plugin dir or agent branch) |
 | [9-identities.md](9-identities.md)                             | unshipped | Link one user across multiple platform subs                        |
 | [C-message-mcp.md](C-message-mcp.md)                           | shipped   | `get_history` + `get_thread` + `fetch_history` MCP tools           |
 | [E-plugins.md](E-plugins.md)                                   | unshipped | Agent proposes, operator approves plugin system                    |

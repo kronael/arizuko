@@ -16,5 +16,5 @@ access, with a hard review gate.
 
 Unblockers: `plugin-propose` IPC type, operator approval UI, deploy
 hook, audit log at `plugins/log.jsonl`. Related:
-[6-extend-gateway-self.md](6-extend-gateway-self.md),
-[0-agent-code-modification.md](0-agent-code-modification.md).
+[../8/e-extend-gateway-self.md](../8/e-extend-gateway-self.md),
+[../8/d-agent-code-modification.md](../8/d-agent-code-modification.md).
