@@ -37,51 +37,65 @@ Full graph, message flow, container lifecycle, SQLite schema in
 
 ## Subsystems
 
+arizuko has two flavors of feature: **core** primitives that define the
+system shape and are always present, and **integrations** that plug into
+the core and are picked per deployment. Daemon and library tables below
+mark each row accordingly. See [ARCHITECTURE.md](ARCHITECTURE.md) for the
+package graph and [EXTENDING.md](EXTENDING.md) for adding new integrations.
+
 ### Daemons
 
-| name   | role                                                    | README                               |
-| ------ | ------------------------------------------------------- | ------------------------------------ |
-| gated  | HTTP API + message loop + container runner; owns schema | [gated/README.md](gated/README.md)   |
-| timed  | cron/interval scheduler                                 | [timed/README.md](timed/README.md)   |
-| onbod  | onboarding, OAuth, gated admission queue                | [onbod/README.md](onbod/README.md)   |
-| dashd  | read-only HTMX operator dashboards                      | [dashd/README.md](dashd/README.md)   |
-| webd   | web channel: websocket hub, slink, MCP bridge           | [webd/README.md](webd/README.md)     |
-| proxyd | auth-gated reverse proxy                                | [proxyd/README.md](proxyd/README.md) |
-| teled  | Telegram adapter                                        | [teled/README.md](teled/README.md)   |
-| discd  | Discord adapter                                         | [discd/README.md](discd/README.md)   |
-| mastd  | Mastodon adapter                                        | [mastd/README.md](mastd/README.md)   |
-| bskyd  | Bluesky adapter                                         | [bskyd/README.md](bskyd/README.md)   |
-| reditd | Reddit adapter                                          | [reditd/README.md](reditd/README.md) |
-| emaid  | Email (IMAP/SMTP) adapter                               | [emaid/README.md](emaid/README.md)   |
-| whapd  | WhatsApp adapter (TypeScript, Baileys)                  | [whapd/README.md](whapd/README.md)   |
-| twitd  | X/Twitter adapter (TypeScript, browser emulation)       | [twitd/README.md](twitd/README.md)   |
-| linkd  | LinkedIn adapter (stub)                                 | [linkd/README.md](linkd/README.md)   |
+| name   | kind        | role                                                    | README                               |
+| ------ | ----------- | ------------------------------------------------------- | ------------------------------------ |
+| gated  | core        | HTTP API + message loop + container runner; owns schema | [gated/README.md](gated/README.md)   |
+| timed  | core        | cron/interval scheduler                                 | [timed/README.md](timed/README.md)   |
+| onbod  | core        | onboarding, OAuth, gated admission queue                | [onbod/README.md](onbod/README.md)   |
+| dashd  | core        | read-only HTMX operator dashboards                      | [dashd/README.md](dashd/README.md)   |
+| webd   | core        | web channel: websocket hub, slink, MCP bridge           | [webd/README.md](webd/README.md)     |
+| proxyd | core        | auth-gated reverse proxy                                | [proxyd/README.md](proxyd/README.md) |
+| teled  | integration | Telegram adapter                                        | [teled/README.md](teled/README.md)   |
+| discd  | integration | Discord adapter                                         | [discd/README.md](discd/README.md)   |
+| mastd  | integration | Mastodon adapter                                        | [mastd/README.md](mastd/README.md)   |
+| bskyd  | integration | Bluesky adapter                                         | [bskyd/README.md](bskyd/README.md)   |
+| reditd | integration | Reddit adapter                                          | [reditd/README.md](reditd/README.md) |
+| emaid  | integration | Email (IMAP/SMTP) adapter                               | [emaid/README.md](emaid/README.md)   |
+| whapd  | integration | WhatsApp adapter (TypeScript, Baileys)                  | [whapd/README.md](whapd/README.md)   |
+| twitd  | integration | X/Twitter adapter (TypeScript, browser emulation)       | [twitd/README.md](twitd/README.md)   |
+| linkd  | integration | LinkedIn adapter (stub)                                 | [linkd/README.md](linkd/README.md)   |
+
+A minimal deployment runs core + one channel-adapter integration; a
+maxed-out deployment runs all of them. Optional capability hooks
+(Whisper transcription via `WHISPER_BASE_URL`, planned TTS via
+`TTS_BASE_URL`, planned oracle skill) plug into the core via env vars
+and skills, not new daemons.
 
 ### Libraries
 
-| name        | role                                                                          | README                                         |
-| ----------- | ----------------------------------------------------------------------------- | ---------------------------------------------- |
-| cmd/arizuko | CLI entrypoint (`create`, `run`, `group`, `gate`, `invite`, `chat`, `status`) | [cmd/arizuko/README.md](cmd/arizuko/README.md) |
-| gateway     | poll loop, routing, autocalls, impulse gate                                   | [gateway/README.md](gateway/README.md)         |
-| core        | types, config, `Channel` interface                                            | [core/README.md](core/README.md)               |
-| store       | SQLite access + migrations                                                    | [store/README.md](store/README.md)             |
-| api         | router-side HTTP API                                                          | [api/README.md](api/README.md)                 |
-| chanreg     | channel registry + `HTTPChannel`                                              | [chanreg/README.md](chanreg/README.md)         |
-| chanlib     | shared HTTP/auth primitives for adapters                                      | [chanlib/README.md](chanlib/README.md)         |
-| router      | message formatting, route evaluation                                          | [router/README.md](router/README.md)           |
-| queue       | per-group concurrency + circuit breaker                                       | [queue/README.md](queue/README.md)             |
-| container   | docker runner + skill seeding                                                 | [container/README.md](container/README.md)     |
-| compose     | `docker-compose.yml` generator                                                | [compose/README.md](compose/README.md)         |
-| ipc         | MCP server on unix socket                                                     | [ipc/README.md](ipc/README.md)                 |
-| auth        | identity, JWT, OAuth, policy, HMAC                                            | [auth/README.md](auth/README.md)               |
-| grants      | grant rule engine                                                             | [grants/README.md](grants/README.md)           |
-| diary       | diary reader for prompt injection                                             | [diary/README.md](diary/README.md)             |
-| db_utils    | embedded-FS migration runner                                                  | [db_utils/README.md](db_utils/README.md)       |
-| theme       | shared CSS/HTML helpers                                                       | [theme/README.md](theme/README.md)             |
-| groupfolder | group-folder path validation                                                  | [groupfolder/README.md](groupfolder/README.md) |
-| mountsec    | mount allowlist + path validation                                             | [mountsec/README.md](mountsec/README.md)       |
-| template    | instance seed files + adapter TOMLs                                           | [template/README.md](template/README.md)       |
-| sidecar     | whisper transcription image                                                   | [sidecar/README.md](sidecar/README.md)         |
+All libraries are core unless marked otherwise.
+
+| name        | kind        | role                                                                          | README                                         |
+| ----------- | ----------- | ----------------------------------------------------------------------------- | ---------------------------------------------- |
+| cmd/arizuko | core        | CLI entrypoint (`create`, `run`, `group`, `gate`, `invite`, `chat`, `status`) | [cmd/arizuko/README.md](cmd/arizuko/README.md) |
+| gateway     | core        | poll loop, routing, autocalls, impulse gate                                   | [gateway/README.md](gateway/README.md)         |
+| core        | core        | types, config, `Channel` interface                                            | [core/README.md](core/README.md)               |
+| store       | core        | SQLite access + migrations                                                    | [store/README.md](store/README.md)             |
+| api         | core        | router-side HTTP API                                                          | [api/README.md](api/README.md)                 |
+| chanreg     | core        | channel registry + `HTTPChannel`                                              | [chanreg/README.md](chanreg/README.md)         |
+| chanlib     | core        | shared HTTP/auth primitives for adapters                                      | [chanlib/README.md](chanlib/README.md)         |
+| router      | core        | message formatting, route evaluation                                          | [router/README.md](router/README.md)           |
+| queue       | core        | per-group concurrency + circuit breaker                                       | [queue/README.md](queue/README.md)             |
+| container   | core        | docker runner + skill seeding                                                 | [container/README.md](container/README.md)     |
+| compose     | core        | `docker-compose.yml` generator                                                | [compose/README.md](compose/README.md)         |
+| ipc         | core        | MCP server on unix socket                                                     | [ipc/README.md](ipc/README.md)                 |
+| auth        | core        | identity, JWT, OAuth, policy, HMAC                                            | [auth/README.md](auth/README.md)               |
+| grants      | core        | grant rule engine                                                             | [grants/README.md](grants/README.md)           |
+| diary       | core        | diary reader for prompt injection                                             | [diary/README.md](diary/README.md)             |
+| db_utils    | core        | embedded-FS migration runner                                                  | [db_utils/README.md](db_utils/README.md)       |
+| theme       | core        | shared CSS/HTML helpers                                                       | [theme/README.md](theme/README.md)             |
+| groupfolder | core        | group-folder path validation                                                  | [groupfolder/README.md](groupfolder/README.md) |
+| mountsec    | core        | mount allowlist + path validation                                             | [mountsec/README.md](mountsec/README.md)       |
+| template    | core        | instance seed files + adapter TOMLs                                           | [template/README.md](template/README.md)       |
+| sidecar     | integration | whisper transcription image                                                   | [sidecar/README.md](sidecar/README.md)         |
 
 The `ant/` directory (in-container agent, TypeScript) has its own
 layered docs and is not indexed here.
@@ -89,11 +103,14 @@ layered docs and is not indexed here.
 ### Components (orthogonal siblings)
 
 Shippable separately, usable outside arizuko. No imports of
-arizuko-internal packages. See [`specs/8/b-orthogonal-components.md`](specs/8/b-orthogonal-components.md).
+arizuko-internal packages. From arizuko's perspective these are
+**integrations** — opted in per deployment (e.g. `EGRESS_ISOLATION=true`
+pulls in crackbox); from their own perspective they are standalone
+binaries. See [`specs/8/b-orthogonal-components.md`](specs/8/b-orthogonal-components.md).
 
-| name     | role                                                                                                                          | README                                   |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| crackbox | umbrella: `egred` proxy daemon (shipped) + `pkg/host/` KVM lib (shipped, see [specs/6/12](specs/6/12-crackbox-sandboxing.md)) | [crackbox/README.md](crackbox/README.md) |
+| name     | kind        | role                                                                                                                          | README                                   |
+| -------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| crackbox | integration | umbrella: `egred` proxy daemon (shipped) + `pkg/host/` KVM lib (shipped, see [specs/6/12](specs/6/12-crackbox-sandboxing.md)) | [crackbox/README.md](crackbox/README.md) |
 
 ## Features
 

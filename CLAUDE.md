@@ -59,6 +59,25 @@ Pre-commit hooks configured via `.pre-commit-config.yaml`.
 
 See ARCHITECTURE.md for package graph, message flow, container model.
 
+### Core vs integrations
+
+Two flavors of feature, kept distinct in the docs:
+
+- **System core** — always-present primitives that define the system
+  shape: `gateway`, `store`, `ipc`, `auth`, `grants`, `proxyd`, `webd`,
+  `dashd`, `timed`, `onbod`, `vited`, `davd`, the container runner,
+  `chanlib`/`chanreg`, plus the `gated` daemon that wires them.
+- **Integrations** — pluggable, deployments mix and match: per-platform
+  channel adapters (`teled`, `whapd`, `mastd`, `discd`, `bskyd`,
+  `reditd`, `emaid`, `twitd`, `linkd`); optional capability hooks
+  (Whisper transcription via `WHISPER_BASE_URL`, planned TTS via
+  `TTS_BASE_URL`, planned oracle skill, crackbox egress isolation,
+  sandbox backend choice).
+
+A minimal deployment runs only core + one channel adapter; a maxed-out
+deployment runs all of them. Add new integrations via the extension
+points in `EXTENDING.md`; the core evolves as a unit.
+
 ## Docs layout
 
 Root UPPERCASE files: `ARCHITECTURE.md`, `SECURITY.md`, `ROUTING.md`,

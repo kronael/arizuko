@@ -1,6 +1,30 @@
 # Architecture
 
-## Package Dependency Graph
+## Core vs integrations
+
+arizuko is built as a **core** of always-present primitives plus
+**integrations** that plug into the core per deployment. The split is
+visible throughout this document and in the [README](README.md) tables.
+New integrations are added via the extension points described in
+[EXTENDING.md](EXTENDING.md); the core evolves as a unit.
+
+- **Core daemons / libraries** define the system shape: gateway, store,
+  ipc, auth, grants, proxyd, webd, dashd, timed, onbod, vited, davd, the
+  container runner, chanlib/chanreg, plus the `gated` daemon that wires
+  them. The package graph below is core.
+- **Integrations** are pluggable: per-platform channel adapters
+  (`teled`, `whapd`, `mastd`, `discd`, `bskyd`, `reditd`, `emaid`,
+  `twitd`, `linkd`) talking to core over the channel protocol; optional
+  capability hooks (Whisper transcription via `WHISPER_BASE_URL`,
+  planned TTS via `TTS_BASE_URL` (`T-voice-synthesis`), planned oracle
+  skill in `ant/skills/oracle/` (`H-call-llm-mcp`), crackbox egress
+  isolation (`EGRESS_ISOLATION=true`), sandbox backend choice (Docker
+  today, KVM via `crackbox/pkg/host/`)).
+
+A minimal deployment runs core plus one channel adapter; a maxed-out
+deployment runs all of them.
+
+## Package Dependency Graph (core)
 
 ```
 cmd/arizuko/main
@@ -25,7 +49,6 @@ onbod/    onboarding state machine + gated admission queue
 dashd/    operator dashboard (HTMX, read-only SQLite)
 webd/     web chat channel adapter (HTTP/SSE, registers as "web")
 proxyd/   reverse proxy: auth, vhost routing, slink rate limiting
-teled/ discd/ mastd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/  channel adapters
 grants/   CheckAction, NarrowRules, MatchingRules, DeriveRules
 chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
           proxy cache for discd/mastd/reditd), fsutil (CopyDirNoSymlinks,
@@ -34,6 +57,24 @@ chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
 theme/    shared CSS + HTML helpers (used by onbod, dashd)
 db_utils/ SQL migration runner
 ```
+
+## Integrations
+
+```
+teled/ discd/ mastd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/
+        channel adapters — separate processes, register with core via
+        the HTTP channel protocol (see "Channel Protocol" below)
+
+sidecar/ whisper-cpp container; gateway calls Whisper for inbound
+        voice when VOICE_TRANSCRIPTION_ENABLED=true
+crackbox/ egress-isolation proxy + KVM sandbox library; pulled in when
+        EGRESS_ISOLATION=true (see "Compose Containers" below).
+        Shippable separately; specs/8/b-orthogonal-components.md
+```
+
+Planned integrations (specced, not shipped): TTS via `TTS_BASE_URL`
+(`specs/5/T-voice-synthesis.md`), oracle skill driving codex CLI as a
+subprocess (`specs/5/H-call-llm-mcp.md`).
 
 ## Message Flow
 

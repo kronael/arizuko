@@ -2,6 +2,15 @@
 
 Catalog of extension points. Keep current as the system evolves.
 
+Extension points are how you **add an integration** — a new channel
+adapter, a TTS backend, an oracle skill, a per-folder mount, a custom
+autocall, a scheduled task, a network-egress rule. They are NOT how you
+change the **system core** (gateway, store, ipc, auth, grants, proxyd,
+webd, dashd, timed, onbod, container runner, chanlib/chanreg). Core
+evolves as a unit through specs, not via these extension points. See
+[README.md](README.md) for the core-vs-integration breakdown and
+[ARCHITECTURE.md](ARCHITECTURE.md) for the package graph.
+
 ## Extension points
 
 | Point         | Location               | Extensible by  | Mechanism                                   |
