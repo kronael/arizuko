@@ -4,7 +4,8 @@ status: shipped
 
 # task_run_logs
 
-Execution history for scheduled tasks. Added in `store/migrations/0011-task-run-logs.sql`.
+Execution history for scheduled tasks. Added in store migration
+`0011-task-run-logs.sql`.
 
 ## Schema
 
@@ -23,25 +24,28 @@ CREATE INDEX IF NOT EXISTS idx_task_run_logs_task ON task_run_logs(task_id);
 
 ## Fields
 
-| Column        | Type    | Description                                    |
-| ------------- | ------- | ---------------------------------------------- |
-| `id`          | INTEGER | autoincrement row id                           |
-| `task_id`     | TEXT    | FK → `scheduled_tasks.id`, cascades on delete  |
-| `run_at`      | TEXT    | RFC3339 timestamp when task fired              |
-| `duration_ms` | INTEGER | elapsed milliseconds from fire to log write    |
-| `status`      | TEXT    | `"success"` or `"error"`                       |
-| `result`      | TEXT    | reserved; not populated by timed (always NULL) |
-| `error`       | TEXT    | reserved; not populated by timed (always NULL) |
+| Column        | Type    | Description                                      |
+| ------------- | ------- | ------------------------------------------------ |
+| `id`          | INTEGER | autoincrement row id                             |
+| `task_id`     | TEXT    | FK → `scheduled_tasks.id`, cascades on delete    |
+| `run_at`      | TEXT    | RFC3339 timestamp when task fired                |
+| `duration_ms` | INTEGER | elapsed milliseconds from fire to log write      |
+| `status`      | TEXT    | `"success"` or `"error"`                         |
+| `result`      | TEXT    | reserved; not populated by timed (always NULL)   |
+| `error`       | TEXT    | error message on `"error"` rows; NULL on success |
 
 ## How timed populates it
 
-`logRun(db, taskID, status, durationMs)` is called after each task fires:
+`logRun(db, taskID, status, errText, durationMs)` is called after each
+task fires:
 
-- `"success"` — message inserted into `messages` table, `next_run` updated
-- `"error"` — INSERT into `messages` failed (DB error)
+- `"success"` — message inserted into `messages` table, `next_run`
+  updated; `errText` empty, written as NULL
+- `"error"` — INSERT into `messages` failed (DB error); `err.Error()`
+  passed as `errText`
 
-`result` and `error` columns exist in the schema for future use (e.g.
-container exit status, agent output snippet) but are not written today.
+`result` is reserved for future use (e.g. container exit status, agent
+output snippet) but is not written today.
 
 ## Relationship to messages table
 
@@ -52,6 +56,7 @@ means the message was inserted.
 
 ## Migration context
 
-Migration 0011 also adds `context_mode TEXT NOT NULL DEFAULT 'group'` to
-`scheduled_tasks`. This enables `"isolated"` mode where the task fires
-with sender `"scheduler-isolated"` (no `--resume`, fresh context).
+Migration `0011-task-run-logs.sql` also adds
+`context_mode TEXT NOT NULL DEFAULT 'group'` to `scheduled_tasks`. This
+enables `"isolated"` mode where the task fires with sender
+`"timed-isolated:<task_id>"` (no `--resume`, fresh context).
