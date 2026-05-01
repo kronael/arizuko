@@ -872,8 +872,8 @@ func sendReply(cfg config, jid, text string) {
 	}
 }
 
-// userFolders returns the folders the user has access to.
-// nil means operator (unrestricted).
+// userFolders returns the user's grant patterns. Empty = no access; a
+// `**` row marks an operator (auth.MatchGroups handles it as a pattern).
 func userFolders(db *sql.DB, sub string) []string {
 	rows, err := db.Query(
 		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, sub)
@@ -932,9 +932,6 @@ func userRoutes(db *sql.DB, folders []string) []dashRoute {
 }
 
 func isOperator(folders []string) bool {
-	if folders == nil {
-		return true
-	}
 	for _, f := range folders {
 		if f == "**" {
 			return true
@@ -969,13 +966,14 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 }
 
 // matchRe bounds allowed match patterns: ASCII printable, no spaces/wildcards.
-// Operators (folders == nil) bypass this. Prevents cross-tenant interception
-// via wildcards or whitespace-smuggling patterns that confuse the matcher.
+// Prevents cross-tenant interception via wildcards or whitespace-smuggling
+// patterns that confuse the matcher. Operators (`**` grant) bypass the
+// userOwnsMatch step but still go through this validator.
 var matchRe = regexp.MustCompile(`\A[A-Za-z0-9_.:=@/-]+\z`)
 
 // userOwnsMatch reports whether the supplied match pattern references a room
 // (JID suffix) that the user has a linked user_jids row for. Operators
-// (folders == nil) bypass this check.
+// (`**` grant) bypass this check at the caller.
 func userOwnsMatch(db *sql.DB, sub, match string) bool {
 	// Only support the canonical "room=<id>" form for the onboarding UI.
 	// More expressive patterns require operator grants.
@@ -1023,8 +1021,8 @@ func handleAddRoute(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	// Non-operators may only route from their own JIDs. Operators (folders
-	// either nil-bypass or a `**` grant) may create any match → target pair.
+	// Non-operators may only route from their own JIDs. Operators (a
+	// `**` grant) may create any match → target pair.
 	if !isOperator(folders) && !userOwnsMatch(db, sub, match) {
 		http.Error(w, "forbidden: match does not reference a linked account",
 			http.StatusForbidden)

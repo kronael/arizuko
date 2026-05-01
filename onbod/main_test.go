@@ -1865,13 +1865,14 @@ func TestLoadConfigBadPollInterval(t *testing.T) {
 	}
 }
 
-// isOperator: `**` grant = operator; empty/other grants = not operator.
+// isOperator: operator emerges only from a `**` grant; nil/empty/other
+// grants are not operator (no nil-sentinel — see specs/5/29-acl.md).
 func TestIsOperator(t *testing.T) {
-	if !isOperator(nil) {
-		t.Error("nil folders must be operator (bypass)")
-	}
 	if !isOperator([]string{"alice", "**"}) {
 		t.Error("** grant must be operator")
+	}
+	if isOperator(nil) {
+		t.Error("nil folders must not be operator")
 	}
 	if isOperator([]string{"alice", "bob"}) {
 		t.Error("plain folders must not be operator")
