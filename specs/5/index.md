@@ -25,7 +25,7 @@ status: future
 | [M-webdav.md](M-webdav.md)                                     | shipped   | dufs + proxyd JWT/cookie auth, write-block guard                   |
 | [N-listener.md](N-listener.md)                                 | unshipped | Passive listener group mode + scheduled digest                     |
 | [P-operator.md](P-operator.md)                                 | note      | Operator is emergent from `**` ACL, not a flag                     |
-| [Q-unified-routing.md](Q-unified-routing.md)                   | partial   | Single message table + router decision point                       |
+| [Q-unified-routing.md](Q-unified-routing.md)                   | shipped   | Single message table, bare folder JIDs, poll-based outbound        |
 | [R-ant-go-cli.md](R-ant-go-cli.md)                             | unshipped | Replace TS ant with Go wrapper around Claude CLI                   |
 | [R-multi-account.md](R-multi-account.md)                       | shipped   | Multi-account adapters via multiple service TOMLs                  |
 | [S-jid-format.md](S-jid-format.md)                             | unshipped | `platform:account/id` JID, account resolved after Connect          |
