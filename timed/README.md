@@ -14,7 +14,6 @@ gateway picks them up via normal polling.
 - Insert the task prompt as a message with sender `timed` or `timed-isolated:<id>`.
 - Advance `next_run` (`robfig/cron` or interval-ms); mark one-shots completed.
 - Log each run to `task_run_logs`.
-- Daily `cleanupSpawns`: close idle child groups, archive closed groups as `.tar.gz`.
 
 ## Entry points
 
@@ -40,7 +39,7 @@ no `task_run_logs` rows appearing despite active tasks.
 
 ## Files
 
-- `main.go` — poll loop, claim-fire-advance, daily cleanup, tar.gz archive.
+- `main.go` — poll loop, claim-fire-advance.
 
 ## Related docs
 

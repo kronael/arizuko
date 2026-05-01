@@ -1,11 +1,7 @@
 package main
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"database/sql"
-	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -28,7 +24,6 @@ func main() {
 	})))
 
 	dataDir := os.Getenv("DATA_DIR")
-	groupsDir := filepath.Join(dataDir, "groups")
 
 	dsn := os.Getenv("DATABASE")
 	if dsn == "" {
@@ -74,16 +69,11 @@ func main() {
 	tick := time.NewTicker(60 * time.Second)
 	defer tick.Stop()
 
-	daily := time.NewTicker(24 * time.Hour)
-	defer daily.Stop()
-
 	fire(db, tz)
 	for {
 		select {
 		case <-tick.C:
 			fire(db, tz)
-		case <-daily.C:
-			cleanupSpawns(db, groupsDir)
 		case <-stop:
 			slog.Info("scheduler stopped")
 			return
@@ -201,112 +191,4 @@ func nextCron(expr, tz string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return s.Next(time.Now().In(loc)), nil
-}
-
-func cleanupSpawns(db *sql.DB, groupsDir string) {
-	now := time.Now()
-
-	rows, err := db.Query(
-		`SELECT g.folder, g.spawn_ttl_days
-		 FROM groups g
-		 WHERE g.parent IS NOT NULL AND g.parent != '' AND g.state = 'active'`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var folder string
-		var ttlDays int
-		rows.Scan(&folder, &ttlDays)
-		var lastMsg string
-		db.QueryRow(`SELECT MAX(m.timestamp) FROM messages m
-			JOIN routes r ON r.target = ?
-			WHERE r.match = 'room=' || substr(m.chat_jid, instr(m.chat_jid, ':')+1)
-			   OR r.match LIKE 'room=' || substr(m.chat_jid, instr(m.chat_jid, ':')+1) || ' %'`,
-			folder).Scan(&lastMsg)
-		if lastMsg == "" {
-			continue
-		}
-		t, err := time.Parse(time.RFC3339, lastMsg)
-		if err != nil {
-			continue
-		}
-		if now.Sub(t) > time.Duration(ttlDays)*24*time.Hour {
-			db.Exec(`UPDATE groups SET state='closed', updated_at=? WHERE folder=?`,
-				now.Format(time.RFC3339), folder)
-			slog.Info("closed idle spawn", "folder", folder)
-		}
-	}
-
-	rows2, err := db.Query(
-		`SELECT folder, parent, archive_closed_days, updated_at
-		 FROM groups WHERE state = 'closed'`)
-	if err != nil {
-		return
-	}
-	defer rows2.Close()
-	type archiveTarget struct{ folder, parent string }
-	var toArchive []archiveTarget
-	for rows2.Next() {
-		var folder, parent, updatedAt string
-		var archiveDays int
-		rows2.Scan(&folder, &parent, &archiveDays, &updatedAt)
-		t, err := time.Parse(time.RFC3339, updatedAt)
-		if err != nil {
-			continue
-		}
-		if now.Sub(t) > time.Duration(archiveDays)*24*time.Hour {
-			toArchive = append(toArchive, archiveTarget{folder, parent})
-		}
-	}
-	for _, g := range toArchive {
-		archiveSpawn(db, groupsDir, g.folder, g.parent)
-	}
-}
-
-func archiveSpawn(db *sql.DB, groupsDir, folder, parent string) {
-	leaf := filepath.Base(folder)
-	archiveDir := filepath.Join(groupsDir, parent, "archive")
-	os.MkdirAll(archiveDir, 0o755)
-	archivePath := filepath.Join(archiveDir, fmt.Sprintf("%s-%d.tar.gz", leaf, time.Now().Unix()))
-
-	srcDir := filepath.Join(groupsDir, folder)
-	if err := compressDirTarGz(srcDir, archivePath); err != nil {
-		slog.Error("archive spawn", "folder", folder, "err", err)
-		return
-	}
-	db.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
-	os.RemoveAll(srcDir)
-	slog.Info("archived spawn", "folder", folder, "archive", archivePath)
-}
-
-func compressDirTarGz(src, dst string) error {
-	f, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	gz := gzip.NewWriter(f)
-	defer gz.Close()
-	tw := tar.NewWriter(gz)
-	defer tw.Close()
-	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.Type()&os.ModeSymlink != 0 {
-			return err
-		}
-		rel, _ := filepath.Rel(src, path)
-		info, _ := d.Info()
-		hdr, _ := tar.FileInfoHeader(info, "")
-		hdr.Name = rel
-		tw.WriteHeader(hdr)
-		if !d.IsDir() {
-			file, err := os.Open(path)
-			if err != nil {
-				return err
-			}
-			defer file.Close()
-			io.Copy(tw, file)
-		}
-		return nil
-	})
 }
