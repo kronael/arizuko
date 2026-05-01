@@ -239,9 +239,18 @@ func (s *Store) Topics(folder string) ([]TopicSummary, error) {
 }
 
 func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit int) ([]core.Message, error) {
-	jid := "web:" + folder
+	return s.MessagesByThread("web:"+folder, topic, before, limit)
+}
+
+// MessagesByThread returns messages for one (chat_jid, topic) thread, newest
+// first, capped by limit. before=zero means now. Used by both web (via
+// MessagesByTopic, jid="web:<folder>") and the ipc get_thread tool.
+func (s *Store) MessagesByThread(jid, topic string, before time.Time, limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
+	}
+	if before.IsZero() {
+		before = time.Now()
 	}
 	rows, err := s.db.Query(
 		`SELECT `+msgCols+` FROM messages

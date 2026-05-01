@@ -533,6 +533,36 @@ func TestPutMessage_InheritsStickyTopic(t *testing.T) {
 	}
 }
 
+// MessagesByThread filters by both jid AND topic; messages from another chat
+// or another thread on the same chat must not leak into the result.
+func TestMessagesByThread_ScopedByJIDAndTopic(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	now := time.Now()
+	rows := []core.Message{
+		{ID: "a", ChatJID: "telegram:group/-100", Sender: "u1", Content: "in t1",
+			Timestamp: now.Add(-3 * time.Minute), Topic: "t1"},
+		{ID: "b", ChatJID: "telegram:group/-100", Sender: "u1", Content: "in t2",
+			Timestamp: now.Add(-2 * time.Minute), Topic: "t2"},
+		{ID: "c", ChatJID: "telegram:group/-200", Sender: "u1", Content: "other chat t1",
+			Timestamp: now.Add(-1 * time.Minute), Topic: "t1"},
+	}
+	for _, m := range rows {
+		if err := s.PutMessage(m); err != nil {
+			t.Fatalf("put %s: %v", m.ID, err)
+		}
+	}
+
+	got, err := s.MessagesByThread("telegram:group/-100", "t1", time.Time{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "a" {
+		t.Fatalf("MessagesByThread mis-scoped: %+v", got)
+	}
+}
+
 func TestChatIsGroup_DefaultsFalse(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
