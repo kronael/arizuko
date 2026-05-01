@@ -45,25 +45,34 @@ POST /v1/channels/register
 Authorization: Bearer <shared-secret>
 
 {
-  "platform": "telegram",
-  "account":  "mybot",
-  "url":      "http://telegram:8080",
+  "name":         "telegram-mybot",
+  "url":          "http://telegram:8080",
+  "jid_prefixes": ["telegram:mybot/"],
   "capabilities": {
-    "send_text": true,
-    "send_file": true,
-    "typing": true,
-    "threading": false,
-    "reactions": false,
-    "edit": false,
-    "delete": false
+    "send_text":     true,
+    "send_file":     true,
+    "typing":        true,
+    "fetch_history": false,
+    "fwd":           false,
+    "quote":         false,
+    "repost":        false,
+    "dislike":       false,
+    "edit":          false
   }
 }
 
 → 200 {"ok": true, "token": "<session-token>"}
 ```
 
-`url` is where router calls the channel. Session token
+`name` is the unique adapter identifier (also written to
+`messages.source` on inbound delivery). `jid_prefixes` declares which
+JIDs the adapter owns — the router picks a return adapter by prefix
+match. `url` is where router calls the channel. Session token is used
 for subsequent channel→router calls.
+
+Re-registering an existing `name` from a different source IP or with
+a different `CHANNEL_SECRET` is rejected with 409 (origin pin); same
+origin re-registers transparently and refreshes the session token.
 
 #### Deliver inbound message
 
@@ -92,8 +101,10 @@ Authorization: Bearer <session-token>
 → 200 {"ok": true}
 ```
 
-Attachments: channel serves files on its own HTTP server.
-Router fetches if needed for agent context.
+Attachments: channel serves files on its own HTTP server and the
+router fetches them for agent context. Adapters that already have
+the bytes in hand (e.g. whapd) may instead inline base64 in
+`attachments[].data` and omit `url`.
 
 The router stamps `messages.source` with the registered adapter
 name on every inbound delivery. This is the canonical record of
@@ -120,16 +131,21 @@ POST /send
 Authorization: Bearer <shared-secret>
 
 {
-  "chat_jid": "telegram:mybot/-1001234567",
-  "content": "reply text",
-  "reply_to": "msg-uuid",
-  "format": "markdown"
+  "chat_jid":  "telegram:mybot/-1001234567",
+  "content":   "reply text",
+  "reply_to":  "msg-uuid",
+  "thread_id": "topic-123"
 }
 
-→ 200 {"ok": true, "message_id": "telegram-msg-456"}
+→ 200 {"ok": true, "id": "telegram-msg-456"}
 ```
 
-Synchronous delivery. 200 = on the platform.
+`reply_to` is the prior message ID; `thread_id` pins the message to a
+platform-native thread/topic when the adapter supports it (Telegram
+forum topics, Discord threads, Mastodon thread roots). Both fields are
+optional. Synchronous delivery — 200 means the message landed on the
+platform. The returned `id` is the platform-native message ID and may
+be empty when the adapter has no useful ID to surface.
 
 #### Send file
 
@@ -141,9 +157,9 @@ Content-Type: multipart/form-data
 - chat_jid: "telegram:mybot/-1001234567"
 - filename: "report.pdf"
 - caption:  "optional caption text"   (optional)
-- file: <binary>
+- file:     <binary>
 
-→ 200 {"ok": true, "message_id": "telegram-msg-457"}
+→ 200 {"ok": true}
 ```
 
 #### Typing
@@ -164,29 +180,38 @@ Fire-and-forget. Failure is not an error.
 ```
 GET /health
 
-→ 200 {"status": "ok", "platform": "telegram", "account": "mybot"}
+→ 200 {"status":"ok","name":"telegram-mybot","jid_prefixes":["telegram:mybot/"],"last_inbound_at":1709942400}
+→ 503 {"status":"disconnected", ...}                       (platform link down)
+→ 503 {"status":"stale","stale_seconds":420, ...}          (no inbound past threshold)
 ```
 
-Router calls every 30s. Three consecutive failures →
-auto-deregister. Outbound queues until channel re-registers.
+Status precedence: `disconnected` > `stale` > `ok`. The staleness
+threshold is per-adapter (5m default; 10m for email, 60m for reddit).
+Router calls every 30s; three consecutive failures auto-deregister
+and outbound queues internally until the channel re-registers.
 
 ## Capabilities
 
-Declared at registration. Router skips calls the channel
-can't handle:
+Declared at registration. The router refuses outbound calls when the
+relevant capability is `false`:
 
-| Capability     | If false                       |
-| -------------- | ------------------------------ |
-| `send_text`    | channel is send-disabled       |
-| `send_file`    | skip /send-file calls          |
-| `typing`       | skip /typing calls             |
-| `threading`    | no reply_to on outbound        |
-| `reactions`    | no reaction forwarding         |
-| `edit`         | no edit forwarding             |
-| `delete`       | no delete forwarding           |
-| `receive_only` | channel never delivers inbound |
+| Capability      | Endpoint guarded                           |
+| --------------- | ------------------------------------------ |
+| `send_text`     | `/send`                                    |
+| `send_file`     | `/send-file`                               |
+| `typing`        | `/typing` (silently no-op when false)      |
+| `fetch_history` | `GET /v1/history`                          |
+| `fwd`           | `/forward`                                 |
+| `quote`         | `/quote`                                   |
+| `repost`        | `/repost`                                  |
+| `dislike`       | `/dislike` (separate from `/like`)         |
+| `edit`          | `/edit`                                    |
+| `receive_only`  | channel never delivers inbound (docs-only) |
 
-Extensible. Unknown capabilities ignored.
+Extensible. Unknown capabilities are ignored. `/like`, `/post`,
+`/delete` are not capability-gated by the router — adapters that
+can't satisfy them respond `501 unsupported` with a structured
+`{tool, platform, hint}` body.
 
 ## Internal service channels
 
