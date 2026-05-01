@@ -16,6 +16,7 @@ import (
 // stubBot for server HTTP tests.
 type stubBot struct {
 	chanlib.NoFileSender
+	chanlib.NoVoiceSender
 	chanlib.NoSocial
 	mu       sync.Mutex
 	lastReq  chanlib.SendRequest

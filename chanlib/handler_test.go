@@ -12,14 +12,19 @@ import (
 )
 
 type mockBot struct {
-	sendReq  SendRequest
-	sendID   string
-	sendErr  error
-	fileJID  string
-	fileName string
-	fileErr  error
-	typJID   string
-	typOn    bool
+	sendReq    SendRequest
+	sendID     string
+	sendErr    error
+	fileJID    string
+	fileName   string
+	fileErr    error
+	voiceJID   string
+	voicePath  string
+	voiceCap   string
+	voiceErr   error
+	voiceID    string
+	typJID     string
+	typOn      bool
 	NoSocial
 }
 
@@ -32,6 +37,13 @@ func (m *mockBot) SendFile(jid, _, name, _ string) error {
 	m.fileJID = jid
 	m.fileName = name
 	return m.fileErr
+}
+
+func (m *mockBot) SendVoice(jid, audioPath, caption string) (string, error) {
+	m.voiceJID = jid
+	m.voicePath = audioPath
+	m.voiceCap = caption
+	return m.voiceID, m.voiceErr
 }
 
 func (m *mockBot) Typing(jid string, on bool) {
@@ -391,6 +403,7 @@ func TestUnsupportedErrorIs(t *testing.T) {
 
 type mockBotPost struct {
 	NoFileSender
+	NoVoiceSender
 	NoSocial
 	err error
 }

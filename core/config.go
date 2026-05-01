@@ -57,6 +57,16 @@ type Config struct {
 	VideoEnabled  bool
 	WhisperModel  string
 
+	// TTS pipeline. TTSURL is the OpenAI-compatible /v1/audio/speech base
+	// URL (point at bundled ttsd or any external server). TTSVoice is the
+	// instance default; agents can override per-call via send_voice args
+	// or per-group via SOUL.md `voice:` frontmatter.
+	TTSEnabled bool
+	TTSURL     string
+	TTSVoice   string
+	TTSModel   string
+	TTSTimeout time.Duration
+
 	// Egress isolation (crackbox). Enabled when EgressAPI is non-empty.
 	// No separate EGRESS_ISOLATION switch — set the API URL or don't.
 	// Per-folder networks are created lazily under EgressNetworkPrefix
@@ -127,6 +137,12 @@ func LoadConfig() (*Config, error) {
 		VoiceEnabled:  envOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
 		VideoEnabled:  envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 		WhisperModel:  envOr("WHISPER_MODEL", "turbo"),
+
+		TTSEnabled: envOr("TTS_ENABLED", "false") == "true",
+		TTSURL:     envOr("TTS_BASE_URL", "http://ttsd:8880"),
+		TTSVoice:   envOr("TTS_VOICE", "af_bella"),
+		TTSModel:   envOr("TTS_MODEL", "kokoro"),
+		TTSTimeout: envDur("TTS_TIMEOUT", 15*time.Second),
 
 		EgressNetworkPrefix: envOr("EGRESS_NETWORK_PREFIX", ""),
 		EgressCrackbox:      envOr("EGRESS_CRACKBOX", ""),

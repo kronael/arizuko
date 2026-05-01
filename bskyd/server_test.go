@@ -15,6 +15,7 @@ import (
 
 type stubCreator struct {
 	chanlib.NoFileSender
+	chanlib.NoVoiceSender
 	chanlib.NoSocial
 	err      error
 	postID   string

@@ -15,6 +15,7 @@ import (
 
 type stubPoster struct {
 	chanlib.NoFileSender
+	chanlib.NoVoiceSender
 	chanlib.NoSocial
 	err      error
 	postReq  chanlib.PostRequest

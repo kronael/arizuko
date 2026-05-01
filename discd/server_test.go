@@ -14,6 +14,7 @@ import (
 
 type stubBot struct {
 	chanlib.NoSocial
+	chanlib.NoVoiceSender
 	sent     []stubSend
 	files    []stubFile
 	typings  []bool

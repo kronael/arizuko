@@ -32,6 +32,7 @@ type GatedFns struct {
 	SendMessage         func(jid, text string) (string, error)
 	SendReply           func(jid, text, replyToId string) (string, error)
 	SendDocument        func(jid, path, filename, caption string) error
+	SendVoice           func(jid, text, voice, folder string) (string, error)
 	Post                func(jid, content string, mediaPaths []string) (string, error)
 	Like                func(jid, targetID, reaction string) error
 	Delete              func(jid, targetID string) error
@@ -637,6 +638,44 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr(err.Error())
 			}
 			return toolOK()
+		})
+
+	registerRaw("send_voice", "Deliver `text` as a synthesized voice message on the platform — push-to-talk on Telegram/WhatsApp, audio attachment on Discord. Use when the user sent voice and expects voice back, or when the persona is voice-first. Not for music/file delivery (use `send_file`). `voice` defaults to the persona's voice from SOUL.md frontmatter or the instance default; pass an explicit voice name to override.",
+		[]mcp.ToolOption{
+			mcp.WithString("chatJid", mcp.Required()),
+			mcp.WithString("text", mcp.Required()),
+			mcp.WithString("voice", mcp.Description("Optional voice name (backend-specific, e.g. 'af_bella' for Kokoro). Omit to use SOUL.md frontmatter or instance default.")),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("chatJid", "")
+			if !grantslib.CheckAction(rules, "send_voice", map[string]string{"jid": jid}) {
+				return toolErr("send_voice: not permitted")
+			}
+			if err := authorizeJID(id, "send_voice", jid, db); err != nil {
+				return toolErr(err.Error())
+			}
+			if gated.SendVoice == nil {
+				return toolErr("send_voice not configured")
+			}
+			text := req.GetString("text", "")
+			if t := strings.TrimSpace(text); t == "" {
+				return toolErr("send_voice: text is empty")
+			}
+			if len(strings.TrimSpace(text)) > 5000 {
+				return toolErr("send_voice: text too long (max 5000 chars)")
+			}
+			voice := req.GetString("voice", "")
+			snippet := text
+			if len(snippet) > 60 {
+				snippet = snippet[:60]
+			}
+			slog.Info("send_voice", "folder", folder, "jid", jid, "voice", voice, "text", snippet)
+			platformID, err := gated.SendVoice(jid, text, voice, folder)
+			if err != nil {
+				return toolMaybeUnsupported(err)
+			}
+			recordOutbound(db, jid, text, platformID, folder)
+			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
 	registerRaw("post", "Create a new top-level post on a platform (mastodon toot, bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Tier 0-2 only.",

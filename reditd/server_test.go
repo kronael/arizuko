@@ -14,6 +14,7 @@ import (
 
 type stubSender struct {
 	chanlib.NoFileSender
+	chanlib.NoVoiceSender
 	chanlib.NoSocial
 	commented []string
 	submitted []string

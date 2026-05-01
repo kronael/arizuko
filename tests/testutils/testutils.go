@@ -100,6 +100,7 @@ type FakeChannel struct {
 	mu           sync.Mutex
 	SentMessages []SentMsg
 	SentFiles    []SentFile
+	SentVoices   []VoiceCall
 	Reactions    []ReactionCall
 	Posts        []PostCall
 	Deletes      []DeleteCall
@@ -145,6 +146,22 @@ func (f *FakeChannel) SendFile(jid, path, name, caption string) error {
 	}
 	f.SentFiles = append(f.SentFiles, SentFile{jid, path, name, caption})
 	return nil
+}
+
+// VoiceCall records a SendVoice invocation; SentVoices is the table
+// integration tests inspect to assert voice routing.
+type VoiceCall struct {
+	JID, Path, Caption string
+}
+
+func (f *FakeChannel) SendVoice(jid, path, caption string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.SendErr != nil {
+		return "", f.SendErr
+	}
+	f.SentVoices = append(f.SentVoices, VoiceCall{jid, path, caption})
+	return fmt.Sprintf("voice-%d", len(f.SentVoices)), nil
 }
 
 func (f *FakeChannel) Typing(_ string, _ bool) error {

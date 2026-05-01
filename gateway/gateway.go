@@ -136,6 +136,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 			return g.sendMessageReply(jid, text, replyTo, "")
 		},
 		SendDocument: g.sendDocument,
+		SendVoice:    g.sendVoice,
 		Post:         g.postToJID,
 		Like:         g.likeOnJID,
 		Delete:       g.deleteOnJID,

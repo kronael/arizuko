@@ -38,6 +38,7 @@ func (m *mockChannel) Connect(_ context.Context) error          { return nil }
 func (m *mockChannel) Disconnect() error                        { return nil }
 func (m *mockChannel) Typing(_ string, _ bool) error            { return nil }
 func (m *mockChannel) SendFile(_, _, _, _ string) error         { return nil }
+func (m *mockChannel) SendVoice(_, _, _ string) (string, error)  { return "", nil }
 func (m *mockChannel) Owns(jid string) bool {
 	for _, j := range m.jids {
 		if j == jid {
@@ -817,7 +818,8 @@ func (c *testChannel) Name() string                    { return c.name }
 func (c *testChannel) Connect(_ context.Context) error { return nil }
 func (c *testChannel) Disconnect() error               { return nil }
 func (c *testChannel) Typing(_ string, _ bool) error   { return nil }
-func (c *testChannel) SendFile(_, _, _, _ string) error { return nil }
+func (c *testChannel) SendFile(_, _, _, _ string) error          { return nil }
+func (c *testChannel) SendVoice(_, _, _ string) (string, error)   { return "", nil }
 func (c *testChannel) Owns(jid string) bool {
 	for _, j := range c.jids {
 		if strings.HasPrefix(jid, j) {
