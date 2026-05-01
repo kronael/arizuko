@@ -2,95 +2,94 @@
 status: shipped
 ---
 
-# Message IDs: Reply and Forward Metadata
+# Message IDs: Reply Threading
 
-Enrich inbound message metadata with channel-native IDs for
-reply threading and forward attribution.
+Capture channel-native reply IDs on inbound, thread outbound
+replies through the same IDs.
 
 ## Problem
 
-Inbound messages capture reply context as plain text and
-forward source as a name string. No IDs stored. Agents
-cannot thread replies or reference forwarded sources.
+Without per-message IDs the agent cannot quote a specific
+prior message or thread its outbound reply onto one. Quoted
+text and sender name alone can't drive `Send(replyTo=...)`.
 
-## Fields on inbound message
+## Fields on `core.Message`
 
 ```go
 type Message struct {
-    // existing
-    ForwardedFrom   string // original sender name
-    ReplyToText     string // quoted text (100 chars)
-    ReplyToSender   string // quoted sender name
-    // added
-    ReplyToID       string // channel-native replied-to msg ID
-    ForwardedFromID string // source chat/channel ID
-    ForwardedMsgID  string // original message ID (channel posts)
+    // ...
+    ForwardedFrom string // delegate/escalate return-routing JID; not channel forwards
+    ReplyToID     string // channel-native replied-to msg ID
+    ReplyToText   string // quoted text snippet
+    ReplyToSender string // quoted sender name
+    // ...
 }
 ```
 
-Note: `ForwardedFromID` and `ForwardedMsgID` are NOT yet in `core.Message`.
-Only `ForwardedFrom string` exists. `ReplyToID` is present.
+`ForwardedFrom` is reused as the return-address JID for
+delegate/escalate (`gateway.delegateViaMessage`,
+`escalate_group` MCP tool). It is not populated from inbound
+forwarded messages on any platform — channel forward
+metadata is not extracted today.
 
-## Channel coverage — reply/forward metadata
-
-Full matrix of what each channel provides for inbound
-metadata extraction.
-
-### Reply metadata
+## Channel coverage — inbound reply metadata
 
 | Channel  | reply_to_id  | reply_to_sender | reply_to_text |
 | -------- | ------------ | --------------- | ------------- |
 | Telegram | yes          | yes             | yes           |
 | Discord  | yes          | yes             | yes           |
 | WhatsApp | yes          | yes             | yes           |
-| Email    | n/a (thread) | yes (From)      | n/a           |
+| Mastodon | yes (status) | yes             | n/a           |
 | Local    | yes (UUID)   | yes             | yes           |
 
-### Forward metadata
+## Outbound reply threading
 
-| Channel  | fwd_from (name) | fwd_from_id (chat) | fwd_msgid |
-| -------- | --------------- | ------------------ | --------- |
-| Telegram | yes             | channel posts only | chan only |
-| Discord  | "(forwarded)"   | no                 | no        |
-| WhatsApp | yes (flag only) | no                 | no        |
-| Email    | n/a             | n/a                | n/a       |
-| Local    | yes             | yes                | yes       |
+Channels accept `replyTo` on `Send(jid, text, replyTo, threadID)`.
 
-Only Telegram channel posts carry recoverable origin ID.
-For other forward types, name string is sufficient.
+| Channel  | Mechanism                                      | Status   |
+| -------- | ---------------------------------------------- | -------- |
+| Telegram | `tgbotapi.NewMessage.ReplyToMessageID`         | shipped  |
+| Discord  | `ChannelMessageSendReply` + `MessageReference` | shipped  |
+| Mastodon | `toot.InReplyToID`                             | shipped  |
+| Local    | `LocalChannel.Send` ReplyToID                  | shipped  |
+| WhatsApp | quoted WAMessage object                        | deferred |
 
-### Outbound reply threading
-
-| Channel  | Mechanism                          | Status   |
-| -------- | ---------------------------------- | -------- |
-| Telegram | reply_parameters.message_id        | shipped  |
-| Discord  | MessageReference                   | shipped  |
-| WhatsApp | quoted WAMessage object (deferred) | deferred |
-| Email    | In-Reply-To header                 | n/a      |
-| Local    | replyTo field on store             | shipped  |
+WhatsApp deferred: Baileys `sendMessage` requires the full
+original `WAMessage`, not just an ID — needs message cache.
 
 ## Router XML
 
 ```xml
-<forwarded_from sender="John"/>
-<forwarded_from sender="News" chat="telegram:-100123" id="456"/>
 <reply_to sender="Alice" id="789">quoted text</reply_to>
 ```
 
-`id` is channel-native message ID. Omit if absent.
-`chat`/`id` on `<forwarded_from>` only when both present.
+Emitted by `router.FormatMessages` when `ReplyToText != ""`.
+`id` attribute present when `ReplyToID != ""`. Sender
+defaults to `"unknown"` when absent.
 
 ## DB schema
 
 ```sql
+-- messages table (initial schema)
+forwarded_from TEXT,
+reply_to_text TEXT,
+reply_to_sender TEXT,
+
+-- migration 0003
 ALTER TABLE messages ADD COLUMN reply_to_id TEXT;
-ALTER TABLE messages ADD COLUMN forwarded_from_id TEXT;
-ALTER TABLE messages ADD COLUMN forwarded_msgid TEXT;
 ```
 
-## Deferred
+## Not shipped — channel forward metadata
 
-- WhatsApp reply: Baileys requires full WAMessage object,
-  not just ID. Needs message cache. Deferred.
-- Discord forward: MessageReferenceType.Forward exposes no
-  original sender. "(forwarded)" string is best available.
+Inbound forward attribution (Telegram channel posts, Discord
+forwards, WhatsApp forwarded flag) is not extracted into
+`core.Message` today. No `ForwardedFromID` / `ForwardedMsgID`
+fields, no DB columns, no `<forwarded_from>` XML tag. If
+revisited:
+
+- Telegram channel posts: `fwd.chat.id` + `fwd.message_id`
+  are recoverable.
+- Telegram user/hidden_user forwards: name only.
+- Discord `MessageReferenceType.Forward`: no original sender exposed.
+- WhatsApp `ctxInfo.isForwarded`: flag only.
+- Email: thread-based; no per-message ID.
