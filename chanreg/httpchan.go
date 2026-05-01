@@ -68,6 +68,7 @@ type outMsg struct {
 	ThreadID string
 	TurnID   string
 	IsFile   bool
+	IsVoice  bool
 	Path     string
 	Name     string
 	Caption  string
@@ -134,42 +135,7 @@ func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption 
 	if !h.entry.HasCap("send_file") {
 		return fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
-
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-	w.WriteField("chat_jid", jid)
-	w.WriteField("filename", name)
-	if caption != "" {
-		w.WriteField("caption", caption)
-	}
-
-	formName := name
-	if formName == "" {
-		formName = filepath.Base(path)
-	}
-	fw, err := w.CreateFormFile("file", formName)
-	if err != nil {
-		return fmt.Errorf("create form file: %w", err)
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open file: %w", err)
-	}
-	defer f.Close()
-	if _, err := io.Copy(fw, f); err != nil {
-		return fmt.Errorf("copy file: %w", err)
-	}
-	w.Close()
-
-	url := h.entry.URL + "/send-file"
-	req, err := http.NewRequestWithContext(ctx, "POST", url, &buf)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	req.Header.Set("Authorization", "Bearer "+h.secret)
-
-	resp, err := h.client.Do(req)
+	resp, err := h.uploadMultipart(ctx, "/send-file", jid, path, name, caption)
 	if err == nil {
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
@@ -179,6 +145,74 @@ func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption 
 	}
 	h.enqueue(outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption})
 	return fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
+}
+
+// SendVoice posts a synthesized audio file to the adapter's /send-voice
+// endpoint. The adapter dispatches via its native voice/PTT primitive
+// (Telegram NewVoice, WhatsApp ptt:true, Discord audio attachment) and
+// returns ErrUnsupported (501) when no native voice primitive exists.
+func (h *HTTPChannel) SendVoice(jid, audioPath, caption string) (string, error) {
+	return h.SendVoiceCtx(context.Background(), jid, audioPath, caption)
+}
+
+func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption string) (string, error) {
+	if !h.entry.HasCap("send_voice") {
+		return "", chanlib.Unsupported("send_voice", h.entry.Name, "adapter does not advertise voice capability")
+	}
+	resp, err := h.uploadMultipart(ctx, "/send-voice", jid, audioPath, filepath.Base(audioPath), caption)
+	if err != nil {
+		return "", fmt.Errorf("channel %s send-voice: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotImplemented {
+		return "", decodeUnsupported(resp.Body, "send_voice", h.entry.Name)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("channel %s send-voice: status %d", h.entry.Name, resp.StatusCode)
+	}
+	var r struct {
+		ID string `json:"id"`
+	}
+	json.NewDecoder(resp.Body).Decode(&r)
+	return r.ID, nil
+}
+
+// uploadMultipart builds a chat_jid/filename/caption/file multipart body
+// and POSTs it to path. Caller decodes the response body. Used by
+// SendFile and SendVoice; both endpoints share the same wire format.
+func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, name, caption string) (*http.Response, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	w.WriteField("chat_jid", jid)
+	w.WriteField("filename", name)
+	if caption != "" {
+		w.WriteField("caption", caption)
+	}
+	formName := name
+	if formName == "" {
+		formName = filepath.Base(path)
+	}
+	fw, err := w.CreateFormFile("file", formName)
+	if err != nil {
+		return nil, fmt.Errorf("create form file: %w", err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+	if _, err := io.Copy(fw, f); err != nil {
+		return nil, fmt.Errorf("copy file: %w", err)
+	}
+	w.Close()
+	url := h.entry.URL + endpoint
+	req, err := http.NewRequestWithContext(ctx, "POST", url, &buf)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+h.secret)
+	return h.client.Do(req)
 }
 
 func (h *HTTPChannel) Typing(jid string, on bool) error {
@@ -453,9 +487,12 @@ func (h *HTTPChannel) DrainOutbox() {
 
 	for _, m := range q {
 		var err error
-		if m.IsFile {
+		switch {
+		case m.IsVoice:
+			_, err = h.SendVoice(m.JID, m.Path, m.Caption)
+		case m.IsFile:
 			err = h.SendFile(m.JID, m.Path, m.Name, m.Caption)
-		} else {
+		default:
 			_, err = h.Send(m.JID, m.Content, m.ReplyTo, m.ThreadID, m.TurnID)
 		}
 		if err != nil {

@@ -38,6 +38,9 @@ func newServer(cfg config, db *sql.DB, reg *attRegistry, isConnected func() bool
 func (s *server) SendFile(_, _, _, _ string) error {
 	return chanlib.Unsupported("send_file", "email", "MIME attachments not implemented; inline the content in `send` body.")
 }
+func (s *server) SendVoice(_, _, _ string) (string, error) {
+	return "", chanlib.Unsupported("send_voice", "email", "Email has no native voice primitive; inline the transcript in `send` body or attach an audio file via a future `send_file` extension.")
+}
 func (s *server) Post(chanlib.PostRequest) (string, error) {
 	return "", chanlib.Unsupported("post", "email", "Email has no public feed. Use `send` to address a recipient directly.")
 }

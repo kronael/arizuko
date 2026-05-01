@@ -218,6 +218,32 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	return firstID, nil
 }
 
+// SendVoice attaches the synthesized audio as a Discord file. Discord
+// has no native push-to-talk in chat, but inline audio attachments
+// (.ogg/.opus) play with a built-in player, which is the closest
+// equivalent. The agent picks send_voice when the persona is voice-first
+// or the inbound was voice; we deliver a clickable audio bubble.
+func (b *bot) SendVoice(jid, audioPath, caption string) (string, error) {
+	chID := chanID(jid)
+	f, err := os.Open(audioPath)
+	if err != nil {
+		return "", fmt.Errorf("discord open voice: %w", err)
+	}
+	defer f.Close()
+	name := filepath.Base(audioPath)
+	msg, err := b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
+		Content: caption,
+		Files:   []*discordgo.File{{Name: name, ContentType: "audio/ogg", Reader: f}},
+	})
+	if err != nil {
+		return "", fmt.Errorf("discord sendvoice: %w", err)
+	}
+	if msg != nil {
+		return msg.ID, nil
+	}
+	return "", nil
+}
+
 func (b *bot) SendFile(jid, path, name, caption string) error {
 	chID := chanID(jid)
 	f, err := os.Open(path)

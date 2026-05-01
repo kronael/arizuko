@@ -402,6 +402,24 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	return nil
 }
 
+// SendVoice posts the audio file as a Telegram voice message
+// (sendVoice / NewVoice — push-to-talk UI). Distinct from NewAudio
+// (music attachment) and NewDocument (generic file). audioPath should
+// be ogg/opus encoded; tgbotapi sets MIME automatically.
+func (b *bot) SendVoice(jid, audioPath, caption string) (string, error) {
+	id, err := parseChatID(jid)
+	if err != nil {
+		return "", err
+	}
+	v := tgbotapi.NewVoice(id, tgbotapi.FilePath(audioPath))
+	v.Caption = caption
+	sent, err := b.api.Send(v)
+	if err != nil {
+		return "", fmt.Errorf("telegram sendvoice: %w", err)
+	}
+	return strconv.Itoa(sent.MessageID), nil
+}
+
 func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
 
 // Forward: native forwardMessage. SourceMsgID is encoded as

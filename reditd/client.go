@@ -25,6 +25,7 @@ type tokenResp struct {
 
 type redditClient struct {
 	chanlib.NoFileSender
+	chanlib.NoVoiceSender
 	chanlib.NoSocial
 	cfg       config
 	http      *http.Client

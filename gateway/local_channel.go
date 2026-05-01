@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
 )
@@ -43,6 +44,10 @@ func (c *LocalChannel) Owns(jid string) bool {
 
 func (c *LocalChannel) SendFile(_, _, _, _ string) error {
 	return fmt.Errorf("local channel does not support file sending")
+}
+
+func (c *LocalChannel) SendVoice(_, _, _ string) (string, error) {
+	return "", chanlib.ErrUnsupported
 }
 
 func (c *LocalChannel) Send(jid, text, replyTo, threadID, turnID string) (string, error) {

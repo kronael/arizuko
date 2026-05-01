@@ -23,13 +23,17 @@ type SendRequest struct {
 
 // BotHandler is the interface adapters implement for outbound messaging.
 // Send returns the sent message ID (may be ""); Typing is fire-and-forget.
-// Post/Like/Delete and Forward/Quote/Repost/Dislike/Edit are social
-// primitives — adapters that don't support a verb should embed NoSocial
-// to get *UnsupportedError defaults, or override with a per-platform
-// Unsupported(...) carrying a concrete hint.
+// SendVoice delivers a synthesized voice message via the platform's PTT
+// primitive (Telegram NewVoice, WhatsApp ptt:true, Discord audio attachment);
+// adapters that lack any voice path embed NoVoiceSender for an
+// ErrUnsupported default. Post/Like/Delete and Forward/Quote/Repost/
+// Dislike/Edit are social primitives — adapters that don't support a verb
+// should embed NoSocial to get *UnsupportedError defaults, or override
+// with a per-platform Unsupported(...) carrying a concrete hint.
 type BotHandler interface {
 	Send(req SendRequest) (string, error)
 	SendFile(jid, path, name, caption string) error
+	SendVoice(jid, audioPath, caption string) (string, error)
 	Typing(jid string, on bool)
 	Post(req PostRequest) (string, error)
 	Like(req LikeRequest) error
@@ -164,6 +168,16 @@ func (NoFileSender) SendFile(_, _, _, _ string) error { return errSendFile }
 
 var errSendFile = errors.New("send-file not supported")
 
+// NoVoiceSender is a zero-value mixin returning ErrUnsupported for
+// SendVoice. Adapters that lack a native voice primitive (Mastodon,
+// Reddit, Bluesky, email) embed this; the gateway maps that to a 501
+// the agent can fall back from.
+type NoVoiceSender struct{}
+
+func (NoVoiceSender) SendVoice(_, _, _ string) (string, error) {
+	return "", ErrUnsupported
+}
+
 // NewAdapterMux wires up the standard adapter HTTP surface.
 // isConnected must report whether the adapter's live connection to the
 // platform is up (bot API reachable, websocket open, streaming attached,
@@ -184,6 +198,7 @@ func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isCon
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /send", Auth(secret, handleSend(bot)))
 	mux.HandleFunc("POST /send-file", Auth(secret, handleSendFile(bot)))
+	mux.HandleFunc("POST /send-voice", Auth(secret, handleSendVoice(bot)))
 	mux.HandleFunc("POST /typing", Auth(secret, handleTyping(bot)))
 	mux.HandleFunc("POST /post", Auth(secret, handlePost(bot)))
 	mux.HandleFunc("POST /like", Auth(secret, handleLike(bot)))
@@ -307,6 +322,57 @@ func handleSendFile(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		WriteJSON(w, map[string]any{"ok": true})
+	}
+}
+
+// handleSendVoice mirrors handleSendFile (multipart upload, traversal-safe
+// filename), but invokes BotHandler.SendVoice. ErrUnsupported maps to 501;
+// other errors map to 502.
+func handleSendVoice(bot BotHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.ParseMultipartForm(50<<20) != nil {
+			WriteErr(w, 400, "invalid multipart")
+			return
+		}
+		jid, name, caption := r.FormValue("chat_jid"), r.FormValue("filename"), r.FormValue("caption")
+		if jid == "" {
+			WriteErr(w, 400, "chat_jid required")
+			return
+		}
+		file, hdr, err := r.FormFile("file")
+		if err != nil {
+			WriteErr(w, 400, "file required")
+			return
+		}
+		defer file.Close()
+		if name == "" {
+			name = hdr.Filename
+		}
+		name = filepath.Base(filepath.Clean(name))
+		if name == "" || name == "." || name == ".." || strings.Contains(name, "..") || strings.ContainsRune(name, os.PathSeparator) {
+			WriteErr(w, 400, "invalid filename")
+			return
+		}
+		dir, err := os.MkdirTemp("", "chan-voice-")
+		if err != nil {
+			WriteErr(w, 500, "temp dir failed")
+			return
+		}
+		defer os.RemoveAll(dir)
+		localPath := filepath.Join(dir, name)
+		tmp, err := os.Create(localPath)
+		if err != nil {
+			WriteErr(w, 500, "temp file failed")
+			return
+		}
+		_, copyErr := io.Copy(tmp, file)
+		closeErr := tmp.Close()
+		if copyErr != nil || closeErr != nil {
+			WriteErr(w, 500, "temp file write failed")
+			return
+		}
+		id, err := bot.SendVoice(jid, localPath, caption)
+		writeBotResult(w, id, err)
 	}
 }
 
