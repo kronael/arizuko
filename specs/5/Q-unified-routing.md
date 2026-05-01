@@ -30,7 +30,7 @@ Agent messages (sender without `:`) never get content-based routing.
   folder path (`atlas/content`, not `local:atlas/content`).
   `LocalChannel.Owns` claims any JID without `:` that matches a
   registered group; real channel JIDs always carry `platform:`.
-- `messages.status` column (migration 0038): `'sent'` (default /
+- `messages.status` column (migration 0039): `'sent'` (default /
   inbound / suppressed), `'pending'` (outbound queued), `'failed'`
   (terminal). `MarkMessageDelivered`/`MarkMessageStatus`/
   `PendingOutboundOlderThan` form the poll-based delivery API.
