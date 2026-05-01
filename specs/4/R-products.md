@@ -9,14 +9,14 @@ persona + skills + behavior bundled together. arizuko's
 `arizuko create <name> --product <product>` copies the chosen
 template into the new group's folder.
 
-Folder shape is defined by [ant](../5/b-memory-skills-standalone.md);
+Folder shape is defined by [ant](../5/b-ant-standalone.md);
 this spec covers only the arizuko-side concerns: catalog, selection
 flow, schema column.
 
 ## Catalog
 
 `ant/examples/<name>/` (once ant ships, see
-[5/b](../5/b-memory-skills-standalone.md)). Initial set:
+[5/b](../5/b-ant-standalone.md)). Initial set:
 
 `assistant` (default), `developer`, `researcher`, `writer`,
 `trader`, `ops`, `support`, `companion`.

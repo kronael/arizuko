@@ -7,7 +7,7 @@ status: deferred
 A specific product (per [4/R-products](../4/R-products.md)) for
 content authoring: the agent drafts posts and the operator approves
 before publishing. Folder shape per
-[ant](../5/b-memory-skills-standalone.md); ships at
+[ant](../5/b-ant-standalone.md); ships at
 `ant/examples/author/`.
 
 Composition: persona (`SOUL.md` = author voice) + skills
@@ -40,7 +40,7 @@ published = permanent. `/pub/` is served by `vited`.
 
 - HITL firewall ([4-hitl-firewall.md](4-hitl-firewall.md))
 - An adapter exposing a publish capability (bsky or mastodon)
-- ant standalone ([5/b](../5/b-memory-skills-standalone.md)) for
+- ant standalone ([5/b](../5/b-ant-standalone.md)) for
   the folder shape
 
 ## Out of scope (v1)
