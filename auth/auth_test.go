@@ -126,6 +126,48 @@ func TestLoginCycle(t *testing.T) {
 	}
 }
 
+// issueSession folds a linked sub onto its canonical at JWT mint time
+// so downstream sees the canonical identity regardless of which
+// provider the user authenticated with.
+func TestIssueSessionResolvesLinkedToCanonical(t *testing.T) {
+	s, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if err := s.CreateAuthUser("google:alice", "alice", "", "Alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkSubToCanonical("github:alice2", "Alice GH", "google:alice"); err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/auth/login", nil)
+	issueSession(w, r, s, testSecret, "github:alice2", "Alice GH", false)
+
+	body := w.Body.String()
+	// Extract JWT from the inline localStorage script.
+	i := strings.Index(body, `'jwt',"`)
+	if i < 0 {
+		t.Fatalf("no jwt in body: %s", body)
+	}
+	rest := body[i+len(`'jwt',"`):]
+	j := strings.Index(rest, `"`)
+	if j < 0 {
+		t.Fatalf("malformed jwt envelope: %s", body)
+	}
+	tok := rest[:j]
+	claims, err := VerifyJWT(testSecret, tok)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if claims.Sub != "google:alice" {
+		t.Fatalf("got sub=%q, want google:alice (canonical)", claims.Sub)
+	}
+}
+
 func TestFullLoginRefreshLogout(t *testing.T) {
 	s, err := store.OpenMem()
 	if err != nil {

@@ -176,6 +176,10 @@ func handleLogout(s *store.Store, secure bool) http.HandlerFunc {
 }
 
 func issueSession(w http.ResponseWriter, r *http.Request, s *store.Store, secret []byte, sub, name string, secure bool) {
+	// Single resolve point: every JWT/refresh issued is bound to the
+	// canonical sub so downstream sees one identity per user even when
+	// the user has linked multiple OAuth providers.
+	sub = s.CanonicalSub(sub)
 	groups := s.UserGroups(sub)
 	jwt := mintJWT(secret, sub, name, groups, jwtTTL)
 	refresh, err := genToken()

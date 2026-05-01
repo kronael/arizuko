@@ -534,7 +534,11 @@ func (s *server) tryAuth(r *http.Request) *http.Request {
 	if !ok || !time.Now().Before(sess.ExpiresAt) {
 		return nil
 	}
-	u, ok := s.st.AuthUserBySub(sess.UserSub)
+	// Resolve canonical at the cookie path too — refresh sessions are
+	// bound to the sub at creation time, but the user may have linked
+	// since. Single source of truth: store.CanonicalSub.
+	canonical := s.st.CanonicalSub(sess.UserSub)
+	u, ok := s.st.AuthUserBySub(canonical)
 	if !ok {
 		return nil
 	}
