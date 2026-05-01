@@ -312,6 +312,50 @@ func TestRouteMatch_GlobFields(t *testing.T) {
 			msg:   core.Message{ChatJID: "anything:any"},
 			want:  true,
 		},
+		// Typed-JID schema: kind discriminator in first segment, * does
+		// not cross /. These are the canonical post-migration matchers.
+		{
+			name:  "telegram:group/* matches group jid",
+			match: "chat_jid=telegram:group/*",
+			msg:   core.Message{ChatJID: "telegram:group/123"},
+			want:  true,
+		},
+		{
+			name:  "telegram:group/* rejects user jid (different kind)",
+			match: "chat_jid=telegram:group/*",
+			msg:   core.Message{ChatJID: "telegram:user/123"},
+			want:  false,
+		},
+		{
+			name:  "telegram:group/* rejects deeper path (* doesn't cross /)",
+			match: "chat_jid=telegram:group/*",
+			msg:   core.Message{ChatJID: "telegram:group/123/sub"},
+			want:  false,
+		},
+		{
+			name:  "discord:dm/* matches dm channel",
+			match: "chat_jid=discord:dm/*",
+			msg:   core.Message{ChatJID: "discord:dm/4242"},
+			want:  true,
+		},
+		{
+			name:  "discord:<guild>/* matches guild channel",
+			match: "chat_jid=discord:67890/*",
+			msg:   core.Message{ChatJID: "discord:67890/12345"},
+			want:  true,
+		},
+		{
+			name:  "whatsapp:*@g.us matches group server",
+			match: "chat_jid=whatsapp:*@g.us",
+			msg:   core.Message{ChatJID: "whatsapp:1234@g.us"},
+			want:  true,
+		},
+		{
+			name:  "whatsapp:*@g.us rejects DM server",
+			match: "chat_jid=whatsapp:*@g.us",
+			msg:   core.Message{ChatJID: "whatsapp:1234@s.whatsapp.net"},
+			want:  false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
