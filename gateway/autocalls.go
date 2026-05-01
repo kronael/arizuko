@@ -13,8 +13,6 @@ import (
 type AutocallCtx struct {
 	Instance  string
 	Folder    string
-	ChatJID   string
-	Topic     string
 	SessionID string
 	Tier      int
 	Now       time.Time
@@ -39,15 +37,13 @@ var autocalls = []autocall{
 	}},
 }
 
-// autocallsBlock builds the autocalls XML for a (folder, chat, topic).
+// autocallsBlock builds the autocalls XML for a (folder, topic).
 // Reads Tier from auth and session id from the store.
-func (g *Gateway) autocallsBlock(folder, chatJid, topic string) string {
+func (g *Gateway) autocallsBlock(folder, topic string) string {
 	sessionID, _ := g.store.GetSession(folder, topic)
 	return renderAutocalls(AutocallCtx{
 		Instance:  g.cfg.Name,
 		Folder:    folder,
-		ChatJID:   chatJid,
-		Topic:     topic,
 		SessionID: sessionID,
 		Tier:      auth.Resolve(folder).Tier,
 		Now:       time.Now(),

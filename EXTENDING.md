@@ -37,8 +37,7 @@ Rules:
 
 - Result is ≤ 1 line of text. Empty string = skip the line.
 - No args, no I/O, no locks. Must resolve in microseconds.
-- Derives from `AutocallCtx` (instance, folder, chatJID, topic,
-  session, tier, now).
+- Derives from `AutocallCtx` (instance, folder, session, tier, now).
 - If any of these don't hold, use an MCP tool instead.
 
 Add an entry to the registry slice in `gateway/autocalls.go`:

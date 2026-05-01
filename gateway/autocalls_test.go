@@ -17,8 +17,8 @@ func TestRenderAutocalls(t *testing.T) {
 		{
 			name: "all fields",
 			ctx: AutocallCtx{
-				Instance: "krons", Folder: "mayai", ChatJID: "tg:42",
-				Topic: "", SessionID: "abcdef1234567", Tier: 2, Now: now,
+				Instance: "krons", Folder: "mayai",
+				SessionID: "abcdef1234567", Tier: 2, Now: now,
 			},
 			want: []string{
 				"<autocalls>",
