@@ -21,40 +21,40 @@ atlas/              tier 1 — world admin
 
 ### Mount
 
-Instance `.env`:
-
-```env
-EXTRA_MOUNTS=/path/to/repo:codebase:ro
-```
-
-Gateway appends: `/path/to/repo → /workspace/extra/codebase` (ro).
+Per-group mount config lives in `groups.container_config` JSON
+(`core.GroupConfig.Mounts`); `mountsec.ValidateAdditionalMounts`
+validates each entry and routes it to `/workspace/extra/<name>` inside
+the container (`container/runner.go:516`). The ContainerPath defaults
+to the basename of the host path. Read-only by default unless the
+allowlist root permits read-write.
 
 ### Knowledge base
 
-`facts/` dir in group folder. Each fact file has YAML frontmatter:
+`facts/` dir in group folder. Each fact file has YAML frontmatter
+(see `ant/skills/find/SKILL.md` for the canonical schema):
 
 ```yaml
 ---
-slug: validator-bonds-overview
-topic: validator-bonds
-verified_at: 2026-03-10T14:30:00Z
-verification:
-  status: verified
-  confidence: high
-  verified_count: 5
-  rejected_count: 1
+topic: <specific topic>
+category: <top-level category>
+verified_at: <ISO timestamp>
+sources:
+  - <URL or file:line or commit SHA>
+summary: >
+  <one sentence — used by /recall-memories for fast grep>
 ---
 ```
 
 ### /find skill
 
-Two-phase:
+Two-phase (`ant/skills/find/SKILL.md`):
 
-1. Research — Opus subagent explores codebase + web, writes factset XML
-2. Verify — Sonnet subagent tries to refute each finding
+1. Research — subagent explores codebase + web, writes draft fact files
+2. Verify — subagent (per batch of 5) refutes each finding before
+   stamping `verified_at`
 
 Results written to `facts/<slug>.md`. Agent answers from verified facts.
-Research+verify prompts ported verbatim from eliza-plugin-evangelist;
+Research+verify prompts ported from eliza-plugin-evangelist;
 see `specs/res/eliza-prompts.md`.
 
 ## SYSTEM.md
@@ -120,16 +120,15 @@ When no fact is relevant:
 
 ```bash
 arizuko create myresearch
-arizuko group add myresearch atlas --tier 1
-arizuko group add myresearch atlas/support --tier 2
+arizuko group <inst> add <jid> atlas
+arizuko group <inst> add <jid> support atlas/support
 ```
 
-Edit `/srv/data/arizuko_myresearch/.env`:
-
-```env
-EXTRA_MOUNTS=/path/to/target/repo:codebase:ro
-TELEGRAM_BOT_TOKEN=...
-```
+Tier is derived from folder depth (1 = `atlas`, 2 = `atlas/support`).
+Edit `/srv/data/arizuko_myresearch/.env` for channel tokens
+(`TELEGRAM_BOT_TOKEN=...`). Mounts are configured per-group on the
+`groups.container_config` JSON column (no env var); attach the
+codebase by populating `Mounts` in the group's stored config.
 
 Copy the reference SYSTEM.md above into
 `/srv/data/arizuko_myresearch/groups/atlas/support/SYSTEM.md`,
@@ -146,7 +145,7 @@ World: atlas
 Groups: atlas (tier 1), atlas/support (tier 2)
 
 Mounts:
-  /srv/data/REDACTED-repos:codebase:ro
+  /srv/data/REDACTED-repos → /workspace/extra/codebase (ro)
 
 facts/: 40+ verified facts
 Channel: Telegram, requires_trigger=0
@@ -157,4 +156,5 @@ Channel: Telegram, requires_trigger=0
 - `/find` skill has no hard timeout — relies on container session timeout.
 - Dedup across re-research (agent checks existing facts first).
 - Semantic search (embeddings) deferred; strict relevance rule compensates.
-- Multi-codebase: current `EXTRA_MOUNTS` supports comma-separated mounts.
+- Multi-codebase: `GroupConfig.Mounts` is a slice, supports any number
+  of entries.
