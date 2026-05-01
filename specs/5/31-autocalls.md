@@ -7,6 +7,12 @@ status: shipped
 > `session`. Replaces `router.ClockXml`. Registry in `gateway/autocalls.go`.
 > No MCP tools were moved — the "candidates" listed below didn't exist as
 > distinct tools; autocalls pre-empts the need.
+>
+> Planned extension (2026-05-01): add `unread` (per-JID
+> messages-since-cursor) and `errors` (errored-row count for the
+> folder). Lets the agent see accumulated traffic and failures every
+> round without an MCP call. Subsumes the deleted N-listener spec
+> — agent-controlled digesting beats a system-level mode.
 
 # Autocalls — inline fact injection instead of MCP tools
 
