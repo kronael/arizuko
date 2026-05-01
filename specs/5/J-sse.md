@@ -1,28 +1,53 @@
 ---
-status: partial
+status: shipped
+shipped: 2026-05-01
 ---
 
-# SSE streams
+# SSE streams + slink MCP
 
 Groups are the auth boundary. Public group → SSE open. Private group
-→ token required at proxyd before webd. Per-user isolation via
-prototype-spawned groups.
+→ token required at proxyd before webd. Slink tokens are the
+public-facing primitive: one token = one group, no JWT.
 
-The webd hub serves two subscription shapes against the same broker:
+Per-sender scoping within a group fights the shared-context model.
+"Can you access this group" is the only auth question.
 
-- **`folder/<topic>`** — chat-UI conversation stream. Used by the
-  browser widget at `/slink/<token>` and authed peers at
-  `/slink/stream`. Topic scopes delivery within a group (see
-  [../6/3-chat-ui.md](../6/3-chat-ui.md)).
-- **`turn/<turn_id>`** — round-handle stream. Used by
-  `/slink/<token>/turn/<id>/sse` (see [../1/W-slink.md](../1/W-slink.md)).
-  Carries assistant frames from a single run plus a terminal
-  `round_done` event when `submit_turn` lands. Stream closes after
-  `round_done`.
+## Topic shapes
 
-Rationale: per-sender scoping within a group fights the shared-context
-model. "Can you access this group" is the only auth question.
+`webd/hub.go` keys subscriptions on `folder/topic`:
 
-Unblockers: prototype-spawned groups interact with cleanup + limits
-(undecided). Streamable-HTTP MCP transport (v2025-03-26) per group is
-plausible future direction — not planned.
+- `GET /slink/stream?token=<t>&group=<folder>&topic=<t>` — SSE stream
+  of every `message` event published on (folder, topic). Auth via
+  proxyd-signed slink token + matching `X-Folder`, or proxyd-signed
+  user identity with folder ACL.
+- `POST /slink/<token>` with `Accept: text/event-stream` — same SSE
+  stream, opened inline after the user's own bubble is published.
+  `?wait=<sec>` (with `Accept: application/json`) blocks for the
+  first assistant reply on the same (folder, topic), capped at 120s.
+
+The hub buffers ≤16 frames per subscriber and drops slow clients
+silently; capacity caps (`maxHubKeys`, `maxSubsPerKey`) bound memory
+under flood.
+
+## MCP transport
+
+`POST /slink/<token>/mcp` exposes a streamable-HTTP MCP endpoint
+scoped to the token's group. The token IS the auth — no JWT, no
+bearer; possessing it = group membership. Three tools:
+
+- `send_message(content, topic?)` → `{turn_id, topic, folder}` —
+  drops a fresh user message into the group; topic is the round id.
+- `steer(turn_id, content)` — extends an existing round on the same
+  topic.
+- `get_round(turn_id, wait?)` → `{frames, done}` — reads assistant +
+  user frames for a round. With `wait: true`, blocks until at least
+  one assistant frame arrives or the server cap (~5 min) hits;
+  `done` is true when an assistant frame was observed.
+
+`get_round` is the MCP-side dual of the SSE stream: clients that
+prefer polling-with-blocking over EventSource use it. Both surface
+the same hub events.
+
+External agents register the URL as a remote MCP server in their
+Claude Code (or any MCP client) `mcpServers` config; the agent then
+talks to the group as if the three tools were local.

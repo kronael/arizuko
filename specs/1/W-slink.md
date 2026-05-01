@@ -230,8 +230,17 @@ Rounds are durable until the message is pruned. Today messages and
 turn_results are kept indefinitely. When a retention policy is added
 it covers both tables uniformly.
 
-## MCP transport note
+## MCP transport
 
-Slink POST + SSE is structurally the deprecated MCP SSE transport
-(v2024-11-05). Future variant could expose a standards-compliant
-MCP Streamable HTTP endpoint for native Claude Desktop connection.
+`POST /slink/<token>/mcp` exposes a standards-compliant Streamable
+HTTP MCP endpoint scoped to the token's group. Token is auth; same
+rate-limit tiers as the form-encoded slink path. Three tools:
+
+- `send_message(content, topic?)` — start a fresh round.
+- `steer(turn_id, content)` — extend an existing round.
+- `get_round(turn_id, wait?)` — read frames for a round.
+
+External agents register the URL in their MCP client config and
+talk to the group as if the three tools were local. See
+[../5/J-sse.md](../5/J-sse.md) for the relationship to the SSE
+stream.

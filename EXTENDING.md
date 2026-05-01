@@ -4,17 +4,18 @@ Catalog of extension points. Keep current as the system evolves.
 
 ## Extension points
 
-| Point         | Location               | Extensible by | Mechanism        |
-| ------------- | ---------------------- | ------------- | ---------------- |
-| Channels      | external containers    | Developer     | HTTP protocol    |
-| Actions       | MCP tools              | Agent/Plugin  | Registry + MCP   |
-| Autocalls     | `gateway/autocalls.go` | Gateway dev   | Registry slice   |
-| Routing rules | `router/`              | Agent         | MCP tools        |
-| Mounts        | `container/`           | Agent         | Container config |
-| Skills        | `ant/skills/`          | Agent         | File-based       |
-| Tasks         | `timed/`               | Agent         | IPC actions      |
-| Diary         | `diary/`               | Agent         | File-based       |
-| Network rules | `store/network.go`     | Operator      | CLI + DB rows    |
+| Point         | Location               | Extensible by  | Mechanism                                   |
+| ------------- | ---------------------- | -------------- | ------------------------------------------- |
+| Channels      | external containers    | Developer      | HTTP protocol                               |
+| Slink         | `webd/slink*.go`       | External agent | Chat UI + MCP transport at `/slink/<token>` |
+| Actions       | MCP tools              | Agent/Plugin   | Registry + MCP                              |
+| Autocalls     | `gateway/autocalls.go` | Gateway dev    | Registry slice                              |
+| Routing rules | `router/`              | Agent          | MCP tools                                   |
+| Mounts        | `container/`           | Agent          | Container config                            |
+| Skills        | `ant/skills/`          | Agent          | File-based                                  |
+| Tasks         | `timed/`               | Agent          | IPC actions                                 |
+| Diary         | `diary/`               | Agent          | File-based                                  |
+| Network rules | `store/network.go`     | Operator       | CLI + DB rows                               |
 
 ## Adding an autocall
 
