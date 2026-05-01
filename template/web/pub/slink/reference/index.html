@@ -55,11 +55,11 @@
     <table>
       <tr><th>method</th><th>path</th><th>purpose</th></tr>
       <tr><td>POST</td><td><code>/slink/&lt;token&gt;</code></td><td>inject a message; returns <code>turn_id</code></td></tr>
-      <tr><td>POST</td><td><code>/slink/&lt;token&gt;?steer=&lt;turn_id&gt;</code></td><td>inject as follow-up to an in-flight round</td></tr>
-      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/turn/&lt;id&gt;</code></td><td>snapshot: status + all assistant frames</td></tr>
-      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/turn/&lt;id&gt;?after=&lt;msg_id&gt;</code></td><td>cursor page: frames after <code>&lt;msg_id&gt;</code></td></tr>
-      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/turn/&lt;id&gt;/status</code></td><td>cheap status check, no frame payload</td></tr>
-      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/turn/&lt;id&gt;/sse</code></td><td>live SSE stream + terminal <code>round_done</code></td></tr>
+      <tr><td>POST</td><td><code>/slink/&lt;token&gt;/&lt;turn_id&gt;</code></td><td>inject as follow-up to an in-flight round</td></tr>
+      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/&lt;id&gt;</code></td><td>snapshot: status + all assistant frames</td></tr>
+      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/&lt;id&gt;?after=&lt;msg_id&gt;</code></td><td>cursor page: frames after <code>&lt;msg_id&gt;</code></td></tr>
+      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/&lt;id&gt;/status</code></td><td>cheap status check, no frame payload</td></tr>
+      <tr><td>GET</td><td><code>/slink/&lt;token&gt;/&lt;id&gt;/sse</code></td><td>live SSE stream + terminal <code>round_done</code></td></tr>
     </table>
 
     <h3>POST</h3>
@@ -74,12 +74,12 @@
     <p>Content negotiation:</p>
     <ul>
       <li><code>Accept: text/html</code> &mdash; legacy HTMX fragment used by the browser chat widget.</li>
-      <li><code>Accept: text/event-stream</code> &mdash; legacy SSE upgrade keyed on <code>(folder, topic)</code>; preserved for the chat widget. New clients should POST normally and then open <code>/turn/&lt;id&gt;/sse</code> on the round handle.</li>
+      <li><code>Accept: text/event-stream</code> &mdash; legacy SSE upgrade keyed on <code>(folder, topic)</code>; preserved for the chat widget. New clients should POST normally and then open <code>/&lt;id&gt;/sse</code> on the round handle.</li>
     </ul>
 
     <h3>GET turn snapshot / cursor</h3>
-    <pre><code>GET /slink/&lt;token&gt;/turn/&lt;id&gt;
-GET /slink/&lt;token&gt;/turn/&lt;id&gt;?after=&lt;msg_id&gt;</code></pre>
+    <pre><code>GET /slink/&lt;token&gt;/&lt;id&gt;
+GET /slink/&lt;token&gt;/&lt;id&gt;?after=&lt;msg_id&gt;</code></pre>
     <p>Returns:</p>
     <pre><code>{
   "turn_id": "msg_abc",
@@ -99,7 +99,7 @@ GET /slink/&lt;token&gt;/turn/&lt;id&gt;?after=&lt;msg_id&gt;</code></pre>
     <p>Stop polling once <code>status == "done"</code>. <code>"failed"</code> carries an <code>error</code> field with a short message.</p>
 
     <h3>GET status (cheap)</h3>
-    <pre><code>GET /slink/&lt;token&gt;/turn/&lt;id&gt;/status</code></pre>
+    <pre><code>GET /slink/&lt;token&gt;/&lt;id&gt;/status</code></pre>
     <pre><code>{
   "turn_id": "msg_abc",
   "status": "pending",
@@ -109,7 +109,7 @@ GET /slink/&lt;token&gt;/turn/&lt;id&gt;?after=&lt;msg_id&gt;</code></pre>
     <p>Use this to decide between &ldquo;poll once and stop&rdquo; vs &ldquo;open SSE&rdquo; without paying for the frame payload.</p>
 
     <h3>GET SSE stream</h3>
-    <pre><code>GET /slink/&lt;token&gt;/turn/&lt;id&gt;/sse</code></pre>
+    <pre><code>GET /slink/&lt;token&gt;/&lt;id&gt;/sse</code></pre>
     <p>Events:</p>
     <ul>
       <li><code>event: message</code> / <code>event: status</code> &mdash; same payload shape as a snapshot frame, one per <code>&lt;status&gt;</code> block or final reply.</li>
@@ -118,7 +118,7 @@ GET /slink/&lt;token&gt;/turn/&lt;id&gt;?after=&lt;msg_id&gt;</code></pre>
     <p><code>Last-Event-Id</code> reconnect is supported. On reconnect the server replays frames whose id is greater than the last seen id (same query as <code>?after=&lt;id&gt;</code>) before resuming live.</p>
 
     <h3>steering</h3>
-    <pre><code>POST /slink/&lt;token&gt;?steer=&lt;turn_id&gt;   body: content=...</code></pre>
+    <pre><code>POST /slink/&lt;token&gt;/&lt;turn_id&gt;   body: content=...</code></pre>
     <p>Inject a follow-up tied to an already-issued round. Two outcomes, both HTTP 200:</p>
     <ul>
       <li><strong>Round still pending.</strong> The Claude Agent SDK does not support mid-turn input injection &mdash; the in-flight LLM context is frozen until the current turn produces its final response. So &ldquo;steering&rdquo; is semantically &ldquo;cut to the front of the next-turn queue&rdquo;: per-folder serialization makes the steered message the immediate next round. Response carries <code>chained_from: "&lt;original_turn_id&gt;"</code>.</li>
@@ -145,9 +145,9 @@ GET /slink/&lt;token&gt;/turn/&lt;id&gt;?after=&lt;msg_id&gt;</code></pre>
     <pre><code>arizuko send &lt;instance&gt; &lt;folder&gt; "&lt;msg&gt;" [--wait | --stream | --steer &lt;turn_id&gt;]
 arizuko send &lt;instance&gt; &lt;folder&gt; --stdin            # read body from stdin</code></pre>
     <ul>
-      <li><code>--wait</code> &mdash; poll <code>/turn/&lt;id&gt;?after=&lt;last&gt;</code> until <code>status != "pending"</code>; print frames as they arrive.</li>
-      <li><code>--stream</code> &mdash; same, but over <code>/turn/&lt;id&gt;/sse</code>; closes on <code>round_done</code>.</li>
-      <li><code>--steer &lt;turn_id&gt;</code> &mdash; POST with <code>?steer=&lt;turn_id&gt;</code>.</li>
+      <li><code>--wait</code> &mdash; poll <code>/&lt;id&gt;?after=&lt;last&gt;</code> until <code>status != "pending"</code>; print frames as they arrive.</li>
+      <li><code>--stream</code> &mdash; same, but over <code>/&lt;id&gt;/sse</code>; closes on <code>round_done</code>.</li>
+      <li><code>--steer &lt;turn_id&gt;</code> &mdash; POST with <code>/&lt;turn_id&gt;</code>.</li>
     </ul>
     <p>Reads <code>slink_token</code> from the instance store and <code>WEB_HOST</code> from the instance <code>.env</code>; posts via slink. No new transport, no new auth.</p>
 

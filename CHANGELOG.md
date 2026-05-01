@@ -9,6 +9,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.32.2] — 2026-04-30
+
+URL polish on the slink round-handle protocol shipped in v0.32.0.
+The `/turn/` infix and `?steer=` query parameter both disappear;
+the second URL segment after the token IS the round handle.
+
+### Changed
+
+- **Round-handle URLs**: drop `/turn/` infix and `?steer=` query
+  parameter. The verb does the work — POST to the round URL means
+  "extend this round" (steering), GET means "observe":
+  ```
+  GET  /slink/<token>/<id>            (was /slink/<token>/turn/<id>)
+  GET  /slink/<token>/<id>/status     (was .../turn/<id>/status)
+  GET  /slink/<token>/<id>/sse        (was .../turn/<id>/sse)
+  POST /slink/<token>/<turn_id>       (was POST /slink/<token>?steer=<turn_id>)
+  ```
+  Cleaner REST shape, fewer special tokens to remember. Spec:
+  `specs/1/W-slink.md`. Agent migration 082.
+- `arizuko send` CLI URL builder + web docs at `/pub/slink/` and
+  `/pub/slink/reference/` updated to the new shape.
+
 ## [v0.32.1] — 2026-04-30
 
 Closes the cross-world spam vector revealed by v0.32.0's release

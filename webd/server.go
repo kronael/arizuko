@@ -60,13 +60,14 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /health", s.handleHealth)
 
 	// Public slink endpoints (token-gated internally).
+	// See specs/1/W-slink.md — round-handle protocol.
 	mux.HandleFunc("GET /slink/{token}", s.handleSlinkPage)
 	mux.HandleFunc("POST /slink/{token}", s.handleSlinkPost)
 	mux.HandleFunc("GET /slink/stream", s.handleSlinkStream)
-	// Slink round-handle protocol — see specs/1/W-slink.md.
-	mux.HandleFunc("GET /slink/{token}/turn/{id}", s.handleTurnSnapshot)
-	mux.HandleFunc("GET /slink/{token}/turn/{id}/status", s.handleTurnStatus)
-	mux.HandleFunc("GET /slink/{token}/turn/{id}/sse", s.handleTurnSSE)
+	mux.HandleFunc("POST /slink/{token}/{id}", s.handleSlinkPost) // steer
+	mux.HandleFunc("GET /slink/{token}/{id}", s.handleTurnSnapshot)
+	mux.HandleFunc("GET /slink/{token}/{id}/status", s.handleTurnStatus)
+	mux.HandleFunc("GET /slink/{token}/{id}/sse", s.handleTurnSSE)
 
 	// MCP streamable-HTTP endpoint — single per-instance, JWT-gated. The
 	// authed user can reach any folder in their user_groups ACL; each

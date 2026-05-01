@@ -97,7 +97,7 @@ func cmdSend(args []string) {
 	}
 	endpoint := fmt.Sprintf("%s://%s/slink/%s", scheme, host, g.SlinkToken)
 	if steer != "" {
-		endpoint += "?steer=" + url.QueryEscape(steer)
+		endpoint += "/" + url.PathEscape(steer)
 	}
 
 	body := strings.NewReader("content=" + url.QueryEscape(msg))
@@ -134,7 +134,7 @@ func cmdSend(args []string) {
 		return
 	}
 
-	turnURL := fmt.Sprintf("%s://%s/slink/%s/turn/%s",
+	turnURL := fmt.Sprintf("%s://%s/slink/%s/%s",
 		scheme, host, g.SlinkToken, url.PathEscape(posted.TurnID))
 
 	if stream {
@@ -199,8 +199,8 @@ func handleSSEFrame(event, data string) int {
 	return -1
 }
 
-// pollRound polls /turn/<id>?after=<seq> at 1s cadence, prints frames as
-// they arrive, exits 0 on done, 1 on failed.
+// pollRound polls /slink/<token>/<id>?after=<seq> at 1s cadence, prints
+// frames as they arrive, exits 0 on done, 1 on failed.
 func pollRound(client *http.Client, turnURL string) int {
 	after := ""
 	for {

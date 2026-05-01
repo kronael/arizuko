@@ -170,7 +170,7 @@ func TestTurnSnapshot_PagingAndStatus(t *testing.T) {
 	}
 
 	// Snapshot, full.
-	req := httptest.NewRequest("GET", "/slink/"+g.SlinkToken+"/turn/"+turnID, nil)
+	req := httptest.NewRequest("GET", "/slink/"+g.SlinkToken+"/"+turnID, nil)
 	req.SetPathValue("token", g.SlinkToken)
 	req.SetPathValue("id", turnID)
 	w := httptest.NewRecorder()
@@ -194,7 +194,7 @@ func TestTurnSnapshot_PagingAndStatus(t *testing.T) {
 	}
 
 	// Cursor paging — only frames after out-1 should come back.
-	req = httptest.NewRequest("GET", "/slink/"+g.SlinkToken+"/turn/"+turnID+"?after=out-1", nil)
+	req = httptest.NewRequest("GET", "/slink/"+g.SlinkToken+"/"+turnID+"?after=out-1", nil)
 	req.SetPathValue("token", g.SlinkToken)
 	req.SetPathValue("id", turnID)
 	w = httptest.NewRecorder()
@@ -209,7 +209,7 @@ func TestTurnSnapshot_PagingAndStatus(t *testing.T) {
 	if _, err := st.RecordTurnResult(g.Folder, turnID, "session-1", "success"); err != nil {
 		t.Fatalf("record turn: %v", err)
 	}
-	req = httptest.NewRequest("GET", "/slink/"+g.SlinkToken+"/turn/"+turnID+"/status", nil)
+	req = httptest.NewRequest("GET", "/slink/"+g.SlinkToken+"/"+turnID+"/status", nil)
 	req.SetPathValue("token", g.SlinkToken)
 	req.SetPathValue("id", turnID)
 	w = httptest.NewRecorder()

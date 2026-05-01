@@ -162,13 +162,13 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Round-handle steering: ?steer=<turn_id> reuses the in-flight round's
-	// topic so the new message lands in the same chat queue. The gateway's
-	// per-folder queue serializes runs, so the steer effectively becomes
-	// the immediate next round (chained_from set in the response). When
-	// the round has already finished, the steer falls back to a fresh
-	// round with a new topic.
-	steerTurn := strings.TrimSpace(r.URL.Query().Get("steer"))
+	// Round-handle steering: POST /slink/<token>/<turn_id> reuses the
+	// in-flight round's topic so the new message lands in the same chat
+	// queue. The gateway's per-folder queue serializes runs, so the steer
+	// effectively becomes the immediate next round (chained_from set in
+	// the response). When the round has already finished, the steer falls
+	// back to a fresh round with a new topic.
+	steerTurn := strings.TrimSpace(r.PathValue("id"))
 	chainedFrom := ""
 	if steerTurn != "" {
 		jid := "web:" + g.Folder

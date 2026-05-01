@@ -48,14 +48,19 @@ This is the round handle.
 
 ### Endpoints
 
-| Method | Path                                      | Purpose                                   |
-| ------ | ----------------------------------------- | ----------------------------------------- |
-| POST   | `/slink/<token>`                          | Inject a message; returns turn_id         |
-| POST   | `/slink/<token>?steer=<turn_id>`          | Inject as follow-up to an in-flight round |
-| GET    | `/slink/<token>/turn/<id>`                | Snapshot: status + all assistant frames   |
-| GET    | `/slink/<token>/turn/<id>?after=<msg_id>` | Cursor page: frames after `<msg_id>`      |
-| GET    | `/slink/<token>/turn/<id>/status`         | Cheap status check (no frame payload)     |
-| GET    | `/slink/<token>/turn/<id>/sse`            | Live SSE stream + terminal `round_done`   |
+| Method | Path                                      | Purpose                                 |
+| ------ | ----------------------------------------- | --------------------------------------- |
+| GET    | `/slink/<token>`                          | Browser chat UI (HTML page)             |
+| POST   | `/slink/<token>`                          | Inject a fresh message; returns turn_id |
+| POST   | `/slink/<token>/<turn_id>`                | Steer — inject as follow-up to a round  |
+| GET    | `/slink/<token>/<turn_id>`                | Snapshot: status + all assistant frames |
+| GET    | `/slink/<token>/<turn_id>?after=<msg_id>` | Cursor page: frames after `<msg_id>`    |
+| GET    | `/slink/<token>/<turn_id>/status`         | Cheap status check (no frame payload)   |
+| GET    | `/slink/<token>/<turn_id>/sse`            | Live SSE stream + terminal `round_done` |
+
+The verb does the work: POST to a turn URL = "extend this round";
+GET = "observe it." No `/turn/` infix, no `?steer=` query param —
+the second URL segment after the token IS the round handle.
 
 ### POST shape
 
@@ -87,8 +92,8 @@ turn handle (next section).
 ### GET turn snapshot / cursor
 
 ```
-GET /slink/<token>/turn/<id>
-GET /slink/<token>/turn/<id>?after=<msg_id>
+GET /slink/<token>/<id>
+GET /slink/<token>/<id>?after=<msg_id>
 ```
 
 Returns:
@@ -127,7 +132,7 @@ carries an `error` field with a short message.
 ### GET status (cheap)
 
 ```
-GET /slink/<token>/turn/<id>/status
+GET /slink/<token>/<id>/status
 ```
 
 Returns a tiny envelope so a client can decide between "poll once
@@ -145,7 +150,7 @@ and stop" vs "open SSE":
 ### GET SSE stream
 
 ```
-GET /slink/<token>/turn/<id>/sse
+GET /slink/<token>/<id>/sse
 ```
 
 SSE stream for the round. Events:
@@ -164,7 +169,7 @@ as `?after=<id>`) before resuming live.
 ### Steering
 
 ```
-POST /slink/<token>?steer=<turn_id>   body: content=...
+POST /slink/<token>/<turn_id>   body: content=...
 ```
 
 Inject a follow-up tied to an already-issued round. Two outcomes,
