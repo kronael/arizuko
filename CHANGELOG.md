@@ -155,7 +155,7 @@ fixes (crackbox DNS alias, davd healthcheck, migration 079).
 - Public web docs at `/pub/slink/` (landing) +
   `/pub/slink/reference/` (full protocol reference).
 - Agent migration 080 documents the round-handle protocol for ants.
-- Spec `specs/5/e-replaceability-research.md`: audit each shipped
+- Spec `specs/8/f-replaceability-research.md`: audit each shipped
   homegrown component (crackbox, future messaging-gateway,
   mcp-firewall, gated container orchestration) against off-the-shelf
   alternatives (squid, mitmproxy, envoy, NATS, Anthropic permission
@@ -494,8 +494,8 @@ for use on a developer laptop with no arizuko around. Replaces the
   registered as a raw method handler so the LLM never sees it.
   Idempotent on `(folder, turn_id)` via the new `turn_results`
   table (migration 0036). Replaces the stdout-marker delivery path —
-  a single channel for ant→gated where there used to be two
-  (specs/5/27-detached-containers.md). Agent migration 078.
+  a single channel for ant→gated where there used to be two. Agent
+  migration 078.
 
 ### Removed (submit_turn cutover)
 

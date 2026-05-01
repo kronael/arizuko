@@ -91,18 +91,18 @@ layered docs and is not indexed here.
 Shippable separately, usable outside arizuko. No imports of
 arizuko-internal packages. See [`specs/8/b-orthogonal-components.md`](specs/8/b-orthogonal-components.md).
 
-| name     | role                                                                                                                         | README                                   |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| crackbox | umbrella: `egred` proxy daemon (shipped) + `pkg/host/` KVM lib (planned, see [specs/8/a](specs/6/12-crackbox-sandboxing.md)) | [crackbox/README.md](crackbox/README.md) |
+| name     | role                                                                                                                          | README                                   |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| crackbox | umbrella: `egred` proxy daemon (shipped) + `pkg/host/` KVM lib (shipped, see [specs/6/12](specs/6/12-crackbox-sandboxing.md)) | [crackbox/README.md](crackbox/README.md) |
 
 ## Features
 
 | feature                                 | code                                                       | spec                                                             |
 | --------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------- |
 | multitenant routing + delegation        | [gateway/](gateway/), [router/](router/)                   | [ROUTING.md](ROUTING.md)                                         |
-| MCP tooling (action + inspect families) | [ipc/ipc.go](ipc/ipc.go), [ipc/inspect.go](ipc/inspect.go) | [specs/7/33-inspect-tools.md](specs/7/33-inspect-tools.md)       |
+| MCP tooling (action + inspect families) | [ipc/ipc.go](ipc/ipc.go), [ipc/inspect.go](ipc/inspect.go) | [specs/5/30-inspect-tools.md](specs/5/30-inspect-tools.md)       |
 | channel adapters (HTTP protocol)        | [chanlib/](chanlib/), `<adapter>/`                         | [specs/4/1-channel-protocol.md](specs/4/1-channel-protocol.md)   |
-| web auth + onboarding (OAuth, gated)    | [proxyd/](proxyd/), [onbod/](onbod/)                       | [specs/7/27-mass-onboarding.md](specs/7/27-mass-onboarding.md)   |
+| web auth + onboarding (OAuth, gated)    | [proxyd/](proxyd/), [onbod/](onbod/)                       | [specs/5/28-mass-onboarding.md](specs/5/28-mass-onboarding.md)   |
 | scheduler (cron + interval)             | [timed/main.go](timed/main.go)                             | [specs/4/8-scheduler-service.md](specs/4/8-scheduler-service.md) |
 | containerized agents (per-group, MCP)   | [container/](container/), [ant/](ant/)                     | [ARCHITECTURE.md](ARCHITECTURE.md)                               |
 

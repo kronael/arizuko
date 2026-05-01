@@ -10,10 +10,10 @@ for shipped milestones.
   sit on detached HEAD. krons is the test target; `sudo make images
 && sudo systemctl restart arizuko_krons`. Marinade only on explicit
   request.
-- **Phase C of 7/35** (secrets resolver) — Phase B (invites) and
+- **Phase C of 5/32** (secrets resolver) — Phase B (invites) and
   Phase D (chats.is_group) shipped. C reads `chats.is_group` and
   layers folder/user-scope secrets at container spawn. Spec at
-  `specs/7/35-tenant-self-service.md`.
+  `specs/5/32-tenant-self-service.md`.
 - **`/pub/arizuko/` 13-post series** — specced in
   `content/spec.md`, voice in `content/meta/voice.md`. Long-form
   content authorship; separate session.
