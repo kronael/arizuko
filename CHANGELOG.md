@@ -14,7 +14,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > MCP endpoint at `/slink/<token>/mcp` — no JWT, just the token.
 > If you log in with a second OAuth provider while signed in, you'll
 > now be asked whether to link the new account to your current one or
-> log out first — no more silent duplicate users.
+> log out first — no more silent duplicate users. Groups no longer
+> track active/closed/archived state — they exist until removed.
 
 ### Added
 
@@ -185,6 +186,16 @@ fixes (crackbox DNS alias, davd healthcheck, migration 079).
   possible. Multi-stage Dockerfile keeps the dufs binary, adds wget +
   ca-certificates + standard `HEALTHCHECK` probing root. Image:
   `arizuko-davd:latest`.
+
+### Removed
+
+- **Group state machinery**: `groups.state`,
+  `groups.spawn_ttl_days`, and `groups.archive_closed_days` columns
+  dropped (migration 0041). `core.Group.State` field removed.
+  `timed.cleanupSpawns` daily loop and tar.gz archival removed.
+  `webd /api/groups` `active` field dropped; `dashd /dash/groups`
+  state badge dropped. Groups exist until explicitly removed; no
+  closure-then-archive cycle. Agent migration 087.
 
 ## [v0.31.1] — 2026-04-30
 
