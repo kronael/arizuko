@@ -8,9 +8,10 @@ source: hermes-agent peel (2026-04-11)
 Trigger choice: sub-`query()` at container exit, NOT a separate
 `timed` cron. The exit-time trigger fires only on real activity (no
 empty wakeups), keeps state local to the run that needs reviewing,
-and avoids a second daemon path. The cron variant (previously
-`5/d-self-improvement.md`, now folded here) is dropped — operators
-can manually trigger self-eval via the same skill if needed.
+and avoids a second daemon path. The cron variant (previously a
+separate self-improvement spec, now folded here) is dropped —
+operators can manually trigger self-eval via the same skill if
+needed.
 
 After main turn completes, run a second restricted `query()` in the
 same container to review and persist findings. Fires every N

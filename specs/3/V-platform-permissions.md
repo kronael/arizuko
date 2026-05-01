@@ -1,11 +1,11 @@
 ---
 status: superseded
-superseded_by: 7/36-auth-landscape.md
+superseded_by: GRANTS.md
 ---
 
 # Platform Permissions
 
-Superseded by [`7/36-auth-landscape.md`](../7/36-auth-landscape.md).
+Superseded by [`GRANTS.md`](../../GRANTS.md).
 The proposed `platform_grants` table was abandoned in favor of
 routes-derived permissions: a folder's ability to act on a platform
 is computed from the `routes` rows that target it (the "RoutedJIDs +

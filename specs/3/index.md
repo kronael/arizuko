@@ -19,7 +19,7 @@ status: active
 | [J-container-commands.md](J-container-commands.md)     | shipped    | agent vs raw container paths, `command` column on tasks          |
 | [L-chat-bound-sessions.md](L-chat-bound-sessions.md)   | shipped    | IPC encoding, delivery guarantees, cross-folder parallelism      |
 | [P-message-ids.md](P-message-ids.md)                   | shipped    | reply/forward metadata across adapters                           |
-| [V-platform-permissions.md](V-platform-permissions.md) | superseded | superseded by 7/36-auth-landscape (routes-derived permissions)   |
+| [V-platform-permissions.md](V-platform-permissions.md) | superseded | superseded by GRANTS.md (routes-derived permissions)             |
 | [W-work.md](W-work.md)                                 | shipped    | ephemeral work.md state file, agent-managed                      |
 | [Y-thread-routing.md](Y-thread-routing.md)             | shipped    | persist last-reply-id, Topic mapping, `routed_to` on messages    |
 | [Z-reply-routing.md](Z-reply-routing.md)               | shipped    | per-sender batching, chunk chaining, escalation reply threading  |

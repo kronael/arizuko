@@ -159,7 +159,7 @@ proxy serve`. Stateless about what's behind the source IPs. See
   lifecycle. Spawns VMs, manages privileges, ensures egred is up.
   Imported by `sandd` (for arizuko deployments) and by the
   `crackbox run --kvm` CLI (for laptop one-shots). See
-  [`spe../6/12-crackbox-sandboxing.md`](a-crackbox-sandboxing.md).
+  [`specs/6/12-crackbox-sandboxing.md`](../6/12-crackbox-sandboxing.md).
 
 The two halves ship in the same component so `crackbox run` can
 compose them into a one-shot sandboxed-execution CLI without an

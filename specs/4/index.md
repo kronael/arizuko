@@ -32,4 +32,4 @@ are deferred.
 ## Planned
 
 - [R-products.md](R-products.md) — curated persona+skill templates + instance blueprints (`--from`)
-- [e2e-tests.md](e2e-tests.md) — mock-agent-based end-to-end tests
+- [S-e2e-tests.md](S-e2e-tests.md) — mock-agent-based end-to-end tests

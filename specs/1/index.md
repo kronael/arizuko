@@ -4,7 +4,7 @@ status: shipped
 
 # specs/1 — core gateway
 
-19 specs covering routing, channels, auth, memory, container/IPC,
+16 specs covering routing, channels, auth, memory, container/IPC,
 agent extension.
 
 | Spec                                         | Status  | Hook                                                      |

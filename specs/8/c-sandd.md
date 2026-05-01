@@ -5,7 +5,7 @@ status: deferred
 # sandd — sandbox lifecycle daemon
 
 > Deferred. For the upcoming KVM work, `gated` keeps spawn
-> ownership and imports [`crackbox/pkg/host/`](a-crackbox-sandboxing.md)
+> ownership and imports [`crackbox/pkg/host/`](../6/12-crackbox-sandboxing.md)
 > directly via a Backend interface. Extracting spawn into a
 > separate `sandd` daemon stays a future privilege-isolation
 > improvement — not on the immediate path.
@@ -38,7 +38,7 @@ benefits from the gated/sandbox-spawn privilege split.
 shells out to `docker run`, manages the container lifecycle. That makes
 `gated` effectively root on the host (the docker socket grants root-equivalent
 access). Adding a second backend (KVM/qemu via the [crackbox
-library](a-crackbox-sandboxing.md)) would compound the privilege surface.
+library](../6/12-crackbox-sandboxing.md)) would compound the privilege surface.
 
 The right move is **separation of privilege**: `gated` stays nonroot, owns
 routing + persistence + decisions. A new minimal daemon `sandd` takes the
@@ -52,7 +52,7 @@ prompt," and that's it. `sandd` knows two backends; `gated` knows neither.
 - The privileged primitive: spawn a sandbox, wait, reap.
 - One pluggable Backend interface with two implementations:
   1. **Docker backend** — current path, `docker run` shells out.
-  2. **Crackbox backend** — KVM/qemu via the [crackbox library](a-crackbox-sandboxing.md);
+  2. **Crackbox backend** — KVM/qemu via the [crackbox library](../6/12-crackbox-sandboxing.md);
      library handles VM lifecycle + ensures egred (egress proxy) is up.
 - Resource budget enforcement — concurrent-spawn cap, per-folder pool size.
 - Reaping orphans on startup (containers/VMs left over from a prior crash).
@@ -148,7 +148,7 @@ importing `crackbox/pkg/host/`.
 
 ## Out of scope for v1
 
-- Crackbox backend (lands when [a-crackbox-sandboxing.md](a-crackbox-sandboxing.md) ships)
+- Crackbox backend (lands when [6/12-crackbox-sandboxing.md](../6/12-crackbox-sandboxing.md) ships)
 - Per-folder backend selection (single `SAND_BACKEND` env)
 - Resident-VM pool management (lives in crackbox lib)
 - Live-migrate or hot-attach to running sandboxes
