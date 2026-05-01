@@ -9,8 +9,7 @@
 --   reddit:t1_<id>          → reddit:comment/<id>
 --   reddit:t2_<id>          → reddit:user/<id>
 --   reddit:t3_<id>          → reddit:submission/<id>
---   web:<token>             → web:slink/<token>      (token has no ':')
---   web:<sub>:<rest>        → web:user/<sub_url_encoded>  (sub contains ':')
+--   web:<folder>            unchanged (folder-keyed identity layer)
 --   bluesky:did:plc:<rest>  → bluesky:user/<percent-encoded>
 --   email:<addr>            → email:address/<addr>
 --   linkedin:<urn>          → linkedin:user/<urn>
@@ -222,52 +221,12 @@ UPDATE grants SET jid = 'reddit:user/' || substr(jid, 11) WHERE jid LIKE 'reddit
 UPDATE onboarding SET jid = 'reddit:user/' || substr(jid, 11) WHERE jid LIKE 'reddit:t2_%';
 
 -- ============================================================================
--- WEB: legacy `web:<token>` (slink) and `web:<sub>` (authed) ambiguous.
--- Authed sub-JIDs from proxyd contained colons (e.g. `web:google:101...`);
--- slink tokens are pure base64url with no colon. Rewrite by colon-presence.
+-- WEB: stored as `web:<folder>` today (folder name doubles as the chat
+-- ID for the slink hub). NOT migrated to `web:slink/...` or
+-- `web:user/...` because the current code treats `web:<folder>` as a
+-- folder reference. New typed forms apply when the web stack splits
+-- token-vs-sub identity.
 -- ============================================================================
-UPDATE messages SET chat_jid = 'web:slink/' || substr(chat_jid, 5)
-  WHERE chat_jid LIKE 'web:%'
-    AND chat_jid NOT LIKE 'web:slink/%'
-    AND chat_jid NOT LIKE 'web:user/%'
-    AND chat_jid NOT GLOB 'web:*:*';
-
-UPDATE messages SET chat_jid = 'web:user/' || replace(substr(chat_jid, 5), ':', '%3A')
-  WHERE chat_jid LIKE 'web:%'
-    AND chat_jid NOT LIKE 'web:slink/%'
-    AND chat_jid NOT LIKE 'web:user/%'
-    AND chat_jid GLOB 'web:*:*';
-
-UPDATE messages SET sender = 'web:user/' || replace(substr(sender, 5), ':', '%3A')
-  WHERE sender LIKE 'web:%'
-    AND sender NOT LIKE 'web:slink/%'
-    AND sender NOT LIKE 'web:user/%';
-
-UPDATE messages SET reply_to_sender = 'web:user/' || replace(substr(reply_to_sender, 5), ':', '%3A')
-  WHERE reply_to_sender LIKE 'web:%'
-    AND reply_to_sender NOT LIKE 'web:slink/%'
-    AND reply_to_sender NOT LIKE 'web:user/%';
-
-UPDATE chats SET jid = 'web:slink/' || substr(jid, 5)
-  WHERE jid LIKE 'web:%'
-    AND jid NOT LIKE 'web:slink/%'
-    AND jid NOT LIKE 'web:user/%'
-    AND jid NOT GLOB 'web:*:*';
-
-UPDATE chats SET jid = 'web:user/' || replace(substr(jid, 5), ':', '%3A')
-  WHERE jid LIKE 'web:%'
-    AND jid NOT LIKE 'web:slink/%'
-    AND jid NOT LIKE 'web:user/%'
-    AND jid GLOB 'web:*:*';
-
-UPDATE user_jids SET jid = 'web:user/' || replace(substr(jid, 5), ':', '%3A')
-  WHERE jid LIKE 'web:%' AND jid NOT LIKE 'web:user/%';
-
-UPDATE grants SET jid = 'web:user/' || replace(substr(jid, 5), ':', '%3A')
-  WHERE jid LIKE 'web:%' AND jid NOT LIKE 'web:user/%';
-
-UPDATE onboarding SET jid = 'web:user/' || replace(substr(jid, 5), ':', '%3A')
-  WHERE jid LIKE 'web:%' AND jid NOT LIKE 'web:user/%';
 
 -- ============================================================================
 -- BLUESKY: percent-encode the embedded `:` in `did:plc:<rest>`.
@@ -382,11 +341,6 @@ UPDATE routes SET match = replace(match, 'chat_jid=reddit:*', 'chat_jid=reddit:*
   WHERE match LIKE '%chat_jid=reddit:*%' AND match NOT LIKE '%chat_jid=reddit:*/*%';
 UPDATE routes SET match = replace(match, 'sender=reddit:*', 'sender=reddit:*/*')
   WHERE match LIKE '%sender=reddit:*%' AND match NOT LIKE '%sender=reddit:*/*%';
-
-UPDATE routes SET match = replace(match, 'chat_jid=web:*', 'chat_jid=web:*/*')
-  WHERE match LIKE '%chat_jid=web:*%' AND match NOT LIKE '%chat_jid=web:*/*%';
-UPDATE routes SET match = replace(match, 'sender=web:*', 'sender=web:*/*')
-  WHERE match LIKE '%sender=web:*%' AND match NOT LIKE '%sender=web:*/*%';
 
 UPDATE routes SET match = replace(match, 'chat_jid=bluesky:*', 'chat_jid=bluesky:*/*')
   WHERE match LIKE '%chat_jid=bluesky:*%' AND match NOT LIKE '%chat_jid=bluesky:*/*%';
