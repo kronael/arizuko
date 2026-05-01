@@ -480,6 +480,14 @@ func routeTargetWithin(target, owner string) bool {
 	return target == owner || strings.HasPrefix(target, owner+"/")
 }
 
+// isSelfDefault reports whether r is owner's primary inbound route
+// (seq=0, target=owner). Such a route MUST NOT be removed by the
+// owner — losing it leaves the folder's JID unrouted.
+func isSelfDefault(r core.Route, owner string) bool {
+	target := strings.TrimPrefix(r.Target, "folder:")
+	return r.Seq == 0 && target == owner
+}
+
 func workspaceRel(fp string) (string, error) {
 	if strings.HasPrefix(fp, "/home/node/") {
 		return strings.TrimPrefix(fp, "/home/node/"), nil
@@ -1106,6 +1114,27 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 					return toolErr("route target outside own folder: " + r.Target)
 				}
 			}
+			if db.ListRoutes != nil {
+				hadDefault := false
+				for _, r := range db.ListRoutes(id.Folder, false) {
+					if isSelfDefault(r, id.Folder) {
+						hadDefault = true
+						break
+					}
+				}
+				if hadDefault {
+					keepsDefault := false
+					for _, r := range routes {
+						if isSelfDefault(r, id.Folder) {
+							keepsDefault = true
+							break
+						}
+					}
+					if !keepsDefault {
+						return toolErr("cannot delete own default route")
+					}
+				}
+			}
 			if err := db.SetRoutes(id.Folder, routes); err != nil {
 				return toolErr(err.Error())
 			}
@@ -1152,6 +1181,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			route, ok := db.GetRoute(rid)
 			if !ok {
 				return toolErr(fmt.Sprintf("route not found: %d", rid))
+			}
+			if isSelfDefault(route, id.Folder) {
+				return toolErr("cannot delete own default route")
 			}
 			if err := auth.Authorize(id, "delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
 				return toolErr(err.Error())

@@ -51,6 +51,28 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 }
 
 
+func TestIsSelfDefault(t *testing.T) {
+	cases := []struct {
+		seq    int
+		target string
+		owner  string
+		want   bool
+	}{
+		{0, "world/a", "world/a", true},
+		{0, "folder:world/a", "world/a", true},
+		{1, "world/a", "world/a", false},
+		{0, "world/a/child", "world/a", false},
+		{0, "world/b", "world/a", false},
+	}
+	for _, c := range cases {
+		got := isSelfDefault(core.Route{Seq: c.seq, Target: c.target}, c.owner)
+		if got != c.want {
+			t.Errorf("isSelfDefault({Seq:%d,Target:%q},%q) = %v, want %v",
+				c.seq, c.target, c.owner, got, c.want)
+		}
+	}
+}
+
 func TestRouteTargetWithin(t *testing.T) {
 	cases := []struct {
 		target, owner string
