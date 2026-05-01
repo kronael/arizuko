@@ -72,7 +72,6 @@ func (s *server) handleAPITyping(w http.ResponseWriter, r *http.Request) {
 type groupOut struct {
 	Folder string `json:"folder"`
 	Name   string `json:"name"`
-	Active bool   `json:"active"`
 }
 
 func (s *server) groupList() []groupOut {
@@ -82,7 +81,6 @@ func (s *server) groupList() []groupOut {
 		out = append(out, groupOut{
 			Folder: g.Folder,
 			Name:   g.Name,
-			Active: g.State == "active" || g.State == "",
 		})
 	}
 	return out

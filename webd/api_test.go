@@ -33,11 +33,6 @@ func TestAPIGroups_ListsAll(t *testing.T) {
 	if len(resp.Data) != 2 {
 		t.Fatalf("groups = %d, want 2: %+v", len(resp.Data), resp.Data)
 	}
-	for _, g := range resp.Data {
-		if !g.Active {
-			t.Errorf("group %q not active by default", g.Folder)
-		}
-	}
 }
 
 // GET /api/groups/<folder>/topics returns topic summaries.

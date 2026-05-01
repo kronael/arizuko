@@ -178,9 +178,6 @@ func TestXGroups_Partial(t *testing.T) {
 	if !strings.Contains(body, `href="/chat/other"`) {
 		t.Errorf("missing other card: %s", body)
 	}
-	if !strings.Contains(body, "green") {
-		t.Errorf("active groups should be green: %s", body)
-	}
 }
 
 // GET /x/groups/<folder>/topics returns <option> tags + "new conversation".
