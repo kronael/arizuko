@@ -62,12 +62,13 @@ package graph and [EXTENDING.md](EXTENDING.md) for adding new integrations.
 | whapd  | integration | WhatsApp adapter (TypeScript, Baileys)                  | [whapd/README.md](whapd/README.md)   |
 | twitd  | integration | X/Twitter adapter (TypeScript, browser emulation)       | [twitd/README.md](twitd/README.md)   |
 | linkd  | integration | LinkedIn adapter (stub)                                 | [linkd/README.md](linkd/README.md)   |
+| ttsd   | integration | OpenAI-compatible TTS proxy (Kokoro by default)         | [ttsd/README.md](ttsd/README.md)     |
 
 A minimal deployment runs core + one channel-adapter integration; a
 maxed-out deployment runs all of them. Optional capability hooks
-(Whisper transcription via `WHISPER_BASE_URL`, planned TTS via
-`TTS_BASE_URL`, planned oracle skill) plug into the core via env vars
-and skills, not new daemons.
+(Whisper transcription via `WHISPER_BASE_URL`, TTS via `ttsd` +
+`TTS_BASE_URL`, planned oracle skill) plug into the core via env
+vars and skills, not new daemons.
 
 ### Libraries
 

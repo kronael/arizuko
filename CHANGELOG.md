@@ -18,9 +18,30 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > track active/closed/archived state — they exist until removed.
 > Routing rules now use typed JIDs — match patterns like
 > `telegram:group/*` instead of guessing by sign bit.
+> Voice synthesis is shipped: agents can call `send_voice` to deliver
+> spoken replies as platform-native push-to-talk on Telegram and
+> WhatsApp (audio attachment on Discord); other channels return
+> Unsupported with a hint.
 
 ### Added
 
+- **`send_voice` MCP tool + TTS pipeline**: agent-controlled voice
+  output. Gateway resolves the voice (arg > SOUL.md frontmatter >
+  `TTS_VOICE` env), POSTs to the OpenAI-compatible
+  `/v1/audio/speech` at `TTS_BASE_URL`, caches by
+  `sha256(text+voice+model)` under `<data>/tts/`, and dispatches via
+  the new `Channel.SendVoice` interface method. Telegram routes via
+  `sendVoice` (push-to-talk, distinct from the music-attachment
+  `sendAudio` used by `send_file`); WhatsApp via Baileys
+  `audio + ptt:true`; Discord via inline audio attachment with
+  `audio/ogg` ContentType. Mastodon, Bluesky, Reddit, LinkedIn,
+  Email, X return structured Unsupported. New bundled `ttsd` daemon
+  (thin OpenAI-compatible proxy with `/health`) defaults to a
+  Kokoro-FastAPI backend at `http://kokoro:8880`; operators who
+  prefer Piper/Coqui/OpenAI-cloud override `TTS_BACKEND_URL` and
+  skip the bundled service. Config: `TTS_ENABLED`, `TTS_BASE_URL`,
+  `TTS_VOICE`, `TTS_MODEL`, `TTS_TIMEOUT`. Spec
+  `specs/5/T-voice-synthesis.md` is now shipped. Agent migration 088.
 - **OAuth account linking + collision UX**: a new
   `auth_users.linked_to_sub` column collapses linked provider subs
   onto a canonical sub at JWT mint time (single resolve point in
@@ -57,6 +78,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   (`### Added/Changed/Fixed`) stay in the file but never reach
   end-users. Convention documented in agent migration 083.
   Backfilled v0.32.0, v0.32.1, v0.32.2.
+- **`send_file` media-type dispatch audited per adapter**: telegram
+  now also recognizes `.webm` (video), `.m4a`, `.flac` (audio).
+  Discord sets per-extension `ContentType` so the rich-media bubble
+  renders even when the upstream filename is ambiguous. Bluesky
+  splits SendFile by extension — image extensions go through the
+  PDS embed upload, non-images return Unsupported (PDS only accepts
+  image blobs; agent should host the file elsewhere and send a link
+  in post text). Whapd/twitd already dispatched correctly and were
+  verified, no change. Mastodon/Reddit/LinkedIn/Email still
+  `NoFileSender` — tracked in `bugs.md`.
 
 ## [v0.32.2] — 2026-04-30
 
