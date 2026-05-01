@@ -18,8 +18,8 @@ migrations: use conditional steps in migration `.md` files.
 
 ## Image distribution
 
-- Single `arizuko-agent:latest` built from `ant/`
-- Per-instance tags: `arizuko-agent-<name>:latest`
+- Single `arizuko-ant:latest` built from `ant/`
+- Per-instance tags: `arizuko-ant-<name>:latest`
 - `CONTAINER_IMAGE` in `.env` selects the tag
 - Selective upgrades: tag + restart one instance
 
