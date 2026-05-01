@@ -2,114 +2,137 @@
 status: unshipped
 ---
 
-# Ant standalone — Claude Code distribution
+# Ant — agent-as-a-folder
 
-Make `ant/` a shippable sibling of `crackbox/`: own CLI, own Docker
-image, own docs, runnable outside arizuko. arizuko keeps consuming it
-exactly as it does crackbox today (via the binary + image contract,
-not by importing internals).
+Ant runs a Claude agent from a folder. The folder defines persona,
+skills, memory, and tools. You can chat with it, schedule it, or
+expose it as an MCP server. arizuko is the multi-agent orchestrator
+built on top of ant.
 
-## What ant becomes
-
-A minimal Claude Code distribution that bundles:
-
-- the `claude` CLI
-- a curated skill set (memory + workflow + tooling, ~38 today —
-  prune aggressively before public release)
-- a sandbox-spawn entrypoint: `ant run` boots the agent inside
-  dockbox (Docker today) or crackbox (KVM, when phase 6/12 lands)
-
-Outside-arizuko use case: drop a folder, get a Claude agent running
-in an isolated sandbox with secrets, skills, and memory wired up. No
-gateway, no SQLite bus, no group hierarchy.
-
-## Components
+## The folder is the agent
 
 ```
-ant/
-  cmd/ant/main.go    — CLI: `ant run`, `ant chat`, `ant exec`
-  pkg/host/          — sandbox abstraction (dockbox impl shipped;
-                       crackbox impl pulls in github.com/onvos/arizuko/
-                       crackbox/pkg/host once that lib is stable)
-  Dockerfile         — agent image (today's image, kept)
-  skills/            — curated SKILL.md files
-  README.md          — what ant is, how to run it
-  CLAUDE.md          — operator runbook
+my-agent/
+  SOUL.md          — persona, voice, identity
+  CLAUDE.md        — operator runbook the agent reads on each turn
+  skills/          — SKILL.md files (custom + curated)
+  diary/           — running log, persistent across runs
+  secrets/         — folder-scoped credentials (env-injected)
+  MCP.json         — optional, declares MCP servers the agent gets
+  workspace/       — the agent's working directory (cwd)
 ```
 
-CLI shape mirrors crackbox:
+That's the unit. Everything else is delivery mechanism.
+
+## Three commands
 
 ```
-ant run [--sandbox=dockbox|crackbox] [--workspace=<dir>] [--skill=<glob>...]
-ant chat <workspace>
-ant exec <workspace> -- <cmd>
+ant chat   <folder>                       — interactive terminal chat
+ant run    <folder> [--prompt=<text>]     — one-shot subprocess (cron, batch)
+ant serve  <folder> [--socket=<path>]     — expose as MCP server for other systems
 ```
 
-## Skills curation (the prune)
+`ant chat` is the daily-driver. `ant run` is what arizuko's scheduler
+calls. `ant serve` is what other agents (or arizuko's gated) call when
+driving this agent programmatically.
 
-Today's 38 skills are arizuko-shaped (gateway-coupled, channel-aware).
-Public ant ships only the portable subset:
+All three share the same runtime: spawn `claude` with the folder's
+skills + secrets + workspace mounted, the operator runbook injected,
+diary writes routed to `<folder>/diary/`, MCP servers wired per
+`MCP.json`.
+
+## Sandbox (optional)
+
+```
+ant chat <folder> [--sandbox=none|dockbox|crackbox]
+```
+
+- `none` (default for `ant chat`) — agent runs on the host
+- `dockbox` (default for `ant run` / `ant serve`) — Docker container,
+  workspace mount, restricted egress
+- `crackbox` — KVM VM via `crackbox/pkg/host` (phase 6/12)
+
+Sandbox is not the product; it's a deployment toggle. A "claude in a
+sandbox with skills" by itself is just claude — what makes ant ant
+is the folder.
+
+## Skills curation
+
+The arizuko monorepo's `ant/skills/` has 38 skills, most arizuko-
+shaped (gateway-coupled). Public ant ships only the portable subset:
 
 - **Keep**: `diary`, `facts`, `recall-memories`, `compact-memories`,
   `users`, `commit`, `dispatch`, `find`, `bash`, `cli`, plus a memory-
   routing `CLAUDE.md` snippet
 - **Drop**: anything that imports gated IPC tools (`recall-messages`,
   `schedule_task`, slink-\* skills, channel-aware variants)
-- **Decision**: which skills stay = which work with ZERO arizuko
-  dependency. Rule: if `grep -l '@gated\|@arizuko\|gated\.sock' SKILL.md`
-  matches, it's arizuko-only and goes to a separate `ant-arizuko/skills/`
-  bundle that arizuko's compose layers on top.
+- **Rule**: if `grep -l '@gated\|@arizuko\|gated\.sock' SKILL.md`
+  matches, the skill is arizuko-only and goes into a separate
+  `ant-arizuko/skills/` bundle that arizuko's compose layers on top
+  of ant.
 
-## Sandbox abstraction
+## Container runtime — Go binary, replaces TS
 
-`ant run` resolves the sandbox backend:
+Today's TS `ant/` runtime gets replaced by a Go binary that:
 
-- `--sandbox=dockbox` (default) — Docker container, today's path
-- `--sandbox=crackbox` — KVM VM via `crackbox/pkg/host` (phase 6/12)
+- Drives `claude -p --output-format stream-json --input-format
+stream-json --permission-mode bypassPermissions
+--mcp-config /tmp/mcp.json [--resume <sid>]`
+- Implements the same container contract: stdin `ContainerInput`,
+  stdout ARIZUKO markers
+- Ports the existing TS hooks: `PostToolUse` (mid-loop IPC drain),
+  `PreCompact` (transcript copy), Bash secret-scrub
 
-The interface is the same: spawn → workspace mount + secret env →
-run agent → wait → return. Same contract as `crackbox run --kvm`.
+Same Go binary is the host-side `ant` CLI and the in-container
+runtime. arizuko's `gated` keeps spawning `ant:latest` unmodified —
+the contract doesn't change.
+
+Unblockers (carried over from the prior R-ant-go-cli spec):
+
+- Pin a specific `claude` CLI version — stream-json schema is
+  undocumented
+- Verify `--resume <sid>` against workspace mount layout
+- Map CLI exit codes to `ContainerOutput.error`
+- Cutover via `AGENT_IMAGE` env var: soak on one group, then promote
+
+## Components
+
+```
+ant/
+  cmd/ant/main.go           — CLI: chat, run, serve
+  pkg/agent/                — folder loader, skill resolver, memory wiring
+  pkg/host/                 — sandbox abstraction (dockbox + crackbox)
+  pkg/runtime/              — claude-CLI driver, hooks, IPC
+  Dockerfile                — `ant:latest` agent image
+  skills/                   — curated portable skills
+  README.md                 — what ant is, how to run it
+  CLAUDE.md                 — operator runbook
+```
 
 ## Docs
 
 `ant/README.md` answers three questions in <300 words:
 
-1. What is ant? (Claude Code + memory + sandbox spawn, one binary)
-2. How do I run it? (`ant run` in a workspace dir; needs `OPENAI_API_KEY`
-   or `ANTHROPIC_API_KEY` in env)
-3. How does it differ from running `claude` directly? (sandboxed,
-   bundled skills, persistent memory, restricted egress)
+1. **What is ant?** Run a Claude agent from a folder. The folder
+   defines persona, skills, memory.
+2. **How do I run it?** `ant chat <folder>` — needs `ANTHROPIC_API_KEY`
+   in env or the folder's `secrets/`.
+3. **Why a folder?** Agents are forkable, version-controllable,
+   shareable. Copy the folder, tweak SOUL.md, ship a new agent.
 
-No marketing. No feature matrix. Three questions, three answers.
+No marketing. No feature matrix. Three questions.
 
-## Container runtime (replaces TS ant)
+## How arizuko uses ant
 
-The Go binary also replaces today's TS `ant/` runtime inside the
-container. `ant run` (host CLI) and the in-container entry point
-share the same Go codebase: spawning side calls
-`ant agent --workspace=...` inside the sandbox, which then drives
-`claude -p --output-format stream-json --input-format stream-json
---permission-mode bypassPermissions --mcp-config /tmp/mcp.json
-[--resume <sid>]` — same shape today's TS entrypoint already uses.
-
-Container contract unchanged: stdin `ContainerInput`, stdout ARIZUKO
-markers. arizuko's `gated` keeps spawning `ant:latest` unmodified.
-
-Hooks (port from TS):
-
-- `PostToolUse` — drain IPC input dir, print
-  `hookSpecificOutput.additionalContext`. Mid-loop injection path.
-- `PreCompact` — copy transcript to a side store before compaction.
-- Bash secret-scrub — guard against accidental secret echo.
-
-Unblockers from the prior `R-ant-go-cli` spec (now folded here):
-
-- Pin a specific `claude` CLI version — stream-json schema is
-  undocumented; floating-version risk
-- Verify `--resume <sid>` against the workspace mount layout
-- Map CLI exit codes to `ContainerOutput.error`
-- Cutover via `AGENT_IMAGE` env var: soak on one group, then
-  promote to all
+- Each `groups/<folder>/` IS an ant folder. Same shape, same skills,
+  same memory layout.
+- `arizuko chat <instance> [group]` routes to `ant chat
+<data-dir>/groups/<group>` under the hood. Defaults to the root
+  group when `[group]` is omitted (today's behavior).
+- `gated` spawns agents via `ant run --sandbox=dockbox <group-folder>`
+  (or via the `ant:latest` image directly, which is the same thing).
+- arizuko adds: channels, queue, scheduler, cron, A2A routing, web UI.
+  The agents themselves are ant.
 
 ## Out of scope
 
@@ -119,11 +142,13 @@ Unblockers from the prior `R-ant-go-cli` spec (now folded here):
 
 ## Acceptance
 
-- `cd ~/some-project && ant run` boots a Claude agent in a Docker
-  container with the workspace mounted and the API key in env
-- The agent has memory persistence (diary writes survive restart)
-- arizuko's compose continues to work unchanged (it consumes
-  `ant:latest` image the same way it does today)
+- `mkdir my-agent && cp -r examples/starter/* my-agent/ &&
+ant chat my-agent` works without arizuko anywhere on the system
+- The agent persists diary writes across restarts (folder is the
+  source of truth)
+- arizuko's compose continues to work unchanged: it consumes
+  `ant:latest` image the same way today; `arizuko chat <inst> <group>`
+  routes via `ant chat`
 - `ant/` has zero arizuko-internal Go imports — same orthogonality
   test as `crackbox/`
 
@@ -131,6 +156,6 @@ Unblockers from the prior `R-ant-go-cli` spec (now folded here):
 
 - [../6/12-crackbox-sandboxing.md](../6/12-crackbox-sandboxing.md) —
   ant's `--sandbox=crackbox` backend depends on `crackbox/pkg/host`
-  being stable.
-- [Z-cli-chat.md](Z-cli-chat.md) — once ant ships, `arizuko chat
-<group>` can become a thin wrapper around `ant chat <workspace>`.
+  being stable
+- [Z-cli-chat.md](Z-cli-chat.md) — covered by `arizuko chat <inst>
+<group>` routing through `ant chat`. Delete once this ships.
