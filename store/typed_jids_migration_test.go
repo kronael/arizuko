@@ -7,7 +7,7 @@ import (
 )
 
 // TestTypedJidsMigration round-trips legacy JID formats through the
-// 0038-typed-jids migration and asserts each platform's rewrite rule.
+// 0042-typed-jids migration and asserts each platform's rewrite rule.
 // Strategy: open an in-memory DB (which has run all migrations up to and
 // including 0038, so values are already in canonical form), seed a few
 // legacy rows, then run the migration SQL again — it's idempotent, with
@@ -156,7 +156,7 @@ func TestTypedJidsMigration(t *testing.T) {
 
 	// Re-run the migration SQL (idempotent: already-typed values are
 	// guarded by NOT LIKE clauses).
-	if err := runMigrationFile(s.db, "migrations/0038-typed-jids.sql"); err != nil {
+	if err := runMigrationFile(s.db, "migrations/0042-typed-jids.sql"); err != nil {
 		t.Fatalf("run migration: %v", err)
 	}
 
