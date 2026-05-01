@@ -22,6 +22,7 @@ export class RouterClient {
         capabilities: {
           send_text: true,
           send_file: true,
+          send_voice: true,
           typing: true,
           fwd: true,
           edit: true,

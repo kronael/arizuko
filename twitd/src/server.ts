@@ -239,6 +239,14 @@ export function startServer(
         return;
       }
 
+      case '/send-voice':
+        unsupported(
+          res,
+          'send_voice',
+          'X has no native voice primitive (Spaces is broadcast, not 1:1). Use `send(chat_jid="twitter:dm/<id>", content=<text>)` instead.',
+        );
+        return;
+
       // Hint-only verbs.
       case '/forward':
         unsupported(

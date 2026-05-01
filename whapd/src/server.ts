@@ -243,6 +243,36 @@ export function startServer(
         return;
       }
 
+      case '/send-voice': {
+        // WhatsApp's voice-note primitive: send_message({audio, ptt:true}).
+        // Differs from /send-file's audio branch (which falls through to
+        // music/document encoding); ptt renders the recipient bubble as
+        // push-to-talk. Audio bytes must be ogg/opus.
+        const s = requireSock(res, sock, isConnected);
+        if (!s) return;
+        try {
+          const { chatJid, filename, fileBytes } = await parseMultipart(req);
+          if (!chatJid) {
+            json(res, 400, { ok: false, error: 'chat_jid required' });
+            return;
+          }
+          if (!fileBytes) {
+            json(res, 400, { ok: false, error: 'file required' });
+            return;
+          }
+          const mime = extToMime(filename || 'voice.ogg');
+          await s.sendMessage(toWaJid(chatJid), {
+            audio: fileBytes,
+            mimetype: mime,
+            ptt: true,
+          } as any);
+          json(res, 200, { ok: true });
+        } catch (e) {
+          json(res, 502, { ok: false, error: String(e) });
+        }
+        return;
+      }
+
       case '/typing': {
         const body = await readBody<TypingReq>(req);
         const waJid = toWaJid(body.chat_jid);
