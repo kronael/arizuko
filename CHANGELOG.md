@@ -9,7 +9,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- **CHANGELOG entries open with a `>` blockquote summary** in plain
+  user language (1-3 lines). `/migrate` skill step (e) now extracts
+  ONLY the blockquote for the chat broadcast — the dev sections
+  (`### Added/Changed/Fixed`) stay in the file but never reach
+  end-users. Convention documented in agent migration 083.
+  Backfilled v0.32.0, v0.32.1, v0.32.2.
+
 ## [v0.32.2] — 2026-04-30
+
+> Cleaner URLs for the new HTTP API your agent now speaks. Plus a
+> behind-the-scenes fix so docker rebuilds no longer briefly break
+> agent spawning.
 
 URL polish on the slink round-handle protocol shipped in v0.32.0.
 The `/turn/` infix and `?steer=` query parameter both disappear;
@@ -33,6 +46,10 @@ the second URL segment after the token IS the round handle.
 
 ## [v0.32.1] — 2026-04-30
 
+> Quiet bugfix: agents in one world can no longer accidentally send
+> to chats that belong to other worlds. You'll see fewer duplicate
+> notifications during releases.
+
 Closes the cross-world spam vector revealed by v0.32.0's release
 broadcast: tier-1 world agents were sending to chats that route to
 OTHER worlds' folders, producing the same release notice 2-4× per
@@ -55,13 +72,18 @@ containment is the only rule.
 
 ## [v0.32.0] — 2026-04-30
 
+> You can now poke your agent over a simple HTTP URL — drop a
+> message, watch the reply. Useful for cron jobs, web pages, and
+> scripts that need to talk to the agent without a full chat client.
+> See [/pub/concepts/slink.html](/pub/concepts/slink.html).
+
 Slink becomes the universal "drop a message, observe the round"
 surface. Each agent run is exposed as a first-class object with a
 stable handle (`turn_id`), pageable assistant frames, an SSE stream
 that closes cleanly on round_done, and steering for chained
 follow-ups. New `arizuko send` CLI for server-side use; full public
-docs at `/pub/slink/`. Rolls up the v0.31.1 follow-on fixes
-(crackbox DNS alias, davd healthcheck, migration 079).
+docs at `/pub/concepts/slink.html`. Rolls up the v0.31.1 follow-on
+fixes (crackbox DNS alias, davd healthcheck, migration 079).
 
 ### Added
 

@@ -151,15 +151,36 @@ test "$latest" = "$last" && { echo "already announced $latest"; exit 0; }
 echo "$latest" > ~/.announced-version
 ```
 
-Read the changelog entry for the message:
+Read the changelog entry for the message. Each release entry begins
+with a `>` blockquote — that's the user-facing summary. Extract
+ONLY the version header + the blockquote; skip the dev sections
+(`### Added/Changed/Fixed`) which are too noisy for chats.
 
 ```bash
-awk '/^## \[v[0-9]/{if(++n==1){print;next};exit} n==1' \
-  /workspace/self/CHANGELOG.md
+header=$(awk '/^## \[v/{print; exit}' /workspace/self/CHANGELOG.md)
+summary=$(awk '/^## \[v/{n++} n==1 && /^> /{sub(/^> ?/, ""); print} n==1 && /^### /{exit}' \
+  /workspace/self/CHANGELOG.md)
+
+MSG="$header
+
+$summary"
 ```
 
-Keep the message short — one screenful, plain bullets, title names the
-version. One message per release, not per migration.
+This produces a short user-friendly note like:
+
+```
+## [v0.32.2] — 2026-04-30
+
+Cleaner URLs for the new HTTP API your agent now speaks. Plus a
+behind-the-scenes fix so docker rebuilds no longer briefly break
+agent spawning.
+```
+
+If a version block has no blockquote (older entries pre-dating this
+convention), the summary is empty — fall back to a one-line
+"v0.32.x deployed" message and link the changelog URL.
+
+One message per release, not per migration.
 
 The repo is `github.com/kronael/arizuko`. Always cite this exact URL
 if the broadcast references upstream/source — never "krons labs",
