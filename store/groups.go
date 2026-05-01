@@ -23,27 +23,20 @@ func (s *Store) PutGroup(g core.Group) error {
 	}
 	cfgJSON, _ := json.Marshal(g.Config)
 
-	state := g.State
-	if state == "" {
-		state = "active"
-	}
-
 	_, err := s.db.Exec(
 		`INSERT INTO groups
-		 (folder, name, added_at, container_config, slink_token, parent, state, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 (folder, name, added_at, container_config, slink_token, parent, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(folder) DO UPDATE SET
 		   name=excluded.name,
 		   container_config=excluded.container_config,
 		   slink_token=excluded.slink_token,
 		   parent=excluded.parent,
-		   state=excluded.state,
 		   updated_at=excluded.updated_at`,
 		g.Folder, g.Name,
 		g.AddedAt.Format(time.RFC3339),
 		string(cfgJSON), g.SlinkToken,
 		g.Parent,
-		state,
 		time.Now().Format(time.RFC3339),
 	)
 	return err
@@ -54,7 +47,7 @@ func (s *Store) DeleteGroup(folder string) error {
 	return err
 }
 
-const groupCols = `folder, name, added_at, container_config, slink_token, parent, state`
+const groupCols = `folder, name, added_at, container_config, slink_token, parent`
 
 func (s *Store) AllGroups() map[string]core.Group {
 	rows, err := s.db.Query(`SELECT ` + groupCols + ` FROM groups`)
@@ -182,9 +175,9 @@ func (s *Store) DefaultFolderForJID(jid string) string {
 func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string
-	var cfgJSON, slinkToken, parent, state *string
+	var cfgJSON, slinkToken, parent *string
 
-	if err := r.Scan(&g.Folder, &g.Name, &addedAt, &cfgJSON, &slinkToken, &parent, &state); err != nil {
+	if err := r.Scan(&g.Folder, &g.Name, &addedAt, &cfgJSON, &slinkToken, &parent); err != nil {
 		return g, false
 	}
 
@@ -197,10 +190,6 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	}
 	if cfgJSON != nil {
 		json.Unmarshal([]byte(*cfgJSON), &g.Config)
-	}
-	g.State = "active"
-	if state != nil && *state != "" {
-		g.State = *state
 	}
 	return g, true
 }

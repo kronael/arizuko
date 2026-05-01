@@ -47,7 +47,6 @@ func (g *Gateway) spawnFromPrototype(parentFolder, childJID string) (core.Group,
 		Folder:  childFolder,
 		Parent:  parentFolder,
 		AddedAt: time.Now(),
-		State:   "active",
 	}
 	if err := g.store.PutGroup(child); err != nil {
 		return core.Group{}, err

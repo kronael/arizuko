@@ -48,7 +48,6 @@ type Group struct {
 	Config     GroupConfig
 	SlinkToken string
 	Parent     string
-	State      string // "active" | "closed" | "archived"; default "active"
 }
 
 type GroupConfig struct {

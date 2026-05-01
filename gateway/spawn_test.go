@@ -39,8 +39,8 @@ func TestSpawnFromPrototype_NoPrototype(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, parentFolder), 0o755)
 	s.PutGroup(core.Group{
 		Name: "main", Folder: parentFolder,
-		AddedAt: time.Now(), State: "active",
-		Config: core.GroupConfig{MaxChildren: 5},
+		AddedAt: time.Now(),
+		Config:  core.GroupConfig{MaxChildren: 5},
 	})
 
 	_, err = gw.spawnFromPrototype(parentFolder, "child@test")
@@ -67,8 +67,8 @@ func TestSpawnFromPrototype_Success(t *testing.T) {
 
 	parent := core.Group{
 		Name: "main", Folder: parentFolder,
-		AddedAt: time.Now(), State: "active",
-		Config: core.GroupConfig{MaxChildren: 5},
+		AddedAt: time.Now(),
+		Config:  core.GroupConfig{MaxChildren: 5},
 	}
 	s.PutGroup(parent)
 
@@ -101,9 +101,6 @@ func TestSpawnFromPrototype_Success(t *testing.T) {
 	}
 	if stored.Parent != parentFolder {
 		t.Errorf("stored.Parent = %q, want %q", stored.Parent, parentFolder)
-	}
-	if stored.State != "active" {
-		t.Errorf("stored.State = %q, want active", stored.State)
 	}
 
 	// child should be resolvable via DB
