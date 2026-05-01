@@ -219,50 +219,18 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		defer unsub()
 	}
 
-	id := core.MsgID("msg")
-	m := core.Message{
-		ID:        id,
-		ChatJID:   "web:" + g.Folder,
-		Sender:    sender,
-		Name:      senderName,
-		Content:   content,
-		Timestamp: time.Now(),
-		Topic:     topic,
-		Source:    "web",
-	}
-	if err := s.st.PutMessage(m); err != nil {
-		http.Error(w, "store failed", http.StatusInternalServerError)
+	m, userPayload, err := s.injectSlink(g, content, topic, sender, senderName, token)
+	if err != nil {
+		switch err {
+		case errSlinkStore:
+			http.Error(w, "store failed", http.StatusInternalServerError)
+		case errSlinkRouter:
+			http.Error(w, "router unavailable", http.StatusBadGateway)
+		default:
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
 		return
 	}
-
-	slog.Info("slink inbound", "folder", g.Folder,
-		"anon_sender", sender, "token_hash", chanlib.ShortHash(token), "topic", topic)
-
-	if err := s.rc.SendMessage(chanlib.InboundMsg{
-		ID:         m.ID,
-		ChatJID:    m.ChatJID,
-		Sender:     sender,
-		SenderName: senderName,
-		Content:    content,
-		Timestamp:  m.Timestamp.Unix(),
-		// slink: one token == one anonymous human; always single-user.
-		IsGroup: false,
-	}); err != nil {
-		http.Error(w, "router unavailable", http.StatusBadGateway)
-		return
-	}
-
-	userPayload := map[string]any{
-		"id":         m.ID,
-		"role":       "user",
-		"content":    m.Content,
-		"sender":     senderName,
-		"topic":      topic,
-		"folder":     g.Folder,
-		"created_at": m.Timestamp.Format(time.RFC3339),
-	}
-	userPayloadJSON, _ := json.Marshal(userPayload)
-	s.hub.publish(g.Folder, topic, "message", string(userPayloadJSON))
 
 	switch {
 	case wantSSE:
@@ -366,6 +334,69 @@ func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 	ch, unsub := s.hub.subscribe(folder, topic)
 	defer unsub()
 	serveSSE(w, r, ch)
+}
+
+// errSlinkStore / errSlinkRouter let HTTP and MCP callers translate
+// injectSlink failures into transport-appropriate errors.
+var (
+	errSlinkStore  = &slinkErr{kind: "store"}
+	errSlinkRouter = &slinkErr{kind: "router"}
+)
+
+type slinkErr struct{ kind string }
+
+func (e *slinkErr) Error() string { return "slink: " + e.kind + " failed" }
+
+// injectSlink writes one inbound slink message to the store, hands it
+// to the router, and publishes the user-bubble frame to the SSE hub.
+// Returns the persisted Message + the JSON payload that was published
+// (so the caller can include it in its response). The token is used
+// for log correlation only — auth must be checked by the caller.
+func (s *server) injectSlink(g core.Group, content, topic, sender, senderName, token string) (core.Message, map[string]any, error) {
+	m := core.Message{
+		ID:        core.MsgID("msg"),
+		ChatJID:   "web:" + g.Folder,
+		Sender:    sender,
+		Name:      senderName,
+		Content:   content,
+		Timestamp: time.Now(),
+		Topic:     topic,
+		Source:    "web",
+	}
+	if err := s.st.PutMessage(m); err != nil {
+		slog.Warn("slink store", "folder", g.Folder, "err", err)
+		return core.Message{}, nil, errSlinkStore
+	}
+
+	slog.Info("slink inbound", "folder", g.Folder,
+		"anon_sender", sender, "token_hash", chanlib.ShortHash(token), "topic", topic)
+
+	if err := s.rc.SendMessage(chanlib.InboundMsg{
+		ID:         m.ID,
+		ChatJID:    m.ChatJID,
+		Sender:     sender,
+		SenderName: senderName,
+		Content:    content,
+		Timestamp:  m.Timestamp.Unix(),
+		// slink: one token == one anonymous human; always single-user.
+		IsGroup: false,
+	}); err != nil {
+		slog.Warn("slink router", "folder", g.Folder, "err", err)
+		return core.Message{}, nil, errSlinkRouter
+	}
+
+	payload := map[string]any{
+		"id":         m.ID,
+		"role":       "user",
+		"content":    m.Content,
+		"sender":     senderName,
+		"topic":      topic,
+		"folder":     g.Folder,
+		"created_at": m.Timestamp.Format(time.RFC3339),
+	}
+	payloadJSON, _ := json.Marshal(payload)
+	s.hub.publish(g.Folder, topic, "message", string(payloadJSON))
+	return m, payload, nil
 }
 
 // htmlEscape covers HTML, attribute, and JS-string-literal contexts.
