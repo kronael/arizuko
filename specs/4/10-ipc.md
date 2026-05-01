@@ -73,7 +73,7 @@ functions are injected as callbacks at server creation time.
 | `escalate_group` | groups        | grants                    |
 | `refresh_groups` | groups        | tier ≤ 2                  |
 | `reset_session`  | sessions      | grants + auth.Authorize   |
-| `get_routes`     | routing       | grants + auth.Authorize   |
+| `list_routes`    | routing       | grants + auth.Authorize   |
 | `set_routes`     | routing       | grants + auth.Authorize   |
 | `add_route`      | routing       | grants + auth.Authorize   |
 | `delete_route`   | routing       | grants + auth.Authorize   |
@@ -141,4 +141,7 @@ and computes tier from folder depth. No migrations.
 ```
 ipc/
   ipc.go
+  inspect.go
+  README.md
+  SECURITY.md
 ```

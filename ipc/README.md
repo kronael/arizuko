@@ -17,7 +17,7 @@ every connection.
 Social verbs (chanreg-backed, `*UnsupportedError`-aware):
 
 - `send`, `reply`, `post`, `like`, `dislike`, `delete`, `forward`,
-  `quote`, `repost`, `edit`, `send_file`, `typing`
+  `quote`, `repost`, `edit`, `send_file`
 
 (Names are post-rename: `send_message`→`send`, `send_reply`→`reply`,
 `react`→`like`, `score_down`→`dislike`, `delete_post`→`delete`. No
@@ -29,8 +29,9 @@ Routing / groups: `register_group`, `escalate_group`, `delegate_group`,
 `get_history`, `inspect_messages`.
 
 Read-only introspection: `inspect_routing`, `inspect_tasks`,
-`inspect_session`. Tier 0 sees all instances; tier ≥1 is scoped to
-its folder subtree. Replaces ad-hoc `Bash sqlite3 …` audits.
+`inspect_session`, `inspect_identity`. Tier 0 sees all instances;
+tier ≥1 is scoped to its folder subtree. Replaces ad-hoc
+`Bash sqlite3 …` audits.
 
 ## Public API
 
