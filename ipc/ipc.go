@@ -381,8 +381,47 @@ func recordOutbound(db StoreFns, jid, text, platformID, folder string) {
 			BotMsg:    true,
 			ReplyToID: platformID,
 			RoutedTo:  jid,
+			Status:    core.MessageStatusSent,
 		})
 	}
+}
+
+// internalSend is the unified internal pathway behind the `send` and
+// `send_file` MCP tools. The two tools stay distinct on the agent surface
+// (different intents, different sharp descriptions) but both funnel
+// through here so persistence (`recordOutbound`) and routing remain
+// symmetric. files is empty for plain text-only sends; non-empty for
+// file deliveries (text becomes the caption).
+func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files []internalSendFile) error {
+	if len(files) == 0 {
+		if gated.SendMessage == nil {
+			return fmt.Errorf("send not configured")
+		}
+		platformID, err := gated.SendMessage(jid, text)
+		if err != nil {
+			return err
+		}
+		recordOutbound(db, jid, text, platformID, folder)
+		return nil
+	}
+	if gated.SendDocument == nil {
+		return fmt.Errorf("send_file not configured")
+	}
+	for _, f := range files {
+		if err := gated.SendDocument(jid, f.LocalPath, f.Filename, text); err != nil {
+			return err
+		}
+		// File deliveries don't return a platform-side message ID through the
+		// SendDocument contract; record with empty ID so reply-chain state
+		// isn't clobbered. Caption (`text`) is the message content.
+		recordOutbound(db, jid, text, "", folder)
+	}
+	return nil
+}
+
+type internalSendFile struct {
+	LocalPath string
+	Filename  string
 }
 
 // validHostname accepts a DNS-ish hostname: letters/digits/dot/hyphen/colon
@@ -522,20 +561,15 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err := authorizeJID(id, "send", jid, db); err != nil {
 				return toolErr(err.Error())
 			}
-			if gated.SendMessage == nil {
-				return toolErr("send not configured")
-			}
 			text := req.GetString("text", "")
 			snippet := text
 			if len(snippet) > 60 {
 				snippet = snippet[:60]
 			}
 			slog.Info("send", "folder", folder, "jid", jid, "text", snippet)
-			platformID, err := gated.SendMessage(jid, text)
-			if err != nil {
+			if err := internalSend(gated, db, folder, jid, text, nil); err != nil {
 				return toolErr(err.Error())
 			}
-			recordOutbound(db, jid, text, platformID, folder)
 			return toolOK()
 		})
 
@@ -584,9 +618,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err := authorizeJID(id, "send_file", jid, db); err != nil {
 				return toolErr(err.Error())
 			}
-			if gated.SendDocument == nil {
-				return toolErr("send_file not configured")
-			}
 			fp := req.GetString("filepath", "")
 			name := req.GetString("filename", "")
 			caption := req.GetString("caption", "")
@@ -600,7 +631,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr("path outside group dir")
 			}
 			slog.Info("send_file", "folder", folder, "jid", jid, "path", localPath)
-			if err := gated.SendDocument(jid, localPath, name, caption); err != nil {
+			if err := internalSend(gated, db, folder, jid, caption,
+				[]internalSendFile{{LocalPath: localPath, Filename: name}},
+			); err != nil {
 				return toolErr(err.Error())
 			}
 			return toolOK()
