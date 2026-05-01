@@ -103,9 +103,11 @@ input: taskId
 ```
 timed/
   main.go
-  migrations/
-    0001-schema.sql
 ```
+
+Schema lives in `store/migrations/` (gated owns migrations; timed is
+a read/write client). `scheduled_tasks` was introduced in migration
+0001; `task_run_logs` and `context_mode` in 0011.
 
 ## Implementation
 

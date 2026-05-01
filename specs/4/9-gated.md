@@ -236,7 +236,7 @@ Implementation: `gateway/commands.go`.
 ## Notifications
 
 gated imports `notify/` for container errors and channel health events.
-See `specs/7/20-control-chat.md`.
+See `specs/3/b-control-chat.md`.
 
 ## Agent output processing
 

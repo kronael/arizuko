@@ -140,7 +140,7 @@ what does it say, does it answer, what gaps remain.
 
 Scales to ~300 files. Beyond that, switch to v2.
 
-See `specs/7/24-recall.md` for full recall spec.
+See `specs/4/24-recall.md` for full recall spec.
 
 ### v2: CLI retrieval + Explore judge
 

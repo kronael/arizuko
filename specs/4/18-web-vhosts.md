@@ -104,4 +104,4 @@ it just writes files. The redirect serves them at `{world}.{domain}`.
 
 ## Related
 
-- `specs/3/5-permissions.md` — tier model, mount table
+- `specs/3/5-tool-authorization.md` — tier model, mount table

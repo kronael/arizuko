@@ -4,7 +4,7 @@ status: shipped
 
 # task_run_logs
 
-Execution history for scheduled tasks. Added in timed migration 0002.
+Execution history for scheduled tasks. Added in `store/migrations/0011-task-run-logs.sql`.
 
 ## Schema
 
@@ -52,6 +52,6 @@ means the message was inserted.
 
 ## Migration context
 
-Migration 0002 also adds `context_mode TEXT NOT NULL DEFAULT 'group'` to
+Migration 0011 also adds `context_mode TEXT NOT NULL DEFAULT 'group'` to
 `scheduled_tasks`. This enables `"isolated"` mode where the task fires
 with sender `"scheduler-isolated"` (no `--resume`, fresh context).
