@@ -84,12 +84,16 @@ type Handle struct{ ID string; IP string }
 func Spawn(VMConfig) (Handle, error)        // boot VM, register with egred
 func Exec(h Handle, cmd []string, stdin io.Reader) (exitCode int, stdout, stderr []byte, error)
 func Stop(h Handle) error                    // shutdown VM, unregister
-func List() []Handle                         // running VMs known to this lib
+func List() []Handle                         // all running VMs on this host
 ```
 
-The library is **stateless across processes** — `List()` returns only
-VMs spawned by the current process. Pool management (warm VMs across
-many spawns) lives in `sandd`, not here.
+The library holds **no in-RAM index of VMs**. Source of truth is the
+system: per-VM metadata files on disk (`<datadir>/vms/<id>/meta.yaml`)
+plus live process/network state (pidfile, qemu PID, tap interface,
+DHCP lease). `List()` scans the metadata dir and runs `detectState()`
+on each entry — every caller, in every process, sees the same set.
+Pool management (warm VMs across many spawns, eviction policy) lives
+in `sandd`, not here.
 
 ## Egred lifecycle (managed by the library)
 
