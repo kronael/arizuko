@@ -54,7 +54,8 @@ learning, log meaningful interactions (not small talk).
 ## Scope
 
 Per-group. `users/alice` in group A ≠ group B. Cross-channel identity
-is out of scope (see `specs/5/9-identities.md`).
+linking happens at the `auth_users.linked_to_sub` layer — orthogonal
+to per-group user context.
 
 ## Files
 
