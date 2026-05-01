@@ -2,133 +2,259 @@
 status: shipped
 ---
 
-> Reference spec — describes existing composition, not new work.
-> Grounded in `auth/identity.go`, `grants/grants.go`, `store/routes.go`,
-> `store/groups.go` (user_groups table). Written 2026-04-24 to fill
-> the gap between `3/5-tool-authorization.md` (tool × tier matrix) and
-> `5/29-acl.md` (user × folder ACL) — neither alone explains the whole.
+> Reference doc — describes existing composition, not new work.
+> Grounded in `auth/identity.go`, `auth/acl.go`, `auth/policy.go`,
+> `auth/middleware.go`, `grants/grants.go`, `store/auth.go`,
+> `store/groups.go`, `store/routes.go`, `store/grants.go`,
+> `store/secrets.go`, `gateway/gateway.go`, `container/runner.go`.
+> Last verified 2026-05-01. Originally written 2026-04-24 to fill the
+> gap between `specs/3/5-tool-authorization.md` (tier × action matrix)
+> and `specs/5/29-acl.md` (user × folder ACL) — neither alone explains
+> the whole.
 
-# Auth Landscape — how `groups`, `user_groups`, `routes` compose into grants
+# Grants — how folders, ACL rows, routes and secrets compose into what an agent can do
 
-Three tables and one folder path produce the grant rules an agent
-container gets. None of them alone is enough; this spec names the
-composition.
+Three SQLite tables, one folder path, and a fistful of env vars produce
+the rules an agent container is spawned with. Maintainer reference:
+read it with the codebase open. Lives at root (not under `specs/`)
+because it documents the contract between today's daemons, not a
+future design.
 
-## The three layers
+How to read this: see `SECURITY.md` for boundaries and threat model;
+see `ARCHITECTURE.md` for the daemon and package graph.
+
+## The four layers
 
 ### `groups` table — folder hierarchy
 
-Source of truth for what exists and tier.
+Source of truth for what exists. Defined in
+`store/migrations/0020-groups-refactor.sql` (later patched by 0023);
+`folder TEXT PRIMARY KEY`, plus `name`, `added_at`, `container_config`,
+`slink_token`, `parent`, `state`, `updated_at`. Read via
+`store.Store.GroupByFolder` / `AllGroups`.
 
-- `folder TEXT PRIMARY KEY` — e.g. `atlas/support`
-- Tier derived: `min(strings.Count(folder, "/"), 3)` — see
-  [`auth/identity.go:19`](../../auth/identity.go)
-- `world` = first path segment, same helper
+Tier and world are derived from the folder string, not stored:
 
-**Path is identity, depth determines default grants.** Tier 0 is the
-**root** folder. Tier 1 is a **world** (top-level tenant). Depth-2 and
-depth-3+ are sub-groups; suggested labels (`org / branch / unit /
-thread`) are advisory — see `ant/CLAUDE.md` for the depth → label
-cross-walk. The system reads paths, not labels.
+- `auth.Resolve(folder)` returns `Identity{Folder, Tier, World}`
+- Tier = `min(strings.Count(folder, "/"), 3)` — root=0, world=1, depth-2=2, depth-3+=3
+- World = first path segment
+
+Path is identity, depth determines default grants. Suggested labels
+(`org / branch / unit / thread`) are advisory — the system reads paths,
+not labels.
 
 ### `user_groups` table — who can act on a folder
 
-Glob ACL. One row per (user-sub, glob) grant.
+Glob ACL keyed by user_sub. Defined in
+`store/migrations/0013-user-groups.sql` (`granted_at` column added in
+0026):
 
-- `(user_sub TEXT, glob TEXT, granted_at TEXT)` — see
-  [`store/migrations/0006-user-groups.sql`](../../store/migrations)
-- `glob` is a folder pattern: `**` (operator), `atlas`, `atlas/**`, `atlas/support`
-- Who is "operator" is emergent: any user with a `**` row. No tier-0
-  sentinel; see [`5/29-acl.md`](28-acl.md) for the full ACL model.
+```sql
+CREATE TABLE user_groups (
+    user_sub   TEXT NOT NULL,
+    folder     TEXT NOT NULL,    -- glob pattern despite the column name
+    granted_at TEXT,              -- nullable; pre-0026 rows have none
+    PRIMARY KEY (user_sub, folder)
+);
+```
+
+Patterns: `**` (operator), `*` (any single segment), `pub/*`, `atlas/**`,
+`atlas/support`. Match logic in `auth.MatchGroups`
+(`auth/acl.go`) — segment-wise, `*` does not cross `/`, `**` matches
+zero or more segments. No rows = no access. Operator is implicit: a
+user with a `**` row simply matches every folder.
+
+Reads: `store.Store.UserGroups(sub) []string` returns the user's
+patterns; `MatchGroups(patterns, folder) bool` answers "may sub touch
+folder?". Writes: `Grant`, `Ungrant`, `Grants`.
 
 ### `routes` table — what JIDs route where
 
-What inbound platform JIDs land in which folder.
+Inbound match-target table. Current shape from
+`store/migrations/0022-routes-match.sql`:
 
-- `(id, seq, match TEXT, target TEXT, impulse_config)` — flat table
-- `match` is space-separated glob pairs: `platform=telegram room=-123`
-- `target` is the folder that receives messages matching `match`
-- See [`1/F-group-routing.md`](../1/F-group-routing.md) for the
-  match language
+```sql
+CREATE TABLE routes (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  seq            INTEGER NOT NULL DEFAULT 0,
+  match          TEXT    NOT NULL DEFAULT '',
+  target         TEXT    NOT NULL,
+  impulse_config TEXT
+);
+```
+
+`match` is a space-separated list of `key=glob` pairs evaluated by
+`router.RouteMatches` (e.g. `platform=telegram room=-123`,
+`room=foo verb=command`). `target` is the folder receiving matched
+messages. Routes are evaluated in `(seq, id)` order; first match wins.
+See `specs/1/F-group-routing.md` for the match language.
+
+`store.Store.RouteSourceJIDsInWorld(scope)` reconstructs the distinct
+`platform:room` JIDs whose target folder is `scope` or a descendant —
+it is what `grants.DeriveRules` uses to derive per-platform rules.
+
+Local addressing: there is no `local:` prefix any more. Bare folder
+paths without `:` route via `gateway.LocalChannel.Owns`
+(`gateway/local_channel.go`) — real channel JIDs always carry a
+`platform:` prefix, so the absence of `:` is sufficient. Used by
+escalation/delegation and by `arizuko send`.
+
+### `grant_rules` table — per-folder rule overlay
+
+Optional folder-keyed extension to the tier defaults. Read by
+`store.Store.GetGrants(folder) []string`, written by `SetGrants`,
+managed via the `get_grants` / `set_grants` MCP tools (tier 0–1 only,
+gated through `auth.Authorize`). Appended to the rules list that
+`grants.DeriveRules` produces — see `gateway/gateway.go` (search for
+`DeriveRules` in `runAgentWithOpts`).
 
 ## The composition
 
-A container spawn for folder `F` produces its grant rules in three
-steps:
+A container spawn for folder `F` with chat JID `J` produces its
+rule list and env in three steps. The canonical site is
+`Gateway.runAgentWithOpts` in `gateway/gateway.go`:
 
 ```
 1. Identity     = auth.Resolve(F)
                   → {Folder: F, Tier: min(depth, 3), World: firstSeg}
 
-2. RoutedJIDs   = store.RouteSourceJIDsInWorld(world)
-                  → JIDs that route to anything inside the world
+2. Rules        = grants.DeriveRules(store, F, id.Tier, id.World)
+                  ++ store.GetGrants(F)
+                  → tier-default list, extended by routed-platform
+                    rules and by the per-folder grant_rules row
 
-3. Rules        = grants.DeriveRules(store, F, Tier, World)
-                  → tier-based list, extended by platformRules(RoutedJIDs)
+3. Env          = container.resolveSpawnEnv(store, base, F, J)
+                  → base ∪ FolderSecretsResolved(F)
+                    ∪ UserSecrets(UserSubByJID(J))   (single-user chats only)
 ```
 
-Final rules list is what the MCP server uses to gate every tool call.
-See [`grants/grants.go:151-178`](../../grants/grants.go).
+The rule list is injected into `start.json` for the agent and used
+by the in-container MCP server to filter the tool manifest and gate
+each call (`grants.MatchingRules` at registration,
+`grants.CheckAction` at invocation). The env is exported into the
+agent process.
+
+### Tier defaults — `grants.DeriveRules`
+
+From `grants/grants.go`:
+
+| Tier | Default rules                                                                                                                                                             |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | `["*"]` — instance root, anything                                                                                                                                         |
+| 1    | `basicSendActions` ++ `platformRules(RouteSourceJIDsInWorld(world))` ++ `tier1FixedActions` ++ `share_mount(readonly=false)`                                              |
+| 2    | `basicSendActions` ++ `platformRules(RouteSourceJIDsInWorld(folder))` ++ `share_mount(readonly=true)` — narrower platform scope: only JIDs routed to F or its descendants |
+| 3+   | `["reply", "send_file", "like", "edit"]`                                                                                                                                  |
+
+`basicSendActions = {send, send_file, reply}`.
+
+`platformActions = {send, send_file, reply, forward, post, quote,
+repost, like, dislike, delete, edit}` — for each platform appearing in
+the world's routes, every action is added as `<action>(jid=<platform>:*)`.
+
+`tier1FixedActions = {schedule_task, register_group, escalate_group,
+delegate_group, get_routes, set_routes, add_route, delete_route,
+list_tasks, pause_task, resume_task, cancel_task}`.
 
 ### Where each table is consulted
 
-| Gate                                                                    | Reads from                                  | Produces                                          |
-| ----------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------- |
-| who can send a message from outside the container to this folder at all | `user_groups` glob vs folder                | yes/no at API surface                             |
-| what tools does the agent in folder F have                              | `groups` (tier from folder depth)           | tier slot                                         |
-| which platforms does that folder's tools scope to                       | `routes` where `target` matches folder      | platform-scoped rules like `send(jid=telegram:*)` |
-| does a specific tool call pass                                          | `grants.CheckAction(rules, action, params)` | yes/no at MCP call                                |
+| Gate                                             | Reads from                                                                                 | Produces                                             |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| who can reach a folder over HTTP at all          | proxyd-signed `X-User-*` headers verified by `auth.RequireSigned` / `StripUnsigned`        | identity headers stripped on failure → 303 to /login |
+| does this user have any claim on folder F        | `user_groups` patterns vs F via `auth.MatchGroups`                                         | yes/no at API surface (e.g. proxyd dav)              |
+| what default tools does folder F's agent see     | `groups` (tier from depth) → `grants.DeriveRules`                                          | tier-default rule slot                               |
+| which platforms scope to folder F's outbound     | `routes` where `target` is F or a descendant (tier 2) / world descendant (tier 1)          | `<verb>(jid=<platform>:*)` rules                     |
+| any folder-specific rule overlays                | `grant_rules.rules` for F                                                                  | extra rules appended after tier defaults             |
+| does a specific tool call pass                   | `grants.CheckAction(rules, action, params)` in the in-container MCP server                 | yes/no per invocation                                |
+| is the addressed JID inside the agent's subtree  | `auth.Authorize` (subtree containment via `routes`-resolved owning folder)                 | yes/no per outbound verb                             |
+| is the channel/group muted at this instance      | env-only: `SEND_DISABLED_CHANNELS`, `SEND_DISABLED_GROUPS` (`gateway.canSendTo*`)          | outbound recorded but platform send skipped          |
+| what env / secrets does the container start with | `secrets` table (folder ancestors + optional user overlay) via `container.resolveSpawnEnv` | merged plaintext env, deepest-wins                   |
 
-### Example
+### Worked example
 
 User `u:github-1234` sends a Telegram message to chat `-123`, which is
 routed to folder `atlas/support`:
 
-1. **Inbound admission** — `u:github-1234` must have a `user_groups`
-   row whose glob matches `atlas/support`. Could be `**` (operator),
-   `atlas/**` (world owner), `atlas/support` (direct grant). If none
-   → 403, onbod admission flow if `ONBOARDING_ENABLED`.
-2. **Routing** — `routes` table resolves `telegram:-123` → target
+1. **Inbound admission** — proxyd verifies the user's session and
+   stamps `X-User-Sub`/`X-User-Sig`. Backend mounts using
+   `auth.RequireSigned` reject mismatched sigs. For folder access
+   checks (e.g. dav), `auth.MatchGroups(store.UserGroups(sub), folder)`
+   must allow `atlas/support`. Could be `**` (operator), `atlas/**`
+   (world owner), or `atlas/support` (direct grant). If the user has no
+   matching row, onbod's admission queue gates them when
+   `ONBOARDING_ENABLED`.
+2. **Routing** — `routes` table resolves a row with
+   `match='platform=telegram room=-123'`, target `atlas/support`.
+3. **Agent spawn** — gateway starts a container for folder
    `atlas/support`.
-3. **Agent spawn** — container starts with folder `atlas/support`.
-4. **Tier** — `auth.Resolve("atlas/support")` → tier 1.
-5. **RoutedJIDs** — `RouteSourceJIDsInWorld("atlas")` returns all
-   `telegram:*`, `discord:*`, etc. JIDs routed to any atlas subgroup.
-6. **Rules** — `grants.DeriveRules` produces:
-   - Tier 1 base: `send`, `reply`, `send_file`
-   - Per-platform: `send(jid=telegram:*)`, `post(jid=telegram:*)`, ...
-   - Tier-1 fixed: `schedule_task`, `register_group`, `delegate_group`, ...
+4. **Tier** — `auth.Resolve("atlas/support")` → tier 1 (depth 1, sole `/`).
+5. **Routed JIDs in world** — `RouteSourceJIDsInWorld("atlas")` collects
+   every `<platform>:<room>` whose target sits under `atlas/`.
+6. **Rules** — `grants.DeriveRules(store, "atlas/support", 1, "atlas")`
+   yields:
+   - `send`, `reply`, `send_file`
+   - per-platform: `send(jid=telegram:*)`, `post(jid=telegram:*)`, …
+   - `schedule_task`, `register_group`, `escalate_group`,
+     `delegate_group`, `get_routes`, `set_routes`, `add_route`,
+     `delete_route`, `list_tasks`, `pause_task`, `resume_task`,
+     `cancel_task`
    - `share_mount(readonly=false)`
-7. **MCP** — IPC server filters registration by these rules. Calls
-   are gated at registration (tool appears or not) AND at runtime
-   (`grants.CheckAction` per-invocation).
+   - …followed by anything in `grant_rules` for `atlas/support`.
+7. **Env** — `resolveSpawnEnv` merges `FolderSecretsResolved("atlas/support")`
+   over the base env (catch-all `root` < `atlas` < `atlas/support`,
+   deepest wins). Because Telegram chat `-123` is a group chat
+   (`chats.is_group=1`), no user-secret overlay is added. AES-GCM at
+   rest in `secrets` (`store/migrations/0034-secrets.sql`).
+8. **MCP** — IPC server filters tool registration by these rules
+   (`grants.MatchingRules`) AND gates each call (`grants.CheckAction`).
+   Outbound verbs additionally pass through `auth.Authorize`, which
+   enforces subtree containment: the targeted JID's owning folder
+   (resolved via `store.DefaultFolderForJID`) must equal `id.Folder`
+   or be a descendant of it.
 
 ## Key invariants
 
 - **Tier ≠ ACL.** `user_groups` (who) is orthogonal to tier (what).
   A user with a `**` grant still sees only the tools their folder's
-  tier allows; a tier-0 root folder with no human user_groups rows
+  tier allows; a tier-0 root folder with no human `user_groups` rows
   is still an operator-controlled surface (CLI-only).
-- **No silent inheritance.** Each folder derives its own rules from
-  its own routes. Children don't inherit parent's JIDs.
-- **Route presence gates platform access.** No route for
-  `bluesky:*` to folder F → no `send(jid=bluesky:*)` rule →
-  agent can't post to Bluesky from F even if an adapter is running.
+- **No silent inheritance of routes.** Each folder derives its own
+  rules. Tier-1 worlds see all platforms routed anywhere under
+  themselves; tier-2+ groups see only platforms routed at their own
+  subtree.
+- **Route presence gates platform access.** No route for `bluesky:*`
+  to anything under folder F's scope → no `send(jid=bluesky:*)` rule
+  → agent can't post to Bluesky from F even if an adapter is running.
+- **Outbound subtree containment is independent of grants.** Even a
+  tier-0 root cannot direct-send cross-world via outbound verbs;
+  cross-world traffic goes through `escalate_group` / `delegate_group`,
+  each with its own `auth.Authorize` rule.
+- **Secrets ride the same hierarchy as grants but resolve
+  independently.** Folder ancestors walk root→F deepest-wins; user
+  overlay applies only when `chats.is_group=0`. AES-GCM key derived
+  from `AUTH_SECRET`; if unset, secrets are silently skipped and
+  base env still flows.
+
+## Code pointers
+
+- Identity & ACL: `auth/identity.go` (`Resolve`, `WorldOf`),
+  `auth/acl.go` (`MatchGroups`), `auth/policy.go` (`Authorize`)
+- Identity transport: `auth/middleware.go` (`RequireSigned`, `StripUnsigned`)
+- Tier-default grants engine: `grants/grants.go` (`DeriveRules`,
+  `CheckAction`, `MatchingRules`, `ParseRule`)
+- Stores: `store/auth.go` (`UserGroups`, `Grant`, `Ungrant`),
+  `store/grants.go` (`GetGrants`, `SetGrants`),
+  `store/groups.go` (`RouteSourceJIDsInWorld`, `DefaultFolderForJID`),
+  `store/routes.go` (route CRUD),
+  `store/secrets.go` (`FolderSecretsResolved`, `UserSecrets`)
+- Spawn-time composition: `gateway/gateway.go` (`runAgentWithOpts`),
+  `container/runner.go` (`resolveSpawnEnv`)
+- In-container gating: `ipc/ipc.go` (`buildMCPServer`)
 
 ## Specs this unifies
 
-- [`3/5-tool-authorization.md`](../3/5-tool-authorization.md) — the tier × action matrix
-- [`5/29-acl.md`](28-acl.md) — the `user_groups` glob model
-- [`1/F-group-routing.md`](../1/F-group-routing.md) — the `routes` match language
-- [`3/V-platform-permissions.md`](../3/V-platform-permissions.md) — deferred; its
-  concern is now addressed by `RoutedJIDs + platformRules` composition
-  rather than a separate `platform_grants` table
-
-## Open items
-
-- Subgroup inheritance: intentionally absent today. If a spec wants
-  "worker inherits world's platform" without per-route editing,
-  that's a new proposal, not a fix.
-- Read-action scoping: `fetch_history`, `inspect_*` aren't
-  per-platform-gated today — only tier-gated. If per-platform read
-  control matters, small addition — not in this spec's scope.
+- `specs/3/5-tool-authorization.md` — tier × action matrix
+- `specs/5/29-acl.md` — `user_groups` glob model
+- `specs/1/F-group-routing.md` — `routes` match language
+- `specs/3/V-platform-permissions.md` — deferred; concern subsumed
+  by `RouteSourceJIDsInWorld + platformRules` composition rather than
+  a separate `platform_grants` table
