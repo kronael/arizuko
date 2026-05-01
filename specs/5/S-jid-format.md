@@ -1,5 +1,6 @@
 ---
-status: unshipped
+status: shipped
+shipped: 2026-05-01
 ---
 
 # Typed JID — single resource per URL
@@ -40,8 +41,8 @@ discord:user/<user_id>                           # sender
 whatsapp:<id>@<server>                           # server distinguishes group/dm/lid
                                                  #  (g.us, s.whatsapp.net, lid)
 
-mastodon:<instance_host>/<account_id>            # account on instance
-mastodon:<instance_host>/status/<status_id>      # status (toot)
+mastodon:account/<account_id>                    # account (single-instance per deployment)
+mastodon:status/<status_id>                      # status (toot)
 
 reddit:comment/<id>                              # comment
 reddit:submission/<id>                           # submission
@@ -131,16 +132,32 @@ Glob semantics, uniform across all keys:
 
 ## Design discipline
 
-- **No legacy.** Hard cutover. One-shot migration rewrites every
-  `messages.chat_jid`, `messages.sender`, `messages.routed_to`, and
-  `routes.match` value (parallel pattern to migration 0032
-  invitations → invites).
+- **No legacy in storage.** Hard cutover. Migration `0038-typed-jids.sql`
+  rewrites every JID-shaped value: `messages.chat_jid`,
+  `messages.sender`, `messages.reply_to_sender`, `chats.jid` (PK),
+  `user_jids.jid`, `grants.jid`, `onboarding.jid`, and the
+  `chat_jid=`/`sender=` predicates inside `routes.match`. Idempotent —
+  every UPDATE is guarded by `NOT LIKE` on the new shape.
+  `messages.routed_to` is folder paths (not JIDs) — left unchanged.
+- **Discord placeholder.** Legacy rows have no stored guild_id. They
+  migrate to <code>discord:\_/&lt;channel&gt;</code> (placeholder kind).
+  New inbound from discd carries the real guild ID. Outbound that needs
+  the guild reads it from chat metadata, not the JID.
 - **One URL = one resource.** Discrimination at both layers — kind
   in the path (wire form), distinct type (code form).
 - **Adapter-local parse OK.** Core's `ParseChatJID` / `ParseUserJID`
   validate platform prefix and non-empty path; deeper structure is
   the adapter's contract. Adapters MUST emit canonical form on
-  inbound and parse it on outbound.
+  inbound; outbound paths accept both legacy and typed forms
+  during the cutover so deployed bots don't break mid-flight.
+- **Whatsapp + twitter already conformed.** No adapter touch; left
+  as-is. `whatsapp:<id>@<server>` already encodes kind via `@server`;
+  `twitter:tweet/<id>`, `twitter:dm/<id>`, `twitter:user/<id>` already
+  carried the kind discriminator.
+- **Web stays folder-keyed.** `web:<folder>` is the existing chat
+  identity layer for the slink hub; not migrated to
+  `web:slink/<token>` / `web:user/<sub>`. The new typed forms will
+  apply when the web stack splits token-vs-sub identity (deferred).
 
 ## Sequencing
 
