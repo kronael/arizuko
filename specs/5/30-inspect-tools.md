@@ -31,8 +31,8 @@ agent first-class access to logs, health, and routing state.
 | `inspect_session`  | current session ID, message count, last context reset, resume |
 
 Read-only, tier-gated (tier 0 sees all instances; tier ≥1 sees own
-group only). No destructive variants — `clear_errored`, `restart_adapter`
-stay in `control_*` family (see spec 5/control-commands).
+group only). No destructive variants here; mutating verbs (e.g.
+`clear_errored`, `restart_adapter`) belong in their own family.
 
 ## Why not just shell
 

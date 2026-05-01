@@ -26,10 +26,11 @@ aliases.)
 Routing / groups: `register_group`, `escalate_group`, `delegate_group`,
 `refresh_groups`, `list_routes`, `set_routes`, `add_route`,
 `delete_route`, `get_grants`, `set_grants`, `fetch_history`,
-`get_history`, `inspect_messages`.
+`get_history` (deprecated alias).
 
-Read-only introspection: `inspect_routing`, `inspect_tasks`,
-`inspect_session`, `inspect_identity`. Tier 0 sees all instances;
+Read-only introspection: `inspect_messages`, `inspect_routing`,
+`inspect_tasks`, `inspect_session`, `inspect_identity`. Tier 0 sees
+all instances;
 tier ≥1 is scoped to its folder subtree. Replaces ad-hoc
 `Bash sqlite3 …` audits.
 
@@ -50,11 +51,11 @@ tier ≥1 is scoped to its folder subtree. Replaces ad-hoc
 ## Files
 
 - `ipc.go` — server wiring, action tools, `SO_PEERCRED` accept gate
-- `inspect.go` — read-only introspection (`inspect_routing`, `inspect_tasks`, `inspect_session`)
+- `inspect.go` — read-only introspection (`inspect_routing`, `inspect_tasks`, `inspect_session`, `inspect_identity`)
 - `SECURITY.md` — threat model (peer UID, path resolution, grants)
 
 ## Related docs
 
 - `ARCHITECTURE.md` (IPC section)
-- `specs/7/33-inspect-tools.md`
+- `specs/5/30-inspect-tools.md`
 - `SECURITY.md` — root threat model
