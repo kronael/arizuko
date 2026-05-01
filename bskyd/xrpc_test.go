@@ -610,7 +610,7 @@ func TestFetchHistory(t *testing.T) {
 	if resp.Messages[1].ReplyTo != "p0" {
 		t.Errorf("msg[1] replyTo = %q", resp.Messages[1].ReplyTo)
 	}
-	if resp.Messages[1].Sender != "bluesky:did:plc:a" || resp.Messages[1].SenderName != "Alice" {
+	if resp.Messages[1].Sender != "bluesky:user/did%3Aplc%3Aa" || resp.Messages[1].SenderName != "Alice" {
 		t.Errorf("sender = %s / %s", resp.Messages[1].Sender, resp.Messages[1].SenderName)
 	}
 	if !strings.Contains(capturedQuery, "actor=did") {

@@ -249,8 +249,25 @@ func (bc *bskyClient) fetchNotifications(rc *chanlib.RouterClient) error {
 	return nil
 }
 
+// bskyUserJID renders a canonical Bluesky user JID. DIDs contain `:`
+// (`did:plc:<rest>`), so we percent-encode them so `<rest>` survives
+// `path.Match` glob semantics where `*` doesn't cross `/`.
+func bskyUserJID(did string) string {
+	return "bluesky:user/" + strings.ReplaceAll(did, ":", "%3A")
+}
+
+// bskyDIDFromJID reverses bskyUserJID for outbound calls. Accepts both
+// legacy `bluesky:<did>` and typed `bluesky:user/<encoded>`.
+func bskyDIDFromJID(jid string) string {
+	if strings.HasPrefix(jid, "bluesky:user/") {
+		enc := strings.TrimPrefix(jid, "bluesky:user/")
+		return strings.ReplaceAll(enc, "%3A", ":")
+	}
+	return strings.TrimPrefix(jid, "bluesky:")
+}
+
 func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClient) {
-	jid := "bluesky:" + n.Author.DID
+	jid := bskyUserJID(n.Author.DID)
 	name := n.Author.DisplayName
 	if name == "" {
 		name = n.Author.Handle
@@ -576,7 +593,7 @@ type feedViewPost struct {
 // while the page's oldest item is still after Before (up to 5 pages).
 // Limit is clamped to [1, 100] per Bluesky's API cap.
 func (bc *bskyClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
-	did := strings.TrimPrefix(req.ChatJID, "bluesky:")
+	did := bskyDIDFromJID(req.ChatJID)
 	if did == "" {
 		return chanlib.HistoryResponse{}, fmt.Errorf("invalid chat_jid")
 	}
@@ -626,7 +643,7 @@ func (bc *bskyClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryR
 			out = append(out, chanlib.InboundMsg{
 				ID:         uriToKey(fv.Post.URI),
 				ChatJID:    req.ChatJID,
-				Sender:     "bluesky:" + fv.Post.Author.DID,
+				Sender:     bskyUserJID(fv.Post.Author.DID),
 				SenderName: name,
 				Content:    rec.Text,
 				Timestamp:  ts.Unix(),
