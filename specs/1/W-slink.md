@@ -42,9 +42,8 @@ exactly one `submit_turn` out. The slink protocol exposes the round
 as a first-class object with a stable handle so callers can wait on
 it, page through its assistant frames, or stream them over SSE.
 
-`turn_id` = the originating inbound `messages.id` (per
-[../5/27-detached-containers.md](../5/27-detached-containers.md)).
-This is the round handle.
+`turn_id` = the originating inbound `messages.id`. This is the round
+handle.
 
 ### Endpoints
 

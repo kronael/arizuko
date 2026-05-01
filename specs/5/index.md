@@ -8,7 +8,6 @@ status: future
 | -------------------------------------------------------------- | --------- | ------------------------------------------------------------------ |
 | [0-agent-code-modification.md](0-agent-code-modification.md)   | unshipped | Staging area for root-agent-proposed gateway changes               |
 | [2-agent-pipeline.md](2-agent-pipeline.md)                     | shipped   | Orchestration (slink) vs workflows (Agent tool)                    |
-| [27-detached-containers.md](27-detached-containers.md)         | unshipped | Collapse stdout markers onto MCP `submit_turn`; supersedes D       |
 | [28-mass-onboarding.md](28-mass-onboarding.md)                 | shipped   | Self-service onboarding, username=world, web auth gate             |
 | [29-acl.md](29-acl.md)                                         | shipped   | Glob-matched user_groups, no operator/user distinction             |
 | [30-inspect-tools.md](30-inspect-tools.md)                     | shipped   | inspect\_\* MCP family (messages, routing, tasks, session)         |
