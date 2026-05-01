@@ -27,4 +27,4 @@ also filter the MCP tool manifest.
 ## Related docs
 
 - `ARCHITECTURE.md` (Grants Engine)
-- `specs/7/28-acl.md`
+- `specs/5/29-acl.md`

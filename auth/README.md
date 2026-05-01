@@ -43,4 +43,4 @@ tier), (3) tool-level authorization via `Authorize`.
 ## Related docs
 
 - `ARCHITECTURE.md` (Auth Hardening)
-- `specs/7/28-acl.md`
+- `specs/5/29-acl.md`
