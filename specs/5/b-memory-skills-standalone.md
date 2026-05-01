@@ -82,6 +82,35 @@ run agent → wait → return. Same contract as `crackbox run --kvm`.
 
 No marketing. No feature matrix. Three questions, three answers.
 
+## Container runtime (replaces TS ant)
+
+The Go binary also replaces today's TS `ant/` runtime inside the
+container. `ant run` (host CLI) and the in-container entry point
+share the same Go codebase: spawning side calls
+`ant agent --workspace=...` inside the sandbox, which then drives
+`claude -p --output-format stream-json --input-format stream-json
+--permission-mode bypassPermissions --mcp-config /tmp/mcp.json
+[--resume <sid>]` — same shape today's TS entrypoint already uses.
+
+Container contract unchanged: stdin `ContainerInput`, stdout ARIZUKO
+markers. arizuko's `gated` keeps spawning `ant:latest` unmodified.
+
+Hooks (port from TS):
+
+- `PostToolUse` — drain IPC input dir, print
+  `hookSpecificOutput.additionalContext`. Mid-loop injection path.
+- `PreCompact` — copy transcript to a side store before compaction.
+- Bash secret-scrub — guard against accidental secret echo.
+
+Unblockers from the prior `R-ant-go-cli` spec (now folded here):
+
+- Pin a specific `claude` CLI version — stream-json schema is
+  undocumented; floating-version risk
+- Verify `--resume <sid>` against the workspace mount layout
+- Map CLI exit codes to `ContainerOutput.error`
+- Cutover via `AGENT_IMAGE` env var: soak on one group, then
+  promote to all
+
 ## Out of scope
 
 - Plugin system / dynamic skill loading — see [E-plugins.md](E-plugins.md)
@@ -100,11 +129,8 @@ No marketing. No feature matrix. Three questions, three answers.
 
 ## Relation to other specs
 
-- [R-ant-go-cli.md](R-ant-go-cli.md) — the Go rewrite; this spec
-  subsumes it. Mark R-ant-go-cli as folded-into-this when this lands.
 - [../6/12-crackbox-sandboxing.md](../6/12-crackbox-sandboxing.md) —
   ant's `--sandbox=crackbox` backend depends on `crackbox/pkg/host`
   being stable.
-- [Z-cli-chat.md](Z-cli-chat.md) — `arizuko chat` is arizuko's
-  variant of `ant chat`; once ant ships, arizuko's `chat` can be a
-  thin wrapper.
+- [Z-cli-chat.md](Z-cli-chat.md) — once ant ships, `arizuko chat
+<group>` can become a thin wrapper around `ant chat <workspace>`.
