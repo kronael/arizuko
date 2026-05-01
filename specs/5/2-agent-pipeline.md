@@ -12,9 +12,9 @@ status: shipped
 Two shapes:
 
 - **Orchestration** — long-lived groups messaging each other via slink.
-  Own session/memory. Works today once slink is shipped.
+  Own session/memory.
 - **Workflows** — single group spawns subagents via Agent tool in one
-  container. Shared context. Works today.
+  container. Shared context.
 
 Rationale: workflows already work via Claude Code Agent tool. No gateway
 changes needed. Orchestration = existing slink + `send_message` + skill
