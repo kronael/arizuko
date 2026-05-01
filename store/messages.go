@@ -87,7 +87,7 @@ func scanMessageWithStatus(r rowScanner) (core.Message, error) {
 	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content,
 		&ts, &fromMe, &botMsg, &m.ForwardedFrom,
 		&m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
-		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored, &m.Status); err != nil {
+		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored, &m.TurnID, &m.Status); err != nil {
 		return m, err
 	}
 	m.FromMe = fromMe != 0
