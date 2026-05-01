@@ -1,5 +1,6 @@
 ---
-status: planned
+status: shipped
+date: 2026-05-01
 aka: antbox
 ---
 
@@ -13,10 +14,12 @@ aka: antbox
 
 ## Status
 
-`Planned`. The shipped v0.32.x crackbox is the **proxy half only**
-(now named [`egred`](../6/9-crackbox-standalone.md)). The
-sandboxing-library half is the next phase. This spec describes the
-target shape.
+`Shipped` (2026-05-01). `crackbox/pkg/host/` is in the monorepo with
+public API `(*Host).Spawn/Exec/Stop/List`, system-state-backed `List()`
+via disk scan + `detectState()`, InstanceID namespacing, and SSH-based
+`Exec`. The initial port is mechanical: prototype code + import-path
+renames + public wrapper. See "Deferred from initial port" below for
+what was intentionally left out.
 
 The original prototype at `/home/onvos/app/crackbox/` already
 implements KVM isolation + per-VM egress proxy + secrets injection.
@@ -196,3 +199,28 @@ v2.
   test as [8/b](b-orthogonal-components.md).
 - External-egred mode: pre-run `egred` as a separate container; `pkg/host/`
   detects it via `EGRED_ADMIN` env and skips the auto-spawn.
+
+## Deferred from initial port
+
+Items explicitly out of scope for the 2026-05-01 port; tracked in
+downstream specs or deferred to later passes:
+
+- **`EnsureImage(url)`** — image download and cache. The initial port
+  requires the caller to pass a pre-existing qcow2 path. Image
+  management (fetch, verify, cache) is deferred; no spec yet.
+- **MCP across VM boundary** — `gated.sock` is a unix socket on the
+  host; the agent inside the VM must reach it over socat/TCP via
+  virtio-vsock or 9p. Decision and implementation deferred to
+  [8/c — sandd](c-sandd.md) (phase 8).
+- **Resident-VM pool** — warm VMs across many agent runs, eviction
+  policy. Pool management lives in [`sandd`](c-sandd.md), not in
+  `pkg/host/`. Deferred to phase 8.
+- **egred auto-spawn from `pkg/host/`** — the initial port treats
+  `EgressProxy` as caller-provided; if empty, no proxy is configured.
+  Auto-spawn of a local egred subprocess is deferred to `pkg/run/`
+  orchestration (separate follow-up).
+- **Secrets injection** — runtime secret delivery via egred at egress.
+  Specified in [6/11](11-crackbox-secrets.md); not yet implemented.
+- **`gated` Docker→KVM backend switch** — `gated` currently uses the
+  Docker backend. Switching to `crackbox/pkg/host/` as its backend
+  is tracked under [8/c — sandd](c-sandd.md) (phase 8).
