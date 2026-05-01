@@ -251,10 +251,10 @@ func TestBotHandle_RoutesInbound(t *testing.T) {
 		t.Fatalf("dispatched %d", len(mr.msgs))
 	}
 	got := mr.msgs[0]
-	if got.ChatJID != "telegram:-100123" {
+	if got.ChatJID != "telegram:group/100123" {
 		t.Errorf("ChatJID = %q", got.ChatJID)
 	}
-	if got.Sender != "telegram:42" {
+	if got.Sender != "telegram:user/42" {
 		t.Errorf("Sender = %q", got.Sender)
 	}
 	if !strings.HasPrefix(got.Content, "@Ari ") {

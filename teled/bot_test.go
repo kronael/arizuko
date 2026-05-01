@@ -16,8 +16,12 @@ func TestParseChatID(t *testing.T) {
 		jid  string
 		want int64
 	}{
+		// Legacy.
 		{"telegram:123456", 123456},
 		{"telegram:-1001234567890", -1001234567890},
+		// Typed (post-migration). group/<id> re-signs to negative.
+		{"telegram:user/123456", 123456},
+		{"telegram:group/1001234567890", -1001234567890},
 	}
 	for _, tt := range tests {
 		got, err := parseChatID(tt.jid)
@@ -26,6 +30,21 @@ func TestParseChatID(t *testing.T) {
 		}
 		if got != tt.want {
 			t.Errorf("parseChatID(%q) = %d, want %d", tt.jid, got, tt.want)
+		}
+	}
+}
+
+func TestChatJIDFromID(t *testing.T) {
+	cases := []struct {
+		id   int64
+		want string
+	}{
+		{123456, "telegram:user/123456"},
+		{-1001234, "telegram:group/1001234"},
+	}
+	for _, tt := range cases {
+		if got := chatJIDFromID(tt.id); got != tt.want {
+			t.Errorf("chatJIDFromID(%d) = %q, want %q", tt.id, got, tt.want)
 		}
 	}
 }

@@ -208,11 +208,11 @@ func (b *bot) handleReaction(r *messageReactionUpdated, rc *chanlib.RouterClient
 		if e.Type != "emoji" || old[e.Emoji] {
 			continue
 		}
-		jid := "telegram:" + strconv.FormatInt(r.Chat.ID, 10)
+		jid := chatJIDFromID(r.Chat.ID)
 		im := chanlib.InboundMsg{
 			ID:         strconv.Itoa(r.MessageID) + ":r:" + e.Emoji,
 			ChatJID:    jid,
-			Sender:     "telegram:" + userID(r.User),
+			Sender:     "telegram:user/" + userID(r.User),
 			SenderName: userName(r.User),
 			Content:    e.Emoji,
 			Timestamp:  r.Date,
@@ -249,7 +249,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 	if msg.From != nil && msg.From.IsBot {
 		return true
 	}
-	jid := "telegram:" + strconv.FormatInt(msg.Chat.ID, 10)
+	jid := chatJIDFromID(msg.Chat.ID)
 
 	res := extractMedia(msg, b.cfg.ListenURL)
 	content := res.content
@@ -281,7 +281,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 	im := chanlib.InboundMsg{
 		ID:          strconv.Itoa(msg.MessageID),
 		ChatJID:     jid,
-		Sender:      "telegram:" + userID(msg.From),
+		Sender:      "telegram:user/" + userID(msg.From),
 		SenderName:  userName(msg.From),
 		Content:     content,
 		Timestamp:   int64(msg.Date),
@@ -553,8 +553,36 @@ func (b *bot) sendTyping(jid string) {
 	}
 }
 
+// chatJIDFromID renders Telegram chat ID in canonical kind-discriminator
+// form. Positive ID → DM (telegram:user/<id>); negative → group, channel,
+// or supergroup (telegram:group/<|id|>; sign dropped — the discriminator
+// carries the kind).
+func chatJIDFromID(id int64) string {
+	if id < 0 {
+		return "telegram:group/" + strconv.FormatInt(-id, 10)
+	}
+	return "telegram:user/" + strconv.FormatInt(id, 10)
+}
+
+// parseChatID accepts both legacy `telegram:<id>` (signed int) and typed
+// `telegram:user/<id>` (positive) / `telegram:group/<id>` (negative,
+// re-signed) forms. The typed `group/` kind drops the sign on the wire;
+// we restore the negative sign here so the Telegram bot API gets the int
+// it expects (positive=user/DM, negative=group/supergroup/channel).
 func parseChatID(jid string) (int64, error) {
-	return strconv.ParseInt(strings.TrimPrefix(jid, "telegram:"), 10, 64)
+	rest := strings.TrimPrefix(jid, "telegram:")
+	if kind, id, ok := strings.Cut(rest, "/"); ok {
+		n, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		if kind == "group" && n > 0 {
+			n = -n
+		}
+		return n, nil
+	}
+	// Legacy `telegram:<signed>` form.
+	return strconv.ParseInt(rest, 10, 64)
 }
 
 func userName(u *tgbotapi.User) string {
