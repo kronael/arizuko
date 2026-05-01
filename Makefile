@@ -54,7 +54,7 @@ clean:
 	$(foreach c,$(COMPONENTS),make -C $(c) clean;)
 
 images:
-	$(DOCKER) image prune -af
+	$(DOCKER) image prune -f
 	$(DOCKER) build -t arizuko .
 	$(DOCKER) build -t arizuko-whatsapp -f whapd/Dockerfile .
 	$(DOCKER) build -t arizuko-twitter -f twitd/Dockerfile .
