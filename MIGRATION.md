@@ -122,9 +122,8 @@ sticky_topic)`. Dropped `name`, `channel`, `is_group`, `last_message_time`
   recoverable via `messages` JOIN.
 - **`groups`**: rekeyed by `folder` (PK) instead of `jid`; JID→folder
   mappings moved to `routes` as `type='default'`. kanipi had `max_children`,
-  `world`; arizuko has `spawn_ttl_days`, `archive_closed_days`, `state`
-  (max_children lives in `container_config` JSON). `agent_cursor` moved from
-  groups to `chats`.
+  `world`; arizuko stores `max_children` in `container_config` JSON.
+  `agent_cursor` moved from groups to `chats`.
 - **`scheduled_tasks`**: kanipi `group_folder`+`schedule_type`+
   `schedule_value`+`context_mode`+`last_run`+`last_result`. arizuko `owner`
   - `cron`. No `task_run_logs`.

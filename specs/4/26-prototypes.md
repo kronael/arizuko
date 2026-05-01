@@ -4,8 +4,7 @@ status: shipped
 
 # Prototypes
 
-Spawn, copy, and cleanup/TTL all shipped. Cleanup runs via `timed`
-(`timed/main.go cleanupSpawns`).
+Spawn and copy shipped. Spawns persist until removed; no auto-archive.
 
 A group's `prototype/` subdirectory defines what its children look
 like. When a child is spawned (via auto-threading or onboarding),
@@ -109,7 +108,7 @@ session and data isolation — routing is fixed by the parent's config.
 2. `CLAUDE.md`, `SOUL.md` copied; `skills/` bind-mounted read-only
 3. `max_children` enforced; fallback to next route when exceeded
 4. Folder names derived from JID (`spawnFolderName(jid string) string`)
-5. Cleanup job marks inactive spawns closed, archives after threshold
+5. Spawns persist in DB; manual removal only
 
 ## Agent-facing spawn mechanism
 

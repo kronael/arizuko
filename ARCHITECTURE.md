@@ -144,7 +144,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | ------------------ | ---------------------------------------------------------------------------------------- |
 | `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group                             |
 | `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored |
-| `groups`           | folder (PK), name, container_config, slink_token, parent, state, spawn_ttl_days          |
+| `groups`           | folder (PK), name, container_config, slink_token, parent                                 |
 | `routes`           | id (PK), seq, match, target, impulse_config                                              |
 | `sessions`         | group_folder + topic (PK), session_id                                                    |
 | `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error                        |
@@ -331,9 +331,6 @@ For each due task (status=active, next_run <= now):
 3. Compute next run (robfig/cron or interval-ms), update `next_run`
 4. Tasks without cron get `status='completed'` (one-shot)
 5. Log each run to `task_run_logs`
-
-Daily `cleanupSpawns`: closes idle child groups past `spawn_ttl_days`,
-archives closed groups past `archive_closed_days` as `.tar.gz`.
 
 Gateway picks up scheduler messages via normal poll. timed opens the same
 SQLite DB (WAL mode); schema is owned by `store/migrations/` and must
