@@ -273,7 +273,6 @@ func resetRow(db *sql.DB) {
 	}
 }
 
-
 func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
 	token := r.URL.Query().Get("token")
 	userSub := r.Header.Get("X-User-Sub")
@@ -932,11 +931,6 @@ func userRoutes(db *sql.DB, folders []string) []dashRoute {
 	return out
 }
 
-
-func folderAllowed(folders []string, target string) bool {
-	return auth.MatchGroups(folders, target)
-}
-
 func isOperator(folders []string) bool {
 	if folders == nil {
 		return true
@@ -964,7 +958,7 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "route not found", http.StatusNotFound)
 		return
 	}
-	if !folderAllowed(folders, target) {
+	if !auth.MatchGroups(folders, target) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1025,7 +1019,7 @@ func handleAddRoute(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "invalid match characters", http.StatusBadRequest)
 		return
 	}
-	if !folderAllowed(folders, target) {
+	if !auth.MatchGroups(folders, target) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
