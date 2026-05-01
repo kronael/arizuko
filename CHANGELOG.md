@@ -9,9 +9,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-> Your agent can now pull message history for a single thread —
-> one Telegram forum topic, one web-chat topic — without sifting
-> through the whole chat.
+> Your agent can now pull thread-scoped message history (`get_thread`)
+> and external agents can drive any group through a slink-token-bound
+> MCP endpoint at `/slink/<token>/mcp` — no JWT, just the token.
 
 ### Added
 
@@ -22,6 +22,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `MessagesByTopic`. Tier-gated like `inspect_messages` — non-root
   callers only see JIDs routed to their folder. Spec
   `specs/5/C-message-mcp.md` is now shipped. Agent migration 084.
+- **slink MCP transport** at `POST /slink/<token>/mcp`. External
+  agents can register a slink-token-bound URL as a remote MCP
+  server in Claude Code (or any MCP client) and call three
+  group-scoped tools: `send_message`, `steer`, `get_round`. The
+  token is the auth — possessing it = group membership; no JWT,
+  no bearer. Streamable HTTP, stateless, served via the same
+  `mcp-go` library used by the existing per-instance `/mcp`.
+  Shared `injectSlink` helper underneath `handleSlinkPost` and the
+  MCP tools. Spec `specs/5/J-sse.md` is now shipped. Agent
+  migration 085.
 
 ### Changed
 
