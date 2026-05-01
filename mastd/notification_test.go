@@ -82,7 +82,7 @@ func TestHandleNotification_Mention(t *testing.T) {
 	if got.ID != "status-1" {
 		t.Errorf("ID = %q", got.ID)
 	}
-	if got.ChatJID != "mastodon:42" {
+	if got.ChatJID != "mastodon:account/42" {
 		t.Errorf("ChatJID = %q", got.ChatJID)
 	}
 	if got.Content != "Hello @bot" {
@@ -450,7 +450,7 @@ func TestFetchHistory_Notifications(t *testing.T) {
 		files: chanlib.NewURLCache(10),
 	}
 
-	resp, err := mc.FetchHistory(chanlib.HistoryRequest{ChatJID: "mastodon:42", Limit: 50})
+	resp, err := mc.FetchHistory(chanlib.HistoryRequest{ChatJID: "mastodon:account/42", Limit: 50})
 	if err != nil {
 		t.Fatalf("FetchHistory: %v", err)
 	}
@@ -464,7 +464,7 @@ func TestFetchHistory_Notifications(t *testing.T) {
 	if resp.Messages[0].ID != "s-older" || resp.Messages[1].ID != "s-newer" {
 		t.Errorf("order wrong: %q %q", resp.Messages[0].ID, resp.Messages[1].ID)
 	}
-	if resp.Messages[0].ChatJID != "mastodon:42" {
+	if resp.Messages[0].ChatJID != "mastodon:account/42" {
 		t.Errorf("ChatJID=%q", resp.Messages[0].ChatJID)
 	}
 	if resp.Messages[0].Content != "older" {

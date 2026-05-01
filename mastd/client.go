@@ -123,10 +123,16 @@ func (mc *mastoClient) handleNotification(n *mastodon.Notification, rc *chanlib.
 
 func (mc *mastoClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
 	jid := req.ChatJID
-	if !strings.HasPrefix(jid, "mastodon:") {
+	// Accept both legacy `mastodon:<id>` and new `mastodon:account/<id>`.
+	var accountID string
+	switch {
+	case strings.HasPrefix(jid, "mastodon:account/"):
+		accountID = strings.TrimPrefix(jid, "mastodon:account/")
+	case strings.HasPrefix(jid, "mastodon:"):
+		accountID = strings.TrimPrefix(jid, "mastodon:")
+	default:
 		return chanlib.HistoryResponse{Source: "unsupported", Messages: []chanlib.InboundMsg{}}, nil
 	}
-	accountID := strings.TrimPrefix(jid, "mastodon:")
 	if accountID == "" {
 		return chanlib.HistoryResponse{Source: "unsupported", Messages: []chanlib.InboundMsg{}}, nil
 	}
@@ -162,7 +168,7 @@ func (mc *mastoClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.History
 
 func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.InboundMsg, bool) {
 	acc := n.Account
-	jid := "mastodon:" + string(acc.ID)
+	jid := "mastodon:account/" + string(acc.ID)
 	name := acc.DisplayName
 	if name == "" {
 		name = acc.Acct
