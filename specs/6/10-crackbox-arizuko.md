@@ -4,138 +4,145 @@ shipped: 2026-04-29
 depends: 9-crackbox-standalone
 ---
 
-# Crackbox in arizuko — long-running daemon consumer
+# Crackbox in arizuko — current consumer + sandd transition
 
-> arizuko runs `crackbox proxy serve` as a compose service and
-> POSTs Register/Unregister per agent spawn. Same wire shape as
-> today's egred prototype — only the binary name and Go import
-> path change.
+> Today: `gated` directly spawns Docker + POSTs `/v1/register` to
+> egred. Next: `gated` gains a Backend interface and imports
+> [`crackbox/pkg/host/`](../6/12-crackbox-sandboxing.md) for the KVM
+> backend. Sandd extraction ([8/c](../8/c-sandd.md)) deferred.
+> Egred remains the egress proxy in both paths.
 
 ## Status
 
-Planned. The `egred/` daemon shipped 2026-04-29 is the working
-prototype this spec replaces. No semantic change is intended by
-this rework.
+The egred proxy + arizuko's per-folder allowlist consumer shipped
+2026-04-29. This spec describes both the current shipped consumer
+and the sandd transition planned for next phase.
 
-## Today's prototype
+## Today's shipped consumer
 
-`egred/` is the forward-proxy daemon currently running in
-production on krons. It demonstrated default-deny works
-end-to-end: an agent spawn registered with egred,
-`https://api.anthropic.com` was allowed, and Claude Code's own
-datadog telemetry (`http-intake.logs.us5.datadoghq.com`) was
-blocked by the seed allowlist failing closed. That's the property
-this rework preserves.
+arizuko runs `egred` (entrypoint `crackbox proxy serve`) as a
+Docker compose service. One shared egred per arizuko instance.
+The egred container sits on every per-folder Docker network
+(attached via `docker network connect --alias crackbox`), so
+agents in any folder reach it by short name.
 
-What's wrong with the prototype: it lives in `arizuko/egred/`
-under the arizuko module, not as a sibling component. Its
-allowlist resolver (`store/network.go`) reads arizuko's
-`messages.db`. Its matcher keys IPs to "folders" because that's
-what gated hands it. The runtime artifact is generic but the
-source is tangled with arizuko's domain. See
-[`specs/8/b-orthogonal-components.md`](../8/b-orthogonal-components.md)
-for the layering principle.
+For each agent spawn, arizuko (in `gated`) does:
 
-This spec describes the rename + extraction of that prototype
-into the `crackbox` sibling component without semantic change.
-
-## Architecture
-
-arizuko runs `crackbox proxy serve` as a Docker compose service.
-One shared daemon per arizuko instance. The crackbox container
-sits on the project's `agents` internal Docker network plus the
-default bridge — agents can only reach the world by going
-through it.
-
-For each agent spawn, arizuko:
-
-1. Computes the flat allowlist via
-   `store.ResolveAllowlist(folder)` — the existing folder-walk +
-   dedupe.
-2. POSTs `/v1/register {ip, id, allowlist}` to the crackbox admin
-   API using `crackbox.Client`.
-3. Spawns the agent container on the `agents` network with
+1. Computes the flat allowlist via `store.ResolveAllowlist(folder)`
+   — folder-walk + dedupe.
+2. POSTs `/v1/register {ip, id, allowlist}` to the egred admin API
+   using `crackbox/pkg/client.Client`.
+3. Spawns the agent container on the per-folder network with
    `HTTPS_PROXY=http://crackbox:3128`.
 4. On exit, POSTs `/v1/unregister {ip}`.
 
-Wire shape is identical to today's egred. The proxy daemon is
-unchanged in behavior — only its package path and binary name move.
+This works. It also gives `gated` the docker-spawn privilege, which
+is the tension that motivates the sandd extraction below.
 
 ## Domain vs mechanism boundary
 
-| Owner    | What                                                                       |
-| -------- | -------------------------------------------------------------------------- |
-| arizuko  | `network_rules` table + migration 0037                                     |
-| arizuko  | `store.ResolveAllowlist` folder-walk and dedupe                            |
-| arizuko  | `arizuko network <instance>` operator CLI                                  |
-| arizuko  | `container/egress.go` lifecycle glue                                       |
-| arizuko  | `EGRESS_ISOLATION` toggle                                                  |
-| arizuko  | Default seed allowlist (`anthropic.com`, `api.anthropic.com`) in migration |
-| crackbox | The proxy daemon                                                           |
-| crackbox | `matchHost` and the domain validators                                      |
-| crackbox | The `/v1/register` etc admin API                                           |
-| crackbox | The `:3128` proxy listener                                                 |
+Unchanged from the original spec. arizuko owns domain (folders,
+grants, policy composition); the crackbox component owns mechanism
+(proxy daemon, matchHost, admin API, future VM lifecycle).
 
-arizuko hands crackbox a flat `(ip, id, []string)`. crackbox
-never learns about folders, grants, ancestry, or `messages.db`.
+| Owner    | What                                                                                   |
+| -------- | -------------------------------------------------------------------------------------- |
+| arizuko  | `network_rules` table + migration 0037                                                 |
+| arizuko  | `store.ResolveAllowlist` folder-walk and dedupe                                        |
+| arizuko  | `arizuko network <instance>` operator CLI                                              |
+| arizuko  | `container/egress.go` lifecycle glue (today; moves to sandd)                           |
+| arizuko  | `EGRESS_ISOLATION` toggle (deprecated; presence of `CRACKBOX_ADMIN_API` is the switch) |
+| arizuko  | Default seed allowlist (`anthropic.com`, `api.anthropic.com`)                          |
+| crackbox | The egred proxy daemon                                                                 |
+| crackbox | `matchHost` and the domain validators                                                  |
+| crackbox | The `/v1/register` etc admin API                                                       |
+| crackbox | The `:3128` proxy listener                                                             |
 
-## Migration delta from today's egred
+arizuko hands crackbox a flat `(ip, id, []string)`. crackbox never
+learns about folders, grants, ancestry, or `messages.db`.
 
-One refactor commit
-(`[refactor] move egred → crackbox component (specs 6/9 + 6/10)`):
+## KVM backend transition (next phase)
 
-- Rename `arizuko/egred/` → `arizuko/crackbox/`.
-- Move daemon code into the standard layout per spec 6/9:
-  `crackbox/cmd/crackbox/main.go`, `crackbox/pkg/proxy/`,
-  `crackbox/pkg/match/`, `crackbox/pkg/admin/`,
-  `crackbox/pkg/client/`.
-- Add the `crackbox run` subcommand and `crackbox/pkg/run/`
-  (new code required by spec 6/9 — not used by arizuko but ships
-  in the same binary).
-- `arizuko/container/egress.go` switches from inline HTTP POST to
-  `crackbox.Client.Register` / `Unregister`.
-- `arizuko/compose/compose.go` emits a `crackbox` service
-  (`image: arizuko-crackbox`,
-  `entrypoint: ["crackbox", "proxy", "serve"]`) instead of
-  `egred`. Same wire shape, new name.
-- Drop arizuko-internal imports from the crackbox tree. Verify:
-  `grep -rE 'github.com/[^/]+/arizuko/(store|core|gateway|api)' arizuko/crackbox/`
-  returns empty.
-- Keep `arizuko/cmd/arizuko/network.go`, `arizuko/store/network.go`
-  and migration 0037 in arizuko — folder ancestry is arizuko
-  domain.
-- Optionally rename `EGRED_API` env to `CRACKBOX_API` for
-  consistency.
+`gated` keeps sandbox-spawn ownership. Adds a Backend interface in
+`container/runner.go`:
 
-## No semantic change
+```go
+type Backend interface {
+    Spawn(Input) (Handle, error)
+    Wait(Handle) (ExitCode, error)
+    Stop(Handle) error
+}
+```
 
-krons behavior before and after the migration is identical.
-Default-deny still works. `EGRESS_ISOLATION=true` still enforces
-the proxy. Existing smoke tests still pass. The wire format on
-`/v1/register` and the matcher behavior in `matchHost` are
-preserved exactly.
+Two implementations, selected by env (`SANDBOX_BACKEND=docker|kvm`):
+
+- **`container.DockerBackend`** — current path, refactored behind
+  the interface. Zero behavior change.
+- **`container.KVMBackend`** — imports `crackbox/pkg/host/`. Spawns
+  qemu VM, ensures egred is up, registers VM IP with egred,
+  attaches to per-folder network. The library does the privileged
+  work; gated just calls into it.
+
+```
+gated ─── DockerBackend  → docker run                                (today)
+      └── KVMBackend     → crackbox/pkg/host/.Spawn                  (next)
+                            ├── spawn qemu
+                            ├── ensure egred up (or use external)
+                            └── POST /v1/register to egred
+
+both backends ─── POST /v1/register ──→ egred (egress proxy)
+```
+
+Privilege impact: gated already mounts `docker.sock` (root-
+equivalent). Adding `/dev/kvm` + `CAP_NET_ADMIN` is incremental,
+not a new attack surface. The privilege-isolation extraction into a
+separate `sandd` daemon ([spec 8/c](../8/c-sandd.md)) is deferred —
+ship KVM behind the Backend interface first; revisit the daemon
+split when there's a concrete symptom that needs it.
+
+Migration is mechanical:
+
+1. `container/runner.go` extracts current Docker-spawn into
+   `container.DockerBackend`. `container.Run` becomes
+   `backend.Spawn(Input)` selected by env.
+2. `container/egress.go` (the per-spawn register/unregister) stays
+   where it is; both backends call it the same way.
+3. `container.KVMBackend` lands as new code that imports
+   `crackbox/pkg/host/` (which lands per spec 8/a).
+4. `arizuko/cmd/arizuko/network.go`, `arizuko/store/network.go`,
+   migration 0037 — all stay in arizuko. Folder ancestry is arizuko
+   domain.
+
+## No semantic change for end users
+
+Same default-deny behavior. `arizuko network <inst> allow <folder>
+<host>` still works. Per-folder allowlists still resolve via
+folder-walk. KVM backend changes the runtime artifact (qemu instead
+of docker container) but not the observable user experience.
 
 ## Out of scope
 
 - Spec 6/11 placeholder injection.
-- MCP tools (`request_network`, `list_network_rules`) — CLI only
-  for now.
+- MCP tools (`request_network`, `list_network_rules`) — CLI only.
 - Per-user network rules (per-folder only).
 - Traffic logging and audit.
 - Response scanning.
 
 ## Acceptance
 
-Same as today's verified end-to-end, after the rework:
+For today's shipped state:
 
-- Agent spawn on krons triggers `crackbox.Client.Register` and
-  the journal shows
-  `egress registered folder=<f> ip=<ip> rules=<n>`.
-- A request to `https://api.anthropic.com` from the agent is
-  allowed; a request to `https://datadoghq.com` is denied by the
-  proxy.
+- Agent spawn on krons triggers `client.Register` and the journal
+  shows `egress registered folder=<f> ip=<ip> rules=<n>`.
+- A request to `https://api.anthropic.com` is allowed; a request
+  to `https://datadoghq.com` is denied by the proxy.
 - `arizuko network krons resolve atlas` returns the seeded list
-  (`anthropic.com`, `api.anthropic.com`) plus any folder additions.
-- All existing tests pass.
-- `grep -rE 'github\.com/[^/]+/arizuko/(store\|core\|gateway\|api\|chanlib\|chanreg\|router\|queue|ipc\|grants\|onbod|webd|gated)' arizuko/crackbox/` returns
-  empty.
+  plus any folder additions.
+
+For the sandd transition (when shipped):
+
+- `gated` runs as a nonroot user with no `docker.sock` mount.
+  `ps aux | grep docker.sock` shows only `sandd`.
+- All existing smoke tests pass.
+- Agent spawn behavior is byte-identical: same image, same env,
+  same mounts, same network attach.

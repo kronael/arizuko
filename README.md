@@ -91,9 +91,9 @@ layered docs and is not indexed here.
 Shippable separately, usable outside arizuko. No imports of
 arizuko-internal packages. See [`specs/8/b-orthogonal-components.md`](specs/8/b-orthogonal-components.md).
 
-| name     | role                                         | README                                   |
-| -------- | -------------------------------------------- | ---------------------------------------- |
-| crackbox | forward proxy daemon + per-source allowlists | [crackbox/README.md](crackbox/README.md) |
+| name     | role                                                                                                                         | README                                   |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| crackbox | umbrella: `egred` proxy daemon (shipped) + `pkg/host/` KVM lib (planned, see [specs/8/a](specs/6/12-crackbox-sandboxing.md)) | [crackbox/README.md](crackbox/README.md) |
 
 ## Features
 

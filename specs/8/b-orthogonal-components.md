@@ -148,17 +148,29 @@ under `specs/6/`. This file is the pattern, not the plans.
 
 ### crackbox
 
-Forward HTTP/HTTPS proxy that enforces per-source domain
-allowlists. Single daemon with an in-memory registry of
-`(source-id → allowlist)` entries and an admin API for managing
-them. arizuko consumes it as a long-lived service in compose,
-POSTing register/unregister at agent spawn/exit; standalone users
-invoke a thin CLI wrapper that orchestrates daemon + register +
-container-spawn + cleanup. See
-[`specs/6/9-crackbox-standalone.md`](../6/9-crackbox-standalone.md)
-for the v1 shipping plan and
-[`specs/6/10-crackbox-arizuko.md`](../6/10-crackbox-arizuko.md) for
-how arizuko consumes it.
+Sandbox-and-egress umbrella component. Two distinct things ship
+under this name:
+
+- **`egred`** — forward HTTP/HTTPS proxy daemon. Per-source-IP
+  allowlist, admin API, runnable standalone or under `crackbox
+proxy serve`. Stateless about what's behind the source IPs. See
+  [`specs/6/9-crackbox-standalone.md`](../6/9-crackbox-standalone.md).
+- **`crackbox/pkg/host/`** — Go library for KVM/qemu sandbox
+  lifecycle. Spawns VMs, manages privileges, ensures egred is up.
+  Imported by `sandd` (for arizuko deployments) and by the
+  `crackbox run --kvm` CLI (for laptop one-shots). See
+  [`spe../6/12-crackbox-sandboxing.md`](a-crackbox-sandboxing.md).
+
+The two halves ship in the same component so `crackbox run` can
+compose them into a one-shot sandboxed-execution CLI without an
+extra dependency. arizuko consumes them separately: long-lived
+egred container in compose; the host library will be imported by
+sandd when KVM backend lands. The proxy half is consumer-side
+shipped today; the host library is planned (next phase).
+
+[`specs/6/10-crackbox-arizuko.md`](../6/10-crackbox-arizuko.md)
+covers the today-and-tomorrow consumer pattern and the planned
+[`sandd`](c-sandd.md) extraction.
 
 ### messaging-gateway (future, extracted from gated)
 

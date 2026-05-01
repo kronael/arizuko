@@ -1,28 +1,42 @@
 # crackbox
 
-Forward HTTP/HTTPS proxy daemon with per-source-IP allowlists.
+Sandbox + egress umbrella component. Two halves:
 
-One daemon, one registry, one matchHost. CLI subcommands are sugar
-over the same daemon — there is no separate single-shot proxy.
+- **`egred`** — forward HTTP/HTTPS proxy daemon (shipped). Per-source-IP
+  allowlist, admin API, transparent + forward modes. Same binary as
+  `crackbox proxy serve`. See [`specs/6/9`](../specscs/6/9-crackbox-standalone.md).
+- **`pkg/host/`** — Go library for KVM/qemu sandbox lifecycle (planned;
+  see [`specs/8/a`](../specscs/6/12-crackbox-sandboxing.md)). Spawns VMs,
+  manages privileges, ensures egred is up. Imported by
+  [`sandd`](../specscs/8/c-sandd.md) (arizuko-internal sandbox daemon)
+  and by `crackbox run --kvm` for laptop one-shots.
+
+The two halves ship together so `crackbox run` composes a
+sandboxed-execution CLI with no extra dep. Today only the proxy half
+is in production. The library half is next phase.
 
 ## Subcommands
 
 ```
 crackbox proxy serve [--config <path>] [--listen :3128] [--admin :3129] [--transparent :3127]
-crackbox run --allow <list> [--id <name>] [--image <img>] -- <cmd>...
+crackbox run --allow <list> [--id <name>] [--image <img>] [--kvm] -- <cmd>...
 crackbox state [--admin <url>]
+crackbox host run --image <vm> [--memory 2G] -- <cmd>...   # planned
 ```
 
-- `proxy serve` — long-running daemon. Forward proxy on `:3128`,
-  admin API on `:3129` (`/v1/register`, `/v1/unregister`, `/v1/state`,
-  `/health`), transparent-mode listener on `:3127`. matchHost is
-  per-source-IP lookup.
-- `run` — convenience wrapper. Creates a Docker network, spawns
-  `crackbox proxy serve` on it, registers one allowlist for the
-  to-be-run user container, runs `<cmd>` with `HTTPS_PROXY` set,
-  tears everything down on exit. Same daemon code; the registry
+- `proxy serve` — long-running egred daemon. Functionally identical
+  to invoking `egred` standalone. Forward proxy on `:3128`, admin API
+  on `:3129` (`/v1/register`, `/v1/unregister`, `/v1/state`, `/health`),
+  transparent-mode listener on `:3127`. matchHost is per-source-IP
+  lookup.
+- `run` — convenience wrapper. Creates a Docker network (or KVM
+  bridge with `--kvm`), spawns egred on it, registers one allowlist
+  for the to-be-run user container/VM, runs `<cmd>` with `HTTPS_PROXY`
+  set, tears everything down on exit. Same daemon code; the registry
   just happens to have one entry.
 - `state` — query a running daemon's registry.
+- `host run` (planned) — spawn one KVM VM directly via `pkg/host/`
+  for non-egress use cases. Same backend `sandd` will use.
 
 ## Transparent mode
 
@@ -86,13 +100,17 @@ Default-deny is the trade. `crackbox run --allow ""` blocks everything;
 
 ```
 crackbox/
-  cmd/crackbox/main.go        CLI dispatcher
-  pkg/proxy/                  forward HTTP + CONNECT + transparent + splice
-  pkg/config/                 TOML config loader (search path + defaults)
-  pkg/match/                  Host(allowlist, host) bool, validators
-  pkg/admin/                  Registry + admin API handlers
-  pkg/run/                    `crackbox run` orchestration
-  pkg/client/                 admin HTTP client
+  cmd/
+    crackbox/main.go          umbrella CLI: proxy serve / run / state / host (planned)
+    egred/main.go             standalone egred binary (planned; thin wrapper around pkg/proxy)
+  pkg/
+    proxy/                    forward HTTP + CONNECT + transparent + splice (egred internals)
+    host/                     KVM/qemu sandbox lifecycle (planned; spec 8/a)
+    config/                   TOML config loader (search path + defaults)
+    match/                    Host(allowlist, host) bool, validators
+    admin/                    Registry + admin API handlers
+    run/                      `crackbox run` orchestration
+    client/                   admin HTTP client (consumed by sandd, by `crackbox run`)
   Dockerfile, Makefile
 ```
 
@@ -127,9 +145,15 @@ the invoking shell.
 
 ## Reuse from origin crackbox
 
-`pkg/match/Host`, `LooksLikeDomain`, `LooksLikeIP`, `domainRegex`,
-and the test fixtures are ported from
+The proxy half (`pkg/match/Host`, `LooksLikeDomain`, `LooksLikeIP`,
+`domainRegex`, test fixtures) is ported from
 `/home/onvos/app/crackbox/internal/vm/{proxy,netfilter}.go`.
+
+The host-library half (planned, `pkg/host/`) ports the prototype's
+`internal/vm/launch.go` (qemu invocation, virtio-net, virtio-fs),
+`internal/vm/network.go` (bridge + tap + iptables NAT), and
+`internal/vm/secrets.go` (TLS-terminating placeholder injection).
+See [`specs/6/12-crackbox-sandboxing.md`](../specscs/6/12-crackbox-sandboxing.md).
 
 ## Orthogonality
 

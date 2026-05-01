@@ -3,129 +3,126 @@ status: shipped
 shipped: 2026-04-29
 ---
 
-# Crackbox — forward proxy with per-source allowlists
+# Egred — forward proxy with per-source allowlists
 
-> One daemon, one registry, one matchHost. CLI subcommands are
-> sugar over the same daemon — there is no "single-shot" code path
-> separate from the multi-tenant one.
+> One daemon, one registry, one matchHost. Ships in the
+> [crackbox component](../6/12-crackbox-sandboxing.md). The
+> daemon is named `egred`; the larger `crackbox` component
+> (library + bundled binaries) provides VM sandboxing on top.
 
 ## Status
 
-The `egred/` daemon shipped on krons 2026-04-29 is the working
-prototype this spec replaces. Daemon-mode behavior stays
-identical; the whole component moves under `crackbox/` with the
-layout required by
-[`specs/8/b-orthogonal-components.md`](../8/b-orthogonal-components.md).
-arizuko's consumer-side rework is described in
-[`specs/6/10-crackbox-arizuko.md`](10-crackbox-arizuko.md).
+Shipped 2026-04-29 as the proxy-half of crackbox; renamed `egred`
+to disambiguate from the library role. Same binary, same wire
+shape — the `egred` name is back in use only at the daemon /
+process / container level. All currently-running deployments use
+`crackbox proxy serve` as the entrypoint, which is functionally
+identical to invoking `egred` directly. The upcoming standalone
+`cmd/egred/` binary is wire-compatible.
 
-## Problem
+## What it does
 
-Running untrusted code (Claude Code agents, CI jobs, build
-scripts) needs default-deny network egress with a small
-per-instance allowlist. The shipped prototype demonstrates the
-mechanism in production: a forward HTTP/HTTPS proxy that registers
-`(source-IP → allowlist)` entries and matches incoming
-connections against the registered list. This spec describes v1
-of that mechanism extracted into a sibling component, named
-`crackbox`, with a thin convenience CLI that lets a developer use
-the same daemon for one-shot isolation on a laptop.
+Forward HTTP/HTTPS proxy. Holds an in-memory registry of
+`(source-IP → (id, allowlist))` entries. CONNECT/HTTP requests
+from a registered source IP are spliced through if the destination
+hostname matches the registered allowlist; otherwise 403.
 
-## The single mechanism
+Two listeners by default:
 
-There is exactly one thing: a long-running forward HTTP/HTTPS
-proxy daemon with an in-memory registry of
-`(source-IP → (id, allowlist))` entries and an admin API for
-managing the registry.
+- `:3128` forward proxy (HTTP + CONNECT-tunneled HTTPS). Client
+  sets `HTTPS_PROXY=http://egred:3128`.
+- `:3127` transparent proxy. Linux `getsockopt(SO_ORIGINAL_DST)`
+  - SNI/Host peek. Client side runs `iptables REDIRECT`.
 
-- Listener at `:3128` for forward HTTP and CONNECT-tunneled HTTPS.
-- Listener at `:3129` for the admin API:
-  - `POST /v1/register` — body `{ip, id, allowlist}`
-  - `POST /v1/unregister` — body `{ip}`
-  - `GET /v1/state` — current registry snapshot
-  - `GET /health` — liveness
-- In-memory `Allowlist` map: `source-IP → (id, []string)`.
-- One pure `matchHost(allowlist, host) bool` function — three
-  lines, ported from the shipped prototype.
-- No source-IP-trust assumption beyond "the network topology only
-  allows our agent containers to reach this proxy" — same as the
-  shipped prototype.
+Plus admin listener on `:3129`:
 
-There is **no** "single-shot mode" anywhere in the daemon. The
-proxy cannot tell — and does not branch on — whether the registry
-holds one entry because a CLI wrapper just registered it, or one
-entry because a long-running consumer happens to have one agent
-spawned. Same code, same lookup, same response. Branching, if
-any, lives at the call-site that sets up the daemon — never in
-the proxy server, never in `matchHost`, never in the admin API
-handlers.
+- `POST /v1/register {ip, id, allowlist}`
+- `POST /v1/unregister {ip}`
+- `GET /v1/state`
+- `GET /health`
 
-## CLI
+One pure `matchHost(allowlist, host) bool` decides allow/deny.
+Three lines, no branching on caller mode.
 
-One binary, three subcommands:
+## Standalone use
 
-```bash
-crackbox proxy serve [--listen :3128 --admin :3129]
-    Run the daemon. Long-lived. Lifecycle owned by Docker compose
-    or systemd. No idle-shutdown, no auto-restart, no supervision
-    inside the binary.
+Two binaries; pick one:
 
-crackbox run --allow <list> [--id <name>] -- <cmd>...
-    Convenience wrapper. ~150 LOC of orchestration:
-      1. Spawn a Docker network.
-      2. Spawn `crackbox proxy serve` on the network.
-      3. Spawn the user container (created), inspect IP, POST
-         /v1/register {ip, id, allowlist=<list>}.
-      4. Start the container with HTTPS_PROXY pointing at the
-         daemon.
-      5. On exit, tear down the user container, daemon container,
-         and network.
-    The wrapper does NOT contain a special-case proxy
-    implementation. It composes the existing daemon + admin
-    client + container-spawn primitives.
-
-crackbox state [--admin <url>]
-    Query the running daemon's registry. Same /v1/state endpoint.
+```
+egred [--config <path>] [--listen :3128] [--admin :3129] [--transparent :3127]
 ```
 
-What looks like "two ways of using it" is one daemon plus one CLI
-wrapper. The wrapper's branching lives at the call-site (it sets
-up + tears down). It does not exist anywhere inside `pkg/proxy/`
-or `pkg/admin/`.
+Standalone proxy daemon. Long-lived, lifecycle owned by systemd or
+docker compose. No idle-shutdown, no auto-restart, no supervision.
+
+```
+crackbox proxy serve [--config ...] [--listen ...] [--admin ...] [--transparent ...]
+```
+
+Same daemon under the umbrella `crackbox` CLI. Functionally
+identical; this is the form used by today's compose. Emitted
+`docker compose` keeps using this until [c-sandd](../8/c-sandd.md)
+ships, at which point compose may switch to `egred` directly to
+make the role visible at the process level.
+
+## Convenience CLI for one-shot use
+
+```
+crackbox run --allow <list> [--id <name>] -- <cmd>...
+```
+
+~150 LOC of orchestration:
+
+1. Spawn a Docker network (or KVM bridge if `--kvm`).
+2. Spawn `egred` on the network.
+3. Spawn the user container/VM, register its IP with `egred`.
+4. Run `<cmd>` with `HTTPS_PROXY` set.
+5. Tear down on exit.
+
+The wrapper composes daemon + admin client + container/VM spawn
+primitives. It does not contain a special-case proxy.
+
+## Where egred fits in the bigger picture
+
+| Component                  | Role                                                                   |
+| -------------------------- | ---------------------------------------------------------------------- |
+| `egred`                    | The proxy daemon. This spec.                                           |
+| `crackbox/pkg/proxy/`      | Library used by `egred` and `crackbox proxy serve`.                    |
+| `crackbox/pkg/host/`       | Library for VM sandboxing (see [8/a](../6/12-crackbox-sandboxing.md)). |
+| `crackbox/cmd/crackbox/`   | Umbrella CLI: `proxy serve`, `run`, `state`, `host`.                   |
+| `crackbox/cmd/egred/`      | Standalone proxy binary, just the proxy.                               |
+| [`sandd`](../8/c-sandd.md) | arizuko-internal daemon that uses the docker or                        |
+|                            | crackbox-host backend; wire-format independent of egred.               |
+
+The naming distinction matters once VM sandboxing lands:
+**crackbox = library + bundled binaries (the umbrella component);
+egred = the proxy binary specifically.** Today they're often
+conflated in conversation because crackbox = proxy is all that
+exists in production.
 
 ## Go API
 
 Importable from `crackbox/pkg/...`:
 
-- `crackbox.NewServer(ServerConfig) *Server` — same `*Server`
-  that `crackbox proxy serve` runs.
-- `crackbox.NewClient(adminURL) *Client` with `Register`,
-  `Unregister`, `State`.
-- `crackbox.MatchHost(allowlist []string, host string) bool` —
-  pure function exposed for callers that want to share the
-  matcher.
+- `proxy.NewServer(ServerConfig) *Server` — what `crackbox proxy
+serve` and `egred` both run.
+- `client.NewClient(adminURL) *Client` — `Register`, `Unregister`,
+  `State` over admin API.
+- `match.Host(allowlist []string, host string) bool` — pure
+  function, exposed for callers that want to share the matcher.
 
-There is **no** `Sandbox` type. No `NewSandbox`. No separate
-single-shot factory. "Single-shot" is achieved by daemon +
-register + cleanup, all of which use the API above.
+There is **no** `Sandbox` type and no separate single-shot factory.
+"Single-shot" = daemon + register + cleanup, all via the API
+above.
 
-## Layout
+## Reuse from origin prototype
 
-Sibling of `ant/` inside the arizuko monorepo:
+Ported (with attribution) from
+`/home/onvos/app/crackbox/internal/vm/{proxy,netfilter}.go`:
 
-```
-crackbox/
-  cmd/crackbox/main.go     CLI dispatcher: proxy / run / state
-  pkg/proxy/               daemon: proxy.go, splice, hop-by-hop
-  pkg/match/               matchHost + validators (ported)
-  pkg/admin/               /v1/register etc handlers
-  pkg/run/                 convenience wrapper for `crackbox run`
-  pkg/client/              http client for admin
-  Dockerfile
-  Makefile
-  README.md
-  CHANGELOG.md
-```
+- `Host`, `LooksLikeDomain`, `LooksLikeIP`, `domainRegex`
+- Hop-by-hop header stripping, CONNECT splice loop
+- Test fixtures for matcher edge cases
 
 ## Footprint
 
@@ -135,39 +132,21 @@ crackbox/
 | Daemon RAM                   | 15-20 MB regardless of #entries |
 | `crackbox run` overhead      | +1 user container + 1 network   |
 | Extra RAM for `crackbox run` | ~10 MB over daemon, ~1 MB net   |
-| `crackbox run` spawn latency | 500 ms – 1 s (Docker creates)   |
-
-## Reuse from the shipped prototype
-
-Ported (with attribution) from
-`/home/onvos/app/crackbox/internal/vm/{proxy,netfilter}.go` and
-the current arizuko `egred/`:
-
-- `matchHost`, `looksLikeDomain`, `looksLikeIP`, `domainRegex`.
-- Hop-by-hop header stripping, CONNECT splice loop.
-- Test fixtures for matcher edge cases.
-
-New code:
-
-- The CLI dispatcher (proxy / run / state).
-- `pkg/run/` convenience wrapper.
-- `pkg/admin/` handlers for the register/unregister/state shape.
+| `crackbox run` spawn latency | 500 ms – 1 s (Docker create)    |
 
 ## Don't reinvent supervision
 
-Explicit anti-pattern. No idle-shutdown timer, no auto-restart,
-no process supervision, no "if I have zero entries for N minutes
-shut myself down" logic inside crackbox. Daemon-mode lifecycle is
-owned by Docker compose or systemd. `crackbox run` lifecycle is
-owned by the invoking shell (the wrapper's exit teardown, plus
-the user hitting Ctrl-C).
+Explicit anti-pattern. No idle-shutdown timer, no auto-restart, no
+process supervision, no "if I have zero entries for N minutes shut
+myself down." Daemon-mode lifecycle is owned by Docker compose or
+systemd. `crackbox run` lifecycle is owned by the invoking shell.
 
-## Out of scope for v1
+## Out of scope for v1 (proxy-only)
 
 Listed for visibility, deferred:
 
 - Spec 6/11 placeholder injection (selective MITM for secrets).
-- QEMU backend.
+- KVM/qemu sandbox host (now lives in [8/a](../6/12-crackbox-sandboxing.md))
 - MCP tools (`request_network`, `list_network_rules`).
 - Traffic logs and audit.
 - Response scanning.
@@ -178,10 +157,11 @@ Listed for visibility, deferred:
 - `crackbox run --allow github.com -- curl -s -o /dev/null -w '%{http_code}' https://github.com`
   prints something other than `403`.
 - The same invocation against `https://example.com` prints `403`.
-- `crackbox proxy serve` running, plus a separate process that
-  calls `crackbox.Client.Register` for its container's IP and
-  points the container's `HTTPS_PROXY` at the daemon, achieves
-  the same allow/deny result with no code changes in the daemon.
+- `crackbox proxy serve` (or `egred`) running, plus a separate
+  process that calls `crackbox/pkg/client.Register` for its
+  container's IP and points the container's `HTTPS_PROXY` at the
+  daemon, achieves the same allow/deny result with no code changes
+  in the daemon.
 - `make -C crackbox build && make -C crackbox test` passes on a
   host with no arizuko process and no arizuko data directory.
 - `grep -rE 'github\.com/[^/]+/arizuko/(store\|core\|gateway\|api\|chanlib\|chanreg\|router\|queue|ipc\|grants\|onbod|webd|gated)' crackbox/` returns empty.

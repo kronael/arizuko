@@ -22,7 +22,13 @@ own?"
 
 ## Components to research
 
-### crackbox — forward + transparent proxy with per-source allowlist
+### egred — forward + transparent proxy with per-source allowlist
+
+(Egred is the proxy daemon shipped under the
+[crackbox component](../6/12-crackbox-sandboxing.md). The crackbox
+component also bundles a planned [`pkg/host/`](../6/12-crackbox-sandboxing.md)
+KVM library, evaluated separately under "container orchestration"
+below.)
 
 What it does: receives `HTTPS_PROXY` traffic from agent containers,
 matches the destination host against a per-source-IP allowlist,

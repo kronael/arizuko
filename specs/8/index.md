@@ -6,7 +6,8 @@ status: planned
 
 Specs committed in direction but not scheduled. Each needs a dedicated sprint.
 
-| spec                                                     | status  | description                                                   |
-| -------------------------------------------------------- | ------- | ------------------------------------------------------------- |
-| [a-crackbox-sandboxing.md](a-crackbox-sandboxing.md)     | planned | QEMU/KVM resident-VM sandboxing replacing Docker              |
-| [b-orthogonal-components.md](b-orthogonal-components.md) | planned | Sibling shippable components: crackbox, gateway, mcp-firewall |
+| spec                                                     | status   | description                                                                                                   |
+| -------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------- |
+| [b-orthogonal-components.md](b-orthogonal-components.md) | planned  | Sibling shippable components: crackbox (lib + egred), gateway, mcp-firewall                                   |
+| [c-sandd.md](c-sandd.md)                                 | deferred | arizuko-internal sandbox-spawn daemon; deferred — gated keeps spawn ownership for now                         |
+| ~~a-crackbox-sandboxing.md~~                             | moved    | KVM/qemu sandboxing moved to [specs/6/12-crackbox-sandboxing.md](../6/12-crackbox-sandboxing.md) (next phase) |
