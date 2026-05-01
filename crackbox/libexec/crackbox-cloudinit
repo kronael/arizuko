@@ -1,0 +1,90 @@
+#!/bin/sh
+# Generate cloud-init ISO for a Crackbox VM
+# Usage: crackbox-cloudinit <vm-id> <vm-name> <token> <vm-dir> <agent-binary> <share-dir>
+
+set -e
+
+VM_ID="$1"
+VM_NAME="$2"
+TOKEN="$3"
+VM_DIR="$4"
+AGENT_BINARY="$5"
+SHARE_DIR="$6"
+
+if [ -z "$SHARE_DIR" ]; then
+    echo "usage: crackbox-cloudinit <vm-id> <vm-name> <token> <vm-dir> <agent-binary> <share-dir>" >&2
+    exit 1
+fi
+
+CI_DIR="$VM_DIR/cloud-init"
+ISO_PATH="$VM_DIR/cloud-init.iso"
+
+mkdir -p "$CI_DIR"
+
+# Get actual user home (handle sudo)
+ACTUAL_HOME="$HOME"
+if [ -n "$SUDO_USER" ]; then
+    ACTUAL_HOME="/home/$SUDO_USER"
+fi
+
+# Generate user-data from template
+TMPL_PATH="$SHARE_DIR/cloud-init.tmpl"
+if [ ! -f "$TMPL_PATH" ]; then
+    echo "error: template not found: $TMPL_PATH" >&2
+    exit 1
+fi
+
+# Simple template substitution (replace {{.Token}})
+sed "s/{{.Token}}/$TOKEN/g" "$TMPL_PATH" > "$CI_DIR/user-data"
+
+# Generate meta-data
+cat > "$CI_DIR/meta-data" << EOF
+instance-id: $VM_ID
+local-hostname: $VM_NAME
+EOF
+
+# Copy binaries
+cp "$AGENT_BINARY" "$CI_DIR/crackbox-agent"
+chmod +x "$CI_DIR/crackbox-agent"
+
+CADDY_BINARY="$(dirname "$AGENT_BINARY")/caddy"
+if [ -f "$CADDY_BINARY" ]; then
+    cp "$CADDY_BINARY" "$CI_DIR/caddy"
+    chmod +x "$CI_DIR/caddy"
+fi
+
+# Copy init script
+cp "$SHARE_DIR/crackbox-init.sh" "$CI_DIR/crackbox-init.sh"
+chmod +x "$CI_DIR/crackbox-init.sh"
+
+# Copy Claude credentials from host user
+CLAUDE_DIR="$ACTUAL_HOME/.claude"
+[ -f "$CLAUDE_DIR/.credentials.json" ] && cp "$CLAUDE_DIR/.credentials.json" "$CI_DIR/credentials.json"
+[ -f "$CLAUDE_DIR/settings.json" ] && cp "$CLAUDE_DIR/settings.json" "$CI_DIR/settings.json"
+
+# Copy SSH authorized_keys
+[ -f "$ACTUAL_HOME/.ssh/authorized_keys" ] && cp "$ACTUAL_HOME/.ssh/authorized_keys" "$CI_DIR/authorized_keys"
+
+# Copy VM config (CLAUDE.md and skills)
+VM_CONFIG_DIR="$SHARE_DIR/vm-config"
+[ -f "$VM_CONFIG_DIR/CLAUDE.md" ] && cp "$VM_CONFIG_DIR/CLAUDE.md" "$CI_DIR/CLAUDE.md"
+
+# Create skills tar
+SKILLS_DIR="$VM_CONFIG_DIR/skills"
+if [ -d "$SKILLS_DIR" ]; then
+    tar -cf "$CI_DIR/skills.tar" -C "$SKILLS_DIR" .
+fi
+
+# Build file list for ISO
+FILES="$CI_DIR/user-data $CI_DIR/meta-data $CI_DIR/crackbox-agent $CI_DIR/crackbox-init.sh"
+[ -f "$CI_DIR/caddy" ] && FILES="$FILES $CI_DIR/caddy"
+[ -f "$CI_DIR/credentials.json" ] && FILES="$FILES $CI_DIR/credentials.json"
+[ -f "$CI_DIR/settings.json" ] && FILES="$FILES $CI_DIR/settings.json"
+[ -f "$CI_DIR/authorized_keys" ] && FILES="$FILES $CI_DIR/authorized_keys"
+[ -f "$CI_DIR/CLAUDE.md" ] && FILES="$FILES $CI_DIR/CLAUDE.md"
+[ -f "$CI_DIR/skills.tar" ] && FILES="$FILES $CI_DIR/skills.tar"
+
+# Generate ISO
+genisoimage -output "$ISO_PATH" -volid cidata -joliet -rock $FILES
+
+echo "$ISO_PATH"

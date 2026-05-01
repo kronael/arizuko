@@ -1,0 +1,121 @@
+#!/bin/bash
+# TAP interface setup/teardown for crackbox VMs
+#
+# Usage:
+#   crackbox-tap up <tap-name> <bridge> [ssh-port] [vm-ip]
+#   crackbox-tap down <tap-name> [ssh-port] [vm-ip]
+#
+# Arguments:
+#   up:   tap-name, bridge required; ssh-port and vm-ip optional (both or neither)
+#   down: tap-name required; ssh-port and vm-ip optional (both or neither)
+
+set -euo pipefail
+
+ACTION="${1:-}"
+TAP="${2:-}"
+
+# Validate TAP name format (alphanumeric with dash, max 15 chars for IFNAMSIZ)
+validate_tap() {
+    local tap="$1"
+    if [ -z "$tap" ]; then
+        echo "error: tap name required" >&2
+        return 1
+    fi
+    if [ ${#tap} -gt 15 ]; then
+        echo "error: tap name exceeds 15 chars: $tap" >&2
+        return 1
+    fi
+    if ! [[ "$tap" =~ ^[a-zA-Z0-9-]+$ ]]; then
+        echo "error: tap name contains invalid chars: $tap" >&2
+        return 1
+    fi
+}
+
+# Validate bridge exists
+validate_bridge() {
+    local bridge="$1"
+    if [ -z "$bridge" ]; then
+        echo "error: bridge name required" >&2
+        return 1
+    fi
+    if ! ip link show "$bridge" >/dev/null 2>&1; then
+        echo "error: bridge does not exist: $bridge" >&2
+        return 1
+    fi
+}
+
+# Validate port number (1-65535)
+validate_port() {
+    local port="$1"
+    if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        echo "error: invalid port: $port" >&2
+        return 1
+    fi
+}
+
+# Validate IPv4 address
+validate_ip() {
+    local ip="$1"
+    if ! [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "error: invalid ip: $ip" >&2
+        return 1
+    fi
+}
+
+if [ -z "$ACTION" ] || [ -z "$TAP" ]; then
+    echo "usage: crackbox-tap up|down <tap-name> ..." >&2
+    exit 1
+fi
+
+validate_tap "$TAP"
+
+case "$ACTION" in
+    up)
+        BRIDGE="${3:-}"
+        if [ -z "$BRIDGE" ]; then
+            echo "usage: crackbox-tap up <tap-name> <bridge> [ssh-port] [vm-ip]" >&2
+            exit 1
+        fi
+        validate_bridge "$BRIDGE"
+        # Clean up stale TAP if exists
+        ip tuntap del "$TAP" mode tap 2>/dev/null || true
+        # Create and attach
+        ip tuntap add "$TAP" mode tap
+        ip link set "$TAP" up
+        ip link set "$TAP" master "$BRIDGE"
+        echo "tap $TAP attached to $BRIDGE"
+        # SSH forwarding (optional, requires both port and IP)
+        if [ $# -ge 5 ]; then
+            SSH_PORT="$4"
+            VM_IP="$5"
+            validate_port "$SSH_PORT"
+            validate_ip "$VM_IP"
+            # Add rule only if not already present (idempotent)
+            if ! iptables -t nat -C PREROUTING -p tcp --dport "$SSH_PORT" \
+                -j DNAT --to-destination "$VM_IP:22" 2>/dev/null
+            then
+                iptables -t nat -A PREROUTING -p tcp --dport "$SSH_PORT" \
+                    -j DNAT --to-destination "$VM_IP:22"
+            fi
+            echo "ssh forwarding: host:$SSH_PORT -> $VM_IP:22"
+        fi
+        ;;
+    down)
+        ip tuntap del "$TAP" mode tap 2>/dev/null || true
+        echo "tap $TAP removed"
+        # SSH forwarding cleanup (optional)
+        if [ $# -ge 4 ]; then
+            SSH_PORT="$3"
+            VM_IP="$4"
+            validate_port "$SSH_PORT"
+            validate_ip "$VM_IP"
+            iptables -t nat -D PREROUTING -p tcp --dport "$SSH_PORT" \
+                -j DNAT --to-destination "$VM_IP:22" 2>/dev/null || true
+            echo "ssh forwarding removed: host:$SSH_PORT"
+        fi
+        ;;
+    *)
+        echo "usage: crackbox-tap up|down <tap-name> ..." >&2
+        exit 1
+        ;;
+esac
