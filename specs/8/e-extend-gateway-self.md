@@ -19,5 +19,4 @@ source today; every change needs human `make build && make image`.
 Unblockers: pick scope (plugin-only vs full repo), testing story
 (staging instance vs hot reload vs unit tests), rollback (immutable
 images vs revert), permission model (root-only vs root+approval).
-Related: [d-agent-code-modification.md](d-agent-code-modification.md),
-[../5/E-plugins.md](../5/E-plugins.md).
+Related: [d-agent-code-modification.md](d-agent-code-modification.md).

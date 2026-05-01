@@ -130,7 +130,8 @@ No marketing. No feature matrix. Three questions.
 
 ## Out of scope
 
-- Plugin system / dynamic skill loading — see [E-plugins.md](E-plugins.md)
+- Plugin system / dynamic skill loading — out of scope; ant only
+  loads what's in the folder at spawn time
 - Cross-agent messaging / slink — that's arizuko-shaped, not ant
 - Workflow engine / scheduler — `timed` stays in arizuko
 
