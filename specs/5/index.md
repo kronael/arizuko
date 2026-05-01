@@ -15,7 +15,6 @@ status: future
 | [31-autocalls.md](31-autocalls.md)                             | shipped   | Inline fact injection when schema cost > content cost              |
 | [32-tenant-self-service.md](32-tenant-self-service.md)         | shipped   | Org-chart model: invites, secrets, chats.kind, topic kinds         |
 | [33-auth-landscape.md](33-auth-landscape.md)                   | shipped   | Auth composition mechanics                                         |
-| [3-agent-messaging.md](3-agent-messaging.md)                   | unshipped | Slink links as universal agent-to-agent inboxes                    |
 | [6-extend-gateway-self.md](6-extend-gateway-self.md)           | unshipped | Root agent modifying gateway codebase (plugin dir or agent branch) |
 | [9-identities.md](9-identities.md)                             | unshipped | Link one user across multiple platform subs                        |
 | [C-message-mcp.md](C-message-mcp.md)                           | shipped   | `get_history` + `get_thread` + `fetch_history` MCP tools           |
