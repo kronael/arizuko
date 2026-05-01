@@ -18,7 +18,7 @@ status: future
 | [3-agent-messaging.md](3-agent-messaging.md)                   | unshipped | Slink links as universal agent-to-agent inboxes                    |
 | [6-extend-gateway-self.md](6-extend-gateway-self.md)           | unshipped | Root agent modifying gateway codebase (plugin dir or agent branch) |
 | [9-identities.md](9-identities.md)                             | unshipped | Link one user across multiple platform subs                        |
-| [C-message-mcp.md](C-message-mcp.md)                           | partial   | `get_history` shipped; `get_thread` pending                        |
+| [C-message-mcp.md](C-message-mcp.md)                           | shipped   | `get_history` + `get_thread` + `fetch_history` MCP tools           |
 | [E-plugins.md](E-plugins.md)                                   | unshipped | Agent proposes, operator approves plugin system                    |
 | [H-call-llm-mcp.md](H-call-llm-mcp.md)                         | unshipped | `call_llm` tool for non-Claude models via OpenRouter               |
 | [J-sse.md](J-sse.md)                                           | partial   | Groups are the SSE auth boundary; round-handle stream added in 7/3 |
