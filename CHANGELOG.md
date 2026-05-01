@@ -16,6 +16,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > now be asked whether to link the new account to your current one or
 > log out first — no more silent duplicate users. Groups no longer
 > track active/closed/archived state — they exist until removed.
+> Routing rules now use typed JIDs — match patterns like
+> `telegram:group/*` instead of guessing by sign bit.
 
 ### Added
 
@@ -196,6 +198,33 @@ fixes (crackbox DNS alias, davd healthcheck, migration 079).
   `webd /api/groups` `active` field dropped; `dashd /dash/groups`
   state badge dropped. Groups exist until explicitly removed; no
   closure-then-archive cycle. Agent migration 087.
+
+### Typed JIDs
+
+- **JID format**: kind discriminator in the first path segment
+  (`telegram:user/<id>`, `telegram:group/<id>`,
+  `discord:<guild>/<channel>`, `discord:dm/<channel>`,
+  `mastodon:account/<id>`, `reddit:user/<name>`,
+  `reddit:subreddit/<name>`, `email:thread/<id>`,
+  `email:address/<addr>`, `bluesky:user/<percent-encoded-did>`,
+  `linkedin:user/<urn>`, `linkedin:post/<urn>`). Whatsapp and twitter
+  already conformed.
+- `core.JID`, `core.ChatJID`, `core.UserJID` typed wire-form values
+  with `database/sql` Scanner/Valuer + `encoding/json` marshalers
+  (wire format stays a string).
+- `core.MatchJID(pattern, value)` glob matcher; router uses it
+  (`path.Match` — `*` doesn't cross `/`). `chat_jid=telegram:group/*`
+  scopes to groups but not DMs.
+- Mastodon drops the host segment (single-instance per arizuko
+  deployment); re-add when multi-instance lands.
+- Discord legacy rows without a stored guild*id migrate to
+  `discord:*/<channel>`placeholder. New inbound from discd carries
+the real`discord:<guild>/<channel>`.
+- Store migration `0042-typed-jids.sql` rewrites every JID-shaped
+  value (messages, chats, user_jids, grants, onboarding, routes.match)
+  to the new shape. Idempotent. Adapter inbound paths emit canonical
+  forms; outbound accepts both legacy and typed during cutover.
+  Agent migration 088.
 
 ## [v0.31.1] — 2026-04-30
 
