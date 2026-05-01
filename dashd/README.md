@@ -1,20 +1,25 @@
 # dashd
 
-Operator dashboard daemon: read-only HTMX views over `messages.db`.
+Operator dashboard daemon: HTMX views over `messages.db` plus
+allow-listed memory editing on disk.
 
 ## Purpose
 
 Standalone HTMX portal for operators. Opens SQLite read-only. Six views:
 portal, status, tasks, activity, groups, memory. Auth is enforced upstream
 by `proxyd`'s `requireAuth` middleware; dashd itself assumes the caller
-is authorized and scopes responses via `X-User-Groups`.
+is authorized and does not further scope responses by group.
 
 ## Responsibilities
 
 - Serve `/dash/` portal and `/dash/<name>/` pages.
 - Serve HTMX partials at `/dash/<name>/x/<frag>`.
 - Read diary and MEMORY.md via `diary` package; cap file reads to 1 MiB.
-- Symlink-safe path resolution (`safeJoin`) against the groups dir sandbox.
+- Memory edit: `PUT`/`DELETE /dash/memory/<folder>/<rel>` against an
+  allow-list of `MEMORY.md`, `.claude/CLAUDE.md`, and flat `*.md`
+  under `diary/`, `facts/`, `users/`, `episodes/`.
+- Symlink-safe path resolution (`safeJoin`, `resolveMemoryFile`)
+  against the groups dir sandbox.
 
 ## Entry points
 
@@ -43,5 +48,6 @@ mapped on the host.
 
 ## Related docs
 
+- `specs/4/Q-dash-memory.md` — memory view & edit
 - `specs/7/25-dashboards.md`
 - `ARCHITECTURE.md` (Operator Dashboard section)
