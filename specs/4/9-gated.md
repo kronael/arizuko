@@ -35,16 +35,18 @@ Migration service name: `gated`.
 ## Message loop
 
 ```
-every 1s:
-  SELECT * FROM messages WHERE processed = 0 ORDER BY created_at
+every PollInterval:
+  SELECT * FROM messages WHERE timestamp > lastTimestamp
+                           AND is_bot_message = 0
+                         ORDER BY timestamp
 
-  for each message:
+  for each chat batch:
     route = resolve_route(message.chat_jid)
     if no route:
       if ONBOARDING_ENABLED: insert into onboarding table, skip
       else: drop message
     enqueue_job(route.group, message)
-    UPDATE messages SET processed = 1
+  advance lastTimestamp; per-chat agent cursor advances on drain
 ```
 
 ### Steering a running container
@@ -52,11 +54,11 @@ every 1s:
 If the target group already has a running container when new messages
 arrive for the same chat, the poll loop steers them into the live turn
 instead of respawning. On a successful `queue.SendMessages` the loop
-advances the per-chat `agentCursor` alongside `SetLastReplyID` /
-`ClearChatErrored`; without this advance, `drainGroupLocked` would see
-the same rows as unprocessed after the container exits and respawn on
-the same inputs (duplicate delivery). Success is logged at Info:
-`"poll: steered messages into running container" count=N`.
+calls `SetLastReplyID` and `recordSteeredTs` so that `advanceAgentCursor`
+on container exit covers the steered rows; without this, the next
+`drainWaitingLocked` cycle would see the same rows as unprocessed and
+respawn on the same inputs (duplicate delivery). Success is logged at
+Info: `"poll: steered messages into running container" count=N`.
 
 Delivery into the container is hook-based: a PostToolUse hook drains
 steered messages mid-loop between tool calls (primary path), and
@@ -74,7 +76,7 @@ current message wins.
 ```sql
 SELECT id, seq, match, target, impulse_config
 FROM routes
-ORDER BY seq ASC
+ORDER BY seq ASC, id ASC
 ```
 
 `match` is a space-separated list of `key=glob` pairs over message
@@ -202,16 +204,22 @@ Runs on `API_PORT` (default 8080).
 ## MCP tool handling
 
 ipc handles all MCP tools directly and calls gateway
-functions as callbacks. gated exposes these callbacks to
-ipc at server creation time:
+functions as callbacks. gated exposes these callbacks
+(`ipc.GatedFns`, `ipc.StoreFns`) to ipc at server creation time:
 
-- Messaging: `send`, `send_file`, `inject_message`
-- Groups: `register_group`, `delegate_group`, `escalate_group`
-- Sessions: `reset_session`
-- Routing: `get_routes`, `set_routes`, `add_route`, `delete_route`
+- Social verbs: `send`, `reply`, `send_file`, `post`, `like`,
+  `dislike`, `delete`, `forward`, `quote`, `repost`, `edit`, `typing`
+- Routing / groups: `register_group`, `delegate_group`,
+  `escalate_group`, `refresh_groups`, `list_routes`, `set_routes`,
+  `add_route`, `delete_route`, `get_grants`, `set_grants`
+- Sessions / state: `reset_session`, `inject_message`,
+  `fetch_history`, `get_history`, `inspect_messages`
+- Read-only introspection: `inspect_routing`, `inspect_tasks`,
+  `inspect_session`
 
-ipc resolves identity and calls auth.Authorize before
-invoking the callback. gated does not see raw MCP requests.
+See `ipc/README.md` for the canonical tool surface. ipc resolves
+identity and calls `auth.Authorize` before invoking the callback;
+gated does not see raw MCP requests.
 
 ## Gateway commands
 
@@ -227,6 +235,9 @@ one-line addition.
 | `/chatid` | Reply with the chat JID                         |
 | `/stop`   | Kill active container for this chat             |
 | `/status` | Show gateway state, channels, containers        |
+| `/root`   | Delegate the rest of the message to root group  |
+| `/invite` | Issue an onboarding invite link (root only)     |
+| `/gate`   | Manage onboarding gates (root only)             |
 
 Commands never touch the routes table. The command registry is not
 exported to agents. `/grant` is an MCP tool in ipc.
