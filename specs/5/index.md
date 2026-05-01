@@ -16,7 +16,7 @@ status: future
 | [9-identities.md](9-identities.md)                             | unshipped | Link one user across multiple platform subs                        |
 | [C-message-mcp.md](C-message-mcp.md)                           | shipped   | `get_history` + `get_thread` + `fetch_history` MCP tools           |
 | [E-plugins.md](E-plugins.md)                                   | unshipped | Agent proposes, operator approves plugin system                    |
-| [H-call-llm-mcp.md](H-call-llm-mcp.md)                         | unshipped | `call_llm` tool for non-Claude models via OpenRouter               |
+| [H-call-llm-mcp.md](H-call-llm-mcp.md)                         | unshipped | Oracle skill — Claude asks Codex via subprocess + folder secret    |
 | [J-sse.md](J-sse.md)                                           | partial   | Groups are the SSE auth boundary; round-handle stream added in 7/3 |
 | [M-webdav.md](M-webdav.md)                                     | shipped   | dufs + proxyd JWT/cookie auth, write-block guard                   |
 | [N-listener.md](N-listener.md)                                 | unshipped | Passive listener group mode + scheduled digest                     |
