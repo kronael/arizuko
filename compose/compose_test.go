@@ -213,6 +213,60 @@ func TestGenerateWebDAVDisabled(t *testing.T) {
 	}
 }
 
+// TestGenerateProfiles pins the PROFILE → built-in services matrix from
+// specs/4/Y-minimal-setup.md. WEB_PORT is set so the web bundle (webd,
+// proxyd, vited) is eligible; the profile gates non-web built-ins.
+func TestGenerateProfiles(t *testing.T) {
+	cases := []struct {
+		profile  string
+		wantIn   []string
+		wantOut  []string
+	}{
+		{
+			profile: "minimal",
+			wantIn:  []string{"  gated:"},
+			wantOut: []string{"  webd:", "  proxyd:", "  vited:", "  timed:", "  dashd:"},
+		},
+		{
+			profile: "web",
+			wantIn:  []string{"  gated:", "  webd:", "  proxyd:", "  vited:"},
+			wantOut: []string{"  timed:", "  dashd:", "  davd:", "  onbod:"},
+		},
+		{
+			profile: "standard",
+			wantIn:  []string{"  gated:", "  timed:", "  webd:", "  proxyd:", "  vited:"},
+			wantOut: []string{"  dashd:", "  davd:", "  onbod:"},
+		},
+		{
+			profile: "full",
+			wantIn:  []string{"  gated:", "  timed:", "  webd:", "  proxyd:", "  vited:", "  dashd:", "  davd:"},
+			wantOut: []string{"  onbod:"}, // ONBOARDING_ENABLED unset
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.profile, func(t *testing.T) {
+			dir := t.TempDir()
+			os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+			os.WriteFile(filepath.Join(dir, ".env"), []byte(
+				"PROFILE="+tc.profile+"\nWEB_PORT=8095\nAPI_PORT=8080\n"), 0o644)
+			out, err := Generate(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range tc.wantIn {
+				if !strings.Contains(out, want) {
+					t.Errorf("PROFILE=%s: missing %q", tc.profile, want)
+				}
+			}
+			for _, dont := range tc.wantOut {
+				if strings.Contains(out, dont) {
+					t.Errorf("PROFILE=%s: unexpected %q", tc.profile, dont)
+				}
+			}
+		})
+	}
+}
+
 func TestInterpolate(t *testing.T) {
 	env := map[string]string{"FOO": "bar", "BAZ": "qux"}
 	got := interpolate("${FOO}-${BAZ}", env)

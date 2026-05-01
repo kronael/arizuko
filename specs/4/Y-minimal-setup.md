@@ -9,13 +9,15 @@ User-defined `services/*.toml` are always included.
 
 ```bash
 PROFILE=minimal   # gated only (add adapter via services/*.toml)
-PROFILE=web       # gated + proxyd + vited
-PROFILE=standard  # gated + timed + proxyd + vited
-PROFILE=full      # all built-ins + dashd + onbod/davd  (default)
+PROFILE=web       # gated + webd + proxyd + vited        (when WEB_PORT set)
+PROFILE=standard  # gated + timed + webd + proxyd + vited (when WEB_PORT set)
+PROFILE=full      # all built-ins + dashd + onbod/davd   (default)
 ```
 
-Implemented in `compose/compose.go`: reads `PROFILE` from instance
-`.env`. Existing deployments unaffected.
+Web bundle (`webd + proxyd + vited`) emits only when `WEB_PORT` is set;
+otherwise the profile reduces to its non-web subset. Implemented in
+`compose/compose.go`: reads `PROFILE` from instance `.env`. Existing
+deployments unaffected.
 
 ## Opt-in by omission
 
