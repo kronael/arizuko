@@ -129,6 +129,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/activity/", d.handleActivity)
 	mux.HandleFunc("GET /dash/groups/", d.handleGroups)
 	mux.HandleFunc("GET /dash/memory/", d.handleMemory)
+	mux.HandleFunc("GET /dash/profile/", d.handleProfile)
 	mux.HandleFunc("PUT /dash/memory/", d.handleMemoryWrite)
 	mux.HandleFunc("DELETE /dash/memory/", d.handleMemoryDelete)
 	mux.HandleFunc("GET /dash/tasks/x/list", d.handleTasksPartial)
@@ -140,7 +141,7 @@ func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, `{"ok":true}`)
 }
 
-const dashNav = `<nav><a href="/dash/">arizuko</a><a href="/dash/status/">status</a><a href="/dash/tasks/">tasks</a><a href="/dash/activity/">activity</a><a href="/dash/groups/">groups</a><a href="/dash/memory/">memory</a></nav><button class="theme-toggle"></button>`
+const dashNav = `<nav><a href="/dash/">arizuko</a><a href="/dash/status/">status</a><a href="/dash/tasks/">tasks</a><a href="/dash/activity/">activity</a><a href="/dash/groups/">groups</a><a href="/dash/memory/">memory</a><a href="/dash/profile/">profile</a></nav><button class="theme-toggle"></button>`
 
 func dashHead(title string) string {
 	return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
