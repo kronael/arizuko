@@ -63,6 +63,7 @@ func (s *server) handler() http.Handler {
 	// See specs/1/W-slink.md — round-handle protocol.
 	mux.HandleFunc("GET /slink/{token}", s.handleSlinkPage)
 	mux.HandleFunc("POST /slink/{token}", s.handleSlinkPost)
+	mux.HandleFunc("POST /slink/{token}/mcp", s.handleSlinkMCP)
 	mux.HandleFunc("GET /slink/stream", s.handleSlinkStream)
 	mux.HandleFunc("POST /slink/{token}/{id}", s.handleSlinkPost) // steer
 	mux.HandleFunc("GET /slink/{token}/{id}", s.handleTurnSnapshot)
