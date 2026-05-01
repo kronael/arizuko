@@ -25,8 +25,6 @@ status: future
 | [R-multi-account.md](R-multi-account.md)                       | shipped   | Multi-account adapters via multiple service TOMLs                   |
 | [S-jid-format.md](S-jid-format.md)                             | unshipped | `platform:account/id` JID, account resolved after Connect           |
 | [T-voice-synthesis.md](T-voice-synthesis.md)                   | unshipped | `ttsd` + `send_voice` MCP tool                                      |
-| [Z-cli-chat.md](Z-cli-chat.md)                                 | unshipped | `arizuko chat` — interactive terminal agent                         |
 | [b-memory-skills-standalone.md](b-memory-skills-standalone.md) | unshipped | Ant standalone — Claude Code distribution + sandbox spawn (CLI)     |
 | [c-agent-services.md](c-agent-services.md)                     | unshipped | `servd` for agent-declared persistent services                      |
-| [d-self-improvement.md](d-self-improvement.md)                 | unshipped | Scheduled self-eval via timed cron                                  |
 | [e-replaceability-research.md](e-replaceability-research.md)   | research  | Audit each shipped component against off-the-shelf alternatives     |

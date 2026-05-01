@@ -4,29 +4,46 @@ status: deferred
 
 # Authoring product
 
-A product (per `specs/4/R-products.md`): `template/products/author/`
-with `SOUL.md` (voice), `HELLO.md` (greeting), `SYSTEM.md`, `CLAUDE.md`,
-and skills `draft/`, `publish/`, `content-audit/` (plus reused
-`research/`, `web/`). `arizuko group add <name> --product author`
-copies the template into the group folder.
+A specific product (per [4/R-products](../4/R-products.md)) for
+content authoring: the agent drafts posts and the operator approves
+before publishing. Folder shape per
+[ant](../5/b-memory-skills-standalone.md); ships at
+`ant/examples/author/`.
 
-Publishing safety: `publish` MCP tool is gated via HITL firewall
-([4-hitl-firewall.md](4-hitl-firewall.md)). The `publish` skill
-documents the hold so the agent expects `{pending: true}`.
+Composition: persona (`SOUL.md` = author voice) + skills
+(`draft/`, `publish/`, `content-audit/` plus reused `research/`,
+`web/`).
 
-Each group has a `content_target` under `/srv/data/.../web/pub/` for
-HTML rendering (drafts = preview, published = permanent). `/pub/`
-served by vited.
+## Publishing safety
 
-Rationale: turn a stock agent into an opinionated author without a
-bespoke daemon — pure configuration.
+The `publish` MCP tool is gated via the [HITL
+firewall](4-hitl-firewall.md). The `publish` skill documents the
+hold so the agent expects `{pending: true}` and reports the
+review queue link.
 
-Unblockers: fixed catalog vs per-instance products; SOUL.md hot-reload
-signal vs container restart; platform-account binding location (group
-row vs config file vs new table); draft storage (`~/drafts/` vs shared
-`/drafts/` vs always `pending_actions`); content-gap detection.
-Depends on HITL firewall + at least one adapter exposing a publish
-capability (bsky or mastodon first).
+## Content target
 
-Out of scope v1: multi-author groups, auto-generated media,
-cross-product composition, analytics loop.
+Each authoring group has a `content_target` under
+`/srv/data/.../web/pub/` for HTML rendering — drafts = preview,
+published = permanent. `/pub/` is served by `vited`.
+
+## Open
+
+- Draft storage location: `~/drafts/` vs shared `/drafts/` vs
+  always pinned in `pending_actions` — defer
+- Platform binding: bsky vs mastodon first; group row vs config
+  file vs new table — defer
+- Content-gap detection (does the agent notice when the operator
+  hasn't published in N days?) — defer
+
+## Depends on
+
+- HITL firewall ([4-hitl-firewall.md](4-hitl-firewall.md))
+- An adapter exposing a publish capability (bsky or mastodon)
+- ant standalone ([5/b](../5/b-memory-skills-standalone.md)) for
+  the folder shape
+
+## Out of scope (v1)
+
+Multi-author groups, auto-generated media, cross-product
+composition, analytics loop.

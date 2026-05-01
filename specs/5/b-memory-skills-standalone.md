@@ -157,5 +157,3 @@ ant chat my-agent` works without arizuko anywhere on the system
 - [../6/12-crackbox-sandboxing.md](../6/12-crackbox-sandboxing.md) —
   ant's `--sandbox=crackbox` backend depends on `crackbox/pkg/host`
   being stable
-- [Z-cli-chat.md](Z-cli-chat.md) — covered by `arizuko chat <inst>
-<group>` routing through `ant chat`. Delete once this ships.
