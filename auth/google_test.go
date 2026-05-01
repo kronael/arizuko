@@ -17,7 +17,7 @@ func TestGoogleRedirect(t *testing.T) {
 	secret := []byte("testsecret")
 	req := httptest.NewRequest("GET", "/auth/google", nil)
 	rec := httptest.NewRecorder()
-	handleGoogleRedirect(cfg, secret, false).ServeHTTP(rec, req)
+	handleGoogleRedirect(cfg, nil, secret, false).ServeHTTP(rec, req)
 	if rec.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("want 307, got %d", rec.Code)
 	}

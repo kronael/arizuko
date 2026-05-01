@@ -21,19 +21,19 @@ func RegisterRoutes(mux *http.ServeMux, s *store.Store, cfg *core.Config) {
 
 	if cfg.GitHubClientID != "" {
 		mux.HandleFunc("GET /auth/github",
-			handleGitHubRedirect(cfg, secret, secure))
+			handleGitHubRedirect(cfg, s, secret, secure))
 		mux.HandleFunc("GET /auth/github/callback",
 			handleGitHubCallback(cfg, s, secret, secure))
 	}
 	if cfg.DiscordClientID != "" {
 		mux.HandleFunc("GET /auth/discord",
-			handleDiscordRedirect(cfg, secret, secure))
+			handleDiscordRedirect(cfg, s, secret, secure))
 		mux.HandleFunc("GET /auth/discord/callback",
 			handleDiscordCallback(cfg, s, secret, secure))
 	}
 	if cfg.GoogleClientID != "" {
 		mux.HandleFunc("GET /auth/google",
-			handleGoogleRedirect(cfg, secret, secure))
+			handleGoogleRedirect(cfg, s, secret, secure))
 		mux.HandleFunc("GET /auth/google/callback",
 			handleGoogleCallback(cfg, s, secret, secure))
 	}
@@ -41,4 +41,6 @@ func RegisterRoutes(mux *http.ServeMux, s *store.Store, cfg *core.Config) {
 		mux.HandleFunc("POST /auth/telegram",
 			handleTelegram(cfg, s, secret, secure))
 	}
+	mux.HandleFunc("POST /auth/collide",
+		handleCollideChoice(s, secret, secure))
 }

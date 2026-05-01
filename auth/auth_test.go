@@ -267,7 +267,7 @@ func TestOAuthStateExpired(t *testing.T) {
 	r := httptest.NewRequest(
 		"GET", "/callback?state="+url.QueryEscape(state), nil)
 	r.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
-	if verifyState(testSecret, r) {
+	if _, ok := verifyState(testSecret, r); ok {
 		t.Fatal("expired state should not verify")
 	}
 }
@@ -374,7 +374,7 @@ func TestOAuthStateCookie(t *testing.T) {
 	// simulate verification
 	r := httptest.NewRequest("GET", "/callback?state="+url.QueryEscape(state), nil)
 	r.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
-	if !verifyState(testSecret, r) {
+	if _, ok := verifyState(testSecret, r); !ok {
 		t.Fatal("valid state should verify")
 	}
 }
