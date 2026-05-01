@@ -48,12 +48,13 @@ which JIDs have routes to the group.
 target LIKE world || '/%'` in the routes table).
 - **Tier 2** — `send`, `reply`, plus actions on
   platforms routed to self or children.
-- **Tier 3+ (leaf)** — `reply` only. Same chat/thread.
+- **Tier 3+ (leaf)** — `reply`, `send_file`, `like`, `edit` only
+  (see "Action lists" below). Same chat/thread.
 
 ## Overrides (DB)
 
 ```sql
-CREATE TABLE grants (
+CREATE TABLE grant_rules (
   folder TEXT NOT NULL PRIMARY KEY,
   rules  TEXT NOT NULL  -- JSON string[]
 );
@@ -62,8 +63,9 @@ CREATE TABLE grants (
 Override rules appended after defaults. Last-match-wins.
 No row = defaults only.
 
-Note: actual DB schema uses `(id, jid, role, granted_by, granted_at)` for
-audit trail — not `(folder, rules TEXT JSON)` as originally specced above.
+Note: a separate `grants` table `(id, jid, role, granted_by, granted_at)`
+exists for user/role grants and is unrelated to the action-rule overrides
+described here.
 
 ## Token in start.json
 
@@ -81,58 +83,51 @@ Denied actions omitted. Allowed actions include matching rules:
 
 ## Delegation
 
-`NarrowRules(parent, child []string) []string` appends child rules
-to parent, then strips any child allow rule where
-`CheckAction(parent, action, nil)` is false — i.e. an allow rule
-that the parent does not permit is silently dropped. Child deny
-rules always pass through unchanged. Result: delegation can only
-restrict, never expand.
-
-`delegate_group` `grants` param: JSON string array, e.g.
-`["reply","!send_file"]`. Empty or absent = no narrowing.
+`delegate_group` does not narrow grants today; the child group runs with
+its own derived rules. Per-call narrowing is unimplemented (the previous
+`NarrowRules` helper was removed in commit c63ea8e); see "Not in scope".
 
 ## Module: `grants/`
 
-Self-contained package. No dependency on ipc or gateway.
+Self-contained package. Depends only on `core` and `store`; no dependency
+on ipc or gateway.
 
 ```go
-// Rule and ParseRule already exist in grants/grants.go:
 type Rule struct {
     Deny   bool
     Action string
     Params map[string]ParamRule
 }
 type ParamRule struct { Deny bool; Pattern string }
-func ParseRule(r string) Rule  // already implemented
 
-// Functions to add:
+func ParseRule(r string) Rule
 func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []string
 func CheckAction(rules []string, action string, params map[string]string) bool
 func MatchingRules(rules []string, action string) []string
-func NarrowRules(parent, child []string) []string
 ```
 
 - `DeriveRules`: `worldFolder` = folder itself for tier 1 (tier-1 group IS the world root); for tier 2+, caller derives worldFolder by walking parent chain.
 - `CheckAction([]string{}, action, nil)` → `false` (no rules = deny)
-- `NarrowRules(parent, nil)` or `NarrowRules(parent, []string{})` → returns `parent` unchanged
 
 ### DeriveRules output
 
 Platforms = JID prefixes (e.g. `telegram`, `discord`) extracted
-from route source JIDs in scope.
+from route source JIDs in scope. The exact action lists per tier are
+canonicalized in "Action lists (post-073)" below; this section gives
+the shape.
 
-- **Tier 0**: `["*"]`
-- **Tier 1**: always `["schedule_task", "delegate_group",
-"register_group", "escalate_group", "get_routes", "set_routes",
-"add_route", "delete_route", "list_tasks", "pause_task",
-"resume_task", "cancel_task"]` plus, for each platform P in
-  world: `["send(jid=P:*)", "reply(jid=P:*)",
-"send_file(jid=P:*)"]`
-- **Tier 2**: for each platform P routed to self or children:
-  `["send(jid=P:*)", "reply(jid=P:*)"]`
-- **Tier 3+**: `["reply"]`
+- **Tier 0**: `["*"]`.
+- **Tier 1**: ungated `send`, `send_file`, `reply`; per-platform
+  `(jid=P:*)` rules over the routed-platform set in this world for every
+  verb in `platformActions`; the fixed management list
+  (`tier1FixedActions`); plus `share_mount(readonly=false)`.
+- **Tier 2**: ungated `send`, `send_file`, `reply`; per-platform
+  `(jid=P:*)` rules over the platforms routed to this folder; plus
+  `share_mount(readonly=true)`.
+- **Tier 3+**: `["reply", "send_file", "like", "edit"]` so leaf rooms
+  can edit their own outputs without gaining broadcast/post authority.
 
-DB override rules are appended after defaults.
+DB override rules from `grant_rules` are appended after defaults.
 
 ### MatchingRules
 
@@ -158,18 +153,15 @@ Platform prefix extracted as the part before `:` in each JID.
 
 ## Integration
 
-- `container/runner.go`: call `DeriveRules`, add `grants` to start.json
-- `ipc/ipc.go`: call `CheckAction` before tool execution,
-  deny with error if check fails. Replaces `auth.Authorize`
-- `ipc/ipc.go`: call `MatchingRules` per tool for manifest
-- `gateway/gateway.go`: `delegate_group` passes optional `grants`
-  param, calls `NarrowRules`
+- `gateway/gateway.go`: calls `DeriveRules` at spawn, adds `grants` to start.json
+- `ipc/ipc.go`: calls `CheckAction` before tool execution; denies with
+  error if check fails. Pairs with `auth.Authorize` for tier/scope checks
+- `ipc/ipc.go`: calls `MatchingRules` per tool for the manifest
 
 ## MCP actions
 
-- `set_grants(folder, rules)` — replace rules (tier 0-1 only)
-- `get_grants(folder)` — list rules
-- `delegate_group` gains optional `grants` param
+- `set_grants(folder, rules)` — replace `grant_rules` row (tier 0-1 only)
+- `get_grants(folder)` — read the row
 
 ## Authority
 
@@ -181,30 +173,33 @@ Platform prefix extracted as the part before `:` in each JID.
 
 - Agent cannot edit grants DB (not in container)
 - Rules ephemeral per-session (derived at spawn, passed in start.json)
-- Delegation can only narrow (`NarrowRules`)
 - No grants in start.json → `["*"]` (backward compat)
 
 ## Not in scope
 
 - Grant expiry / TTL
 - Rule inheritance across worlds
+- Per-call grant narrowing on `delegate_group` (was prototyped as
+  `NarrowRules` and removed)
 
 ## Action lists (post-073)
 
-Three platform-scoped lists in `grants/grants.go`:
+Two action lists drive `DeriveRules` in `grants/grants.go`:
 
-- `platformSendActions = {send, send_file, reply}` — one-off chat
-  delivery; per-platform `(jid=<plat>:*)` rules.
-- `platformChatActions = {forward}` — chat verbs that act on an
-  external chat by relaying a source message.
-- `platformFeedActions = {post, quote, repost, like, dislike, delete,
-edit}` — feed/timeline-scoped social verbs.
+- `basicSendActions = {send, send_file, reply}` — emitted ungated at
+  tier 1 and tier 2 so a routed group can address any peer on any of
+  its platforms without per-jid rules.
+- `platformActions = {send, send_file, reply, forward, post, quote,
+repost, like, dislike, delete, edit}` — emitted as
+  `verb(jid=<plat>:*)` for every platform in scope. Send verbs appear
+  in both lists so the ungated form covers in-platform replies and the
+  scoped form covers cross-platform addressing.
 
-`platformRules` iterates all three over the routed-platform set. Tier
-0 = `*`. Tier 1 = world-scope routes + tier-1 management. Tier 2 =
-folder-scope routes + RO share_mount. Tier 3+ = `{reply, send_file,
-like, edit}` so leaf rooms can edit their own outputs without gaining
-broadcast/post authority.
+`platformRules` iterates `platformActions` over the routed-platform
+set. Tier 0 = `*`. Tier 1 = world-scope routes + tier-1 management +
+RW share_mount. Tier 2 = folder-scope routes + RO share_mount. Tier
+3+ = `{reply, send_file, like, edit}` so leaf rooms can edit their
+own outputs without gaining broadcast/post authority.
 
 ## Structured unsupported errors
 
