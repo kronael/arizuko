@@ -425,8 +425,11 @@ func (lc *linkClient) deliverComment(router *chanlib.RouterClient, postURN strin
 		return
 	}
 
-	jid := "linkedin:" + postURN
-	sender := "linkedin:" + c.Actor
+	// Linkedin URNs already use ':' (urn:li:share:...). The kind
+	// discriminator goes in the first segment of the path; URN colons are
+	// preserved verbatim in the second segment per spec.
+	jid := "linkedin:post/" + postURN
+	sender := "linkedin:user/" + c.Actor
 	verb := "comment"
 	replyTo := ""
 	if c.ParentComment != "" {
@@ -477,11 +480,21 @@ type commentBody struct {
 }
 
 func (lc *linkClient) Send(req chanlib.SendRequest) (string, error) {
-	// ChatJID format: linkedin:<urn>. If ChatJID names a post URN and
-	// ReplyTo is empty, we treat it as a new top-level comment on that
-	// post. With no ChatJID context that looks like a post, fall back to
-	// publishing a new ugcPost (only when AutoPublish=true).
-	urn := strings.TrimPrefix(req.ChatJID, "linkedin:")
+	// ChatJID accepts both legacy `linkedin:<urn>` and typed
+	// `linkedin:post/<urn>` / `linkedin:user/<urn>` forms. If the URN
+	// names a post and ReplyTo is empty, we treat it as a new top-level
+	// comment on that post. With no ChatJID context that looks like a
+	// post, fall back to publishing a new ugcPost (only when
+	// AutoPublish=true).
+	urn := req.ChatJID
+	switch {
+	case strings.HasPrefix(urn, "linkedin:post/"):
+		urn = strings.TrimPrefix(urn, "linkedin:post/")
+	case strings.HasPrefix(urn, "linkedin:user/"):
+		urn = strings.TrimPrefix(urn, "linkedin:user/")
+	default:
+		urn = strings.TrimPrefix(urn, "linkedin:")
+	}
 
 	if isPostURN(urn) {
 		return lc.postComment(urn, req.Content, req.ReplyTo)
