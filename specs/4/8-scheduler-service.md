@@ -21,20 +21,22 @@ CREATE TABLE scheduled_tasks (
 );
 ```
 
-Migration service name: `timed`.
+Schema owned by `store` (migration service `store`); `timed` is a
+read/write client that never runs migrations.
 
 - `owner` — group folder that created the task. Used by
   ipc/auth for authorization.
 - `cron` — cron expression. NULL for one-shot tasks.
 - `next_run` — when to fire next. One-shot: set directly,
   goes NULL after firing. Cron: recomputed after each fire.
-- `status` — `active` or `paused`. No other states.
+- `status` — `active`, `paused`, `firing` (transient claim during
+  fire loop), or `completed` (one-shot terminal).
 
 ## Implemented beyond base spec
 
 - `context_mode` column: `"group"` (resumes session) | `"isolated"` (no
-  `--resume`). Encoded as sender prefix `"scheduler-isolated"` in messages
-  when isolated; default sender `"scheduler"` resumes group session.
+  `--resume`). Encoded as sender `"timed-isolated:<task_id>"` in messages
+  when isolated; default sender `"timed"` resumes group session.
 - Interval mode: if `cron` field is a plain integer, treated as milliseconds
   interval; `next_run = now + ms` after each fire.
 - `task_run_logs` table: tracks execution history
@@ -52,7 +54,7 @@ every 60s:
     WHERE status = 'active' AND next_run <= now
 
   for each task:
-    INSERT INTO messages (sender='scheduler')
+    INSERT INTO messages (sender='timed' or 'timed-isolated:<id>')
     if cron IS NOT NULL: next_run = next_cron(cron)
     else: next_run = NULL
 ```
