@@ -88,7 +88,7 @@ func LoadConfig() (*Config, error) {
 		TelegramToken:       envOr("TELEGRAM_BOT_TOKEN", ""),
 		Image:               envOr("CONTAINER_IMAGE", "arizuko-ant:latest"),
 		Timeout:             envDur("CONTAINER_TIMEOUT", 60*time.Minute),
-		IdleTimeout:         envDur("IDLE_TIMEOUT", 30*time.Minute),
+		IdleTimeout:         envDur("IDLE_TIMEOUT", 60*time.Minute),
 		MaxContainers:       envInt("MAX_CONCURRENT_CONTAINERS", 5),
 		PollInterval:        2 * time.Second,
 		Timezone:            resolveTimezone(),
