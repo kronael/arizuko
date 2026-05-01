@@ -70,7 +70,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if m == nil || m.Author == nil || m.Author.Bot {
 		return
 	}
-	jid := "discord:" + m.ChannelID
+	jid := chatJID(m.GuildID, m.ChannelID)
 	content := m.Content
 	var atts []chanlib.InboundAttachment
 	for _, att := range m.Attachments {
@@ -110,7 +110,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:          m.ID,
 		ChatJID:     jid,
-		Sender:      "discord:" + m.Author.ID,
+		Sender:      "discord:user/" + m.Author.ID,
 		SenderName:  m.Author.Username,
 		Content:     content,
 		Timestamp:   m.Timestamp.Unix(),
@@ -122,7 +122,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
-	slog.Debug("inbound", "chat_jid", jid, "sender_jid", "discord:"+m.Author.ID, "message_id", m.ID, "content_len", len(content))
+	slog.Debug("inbound", "chat_jid", jid, "sender_jid", "discord:user/"+m.Author.ID, "message_id", m.ID, "content_len", len(content))
 }
 
 // onReactionAdd emits verb=like/dislike for each reaction; bot's own reactions skipped.
@@ -137,7 +137,7 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 	if emoji == "" {
 		return
 	}
-	jid := "discord:" + m.ChannelID
+	jid := chatJID(m.GuildID, m.ChannelID)
 	verb := chanlib.ClassifyEmoji(emoji)
 	senderName := ""
 	if m.Member != nil && m.Member.User != nil {
@@ -146,7 +146,7 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:         m.MessageID + ":r:" + emoji,
 		ChatJID:    jid,
-		Sender:     "discord:" + m.UserID,
+		Sender:     "discord:user/" + m.UserID,
 		SenderName: senderName,
 		Content:    emoji,
 		Timestamp:  time.Now().Unix(),
@@ -161,7 +161,27 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 	b.lastInboundAt.Store(time.Now().Unix())
 }
 
-func chanID(jid string) string { return strings.TrimPrefix(jid, "discord:") }
+// chatJID renders the canonical Discord chat JID. guildID is empty for
+// DMs (→ discord:dm/<channel>) and non-empty for guild channels and
+// threads (→ discord:<guild>/<channel>).
+func chatJID(guildID, channelID string) string {
+	if guildID == "" {
+		return "discord:dm/" + channelID
+	}
+	return "discord:" + guildID + "/" + channelID
+}
+
+// chanID extracts the platform-side channel ID from a JID. Accepts both
+// the legacy `discord:<channel>` and the new
+// `discord:<guild>/<channel>` / `discord:dm/<channel>` /
+// `discord:_/<channel>` (legacy migrated rows without a known guild).
+func chanID(jid string) string {
+	rest := strings.TrimPrefix(jid, "discord:")
+	if _, ch, ok := strings.Cut(rest, "/"); ok {
+		return ch
+	}
+	return rest
+}
 
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	chID := chanID(req.ChatJID)
@@ -339,7 +359,7 @@ func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse,
 		out = append(out, chanlib.InboundMsg{
 			ID:          m.ID,
 			ChatJID:     req.ChatJID,
-			Sender:      "discord:" + m.Author.ID,
+			Sender:      "discord:user/" + m.Author.ID,
 			SenderName:  m.Author.Username,
 			Content:     content,
 			Timestamp:   m.Timestamp.Unix(),

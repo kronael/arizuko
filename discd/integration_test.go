@@ -406,10 +406,10 @@ func TestOnMessage_Inbound(t *testing.T) {
 		t.Fatalf("dispatched %d, want 1", len(mr.msgs))
 	}
 	got := mr.msgs[0]
-	if got.ChatJID != "discord:ch-1" {
+	if got.ChatJID != "discord:dm/ch-1" {
 		t.Errorf("ChatJID = %q", got.ChatJID)
 	}
-	if got.Sender != "discord:user-42" {
+	if got.Sender != "discord:user/user-42" {
 		t.Errorf("Sender = %q", got.Sender)
 	}
 	if !strings.Contains(got.Content, "@Ari") {
@@ -647,7 +647,7 @@ func TestFetchHistory(t *testing.T) {
 	if resp.Messages[1].Attachments[0].URL != "https://cdn/x" {
 		t.Errorf("attachment url = %q (expected raw CDN when files cache nil)", resp.Messages[1].Attachments[0].URL)
 	}
-	if resp.Messages[1].Sender != "discord:u1" || resp.Messages[1].SenderName != "alice" {
+	if resp.Messages[1].Sender != "discord:user/u1" || resp.Messages[1].SenderName != "alice" {
 		t.Errorf("sender = %s / %s", resp.Messages[1].Sender, resp.Messages[1].SenderName)
 	}
 	mu.Lock()
