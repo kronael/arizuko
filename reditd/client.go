@@ -359,7 +359,7 @@ func (rc *redditClient) thingToMsg(t thing, jid string) (chanlib.InboundMsg, boo
 	return chanlib.InboundMsg{
 		ID:          d.Name,
 		ChatJID:     jid,
-		Sender:      "reddit:" + d.Author,
+		Sender:      "reddit:user/" + d.Author,
 		SenderName:  d.Author,
 		Content:     content,
 		Timestamp:   int64(d.CreatedAt),
@@ -373,9 +373,11 @@ func (rc *redditClient) thingToMsg(t thing, jid string) (chanlib.InboundMsg, boo
 }
 
 func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterClient) {
-	jid := "reddit:" + t.Data.Author
+	// chat_jid is the conversation context: subreddit for poller-sourced
+	// items, the author's user JID for inbox/DM-sourced items.
+	jid := "reddit:user/" + t.Data.Author
 	if strings.HasPrefix(key, "sr:") {
-		jid = "reddit:r_" + t.Data.Subreddit
+		jid = "reddit:subreddit/" + t.Data.Subreddit
 	}
 	msg, ok := rc.thingToMsg(t, jid)
 	if !ok {
@@ -389,15 +391,21 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 }
 
 // FetchHistory pulls a subreddit listing (newest-first). JID shape
-// `reddit:r_<sr>` maps to `/r/<sr>/new.json`; user DM JIDs are
-// unsupported because /message/inbox isn't filterable by counterparty.
-// Reddit listing endpoints cap depth at ~1000 items.
+// `reddit:subreddit/<sr>` (typed) or `reddit:r_<sr>` (legacy) both map to
+// `/r/<sr>/new.json`; user DM JIDs are unsupported because
+// /message/inbox isn't filterable by counterparty. Reddit listing
+// endpoints cap depth at ~1000 items.
 func (rc *redditClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
 	jid := req.ChatJID
-	if !strings.HasPrefix(jid, "reddit:r_") {
+	var sr string
+	switch {
+	case strings.HasPrefix(jid, "reddit:subreddit/"):
+		sr = strings.TrimPrefix(jid, "reddit:subreddit/")
+	case strings.HasPrefix(jid, "reddit:r_"):
+		sr = strings.TrimPrefix(jid, "reddit:r_")
+	default:
 		return chanlib.HistoryResponse{Source: "unsupported", Messages: []chanlib.InboundMsg{}}, nil
 	}
-	sr := strings.TrimPrefix(jid, "reddit:r_")
 	if sr == "" {
 		return chanlib.HistoryResponse{Source: "unsupported", Messages: []chanlib.InboundMsg{}}, nil
 	}
