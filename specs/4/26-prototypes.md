@@ -85,24 +85,11 @@ look like.
 
 ## Thread lifecycle
 
-Spawn groups have three states:
-
-- **active** — normal routing and processing
-- **closed** — no new messages accepted, falls through to next route.
-  Folder preserved for archival reads.
-- **archived** — folder compressed, moved to `groups/<parent>/archive/`,
-  DB row removed.
-
-Config on parent group:
-
-```
-spawn_ttl_days       INT  default 7   -- mark closed after N days inactive
-archive_closed_days  INT  default 1   -- archive closed after N days
-```
-
-Cleanup runs once per day via `timed` (`cleanupSpawns` in
-`timed/main.go`): marks inactive spawns `closed`, archives after the
-`archive_closed_days` threshold.
+Spawn groups exist until explicitly removed. No state machine. No
+auto-archival. Storage is cheap; rule/route history that today's
+state-transitions tried to preserve will be captured by a proper
+audit log when one is added (TODO — currently no audit log of rule
+or route changes).
 
 ## Migrations
 
