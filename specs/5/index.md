@@ -12,7 +12,6 @@ status: future
 | [30-inspect-tools.md](30-inspect-tools.md)             | shipped   | inspect\_\* MCP family (messages, routing, tasks, session)          |
 | [31-autocalls.md](31-autocalls.md)                     | shipped   | Inline fact injection when schema cost > content cost               |
 | [32-tenant-self-service.md](32-tenant-self-service.md) | shipped   | Org-chart model: invites, secrets, chats.kind, topic kinds          |
-| [33-auth-landscape.md](33-auth-landscape.md)           | shipped   | Auth composition mechanics                                          |
 | [9-identities.md](9-identities.md)                     | unshipped | Link one user across multiple platform subs                         |
 | [C-message-mcp.md](C-message-mcp.md)                   | shipped   | `get_history` + `get_thread` + `fetch_history` MCP tools            |
 | [H-call-llm-mcp.md](H-call-llm-mcp.md)                 | unshipped | Oracle skill — Claude asks codex CLI via subprocess + folder secret |

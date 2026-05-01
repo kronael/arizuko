@@ -185,7 +185,7 @@ their content):
 - `7/6-dynamic-channels.md` — channel adapter credentials (special case
   of folder-scope secrets); planned
 - `5/30-inspect-tools.md` — read-only introspection (shipped)
-- `5/33-auth-landscape.md` — composition mechanics (shipped)
+- `GRANTS.md` (root) — composition mechanics
 - `7/7-auth-tunneling.md` — web-based credential capture; planned
 - `7/8-cli-auth-helper.md` — CLI auth dispatcher; planned
 
