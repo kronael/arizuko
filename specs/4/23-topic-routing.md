@@ -21,7 +21,8 @@ Prefix stripped before agent sees the message.
   folder of the group that owns the incoming room
 - Child must exist in the groups table
 - Message delivered via `delegateViaMessage` with the stripped text
-- If child doesn't exist: log and drop
+- If child doesn't exist: log and fall through (prefix not consumed,
+  routing/agent layers still run)
 
 ### #topic — route to named session
 
@@ -85,13 +86,13 @@ routing layer reads it.
 2. Target is self (same folder)
 3. Strip prefix
 4. Look up `GetSession(folder, topic)` for topic-specific session
-5. Run container with that session and topic in RunConfig
+5. Run container with that session and topic in `container.Input`
 6. Store returned session via `SetSession(folder, topic, sessionId)`
 
 ## Store function signatures
 
-Existing `GetSession`/`SetSession` in `store/sessions.go` take only
-`folder string`. Change signatures to add `topic`:
+`GetSession`/`SetSession` in `store/sessions.go` are keyed by
+`(folder, topic)`. Default-session callers pass `topic = ""`.
 
 ```go
 // GetSession returns (sessionID, true) or ("", false) if not found.
@@ -101,19 +102,18 @@ func (s *Store) GetSession(folder, topic string) (string, bool)
 func (s *Store) SetSession(folder, topic, sessionID string) error
 ```
 
-Existing call sites update to pass `topic = ""`.
-
-## RunConfig topic field
+## container.Input topic field
 
 ```go
-type RunConfig struct {
+type Input struct {
     // ... existing fields ...
-    Topic string // "" for default session; "#name" for named topic
+    Topic string `json:"topic,omitempty"` // "" default; "#name" named
 }
 ```
 
-`container.Run` passes `Topic` into `start.json` as `"topic"` field
-and appends `"Topic session: #name"` to `annotations` when non-empty.
+`container.Run` serializes `Input.Topic` into `start.json` as the
+`"topic"` field and appends `"Topic session: #name"` to `annotations`
+when non-empty.
 
 ## delegateViaMessage
 
@@ -128,7 +128,7 @@ parsed from `@name` and `group` is the owning group returned by
 ## start.json topic injection
 
 ```json
-{ "topic": "deploy", "annotations": ["Topic session: #deploy"] }
+{ "topic": "#deploy", "annotations": ["Topic session: #deploy"] }
 ```
 
 ## Command integration
