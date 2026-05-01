@@ -22,7 +22,7 @@ status: future
 | [E-plugins.md](E-plugins.md)                                   | unshipped | Agent proposes, operator approves plugin system                    |
 | [H-call-llm-mcp.md](H-call-llm-mcp.md)                         | unshipped | `call_llm` tool for non-Claude models via OpenRouter               |
 | [J-sse.md](J-sse.md)                                           | partial   | Groups are the SSE auth boundary; round-handle stream added in 7/3 |
-| [M-webdav.md](M-webdav.md)                                     | partial   | dufs + proxyd JWT/cookie auth, write-block guard; Basic Auth todo  |
+| [M-webdav.md](M-webdav.md)                                     | shipped   | dufs + proxyd JWT/cookie auth, write-block guard                   |
 | [N-listener.md](N-listener.md)                                 | unshipped | Passive listener group mode + scheduled digest                     |
 | [P-operator.md](P-operator.md)                                 | note      | Operator is emergent from `**` ACL, not a flag                     |
 | [Q-unified-routing.md](Q-unified-routing.md)                   | partial   | Single message table + router decision point                       |

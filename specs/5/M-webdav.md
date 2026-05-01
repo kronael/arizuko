@@ -1,5 +1,6 @@
 ---
-status: partial
+status: shipped
+shipped: 2026-05-01
 ---
 
 # WebDAV workspace
@@ -26,21 +27,17 @@ Config: `WEBDAV_ENABLED` (default `true` since 2026-04-27),
   `<group>/logs/**` read-only (any non-read method → 403). Read methods
   (GET/HEAD/OPTIONS/PROPFIND) pass through unchanged.
 
-## What was originally specced but is NOT shipped
+## Authentication — final shape
 
-- **Basic Auth + per-user `webdav_token_hash`**. The original spec
-  proposed Basic Auth so that desktop WebDAV clients (Finder, Windows
-  Explorer) could authenticate without browser cookies. As shipped,
-  `/dav/*` uses the same `requireAuth` middleware as `/dash/*` — JWT
-  cookie or Bearer header. Cookie-less clients need `/dash/profile`
-  to issue a Bearer token they can configure their client with.
-  Pick one direction when this gets focus:
-  - add Basic Auth handler + `webdav_token_hash` column +
-    `WEBDAV_GROUPS` JSON scope, OR
-  - declare cookie/Bearer the canonical answer and remove the
-    Basic-Auth language from this spec.
-- (shipped) `logs/` read-only and `.env` / `*.pem` / `.git/**`
-  write-block — see `davAllow` in `proxyd/main.go`.
+Cookie/Bearer is canonical. `/dav/*` uses the same `requireAuth`
+middleware as `/dash/*`: JWT cookie (browser) or Bearer token
+(WebDAV client). No Basic Auth, no per-user `webdav_token_hash`.
+
+Password support comes for free via proxyd's local-OAuth provider:
+users without a browser cookie run the local OAuth flow to exchange
+a username/password for a Bearer token, then configure their WebDAV
+client with that token. `/dash/profile` is the human-facing entry
+point for issuing/revoking tokens.
 
 Rationale: dufs over Caddy+mholt/caddy-webdav — ships UI, simpler
 deploy, same security model.
