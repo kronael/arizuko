@@ -14,11 +14,12 @@ Search all memory stores for information relevant to a question.
 
 ## Protocol
 
-1. In `<think>`, expand the question into ~10 search terms
-2. Run `recall "term"` for each term via Bash
-3. Collect all results (deduplicate by path)
-4. Spawn an Explore subagent with the collected results + question;
-   it judges which are relevant and why
+Spawn an Explore subagent with the question. The subagent:
+
+1. Greps `summary:` in `*.md` across `~/facts/`, `~/diary/`, `~/users/`,
+   `~/episodes/`
+2. Reads each summary, judges relevance to the question
+3. Returns matches: file path, store name, why it matches
 
 ## After results
 

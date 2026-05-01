@@ -20,11 +20,11 @@ frontmatter. Adding a store = one string. No recall code changes.
 ## Flow
 
 ```
-question -> /recall -> matches? -> agent reads files -> answer
-                    -> no match -> /find (research) -> answer
+question -> /recall-memories -> matches? -> agent reads files -> answer
+                             -> no match -> /find (research) -> answer
 ```
 
-`/recall` = retrieval (cheap). `/find` = research + creation (expensive).
+`/recall-memories` = retrieval (cheap). `/find` = research + creation (expensive).
 
 ## LLM semantic grep
 
@@ -49,7 +49,8 @@ Scales to ~300 files per group; revisit if that becomes a limit.
 ## Progressive compression (episodes)
 
 Session transcripts and diary entries compress into progressive
-summaries. Both use the same file format and are indexed by `/recall`.
+summaries. Both use the same file format and are indexed by
+`/recall-memories`.
 
 ### Hierarchy
 
@@ -66,7 +67,10 @@ Episodes (from session transcripts):
 
 Diary (from work log entries):
   diary/20260310.md  ─┐
-  diary/20260311.md  ─┤→ diary/week/2026-W11.md      ↓  diary/month/2026-03.md
+  diary/20260311.md  ─┤→ diary/week/2026-W11.md  (week)
+  diary/20260312.md  ─┘      ↓
+  diary/week/2026-W10.md  ─┐
+  diary/week/2026-W11.md  ─┤→ diary/month/2026-03.md  (month)
 ```
 
 ### File format
@@ -114,7 +118,8 @@ On session start, inject most recent of each type:
 ```
 
 Diary week/month summaries not injected — 14-day daily injection covers.
-Week/month diary summaries exist for `/recall` searches over longer timeframes.
+Week/month diary summaries exist for `/recall-memories` searches over
+longer timeframes.
 
 ## recall-messages skill
 
