@@ -12,13 +12,13 @@ summaries selected and injected into agent context.
 
 | Layer    | Spec                   | Status  | Storage   |
 | -------- | ---------------------- | ------- | --------- |
-| Messages | memory-messages.md     | shipped | DB (SQL)  |
-| Session  | memory-session.md      | shipped | SDK (.jl) |
-| Managed  | memory-managed.md      | shipped | Files     |
-| Diary    | memory-diary.md        | shipped | Files     |
+| Messages | 1/N-memory-messages.md | shipped | DB (SQL)  |
+| Session  | 3/E-memory-session.md  | shipped | SDK (.jl) |
+| Managed  | 1/M-memory-managed.md  | shipped | Files     |
+| Diary    | 1/L-memory-diary.md    | shipped | Files     |
 | User ctx | 3/7-user-context.md    | shipped | Files     |
 | Facts    | 3/1-atlas.md           | shipped | Files     |
-| Episodes | 4/B-memory-episodic.md | shipped | Files     |
+| Episodes | 4/24-recall.md         | shipped | Files     |
 
 All memory layers shipped.
 
@@ -36,13 +36,15 @@ Given a directory of markdown files:
 **Push layers** — small corpus, gateway injects automatically:
 
 - **Diary** (`diary/*.md`) — date-keyed, 14 most recent, injected on
-  session start via `formatDiaryXml()` in `index.ts` (shipped v0.7.0).
-  Agent writes via `/diary` skill.
+  session start via `diary.Read()` (`diary/diary.go`), called from
+  `container/runner.go` prompt assembly. Agent writes via `/diary` skill.
 - **User context** (`users/*.md`) — sender-keyed, gateway injects
-  `<user>` pointer per message, agent reads file by default (shipped).
-  Agent writes via `/users` skill.
+  `<user>` pointer per message via `router.UserContextXml()`
+  (`router/router.go`), agent reads file by default. Agent writes via
+  `/users` skill.
 - **Episodes** (`episodes/*.md`) — event-keyed, all or recent,
-  inject on session start. Progressive compression: sessions →
+  inject on session start via `ReadRecentEpisodes()`
+  (`container/episodes.go`). Progressive compression: sessions →
   episodes (day/week/month). Created via `/compact-memories`
   skill on cron schedule.
 
@@ -66,13 +68,16 @@ and aren't forced into this pattern (see layer table above).
 Push layers format selected summaries as XML, inserted into prompt:
 
 ```xml
-<diary count="2">
+<knowledge layer="diary" count="2">
   <entry key="20260306" age="today">summary text</entry>
   <entry key="20260305" age="yesterday">summary text</entry>
-</diary>
+</knowledge>
 
 <user id="tg-123456" name="Alice" memory="~/users/tg-123456.md" />
 ```
+
+Episodes use a sibling `<episodes count="N">` block with the same
+`<entry>` shape (see `container/episodes.go`).
 
 ## Nudges
 
@@ -87,14 +92,14 @@ Nudge text comes from skill config, not hardcoded in gateway.
 
 ## Push layer implementation
 
-**Shipped**: diary (`formatDiaryXml()` in `diary.ts`) and user context
-(`userContextXml()` in `router.ts`). Both ~5 lines each. Injection
-point is `formatPrompt()` in `index.ts`.
+**Shipped**: diary (`diary.Read()` in `diary/diary.go`), user context
+(`router.UserContextXml()` in `router/router.go`), and episodes
+(`ReadRecentEpisodes()` in `container/episodes.go`). The injection
+point is `container/runner.go`, which appends each formatter's output
+to the prompt's `Annotations` slice before joining.
 
-Each layer has its own formatter in the `router/` package.
-Diary and user context are ~5 lines each. No shared
-abstraction needed until episodes ship — three similar
-formatters is fine.
+Each layer has its own formatter — no shared abstraction. Three
+similar small formatters beats premature unification.
 
 ## Pull layer: `/recall`
 
@@ -172,11 +177,11 @@ RRF fusion: vector 0.7, BM25 0.3.
 ### Skill
 
 ```
-ant/skills/recall/SKILL.md
+ant/skills/recall-memories/SKILL.md
 ```
 
 Always-present base skill. Teaches the agent the semantic
-search protocol. `/recall` scans facts/, diary/, users/,
+search protocol. `/recall-memories` scans facts/, diary/, users/,
 episodes/. Read-only — never writes.
 
 ### Decided (previously open)
