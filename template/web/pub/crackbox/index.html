@@ -26,9 +26,9 @@
     <p>Browser permission prompts don&rsquo;t fit. Per-process iptables is fiddly. Network-level egress firewalls don&rsquo;t know which process is calling. crackbox is a small proxy you put in front of the workload and tell what hosts are allowed.</p>
 
     <h2>show me</h2>
-    <pre><code># build the image once
-git clone https://github.com/kronael/arizuko &amp;&amp; cd arizuko/crackbox
-docker build -t crackbox:latest .
+    <pre><code># build the image once (from the arizuko repo root, not crackbox/)
+git clone https://github.com/kronael/arizuko &amp;&amp; cd arizuko
+docker build -t crackbox:latest -f crackbox/Dockerfile .
 
 # allowed -&gt; 200
 crackbox run --allow github.com -- curl -s -o /dev/null -w '%{http_code}\n' https://github.com
@@ -38,7 +38,7 @@ crackbox run --allow github.com -- curl -s -o /dev/null -w '%{http_code}\n' http
 
 # python image, install one package, nothing else reachable
 crackbox run --image python:3 --allow pypi.org,files.pythonhosted.org -- pip install requests</code></pre>
-    <p>Subdomains match the parent (<code>--allow github.com</code> covers <code>api.github.com</code>). Comma-separated for multiple hosts. <code>--allow ""</code> blocks everything.</p>
+    <p>Subdomains match the parent (<code>--allow github.com</code> covers <code>api.github.com</code>). Comma-separated for multiple hosts. <code>--allow</code> is required and must be non-empty; pass an unreachable placeholder like <code>--allow none.invalid</code> to block everything.</p>
 
     <h2>good for</h2>
     <ul>
