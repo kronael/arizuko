@@ -26,7 +26,7 @@ aliases.)
 Routing / groups: `register_group`, `escalate_group`, `delegate_group`,
 `refresh_groups`, `list_routes`, `set_routes`, `add_route`,
 `delete_route`, `get_grants`, `set_grants`, `fetch_history`,
-`get_history` (deprecated alias).
+`get_history` (deprecated alias), `get_thread`.
 
 Read-only introspection: `inspect_messages`, `inspect_routing`,
 `inspect_tasks`, `inspect_session`, `inspect_identity`. Tier 0 sees

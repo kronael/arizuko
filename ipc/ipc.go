@@ -1441,14 +1441,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			})
 		}
 		srv.AddTool(mcp.NewTool("inspect_messages",
-			mcp.WithDescription("Return rows from the local messages.db for one chat_jid, including outbound/bot rows and errored entries. Use for routing/delivery audits or to verify what the store recorded. Not for conversation context before replying (fetch_history) — this shows DB truth, not platform history."),
+			mcp.WithDescription("Return rows from the local messages.db for one chat_jid, including outbound/bot rows and errored entries. Use for routing/delivery audits or to verify what the store recorded. Not for conversation context before replying (fetch_history), and not for one-thread-only history when the chat fans out into topics (get_thread) — this shows DB truth for the whole chat."),
 			mcp.WithString("chat_jid", mcp.Required()),
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
 		), inspectMessages)
 		// Back-compat alias; remove after next agent release.
 		srv.AddTool(mcp.NewTool("get_history",
-			mcp.WithDescription("DEPRECATED alias for inspect_messages. Do not use in new code — pick inspect_messages for DB audit or fetch_history for conversation context."),
+			mcp.WithDescription("DEPRECATED alias for inspect_messages. Do not use in new code — pick inspect_messages for whole-chat DB audit, get_thread for a single (chat_jid, topic) slice, or fetch_history for platform-truth context."),
 			mcp.WithString("chat_jid", mcp.Required()),
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
@@ -1505,7 +1505,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 
 	if gated.FetchPlatformHistory != nil {
 		srv.AddTool(mcp.NewTool("fetch_history",
-			mcp.WithDescription("Pull authoritative conversation history from the channel adapter and cache it. Use to reconstruct context before replying, especially on first contact or after a reset_session. Falls back to local cache if the adapter is down. Not for DB/routing audits (inspect_messages)."),
+			mcp.WithDescription("Pull authoritative conversation history from the channel adapter and cache it. Use to reconstruct context before replying, especially on first contact or after a reset_session. Falls back to local cache if the adapter is down. Not for DB/routing audits (inspect_messages) or single-thread slices (get_thread)."),
 			mcp.WithString("chat_jid", mcp.Required()),
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
