@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>grants</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>grants</h1>
+    <p class="dim back">what an agent can do &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+
+    <p class="lede">What an agent can do is computed at spawn time from three layers: tier defaults from path depth, per-folder rule overlay, and user&times;folder ACL &mdash; composed by the <code>auth</code> package. The agent never asks; the rules are pre-baked into its MCP tool list.</p>
+
+    <h2>why</h2>
+    <p>A multitenant agent system needs scoped permissions, but the agent shouldn&rsquo;t have to enforce them or even know the full ACL. Asking a model &ldquo;is this allowed?&rdquo; on every call is slow and unreliable; shipping the whole permission table into the prompt is expensive and leaks structure. So we compute the agent&rsquo;s effective rule set at spawn and bake it into the MCP tool list. The agent literally cannot see tools it isn&rsquo;t allowed to call, and each call is re-checked at the IPC boundary. Authorization is the daemon&rsquo;s problem, not the model&rsquo;s.</p>
+
+    <h2>the three layers</h2>
+    <ul>
+      <li><strong><code>groups</code></strong> &mdash; folder hierarchy. The folder path <em>is</em> the identity; tier is derived from depth (<code>min(slashes, 3)</code>). <code>atlas</code> is tier 1 (a world), <code>atlas/support</code> is tier 2, <code>atlas/support/oncall</code> is tier 3.</li>
+      <li><strong><code>user_groups</code></strong> &mdash; <code>(user_sub, folder, granted_at)</code> rows; the <code>folder</code> column is a glob. A row <code>(github:alice, atlas/**)</code> lets alice act on <code>atlas</code> and any descendant. <code>**</code> = operator. No matching row = no access.</li>
+      <li><strong><code>grant_rules</code></strong> &mdash; per-folder rule overlay table. Strings appended to the tier defaults at spawn time. Managed via the <code>get_grants</code> / <code>set_grants</code> MCP tools (tier 0&ndash;1 only) or the operator dashboard.</li>
+    </ul>
+
+    <h2>tiers</h2>
+    <ul>
+      <li><strong>Tier 0</strong> &mdash; instance root. Unrestricted (<code>["*"]</code>). CLI-only surface.</li>
+      <li><strong>Tier 1</strong> &mdash; world (top-level folder). Basic send + per-platform send/post/like/&hellip; for every platform routed anywhere under the world + management tools (<code>register_group</code>, <code>escalate_group</code>, <code>delegate_group</code>, route management, task management) + read-write share mount.</li>
+      <li><strong>Tier 2</strong> &mdash; depth-2 group. Basic send + per-platform actions, but scoped only to platforms routed at this folder or its descendants. Read-only share mount.</li>
+      <li><strong>Tier 3+</strong> &mdash; deep groups. Reply-only: <code>reply</code>, <code>send_file</code>, <code>like</code>, <code>edit</code>.</li>
+    </ul>
+
+    <h2>show me</h2>
+    <p>Rule grammar: <code>[!]action[(param=glob,&hellip;)]</code>. Last match wins. No match = deny.</p>
+    <pre><code>send(jid=telegram:group/*)              # can send to any telegram group
+!post                                   # cannot create new top-level posts
+send_file(jid=*)                        # can attach files to any allowed target
+delete                                  # can delete own messages
+share_mount(readonly=false)             # workspace mount writable</code></pre>
+    <p>Spawn-time composition for folder <code>atlas/support</code> (tier 2) with one telegram route under <code>atlas/</code>:</p>
+    <pre><code>send, send_file, reply
+send(jid=telegram:*), post(jid=telegram:*), like(jid=telegram:*), &hellip;
+share_mount(readonly=true)
+&lt;anything in grant_rules for atlas/support&gt;</code></pre>
+
+    <h2>what you get</h2>
+    <ul>
+      <li><strong>Tier-derived defaults.</strong> No per-folder config needed for the common case &mdash; depth picks the rule set.</li>
+      <li><strong>Per-folder overlay.</strong> <code>grant_rules</code> table when you need to widen or narrow a specific folder; appended after the tier defaults so a later <code>!action</code> wins.</li>
+      <li><strong>User&times;folder ACL with globs.</strong> <code>**</code> for operators, <code>atlas/**</code> for world owners, <code>atlas/support</code> for direct grants. Match logic in <code>auth.MatchGroups</code>; segment-wise, <code>*</code> never crosses <code>/</code>.</li>
+      <li><strong>JID&ndash;folder containment on outbound.</strong> Even if the rule list allows <code>send(jid=telegram:*)</code>, <code>auth.Authorize</code> resolves the target chat&rsquo;s owning folder via <a href="/pub/concepts/routing.html">routes</a> and refuses anything outside the agent&rsquo;s subtree. A tier-1 world agent can&rsquo;t post into another world&rsquo;s chats.</li>
+      <li><strong>Rules baked into the MCP tool list.</strong> The in-container MCP server filters tool registration by these rules and re-checks each call &mdash; the agent literally can&rsquo;t see disallowed tools, and a synthesized call still gets refused at the boundary.</li>
+    </ul>
+
+    <h2>go deeper</h2>
+    <p>Canonical reference with the table-by-table breakdown, worked example, and code pointers: <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md">GRANTS.md</a>. The auth package itself: <a href="https://github.com/kronael/arizuko/tree/main/auth">auth/</a>. For how the JIDs that show up in rule params are shaped, see <a href="/pub/concepts/jid.html">jid</a>; for how outbound containment uses the route table, see <a href="/pub/concepts/routing.html">routing</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
