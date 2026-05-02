@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ant</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>ant</h1>
+    <p class="dim back">concepts / ant &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+
+    <p class="lede">An ant is a Claude agent defined by a folder. Drop in <code>SOUL.md</code> for persona, <code>skills/</code> for tools, <code>secrets/</code> for credentials &mdash; and arizuko (or <code>ant</code> standalone) runs it.</p>
+
+    <h2>why</h2>
+    <p>Chat agents need persona, skills, secrets, and a memory that survives restarts. Most apps reinvent that layout from scratch &mdash; an env var here, a config file there, a prompt template in a Python string. Ant is the layout: one folder, one shape, forkable and version-controllable. Copy the folder, tweak <code>SOUL.md</code>, ship a new agent.</p>
+
+    <h2>the folder is the agent</h2>
+    <pre><code>my-agent/
+  SOUL.md          &mdash; persona, voice, identity
+  CLAUDE.md        &mdash; operator runbook the agent reads each turn
+  skills/          &mdash; SKILL.md files (custom + curated)
+  diary/           &mdash; running log, persistent across runs
+  secrets/         &mdash; folder-scoped credentials, env-injected
+  MCP.json         &mdash; optional, declares MCP servers wired in
+  workspace/       &mdash; the agent&rsquo;s working directory</code></pre>
+    <p>That&rsquo;s the unit. Everything else &mdash; CLI, sandbox, orchestrator &mdash; is delivery mechanism.</p>
+
+    <h2>three commands</h2>
+    <p>One binary, three IO modes by flag, sandbox orthogonal:</p>
+    <pre><code>ant &lt;folder&gt;                              # interactive chat (stdin/stdout)
+ant &lt;folder&gt; --prompt="&lt;text&gt;"            # one-shot, exit on completion
+ant &lt;folder&gt; --mcp [--socket=&lt;path&gt;]      # expose as an MCP server
+ant &lt;folder&gt; --sandbox=none|dockbox|crackbox</code></pre>
+    <p>The runtime is the same in every mode: spawn <code>claude</code> with the folder&rsquo;s skills, secrets, and workspace mounted; route diary writes to <code>&lt;folder&gt;/diary/</code>; wire MCP servers per <code>MCP.json</code>. Flags only pick where input comes from and where output goes.</p>
+
+    <h2>what you get</h2>
+    <ul>
+      <li><strong>Persona that survives restarts.</strong> <code>SOUL.md</code> is read every turn &mdash; identity is in the folder, not in a session.</li>
+      <li><strong>Curated skills.</strong> <code>skills/SKILL.md</code> entries pick the tools the agent gets. No plugin system; what&rsquo;s in the folder at spawn time is what runs.</li>
+      <li><strong>Folder-scoped secrets.</strong> Per-agent credentials in <code>secrets/</code> instead of one big env-soup shared across every agent on the host.</li>
+      <li><strong>Persistent diary and memory.</strong> Files written to <code>diary/</code> and <code>facts/</code> stay across runs. Restart, fork, copy &mdash; the agent remembers because the folder remembers.</li>
+      <li><strong>Optional sandbox.</strong> <code>--sandbox=dockbox</code> for Docker isolation; <code>--sandbox=crackbox</code> (when <a href="/pub/crackbox/">crackbox</a> ships its host backend) for tighter egress control.</li>
+    </ul>
+
+    <h2>arizuko vs standalone ant</h2>
+    <p><strong>Today:</strong> every arizuko group is an ant folder. Each <code>groups/&lt;folder&gt;/</code> already has the shape above &mdash; <code>SOUL.md</code>, <code>CLAUDE.md</code>, <code>skills/</code>, <code>diary/</code>, <code>secrets/</code>. <code>arizuko chat &lt;instance&gt; [group]</code> drops you into one. <code>gated</code> spawns containers from the same folders for inbound messages.</p>
+    <p><strong>Planned:</strong> a standalone <code>ant &lt;folder&gt;</code> CLI that runs one agent without arizuko anywhere on the system &mdash; no gateway, no scheduler, no router. Spec at <a href="https://github.com/kronael/arizuko/blob/main/specs/5/b-ant-standalone.md">specs/5/b-ant-standalone.md</a>; status: unshipped, packaging in flight.</p>
+
+    <h2>go deeper</h2>
+    <ul>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/b-ant-standalone.md">specs/5/b-ant-standalone.md</a> &mdash; canonical spec for the standalone CLI, container runtime, and skill curation rules.</li>
+      <li><a href="/pub/concepts/slink.html">slink</a> &mdash; how to talk to an ant from a browser, a script, or an MCP client.</li>
+      <li><a href="/pub/crackbox/">crackbox</a> &mdash; how to sandbox one when you don&rsquo;t fully trust the workload.</li>
+      <li><a href="/pub/concepts/jid.html">jid</a> &mdash; typed addresses an ant uses for routing across platforms.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
