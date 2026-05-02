@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>voice</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .prose table { border-collapse: collapse; margin: 0.6em 0; }
+    .prose th, .prose td { text-align: left; padding: 0.25em 0.8em 0.25em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>voice</h1>
+    <p class="dim back">concepts / voice &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+
+    <p class="lede">Send a voice message &mdash; Whisper transcribes it into the agent&rsquo;s prompt. Reply with <code>send_voice</code> &mdash; Kokoro synthesizes audio and the platform delivers a real voice note.</p>
+
+    <h2>why</h2>
+    <p>Users who send voice expect voice replies. Whisper has handled the inbound side for a while; <code>send_voice</code> closes the loop on the outbound side. The two are symmetric: voice in is just text-in to the agent, voice out is just text the agent decides to speak. The agent picks the modality &mdash; voice-first personas, matching the user&rsquo;s channel, or staying silent &mdash; the system doesn&rsquo;t auto-convert anything.</p>
+
+    <h2>voice in (Whisper)</h2>
+    <p>Set <code>WHISPER_BASE_URL</code> and <code>VOICE_TRANSCRIPTION_ENABLED=true</code>. Inbound voice notes are downloaded, transcribed, and surface in the agent&rsquo;s prompt as an attachment with the transcript inline:</p>
+    <pre><code>&lt;attachment path="..." mime="audio/ogg" transcript="..."&gt;</code></pre>
+    <p>The agent reads the transcript like any other text. The audio file is on disk if it ever needs the raw bytes.</p>
+
+    <h2>voice out (<code>send_voice</code>)</h2>
+    <p>MCP tool: <code>send_voice(chatJid, text, voice?)</code>. Distinct from <code>send_file</code> because each platform&rsquo;s voice primitive is distinct from its file/audio primitive (Telegram <code>sendVoice</code> vs <code>sendAudio</code>; WhatsApp <code>ptt:true</code> vs plain audio).</p>
+    <p>Voice resolution chain: explicit <code>voice</code> arg &gt; <code>voice:</code> frontmatter in <code>SOUL.md</code> &gt; <code>TTS_VOICE</code> env. Gateway hashes <code>sha256(text+voice+model)</code>, checks <code>&lt;data_dir&gt;/tts/&lt;hash&gt;.ogg</code>, and on miss POSTs to an OpenAI-compatible <code>/v1/audio/speech</code> at <code>TTS_BASE_URL</code> &mdash; default points at the bundled <code>ttsd</code> daemon, a thin Go proxy in front of Kokoro-FastAPI. Operators who prefer Piper, Coqui, or OpenAI cloud override <code>TTS_BACKEND_URL</code> and skip the bundled service. Text capped at 5000 chars.</p>
+
+    <h2>platform support</h2>
+    <table>
+      <tr><th>Platform</th><th>voice out (<code>send_voice</code>)</th></tr>
+      <tr><td>Telegram</td><td><code>sendVoice</code> (push-to-talk UI)</td></tr>
+      <tr><td>WhatsApp</td><td><code>audio + ptt:true</code> (Baileys)</td></tr>
+      <tr><td>Discord</td><td><code>audio/ogg</code> attachment</td></tr>
+      <tr><td>Mastodon</td><td>Unsupported (falls back to <code>send</code>)</td></tr>
+      <tr><td>Reddit</td><td>Unsupported</td></tr>
+      <tr><td>Bluesky</td><td>Unsupported</td></tr>
+      <tr><td>Email</td><td>Unsupported</td></tr>
+    </table>
+
+    <h2>what you get</h2>
+    <ul>
+      <li><strong>Symmetric voice in/out.</strong> Whisper for inbound, Kokoro for outbound &mdash; one mental model on both sides.</li>
+      <li><strong>Local TTS by default.</strong> Bundled <code>ttsd</code> proxies a Kokoro-FastAPI container; no cloud round-trip, no per-character billing.</li>
+      <li><strong>Operator-swappable backend.</strong> Point <code>TTS_BASE_URL</code> at any OpenAI-compatible <code>/v1/audio/speech</code> endpoint &mdash; Piper, Coqui, OpenAI cloud, anything.</li>
+      <li><strong>Per-agent voice.</strong> <code>voice:</code> in <code>SOUL.md</code> frontmatter pins one ant&rsquo;s voice; <code>TTS_VOICE</code> sets the instance default.</li>
+      <li><strong>Cached output.</strong> Same text + voice + model hits disk on the second send &mdash; no re-synth.</li>
+      <li><strong>Native push-to-talk where it exists.</strong> Telegram and WhatsApp render as PTT; Discord renders inline audio; unsupported platforms get <code>chanlib.ErrUnsupported</code> and the agent falls back to plain <code>send</code>.</li>
+    </ul>
+
+    <h2>go deeper</h2>
+    <p>Canonical spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/T-voice-synthesis.md">specs/5/T-voice-synthesis.md</a>. For how the JIDs in <code>send_voice(chatJid, &hellip;)</code> are shaped, see <a href="/pub/concepts/jid.html">jid</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
