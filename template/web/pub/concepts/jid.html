@@ -8,58 +8,50 @@
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.2em 0; }
-    .prose dt { color: var(--accent3); font-weight: bold; margin-top: 0.6em; }
-    .prose dd { margin: 0.1em 0 0 1.2em; color: var(--fg); }
-    .prose table { border-collapse: collapse; margin: 0.5em 0; }
-    .prose th, .prose td { padding: 0.2em 0.8em; border-bottom: 1px solid var(--accent3); text-align: left; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
     .back { font-size: 0.85em; }
   </style>
 </head>
 <body>
   <div class="hub-container prose">
     <h1>jid</h1>
-    <p class="dim back">concepts / jid &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">typed addresses for chats and senders &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
 
-    <h2>what it is</h2>
-    <p>A <strong>JID</strong> identifies one resource on one platform. It&rsquo;s the wire-form key arizuko uses for chats, senders, and routing rules. Shape:</p>
-    <pre><code>&lt;platform&gt;:&lt;rest&gt;</code></pre>
-    <p>Each platform declares its own <code>&lt;rest&gt;</code> shape with a <em>kind</em> in the first segment, separated from the rest by <code>/</code>.</p>
+    <p class="lede">Every chat and every sender has a typed address &mdash; <code>&lt;platform&gt;:&lt;kind&gt;/&lt;id&gt;</code> &mdash; so a routing rule like <code>chat_jid=telegram:group/*</code> matches all Telegram groups regardless of platform-specific quirks.</p>
 
-    <h2>per-platform shapes</h2>
-    <table>
-      <tr><th>platform</th><th>shape</th></tr>
-      <tr><td>telegram</td><td><code>telegram:user/&lt;id&gt;</code> &middot; <code>telegram:group/&lt;id&gt;</code></td></tr>
-      <tr><td>discord</td><td><code>discord:&lt;guild&gt;/&lt;channel&gt;</code> &middot; <code>discord:dm/&lt;channel&gt;</code> &middot; <code>discord:user/&lt;id&gt;</code></td></tr>
-      <tr><td>whatsapp</td><td><code>whatsapp:&lt;id&gt;@&lt;server&gt;</code></td></tr>
-      <tr><td>mastodon</td><td><code>mastodon:account/&lt;id&gt;</code> &middot; <code>mastodon:status/&lt;id&gt;</code></td></tr>
-      <tr><td>reddit</td><td><code>reddit:user/&lt;name&gt;</code> &middot; <code>reddit:subreddit/&lt;name&gt;</code> &middot; <code>reddit:comment/&lt;id&gt;</code> &middot; <code>reddit:submission/&lt;id&gt;</code></td></tr>
-      <tr><td>email</td><td><code>email:thread/&lt;msgid&gt;</code> &middot; <code>email:address/&lt;addr&gt;</code></td></tr>
-      <tr><td>bluesky</td><td><code>bluesky:user/&lt;percent-encoded-did&gt;</code> &middot; <code>bluesky:post/&lt;at_uri&gt;</code></td></tr>
-      <tr><td>linkedin</td><td><code>linkedin:user/&lt;urn&gt;</code> &middot; <code>linkedin:post/&lt;urn&gt;</code></td></tr>
-      <tr><td>twitter</td><td><code>twitter:user/&lt;id&gt;</code> &middot; <code>twitter:tweet/&lt;id&gt;</code> &middot; <code>twitter:dm/&lt;id&gt;</code></td></tr>
-    </table>
+    <h2>why</h2>
+    <p>Each platform names things its own way. Telegram chat IDs are signed integers where positive means DM and negative means group &mdash; so old rules carried a sign-bit hack. Reddit shoves comments, users, and submissions behind <code>t1_</code>/<code>t2_</code>/<code>t3_</code> prefix soup on the same <code>reddit:</code>. WhatsApp suffixes a server (<code>@g.us</code>, <code>@s.whatsapp.net</code>) to mean group vs DM. And <code>ChatJID</code> and <code>UserJID</code> were both <code>string</code> in Go &mdash; the compiler couldn&rsquo;t catch a swap.</p>
+    <p>One JID = one resource. The kind goes in the wire form, the type goes in the code, and routes match with plain glob semantics.</p>
 
-    <h2>routing globs</h2>
-    <p>Routes match a JID with <code>path.Match</code> glob semantics &mdash; <code>*</code> matches any non-<code>/</code> sequence (segments are first-class). So:</p>
+    <h2>show me</h2>
+    <pre><code>telegram:user/123              # telegram DM with user 123
+telegram:group/-100456         # telegram group/supergroup/channel
+discord:dm/456                 # discord DM channel
+whatsapp:789@g.us              # whatsapp group (server distinguishes kind)
+reddit:comment/abc             # reddit comment
+mastodon:account/42            # mastodon account
+web:slink/&lt;token&gt;              # anonymous web chat via slink
+
+# routes match with path.Match globs (* never crosses /)
+match='chat_jid=telegram:group/*'    # all telegram groups
+match='chat_jid=discord:dm/*'        # all discord DMs
+match='chat_jid=whatsapp:*@g.us'     # all whatsapp groups
+match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
+
+    <h2>what you get</h2>
     <ul>
-      <li><code>chat_jid=telegram:group/*</code> &mdash; all telegram groups</li>
-      <li><code>chat_jid=discord:67890/*</code> &mdash; guild 67890, any channel</li>
-      <li><code>chat_jid=discord:dm/*</code> &mdash; all Discord DMs</li>
-      <li><code>chat_jid=whatsapp:*@g.us</code> &mdash; all whatsapp groups</li>
-      <li><code>sender=telegram:user/[0-9]*</code> &mdash; any numeric telegram user</li>
+      <li><strong>Kind in the path.</strong> First segment after the colon is the discriminator. No sign-bit tricks, no prefix soup &mdash; <code>telegram:user/</code> is a DM, <code>telegram:group/</code> is a group, the wire form says so.</li>
+      <li><strong>Typed Go values.</strong> <code>core.ChatJID</code> and <code>core.UserJID</code> are distinct types over <code>*url.URL</code>. The compiler refuses to swap a chat for a sender.</li>
+      <li><strong>Plain glob routing.</strong> <code>path.Match</code> semantics &mdash; <code>*</code> matches any non-<code>/</code> sequence, <code>?</code> one char, <code>[&hellip;]</code> a class. Same rules across <code>chat_jid</code>, <code>sender</code>, <code>platform</code>, <code>verb</code>.</li>
+      <li><strong>Hard cutover already done.</strong> Migration <code>0038-typed-jids.sql</code> rewrote every JID-shaped value in the store &mdash; messages, chats, user_jids, grants, onboarding, and the predicates inside <code>routes.match</code>. Idempotent.</li>
+      <li><strong>Per-platform schemas owned by adapters.</strong> Core treats <code>&lt;rest&gt;</code> as opaque except for glob semantics. Each adapter declares its own shape and parses its own paths &mdash; adding a kind is a one-string change there, no system-wide format bump.</li>
+      <li><strong>URI-clean.</strong> Built on <code>net/url</code>, so percent-encoding for IDs with reserved chars (Bluesky DIDs contain <code>:</code>) is free.</li>
     </ul>
-    <p>Bracket character classes <code>[…]</code> work; <code>?</code> matches one non-<code>/</code> char.</p>
 
-    <h2>why kinds</h2>
-    <p>Without a kind, multiple resource types collide on the same prefix. Telegram chat IDs are signed integers &mdash; positive=DM, negative=group &mdash; so old rules had to encode the sign-bit hack. Reddit thing IDs share the <code>reddit:</code> prefix between <code>t1_</code> (comment), <code>t2_</code> (user), <code>t3_</code> (submission). Discord stored just the channel and lost the guild.</p>
-    <p>One JID = one resource. The kind discriminator goes <em>in the wire form</em>, so routing globs scope by kind without per-platform tricks.</p>
-
-    <h2>typed in code</h2>
-    <p>Go types: <code>core.JID</code> wraps <code>*url.URL</code>; <code>core.ChatJID</code> and <code>core.UserJID</code> embed it and validate the kind segment on parse. The wire format is a string &mdash; <code>database/sql</code> Scanner/Valuer and <code>encoding/json</code> marshalers preserve it everywhere. <code>core.MatchJID(pattern, value)</code> applies the routing glob.</p>
-
-    <h2>migration</h2>
-    <p>Migration <code>0038-typed-jids.sql</code> rewrites every JID-shaped value in the store: messages, chats, user_jids, grants, onboarding, and the predicates inside <code>routes.match</code>. Idempotent &mdash; safe to re-run. Discord rows without a stored guild_id migrate to the placeholder <code>discord:_/&lt;channel&gt;</code>; new inbound carries the real guild going forward.</p>
+    <h2>go deeper</h2>
+    <p>Full spec with per-platform schemas, code types, migration rules, and design discipline: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md">specs/5/S-jid-format.md</a>. Adapter-side parse and construction live next to each adapter (e.g. <code>tgd/</code>, <code>discd/</code>, <code>whapd/</code>) in the repo.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="/pub/assets/hub.js"></script>
