@@ -110,7 +110,7 @@ type Input struct {
 }
 
 // SecretsResolver is the subset of *store.Store the container runner needs to
-// resolve folder + user secrets at spawn. See specs/7/35-tenant-self-service.md.
+// resolve folder + user secrets at spawn. See specs/5/32-tenant-self-service.md.
 type SecretsResolver interface {
 	FolderSecretsResolved(folder string) (map[string]string, error)
 	UserSecrets(userSub string) (map[string]string, error)
@@ -634,7 +634,7 @@ func mergeSecrets(a, b map[string]string) map[string]string {
 }
 
 // resolveSpawnEnv composes the env injected into the agent container per
-// specs/7/35-tenant-self-service.md §Resolution: base ∪ folder ∪ user
+// specs/5/32-tenant-self-service.md §Resolution: base ∪ folder ∪ user
 // (user only when chat is single-user). When resolver is nil or its
 // secrets API is disabled (no AUTH_SECRET), returns base unchanged.
 func resolveSpawnEnv(

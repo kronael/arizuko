@@ -5,7 +5,7 @@ for shipped milestones.
 
 ## Now
 
-- **Deploy pending** — Phase B+D of 7/35 (invites + chats.is_group),
+- **Deploy pending** — Phase B+D of 5/32 (invites + chats.is_group),
   cli-chat, doc refresh, web UI gaps, and the verb-taxonomy work all
   sit on detached HEAD. krons is the test target; `sudo make images
 && sudo systemctl restart arizuko_krons`. Marinade only on explicit

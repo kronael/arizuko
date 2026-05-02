@@ -29,7 +29,7 @@ specs; this one is the shell.
   channel) may add a challenge that doesn't.
 - Operators currently `ssh` in, edit `.env`, restart — a wall for
   non-technical operators and a blocker for tenant self-service
-  (cf. `7/35-tenant-self-service.md`).
+  (cf. `5/32-tenant-self-service.md`).
 - Every adapter that grows challenge auth otherwise reinvents the same
   pairing surface; do it once.
 
@@ -194,7 +194,7 @@ the daemons that opt in.
   encrypted-creds infrastructure. If `7/32` is not yet shipped,
   this spec ships a minimal subset (in-memory channel registry,
   per-daemon creds dir) and migrates to `channels` rows later.
-- **Complements** `7/35-tenant-self-service.md`: tenant-controlled
+- **Complements** `5/32-tenant-self-service.md`: tenant-controlled
   channels become viable once a non-shell-having tenant can
   complete a challenge auth.
 - **Reuses** `auth/hmac.go` for token signing, `auth/oauth.go`

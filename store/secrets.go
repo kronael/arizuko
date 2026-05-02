@@ -13,7 +13,7 @@ import (
 )
 
 // SecretScope is the kind of scope a secret is bound to: a folder path glob
-// or an auth user sub. See specs/7/35-tenant-self-service.md §Secrets.
+// or an auth user sub. See specs/5/32-tenant-self-service.md §Secrets.
 type SecretScope string
 
 const (
