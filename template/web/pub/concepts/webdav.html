@@ -8,9 +8,9 @@
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.2em 0; }
-    .prose dt { color: var(--accent3); font-weight: bold; margin-top: 0.6em; }
-    .prose dd { margin: 0.1em 0 0 1.2em; color: var(--fg); }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
     .back { font-size: 0.85em; }
   </style>
 </head>
@@ -19,38 +19,36 @@
     <h1>webdav</h1>
     <p class="dim back">concepts / webdav &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
 
-    <h2>what it does</h2>
-    <p>Per-group workspaces exposed over WebDAV. Mount <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code> in any WebDAV-aware client &mdash; Finder, Windows Explorer, rclone, cyberduck &mdash; to read and write the group&rsquo;s files: media, logs, diary, facts, users, conversations, skills.</p>
+    <p class="lede">Every group&rsquo;s workspace is a real filesystem you can mount from Finder, <code>rclone</code>, curl, or any WebDAV client at <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>.</p>
 
-    <h2>what you see</h2>
-    <p>Open <code>/dav/&lt;group&gt;/</code> and you get a directory listing of the group&rsquo;s workspace:</p>
+    <h2>why</h2>
+    <p>Agents read and write files all day &mdash; diary, facts, generated drafts, downloaded attachments. You want to drop in a CSV from your laptop, edit a post in your editor, browse what the agent produced &mdash; without <code>scp</code>, without pasting blobs into chat, without giving the box shell access.</p>
+
+    <h2>show me</h2>
+    <pre><code># list a group's files with curl + PROPFIND
+curl -X PROPFIND https://&lt;host&gt;/dav/&lt;group&gt;/ \
+     -H 'Depth: 1' \
+     -H "Authorization: Bearer $TOKEN"
+
+# or mount it as a real filesystem
+rclone mount mygroup:/dav/&lt;group&gt;/ ~/mnt/&lt;group&gt; --vfs-cache-mode writes</code></pre>
+    <p>Get <code>$TOKEN</code> from <code>/dash/profile</code> &mdash; or sign in at <code>/auth/login</code> and the JWT cookie works the same way for browser clients.</p>
+
+    <h2>what you get</h2>
     <ul>
-      <li><code>media/</code> &mdash; downloaded inbound attachments, by date</li>
-      <li><code>logs/</code> &mdash; agent run logs (read-only)</li>
-      <li><code>diary/</code> &mdash; the agent&rsquo;s dated notes</li>
-      <li><code>facts/</code> &mdash; durable facts the agent has learned</li>
-      <li><code>users/</code> &mdash; per-user notes and state</li>
-      <li><code>conversations/</code> &mdash; chat transcripts</li>
-      <li><code>.claude/skills/</code> &mdash; the agent&rsquo;s loaded skills</li>
+      <li><strong>JWT/Bearer auth.</strong> Same JWT that gates <code>/dash/</code>. No Basic Auth &mdash; proxyd&rsquo;s local OAuth issues Bearer tokens for clients that don&rsquo;t carry cookies.</li>
+      <li><strong>Per-group scoping.</strong> proxyd checks the user&rsquo;s groups claim against <code>&lt;group&gt;</code> in the path; without a matching grant the request is 403.</li>
+      <li><strong>Sensitive-path write block.</strong> <code>.env</code>, <code>*.pem</code>, anything under <code>.git/</code> can be read but never written via WebDAV.</li>
+      <li><strong>Logs are read-only.</strong> Anything under <code>&lt;group&gt;/logs/</code> answers GET/PROPFIND but rejects PUT/DELETE/MOVE.</li>
+      <li><strong>Browse from anything.</strong> Finder, Windows Explorer, cyberduck, rclone, curl &mdash; standard WebDAV verbs, no client-specific shim.</li>
+      <li><strong>dufs under the hood.</strong> A single Rust binary serves the files; proxyd does auth, path scoping, and the write-block guard before forwarding.</li>
     </ul>
 
-    <h2>auth</h2>
-    <p>Same auth as <code>/dash/</code>. Sign in at <code>/auth/login</code> &mdash; the JWT cookie that protects the dashboard also gates <code>/dav/</code>. WebDAV clients that don&rsquo;t carry browser cookies need a Bearer token: get one from <code>/dash/profile</code> and configure your client to send <code>Authorization: Bearer &lt;jwt&gt;</code>.</p>
-    <p>proxyd checks the user&rsquo;s <code>X-User-Groups</code> claim against <code>&lt;group&gt;</code> in the path. Without a matching grant the request returns 403.</p>
-
-    <h2>security</h2>
-    <p>proxyd validates the JWT, strips the Authorization header, then rewrites <code>/dav/&lt;group&gt;/&lt;rest&gt;</code> to <code>/&lt;group&gt;/&lt;rest&gt;</code> and forwards to dufs (which sees only the rewritten path, never the user&rsquo;s credentials).</p>
-
-    <h2>common uses</h2>
+    <h2>go deeper</h2>
     <ul>
-      <li>browse a group&rsquo;s files from your file manager</li>
-      <li>sync files in and out with rclone (<code>rclone sync ./local krons:/dav/&lt;group&gt;/media/</code>)</li>
-      <li>mount once and edit memory directly with your usual tools</li>
-      <li>download large attachments without going through the bot</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/M-webdav.md">specs/5/M-webdav.md</a> &mdash; canonical spec: routing, auth, write-block rules, config flags.</li>
+      <li><a href="/pub/concepts/">concepts</a> &mdash; the rest of arizuko&rsquo;s primitives.</li>
     </ul>
-
-    <h2>when to disable</h2>
-    <p>Set <code>WEBDAV_ENABLED=false</code> in the instance <code>.env</code> if exposing the workspace over HTTPS isn&rsquo;t the model you want. The dufs container is omitted from the compose output and proxyd returns 404 for <code>/dav/*</code>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="/pub/assets/hub.js"></script>
