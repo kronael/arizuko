@@ -480,20 +480,18 @@ var davReadMethods = map[string]bool{
 // rest is the path after `/dav/`, e.g. `myworld/logs/foo.log` or
 // `myworld/.env`. Returns false to block.
 func davAllow(method, rest string) bool {
-	read := davReadMethods[method]
+	if davReadMethods[method] {
+		return true
+	}
 	parts := strings.Split(rest, "/")
-
 	// logs/ read-only — `<group>/logs` or `<group>/logs/...`
-	if len(parts) >= 2 && parts[1] == "logs" && !read {
+	if len(parts) >= 2 && parts[1] == "logs" {
 		return false
 	}
-
 	// Sensitive-path write block on any segment.
-	if !read {
-		for _, p := range parts {
-			if p == ".env" || strings.HasSuffix(p, ".pem") || p == ".git" {
-				return false
-			}
+	for _, p := range parts {
+		if p == ".env" || strings.HasSuffix(p, ".pem") || p == ".git" {
+			return false
 		}
 	}
 	return true
