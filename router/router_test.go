@@ -416,6 +416,62 @@ func TestFormatMessagesChatID(t *testing.T) {
 	}
 }
 
+func TestFormatMessagesReplyPointerSelfClosing(t *testing.T) {
+	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
+	msgs := []core.Message{
+		{
+			ID: "m1", Sender: "u1", Content: "answer", Timestamp: ts,
+			ReplyToID: "p9", ReplyToSender: "Bot",
+			// ReplyToText empty → self-closing pointer (parent assumed in session)
+		},
+	}
+	got := FormatMessages(msgs)
+	if !strings.Contains(got, `<reply-to id="p9" sender="Bot"/>`) {
+		t.Fatalf("expected self-closing reply-to, got:\n%s", got)
+	}
+	if strings.Contains(got, `reply_to="p9"`) {
+		t.Fatal("legacy reply_to attribute on <message> should be gone")
+	}
+	if strings.Contains(got, `<reply_to `) {
+		t.Fatal("legacy <reply_to> inline element should be gone")
+	}
+	if !strings.Contains(got, `<message id="m1"`) {
+		t.Fatalf("expected id on <message>, got:\n%s", got)
+	}
+}
+
+func TestFormatMessagesReplyPointerWithExcerpt(t *testing.T) {
+	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
+	msgs := []core.Message{
+		{
+			ID: "m1", Sender: "u1", Content: "fine.", Timestamp: ts,
+			ReplyToID: "p9", ReplyToSender: "Bot", ReplyToText: "how are you?",
+		},
+	}
+	got := FormatMessages(msgs)
+	want := `<reply-to id="p9" sender="Bot">how are you?</reply-to>`
+	if !strings.Contains(got, want) {
+		t.Fatalf("expected reply-to with excerpt, got:\n%s", got)
+	}
+	// Must precede the <message> tag — pointer is structural header.
+	pi := strings.Index(got, want)
+	mi := strings.Index(got, `<message id="m1"`)
+	if pi < 0 || mi < 0 || pi > mi {
+		t.Fatalf("reply-to should appear before <message>, got:\n%s", got)
+	}
+}
+
+func TestFormatMessagesReplyPointerUnknownSender(t *testing.T) {
+	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
+	msgs := []core.Message{
+		{ID: "m1", Sender: "u1", Content: "x", Timestamp: ts, ReplyToID: "p9"},
+	}
+	got := FormatMessages(msgs)
+	if !strings.Contains(got, `<reply-to id="p9" sender="unknown"/>`) {
+		t.Fatalf("expected sender=\"unknown\" fallback, got:\n%s", got)
+	}
+}
+
 func TestEscapeXml(t *testing.T) {
 	cases := []struct {
 		in, want string

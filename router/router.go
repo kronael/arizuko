@@ -62,8 +62,36 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 		if name == "" {
 			name = m.Sender
 		}
+		// Reply pointer renders as a sibling header ABOVE the message.
+		// Self-closing when no excerpt is available; carries excerpt as
+		// body when the parent text is known. Reads naturally:
+		//   <reply-to id="3314" sender="bot" time="..."/>
+		//   <message id="3325" ...>body</message>
+		if m.ReplyToID != "" {
+			rSender := m.ReplyToSender
+			if rSender == "" {
+				rSender = "unknown"
+			}
+			b.WriteString(`<reply-to id="`)
+			b.WriteString(escapeXml(m.ReplyToID))
+			b.WriteString(`" sender="`)
+			b.WriteString(escapeXml(rSender))
+			b.WriteString(`"`)
+			if m.ReplyToText != "" {
+				b.WriteString(`>`)
+				b.WriteString(escapeXml(m.ReplyToText))
+				b.WriteString("</reply-to>\n")
+			} else {
+				b.WriteString("/>\n")
+			}
+		}
 		b.WriteString(`<`)
 		b.WriteString(tm.tag)
+		if m.ID != "" {
+			b.WriteString(` id="`)
+			b.WriteString(escapeXml(m.ID))
+			b.WriteString(`"`)
+		}
 		b.WriteString(` sender="`)
 		b.WriteString(escapeXml(name))
 		b.WriteString(`"`)
@@ -97,11 +125,6 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 			b.WriteString(escapeXml(m.Topic))
 			b.WriteString(`"`)
 		}
-		if m.ReplyToID != "" {
-			b.WriteString(` reply_to="`)
-			b.WriteString(escapeXml(m.ReplyToID))
-			b.WriteString(`"`)
-		}
 		if tm.tag == "observed" && m.ChatJID != "" {
 			b.WriteString(` source="`)
 			b.WriteString(escapeXml(m.ChatJID))
@@ -111,21 +134,6 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 			b.WriteString(` errored="true"`)
 		}
 		b.WriteString(`>`)
-		if m.ReplyToText != "" {
-			b.WriteString(`<reply_to sender="`)
-			rSender := m.ReplyToSender
-			if rSender == "" {
-				rSender = "unknown"
-			}
-			b.WriteString(escapeXml(rSender))
-			if m.ReplyToID != "" {
-				b.WriteString(`" id="`)
-				b.WriteString(escapeXml(m.ReplyToID))
-			}
-			b.WriteString(`">`)
-			b.WriteString(escapeXml(m.ReplyToText))
-			b.WriteString("</reply_to>")
-		}
 		b.WriteString(escapeXml(m.Content))
 		b.WriteString("</")
 		b.WriteString(tm.tag)

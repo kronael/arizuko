@@ -59,13 +59,36 @@ original `WAMessage`, not just an ID — needs message cache.
 
 ## Router XML
 
+The reply pointer renders as a sibling header **above** its
+`<message>`, with a consistent `id` attribute matching the message
+naming convention. Self-closing when the parent text is omitted
+(parent is in agent session); body-bearing when the gateway includes
+an excerpt for out-of-session parents.
+
 ```xml
-<reply_to sender="Alice" id="789">quoted text</reply_to>
+<messages>
+  <reply-to id="789" sender="Alice"/>
+  <message id="m1" sender="Bob" ...>response</message>
+</messages>
 ```
 
-Emitted by `router.FormatMessages` when `ReplyToText != ""`.
-`id` attribute present when `ReplyToID != ""`. Sender
-defaults to `"unknown"` when absent.
+Or with excerpt body:
+
+```xml
+<messages>
+  <reply-to id="789" sender="Alice">quoted text</reply-to>
+  <message id="m1" sender="Bob" ...>response</message>
+</messages>
+```
+
+Emitted by `router.FormatMessages` whenever `ReplyToID != ""`. Body
+is included when `ReplyToText != ""`. Sender defaults to `"unknown"`
+when absent. The pointer precedes its `<message>` so the agent reads
+"reply target" → "user reply" in order; structural prominence is the
+intent signal that previous in-attribute `reply_to=` couldn't carry.
+
+The legacy shape (`reply_to=` attribute on `<message>` plus inline
+`<reply_to>` element) was retired at v0.33.3.
 
 ## DB schema
 

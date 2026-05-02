@@ -14,6 +14,38 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.3] — 2026-05-02
+
+> arizuko v0.33.3 — 2 May 2026
+>
+> • Reply pointer renders as a structural header above the `<message>` (`<reply-to id="..." sender="..."/>`) — no more buried attribute
+> • Self-closing when parent is in session; carries excerpt body when not — no duplicate context
+> • Same `id` attribute name on `<reply-to>` and `<message>` for consistency
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+Surfaces the reply target where the agent reads it first. Triggered
+by sloth/content havoc earlier today: 4-hour session with strong
+"writing Reddit posts" task gravity ignored reply pointers buried as
+XML attributes. Structural prominence, no new instructions, same
+session continuation.
+
+### Changed
+
+- **Inbound XML format** (`router/router.go FormatMessages`):
+  `<reply-to id="X" sender="Y"/>` is now a sibling header rendered
+  above its `<message>`, not an attribute and not an inline element.
+  Self-closing when parent in session window; element body carries
+  the excerpt when not. The `<message>` tag now also exposes its
+  own `id`, matching `<reply-to>`'s `id` for symmetry. Retired
+  `reply_to=` attribute on `<message>` and the inline
+  `<reply_to sender="..." id="...">excerpt</reply_to>` element.
+- **`ant/CLAUDE.md` ## How messages arrive**: example rewritten to
+  show the new shape. Notes the pointer as the user's intent signal.
+- **`specs/4/13-message-ids.md` ## Router XML** and
+  **`specs/1/N-memory-messages.md`**: spec text + examples track
+  the new shape.
+
 ## [v0.33.2] — 2026-05-02
 
 > arizuko v0.33.2 — 2 May 2026

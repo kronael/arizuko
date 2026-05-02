@@ -53,9 +53,34 @@ Inbound messages are delivered on stdin wrapped by the gateway:
 
 ```xml
 <messages>
-  <message sender="..." sender_id="..." chat_id="..." timestamp="..." name="...">body</message>
+  <message id="..." sender="..." sender_id="..." time="..." ago="..."
+           chat_id="..." platform="...">body</message>
 </messages>
 ```
+
+When the user is replying to a specific message, a `<reply-to>` block
+sits as a sibling header *immediately above* the `<message>`:
+
+```xml
+<messages>
+  <reply-to id="3314" sender="bot"/>
+  <message id="3325" sender="user" ...>do you see what I'm replying to?</message>
+</messages>
+```
+
+The `<reply-to>` is self-closing when the parent message is already
+in your session (no body needed). When the parent is out of session
+window, the gateway includes the parent text as the element body so
+you have the context without re-fetching:
+
+```xml
+<reply-to id="3314" sender="bot">6 months is the giveaway. I blew a 50k eval...</reply-to>
+<message id="3325" ...>...</message>
+```
+
+The pointer is the user's load-bearing intent signal — they're
+addressing *that* message, not whatever you last said. Anchor your
+reply to it. Same `id` attribute on `<reply-to>` and `<message>`.
 
 Tool-result turns also arrive as `role:"user"` events — that's
 Anthropic protocol, not a real user. Treat any event containing a
