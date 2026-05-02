@@ -73,9 +73,9 @@ Put `@name` anywhere in your message to address a specific child agent — `@sup
 
 **TLDR:** Attach files directly — images, PDFs, voice, documents. The agent reads them all, and sends files back.
 
-Attach files directly to your message — images seen natively, PDFs extracted, documents read as text. No special command: just attach and ask. Voice messages (WhatsApp, Telegram, Discord) are automatically transcribed before the agent sees them.
+Attach files directly to your message — images seen natively, PDFs extracted, documents read as text. No special command: just attach and ask. Voice messages (WhatsApp, Telegram, Discord) arrive pre-transcribed — the agent sees the text alongside the audio path, so transcription cost is paid once at ingest, not per reply. See section 04b for sending voice back.
 
-The agent sends files back through `send_file` — PDFs, spreadsheets, images, audio, archives — on every platform that supports attachments (Telegram, Discord, WhatsApp, email, web). Its writable area is `~/tmp/`. You can also pull files with `/file get ~/path`.
+The agent sends files back through `send_file` — PDFs, spreadsheets, images, audio, archives — on every platform that supports attachments (Telegram, Discord, WhatsApp, email, web). Its writable area is `~/tmp/`. You can also pull files with `/file get ~/path`. Format support varies per adapter — see section 04c.
 
 ```
 here's the report [report.pdf] — pull out the key metrics
@@ -85,6 +85,54 @@ send me the output as a file
 
 # voice messages arrive as text:
 You  [voice: can you summarise the last three tickets?]
+```
+
+---
+
+## 04b — Voice Messages
+
+**TLDR:** The agent can reply in spoken audio on platforms that support push-to-talk. One MCP call, no captions, 5000-char cap.
+
+Ask for a voice reply when the last inbound message was voice, or when the persona is voice-first ("speak the digest aloud"). The agent calls `send_voice` directly — text is synthesised server-side and delivered as a native push-to-talk message on Telegram and WhatsApp, an audio attachment on Discord. Adapters without a voice primitive return Unsupported; the agent falls back to `send` with the same text.
+
+Voice resolution is a three-step lookup: explicit argument first, then `voice:` in `~/SOUL.md` frontmatter, then the `TTS_VOICE` env var. Override per call by saying "use voice X". Captions are not attached to voice — the message stands alone, so put context in a follow-up text message if needed.
+
+```
+you    summarise yesterday's incidents and read it back as voice
+agent  <sends 30-second audio reply>
+
+# explicit voice override
+you    /voice voice=alloy give me a one-liner
+```
+
+---
+
+## 04c — File Format Support Across Adapters
+
+**TLDR:** `send_file` dispatches by extension on Telegram, by ContentType on Discord, embeds images on Bluesky, and silently no-ops on adapters without media wiring.
+
+Each adapter routes attachments differently:
+
+| Adapter   | Photo                | Video             | Audio                  | Other     |
+| --------- | -------------------- | ----------------- | ---------------------- | --------- |
+| Telegram  | `.png/.jpg/.webp`    | `.mp4/.mov/.webm` | `.mp3/.m4a/.flac/.ogg` | document  |
+| Discord   | rich preview by ContentType (any extension) |
+| Bluesky   | image extensions only · non-images: link in post text |
+| WhatsApp  | platform-native dispatch (Baileys)          |
+| X         | photo/video media types                     |
+| Mastodon, Reddit, LinkedIn, Email | no adapter wiring — file silently dropped |
+
+`.gif` becomes an animation on Telegram, a regular preview on Discord. A `.pdf` lands as a document on Telegram, a rich preview on Discord, and is unsupported on Bluesky. If a send "looks ignored," check the adapter's capability before assuming a bug.
+
+```
+# telegram
+send the chart as a file → arrives as photo
+
+# discord
+send the same chart → arrives as image with preview
+
+# bluesky
+send a PDF → posts text only, link to file
 ```
 
 ---
@@ -155,12 +203,36 @@ On top of that, the last 14 days of diary and any user-specific notes are always
 
 When you ask "why didn't that message reach the other group?" or "what tasks are scheduled?", the agent uses `inspect_routing`, `inspect_messages`, `inspect_tasks`, and `inspect_session` — read-only views into the gateway's database, scoped to its own group. No shelling out to logs or DB consoles.
 
-On adapters that support it (Telegram, Discord, Mastodon, Bluesky, Reddit, LinkedIn, email — everything except WhatsApp), the agent can also call `fetch_history` to pull prior messages from the channel for backfill or search.
+For thread reconstruction the agent picks `get_thread` first — it returns the topic-scoped conversation as a clean message list, no platform-side noise. Use `fetch_history` instead when the goal is backfill or search across the whole channel; it pulls prior messages from the platform on adapters that support it (Telegram, Discord, Mastodon, Bluesky, Reddit, LinkedIn, email — everything except WhatsApp).
 
 ```
 you    is my weather task still running?
-agent  Yes — `weather-london`, cron `0 9 * * *`, last run
+agent  Yes — task is active, cron `0 9 * * *`, last run
        2026-04-24 09:00:02, next fires in 23h 48m.
+
+you    pull the thread for #deploy and recap
+agent  <get_thread → 14 messages → summary>
+```
+
+---
+
+## 08b — Typed JIDs & Routing Patterns
+
+**TLDR:** Routing rules use typed JIDs: `<platform>:<kind>/<id>`. Bare-id form is stale.
+
+Every chat ID is a typed JID — `telegram:user/<id>`, `telegram:group/<id>`, `discord:<guild>/<channel>`, `discord:dm/<channel>`, `discord:user/<id>`, `mastodon:account/<id>`, `mastodon:status/<id>`, `reddit:user/<name>`, `reddit:subreddit/<name>`, `email:thread/<id>`, `email:address/<addr>`, `bluesky:user/<did>`, `bluesky:post/<uri>`, `linkedin:user/<id>`, `twitter:user/<id>`, `twitter:tweet/<id>`, `web:folder/<group>`. Old bare forms (`telegram:1234`, `reddit:t1_xyz`) still parse but no new rule should use them.
+
+Routing patterns are globs over the typed form. `telegram:group/*` matches every Telegram group; `discord:dm/*` matches every Discord DM; `*:user/*` matches a user on any platform. Rewriting an old rule is a one-step move: `telegram:*` becomes `telegram:*/*`, then narrow the kind if you only want groups or DMs.
+
+```
+# all telegram groups → group handler
+telegram:group/* → <group>
+
+# all DMs across platforms → personal handler
+*:dm/*           → <group>
+
+# specific subreddit only
+reddit:subreddit/<name> → <group>
 ```
 
 ---
@@ -173,10 +245,29 @@ The agent writes files into `/workspace/web/pub/`, served live at your group's U
 
 ```
 you   build a todo app with dark mode
-agent Done. Live at: https://bot.example.com/pub/mygroup/todo/
+agent Done. Live at: https://bot.example.com/pub/<group>/todo/
 
 you   add a due-date field
 agent Updated — reload the page.
+```
+
+---
+
+## 09a — OAuth Multi-Account Linking
+
+**TLDR:** Log in once, link more providers later. One canonical identity, many login methods.
+
+Your first OAuth login becomes the canonical account. Linking a second provider (GitHub, Google, Discord, …) attaches it to the same identity — both providers now log in to the same agent, same files, same memory. Manage links from `/dash/profile`: click "Link account", complete the OAuth round-trip, done.
+
+If the new provider's identity already belongs to another canonical user, the link page asks how to resolve it: link to the current account, or log out and become the other user. Silent duplicates never happen — every collision is a deliberate choice.
+
+```
+you    (logged in via GitHub)
+       open /dash/profile → "Link Google account"
+       → OAuth → returns to /dash/profile
+
+you    (next session) log in with Google instead
+       → same agent, same workspace
 ```
 
 ---
@@ -185,11 +276,17 @@ agent Updated — reload the page.
 
 **TLDR:** Ask the agent to schedule recurring tasks — it sets up cron jobs that run automatically.
 
-Task types: `cron` (schedule expression), `interval` (every N ms), `once` (specific time). Scheduled tasks run isolated with a self-contained prompt — write the prompt as if it's a new conversation. View or cancel: "what tasks are running?" or visit `/dash/tasks/`.
+Task types: `cron` (schedule expression), `interval` (every N ms), `once` (specific time). View or cancel: "what tasks are running?" or visit `/dash/tasks/`.
+
+Scheduled tasks run in fresh, isolated containers — no memory injection, no diary context, no carry-over from chat. Write the prompt as a self-contained conversation: include every fact the task needs, don't reference "yesterday's discussion" or "the file we opened earlier." Voice delivery works inside tasks too — a morning digest can speak its summary by calling `/voice` or `send_voice` directly.
 
 ```
 you   check the weather in London every morning at 9am
-agent Scheduled "weather-london" at 0 9 * * *. I'll message you daily.
+agent Scheduled at 0 9 * * *. I'll message you daily.
+
+you   morning digest at 8am, send it as voice
+agent Scheduled. Each run synthesises a fresh summary
+      and replies via send_voice.
 
 you   cancel the weather task
 agent Cancelled.
@@ -292,11 +389,48 @@ Each group has a **slink** (shared link) — a token-gated URL for web chat. Ano
 
 ```
 # send a message
-curl -X POST https://bot.example.com/slink/a1b2c3d4e5f67890 \
+curl -X POST https://bot.example.com/slink/<token> \
   -d "content=hello&topic=t1"
 
 # listen for responses
-curl -N https://bot.example.com/slink/stream?group=mygroup&topic=t1
+curl -N https://bot.example.com/slink/stream?group=<group>&topic=t1
 ```
 
 Log in via OAuth for the full web UI with topics, history, and typing indicators.
+
+---
+
+## 16a — Slink MCP Endpoint
+
+**TLDR:** Same slink token, different transport. `POST /slink/<token>/mcp` exposes three MCP tools to external agents.
+
+The web chat slink is an SSE-based interactive widget for humans. The slink MCP endpoint is a separate transport designed for other agents — paste the URL into Claude Code or another MCP-aware runtime and the group becomes a tool target. The token authenticates; no JWT, no extra config.
+
+Three tools are available: `send_message` (push a turn into the group), `steer` (mid-task redirect), and `get_round` (read the latest reply). The endpoint is stateless and idempotent — message history lives in the web chat, not here. Use the MCP transport to embed a group inside another agent's workflow; use the SSE chat for human-in-the-loop interaction.
+
+```
+# external agent registers slink MCP as a remote tool
+mcp add slink https://bot.example.com/slink/<token>/mcp
+
+# then drives the group
+slink.send_message(content="run the weekly report")
+slink.get_round()  # returns latest agent reply
+```
+
+---
+
+## 17 — Channels & Routing Awareness
+
+**TLDR:** Every platform is an adapter. Adapters differ in what they support — voice, files, reactions, threading. Build workflows around the adapter, not against it.
+
+Each channel runs as its own adapter — Telegram, Discord, WhatsApp, Mastodon, Bluesky, Reddit, LinkedIn, email, web. Capabilities don't line up: Telegram and WhatsApp speak push-to-talk voice, Discord ships voice as an audio attachment, others return Unsupported. File extension routing varies (see 04c). Reactions exist on Telegram, Discord, Mastodon; Reddit returns Unsupported on `like`. Threading semantics differ — Discord channels vs. Telegram topics vs. Mastodon reply chains all map to the same `topic` token but the platform behaviour underneath is not identical.
+
+When building a workflow that spans channels, branch on the inbound JID. A morning briefing scheduled to "all DMs" should call `send_voice` on Telegram, `send_file` with audio on Discord, and a plain `send` everywhere else. The agent already knows the adapter — just ask it to dispatch accordingly.
+
+```
+you   morning briefing — voice on Telegram, text elsewhere
+agent <branches per JID>
+      telegram:user/<id> → send_voice
+      discord:dm/<id>    → send (text)
+      email:address/<x>  → send (text)
+```

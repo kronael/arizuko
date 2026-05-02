@@ -15,10 +15,14 @@ For stored knowledge (facts, diary, episodes) use `/recall-memories`.
 
 ## Protocol
 
-1. Fetch history:
-   ```
-   get_history({ chat_jid: "<jid from message context>", limit: 200 })
-   ```
+1. Fetch history. Pick the right tool for the slice:
+   - **Whole chat**: `inspect_messages({ chat_jid: "<jid>", limit: 200 })`
+   - **One thread** (chat fans out to per-topic threads — Telegram forum
+     topics, web-chat topics): `get_thread({ chat_jid: "<jid>", topic: "<topic>" })`
+   - **Platform-side backfill** (DB is empty after `reset_session`, or
+     scrollback predates the agent): `fetch_history({ chat_jid: "<jid>",
+     limit: 200 })` — calls the adapter, caches into the local DB.
+
    Write the result to `~/tmp/messages.json`.
 
 2. Spawn Explore subagent:
@@ -32,4 +36,6 @@ For stored knowledge (facts, diary, episodes) use `/recall-memories`.
 ## Pagination
 
 If no match in 200 messages, ask the user whether to go further back.
-Each subsequent `get_history` call uses `before: <oldest timestamp seen>`.
+Each subsequent call uses `before: <oldest timestamp seen>`. For
+`fetch_history`, the adapter pulls another page from the platform and
+appends to the cache.

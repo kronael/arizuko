@@ -61,6 +61,10 @@ each JID call `inspect_messages chat_jid:="$jid"` and filter the
 returned rows to the target date. This catches tool calls, steered
 messages, and scheduled tasks the transcripts might miss.
 
+When a chat fans into per-topic threads (Telegram forum topics, web-chat
+topics) and you only want one thread's slice, use `get_thread chat_jid:=<jid>
+topic:=<topic>` instead of filtering `inspect_messages` output by hand.
+
 **Episodes week/month / diary week/month**: Glob the lower-level files
 for the target period.
 
@@ -114,7 +118,7 @@ aggregated_at: '2026-03-17T02:00:00Z'
 
 ## Unresolved
 
-- Map links regressed again on mayai
+- Map links regressed again on <component>
 ```
 
 `summary:` — dense, leads with corrections.
