@@ -7,14 +7,28 @@ status: shipped
 ## Versioning
 
 - `MIGRATION_VERSION` integer per group, baked into agent image
-- Gateway annotates container input when behind: "run `/migrate`"
+- **One migration file per release.** File name
+  `NNN-vX.Y.Z-summary.md` ties the integer to the CHANGELOG version.
+  Every release ships one — including docs-only — so the auto-migrate
+  trigger fires on every version. Stub body for no-skill-change
+  releases is fine ("release-marker for vX.Y.Z broadcast").
+- Gateway compares per-root-group `MIGRATION_VERSION` against the
+  source's on every gated start (`gateway.checkMigrationVersion`);
+  behind → posts `/migrate` to the root agent + notifies child groups
 - `/migrate` diffs canonical vs session skills, copies changed
-  skill dirs, runs numbered `.md` migration scripts
+  skill dirs, runs numbered `.md` migration scripts in order, then
+  broadcasts the latest CHANGELOG blockquote to every group
 - Version lives in `MIGRATION_VERSION` file, not skill frontmatter
 
-Rationale: global integer is not broken, just inelegant. Per-skill
-means reading YAML from every skill on spawn. Instance-specific
-migrations: use conditional steps in migration `.md` files.
+Rationale: tying the broadcast to skill changes alone misses
+docs-only releases (the v0.33.1 web-docs polish never reached chats
+because nothing bumped the integer). Tying to the CHANGELOG via a
+second trigger path duplicates state. The "one migration per
+release" rule keeps the trigger in one place: skill update and
+announce ride the same auto-migrate hook. Global integer is not
+broken, just inelegant; per-skill counters would mean parsing YAML
+from every skill on spawn. Instance-specific migrations: conditional
+steps inside the migration `.md`.
 
 ## Image distribution
 

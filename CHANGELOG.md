@@ -14,6 +14,37 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.2] — 2026-05-02
+
+> arizuko v0.33.2 — 2 May 2026
+>
+> • Public changelog page (`/pub/changelog/`) — back-broadcast from v0.33.1
+> • Concept-page drift fixes — typed-JID migration numbers, voice platform table
+> • Release broadcasts now fire on every version, not just skill-changing ones
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+Process release. Closes a gap where docs-only versions never
+triggered the chat broadcast. Going forward, every CHANGELOG
+version ships with a matching migration file — stub if no skill
+changes — and the existing auto-migrate hook drives both skill
+updates and announce in one mechanism. Spec
+`specs/4/P-personas.md ## Versioning` rewritten to document this;
+root `CLAUDE.md` "## Shipping changes" enforces it.
+
+### Changed
+
+- **Spec `specs/4/P-personas.md` ## Versioning**: rewritten to
+  require a migration file per release (file name
+  `NNN-vX.Y.Z-summary.md`). Stub body fine for docs-only releases.
+  Names the single trigger path:
+  `gateway.checkMigrationVersion` → `/migrate` → broadcast.
+- **Root `CLAUDE.md` ## Shipping changes**: step 2 spells out
+  "every release, including docs-only".
+- **`ant/skills/self/migrations/CLAUDE.md`**: naming convention
+  `NNN-vX.Y.Z-summary.md`; explicit stub example for docs-only
+  releases.
+
 ## [v0.33.1] — 2026-05-02
 
 > arizuko v0.33.1 — 2 May 2026

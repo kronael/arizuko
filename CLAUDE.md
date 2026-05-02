@@ -194,11 +194,16 @@ sudo curl -s -o /dev/null -w '%{http_code}\n' http://localhost:<port>/health
 
 ## Shipping changes
 
-1. Add entry to `CHANGELOG.md`
-2. Add migration file `ant/skills/self/migrations/NNN-desc.md`
+1. Add entry to `CHANGELOG.md` (release block + `>` blockquote — see "## Announcing")
+2. Add migration file `ant/skills/self/migrations/NNN-vX.Y.Z-summary.md` — **every release**, including docs-only (stub body is fine; the file existing is what fires the auto-migrate broadcast)
 3. Update `ant/skills/self/MIGRATION_VERSION`
-4. Update `ant/skills/self/SKILL.md`
+4. Update "Latest migration version" in `ant/skills/self/SKILL.md`
 5. Rebuild agent image
+
+Spec: `specs/4/P-personas.md ## Versioning`. The auto-migrate hook
+in `gateway.checkMigrationVersion` is the single trigger for both
+skill updates AND chat broadcasts; bumping `MIGRATION_VERSION` is
+what fires it. Tag and broadcast travel together.
 
 ## Tagging a new version
 
