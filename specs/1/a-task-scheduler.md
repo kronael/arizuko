@@ -19,10 +19,10 @@ Daemon: `timed/main.go`. Full service spec: `specs/4/8-scheduler-service.md`.
 ## Two context modes
 
 - **isolated** (default) -- fresh session per run, no history.
-  Encoded as `sender = "scheduler-isolated"` in the message row;
-  gateway detects this and does not reuse the group session.
+  Encoded as `sender = "timed-isolated:<task_id>"` in the message
+  row; gateway detects the prefix and does not reuse the group session.
 - **group** -- reuses group's current session, sees prior conversation.
-  Encoded as `sender = "scheduler"`.
+  Encoded as `sender = "timed"`.
 
 `context_mode` column lives in `scheduled_tasks` (added in
 `0011-task-run-logs.sql`). Read by `timed/main.go` in the fire query.

@@ -49,7 +49,7 @@ onbod/    onboarding state machine + gated admission queue
 dashd/    operator dashboard (HTMX, read-only SQLite)
 webd/     web chat channel adapter (HTTP/SSE, registers as "web")
 proxyd/   reverse proxy: auth, vhost routing, slink rate limiting
-grants/   CheckAction, NarrowRules, MatchingRules, DeriveRules
+grants/   CheckAction, MatchingRules, DeriveRules
 chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
           proxy cache for discd/mastd/reditd), fsutil (CopyDirNoSymlinks,
           CopyFile), env helpers (EnvOr/EnvInt/EnvDur), ShortHash — shared
@@ -246,7 +246,7 @@ advances (partial work preserved).
 MCP server on unix socket (`mark3labs/mcp-go`). One per group at
 `ipc/<folder>/gated.sock`. Tools filtered by grants for the caller's group.
 Runtime auth via `auth.Authorize`. `set_grants`/`get_grants` read/write
-rules; `delegate_group` calls `NarrowRules` to merge parent+child.
+rules.
 
 socat bridges the host socket into the container; agent-runner configures
 `arizuko` MCP server in `settings.json` with `socat UNIX-CONNECT`. Server
@@ -282,7 +282,6 @@ full flow examples: `ROUTING.md`.
 Rule format: `[!]action[(param=glob,...)]`. Last-match-wins; no match = deny.
 
 - `CheckAction(rules, action, params)` — allow/deny
-- `NarrowRules(parent, child)` — child can only narrow
 - `MatchingRules(rules, action)` — rules matching an action
 - `DeriveRules(store, folder, tier, worldFolder)` — tier-0 `*`, tier-1
   platform send + management, tier-2 send only, deeper `send_reply` only

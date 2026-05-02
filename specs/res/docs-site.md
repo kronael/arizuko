@@ -32,7 +32,7 @@ Cookbooks (walkthroughs with rationale). IA, outlines, style rules below.
   /cookbooks/custom-mcp-tool
   /cookbooks/two-telegram-instances
   /cookbooks/per-user-agents
-  /cookbooks/memory-skills-standalone
+  /cookbooks/ant-standalone
   /cookbooks/cli-chat-mode
   /cookbooks/scheduled-tasks
   /cookbooks/onboarding-flow
@@ -141,7 +141,7 @@ These are ordered by distinctiveness — most unusual/defensible first:
 7. **Grants narrow, never widen**
    When a group spawns a child, it can restrict what tools the child
    can call. It cannot give the child permissions it does not itself
-   have. `NarrowRules(parent, child)` enforces this at delegation time.
+   have. parent-derived rules in `DeriveRules` enforces this at delegation time.
    The result is injected into the container's start.json.
 
 8. **Boring stack**
@@ -335,7 +335,7 @@ Content:
   - Grants: rule syntax `[!]action[(param=glob,...)]`, last-match-wins
   - Default grant derivation by tier (0: `*`, 1: all management + platform
     send, 2: send only, 3+: send_reply only)
-  - NarrowRules: delegation can only restrict; child cannot widen parent
+  - Tier-derived rules: child cannot widen parent — narrowed by depth
   - Grant injection into start.json, manifest filtering
   - Ownership checks: task pause/resume/cancel, set_routes, delegate_group
 
@@ -426,7 +426,7 @@ Content:
 - Interval mode: integer cron field = milliseconds interval
 - One-shot: NULL cron, next_run set directly, goes NULL after firing
 - context_mode: "group" (resumes session) vs "isolated" (fresh context,
-  sender prefix "scheduler-isolated")
+  sender prefix "timed-isolated:<task_id>")
 - MCP tools: schedule_task, list_tasks, pause_task, resume_task, cancel_task
 - task_run_logs: execution history table (task_id, run_at, duration_ms,
   status, result, error)
@@ -590,7 +590,7 @@ hundreds of distinct agents without any custom code.
 
 ---
 
-**memory-skills-standalone**
+**ant-standalone**
 What: use arizuko's memory skills (diary, facts, recall) with plain
 Claude Code CLI, no gateway.
 Demonstrates: which skills are portable (diary, facts, recall-memories,
@@ -600,7 +600,7 @@ Design angle: the memory system is markdown files and agent instructions.
 The gateway injection is an optimization (avoids extra turns). Without
 it, the agent reads diary itself on session start. The skills work
 because Claude Code loads SKILL.md files from ~/.claude/skills/.
-Reference: specs/memory-skills-standalone.md for full detail.
+Reference: specs/ant-standalone.md for full detail.
 
 ---
 
@@ -645,7 +645,7 @@ onboarding table when the flag is set.
 **grant-rules**
 What: restrict what MCP tools a child group can call, and verify
 the restriction holds.
-Demonstrates: default tier-based grants, NarrowRules behavior,
+Demonstrates: default tier-based grants, tier-narrowing behavior,
 set_grants MCP tool (tier 0-1 only), how grants appear in start.json,
 how the agent manifest is filtered.
 Design angle: grants are capabilities, not permissions. A group receives
@@ -761,7 +761,7 @@ The old landing page's LLM context block marks discd as "planned". The
 current ARCHITECTURE.md lists it without a status note. Verify.
 
 **OQ-6: AGPL vs MIT**
-README says MIT. The memory-skills-standalone spec notes the codebase
+README says MIT. The ant-standalone spec notes the codebase
 may be AGPL (citing .diary/20260323.md). Resolve before publishing
 the standalone memory skills cookbook — the license statement matters
 for adopters who want to extract the skills.
