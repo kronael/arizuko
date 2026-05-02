@@ -782,7 +782,7 @@ whether the cookbook should be published as a design document labeled
 "planned" or held until the interface exists.
 
 **OQ-10: proxyd vs webd naming**
-specs/6/2-proxyd.md notes the rename from webd to proxyd, and that a
+specs/7/2-proxyd.md notes the rename from webd to proxyd, and that a
 separate webd channel adapter exists. The docs page /docs/web covers
 both. Verify the actual binary names in the codebase match what the
 docs will call them.

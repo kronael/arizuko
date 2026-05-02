@@ -1,16 +1,25 @@
 ---
-status: active
+status: partial
 ---
 
-# specs/7 — future features
+# specs/7 — capabilities + sandboxing
 
-Pinned messages, rate limits, CLI tools, dynamic channels, auth tunneling.
+Cross-cutting capabilities (proxyd, chat-ui, HITL firewall),
+agent-authoring, self-learning, and the crackbox sandbox lineage.
+Picked up where phase 6 used to live; phase 6 is now reserved for
+products (branding, docs/publishing, packaging).
 
-- [1-pinned-messages.md](1-pinned-messages.md) `planned` — pinned messages as persistent agent context
-- [2-slink.md](2-slink.md) `deferred` — slink scoped auth token
-- [3-local-cli.md](3-local-cli.md) `planned` — `arizuko send` over slink round-handle protocol
-- [4-rate-limits.md](4-rate-limits.md) `unshipped` — usage_log table + per-group rate limits
-- [5-cli-chat.md](5-cli-chat.md) `unshipped` — `arizuko chat` interactive terminal agent
-- [6-dynamic-channels.md](6-dynamic-channels.md) `unshipped` — DB-backed channels, dashboard-managed creds
-- [7-auth-tunneling.md](7-auth-tunneling.md) `planned` — web-based credential capture
-- [8-cli-auth-helper.md](8-cli-auth-helper.md) `planned` — CLI auth dispatcher
+| Spec                                                   | Status               | Hook                                                               |
+| ------------------------------------------------------ | -------------------- | ------------------------------------------------------------------ |
+| [1-multi-agent-commits.md](1-multi-agent-commits.md)   | deferred             | Committer script for multi-agent git safety (openclaw pattern)     |
+| [2-proxyd.md](2-proxyd.md)                             | shipped              | Public-facing proxy; auth at perimeter, routes to dashd/webd/vited |
+| [3-chat-ui.md](3-chat-ui.md)                           | shipped              | webd channel adapter, HTMX UI, slink/SSE, two auth planes          |
+| [4-hitl-firewall.md](4-hitl-firewall.md)               | deferred             | pending_actions queue + /dash/review for held MCP calls            |
+| [5-authoring-product.md](5-authoring-product.md)       | deferred             | Author agent template (SOUL + skills), built on HITL               |
+| [6-workflows.md](6-workflows.md)                       | deferred             | workflowd daemon, TOML flow files over shared SQLite bus           |
+| [7-self-learning.md](7-self-learning.md)               | deferred             | Skill-guard PreToolUse hook (hermes peel)                          |
+| [8-self-eval-skill.md](8-self-eval-skill.md)           | deferred             | Self-eval sub-query at container exit                              |
+| [9-crackbox-standalone.md](9-crackbox-standalone.md)   | shipped              | egred — forward proxy with per-source allowlists (2026-04-29)      |
+| [10-crackbox-arizuko.md](10-crackbox-arizuko.md)       | shipped              | arizuko consumer of egred today; sandd transition planned          |
+| [11-crackbox-secrets.md](11-crackbox-secrets.md)       | draft                | egred-based secrets injection at egress                            |
+| [12-crackbox-sandboxing.md](12-crackbox-sandboxing.md) | shipped (2026-05-01) | crackbox `pkg/host/` library for KVM/qemu sandboxing               |

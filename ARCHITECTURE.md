@@ -69,7 +69,7 @@ sidecar/ whisper-cpp container; gateway calls Whisper for inbound
         voice when VOICE_TRANSCRIPTION_ENABLED=true
 crackbox/ egress-isolation proxy + KVM sandbox library; pulled in when
         EGRESS_ISOLATION=true (see "Compose Containers" below).
-        Shippable separately; specs/8/b-orthogonal-components.md
+        Shippable separately; specs/9/b-orthogonal-components.md
 ```
 
 Planned integrations (specced, not shipped): TTS via `TTS_BASE_URL`
@@ -324,7 +324,7 @@ before start; Ansible via `arizuko_instances[].extra_services`.
 onbod auto-included when `ONBOARDING_ENABLED=true`. All daemons
 listen on :8080 inside containers.
 
-`crackbox` (sibling component, see `specs/8/b-orthogonal-components.md`)
+`crackbox` (sibling component, see `specs/9/b-orthogonal-components.md`)
 and an `agents` internal network are emitted when `EGRESS_ISOLATION=true`.
 The internal network has no default route to the internet; crackbox is
 the only container with both NICs (internal + default bridge). gated

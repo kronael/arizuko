@@ -1,20 +1,22 @@
 ---
-status: deferred
+status: active
 ---
 
 # specs/6 — products
 
-| Spec                                                   | Status               | Hook                                                               |
-| ------------------------------------------------------ | -------------------- | ------------------------------------------------------------------ |
-| [1-multi-agent-commits.md](1-multi-agent-commits.md)   | deferred             | Committer script for multi-agent git safety (openclaw pattern)     |
-| [2-proxyd.md](2-proxyd.md)                             | shipped              | Public-facing proxy; auth at perimeter, routes to dashd/webd/vited |
-| [3-chat-ui.md](3-chat-ui.md)                           | shipped              | webd channel adapter, HTMX UI, slink/SSE, two auth planes          |
-| [4-hitl-firewall.md](4-hitl-firewall.md)               | deferred             | pending_actions queue + /dash/review for held MCP calls            |
-| [5-authoring-product.md](5-authoring-product.md)       | deferred             | Author agent template (SOUL + skills), built on HITL               |
-| [6-workflows.md](6-workflows.md)                       | deferred             | workflowd daemon, TOML flow files over shared SQLite bus           |
-| [7-self-learning.md](7-self-learning.md)               | deferred             | Skill-guard PreToolUse hook (hermes peel)                          |
-| [8-self-eval-skill.md](8-self-eval-skill.md)           | deferred             | Self-eval sub-query at container exit                              |
-| [9-crackbox-standalone.md](9-crackbox-standalone.md)   | shipped              | egred — forward proxy with per-source allowlists (2026-04-29)      |
-| [10-crackbox-arizuko.md](10-crackbox-arizuko.md)       | shipped              | arizuko consumer of egred today; sandd transition planned          |
-| [11-crackbox-secrets.md](11-crackbox-secrets.md)       | draft                | egred-based secrets injection at egress                            |
-| [12-crackbox-sandboxing.md](12-crackbox-sandboxing.md) | shipped (2026-05-01) | crackbox `pkg/host/` library for KVM/qemu sandboxing               |
+Productisation work: branding, packaging, polish on the user-facing
+surfaces, and the documentation + publish push that turns the
+shipped capabilities into a usable system someone other than the
+operator can pick up.
+
+Older phase-6 specs (proxyd, chat-ui, hitl-firewall, crackbox-\*)
+moved up to [specs/7](../7/) when this phase was re-scoped to
+products on 2026-05-02.
+
+| Spec                                         | Status | Hook                                                         |
+| -------------------------------------------- | ------ | ------------------------------------------------------------ |
+| [13-onbod-branding.md](13-onbod-branding.md) | draft  | Per-instance brand surface for onbod (env vars + asset dir). |
+
+Numbering kept from the original sequence so cross-references
+to `specs/6/13-onbod-branding.md` survive any link spelunking;
+new specs in this phase pick up at 14+.
