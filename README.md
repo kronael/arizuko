@@ -51,7 +51,7 @@ package graph and [EXTENDING.md](EXTENDING.md) for adding new integrations.
 | timed  | core        | cron/interval scheduler                                 | [timed/README.md](timed/README.md)   |
 | onbod  | core        | onboarding, OAuth, gated admission queue                | [onbod/README.md](onbod/README.md)   |
 | dashd  | core        | read-only HTMX operator dashboards                      | [dashd/README.md](dashd/README.md)   |
-| webd   | core        | web channel: websocket hub, slink, MCP bridge           | [webd/README.md](webd/README.md)     |
+| webd   | core        | web channel: SSE hub, slink chat + MCP transport        | [webd/README.md](webd/README.md)     |
 | proxyd | core        | auth-gated reverse proxy                                | [proxyd/README.md](proxyd/README.md) |
 | teled  | integration | Telegram adapter                                        | [teled/README.md](teled/README.md)   |
 | discd  | integration | Discord adapter                                         | [discd/README.md](discd/README.md)   |

@@ -1,6 +1,6 @@
 # webd
 
-Web channel daemon: websocket hub, slink chat UI, MCP bridge for web topics.
+Web channel daemon: SSE hub, slink chat UI, MCP bridges for web topics.
 
 ## Purpose
 
@@ -12,9 +12,11 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
 ## Responsibilities
 
 - Register as channel `web` with caps `send_text` + `typing` (`main.go`).
-- Run the websocket hub that fans agent output to connected browsers (`hub.go`).
+- Run the SSE hub that fans agent output to subscribers, keyed on
+  `folder/topic` (`hub.go`).
 - Serve slink pages: public widget, token-scoped chat (`slink.go`, `pages.go`).
-- Serve the MCP bridge that lets agents talk to web topics (`mcp.go`).
+- Serve the user MCP bridge for authed sessions (`mcp.go`) and the
+  token-only slink-MCP transport at `/slink/<token>/mcp` (`slink_mcp.go`).
 - Accept signed header forwards from `proxyd` (`PROXYD_HMAC_SECRET`).
 
 ## Entry points
@@ -36,18 +38,23 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
 ## Health signal
 
 `GET /health` returns 200 when registered with the router. Liveness also
-observable via connected websocket count and `store.LatestSource(jid)`
-returning `web` for recently delivered messages.
+observable via `store.LatestSource(jid)` returning `web` for recently
+delivered messages.
 
 ## Files
 
-- `main.go` — wiring
-- `hub.go`, `channel.go` — websocket fan-out
-- `slink.go` — slink public widget, token-scoped chat
-- `mcp.go` — MCP bridge
+- `main.go`, `server.go` — wiring + routes
+- `hub.go` — SSE fan-out keyed on `folder/topic`
+- `channel.go` — gated→webd callbacks (`/send`, `/v1/round_done`)
+- `slink.go` — slink chat UI + `POST /slink/<token>` (form/SSE/JSON)
+- `slink_mcp.go` — slink-MCP transport at `POST /slink/<token>/mcp`
+  (3 tools: send_message, steer, get_round)
+- `turn.go` — round-handle endpoints (`/slink/<token>/<id>{,/status,/sse}`)
+- `mcp.go` — authed user MCP bridge at `/mcp`
 - `api.go`, `pages.go`, `partials.go` — HTTP surface
 
 ## Related docs
 
+- `specs/5/J-sse.md` — SSE streams + slink-MCP transport
 - `specs/6/3-chat-ui.md`
 - `ARCHITECTURE.md` (Web Channel section)
