@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>routing</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>routing</h1>
+    <p class="dim back">how a JID lands in a folder &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+
+    <p class="lede">A small table of <code>jid &rarr; folder</code> rules turns inbound platform messages into agent runs in a specific group. Add a row, the next message lands.</p>
+
+    <h2>why</h2>
+    <p>Inbound messages from every adapter &mdash; Telegram, Discord, web slinks, Mastodon, email &mdash; arrive in the same store and need to find the right ant folder to run in. Hardcoding a chat-to-folder map in code breaks the moment a second instance wants different layout; per-adapter plumbing breaks differently in every adapter. The <code>routes</code> table is the one indirection: predicates over the message, evaluated in <code>seq</code> order, first match wins.</p>
+
+    <h2>show me</h2>
+    <pre><code>seq    match                                  target
+---    -----                                  ------
+-10    chat_jid=telegram:12345                atlas/legal
+0      platform=telegram                      atlas/content
+0      platform=discord room=dm/*             atlas/dm
+0      platform=reddit verb=post              atlas/posts
+0      chat_jid=web:slink/abc123              solo/chat
+0      platform=discord                       atlas/{sender}
+9999   (empty)                                atlas              # catchall</code></pre>
+    <p>Predicates are space-separated <code>key=glob</code>, AND&rsquo;d. Glob is <code>path.Match</code>: <code>*</code> matches a non-<code>/</code> run, <code>?</code> one char, <code>[&hellip;]</code> a class. <code>{sender}</code> in the target expands to a sanitized sender ID for per-user child groups.</p>
+
+    <h2>what you get</h2>
+    <ul>
+      <li><strong>Five match keys.</strong> <code>platform</code>, <code>room</code>, <code>chat_jid</code>, <code>sender</code>, <code>verb</code>. Omit a key to leave it unconstrained; <code>key=</code> requires it absent; <code>key=*</code> requires it present.</li>
+      <li><strong>Glob on every field.</strong> Same <code>path.Match</code> semantics across all keys &mdash; <code>chat_jid=telegram:group/*</code>, <code>sender=telegram:user/[0-9]*</code>, <code>room=dm/*</code>.</li>
+      <li><strong>Reply chain takes precedence.</strong> When a user replies to a bot message, the gateway looks up <code>routed_to</code> on the original and sends the reply back to the same group, regardless of what the routes table says.</li>
+      <li><strong>Sticky routing per chat.</strong> <code>@atlas/social</code> as the entire message body locks the chat to that group; <code>#support</code> locks the topic; bare <code>@</code> or <code>#</code> clears. Stored on the <code>chats</code> row, shared by everyone in the chat.</li>
+      <li><strong>Per-user fan-out.</strong> <code>{sender}</code> in the target gives each sender their own child group &mdash; <code>atlas/dc-alice</code>, <code>atlas/dc-bob</code> &mdash; without one route per user.</li>
+      <li><strong>Edit live.</strong> The agent has <code>add_route</code>, <code>delete_route</code>, <code>get_routes</code>, <code>set_routes</code> as MCP tools; the operator dash (<code>dashd</code>) shows the table; changes take effect on the next inbound message, no restart.</li>
+    </ul>
+
+    <h2>go deeper</h2>
+    <p>Full resolution order (reply chain &rarr; sticky &rarr; route table), authorization rules for cross-group delegation, the inline <code>@name</code>/<code>#topic</code> prefix layer, and worked end-to-end examples: <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>. For what the JID strings on the left-hand side actually look like across platforms, see <a href="/pub/concepts/jid.html">jid</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
