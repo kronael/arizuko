@@ -13,7 +13,7 @@ status: future
 | [31-autocalls.md](31-autocalls.md)                     | shipped   | Inline fact injection when schema cost > content cost               |
 | [32-tenant-self-service.md](32-tenant-self-service.md) | shipped   | Org-chart model: invites, secrets, chats.kind, topic kinds          |
 | [C-message-mcp.md](C-message-mcp.md)                   | shipped   | `get_history` + `get_thread` + `fetch_history` MCP tools            |
-| [H-call-llm-mcp.md](H-call-llm-mcp.md)                 | unshipped | Oracle skill — Claude asks codex CLI via subprocess + folder secret |
+| [H-call-llm-mcp.md](H-call-llm-mcp.md)                 | shipped   | Oracle skill — Claude asks codex CLI via subprocess + folder secret |
 | [J-sse.md](J-sse.md)                                   | shipped   | SSE + MCP transport on slink tokens; group is auth boundary         |
 | [M-webdav.md](M-webdav.md)                             | shipped   | dufs + proxyd JWT/cookie auth, write-block guard                    |
 | [P-operator.md](P-operator.md)                         | note      | Operator is emergent from `**` ACL, not a flag                      |

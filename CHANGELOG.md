@@ -14,6 +14,35 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.4] — 2026-05-02
+
+> arizuko v0.33.4 — 2 May 2026
+>
+> • New `/oracle` skill — agent can ask the `codex` CLI for a second opinion on tricky algorithms or unfamiliar libraries
+> • Auth via `OPENAI_API_KEY` / `CODEX_API_KEY` in folder secrets — folders without the key fall back gracefully
+> • No new MCP tool, no new daemon — skill + binary on the agent image, secret in the existing folder secrets path
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+Lets Claude consult a second model when uncertain — disagreement
+with self, sanity check on a non-obvious implementation, library
+Claude doesn't know well. Subprocess invocation, no new IPC.
+Spec `specs/5/H-call-llm-mcp.md` is now shipped.
+
+### Added
+
+- **`/oracle` agent skill** (`ant/skills/oracle/SKILL.md`) — drives
+  the `codex` CLI as a one-shot subprocess (`codex exec "<prompt>"`
+  argv, stdin, or piped). Documents when to invoke (tricky
+  algorithm, unknown library, sanity check), the missing-key
+  fallback, and how to add the secret via the existing folder
+  secrets path. Output is advisory; cite when acting on it.
+- **`@openai/codex` on the agent image** (`ant/Dockerfile`) — added
+  to the same global npm install as `@anthropic-ai/claude-code` and
+  `@apify/mcpc`. Binary lands at `/usr/local/bin/codex` on `PATH`.
+
+Agent migration 094.
+
 ## [v0.33.3] — 2026-05-02
 
 > arizuko v0.33.3 — 2 May 2026
