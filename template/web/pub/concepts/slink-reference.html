@@ -31,14 +31,8 @@
       <li>Security comes from rate limiting, not secrecy. Treat a leaked token like a leaked rate-limit bucket, not like a leaked password.</li>
     </ul>
 
-    <h2>rate limit tiers</h2>
-    <table>
-      <tr><th>caller</th><th>bucket</th><th>limit</th></tr>
-      <tr><td>anonymous (no JWT)</td><td>shared per token</td><td>10 req/min across all anon callers</td></tr>
-      <tr><td>authenticated (JWT)</td><td>per JWT <code>sub</code></td><td>60 req/min</td></tr>
-      <tr><td>agent / operator</td><td>&mdash;</td><td>unlimited</td></tr>
-    </table>
-    <p>Tunable via <code>SLINK_ANON_RPM</code> / <code>SLINK_AUTH_RPM</code> in the instance <code>.env</code>.</p>
+    <h2>rate limiting</h2>
+    <p>Enforced at the edge by <code>proxyd</code> on every request whose path starts with <code>/slink/</code>: a sliding window keyed on the client IP, currently hardcoded at 10 requests per minute. Excess returns <code>429</code>. There is no separate authenticated tier today; <code>SLINK_ANON_RPM</code> / <code>SLINK_AUTH_RPM</code> tunables from the legacy node implementation are not yet ported.</p>
 
     <h2>sender identity</h2>
     <ul>
