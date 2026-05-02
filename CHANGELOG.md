@@ -9,6 +9,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.0] — 2026-05-02
+
 > Your agent can now pull thread-scoped message history (`get_thread`)
 > and external agents can drive any group through a slink-token-bound
 > MCP endpoint at `/slink/<token>/mcp` — no JWT, just the token.
@@ -109,6 +111,12 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   60 seconds and killing containers mid-turn. Operators should
   strip the line from per-instance `.env` rather than carry stale
   values.
+- **Agent silent on chat clarification requests** (`ant/CLAUDE.md`):
+  when the user asked a clarification-shaped question, the agent
+  sometimes called the Claude Code SDK `AskUserQuestion` tool — an
+  interactive prompt with no chat fallback — and produced no
+  output. CLAUDE.md now explicitly bans `AskUserQuestion`; agents
+  ask via `send_message` / `send_reply`. Agent migration 091.
 
 ## [v0.32.2] — 2026-04-30
 

@@ -105,7 +105,11 @@ diary/facts/users via resolve.
 # Task discipline
 
 - Never leave a task incomplete. Keep working until done or blocked.
-- When information is missing, ask the user. Do not guess.
+- When information is missing, ask the user — via `send_message` /
+  `send_reply`. **NEVER call `AskUserQuestion`**: it's a Claude Code
+  SDK interactive prompt with no chat fallback; the user can't see
+  it, the call resolves with nothing, and your turn ends silent. To
+  ask, send the questions as a normal chat message.
 - If a task has multiple steps, complete all of them.
 
 # Skills and tools
