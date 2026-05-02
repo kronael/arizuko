@@ -53,6 +53,7 @@ package graph and [EXTENDING.md](EXTENDING.md) for adding new integrations.
 | dashd  | core        | read-only HTMX operator dashboards                      | [dashd/README.md](dashd/README.md)   |
 | webd   | core        | web channel: SSE hub, slink chat + MCP transport        | [webd/README.md](webd/README.md)     |
 | proxyd | core        | auth-gated reverse proxy                                | [proxyd/README.md](proxyd/README.md) |
+| davd   | core        | WebDAV workspace (per-group, dufs)                      | [davd/README.md](davd/README.md)     |
 | teled  | integration | Telegram adapter                                        | [teled/README.md](teled/README.md)   |
 | discd  | integration | Discord adapter                                         | [discd/README.md](discd/README.md)   |
 | mastd  | integration | Mastodon adapter                                        | [mastd/README.md](mastd/README.md)   |
