@@ -218,9 +218,9 @@ func TestGenerateWebDAVDisabled(t *testing.T) {
 // proxyd, vited) is eligible; the profile gates non-web built-ins.
 func TestGenerateProfiles(t *testing.T) {
 	cases := []struct {
-		profile  string
-		wantIn   []string
-		wantOut  []string
+		profile string
+		wantIn  []string
+		wantOut []string
 	}{
 		{
 			profile: "minimal",
@@ -264,6 +264,36 @@ func TestGenerateProfiles(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestGenerateMultiAccountAdapter verifies that <adapter>-<label>.toml
+// services share the base adapter's env_file (specs/5/R-multi-account.md).
+func TestGenerateMultiAccountAdapter(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"CHANNEL_SECRET=s\nTELEGRAM_BOT_TOKEN=tok\nAPI_PORT=8080\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "services/teled-work.toml"), []byte(`
+image = "arizuko:latest"
+entrypoint = ["teled"]
+[environment]
+ROUTER_URL = "http://gated:8080"
+LISTEN_URL = "http://teled-work:8080"
+`), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "  teled-work:\n") {
+		t.Fatal("missing teled-work service")
+	}
+	// teled-work must reuse env/teled.env so per-daemon secret scoping holds.
+	idx := strings.Index(out, "  teled-work:\n")
+	tail := out[idx:]
+	if !strings.Contains(tail[:200], "env/teled.env") {
+		t.Errorf("teled-work should reuse env/teled.env, got:\n%s", tail[:200])
 	}
 }
 

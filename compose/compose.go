@@ -86,10 +86,17 @@ var daemonKeys = map[string][]string{
 }
 
 // envFileFor returns the scoped env_file block for a daemon, falling back to
-// the shared .env for services not in daemonKeys.
+// the shared .env for services not in daemonKeys. Multi-account services
+// named `<adapter>-<label>` (per specs/5/R-multi-account.md) share the base
+// adapter's env file so per-daemon scoping holds across accounts.
 func envFileFor(name string) string {
 	if _, ok := daemonKeys[name]; ok {
 		return fmt.Sprintf("    env_file:\n      - env/%s.env\n", name)
+	}
+	if base, _, ok := strings.Cut(name, "-"); ok {
+		if _, ok := daemonKeys[base]; ok {
+			return fmt.Sprintf("    env_file:\n      - env/%s.env\n", base)
+		}
 	}
 	return "    env_file:\n      - .env\n"
 }
