@@ -89,6 +89,27 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   verified, no change. Mastodon/Reddit/LinkedIn/Email still
   `NoFileSender` — tracked in `bugs.md`.
 
+### Fixed
+
+- **Typed-JID migration tail (`0043-typed-jids-tail.sql`)**: `0042`
+  rewrote JID-shaped values in `messages`, `chats`, `user_jids`,
+  `grants`, `onboarding`, and the `chat_jid=`/`sender=` predicates
+  in `routes.match` — but missed three columns that also hold JIDs:
+  `routes.match` `room=` predicates, `scheduled_tasks.chat_jid`, and
+  `chat_reply_state.jid`. After `0042` ran, every routed telegram
+  chat became unrouted because `JidRoom("telegram:user/<id>")`
+  returns `"user/<id>"` while the route still matched on the bare
+  ID. The gateway then ran `InsertOnboarding` for each inbound, and
+  `onbod` re-prompted operational chats with auth links. `0043`
+  rewrites all three columns using the same kind-discriminator
+  semantics as `0042` and is idempotent.
+- **`IDLE_TIMEOUT` default raised to 60 minutes**
+  (`core/config.go`): the previous 30-minute default left short
+  setups misreading a hand-edited `IDLE_TIMEOUT=60000` (60 ms) as
+  60 seconds and killing containers mid-turn. Operators should
+  strip the line from per-instance `.env` rather than carry stale
+  values.
+
 ## [v0.32.2] — 2026-04-30
 
 > Cleaner URLs for the new HTTP API your agent now speaks. Plus a
