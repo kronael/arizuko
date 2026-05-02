@@ -147,6 +147,55 @@ ant my-agent` works without arizuko anywhere on the system
 - `ant/` has zero arizuko-internal Go imports — same orthogonality
   test as `crackbox/`
 
+## Shipped this pass (v0.33.5)
+
+Foundation only — nothing the runtime relies on changes. The TS path
+in `ant/src/` and `arizuko-ant:latest` are untouched.
+
+- `ant/cmd/ant/main.go` — flag-parsing stub. Body returns
+  `EX_USAGE (64)`; `--help` exits 0; the three documented flag
+  groups parse correctly.
+- `ant/pkg/agent/loader.go` + tests — `LoadFolder(path) (*Folder, error)`,
+  `ErrNotFound`, three test cases (ok / missing / not-a-dir).
+- `ant/pkg/host/doc.go`, `ant/pkg/runtime/doc.go` — package stubs
+  with one-line intent.
+- `ant/scripts/curate-skills.sh` — portability gate. Reports 37
+  portable + 1 arizuko-only on the current tree. No skills moved.
+- `ant/README.md` — three-question intro; documents the partition
+  count and the deferred work.
+- Migration `095-v0.33.5-ant-foundation.md` + version bump.
+
+Not shipped this pass: the runtime port (replacing `src/index.ts`),
+the sandbox backends (`pkg/host` is empty), the MCP server mode
+(`--mcp` parses but exits 64), the move of arizuko-only skills into
+`ant-arizuko/skills/`. Status flips to `shipped` when those land.
+
+## Open questions
+
+1. **`ant/CLAUDE.md` collision** — the file already exists as the seed
+   for every group's in-container `~/.claude/CLAUDE.md`. The standalone
+   package wants its own `CLAUDE.md` as an operator runbook. Resolution
+   options: rename the seed (`ant/templates/agent-CLAUDE.md`), or keep
+   the seed and document the package via README only. Decide before
+   the runtime port lands.
+2. **Binary-name collision with `ant/ant` shell launcher** — building
+   `ant/cmd/ant` from the repo root produces `./ant`, which is also
+   the existing bash launcher path (`ant/ant`). Mitigation this pass:
+   build via `go build -o ./tmp/ant-bin ./ant/cmd/ant`. At cutover:
+   replace the bash launcher with the Go binary, or rename the Go
+   binary (`antd`? `ant-cli`?).
+3. **Root Makefile wiring** — `ant` is not in `COMPONENTS` because the
+   existing `ant/Makefile` does not implement `build`/`lint`/`test`
+   targets compatible with the recursive root targets. Adding it
+   would either need additive Go targets in `ant/Makefile` or a
+   separate target for the Go binary alone.
+4. **Pin the `claude` CLI version** before the runtime port — the
+   stream-json schema is undocumented (carryover from R-ant-go-cli.md).
+5. **Skill move semantics** — when moving arizuko-only skills into
+   `ant-arizuko/skills/`, decide whether the in-container seed comes
+   from one tree (`ant/skills/` + `ant-arizuko/skills/`) or whether
+   `ant-arizuko/` carries its own copy.
+
 ## Relation to other specs
 
 - [../6/12-crackbox-sandboxing.md](../6/12-crackbox-sandboxing.md) —

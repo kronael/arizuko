@@ -14,6 +14,52 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.5] — 2026-05-02
+
+> arizuko v0.33.5 — 2 May 2026
+>
+> • Foundation for standalone `ant/` Go package — folder-as-agent CLI scaffolding
+> • Skill-portability partition: 37 portable / 1 arizuko-only (`self`)
+> • Existing TS runtime + `arizuko-ant:latest` unchanged this pass
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+Foundation pass for a standalone `ant/` Go package — drives the
+official `claude` CLI against an ant-folder, shippable outside
+arizuko. This pass lays the package skeleton only; the existing TS
+runtime in `ant/src/` and `arizuko-ant:latest` are unchanged.
+
+### Added
+
+- `ant/cmd/ant/main.go` — CLI flag stub:
+  `ant <folder> [--prompt=<text>] [--mcp [--socket=<path>]]
+[--sandbox=none|dockbox|crackbox]`. `--help` exits 0; body is
+  unimplemented and exits `64` (EX_USAGE) so misconfigured callers
+  fail loud.
+- `ant/pkg/agent/loader.go` — `LoadFolder(path)` resolves
+  `SOUL.md` / `CLAUDE.md` / `skills/` / `diary/` / `secrets/` /
+  `MCP.json` / `workspace/`; `ErrNotFound` for missing or non-dir
+  paths. Three unit tests.
+- `ant/pkg/host/`, `ant/pkg/runtime/` — package stubs (sandbox
+  abstraction + Claude CLI driver). Doc comments only; wiring lands
+  with the runtime port.
+- `ant/scripts/curate-skills.sh` — portable-vs-arizuko-only partition
+  gate. Greps `@gated|@arizuko|gated.sock` in each `SKILL.md`.
+  Current count: **37 portable, 1 arizuko-only** (`self`). No skills
+  moved this pass.
+- `ant/README.md` — three-question intro; documents the deferred work.
+- Migration `095-v0.33.5-ant-foundation.md` + version bump 94 → 95.
+
+### Notes
+
+- `ant/cmd/`, `ant/pkg/agent`, `ant/pkg/host`, `ant/pkg/runtime`
+  import zero arizuko-internal packages — same orthogonality property
+  as `crackbox/`, enforced by the import graph.
+- The new `ant` Go binary is not yet in the root `Makefile`'s
+  `COMPONENTS` recursion (existing `ant/Makefile` does not implement
+  `build`/`lint`/`test` targets); `go build ./ant/cmd/ant` builds it
+  ad-hoc, `go test ./...` typechecks it.
+
 ## [v0.33.4] — 2026-05-02
 
 > arizuko v0.33.4 — 2 May 2026
