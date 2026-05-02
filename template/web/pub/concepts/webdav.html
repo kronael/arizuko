@@ -47,7 +47,8 @@ rclone mount mygroup:/dav/&lt;group&gt;/ ~/mnt/&lt;group&gt; --vfs-cache-mode wr
     <h2>go deeper</h2>
     <ul>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/M-webdav.md">specs/5/M-webdav.md</a> &mdash; canonical spec: routing, auth, write-block rules, config flags.</li>
-      <li><a href="/pub/concepts/">concepts</a> &mdash; the rest of arizuko&rsquo;s primitives.</li>
+      <li><a href="/pub/concepts/auth.html">auth</a> &mdash; how the JWT/Bearer token gating <code>/dav/</code> is minted and refreshed.</li>
+      <li><a href="/pub/concepts/grants.html">grants</a> &mdash; how the per-group claim that scopes a WebDAV path is computed.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
