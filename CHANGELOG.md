@@ -5,25 +5,26 @@ All notable changes to arizuko are documented here.
 arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 (upstream at v1.1.3).
 
+<!-- Each release entry opens with a `>` blockquote — that's the
+     chat broadcast, extracted verbatim. Format spec in root
+     CLAUDE.md "## Announcing". ≤ 9 lines, 3-6 bullets, user
+     benefit first, end with the changelog link. -->
+
 ---
 
 ## [Unreleased]
 
 ## [v0.33.0] — 2026-05-02
 
-> Your agent can now pull thread-scoped message history (`get_thread`)
-> and external agents can drive any group through a slink-token-bound
-> MCP endpoint at `/slink/<token>/mcp` — no JWT, just the token.
-> If you log in with a second OAuth provider while signed in, you'll
-> now be asked whether to link the new account to your current one or
-> log out first — no more silent duplicate users. Groups no longer
-> track active/closed/archived state — they exist until removed.
-> Routing rules now use typed JIDs — match patterns like
-> `telegram:group/*` instead of guessing by sign bit.
-> Voice synthesis is shipped: agents can call `send_voice` to deliver
-> spoken replies as platform-native push-to-talk on Telegram and
-> WhatsApp (audio attachment on Discord); other channels return
-> Unsupported with a hint.
+> arizuko v0.33.0 — 2 May 2026
+>
+> • Voice replies (`send_voice`) — Telegram/WhatsApp PTT, Discord audio
+> • Thread-scoped history (`get_thread` MCP)
+> • External agents drive groups via `/slink/<token>/mcp`
+> • OAuth account linking + collision UX (`/dash/profile`)
+> • Typed JID routing (`telegram:group/*` instead of sign-bit guess)
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ### Added
 

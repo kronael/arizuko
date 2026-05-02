@@ -169,12 +169,22 @@ $summary"
 This produces a short user-friendly note like:
 
 ```
-## [v0.32.2] — 2026-04-30
+## [v0.33.0] — 2026-05-02
 
-Cleaner URLs for the new HTTP API your agent now speaks. Plus a
-behind-the-scenes fix so docker rebuilds no longer briefly break
-agent spawning.
+arizuko v0.33.0 — 2 May 2026
+
+• Voice replies (`send_voice`) — Telegram/WhatsApp PTT, Discord audio
+• Thread-scoped history (`get_thread` MCP)
+• External agents drive groups via `/slink/<token>/mcp`
+• OAuth account linking + collision UX (`/dash/profile`)
+• Typed JID routing (`telegram:group/*` instead of sign-bit guess)
+
+Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 ```
+
+Format spec: see "## Announcing" in root `CLAUDE.md`. The blockquote
+is the broadcast verbatim; ≤ 9 lines; 3–6 bullets; user benefit before
+internal detail; close with the canonical changelog link.
 
 If a version block has no blockquote (older entries pre-dating this
 convention), the summary is empty — fall back to a one-line

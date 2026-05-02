@@ -206,6 +206,27 @@ sudo curl -s -o /dev/null -w '%{http_code}\n' http://localhost:<port>/health
 2. `git tag vX.Y.Z`, tag docker images (`arizuko:vX.Y.Z`, `arizuko-ant:vX.Y.Z`)
 3. Add `.diary/YYYYMMDD.md` entry
 
+## Announcing
+
+Each release entry opens with a `>` blockquote — that's the chat
+broadcast (Telegram/Discord/WhatsApp), extracted verbatim by the
+`migrate` skill. Keep it ≤ 9 lines:
+
+```markdown
+> arizuko vX.Y.Z — DD Mon YYYY
+>
+> • <feature> (`<api>`) — <one-line user benefit>
+> • ...
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+```
+
+Rules: 3–6 bullets; lead with the biggest user-facing change; active
+voice; one line each; user benefit before internal detail. NO migration
+numbers, file paths, commit SHAs in the blockquote — those stay in the
+maintainer-facing `### Added/Changed/Fixed`. Group when more than 6
+land at once: `• Voice & media — send_voice + per-platform dispatch`.
+
 ## Deploy policy
 
 - **krons** is the test/deploy target. Always deploy here first.
