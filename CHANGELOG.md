@@ -14,6 +14,50 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.1] — 2026-05-02
+
+> arizuko v0.33.1 — 2 May 2026
+>
+> • Public changelog page at `/pub/changelog/` — dated, terse, in the chat-broadcast voice
+> • Concept-page drift fixes — typed-JID migration numbers, voice platform table, routing example
+> • Release-announce format documented in `CLAUDE.md` for authors
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+Docs-only release. Source ships with this tag; existing instances'
+`/workspace/web/pub/` is agent-owned and updates only when the root
+agent runs `/migrate`.
+
+### Added
+
+- **`/pub/changelog/index.html`** — public-facing release notes
+  page in the same onepager voice as the concept pages. Reverse
+  chrono, per-release block: H2 with version + date, one-paragraph
+  context, 3–6 user-benefit bullets, link to the canonical
+  CHANGELOG.md anchor on GitHub. Cross-linked from the root
+  onepager's "go deeper" list.
+- **Release-announce format spec** in root `CLAUDE.md` ("##
+  Announcing"): each CHANGELOG entry's leading `>` blockquote is
+  the chat broadcast verbatim — ≤ 9 lines, 3–6 bullets, user
+  benefit before internal detail, no migration numbers / file
+  paths / SHAs (those stay in `### Added/Fixed`). Mirrored as a
+  one-line HTML-comment pointer at the top of `CHANGELOG.md` and
+  in `ant/skills/migrate/SKILL.md`'s broadcast example.
+
+### Fixed
+
+- **`concepts/jid.html`**: migration reference was `0038-typed-jids`
+  (which is actually `message-turn-id`); corrected to
+  `0042-typed-jids` + the `0043-typed-jids-tail` companion that
+  picked up `routes.match room=`, `scheduled_tasks.chat_jid`, and
+  `chat_reply_state.jid`.
+- **`concepts/voice.html`**: platform-support table missing
+  LinkedIn and X (Twitter) rows; both now listed as Unsupported
+  (matches the structured `chanlib.Unsupported` returns).
+- **`concepts/routing.html`**: pre-typed-JID example
+  `chat_jid=telegram:12345` retired in favor of the kind-discriminated
+  form `chat_jid=telegram:user/12345`.
+
 ## [v0.33.0] — 2026-05-02
 
 > arizuko v0.33.0 — 2 May 2026

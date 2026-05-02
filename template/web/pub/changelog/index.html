@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>changelog</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose h2 { margin-top: 1.6em; }
+    .prose h2 .date { color: var(--accent3); font-weight: normal; font-size: 0.85em; margin-left: 0.5em; }
+    .prose .full { font-size: 0.85em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>changelog</h1>
+    <p class="dim back"><a href="/pub/">&larr; arizuko</a> &middot; <a href="/pub/concepts/">concepts</a> &middot; <a href="/pub/howto/">getting started</a></p>
+
+    <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
+
+    <h2>arizuko v0.33.0 <span class="date">&mdash; 2 May 2026</span></h2>
+    <p>Voice replies close the loop on the audio channel that Whisper opened months ago, and the router stops guessing JID kinds from sign bits &mdash; every adapter now emits typed addresses (<code>telegram:group/&hellip;</code>, <code>discord:&lt;guild&gt;/&lt;channel&gt;</code>) so routes, grants, and onboarding speak one language.</p>
+    <ul>
+      <li><strong>Voice replies</strong> (<code>send_voice</code>) &mdash; agent-controlled TTS via a bundled <code>ttsd</code> proxying Kokoro-FastAPI; Telegram/WhatsApp render as push-to-talk, Discord as inline audio. Per-agent voice via <code>SOUL.md</code> frontmatter. Cached by hash.</li>
+      <li><strong>Thread-scoped history</strong> (<code>get_thread</code> MCP) &mdash; pull just one topic out of a chat&rsquo;s history; tier-gated like <code>inspect_messages</code>.</li>
+      <li><strong>External agents over slink</strong> (<code>POST /slink/&lt;token&gt;/mcp</code>) &mdash; register a token-bound URL as a remote MCP server in Claude Code or any MCP client; three group-scoped tools (<code>send_message</code>, <code>steer</code>, <code>get_round</code>). Token is the auth.</li>
+      <li><strong>OAuth account linking</strong> (<code>/dash/profile</code>) &mdash; one canonical sub across providers, with a collision-resolution UX when a new OAuth identity doesn&rsquo;t fit silently.</li>
+      <li><strong>Typed JID routing</strong> &mdash; <code>telegram:group/*</code> scopes to groups but not DMs; sign-bit guessing retired across the router and grants tables.</li>
+      <li><strong>Idle-timeout default raised to 60 min</strong> &mdash; stops mid-turn container kills caused by stale per-instance overrides reading 60&nbsp;ms.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0330--2026-05-02">CHANGELOG &sect; v0.33.0</a></p>
+
+    <h2>arizuko v0.32.2 <span class="date">&mdash; 30 Apr 2026</span></h2>
+    <p>URL polish on the slink round-handle protocol shipped in v0.32.0. The verb does the work now &mdash; POST extends a round, GET observes it &mdash; and special tokens (<code>/turn/</code>, <code>?steer=</code>) disappear.</p>
+    <ul>
+      <li><strong>Cleaner round URLs</strong> &mdash; the second URL segment after the token IS the round handle. <code>GET /slink/&lt;token&gt;/&lt;id&gt;</code>, <code>&hellip;/status</code>, <code>&hellip;/sse</code>; <code>POST /slink/&lt;token&gt;/&lt;id&gt;</code> means &ldquo;steer this round.&rdquo;</li>
+      <li><strong>CLI + docs follow</strong> &mdash; <code>arizuko send</code> and <code>/pub/slink/reference/</code> updated to the new shape; old paths retired.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0322--2026-04-30">CHANGELOG &sect; v0.32.2</a></p>
+
+    <h2>arizuko v0.32.1 <span class="date">&mdash; 30 Apr 2026</span></h2>
+    <p>Quiet bugfix release. Closes a cross-world spam vector revealed by v0.32.0&rsquo;s own release broadcast: tier-1 world agents could send to chats that route to other worlds, producing the same notice 2&ndash;4&times; per chat.</p>
+    <ul>
+      <li><strong>Outbound MCP authorization</strong> &mdash; every send-shaped tool (<code>send</code>, <code>send_file</code>, <code>reply</code>, <code>post</code>, <code>like</code>, <code>dislike</code>, <code>delete</code>, <code>edit</code>, <code>forward</code>, <code>quote</code>, <code>repost</code>) resolves the JID&rsquo;s owning folder and checks subtree containment. No tier bypass; even the instance root cannot direct-send across worlds.</li>
+      <li><strong>Inter-world communication</strong> goes through <code>delegate_group</code>/<code>escalate_group</code> instead. Unrouted JIDs are denied for every caller.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0321--2026-04-30">CHANGELOG &sect; v0.32.1</a></p>
+
+    <h2>arizuko v0.32.0 <span class="date">&mdash; 30 Apr 2026</span></h2>
+    <p>Slink becomes the universal &ldquo;drop a message, observe the round&rdquo; surface. Every agent run is now a first-class object with a stable handle, pageable frames, an SSE stream that closes cleanly, and steering for chained follow-ups &mdash; useful for cron jobs, web pages, and scripts that need to talk to the agent without a full chat client.</p>
+    <ul>
+      <li><strong>Slink round-handle protocol</strong> &mdash; <code>POST /slink/&lt;token&gt;</code> returns <code>{user, turn_id, status:pending}</code>; the round is observable via snapshot, cursor paging, cheap status, or live SSE with a terminal <code>round_done</code> event.</li>
+      <li><strong>Steering</strong> &mdash; inject a follow-up onto an in-flight round; per-folder queue serialization makes it the immediate next round, with <code>chained_from</code> linking the two.</li>
+      <li><strong><code>arizuko send</code></strong> CLI &mdash; inject messages from the server into any group via slink; <code>--wait</code>, <code>--stream</code>, <code>--steer</code> flags.</li>
+      <li><strong>Public web docs</strong> at <a href="/pub/concepts/slink.html">/pub/concepts/slink.html</a> and <code>/pub/slink/reference/</code>.</li>
+      <li><strong>Group state machinery removed</strong> &mdash; no more closure-then-archive cycle, no <code>spawn_ttl_days</code>, no daily cleanup loop. Groups exist until explicitly removed.</li>
+      <li><strong>Crackbox DNS &amp; davd healthcheck fixes</strong> rolled in from v0.31.1 &mdash; per-folder networks now resolve <code>crackbox</code>; davd reports health.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0320--2026-04-30">CHANGELOG &sect; v0.32.0</a></p>
+
+    <h2>older</h2>
+    <p>Everything before v0.32.0 lives in the canonical <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md">CHANGELOG.md</a> on GitHub.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
