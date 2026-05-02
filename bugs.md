@@ -22,13 +22,3 @@ Bugs / follow-ups discovered during voice + media-dispatch audit (2026-05-01).
   attachments not implemented; inline the content in send body.")`.
   Email is the universal medium for attachments; this is a future
   enhancement, not a wrong-dispatch bug.
-
-## Other
-
-- `chanlib.NoFileSender.SendFile` returns plain `errSendFile` (not a
-  structured `*UnsupportedError`). Adapters embedding `NoFileSender`
-  surface "send-file not supported" to the agent without the
-  tool/platform/hint envelope. Convert `errSendFile` to
-  `chanlib.Unsupported("send_file", "?", "...")` and let each
-  embedder pin the platform name. Same for `NoVoiceSender` if we
-  want richer hints than the bare ErrUnsupported.

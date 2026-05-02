@@ -14,6 +14,35 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.6] — 2026-05-02
+
+> arizuko v0.33.6 — 2 May 2026
+>
+> • emaid compose env-var names match the daemon — IMAP/SMTP wiring no longer starts with empty config
+> • Adapters embedding `NoFileSender` now return structured `*UnsupportedError` with per-platform hints
+> • mastd / reditd / linkd carry concrete `send_file` hints pointing at a viable alternative
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- `template/services/emaid.toml`: env-var names now match what
+  `emaid/main.go` reads (`EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`,
+  `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`). Compose-deployed emaid was
+  starting with empty config because the toml declared `IMAP_HOST` /
+  `SMTP_USER` / etc. while the Go side requires the `EMAIL_` prefix.
+  Go is the source of truth — operators with working `.env` files keep
+  working.
+- `chanlib.NoFileSender.SendFile` returns
+  `Unsupported("send_file", "", ...)` instead of a bare
+  `errors.New("send-file not supported")`. Adapter HTTP layer encodes
+  this as 501 with the structured tool/platform/hint envelope so the
+  agent gets actionable diagnostic.
+- `mastd`, `reditd`, `linkd` override `SendFile` with platform-specific
+  hints (Mastodon v2 media not wired; Reddit's 3-step image flow not
+  wired; LinkedIn UGC `registerUpload` not wired) — each points the
+  agent at inlining a URL via `post(content=...)` for now.
+
 ## [v0.33.5] — 2026-05-02
 
 > arizuko v0.33.5 — 2 May 2026

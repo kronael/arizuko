@@ -162,11 +162,14 @@ type HistoryProvider interface {
 	FetchHistory(req HistoryRequest) (HistoryResponse, error)
 }
 
+// NoFileSender is a zero-value mixin providing an "unsupported" default
+// for SendFile. Adapters that want a sharper platform-specific hint
+// override the method with their own Unsupported(...) call.
 type NoFileSender struct{}
 
-func (NoFileSender) SendFile(_, _, _, _ string) error { return errSendFile }
-
-var errSendFile = errors.New("send-file not supported")
+func (NoFileSender) SendFile(_, _, _, _ string) error {
+	return Unsupported("send_file", "", "this adapter does not support file uploads")
+}
 
 // NoVoiceSender is a zero-value mixin returning ErrUnsupported for
 // SendVoice. Adapters that lack a native voice primitive (Mastodon,

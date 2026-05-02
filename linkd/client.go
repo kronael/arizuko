@@ -44,6 +44,11 @@ func (lc *linkClient) isConnected() bool { return lc.authed.Load() }
 // Native social verbs implemented below: Post, Like, Delete, Repost.
 // Hints with platform reasoning for the rest.
 
+func (lc *linkClient) SendFile(_, _, _, _ string) error {
+	return chanlib.Unsupported("send_file", "linkedin",
+		"LinkedIn UGC media upload (`/assets registerUpload` + binary PUT) is not wired up. Inline a URL in `post(content=...)` for now.")
+}
+
 func (lc *linkClient) Forward(chanlib.ForwardRequest) (string, error) {
 	return "", chanlib.Unsupported("forward", "linkedin",
 		"LinkedIn DM forward requires partner-only messaging permissions. Use `repost(source_msg_id=<urn>)` to amplify on the feed, or `post(content=\"<commentary>\\n\\n<permalink>\")` to share with attribution.")
