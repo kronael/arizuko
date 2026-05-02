@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>auth</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>auth</h1>
+    <p class="dim back">login + account linking &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+
+    <p class="lede">Log in with any provider &mdash; GitHub, Google, Discord, Telegram, local username/password &mdash; and link as many as you want to one canonical user. Single resolve at JWT mint; no ghost accounts.</p>
+
+    <h2>why</h2>
+    <p>People accumulate identities. GitHub at work, Google at home, a Telegram account on the phone, a local username carved out for ops. They&rsquo;re all the same human, and any one of them should land on the same arizuko user with the same grants. Auto-creating a fresh account on every new OAuth provider is the easy default and the wrong one &mdash; it splinters one human into N ghost accounts that share no state. Refusing the second login is also wrong. The right move is to ask once, link explicitly, and from then on resolve every sub to its canonical owner at the only place that matters: JWT mint.</p>
+
+    <h2>providers</h2>
+    <ul>
+      <li><strong>GitHub</strong> &mdash; OAuth2, sub prefix <code>github:</code>; optional <code>GITHUB_ALLOWED_ORG</code> members-only check.</li>
+      <li><strong>Google</strong> &mdash; OAuth2 + OIDC, PKCE, sub prefix <code>google:</code>; optional <code>GOOGLE_ALLOWED_EMAILS</code> glob allowlist (only trusted when Google asserts <code>email_verified</code>).</li>
+      <li><strong>Discord</strong> &mdash; OAuth2 + PKCE, sub prefix <code>discord:</code>.</li>
+      <li><strong>Telegram</strong> &mdash; Login Widget, HMAC-verified against <code>SHA256(bot_token)</code> with a 5-minute <code>auth_date</code> window, sub prefix <code>telegram:</code>.</li>
+      <li><strong>Local</strong> &mdash; username + argon2id hash, sub prefix <code>local:</code>; rate-limited to 5 attempts per 15 min per IP.</li>
+    </ul>
+
+    <h2>the JWT path</h2>
+    <p>Two tokens. The <strong>access JWT</strong> is 1h-TTL, lives in <code>localStorage</code>, carries <code>{sub, name, provider, exp}</code>, and rides as <code>Authorization: Bearer</code> on API calls. The <strong>refresh token</strong> is 32 random bytes, stored in the DB as a SHA-256 hash, returned to the browser as an <code>HttpOnly; SameSite=Strict; Secure; Path=/auth</code> cookie with 30d TTL. Each refresh rotates the cookie single-use &mdash; one stolen refresh token is good for exactly one swap before it&rsquo;s invalidated.</p>
+
+    <h2>linking accounts</h2>
+    <ul>
+      <li>Log in with any provider &mdash; that sub becomes your canonical identity.</li>
+      <li>Visit <code>/dash/profile</code> &mdash; the page lists every linked sub and shows a &ldquo;Link&hellip;&rdquo; button per supported provider.</li>
+      <li>Click one &mdash; the browser hits <code>/auth/{provider}?intent=link&amp;return=/dash/profile/</code>. The redirect handler reads your existing session, encodes <code>intent=link</code> + your canonical sub into the signed OAuth state cookie, and sends you to the provider as usual.</li>
+      <li>The callback writes <code>auth_users.linked_to_sub = &lt;your canonical&gt;</code> for the new sub and refreshes your session unchanged. The provider you were already logged in as never blinks.</li>
+    </ul>
+
+    <h2>collision</h2>
+    <p>Logged in as A, you OAuth as B without an explicit link intent &mdash; or with link intent, but B is already canonical for someone else. The callback doesn&rsquo;t pick a winner: it renders a collision page with two buttons and a 10-min HMAC-signed token.</p>
+    <ul>
+      <li><strong>Link to current.</strong> Commit <code>linked_to_sub = A</code>, refresh the session as A. Disabled when B is canonical for an existing other user (merging two real accounts is a manual operator step).</li>
+      <li><strong>Log out, become B.</strong> Drop the refresh cookie + session, log in as B (creating a canonical row if new).</li>
+    </ul>
+    <p>No silent ghost-account creation, no ambiguous merges.</p>
+
+    <h2>resolve point</h2>
+    <p><code>auth.issueSession</code> calls <code>store.CanonicalSub(sub)</code> exactly once before minting the JWT. The minted access token, the refresh row in the DB, and every <code>X-User-Sub</code> header <code>proxyd</code> stamps downstream all carry the canonical sub. <code>gateway</code>, <code>webd</code>, <code>ipc</code>, and the rest never re-resolve &mdash; they treat the sub they see as authoritative.</p>
+
+    <h2>what you get</h2>
+    <ul>
+      <li><strong>Five providers + local password.</strong> Pick whichever is convenient; the system doesn&rsquo;t care which one is &ldquo;primary.&rdquo;</li>
+      <li><strong>One canonical user, many subs.</strong> <code>auth_users.linked_to_sub</code> points each linked row at the canonical row. <code>LinkSubToCanonical</code> rejects chains &mdash; depth is always one hop.</li>
+      <li><strong>Collision UX, never silent dupes.</strong> Seven-case dispatcher, two-button HTML page, signed token. The user always picks.</li>
+      <li><strong>Single resolve point.</strong> One <code>CanonicalSub</code> call at JWT mint. Downstream code is sub-shaped data, not a graph traversal.</li>
+      <li><strong>1h access + 30d refresh, single-use rotation.</strong> Bearer header for API, <code>HttpOnly</code> cookie scoped to <code>/auth</code> for everything else.</li>
+      <li><strong>Stateless OAuth state.</strong> HMAC-signed cookie, 10-min TTL, optional base64url payload carrying <code>intent=link</code> + canonical sub. No server-side state table.</li>
+    </ul>
+
+    <h2>go deeper</h2>
+    <p>Canonical spec with the full seven-case table, state cookie shape, and DB schema: <a href="https://github.com/kronael/arizuko/blob/main/specs/1/f-auth-oauth.md">specs/1/f-auth-oauth.md</a>. For what each canonical sub can <em>do</em> once it&rsquo;s resolved, see <a href="/pub/concepts/grants.html">grants</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
