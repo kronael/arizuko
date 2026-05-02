@@ -20,7 +20,7 @@ treat it as an opaque string with `path.Match` glob semantics over `/`.
 | linkd   | `linkedin:` | `linkedin:user/<urn>`             |
 | emaid   | `email:`    | `email:address/foo@bar.com`       |
 | twitd   | `twitter:`  | `twitter:home`, `twitter:dm/<id>` |
-| webd    | `web:`      | `web:slink/<token>`               |
+| webd    | `web:`      | `web:<folder>` (e.g. `web:atlas`) |
 
 `core.JidPlatform("twitter:dm/abc")` returns `twitter`; `core.JidRoom`
 returns `dm/abc`. Use `platform=` predicates to match a whole platform

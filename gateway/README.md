@@ -50,7 +50,7 @@ without spamming the platform. Tests assert the invariant
 - `commands.go` — gateway command dispatch (e.g. `/sticky`, `/reset`)
 - `impulse.go` — weight-based batching gate
 - `spawn.go` — child group spawn helpers
-- `local_channel.go` — in-process channel for bare folder-path JIDs (group-to-group)
+- `local_channel.go` — in-process channel for bare folder-path JIDs (group-to-group delegation/escalation)
 
 ## Related docs
 
