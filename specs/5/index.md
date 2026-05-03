@@ -20,5 +20,5 @@ status: future
 | [Q-unified-routing.md](Q-unified-routing.md)           | shipped   | Single message table, bare folder JIDs, poll-based outbound                                  |
 | [R-multi-account.md](R-multi-account.md)               | shipped   | Multi-account adapters via multiple service TOMLs                                            |
 | [S-jid-format.md](S-jid-format.md)                     | shipped   | Typed ChatJID/UserJID with kind in path; path.Match globs                                    |
-| [T-voice-synthesis.md](T-voice-synthesis.md)           | unshipped | `ttsd` + `send_voice` MCP tool                                                               |
+| [T-voice-synthesis.md](T-voice-synthesis.md)           | shipped   | `ttsd` + `send_voice` MCP tool                                                               |
 | [b-ant-standalone.md](b-ant-standalone.md)             | unshipped | Ant standalone — Claude Code distribution + sandbox spawn (CLI) (foundation shipped v0.33.5) |

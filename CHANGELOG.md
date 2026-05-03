@@ -14,6 +14,33 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.10] — 2026-05-03
+
+> arizuko v0.33.10 — 03 May 2026
+>
+> • `HOST_CODEX_DIR` mount now actually lands on spawned agents (v0.33.9 silently skipped due to a stat check)
+> • `~/.codex` from the host now appears at `/home/node/.codex` rw in every agent
+> • No skill-side action — codex CLI just works once the operator sets `HOST_CODEX_DIR` and restarts gated
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+Hotfix release. v0.33.9 added the mount logic but guarded it with
+`os.Stat(cfg.HostCodexDir)` running inside the gated container —
+where the HOST path isn't visible — so the check always failed and
+the mount silently skipped on every spawn.
+
+### Fixed
+
+- **`container/runner.go`**: dropped the `os.Stat` guard on the
+  codex-dir mount. `cfg.HostCodexDir` is a HOST path that the
+  docker daemon resolves at agent-spawn time, not a path that gated
+  needs to read. Loud failure (docker errors at startup if the
+  path is wrong) beats silent skip.
+- **`container/run_test.go`**: simplified the test — uses a
+  literal `/host/codex` path, doesn't try to mkdir-and-stat
+  anymore. `TestRun_CodexDirMountSkippedWhenMissing` retired
+  (the runner doesn't probe; that test was testing the bug).
+
 ## [v0.33.9] — 2026-05-03
 
 > arizuko v0.33.9 — 03 May 2026
