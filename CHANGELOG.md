@@ -14,6 +14,46 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.12] — 2026-05-03
+
+> arizuko v0.33.12 — 03 May 2026
+>
+> • Codex per-group dirs no longer race Docker on cold start — gated pre-seeds `.codex/` for every group at boot, before auto-migrate fires
+> • Fixes silent codex `Permission denied` on first spawn after restart, when parallel agent boots let Docker materialize the bind source as root
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+Closes the v0.33.11 cold-start race: when many groups spawn in
+parallel (auto-migrate at gated boot), the runner's lazy
+`os.MkdirAll(<groupDir>/.codex)` could lose the race against
+`docker run`, leaving Docker to materialize the bind source as
+root. The agent (uid 1000) then couldn't write codex state and
+`codex login status` failed with `Permission denied`. Warm
+single-spawn paths were never affected. Fix is a tiny startup hook.
+
+### Fixed
+
+- **`gateway/gateway.go`** — new `seedCodexDirs()` walks all known
+  groups at gateway start (synchronously, before
+  `checkMigrationVersion` enqueues any auto-migrate spawn) and
+  ensures each `<groupDir>/.codex/` exists. Runs as gated's uid
+  1000, so the dirs land with correct ownership.
+- The runner's lazy `os.MkdirAll` at spawn time is preserved as a
+  safety net for groups added mid-flight.
+
+### Operator notes
+
+Existing root-owned `.codex/` dirs from v0.33.11 cold starts won't
+be repaired automatically (gated as uid 1000 can't chown root).
+Manual one-time fix on each instance:
+
+```bash
+sudo find /srv/data/arizuko_<inst>/groups -mindepth 2 -maxdepth 3 \
+  -name .codex -user root -exec chown -R 1000:1000 {} \;
+```
+
+After deploy, new spawns will use the pre-seeded 1000-owned dir.
+
 ## [v0.33.11] — 2026-05-03
 
 > arizuko v0.33.11 — 03 May 2026

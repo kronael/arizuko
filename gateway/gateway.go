@@ -260,6 +260,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 	slog.Info("channels connected", "count", len(g.channels))
 
 	g.recoverPendingMessages()
+	g.seedCodexDirs()
 	g.checkMigrationVersion()
 
 	groups := g.store.AllGroups()
@@ -296,6 +297,30 @@ func (g *Gateway) saveState() {
 	defer g.mu.RUnlock()
 	g.store.SetState("last_timestamp",
 		g.lastTimestamp.Format(time.RFC3339Nano))
+}
+
+// seedCodexDirs pre-creates per-group `.codex/` so cold-start parallel
+// spawns don't race Docker into creating the bind source as root.
+// At cold start, auto-migrate fires spawns for many groups in parallel;
+// the runner's lazy MkdirAll loses the race against `docker run` and
+// Docker materializes the bind source as root, leaving the agent (uid
+// 1000) unable to write codex state. Pre-seeding here, synchronously,
+// before any spawn enqueues, guarantees the dir exists with gated's
+// uid 1000 ownership.
+func (g *Gateway) seedCodexDirs() {
+	if g.cfg.HostCodexDir == "" {
+		return
+	}
+	for _, gr := range g.store.AllGroups() {
+		groupDir, err := g.folders.GroupPath(gr.Folder)
+		if err != nil {
+			continue
+		}
+		codexDir := filepath.Join(groupDir, ".codex")
+		if err := os.MkdirAll(codexDir, 0o755); err != nil {
+			slog.Warn("seed codex dir", "group", gr.Folder, "err", err)
+		}
+	}
 }
 
 func (g *Gateway) checkMigrationVersion() {
