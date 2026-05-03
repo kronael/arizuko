@@ -518,13 +518,13 @@ func buildMounts(
 	// Refresh-token rotation happens on host fs and persists across
 	// agent spawns. All agents share session/history state — minor
 	// cosmetic cross-group leak; acceptable for a one-shot oracle.
+	// No os.Stat — gated runs in-container; cfg.HostCodexDir is a
+	// HOST path resolved by the docker daemon at spawn time.
 	if cfg.HostCodexDir != "" {
-		if fi, err := os.Stat(cfg.HostCodexDir); err == nil && fi.IsDir() {
-			m = append(m, volumeMount{
-				Host:      cfg.HostCodexDir,
-				Container: "/home/node/.codex",
-			})
-		}
+		m = append(m, volumeMount{
+			Host:      cfg.HostCodexDir,
+			Container: "/home/node/.codex",
+		})
 	}
 
 	if len(in.Config.Mounts) > 0 {

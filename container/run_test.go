@@ -148,10 +148,11 @@ func TestRun_DockerArgAssembly(t *testing.T) {
 }
 
 func TestRun_CodexDirMountWhenSet(t *testing.T) {
-	cfg, folders, tmp := makeCfg(t)
-	codexDir := filepath.Join(tmp, "codex-state")
-	os.MkdirAll(codexDir, 0o755)
-	cfg.HostCodexDir = codexDir
+	cfg, folders, _ := makeCfg(t)
+	// Use a literal HOST path; runner does not stat it (gated runs
+	// in-container, cfg.HostCodexDir is resolved by the docker
+	// daemon at agent-spawn time).
+	cfg.HostCodexDir = "/host/codex"
 
 	var captured []string
 	restore := fakeExec(t, &captured, "", 0)
@@ -164,7 +165,7 @@ func TestRun_CodexDirMountWhenSet(t *testing.T) {
 		t.Fatalf("unexpected output: %+v", out)
 	}
 	cmd := captured[0]
-	want := codexDir + ":/home/node/.codex"
+	want := "/host/codex:/home/node/.codex"
 	if !strings.Contains(cmd, want) {
 		t.Errorf("expected codex dir mount %q:\n%s", want, cmd)
 	}
@@ -184,22 +185,5 @@ func TestRun_CodexDirMountSkippedWhenUnset(t *testing.T) {
 	cmd := captured[0]
 	if strings.Contains(cmd, "/home/node/.codex") {
 		t.Errorf("did not expect codex dir mount when HostCodexDir is empty:\n%s", cmd)
-	}
-}
-
-func TestRun_CodexDirMountSkippedWhenMissing(t *testing.T) {
-	cfg, folders, tmp := makeCfg(t)
-	cfg.HostCodexDir = filepath.Join(tmp, "does-not-exist")
-
-	var captured []string
-	restore := fakeExec(t, &captured, "", 0)
-	defer restore()
-
-	Run(cfg, folders, Input{
-		Prompt: "p", ChatJID: "tg:1", Folder: "g", Name: "arizuko-missingcodex",
-	})
-	cmd := captured[0]
-	if strings.Contains(cmd, "/home/node/.codex") {
-		t.Errorf("did not expect codex dir mount for missing dir:\n%s", cmd)
 	}
 }
