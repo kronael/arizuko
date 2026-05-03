@@ -165,9 +165,25 @@ func TestRun_CodexDirMountWhenSet(t *testing.T) {
 		t.Fatalf("unexpected output: %+v", out)
 	}
 	cmd := captured[0]
-	want := "/host/codex:/home/node/.codex"
-	if !strings.Contains(cmd, want) {
-		t.Errorf("expected codex dir mount %q:\n%s", want, cmd)
+	// Per-group writable .codex/ first.
+	wantGroup := filepath.Join(cfg.GroupsDir, "g", ".codex") + ":/home/node/.codex"
+	if !strings.Contains(cmd, wantGroup) {
+		t.Errorf("expected per-group codex mount %q:\n%s", wantGroup, cmd)
+	}
+	// RO overmounts of auth.json + config.toml from host.
+	wantAuth := "/host/codex/auth.json:/home/node/.codex/auth.json:ro"
+	if !strings.Contains(cmd, wantAuth) {
+		t.Errorf("expected ro auth.json overmount %q:\n%s", wantAuth, cmd)
+	}
+	wantCfg := "/host/codex/config.toml:/home/node/.codex/config.toml:ro"
+	if !strings.Contains(cmd, wantCfg) {
+		t.Errorf("expected ro config.toml overmount %q:\n%s", wantCfg, cmd)
+	}
+	// Order matters: parent dir mount must precede file overmounts.
+	gIdx := strings.Index(cmd, wantGroup)
+	aIdx := strings.Index(cmd, wantAuth)
+	if gIdx < 0 || aIdx < 0 || gIdx > aIdx {
+		t.Errorf("group dir mount must precede file overmounts:\n%s", cmd)
 	}
 }
 

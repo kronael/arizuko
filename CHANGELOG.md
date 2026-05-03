@@ -14,6 +14,48 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.11] — 2026-05-03
+
+> arizuko v0.33.11 — 03 May 2026
+>
+> • Codex mount per-group isolated — each agent gets its own writable `.codex/` workspace; only `auth.json` + `config.toml` are shared (RO)
+> • End-to-end test harness — slink-driven scenarios run on release via `make test-e2e`; CI gates them on tag pushes
+> • Operator one-time: `chmod 644 ~/.codex/auth.json ~/.codex/config.toml` so the container can read host creds
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+Closes the codex isolation gap and adds a real release-only e2e
+test path so silent mount-skips like v0.33.9's get caught earlier.
+
+### Changed
+
+- **`container/runner.go`** — codex mount is now layered:
+  `<groupDir>/.codex` rw + RO file overmounts of `auth.json` and
+  `config.toml` from `HOST_CODEX_DIR`. Per-group writable workspace
+  (history, sessions, memories, sqlite state); shared credentials.
+- **`container/run_test.go`** — `TestRun_CodexDirMountWhenSet`
+  asserts the parent dir mount + both file overmounts and verifies
+  parent precedes file overmounts (mount order matters).
+
+### Added
+
+- **`webd/slink_e2e_test.go`** — 4 active e2e scenarios + 1 stub:
+  `DropAndRead`, `SSEStream`, `Steer`, `GetThread`, plus an oracle
+  surface stub. Each guards on `testing.Short()`.
+- **`Makefile` / `webd/Makefile`** — `test-e2e` target separate
+  from `test`; the latter now passes `-short` and stays fast.
+- **`.github/workflows/ci.yml`** — `e2e` job gated on
+  `refs/tags/v*` so the slow path runs on release.
+
+### Operator notes
+
+- Host-side cred files must be readable by container uid 1000:
+  `chmod 644 ~/.codex/auth.json ~/.codex/config.toml`. Mode 600
+  blocks the bind mount even though the file is RO.
+- Per-group `.codex/` dirs land under
+  `/srv/data/arizuko_<inst>/groups/<folder>/.codex/` — first
+  spawn creates them.
+
 ## [v0.33.10] — 2026-05-03
 
 > arizuko v0.33.10 — 03 May 2026

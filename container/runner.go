@@ -513,17 +513,32 @@ func buildMounts(
 		}
 	}
 
-	// Codex login state — single shared host dir mounted rw so the
-	// `oracle` skill can use `codex` CLI without per-folder secrets.
-	// Refresh-token rotation happens on host fs and persists across
-	// agent spawns. All agents share session/history state — minor
-	// cosmetic cross-group leak; acceptable for a one-shot oracle.
-	// No os.Stat — gated runs in-container; cfg.HostCodexDir is a
-	// HOST path resolved by the docker daemon at spawn time.
+	// Codex login state — layered mount.
+	//   1. Per-group writable .codex/ (workspace: history, sessions,
+	//      memories, sqlite state). Lives under <groupDir>/.codex/ so
+	//      groups can't cross-contaminate codex's own state.
+	//   2. RO overmounts of auth.json + config.toml from
+	//      cfg.HostCodexDir — shared creds, never written from agents.
+	// No os.Stat — gated runs in-container; HOST paths are resolved
+	// by the docker daemon at spawn time.
 	if cfg.HostCodexDir != "" {
+		groupCodex := filepath.Join(groupDir, ".codex")
+		os.MkdirAll(groupCodex, 0o755)
 		m = append(m, volumeMount{
-			Host:      cfg.HostCodexDir,
+			Host:      hp(cfg, groupCodex),
 			Container: "/home/node/.codex",
+		})
+		// File-level RO overmounts MUST follow the parent dir mount.
+		// Docker creates the file path inside the container if needed.
+		m = append(m, volumeMount{
+			Host:      filepath.Join(cfg.HostCodexDir, "auth.json"),
+			Container: "/home/node/.codex/auth.json",
+			RO:        true,
+		})
+		m = append(m, volumeMount{
+			Host:      filepath.Join(cfg.HostCodexDir, "config.toml"),
+			Container: "/home/node/.codex/config.toml",
+			RO:        true,
 		})
 	}
 
