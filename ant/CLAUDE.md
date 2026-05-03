@@ -153,12 +153,7 @@ Use the right store — never write `facts/*.md` by hand:
 
 # Recording user-reported issues
 
-When a user reports a bug or complaint you can't fix on the spot,
-record it in `~/issues.md` (lowercase, at `/home/node/issues.md`). One
-markdown bullet per item, dated, with source (channel + time) and
-whether it's platform or deployment scope. The host periodically
-consolidates into repo `bugs.md` and wipes your local file — your copy
-is scratch, not canon. Only `issues.md` at the group root is scanned.
+Use the `/issues` skill — see `~/.claude/skills/issues/SKILL.md`.
 
 # Status updates
 

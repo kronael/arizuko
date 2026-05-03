@@ -14,6 +14,36 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.8] — 2026-05-03
+
+> arizuko v0.33.8 — 03 May 2026
+>
+> • Issues skill — clearer how/where to log unresolved user-reported bugs
+> • Agent now exposes `/issues` as a discoverable skill instead of buried CLAUDE.md prose
+> • Leaner `ant/CLAUDE.md` — procedure moved to its own page
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- `ant/skills/issues/SKILL.md` — dedicated skill owning the
+  user-reported-bug recording workflow. Frontmatter `description`
+  surfaces it on `/dispatch`; body covers when to log, format, and
+  the operator-consolidation contract.
+
+### Changed
+
+- `ant/CLAUDE.md` "Recording user-reported issues" section reduced
+  to a one-line pointer at `~/.claude/skills/issues/SKILL.md`.
+  CLAUDE.md is seeded into every group on spawn, so trimming
+  procedure-heavy prose keeps the per-group bootstrap lean.
+
+### Migration
+
+- `ant/skills/self/migrations/098-v0.33.8-issues-skill.md` —
+  no data migration; just announces the new skill location.
+- `ant/skills/self/MIGRATION_VERSION`: 97 → 98.
+
 ## [v0.33.7] — 2026-05-03
 
 > arizuko v0.33.7 — 3 May 2026
