@@ -18,7 +18,7 @@ repos:
     hooks:
       - id: prettier
         files: \.(ts|js|json|yaml|yml|md)$
-        exclude: ^(\.refs/|package-lock\.json|ant/|\.claude/|\.diary/)
+        exclude: ^(\.refs/|package-lock\.json|ant/|\.claude/|\.diary/|bugs\.md$)
 
   - repo: local
     hooks:
