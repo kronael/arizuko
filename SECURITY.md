@@ -25,6 +25,7 @@ Three isolation axes:
 | Agent exec scope     | `bypassPermissions` inside container; mounts scoped to the group           | `ant/src/index.ts`, `container/runner.go`                      |
 | Additional mounts    | `ValidateAdditionalMounts` + `ValidateFilePath` blocklist/symlink guard    | `mountsec/`                                                    |
 | Web routes           | `/pub/*` + `/health` public; `/slink/*` token + 10/min/IP; rest JWT        | `proxyd/main.go`                                               |
+| Slink-MCP            | `/slink/<token>/mcp` — token IS the auth; possession = group membership    | `webd/slink_mcp.go` (`handleSlinkMCP`)                         |
 | WebDAV write-block   | `.env` / `*.pem` / `.git` write-blocked; `<group>/logs/` read-only         | `proxyd/main.go` (`davAllow`)                                  |
 | Slink identity relay | proxyd signs `X-Folder` via HMAC; webd verifies                            | `proxyd/main.go`, `auth.SignHMAC`                              |
 | Authn                | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)      | `auth/web.go`, `auth/oauth.go`                                 |

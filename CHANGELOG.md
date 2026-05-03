@@ -14,6 +14,49 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.7] — 2026-05-03
+
+> arizuko v0.33.7 — 3 May 2026
+>
+> • Docs sweep against HEAD — typed-JID examples, dropped `groups.state`, current verb matrix
+> • `send_voice` now visible in the verb support matrix and chanlib route list
+> • Oracle + ttsd reclassified from "planned" to shipped integrations across ARCHITECTURE.md and CLAUDE.md
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+Docs-only release. Walks the contributor-ring docs against the
+codebase as it stands at v0.33.6 and fixes drift accumulated over
+the seven releases shipped today.
+
+### Changed
+
+- **`ROUTING.md`** — platform-JID example column rewritten to typed
+  forms post-v0.33.0 (`telegram:user/<id>`, `telegram:group/<id>`,
+  `discord:dm/<channel>`, `reddit:comment/<id>`,
+  `mastodon:account/<id>`); route example uses
+  `chat_jid=telegram:group/12345`; sender-expansion example uses
+  `discord:user/<id>`.
+- **`GRANTS.md`** — `groups` table column list reflects migration
+  0041 dropping `state` / `spawn_ttl_days` / `archive_closed_days`.
+- **`ARCHITECTURE.md`** — `Group` Key Type description drops `state`;
+  oracle skill and `ttsd` reclassified from "planned" to shipped
+  integrations.
+- **`CLAUDE.md`** (root) — core-vs-integrations bullet matches the
+  shipped reality (TTS via `ttsd`, oracle via folder secrets).
+- **`EXTENDING.md`** — verb support matrix gained the `send_voice`
+  row; count updated 11 → 12. discd / teled / whapd native;
+  twitd hint-only; rest unsupported.
+- **`chanlib/README.md`** — `NewAdapterMux` handler tree now lists
+  `/send-voice`; calls out `NoVoiceSender` and `NoFileSender` mixins.
+- **`ipc/README.md`** — tool surface adds `send_voice` and
+  `inject_message`; documents `submit_turn` JSON-RPC for per-turn
+  agent output.
+- **`SECURITY.md`** — boundaries table gained a slink-MCP row
+  (`POST /slink/<token>/mcp`, token IS the auth).
+- **`crackbox/README.md`** — fixed `specscs` typo (5 occurrences) →
+  `specs`.
+- Migration `097-v0.33.7-docs-sweep.md` + version bump 96 → 97.
+
 ## [v0.33.6] — 2026-05-02
 
 > arizuko v0.33.6 — 2 May 2026

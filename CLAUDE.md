@@ -70,9 +70,10 @@ Two flavors of feature, kept distinct in the docs:
 - **Integrations** — pluggable, deployments mix and match: per-platform
   channel adapters (`teled`, `whapd`, `mastd`, `discd`, `bskyd`,
   `reditd`, `emaid`, `twitd`, `linkd`); optional capability hooks
-  (Whisper transcription via `WHISPER_BASE_URL`, planned TTS via
-  `TTS_BASE_URL`, planned oracle skill, crackbox egress isolation,
-  sandbox backend choice).
+  (Whisper transcription via `WHISPER_BASE_URL`, TTS via `ttsd` +
+  `TTS_BASE_URL`, oracle skill via `OPENAI_API_KEY` / `CODEX_API_KEY`
+  in folder secrets, crackbox egress isolation, sandbox backend
+  choice).
 
 A minimal deployment runs only core + one channel adapter; a maxed-out
 deployment runs all of them. Add new integrations via the extension

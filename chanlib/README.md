@@ -16,10 +16,12 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 - `RunOpts` — name, router url, secret, listen addr, prefixes, caps, start hook
 - `NewRouterClient(url, secret) *RouterClient` — signed POST helpers
 - `NewAdapterMux(name, secret, prefixes, bot, isConnected, lastInboundAt) *http.ServeMux`
-  — standard handler tree: `/send`, `/send-file`, `/typing`, `/post`,
-  `/like`, `/dislike`, `/delete`, `/forward`, `/quote`, `/repost`,
-  `/edit`, `/health`, `/v1/history`. Both `isConnected` and
-  `lastInboundAt` are required (panics on nil).
+  — standard handler tree: `/send`, `/send-file`, `/send-voice`,
+  `/typing`, `/post`, `/like`, `/dislike`, `/delete`, `/forward`,
+  `/quote`, `/repost`, `/edit`, `/health`, `/v1/history`. Both
+  `isConnected` and `lastInboundAt` are required (panics on nil).
+  Adapters lacking voice embed `NoVoiceSender`, lacking files embed
+  `NoFileSender` — both return `*UnsupportedError` from the handler.
 - `UnsupportedError{Tool, Platform, Hint}` /
   `errors.Is(err, ErrUnsupported)` — typed unsupported error;
   adapters return HTTP 501 with the hint as JSON body when a verb has

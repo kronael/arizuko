@@ -4,11 +4,11 @@ Sandbox + egress umbrella component. Two halves:
 
 - **`egred`** — forward HTTP/HTTPS proxy daemon (shipped). Per-source-IP
   allowlist, admin API, transparent + forward modes. Same binary as
-  `crackbox proxy serve`. See [`specs/6/9`](../specscs/6/9-crackbox-standalone.md).
+  `crackbox proxy serve`. See [`specs/6/9`](../specs/6/9-crackbox-standalone.md).
 - **`pkg/host/`** — Go library for KVM/qemu sandbox lifecycle (planned;
-  see [`specs/8/a`](../specscs/6/12-crackbox-sandboxing.md)). Spawns VMs,
+  see [`specs/8/a`](../specs/6/12-crackbox-sandboxing.md)). Spawns VMs,
   manages privileges, ensures egred is up. Imported by
-  [`sandd`](../specscs/8/c-sandd.md) (arizuko-internal sandbox daemon)
+  [`sandd`](../specs/8/c-sandd.md) (arizuko-internal sandbox daemon)
   and by `crackbox run --kvm` for laptop one-shots.
 
 The two halves ship together so `crackbox run` composes a
@@ -153,7 +153,7 @@ The host-library half (planned, `pkg/host/`) ports the prototype's
 `internal/vm/launch.go` (qemu invocation, virtio-net, virtio-fs),
 `internal/vm/network.go` (bridge + tap + iptables NAT), and
 `internal/vm/secrets.go` (TLS-terminating placeholder injection).
-See [`specs/6/12-crackbox-sandboxing.md`](../specscs/6/12-crackbox-sandboxing.md).
+See [`specs/6/12-crackbox-sandboxing.md`](../specs/6/12-crackbox-sandboxing.md).
 
 ## Orthogonality
 

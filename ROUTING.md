@@ -9,18 +9,18 @@ Each adapter declares the `platform:` prefixes it owns when it registers
 with gated. The post-`:` portion is platform-private; routing predicates
 treat it as an opaque string with `path.Match` glob semantics over `/`.
 
-| Adapter | Prefix      | Example                           |
-| ------- | ----------- | --------------------------------- |
-| discd   | `discord:`  | `discord:guild/123/456`           |
-| teled   | `telegram:` | `telegram:12345`                  |
-| whapd   | `whatsapp:` | `whatsapp:1234567@s.whatsapp.net` |
-| mastd   | `mastodon:` | `mastodon:host/account/123`       |
-| reditd  | `reddit:`   | `reddit:t1_xyz`                   |
-| bskyd   | `bluesky:`  | `bluesky:user/<did>`              |
-| linkd   | `linkedin:` | `linkedin:user/<urn>`             |
-| emaid   | `email:`    | `email:address/foo@bar.com`       |
-| twitd   | `twitter:`  | `twitter:home`, `twitter:dm/<id>` |
-| webd    | `web:`      | `web:<folder>` (e.g. `web:atlas`) |
+| Adapter | Prefix      | Example                                                             |
+| ------- | ----------- | ------------------------------------------------------------------- |
+| discd   | `discord:`  | `discord:<guild>/<channel>`, `discord:dm/<channel>`                 |
+| teled   | `telegram:` | `telegram:user/<id>`, `telegram:group/<id>`                         |
+| whapd   | `whatsapp:` | `whatsapp:1234567@s.whatsapp.net`                                   |
+| mastd   | `mastodon:` | `mastodon:account/<id>`                                             |
+| reditd  | `reddit:`   | `reddit:comment/<id>`, `reddit:user/<id>`, `reddit:submission/<id>` |
+| bskyd   | `bluesky:`  | `bluesky:user/<did>`                                                |
+| linkd   | `linkedin:` | `linkedin:user/<urn>`                                               |
+| emaid   | `email:`    | `email:address/foo@bar.com`                                         |
+| twitd   | `twitter:`  | `twitter:home`, `twitter:dm/<id>`                                   |
+| webd    | `web:`      | `web:<folder>` (e.g. `web:atlas`)                                   |
 
 `core.JidPlatform("twitter:dm/abc")` returns `twitter`; `core.JidRoom`
 returns `dm/abc`. Use `platform=` predicates to match a whole platform
@@ -50,7 +50,7 @@ VALUES (0, 'platform=telegram', 'atlas/content');
 
 -- A specific telegram chat overrides
 INSERT INTO routes (seq, match, target)
-VALUES (-10, 'chat_jid=telegram:12345', 'atlas/legal');
+VALUES (-10, 'chat_jid=telegram:group/12345', 'atlas/legal');
 
 -- All Discord chats fall back to atlas/social
 INSERT INTO routes (seq, match, target)
@@ -100,7 +100,7 @@ This creates per-user child groups:
 -- Each Discord user gets their own group under atlas/
 INSERT INTO routes (seq, match, target)
 VALUES (0, 'platform=discord', 'atlas/{sender}');
--- discord:alice → atlas/dc-alice, discord:bob → atlas/dc-bob
+-- discord:user/alice → atlas/dc-alice, discord:user/bob → atlas/dc-bob
 ```
 
 ### Inline `@name` / `#topic` prefix layer

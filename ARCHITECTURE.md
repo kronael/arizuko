@@ -15,11 +15,12 @@ New integrations are added via the extension points described in
 - **Integrations** are pluggable: per-platform channel adapters
   (`teled`, `whapd`, `mastd`, `discd`, `bskyd`, `reditd`, `emaid`,
   `twitd`, `linkd`) talking to core over the channel protocol; optional
-  capability hooks (Whisper transcription via `WHISPER_BASE_URL`,
-  planned TTS via `TTS_BASE_URL` (`T-voice-synthesis`), planned oracle
-  skill in `ant/skills/oracle/` (`H-call-llm-mcp`), crackbox egress
-  isolation (`EGRESS_ISOLATION=true`), sandbox backend choice (Docker
-  today, KVM via `crackbox/pkg/host/`)).
+  capability hooks (Whisper transcription via `WHISPER_BASE_URL`, TTS
+  via `ttsd` + `TTS_BASE_URL` (`specs/5/T-voice-synthesis.md`), oracle
+  skill in `ant/skills/oracle/` driving the `codex` CLI
+  (`specs/5/H-call-llm-mcp.md`), crackbox egress isolation
+  (`EGRESS_ISOLATION=true`), sandbox backend choice (Docker today, KVM
+  via `crackbox/pkg/host/`)).
 
 A minimal deployment runs core plus one channel adapter; a maxed-out
 deployment runs all of them.
@@ -72,9 +73,10 @@ crackbox/ egress-isolation proxy + KVM sandbox library; pulled in when
         Shippable separately; specs/9/b-orthogonal-components.md
 ```
 
-Planned integrations (specced, not shipped): TTS via `TTS_BASE_URL`
-(`specs/5/T-voice-synthesis.md`), oracle skill driving codex CLI as a
-subprocess (`specs/5/H-call-llm-mcp.md`).
+TTS (`ttsd/`, `specs/5/T-voice-synthesis.md`) and the oracle skill
+(`ant/skills/oracle/`, `specs/5/H-call-llm-mcp.md`) ship as
+optional integrations rather than core daemons; both opt-in via
+env vars / folder secrets.
 
 ## Message Flow
 
@@ -173,7 +175,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | ------------- | ------------------------------------------------- |
 | `Config`      | settings from `.env` + env vars                   |
 | `Message`     | incoming (sender, content, reply context)         |
-| `Group`       | registered (folder, name, config, state)          |
+| `Group`       | registered (folder, name, config, parent)         |
 | `GroupConfig` | per-group: mounts, timeout                        |
 | `Route`       | routing table entry (seq, match, target)          |
 | `Task`        | scheduled (cron, prompt, status)                  |

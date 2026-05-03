@@ -17,7 +17,7 @@ every connection.
 Social verbs (chanreg-backed, `*UnsupportedError`-aware):
 
 - `send`, `reply`, `post`, `like`, `dislike`, `delete`, `forward`,
-  `quote`, `repost`, `edit`, `send_file`
+  `quote`, `repost`, `edit`, `send_file`, `send_voice`
 
 (Names are post-rename: `send_message`→`send`, `send_reply`→`reply`,
 `react`→`like`, `score_down`→`dislike`, `delete_post`→`delete`. No
@@ -26,7 +26,11 @@ aliases.)
 Routing / groups: `register_group`, `escalate_group`, `delegate_group`,
 `refresh_groups`, `list_routes`, `set_routes`, `add_route`,
 `delete_route`, `get_grants`, `set_grants`, `fetch_history`,
-`get_history` (deprecated alias), `get_thread`.
+`get_history` (deprecated alias), `get_thread`, `inject_message`.
+
+Per-turn agent output flows back over the same socket via the
+`submit_turn` JSON-RPC method (hidden from `tools/list`); stdout from
+the container is discarded.
 
 Read-only introspection: `inspect_messages`, `inspect_routing`,
 `inspect_tasks`, `inspect_session`, `inspect_identity`. Tier 0 sees
