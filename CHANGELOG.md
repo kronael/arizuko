@@ -14,6 +14,48 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.9] — 2026-05-03
+
+> arizuko v0.33.9 — 03 May 2026
+>
+> • `oracle` skill now picks up the operator's `codex login` from a host-side `~/.codex` mount
+> • Agents share refresh-token rotation, sessions, history with the host — single login serves every group
+> • API-key path (`CODEX_API_KEY` / `OPENAI_API_KEY` in folder secrets) still works alongside
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+Closes the auth-path ambiguity surfaced when the operator
+investigated oracle and found `auth_mode: chatgpt` in
+`~/.codex/auth.json` — a different mechanism from the env-var path
+the v0.33.4 skill was built around. Both now coexist.
+
+### Added
+
+- **`HOST_CODEX_DIR` env knob** (`core/config.go`,
+  `compose/compose.go`, `container/runner.go`): when set on the
+  gated daemon's env, the host path is bind-mounted into every
+  spawned agent at `/home/node/.codex` (rw). codex CLI then reads
+  `auth.json` directly — same as on the host, including refresh
+  rotation. Empty disables; agents fall back to the env-var path.
+- **Skill update** (`ant/skills/oracle/SKILL.md`): documents both
+  auth paths (host-mount vs folder-secret), unified missing-auth
+  detection (`codex login status` OR env check), corrected
+  description to surface the new mount option for `/dispatch`.
+- Tests: `container/run_test.go` covers the mount being present
+  when `HostCodexDir` is set + a real dir, and skipped when unset
+  or pointing to a missing dir.
+
+### Notes
+
+- ChatGPT-Plus / Free quota applies to the operator's account when
+  using the OAuth path; no per-agent rate-limit isolation.
+- All agents share `~/.codex/sessions/`, `~/.codex/history.jsonl`,
+  `~/.codex/memories/` with the host — minor cross-group context
+  leak in codex's own state, acceptable for one-shot oracle calls.
+- Operators who want strict per-folder isolation should leave
+  `HOST_CODEX_DIR` empty and use the env-var path with one API key
+  per folder.
+
 ## [v0.33.8] — 2026-05-03
 
 > arizuko v0.33.8 — 03 May 2026

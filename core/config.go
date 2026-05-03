@@ -42,6 +42,14 @@ type Config struct {
 	HostGroupsDir   string
 	WebDir          string
 
+	// HostCodexDir, when non-empty, bind-mounts a host-side codex login
+	// state dir (typically `~/.codex` on the host) into each spawned
+	// agent at /home/node/.codex (rw). Lets agents using the `oracle`
+	// skill share the operator's `codex login` ChatGPT/API auth without
+	// per-folder secrets. Empty disables the mount; agents fall back to
+	// CODEX_API_KEY / OPENAI_API_KEY env vars from folder secrets.
+	HostCodexDir string
+
 	APIPort              int
 	ChannelSecret        string
 	OnboardingEnabled    bool
@@ -122,6 +130,7 @@ func LoadConfig() (*Config, error) {
 		IpcDir:          filepath.Join(root, "ipc"),
 		HostGroupsDir:   filepath.Join(hostRoot, "groups"),
 		WebDir:          filepath.Join(root, "web"),
+		HostCodexDir:    envOr("HOST_CODEX_DIR", ""),
 
 		APIPort:              envInt("API_PORT", 8080),
 		ChannelSecret:        envOr("CHANNEL_SECRET", ""),

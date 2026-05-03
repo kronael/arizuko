@@ -513,6 +513,20 @@ func buildMounts(
 		}
 	}
 
+	// Codex login state — single shared host dir mounted rw so the
+	// `oracle` skill can use `codex` CLI without per-folder secrets.
+	// Refresh-token rotation happens on host fs and persists across
+	// agent spawns. All agents share session/history state — minor
+	// cosmetic cross-group leak; acceptable for a one-shot oracle.
+	if cfg.HostCodexDir != "" {
+		if fi, err := os.Stat(cfg.HostCodexDir); err == nil && fi.IsDir() {
+			m = append(m, volumeMount{
+				Host:      cfg.HostCodexDir,
+				Container: "/home/node/.codex",
+			})
+		}
+	}
+
 	if len(in.Config.Mounts) > 0 {
 		add := make([]mountsec.AdditionalMount, len(in.Config.Mounts))
 		for i, cm := range in.Config.Mounts {

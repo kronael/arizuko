@@ -3,15 +3,18 @@ name: oracle
 description: Ask a second model (codex CLI) for a sanity check or
   second opinion. Use when uncertain about a tricky algorithm, a
   library Claude doesn't know well, or before committing to a
-  non-obvious implementation. Reads `OPENAI_API_KEY` /
-  `CODEX_API_KEY` from folder secrets; reports cleanly if missing.
+  non-obvious implementation. Auth via either a host-side
+  `~/.codex` mount (`HOST_CODEX_DIR` on the operator's gated env) OR
+  `OPENAI_API_KEY` / `CODEX_API_KEY` in folder secrets — codex picks
+  up whichever is present.
 ---
 
 # Oracle
 
 Drives the `codex` CLI (`@openai/codex`) as a subprocess for a
 one-shot second opinion. No new MCP tool, no new daemon — the binary
-is on `PATH`, the secret is in folder env, the skill is the surface.
+is on `PATH`, the auth state is either mounted from the host or
+injected as folder env, the skill is the surface.
 
 ## When to invoke
 
@@ -44,37 +47,46 @@ Useful flags: `--json` for machine-readable output, `-o <path>` to
 write the final message to a file, `--ephemeral` to skip session
 persistence (default is fine for one-shots).
 
-## Missing key fallback
+## Auth — two equivalent paths
 
-The CLI reads `CODEX_API_KEY` (or `OPENAI_API_KEY`) from the
-container env. If neither is set, `codex exec` fails fast with an
-auth error. Detect first, then either explain or skip:
+**Path A — host-side `~/.codex` mount (preferred for ChatGPT login).**
+When the operator's gated process has `HOST_CODEX_DIR=/path/to/.codex`
+in its env, every spawned agent gets that dir bind-mounted at
+`/home/node/.codex` (rw). codex CLI reads `auth.json` from there
+just like on the host — including ChatGPT-OAuth refresh-token
+rotation, session/history persistence, and config. No env vars
+needed; auth flows from a single host login. Probe with:
 
 ```bash
-if [ -z "${CODEX_API_KEY:-}${OPENAI_API_KEY:-}" ]; then
-  echo "oracle unavailable — no CODEX_API_KEY/OPENAI_API_KEY in folder secrets"
+codex login status   # "Logged in using ChatGPT" / "Logged in using API key"
+```
+
+**Path B — `CODEX_API_KEY` / `OPENAI_API_KEY` env (folder secrets).**
+The CLI also accepts an API key from the container env — same
+folder-secret path that injects channel tokens, `WHISPER_BASE_URL`,
+etc. Resolution walks folder ancestors root→F deepest-wins; deeper
+folders override shallower. Spec:
+`specs/5/32-tenant-self-service.md` §Secrets. AES-GCM at rest
+(`store/migrations/0034-secrets.sql`); requires `AUTH_SECRET` set on
+the gated process. Insert via the standard secrets path; restart the
+group's container so `container.resolveSpawnEnv` picks it up.
+
+## Missing-auth fallback
+
+If neither path is configured, `codex exec` fails fast with an auth
+error. Detect first, then explain or skip:
+
+```bash
+if ! codex login status >/dev/null 2>&1 \
+   && [ -z "${CODEX_API_KEY:-}${OPENAI_API_KEY:-}" ]; then
+  echo "oracle unavailable — no codex login on host mount and no folder secret"
   exit 0
 fi
 codex exec "$prompt"
 ```
 
-Tell the user "oracle isn't configured for this folder" and continue
-with whatever you can do without it. Do NOT crash the turn.
-
-## Adding the secret
-
-`OPENAI_API_KEY` (or `CODEX_API_KEY`) lives in the folder secrets
-table — the same path that injects channel tokens, `WHISPER_BASE_URL`,
-etc. into the agent container at spawn time. Resolution walks folder
-ancestors root→F deepest-wins; deeper folders override shallower.
-Spec: `specs/5/32-tenant-self-service.md` §Secrets. AES-GCM at rest
-in `secrets` (`store/migrations/0034-secrets.sql`); requires
-`AUTH_SECRET` set on the gated process.
-
-The operator inserts the secret via the standard secrets path
-(folder scope, same as any other folder-bound API key). After insert,
-restart the group's container so `container.resolveSpawnEnv` picks
-the new env up.
+Tell the user "oracle isn't configured" and continue with whatever
+you can do without it. Do NOT crash the turn.
 
 ## Output shape
 
