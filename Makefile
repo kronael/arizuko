@@ -20,9 +20,18 @@ lint:
 	$(foreach c,$(COMPONENTS),make -C $(c) lint;)
 
 test:
-	go test ./... -count=1
+	go test ./... -count=1 -short
 	$(foreach d,$(DAEMONS),make -C $(d) test;)
 	$(foreach c,$(COMPONENTS),make -C $(c) test;)
+
+# test-e2e: release-only end-to-end tests. Drive a real round through the
+# slink HTTP/MCP surface (POST /slink/<token>, /slink/stream, /send agent
+# callback) against an in-memory store + fake gated. Slow (≤ 5 min) and
+# excluded from `make test`. Intended to run on release tag from CI;
+# locally invoke before tagging. Heavier shapes may need Docker.
+test-e2e:
+	go test ./webd/... -count=1 -run E2E -timeout 300s
+.PHONY: test-e2e
 
 # smoke: post-deploy verification on a running instance. Pings the
 # admin and sends a synthetic message through the registered-channel
