@@ -78,6 +78,13 @@ TTS (`ttsd/`, `specs/5/T-voice-synthesis.md`) and the oracle skill
 optional integrations rather than core daemons; both opt-in via
 env vars / folder secrets.
 
+Some integrations have no daemon and no MCP surface at all —
+**host-tool capabilities** are CLIs installed in the agent image
+(or mounted from the host) that the agent runs as ordinary
+subprocesses, with a SKILL.md as the discovery surface. `oracle`
+is the canonical example. See `EXTENDING.md` "Host-tool
+capabilities" for the pattern + the current list.
+
 ## Message Flow
 
 ```

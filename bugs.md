@@ -23,6 +23,16 @@ Bugs / follow-ups discovered during voice + media-dispatch audit (2026-05-01).
   Email is the universal medium for attachments; this is a future
   enhancement, not a wrong-dispatch bug.
 
+## Host-tool capabilities — drift
+
+- 2026-05-03: `ant/skills/ship/SKILL.md` promises a `ship` CLI that
+  isn't installed in `ant/Dockerfile`. Either install it (uv-based
+  Python tool, see `/home/onvos/.local/share/uv/tools/ship/`) and
+  decide auth-state mount strategy (sibling of `HOST_CODEX_DIR`
+  pattern), or rewrite the skill as an in-session planning recipe.
+  Skill currently has a missing-tool fallback so it doesn't crash,
+  but the value prop only lands once the binary ships.
+
 ## Aggregated user-reported issues — 2026-05-03
 
 Consolidated from per-group `issues.md` files across krons, sloth, marinade.

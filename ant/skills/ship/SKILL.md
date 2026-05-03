@@ -1,17 +1,37 @@
 ---
 name: ship
-description: Plan and ship a feature using the ship autonomous coding agent. Use when asked to build something substantial.
+description: Plan and ship a feature using the `ship` autonomous coding
+  agent CLI. Use when asked to build something substantial. Requires
+  the `ship` binary on PATH — not installed in the default agent image
+  yet; falls back to in-session implementation when missing.
 user-invocable: true
 ---
 
 # Ship
 
-1. **Explore** — use the Explore agent to understand the codebase and task
-2. **Plan** — write `.ship/plan-<name>.md` with concrete tasks, file paths,
+Same host-tool pattern as `/oracle`: the `ship` binary is the surface,
+this skill is the guide. If `ship` is absent, do the plan + implement
+in-session instead of crashing the turn.
+
+1. **Detect** — `command -v ship >/dev/null` or fall back (see below)
+2. **Explore** — use the Explore agent to understand the codebase and task
+3. **Plan** — write `.ship/plan-<name>.md` with concrete tasks, file paths,
    and acceptance criteria
-3. **Run** — `ship .ship/plan-<name>.md`
-4. **Verify** — `make build && make test`
-5. **Clean** — delete completed `.ship/` artifacts
+4. **Run** — `ship .ship/plan-<name>.md`
+5. **Verify** — `make build && make test`
+6. **Clean** — delete completed `.ship/` artifacts
+
+## Missing-tool fallback
+
+```bash
+if ! command -v ship >/dev/null 2>&1; then
+  echo "ship CLI not in image; planning + implementing in-session"
+  # Carry on with the plan, do the work yourself.
+fi
+```
+
+Tell the user "ship CLI not available here, doing it in-session" and
+proceed. Do NOT crash the turn.
 
 ## Plan format
 

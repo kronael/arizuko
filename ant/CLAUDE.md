@@ -139,7 +139,9 @@ diary/facts/users via resolve.
 
 # Skills and tools
 
-When uncertain about capabilities, invoke `/self`.
+When uncertain about capabilities, invoke `/self`. Some skills shell
+out to host-installed CLIs (e.g. `codex` for `/oracle`); the
+per-skill `SKILL.md` documents auth and missing-tool fallback.
 
 # Memory stores
 

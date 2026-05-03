@@ -156,6 +156,39 @@ Skill layout:
   migrations/           # optional numbered upgrade scripts
 ```
 
+## Host-tool capabilities
+
+Some integrations are **pure host-tool surfaces** — no daemon, no MCP,
+no protocol. The operator installs a CLI in the agent image (or
+mounts host state into it) and ships a skill that drives it as a
+subprocess. The agent sees an ordinary command on `PATH`; the
+skill is the discovery surface; auth flows from a host-side mount or
+folder secret. Distinct from MCP tools (in-band, schema-typed,
+gateway-mediated) and channel adapters (out-of-band, HTTP).
+
+Currently shipping:
+
+| Capability | Binary  | Skill                        | Auth                                                                                    |
+| ---------- | ------- | ---------------------------- | --------------------------------------------------------------------------------------- |
+| `oracle`   | `codex` | `ant/skills/oracle/SKILL.md` | `HOST_CODEX_DIR` mount on gated **OR** `CODEX_API_KEY` / `OPENAI_API_KEY` folder secret |
+
+Adding one:
+
+1. Install the binary in `ant/Dockerfile` (pinned version where
+   upstream supports it).
+2. If the tool needs host-side credentials/state, add a `HOST_*_DIR`
+   env on `core.Config`, plumb through `compose.Generate` and
+   `container.runner` so it's bind-mounted into spawns. Pattern:
+   `HOST_CODEX_DIR` (`v0.33.9`).
+3. Write `ant/skills/<name>/SKILL.md` with sharp frontmatter
+   `description` (this is what `/dispatch` matches on), a "when to
+   invoke" section, copy-pasteable invocations, and a missing-auth
+   fallback that fails soft instead of crashing the turn.
+4. Bump `ant/skills/self/MIGRATION_VERSION` so the auto-migrate
+   broadcast fires on next spawn.
+
+Skill body shape: see `ant/skills/oracle/SKILL.md` as the reference.
+
 ## Permission tiers
 
 Folder-depth model. Tier = `min(folder.split("/").length, 3)`, except
