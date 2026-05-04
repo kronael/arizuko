@@ -154,12 +154,12 @@ under this name:
 - **`egred`** — forward HTTP/HTTPS proxy daemon. Per-source-IP
   allowlist, admin API, runnable standalone or under `crackbox
 proxy serve`. Stateless about what's behind the source IPs. See
-  [`specs/7/9-crackbox-standalone.md`](9-crackbox-standalone.md).
+  [`specs/8/9-crackbox-standalone.md`](9-crackbox-standalone.md).
 - **`crackbox/pkg/host/`** — Go library for KVM/qemu sandbox
   lifecycle. Spawns VMs, manages privileges, ensures egred is up.
   Imported by `sandd` (for arizuko deployments) and by the
   `crackbox run --kvm` CLI (for laptop one-shots). See
-  [`specs/7/12-crackbox-sandboxing.md`](12-crackbox-sandboxing.md).
+  [`specs/8/12-crackbox-sandboxing.md`](12-crackbox-sandboxing.md).
 
 The two halves ship in the same component so `crackbox run` can
 compose them into a one-shot sandboxed-execution CLI without an
@@ -168,7 +168,7 @@ egred container in compose; the host library will be imported by
 sandd when KVM backend lands. The proxy half is consumer-side
 shipped today; the host library is planned (next phase).
 
-[`specs/7/10-crackbox-arizuko.md`](10-crackbox-arizuko.md)
+[`specs/8/10-crackbox-arizuko.md`](10-crackbox-arizuko.md)
 covers the today-and-tomorrow consumer pattern and the planned
 [`sandd`](c-sandd.md) extraction.
 
