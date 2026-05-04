@@ -32,7 +32,7 @@ Developer capabilities are embedded in each product that needs them
 | [product-pm.md](product-pm.md)                                 | sloth         | planned | Team task board + weekly digest; no infra access   | ✓          |
 | [product-rhias.md](product-rhias.md)                           | rhias         | planned | Reality agent; holds ongoing life context threads  | ✓          |
 | [product-creator.md](product-creator.md)                       | –             | planned | Curation + draft pipeline; approve before publish  | ✓ (v1)     |
-| [product-socials.md](product-socials.md)                       | –             | planned | Multi-platform distribution; schedule + engagement | blocked\*  |
+| [product-socials.md](product-socials.md)                       | phosphene     | planned | Multi-platform distribution; schedule + engagement | blocked\*  |
 
 \* socials needs HITL firewall + rate limits before production use.
 

@@ -1,8 +1,9 @@
 ---
 status: planned
+brand: phosphene
 ---
 
-# Product: socials manager
+# Product: socials manager (Phosphene)
 
 Manage a multi-platform social presence: schedule, post, cross-post,
 monitor, and surface what's gaining traction.
