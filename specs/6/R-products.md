@@ -9,7 +9,7 @@ persona + skills + behavior bundled together. `arizuko create <name>
 --product <product>` copies the chosen template into the new group's
 folder.
 
-Folder shape is defined by [ant](../5/b-ant-standalone.md); this spec
+Folder shape is defined by [ant](../8/b-ant-standalone.md); this spec
 covers only the arizuko-side concerns: catalog, selection flow, schema.
 
 ## Catalog
