@@ -5,6 +5,8 @@ brand: prometheus
 
 # Product: strategy researcher (Prometheus)
 
+_Saw what was coming before the gods did, and paid for it. The briefing lands Monday morning._
+
 Deep ongoing research on a domain — markets, competitors, trends.
 Produces structured reports on a schedule and on demand.
 Template at `ant/examples/strategy/`.

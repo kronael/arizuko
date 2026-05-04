@@ -6,6 +6,8 @@ deployment: krons
 
 # Product: personal assistant (Fiu)
 
+_Named for the few: finds the irreducible minimum in a pile of noise. Research as subtraction._
+
 An always-on personal agent with a persistent identity. Remembers
 the person, their context, their patterns. Deployed as "Fiu" on
 krons. Template at `ant/examples/personal/`.

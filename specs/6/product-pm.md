@@ -5,6 +5,8 @@ brand: sloth
 
 # Product: PM agent (Sloth)
 
+_Moves slowly. Forgets nothing. Has been watching your task board since before you opened it._
+
 Project management agent embedded in a team's chat. Tracks tasks,
 surfaces blockers, maintains the source of truth for what's in
 progress, what's done, and what's at risk.

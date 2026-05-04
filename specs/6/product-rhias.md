@@ -5,6 +5,8 @@ brand: rhias
 
 # Product: reality agent (Rhias)
 
+_Holds the thread of what you're living through — not to judge it, but because someone has to remember._
+
 A persistent agent grounded in the user's actual life and context.
 Not a task runner or a search tool — a presence that holds ongoing
 threads about real-world situations: relationships, decisions, projects,

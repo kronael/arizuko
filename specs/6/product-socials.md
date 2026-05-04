@@ -5,6 +5,8 @@ brand: phosphene
 
 # Product: socials manager (Phosphene)
 
+_The light you see when your eyes are closed: a signal with no source, spreading anyway._
+
 Manage a multi-platform social presence: schedule, post, cross-post,
 monitor, and surface what's gaining traction.
 Template at `ant/examples/socials/`.

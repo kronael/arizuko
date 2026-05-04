@@ -1,8 +1,11 @@
 ---
 status: planned
+brand: inari
 ---
 
-# Product: creator
+# Product: creator (Inari)
+
+_Fox-god of the marketplace and the maker's hand. Knows that the work and the sell are the same thing._
 
 Content creation pipeline and curator. Researches, drafts, refines,
 and publishes long-form content — posts, newsletters, articles.

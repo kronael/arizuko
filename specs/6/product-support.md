@@ -1,9 +1,11 @@
 ---
 status: planned
-brand: atlas-support
+brand: atlas
 ---
 
-# Product: support (Atlas Support)
+# Product: support (Atlas)
+
+_He held the sky so it would not fall. Not because he was asked — because someone had to._
 
 Customer support agent embedded on a product site via the slink widget.
 Answers questions from a knowledge base in facts/; escalates to a human

@@ -5,6 +5,8 @@ brand: may
 
 # Product: trip planner (May)
 
+_Named for Maia, who opened the warm months and the roads between them. Every journey begins with her._
+
 Research, synthesize, and structure a trip into a usable plan.
 Template at `ant/examples/trip/`.
 
