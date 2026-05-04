@@ -49,7 +49,7 @@ func newBot(cfg config) (*bot, error) {
 	b := &bot{api: api, cfg: cfg, done: make(chan struct{})}
 	b.connected.Store(true)
 	b.lastInboundAt.Store(time.Now().Unix())
-	b.typing = chanlib.NewTypingRefresher(4*time.Second, 10*time.Minute, b.sendTyping, nil)
+	b.typing = chanlib.NewTypingRefresher(10*time.Second, 10*time.Minute, b.sendTyping, nil)
 	if cfg.AssistantName != "" {
 		b.mentionRe = regexp.MustCompile(
 			fmt.Sprintf(`(?i)^@%s\b`, regexp.QuoteMeta(cfg.AssistantName)))
@@ -563,14 +563,16 @@ func (b *bot) FetchHistory(_ chanlib.HistoryRequest) (chanlib.HistoryResponse, e
 	}, nil
 }
 
-func (b *bot) sendTyping(jid string) {
+func (b *bot) sendTyping(jid string) bool {
 	id, err := parseChatID(jid)
 	if err != nil {
-		return
+		return false
 	}
 	if _, err := b.api.Request(tgbotapi.NewChatAction(id, tgbotapi.ChatTyping)); err != nil {
 		slog.Warn("typing failed", "jid", jid, "err", err)
+		return false
 	}
+	return true
 }
 
 // chatJIDFromID renders Telegram chat ID in canonical kind-discriminator

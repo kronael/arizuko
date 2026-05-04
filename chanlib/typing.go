@@ -9,8 +9,10 @@ import (
 // refreshRate until Set(jid, false), Stop, or maxTTL elapses. Clear is
 // called on Set(jid, false) and maxTTL; pass nil if the platform has no
 // stop/paused presence (Telegram, Discord).
+//
+// send returns false to cancel the loop immediately (e.g. 403 Forbidden).
 type TypingRefresher struct {
-	send        func(jid string)
+	send        func(jid string) bool
 	clear       func(jid string)
 	refreshRate time.Duration
 	maxTTL      time.Duration
@@ -19,7 +21,7 @@ type TypingRefresher struct {
 	active map[string]chan struct{}
 }
 
-func NewTypingRefresher(refreshRate, maxTTL time.Duration, send, clear func(jid string)) *TypingRefresher {
+func NewTypingRefresher(refreshRate, maxTTL time.Duration, send func(jid string) bool, clear func(jid string)) *TypingRefresher {
 	return &TypingRefresher{
 		send:        send,
 		clear:       clear,
@@ -46,7 +48,14 @@ func (r *TypingRefresher) Set(jid string, on bool) {
 	r.active[jid] = stop
 	r.mu.Unlock()
 
-	r.send(jid)
+	if !r.send(jid) {
+		r.mu.Lock()
+		if cur, ok := r.active[jid]; ok && cur == stop {
+			delete(r.active, jid)
+		}
+		r.mu.Unlock()
+		return
+	}
 	go r.loop(jid, stop)
 }
 
@@ -69,13 +78,18 @@ func (r *TypingRefresher) loop(jid string, stop chan struct{}) {
 			}
 			return
 		case <-t.C:
-			// Double-check stop to avoid a race where the ticker and the
-			// stop signal fire simultaneously and select picks the ticker.
 			select {
 			case <-stop:
 				return
 			default:
-				r.send(jid)
+				if !r.send(jid) {
+					r.mu.Lock()
+					if cur, ok := r.active[jid]; ok && cur == stop {
+						delete(r.active, jid)
+					}
+					r.mu.Unlock()
+					return
+				}
 			}
 		}
 	}

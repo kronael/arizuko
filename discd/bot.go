@@ -438,10 +438,12 @@ func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse,
 	return chanlib.HistoryResponse{Source: "platform", Messages: out}, nil
 }
 
-func (b *bot) sendTyping(jid string) {
+func (b *bot) sendTyping(jid string) bool {
 	if err := b.session.ChannelTyping(chanID(jid)); err != nil {
 		slog.Warn("discord typing failed", "jid", jid, "err", err)
+		return false
 	}
+	return true
 }
 
 // isRateLimit detects Discord 429 errors via typed discordgo errors with substring fallback.

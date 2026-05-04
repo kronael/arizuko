@@ -11,7 +11,7 @@ func TestTypingRefresher_RefreshesUntilStopped(t *testing.T) {
 	var sends int32
 	var clears int32
 	r := NewTypingRefresher(20*time.Millisecond, time.Second,
-		func(string) { atomic.AddInt32(&sends, 1) },
+		func(string) bool { atomic.AddInt32(&sends, 1); return true },
 		func(string) { atomic.AddInt32(&clears, 1) },
 	)
 
@@ -40,7 +40,7 @@ func TestTypingRefresher_RefreshesUntilStopped(t *testing.T) {
 func TestTypingRefresher_MaxTTLCap(t *testing.T) {
 	var sends int32
 	r := NewTypingRefresher(10*time.Millisecond, 50*time.Millisecond,
-		func(string) { atomic.AddInt32(&sends, 1) },
+		func(string) bool { atomic.AddInt32(&sends, 1); return true },
 		nil,
 	)
 
@@ -64,7 +64,7 @@ func TestTypingRefresher_MaxTTLCap(t *testing.T) {
 func TestTypingRefresher_MaxTTLCallsClear(t *testing.T) {
 	var clears int32
 	r := NewTypingRefresher(10*time.Millisecond, 50*time.Millisecond,
-		func(string) {},
+		func(string) bool { return true },
 		func(string) { atomic.AddInt32(&clears, 1) },
 	)
 
@@ -78,7 +78,7 @@ func TestTypingRefresher_MaxTTLCallsClear(t *testing.T) {
 
 func TestTypingRefresher_NilClearSafe(t *testing.T) {
 	r := NewTypingRefresher(10*time.Millisecond, 50*time.Millisecond,
-		func(string) {},
+		func(string) bool { return true },
 		nil,
 	)
 	// Should not panic with nil clear on any path.
@@ -92,10 +92,11 @@ func TestTypingRefresher_PerJIDIsolation(t *testing.T) {
 	var mu sync.Mutex
 	sends := map[string]int{}
 	r := NewTypingRefresher(15*time.Millisecond, time.Second,
-		func(jid string) {
+		func(jid string) bool {
 			mu.Lock()
 			sends[jid]++
 			mu.Unlock()
+			return true
 		},
 		nil,
 	)
@@ -122,7 +123,7 @@ func TestTypingRefresher_PerJIDIsolation(t *testing.T) {
 func TestTypingRefresher_ReentrantSetOn(t *testing.T) {
 	var sends int32
 	r := NewTypingRefresher(20*time.Millisecond, time.Second,
-		func(string) { atomic.AddInt32(&sends, 1) },
+		func(string) bool { atomic.AddInt32(&sends, 1); return true },
 		nil,
 	)
 
@@ -144,7 +145,7 @@ func TestTypingRefresher_ReentrantSetOn(t *testing.T) {
 func TestTypingRefresher_StopAllOnShutdown(t *testing.T) {
 	var sends int32
 	r := NewTypingRefresher(15*time.Millisecond, time.Second,
-		func(string) { atomic.AddInt32(&sends, 1) },
+		func(string) bool { atomic.AddInt32(&sends, 1); return true },
 		nil,
 	)
 
@@ -157,5 +158,21 @@ func TestTypingRefresher_StopAllOnShutdown(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 	if after := atomic.LoadInt32(&sends); after != before {
 		t.Errorf("sends continued after Stop: before=%d after=%d", before, after)
+	}
+}
+
+func TestTypingRefresher_StopsOnSendError(t *testing.T) {
+	var sends int32
+	r := NewTypingRefresher(20*time.Millisecond, time.Second,
+		func(string) bool { atomic.AddInt32(&sends, 1); return false },
+		nil,
+	)
+
+	r.Set("jid1", true)
+	time.Sleep(80 * time.Millisecond)
+
+	// send returns false on first call; loop must not continue firing.
+	if got := atomic.LoadInt32(&sends); got != 1 {
+		t.Errorf("sends = %d, want 1 (loop should stop after first error)", got)
 	}
 }
