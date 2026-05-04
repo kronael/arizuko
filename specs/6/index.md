@@ -4,20 +4,12 @@ status: active
 
 # specs/6 — products
 
-Productisation work: branding, packaging, polish on the user-facing
-surfaces, and the documentation + publish push that turns the
-shipped capabilities into a usable system someone other than the
-operator can pick up.
+Launching the thing: products built on arizuko, packaging, branding,
+and the publishing surface that lets operators deploy a fully
+configured persona out of the box.
 
-Older phase-6 specs (proxyd, chat-ui, hitl-firewall, crackbox-\*)
-moved up to [specs/7](../7/) when this phase was re-scoped to
-products on 2026-05-02.
-
-| Spec                                         | Status  | Hook                                                         |
-| -------------------------------------------- | ------- | ------------------------------------------------------------ |
-| [13-onbod-branding.md](13-onbod-branding.md) | draft   | Per-instance brand surface for onbod (env vars + asset dir). |
-| [R-products.md](R-products.md)               | planned | Curated persona+skill templates; `--product` flag on create. |
-
-Numbering kept from the original sequence so cross-references
-to `specs/6/13-onbod-branding.md` survive any link spelunking;
-new specs in this phase pick up at 14+.
+| Spec                                             | Status   | Hook                                                                   |
+| ------------------------------------------------ | -------- | ---------------------------------------------------------------------- |
+| [13-onbod-branding.md](13-onbod-branding.md)     | draft    | Per-instance brand surface for onbod (env vars + asset dir).           |
+| [R-products.md](R-products.md)                   | planned  | Curated persona+skill templates; `--product` flag on `arizuko create`. |
+| [5-authoring-product.md](5-authoring-product.md) | deferred | Authoring agent product: persona + HITL publish gate + content target. |

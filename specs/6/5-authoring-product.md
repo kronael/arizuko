@@ -4,10 +4,9 @@ status: deferred
 
 # Authoring product
 
-A specific product (per [4/R-products](../4/R-products.md)) for
+A specific product (per [6/R-products](R-products.md)) for
 content authoring: the agent drafts posts and the operator approves
-before publishing. Folder shape per
-[ant](../5/b-ant-standalone.md); ships at
+before publishing. Ships at
 `ant/examples/author/`.
 
 Composition: persona (`SOUL.md` = author voice) + skills
@@ -17,7 +16,7 @@ Composition: persona (`SOUL.md` = author voice) + skills
 ## Publishing safety
 
 The `publish` MCP tool is gated via the [HITL
-firewall](4-hitl-firewall.md). The `publish` skill documents the
+firewall](../7/4-hitl-firewall.md). The `publish` skill documents the
 hold so the agent expects `{pending: true}` and reports the
 review queue link.
 
@@ -38,7 +37,7 @@ published = permanent. `/pub/` is served by `vited`.
 
 ## Depends on
 
-- HITL firewall ([4-hitl-firewall.md](4-hitl-firewall.md))
+- HITL firewall ([../7/4-hitl-firewall.md](../7/4-hitl-firewall.md))
 - An adapter exposing a publish capability (bsky or mastodon)
 - ant standalone ([5/b](../5/b-ant-standalone.md)) for
   the folder shape

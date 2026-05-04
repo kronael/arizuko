@@ -1,16 +1,16 @@
 ---
-status: active
+status: partial
 ---
 
-# specs/8 — future features
+# specs/8 — capabilities + infrastructure
 
-Pinned messages, rate limits, CLI tools, dynamic channels, auth tunneling.
+Shipped and deferred capabilities: proxy layer, chat UI, workflow
+engine, agent self-improvement.
 
-- [1-pinned-messages.md](1-pinned-messages.md) `planned` — pinned messages as persistent agent context
-- [2-slink.md](2-slink.md) `deferred` — slink scoped auth token
-- [3-local-cli.md](3-local-cli.md) `planned` — `arizuko send` over slink round-handle protocol
-- [4-rate-limits.md](4-rate-limits.md) `unshipped` — usage_log table + per-group rate limits
-- [5-cli-chat.md](5-cli-chat.md) `unshipped` — `arizuko chat` interactive terminal agent
-- [6-dynamic-channels.md](6-dynamic-channels.md) `unshipped` — DB-backed channels, dashboard-managed creds
-- [7-auth-tunneling.md](7-auth-tunneling.md) `planned` — web-based credential capture
-- [8-cli-auth-helper.md](8-cli-auth-helper.md) `planned` — CLI auth dispatcher
+| Spec                                                 | Status   | Hook                                                               |
+| ---------------------------------------------------- | -------- | ------------------------------------------------------------------ |
+| [2-proxyd.md](2-proxyd.md)                           | shipped  | Public-facing proxy; auth at perimeter, routes to dashd/webd/vited |
+| [3-chat-ui.md](3-chat-ui.md)                         | shipped  | webd channel adapter, HTMX UI, slink/SSE, two auth planes          |
+| [6-workflows.md](6-workflows.md)                     | deferred | workflowd daemon, TOML flow files over shared SQLite bus           |
+| [8-self-eval-skill.md](8-self-eval-skill.md)         | deferred | Self-eval sub-query at container exit                              |
+| [1-multi-agent-commits.md](1-multi-agent-commits.md) | deferred | Committer script for multi-agent git safety (openclaw pattern)     |
