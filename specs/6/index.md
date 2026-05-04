@@ -1,5 +1,5 @@
 ---
-status: active
+status: draft
 ---
 
 # specs/6 — products

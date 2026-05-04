@@ -11,7 +11,7 @@ Firewall between MCP socket and tool handlers. Held tools write a
 calls and writes `result`/`error` back; agent fetches resolution via
 `get_pending_action(id)` or next-turn injection.
 
-Schema:
+## Schema
 
 ```
 pending_actions(id TEXT PK, group_folder, caller_agent, tool,
@@ -19,17 +19,21 @@ pending_actions(id TEXT PK, group_folder, caller_agent, tool,
   reviewer_note, result JSON, error)
 ```
 
-Grant markers: `hold: true` always queues; `hold_if: <cel>` conditional.
-Absent markers = execute inline (current behavior).
+## Grant markers
 
-Hooks into existing primitives only: `grants/` (new markers), `ipc/`
-(intercept + queue + return pending), `dashd` (new review screen),
-`scheduled_tasks` (optional: approve-now-execute-later).
+`hold: true` always queues; `hold_if: <cel>` conditional. Absent = execute
+inline (current behaviour).
 
-Rationale: binary grants today — no "ask first" state. Building per-tool
-yields inconsistent UX.
+## Hooks
 
-Unblockers: dispatcher location (`gated` goroutine vs dedicated `holdd`),
-execution identity (original agent's grants vs reviewer's), timeouts
-per-tool, edited-args audit, pending-awareness injection back into
-agent, non-MCP callers (`timed`) bypass.
+Existing primitives only: `grants/` (new markers), `ipc/` (intercept +
+queue + return pending), `dashd` (new review screen), `scheduled_tasks`
+(optional: approve-now-execute-later).
+
+## Open
+
+- Dispatcher location: `gated` goroutine vs dedicated `holdd`
+- Execution identity: original agent's grants vs reviewer's
+- Per-tool timeouts and edited-args audit trail
+- Pending-awareness injection back into agent
+- Non-MCP callers (`timed`) bypass path
