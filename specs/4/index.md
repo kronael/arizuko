@@ -28,3 +28,5 @@ All specs describe shipped core architecture.
 - [24-recall.md](24-recall.md) — message recall (FTS/LLM)
 - [Q-dash-memory.md](Q-dash-memory.md) — dashd memory view
 - [S-e2e-tests.md](S-e2e-tests.md) — mock-agent-based end-to-end tests
+- [2-proxyd.md](2-proxyd.md) — public-facing auth proxy; routes to dashd/webd/vited
+- [3-chat-ui.md](3-chat-ui.md) — webd channel adapter, HTMX UI, slink/SSE, two auth planes

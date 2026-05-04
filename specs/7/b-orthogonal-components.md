@@ -170,7 +170,7 @@ shipped today; the host library is planned (next phase).
 
 [`specs/7/10-crackbox-arizuko.md`](10-crackbox-arizuko.md)
 covers the today-and-tomorrow consumer pattern and the planned
-[`sandd`](../10/c-sandd.md) extraction.
+[`sandd`](c-sandd.md) extraction.
 
 ### messaging-gateway (future, extracted from gated)
 
