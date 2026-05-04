@@ -298,6 +298,23 @@ Rule format: `[!]action[(param=glob,...)]`. Last-match-wins; no match = deny.
 Rules derived at spawn and injected into `start.json`. The MCP manifest is
 filtered by grants.
 
+## Operator
+
+"Operator" is **not a role, flag, or sentinel** — it is emergent from the
+`user_groups` ACL. Any user with a `**` row (glob matching all folders) in
+`user_groups` is treated as the operator. `auth.MatchGroups` handles tier-0
+visibility uniformly; there is no `groups.is_operator` column, no
+`router_state['operator_jid']` sentinel, and no nil-default routing target.
+
+Cross-group system notifications (errors, health events, scheduled digests)
+resolve their destination by querying `user_groups` for `**`-grant holders
+and routing messages into their existing folders — not by seeding a
+specially-flagged group.
+
+What this means in practice: granting a user `**` access is how you make
+them the operator. Revoking it demotes them. dashd is the management UI;
+its sessions are scoped to users who hold at least one `user_groups` row.
+
 ## Compose Containers
 
 `compose.Generate(dataDir)` builds `docker-compose.yml` from:

@@ -1,8 +1,10 @@
 ---
-status: note
+status: docs
 ---
 
-# Operator agent (proactive) — design note
+# Operator — design note
+
+Canonical reference: `ARCHITECTURE.md ## Operator`.
 
 Operator is **not a role or flag** — it is emergent from the user
 ACL. Any user with a `**` row in `user_groups` is "the operator";

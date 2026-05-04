@@ -1,5 +1,5 @@
 ---
-status: future
+status: shipped
 ---
 
 # specs/5 — agent extensions & workflows
@@ -16,7 +16,7 @@ status: future
 | [H-call-llm-mcp.md](H-call-llm-mcp.md)                 | shipped | Oracle skill — Claude asks codex CLI via subprocess + folder secret |
 | [J-sse.md](J-sse.md)                                   | shipped | SSE + MCP transport on slink tokens; group is auth boundary         |
 | [M-webdav.md](M-webdav.md)                             | shipped | dufs + proxyd JWT/cookie auth, write-block guard                    |
-| [P-operator.md](P-operator.md)                         | note    | Operator is emergent from `**` ACL, not a flag                      |
+| [P-operator.md](P-operator.md)                         | docs    | Operator is emergent from `**` ACL — canonical in `ARCHITECTURE.md` |
 | [Q-unified-routing.md](Q-unified-routing.md)           | shipped | Single message table, bare folder JIDs, poll-based outbound         |
 | [R-multi-account.md](R-multi-account.md)               | shipped | Multi-account adapters via multiple service TOMLs                   |
 | [S-jid-format.md](S-jid-format.md)                     | shipped | Typed ChatJID/UserJID with kind in path; path.Match globs           |
