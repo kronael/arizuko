@@ -23,30 +23,32 @@ Each ships as `ant/examples/<name>/` with a page at `/pub/products/<name>/`.
 Developer capabilities are embedded in each product that needs them
 (oracle + bash grants, scoped per deployment) — not a separate product.
 
-| Spec                                         | Status  | Value prop                                         | Ships now? |
-| -------------------------------------------- | ------- | -------------------------------------------------- | ---------- |
-| [product-personall.md](product-personall.md) | planned | Branded/personal assistant; the configurable base  | ✓          |
-| [product-support.md](product-support.md)     | planned | Customer-facing Q&A via slink; escalates to human  | ✓ (v1)     |
-| [product-trip.md](product-trip.md)           | planned | Multi-step travel research → structured itinerary  | ✓          |
-| [product-strategy.md](product-strategy.md)   | planned | Domain tracker; weekly synthesis → team briefing   | ✓          |
-| [product-creator.md](product-creator.md)     | planned | Curation + draft pipeline; approve before publish  | ✓ (v1)     |
-| [product-socials.md](product-socials.md)     | planned | Multi-platform distribution; schedule + engagement | blocked\*  |
+| Spec                                                           | Brand         | Status  | Value prop                                         | Ships now? |
+| -------------------------------------------------------------- | ------------- | ------- | -------------------------------------------------- | ---------- |
+| [product-personal-assistant.md](product-personal-assistant.md) | fiu           | planned | Branded/personal assistant; the configurable base  | ✓          |
+| [product-support.md](product-support.md)                       | atlas-support | planned | Customer-facing Q&A via slink; escalates to human  | ✓ (v1)     |
+| [product-trip.md](product-trip.md)                             | may           | planned | Multi-step travel research → structured itinerary  | ✓          |
+| [product-strategy.md](product-strategy.md)                     | prometheus    | planned | Domain tracker; weekly synthesis → team briefing   | ✓          |
+| [product-pm.md](product-pm.md)                                 | sloth         | planned | Team task board + weekly digest; no infra access   | ✓          |
+| [product-rhias.md](product-rhias.md)                           | rhias         | planned | Reality agent; holds ongoing life context threads  | ✓          |
+| [product-creator.md](product-creator.md)                       | –             | planned | Curation + draft pipeline; approve before publish  | ✓ (v1)     |
+| [product-socials.md](product-socials.md)                       | –             | planned | Multi-platform distribution; schedule + engagement | blocked\*  |
 
 \* socials needs HITL firewall + rate limits before production use.
 
 ## Arizuko features required per product
 
-| Feature (shipped ✓ / unshipped ✗) | Persona | Support | Trip  | Strategy | Creator | Socials |
-| --------------------------------- | :-----: | :-----: | :---: | :------: | :-----: | :-----: |
-| slink widget ✓                    |    –    |  **✓**  |   –   |    –     |    –    |    –    |
-| onbod / user reg ✓                |    –    |  **✓**  |   –   |    –     |    –    |    –    |
-| oracle ✓                          |    –    |    –    | **✓** |  **✓**   |  **✓**  |    –    |
-| davd ✓                            |    –    |    –    | **✓** |  **✓**   |  **✓**  |    –    |
-| timed ✓                           |    –    |    –    |   –   |  **✓**   |  **✓**  |  **✓**  |
-| social adapters ✓                 |    –    |    –    |   –   |    –     |  **✓**  |  **✓**  |
-| send_file ✓                       |    –    |    –    | **✓** |  **✓**   |    –    |    –    |
-| rate limits ✗                     |    –    |    ✗    |   –   |    –     |    –    |    ✗    |
-| HITL firewall ✗                   |    –    |    –    |   –   |    –     |    ✗    |    ✗    |
+| Feature (shipped ✓ / unshipped ✗) | Personal | Support | Trip  | Strategy | PM  | Rhias | Creator | Socials |
+| --------------------------------- | :------: | :-----: | :---: | :------: | :-: | :---: | :-----: | :-----: |
+| slink widget ✓                    |    –     |  **✓**  |   –   |    –     |  –  |   –   |    –    |    –    |
+| onbod / user reg ✓                |    –     |  **✓**  |   –   |    –     |  –  |   –   |    –    |    –    |
+| oracle ✓                          |    –     |    –    | **✓** |  **✓**   |  –  |   –   |  **✓**  |    –    |
+| davd ✓                            |    –     |    –    | **✓** |  **✓**   |  –  |   –   |  **✓**  |    –    |
+| timed ✓                           |    –     |    –    |   –   |  **✓**   |  –  | **✓** |  **✓**  |  **✓**  |
+| social adapters ✓                 |    –     |    –    |   –   |    –     |  –  |   –   |  **✓**  |  **✓**  |
+| send_file ✓                       |    –     |    –    | **✓** |  **✓**   |  –  |   –   |    –    |    –    |
+| rate limits ✗                     |    –     |    ✗    |   –   |    –     |  –  |   –   |    –    |    ✗    |
+| HITL firewall ✗                   |    –     |    –    |   –   |    –     |  –  |   –   |    ✗    |    ✗    |
 
 ## Future products (not in current scope)
 

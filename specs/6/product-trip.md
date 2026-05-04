@@ -1,8 +1,9 @@
 ---
 status: planned
+brand: may
 ---
 
-# Product: trip planner
+# Product: trip planner (May)
 
 Research, synthesize, and structure a trip into a usable plan.
 Template at `ant/examples/trip/`.

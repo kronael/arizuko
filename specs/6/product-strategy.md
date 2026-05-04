@@ -1,8 +1,9 @@
 ---
 status: planned
+brand: prometheus
 ---
 
-# Product: strategy researcher
+# Product: strategy researcher (Prometheus)
 
 Deep ongoing research on a domain — markets, competitors, trends.
 Produces structured reports on a schedule and on demand.

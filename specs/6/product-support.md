@@ -1,8 +1,9 @@
 ---
 status: planned
+brand: atlas-support
 ---
 
-# Product: support
+# Product: support (Atlas Support)
 
 Customer support agent embedded on a product site via the slink widget.
 Answers questions from a knowledge base in facts/; escalates to a human
