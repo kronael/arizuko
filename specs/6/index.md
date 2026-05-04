@@ -23,14 +23,14 @@ Each ships as `ant/examples/<name>/` with a page at `/pub/products/<name>/`.
 Developer capabilities are embedded in each product that needs them
 (oracle + bash grants, scoped per deployment) — not a separate product.
 
-| Spec                                       | Status  | Value prop                                         | Ships now? |
-| ------------------------------------------ | ------- | -------------------------------------------------- | ---------- |
-| [product-persona.md](product-persona.md)   | planned | Branded/personal assistant; the configurable base  | ✓          |
-| [product-support.md](product-support.md)   | planned | Customer-facing Q&A via slink; escalates to human  | ✓ (v1)     |
-| [product-trip.md](product-trip.md)         | planned | Multi-step travel research → structured itinerary  | ✓          |
-| [product-strategy.md](product-strategy.md) | planned | Domain tracker; weekly synthesis → team briefing   | ✓          |
-| [product-creator.md](product-creator.md)   | planned | Curation + draft pipeline; approve before publish  | ✓ (v1)     |
-| [product-socials.md](product-socials.md)   | planned | Multi-platform distribution; schedule + engagement | blocked\*  |
+| Spec                                         | Status  | Value prop                                         | Ships now? |
+| -------------------------------------------- | ------- | -------------------------------------------------- | ---------- |
+| [product-personall.md](product-personall.md) | planned | Branded/personal assistant; the configurable base  | ✓          |
+| [product-support.md](product-support.md)     | planned | Customer-facing Q&A via slink; escalates to human  | ✓ (v1)     |
+| [product-trip.md](product-trip.md)           | planned | Multi-step travel research → structured itinerary  | ✓          |
+| [product-strategy.md](product-strategy.md)   | planned | Domain tracker; weekly synthesis → team briefing   | ✓          |
+| [product-creator.md](product-creator.md)     | planned | Curation + draft pipeline; approve before publish  | ✓ (v1)     |
+| [product-socials.md](product-socials.md)     | planned | Multi-platform distribution; schedule + engagement | blocked\*  |
 
 \* socials needs HITL firewall + rate limits before production use.
 
