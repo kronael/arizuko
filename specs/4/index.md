@@ -1,11 +1,10 @@
 ---
-status: deferred
+status: shipped
 ---
 
-# specs/4 — dashboards, memory, products
+# specs/4 — dashboards, memory
 
-Mixed bag. Most specs describe shipped core architecture; the rest
-are deferred.
+All specs describe shipped core architecture.
 
 ## Shipped
 
@@ -29,7 +28,3 @@ are deferred.
 - [24-recall.md](24-recall.md) — message recall (FTS/LLM)
 - [Q-dash-memory.md](Q-dash-memory.md) — dashd memory view
 - [S-e2e-tests.md](S-e2e-tests.md) — mock-agent-based end-to-end tests
-
-## Planned
-
-- [R-products.md](R-products.md) — curated persona+skill templates + instance blueprints (`--from`)

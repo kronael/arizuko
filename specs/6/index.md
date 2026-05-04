@@ -13,9 +13,10 @@ Older phase-6 specs (proxyd, chat-ui, hitl-firewall, crackbox-\*)
 moved up to [specs/7](../7/) when this phase was re-scoped to
 products on 2026-05-02.
 
-| Spec                                         | Status | Hook                                                         |
-| -------------------------------------------- | ------ | ------------------------------------------------------------ |
-| [13-onbod-branding.md](13-onbod-branding.md) | draft  | Per-instance brand surface for onbod (env vars + asset dir). |
+| Spec                                         | Status  | Hook                                                         |
+| -------------------------------------------- | ------- | ------------------------------------------------------------ |
+| [13-onbod-branding.md](13-onbod-branding.md) | draft   | Per-instance brand surface for onbod (env vars + asset dir). |
+| [R-products.md](R-products.md)               | planned | Curated persona+skill templates; `--product` flag on create. |
 
 Numbering kept from the original sequence so cross-references
 to `specs/6/13-onbod-branding.md` survive any link spelunking;
