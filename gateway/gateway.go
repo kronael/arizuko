@@ -710,7 +710,7 @@ func (g *Gateway) processSenderBatch(
 	}
 
 	if !*hadOutput {
-		slog.Warn("agent completed with no output delivered",
+		slog.Info("agent silent",
 			"jid", deliverTo, "group", group.Folder, "sender", last.Sender)
 	}
 	return true
