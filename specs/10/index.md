@@ -13,3 +13,4 @@ Pinned messages, CLI tools, dynamic channels, auth tunneling.
 - [6-dynamic-channels.md](6-dynamic-channels.md) `unshipped` — DB-backed channels, dashboard-managed creds
 - [7-auth-tunneling.md](7-auth-tunneling.md) `planned` — web-based credential capture
 - [8-cli-auth-helper.md](8-cli-auth-helper.md) `planned` — CLI auth dispatcher
+- [9-slink-typing.md](9-slink-typing.md) `planned` — typing indicator in slink web chat
