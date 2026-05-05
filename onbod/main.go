@@ -76,7 +76,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	stripUnsigned := auth.StripUnsigned(cfg.authSecret)
+	stripUnsigned := auth.StripUnsigned(os.Getenv("PROXYD_HMAC_SECRET"))
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
