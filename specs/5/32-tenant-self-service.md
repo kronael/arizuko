@@ -59,11 +59,21 @@ CREATE TABLE invites (
 );
 ```
 
+Two modes determined by `target_glob`:
+
+- **Trailing slash** (e.g. `atlas/`) — subgroup-create mode: recipient picks a
+  username, a new group `atlas/<username>` is created from `groups/atlas/prototype/`,
+  and the user is granted access to it.
+- **No trailing slash** (e.g. `atlas/support`) — join mode: user is granted
+  direct access to the existing group.
+
+`**` is a reserved folder name and is rejected as a target_glob.
+
 Lifecycle:
 
 1. Issuer (with grants on `target_glob`) calls `invite_create(target_glob, max_uses, expires_at)` → `token`
 2. Recipient visits `/invite/<token>` → OAuth login → token consumed
-3. On accept: `INSERT INTO user_groups (user_sub, glob)` — realized grant
+3. On accept: group created (subgroup-create) or grant issued (join) → `INSERT INTO user_groups`
 4. `used_count` increments; row stays for audit even after exhaustion
 
 ## Secrets
