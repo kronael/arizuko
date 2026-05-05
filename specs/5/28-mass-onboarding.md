@@ -185,11 +185,14 @@ user_groups rows, creates routes for all linked JIDs.
 
 ```
 ONBOARDING_ENABLED=true          # master switch; onbod exits if false
-ONBOARDING_PROTOTYPE=            # prototype dir to clone into new worlds
 ONBOARDING_GREETING=             # optional greeting prepended to token link
 ONBOARDING_GATES=                # comma-separated gate definitions (empty = no queue)
 AUTH_BASE_URL=                   # web base URL for constructing links
 ```
+
+Prototype files: place them in `groups/<parent>/prototype/` (for root-level
+worlds: `groups/prototype/`). onbod copies the prototype directory into the
+new world on creation. No env var needed.
 
 ## Pending features
 

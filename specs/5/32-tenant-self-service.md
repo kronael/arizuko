@@ -50,7 +50,7 @@ acceptance.
 ```sql
 CREATE TABLE invites (
   token         TEXT PRIMARY KEY,
-  target_glob   TEXT NOT NULL,         -- e.g. "atlas/**" or "atlas/support"
+  target_glob   TEXT NOT NULL,         -- e.g. "atlas/" (subgroup-create) or "atlas/support" (join)
   issued_by_sub TEXT NOT NULL,
   issued_at     DATETIME NOT NULL,
   expires_at    DATETIME,              -- nullable
