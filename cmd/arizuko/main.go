@@ -214,7 +214,7 @@ func cmdGroup(args []string) {
 	case "add":
 		need(args, 4, "arizuko group <instance> add <jid> <name> [folder]")
 		jid, name := args[2], args[3]
-		folder := name
+		folder := strings.ToLower(name)
 		if len(args) > 4 {
 			folder = args[4]
 		}
