@@ -100,3 +100,9 @@ Consolidated from per-group `issues.md` files across krons, sloth, marinade.
 - 2026-04-26 (telegram): Sync local skill/config changes back to canonical arizuko deployment — (1) `resolve/SKILL.md` (>5min = new task), (2) `CLAUDE.md` (resolve-on-followups). Source: `/workspace/self/ant/` or deployment config.
 - 2026-04-26 (telegram): Review and consolidate Knowledge Pipeline / fact-verification protocol duplication across system prompt, CLAUDE.md, and `/facts` skill. Decide canonical location for each protocol piece; whether to copy full Knowledge Pipeline to CLAUDE.md; whether to auto-load skills when directories are touched.
 - 2026-04-26 (telegram): Auto-load `/facts` skill when agent reads/lists/searches `facts/` directory. Verify whether gateway feature (auto-dispatch by path) or explicit resolve/dispatch logic is needed. Added reminder to `facts/CLAUDE.md`.
+
+## 2026-05-05
+
+- **Orphaned container on instance restart** (`gateway/gateway.go`): Container name was `arizuko-<folder>-<ts>` but `CleanupOrphans` looked for prefix `arizuko-<instance>-`. Prefix never matched → orphaned containers survived restarts → duplicate containers per group → racing turns → duplicate message delivery and cursor skip. **Fixed**: container name now `arizuko-<instance>-<folder>-<ts>`. Tests: `TestContainerNameIncludesInstance`.
+
+- **Cursor skip on orphaned-container race** (`gateway/gateway.go` + `store/messages.go`): Agent cursor is a high-water timestamp. When two containers raced (above bug) and the newer one processed a later "?" message, the cursor advanced past earlier unprocessed messages from before the crash, permanently losing them. Secondary symptom of the orphaned-container bug; fixed at root. Manual recovery: reset `chats.agent_cursor` to before the earliest lost message timestamp.
