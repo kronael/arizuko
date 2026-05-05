@@ -917,9 +917,9 @@ func (g *Gateway) runAgentWithOpts(
 	sanitized := container.SanitizeFolder(group.Folder)
 	var cname string
 	if taskID := strings.TrimPrefix(sender, "timed-isolated:"); taskID != sender {
-		cname = fmt.Sprintf("arizuko-%s-task-%s", sanitized, container.SanitizeFolder(taskID))
+		cname = fmt.Sprintf("arizuko-%s-%s-task-%s", g.cfg.Name, sanitized, container.SanitizeFolder(taskID))
 	} else {
-		cname = fmt.Sprintf("arizuko-%s-%d", sanitized, time.Now().UnixMilli())
+		cname = fmt.Sprintf("arizuko-%s-%s-%d", g.cfg.Name, sanitized, time.Now().UnixMilli())
 	}
 
 	var chanName string

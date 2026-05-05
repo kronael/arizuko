@@ -3,6 +3,7 @@ package gateway
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -213,6 +214,76 @@ func TestPollLoop_EmptyOutput(t *testing.T) {
 	cursor := s.GetAgentCursor(jid)
 	if cursor.IsZero() || cursor.Before(ts) {
 		t.Errorf("cursor = %v, want >= %v", cursor, ts)
+	}
+}
+
+// TestContainerNameIncludesInstance verifies that the container name passed to
+// the runner embeds the instance name (cfg.Name), so CleanupOrphans can match
+// it on restart with the "arizuko-<instance>-" prefix.
+func TestContainerNameIncludesInstance(t *testing.T) {
+	gw, s, _, runner := newGWWithFake(t)
+
+	jid := "tg:99"
+	grp := core.Group{Folder: "content", Name: "Content"}
+	s.PutGroup(grp)
+	s.AddRoute(core.Route{Seq: 0, Match: "room=99", Target: "content"})
+
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: jid, Sender: "user", Name: "User",
+		Content: "hello", Timestamp: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.pollOnce()
+	if _, err := gw.processGroupMessages(jid); err != nil {
+		t.Fatalf("processGroupMessages: %v", err)
+	}
+
+	ins := runner.inputs()
+	if len(ins) == 0 {
+		t.Fatal("runner was not called")
+	}
+	name := ins[0].Name
+	wantPrefix := "arizuko-" + gw.cfg.Name + "-"
+	if !strings.HasPrefix(name, wantPrefix) {
+		t.Errorf("container name %q does not start with %q — CleanupOrphans will miss it on restart", name, wantPrefix)
+	}
+}
+
+// TestCursorDoesNotSkipBatchOnSteeredMessages verifies that steered messages
+// (arriving while a container runs) do not advance the cursor past messages
+// that were part of the original batch. After a successful run the cursor
+// must be ≥ the latest message timestamp.
+func TestCursorDoesNotSkipBatchOnSteeredMessages(t *testing.T) {
+	gw, s, _, runner := newGWWithFake(t)
+	runner.StreamText = "ok"
+
+	jid := "tg:77"
+	grp := core.Group{Folder: "grp2", Name: "Grp2"}
+	s.PutGroup(grp)
+	s.AddRoute(core.Route{Seq: 0, Match: "room=77", Target: "grp2"})
+
+	t0 := time.Now().UTC()
+	t1 := t0.Add(time.Second)
+
+	for _, m := range []core.Message{
+		{ID: "a", ChatJID: jid, Sender: "user", Content: "first", Timestamp: t0},
+		{ID: "b", ChatJID: jid, Sender: "user", Content: "second", Timestamp: t1},
+	} {
+		if err := s.PutMessage(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	gw.pollOnce()
+	if _, err := gw.processGroupMessages(jid); err != nil {
+		t.Fatalf("processGroupMessages: %v", err)
+	}
+
+	cursor := s.GetAgentCursor(jid)
+	if cursor.Before(t1) {
+		t.Errorf("cursor %v is before latest message %v — earlier messages could be re-queued", cursor, t1)
 	}
 }
 
