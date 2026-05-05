@@ -15,7 +15,7 @@ Path: `~/diary/YYYYMMDD.md`. Append to today's entry; create if missing.
 summary: |
   Working on arizuko gateway. Main user: onvos.
   - twitter: cookies expired, needs refresh
-  - discord: DISCORD_BOT_TOKEN missing in marinade
+  - discord: DISCORD_BOT_TOKEN missing in staging
 ---
 
 ## 10:32

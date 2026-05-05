@@ -24,10 +24,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
-Fixes the outbox flooding pattern seen on marinade (atlas) and krons (rhias): a
-user blocking the bot caused teled to retry typing every 4s, Telegram dropped
-polling, adapter went unhealthy, outbox filled. Fix is in `chanlib.TypingRefresher`
-— `send` now returns bool; the per-JID loop stops on first false.
+Fixes the outbox flooding pattern seen in production: a user blocking the bot
+caused teled to retry typing every 4s, Telegram dropped polling, adapter went
+unhealthy, outbox filled. Fix is in `chanlib.TypingRefresher` — `send` now
+returns bool; the per-JID loop stops on first false.
 
 Also closes the silent-agent gap: gateway was marking `hadOutput=true` on any
 text, including think-only output that gets stripped before delivery. Now

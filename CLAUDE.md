@@ -236,7 +236,7 @@ land at once: `• Voice & media — send_voice + per-platform dispatch`.
 ## Deploy policy
 
 - **krons** is the test/deploy target. Always deploy here first.
-- **sloth** and **marinade** only on explicit user request.
+- Other instances only on explicit user request.
 - Docker requires `sudo`. `make image` / `make agent` will fail without it.
 
 ## "Nothing works" checklist
