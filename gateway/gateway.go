@@ -831,13 +831,14 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 		if text == "" {
 			return
 		}
-		hadOutput = true
 
 		stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
 		for _, s := range statuses {
+			hadOutput = true
 			putAndDeliver("⏳ "+s, "", "")
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
+			hadOutput = true
 			sentID := putAndDeliver(clean, replyTo, topic)
 			if sentID != "" {
 				replyTo = sentID
