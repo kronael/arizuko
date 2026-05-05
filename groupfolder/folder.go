@@ -17,6 +17,8 @@ type Resolver struct {
 	IpcDir    string
 }
 
+func IsValidFolder(folder string) bool { return isValidFolder(folder) }
+
 func isValidFolder(folder string) bool {
 	if folder == "" || folder != strings.TrimSpace(folder) {
 		return false

@@ -3,9 +3,12 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/groupfolder"
 )
 
 type Invite struct {
@@ -26,6 +29,15 @@ var ErrInviteUnavailable = errors.New("invite unavailable")
 func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (*Invite, error) {
 	if targetGlob == "" {
 		return nil, errors.New("target_glob required")
+	}
+	// Validate: strip trailing slash (subworld-create mode uses "parent/")
+	// before checking folder validity.
+	check := strings.TrimSuffix(targetGlob, "/")
+	if check == "" {
+		check = "/"
+	}
+	if check != "/" && !groupfolder.IsValidFolder(check) {
+		return nil, fmt.Errorf("invalid target_glob %q", targetGlob)
 	}
 	if issuedBySub == "" {
 		return nil, errors.New("issued_by_sub required")

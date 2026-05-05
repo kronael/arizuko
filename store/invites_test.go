@@ -12,14 +12,14 @@ func TestInviteCRUD(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	inv, err := s.CreateInvite("alice/**", "github:alice", 3, nil)
+	inv, err := s.CreateInvite("alice/", "github:alice", 3, nil)
 	if err != nil {
 		t.Fatalf("CreateInvite: %v", err)
 	}
 	if len(inv.Token) != 64 {
 		t.Errorf("token len = %d, want 64", len(inv.Token))
 	}
-	if inv.TargetGlob != "alice/**" || inv.IssuedBySub != "github:alice" || inv.MaxUses != 3 || inv.UsedCount != 0 {
+	if inv.TargetGlob != "alice/" || inv.IssuedBySub != "github:alice" || inv.MaxUses != 3 || inv.UsedCount != 0 {
 		t.Errorf("CreateInvite returned wrong values: %+v", inv)
 	}
 	if inv.IssuedAt.IsZero() {
@@ -30,7 +30,7 @@ func TestInviteCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInvite: %v", err)
 	}
-	if got.TargetGlob != "alice/**" || got.IssuedBySub != "github:alice" {
+	if got.TargetGlob != "alice/" || got.IssuedBySub != "github:alice" {
 		t.Errorf("GetInvite mismatch: %+v", got)
 	}
 

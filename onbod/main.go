@@ -42,7 +42,6 @@ type config struct {
 	listenAddr   string
 	gatedURL     string
 	pollInterval time.Duration
-	prototype    string
 	greeting     string
 	authBaseURL  string
 	secureCookie bool
@@ -141,8 +140,7 @@ func loadConfig() (config, error) {
 		authSecret:   coreCfg.AuthSecret,
 		authBaseURL:  coreCfg.AuthBaseURL,
 		secureCookie: strings.HasPrefix(coreCfg.AuthBaseURL, "https://"),
-		prototype:    os.Getenv("ONBOARDING_PROTOTYPE"),
-		greeting:     os.Getenv("ONBOARDING_GREETING"),
+greeting:     os.Getenv("ONBOARDING_GREETING"),
 		gatedURL:     chanlib.EnvOr("ROUTER_URL", "http://gated:8080"),
 		listenAddr:   chanlib.EnvOr("ONBOD_LISTEN_ADDR", ":8080"),
 		pollInterval: 10 * time.Second,
@@ -400,7 +398,14 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 	db.QueryRow(`SELECT COUNT(*) FROM user_groups WHERE user_sub = ?`, userSub).Scan(&groupCount)
 
 	if groupCount == 0 {
-		renderUsernamePicker(w, username)
+		// World creation requires a valid invite (pending_target cookie set
+		// during invite acceptance). Without one, reject — no open signup.
+		if c, err := r.Cookie("pending_target"); err == nil && c.Value != "" {
+			renderUsernamePicker(w, username)
+			return
+		}
+		renderPage(w, "Invite Required",
+			template.HTML(`<p>You need an invite link to join. Ask an admin for one.</p>`))
 		return
 	}
 
@@ -460,6 +465,24 @@ func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 var usernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{2,29}$`)
 
 func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, userSub string) {
+	// Require a pending_target cookie — world creation must come from an invite.
+	pendingTarget, _ := func() (string, error) {
+		c, err := r.Cookie("pending_target")
+		if err != nil {
+			return "", err
+		}
+		return c.Value, nil
+	}()
+	if pendingTarget == "" {
+		renderPage(w, "Invite Required",
+			template.HTML(`<p>You need an invite link to create a workspace.</p>`))
+		return
+	}
+
+	// Derive parent folder from the trailing-slash target.
+	// target="coach/" → parent="coach", target="/" → parent=""
+	parent := strings.TrimSuffix(pendingTarget, "/")
+
 	username := strings.TrimSpace(r.FormValue("username"))
 	if !usernameRe.MatchString(username) {
 		renderPage(w, "Invalid Username",
@@ -468,8 +491,13 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		return
 	}
 
+	folder := username
+	if parent != "" {
+		folder = parent + "/" + username
+	}
+
 	var exists int
-	db.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = ?`, username).Scan(&exists)
+	db.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = ?`, folder).Scan(&exists)
 	if exists > 0 {
 		renderPage(w, "Username Taken",
 			template.HTML("<p>That username is already in use.</p>"+
@@ -479,7 +507,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 
 	db.Exec(`UPDATE auth_users SET username = ? WHERE sub = ?`, username, userSub)
 
-	folder := username
 	coreCfg := cfg.core
 	if coreCfg == nil {
 		var err error
@@ -489,7 +516,14 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 			return
 		}
 	}
-	if err := container.SetupGroup(coreCfg, folder, cfg.prototype); err != nil {
+
+	// Prototype: groups/<parent>/prototype/ (or groups/prototype/ for root).
+	prototype := filepath.Join(coreCfg.GroupsDir, parent, "prototype")
+	if _, err := os.Stat(prototype); err != nil {
+		prototype = "" // no prototype dir — start bare
+	}
+
+	if err := container.SetupGroup(coreCfg, folder, prototype); err != nil {
 		slog.Error("create world: setup group", "folder", folder, "err", err)
 		renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
 		return
@@ -498,9 +532,17 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		slog.Warn("create world: seed default tasks", "folder", folder, "err", err)
 	}
 
+	// Clear the pending_target cookie — it's been consumed.
+	http.SetCookie(w, &http.Cookie{
+		Name: "pending_target", Value: "", Path: "/",
+		MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	parentSQL := sql.NullString{String: parent, Valid: parent != ""}
 	now := time.Now().Format(time.RFC3339)
-	db.Exec(`INSERT OR IGNORE INTO groups (folder, name, parent, added_at) VALUES (?, ?, NULL, ?)`,
-		folder, username, now)
+	db.Exec(`INSERT OR IGNORE INTO groups (folder, name, parent, added_at) VALUES (?, ?, ?, ?)`,
+		folder, username, parentSQL, now)
 	db.Exec(`INSERT OR IGNORE INTO user_groups (user_sub, folder) VALUES (?, ?)`,
 		userSub, folder)
 
@@ -518,7 +560,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 			"room="+core.JidRoom(jid), folder)
 	}
 
-	slog.Info("world created", "folder", folder, "user", userSub)
+	slog.Info("world created", "folder", folder, "parent", parent, "user", userSub)
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
@@ -737,6 +779,16 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 
 	slog.Info("invite accepted", "token_hash", chanlib.ShortHash(token),
 		"target_glob", target, "user", userSub)
+
+	// Subworld-create invite (trailing slash): carry the target through
+	// the redirect so handleDashboard can show the username picker.
+	if strings.HasSuffix(target, "/") || target == "/" {
+		http.SetCookie(w, &http.Cookie{
+			Name: "pending_target", Value: target, Path: "/",
+			MaxAge: 600, HttpOnly: true, Secure: cfg.secureCookie,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 

@@ -219,6 +219,7 @@ func TestDashboardShowsUsernamePicker(t *testing.T) {
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/onboard", nil)
 	req.Header.Set("X-User-Sub", "github:new")
+	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
 	handleOnboard(w, req, db, cfg)
 
@@ -243,6 +244,7 @@ func TestCreateWorldValidUsername(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:new")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
+	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, cfg)
 
@@ -455,6 +457,7 @@ func TestCreateWorldRoutesLinkedJIDs(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:new")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
+	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, cfg)
 
@@ -494,6 +497,7 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:lonely")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
+	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, cfg)
 
@@ -581,6 +585,7 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:op")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
+	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, cfg)
 

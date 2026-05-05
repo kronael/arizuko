@@ -187,6 +187,7 @@ func TestOnboardingFlow(t *testing.T) {
 	reqP.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	reqP.Header.Set("X-User-Sub", sub)
 	reqP.AddCookie(csrf)
+	reqP.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	respP, err := c.Do(reqP)
 	if err != nil {
 		t.Fatal(err)

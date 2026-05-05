@@ -763,7 +763,11 @@ func seedSettings(
 }
 
 func SetupGroup(cfg *core.Config, folder, prototype string) error {
-	groupDir := filepath.Join(cfg.GroupsDir, folder)
+	r := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
+	groupDir, err := r.GroupPath(folder)
+	if err != nil {
+		return fmt.Errorf("invalid group folder: %w", err)
+	}
 	if err := os.MkdirAll(groupDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir group: %w", err)
 	}
