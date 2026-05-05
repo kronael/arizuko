@@ -394,7 +394,8 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.URL.Path == "/onboard" || strings.HasPrefix(r.URL.Path, "/onboard/") {
+	if r.URL.Path == "/onboard" || strings.HasPrefix(r.URL.Path, "/onboard/") ||
+		strings.HasPrefix(r.URL.Path, "/invite/") {
 		if s.onbodProxy == nil {
 			http.NotFound(w, r)
 			return
