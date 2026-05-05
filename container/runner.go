@@ -28,8 +28,10 @@ import (
 )
 
 const (
-	maxOutputSize = 10 * 1024 * 1024 // 10MB
-	containerHome = "/home/node"
+	maxOutputSize             = 10 * 1024 * 1024 // 10MB
+	containerHome             = "/home/node"
+	containerGracePeriod      = 30 * time.Second
+	containerSoftDeadlineOffset = 2 * time.Minute
 )
 
 // execCommand is the hook used to spawn the docker CLI. Tests override it
@@ -291,7 +293,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	if in.Config.Timeout > 0 {
 		cfgTimeout = in.Config.Timeout
 	}
-	grace := cfg.IdleTimeout + 30*time.Second
+	grace := cfg.IdleTimeout + containerGracePeriod
 	if cfgTimeout < grace {
 		cfgTimeout = grace
 	}
@@ -324,8 +326,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	})
 
 	var softDeadline *time.Timer
-	if cfgTimeout > 2*time.Minute {
-		softDeadline = time.AfterFunc(cfgTimeout-2*time.Minute, func() {
+	if cfgTimeout > containerSoftDeadlineOffset {
+		softDeadline = time.AfterFunc(cfgTimeout-containerSoftDeadlineOffset, func() {
 			if timedOut.Load() {
 				return
 			}

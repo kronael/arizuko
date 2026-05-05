@@ -42,7 +42,7 @@ func newBot(cfg config) (*bot, error) {
 		discordgo.IntentsDirectMessageReactions
 	b := &bot{session: s, cfg: cfg}
 	b.lastInboundAt.Store(time.Now().Unix())
-	b.typing = chanlib.NewTypingRefresher(4*time.Second, 10*time.Minute, b.sendTyping, nil)
+	b.typing = chanlib.NewTypingRefresher(4*time.Second, chanlib.DefaultTypingMaxTTL, b.sendTyping, nil)
 	return b, nil
 }
 

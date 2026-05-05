@@ -23,6 +23,8 @@ import (
 
 var errIdleNotSupported = errors.New("IDLE not supported")
 
+const maxRetryBackoff = 60 * time.Second
+
 // attMeta holds attachment metadata recorded during MIME parsing.
 // No data bytes are stored -- the file proxy re-fetches from IMAP on demand.
 type attMeta struct {
@@ -117,7 +119,7 @@ func (p *poller) run(ctx context.Context, rc *chanlib.RouterClient) {
 			return
 		case <-time.After(backoff):
 		}
-		backoff = min(backoff*2, 60*time.Second)
+		backoff = min(backoff*2, maxRetryBackoff)
 	}
 }
 
@@ -221,7 +223,7 @@ func (p *poller) runPoll(ctx context.Context, rc *chanlib.RouterClient) {
 				return
 			case <-time.After(backoff):
 			}
-			backoff = min(backoff*2, 60*time.Second)
+			backoff = min(backoff*2, maxRetryBackoff)
 			continue
 		}
 		backoff = time.Second

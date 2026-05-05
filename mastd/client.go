@@ -16,6 +16,8 @@ import (
 	"github.com/onvos/arizuko/chanlib"
 )
 
+const mastodAPITimeout = 15 * time.Second
+
 type mastoClient struct {
 	chanlib.NoFileSender
 	chanlib.NoVoiceSender
@@ -229,7 +231,7 @@ func (mc *mastoClient) Send(req chanlib.SendRequest) (string, error) {
 	if req.ReplyTo != "" {
 		toot.InReplyToID = mastodon.ID(req.ReplyTo)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), mastodAPITimeout)
 	defer cancel()
 	st, err := mc.client.PostStatus(ctx, toot)
 	if err != nil {
@@ -245,7 +247,7 @@ func (mc *mastoClient) Post(req chanlib.PostRequest) (string, error) {
 	if len(req.MediaPaths) > 0 {
 		return "", fmt.Errorf("mastodon post: media upload not implemented")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), mastodAPITimeout)
 	defer cancel()
 	status, err := mc.client.PostStatus(ctx, &mastodon.Toot{Status: req.Content})
 	if err != nil {
@@ -256,7 +258,7 @@ func (mc *mastoClient) Post(req chanlib.PostRequest) (string, error) {
 }
 
 func (mc *mastoClient) Like(req chanlib.LikeRequest) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), mastodAPITimeout)
 	defer cancel()
 	if _, err := mc.client.Favourite(ctx, mastodon.ID(req.TargetID)); err != nil {
 		return fmt.Errorf("mastodon favourite: %w", err)
@@ -265,7 +267,7 @@ func (mc *mastoClient) Like(req chanlib.LikeRequest) error {
 }
 
 func (mc *mastoClient) Delete(req chanlib.DeleteRequest) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), mastodAPITimeout)
 	defer cancel()
 	if err := mc.client.DeleteStatus(ctx, mastodon.ID(req.TargetID)); err != nil {
 		return fmt.Errorf("mastodon delete: %w", err)
@@ -284,7 +286,7 @@ func (mc *mastoClient) Quote(chanlib.QuoteRequest) (string, error) {
 }
 
 func (mc *mastoClient) Repost(req chanlib.RepostRequest) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), mastodAPITimeout)
 	defer cancel()
 	st, err := mc.client.Reblog(ctx, mastodon.ID(req.SourceMsgID))
 	if err != nil {
@@ -302,7 +304,7 @@ func (mc *mastoClient) Dislike(chanlib.DislikeRequest) error {
 }
 
 func (mc *mastoClient) Edit(req chanlib.EditRequest) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), mastodAPITimeout)
 	defer cancel()
 	toot := &mastodon.Toot{Status: req.Content}
 	if _, err := mc.client.UpdateStatus(ctx, toot, mastodon.ID(req.TargetID)); err != nil {

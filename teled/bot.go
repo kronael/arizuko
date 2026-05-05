@@ -49,7 +49,7 @@ func newBot(cfg config) (*bot, error) {
 	b := &bot{api: api, cfg: cfg, done: make(chan struct{})}
 	b.connected.Store(true)
 	b.lastInboundAt.Store(time.Now().Unix())
-	b.typing = chanlib.NewTypingRefresher(5*time.Second, 10*time.Minute, b.sendTyping, nil)
+	b.typing = chanlib.NewTypingRefresher(5*time.Second, chanlib.DefaultTypingMaxTTL, b.sendTyping, nil)
 	if cfg.AssistantName != "" {
 		b.mentionRe = regexp.MustCompile(
 			fmt.Sprintf(`(?i)^@%s\b`, regexp.QuoteMeta(cfg.AssistantName)))
