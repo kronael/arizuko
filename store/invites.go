@@ -160,11 +160,15 @@ func (s *Store) ConsumeInvite(token, userSub string) (*Invite, error) {
 		}
 		return nil, err
 	}
-	if _, err := tx.Exec(
-		`INSERT OR IGNORE INTO user_groups (user_sub, folder, granted_at)
-		 VALUES (?, ?, datetime('now'))`,
-		userSub, inv.TargetGlob); err != nil {
-		return nil, err
+	// Subgroup-create invites (trailing slash) do not grant folder access yet —
+	// the user_groups row is added after username selection in handleCreateWorld.
+	if !strings.HasSuffix(inv.TargetGlob, "/") {
+		if _, err := tx.Exec(
+			`INSERT OR IGNORE INTO user_groups (user_sub, folder, granted_at)
+			 VALUES (?, ?, datetime('now'))`,
+			userSub, inv.TargetGlob); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err

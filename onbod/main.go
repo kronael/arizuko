@@ -760,20 +760,24 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 	}
 
 	target := consumed.TargetGlob
-	if rows, err := db.Query(
-		`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub,
-	); err == nil {
-		var jids []string
-		for rows.Next() {
-			var jid string
-			rows.Scan(&jid)
-			jids = append(jids, jid)
-		}
-		rows.Close()
-		for _, jid := range jids {
-			db.Exec(
-				`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
-				"room="+core.JidRoom(jid), target)
+	// Subgroup-create invites (trailing slash): routes are added after
+	// username selection; don't wire them here with a bogus folder name.
+	if !strings.HasSuffix(target, "/") {
+		if rows, err := db.Query(
+			`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub,
+		); err == nil {
+			var jids []string
+			for rows.Next() {
+				var jid string
+				rows.Scan(&jid)
+				jids = append(jids, jid)
+			}
+			rows.Close()
+			for _, jid := range jids {
+				db.Exec(
+					`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
+					"room="+core.JidRoom(jid), target)
+			}
 		}
 	}
 
