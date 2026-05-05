@@ -14,6 +14,39 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.13] — 2026-05-05
+
+> arizuko v0.33.13 — 05 May 2026
+>
+> • Typing indicator stops on Telegram 403 (blocked user) — no more polling drop → outbox flood → adapter unhealthy loop
+> • Agent think-only output fixed — `<think>`-only turns no longer counted as delivered; logged INFO not WARN
+> • Agent CLAUDE.md — think blocks always closed; steered messages follow same response rules as regular inbound
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+Fixes the outbox flooding pattern seen on marinade (atlas) and krons (rhias): a
+user blocking the bot caused teled to retry typing every 4s, Telegram dropped
+polling, adapter went unhealthy, outbox filled. Fix is in `chanlib.TypingRefresher`
+— `send` now returns bool; the per-JID loop stops on first false.
+
+Also closes the silent-agent gap: gateway was marking `hadOutput=true` on any
+text, including think-only output that gets stripped before delivery. Now
+`hadOutput` is set only after stripping. Agents are also fixed at the CLAUDE.md
+level — the bogus unclosed-`<think>`-for-silence instruction is replaced with
+correct closed-block behavior.
+
+### Fixed
+
+- **`chanlib/typing.go`** — `TypingRefresher.send` signature changed from
+  `func(string)` to `func(string) bool`; loop exits on `false`.
+- **`teled/bot.go`** — typing interval 4s → 10s; `sendTyping` returns `false`
+  on any Telegram error (403, network, etc.); loop stops immediately.
+- **`discd/bot.go`** — same `sendTyping` bool return pattern.
+- **`gateway/gateway.go`** — `hadOutput` set after stripping think/status
+  blocks, not before. Agent-silent log downgraded WARN → INFO.
+- **`ant/CLAUDE.md`** — `# When to respond` rewritten: closed `<think>` blocks
+  only for silence; steered messages follow same response rules; half the length.
+
 ## [v0.33.12] — 2026-05-03
 
 > arizuko v0.33.12 — 03 May 2026
