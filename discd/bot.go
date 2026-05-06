@@ -107,6 +107,13 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	// secrets stay closed by default.
 	isGroup := !(err == nil && ch.Type == discordgo.ChannelTypeDM)
 
+	// In guild channels, only forward when the bot is explicitly @mentioned
+	// or the message is a direct reply to one of the bot's messages.
+	// DMs always go through — m.Mentions is the Discord-authoritative list.
+	if isGroup && !b.isMentioned(m) {
+		return
+	}
+
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:          m.ID,
 		ChatJID:     jid,
@@ -463,6 +470,21 @@ func isRateLimit(err error) bool {
 	}
 	es := strings.ToLower(err.Error())
 	return strings.Contains(es, "429") || strings.Contains(es, "rate limit")
+}
+
+// isMentioned returns true when the bot is in the Discord-populated Mentions
+// list or when the message is a direct reply to one of the bot's messages.
+func (b *bot) isMentioned(m *discordgo.MessageCreate) bool {
+	botID := b.session.State.User.ID
+	for _, u := range m.Mentions {
+		if u != nil && u.ID == botID {
+			return true
+		}
+	}
+	if m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil {
+		return m.ReferencedMessage.Author.ID == botID
+	}
+	return false
 }
 
 func replaceMentions(content, assistantName string, user *discordgo.User) string {
