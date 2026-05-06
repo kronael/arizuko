@@ -17,11 +17,24 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/onvos/arizuko/compose"
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
 	"github.com/onvos/arizuko/store"
 )
+
+type productManifest struct {
+	Name    string   `toml:"name"`
+	Brand   string   `toml:"brand"`
+	Tagline string   `toml:"tagline"`
+	Skills  []string `toml:"skills"`
+	Env     []struct {
+		Key      string `toml:"key"`
+		Required bool   `toml:"required"`
+		Hint     string `toml:"hint"`
+	} `toml:"env"`
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -191,12 +204,27 @@ func cmdCreate(args []string) {
 		die("Failed: load config: %v", err)
 	}
 	var productDir string
+	var manifest *productManifest
 	if *product != "" {
 		productDir = filepath.Join(cfg.HostAppDir, "ant", "examples", *product)
-		if _, err := os.Stat(filepath.Join(productDir, "PRODUCT.md")); err != nil {
+		manifestPath := filepath.Join(productDir, "PRODUCT.md")
+		if _, err := os.Stat(manifestPath); err != nil {
+			entries, _ := os.ReadDir(filepath.Join(cfg.HostAppDir, "ant", "examples"))
+			var known []string
+			for _, e := range entries {
+				if e.IsDir() {
+					known = append(known, e.Name())
+				}
+			}
 			s.Close()
-			die("Failed: unknown product %q (no PRODUCT.md at %s)", *product, productDir)
+			die("Failed: unknown product %q — known: %s", *product, strings.Join(known, ", "))
 		}
+		var m productManifest
+		if _, err := toml.DecodeFile(manifestPath, &m); err != nil {
+			s.Close()
+			die("Failed: parse PRODUCT.md: %v", err)
+		}
+		manifest = &m
 	}
 	if err := container.SetupGroup(cfg, "main", productDir); err != nil {
 		slog.Warn("failed to setup group dir", "folder", "main", "err", err)
@@ -206,6 +234,24 @@ func cmdCreate(args []string) {
 	}
 	s.Close()
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
+	if manifest != nil {
+		fmt.Println()
+		if len(manifest.Env) > 0 {
+			fmt.Printf("env — set in %s/.env:\n", dataDir)
+			for _, e := range manifest.Env {
+				req := "optional"
+				if e.Required {
+					req = "required"
+				}
+				fmt.Printf("  %-28s (%s) %s\n", e.Key, req, e.Hint)
+			}
+			fmt.Println()
+		}
+		if len(manifest.Skills) > 0 {
+			fmt.Printf("skills: %s\n", strings.Join(manifest.Skills, ", "))
+		}
+		fmt.Printf("\nnext: populate %s/groups/main/facts/ then: arizuko run %s\n", dataDir, name)
+	}
 }
 
 func cmdGroup(args []string) {
