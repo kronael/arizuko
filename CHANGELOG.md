@@ -14,6 +14,39 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.14] — 2026-05-06
+
+> arizuko v0.33.14 — 06 May 2026
+>
+> • Products (`--product`) — `arizuko create <name> --product support` seeds group from atlas template
+> • Discord mention-only — guild @mentions trigger replies; ambient traffic is context-only
+> • Invite subgroups — invite link can create a new subgroup at any depth, not just join
+> • Groups get a `product` column — queryable from dashd and CLI
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- `arizuko create --product <name>` — seeds new group from `ant/examples/<name>/` template
+- 8 product templates: personal, support, trip, strategy, pm, reality, creator, socials
+- `groups.product` DB column (migration 0044); stored on create
+- Discord guild mention-only: `verb=mention` for @mentions, `verb=observe` (weight 0) for ambient messages
+- `group add discord:*/*` auto-sets impulse_config to suppress non-mention replies
+- Invite-gated subgroup creation at any depth: trailing-slash `target_glob` creates new group on claim
+- `pending_target` cookie carries parent folder through OAuth → username picker → group setup
+
+### Changed
+
+- `group add` CLI now lowercases folder name by default (was raw name, caused `Coach` vs `coach` bug)
+- Typing refresh interval halved: teled 10s→5s, discd 8s→4s
+- Timing constants extracted to named package consts (gateway)
+
+### Fixed
+
+- proxyd: `/invite/` paths were falling through to `/pub` catch-all redirect
+- ConsumeInvite: no longer inserts `user_groups` row for trailing-slash (subgroup-create) targets
+- Container orphan cleanup: instance name included in container name for reliable matching
+
 ## [v0.33.13] — 2026-05-05
 
 > arizuko v0.33.13 — 05 May 2026
