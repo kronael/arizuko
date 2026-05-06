@@ -233,7 +233,17 @@ func cmdGroup(args []string) {
 		if err := s.PutGroup(core.Group{Name: name, Folder: folder, AddedAt: time.Now()}); err != nil {
 			die("Failed: add group: %v", err)
 		}
-		if _, err := s.AddRoute(core.Route{Seq: 0, Match: "room=" + core.JidRoom(jid), Target: folder}); err != nil {
+		// Discord guild channels (not DMs) default to mention-only: non-mention
+		// messages have verb=message with impulse weight 0, so they accumulate
+		// as context without triggering the agent. Only verb=mention fires.
+		impulse := ""
+		if strings.HasPrefix(jid, "discord:") && !strings.HasPrefix(jid, "discord:dm/") {
+			impulse = `{"weights":{"message":0}}`
+		}
+		if _, err := s.AddRoute(core.Route{
+			Seq: 0, Match: "room=" + core.JidRoom(jid), Target: folder,
+			ImpulseConfig: impulse,
+		}); err != nil {
 			die("Failed: add route: %v", err)
 		}
 		fmt.Printf("added group %s (%s) -> %s\n", name, jid, folder)
