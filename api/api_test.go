@@ -231,7 +231,7 @@ func TestListChannels(t *testing.T) {
 	h := srv.Handler()
 
 	reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
-	reg.Register("dc", "http://dc:9002", []string{"dc:"}, nil)
+	reg.Register("discord", "http://discord:9002", []string{"discord:"}, nil)
 
 	w := getJSON(h, "/v1/channels", "test-secret")
 	if w.Code != 200 {

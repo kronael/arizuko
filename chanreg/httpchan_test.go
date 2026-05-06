@@ -24,8 +24,8 @@ func TestHTTPChannelOwns(t *testing.T) {
 	if !ch.Owns("telegram:456") {
 		t.Error("expected to own telegram:456")
 	}
-	if ch.Owns("dc:123") {
-		t.Error("should not own dc:123")
+	if ch.Owns("discord:123") {
+		t.Error("should not own discord:123")
 	}
 }
 

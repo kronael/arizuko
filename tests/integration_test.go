@@ -238,15 +238,15 @@ func TestMultipleChannels(t *testing.T) {
 
 	// Register two channels
 	token1 := registerChannelWithName(t, h, "secret", "http://tg:9001", "telegram", []string{"tg:"})
-	token2 := registerChannelWithName(t, h, "secret", "http://dc:9002", "discord", []string{"dc:"})
+	token2 := registerChannelWithName(t, h, "secret", "http://discord:9002", "discord", []string{"discord:"})
 
 	// Deliver to each
 	deliverMessage(t, h, token1, "tg:100", "tg:user1", "Alice", "hi from telegram")
-	deliverMessage(t, h, token2, "dc:200", "dc:user2", "Bob", "hi from discord")
+	deliverMessage(t, h, token2, "discord:200", "discord:user2", "Bob", "hi from discord")
 
 	// Check stored correctly
 	tgMsgs, _, _ := s.NewMessages([]string{"tg:100"}, time.Time{}, "bot")
-	dcMsgs, _, _ := s.NewMessages([]string{"dc:200"}, time.Time{}, "bot")
+	dcMsgs, _, _ := s.NewMessages([]string{"discord:200"}, time.Time{}, "bot")
 
 	if len(tgMsgs) != 1 || tgMsgs[0].Content != "hi from telegram" {
 		t.Errorf("telegram messages: %v", tgMsgs)

@@ -245,7 +245,7 @@ func TestTypedJidsMigration(t *testing.T) {
 	}
 	var matchDc string
 	if err := s.db.QueryRow(`SELECT match FROM routes WHERE target='discord/folder'`).Scan(&matchDc); err != nil {
-		t.Errorf("route match dc: %v", err)
+		t.Errorf("route match discord: %v", err)
 	}
 	if matchDc != "chat_jid=discord:*/*" {
 		t.Errorf("route match = %q, want chat_jid=discord:*/*", matchDc)

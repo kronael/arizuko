@@ -101,7 +101,7 @@ func TestHealthFails(t *testing.T) {
 func TestAll(t *testing.T) {
 	r := New("s")
 	r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
-	r.Register("dc", "http://dc:9002", []string{"dc:"}, nil)
+	r.Register("discord", "http://discord:9002", []string{"discord:"}, nil)
 
 	all := r.All()
 	if len(all) != 2 {
