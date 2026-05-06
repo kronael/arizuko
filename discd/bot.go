@@ -107,13 +107,13 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	// secrets stay closed by default.
 	isGroup := !(err == nil && ch.Type == discordgo.ChannelTypeDM)
 
-	// Guild messages from non-mentioned users get verb "observe" (impulse weight 0
-	// by default) — stored for context but don't trigger the agent. A @mention
-	// uses the default "message" verb (weight 100) and fires immediately.
-	// DMs always use "message". Override per-JID via route impulse_config.
+	// Guild @mentions use verb "mention"; other guild messages use the default
+	// "message" verb. Per-JID route impulse_config controls which verbs fire
+	// the agent (e.g. {"weights":{"message":0}} = mention-only channel).
+	// DMs always use "message".
 	verb := ""
-	if isGroup && !b.isMentioned(m) {
-		verb = "observe"
+	if isGroup && b.isMentioned(m) {
+		verb = "mention"
 	}
 
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
