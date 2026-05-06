@@ -25,11 +25,8 @@ import (
 )
 
 type productManifest struct {
-	Name    string   `toml:"name"`
-	Brand   string   `toml:"brand"`
-	Tagline string   `toml:"tagline"`
-	Skills  []string `toml:"skills"`
-	Env     []struct {
+	Skills []string `toml:"skills"`
+	Env    []struct {
 		Key      string `toml:"key"`
 		Required bool   `toml:"required"`
 		Hint     string `toml:"hint"`

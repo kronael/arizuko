@@ -180,9 +180,9 @@ func (s *Store) DefaultFolderForJID(jid string) string {
 func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string
-	var cfgJSON, slinkToken, parent, product *string
+	var cfgJSON, slinkToken, parent *string
 
-	if err := r.Scan(&g.Folder, &g.Name, &addedAt, &cfgJSON, &slinkToken, &parent, &product); err != nil {
+	if err := r.Scan(&g.Folder, &g.Name, &addedAt, &cfgJSON, &slinkToken, &parent, &g.Product); err != nil {
 		return g, false
 	}
 
@@ -192,11 +192,6 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	}
 	if parent != nil {
 		g.Parent = *parent
-	}
-	if product != nil && *product != "" {
-		g.Product = *product
-	} else {
-		g.Product = "assistant"
 	}
 	if cfgJSON != nil {
 		json.Unmarshal([]byte(*cfgJSON), &g.Config)
