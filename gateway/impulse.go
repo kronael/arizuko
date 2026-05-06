@@ -45,9 +45,10 @@ func defaultImpulseCfg() ImpulseCfg {
 	return ImpulseCfg{
 		Threshold: 100,
 		Weights: map[string]int{
-			"join":   0,
-			"edit":   0,
-			"delete": 0,
+			"observe": 0,
+			"join":    0,
+			"edit":    0,
+			"delete":  0,
 		},
 		MaxHold: 5 * time.Minute,
 	}

@@ -107,11 +107,13 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	// secrets stay closed by default.
 	isGroup := !(err == nil && ch.Type == discordgo.ChannelTypeDM)
 
-	// In guild channels, only forward when the bot is explicitly @mentioned
-	// or the message is a direct reply to one of the bot's messages.
-	// DMs always go through — m.Mentions is the Discord-authoritative list.
+	// Guild messages from non-mentioned users get verb "observe" (impulse weight 0
+	// by default) — stored for context but don't trigger the agent. A @mention
+	// uses the default "message" verb (weight 100) and fires immediately.
+	// DMs always use "message". Override per-JID via route impulse_config.
+	verb := ""
 	if isGroup && !b.isMentioned(m) {
-		return
+		verb = "observe"
 	}
 
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
@@ -120,6 +122,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		Sender:      "discord:user/" + m.Author.ID,
 		SenderName:  m.Author.Username,
 		Content:     content,
+		Verb:        verb,
 		Timestamp:   m.Timestamp.Unix(),
 		Topic:       topic,
 		Attachments: atts,
