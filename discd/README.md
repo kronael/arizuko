@@ -69,6 +69,24 @@ outage.
 - `bot.go` — websocket event loop, send helpers
 - `server.go` — adapter handlers
 
+## Message routing
+
+Guild channels (`discord:<guild>/<channel>`) use verb `mention` when the bot
+is @mentioned (checked via `m.Mentions` or `m.ReferencedMessage.Author`). All
+other guild messages use verb `message`.
+
+DMs (`discord:dm/<channel>`) always use verb `message`.
+
+When `group add` registers a guild JID, it sets the route's `ImpulseConfig`
+to `{"weights":{"message":0}}`. Non-mention messages accumulate as context
+but never fire the agent; only `mention` (weight 100, the default) fires.
+
+To change a guild channel to fire on every message:
+
+```bash
+# via gateway route update — set impulse_config to {}
+```
+
 ## Related docs
 
 - `specs/4/1-channel-protocol.md`

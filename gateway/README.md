@@ -29,6 +29,17 @@ shadow-routing setups where the agent should keep producing turns
 without spamming the platform. Tests assert the invariant
 (`gateway_test.go::TestMakeOutputCallback_MutedGroup`).
 
+## Impulse gate
+
+`impulse.go` batches messages per JID and fires when accumulated weight reaches
+the threshold (default 100). Each message contributes `weightFor(cfg, verb)` —
+default 100 for any verb not listed in the route's `ImpulseConfig.Weights`.
+
+Setting `{"weights":{"message":0}}` on a route makes non-mention guild messages
+accumulate as context without firing. `mention` (not overridden) retains the
+default weight of 100 and fires immediately. This is the automatic default for
+Discord guild channels registered via `group add`.
+
 ## Public API
 
 - `New(cfg *core.Config, s *store.Store) *Gateway`
