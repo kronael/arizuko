@@ -21,6 +21,7 @@ import (
 	"github.com/onvos/arizuko/compose"
 	"github.com/onvos/arizuko/container"
 	"github.com/onvos/arizuko/core"
+	"github.com/onvos/arizuko/groupfolder"
 	"github.com/onvos/arizuko/store"
 )
 
@@ -271,6 +272,9 @@ func cmdGroup(args []string) {
 		folder := strings.ToLower(name)
 		if len(args) > 4 {
 			folder = args[4]
+		}
+		if !groupfolder.IsValidFolder(folder) {
+			die("Failed: invalid folder %q", folder)
 		}
 
 		cfg, err := core.LoadConfigFrom(dataDir)
