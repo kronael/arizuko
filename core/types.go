@@ -48,6 +48,7 @@ type Group struct {
 	Config     GroupConfig
 	SlinkToken string
 	Parent     string
+	Product    string
 }
 
 type GroupConfig struct {

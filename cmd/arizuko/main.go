@@ -144,8 +144,14 @@ func instanceDir(name string) (string, error) {
 }
 
 func cmdCreate(args []string) {
-	need(args, 1, "arizuko create <name>")
-	name, err := core.SanitizeInstance(args[0])
+	fs := flag.NewFlagSet("create", flag.ExitOnError)
+	product := fs.String("product", "", "product template (personal|support|trip|strategy|pm|reality|creator|socials)")
+	fs.Parse(args)
+	if fs.NArg() < 1 {
+		fmt.Println("usage: arizuko create <name> [--product <name>]")
+		os.Exit(1)
+	}
+	name, err := core.SanitizeInstance(fs.Arg(0))
 	if err != nil {
 		die("Failed: %v", err)
 	}
@@ -174,7 +180,7 @@ func cmdCreate(args []string) {
 	if err != nil {
 		die("Failed: open db: %v", err)
 	}
-	if err := s.PutGroup(core.Group{Name: name, Folder: "main", AddedAt: time.Now()}); err != nil {
+	if err := s.PutGroup(core.Group{Name: name, Folder: "main", AddedAt: time.Now(), Product: *product}); err != nil {
 		s.Close()
 		die("Failed: add default group: %v", err)
 	}
@@ -184,7 +190,15 @@ func cmdCreate(args []string) {
 		s.Close()
 		die("Failed: load config: %v", err)
 	}
-	if err := container.SetupGroup(cfg, "main", ""); err != nil {
+	var productDir string
+	if *product != "" {
+		productDir = filepath.Join(cfg.HostAppDir, "ant", "examples", *product)
+		if _, err := os.Stat(filepath.Join(productDir, "PRODUCT.md")); err != nil {
+			s.Close()
+			die("Failed: unknown product %q (no PRODUCT.md at %s)", *product, productDir)
+		}
+	}
+	if err := container.SetupGroup(cfg, "main", productDir); err != nil {
 		slog.Warn("failed to setup group dir", "folder", "main", "err", err)
 	}
 	if err := s.SeedDefaultTasks("main", "main"); err != nil {

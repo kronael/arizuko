@@ -23,20 +23,25 @@ func (s *Store) PutGroup(g core.Group) error {
 	}
 	cfgJSON, _ := json.Marshal(g.Config)
 
+	product := g.Product
+	if product == "" {
+		product = "assistant"
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO groups
-		 (folder, name, added_at, container_config, slink_token, parent, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		 (folder, name, added_at, container_config, slink_token, parent, product, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(folder) DO UPDATE SET
 		   name=excluded.name,
 		   container_config=excluded.container_config,
 		   slink_token=excluded.slink_token,
 		   parent=excluded.parent,
+		   product=excluded.product,
 		   updated_at=excluded.updated_at`,
 		g.Folder, g.Name,
 		g.AddedAt.Format(time.RFC3339),
 		string(cfgJSON), g.SlinkToken,
-		g.Parent,
+		g.Parent, product,
 		time.Now().Format(time.RFC3339),
 	)
 	return err
@@ -47,7 +52,7 @@ func (s *Store) DeleteGroup(folder string) error {
 	return err
 }
 
-const groupCols = `folder, name, added_at, container_config, slink_token, parent`
+const groupCols = `folder, name, added_at, container_config, slink_token, parent, product`
 
 func (s *Store) AllGroups() map[string]core.Group {
 	rows, err := s.db.Query(`SELECT ` + groupCols + ` FROM groups`)
@@ -175,9 +180,9 @@ func (s *Store) DefaultFolderForJID(jid string) string {
 func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string
-	var cfgJSON, slinkToken, parent *string
+	var cfgJSON, slinkToken, parent, product *string
 
-	if err := r.Scan(&g.Folder, &g.Name, &addedAt, &cfgJSON, &slinkToken, &parent); err != nil {
+	if err := r.Scan(&g.Folder, &g.Name, &addedAt, &cfgJSON, &slinkToken, &parent, &product); err != nil {
 		return g, false
 	}
 
@@ -187,6 +192,11 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	}
 	if parent != nil {
 		g.Parent = *parent
+	}
+	if product != nil && *product != "" {
+		g.Product = *product
+	} else {
+		g.Product = "assistant"
 	}
 	if cfgJSON != nil {
 		json.Unmarshal([]byte(*cfgJSON), &g.Config)

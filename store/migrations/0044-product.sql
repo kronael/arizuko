@@ -1,0 +1,1 @@
+ALTER TABLE groups ADD COLUMN product TEXT NOT NULL DEFAULT 'assistant';
