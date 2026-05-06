@@ -167,6 +167,33 @@ func cmdCreate(args []string) {
 	}
 	dataDir := mustInstanceDir(name)
 
+	cfg, err := core.LoadConfigFrom(dataDir)
+	if err != nil {
+		die("Failed: load config: %v", err)
+	}
+
+	var productDir string
+	var manifest *productManifest
+	if *product != "" {
+		productDir = filepath.Join(cfg.HostAppDir, "ant", "examples", *product)
+		manifestPath := filepath.Join(productDir, "PRODUCT.md")
+		if _, err := os.Stat(manifestPath); err != nil {
+			entries, _ := os.ReadDir(filepath.Join(cfg.HostAppDir, "ant", "examples"))
+			var known []string
+			for _, e := range entries {
+				if e.IsDir() {
+					known = append(known, e.Name())
+				}
+			}
+			die("Failed: unknown product %q — known: %s", *product, strings.Join(known, ", "))
+		}
+		var m productManifest
+		if _, err := toml.DecodeFile(manifestPath, &m); err != nil {
+			die("Failed: parse PRODUCT.md: %v", err)
+		}
+		manifest = &m
+	}
+
 	if err := os.MkdirAll(filepath.Join(dataDir, "services"), 0o755); err != nil {
 		die("Failed: mkdir services: %v", err)
 	}
@@ -190,38 +217,9 @@ func cmdCreate(args []string) {
 	if err != nil {
 		die("Failed: open db: %v", err)
 	}
+	defer s.Close()
 	if err := s.PutGroup(core.Group{Name: name, Folder: "main", AddedAt: time.Now(), Product: *product}); err != nil {
-		s.Close()
 		die("Failed: add default group: %v", err)
-	}
-
-	cfg, err := core.LoadConfigFrom(dataDir)
-	if err != nil {
-		s.Close()
-		die("Failed: load config: %v", err)
-	}
-	var productDir string
-	var manifest *productManifest
-	if *product != "" {
-		productDir = filepath.Join(cfg.HostAppDir, "ant", "examples", *product)
-		manifestPath := filepath.Join(productDir, "PRODUCT.md")
-		if _, err := os.Stat(manifestPath); err != nil {
-			entries, _ := os.ReadDir(filepath.Join(cfg.HostAppDir, "ant", "examples"))
-			var known []string
-			for _, e := range entries {
-				if e.IsDir() {
-					known = append(known, e.Name())
-				}
-			}
-			s.Close()
-			die("Failed: unknown product %q — known: %s", *product, strings.Join(known, ", "))
-		}
-		var m productManifest
-		if _, err := toml.DecodeFile(manifestPath, &m); err != nil {
-			s.Close()
-			die("Failed: parse PRODUCT.md: %v", err)
-		}
-		manifest = &m
 	}
 	if err := container.SetupGroup(cfg, "main", productDir); err != nil {
 		slog.Warn("failed to setup group dir", "folder", "main", "err", err)
@@ -229,7 +227,6 @@ func cmdCreate(args []string) {
 	if err := s.SeedDefaultTasks("main", "main"); err != nil {
 		slog.Warn("failed to seed default tasks", "folder", "main", "err", err)
 	}
-	s.Close()
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
 	if manifest != nil {
 		fmt.Println()

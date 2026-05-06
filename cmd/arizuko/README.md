@@ -12,7 +12,7 @@ beyond `docker` for `run` and `pair`).
 
 - Binary: `cmd/arizuko/main.go` → `./arizuko`
 - Commands:
-  - `arizuko create <name>` — seed data dir from `template/env.example`
+  - `arizuko create <name> [--product <product>]` — seed data dir from `template/env.example`; `--product` copies skills and facts from `ant/examples/<product>/` and prints the env checklist
   - `arizuko generate <instance>` — write `docker-compose.yml`
   - `arizuko run <instance>` — generate + `docker compose up`
   - `arizuko status <instance>` — show compose services + channels

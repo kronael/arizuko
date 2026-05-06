@@ -41,6 +41,8 @@ const (
 	MessageStatusFailed  = "failed"
 )
 
+const DefaultProduct = "assistant"
+
 type Group struct {
 	Name       string
 	Folder     string

@@ -25,7 +25,7 @@ func (s *Store) PutGroup(g core.Group) error {
 
 	product := g.Product
 	if product == "" {
-		product = "assistant"
+		product = core.DefaultProduct
 	}
 	_, err := s.db.Exec(
 		`INSERT INTO groups
