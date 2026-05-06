@@ -41,11 +41,14 @@ operator runbook + the philosophy.
 ## Build & Test
 
 ```bash
-make build    # go build → ./arizuko + all daemon binaries
-make lint     # go vet ./...
-make test     # go test ./... -count=1
-make images   # all docker images (router + adapters + agent)
-make agent    # agent docker image (make -C ant image)
+make build             # go build → ./arizuko + all daemon binaries
+make lint              # go vet ./...
+make test              # go test ./... -count=1 -short (fast, skips long tests)
+make test-e2e          # end-to-end tests via webd slink surface (≤5 min); run before tagging
+make smoke             # post-deploy health check on krons (default SMOKE_INSTANCE=krons)
+make smoke SMOKE_INSTANCE=foo  # target a different instance
+make images            # all docker images (router + adapters + agent)
+make agent             # agent docker image (make -C ant image)
 
 # Run a single test package
 go test ./gateway/... -count=1 -run TestName
