@@ -113,6 +113,18 @@ type StoreFns struct {
 	RecentSessions      func(folder string, n int) []core.SessionRecord
 	GetSession          func(folder, topic string) (string, bool)
 	GetIdentityForSub   func(sub string) (Identity, []string, bool)
+	SetWebRoute         func(pathPrefix, access, redirectTo, folder string) error
+	DelWebRoute         func(pathPrefix string) error
+	ListWebRoutes       func(folder string) []WebRoute
+}
+
+// WebRoute mirrors store.WebRoute for the ipc layer.
+type WebRoute struct {
+	PathPrefix string `json:"path_prefix"`
+	Access     string `json:"access"`
+	RedirectTo string `json:"redirect_to,omitempty"`
+	Folder     string `json:"folder"`
+	CreatedAt  string `json:"created_at"`
 }
 
 // Identity mirrors store.Identity; ipc must not import store.
@@ -1624,6 +1636,82 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 	}
+
+	granted("set_web_route",
+		"Upsert a web route: control whether a URL path is public, auth-gated, denied, or redirected. "+
+			"`path` must start with `/`. `access` is one of public|auth|deny|redirect. "+
+			"When access=redirect, `redirect_to` (URL) is required. Route is scoped to this folder.",
+		[]mcp.ToolOption{
+			mcp.WithString("path", mcp.Required()),
+			mcp.WithString("access", mcp.Required()),
+			mcp.WithString("redirect_to"),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if db.SetWebRoute == nil {
+				return toolErr("set_web_route not configured")
+			}
+			p := req.GetString("path", "")
+			if p == "" || p[0] != '/' {
+				return toolErr("path must start with /")
+			}
+			access := req.GetString("access", "")
+			switch access {
+			case "public", "auth", "deny", "redirect":
+			default:
+				return toolErr("access must be one of: public, auth, deny, redirect")
+			}
+			redirectTo := req.GetString("redirect_to", "")
+			if access == "redirect" && redirectTo == "" {
+				return toolErr("redirect_to required when access=redirect")
+			}
+			if err := db.SetWebRoute(p, access, redirectTo, folder); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("set_web_route", "folder", folder, "path", p, "access", access)
+			return toolOK()
+		})
+
+	granted("del_web_route",
+		"Delete a web route by path. Only routes owned by this folder may be deleted (operators can delete any).",
+		[]mcp.ToolOption{mcp.WithString("path", mcp.Required())},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if db.DelWebRoute == nil || db.ListWebRoutes == nil {
+				return toolErr("del_web_route not configured")
+			}
+			p := req.GetString("path", "")
+			if p == "" {
+				return toolErr("path required")
+			}
+			// operators (tier 0) may delete any; others only own routes
+			if id.Tier > 0 {
+				routes := db.ListWebRoutes(folder)
+				found := false
+				for _, r := range routes {
+					if r.PathPrefix == p {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return toolErr("route not found or not owned by this folder")
+				}
+			}
+			if err := db.DelWebRoute(p); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("del_web_route", "folder", folder, "path", p)
+			return toolOK()
+		})
+
+	granted("list_web_routes",
+		"List all web routes owned by this folder. Returns a JSON array of {path_prefix, access, redirect_to, folder, created_at}.",
+		nil,
+		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if db.ListWebRoutes == nil {
+				return toolErr("list_web_routes not configured")
+			}
+			return toolJSON(db.ListWebRoutes(folder))
+		})
 
 	registerInspect(srv, db, id, folder)
 

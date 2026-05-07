@@ -242,6 +242,30 @@ func (g *Gateway) Run(ctx context.Context) error {
 			}
 			return ipc.Identity{ID: idn.ID, Name: idn.Name, CreatedAt: idn.CreatedAt}, subs, true
 		},
+		SetWebRoute: func(pathPrefix, access, redirectTo, folder string) error {
+			return g.store.SetWebRoute(store.WebRoute{
+				PathPrefix: pathPrefix,
+				Access:     access,
+				RedirectTo: redirectTo,
+				Folder:     folder,
+				CreatedAt:  time.Now(),
+			})
+		},
+		DelWebRoute: g.store.DelWebRoute,
+		ListWebRoutes: func(folder string) []ipc.WebRoute {
+			rows := g.store.ListWebRoutes(folder)
+			out := make([]ipc.WebRoute, len(rows))
+			for i, r := range rows {
+				out[i] = ipc.WebRoute{
+					PathPrefix: r.PathPrefix,
+					Access:     r.Access,
+					RedirectTo: r.RedirectTo,
+					Folder:     r.Folder,
+					CreatedAt:  r.CreatedAt.UTC().Format(time.RFC3339),
+				}
+			}
+			return out
+		},
 	}
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetHasPendingFn(func(jid string) bool {
