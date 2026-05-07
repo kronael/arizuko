@@ -131,7 +131,7 @@ async function send(e){
     var html=await resp.text();
     var tmp=document.createElement('div');tmp.innerHTML=html;
     var bubble=tmp.firstChild;
-    if(bubble){document.getElementById('thread').appendChild(bubble);bubble.scrollIntoView({behavior:'smooth'})}
+    if(bubble&&!document.getElementById(bubble.id)){document.getElementById('thread').appendChild(bubble);bubble.scrollIntoView({behavior:'smooth'})}
     showTyping();
   }finally{btn.disabled=false;input.focus()}
 }
