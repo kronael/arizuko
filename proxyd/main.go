@@ -422,7 +422,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.NotFound(w, r)
+	http.Redirect(w, r, "/pub"+r.URL.Path, http.StatusFound)
 }
 
 func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
