@@ -12,50 +12,50 @@ out of the box.
 
 | Spec                                             | Status   | Hook                                                                       |
 | ------------------------------------------------ | -------- | -------------------------------------------------------------------------- |
-| [R-products.md](R-products.md)                   | planned  | Curated persona+skill templates; `--product` flag on `arizuko create`.     |
+| [R-products.md](R-products.md)                   | active   | Curated persona+skill templates; `--product` flag on `arizuko create`.     |
 | [4-hitl-firewall.md](4-hitl-firewall.md)         | deferred | pending_actions queue + /dash/review; holds MCP calls for operator review. |
 | [5-authoring-product.md](5-authoring-product.md) | deferred | Authoring agent design reference (see product-creator.md).                 |
 | [6-web-routes.md](6-web-routes.md)               | spec     | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.  |
 
 ## Product catalog
 
-Each ships as `ant/examples/<name>/` with a page at `/pub/products/<name>/`.
+Each product ships as `ant/examples/<name>/` and installs via
+`arizuko create <instance> --product <name>`. Public page at `/pub/products/<name>/`.
 
 Developer capabilities are embedded in each product that needs them
 (oracle + bash grants, scoped per deployment) — not a separate product.
 
-| Spec                                                           | Brand      | Status  | Value prop                                         | Ships now? |
-| -------------------------------------------------------------- | ---------- | ------- | -------------------------------------------------- | ---------- |
-| [product-personal-assistant.md](product-personal-assistant.md) | fiu        | planned | Branded/personal assistant; the configurable base  | ✓          |
-| [product-support.md](product-support.md)                       | atlas      | planned | Customer-facing Q&A via slink; escalates to human  | ✓ (v1)     |
-| [product-trip.md](product-trip.md)                             | may        | planned | Multi-step travel research → structured itinerary  | ✓          |
-| [product-strategy.md](product-strategy.md)                     | prometheus | planned | Domain tracker; weekly synthesis → team briefing   | ✓          |
-| [product-pm.md](product-pm.md)                                 | sloth      | planned | Team task board + weekly digest; no infra access   | ✓          |
-| [product-rhias.md](product-rhias.md)                           | rhias      | planned | Reality agent; holds ongoing life context threads  | ✓          |
-| [product-creator.md](product-creator.md)                       | inari      | planned | Curation + draft pipeline; approve before publish  | ✓ (v1)     |
-| [product-socials.md](product-socials.md)                       | phosphene  | planned | Multi-platform distribution; schedule + engagement | blocked\*  |
-
-\* socials needs HITL firewall + rate limits before production use.
+| Spec                                                           | Name     | Brand      | Value prop                                         | Blocked by         |
+| -------------------------------------------------------------- | -------- | ---------- | -------------------------------------------------- | ------------------ |
+| [product-personal-assistant.md](product-personal-assistant.md) | personal | fiu        | Personal assistant with persistent memory          |                    |
+| [product-support.md](product-support.md)                       | support  | atlas      | KB-backed Q&A via ant link; escalates to human     |                    |
+| [product-trip.md](product-trip.md)                             | trip     | may        | Multi-step travel research → structured itinerary  |                    |
+| [product-strategy.md](product-strategy.md)                     | strategy | prometheus | Domain tracker; weekly synthesis → team briefing   |                    |
+| [product-pm.md](product-pm.md)                                 | pm       | sloth      | Team task board + weekly digest                    |                    |
+| [product-rhias.md](product-rhias.md)                           | reality  | rhias      | Ongoing life-context thread holder                 |                    |
+| [product-creator.md](product-creator.md)                       | creator  | inari      | Curation + draft pipeline; approve before publish  | HITL firewall      |
+| [product-socials.md](product-socials.md)                       | socials  | phosphene  | Multi-platform distribution; schedule + engagement | HITL + rate limits |
 
 ## Arizuko features required per product
 
-| Feature (shipped ✓ / unshipped ✗) | Personal | Support | Trip  | Strategy | PM  | Rhias | Creator | Socials |
-| --------------------------------- | :------: | :-----: | :---: | :------: | :-: | :---: | :-----: | :-----: |
-| slink widget ✓                    |    –     |  **✓**  |   –   |    –     |  –  |   –   |    –    |    –    |
-| onbod / user reg ✓                |    –     |  **✓**  |   –   |    –     |  –  |   –   |    –    |    –    |
-| oracle ✓                          |    –     |    –    | **✓** |  **✓**   |  –  |   –   |  **✓**  |    –    |
-| davd ✓                            |    –     |    –    | **✓** |  **✓**   |  –  |   –   |  **✓**  |    –    |
-| timed ✓                           |    –     |    –    |   –   |  **✓**   |  –  | **✓** |  **✓**  |  **✓**  |
-| social adapters ✓                 |    –     |    –    |   –   |    –     |  –  |   –   |  **✓**  |  **✓**  |
-| send_file ✓                       |    –     |    –    | **✓** |  **✓**   |  –  |   –   |    –    |    –    |
-| rate limits ✗                     |    –     |    ✗    |   –   |    –     |  –  |   –   |    –    |    ✗    |
-| HITL firewall ✗                   |    –     |    –    |   –   |    –     |  –  |   –   |    ✗    |    ✗    |
+| Feature (shipped ✓ / unshipped ✗) | Personal | Support | Trip  | Strategy | PM  | Reality | Creator | Socials |
+| --------------------------------- | :------: | :-----: | :---: | :------: | :-: | :-----: | :-----: | :-----: |
+| ant link (slink) ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
+| onbod / user reg ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
+| oracle ✓                          |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
+| davd ✓                            |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
+| timed ✓                           |    –     |    –    |   –   |  **✓**   |  –  |  **✓**  |  **✓**  |  **✓**  |
+| social adapters ✓                 |    –     |    –    |   –   |    –     |  –  |    –    |  **✓**  |  **✓**  |
+| send_file ✓                       |    –     |    –    | **✓** |  **✓**   |  –  |    –    |    –    |    –    |
+| rate limits ✗                     |    –     |    ✗    |   –   |    –     |  –  |    –    |    –    |    ✗    |
+| HITL firewall ✗                   |    –     |    –    |   –   |    –     |  –  |    –    |    ✗    |    ✗    |
 
-## Future products (not in current scope)
+## Products in spec only (not yet in ant/examples/)
 
-- developer — coding assistant with codebase access via davd
-- ops — DevOps/SRE with runbooks + scoped bash
-- companion — personal companion with proactive check-ins
+Specced in this directory but no template folder shipped yet:
 
-These share skills with the catalog above; specced in this directory
-but not in the active shipping queue.
+| Spec                                         | Value prop                                     |
+| -------------------------------------------- | ---------------------------------------------- |
+| [product-developer.md](product-developer.md) | Coding assistant with codebase access via davd |
+| [product-ops.md](product-ops.md)             | DevOps/SRE with runbooks + scoped bash         |
+| [product-companion.md](product-companion.md) | Personal companion with proactive check-ins    |
