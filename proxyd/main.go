@@ -422,7 +422,10 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.Redirect(w, r, "/pub"+r.URL.Path, http.StatusFound)
+	r2 := r.Clone(r.Context())
+	r2.URL.Path = "/pub" + r.URL.Path
+	r2.URL.RawPath = ""
+	s.viteProxy.ServeHTTP(w, r2)
 }
 
 func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
