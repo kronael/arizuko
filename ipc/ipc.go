@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -275,10 +276,7 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 }
 
 func trimLine(b []byte) []byte {
-	for len(b) > 0 && (b[len(b)-1] == '\n' || b[len(b)-1] == '\r') {
-		b = b[:len(b)-1]
-	}
-	return b
+	return bytes.TrimRight(b, "\r\n")
 }
 
 func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
@@ -541,6 +539,20 @@ func writeVhosts(webDir string, m map[string]string) error {
 		return err
 	}
 	return nil
+}
+
+// parseBefore parses an RFC3339 "before" query param from an MCP request.
+// Returns zero time and nil error when the param is absent.
+func parseBefore(req mcp.CallToolRequest) (time.Time, error) {
+	s := req.GetString("before", "")
+	if s == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid before timestamp: %w", err)
+	}
+	return t, nil
 }
 
 func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) *server.MCPServer {
@@ -1429,13 +1441,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if limitVal <= 0 || limitVal > 200 {
 				limitVal = 100
 			}
-			var before time.Time
-			if beforeStr := req.GetString("before", ""); beforeStr != "" {
-				t, err := time.Parse(time.RFC3339, beforeStr)
-				if err != nil {
-					return toolErr("invalid before timestamp: " + err.Error())
-				}
-				before = t
+			before, err := parseBefore(req)
+			if err != nil {
+				return toolErr(err.Error())
 			}
 			msgs, err := db.MessagesBefore(jid, before, limitVal)
 			if err != nil {
@@ -1490,13 +1498,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if limitVal <= 0 || limitVal > 100 {
 				limitVal = 50
 			}
-			var before time.Time
-			if beforeStr := req.GetString("before", ""); beforeStr != "" {
-				t, err := time.Parse(time.RFC3339, beforeStr)
-				if err != nil {
-					return toolErr("invalid before timestamp: " + err.Error())
-				}
-				before = t
+			before, err := parseBefore(req)
+			if err != nil {
+				return toolErr(err.Error())
 			}
 			msgs, err := db.MessagesByThread(jid, topic, before, limitVal)
 			if err != nil {
@@ -1533,13 +1537,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if limitVal <= 0 || limitVal > 200 {
 				limitVal = 100
 			}
-			var before time.Time
-			if beforeStr := req.GetString("before", ""); beforeStr != "" {
-				t, err := time.Parse(time.RFC3339, beforeStr)
-				if err != nil {
-					return toolErr("invalid before timestamp: " + err.Error())
-				}
-				before = t
+			before, err := parseBefore(req)
+			if err != nil {
+				return toolErr(err.Error())
 			}
 			h, err := gated.FetchPlatformHistory(jid, before, limitVal)
 			if err != nil {
