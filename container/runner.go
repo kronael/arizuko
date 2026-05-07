@@ -783,14 +783,15 @@ func SetupGroup(cfg *core.Config, folder, prototype string) error {
 }
 
 func seedGroupDir(cfg *core.Config, folder string) error {
-	claudeDir := filepath.Join(cfg.GroupsDir, folder, ".claude")
+	groupDir := filepath.Join(cfg.GroupsDir, folder)
+	claudeDir := filepath.Join(groupDir, ".claude")
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
 		return err
 	}
 	seedSkills(cfg, claudeDir, folder)
-	// Ensure the ant (node, uid 1000) can write to its own workspace.
-	// Host process may run as a different uid (e.g. 1001); chown to match container.
-	chownR(claudeDir, containerUID, containerUID)
+	// The host process may run as a different uid than the container (node=1000).
+	// Chown the entire group workspace so the ant can write diary, tmp, skills, etc.
+	chownR(groupDir, containerUID, containerUID)
 	return nil
 }
 
