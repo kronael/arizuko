@@ -13,18 +13,19 @@ evolves as a unit through specs, not via these extension points. See
 
 ## Extension points
 
-| Point         | Location               | Extensible by  | Mechanism                                   |
-| ------------- | ---------------------- | -------------- | ------------------------------------------- |
-| Channels      | external containers    | Developer      | HTTP protocol                               |
-| Slink         | `webd/slink*.go`       | External agent | Chat UI + MCP transport at `/slink/<token>` |
-| Actions       | MCP tools              | Agent/Plugin   | Registry + MCP                              |
-| Autocalls     | `gateway/autocalls.go` | Gateway dev    | Registry slice                              |
-| Routing rules | `router/`              | Agent          | MCP tools                                   |
-| Mounts        | `container/`           | Agent          | Container config                            |
-| Skills        | `ant/skills/`          | Agent          | File-based                                  |
-| Tasks         | `timed/`               | Agent          | IPC actions                                 |
-| Diary         | `diary/`               | Agent          | File-based                                  |
-| Network rules | `store/network.go`     | Operator       | CLI + DB rows                               |
+| Point         | Location               | Extensible by  | Mechanism                                     |
+| ------------- | ---------------------- | -------------- | --------------------------------------------- |
+| Channels      | external containers    | Developer      | HTTP protocol                                 |
+| Slink         | `webd/slink*.go`       | External agent | Chat UI + MCP transport at `/slink/<token>`   |
+| Actions       | MCP tools              | Agent/Plugin   | Registry + MCP                                |
+| Autocalls     | `gateway/autocalls.go` | Gateway dev    | Registry slice                                |
+| Routing rules | `router/`              | Agent          | MCP tools                                     |
+| Mounts        | `container/`           | Agent          | Container config                              |
+| Skills        | `ant/skills/`          | Agent          | File-based                                    |
+| Tasks         | `timed/`               | Agent          | IPC actions                                   |
+| Diary         | `diary/`               | Agent          | File-based                                    |
+| Network rules | `store/network.go`     | Operator       | CLI + DB rows                                 |
+| Web routes    | `store/web_routes.go`  | Agent          | MCP tools (`set_web_route` / `del_web_route`) |
 
 ## Adding an autocall
 
@@ -119,6 +120,24 @@ concrete hint.
 | `repost`     |       | ✓     | ✓     |        |       |       |       |       | ✓     |
 | `dislike`    |       |       |       | ✓      |       |       |       |       |       |
 | `edit`       | ✓     | ✓     |       |        | ✓     |       |       | ✓     |       |
+
+## Adding web routes
+
+The `web_routes` table lets agents expose or gate specific URL paths on
+the proxyd host without redeploying. Three MCP tools, registered in
+`ipc/ipc.go`:
+
+| Tool              | Effect                                                        |
+| ----------------- | ------------------------------------------------------------- |
+| `set_web_route`   | Upsert a row: `path_prefix`, `access`, optional `redirect_to` |
+| `del_web_route`   | Remove a row owned by the calling folder                      |
+| `list_web_routes` | List rows owned by the calling folder                         |
+
+`access` values: `public` (no auth), `auth` (require login), `deny` (403),
+`redirect` (302 to `redirect_to`). proxyd evaluates longest-prefix first
+via `store.MatchWebRoute`. These rows only take effect if proxyd is
+configured with a store (`s.st != nil`); they have no effect on channel
+routing.
 
 ## Inspect tools
 

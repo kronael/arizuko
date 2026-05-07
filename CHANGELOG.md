@@ -14,6 +14,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- `web_routes` DB table (migration 0045): agents set per-path access rules (`public`/`auth`/`deny`/`redirect`) via `set_web_route`, `del_web_route`, `list_web_routes` MCP tools
+- proxyd: `web_routes` DB lookup per request; unknown paths default to auth-gate (redirect to login for browsers, 401 JSON for API/JSON clients)
+- `send_voice` MCP tool: deliver synthesized voice on Telegram/WhatsApp/Discord; respects grants and `TTS_BASE_URL`
+- slink: mobile CSS (100dvh, safe-area insets, iOS zoom prevention), SSE reconnect on disconnect, typing indicator
+- slink: rebranded as "ant link" in UI
+- container: `chownR` + per-uid fix so spawned agent containers run as UID 1000
+- onbod: direct invite flow lands on ant link; subworld creation seeds `slink_token`
+
 ## [v0.33.14] — 2026-05-06
 
 > arizuko v0.33.14 — 06 May 2026

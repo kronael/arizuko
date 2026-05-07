@@ -338,6 +338,48 @@ ALTER TABLE chats ADD COLUMN sticky_group TEXT;  -- group folder or NULL
 ALTER TABLE chats ADD COLUMN sticky_topic TEXT;  -- topic string or NULL
 ```
 
+## HTTP Routing (proxyd)
+
+proxyd evaluates each inbound HTTP request against a fixed list of path
+prefixes, then falls through to a DB-backed `web_routes` table, then
+applies a default auth-gate.
+
+### Fixed prefixes (evaluated first, in order)
+
+| Path prefix                                            | Behaviour                                 |
+| ------------------------------------------------------ | ----------------------------------------- |
+| `/slink/`                                              | public slink widget — no auth required    |
+| `/invite/`                                             | onboarding invite flow — no auth required |
+| `/p/`                                                  | persona pages — no auth required          |
+| `/pub/`                                                | Vite public assets — no auth required     |
+| `/chat/`, `/api/`, `/x/`, `/static/`, `/auth/`, `/mcp` | auth-gated, forwarded upstream            |
+
+For `/api/` and `/x/` paths (and any request with `Accept: application/json`),
+`requireAuth` returns `{"error":"unauthorized"}` with HTTP 401 instead of
+redirecting to login.
+
+### web_routes table (dynamic, DB-backed)
+
+After fixed prefixes, proxyd looks up the longest matching prefix in the
+`web_routes` table (migration `0045-web-routes.sql`):
+
+| Column        | Type | Values                                  |
+| ------------- | ---- | --------------------------------------- |
+| `path_prefix` | TEXT | Primary key; longest-prefix wins        |
+| `access`      | TEXT | `public` / `auth` / `deny` / `redirect` |
+| `redirect_to` | TEXT | Used when `access = redirect`           |
+| `folder`      | TEXT | Owning group folder                     |
+
+Agents add/remove rows via the `set_web_route` / `del_web_route` /
+`list_web_routes` MCP tools (registered in `ipc/ipc.go`). `MatchWebRoute`
+in `store/web_routes.go` does the longest-prefix SQL query.
+
+### Default (fallthrough)
+
+Any path not matched by fixed prefixes or `web_routes` is auth-gated and
+forwarded upstream (`requireAuth(servePub)`). Unknown paths redirect to
+`/auth/login` for browsers; return 401 JSON for API/JSON clients.
+
 ## Full Message Flow Example
 
 A concrete walkthrough from user message to agent reply.
