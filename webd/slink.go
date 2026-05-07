@@ -51,7 +51,7 @@ const slinkPageHTML = `<!DOCTYPE html><html><head>
 :root{--bg:#0a0a0a;--fg:#e0e0e0;--accent:#4ade80;--accent2:#a78bfa;--accent3:#58a6ff;--dim:#666;--border:#222;--card:#111;--card-hover:#161616}
 [data-theme=light]{--bg:#fafafa;--fg:#1a1a1a;--accent:#16a34a;--accent2:#7c3aed;--accent3:#0969da;--dim:#888;--border:#ddd;--card:#fff;--card-hover:#f5f5f5}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:"SF Mono","Fira Code","JetBrains Mono",Consolas,monospace;font-size:14px;color:var(--fg);background:var(--bg);height:100vh;display:flex;flex-direction:column}
+body{font-family:"SF Mono","Fira Code","JetBrains Mono",Consolas,monospace;font-size:14px;color:var(--fg);background:var(--bg);height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 header{display:flex;align-items:center;gap:.6rem;padding:.6rem 1rem;border-bottom:1px solid var(--border);background:var(--card)}
 header .name{color:var(--accent);font-weight:bold;font-size:1.05em}
 header .dim{color:var(--dim);font-size:.85em}
@@ -62,20 +62,20 @@ header .dim{color:var(--dim);font-size:.85em}
 .msg .meta{font-size:.7em;color:var(--dim);margin-top:.2em}
 .msg.user .meta{color:rgba(0,0,0,.5)}
 .typing{align-self:flex-start;color:var(--dim);font-size:.85em;padding:.3rem .8rem}
-footer{padding:.6rem 1rem;border-top:1px solid var(--border);background:var(--card)}
-footer form{display:flex;gap:.5rem}
+footer{padding:.6rem 1rem;padding-bottom:max(.6rem,env(safe-area-inset-bottom));border-top:1px solid var(--border);background:var(--card)}
+footer form{display:flex;gap:.5rem;align-items:flex-end}
 footer textarea{flex:1;resize:none;padding:.5rem .7rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:.9em;height:2.6rem}
 footer textarea:focus{outline:none;border-color:var(--accent3)}
-footer button{padding:.5rem 1.2rem;background:var(--accent);color:var(--bg);border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:bold;font-size:.9em}
+footer button{padding:.5rem 1.2rem;background:var(--accent);color:var(--bg);border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:bold;font-size:.9em;min-height:44px}
 footer button:hover{opacity:.9}
 footer button:disabled{opacity:.4;cursor:default}
-@media(max-width:600px){body{font-size:13px}.msg{max-width:88%%}}
+@media(max-width:600px){body{font-size:13px}.msg{max-width:88%%}footer textarea{font-size:16px}}
 </style>
 <script>(function(){var t=localStorage.getItem('hub-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})()</script>
 </head><body>
 <header>
   <span class="name">%s</span>
-  <span class="dim">web chat</span>
+  <span class="dim">ant link</span>
 </header>
 <div id="thread"></div>
 <footer>
@@ -85,8 +85,7 @@ footer button:disabled{opacity:.4;cursor:default}
   </form>
 </footer>
 <script>
-var folder="%s",token="%s",topic='t'+Date.now(),es;
-function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+var folder="%s",token="%s",topic='t'+Date.now(),es,reconnectTimer;
 function addMsg(role,content,id){
   var d=document.createElement('div');
   d.className='msg '+role;
@@ -95,7 +94,14 @@ function addMsg(role,content,id){
   document.getElementById('thread').appendChild(d);
   d.scrollIntoView({behavior:'smooth'});
 }
+function showTyping(){
+  if(document.querySelector('.typing'))return;
+  var d=document.createElement('div');d.className='typing';d.textContent='…';
+  document.getElementById('thread').appendChild(d);
+  d.scrollIntoView({behavior:'smooth'});
+}
 function connect(){
+  clearTimeout(reconnectTimer);
   if(es)es.close();
   es=new EventSource('/slink/stream?token='+encodeURIComponent(token)+'&group='+encodeURIComponent(folder)+'&topic='+encodeURIComponent(topic));
   es.addEventListener('message',function(e){
@@ -106,6 +112,7 @@ function connect(){
       addMsg(m.role||'assistant',m.content,m.id);
     }catch(x){}
   });
+  es.onerror=function(){es.close();reconnectTimer=setTimeout(connect,3000)};
 }
 connect();
 async function send(e){
@@ -123,8 +130,9 @@ async function send(e){
     if(!resp.ok){addMsg('assistant','Error: '+resp.statusText);return}
     var html=await resp.text();
     var tmp=document.createElement('div');tmp.innerHTML=html;
-    document.getElementById('thread').appendChild(tmp.firstChild);
-    tmp.firstChild&&tmp.firstChild.scrollIntoView({behavior:'smooth'});
+    var bubble=tmp.firstChild;
+    if(bubble){document.getElementById('thread').appendChild(bubble);bubble.scrollIntoView({behavior:'smooth'})}
+    showTyping();
   }finally{btn.disabled=false;input.focus()}
 }
 </script>
