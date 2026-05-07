@@ -15,6 +15,7 @@ out of the box.
 | [R-products.md](R-products.md)                   | planned  | Curated persona+skill templates; `--product` flag on `arizuko create`.     |
 | [4-hitl-firewall.md](4-hitl-firewall.md)         | deferred | pending_actions queue + /dash/review; holds MCP calls for operator review. |
 | [5-authoring-product.md](5-authoring-product.md) | deferred | Authoring agent design reference (see product-creator.md).                 |
+| [6-web-routes.md](6-web-routes.md)               | spec     | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.  |
 
 ## Product catalog
 
