@@ -212,14 +212,16 @@ Proxyd routes all web traffic. URL structure:
 | `/chat/*`  | JWT      | webd    | Authenticated web chat            |
 | `/api/*`   | JWT      | webd    | API endpoints                     |
 | `/auth/*`  | none     | proxyd  | OAuth login/callback/logout       |
-| `/x/*`     | JWT      | webd    | Extensions                        |
-| other      | redirect | —       | Unknown paths → `/pub/` + path    |
+| `/x/*`     | JWT      | webd    | Extensions (served by webd, not static files) |
+| other      | —        | —       | 404                               |
 
-**ONLY these paths exist.** `/sub/`, `/private/` etc. redirect to
-`/pub/` and 404. The dashboard (`/dash/`) is operator-only HTMX served
-by dashd; `/pub/arizuko/` is the public docs site, not the dashboard.
-For "how do I log in" / "where's the dashboard", point to
-`https://$WEB_HOST/auth/login` and `https://$WEB_HOST/dash/`.
+**ONLY these paths exist.** Any other path returns 404. `/x/` is
+auth-gated but served by webd (not Vite) — you cannot drop static
+files under `/x/`. For static content use `/pub/*`. The dashboard
+(`/dash/`) is operator-only HTMX served by dashd; `/pub/arizuko/`
+is the public docs site, not the dashboard. For "how do I log in" /
+"where's the dashboard", point to `https://$WEB_HOST/auth/login`
+and `https://$WEB_HOST/dash/`.
 
 # Gateway commands
 
