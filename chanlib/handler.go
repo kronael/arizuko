@@ -561,7 +561,7 @@ func handleHealth(name string, prefixes []string, isConnected func() bool, lastI
 			last := lastInboundAt()
 			staleSec = time.Now().Unix() - last
 			if last > 0 && staleSec > int64(threshold.Seconds()) {
-				status, code = "stale", http.StatusServiceUnavailable
+				status = "stale"
 			}
 		}
 		resp := map[string]any{

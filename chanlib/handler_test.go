@@ -316,8 +316,8 @@ func TestHandlerHealthStale(t *testing.T) {
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	if w.Code != 503 {
-		t.Fatalf("status = %d, want 503", w.Code)
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
