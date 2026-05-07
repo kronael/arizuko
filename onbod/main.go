@@ -541,8 +541,12 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 
 	parentSQL := sql.NullString{String: parent, Valid: parent != ""}
 	now := time.Now().Format(time.RFC3339)
-	db.Exec(`INSERT OR IGNORE INTO groups (folder, name, parent, added_at) VALUES (?, ?, ?, ?)`,
-		folder, username, parentSQL, now)
+	slinkToken := core.GenSlinkToken()
+	db.Exec(`INSERT OR IGNORE INTO groups (folder, name, parent, added_at, slink_token, product) VALUES (?, ?, ?, ?, ?, ?)`,
+		folder, username, parentSQL, now, slinkToken, core.DefaultProduct)
+	// If the row already existed, look up the actual token.
+	db.QueryRow(`SELECT slink_token FROM groups WHERE folder = ?`, folder).Scan(&slinkToken)
+
 	db.Exec(`INSERT OR IGNORE INTO user_groups (user_sub, folder) VALUES (?, ?)`,
 		userSub, folder)
 
@@ -561,6 +565,10 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	}
 
 	slog.Info("world created", "folder", folder, "parent", parent, "user", userSub)
+	if slinkToken != "" {
+		http.Redirect(w, r, "/slink/"+slinkToken, http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
@@ -792,6 +800,19 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 			MaxAge: 600, HttpOnly: true, Secure: cfg.secureCookie,
 			SameSite: http.SameSiteLaxMode,
 		})
+		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
+		return
+	}
+
+	// Direct group invite: land in the group's ant link if it has one.
+	// Only for exact folders (no glob wildcards).
+	if !strings.Contains(target, "*") {
+		var slinkToken string
+		db.QueryRow(`SELECT slink_token FROM groups WHERE folder = ?`, target).Scan(&slinkToken)
+		if slinkToken != "" {
+			http.Redirect(w, r, "/slink/"+slinkToken, http.StatusSeeOther)
+			return
+		}
 	}
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
