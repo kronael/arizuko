@@ -213,11 +213,12 @@ Proxyd routes all web traffic. URL structure:
 | `/api/*`   | JWT      | webd    | API endpoints                     |
 | `/auth/*`  | none     | proxyd  | OAuth login/callback/logout       |
 | `/x/*`     | JWT      | webd    | Extensions (served by webd, not static files) |
-| other      | —        | —       | 404                               |
+| other      | JWT      | vite    | Auth-gated; rewrites to `/pub/<path>` transparently |
 
-Default is deny. `/pub/*` is the only public zone — put static files
-there intentionally. `/x/` is auth-gated but served by webd, not Vite —
-you cannot drop static files there. The dashboard
+Default is auth-gated. `/pub/*` is explicitly public. Everything else
+requires a valid JWT and is served from the vite root via transparent
+rewrite — the browser URL stays unchanged. `/x/` is auth-gated but
+served by webd, not Vite — you cannot drop static files there. The dashboard
 (`/dash/`) is operator-only HTMX served by dashd; `/pub/arizuko/`
 is the public docs site, not the dashboard. For "how do I log in" /
 "where's the dashboard", point to `https://$WEB_HOST/auth/login`
