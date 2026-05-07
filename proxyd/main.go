@@ -423,22 +423,21 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	servePub := func(w http.ResponseWriter, r *http.Request) {
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/pub" + r.URL.Path
+		r2.URL.RawPath = ""
+		s.viteProxy.ServeHTTP(w, r2)
+	}
+
 	if s.st != nil {
 		if route, ok := s.st.MatchWebRoute(r.URL.Path); ok {
 			switch route.Access {
 			case "public":
-				r2 := r.Clone(r.Context())
-				r2.URL.Path = "/pub" + r.URL.Path
-				r2.URL.RawPath = ""
-				s.viteProxy.ServeHTTP(w, r2)
+				servePub(w, r)
 				return
 			case "auth":
-				s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-					r2 := r.Clone(r.Context())
-					r2.URL.Path = "/pub" + r.URL.Path
-					r2.URL.RawPath = ""
-					s.viteProxy.ServeHTTP(w, r2)
-				})(w, r)
+				s.requireAuth(servePub)(w, r)
 				return
 			case "deny":
 				http.Error(w, "Forbidden", http.StatusForbidden)
@@ -450,12 +449,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		r2 := r.Clone(r.Context())
-		r2.URL.Path = "/pub" + r.URL.Path
-		r2.URL.RawPath = ""
-		s.viteProxy.ServeHTTP(w, r2)
-	})(w, r)
+	s.requireAuth(servePub)(w, r)
 }
 
 func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {

@@ -466,13 +466,10 @@ var usernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{2,29}$`)
 
 func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, userSub string) {
 	// Require a pending_target cookie — world creation must come from an invite.
-	pendingTarget, _ := func() (string, error) {
-		c, err := r.Cookie("pending_target")
-		if err != nil {
-			return "", err
-		}
-		return c.Value, nil
-	}()
+	var pendingTarget string
+	if c, err := r.Cookie("pending_target"); err == nil {
+		pendingTarget = c.Value
+	}
 	if pendingTarget == "" {
 		renderPage(w, "Invite Required",
 			template.HTML(`<p>You need an invite link to create a workspace.</p>`))
@@ -794,7 +791,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 
 	// Subworld-create invite (trailing slash): carry the target through
 	// the redirect so handleDashboard can show the username picker.
-	if strings.HasSuffix(target, "/") || target == "/" {
+	if strings.HasSuffix(target, "/") {
 		http.SetCookie(w, &http.Cookie{
 			Name: "pending_target", Value: target, Path: "/",
 			MaxAge: 600, HttpOnly: true, Secure: cfg.secureCookie,
