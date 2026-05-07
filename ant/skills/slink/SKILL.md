@@ -84,14 +84,17 @@ For pages hosted on a third-party domain, webd emits
 
 ### Serving at a custom path
 
-To make the page the landing URL for the slink token, use `set_web_route`
-to redirect the slink root to your page:
+Deploy to `/workspace/web/pub/<name>/index.html` and share the URL
+`https://$WEB_HOST/pub/<name>/`. Use `set_web_route` to expose it at
+a memorable path (e.g. `/chat/` → `/pub/<name>/`):
 
 ```
-set_web_route path="/slink/$SLINK_TOKEN" access="redirect" redirect_to="/pub/<name>/"
+set_web_route path="/chat/" access="public" redirect_to="/pub/<name>/"
 ```
 
-Or just link to it from the default chat page and from the channel.
+`set_web_route` only controls paths that aren't already hardcoded in proxyd.
+`/slink/*` is hardcoded — you cannot redirect it via web_routes.
+Link to your page from the default slink chat page or from the channel.
 
 ### Bootstrap
 
