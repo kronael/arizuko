@@ -143,11 +143,7 @@ done
 
 ## e) Announce the release
 
-Broadcast the latest `CHANGELOG.md` entry to every registered group so
-users on Telegram / Discord / WhatsApp see what changed.
-
-Claim the version BEFORE the fan-out so a mid-broadcast restart cannot
-re-announce:
+Claim the version before fan-out so a mid-broadcast restart cannot re-announce:
 
 ```bash
 latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md \
@@ -157,10 +153,7 @@ test "$latest" = "$last" && { echo "already announced $latest"; exit 0; }
 echo "$latest" > ~/.announced-version
 ```
 
-Read the changelog entry for the message. Each release entry begins
-with a `>` blockquote — that's the user-facing summary. Extract
-ONLY the version header + the blockquote; skip the dev sections
-(`### Added/Changed/Fixed`) which are too noisy for chats.
+Extract the version header + `>` blockquote; skip `### Added/Changed/Fixed`:
 
 ```bash
 header=$(awk '/^## \[v/{print; exit}' /workspace/self/CHANGELOG.md)
@@ -172,35 +165,9 @@ MSG="$header
 $summary"
 ```
 
-This produces a short user-friendly note like:
-
-```
-## [v0.33.0] — 2026-05-02
-
-arizuko v0.33.0 — 2 May 2026
-
-• Voice replies (`send_voice`) — Telegram/WhatsApp PTT, Discord audio
-• Thread-scoped history (`get_thread` MCP)
-• External agents drive groups via `/slink/<token>/mcp`
-• OAuth account linking + collision UX (`/dash/profile`)
-• Typed JID routing (`telegram:group/*` instead of sign-bit guess)
-
-Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
-```
-
-Format spec: see "## Announcing" in root `CLAUDE.md`. The blockquote
-is the broadcast verbatim; ≤ 9 lines; 3–6 bullets; user benefit before
-internal detail; close with the canonical changelog link.
-
-If a version block has no blockquote (older entries pre-dating this
-convention), the summary is empty — fall back to a one-line
-"v0.32.x deployed" message and link the changelog URL.
-
-One message per release, not per migration.
-
-The repo is `github.com/kronael/arizuko`. Always cite this exact URL
-if the broadcast references upstream/source — never "krons labs",
-"kron labs", or any other made-up org name.
+Format: see "## Announcing" in root `CLAUDE.md`. The blockquote is the broadcast verbatim.
+If a version block has no blockquote, fall back to "v0.X deployed" + changelog URL.
+One message per release, not per migration. Repo URL: `github.com/kronael/arizuko`.
 
 Fan out via `refresh_groups` → resolve each folder's primary JID from
 `inspect_routing` (routes with `match` prefix `room=` point at a JID) →

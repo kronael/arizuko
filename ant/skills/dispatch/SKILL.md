@@ -1,9 +1,6 @@
 ---
 name: dispatch
-description: >
-  Match the current task to available skills. Read skill descriptions,
-  invoke matching ones. If prior work in this task conflicts with a
-  skill's requirements, correct it.
+description: Match the current task to available skills and invoke matching ones.
 user-invocable: false
 ---
 

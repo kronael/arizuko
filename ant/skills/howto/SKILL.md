@@ -2,10 +2,12 @@
 name: howto
 description: Build and deploy a user-facing howto/docs page for this group.
 when_to_use: Use when asked to "create howto", "generate docs", or "set up getting started page".
-user-invocable: true
 ---
 
 # Howto
+
+Generate a user-facing howto page from content + style specs. Generate HTML
+fresh — do not copy a template.
 
 ## 1 — Read the specs
 
@@ -26,29 +28,17 @@ Voice section) plus a short persona note (from Persona/Quirks). Inject:
 If `~/SOUL.md` is absent: render the template as-is. Do not invoke
 `/soul` — that skill is user-initiated only.
 
-## 2 — Pick a style (walk the user through it)
+## 2 — Pick a style
 
-Offer three paths, conversationally:
+Ask conversationally; three paths:
 
-1. **Copy a site** — send a URL (stripe.com, linear.app, notion.so, a
-   personal blog). Extract palette + typography, build on that.
-2. **Pick from archetypes** — 8 palettes (slate-ink, forest-mist, amber-desk,
-   violet-lab, rose-paper, zinc-terminal, ocean-deep, sage-clay) × 6
-   typography pairs × 4 densities × 4 decoration levels. User gives keywords
-   ("technical + dark + minimal"), you compose.
-3. **Surprise me** — roll coherently across axes (don't pair terminal density
-   with vivid decoration).
+| Path | Input | How to resolve |
+| ---- | ----- | -------------- |
+| Copy a site | URL | `agent-browser` screenshot → extract palette + typography → map to STYLE.md axes |
+| Archetypes | Keywords ("technical + dark + minimal") | 8 palettes × 6 typography × 4 densities × 4 decorations; pick closest, confirm if ambiguous |
+| Surprise me | none | Roll coherently (don't pair terminal density with vivid decoration) |
 
-Resolve the answer against STYLE.md:
-
-- **URL**: `agent-browser` screenshot, extract palette + typography, map to
-  STYLE.md axes
-- **Keywords**: pick the closest archetype/typography/density/decoration.
-  Confirm if ambiguous.
-- **Name** (stripe, linear, notion…): map from memory to the nearest pair.
-
-Document chosen axes in a comment at the top of the HTML. Tell the user
-which axes you picked; offer to re-roll or swap any single axis.
+Document chosen axes in a comment at the top of the HTML. Tell the user which axes; offer to re-roll or swap any axis.
 
 ## 3 — Generate the HTML
 

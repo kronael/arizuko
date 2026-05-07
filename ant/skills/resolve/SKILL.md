@@ -1,8 +1,7 @@
 ---
 name: resolve
-description: >
-  Classify message as new task or continuation, recall context,
-  match skills. Runs on every prompt via gateway nudge.
+description: Classify message as new task or continuation, recall context, match skills.
+when_to_use: Runs on every prompt via gateway nudge. Do not skip.
 user-invocable: false
 ---
 

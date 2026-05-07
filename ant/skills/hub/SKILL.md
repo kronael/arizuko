@@ -1,10 +1,7 @@
 ---
 name: hub
-description: Build a single-page knowledge hub by running parallel deep-research subagents and assembling into HTML.
-when_to_use: >
-  Use when asked to "build a hub", "research hub", "knowledge hub", or
-  "deep dive" on a frontier topic (biotech, AI, crypto, etc).
-user-invocable: true
+description: Build a single-page knowledge hub on a topic by running parallel deep-research subagents, distilling, and assembling into HTML.
+when_to_use: Use when asked to "build a hub", "research hub", "knowledge hub", or "deep dive" on a frontier topic (biotech, AI, crypto, etc).
 ---
 
 # Hub — knowledge hub builder
@@ -18,7 +15,7 @@ status checkboxes. Update throughout.
 
 Launch one `deep-research` subagent per topic using Task tool
 (`run_in_background: true`, max 3 in parallel). Each agent does 5 iterative
-loops and writes to `./tmp/<topic>.md`.
+loops and writes to `./tmp/<topic>.md`. While research runs, scaffold `index.html`.
 
 Research prompt:
 
@@ -34,11 +31,7 @@ deepening loops, each building on the previous:
 Output: structured markdown.
 ```
 
-## 3. Scaffold in parallel
-
-While research runs: check existing site patterns, scaffold `index.html`.
-
-## 4. Distill
+## 3. Distill
 
 After research completes, launch `distill` subagent:
 
@@ -52,7 +45,7 @@ Use 5/3 recursive summarization: summarize → merge → top-3 per group →
 synthesize across → final.
 ```
 
-## 5. Assemble
+## 4. Assemble
 
 Single-page HTML, organized into:
 
@@ -64,7 +57,7 @@ Single-page HTML, organized into:
 Design: dark monospace theme, sticky section nav, cards, tables, status tags,
 inline CSS, mobile-responsive, no JS frameworks.
 
-## 6. Deploy
+## 5. Deploy
 
 Drop `index.html` into `/workspace/web/pub/<name>/`. Live at
 `https://$WEB_HOST/pub/<name>/`.
