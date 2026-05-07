@@ -479,7 +479,7 @@ func buildMounts(
 		RO:        true,
 	})
 
-	world := strings.SplitN(in.Folder, "/", 2)[0]
+	world := worldOf(in.Folder, root)
 	shareRw := grants.CheckAction(in.Grants, "share_mount", map[string]string{"readonly": "false"})
 	shareRo := !shareRw && grants.CheckAction(in.Grants, "share_mount", map[string]string{"readonly": "true"})
 	if shareRw || shareRo {

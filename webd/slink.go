@@ -407,14 +407,15 @@ func (s *server) injectSlink(g core.Group, content, topic, sender, senderName, t
 	return m, payload, nil
 }
 
+var htmlReplacer = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	`"`, "&#34;",
+	"'", "&#39;",
+	`\`, "&#92;",
+)
+
 // htmlEscape covers HTML, attribute, and JS-string-literal contexts.
 // These pages use fmt.Sprintf rather than html/template's contextual encoding.
-func htmlEscape(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, "\"", "&#34;")
-	s = strings.ReplaceAll(s, "'", "&#39;")
-	s = strings.ReplaceAll(s, "\\", "&#92;")
-	return s
-}
+func htmlEscape(s string) string { return htmlReplacer.Replace(s) }

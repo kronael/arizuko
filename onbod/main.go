@@ -756,32 +756,12 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 	}
 
 	target := consumed.TargetGlob
-	// Subgroup-create invites (trailing slash): routes are added after
-	// username selection; don't wire them here with a bogus folder name.
-	if !strings.HasSuffix(target, "/") {
-		if rows, err := db.Query(
-			`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub,
-		); err == nil {
-			var jids []string
-			for rows.Next() {
-				var jid string
-				rows.Scan(&jid)
-				jids = append(jids, jid)
-			}
-			rows.Close()
-			for _, jid := range jids {
-				db.Exec(
-					`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
-					"room="+core.JidRoom(jid), target)
-			}
-		}
-	}
 
 	slog.Info("invite accepted", "token_hash", chanlib.ShortHash(token),
 		"target_glob", target, "user", userSub)
 
-	// Subworld-create invite (trailing slash): carry the target through
-	// the redirect so handleDashboard can show the username picker.
+	// Subworld-create invite (trailing slash): carry target via cookie so
+	// handleDashboard shows the username picker. Routes added after username selection.
 	if strings.HasSuffix(target, "/") {
 		http.SetCookie(w, &http.Cookie{
 			Name: "pending_target", Value: target, Path: "/",
@@ -792,8 +772,22 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		return
 	}
 
-	// Direct group invite: land in the group's ant link if it has one.
-	// Only for exact folders (no glob wildcards).
+	// Direct invite: wire existing JIDs to the target folder.
+	if rows, err := db.Query(`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub); err == nil {
+		var jids []string
+		for rows.Next() {
+			var jid string
+			rows.Scan(&jid)
+			jids = append(jids, jid)
+		}
+		rows.Close()
+		for _, jid := range jids {
+			db.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
+				"room="+core.JidRoom(jid), target)
+		}
+	}
+
+	// Land in the group's ant link when available (exact folders only, no globs).
 	if !strings.Contains(target, "*") {
 		var slinkToken string
 		db.QueryRow(`SELECT slink_token FROM groups WHERE folder = ?`, target).Scan(&slinkToken)
@@ -972,15 +966,14 @@ func userRoutes(db *sql.DB, folders []string) []dashRoute {
 		rows, err = db.Query(
 			`SELECT id, seq, match, target FROM routes ORDER BY seq, id`)
 	} else {
-		ph := make([]string, len(folders))
 		args := make([]any, len(folders))
 		for i, f := range folders {
-			ph[i] = "?"
 			args[i] = f
 		}
+		ph := strings.Repeat("?,", len(folders))
 		rows, err = db.Query(
 			`SELECT id, seq, match, target FROM routes
-			 WHERE target IN (`+strings.Join(ph, ",")+`)
+			 WHERE target IN (`+ph[:len(ph)-1]+`)
 			 ORDER BY seq, id`, args...)
 	}
 	if err != nil {
