@@ -1,7 +1,10 @@
 ---
 name: diary
-description: If anything worth noting happened since your last diary entry,
-  record it in `~/diary/YYYYMMDD.md`.
+description: >
+  Record significant events, decisions, and milestones in today's diary entry.
+  Use when asked to "write to diary", "log this", or after completing
+  substantial work.
+user-invocable: true
 ---
 
 # Diary

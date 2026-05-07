@@ -1,6 +1,12 @@
 ---
 name: migrate
-description: Intelligently sync skills and files across groups with conflict resolution. Root group only. Use when asked to "migrate", "sync skills", "update skills", or "run migrations", OR after pulling a new agent image / observing a bumped `ant/skills/self/MIGRATION_VERSION`. Do NOT invoke on routine prompts, fresh sessions, or user messages unrelated to release plumbing — this is a root-only release operation, not a greeting path.
+description: >
+  Root group only. Sync skills and files across groups with conflict resolution.
+  Use when asked to "migrate", "sync skills", "update skills", or "run
+  migrations", OR after pulling a new agent image / observing a bumped
+  MIGRATION_VERSION. Do NOT invoke on routine prompts, fresh sessions, or
+  messages unrelated to release plumbing.
+user-invocable: true
 ---
 
 # Migrate

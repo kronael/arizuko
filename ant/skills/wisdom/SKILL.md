@@ -15,6 +15,8 @@ name: short-name        # kebab-case, ≤20 chars
 description: >          # 1-2 sentences: WHEN to activate, WHAT it does
   Deploy web apps by writing files to pub/. Use when asked to
   build, create, or deploy a web app or page.
+user-invocable: true    # true = user can /slash it; false = Claude-only
+disable-model-invocation: true  # user-only; Claude never auto-triggers
 ---
 ```
 

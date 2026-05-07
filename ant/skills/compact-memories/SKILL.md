@@ -8,7 +8,7 @@ description: >
   "roll up the week". Do NOT self-trigger mid-conversation, and do NOT
   recompact a period whose output file already exists unless the user
   asks for a redo — compaction is lossy and expensive.
-user-invocable: true
+user-invocable: false
 arg: <store> <level>
 ---
 

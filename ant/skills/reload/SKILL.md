@@ -1,6 +1,9 @@
 ---
 name: reload
-description: Restart the arizuko container or reload config. Use when asked to restart, reload, or refresh the instance.
+description: >
+  Restart the arizuko container or reload config. Use when asked to restart,
+  reload, or refresh the instance.
+user-invocable: true
 ---
 
 # Reload

@@ -5,6 +5,7 @@ description: >
   deep-research subagents, distilling, and assembling into HTML. Use
   when asked to "build a hub", "research hub", "knowledge hub", or
   "deep dive" on a frontier topic (biotech, AI, crypto, etc).
+user-invocable: true
 ---
 
 # Hub — knowledge hub builder

@@ -4,6 +4,7 @@ description: Introspect this agent — workspace layout, MCP tools, skills,
   channels, migration version, ant link (slink). Use for "who are you",
   "introspect", "status", "what version", "what's my chat URL", or when
   blocked and unsure what you can do.
+user-invocable: true
 ---
 
 # Self

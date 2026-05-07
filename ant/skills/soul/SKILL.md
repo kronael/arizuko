@@ -6,6 +6,8 @@ description: >
   voice (e.g. "who are you?", "give yourself a personality", "rewrite
   your soul"). Never invoke on greetings, introductions, onboarding,
   routine tasks, or unsolicited — this skill is user-initiated only.
+user-invocable: true
+disable-model-invocation: true
 ---
 
 # Soul

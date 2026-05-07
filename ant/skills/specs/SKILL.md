@@ -3,6 +3,7 @@ name: specs
 description: >
   Write and manage arizuko specs in specs/. Use when creating or
   updating design specs, architecture docs, or status tracking.
+user-invocable: true
 ---
 
 # Specs

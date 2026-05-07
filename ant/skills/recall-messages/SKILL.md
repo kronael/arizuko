@@ -3,7 +3,7 @@ name: recall-messages
 description: >
   Use when asked what someone said, what was discussed, or to find a past
   conversation. Searches chat message history, not facts/diary.
-user_invocable: true
+user-invocable: true
 arg: <question>
 ---
 
