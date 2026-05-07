@@ -14,6 +14,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.33.15] — 2026-05-07
+
+> arizuko v0.33.15 — 07 May 2026
+>
+> • Agent-controlled web routing — `set_web_route`/`del_web_route`/`list_web_routes` MCP tools; per-path `public`/`auth`/`deny`/`redirect` rules
+> • Auth-gate default — unknown paths require login; agents can open specific paths to the public
+> • Ant link rebrand — slink UI renamed "ant link"; mobile CSS, SSE reconnect, typing indicator
+> • Voice replies — `send_voice` tool on Telegram/WhatsApp/Discord
+> • Container UID fix — agent workspace writable after group creation
+> • Invite → ant link — direct invites land on the group's ant link
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Added
 
 - `web_routes` DB table (migration 0045): agents set per-path access rules (`public`/`auth`/`deny`/`redirect`) via `set_web_route`, `del_web_route`, `list_web_routes` MCP tools
