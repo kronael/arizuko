@@ -251,7 +251,9 @@ func (g *Gateway) Run(ctx context.Context) error {
 				CreatedAt:  time.Now(),
 			})
 		},
-		DelWebRoute: g.store.DelWebRoute,
+		DelWebRoute: func(pathPrefix, folder string) (bool, error) {
+			return g.store.DelWebRoute(pathPrefix, folder)
+		},
 		ListWebRoutes: func(folder string) []ipc.WebRoute {
 			rows := g.store.ListWebRoutes(folder)
 			out := make([]ipc.WebRoute, len(rows))

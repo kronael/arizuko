@@ -114,7 +114,7 @@ type StoreFns struct {
 	GetSession          func(folder, topic string) (string, bool)
 	GetIdentityForSub   func(sub string) (Identity, []string, bool)
 	SetWebRoute         func(pathPrefix, access, redirectTo, folder string) error
-	DelWebRoute         func(pathPrefix string) error
+	DelWebRoute         func(pathPrefix, folder string) (bool, error)
 	ListWebRoutes       func(folder string) []WebRoute
 }
 
@@ -677,11 +677,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if gated.SendVoice == nil {
 				return toolErr("send_voice not configured")
 			}
-			text := req.GetString("text", "")
-			if t := strings.TrimSpace(text); t == "" {
+			text := strings.TrimSpace(req.GetString("text", ""))
+			if text == "" {
 				return toolErr("send_voice: text is empty")
 			}
-			if len(strings.TrimSpace(text)) > 5000 {
+			if len(text) > 5000 {
 				return toolErr("send_voice: text too long (max 5000 chars)")
 			}
 			voice := req.GetString("voice", "")
@@ -1675,29 +1675,24 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		"Delete a web route by path. Only routes owned by this folder may be deleted (operators can delete any).",
 		[]mcp.ToolOption{mcp.WithString("path", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.DelWebRoute == nil || db.ListWebRoutes == nil {
+			if db.DelWebRoute == nil {
 				return toolErr("del_web_route not configured")
 			}
 			p := req.GetString("path", "")
 			if p == "" {
 				return toolErr("path required")
 			}
-			// operators (tier 0) may delete any; others only own routes
-			if id.Tier > 0 {
-				routes := db.ListWebRoutes(folder)
-				found := false
-				for _, r := range routes {
-					if r.PathPrefix == p {
-						found = true
-						break
-					}
-				}
-				if !found {
-					return toolErr("route not found or not owned by this folder")
-				}
+			// operators (tier 0) may delete any; scope non-operators to own folder
+			scopedFolder := folder
+			if id.Tier == 0 {
+				scopedFolder = ""
 			}
-			if err := db.DelWebRoute(p); err != nil {
+			ok, err := db.DelWebRoute(p, scopedFolder)
+			if err != nil {
 				return toolErr(err.Error())
+			}
+			if !ok {
+				return toolErr("route not found or not owned by this folder")
 			}
 			slog.Info("del_web_route", "folder", folder, "path", p)
 			return toolOK()

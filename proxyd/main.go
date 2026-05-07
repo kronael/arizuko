@@ -600,7 +600,7 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
-		if rt := r.URL.Path; rt != "" && rt != "/" && strings.HasPrefix(rt, "/") &&
+		if rt := r.URL.Path; rt != "" && rt != "/" &&
 			!strings.HasPrefix(rt, "/auth/") {
 			if r.URL.RawQuery != "" {
 				rt += "?" + r.URL.RawQuery

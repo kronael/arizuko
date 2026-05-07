@@ -140,7 +140,7 @@ func loadConfig() (config, error) {
 		authSecret:   coreCfg.AuthSecret,
 		authBaseURL:  coreCfg.AuthBaseURL,
 		secureCookie: strings.HasPrefix(coreCfg.AuthBaseURL, "https://"),
-greeting:     os.Getenv("ONBOARDING_GREETING"),
+		greeting:     os.Getenv("ONBOARDING_GREETING"),
 		gatedURL:     chanlib.EnvOr("ROUTER_URL", "http://gated:8080"),
 		listenAddr:   chanlib.EnvOr("ONBOD_LISTEN_ADDR", ":8080"),
 		pollInterval: 10 * time.Second,
@@ -505,15 +505,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	db.Exec(`UPDATE auth_users SET username = ? WHERE sub = ?`, username, userSub)
 
 	coreCfg := cfg.core
-	if coreCfg == nil {
-		var err error
-		if coreCfg, err = core.LoadConfig(); err != nil {
-			slog.Error("create world: load config", "err", err)
-			renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
-			return
-		}
-	}
-
 	// Prototype: groups/<parent>/prototype/ (or groups/prototype/ for root).
 	prototype := filepath.Join(coreCfg.GroupsDir, parent, "prototype")
 	if _, err := os.Stat(prototype); err != nil {
