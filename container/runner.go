@@ -788,7 +788,23 @@ func seedGroupDir(cfg *core.Config, folder string) error {
 		return err
 	}
 	seedSkills(cfg, claudeDir, folder)
+	// Ensure the ant (node, uid 1000) can write to its own workspace.
+	// Host process may run as a different uid (e.g. 1001); chown to match container.
+	chownR(claudeDir, containerUID, containerUID)
 	return nil
+}
+
+// containerUID is the uid of the `node` user inside ant containers.
+const containerUID = 1000
+
+func chownR(root string, uid, gid int) {
+	filepath.WalkDir(root, func(p string, _ os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		os.Lchown(p, uid, gid)
+		return nil
+	})
 }
 
 func seedSkills(cfg *core.Config, claudeDir, folder string) {
