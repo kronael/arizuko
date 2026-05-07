@@ -51,25 +51,26 @@ const slinkPageHTML = `<!DOCTYPE html><html><head>
 :root{--bg:#0a0a0a;--fg:#e0e0e0;--accent:#4ade80;--accent2:#a78bfa;--accent3:#58a6ff;--dim:#666;--border:#222;--card:#111;--card-hover:#161616}
 [data-theme=light]{--bg:#fafafa;--fg:#1a1a1a;--accent:#16a34a;--accent2:#7c3aed;--accent3:#0969da;--dim:#888;--border:#ddd;--card:#fff;--card-hover:#f5f5f5}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:"SF Mono","Fira Code","JetBrains Mono",Consolas,monospace;font-size:14px;color:var(--fg);background:var(--bg);height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;color:var(--fg);background:var(--bg);height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 header{display:flex;align-items:center;gap:.6rem;padding:.6rem 1rem;border-bottom:1px solid var(--border);background:var(--card)}
-header .name{color:var(--accent);font-weight:bold;font-size:1.05em}
+header .name{color:var(--accent);font-weight:600;font-size:1.05em}
 header .dim{color:var(--dim);font-size:.85em}
-#thread{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.4rem}
-.msg{max-width:75%%;padding:.5rem .8rem;border-radius:8px;line-height:1.5;white-space:pre-wrap;word-break:break-word;font-size:.9em}
-.msg.user{align-self:flex-end;background:var(--accent);color:var(--bg)}
-.msg.assistant{align-self:flex-start;background:var(--card);border:1px solid var(--border)}
-.msg .meta{font-size:.7em;color:var(--dim);margin-top:.2em}
-.msg.user .meta{color:rgba(0,0,0,.5)}
-.typing{align-self:flex-start;color:var(--dim);font-size:.85em;padding:.3rem .8rem}
+#thread{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.5rem}
+@keyframes pop{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.msg{max-width:75%%;padding:.55rem .85rem;border-radius:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;font-size:.9em;animation:pop .15s ease}
+.msg.user{align-self:flex-end;background:var(--accent);color:var(--bg);border-bottom-right-radius:3px}
+.msg.assistant{align-self:flex-start;background:var(--card);border:1px solid var(--border);border-bottom-left-radius:3px}
+.msg .meta{font-size:.7em;color:var(--dim);margin-top:.25em}
+.msg.user .meta{color:rgba(0,0,0,.45)}
+.typing{align-self:flex-start;color:var(--dim);font-size:.85em;padding:.3rem .8rem;animation:pop .15s ease}
 footer{padding:.6rem 1rem;padding-bottom:max(.6rem,env(safe-area-inset-bottom));border-top:1px solid var(--border);background:var(--card)}
 footer form{display:flex;gap:.5rem;align-items:flex-end}
-footer textarea{flex:1;resize:none;padding:.5rem .7rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:.9em;height:2.6rem}
+footer textarea{flex:1;resize:none;padding:.5rem .7rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:.9em;height:2.6rem;transition:border-color .15s}
 footer textarea:focus{outline:none;border-color:var(--accent3)}
-footer button{padding:.5rem 1.2rem;background:var(--accent);color:var(--bg);border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:bold;font-size:.9em;min-height:44px}
-footer button:hover{opacity:.9}
-footer button:disabled{opacity:.4;cursor:default}
-@media(max-width:600px){body{font-size:13px}.msg{max-width:88%%}footer textarea{font-size:16px}}
+footer button{padding:.5rem 1.2rem;background:var(--accent);color:var(--bg);border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:600;font-size:.9em;min-height:44px;transition:opacity .15s}
+footer button:hover{opacity:.85}
+footer button:disabled{opacity:.35;cursor:default}
+@media(max-width:600px){body{font-size:13px}.msg{max-width:90%%}footer textarea{font-size:16px}}
 </style>
 <script>(function(){var t=localStorage.getItem('hub-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})()</script>
 </head><body>
@@ -86,11 +87,12 @@ footer button:disabled{opacity:.4;cursor:default}
 </footer>
 <script>
 var folder="%s",token="%s",topic='t'+Date.now(),es,reconnectTimer;
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function addMsg(role,content,id){
   var d=document.createElement('div');
   d.className='msg '+role;
   if(id)d.id='msg-'+id;
-  d.textContent=content;
+  d.innerHTML=esc(content).replace(/\n/g,'<br>');
   document.getElementById('thread').appendChild(d);
   d.scrollIntoView({behavior:'smooth'});
 }
@@ -262,7 +264,8 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteJSON(w, resp)
 	default:
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<div class="msg user" id="msg-%s">%s</div>`, m.ID, htmlEscape(content))
+		escaped := strings.ReplaceAll(htmlEscape(content), "\n", "<br>")
+		fmt.Fprintf(w, `<div class="msg user" id="msg-%s">%s</div>`, m.ID, escaped)
 	}
 }
 
