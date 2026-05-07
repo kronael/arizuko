@@ -572,6 +572,12 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
 		slog.Warn("auth denied", "reason", "no_valid_credential",
 			"path", r.URL.Path, "remote", peer)
+		if !strings.Contains(r.Header.Get("Accept"), "text/html") ||
+			strings.HasPrefix(r.URL.Path, "/api/") ||
+			strings.HasPrefix(r.URL.Path, "/x/") {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
 		if rt := r.URL.Path; rt != "" && rt != "/" && strings.HasPrefix(rt, "/") &&
 			!strings.HasPrefix(rt, "/auth/") {
 			if r.URL.RawQuery != "" {
