@@ -234,12 +234,12 @@ func promptUnprompted(db *sql.DB, cfg config) {
 
 	now := time.Now().Format(time.RFC3339)
 	expires := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
+	base := strings.TrimRight(cfg.authBaseURL, "/")
 	for _, jid := range pending {
 		token := core.GenHexToken()
 		db.Exec(`UPDATE onboarding SET token = ?, token_expires = ?, prompted_at = ? WHERE jid = ?`,
 			token, expires, now, jid)
 
-		base := strings.TrimRight(cfg.authBaseURL, "/")
 		link := base + "/onboard?token=" + token
 		prompt := "Set up your account: " + link
 		if cfg.greeting != "" {
@@ -505,12 +505,18 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	db.Exec(`UPDATE auth_users SET username = ? WHERE sub = ?`, username, userSub)
 
 	coreCfg := cfg.core
-	// Prototype: groups/<parent>/prototype/ (or groups/prototype/ for root).
+	if coreCfg == nil {
+		var err error
+		if coreCfg, err = core.LoadConfig(); err != nil {
+			slog.Error("create world: load config", "err", err)
+			renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
+			return
+		}
+	}
 	prototype := filepath.Join(coreCfg.GroupsDir, parent, "prototype")
 	if _, err := os.Stat(prototype); err != nil {
-		prototype = "" // no prototype dir — start bare
+		prototype = ""
 	}
-
 	if err := container.SetupGroup(coreCfg, folder, prototype); err != nil {
 		slog.Error("create world: setup group", "folder", folder, "err", err)
 		renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
@@ -599,10 +605,11 @@ func linkJID(db *sql.DB, jid, userSub string) {
 	gates := loadGates(db)
 	if len(gates) > 0 {
 		if g := matchGate(gates, userSub); g != nil {
+			k := gateKey(*g)
 			db.Exec(
 				`UPDATE onboarding SET status = 'queued', user_sub = ?, gate = ?, queued_at = ? WHERE jid = ?`,
-				userSub, gateKey(*g), now, jid)
-			slog.Info("queued jid", "jid", jid, "user", userSub, "gate", gateKey(*g))
+				userSub, k, now, jid)
+			slog.Info("queued jid", "jid", jid, "user", userSub, "gate", k)
 			return
 		}
 		slog.Warn("no matching gate", "jid", jid, "user", userSub)

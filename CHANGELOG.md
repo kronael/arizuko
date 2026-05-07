@@ -24,6 +24,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - container: `chownR` + per-uid fix so spawned agent containers run as UID 1000
 - onbod: direct invite flow lands on ant link; subworld creation seeds `slink_token`
 
+### Fixed
+
+- onbod: `handleCreateWorld` nil-fallback for `cfg.core` restored — required by integration tests (set `DATA_DIR`) and unit tests (fall back to cwd)
+
 ## [v0.33.14] — 2026-05-06
 
 > arizuko v0.33.14 — 06 May 2026

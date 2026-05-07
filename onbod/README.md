@@ -39,6 +39,13 @@ throttle admission.
 `GET /health` returns 200 when DB is reachable. Queued users see their
 position on `/onboard` (auto-refreshes every 30s).
 
+## Testing
+
+Integration tests set `DATA_DIR` to a temp dir; unit tests omit it and
+fall back to cwd. `handleCreateWorld` handles both: when `cfg.core` is nil
+(test env without a full config), it calls `core.LoadConfig()` from env vars
+rather than panicking. Do not remove this nil-check as dead code.
+
 ## Files
 
 - `main.go` — config, poll loop, HTTP handlers, OAuth wiring
