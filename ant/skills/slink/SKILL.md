@@ -1,8 +1,9 @@
 ---
 name: slink
 description: Ant links (slinks) — public token-gated web chat for your
-  group. Use when sharing your chat URL, explaining how someone can reach
-  you on the web, or describing the MCP surface for external agents.
+  group. Use when sharing your chat URL, building a custom chat page,
+  explaining how someone can reach you on the web, or describing the MCP
+  surface for external agents.
 ---
 
 # Ant links
@@ -19,16 +20,14 @@ echo "https://$WEB_HOST/slink/$SLINK_TOKEN"
 NEVER output the literal variables. Always resolve before sharing.
 If `$SLINK_TOKEN` is empty, web chat is not configured for this group.
 
-## What users get
+## What users get by default
 
 Visiting `https://$WEB_HOST/slink/$SLINK_TOKEN` opens a minimal web
-chat UI — anonymous, monospace, dark/light theme. Messages route into
-your group exactly like any channel message. Identity is an IP-derived
-anonymous hash (`anon:<hex>`); senders have no account.
+chat UI — anonymous, monospace. Messages route into your group exactly
+like any channel message. Identity is an IP-derived anonymous hash
+(`anon:<hex>`); senders have no account.
 
 ## Sharing
-
-Send the URL to anyone you want to reach you publicly:
 
 ```
 send_message content="Chat with me: https://$WEB_HOST/slink/$SLINK_TOKEN"
@@ -36,18 +35,73 @@ send_message content="Chat with me: https://$WEB_HOST/slink/$SLINK_TOKEN"
 
 Or post it to a platform — it's just a URL.
 
-## Round-handle API (for power users / scripts)
+## Round-handle JSON API
 
-Three endpoints, same token:
+POST returns JSON by default. No `Accept` header needed.
 
-| Method | Path | What it does |
-| ------ | ---- | ------------ |
-| `POST` | `/slink/<token>` | Send a message; returns HTML bubble or JSON |
-| `GET` | `/slink/<token>/<turn_id>` | Snapshot of a turn's frames |
-| `GET` | `/slink/<token>/<turn_id>/sse` | SSE stream until round completes |
+| Method | Path                          | What it does                          |
+| ------ | ----------------------------- | ------------------------------------- |
+| POST   | `/slink/<token>`              | Send message → `{turn_id, status}`    |
+| GET    | `/slink/<token>/config`       | Bootstrap: token, folder, name        |
+| GET    | `/slink/<token>/<turn_id>`    | Snapshot: status + all reply frames   |
+| GET    | `/slink/<token>/<turn_id>/sse`| SSE stream until `round_done`         |
+| GET    | `/slink/<token>/<turn_id>/status` | Cheap status check               |
+| POST   | `/slink/<token>/<turn_id>`    | Steer — follow-up to an existing turn |
 
-POST body: `content=hello&topic=<optional-id>`.
-GET `Accept: application/json` for machine-friendly output.
+## Build a custom chat page
+
+Agents own the UI. Write the page to `/workspace/web/pub/<name>/index.html`
+— it's served at `https://$WEB_HOST/pub/<name>/` with no auth.
+
+Full pattern — two browser primitives, zero dependencies:
+
+```js
+const TOKEN = '$SLINK_TOKEN' // resolve at page-build time, never pass raw var
+
+async function send(msg) {
+  // 1. POST message → get turn handle
+  const r = await fetch(`/slink/${TOKEN}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: msg }),
+  })
+  const { turn_id } = await r.json()
+
+  // 2. Stream reply frames on the turn handle
+  const es = new EventSource(`/slink/${TOKEN}/${turn_id}/sse`)
+  es.addEventListener('message', e => {
+    const { content } = JSON.parse(e.data)
+    appendToThread('assistant', content)
+  })
+  es.addEventListener('round_done', () => es.close())
+  // Browser reconnects automatically via Last-Event-Id on network drop
+}
+```
+
+The page lives on the same origin as `$WEB_HOST` — no CORS headers needed.
+For pages hosted on a third-party domain, webd emits
+`Access-Control-Allow-Origin: *` on all `/slink/*` responses.
+
+### Serving at a custom path
+
+To make the page the landing URL for the slink token, use `set_web_route`
+to redirect the slink root to your page:
+
+```
+set_web_route path="/slink/$SLINK_TOKEN" access="redirect" redirect_to="/pub/<name>/"
+```
+
+Or just link to it from the default chat page and from the channel.
+
+### Bootstrap
+
+`GET /slink/<token>/config` returns the group name and resolved endpoint
+paths — useful when you can't bake the token into the HTML at build time:
+
+```js
+const { name, endpoints } = await fetch(`/slink/${TOKEN}/config`).then(r => r.json())
+// endpoints.post, endpoints.stream, endpoints.status
+```
 
 ## MCP surface (agent-to-agent)
 
@@ -59,20 +113,11 @@ External agents connect via `POST /slink/<token>/mcp` — three tools:
 | `steer` | Append to an existing round |
 | `get_round` | Read replies; `wait: true` blocks up to 5 min |
 
-The token IS the auth. See `ant/skills/slink-mcp/SKILL.md` for full reference.
-
-## SSE stream (basic embed)
-
-```js
-const es = new EventSource(
-  `/slink/stream?token=${token}&group=${folder}&topic=${topic}`)
-es.addEventListener('message', e => {
-  const { id, role, content } = JSON.parse(e.data)
-})
-```
-
-Events: `{ id, role, content, created_at }`. Topic auto-generated if omitted.
+The token IS the auth. See `slink-mcp` skill for full reference.
 
 ## Rate limits
 
-Proxyd rate-limits per IP. Anonymous users share the same limit pool.
+| Caller | Limit |
+| ------ | ----- |
+| Anonymous | 10 req/min (shared per token) |
+| JWT-authenticated | 60 req/min per user |

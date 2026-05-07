@@ -2,55 +2,47 @@
 status: spec
 ---
 
-# Slink widget — embeddable JS client
+# Slink — agent-built chat pages
 
-Extension of [W-slink.md](W-slink.md). That spec defines the round-handle JSON
-protocol; this one defines the embeddable browser surface built on top of it.
+Extension of [W-slink.md](W-slink.md). That spec defines the round-handle
+JSON protocol. This one defines the infrastructure contracts that let agents
+and third-party pages build on top of it.
+
+**Implementation guide lives in `ant/skills/slink/SKILL.md`** — agents learn
+the POST → SSE pattern there and write their own pages.
 
 ## Problem
 
-The current `/slink/{token}` page is self-contained: HTML, CSS, and JS are all
-inlined. The POST handler returns an HTMX fragment by default; JSON is opt-in
-via `Accept: application/json`. This couples the transport protocol to the
-widget implementation — any third-party site that wants to embed a chat widget
-must either scrape fragments or fight the content-type negotiation.
+The current `/slink/{token}` GET route serves a hard-coded HTML page. POST
+returns an HTML fragment by default; JSON is opt-in via `Accept`. This means:
 
-Concretely, the things that are wrong:
+1. Every product that wants a branded chat UI has to fight the default.
+2. Third-party pages embedding the API hit CORS.
+3. There is no config bootstrap endpoint — callers must hard-code paths.
 
-1. POST `/slink/{token}` returns HTML by default. The JSON API defined in
-   W-slink.md is the canonical protocol but isn't the default.
-2. The chat page lives at the root slink URL, so there's no clean endpoint a
-   third party can point users at.
-3. There is no embeddable widget — no script tag an operator can drop into
-   their own site.
+## Infrastructure changes (webd)
 
-## Approach
+### JSON as default POST response
 
-Three changes, independent of each other:
+POST `/slink/{token}` responds JSON by default (as specified in W-slink.md
+§POST shape). `Accept: text/html` stays for the legacy HTMX fragment path
+used by the built-in chat page. New callers get JSON with no `Accept` header.
 
-### 1. JSON is the default
+### Chat page at `/slink/{token}/chat`
 
-POST `/slink/{token}` responds with JSON by default (as already specified in
-W-slink.md §POST shape). `Accept: text/html` is the opt-in path for legacy
-fragment callers. Fragment support stays for backward compat but is no longer
-the default.
+`GET /slink/{token}` → 301 to `/slink/{token}/chat`.
+`GET /slink/{token}/chat` → the default minimal chat page (moved from root).
 
-### 2. Chat page at `/slink/{token}/chat`
+Frees the root URL for future use (a landing page or JSON config); keeps the
+chat page reachable at a stable, linkable URL.
 
-`GET /slink/{token}` — redirect (301) to `/slink/{token}/chat`.
-`GET /slink/{token}/chat` — the standalone chat HTML page (what is today's
-`GET /slink/{token}`). Moving it here keeps the root URL free for future use
-(a landing page, API docs, or redirect) while keeping the chat page reachable
-at a stable URL.
+### Config endpoint
 
-### 3. Config endpoint + embeddable widget
-
-`GET /slink/{token}/config` — JSON bootstrap. No auth required; the token is
-already public. Returns:
+`GET /slink/{token}/config` — JSON bootstrap, no auth:
 
 ```json
 {
-  "token": "646a1ee586e63313...",
+  "token": "646a...",
   "folder": "acme/support",
   "name": "Support",
   "endpoints": {
@@ -61,77 +53,36 @@ already public. Returns:
 }
 ```
 
-Gives any client the minimum it needs without hardcoding paths.
+Useful for pages that can't bake the token and paths in at build time.
 
-`GET /pub/slink-widget.js` — self-contained embeddable widget. Served as a
-static asset from webd (no auth, no token in path). One script tag is the
-entire integration:
+### CORS on `/slink/*`
 
-```html
-<script
-  src="https://your-instance.example.com/pub/slink-widget.js"
-  data-token="646a1ee586e63313"
-  data-container="#chat-root"
-></script>
-```
-
-Widget behaviour:
-
-1. On load, fetches `/slink/{token}/config` to get the folder name.
-2. Creates a minimal chat UI in `data-container` (or `document.body` if
-   omitted): input textarea, send button, message thread div.
-3. On send, POST JSON to `/slink/{token}`. Receives `{turn_id, ...}`.
-4. Opens SSE on `/slink/{token}/{turn_id}/sse`. Appends frames as they arrive.
-   Closes when `round_done` fires.
-5. Reconnects on disconnect using `Last-Event-Id`.
-
-JS init API (for callers who prefer programmatic control):
-
-```javascript
-window.SlinkWidget.init({
-  token: '646a1ee586e63313',
-  base: 'https://your-instance.example.com', // optional, infers from script src
-  container: document.querySelector('#chat-root'),
-  theme: 'light', // 'light' | 'dark' | 'auto'
-});
-```
-
-## CORS
-
-slink endpoints must emit `Access-Control-Allow-Origin: *` so embedded widgets
-on third-party origins can call the JSON API. Scope to `/slink/*` only — the
-rest of webd stays unaffected. proxyd already strips identity headers on
-incoming requests; CORS adds no new trust surface since the token is already
-public.
-
-`/pub/slink-widget.js` is served without CORS restrictions (it's a script, not
-XHR).
+webd emits `Access-Control-Allow-Origin: *` on all `/slink/*` responses so
+pages hosted on third-party origins can call the JSON API directly. Scope is
+`/slink/*` only — nothing else in webd is affected. proxyd already strips
+identity headers on inbound; CORS adds no new trust surface (the token is
+already public).
 
 ## What changes
 
-| File                   | Change                                                                                                                                                          |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `webd/slink.go`        | POST default → JSON; `GET /slink/{t}` → 301 to `/chat`; add `GET /slink/{t}/chat` handler; add `GET /slink/{t}/config` handler; emit CORS headers on `/slink/*` |
-| `webd/slink_widget.js` | New file — the embeddable widget source                                                                                                                         |
-| `webd/server.go`       | Register `/pub/slink-widget.js` route (static serve, no auth)                                                                                                   |
-| `proxyd/main.go`       | `/slink/*/config` already public (covered by `/slink/*` rule); no change                                                                                        |
+| File             | Change                                                                                           |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| `webd/slink.go`  | POST default → JSON; `GET /{t}` → 301 to `/chat`; add `/chat` + `/config` handlers; CORS headers |
+| `proxyd/main.go` | `/slink/*/config` already covered by `/slink/*` public rule; no change                           |
 
-Fragment handler (`Accept: text/html`) stays in `webd/slink.go` — it's used by
-the chat page's own HTMX calls and by any existing integrations. Remove it only
-when the chat page (`/slink/{t}/chat`) migrates off HTMX internally.
+Fragment handler stays — used by the chat page's own HTMX calls. Remove when
+the built-in chat page migrates off HTMX.
 
 ## Non-goals
 
-- No widget CDN — the script is self-hosted on the arizuko instance.
-- No OAuth popup in the widget — anon identity is enough for the public embed
-  use case. JWT bearer can be injected via `window.SlinkWidget.init({ jwt })`.
-- No per-token customization (colors, logo) in v1 — that's a product layer on
-  top.
-- Existing per-folder SSE stream (`GET /slink/stream`) stays unchanged.
+- No widget file shipped by arizuko. Agents write their own pages using the
+  `slink` skill as a guide.
+- No CDN hosting. Pages are self-hosted on the arizuko instance under
+  `/workspace/web/pub/<name>/`.
+- No per-token UI customization in webd — that's the agent's job.
 
 ## Relationship to W-slink.md
 
-W-slink.md owns the round-handle protocol (POST, steer, snapshot, status, SSE,
-MCP). This spec owns the browser surface (chat page, widget, config endpoint,
-CORS). No duplication — cite W-slink.md for protocol details, this spec for
-embed details.
+W-slink.md owns the round-handle protocol (POST shape, steer, snapshot,
+status, SSE, MCP). This spec owns the browser infrastructure (CORS, /chat
+page, /config endpoint, JSON-default POST). No duplication.

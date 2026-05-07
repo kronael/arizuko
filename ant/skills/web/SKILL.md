@@ -40,29 +40,10 @@ adding/removing apps. No placeholders.
 
 ## Web chat (slink)
 
-Each group has a slink token for public chat:
-
-- `POST /slink/<token>` — form: `content`, `topic`
-- `GET /slink/stream?group=<folder>&topic=<t>` — SSE response stream
-  (events: `{id, role, content, created_at}`)
-
-Point users to `https://$WEB_HOST/slink/<token>`. Authenticated UI at
-`/chat/<folder>`.
-
-Minimal embed:
-
-```js
-fetch(`/slink/${token}`, {
-  method: 'POST',
-  body: new URLSearchParams({ content: msg, topic: tid }),
-})
-const es = new EventSource(`/slink/stream?group=${folder}&topic=${tid}`)
-es.addEventListener('message', e => {
-  const { content, role } = JSON.parse(e.data)
-})
-```
-
-Topic auto-generated if omitted. Anonymous users identified by IP hash.
+Each group has a slink token for public chat at
+`https://$WEB_HOST/slink/$SLINK_TOKEN`. To build a custom chat page
+inside a pub app, use the round-handle JSON API — see `slink` skill
+for the full pattern and a working snippet.
 
 ## Vite restart
 
