@@ -58,6 +58,13 @@ centralized middleware in `auth/middleware.go`:
   protects `/onboard` and `/invite/{token}` so unauthenticated landings
   still work but a forged `X-User-Sub` never reaches a handler).
 
+The shared secret is `PROXYD_HMAC_SECRET` in `.env`. It must be set
+and **identical** in both `proxyd` and `webd` (and `onbod`). The
+compose generator propagates it from `.env` to each service's scoped
+`env/<daemon>.env`. If unset, proxyd generates an ephemeral secret
+per run — webd will then reject all signed headers, breaking ant link
+SSE auth and authenticated web chat.
+
 Crypto lives in `auth/hmac.go` (`SignHMAC`, `VerifyUserSig`,
 `UserSigMessage`) and is shared by both signer and verifiers. Never
 inline a `VerifyUserSig` call in handler code — go through the

@@ -14,6 +14,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- compose: `PROXYD_HMAC_SECRET` now propagated to `proxyd` and `webd` env files — was missing, causing ant link SSE auth to silently fail (proxyd used ephemeral secret, webd rejected all signed headers)
+
 ## [v0.33.15] — 2026-05-07
 
 > arizuko v0.33.15 — 07 May 2026

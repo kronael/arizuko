@@ -27,6 +27,14 @@ extends across accounts.
 
 - `compose.go`
 
+## Scoped env keys
+
+Each daemon gets only the keys it needs, written to `env/<daemon>.env`.
+Shared secrets that cross service boundaries must appear in both lists
+(see `daemonEnvKeys` in `compose.go`). Key example: `PROXYD_HMAC_SECRET`
+must reach both `proxyd` (signer) and `webd` / `onbod` (verifiers) — if
+missing from either, signed-header verification silently breaks.
+
 ## Related docs
 
 - `ARCHITECTURE.md` (Compose Containers)
