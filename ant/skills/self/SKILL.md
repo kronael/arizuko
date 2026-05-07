@@ -1,8 +1,9 @@
 ---
 name: self
 description: Introspect this agent — workspace layout, MCP tools, skills,
-  channels, migration version. Use for "who are you", "introspect", "status",
-  "what version", or when blocked and unsure what you can do.
+  channels, migration version, ant link (slink). Use for "who are you",
+  "introspect", "status", "what version", "what's my chat URL", or when
+  blocked and unsure what you can do.
 ---
 
 # Self
@@ -219,6 +220,20 @@ require('fs').writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
 Tools appear as `mcp__mytools__*` next session. The built-in `arizuko`
 server cannot be overridden. SDK hooks (PreCompact, PreToolUse) are
 hardcoded in ant and cannot be added by the agent.
+
+## Ant link (slink)
+
+```bash
+echo "https://$WEB_HOST/slink/$SLINK_TOKEN"  # this ant's public chat URL
+```
+
+NEVER output literal variables. Resolve before sharing.
+If `$SLINK_TOKEN` is empty, web chat is not configured for this group.
+
+- **Inbound** (others reach this ant, build a chat page):
+  read `/workspace/self/ant/skills/self/slink-inbound.md`
+- **Outbound** (this ant talks to another ant via their slink):
+  read `/workspace/self/ant/skills/self/slink-outbound.md`
 
 ## Root group only
 

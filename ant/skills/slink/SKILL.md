@@ -1,28 +1,20 @@
 ---
 name: slink
-description: Ant links (slinks) — token-gated web channel for a group. Use
-  when sharing your chat URL, building a custom chat page, reaching another
-  ant via their slink, or describing the MCP surface for external agents.
+description: Ant links — share this ant's public chat URL, build a custom
+  chat page for it, or send messages to another ant via their slink token.
+  Use when sharing your URL, building a web chat UI, or doing agent-to-agent
+  communication over HTTP or MCP.
 ---
 
 # Slink
 
-Two directions, same primitive:
+Two directions:
 
 - **Inbound** — others reach this ant via a public URL.
-  Read `/workspace/self/ant/skills/slink/inbound.md`.
+  Read `/workspace/self/ant/skills/self/slink-inbound.md`.
 
 - **Outbound** — this ant sends messages to another ant via their slink.
-  Read `/workspace/self/ant/skills/slink/outbound.md`.
-
-## Quick reference
-
-```bash
-echo "https://$WEB_HOST/slink/$SLINK_TOKEN"  # this ant's link
-```
-
-NEVER output literal variables. Resolve before sharing.
-If `$SLINK_TOKEN` is empty, web chat is not configured for this group.
+  Read `/workspace/self/ant/skills/self/slink-outbound.md`.
 
 ## Endpoints (same token, different paths)
 
@@ -39,8 +31,8 @@ If `$SLINK_TOKEN` is empty, web chat is not configured for this group.
 
 ## Rate limits
 
-| Caller            | Limit                               |
-| ----------------- | ----------------------------------- |
-| Anonymous         | 10 req/min (shared per token)       |
-| JWT-authenticated | 60 req/min per user                 |
-| Agent / operator  | unlimited                           |
+| Caller            | Limit                         |
+| ----------------- | ----------------------------- |
+| Anonymous         | 10 req/min (shared per token) |
+| JWT-authenticated | 60 req/min per user           |
+| Agent / operator  | unlimited                     |
