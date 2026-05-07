@@ -12,11 +12,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
-## [Unreleased]
+## [v0.33.16] — 2026-05-07
+
+> arizuko v0.33.16 — 07 May 2026
+>
+> • Ant link SSE fix — HMAC secret now shared between proxyd and webd; SSE auth was silently failing
+> • Skill polish — frontmatter cleanup across all agent skills (when_to_use, descriptions, body minimalism)
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ### Fixed
 
 - compose: `PROXYD_HMAC_SECRET` now propagated to `proxyd` and `webd` env files — was missing, causing ant link SSE auth to silently fail (proxyd used ephemeral secret, webd rejected all signed headers)
+
+### Changed
+
+- Agent skills: all `when_to_use` fields split from descriptions; body "When to use" sections removed; multi-sentence descriptions trimmed; -172 net lines across 25 skill files
 
 ## [v0.33.15] — 2026-05-07
 
