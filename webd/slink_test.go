@@ -325,8 +325,8 @@ func TestSlinkPage(t *testing.T) {
 	if !strings.Contains(body, g.SlinkToken) {
 		t.Error("page missing slink token in JS")
 	}
-	if !strings.Contains(body, "web chat") {
-		t.Error("page missing web chat label")
+	if !strings.Contains(body, "ant link") {
+		t.Error("page missing ant link label")
 	}
 }
 

@@ -56,24 +56,19 @@ func (s *Store) ListWebRoutes(folder string) []WebRoute {
 	return out
 }
 
-// AllWebRoutes returns every web_route row (used by proxyd cache).
-func (s *Store) AllWebRoutes() []WebRoute {
-	rows, err := s.db.Query(
-		`SELECT path_prefix, access, COALESCE(redirect_to,''), folder, created_at
-		 FROM web_routes ORDER BY path_prefix`,
+// MatchWebRoute returns the longest-prefix web_route matching urlPath, if any.
+func (s *Store) MatchWebRoute(urlPath string) (WebRoute, bool) {
+	row := s.db.QueryRow(
+		`SELECT path_prefix, access, COALESCE(redirect_to,''), folder
+		 FROM web_routes
+		 WHERE ? LIKE path_prefix || '%'
+		 ORDER BY length(path_prefix) DESC
+		 LIMIT 1`,
+		urlPath,
 	)
-	if err != nil {
-		return nil
+	var r WebRoute
+	if err := row.Scan(&r.PathPrefix, &r.Access, &r.RedirectTo, &r.Folder); err != nil {
+		return WebRoute{}, false
 	}
-	defer rows.Close()
-	var out []WebRoute
-	for rows.Next() {
-		var r WebRoute
-		var createdAt string
-		if err := rows.Scan(&r.PathPrefix, &r.Access, &r.RedirectTo, &r.Folder, &createdAt); err == nil {
-			r.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-			out = append(out, r)
-		}
-	}
-	return out
+	return r, true
 }

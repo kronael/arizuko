@@ -182,40 +182,6 @@ func (v *vhosts) match(host string) (string, bool) {
 	return "", false
 }
 
-// routeCache holds a sorted (longest-prefix-first) snapshot of web_routes.
-type routeCache struct {
-	mu     sync.RWMutex
-	routes []store.WebRoute
-}
-
-func (rc *routeCache) load(st *store.Store) {
-	rows := st.AllWebRoutes()
-	// sort longest prefix first for correct longest-prefix match
-	sorted := make([]store.WebRoute, len(rows))
-	copy(sorted, rows)
-	for i := 0; i < len(sorted); i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if len(sorted[j].PathPrefix) > len(sorted[i].PathPrefix) {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
-	}
-	rc.mu.Lock()
-	rc.routes = sorted
-	rc.mu.Unlock()
-}
-
-func (rc *routeCache) match(urlPath string) (store.WebRoute, bool) {
-	rc.mu.RLock()
-	defer rc.mu.RUnlock()
-	for _, r := range rc.routes {
-		if strings.HasPrefix(urlPath, r.PathPrefix) {
-			return r, true
-		}
-	}
-	return store.WebRoute{}, false
-}
-
 type server struct {
 	cfg        config
 	st         *store.Store
@@ -225,21 +191,15 @@ type server struct {
 	viteProxy  *httputil.ReverseProxy
 	onbodProxy *httputil.ReverseProxy
 	vh         *vhosts
-	rc         *routeCache
 	slinkRL    *rateLimiter
 }
 
 func newServer(cfg config, st *store.Store, vh *vhosts) *server {
-	rc := &routeCache{}
-	if st != nil {
-		rc.load(st)
-	}
 	s := &server{
 		cfg:       cfg,
 		st:        st,
 		viteProxy: proxy(cfg.viteAddr),
 		vh:        vh,
-		rc:        rc,
 		slinkRL:   newRateLimiter(10, time.Minute),
 	}
 	if cfg.dashAddr != "" {
@@ -463,8 +423,8 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if s.rc != nil {
-		if route, ok := s.rc.match(r.URL.Path); ok {
+	if s.st != nil {
+		if route, ok := s.st.MatchWebRoute(r.URL.Path); ok {
 			switch route.Access {
 			case "public":
 				r2 := r.Clone(r.Context())
@@ -640,7 +600,7 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
 		slog.Warn("auth denied", "reason", "no_valid_credential",
 			"path", r.URL.Path, "remote", peer)
-		if !strings.Contains(r.Header.Get("Accept"), "text/html") ||
+		if strings.Contains(r.Header.Get("Accept"), "application/json") ||
 			strings.HasPrefix(r.URL.Path, "/api/") ||
 			strings.HasPrefix(r.URL.Path, "/x/") {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
@@ -693,14 +653,6 @@ func main() {
 		defer t.Stop()
 		for range t.C {
 			vh.load()
-		}
-	}()
-
-	go func() {
-		t := time.NewTicker(10 * time.Second)
-		defer t.Stop()
-		for range t.C {
-			s.rc.load(st)
 		}
 	}()
 

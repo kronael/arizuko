@@ -459,7 +459,7 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 // --- auth gate ---------------------------------------------------------------
 
 // Unknown path redirects to /pub/ prefix (public fallback).
-func TestProxydRouteUnknownPathRedirectsToPub(t *testing.T) {
+func TestProxydRouteUnknownPathRequiresAuth(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")
 	defer up.Close()
 
@@ -467,11 +467,11 @@ func TestProxydRouteUnknownPathRedirectsToPub(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.route(w, req)
 
-	if w.Code != http.StatusFound {
-		t.Errorf("status = %d, want 302", w.Code)
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "/pub/arizuko" {
-		t.Errorf("location = %q, want /pub/arizuko", loc)
+	if loc := w.Header().Get("Location"); loc != "/auth/login" {
+		t.Errorf("location = %q, want /auth/login", loc)
 	}
 }
 
