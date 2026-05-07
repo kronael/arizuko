@@ -26,20 +26,21 @@ If `$SLINK_TOKEN` is empty, web chat is not configured for this group.
 
 ## Endpoints (same token, different paths)
 
-| Method | Path                            | What it does                        |
-| ------ | ------------------------------- | ----------------------------------- |
-| POST   | `/slink/<token>`                | Send message → `{turn_id, status}`  |
-| GET    | `/slink/<token>/config`         | Bootstrap: token, folder, name      |
-| GET    | `/slink/<token>/chat`           | Default browser chat page           |
-| GET    | `/slink/<token>/<turn_id>`      | Snapshot: status + all reply frames |
-| GET    | `/slink/<token>/<turn_id>/sse`  | SSE stream until `round_done`       |
-| GET    | `/slink/<token>/<turn_id>/status` | Cheap status check                |
-| POST   | `/slink/<token>/<turn_id>`      | Steer — follow-up to existing turn  |
-| POST   | `/slink/<token>/mcp`            | MCP tool surface (agent-to-agent)   |
+| Method | Path                                      | What it does                              |
+| ------ | ----------------------------------------- | ----------------------------------------- |
+| GET    | `/slink/<token>`                          | Browser chat UI (HTML page)               |
+| POST   | `/slink/<token>`                          | Send message → `{user, turn_id, status}`  |
+| POST   | `/slink/<token>/<turn_id>`                | Steer — follow-up to an existing round    |
+| GET    | `/slink/<token>/<turn_id>`                | Snapshot: status + all assistant frames   |
+| GET    | `/slink/<token>/<turn_id>?after=<msg_id>` | Cursor: frames after `<msg_id>`           |
+| GET    | `/slink/<token>/<turn_id>/status`         | Cheap status check (no frame payload)     |
+| GET    | `/slink/<token>/<turn_id>/sse`            | SSE stream until `round_done`             |
+| POST   | `/slink/<token>/mcp`                      | MCP tool surface (agent-to-agent)         |
 
 ## Rate limits
 
-| Caller            | Limit                        |
-| ----------------- | ---------------------------- |
-| Anonymous         | 10 req/min (shared per token)|
-| JWT-authenticated | 60 req/min per user          |
+| Caller            | Limit                               |
+| ----------------- | ----------------------------------- |
+| Anonymous         | 10 req/min (shared per token)       |
+| JWT-authenticated | 60 req/min per user                 |
+| Agent / operator  | unlimited                           |

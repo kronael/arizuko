@@ -2,7 +2,7 @@
 
 ## What users get by default
 
-`GET /slink/$SLINK_TOKEN/chat` — minimal anonymous chat page.
+`GET /slink/$SLINK_TOKEN` — minimal anonymous chat page.
 Messages arrive in this group like any channel message. Sender identity
 is an IP-derived hash (`anon:<hex>`); no account required.
 
@@ -20,7 +20,7 @@ Deploy to `/workspace/web/pub/<name>/index.html` — served at
 Full pattern — fetch + EventSource, zero dependencies:
 
 ```js
-const TOKEN = '$SLINK_TOKEN' // bake in at page-write time, never pass raw
+const TOKEN = '$SLINK_TOKEN' // resolve at page-write time, never pass the literal variable
 
 async function send(msg) {
   // 1. POST → get turn handle
@@ -42,8 +42,7 @@ async function send(msg) {
 }
 ```
 
-Same-origin page (`$WEB_HOST`) — no CORS needed. Third-party domains:
-webd emits `Access-Control-Allow-Origin: *` on all `/slink/*` responses.
+Page lives on the same origin as `$WEB_HOST` — no CORS issues.
 
 ## Serving at a custom path
 
@@ -55,17 +54,4 @@ set_web_route path="/chat/" access="public" redirect_to="/pub/<name>/"
 
 `set_web_route` controls only paths not hardcoded in proxyd.
 `/slink/*` is hardcoded — you cannot redirect it via web_routes.
-Link to your page from the channel or from the default chat page.
-
-## Bootstrap endpoint
-
-`GET /slink/<token>/config` — useful when you can't bake the token at
-page-write time:
-
-```js
-const { name, endpoints } = await fetch(`/slink/${TOKEN}/config`).then(r => r.json())
-// endpoints.post, endpoints.stream, endpoints.status
-```
-
-Returns: `{ token, folder, name, endpoints: { post, stream, status } }`.
-No auth required.
+Link to your custom page from the channel or from the default chat page.

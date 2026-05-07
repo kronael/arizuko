@@ -1,24 +1,20 @@
 ---
 name: slink-mcp
-description: Reference for the slink-bound MCP transport — `POST
-  /slink/<token>/mcp`, distinct from the SSE web chat widget. Use when
-  setting up an external agent (Claude Code or similar) to drive an
-  arizuko group, or when explaining why slink chat ≠ slink MCP.
-
+description: MCP transport over a slink token — `POST /slink/<token>/mcp`.
+  Use when setting up an external agent to drive an arizuko group via MCP
+  tools, or when an ant needs to call another ant's tools programmatically.
 ---
 
 # Slink MCP
 
-Two surfaces, one token. A slink token grants a single group's chat
-membership; the route prefix decides which transport the caller gets:
+Same token, two transports. The path suffix decides which you get:
 
-| Path                  | Transport         | Audience                           |
-| --------------------- | ----------------- | ---------------------------------- |
-| `/slink/<token>/`     | HTML + SSE        | Web chat widget (browser users)    |
-| `/slink/<token>/mcp`  | MCP over HTTP     | External agents                    |
+| Path                  | Transport     | Audience                        |
+| --------------------- | ------------- | ------------------------------- |
+| `/slink/<token>`      | JSON + SSE    | Browser pages, HTTP scripts     |
+| `/slink/<token>/mcp`  | MCP over HTTP | External agents, tool callers   |
 
-Same token, same group, different framing. Web chat manages a UI
-session and message history; MCP is stateless and tool-shaped.
+MCP is stateless and tool-shaped; HTTP is fire-and-poll/stream.
 
 ## Three tools
 
