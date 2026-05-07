@@ -5,20 +5,12 @@ when_to_use: >
   Use when setting up an external agent to drive an arizuko group via MCP
   tools, or when an ant needs to call another ant's tools programmatically.
   Prefer HTTP transport for one-off messages or scripts; use MCP for
-  multi-step tool-shaped workflows. Not for real-time UIs or authenticated
-  identity — every call is anon.
+  multi-step tool-shaped workflows.
 ---
 
 # Slink MCP
 
-Same token, two transports. The path suffix decides which you get:
-
-| Path                  | Transport     | Audience                        |
-| --------------------- | ------------- | ------------------------------- |
-| `/slink/<token>`      | JSON + SSE    | Browser pages, HTTP scripts     |
-| `/slink/<token>/mcp`  | MCP over HTTP | External agents, tool callers   |
-
-MCP is stateless and tool-shaped; HTTP is fire-and-poll/stream.
+`POST /slink/<token>/mcp` — stateless MCP over HTTP. Token is auth.
 
 ## Three tools
 

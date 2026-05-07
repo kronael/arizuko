@@ -3,6 +3,7 @@ name: diary
 description: Record significant events, decisions, and milestones in today's diary entry.
 when_to_use: Use when asked to "write to diary", "log this", or after completing substantial work.
 user-invocable: true
+arg: <entry text>
 ---
 
 # Diary
