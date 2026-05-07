@@ -230,10 +230,11 @@ echo "https://$WEB_HOST/slink/$SLINK_TOKEN"  # this ant's public chat URL
 NEVER output literal variables. Resolve before sharing.
 If `$SLINK_TOKEN` is empty, web chat is not configured for this group.
 
-- **Inbound** (others reach this ant, build a chat page):
-  read `/workspace/self/ant/skills/self/slink-inbound.md`
-- **Outbound** (this ant talks to another ant via their slink):
-  read `/workspace/self/ant/skills/self/slink-outbound.md`
+Full reference — read on demand:
+- Inbound (share URL, build chat page, endpoints, rate limits): `slink-inbound.md`
+- Outbound (talk to another ant via HTTP or MCP): `slink-outbound.md`
+
+Both files at `/workspace/self/ant/skills/self/`.
 
 ## Root group only
 
