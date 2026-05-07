@@ -1,19 +1,15 @@
 ---
 name: soul
-description: Brainstorm or refine the bot's persona.
+description: Create or refine the group's persona file (`~/SOUL.md`).
 when_to_use: >
-  Invoke ONLY when the user explicitly asks to create, refine, or discuss the
-  bot's personality or voice (e.g. "who are you?", "give yourself a
-  personality", "rewrite your soul"). Never invoke on greetings, onboarding,
-  routine tasks, or unsolicited.
+  Use when the user explicitly asks to create, refine, or discuss the bot's
+  personality or voice — "give yourself a personality", "rewrite your soul",
+  "who are you?". Never invoke on greetings, onboarding, or routine tasks.
 user-invocable: true
 disable-model-invocation: true
 ---
 
 # Soul
-
-Rare, deliberate. Only run when the user explicitly asks to shape the
-bot's persona. Do not offer this skill on your own.
 
 ## If `~/SOUL.md` already exists
 

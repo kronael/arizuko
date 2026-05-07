@@ -8,8 +8,6 @@ when_to_use: >
 
 # Acquire
 
-Download, transcribe, scrape.
-
 ## Video (yt-dlp + ffmpeg)
 
 ```bash

@@ -7,9 +7,6 @@ user-invocable: true
 
 # Howto
 
-Generate a user-facing howto page from content + style specs. Generate HTML
-fresh — do not copy a template.
-
 ## 1 — Read the specs
 
 ```bash

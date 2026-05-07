@@ -8,10 +8,6 @@ when_to_use: >
 
 # Channels
 
-Each channel adapter implements `send_file` differently. The same path
-becomes a photo on Telegram, a rich-media bubble on Discord, an embed
-on Bluesky, or fails outright on platforms with no file surface.
-
 ## File dispatch matrix
 
 | Adapter   | Routing                                                                   |

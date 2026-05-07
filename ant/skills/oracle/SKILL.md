@@ -1,28 +1,13 @@
 ---
 name: oracle
-description: Ask a second model (codex CLI) for a sanity check or second opinion. Auth via `~/.codex` mount or `OPENAI_API_KEY`/`CODEX_API_KEY` in folder secrets.
+description: Drive the `codex` CLI as a subprocess for a one-shot second opinion. Auth via `~/.codex` host mount or `OPENAI_API_KEY`/`CODEX_API_KEY` folder secrets.
 when_to_use: >
   Use when uncertain about a tricky algorithm, a library Claude doesn't know
-  well, or before committing to a non-obvious implementation.
+  well, before committing to a non-obvious implementation, or after disagreeing
+  with yourself in a `<think>` round.
 ---
 
 # Oracle
-
-Drives the `codex` CLI (`@openai/codex`) as a subprocess for a
-one-shot second opinion. No new MCP tool, no new daemon — the binary
-is on `PATH`, the auth state is either mounted from the host or
-injected as folder env, the skill is the surface.
-
-## When to invoke
-
-- A tricky algorithm where the trade-offs aren't obvious
-- A library / API surface Claude doesn't know well
-- A sanity check on a non-obvious implementation before it ships
-- Disagreement with self after a `<think>` round
-
-Don't reach for the oracle on every uncertainty — most questions
-resolve via `/recall-memories` + `/find` faster and without an
-external call. Use it when a second opinion is the actual bottleneck.
 
 ## Call it
 

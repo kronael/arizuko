@@ -59,13 +59,6 @@ with httpx.stream('GET', f'{base}/slink/{token}/{turn_id}/sse') as r:
 
 See `slink-mcp` skill — full tool reference and registration instructions.
 
-## When to use which
-
-- **HTTP** — one-off messages, scripts, scheduled tasks; full control over
-  the poll/stream loop.
-- **MCP** — multi-step conversations; `get_round(wait: true)` blocks without
-  a poll loop.
-
 ## Identity
 
 Both transports are anonymous to the receiving ant — sender is

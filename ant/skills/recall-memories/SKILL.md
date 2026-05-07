@@ -8,8 +8,6 @@ arg: <question>
 
 # Recall Memories
 
-Search all memory stores for information relevant to a question.
-
 ## Protocol
 
 Spawn an Explore subagent with the question. The subagent:

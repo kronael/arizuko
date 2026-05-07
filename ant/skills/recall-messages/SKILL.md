@@ -1,16 +1,14 @@
 ---
 name: recall-messages
-description: Search chat message history (not facts/diary).
-when_to_use: Use when asked what someone said, what was discussed, or to find a past conversation.
+description: Search chat message history via `inspect_messages`, `get_thread`, or `fetch_history`.
+when_to_use: >
+  Use when asked what someone said, what was discussed, or to find a past
+  conversation. For stored knowledge (facts, diary, episodes) use `/recall-memories`.
 user-invocable: true
 arg: <question>
 ---
 
 # Recall Messages
-
-Search chat message history for past conversations ("what did X say",
-"did we discuss Y", decisions made in conversation).
-For stored knowledge (facts, diary, episodes) use `/recall-memories`.
 
 ## Protocol
 

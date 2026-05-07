@@ -2,21 +2,14 @@
 name: voice
 description: Reference for the `send_voice` MCP tool — voice-name resolution, platform support, length cap.
 when_to_use: >
-  Invoke when the user sent voice and expects voice back, when the persona is
-  voice-first, or before calling `send_voice` for the first time.
+  Use when the last inbound message was voice/audio, when `~/SOUL.md`
+  has `voice:` set, when the user asks for a spoken reply, or before
+  calling `send_voice` for the first time.
 ---
 
 # Voice
 
-`send_voice` synthesizes `text` via the configured TTS backend and
-delivers it as a platform-native voice message.
-
-## When to use
-
-- Last inbound message was a voice/audio attachment
-- `~/SOUL.md` frontmatter has `voice:` set (persona is voice-first)
-- User explicitly asked for spoken reply
-- Otherwise prefer `send` / `reply` — voice is heavier and not searchable
+`send_voice` synthesizes `text` via the configured TTS backend and delivers as a platform-native voice message. Prefer `send`/`reply` otherwise — voice is heavier and not searchable.
 
 ## Voice resolution (highest precedence first)
 

@@ -1,17 +1,13 @@
 ---
 name: commit
 description: Stage and commit changes to git with proper [section] message format.
-when_to_use: Use when asked to commit or after completing work.
+when_to_use: >
+  Use when asked to commit, after completing a cohesive chunk of work,
+  or when a hook triggers auto-commit. Skip if changes span unrelated concerns.
 user-invocable: true
 ---
 
 # Commit
-
-## When
-
-- `/commit`: ALWAYS proceed
-- Auto (hook): only if cohesive chunk (single fix/feat/refactor, related files, complete work)
-- Not cohesive: report and stop
 
 ## Format
 

@@ -43,7 +43,7 @@ adding/removing apps. No placeholders.
 
 Each group has a slink token for public chat at
 `https://$WEB_HOST/slink/$SLINK_TOKEN`. To build a custom chat page
-inside a pub app, use the round-handle JSON API — see `slink` skill
+inside a pub app, use the round-handle JSON API — see `slink-inbound` skill
 for the full pattern and a working snippet.
 
 ## Vite restart

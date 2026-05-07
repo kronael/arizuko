@@ -7,10 +7,6 @@ user-invocable: true
 
 # Ship
 
-Same host-tool pattern as `/oracle`: the `ship` binary is the surface,
-this skill is the guide. If `ship` is absent, do the plan + implement
-in-session instead of crashing the turn.
-
 1. **Detect** — `command -v ship >/dev/null` or fall back (see below)
 2. **Explore** — use the Explore agent to understand the codebase and task
 3. **Plan** — write `.ship/plan-<name>.md` with concrete tasks, file paths,
