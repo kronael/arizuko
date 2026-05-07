@@ -1,9 +1,7 @@
 ---
 name: ship
-description: Plan and ship a feature using the `ship` autonomous coding
-  agent CLI. Use when asked to build something substantial. Requires
-  the `ship` binary on PATH — not installed in the default agent image
-  yet; falls back to in-session implementation when missing.
+description: Plan and ship a feature using the `ship` autonomous coding agent CLI. Falls back to in-session implementation when `ship` binary is missing.
+when_to_use: Use when asked to build something substantial.
 user-invocable: true
 ---
 

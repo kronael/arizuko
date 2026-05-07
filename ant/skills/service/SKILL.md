@@ -1,8 +1,7 @@
 ---
 name: service
-description: >
-  Use when writing REST APIs or web services. Covers /health,
-  versioned routes, and input validation.
+description: REST API and web service patterns — /health, versioned routes, input validation.
+when_to_use: Use when writing REST APIs or web services.
 ---
 
 # Service/API

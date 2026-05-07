@@ -1,9 +1,9 @@
 ---
 name: mcp
-description: Calling arizuko MCP tools from a script (bash / python / go)
-  via `mcpc` over `$ARIZUKO_MCP_SOCKET`. Use when writing scheduled
-  tasks, one-off scripts, or anything that needs to invoke an MCP tool
-  outside the agent's live tool surface.
+description: Reference for calling arizuko MCP tools from scripts via `mcpc` over `$ARIZUKO_MCP_SOCKET`.
+when_to_use: >
+  Use when writing scheduled tasks, one-off scripts, or anything that needs to
+  invoke an MCP tool outside the agent's live tool surface.
 ---
 
 # MCP from scripts

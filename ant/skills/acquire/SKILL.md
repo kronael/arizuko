@@ -1,9 +1,9 @@
 ---
 name: acquire
-description: >
-  Download video/audio (yt-dlp), transcribe (whisper), scrape
-  web pages. Use when gathering source material for research
-  or analysis.
+description: Download video/audio (yt-dlp), transcribe (whisper), scrape web pages.
+when_to_use: >
+  Use when gathering source material for research or analysis — "download
+  this video", "transcribe this", "scrape that page".
 ---
 
 # Acquire

@@ -1,7 +1,7 @@
 ---
 name: users
-description: Read or update user context files. Use when you need to
-  remember something about a user or recall what you know about them.
+description: Read or update user context files in users/.
+when_to_use: Use when you need to remember something about a user or recall what you know about them.
 user-invocable: true
 arg: <user-id or action>
 ---

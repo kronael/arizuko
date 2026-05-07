@@ -1,6 +1,7 @@
 ---
 name: bash
-description: Bash/shell scripting patterns. Use when writing .sh files, entrypoints, shell scripts.
+description: Bash/shell scripting patterns.
+when_to_use: Use when writing .sh files, entrypoints, or shell scripts.
 ---
 
 # Bash Style

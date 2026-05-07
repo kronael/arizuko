@@ -1,9 +1,7 @@
 ---
 name: howto
-description: >
-  Build and deploy a user-facing howto/docs page for this group.
-  Use when asked to "create howto", "generate docs", or "set up getting
-  started page".
+description: Build and deploy a user-facing howto/docs page for this group.
+when_to_use: Use when asked to "create howto", "generate docs", or "set up getting started page".
 user-invocable: true
 ---
 

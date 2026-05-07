@@ -1,8 +1,7 @@
 ---
 name: testing
-description: >
-  Use when writing tests, debugging test failures, or setting up
-  test infrastructure. Covers unit, e2e, smoke, testcontainers.
+description: Testing patterns — unit, e2e, smoke, testcontainers.
+when_to_use: Use when writing tests, debugging test failures, or setting up test infrastructure.
 ---
 
 # Testing

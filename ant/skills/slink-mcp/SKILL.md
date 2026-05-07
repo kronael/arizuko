@@ -1,6 +1,7 @@
 ---
 name: slink-mcp
 description: MCP transport over a slink token — `POST /slink/<token>/mcp`.
+when_to_use: >
   Use when setting up an external agent to drive an arizuko group via MCP
   tools, or when an ant needs to call another ant's tools programmatically.
 ---

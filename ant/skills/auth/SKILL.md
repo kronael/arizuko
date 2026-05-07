@@ -1,10 +1,9 @@
 ---
 name: auth
-description: Reference for arizuko's OAuth identity model — canonical
-  sub, account linking via `/dash/profile`, and the seven-branch
-  collision dispatcher. Consult when a user reports an "account
-  collision" page, asks how to log in with a second provider, or
-  wonders why their two logins map to one identity.
+description: Reference for arizuko's OAuth identity model — canonical sub, account linking, and the seven-branch collision dispatcher.
+when_to_use: >
+  Consult when a user reports an "account collision" page, asks how to log in
+  with a second provider, or wonders why two logins map to one identity.
 ---
 
 # Auth

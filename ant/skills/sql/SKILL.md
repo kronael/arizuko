@@ -1,8 +1,7 @@
 ---
 name: sql
-description: >
-  Write SQL queries, design schemas, or create database migrations.
-  Use when working with tables, joins, or DDL.
+description: SQL query, schema design, and migration patterns.
+when_to_use: Use when working with SQL tables, joins, DDL, or database migrations.
 ---
 
 # SQL

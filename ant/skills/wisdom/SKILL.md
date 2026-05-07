@@ -1,8 +1,7 @@
 ---
 name: wisdom
-description: >
-  Writing and improving SKILL.md and CLAUDE.md files. Use when creating
-  new skills, refining existing ones, or editing agent instructions.
+description: Patterns for writing and improving SKILL.md and CLAUDE.md files.
+when_to_use: Use when creating new skills, refining existing ones, or editing agent instructions.
 ---
 
 # Wisdom

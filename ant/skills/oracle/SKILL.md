@@ -1,12 +1,9 @@
 ---
 name: oracle
-description: Ask a second model (codex CLI) for a sanity check or
-  second opinion. Use when uncertain about a tricky algorithm, a
-  library Claude doesn't know well, or before committing to a
-  non-obvious implementation. Auth via either a host-side
-  `~/.codex` mount (`HOST_CODEX_DIR` on the operator's gated env) OR
-  `OPENAI_API_KEY` / `CODEX_API_KEY` in folder secrets — codex picks
-  up whichever is present.
+description: Ask a second model (codex CLI) for a sanity check or second opinion. Auth via `~/.codex` mount or `OPENAI_API_KEY`/`CODEX_API_KEY` in folder secrets.
+when_to_use: >
+  Use when uncertain about a tricky algorithm, a library Claude doesn't know
+  well, or before committing to a non-obvious implementation.
 ---
 
 # Oracle

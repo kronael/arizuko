@@ -1,9 +1,9 @@
 ---
 name: channels
-description: Adapter-aware file dispatch reference — how `send_file`
-  resolves to platform-native attachments per channel, and which
-  platforms have no file surface at all. Consult before sending media,
-  or when an attachment lands as a generic document instead of inline.
+description: Adapter-aware file dispatch reference — how `send_file` resolves to platform-native attachments per channel.
+when_to_use: >
+  Consult before sending media, or when an attachment lands as a generic
+  document instead of inline.
 ---
 
 # Channels

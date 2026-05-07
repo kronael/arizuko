@@ -1,8 +1,7 @@
 ---
 name: go
-description: >
-  Write or modify Go code. Use when working with .go files,
-  go.mod, tests, goroutines, or Go build tooling.
+description: Go code patterns — goroutines, modules, testing, build tooling.
+when_to_use: Use when working with .go files, go.mod, goroutines, or Go tests.
 ---
 
 # Go

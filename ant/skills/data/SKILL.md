@@ -1,8 +1,7 @@
 ---
 name: data
-description: >
-  Use when building scrapers, data collectors, or ETL pipelines.
-  Covers rate limiting, deduplication, state recovery, and backfill.
+description: Scraper, data collector, and ETL pipeline patterns — rate limiting, deduplication, state recovery, backfill.
+when_to_use: Use when building scrapers, data collectors, or ETL pipelines.
 ---
 
 # Data collection

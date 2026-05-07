@@ -1,8 +1,7 @@
 ---
 name: trader
-description: >
-  Use when building or modifying trading bots. Covers state machines,
-  order management, exchange APIs, WebSocket feeds, paper mode.
+description: Trading bot patterns — state machines, order management, exchange APIs, WebSocket feeds, paper mode.
+when_to_use: Use when building or modifying trading bots.
 ---
 
 # Trader

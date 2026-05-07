@@ -1,8 +1,7 @@
 ---
 name: commit
-description: >
-  Stage and commit changes to git with proper [section] message
-  format. Use when asked to commit or after completing work.
+description: Stage and commit changes to git with proper [section] message format.
+when_to_use: Use when asked to commit or after completing work.
 user-invocable: true
 ---
 

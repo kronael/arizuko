@@ -1,9 +1,8 @@
 ---
 name: hub
-description: >
-  Build a single-page knowledge hub on a topic by running parallel
-  deep-research subagents, distilling, and assembling into HTML. Use
-  when asked to "build a hub", "research hub", "knowledge hub", or
+description: Build a single-page knowledge hub by running parallel deep-research subagents and assembling into HTML.
+when_to_use: >
+  Use when asked to "build a hub", "research hub", "knowledge hub", or
   "deep dive" on a frontier topic (biotech, AI, crypto, etc).
 user-invocable: true
 ---

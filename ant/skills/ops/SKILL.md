@@ -1,8 +1,7 @@
 ---
 name: ops
-description: >
-  Use when writing Dockerfiles, CI pipelines, or deployment config.
-  Covers monitoring, logging, and systemd.
+description: Ops patterns — Dockerfiles, CI pipelines, deployment config, monitoring, logging, systemd.
+when_to_use: Use when writing Dockerfiles, CI pipelines, or deployment config.
 ---
 
 # Ops

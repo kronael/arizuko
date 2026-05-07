@@ -1,11 +1,11 @@
 ---
 name: soul
-description: >
-  Brainstorm or refine the bot's persona. Invoke ONLY when the user
-  explicitly asks to create, refine, or discuss the bot's personality or
-  voice (e.g. "who are you?", "give yourself a personality", "rewrite
-  your soul"). Never invoke on greetings, introductions, onboarding,
-  routine tasks, or unsolicited — this skill is user-initiated only.
+description: Brainstorm or refine the bot's persona.
+when_to_use: >
+  Invoke ONLY when the user explicitly asks to create, refine, or discuss the
+  bot's personality or voice (e.g. "who are you?", "give yourself a
+  personality", "rewrite your soul"). Never invoke on greetings, onboarding,
+  routine tasks, or unsolicited.
 user-invocable: true
 disable-model-invocation: true
 ---

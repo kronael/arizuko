@@ -1,6 +1,10 @@
 ---
 name: issues
-description: Record user-reported bugs and complaints to ~/issues.md when you can't fix them on the spot. Use when a user reports a problem outside this turn's scope, complains about platform behavior, asks for a feature that doesn't exist, or surfaces a deployment-side flaw. Do NOT use for in-turn errors you fix immediately.
+description: Record user-reported bugs and complaints to ~/issues.md when you can't fix them on the spot.
+when_to_use: >
+  Use when a user reports a problem outside this turn's scope, complains about
+  platform behavior, asks for a feature that doesn't exist, or surfaces a
+  deployment-side flaw. Do NOT use for in-turn errors you fix immediately.
 ---
 
 # Issues

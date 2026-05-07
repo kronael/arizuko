@@ -1,8 +1,7 @@
 ---
 name: typescript
-description: >
-  Write or modify TypeScript and Node.js code. Use when working
-  with .ts/.tsx files, React, Next.js, Bun, or Playwright.
+description: TypeScript and Node.js patterns — React, Next.js, Bun, Playwright.
+when_to_use: Use when working with .ts/.tsx files, React, Next.js, Bun, or Playwright.
 ---
 
 # TypeScript Style

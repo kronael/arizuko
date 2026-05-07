@@ -1,7 +1,7 @@
 ---
 name: migrate
-description: >
-  Root group only. Sync skills and files across groups with conflict resolution.
+description: Root group only. Sync skills and files across groups with conflict resolution.
+when_to_use: >
   Use when asked to "migrate", "sync skills", "update skills", or "run
   migrations", OR after pulling a new agent image / observing a bumped
   MIGRATION_VERSION. Do NOT invoke on routine prompts, fresh sessions, or

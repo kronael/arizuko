@@ -1,9 +1,9 @@
 ---
 name: agent-browser
-description: >
-  CDP-based Chromium automation. Use for JS-rendered pages, auth flows,
-  form submission, screenshots, data extraction, or any task needing a
-  real browser. Prefer over curl for interactive or dynamic pages.
+description: CDP-based Chromium browser automation.
+when_to_use: >
+  Use for JS-rendered pages, auth flows, form submission, screenshots, or data
+  extraction. Prefer over curl for interactive or dynamic pages.
 allowed-tools: Bash(agent-browser:*)
 ---
 

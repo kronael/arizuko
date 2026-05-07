@@ -1,9 +1,7 @@
 ---
 name: recall-memories
-description: >
-  Search facts/, diary/, users/, episodes/ for relevant knowledge.
-  Use for technical questions, person lookups, or recent work context.
-  Read-only — never writes files.
+description: Search facts/, diary/, users/, episodes/ for relevant knowledge. Read-only.
+when_to_use: Use for technical questions, person lookups, or recent work context.
 user-invocable: true
 arg: <question>
 ---

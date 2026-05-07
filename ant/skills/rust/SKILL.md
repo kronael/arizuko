@@ -1,8 +1,7 @@
 ---
 name: rust
-description: >
-  Write or modify Rust code. Use when working with .rs files,
-  Cargo.toml, async tokio, concurrency, or Rust testing.
+description: Rust code patterns — async tokio, concurrency, Cargo, testing.
+when_to_use: Use when working with .rs files, Cargo.toml, or Rust testing.
 ---
 
 # Rust

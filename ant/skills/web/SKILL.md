@@ -1,6 +1,7 @@
 ---
 name: web
-description: Deploy web apps, pages, sites, dashboards, or UIs. Use when asked to build, create, deploy, publish, make, or show anything web-facing. ALWAYS write to /workspace/web/pub/<app>/index.html — NEVER to /home/node/.
+description: Deploy web apps, pages, sites, dashboards, or UIs to /workspace/web/pub/.
+when_to_use: Use when asked to build, create, deploy, publish, make, or show anything web-facing.
 ---
 
 # Web

@@ -1,10 +1,9 @@
 ---
 name: typed-jids
-description: Reference for the typed JID format — `<platform>:<kind>/<id>`
-  — and the route predicates (`room=`, `chat_jid=`) that match against
-  it. Consult when writing routing rules, calling MCP tools that take a
-  `chatJid`, or rewriting legacy bare-id forms (`telegram:1234`) to the
-  current shape.
+description: Reference for the typed JID format — `<platform>:<kind>/<id>` — and route predicates (`room=`, `chat_jid=`).
+when_to_use: >
+  Consult when writing routing rules, calling MCP tools that take a `chatJid`,
+  or rewriting legacy bare-id forms (`telegram:1234`) to the current shape.
 ---
 
 # Typed JIDs

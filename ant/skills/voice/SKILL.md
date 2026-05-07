@@ -1,8 +1,8 @@
 ---
 name: voice
-description: Reference for the `send_voice` MCP tool — when to use it,
-  voice-name resolution, platform support, and length cap. Invoke when
-  the user sent voice and expects voice back, when the persona is
+description: Reference for the `send_voice` MCP tool — voice-name resolution, platform support, length cap.
+when_to_use: >
+  Invoke when the user sent voice and expects voice back, when the persona is
   voice-first, or before calling `send_voice` for the first time.
 ---
 

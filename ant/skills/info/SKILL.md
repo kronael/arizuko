@@ -1,8 +1,7 @@
 ---
 name: info
-description: >
-  Show instance info, workspace state, available skills and tools. Use when
-  asked about status, info, or help.
+description: Show instance info, workspace state, available skills and tools.
+when_to_use: Use when asked about status, info, or help.
 user-invocable: true
 ---
 

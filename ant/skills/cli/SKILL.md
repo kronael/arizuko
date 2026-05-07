@@ -1,8 +1,7 @@
 ---
 name: cli
-description: >
-  Use when writing CLI tools, argument parsing, --help text,
-  exit codes, or signal handling.
+description: CLI tool patterns — argument parsing, --help text, exit codes, signal handling.
+when_to_use: Use when writing CLI tools or entrypoints.
 ---
 
 # CLI Style

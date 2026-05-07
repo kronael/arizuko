@@ -1,8 +1,7 @@
 ---
 name: python
-description: >
-  Write or modify Python code. Use when working with .py files,
-  async/await, FastAPI, pytest, or Python packaging.
+description: Python code patterns — async/await, FastAPI, pytest, packaging.
+when_to_use: Use when working with .py files, FastAPI, pytest, or Python packaging.
 ---
 
 # Python

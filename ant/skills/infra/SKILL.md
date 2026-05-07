@@ -1,8 +1,7 @@
 ---
 name: infra
-description: >
-  Root-group only. Assign virtual hostnames, manage vhosts.json,
-  verify DNS. Use when adding a new domain or hostname to an instance.
+description: Root-group only. Assign virtual hostnames, manage vhosts.json, verify DNS.
+when_to_use: Use when adding a new domain or hostname to an instance.
 user-invocable: true
 ---
 

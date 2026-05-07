@@ -1,6 +1,7 @@
 ---
 name: hello
-description: Send a welcome message to introduce yourself and explain what you can do. Use on first contact with a new user or group, or when asked to introduce yourself.
+description: Send a welcome message to introduce yourself and explain what you can do.
+when_to_use: Use on first contact with a new user or group, or when asked to introduce yourself.
 ---
 
 # Hello
