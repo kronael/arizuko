@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko — codebase stats</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .back { font-size: 0.85em; }
+    table { border-collapse: collapse; width: 100%; margin: 0.8em 0 1.2em; font-size: 0.9em; }
+    th { text-align: left; border-bottom: 1px solid var(--dim, #888); padding: 0.3em 0.8em 0.3em 0; font-weight: 600; }
+    td { padding: 0.25em 0.8em 0.25em 0; border-bottom: 1px solid color-mix(in srgb, var(--dim, #888) 25%, transparent); }
+    td.n { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim, #888); }
+    .group-header td { padding-top: 0.9em; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim, #888); border-bottom: none; }
+    .totals td { border-top: 1px solid var(--dim, #888); border-bottom: none; font-weight: 600; padding-top: 0.5em; }
+    .totals td.n { color: var(--fg); }
+    .note { font-size: 0.85em; color: var(--dim, #888); }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>codebase stats</h1>
+    <p class="dim back"><a href="/pub/">&larr; arizuko</a></p>
+
+    <p>Snapshot of Go source and test lines per package group. Refreshed on each release. All 39 packages pass.</p>
+
+    <h2>totals</h2>
+    <table>
+      <thead>
+        <tr><th>metric</th><th class="n">count</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>source lines (Go)</td><td class="n">33 900</td></tr>
+        <tr><td>test lines (Go)</td><td class="n">35 400</td></tr>
+        <tr><td>source files</td><td class="n">156</td></tr>
+        <tr><td>test files</td><td class="n">129</td></tr>
+        <tr><td>packages</td><td class="n">39</td></tr>
+      </tbody>
+    </table>
+
+    <h2>by package</h2>
+    <table>
+      <thead>
+        <tr><th>package</th><th>role</th><th class="n">src</th></tr>
+      </thead>
+      <tbody>
+        <tr class="group-header"><td colspan="3">core infrastructure</td></tr>
+        <tr><td>gateway</td><td>message router, container lifecycle, channel fanout</td><td class="n">2 729</td></tr>
+        <tr><td>store</td><td>SQLite schema owner — messages, groups, tasks, auth</td><td class="n">2 573</td></tr>
+        <tr><td>ipc</td><td>MCP server over unix socket, all agent-facing tools</td><td class="n">1 795</td></tr>
+        <tr><td>container</td><td>Docker runner, network allocation, episode archive</td><td class="n">1 420</td></tr>
+        <tr><td>auth</td><td>OAuth, JWT, session, account linking, ACL middleware</td><td class="n">1 574</td></tr>
+        <tr><td>core</td><td>config, JID types, shared primitives</td><td class="n">672</td></tr>
+        <tr><td>router</td><td>route table matching, context XML builder</td><td class="n">332</td></tr>
+        <tr><td>grants</td><td>tier + folder rule composition, per-user ACLs</td><td class="n">202</td></tr>
+        <tr><td>queue</td><td>concurrency queue with folder-isolation and circuit breaker</td><td class="n">326</td></tr>
+
+        <tr class="group-header"><td colspan="3">user-facing daemons</td></tr>
+        <tr><td>webd</td><td>web chat (SSE hub, slink chat, MCP bridge, API)</td><td class="n">1 718</td></tr>
+        <tr><td>dashd</td><td>operator dashboard (HTMX, per-group memory browser)</td><td class="n">888</td></tr>
+        <tr><td>proxyd</td><td>reverse proxy, auth gate, vhost routing, WebDAV guard</td><td class="n">665</td></tr>
+        <tr><td>onbod</td><td>onboarding flow, invite management, admission queue</td><td class="n">1 048</td></tr>
+        <tr><td>timed</td><td>cron scheduler daemon, task firing and logging</td><td class="n">186</td></tr>
+        <tr><td>api</td><td>JSON REST API surface (channels, groups, routes, tasks)</td><td class="n">331</td></tr>
+
+        <tr class="group-header"><td colspan="3">channel adapters</td></tr>
+        <tr><td>teled</td><td>Telegram bot adapter</td><td class="n">843</td></tr>
+        <tr><td>discd</td><td>Discord adapter</td><td class="n">617</td></tr>
+        <tr><td>emaid</td><td>email (SMTP in + out) adapter</td><td class="n">1 013</td></tr>
+        <tr><td>bskyd</td><td>Bluesky adapter</td><td class="n">859</td></tr>
+        <tr><td>reditd</td><td>Reddit adapter</td><td class="n">833</td></tr>
+        <tr><td>mastd</td><td>Mastodon adapter</td><td class="n">500</td></tr>
+        <tr><td>linkd</td><td>LinkedIn adapter</td><td class="n">845</td></tr>
+        <tr><td>chanlib</td><td>shared HTTP adapter library (retry, health, auth, IPC)</td><td class="n">1 321</td></tr>
+        <tr><td>chanreg</td><td>channel registry, social action dispatch</td><td class="n">732</td></tr>
+
+        <tr class="group-header"><td colspan="3">security sandbox</td></tr>
+        <tr><td>crackbox</td><td>per-container egress proxy with per-VM HTTP isolation</td><td class="n">2 576</td></tr>
+      </tbody>
+    </table>
+
+    <p class="note">Test-to-source ratio &gt; 1&thinsp;:&thinsp;1 — more lines of test than source. Adapters carry integration test suites against live HTTP mocks; chanreg and api run full round-trip scenarios. Numbers exclude generated files, worktrees, and <code>refs/</code>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
