@@ -102,7 +102,7 @@ func notWordChar(c byte) bool {
 func isValueDelim(c byte) bool { return c == ',' || c == ')' }
 
 func ruleMatchesParams(rule Rule, params map[string]string) bool {
-	if rule.Params == nil {
+	if len(rule.Params) == 0 {
 		return true
 	}
 	for name, pr := range rule.Params {
@@ -158,7 +158,7 @@ var tier1FixedActions = []string{
 }
 
 func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []string {
-	jidsIn := func(scope string) []string {
+	jids := func(scope string) []string {
 		if s == nil {
 			return nil
 		}
@@ -168,11 +168,11 @@ func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []
 	case 0:
 		return []string{"*"}
 	case 1:
-		r := append(append([]string{}, basicSendActions...), platformRules(jidsIn(worldFolder))...)
+		r := append(append([]string{}, basicSendActions...), platformRules(jids(worldFolder))...)
 		r = append(r, tier1FixedActions...)
 		return append(r, "share_mount(readonly=false)")
 	case 2:
-		r := append(append([]string{}, basicSendActions...), platformRules(jidsIn(folder))...)
+		r := append(append([]string{}, basicSendActions...), platformRules(jids(folder))...)
 		return append(r, "share_mount(readonly=true)")
 	default:
 		return []string{"reply", "send_file", "like", "edit"}
@@ -180,26 +180,23 @@ func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []
 }
 
 func platformRules(jids []string) []string {
-	var rules []string
-	for _, p := range extractPlatforms(jids) {
-		for _, a := range platformActions {
-			rules = append(rules, a+"(jid="+p+":*)")
-		}
-	}
-	return rules
-}
-
-func extractPlatforms(jids []string) []string {
 	seen := map[string]bool{}
 	for _, jid := range jids {
 		if p := core.JidPlatform(jid); p != "" {
 			seen[p] = true
 		}
 	}
-	out := make([]string, 0, len(seen))
+	platforms := make([]string, 0, len(seen))
 	for k := range seen {
-		out = append(out, k)
+		platforms = append(platforms, k)
 	}
-	sort.Strings(out)
-	return out
+	sort.Strings(platforms)
+
+	var rules []string
+	for _, p := range platforms {
+		for _, a := range platformActions {
+			rules = append(rules, a+"(jid="+p+":*)")
+		}
+	}
+	return rules
 }
