@@ -12,6 +12,31 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.18] — 2026-05-08
+
+> arizuko v0.33.18 — 08 May 2026
+>
+> • Channel name in context — agent now knows the channel name (#general, "My Group") without a tool call
+> • Discord user token support — set DISCORD_USER_TOKEN to run as a user account (see discd/README.md for ToS note)
+> • Reaction guidelines — agent now knows when to react vs reply, and mirrors the user's emoji register
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- `InboundMsg.ChatName` / `messages.chat_name` — adapters now inject the human-readable channel/group name; emitted as `chat_name=` attribute in XML message context so the agent knows the channel without a tool call (discd: `#name`, teled: `Chat.Title`)
+- `DISCORD_USER_TOKEN` — discd now supports user-account authentication alongside bot tokens; user mode skips Discord intents (see `discd/README.md` for ToS implications)
+- `# Reactions` in `ant/CLAUDE.md` — guidance on when to react vs reply, anti-patterns, and mirroring user emoji register
+
+### Changed
+
+- `discd/bot.go` — `channelName` helper eliminates three `"#" + ch.Name` lookups; `buildAttachments` nil-guard fix (was: panic if `b.files == nil`)
+- `mastd/server.go` — CDN proxy now propagates request context and sends `User-Agent`
+- `gateway/tts.go` — removed dead `var _ = chanlib.ErrUnsupported` compile-time guard
+- `gateway/gateway.go` — `slices.Collect(maps.Values(...))` one-liner; timeout result check flattened to if/else-if
+
+---
+
 ## [v0.33.17] — 2026-05-08
 
 > arizuko v0.33.17 — 08 May 2026
