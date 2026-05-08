@@ -114,10 +114,3 @@ func sleepJittered(base time.Duration) {
 	}
 	time.Sleep(d)
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

@@ -222,14 +222,12 @@ func Chunk(s string, max int) []string {
 	var out []string
 	var cur []byte
 	for _, r := range s {
-		rb := []byte(string(r))
-		if len(cur)+len(rb) > max {
-			if len(cur) > 0 {
-				out = append(out, string(cur))
-				cur = cur[:0]
-			}
+		enc := []byte(string(r))
+		if len(cur)+len(enc) > max && len(cur) > 0 {
+			out = append(out, string(cur))
+			cur = cur[:0]
 		}
-		cur = append(cur, rb...)
+		cur = append(cur, enc...)
 	}
 	if len(cur) > 0 {
 		out = append(out, string(cur))

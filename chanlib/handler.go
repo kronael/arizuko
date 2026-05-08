@@ -487,12 +487,12 @@ func handleHealth(name string, prefixes []string, isConnected func() bool, lastI
 	}
 	return func(w http.ResponseWriter, _ *http.Request) {
 		status, code := "ok", http.StatusOK
+		last := lastInboundAt()
 		var staleSec int64
 		switch {
 		case !isConnected():
 			status, code = "disconnected", http.StatusServiceUnavailable
 		default:
-			last := lastInboundAt()
 			staleSec = time.Now().Unix() - last
 			if last > 0 && staleSec > int64(threshold.Seconds()) {
 				status = "stale"
@@ -500,7 +500,7 @@ func handleHealth(name string, prefixes []string, isConnected func() bool, lastI
 		}
 		resp := map[string]any{
 			"status": status, "name": name, "jid_prefixes": prefixes,
-			"last_inbound_at": lastInboundAt(),
+			"last_inbound_at": last,
 		}
 		if status == "stale" {
 			resp["stale_seconds"] = staleSec
