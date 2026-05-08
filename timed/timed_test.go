@@ -23,28 +23,9 @@ func openTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func setupMessages(t *testing.T, db *sql.DB) {
-	t.Helper()
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS messages (
-		id TEXT PRIMARY KEY,
-		chat_jid TEXT NOT NULL,
-		sender TEXT NOT NULL,
-		content TEXT NOT NULL,
-		timestamp TEXT NOT NULL)`)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 func insertTask(t *testing.T, db *sql.DB, id, jid, prompt, status, nextRun string, cronExpr *string) {
 	t.Helper()
-	_, err := db.Exec(
-		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, next_run, status, created_at)
-		 VALUES (?, 'test', ?, ?, ?, ?, ?, ?)`,
-		id, jid, prompt, cronExpr, nextRun, status, time.Now().Format(time.RFC3339))
-	if err != nil {
-		t.Fatal(err)
-	}
+	insertTaskWithMode(t, db, id, jid, prompt, status, nextRun, cronExpr, "")
 }
 
 func insertTaskWithMode(t *testing.T, db *sql.DB, id, jid, prompt, status, nextRun string,
@@ -70,7 +51,6 @@ func countMessages(t *testing.T, db *sql.DB) int {
 func TestFireNoDueTasks(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	fire(db, "UTC")
 	if n := countMessages(t, db); n != 0 {
@@ -81,7 +61,6 @@ func TestFireNoDueTasks(t *testing.T) {
 func TestFireCronTask(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	cron := "0 9 * * *"
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
@@ -119,7 +98,6 @@ func TestFireCronTask(t *testing.T) {
 func TestFireOneShotTask(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
 	insertTask(t, db, "t2", "chat2", "once", "active", past, nil)
@@ -144,7 +122,6 @@ func TestFireOneShotTask(t *testing.T) {
 func TestFireMultipleDueTasks(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
 	insertTask(t, db, "a", "c1", "p1", "active", past, nil)
@@ -161,7 +138,6 @@ func TestFireMultipleDueTasks(t *testing.T) {
 func TestFireSkipsPausedTasks(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
 	insertTask(t, db, "p1", "c1", "skip me", "paused", past, nil)
@@ -176,7 +152,6 @@ func TestFireSkipsPausedTasks(t *testing.T) {
 func TestFireSkipsFutureNextRun(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	future := time.Now().Add(time.Hour).Format(time.RFC3339)
 	insertTask(t, db, "f1", "c1", "not yet", "active", future, nil)
@@ -246,7 +221,6 @@ func TestNextCronInvalidTimezoneDefaultsUTC(t *testing.T) {
 func TestFireInvalidCronStillFiresButNoUpdate(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	bad := "not valid"
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
@@ -272,7 +246,6 @@ func TestLogTaskRun(t *testing.T) {
 
 	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
 	insertTask(t, db, "log1", "chat1", "ping", "active", past, nil)
-	setupMessages(t, db)
 	fire(db, "UTC")
 
 	var n int
@@ -292,7 +265,6 @@ func TestLogTaskRun(t *testing.T) {
 func TestIntervalMode(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	intervalMs := "5000"
 	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
@@ -321,7 +293,6 @@ func TestIntervalMode(t *testing.T) {
 func TestContextModeIsolated(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
 	insertTaskWithMode(t, db, "iso1", "chat1", "isolated-task", "active", past, nil, "isolated")
@@ -336,27 +307,6 @@ func TestContextModeIsolated(t *testing.T) {
 	db.QueryRow("SELECT sender FROM messages WHERE content='isolated-task'").Scan(&sender)
 	if !strings.HasPrefix(sender, "timed-isolated:") {
 		t.Fatalf("expected sender=timed-isolated:<id>, got %q", sender)
-	}
-}
-
-func TestIsIntervalMs(t *testing.T) {
-	cases := []struct {
-		in  string
-		ms  int64
-		ok  bool
-	}{
-		{"5000", 5000, true},
-		{"1", 1, true},
-		{"0 9 * * *", 0, false},
-		{"", 0, false},
-		{"0", 0, false},
-		{"-1", 0, false},
-	}
-	for _, c := range cases {
-		ms, ok := isIntervalMs(c.in)
-		if ok != c.ok || ms != c.ms {
-			t.Errorf("isIntervalMs(%q) = (%d, %v), want (%d, %v)", c.in, ms, ok, c.ms, c.ok)
-		}
 	}
 }
 
@@ -417,10 +367,6 @@ func TestLogRunErrorPath(t *testing.T) {
 func TestFireInsertErrorRestoresActive(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	// Intentionally DO NOT call setupMessages — messages table stays as created
-	// by migration 0001; but migration 0019 adds columns. fire() INSERTs only
-	// id, chat_jid, sender, content, timestamp → must still work.
-	// To force an insert error, drop the messages table.
 	if _, err := db.Exec(`DROP TABLE messages`); err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +395,6 @@ func TestFireInsertErrorRestoresActive(t *testing.T) {
 func TestFireHonorsTimezone(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	cron := "0 12 * * *"
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
@@ -472,7 +417,6 @@ func TestFireHonorsTimezone(t *testing.T) {
 func TestFireUpdatesNextRunOnInterval(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	intervalMs := "60000"
 	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
@@ -493,19 +437,9 @@ func TestFireUpdatesNextRunOnInterval(t *testing.T) {
 	}
 }
 
-func TestIsIntervalMsExtra(t *testing.T) {
-	if _, ok := isIntervalMs("not-a-number"); ok {
-		t.Fatal("non-numeric should not be interval")
-	}
-	if _, ok := isIntervalMs("9999999999999"); !ok {
-		t.Fatal("large positive int should be interval")
-	}
-}
-
 func TestConcurrentFireNoDuplicates(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)
-	setupMessages(t, db)
 
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
 	insertTask(t, db, "c1", "chat1", "concurrent", "active", past, nil)

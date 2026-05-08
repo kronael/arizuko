@@ -81,14 +81,6 @@ func main() {
 	}
 }
 
-func isIntervalMs(cron string) (int64, bool) {
-	v, err := strconv.ParseInt(cron, 10, 64)
-	if err != nil || v <= 0 {
-		return 0, false
-	}
-	return v, true
-}
-
 func logRun(db *sql.DB, taskID, status, errText string, durationMs int64) {
 	db.Exec(
 		`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, error)
@@ -167,7 +159,7 @@ func fire(db *sql.DB, tz string) {
 }
 
 func computeNextRun(cronVal, tz, taskID string) string {
-	if ms, ok := isIntervalMs(cronVal); ok {
+	if ms, err := strconv.ParseInt(cronVal, 10, 64); err == nil && ms > 0 {
 		return time.Now().Add(time.Duration(ms) * time.Millisecond).Format(time.RFC3339)
 	}
 	if cronVal == "" {
