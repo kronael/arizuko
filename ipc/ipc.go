@@ -1220,10 +1220,20 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				}
 			}
 
+			prompt := req.GetString("prompt", "")
+			if db.ListTasks != nil && cronStore != "" {
+				for _, t := range db.ListTasks(targetFolder, false) {
+					if t.Status == core.TaskActive && t.Cron == cronStore && t.Prompt == prompt {
+						slog.Info("schedule_task: returning existing task (dedup)",
+							"taskId", t.ID, "folder", targetFolder)
+						return toolJSON(map[string]any{"taskId": t.ID})
+					}
+				}
+			}
 			taskID := fmt.Sprintf("task-%d-%s", time.Now().UnixMilli(), uuid.New().String()[:8])
 			task := core.Task{
 				ID: taskID, Owner: targetFolder, ChatJID: targetJid,
-				Prompt: req.GetString("prompt", ""), Cron: cronStore,
+				Prompt: prompt, Cron: cronStore,
 				NextRun: nextRun, Status: core.TaskActive, Created: time.Now(),
 				ContextMode: contextMode,
 			}

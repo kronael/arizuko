@@ -145,6 +145,14 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	os.MkdirAll(groupDir, 0o755)
 	writeGatewayCaps(groupDir, cfg)
 
+	claudeDir := filepath.Join(groupDir, ".claude")
+	latest := MigrationVersion(filepath.Join(cfg.HostAppDir, "ant", "skills", "self", "MIGRATION_VERSION"))
+	agent := MigrationVersion(filepath.Join(claudeDir, "skills", "self", "MIGRATION_VERSION"))
+	if agent < latest {
+		slog.Info("runner: syncing skills to latest", "folder", in.Folder, "from", agent, "to", latest)
+		seedSkills(cfg, claudeDir, in.Folder)
+	}
+
 	mounts := buildMounts(cfg, in, groupDir, root, folders)
 	in = prepareInput(cfg, in, groupDir)
 
