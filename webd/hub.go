@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// Caps bound memory under unauthenticated-subscriber flood.
 const (
 	maxHubKeys      = 10000
 	maxSubsPerKey   = 256
@@ -60,9 +59,6 @@ func (h *hub) subscribe(folder, topic string) (<-chan string, func()) {
 	return ch, unsub
 }
 
-// publish sends an SSE event to all subscribers of folder/topic. Sends
-// happen under the mutex so unsub can't close a channel between copy
-// and send; the sends are non-blocking so holding the lock is cheap.
 func (h *hub) publish(folder, topic, event, data string) {
 	k := folder + "/" + topic
 	msg := fmt.Sprintf("event: %s\ndata: %s\n\n", event, data)
@@ -76,8 +72,6 @@ func (h *hub) publish(folder, topic, event, data string) {
 	}
 }
 
-// serveSSE streams events to w until client disconnect. Keepalive comment
-// + per-write deadline prevent goroutine leak on stuck clients.
 func serveSSE(w http.ResponseWriter, r *http.Request, ch <-chan string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")

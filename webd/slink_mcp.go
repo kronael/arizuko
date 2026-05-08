@@ -16,14 +16,11 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// slinkMCPWaitCap bounds the get_round wait blocking deadline. External
-// agents pass `wait: true` and we cap server-side so a forgotten client
-// can't pin a goroutine forever.
+// slinkMCPWaitCap caps get_round blocking so forgotten clients can't pin goroutines.
 const slinkMCPWaitCap = 5 * time.Minute
 
-// handleSlinkMCP exposes a 3-tool MCP transport scoped to one slink
-// token's group: send_message, steer, get_round. The token IS the auth
-// — possessing it = group membership. POST /slink/<token>/mcp.
+// POST /slink/<token>/mcp — 3-tool MCP surface (send_message, steer, get_round).
+// Token possession = group membership.
 func (s *server) handleSlinkMCP(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	g, ok := s.st.GroupBySlinkToken(token)
@@ -40,8 +37,6 @@ func (s *server) handleSlinkMCP(w http.ResponseWriter, r *http.Request) {
 	h.ServeHTTP(w, r)
 }
 
-// buildSlinkMCP wires the 3-tool surface against one group. Sender
-// identity is anon-derived (slink is token-only by design).
 func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer {
 	srv := mcpserver.NewMCPServer("arizuko-slink", "1.0")
 
@@ -127,8 +122,6 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 		ch, unsub := s.hub.subscribe(g.Folder, topic)
 		defer unsub()
 
-		// Re-poll after subscribing to avoid missing a frame written between
-		// the first read and the subscribe call.
 		frames = s.collectRoundFrames(g.Folder, topic)
 		if hasAssistant(frames) {
 			return roundResult(frames, true), nil
@@ -146,8 +139,6 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 	return srv
 }
 
-// collectRoundFrames returns the messages on (folder, topic) ordered
-// oldest-first, shaped as the slink frame payload.
 func (s *server) collectRoundFrames(folder, topic string) []map[string]any {
 	msgs, err := s.st.MessagesByTopic(folder, topic, time.Now().Add(time.Hour), 100)
 	if err != nil {
@@ -168,8 +159,6 @@ func (s *server) collectRoundFrames(folder, topic string) []map[string]any {
 	return out
 }
 
-// hasAssistant reports whether the frame list contains at least one
-// assistant-role frame (used as the round's "done" signal).
 func hasAssistant(frames []map[string]any) bool {
 	for _, f := range frames {
 		if r, _ := f["role"].(string); r == "assistant" {
@@ -179,8 +168,7 @@ func hasAssistant(frames []map[string]any) bool {
 	return false
 }
 
-// appendUnique adds frame to frames if its id isn't already present.
-// Hub frames can race the DB read on get_round wait → dedupe by id.
+// appendUnique deduplicates by id — hub frames can race the DB read on get_round wait.
 func appendUnique(frames []map[string]any, frame map[string]any) []map[string]any {
 	id, _ := frame["id"].(string)
 	if id != "" {

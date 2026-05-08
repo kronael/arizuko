@@ -17,8 +17,8 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// anonSender returns "anon:<hex>" derived from the proxyd-trusted client
-// IP. X-Forwarded-For is set by proxyd; webd listens only on the internal net.
+// anonSender derives a stable "anon:<hex>" from the client IP.
+// X-Forwarded-For is set by proxyd; webd listens only on the internal net.
 func anonSender(r *http.Request) string {
 	ip := strings.TrimSpace(strings.SplitN(r.Header.Get("X-Forwarded-For"), ",", 2)[0])
 	if ip == "" {
@@ -31,7 +31,6 @@ func anonSender(r *http.Request) string {
 	return fmt.Sprintf("anon:%x", sum[:4])
 }
 
-// handleSlinkPage renders the browser-based chat UI for anonymous slink users.
 // GET /slink/<token>
 func (s *server) handleSlinkPage(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
@@ -140,17 +139,9 @@ async function send(e){
 </script>
 </body></html>`
 
-// handleSlinkPost accepts user messages via token-authenticated POST.
 // POST /slink/<token>   body: content=Hello&topic=abc123
-//
-// Content negotiation via Accept header:
-//   - text/event-stream: upgrade to SSE, hold open, stream own bubble
-//     plus any subsequent assistant/user events on (folder, topic).
-//   - application/json:  return JSON {user, [assistant]}. Optional
-//     ?wait=<sec> blocks up to N seconds for the first assistant reply
-//     before responding (useful for curl-style sync clients).
-//   - default:           return an HTMX-friendly <div class="msg user">
-//     bubble fragment.
+// Accept: text/event-stream → SSE; application/json → JSON {user,[assistant]};
+// default → HTMX <div class="msg user"> bubble.
 func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	g, ok := s.st.GroupBySlinkToken(token)
@@ -172,12 +163,8 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Round-handle steering: POST /slink/<token>/<turn_id> reuses the
-	// in-flight round's topic so the new message lands in the same chat
-	// queue. The gateway's per-folder queue serializes runs, so the steer
-	// effectively becomes the immediate next round (chained_from set in
-	// the response). When the round has already finished, the steer falls
-	// back to a fresh round with a new topic.
+	// Steer: POST /slink/<token>/<turn_id> reuses the in-flight round's topic.
+	// Falls back to a fresh topic when the round has already finished.
 	steerTurn := strings.TrimSpace(r.PathValue("id"))
 	chainedFrom := ""
 	if steerTurn != "" {
@@ -200,7 +187,6 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authed identity only when signed by proxyd; else anon from trusted IP.
 	sender, senderName := "", ""
 	if auth.VerifyUserSig(s.cfg.hmacSecret, r) {
 		sender = userSub(r)
@@ -221,7 +207,6 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Subscribe before publishing to avoid a race on the user's own bubble.
 	var ch <-chan string
 	var unsub func()
 	if wantSSE || wait > 0 {
@@ -269,9 +254,6 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// waitForAssistant blocks until an assistant-role event arrives on ch,
-// the context ends, or the channel closes. Non-assistant frames
-// (e.g. the caller's own user bubble) are consumed and ignored.
 func waitForAssistant(ctx context.Context, ch <-chan string) (map[string]any, bool) {
 	for {
 		select {
@@ -294,9 +276,7 @@ func waitForAssistant(ctx context.Context, ch <-chan string) (map[string]any, bo
 	}
 }
 
-// handleSlinkStream: SSE for a group/topic. Access requires either a valid
-// proxyd-signed slink token matching `group`, or proxyd-signed user identity
-// with folder ACL. GET /slink/stream?token=<t>&group=<folder>&topic=<t>
+// GET /slink/stream?token=<t>&group=<folder>&topic=<t>
 func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 	folder := r.URL.Query().Get("group")
 	topic := r.URL.Query().Get("topic")
@@ -324,7 +304,6 @@ func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Replay missed messages on reconnect.
 	if lastID := r.Header.Get("Last-Event-Id"); lastID != "" {
 		if t, ok := s.st.MessageTimestampByID(lastID, "web:"+folder); ok {
 			msgs, _ := s.st.MessagesSinceTopic(folder, topic, t, 50)
@@ -347,8 +326,6 @@ func (s *server) handleSlinkStream(w http.ResponseWriter, r *http.Request) {
 	serveSSE(w, r, ch)
 }
 
-// errSlinkStore / errSlinkRouter let HTTP and MCP callers translate
-// injectSlink failures into transport-appropriate errors.
 var (
 	errSlinkStore  = &slinkErr{kind: "store"}
 	errSlinkRouter = &slinkErr{kind: "router"}
@@ -358,11 +335,6 @@ type slinkErr struct{ kind string }
 
 func (e *slinkErr) Error() string { return "slink: " + e.kind + " failed" }
 
-// injectSlink writes one inbound slink message to the store, hands it
-// to the router, and publishes the user-bubble frame to the SSE hub.
-// Returns the persisted Message + the JSON payload that was published
-// (so the caller can include it in its response). The token is used
-// for log correlation only — auth must be checked by the caller.
 func (s *server) injectSlink(g core.Group, content, topic, sender, senderName, token string) (core.Message, map[string]any, error) {
 	m := core.Message{
 		ID:        core.MsgID("msg"),
@@ -389,8 +361,7 @@ func (s *server) injectSlink(g core.Group, content, topic, sender, senderName, t
 		SenderName: senderName,
 		Content:    content,
 		Timestamp:  m.Timestamp.Unix(),
-		// slink: one token == one anonymous human; always single-user.
-		IsGroup: false,
+		IsGroup:    false,
 	}); err != nil {
 		slog.Warn("slink router", "folder", g.Folder, "err", err)
 		return core.Message{}, nil, errSlinkRouter
@@ -420,5 +391,4 @@ var htmlReplacer = strings.NewReplacer(
 )
 
 // htmlEscape covers HTML, attribute, and JS-string-literal contexts.
-// These pages use fmt.Sprintf rather than html/template's contextual encoding.
 func htmlEscape(s string) string { return htmlReplacer.Replace(s) }

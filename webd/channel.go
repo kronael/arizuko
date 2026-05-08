@@ -10,7 +10,6 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// handleSend receives a bot message from gated and writes it to store + SSE hub.
 func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ChatJID string `json:"chat_jid"`
@@ -56,9 +55,6 @@ func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 	chanlib.WriteJSON(w, map[string]any{"ok": true, "id": id})
 }
 
-// handleRoundDone is gated→webd notification that the agent finished a run.
-// Looks up the turn's chat topic and emits a terminal round_done SSE frame
-// on (folder, topic) so any /turn/<id>/sse subscribers can disconnect.
 func (s *server) handleRoundDone(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Folder string `json:"folder"`

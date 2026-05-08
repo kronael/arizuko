@@ -12,9 +12,6 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// frame is the JSON shape returned for each assistant output of a round.
-// Mirrors the SSE "message" event payload from handleSend so callers can
-// reuse parsing across snapshot, page, and SSE.
 type frame struct {
 	ID        string `json:"id"`
 	Content   string `json:"content"`
@@ -41,9 +38,6 @@ func messageFrames(msgs []core.Message) []frame {
 	return out
 }
 
-// authorizeTurn verifies the slink token resolves to a group and the
-// turn_id belongs to that group's web chat. Returns the resolved folder
-// or writes a 4xx and returns "".
 func (s *server) authorizeTurn(w http.ResponseWriter, r *http.Request) (folder, turnID string) {
 	token := r.PathValue("token")
 	turnID = r.PathValue("id")
@@ -53,7 +47,6 @@ func (s *server) authorizeTurn(w http.ResponseWriter, r *http.Request) (folder, 
 		return "", ""
 	}
 	jid := "web:" + g.Folder
-	// Defensive cross-check: turn_id must be a real message in this folder's chat.
 	if _, ok := s.st.MessageTimestampByID(turnID, jid); !ok {
 		http.Error(w, "turn not found", http.StatusNotFound)
 		return "", ""
@@ -61,8 +54,7 @@ func (s *server) authorizeTurn(w http.ResponseWriter, r *http.Request) (folder, 
 	return g.Folder, turnID
 }
 
-// handleTurnSnapshot: GET /slink/<token>/turn/<id>[?after=<msg_id>]
-// Returns status + assistant frames produced during the round.
+// GET /slink/<token>/turn/<id>[?after=<msg_id>]
 func (s *server) handleTurnSnapshot(w http.ResponseWriter, r *http.Request) {
 	folder, turnID := s.authorizeTurn(w, r)
 	if folder == "" {
@@ -94,9 +86,7 @@ func (s *server) handleTurnSnapshot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleTurnStatus: GET /slink/<token>/turn/<id>/status
-// Cheap status check — no frame payloads, just status + counts. Lets
-// pollers decide between "stop", "poll once more", or "open SSE".
+// GET /slink/<token>/turn/<id>/status — status + counts only, no frame payloads.
 func (s *server) handleTurnStatus(w http.ResponseWriter, r *http.Request) {
 	folder, turnID := s.authorizeTurn(w, r)
 	if folder == "" {
@@ -124,10 +114,7 @@ func (s *server) handleTurnStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleTurnSSE: GET /slink/<token>/turn/<id>/sse
-// Subscribes to the chat's hub channel, filters frames by turn_id, emits
-// any backlog (Last-Event-Id or initial catch-up) and live events until
-// round_done arrives. Then closes.
+// GET /slink/<token>/turn/<id>/sse — streams frames for one turn, closes on round_done.
 func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 	folder, turnID := s.authorizeTurn(w, r)
 	if folder == "" {
@@ -145,8 +132,6 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Subscribe BEFORE flushing backlog so we don't miss events that land
-	// between the catch-up query and the live attach.
 	ch, unsub := s.hub.subscribe(folder, topic)
 	defer unsub()
 
@@ -156,7 +141,6 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher, _ := w.(http.Flusher)
 
-	// Backlog catch-up: replay frames from afterID (Last-Event-Id) onward.
 	after := r.Header.Get("Last-Event-Id")
 	msgs, err := s.st.TurnFrames(turnID, after, 200)
 	if err == nil {
@@ -167,8 +151,6 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If the round already finished before we subscribed, emit round_done
-	// straight away and exit.
 	if info, _ := s.st.GetTurnResult(folder, turnID); info.Status != "pending" {
 		payload, _ := json.Marshal(map[string]any{
 			"turn_id": turnID,
@@ -191,7 +173,6 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			ev, payload := splitSSEFrame(msg)
-			// Filter "message" events to only those for our turn_id.
 			if ev == "message" {
 				var p struct {
 					TurnID string `json:"turn_id"`
@@ -226,9 +207,6 @@ func writeSSE(w http.ResponseWriter, f http.Flusher, s string) error {
 	return nil
 }
 
-// splitSSEFrame extracts the event name and JSON data from a serialized
-// SSE frame as built by hub.publish ("event: <name>\ndata: <json>\n\n").
-// Returns ("", "") on malformed input.
 func splitSSEFrame(frame string) (event, data string) {
 	for _, line := range strings.Split(frame, "\n") {
 		switch {

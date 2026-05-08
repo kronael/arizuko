@@ -20,16 +20,11 @@ import (
 //go:embed static
 var staticFS embed.FS
 
-// maxJSONBody caps decoded JSON payload size for defense against unbounded
-// client bodies. 1 MiB is generous for MCP/channel callbacks.
-const maxJSONBody = 1 << 20
-
-// maxFormBody caps form-encoded POST /slink/<token> bodies.
-const maxFormBody = 64 << 10
-
-// maxTopicLen bounds attacker-chosen topic strings which otherwise grow
-// the hub map indefinitely.
-const maxTopicLen = 128
+const (
+	maxJSONBody = 1 << 20  // 1 MiB — generous for MCP/channel callbacks
+	maxFormBody = 64 << 10 // 64 KiB — slink form posts
+	maxTopicLen = 128      // prevents hub map growth from attacker-chosen keys
+)
 
 type server struct {
 	cfg         config
@@ -49,18 +44,15 @@ func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient) *s
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Static files.
 	sub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(sub))))
 
-	// Channel callbacks from gated (authenticated with channel secret).
 	mux.HandleFunc("POST /send", chanlib.Auth(s.cfg.channelSecret, s.handleSend))
 	mux.HandleFunc("POST /typing", chanlib.Auth(s.cfg.channelSecret, s.handleTyping))
 	mux.HandleFunc("POST /v1/round_done", chanlib.Auth(s.cfg.channelSecret, s.handleRoundDone))
 	mux.HandleFunc("GET /health", s.handleHealth)
 
-	// Public slink endpoints (token-gated internally).
-	// See specs/1/W-slink.md — round-handle protocol.
+	// slink: token-gated, see specs/1/W-slink.md
 	mux.HandleFunc("GET /slink/{token}", s.handleSlinkPage)
 	mux.HandleFunc("POST /slink/{token}", s.handleSlinkPost)
 	mux.HandleFunc("POST /slink/{token}/mcp", s.handleSlinkMCP)
@@ -70,31 +62,26 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /slink/{token}/{id}/status", s.handleTurnStatus)
 	mux.HandleFunc("GET /slink/{token}/{id}/sse", s.handleTurnSSE)
 
-	// MCP streamable-HTTP endpoint — single per-instance, JWT-gated. The
-	// authed user can reach any folder in their user_groups ACL; each
-	// tool takes `folder` as an arg and checks grants via userGroups(r).
+	// MCP: single per-instance, user-grant-gated
 	mux.HandleFunc("POST /mcp", s.requireUser(s.handleMCP))
 	mux.HandleFunc("GET /mcp", s.requireUser(s.handleMCP))
 	mux.HandleFunc("DELETE /mcp", s.requireUser(s.handleMCP))
 
-	// Private: full pages (proxyd has already validated auth, injects X-User-Sub).
 	mux.HandleFunc("GET /{$}", s.requireUser(s.handleGroupsPage))
 	mux.HandleFunc("GET /chat/{folder...}", s.requireFolder(s.handleChatPage))
 
-	// Private: JSON API.
 	mux.HandleFunc("GET /api/groups", s.requireUser(s.handleAPIGroups))
 	mux.HandleFunc("GET /api/groups/{rest...}", s.requireUser(s.routeAPIGroups))
 	mux.HandleFunc("POST /api/groups/{rest...}", s.requireUser(s.routeAPIGroups))
 
-	// Private: HTMX partials.
 	mux.HandleFunc("GET /x/groups", s.requireUser(s.handleXGroups))
 	mux.HandleFunc("GET /x/groups/{rest...}", s.requireUser(s.routeXGroups))
 
 	return chanlib.LogMiddleware(mux)
 }
 
-// loadHMACSecret returns the proxyd-shared secret. If unset, a random
-// value makes every sig-check fail closed (webd refuses unsigned identity).
+// loadHMACSecret returns the proxyd-shared secret; falls back to a random value
+// so sig-checks fail closed when the env var is unset.
 func loadHMACSecret() string {
 	if v := os.Getenv("PROXYD_HMAC_SECRET"); v != "" {
 		return v
@@ -115,8 +102,6 @@ func userGroups(r *http.Request) []string {
 	return out
 }
 
-// userAllowedFolder: `**` = any; exact match; parent-prefix ("atlas"
-// covers "atlas" and "atlas/...").
 func userAllowedFolder(groups []string, folder string) bool {
 	for _, f := range groups {
 		if f == "**" || f == folder || strings.HasPrefix(folder, f+"/") {
@@ -139,9 +124,8 @@ func (s *server) requireFolder(next http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
-// splitFolderSuffix splits "atlas/content/topics" → ("atlas/content",
-// "topics"). Bare "/topics" does NOT match — prevents folder="" from
-// slipping past ACL via an empty-string grant.
+// splitFolderSuffix splits "atlas/content/topics" → ("atlas/content", "topics").
+// Bare "/topics" is rejected — prevents folder="" from bypassing ACL.
 func splitFolderSuffix(rest string) (string, string) {
 	for _, suffix := range []string{"/topics", "/messages", "/typing"} {
 		if !strings.HasSuffix(rest, suffix) {

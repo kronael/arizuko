@@ -15,8 +15,6 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// handleMCP: streamable-HTTP MCP, one endpoint per instance. Tools take
-// `folder` and check grants; outbound identity is the authed user (never anon).
 func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
@@ -108,8 +106,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 			SenderName: name,
 			Content:    content,
 			Timestamp:  m.Timestamp.Unix(),
-			// Web MCP: each call carries one authenticated sub. Single-user.
-			IsGroup: false,
+			IsGroup:    false,
 		}); err != nil {
 			return mcp.NewToolResultError("router: " + err.Error()), nil
 		}
