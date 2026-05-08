@@ -12,6 +12,27 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.17] — 2026-05-08
+
+> arizuko v0.33.17 — 08 May 2026
+>
+> • Health fix — idle-but-connected adapters now return 200 (was 503); smoke tests no longer false-alarm on quiet adapters
+> • Codebase refactor — ~900 lines removed across all Go packages; chanlib upload dedup, retry dead-code, postVerb helper
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- chanlib: stale health (connected but idle adapter) returned 503, failing smoke tests and Docker healthchecks — now returns 200 with `status:"stale"`; only `status:"disconnected"` maps to 503
+
+### Changed
+
+- Codebase-wide refactor: ~900 lines removed across queue, timed, grants, router, api, core, chanreg, proxyd, teled, dashd, ipc, chanlib, container, auth, onbod, webd, store, gateway — redundant comments, dead code (chanlib retry `lastResp`/`lastErr` unreachable), extracted helpers (`receiveUpload`, `postVerb`, `activateLocked`), inlined single-use wrappers
+
+### Added
+
+- `/pub/reference/stats.html` — codebase LOC and test coverage by package group
+
 ## [v0.33.16] — 2026-05-07
 
 > arizuko v0.33.16 — 07 May 2026
