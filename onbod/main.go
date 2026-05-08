@@ -112,7 +112,6 @@ func main() {
 		case <-tick.C:
 			promptUnprompted(db, cfg)
 			admitCount++
-			// Admit every ~1 minute (pollInterval ticks until we reach 60s worth).
 			if admitCount*int(cfg.pollInterval.Seconds()) >= 60 {
 				admitFromQueue(db)
 				admitCount = 0
@@ -212,10 +211,6 @@ func emailDomain(sub string) string {
 const promptCoolDown = 30 * time.Minute
 
 func promptUnprompted(db *sql.DB, cfg config) {
-	// Two-bucket pickup: fresh rows that have never been prompted, plus
-	// stale rows where the user clicked the old link but never finished
-	// OAuth (status=token_used, user_sub still NULL). The stale bucket
-	// is gated by promptCoolDown to avoid re-spamming.
 	resetRow(db)
 
 	rows, err := db.Query(
@@ -250,10 +245,6 @@ func promptUnprompted(db *sql.DB, cfg config) {
 	}
 }
 
-// resetRow flips token_used rows whose user_sub never bound back to
-// awaiting_message, clearing token + prompted_at so the main loop
-// re-mints. Only rows older than promptCoolDown are eligible — a row
-// reset here will be picked up on the same promptUnprompted call.
 func resetRow(db *sql.DB) {
 	cutoff := time.Now().Add(-promptCoolDown).Format(time.RFC3339)
 	res, err := db.Exec(
@@ -279,23 +270,15 @@ func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg confi
 		handleTokenLanding(w, r, db, cfg, token)
 		return
 	}
-
 	if userSub != "" {
-		// Mint/refresh the CSRF cookie on every authenticated GET so POST
-		// handlers have a matching double-submit token available.
 		ensureCSRFToken(w, r, cfg)
 		handleDashboard(w, r, db, cfg, userSub)
 		return
 	}
-
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 }
 
 func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, token string) {
-	// Token presentation is idempotent: validate the token, bind the JID
-	// to a cookie, redirect to OAuth. The token is NOT cleared here. The
-	// one-shot is the user_sub claim in handleDashboard. This makes the
-	// link safe to re-click if the user bails out of OAuth and returns.
 	now := time.Now().Format(time.RFC3339)
 	var jid string
 	err := db.QueryRow(
@@ -324,8 +307,6 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 	})
 
 	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
-		// Already authenticated — bind identity now (consumes the token)
-		// and route to the dashboard.
 		claimOnboarding(db, jid, userSub)
 		linkJID(db, jid, userSub)
 		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
@@ -335,10 +316,6 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 }
 
-// claimOnboarding atomically binds an onboarding row to a user_sub and
-// clears the token. Returns true if the claim succeeded (single-shot).
-// Subsequent visits to /onboard?token=X find user_sub IS NOT NULL and
-// fail validation in handleTokenLanding — replay-safe at identity-bind.
 func claimOnboarding(db *sql.DB, jid, userSub string) bool {
 	res, err := db.Exec(
 		`UPDATE onboarding
@@ -354,11 +331,6 @@ func claimOnboarding(db *sql.DB, jid, userSub string) bool {
 }
 
 func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, userSub string) {
-	// Identity-bind: consume pending JID cookie and route it into the
-	// user's existing world. claimOnboarding is the single-shot — once
-	// user_sub is set, a stolen cookie can no longer bind the victim's
-	// JID to a different account, and the token (now NULL) cannot be
-	// re-presented at /onboard?token=X.
 	if c, err := r.Cookie("onboard_jid"); err == nil && c.Value != "" {
 		claimed := claimOnboarding(db, c.Value, userSub)
 		// Single-use cookie: clear regardless of claim outcome.
@@ -380,8 +352,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 	}
 
 	var username string
-	err := db.QueryRow(`SELECT username FROM auth_users WHERE sub = ?`, userSub).Scan(&username)
-	if err != nil {
+	if err := db.QueryRow(`SELECT username FROM auth_users WHERE sub = ?`, userSub).Scan(&username); err != nil {
 		renderPage(w, "Error", template.HTML("<p>User not found.</p>"))
 		return
 	}
@@ -398,8 +369,6 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 	db.QueryRow(`SELECT COUNT(*) FROM user_groups WHERE user_sub = ?`, userSub).Scan(&groupCount)
 
 	if groupCount == 0 {
-		// World creation requires a valid invite (pending_target cookie set
-		// during invite acceptance). Without one, reject — no open signup.
 		if c, err := r.Cookie("pending_target"); err == nil && c.Value != "" {
 			renderUsernamePicker(w, username)
 			return
@@ -412,10 +381,8 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 	renderDashboard(w, db, userSub, username)
 }
 
-// csrfCookieName is a short-lived token bound to a dashboard session. The
-// server sets it on GET /onboard and requires it back on POST in a form
-// field. Without the double-submit, any cross-site form that forges a
-// POST could exploit the auth proxy's cookie to mutate state.
+// csrfCookieName double-submit token: set on GET /onboard, required on POST.
+// Prevents cross-site forms from exploiting the auth proxy cookie.
 const csrfCookieName = "onbod_csrf"
 
 func ensureCSRFToken(w http.ResponseWriter, r *http.Request, cfg config) {
@@ -424,8 +391,7 @@ func ensureCSRFToken(w http.ResponseWriter, r *http.Request, cfg config) {
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: csrfCookieName, Value: core.GenHexToken(), Path: "/",
-		MaxAge: 86400, HttpOnly: false, // JS does not read it; scripts can't cross-origin anyway
-		Secure: cfg.secureCookie, SameSite: http.SameSiteStrictMode,
+		MaxAge: 86400, HttpOnly: false, Secure: cfg.secureCookie, SameSite: http.SameSiteStrictMode,
 	})
 }
 
@@ -465,7 +431,6 @@ func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 var usernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{2,29}$`)
 
 func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, userSub string) {
-	// Require a pending_target cookie — world creation must come from an invite.
 	var pendingTarget string
 	if c, err := r.Cookie("pending_target"); err == nil {
 		pendingTarget = c.Value
@@ -476,8 +441,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		return
 	}
 
-	// Derive parent folder from the trailing-slash target.
-	// target="coach/" → parent="coach", target="/" → parent=""
 	parent := strings.TrimSuffix(pendingTarget, "/")
 
 	username := strings.TrimSpace(r.FormValue("username"))
@@ -526,7 +489,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		slog.Warn("create world: seed default tasks", "folder", folder, "err", err)
 	}
 
-	// Clear the pending_target cookie — it's been consumed.
 	http.SetCookie(w, &http.Cookie{
 		Name: "pending_target", Value: "", Path: "/",
 		MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie,
@@ -538,7 +500,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	slinkToken := core.GenSlinkToken()
 	db.Exec(`INSERT OR IGNORE INTO groups (folder, name, parent, added_at, slink_token, product) VALUES (?, ?, ?, ?, ?, ?)`,
 		folder, username, parentSQL, now, slinkToken, core.DefaultProduct)
-	// If the row already existed, look up the actual token.
 	db.QueryRow(`SELECT slink_token FROM groups WHERE folder = ?`, folder).Scan(&slinkToken)
 
 	db.Exec(`INSERT OR IGNORE INTO user_groups (user_sub, folder) VALUES (?, ?)`,
@@ -651,20 +612,16 @@ func renderQueuePosition(w http.ResponseWriter, db *sql.DB, gateStr, queuedAt st
 	renderPage(w, "Queued", template.HTML(body))
 }
 
-// admitFromQueue promotes queued users up to each gate's daily limit.
 func admitFromQueue(db *sql.DB) {
 	gates := loadGates(db)
 	if len(gates) == 0 {
 		return
 	}
-	// Use a day-range on queued_at rather than a LIKE prefix so timezone
-	// drift at the writer does not miscount today's admissions.
+	// Day-range on queued_at (not LIKE prefix) so timezone drift doesn't miscount admissions.
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00Z"
 	tomorrowStart := time.Now().Add(24*time.Hour).Format("2006-01-02") + "T00:00:00Z"
 	for _, g := range gates {
 		k := gateKey(g)
-		// Wrap count + select + update in a single transaction so concurrent
-		// poll cycles cannot exceed limitPerDay.
 		tx, err := db.Begin()
 		if err != nil {
 			slog.Error("admitFromQueue begin", "gate", k, "err", err)
@@ -735,8 +692,6 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 
 	st := store.New(db)
 
-	// Existence + expiry preflight gives clearer user-facing copy than the
-	// single "unavailable" we'd report after a failed atomic consume.
 	inv, err := st.GetInvite(token)
 	if err != nil {
 		slog.Warn("invite invalid", "reason", "not_found",
@@ -767,8 +722,6 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 	slog.Info("invite accepted", "token_hash", chanlib.ShortHash(token),
 		"target_glob", target, "user", userSub)
 
-	// Subworld-create invite (trailing slash): carry target via cookie so
-	// handleDashboard shows the username picker. Routes added after username selection.
 	if strings.HasSuffix(target, "/") {
 		http.SetCookie(w, &http.Cookie{
 			Name: "pending_target", Value: target, Path: "/",
@@ -779,7 +732,6 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		return
 	}
 
-	// Direct invite: wire existing JIDs to the target folder.
 	if rows, err := db.Query(`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub); err == nil {
 		var jids []string
 		for rows.Next() {
@@ -794,7 +746,6 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		}
 	}
 
-	// Land in the group's ant link when available (exact folders only, no globs).
 	if !strings.Contains(target, "*") {
 		var slinkToken string
 		db.QueryRow(`SELECT slink_token FROM groups WHERE folder = ?`, target).Scan(&slinkToken)
@@ -806,8 +757,6 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-// renderPage writes a full HTML page. body is template.HTML; callers MUST
-// html.EscapeString any user input before wrapping with template.HTML(...).
 func renderPage(w http.ResponseWriter, title string, body template.HTML) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprint(w, theme.Page(title, body))
@@ -938,8 +887,6 @@ func sendReply(cfg config, jid, text string) {
 	}
 }
 
-// userFolders returns the user's grant patterns. Empty = no access; a
-// `**` row marks an operator (auth.MatchGroups handles it as a pattern).
 func userFolders(db *sql.DB, sub string) []string {
 	rows, err := db.Query(
 		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, sub)
@@ -965,7 +912,6 @@ type dashRoute struct {
 	Target string
 }
 
-// userRoutes returns routes targeting the user's folders (or all if operator).
 func userRoutes(db *sql.DB, folders []string) []dashRoute {
 	var rows *sql.Rows
 	var err error
@@ -1036,12 +982,9 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 // userOwnsMatch step but still go through this validator.
 var matchRe = regexp.MustCompile(`\A[A-Za-z0-9_.:=@/-]+\z`)
 
-// userOwnsMatch reports whether the supplied match pattern references a room
-// (JID suffix) that the user has a linked user_jids row for. Operators
-// (`**` grant) bypass this check at the caller.
+// userOwnsMatch reports whether match references a room the user has a user_jids row for.
+// Only "room=<id>" is supported; more expressive patterns require operator grants.
 func userOwnsMatch(db *sql.DB, sub, match string) bool {
-	// Only support the canonical "room=<id>" form for the onboarding UI.
-	// More expressive patterns require operator grants.
 	const prefix = "room="
 	if !strings.HasPrefix(match, prefix) {
 		return false
@@ -1086,8 +1029,6 @@ func handleAddRoute(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	// Non-operators may only route from their own JIDs. Operators (a
-	// `**` grant) may create any match → target pair.
 	if !isOperator(folders) && !userOwnsMatch(db, sub, match) {
 		http.Error(w, "forbidden: match does not reference a linked account",
 			http.StatusForbidden)
