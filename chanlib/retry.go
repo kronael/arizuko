@@ -25,7 +25,6 @@ var retryMaxRetryAfter = 30 * time.Second
 // On 5xx, uses jittered exponential backoff: ~300ms, ~800ms.
 // Returns the final response or final error. Caller still closes Body.
 func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error) {
-	// Buffer body once so we can rewind on retry.
 	if req.Body != nil && req.GetBody == nil {
 		b, err := io.ReadAll(req.Body)
 		req.Body.Close()
@@ -38,8 +37,6 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 		}
 	}
 
-	var lastResp *http.Response
-	var lastErr error
 	attempts := len(retryBackoffs) + 1
 	for i := 0; i < attempts; i++ {
 		if i > 0 && req.GetBody != nil {
@@ -51,8 +48,6 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			lastErr = err
-			lastResp = nil
 			if i == attempts-1 {
 				return nil, err
 			}
@@ -62,12 +57,11 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 		if resp.StatusCode == 429 {
 			wait, ok := parseRetryAfter(resp.Header.Get("Retry-After"))
 			if !ok || wait > retryMaxRetryAfter {
-				wait = retryBackoffs[minInt(i, len(retryBackoffs)-1)]
+				wait = retryBackoffs[min(i, len(retryBackoffs)-1)]
 			}
 			resp.Body.Close()
-			lastResp = nil
 			if i == attempts-1 {
-				// Re-issue to return final response to caller.
+				// Re-issue to return a fresh response to caller.
 				if req.GetBody != nil {
 					if body, berr := req.GetBody(); berr == nil {
 						req.Body = body
@@ -75,25 +69,20 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 				}
 				return client.Do(req)
 			}
-			sleepJitteredExact(wait)
+			sleepJittered(wait)
 			continue
 		}
-		if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-			lastResp = resp
+		if resp.StatusCode >= 500 {
 			if i == attempts-1 {
 				return resp, nil
 			}
 			resp.Body.Close()
-			lastResp = nil
 			sleepJittered(retryBackoffs[i])
 			continue
 		}
 		return resp, nil
 	}
-	if lastResp != nil {
-		return lastResp, nil
-	}
-	return nil, lastErr
+	return nil, nil // unreachable
 }
 
 func parseRetryAfter(h string) (time.Duration, bool) {
@@ -114,6 +103,9 @@ func parseRetryAfter(h string) (time.Duration, bool) {
 }
 
 func sleepJittered(base time.Duration) {
+	if base <= 0 {
+		return
+	}
 	// ±20% jitter.
 	jitter := time.Duration(rand.Int63n(int64(base)/5*2+1)) - base/5
 	d := base + jitter
@@ -123,14 +115,7 @@ func sleepJittered(base time.Duration) {
 	time.Sleep(d)
 }
 
-func sleepJitteredExact(base time.Duration) {
-	if base <= 0 {
-		return
-	}
-	sleepJittered(base)
-}
-
-func minInt(a, b int) int {
+func min(a, b int) int {
 	if a < b {
 		return a
 	}

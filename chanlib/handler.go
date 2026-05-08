@@ -22,14 +22,8 @@ type SendRequest struct {
 }
 
 // BotHandler is the interface adapters implement for outbound messaging.
-// Send returns the sent message ID (may be ""); Typing is fire-and-forget.
-// SendVoice delivers a synthesized voice message via the platform's PTT
-// primitive (Telegram NewVoice, WhatsApp ptt:true, Discord audio attachment);
-// adapters that lack any voice path embed NoVoiceSender for an
-// ErrUnsupported default. Post/Like/Delete and Forward/Quote/Repost/
-// Dislike/Edit are social primitives — adapters that don't support a verb
-// should embed NoSocial to get *UnsupportedError defaults, or override
-// with a per-platform Unsupported(...) carrying a concrete hint.
+// Send returns the sent message ID (may be ""). Adapters that lack voice
+// embed NoVoiceSender; those without social verbs embed NoSocial.
 type BotHandler interface {
 	Send(req SendRequest) (string, error)
 	SendFile(jid, path, name, caption string) error
@@ -90,16 +84,12 @@ type EditRequest struct {
 	Content  string `json:"content"`
 }
 
-// ErrUnsupported marks a social action not implemented on this platform.
-// Adapter HTTP layer maps this to 501.
+// ErrUnsupported marks a social action not implemented on this platform (maps to 501).
 var ErrUnsupported = errors.New("unsupported")
 
-// UnsupportedError is the structured form of ErrUnsupported. When an
-// adapter returns one of these (instead of a plain ErrUnsupported), the
-// HTTP layer encodes Tool/Platform/Hint into the 501 body so the agent
-// receives a concrete alternative. Is(target) reports true when target
-// is ErrUnsupported, so legacy errors.Is(err, ErrUnsupported) checks
-// keep working across the stack.
+// UnsupportedError is the structured form. The HTTP layer encodes Tool/Platform/Hint
+// so the agent receives a concrete alternative. Is(ErrUnsupported) returns true so
+// errors.Is checks keep working across the stack.
 type UnsupportedError struct {
 	Tool     string `json:"tool"`
 	Platform string `json:"platform"`
@@ -118,15 +108,11 @@ func (e *UnsupportedError) Error() string {
 
 func (e *UnsupportedError) Is(target error) bool { return target == ErrUnsupported }
 
-// Unsupported builds a structured UnsupportedError. Adapters use it to
-// teach the agent a concrete alternative for the (tool, platform) pair.
 func Unsupported(tool, platform, hint string) error {
 	return &UnsupportedError{Tool: tool, Platform: platform, Hint: hint}
 }
 
-// NoSocial is a zero-value mixin providing "unsupported" defaults for
-// Post, Like, Delete. Adapters that implement a subset embed this
-// and override the relevant method(s).
+// NoSocial is a zero-value mixin with "unsupported" defaults for all social verbs.
 type NoSocial struct{}
 
 func (NoSocial) Post(PostRequest) (string, error)       { return "", ErrUnsupported }
@@ -139,42 +125,31 @@ func (NoSocial) Dislike(DislikeRequest) error           { return ErrUnsupported 
 func (NoSocial) Edit(EditRequest) error                 { return ErrUnsupported }
 
 // HistoryRequest is the query for platform-side history fetch.
-// Before is RFC3339; empty means "latest". Limit is clamped by the adapter.
+// Source on the response is one of "platform", "platform-capped", "cache-only", "unsupported".
 type HistoryRequest struct {
 	ChatJID string
-	Before  time.Time
-	Limit   int
+	Before  time.Time // zero means "latest"
+	Limit   int       // clamped by adapter
 }
 
-// HistoryResponse is returned by an adapter's /v1/history endpoint.
-// Source is one of "platform", "platform-capped", "cache-only", "unsupported".
-// Cap is a human-readable limit note ("24h", "1000") when Source is capped.
 type HistoryResponse struct {
 	Source   string       `json:"source"`
-	Cap      string       `json:"cap,omitempty"`
+	Cap      string       `json:"cap,omitempty"` // e.g. "24h", "1000" when source is capped
 	Messages []InboundMsg `json:"messages"`
 }
 
-// HistoryProvider is an optional bot capability. Adapters that can fetch
-// history from the platform implement this; those that can't skip it and
-// the gateway falls back to the local DB.
+// HistoryProvider is an optional capability; adapters that omit it let the
+// gateway fall back to the local DB.
 type HistoryProvider interface {
 	FetchHistory(req HistoryRequest) (HistoryResponse, error)
 }
 
-// NoFileSender is a zero-value mixin providing an "unsupported" default
-// for SendFile. Adapters that want a sharper platform-specific hint
-// override the method with their own Unsupported(...) call.
 type NoFileSender struct{}
 
 func (NoFileSender) SendFile(_, _, _, _ string) error {
 	return Unsupported("send_file", "", "this adapter does not support file uploads")
 }
 
-// NoVoiceSender is a zero-value mixin returning ErrUnsupported for
-// SendVoice. Adapters that lack a native voice primitive (Mastodon,
-// Reddit, Bluesky, email) embed this; the gateway maps that to a 501
-// the agent can fall back from.
 type NoVoiceSender struct{}
 
 func (NoVoiceSender) SendVoice(_, _, _ string) (string, error) {
@@ -182,15 +157,8 @@ func (NoVoiceSender) SendVoice(_, _, _ string) (string, error) {
 }
 
 // NewAdapterMux wires up the standard adapter HTTP surface.
-// isConnected must report whether the adapter's live connection to the
-// platform is up (bot API reachable, websocket open, streaming attached,
-// IMAP IDLE active, or last-poll within tolerance). /health returns 503
-// when it reports false so Docker HEALTHCHECK flips correctly. Adapters
-// with no long-lived connection (pure pollers post-auth) pass a closure
-// that returns true once auth succeeds.
-// lastInboundAt returns the unix seconds of the most recent successful
-// inbound delivery to the router. If the timestamp is older than the
-// adapter's staleness threshold, /health returns 503 status:"stale".
+// isConnected: platform link is up (websocket/polling/IMAP IDLE); /health → 503 when false.
+// lastInboundAt: unix seconds of last successful inbound delivery; /health → stale when old.
 func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isConnected func() bool, lastInboundAt func() int64) *http.ServeMux {
 	if isConnected == nil {
 		panic("chanlib.NewAdapterMux: isConnected must not be nil")
@@ -273,53 +241,66 @@ func handleSend(bot BotHandler) http.HandlerFunc {
 	}
 }
 
+// receiveUpload parses a multipart upload, sanitizes the filename, writes to
+// a temp dir, and returns (jid, localPath, name, caption, cleanup). On any
+// error it writes the HTTP response and returns ok=false. Caller must call
+// cleanup() when done with the file.
+//
+// `name` is attacker-controlled (multipart form value / filename header);
+// filepath.Clean + Base prevents path traversal out of the temp dir.
+func receiveUpload(w http.ResponseWriter, r *http.Request, tmpPrefix string) (jid, localPath, name, caption string, cleanup func(), ok bool) {
+	if r.ParseMultipartForm(50<<20) != nil {
+		WriteErr(w, 400, "invalid multipart")
+		return
+	}
+	jid, name, caption = r.FormValue("chat_jid"), r.FormValue("filename"), r.FormValue("caption")
+	if jid == "" {
+		WriteErr(w, 400, "chat_jid required")
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		WriteErr(w, 400, "file required")
+		return
+	}
+	defer file.Close()
+	if name == "" {
+		name = hdr.Filename
+	}
+	name = filepath.Base(filepath.Clean(name))
+	if name == "" || name == "." || name == ".." || strings.Contains(name, "..") || strings.ContainsRune(name, os.PathSeparator) {
+		WriteErr(w, 400, "invalid filename")
+		return
+	}
+	dir, err := os.MkdirTemp("", tmpPrefix)
+	if err != nil {
+		WriteErr(w, 500, "temp dir failed")
+		return
+	}
+	localPath = filepath.Join(dir, name)
+	tmp, err := os.Create(localPath)
+	if err != nil {
+		os.RemoveAll(dir)
+		WriteErr(w, 500, "temp file failed")
+		return
+	}
+	_, copyErr := io.Copy(tmp, file)
+	closeErr := tmp.Close()
+	if copyErr != nil || closeErr != nil {
+		os.RemoveAll(dir)
+		WriteErr(w, 500, "temp file write failed")
+		return
+	}
+	return jid, localPath, name, caption, func() { os.RemoveAll(dir) }, true
+}
+
 func handleSendFile(bot BotHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.ParseMultipartForm(50<<20) != nil {
-			WriteErr(w, 400, "invalid multipart")
+		jid, localPath, name, caption, cleanup, ok := receiveUpload(w, r, "chan-")
+		if !ok {
 			return
 		}
-		jid, name, caption := r.FormValue("chat_jid"), r.FormValue("filename"), r.FormValue("caption")
-		if jid == "" {
-			WriteErr(w, 400, "chat_jid required")
-			return
-		}
-		file, hdr, err := r.FormFile("file")
-		if err != nil {
-			WriteErr(w, 400, "file required")
-			return
-		}
-		defer file.Close()
-		if name == "" {
-			name = hdr.Filename
-		}
-		// Strip directory components and reject traversal tokens.
-		// `name` is attacker-controlled (multipart form value / filename
-		// header); without this, filepath.Join(dir, name) can escape
-		// the temp dir.
-		name = filepath.Base(filepath.Clean(name))
-		if name == "" || name == "." || name == ".." || strings.Contains(name, "..") || strings.ContainsRune(name, os.PathSeparator) {
-			WriteErr(w, 400, "invalid filename")
-			return
-		}
-		dir, err := os.MkdirTemp("", "chan-")
-		if err != nil {
-			WriteErr(w, 500, "temp dir failed")
-			return
-		}
-		defer os.RemoveAll(dir)
-		localPath := filepath.Join(dir, name)
-		tmp, err := os.Create(localPath)
-		if err != nil {
-			WriteErr(w, 500, "temp file failed")
-			return
-		}
-		_, copyErr := io.Copy(tmp, file)
-		closeErr := tmp.Close()
-		if copyErr != nil || closeErr != nil {
-			WriteErr(w, 500, "temp file write failed")
-			return
-		}
+		defer cleanup()
 		if err := bot.SendFile(jid, localPath, name, caption); err != nil {
 			WriteErr(w, 502, err.Error())
 			return
@@ -328,52 +309,13 @@ func handleSendFile(bot BotHandler) http.HandlerFunc {
 	}
 }
 
-// handleSendVoice mirrors handleSendFile (multipart upload, traversal-safe
-// filename), but invokes BotHandler.SendVoice. ErrUnsupported maps to 501;
-// other errors map to 502.
 func handleSendVoice(bot BotHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.ParseMultipartForm(50<<20) != nil {
-			WriteErr(w, 400, "invalid multipart")
+		jid, localPath, _, caption, cleanup, ok := receiveUpload(w, r, "chan-voice-")
+		if !ok {
 			return
 		}
-		jid, name, caption := r.FormValue("chat_jid"), r.FormValue("filename"), r.FormValue("caption")
-		if jid == "" {
-			WriteErr(w, 400, "chat_jid required")
-			return
-		}
-		file, hdr, err := r.FormFile("file")
-		if err != nil {
-			WriteErr(w, 400, "file required")
-			return
-		}
-		defer file.Close()
-		if name == "" {
-			name = hdr.Filename
-		}
-		name = filepath.Base(filepath.Clean(name))
-		if name == "" || name == "." || name == ".." || strings.Contains(name, "..") || strings.ContainsRune(name, os.PathSeparator) {
-			WriteErr(w, 400, "invalid filename")
-			return
-		}
-		dir, err := os.MkdirTemp("", "chan-voice-")
-		if err != nil {
-			WriteErr(w, 500, "temp dir failed")
-			return
-		}
-		defer os.RemoveAll(dir)
-		localPath := filepath.Join(dir, name)
-		tmp, err := os.Create(localPath)
-		if err != nil {
-			WriteErr(w, 500, "temp file failed")
-			return
-		}
-		_, copyErr := io.Copy(tmp, file)
-		closeErr := tmp.Close()
-		if copyErr != nil || closeErr != nil {
-			WriteErr(w, 500, "temp file write failed")
-			return
-		}
+		defer cleanup()
 		id, err := bot.SendVoice(jid, localPath, caption)
 		writeBotResult(w, id, err)
 	}
@@ -400,10 +342,6 @@ func handleTyping(bot BotHandler) http.HandlerFunc {
 	}
 }
 
-// writeBotResult writes the response for a social-action call. nil err →
-// 200 with {"ok":true} plus "id" when non-empty. *UnsupportedError → 501
-// with structured tool/platform/hint body. Plain ErrUnsupported → 501
-// {"ok":false,"error":"unsupported"}. Any other error → 502 with err text.
 func writeBotResult(w http.ResponseWriter, id string, err error) {
 	if err == nil {
 		resp := map[string]any{"ok": true}
@@ -533,12 +471,8 @@ func handleEdit(bot BotHandler) http.HandlerFunc {
 	}
 }
 
-// staleThresholds sets per-adapter tolerance before /health flips to stale.
-// Realtime streaming/long-poll adapters use 5m; email uses 10m because IDLE
-// + poll-fallback is naturally lumpier. Reddit uses 1h because low-traffic
-// subreddits may legitimately have no new submissions for long stretches
-// while the poller is perfectly healthy (isConnected covers that).
-// Adapters not listed fall back to the 5m default.
+// staleThresholds: /health flips to stale when lastInboundAt is older than this.
+// email: IDLE+poll-fallback is lumpier. reddit: sparse subreddits can be quiet for hours.
 var staleThresholds = map[string]time.Duration{
 	"email":  10 * time.Minute,
 	"reddit": 60 * time.Minute,

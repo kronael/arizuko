@@ -5,16 +5,13 @@ import (
 	"time"
 )
 
-// DefaultTypingMaxTTL is the default maximum lifetime for a typing indicator
-// across channel adapters. Caps runaway typing when the agent stalls.
+// DefaultTypingMaxTTL caps runaway typing when the agent stalls.
 const DefaultTypingMaxTTL = 10 * time.Minute
 
-// TypingRefresher re-emits a one-shot "composing" indicator every
-// refreshRate until Set(jid, false), Stop, or maxTTL elapses. Clear is
-// called on Set(jid, false) and maxTTL; pass nil if the platform has no
-// stop/paused presence (Telegram, Discord).
-//
-// send returns false to cancel the loop immediately (e.g. 403 Forbidden).
+// TypingRefresher re-emits a "composing" indicator every refreshRate until
+// Set(jid, false), Stop, or maxTTL. send returns false to cancel immediately
+// (e.g. 403). clear is called on stop/TTL; pass nil if the platform has no
+// stop-presence primitive.
 type TypingRefresher struct {
 	send        func(jid string) bool
 	clear       func(jid string)

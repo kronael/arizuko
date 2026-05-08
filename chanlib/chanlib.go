@@ -18,18 +18,14 @@ import (
 	"time"
 )
 
-// maxRouterResponseBytes caps decoded router responses to guard
-// adapters from OOM on a malicious or buggy router.
+// maxRouterResponseBytes caps decoded router responses to guard against OOM.
 const maxRouterResponseBytes = 10 << 20
 
-// UserAgent is the User-Agent value adapter HTTP clients send on
-// outbound requests. Mastodon and Bluesky recommend a custom UA for
-// rate-limit attribution; Reddit requires one.
+// UserAgent is sent on outbound requests. Reddit requires one; Mastodon and
+// Bluesky use it for rate-limit attribution.
 const UserAgent = "arizuko/0.29.0 (+https://github.com/onvos/arizuko)"
 
-// MaxAdapterJSONBody caps JSON request bodies for adapter /send, /typing
-// endpoints. Large enough for replies with embedded context, small
-// enough to refuse OOM-style bodies from a compromised router.
+// MaxAdapterJSONBody caps inbound JSON bodies at adapters.
 const MaxAdapterJSONBody = 1 << 20
 
 type InboundAttachment struct {
@@ -68,9 +64,7 @@ type RouterClient struct {
 	url, secret, token string
 	client             *http.Client
 
-	// regParams persisted across Register so SendMessage can re-register
-	// transparently after a 401 (e.g. router auto-deregistered the channel
-	// while the adapter's platform link was down).
+	// Saved for transparent re-register on 401 (router dropped channel while adapter was down).
 	regName     string
 	regURL      string
 	regPrefixes []string
@@ -82,7 +76,6 @@ func NewRouterClient(url, secret string) *RouterClient {
 	return &RouterClient{url: url, secret: secret, client: &http.Client{Timeout: 10 * time.Second}}
 }
 
-// SetToken overrides the auth token (for tests that skip Register).
 func (r *RouterClient) SetToken(t string) { r.token = t }
 
 func (r *RouterClient) Register(name, url string, prefixes []string, caps map[string]bool) (string, error) {
@@ -114,9 +107,6 @@ func (r *RouterClient) Register(name, url string, prefixes []string, caps map[st
 	return resp.Token, nil
 }
 
-// reregister re-runs Register with the saved params. Returns the new token.
-// Called by SendMessage on 401 to recover from a router-side
-// auto-deregister without operator intervention.
 func (r *RouterClient) reregister() error {
 	r.regMu.Lock()
 	name, url, prefixes, caps := r.regName, r.regURL, r.regPrefixes, r.regCaps
@@ -166,8 +156,6 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 	return last
 }
 
-// isAuthErr reports whether err is the router's 401 ("invalid token"),
-// indicating our channel registration has been dropped.
 func isAuthErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "status 401")
 }
@@ -207,7 +195,6 @@ func WriteErr(w http.ResponseWriter, code int, msg string) {
 	json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": msg})
 }
 
-// Auth validates the Bearer token against secret; empty secret passes all.
 func Auth(secret string, next http.HandlerFunc) http.HandlerFunc {
 	if secret == "" {
 		return next
@@ -252,7 +239,6 @@ func EnvOr(k, v string) string {
 	return v
 }
 
-// EnvInt returns atoi(os.Getenv(k)) or fallback on empty/parse-error.
 func EnvInt(k string, fallback int) int {
 	s := os.Getenv(k)
 	if s == "" {
@@ -265,7 +251,6 @@ func EnvInt(k string, fallback int) int {
 	return n
 }
 
-// EnvBool returns os.Getenv(k) == "true", or fallback on empty.
 func EnvBool(k string, fallback bool) bool {
 	s := os.Getenv(k)
 	if s == "" {
@@ -274,9 +259,8 @@ func EnvBool(k string, fallback bool) bool {
 	return s == "true"
 }
 
-// EnvDur parses os.Getenv(k) as integer milliseconds and returns the
-// resulting duration, or fallback on empty/parse-error. The ms encoding
-// matches core's legacy behavior for CONTAINER_TIMEOUT, IDLE_TIMEOUT, etc.
+// EnvDur parses os.Getenv(k) as integer milliseconds (legacy encoding
+// for CONTAINER_TIMEOUT, IDLE_TIMEOUT, etc.).
 func EnvDur(k string, fallback time.Duration) time.Duration {
 	s := os.Getenv(k)
 	if s == "" {
@@ -289,9 +273,8 @@ func EnvDur(k string, fallback time.Duration) time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
-// ShortHash returns a short non-reversible hex tag for logging a token
-// or other sensitive string. Empty input yields an empty string so callers
-// can skip the prefix when there's nothing to tag.
+// ShortHash returns 4-byte hex of sha256(s) for logging sensitive strings.
+// Empty input returns "" so callers can skip the log field.
 func ShortHash(s string) string {
 	if s == "" {
 		return ""
@@ -309,8 +292,6 @@ func MustEnv(k string) string {
 	return v
 }
 
-// EnvBytes parses a positive int64 from env var k, returning def on
-// missing/invalid/non-positive values.
 func EnvBytes(k string, def int64) int64 {
 	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
@@ -320,9 +301,8 @@ func EnvBytes(k string, def int64) int64 {
 	return def
 }
 
-// ProxyFile streams src → w, copying Content-Type and capping bytes at max
-// (falls back to 20 MiB when max <= 0). Writes 502 on non-200 upstream.
-// Caller owns closing src.Body.
+// ProxyFile streams src to w, copying Content-Type, capped at max bytes
+// (defaults to 20 MiB). Caller owns src.Body.
 func ProxyFile(w http.ResponseWriter, src *http.Response, max int64) {
 	if src.StatusCode != 200 {
 		WriteErr(w, 502, "upstream fetch failed")

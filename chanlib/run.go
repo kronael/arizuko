@@ -12,10 +12,8 @@ import (
 	"time"
 )
 
-// RunOpts bundles per-adapter values for Run. Start is called after
-// router registration succeeds; the returned handler serves on
-// ListenAddr, and the cleanup func runs on shutdown before the HTTP
-// server closes.
+// RunOpts configures Run. Start is called after registration; its handler serves
+// on ListenAddr, its cleanup func runs before the HTTP server closes.
 type RunOpts struct {
 	Name          string
 	RouterURL     string
@@ -27,8 +25,7 @@ type RunOpts struct {
 	Start         func(ctx context.Context, rc *RouterClient) (http.Handler, func(), error)
 }
 
-// Run is the shared main loop for channel adapter daemons: JSON logging,
-// sigterm context, router registration, HTTP serve, graceful shutdown.
+// Run is the shared main loop for channel adapter daemons.
 func Run(opts RunOpts) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
