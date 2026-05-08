@@ -17,6 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"maps"
+	"slices"
+
 	"github.com/onvos/arizuko/auth"
 	"github.com/onvos/arizuko/chanlib"
 	"github.com/onvos/arizuko/chanreg"
@@ -799,7 +802,9 @@ func (g *Gateway) processWebTopics(
 	return true, nil
 }
 
-func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID, groupFolder string) (func(string, string), *bool) {
+func (g *Gateway) makeOutputCallback(
+	ch core.Channel, chatJid, topic, firstMsgID, groupFolder string,
+) (func(string, string), *bool) {
 	var hadOutput bool
 	turnID := firstMsgID
 	replyTo := firstMsgID
@@ -945,15 +950,10 @@ func (g *Gateway) runAgentWithOpts(
 	g.queue.RegisterProcess(chatJid, cname, group.Folder)
 
 	isRoot := groupfolder.IsRoot(group.Folder)
-	allGroups := g.store.AllGroups()
-	groupSlice := make([]core.Group, 0, len(allGroups))
-	for _, gr := range allGroups {
-		groupSlice = append(groupSlice, gr)
-	}
 	container.WriteTasksSnapshot(
 		g.folders, group.Folder, isRoot, g.store.ListTasks("", true))
 	container.WriteGroupsSnapshot(
-		g.folders, group.Folder, isRoot, groupSlice)
+		g.folders, group.Folder, isRoot, slices.Collect(maps.Values(g.store.AllGroups())))
 
 	input := container.Input{
 		Prompt:          prompt,
@@ -1000,11 +1000,10 @@ func (g *Gateway) runAgentWithOpts(
 	}
 
 	result := "ok"
-	if out.Error != "" {
+	if strings.Contains(out.Error, "timed out") {
+		result = "timeout"
+	} else if out.Error != "" {
 		result = "error"
-		if strings.Contains(out.Error, "timed out") {
-			result = "timeout"
-		}
 	}
 	effectiveSID := out.NewSessionID
 	if effectiveSID == "" {
@@ -1370,11 +1369,11 @@ func downloadFile(ctx context.Context, url, dest, secret string, maxBytes int64)
 	if err != nil {
 		return err
 	}
-	src := io.Reader(resp.Body)
+	body := io.Reader(resp.Body)
 	if maxBytes > 0 {
-		src = io.LimitReader(resp.Body, maxBytes)
+		body = io.LimitReader(resp.Body, maxBytes)
 	}
-	_, cpErr := io.Copy(f, src)
+	_, cpErr := io.Copy(f, body)
 	if closeErr := f.Close(); cpErr == nil {
 		cpErr = closeErr
 	}

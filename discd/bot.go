@@ -74,14 +74,13 @@ func (b *bot) isConnected() bool {
 	return b.session != nil && b.session.DataReady
 }
 
-func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
-	if m == nil || m.Author == nil || m.Author.Bot {
-		return
-	}
-	jid := chatJID(m.GuildID, m.ChannelID)
-	content := m.Content
+// buildAttachments appends attachment text to content and returns chanlib attachments.
+// Proxies through the local file cache when listenURL is set.
+func buildAttachments(
+	raw []*discordgo.MessageAttachment, content, listenURL string, cache *chanlib.URLCache,
+) (string, []chanlib.InboundAttachment) {
 	var atts []chanlib.InboundAttachment
-	for _, att := range m.Attachments {
+	for _, att := range raw {
 		if att == nil || att.URL == "" {
 			continue
 		}
@@ -90,13 +89,23 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 			name = "attachment"
 		}
 		content += fmt.Sprintf(" [Attachment: %s]", name)
+		u := att.URL
+		if listenURL != "" && cache != nil {
+			u = fmt.Sprintf("%s/files/%s", listenURL, cache.Put(att.URL))
+		}
 		atts = append(atts, chanlib.InboundAttachment{
-			Mime:     att.ContentType,
-			Filename: name,
-			URL:      fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, b.files.Put(att.URL)),
-			Size:     int64(att.Size),
+			Mime: att.ContentType, Filename: name, URL: u, Size: int64(att.Size),
 		})
 	}
+	return content, atts
+}
+
+func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
+	if m == nil || m.Author == nil || m.Author.Bot {
+		return
+	}
+	jid := chatJID(m.GuildID, m.ChannelID)
+	content, atts := buildAttachments(m.Attachments, m.Content, b.cfg.ListenURL, b.files)
 	if content == "" {
 		return
 	}
@@ -431,25 +440,7 @@ func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse,
 		if m == nil || m.Author == nil {
 			continue
 		}
-		content := m.Content
-		var atts []chanlib.InboundAttachment
-		for _, att := range m.Attachments {
-			if att == nil || att.URL == "" {
-				continue
-			}
-			name := att.Filename
-			if name == "" {
-				name = "attachment"
-			}
-			content += fmt.Sprintf(" [Attachment: %s]", name)
-			url := att.URL
-			if b.files != nil && b.cfg.ListenURL != "" {
-				url = fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, b.files.Put(att.URL))
-			}
-			atts = append(atts, chanlib.InboundAttachment{
-				Mime: att.ContentType, Filename: name, URL: url, Size: int64(att.Size),
-			})
-		}
+		content, atts := buildAttachments(m.Attachments, m.Content, b.cfg.ListenURL, b.files)
 		if content == "" && len(atts) == 0 {
 			continue
 		}

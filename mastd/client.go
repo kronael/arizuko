@@ -133,8 +133,6 @@ func (mc *mastoClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.History
 		accountID = strings.TrimPrefix(jid, "mastodon:account/")
 	case strings.HasPrefix(jid, "mastodon:"):
 		accountID = strings.TrimPrefix(jid, "mastodon:")
-	default:
-		return chanlib.HistoryResponse{Source: "unsupported", Messages: []chanlib.InboundMsg{}}, nil
 	}
 	if accountID == "" {
 		return chanlib.HistoryResponse{Source: "unsupported", Messages: []chanlib.InboundMsg{}}, nil
@@ -197,8 +195,7 @@ func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.Inbo
 		msg.Topic = topic
 		msg.Verb = verb
 		msg.Attachments = mc.extractAttachments(n.Status)
-		// visibility=direct → DM; everything else (public, unlisted,
-		// private/followers-only) is multi-actor and treated as group.
+		// visibility=direct → DM; public/unlisted/followers-only → group.
 		msg.IsGroup = n.Status.Visibility != "direct"
 	case "favourite":
 		if n.Status == nil {

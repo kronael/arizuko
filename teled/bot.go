@@ -71,32 +71,38 @@ func (b *bot) saveOffset(offset int) {
 	b.offsetMu.Lock()
 	defer b.offsetMu.Unlock()
 	tmp := b.cfg.StateFile + ".tmp"
+	if err := writeAtomic(tmp, b.cfg.StateFile, strconv.Itoa(offset)); err != nil {
+		slog.Warn("offset save failed", "err", err)
+	}
+}
+
+func writeAtomic(tmp, dst, content string) error {
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
-		slog.Warn("offset open failed", "err", err)
-		return
+		return err
 	}
-	if _, err := f.WriteString(strconv.Itoa(offset)); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		slog.Warn("offset write failed", "err", err)
-		return
+	ok := false
+	defer func() {
+		if !ok {
+			f.Close()
+			os.Remove(tmp)
+		}
+	}()
+	if _, err := f.WriteString(content); err != nil {
+		return err
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		slog.Warn("offset fsync failed", "err", err)
-		return
+		return err
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmp)
-		slog.Warn("offset close failed", "err", err)
-		return
+		return err
 	}
-	if err := os.Rename(tmp, b.cfg.StateFile); err != nil {
+	ok = true
+	if err := os.Rename(tmp, dst); err != nil {
 		os.Remove(tmp)
-		slog.Warn("offset rename failed", "err", err)
+		return err
 	}
+	return nil
 }
 
 // do wraps MakeRequest for methods not yet in tgbotapi v6.5's typed surface.
@@ -143,7 +149,7 @@ func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
 		}
 		updates, err := b.fetchUpdates(offset)
 		if err != nil {
-				slog.Warn("getUpdates failed", "err", err)
+			slog.Warn("getUpdates failed", "err", err)
 			select {
 			case <-ctx.Done():
 				return

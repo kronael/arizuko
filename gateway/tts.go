@@ -143,5 +143,3 @@ func validateVoiceText(text string) error {
 	}
 	return nil
 }
-
-var _ = chanlib.ErrUnsupported // keep import live

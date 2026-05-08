@@ -43,7 +43,13 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, 404, "attachment not found")
 		return
 	}
-	resp, err := proxyClient.Get(cdnURL)
+	req, err := http.NewRequestWithContext(r.Context(), "GET", cdnURL, nil)
+	if err != nil {
+		chanlib.WriteErr(w, 502, "cdn fetch failed")
+		return
+	}
+	req.Header.Set("User-Agent", chanlib.UserAgent)
+	resp, err := proxyClient.Do(req)
 	if err != nil {
 		chanlib.WriteErr(w, 502, "cdn fetch failed")
 		return
