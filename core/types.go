@@ -32,6 +32,7 @@ type Message struct {
 	Errored       bool   // set when a previous agent run failed on this message; re-fed tagged for retry
 	TurnID        string // for outbound: the inbound message id that triggered the run; for inbound: empty
 	Status        string // delivery state: 'sent' (default/inbound), 'pending' (outbound queued), 'failed' (terminal)
+	ChatName      string // human-readable channel/group name set by the adapter (e.g. "#general", "My Group")
 }
 
 // Message status values for the poll-based outbound delivery path.

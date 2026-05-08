@@ -174,6 +174,7 @@ type messageReq struct {
 	Reaction      string `json:"reaction,omitempty"`
 	Attachments   []chanlib.InboundAttachment `json:"attachments"`
 	IsGroup       bool                        `json:"is_group,omitempty"`
+	ChatName      string                      `json:"chat_name,omitempty"`
 	// WhatsApp flat fields (whapd sends these instead of attachments array)
 	Attachment     string `json:"attachment,omitempty"`      // base64
 	AttachmentMime string `json:"attachment_mime,omitempty"`
@@ -241,6 +242,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		Verb:          verb,
 		Attachments:   attsJSON,
 		Source:        entry.Name,
+		ChatName:      req.ChatName,
 	}
 
 	if err := s.store.PutMessage(msg); err != nil {

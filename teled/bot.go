@@ -273,6 +273,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 		Topic:       topic,
 		Attachments: res.attachments,
 		IsGroup:     msg.Chat.ID < 0,
+		ChatName:    msg.Chat.Title,
 	}
 	if r := msg.ReplyToMessage; r != nil {
 		im.ReplyTo = strconv.Itoa(r.MessageID)

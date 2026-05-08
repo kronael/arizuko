@@ -115,6 +115,11 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 			b.WriteString(escapeXml(m.ChatJID))
 			b.WriteString(`"`)
 		}
+		if m.ChatName != "" {
+			b.WriteString(` chat_name="`)
+			b.WriteString(escapeXml(m.ChatName))
+			b.WriteString(`"`)
+		}
 		if p := core.JidPlatform(m.ChatJID); p != "" {
 			b.WriteString(` platform="`)
 			b.WriteString(p)

@@ -58,6 +58,11 @@ type InboundMsg struct {
 	// to decide whether user-scope secrets are safe to inject. Adapters
 	// set this on every inbound — the latest classification wins.
 	IsGroup bool `json:"is_group,omitempty"`
+	// ChatName is the human-readable name of the source channel or group
+	// (e.g. "#general" on Discord, "My Group" on Telegram). Empty for DMs.
+	// Stored on the message so the agent can identify the channel without
+	// a separate tool call.
+	ChatName string `json:"chat_name,omitempty"`
 }
 
 type RouterClient struct {
