@@ -38,8 +38,6 @@ func New(reg *chanreg.Registry, s *store.Store) *Server {
 func (s *Server) OnRegister(fn func(string, *chanreg.HTTPChannel)) { s.onRegister = fn }
 func (s *Server) OnDeregister(fn func(string))                     { s.onDeregister = fn }
 
-// ChannelLookup wires the server to the gateway's live channel store so
-// outbound sends reuse the same HTTPChannel (preserves retry outbox).
 func (s *Server) ChannelLookup(fn func(name string) *chanreg.HTTPChannel) {
 	s.channelLookup = fn
 }
@@ -59,9 +57,6 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// capBody wraps next with an http.MaxBytesReader on r.Body so an
-// oversize request body surfaces a 400-class error before it exhausts
-// memory in json.Decode.
 func capBody(max int64, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, max)
@@ -151,24 +146,17 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, http.StatusNotFound, "no channel for jid")
 		return
 	}
-	// Prefer the gateway-held HTTPChannel (set via OnRegister) so its
-	// outbox survives across failed sends. Fall back to constructing one
-	// when no gateway hook is wired (tests, bootstrap).
-	ch := s.resolveChannel(entry)
+	ch := chanreg.NewHTTPChannel(entry, s.reg.Secret())
+	if s.channelLookup != nil {
+		if c := s.channelLookup(entry.Name); c != nil {
+			ch = c
+		}
+	}
 	if _, err := ch.SendCtx(r.Context(), req.JID, req.Text, "", "", ""); err != nil {
 		chanlib.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	chanlib.WriteJSON(w, map[string]any{"ok": true})
-}
-
-func (s *Server) resolveChannel(entry *chanreg.Entry) *chanreg.HTTPChannel {
-	if s.channelLookup != nil {
-		if ch := s.channelLookup(entry.Name); ch != nil {
-			return ch
-		}
-	}
-	return chanreg.NewHTTPChannel(entry, s.reg.Secret())
 }
 
 type messageReq struct {
@@ -305,11 +293,6 @@ type channelDTO struct {
 	RegisteredAt int64           `json:"registered_at"`
 }
 
-type listChannelsResp struct {
-	OK       bool         `json:"ok"`
-	Channels []channelDTO `json:"channels"`
-}
-
 func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 	entries := s.reg.All()
 	out := make([]channelDTO, 0, len(entries))
@@ -323,7 +306,7 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 			RegisteredAt: e.RegisteredAt.Unix(),
 		})
 	}
-	chanlib.WriteJSON(w, listChannelsResp{OK: true, Channels: out})
+	chanlib.WriteJSON(w, map[string]any{"ok": true, "channels": out})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -339,8 +322,6 @@ func (s *Server) checkToken(w http.ResponseWriter, r *http.Request) *chanreg.Ent
 	return nil
 }
 
-// clientIP returns the peer IP for r. RemoteAddr is host:port; strip the port.
-// No X-Forwarded-For trust: router is private-network-bound.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
