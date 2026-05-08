@@ -16,16 +16,8 @@ import (
 	"github.com/onvos/arizuko/theme"
 )
 
-// collideTTL bounds how long a rendered collision page's signed token
-// is valid. Long enough to read+click, short enough that a copied
-// link is uninteresting.
 const collideTTL = 10 * time.Minute
 
-// collideToken is the signed payload carried by the collision form.
-// NewSub is the freshly-authenticated provider sub (not yet committed
-// or linked); CurrentSub is the canonical sub of the active session
-// the user must merge with or abandon. NewCanonical is the canonical
-// sub of NewSub when it already exists in auth_users (else "").
 type collideToken struct {
 	NewSub       string `json:"n"`
 	NewName      string `json:"nm"`
@@ -112,7 +104,6 @@ func handleCollideChoice(s *store.Store, secret []byte, secure bool) http.Handle
 		switch r.FormValue("choice") {
 		case "link":
 			if t.NewCanonical != "" && t.NewCanonical != t.CurrentSub {
-				// Cannot merge two existing accounts via this UI.
 				http.Error(w, "cannot merge two existing accounts", http.StatusConflict)
 				return
 			}
@@ -123,7 +114,6 @@ func handleCollideChoice(s *store.Store, secret []byte, secure bool) http.Handle
 			}
 			issueSession(w, r, s, secret, t.CurrentSub, t.NewName, secure)
 		case "logout":
-			// Wipe current session, then log in as the new sub.
 			if c, err := r.Cookie(cookieName); err == nil {
 				s.DeleteAuthSession(HashToken(c.Value))
 				http.SetCookie(w, &http.Cookie{
@@ -132,7 +122,6 @@ func handleCollideChoice(s *store.Store, secret []byte, secure bool) http.Handle
 					Secure: secure, SameSite: http.SameSiteLaxMode,
 				})
 			}
-			// If the new sub is brand new, create the canonical row.
 			if _, exists := s.AuthUserBySub(t.NewSub); !exists {
 				if err := s.CreateAuthUser(t.NewSub, t.NewSub, "", t.NewName); err != nil {
 					slog.Error("collide create", "sub", t.NewSub, "err", err)

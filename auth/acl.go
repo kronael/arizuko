@@ -5,11 +5,7 @@ import (
 	"strings"
 )
 
-// MatchGroups reports whether folder is allowed. `**` matches any folder
-// (operator is implicit — a `**` grant is the only operator signal).
-// Other patterns use a segment-wise matcher where `*` does not cross `/`
-// and `**` matches any number of path segments (including zero).
-// Empty allowed = no access.
+// MatchGroups: `**` = operator/any. `*` does not cross `/`. Empty = no access.
 func MatchGroups(allowed []string, folder string) bool {
 	for _, p := range allowed {
 		if p == "**" {

@@ -86,7 +86,6 @@ func Authorize(id Identity, tool string, target AuthzTarget) error {
 		if id.Tier >= 2 {
 			return fmt.Errorf("unauthorized: tier %d cannot issue invites", id.Tier)
 		}
-		// tier 0: anywhere. tier 1: target must be inside caller's world.
 		if id.Tier == 1 && !isInWorld(id.Folder, target.TargetFolder) {
 			return fmt.Errorf("unauthorized: target outside own world")
 		}
@@ -96,17 +95,6 @@ func Authorize(id Identity, tool string, target AuthzTarget) error {
 	}
 }
 
-// authorizeOutbound enforces subtree containment for outbound chat
-// verbs (send, send_file, reply, post, like, dislike, delete, edit,
-// forward, quote, repost). The caller resolves the target JID's
-// owning folder via the routes table and passes it as
-// target.TargetFolder. The rule is plain folder containment: callers
-// can address chats whose folder is `id.Folder` or under it. No
-// tier bypass — even the instance root cannot direct-send cross-world.
-// Inter-world communication uses `delegate_group` / `escalate_group`,
-// which thread through their own authorization. Empty TargetFolder
-// means the JID is unrouted; addressed only by callers that own the
-// chat's notional namespace, which today is no one — denied.
 func authorizeOutbound(id Identity, tool string, target AuthzTarget) error {
 	if target.TargetFolder == "" {
 		return fmt.Errorf("forbidden: chat has no route in this instance (%s)", tool)

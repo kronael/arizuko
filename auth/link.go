@@ -9,15 +9,8 @@ import (
 	"github.com/onvos/arizuko/store"
 )
 
-// linkCodeTTL is the validity window of a /auth/link-code mint. Long
-// enough to switch apps and paste in a chat, short enough to avoid
-// drive-by linking from an old leaked code.
 const linkCodeTTL = 10 * time.Minute
 
-// handleLinkCode mints a one-shot link code bound to the caller's
-// identity. If the caller has no identity yet, one is created and
-// their JWT sub is auto-claimed (so the code's purpose is to add a
-// *second* sub via in-chat detection).
 func handleLinkCode(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sub := r.Header.Get("X-User-Sub")

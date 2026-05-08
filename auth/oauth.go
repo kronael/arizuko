@@ -42,10 +42,6 @@ func postForm(ctx context.Context, url string, data url.Values) (*http.Response,
 func oauthRedirect(s *store.Store, secret []byte, secure bool, authURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		intent := stateIntent{}
-		// `intent=link` initiates account-link from the caller's
-		// existing session. Read the canonical sub off the request's
-		// own auth (Bearer JWT or refresh cookie) before redirecting;
-		// the callback verifies it against the post-OAuth state.
 		if r.URL.Query().Get("intent") == "link" {
 			intent.Intent = "link"
 			intent.LinkFrom = currentSub(s, secret, r)
@@ -55,8 +51,6 @@ func oauthRedirect(s *store.Store, secret []byte, secure bool, authURL string) h
 				}
 			}
 			if intent.LinkFrom == "" {
-				// Without an existing session there is nothing to link
-				// to — fall through to the regular login flow.
 				intent.Intent = ""
 			}
 		}
@@ -66,18 +60,20 @@ func oauthRedirect(s *store.Store, secret []byte, secure bool, authURL string) h
 			MaxAge: int(stateTTL.Seconds()), HttpOnly: true,
 			Secure: secure, SameSite: http.SameSiteLaxMode,
 		})
-		verifier, err := pkceVerifier()
-		if err != nil {
+		vb := make([]byte, 32)
+		if _, err := rand.Read(vb); err != nil {
 			slog.Error("pkce gen failed", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		verifier := base64.RawURLEncoding.EncodeToString(vb)
 		http.SetCookie(w, &http.Cookie{
 			Name: "oauth_pkce", Value: verifier, Path: "/",
 			MaxAge: int(stateTTL.Seconds()), HttpOnly: true,
 			Secure: secure, SameSite: http.SameSiteLaxMode,
 		})
-		challenge := pkceChallenge(verifier)
+		sum := sha256.Sum256([]byte(verifier))
+		challenge := base64.RawURLEncoding.EncodeToString(sum[:])
 		dst := authURL +
 			"&state=" + url.QueryEscape(state) +
 			"&code_challenge=" + url.QueryEscape(challenge) +
@@ -86,10 +82,6 @@ func oauthRedirect(s *store.Store, secret []byte, secure bool, authURL string) h
 	}
 }
 
-// currentSub extracts the canonical sub of the caller's existing session
-// — either a Bearer JWT or a refresh-token cookie. Used to anchor an
-// `intent=link` redirect to the user the OAuth callback will link back
-// to. Returns "" when no valid session.
 func currentSub(s *store.Store, secret []byte, r *http.Request) string {
 	if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
 		if c, err := VerifyJWT(secret, strings.TrimPrefix(hdr, "Bearer ")); err == nil {
@@ -110,18 +102,6 @@ func currentSub(s *store.Store, secret []byte, r *http.Request) string {
 	return s.CanonicalSub(sess.UserSub)
 }
 
-func pkceVerifier() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-func pkceChallenge(verifier string) string {
-	sum := sha256.Sum256([]byte(verifier))
-	return base64.RawURLEncoding.EncodeToString(sum[:])
-}
 
 func consumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
 	c, err := r.Cookie("oauth_pkce")
@@ -218,34 +198,28 @@ func handleDiscordCallback(cfg *core.Config, s *store.Store, secret []byte, secu
 
 func handleGoogleRedirect(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
 	cb := authBaseURL(cfg) + "/auth/google/callback"
-	u := fmt.Sprintf(
-		"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email%%20profile%s",
-		url.QueryEscape(cfg.GoogleClientID), url.QueryEscape(cb),
-		googleWorkspaceHD(cfg.GoogleAllowedEmails))
-	return oauthRedirect(s, secret, secure, u)
-}
-
-func googleWorkspaceHD(allowedEmails string) string {
-	if allowedEmails == "" {
-		return ""
-	}
-	seen := map[string]struct{}{}
-	for _, p := range strings.Split(allowedEmails, ",") {
-		p = strings.TrimSpace(p)
-		if i := strings.Index(p, "@"); i >= 0 {
-			domain := p[i+1:]
-			domain = strings.TrimPrefix(domain, "*.")
-			if domain != "" {
-				seen[domain] = struct{}{}
+	hd := ""
+	if cfg.GoogleAllowedEmails != "" {
+		seen := map[string]struct{}{}
+		for _, p := range strings.Split(cfg.GoogleAllowedEmails, ",") {
+			p = strings.TrimSpace(p)
+			if i := strings.Index(p, "@"); i >= 0 {
+				d := strings.TrimPrefix(p[i+1:], "*.")
+				if d != "" {
+					seen[d] = struct{}{}
+				}
+			}
+		}
+		if len(seen) == 1 {
+			for d := range seen {
+				hd = "&hd=" + url.QueryEscape(d)
 			}
 		}
 	}
-	if len(seen) == 1 {
-		for d := range seen {
-			return "&hd=" + url.QueryEscape(d)
-		}
-	}
-	return ""
+	u := fmt.Sprintf(
+		"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email%%20profile%s",
+		url.QueryEscape(cfg.GoogleClientID), url.QueryEscape(cb), hd)
+	return oauthRedirect(s, secret, secure, u)
 }
 
 func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
@@ -267,8 +241,6 @@ func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte, secur
 			return
 		}
 		if allowed := cfg.GoogleAllowedEmails; allowed != "" {
-			// Only trust email-based allowlist if Google asserts the
-			// email is verified.
 			if !verified || !matchEmailAllowlist(email, allowed) {
 				http.Redirect(w, r, "/auth/login?error=unauthorized", http.StatusTemporaryRedirect)
 				return
@@ -382,14 +354,7 @@ func handleTelegram(cfg *core.Config, s *store.Store, secret []byte, secure bool
 	}
 }
 
-// dispatchOAuth fans an OAuth callback to the seven cases described in
-// specs/1/f-auth-oauth.md. It is the only entry point for post-OAuth
-// session decisions. `intent.LinkFrom` is set when `intent=link` was
-// present at /auth/{provider}; the existing session's canonical sub
-// is signed into the state cookie at redirect time.
 func dispatchOAuth(w http.ResponseWriter, r *http.Request, s *store.Store, secret []byte, sub, name string, intent stateIntent, secure bool) {
-	// Reject "provider:" without identity. Anything shorter means the
-	// upstream returned no usable id and would collide cross-provider.
 	if i := strings.Index(sub, ":"); i < 0 || i == len(sub)-1 {
 		slog.Error("oauth empty identity", "sub", sub)
 		http.Error(w, "oauth failed", http.StatusBadGateway)
@@ -406,24 +371,16 @@ func dispatchOAuth(w http.ResponseWriter, r *http.Request, s *store.Store, secre
 		}
 	}
 
-	// session sub: caller's already-active session, if any. May differ
-	// from intent.LinkFrom only when the user logged in/out between
-	// /auth/{provider} and /auth/{provider}/callback.
 	sessionSub := currentSub(s, secret, r)
-
 	linking := intent.Intent == "link" && intent.LinkFrom != ""
 
 	switch {
-	// Case 1: link intent, sub already linked to LinkFrom → no-op refresh.
 	case linking && exists && existing.LinkedToSub == intent.LinkFrom:
 		issueSession(w, r, s, secret, intent.LinkFrom, name, secure)
 
-	// Case 2: link intent, sub canonical for some *other* user → collision.
-	// Includes the case where sub IS canonical and != LinkFrom.
 	case linking && exists && subCanonical != intent.LinkFrom:
 		renderCollision(w, secret, sub, name, subCanonical, intent.LinkFrom, secure)
 
-	// Case 3: link intent, sub is new → write the link, refresh.
 	case linking && !exists:
 		if err := s.LinkSubToCanonical(sub, name, intent.LinkFrom); err != nil {
 			slog.Error("link sub to canonical", "sub", sub, "canonical", intent.LinkFrom, "err", err)
@@ -432,17 +389,12 @@ func dispatchOAuth(w http.ResponseWriter, r *http.Request, s *store.Store, secre
 		}
 		issueSession(w, r, s, secret, intent.LinkFrom, name, secure)
 
-	// Case 4: no link intent, session active, sub is new → collision
-	// (link to current OR logout-and-be-new).
 	case !linking && sessionSub != "" && !exists:
 		renderCollision(w, secret, sub, name, "", sessionSub, secure)
 
-	// Case 5: no link intent, session active, sub is for a *different*
-	// canonical user → collision.
 	case !linking && sessionSub != "" && exists && subCanonical != sessionSub:
 		renderCollision(w, secret, sub, name, subCanonical, sessionSub, secure)
 
-	// Case 6: no link intent, no session, sub new → create + log in.
 	case !linking && sessionSub == "" && !exists:
 		if err := s.CreateAuthUser(sub, sub, "", name); err != nil {
 			slog.Error("create oauth user failed", "err", err)
@@ -451,25 +403,17 @@ func dispatchOAuth(w http.ResponseWriter, r *http.Request, s *store.Store, secre
 		}
 		issueSession(w, r, s, secret, sub, name, secure)
 
-	// Case 7 (and same-canonical refresh): sub exists, log in via canonical.
 	default:
 		issueSession(w, r, s, secret, sub, name, secure)
 	}
 }
 
-// stateIntent rides in the signed OAuth state cookie. Empty Intent =
-// plain login. Intent="link" + LinkFrom=<canonical sub of the session>
-// signals an in-flight account-link initiation.
 type stateIntent struct {
 	Intent   string `json:"i,omitempty"`
 	LinkFrom string `json:"f,omitempty"`
 	Return   string `json:"r,omitempty"`
 }
 
-// signState produces `ts.nonce.sig` (no payload) or `ts.nonce.payload.sig`
-// (carrying a base64-encoded JSON intent). The signed message is the
-// state minus the trailing `.sig` so verifyState can recover it. Per-
-// request random nonce keeps every redirect unique.
 func signState(secret []byte) string {
 	return signStateP(secret, stateIntent{})
 }
@@ -490,8 +434,6 @@ func signStateP(secret []byte, p stateIntent) string {
 	return signed + "." + sig
 }
 
-// verifyState verifies the state cookie matches the query param and
-// the HMAC. Returns the parsed intent payload when present.
 func verifyState(secret []byte, r *http.Request) (stateIntent, bool) {
 	var empty stateIntent
 	cookie, err := r.Cookie("oauth_state")

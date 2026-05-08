@@ -24,7 +24,6 @@ type Claims struct {
 	Exp    int64    `json:"exp"`
 }
 
-// clockSkew is tolerated on nbf/iat checks.
 const clockSkew = 30 * time.Second
 
 func mintJWT(secret []byte, sub, name string, groups []string, ttl time.Duration) string {
@@ -46,7 +45,6 @@ func VerifyJWT(secret []byte, token string) (Claims, error) {
 	if len(parts) != 3 {
 		return Claims{}, ErrInvalidToken
 	}
-	// Validate header alg/typ to prevent alg-confusion.
 	hdrRaw, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
 		return Claims{}, ErrInvalidToken

@@ -39,7 +39,7 @@ func IsDirectChild(parent, child string) bool {
 	return !strings.Contains(child[len(parent)+1:], "/")
 }
 
-// CheckSpawnAllowed: MaxChildren < 0 = unlimited, 0 = disabled.
+// CheckSpawnAllowed: MaxChildren<0 = unlimited, 0 = disabled.
 func CheckSpawnAllowed(parent core.Group, groups map[string]core.Group) error {
 	if parent.Config.MaxChildren < 0 {
 		return nil

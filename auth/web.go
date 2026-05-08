@@ -28,7 +28,6 @@ const (
 	cookieName = "refresh_token"
 )
 
-// 5 attempts per 15 minutes per IP.
 var loginLimiter = &struct {
 	mu      sync.Mutex
 	buckets map[string][]time.Time
@@ -62,13 +61,6 @@ func loginAllowed(ip string) bool {
 	return true
 }
 
-func wrapOAuth(buttons string) string {
-	if buttons == "" {
-		return ""
-	}
-	return `<div class="sep">or</div>` + buttons
-}
-
 func handleLoginPage(cfg *core.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		buttons := ""
@@ -81,6 +73,9 @@ func handleLoginPage(cfg *core.Config) http.HandlerFunc {
 		if cfg.DiscordClientID != "" {
 			buttons += `<a href="/auth/discord" class="oauth-btn">Sign in with Discord</a>`
 		}
+		if buttons != "" {
+			buttons = `<div class="sep">or</div>` + buttons
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body>
 <div class="page-center">
@@ -90,12 +85,10 @@ func handleLoginPage(cfg *core.Config) http.HandlerFunc {
 <input name="username" placeholder="username" required autofocus style="margin-bottom:.5rem">
 <input name="password" type="password" placeholder="password" required style="margin-bottom:1rem">
 <button type="submit" style="width:100%%">login</button>
-%s</form></div></body></html>`, theme.Head("login"), wrapOAuth(buttons))
+%s</form></div></body></html>`, theme.Head("login"), buttons)
 	}
 }
 
-// clientIP prefers X-Forwarded-For so the login limiter keys per-user,
-// not per-proxy.
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if i := strings.IndexByte(xff, ','); i >= 0 {
@@ -176,9 +169,6 @@ func handleLogout(s *store.Store, secure bool) http.HandlerFunc {
 }
 
 func issueSession(w http.ResponseWriter, r *http.Request, s *store.Store, secret []byte, sub, name string, secure bool) {
-	// Single resolve point: every JWT/refresh issued is bound to the
-	// canonical sub so downstream sees one identity per user even when
-	// the user has linked multiple OAuth providers.
 	sub = s.CanonicalSub(sub)
 	groups := s.UserGroups(sub)
 	jwt := mintJWT(secret, sub, name, groups, jwtTTL)
@@ -220,9 +210,6 @@ localStorage.setItem('jwt',%s);window.location=%s;
 		jsSafe(jwtJS), jsSafe(destJS))
 }
 
-// safeReturn validates auth_return as a same-origin path. It must start
-// with `/` and not be a protocol-relative `//...` or contain control
-// characters or backslashes (which browsers may normalize to `/`).
 func safeReturn(v string) (string, bool) {
 	if v == "" || v[0] != '/' {
 		return "", false
@@ -240,8 +227,7 @@ func safeReturn(v string) (string, bool) {
 	return v, true
 }
 
-// jsSafe replaces U+2028/U+2029 and "</" with JS-safe escapes so that
-// JSON embedded in a <script> block cannot break out of the string or tag.
+// jsSafe: U+2028/U+2029 and "</" break out of <script> JSON — escape them.
 func jsSafe(b []byte) string {
 	s := string(b)
 	s = strings.ReplaceAll(s, "\u2028", `\u2028`)
