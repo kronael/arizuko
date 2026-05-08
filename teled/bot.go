@@ -37,8 +37,8 @@ type bot struct {
 	lastInboundAt atomic.Int64
 }
 
-func (b *bot) isConnected() bool      { return b.connected.Load() }
-func (b *bot) LastInboundAt() int64   { return b.lastInboundAt.Load() }
+func (b *bot) isConnected() bool    { return b.connected.Load() }
+func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
 
 func newBot(cfg config) (*bot, error) {
 	api, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
@@ -63,8 +63,7 @@ func (b *bot) loadOffset() int {
 	return n
 }
 
-// saveOffset writes atomically via temp + fsync + rename so a crash can't
-// leave an empty or partial offset file.
+// atomic write: tmp + fsync + rename so a crash never leaves a partial file.
 func (b *bot) saveOffset(offset int) {
 	if b.cfg.StateFile == "" {
 		return
@@ -100,9 +99,7 @@ func (b *bot) saveOffset(offset int) {
 	}
 }
 
-// do issues a Bot API method call and returns the raw Result JSON.
-// Wraps tgbotapi.MakeRequest for methods (setMessageReaction,
-// deleteMessage, getUpdates) added after the v6.5 typed surface.
+// do wraps MakeRequest for methods not yet in tgbotapi v6.5's typed surface.
 func (b *bot) do(method string, params tgbotapi.Params) (json.RawMessage, error) {
 	resp, err := b.api.MakeRequest(method, params)
 	if err != nil {
@@ -111,10 +108,7 @@ func (b *bot) do(method string, params tgbotapi.Params) (json.RawMessage, error)
 	return resp.Result, nil
 }
 
-// rawUpdate is a hybrid Update parser that exposes both Message (the
-// type the bundled tgbotapi understands) and MessageReaction (added in
-// Bot API 6.4 but not modelled by matterbridge/telegram-bot-api v6.5.0).
-// Decoded directly from getUpdates' Result array.
+// rawUpdate adds MessageReaction (Bot API 6.4) absent from tgbotapi v6.5.
 type rawUpdate struct {
 	UpdateID        int                     `json:"update_id"`
 	Message         *tgbotapi.Message       `json:"message,omitempty"`
@@ -149,8 +143,7 @@ func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
 		}
 		updates, err := b.fetchUpdates(offset)
 		if err != nil {
-			// transport / 5xx — back off and retry.
-			slog.Warn("getUpdates failed", "err", err)
+				slog.Warn("getUpdates failed", "err", err)
 			select {
 			case <-ctx.Done():
 				return
@@ -170,8 +163,7 @@ func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
 				offset = u.UpdateID + 1
 				b.saveOffset(offset)
 			} else {
-				// stop advancing on first failure so Telegram redelivers.
-				break
+				break // stop advancing; Telegram redelivers on next poll
 			}
 		}
 	}
@@ -193,10 +185,6 @@ func (b *bot) fetchUpdates(offset int) ([]rawUpdate, error) {
 	return out, nil
 }
 
-// handleReaction emits an InboundMsg for newly-added emoji reactions. We
-// only care about reactions that were added (present in NewReaction but
-// not in OldReaction); reaction removals are dropped. Unicode emoji only
-// — custom_emoji reactions are skipped.
 func (b *bot) handleReaction(r *messageReactionUpdated, rc *chanlib.RouterClient) bool {
 	old := map[string]bool{}
 	for _, e := range r.OldReaction {
@@ -235,16 +223,13 @@ func (b *bot) stop() {
 		b.cancel()
 	}
 	b.typing.Stop()
-	// Wait for poll goroutine to exit so any in-flight saveOffset completes.
-	select {
+	select { // wait for in-flight saveOffset to complete
 	case <-b.done:
 	case <-time.After(5 * time.Second):
 		slog.Warn("poll goroutine did not exit within timeout")
 	}
 }
 
-// handle processes a message and returns true iff the router accepted
-// delivery (or the message was intentionally skipped and safe to ack).
 func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 	if msg.From != nil && msg.From.IsBot {
 		return true
@@ -404,10 +389,6 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	return nil
 }
 
-// SendVoice posts the audio file as a Telegram voice message
-// (sendVoice / NewVoice — push-to-talk UI). Distinct from NewAudio
-// (music attachment) and NewDocument (generic file). audioPath should
-// be ogg/opus encoded; tgbotapi sets MIME automatically.
 func (b *bot) SendVoice(jid, audioPath, caption string) (string, error) {
 	id, err := parseChatID(jid)
 	if err != nil {
@@ -424,8 +405,7 @@ func (b *bot) SendVoice(jid, audioPath, caption string) (string, error) {
 
 func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
 
-// Forward: native forwardMessage. SourceMsgID is encoded as
-// "<sourceChatJid>|<msgId>" so we know which chat to forward from.
+// Forward: source_msg_id must be "<sourceChatJid>|<msgId>".
 func (b *bot) Forward(req chanlib.ForwardRequest) (string, error) {
 	parts := strings.SplitN(req.SourceMsgID, "|", 2)
 	if len(parts) != 2 {
@@ -452,28 +432,21 @@ func (b *bot) Forward(req chanlib.ForwardRequest) (string, error) {
 	return strconv.Itoa(sent.MessageID), nil
 }
 
-// Quote unsupported: telegram has no native quote primitive.
 func (b *bot) Quote(chanlib.QuoteRequest) (string, error) {
 	return "", chanlib.Unsupported("quote", "telegram",
 		"Telegram has no quote primitive. Use `reply(replyToId=...)` to thread, or `send` referencing the source.")
 }
 
-// Repost unsupported.
 func (b *bot) Repost(chanlib.RepostRequest) (string, error) {
 	return "", chanlib.Unsupported("repost", "telegram",
 		"Telegram has no repost primitive. Use `forward(target_jid=..., source_msg_id=\"<sourceChatJid>|<id>\")` to relay.")
 }
 
-// Dislike unsupported: Telegram has no downvote primitive — emoji
-// reactions are the same mechanism as `like`.
 func (b *bot) Dislike(chanlib.DislikeRequest) error {
 	return chanlib.Unsupported("dislike", "telegram",
 		"Telegram uses emoji reactions, not a downvote primitive. Use `like(target_id=..., emoji=\"👎\")` to express disagreement.")
 }
 
-// Like: native setMessageReaction. Reaction emoji defaults to 👍 when
-// req.Reaction is empty. Telegram constrains reactions to a fixed
-// per-chat allow-list; the API call fails for unsupported emojis.
 func (b *bot) Like(req chanlib.LikeRequest) error {
 	emoji := req.Reaction
 	if emoji == "" {
@@ -502,8 +475,6 @@ func (b *bot) setReaction(chatJID, targetID, emoji, tool string) error {
 	return nil
 }
 
-// Delete: native deleteMessage. Bots can delete their own messages, plus
-// any message in groups/channels they admin (with can_delete_messages right).
 func (b *bot) Delete(req chanlib.DeleteRequest) error {
 	chatID, err := parseChatID(req.ChatJID)
 	if err != nil {
@@ -523,9 +494,6 @@ func (b *bot) Delete(req chanlib.DeleteRequest) error {
 	return nil
 }
 
-// Post: Telegram bots post to channels they admin via the same
-// sendMessage primitive as Send (channel chat_id is just another chat).
-// Media uploads belong on /send-file; this path is text-only.
 func (b *bot) Post(req chanlib.PostRequest) (string, error) {
 	if len(req.MediaPaths) > 0 {
 		return "", chanlib.Unsupported("post", "telegram",
@@ -534,7 +502,6 @@ func (b *bot) Post(req chanlib.PostRequest) (string, error) {
 	return b.Send(chanlib.SendRequest{ChatJID: req.ChatJID, Content: req.Content})
 }
 
-// Edit: native editMessageText for own bot messages.
 func (b *bot) Edit(req chanlib.EditRequest) error {
 	id, err := parseChatID(req.ChatJID)
 	if err != nil {
@@ -551,10 +518,6 @@ func (b *bot) Edit(req chanlib.EditRequest) error {
 	return nil
 }
 
-// FetchHistory honestly reports that Telegram's Bot API cannot fetch
-// arbitrary chat history. getUpdates is offset-based and 24h-capped;
-// getHistory / forwardMessages require MTProto (user API), which the
-// bot token can't use. The gateway falls back to its local-DB cache.
 func (b *bot) FetchHistory(_ chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
 	return chanlib.HistoryResponse{
 		Source:   "unsupported",
@@ -575,10 +538,7 @@ func (b *bot) sendTyping(jid string) bool {
 	return true
 }
 
-// chatJIDFromID renders Telegram chat ID in canonical kind-discriminator
-// form. Positive ID → DM (telegram:user/<id>); negative → group, channel,
-// or supergroup (telegram:group/<|id|>; sign dropped — the discriminator
-// carries the kind).
+// chatJIDFromID: positive → user DM, negative → group (sign dropped; kind carries it).
 func chatJIDFromID(id int64) string {
 	if id < 0 {
 		return "telegram:group/" + strconv.FormatInt(-id, 10)
@@ -586,11 +546,7 @@ func chatJIDFromID(id int64) string {
 	return "telegram:user/" + strconv.FormatInt(id, 10)
 }
 
-// parseChatID accepts both legacy `telegram:<id>` (signed int) and typed
-// `telegram:user/<id>` (positive) / `telegram:group/<id>` (negative,
-// re-signed) forms. The typed `group/` kind drops the sign on the wire;
-// we restore the negative sign here so the Telegram bot API gets the int
-// it expects (positive=user/DM, negative=group/supergroup/channel).
+// parseChatID: group/<id> re-signs to negative; user/<id> stays positive; legacy telegram:<signed> passthrough.
 func parseChatID(jid string) (int64, error) {
 	rest := strings.TrimPrefix(jid, "telegram:")
 	if kind, id, ok := strings.Cut(rest, "/"); ok {
@@ -603,7 +559,6 @@ func parseChatID(jid string) (int64, error) {
 		}
 		return n, nil
 	}
-	// Legacy `telegram:<signed>` form.
 	return strconv.ParseInt(rest, 10, 64)
 }
 
@@ -628,10 +583,7 @@ func userID(u *tgbotapi.User) string {
 	return strconv.FormatInt(u.ID, 10)
 }
 
-// entity slices the substring addressed by a Telegram MessageEntity.
-// Telegram documents Offset/Length as UTF-16 code units, so the string
-// must be encoded to UTF-16 before indexing — otherwise emoji / non-BMP
-// characters yield wrong ranges or panic on out-of-range.
+// entity slices text at e's offsets, which are UTF-16 code units (not runes).
 func entity(text string, e tgbotapi.MessageEntity) string {
 	u := utf16.Encode([]rune(text))
 	if e.Offset < 0 || e.Offset > len(u) {
@@ -653,44 +605,44 @@ type mediaResult struct {
 }
 
 func extractMedia(msg *tgbotapi.Message, listenURL string) mediaResult {
-	cap := ""
+	sfx := ""
 	if msg.Caption != "" {
-		cap = " " + msg.Caption
+		sfx = " " + msg.Caption
 	}
 	att := func(content, fileID, mime, filename string, size int64) mediaResult {
-		url := ""
+		u := ""
 		if listenURL != "" && fileID != "" {
-			url = listenURL + "/files/" + fileID
+			u = listenURL + "/files/" + fileID
 		}
 		return mediaResult{
 			content:     content,
-			attachments: []chanlib.InboundAttachment{{Mime: mime, Filename: filename, URL: url, Size: size}},
+			attachments: []chanlib.InboundAttachment{{Mime: mime, Filename: filename, URL: u, Size: size}},
 		}
 	}
 	switch {
 	case msg.Photo != nil:
 		p := msg.Photo[len(msg.Photo)-1]
-		return att("[Photo]"+cap, p.FileID, "image/jpeg", p.FileID+".jpg", int64(p.FileSize))
+		return att("[Photo]"+sfx, p.FileID, "image/jpeg", p.FileID+".jpg", int64(p.FileSize))
 	case msg.Video != nil:
 		v := msg.Video
-		return att("[Video]"+cap, v.FileID, "video/mp4", v.FileID+".mp4", v.FileSize)
+		return att("[Video]"+sfx, v.FileID, "video/mp4", v.FileID+".mp4", v.FileSize)
 	case msg.Voice != nil:
 		v := msg.Voice
-		return att("[Voice message]"+cap, v.FileID, "audio/ogg", v.FileID+".ogg", int64(v.FileSize))
+		return att("[Voice message]"+sfx, v.FileID, "audio/ogg", v.FileID+".ogg", int64(v.FileSize))
 	case msg.Audio != nil:
 		a := msg.Audio
 		fname := a.FileName
 		if fname == "" {
 			fname = a.FileID + ".mp3"
 		}
-		return att("[Audio]"+cap, a.FileID, "audio/mpeg", fname, a.FileSize)
+		return att("[Audio]"+sfx, a.FileID, "audio/mpeg", fname, a.FileSize)
 	case msg.Document != nil:
 		d := msg.Document
 		n := d.FileName
 		if n == "" {
 			n = d.FileID
 		}
-		return att(fmt.Sprintf("[Document: %s]%s", n, cap), d.FileID, d.MimeType, n, d.FileSize)
+		return att(fmt.Sprintf("[Document: %s]%s", n, sfx), d.FileID, d.MimeType, n, d.FileSize)
 	case msg.Sticker != nil:
 		return mediaResult{content: fmt.Sprintf("[Sticker %s]", msg.Sticker.Emoji)}
 	case msg.Location != nil:

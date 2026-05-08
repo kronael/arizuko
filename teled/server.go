@@ -15,7 +15,6 @@ import (
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-// tgGet issues an authenticated-style GET with arizuko's User-Agent header.
 func tgGet(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -42,8 +41,6 @@ func (s *server) handler() http.Handler {
 	return mux
 }
 
-// sanitizeFilename strips characters that could inject headers (quotes, CR/LF)
-// and path separators from a filename for use in Content-Disposition.
 func sanitizeFilename(name string) string {
 	name = filepath.Base(name)
 	r := strings.NewReplacer("\"", "", "\r", "", "\n", "", "\\", "")
@@ -54,7 +51,6 @@ func sanitizeFilename(name string) string {
 	return name
 }
 
-// escapePath URL-escapes each path segment while preserving slashes.
 func escapePath(p string) string {
 	segs := strings.Split(p, "/")
 	for i, s := range segs {
@@ -92,8 +88,6 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, 502, "getFile parse failed")
 		return
 	}
-	// Telegram's file_path is a relative path like "photos/file_0.jpg".
-	// URL-escape each segment but preserve slashes.
 	fileResp, err := tgGet(r.Context(), fmt.Sprintf(
 		"https://api.telegram.org/file/bot%s/%s",
 		url.QueryEscape(token), escapePath(apiResp.Result.FilePath)))
