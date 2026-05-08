@@ -45,8 +45,6 @@ func readCapped(path string) ([]byte, bool, error) {
 	return data, truncated, nil
 }
 
-// safeJoin resolves base+leaf through symlinks and rejects any escape.
-// Missing paths propagate os.ErrNotExist.
 func safeJoin(base, leaf string) (string, error) {
 	p := filepath.Join(base, leaf)
 	real, err := filepath.EvalSymlinks(p)
@@ -186,11 +184,10 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	errMsg := strings.Join(scanErrs, "; ")
+
 	statusDot := "ok"
-	if len(scanErrs) > 0 {
-		statusDot = "err"
-	}
-	if chanCount == 0 {
+	if len(scanErrs) > 0 || chanCount == 0 {
 		statusDot = "err"
 	} else if erroredCount > 0 {
 		statusDot = "warn"
@@ -204,10 +201,6 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	errMsg := ""
-	if len(scanErrs) > 0 {
-		errMsg = strings.Join(scanErrs, "; ")
-	}
 	if err := portalTmpl.Execute(w, struct {
 		Head      template.HTML
 		StatusDot string
@@ -471,10 +464,7 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 	}
 }
 
-// memoryPathAllowed reports whether rel is a writable memory file within a
-// group. Allowed: MEMORY.md, .claude/CLAUDE.md, and *.md under
-// diary/, facts/, users/, episodes/. Rejects '..', absolute paths, and
-// anything else.
+// Allowed: MEMORY.md, .claude/CLAUDE.md, *.md under diary/facts/users/episodes/ (no subdirs).
 func memoryPathAllowed(rel string) bool {
 	if rel == "" || strings.HasPrefix(rel, "/") || strings.Contains(rel, "..") {
 		return false
@@ -495,8 +485,6 @@ func memoryPathAllowed(rel string) bool {
 	return false
 }
 
-// parseMemoryPath extracts (folder, rel) from a URL path of the form
-// /dash/memory/<folder>/<rel...>. Returns ("", "") for malformed paths.
 func parseMemoryPath(urlPath string) (string, string) {
 	const prefix = "/dash/memory/"
 	if !strings.HasPrefix(urlPath, prefix) {
@@ -515,12 +503,7 @@ func parseMemoryPath(urlPath string) (string, string) {
 	return folder, rel
 }
 
-// resolveMemoryFile validates folder+rel and returns the absolute path to
-// write. Rejects symlink escapes from the group root.
 func (d *dash) resolveMemoryFile(folder, rel string) (string, error) {
-	if strings.Contains(folder, "..") || strings.HasPrefix(folder, "/") {
-		return "", errEscape
-	}
 	if !memoryPathAllowed(rel) {
 		return "", errors.New("path not allowed")
 	}
@@ -529,7 +512,6 @@ func (d *dash) resolveMemoryFile(folder, rel string) (string, error) {
 		groupDir != d.groupsDir {
 		return "", errEscape
 	}
-	// Group dir must exist; resolve symlinks and re-check.
 	real, err := filepath.EvalSymlinks(groupDir)
 	if err != nil {
 		return "", err
@@ -539,11 +521,9 @@ func (d *dash) resolveMemoryFile(folder, rel string) (string, error) {
 		return "", errEscape
 	}
 	target := filepath.Join(real, rel)
-	// If target exists, verify it doesn't escape via symlink.
 	if st, err := os.Lstat(target); err == nil && st.Mode()&os.ModeSymlink != 0 {
 		return "", errEscape
 	}
-	// Re-verify resolved target stays inside the group dir.
 	if !strings.HasPrefix(target, real+string(filepath.Separator)) {
 		return "", errEscape
 	}
@@ -669,10 +649,9 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 		fmt.Fprint(w, `<p>Invalid group path.</p>`)
 		return
 	}
-	// Re-check prefix after EvalSymlinks to reject symlink escapes.
+	// Resolve symlinks to block escapes; ErrNotExist is fine (group dir may not exist yet).
 	if real, err := filepath.EvalSymlinks(groupDir); err == nil {
-		if !strings.HasPrefix(real, d.groupsDir+string(filepath.Separator)) &&
-			real != d.groupsDir {
+		if real != d.groupsDir && !strings.HasPrefix(real, d.groupsDir+string(filepath.Separator)) {
 			fmt.Fprint(w, `<p>Invalid group path.</p>`)
 			return
 		}
@@ -715,9 +694,8 @@ func renderCappedFile(w http.ResponseWriter, groupDir, leaf string, showMissing 
 		}
 		return
 	}
-	info, _ := os.Stat(path)
 	mtime := ""
-	if info != nil {
+	if info, err := os.Stat(path); err == nil {
 		mtime = info.ModTime().Format("2006-01-02 15:04")
 	}
 	truncNote := ""

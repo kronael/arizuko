@@ -9,9 +9,7 @@ import (
 	"github.com/onvos/arizuko/theme"
 )
 
-// supportedProviders mirrors auth/routes.go — keep in sync. Each entry is
-// {sub-prefix, label, redirect-path}. The redirect-path is what the
-// "Link account" button points at; proxyd handles auth/{provider}.
+// mirrors auth/routes.go — keep in sync.
 var supportedProviders = []struct {
 	prefix string
 	label  string
@@ -23,10 +21,6 @@ var supportedProviders = []struct {
 	{"telegram:", "Telegram", "/auth/login"},
 }
 
-// handleProfile renders /dash/profile. Reads the caller's canonical sub
-// from X-User-Sub (proxyd-stamped, already canonical via the JWT mint
-// resolve point) and lists currently-linked subs. For each provider not
-// already linked, render a "Link account" button.
 func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	sub := strings.TrimSpace(r.Header.Get("X-User-Sub"))
@@ -75,7 +69,6 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<p><em>All known providers already linked.</em></p>`)
 	}
 
-	// Render the same theme.css OAuth button style as /auth/login.
 	fmt.Fprintf(w, `<style>%s</style>`, theme.CSS)
 
 	fmt.Fprint(w, pageBot)
