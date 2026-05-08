@@ -32,6 +32,10 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
   Used by inbound reaction handling on discd/teled/whapd.
 - `InboundMsg.Reaction string` — raw emoji on synthetic
   `like`/`dislike` inbound events.
+- `InboundMsg.ChatName string` — human-readable channel/group name
+  (e.g. `"#general"` on Discord, `"My Group"` on Telegram). Empty for DMs.
+  Set by adapters on every inbound; lets the agent identify the channel
+  without a separate tool call.
 - `BotHandler`, `HistoryProvider`, `FileSender`, `NoSocial`, `NoFileSender` — adapter-side interfaces
 - `TypingRefresher` — presence re-sender with hard TTL
 - `URLCache` — single 12-hex LRU short-ID proxy (cap 4096) shared by

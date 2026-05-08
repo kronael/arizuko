@@ -53,9 +53,13 @@ attachments (cached via `chanlib.URLCache`).
 
 ## Configuration
 
-- `DISCORD_BOT_TOKEN`, `ROUTER_URL`, `CHANNEL_SECRET`
+- `DISCORD_BOT_TOKEN` or `DISCORD_USER_TOKEN` (one required), `ROUTER_URL`, `CHANNEL_SECRET`
 - `LISTEN_ADDR`, `LISTEN_URL`, `CHANNEL_NAME`
 - `MEDIA_MAX_FILE_BYTES`, `ASSISTANT_NAME`
+
+User mode (`DISCORD_USER_TOKEN`): authenticates as a Discord user account instead of a bot.
+Skips gateway intents (not available to user tokens). Bot mode is preferred; user mode is
+for self-bot use cases where a bot account cannot be created.
 
 ## Health signal
 

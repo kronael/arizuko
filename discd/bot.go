@@ -74,6 +74,14 @@ func (b *bot) isConnected() bool {
 	return b.session != nil && b.session.DataReady
 }
 
+func (b *bot) channelName(id string) string {
+	ch, err := b.session.State.Channel(id)
+	if err == nil && ch.Name != "" {
+		return "#" + ch.Name
+	}
+	return ""
+}
+
 // buildAttachments appends attachment text to content and returns chanlib attachments.
 // Proxies through the local file cache when listenURL is set.
 func buildAttachments(
@@ -112,7 +120,6 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	content = replaceMentions(content, b.cfg.AssistantName, b.session.State.User)
 
 	topic := ""
-	chatName := ""
 	ch, err := b.session.State.Channel(m.ChannelID)
 	if err != nil {
 		ch, err = b.session.Channel(m.ChannelID)
@@ -121,10 +128,8 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		if ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread {
 			topic = m.ChannelID
 		}
-		if ch.Name != "" {
-			chatName = "#" + ch.Name
-		}
 	}
+	chatName := b.channelName(m.ChannelID)
 	// Anything other than a 1:1 DM is multi-user (guild text, threads,
 	// group DMs). On lookup error fall back to multi-user; user-scope
 	// secrets stay closed by default.
@@ -177,10 +182,6 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 	if m.Member != nil && m.Member.User != nil {
 		senderName = m.Member.User.Username
 	}
-	reactionChatName := ""
-	if rch, rerr := b.session.State.Channel(m.ChannelID); rerr == nil && rch.Name != "" {
-		reactionChatName = "#" + rch.Name
-	}
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:         m.MessageID + ":r:" + emoji,
 		ChatJID:    jid,
@@ -192,7 +193,7 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 		ReplyTo:    m.MessageID,
 		Reaction:   emoji,
 		IsGroup:    m.GuildID != "",
-		ChatName:   reactionChatName,
+		ChatName:   b.channelName(m.ChannelID),
 	}); err != nil {
 		slog.Error("deliver reaction failed", "jid", jid, "err", err)
 		return
@@ -415,10 +416,6 @@ func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse,
 	if chID == "" {
 		return chanlib.HistoryResponse{}, fmt.Errorf("invalid chat_jid")
 	}
-	histChatName := ""
-	if hch, err := b.session.State.Channel(chID); err == nil && hch.Name != "" {
-		histChatName = "#" + hch.Name
-	}
 	limit := req.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 100
@@ -458,7 +455,7 @@ func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse,
 			Timestamp:   m.Timestamp.Unix(),
 			ReplyTo:     replyTo,
 			Attachments: atts,
-			ChatName:    histChatName,
+			ChatName:    b.channelName(chID),
 		})
 	}
 	return chanlib.HistoryResponse{Source: "platform", Messages: out}, nil

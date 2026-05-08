@@ -52,7 +52,7 @@ func loadConfig() config {
 	botToken := chanlib.EnvOr("DISCORD_BOT_TOKEN", "")
 	userToken := chanlib.EnvOr("DISCORD_USER_TOKEN", "")
 	if botToken == "" && userToken == "" {
-		chanlib.MustEnv("DISCORD_BOT_TOKEN") // panic with clear message
+		chanlib.MustEnv("DISCORD_BOT_TOKEN")
 	}
 	token := botToken
 	userMode := false
