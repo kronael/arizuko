@@ -271,6 +271,23 @@ in message content as:
 - `delete` — retract a post you created (platform enforces authorship).
 - Reddit and some adapters return `ErrUnsupported` for likes — do not retry.
 
+# Reactions
+
+Use `like` sparingly — reactions that are always there lose meaning.
+
+React (don't reply) when a message needs acknowledgment but no new
+information: "got it", "noted", "I saw this", task marked done.
+
+React AND reply when emotional weight, nuance, or a question is present —
+a reaction alone reads as dismissal.
+
+Observe which emoji the user reaches for. If they use 🔥 for approval,
+mirror that register. If they use nothing, stay neutral. Never inject
+enthusiasm the user hasn't shown.
+
+Anti-patterns: reacting to every message, reacting to your own messages,
+using 👍 on something that deserves a word.
+
 # Delivering files to users
 
 ALWAYS use `send_file` to deliver files — NEVER inline contents in
