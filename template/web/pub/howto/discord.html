@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>deploy on Discord — arizuko</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p  { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose ol { margin: 0.4em 0 0.8em 1.4em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .prose dt { color: var(--accent3); font-weight: bold; margin-top: 0.6em; }
+    .prose dd { margin: 0.1em 0 0 1.2em; }
+    .back { font-size: 0.85em; }
+    .note  { background: color-mix(in srgb, var(--accent3) 10%, transparent);
+             border-left: 3px solid var(--accent3);
+             padding: 0.5em 0.8em; margin: 0.8em 0; font-size: 0.92em; }
+    .warn  { background: color-mix(in srgb, #e67e22 10%, transparent);
+             border-left: 3px solid #e67e22;
+             padding: 0.5em 0.8em; margin: 0.8em 0; font-size: 0.92em; }
+    table  { border-collapse: collapse; width: 100%; margin: 0.8em 0 1.2em; font-size: 0.9em; }
+    th     { text-align: left; border-bottom: 1px solid var(--dim, #888);
+             padding: 0.3em 0.8em 0.3em 0; font-weight: 600; }
+    td     { padding: 0.25em 0.8em 0.25em 0;
+             border-bottom: 1px solid color-mix(in srgb, var(--dim, #888) 25%, transparent); }
+    code   { font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>deploy on Discord</h1>
+    <p class="dim back"><a href="/pub/">&larr; arizuko</a> &middot; <a href="/pub/howto/">&larr; how-to</a></p>
+
+    <p>arizuko&rsquo;s Discord adapter (<code>discd</code>) connects one bot account to your Discord server and routes messages to per-group Claude agents. Each server channel gets its own agent, or you share one across the whole server &mdash; your routing table decides.</p>
+
+    <h2>how it works</h2>
+    <p>Discord messages travel through the stack in five steps:</p>
+    <ol>
+      <li><strong>discd</strong> receives the message via Discord&rsquo;s Gateway WebSocket and converts it to an internal <code>InboundMsg</code> with a typed <a href="/pub/concepts/jid.html">JID</a>.</li>
+      <li><strong>gated</strong> stores the message and looks it up in the <strong>routing table</strong>. The first matching route determines which group folder receives it.</li>
+      <li><strong>gated</strong> spawns a Docker container with the agent for that group and delivers the message.</li>
+      <li>The agent runs, calls MCP tools, and eventually calls <code>reply</code> or <code>send</code>.</li>
+      <li><strong>discd</strong> sends the agent&rsquo;s response back to the Discord channel.</li>
+    </ol>
+
+    <h2>JID format</h2>
+    <p>Every Discord chat has a typed JID that routing rules match against:</p>
+    <table>
+      <thead><tr><th>chat type</th><th>JID format</th><th>example</th></tr></thead>
+      <tbody>
+        <tr><td>server channel</td><td><code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code></td><td><code>discord:123456789/987654321</code></td></tr>
+        <tr><td>server thread</td><td><code>discord:&lt;guild_id&gt;/&lt;thread_id&gt;</code></td><td>same format; thread ID is the channel</td></tr>
+        <tr><td>DM</td><td><code>discord:dm/&lt;channel_id&gt;</code></td><td><code>discord:dm/111222333</code></td></tr>
+      </tbody>
+    </table>
+    <p>To get IDs: in Discord, open <em>Settings &rarr; Advanced</em> and enable <strong>Developer Mode</strong>. Then right-click any channel or server and choose <strong>Copy Channel ID</strong> / <strong>Copy Server ID</strong>.</p>
+
+    <h2>verb system</h2>
+    <p>Each inbound message carries a <em>verb</em> that describes what happened. Verbs let you control which events fire the agent via <code>impulse_config</code> on routes:</p>
+    <table>
+      <thead><tr><th>verb</th><th>when</th></tr></thead>
+      <tbody>
+        <tr><td><em>(empty)</em></td><td>regular message in a server channel or DM</td></tr>
+        <tr><td><code>mention</code></td><td>message @mentions the bot, or is a reply to a bot message</td></tr>
+        <tr><td><code>like</code></td><td>👍 or similar positive reaction added</td></tr>
+        <tr><td><code>dislike</code></td><td>👎 or similar negative reaction added</td></tr>
+      </tbody>
+    </table>
+    <p>DMs always fire the agent regardless of impulse config. Guild messages use impulse weights (default: fire on every message).</p>
+
+    <h2>step 1 — create a Discord application</h2>
+    <ol>
+      <li>Go to <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">discord.com/developers/applications</a> and click <strong>New Application</strong>.</li>
+      <li>Name it (this is the app name, not the bot username).</li>
+      <li>Go to <strong>Bot</strong> in the left sidebar. Click <strong>Add Bot</strong> if prompted.</li>
+      <li>Under <strong>Privileged Gateway Intents</strong>, enable:<br>
+          &bull; <strong>Message Content Intent</strong> — required; without it discd receives messages with empty content.<br>
+          &bull; <strong>Server Members Intent</strong> — needed if you want to resolve member names in DMs.<br>
+          &bull; <strong>Presence Intent</strong> — optional.</li>
+      <li>Click <strong>Reset Token</strong> and copy the bot token. Store it; you won&rsquo;t see it again.</li>
+    </ol>
+    <div class="warn"><strong>Token security</strong>: treat the bot token like a password. Store it only in your instance&rsquo;s <code>.env</code> file, not in code or chat.</div>
+
+    <h2>step 2 — invite the bot to your server</h2>
+    <ol>
+      <li>In the application, go to <strong>OAuth2 &rarr; URL Generator</strong>.</li>
+      <li>Select scope: <code>bot</code>.</li>
+      <li>Select permissions:<br>
+          &bull; <strong>View Channels</strong>, <strong>Read Message History</strong>, <strong>Send Messages</strong> — required.<br>
+          &bull; <strong>Attach Files</strong> — for file and voice responses.<br>
+          &bull; <strong>Add Reactions</strong> — for <code>like</code> tool.<br>
+          &bull; <strong>Manage Messages</strong> — for <code>delete</code> tool (optional).</li>
+      <li>Copy the generated URL and open it in a browser. Select your server and click <strong>Authorize</strong>.</li>
+    </ol>
+
+    <h2>step 3 — configure arizuko</h2>
+    <p>Add to <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
+    <pre><code>DISCORD_BOT_TOKEN=your_token_here</code></pre>
+    <p>Then regenerate compose and restart:</p>
+    <pre><code>arizuko run &lt;instance&gt;
+sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
+    <p>Watch logs to confirm the adapter connected:</p>
+    <pre><code>sudo journalctl -u arizuko_&lt;instance&gt; --since "30s ago" --no-pager \
+  | grep -E "discord connected|channel registered"</code></pre>
+    <p>You should see <code>"discord connected"</code> from discd and <code>"channel registered"</code> from gated.</p>
+
+    <h2>step 4 — set up routing</h2>
+    <p>Without a routing entry, messages from Discord are stored but no agent is fired. Add at least one route. The easiest ways:</p>
+
+    <h3>via the operator dashboard</h3>
+    <p>Open <code>/dash/</code> &rarr; <strong>Routing</strong> &rarr; <strong>Add route</strong>.</p>
+
+    <h3>via the root agent (in chat)</h3>
+    <p>In the root group, ask the agent to add a route:</p>
+    <pre><code>add a route: match all Discord messages, target folder "main"</code></pre>
+    <p>The agent calls the <code>add_route</code> MCP tool. Changes take effect immediately (no restart needed).</p>
+
+    <h3>via mcpc (shell)</h3>
+    <pre><code>mcpc connect "socat UNIX-CONNECT:/srv/data/arizuko_&lt;inst&gt;/data/ipc/main/gated.sock -" @s
+mcpc @s tools-call add_route match:="platform=discord" target:="main"
+mcpc @s close</code></pre>
+
+    <h2>routing patterns</h2>
+    <p>Routes are matched in <code>seq</code> order (lowest first). The <code>match</code> field is a space-separated list of <code>key=glob</code> predicates. All predicates must match.</p>
+
+    <table>
+      <thead><tr><th>match expression</th><th>what it routes</th></tr></thead>
+      <tbody>
+        <tr><td><code>platform=discord</code></td><td>all Discord messages (server channels + DMs)</td></tr>
+        <tr><td><code>chat_jid=discord:&lt;guild&gt;/&lt;channel&gt;</code></td><td>one specific channel</td></tr>
+        <tr><td><code>platform=discord verb=mention</code></td><td>only @mentions or replies to bot</td></tr>
+        <tr><td><em>(empty)</em></td><td>everything — catch-all, lowest priority</td></tr>
+      </tbody>
+    </table>
+
+    <h3>common setup: one agent per server</h3>
+    <pre><code>match: platform=discord
+target: main</code></pre>
+    <p>Every message from any channel in any Discord server the bot is in routes to the <code>main</code> group.</p>
+
+    <h3>common setup: one agent per channel</h3>
+    <pre><code>match: chat_jid=discord:123456789/111111111
+target: engineering
+
+match: chat_jid=discord:123456789/222222222
+target: marketing
+
+match: platform=discord
+target: main   &lt;-- catch-all for other channels</code></pre>
+
+    <h3>mention-only channels</h3>
+    <p>To make the agent respond only when @mentioned (ignoring regular chat), set an <code>impulse_config</code> on the route:</p>
+    <pre><code>{"weights": {"message": 0}}</code></pre>
+    <p>This sets the default <em>message</em> verb weight to 0, so regular messages accumulate no impulse weight and never fire the agent. A <em>mention</em> carries the default weight of 100 (= threshold), so @mentions still fire immediately.</p>
+    <p>Set via dashboard (Routing &rarr; edit route &rarr; Impulse config) or in the route <code>impulse_config</code> column.</p>
+
+    <h2>threads</h2>
+    <p>Discord threads are treated as separate conversations. When a message arrives inside a thread, arizuko sets the <code>topic</code> field to the thread&rsquo;s channel ID. The agent sees threads as distinct conversation threads — replies to a thread stay in that thread&rsquo;s context.</p>
+
+    <h2>sending to Discord from the agent</h2>
+    <p>Inside a container, the agent uses MCP tools:</p>
+    <pre><code># reply in the same channel/thread
+reply text:="Here is your answer."
+
+# send to a specific channel (by JID)
+send chatJid:="discord:123456789/987654321" text:="Scheduled report ready."
+
+# react to a message
+like chatJid:="discord:123456789/987654321" targetId:="1234567890" emoji:="👍"
+
+# send a file
+send_file chatJid:="discord:123456789/987654321" \
+          filepath:="/home/node/tmp/report.pdf" filename:="report.pdf"</code></pre>
+    <p>The agent can also <code>edit</code> and <code>delete</code> its own messages, and <code>quote</code> (reply with commentary).</p>
+    <div class="note"><strong>post</strong> is not available on Discord — Discord has no broadcast-feed primitive. Use <code>send</code> to a channel instead.</div>
+
+    <h2>health check</h2>
+    <p>discd exposes <code>GET /health</code> on its internal port. The adapter reports:</p>
+    <table>
+      <thead><tr><th>status</th><th>HTTP</th><th>meaning</th></tr></thead>
+      <tbody>
+        <tr><td>ok</td><td>200</td><td>connected and receiving messages</td></tr>
+        <tr><td>stale</td><td>200</td><td>connected but no inbound messages in 5 minutes (idle, not broken)</td></tr>
+        <tr><td>disconnected</td><td>503</td><td>WebSocket not open; check token validity and network</td></tr>
+      </tbody>
+    </table>
+    <pre><code>sudo curl -s http://localhost:9002/health</code></pre>
+    <p>(Port 9002 is the default; set <code>DISCD_LISTEN</code> to change it.)</p>
+
+    <h2>troubleshooting</h2>
+    <dl>
+      <dt>Bot is in the server but doesn&rsquo;t respond</dt>
+      <dd>Check that a route exists: <code>/dash/</code> &rarr; Routing. Without a route, messages are stored but no agent is fired.</dd>
+
+      <dt>Messages arrive with empty content</dt>
+      <dd>Message Content Intent is not enabled. Go to Discord Developer Portal &rarr; Bot &rarr; Privileged Gateway Intents and toggle it on.</dd>
+
+      <dt>discd shows &ldquo;disconnected&rdquo; in health</dt>
+      <dd>The bot token is wrong or has been reset. Regenerate it in the Developer Portal, update <code>DISCORD_BOT_TOKEN</code> in <code>.env</code>, and restart: <code>sudo docker restart arizuko_discd_&lt;instance&gt;</code>.</dd>
+
+      <dt>Agent responds but replies go to the wrong channel</dt>
+      <dd>The agent is using <code>send</code> with a hardcoded JID. Use <code>reply</code> to respond to the originating chat automatically.</dd>
+
+      <dt>Only @mentions fire the agent, not regular messages</dt>
+      <dd>The route has <code>impulse_config: {"weights":{"message":0}}</code>. Remove or reset that field to let all messages fire.</dd>
+
+      <dt>Bot doesn&rsquo;t see messages in a channel</dt>
+      <dd>Check that the bot has <strong>View Channel</strong> permission for that specific channel in Discord.</dd>
+    </dl>
+
+    <h2>env vars reference</h2>
+    <table>
+      <thead><tr><th>variable</th><th>required</th><th>default</th><th>notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>DISCORD_BOT_TOKEN</code></td><td>yes</td><td>&mdash;</td><td>from Discord Developer Portal &rarr; Bot</td></tr>
+        <tr><td><code>DISCD_LISTEN</code></td><td>no</td><td><code>:9002</code></td><td>internal HTTP port for health and file serving</td></tr>
+        <tr><td><code>DISCD_LISTEN_URL</code></td><td>no</td><td><code>http://discd:9002</code></td><td>public URL for attachment proxying</td></tr>
+        <tr><td><code>ASSISTANT_NAME</code></td><td>no</td><td>&mdash;</td><td>replaces <code>&lt;@bot_id&gt;</code> mentions with a readable name in stored messages</td></tr>
+        <tr><td><code>MEDIA_MAX_FILE_BYTES</code></td><td>no</td><td><code>20971520</code> (20 MB)</td><td>max attachment size to proxy</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
