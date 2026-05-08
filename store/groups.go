@@ -22,7 +22,6 @@ func (s *Store) PutGroup(g core.Group) error {
 		g.SlinkToken = core.GenSlinkToken()
 	}
 	cfgJSON, _ := json.Marshal(g.Config)
-
 	product := g.Product
 	if product == "" {
 		product = core.DefaultProduct
@@ -60,7 +59,6 @@ func (s *Store) AllGroups() map[string]core.Group {
 		return nil
 	}
 	defer rows.Close()
-
 	out := make(map[string]core.Group)
 	for rows.Next() {
 		g, ok := scanGroupFull(rows)
@@ -73,9 +71,7 @@ func (s *Store) AllGroups() map[string]core.Group {
 
 func (s *Store) GetAgentCursor(jid string) time.Time {
 	var raw *string
-	s.db.QueryRow(
-		`SELECT agent_cursor FROM chats WHERE jid = ?`, jid,
-	).Scan(&raw)
+	s.db.QueryRow(`SELECT agent_cursor FROM chats WHERE jid = ?`, jid).Scan(&raw)
 	if raw == nil || *raw == "" {
 		return time.Time{}
 	}
@@ -151,8 +147,6 @@ func routeSourceJIDs(match string) []string {
 	return out
 }
 
-// RouteSourceJIDsInWorld returns distinct inbound JIDs whose routes
-// target worldFolder or any descendant.
 func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string {
 	seen := make(map[string]struct{})
 	var out []string
@@ -171,7 +165,6 @@ func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string {
 	return out
 }
 
-// DefaultFolderForJID returns the folder a jid routes to, or "" if none.
 func (s *Store) DefaultFolderForJID(jid string) string {
 	msg := core.Message{ChatJID: jid, Verb: "message"}
 	return router.ResolveRoute(msg, s.AllRoutes())
@@ -210,8 +203,7 @@ func (s *Store) GroupByFolder(folder string) (core.Group, bool) {
 }
 
 // SetChatIsGroup upserts the is_group classification for a chat_jid.
-// Adapters call this on every inbound; the WHERE on the UPDATE branch
-// suppresses no-op writes once the classification is stable.
+// The WHERE on the UPDATE branch suppresses no-op writes once stable.
 func (s *Store) SetChatIsGroup(jid string, isGroup bool) error {
 	_, err := s.db.Exec(
 		`INSERT INTO chats (jid, is_group) VALUES (?, ?)
@@ -222,8 +214,6 @@ func (s *Store) SetChatIsGroup(jid string, isGroup bool) error {
 	return err
 }
 
-// GetChatIsGroup returns the stored classification; false (single-user)
-// when the row is missing or has the default value.
 func (s *Store) GetChatIsGroup(jid string) bool {
 	var n int
 	s.db.QueryRow(`SELECT is_group FROM chats WHERE jid = ?`, jid).Scan(&n)

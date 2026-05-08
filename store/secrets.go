@@ -25,13 +25,7 @@ const (
 	rootFolder = "root"
 )
 
-// ErrSecretCipherNotConfigured is returned when secrets API is invoked on a
-// Store opened without an AUTH_SECRET (i.e. via Open / OpenMem). Callers
-// must use OpenWithSecret / OpenMemWithSecret.
 var ErrSecretCipherNotConfigured = errors.New("secrets cipher not configured")
-
-// ErrSecretNotFound is returned by GetSecret when the (scope, scope_id, key)
-// row does not exist.
 var ErrSecretNotFound = errors.New("secret not found")
 
 type Secret struct {
@@ -96,9 +90,6 @@ func validateScope(scope SecretScope, scopeID, key string) error {
 	return nil
 }
 
-// SetSecret upserts a secret value at (scope, scopeID, key). The plaintext
-// is encrypted with the Store's AES-GCM cipher before persistence; created_at
-// is refreshed on every write so callers can see "last set".
 func (s *Store) SetSecret(scope SecretScope, scopeID, key, plaintext string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
@@ -118,8 +109,6 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, plaintext string) err
 	return err
 }
 
-// GetSecret returns a single decrypted secret. Errors with ErrSecretNotFound
-// if no row matches.
 func (s *Store) GetSecret(scope SecretScope, scopeID, key string) (Secret, error) {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return Secret{}, err
@@ -127,10 +116,8 @@ func (s *Store) GetSecret(scope SecretScope, scopeID, key string) (Secret, error
 	if s.secretCipher == nil {
 		return Secret{}, ErrSecretCipherNotConfigured
 	}
-	var (
-		blob      []byte
-		createdAt string
-	)
+	var blob []byte
+	var createdAt string
 	err := s.db.QueryRow(
 		`SELECT enc_value, created_at FROM secrets
 		 WHERE scope_kind = ? AND scope_id = ? AND key = ?`,
@@ -147,16 +134,9 @@ func (s *Store) GetSecret(scope SecretScope, scopeID, key string) (Secret, error
 		return Secret{}, err
 	}
 	t, _ := time.Parse(time.RFC3339, createdAt)
-	return Secret{
-		ScopeKind: scope,
-		ScopeID:   scopeID,
-		Key:       key,
-		Value:     pt,
-		CreatedAt: t,
-	}, nil
+	return Secret{ScopeKind: scope, ScopeID: scopeID, Key: key, Value: pt, CreatedAt: t}, nil
 }
 
-// ListSecrets returns every secret matching (scope, scopeID), values decrypted.
 func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error) {
 	if scope != ScopeFolder && scope != ScopeUser {
 		return nil, fmt.Errorf("invalid scope_kind: %q", scope)
@@ -179,11 +159,9 @@ func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error)
 	defer rows.Close()
 	var out []Secret
 	for rows.Next() {
-		var (
-			key       string
-			blob      []byte
-			createdAt string
-		)
+		var key string
+		var blob []byte
+		var createdAt string
 		if err := rows.Scan(&key, &blob, &createdAt); err != nil {
 			return nil, err
 		}
@@ -192,18 +170,11 @@ func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error)
 			return nil, err
 		}
 		t, _ := time.Parse(time.RFC3339, createdAt)
-		out = append(out, Secret{
-			ScopeKind: scope,
-			ScopeID:   scopeID,
-			Key:       key,
-			Value:     pt,
-			CreatedAt: t,
-		})
+		out = append(out, Secret{ScopeKind: scope, ScopeID: scopeID, Key: key, Value: pt, CreatedAt: t})
 	}
 	return out, rows.Err()
 }
 
-// DeleteSecret removes a single (scope, scopeID, key) row. No error if absent.
 func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
@@ -215,10 +186,8 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 	return err
 }
 
-// folderAncestors returns folder paths to query for resolution: the folder
-// itself, each parent up to the root segment, then "root" as the catch-all.
-// Order is shallow-to-deep-reversed: ["atlas/eng/sre", "atlas/eng", "atlas", "root"].
-// Caller applies in reverse so deepest wins.
+// folderAncestors returns folder paths for resolution, deepest first, ending with "root".
+// e.g. "atlas/eng/sre" → ["atlas/eng/sre", "atlas/eng", "atlas", "root"].
 func folderAncestors(folder string) []string {
 	folder = strings.Trim(folder, "/")
 	if folder == "" || folder == rootFolder {
@@ -234,8 +203,7 @@ func folderAncestors(folder string) []string {
 }
 
 // FolderSecretsResolved walks `folder` up through each parent to the "root"
-// catch-all and returns key=value with deepest-wins precedence. Used by the
-// container runner to compose env at spawn time.
+// catch-all and returns key=value with deepest-wins precedence.
 func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) {
 	if s.secretCipher == nil {
 		return nil, ErrSecretCipherNotConfigured
@@ -259,11 +227,9 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 		return nil, err
 	}
 	defer rows.Close()
-	// depthOf: lower = shallower (root=0, atlas=1, atlas/eng=2, ...).
-	// last-wins by depth, so we keep the highest-depth value per key.
+	// paths is deep→shallow; depth = (len-1) - i. Deepest value wins per key.
 	depthOf := make(map[string]int, len(paths))
 	for i, p := range paths {
-		// paths is deep→shallow; depth = (len-1) - i
 		depthOf[p] = len(paths) - 1 - i
 	}
 	type kv struct {
@@ -272,11 +238,8 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 	}
 	best := map[string]kv{}
 	for rows.Next() {
-		var (
-			scopeID string
-			key     string
-			blob    []byte
-		)
+		var scopeID, key string
+		var blob []byte
 		if err := rows.Scan(&scopeID, &key, &blob); err != nil {
 			return nil, err
 		}
@@ -299,8 +262,6 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 	return out, nil
 }
 
-// UserSecrets returns key=value for a single user_sub. Used as the overlay
-// on top of FolderSecretsResolved when chats.is_group = 0.
 func (s *Store) UserSecrets(userSub string) (map[string]string, error) {
 	if userSub == "" {
 		return nil, errors.New("user_sub required")
@@ -319,10 +280,8 @@ func (s *Store) UserSecrets(userSub string) (map[string]string, error) {
 	defer rows.Close()
 	out := map[string]string{}
 	for rows.Next() {
-		var (
-			key  string
-			blob []byte
-		)
+		var key string
+		var blob []byte
 		if err := rows.Scan(&key, &blob); err != nil {
 			return nil, err
 		}

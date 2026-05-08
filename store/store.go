@@ -46,9 +46,6 @@ func Open(dir string) (*Store, error) {
 	return s, nil
 }
 
-// OpenWithSecret is Open + a configured AES-GCM cipher for the secrets API.
-// Callers without secrets needs continue using Open(); secrets methods on
-// such a Store return ErrSecretCipherNotConfigured.
 func OpenWithSecret(dir, authSecret string) (*Store, error) {
 	s, err := Open(dir)
 	if err != nil {
@@ -76,7 +73,6 @@ func OpenMem() (*Store, error) {
 	return s, nil
 }
 
-// OpenMemWithSecret mirrors OpenMem with secrets cipher configured.
 func OpenMemWithSecret(authSecret string) (*Store, error) {
 	s, err := OpenMem()
 	if err != nil {
@@ -102,8 +98,7 @@ func Migrate(db *sql.DB) error {
 }
 
 // New wraps an already-open *sql.DB as a *Store. Caller owns the db lifetime
-// and must have run migrations. For callers that hold a raw handle and need
-// a few typed methods.
+// and must have run migrations.
 func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }

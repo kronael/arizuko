@@ -31,16 +31,11 @@ func (s *Store) PutMessage(m core.Message) error {
 	return err
 }
 
-// MarkMessageStatus transitions a message from 'pending' to a terminal
-// state ('sent' or 'failed'). No-op if the row doesn't exist.
 func (s *Store) MarkMessageStatus(id, status string) error {
 	_, err := s.db.Exec(`UPDATE messages SET status = ? WHERE id = ?`, status, id)
 	return err
 }
 
-// MarkMessageDelivered transitions a pending row to 'sent' and records the
-// platform-side message ID returned by the adapter (stored in reply_to_id
-// per the existing bot-row convention).
 func (s *Store) MarkMessageDelivered(id, platformID string) error {
 	_, err := s.db.Exec(
 		`UPDATE messages SET status = 'sent', reply_to_id = ? WHERE id = ?`,
@@ -49,10 +44,6 @@ func (s *Store) MarkMessageDelivered(id, platformID string) error {
 	return err
 }
 
-// PendingOutboundOlderThan returns outbound (is_bot_message=1) rows whose
-// status is 'pending' and timestamp is older than the cutoff. Used by the
-// gateway's poll loop to retry delivery for crash-recovered or
-// adapter-flap rows. Limit caps the result set.
 func (s *Store) PendingOutboundOlderThan(cutoff time.Time, limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
@@ -117,8 +108,6 @@ const msgCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timest
 	COALESCE(reply_to_id,''), COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''),
 	topic, routed_to, verb, attachments, source, errored, COALESCE(turn_id,'')`
 
-// NewMessages returns new inbound messages since `since`. If jids is empty,
-// no chat_jid filter is applied (all new messages from all chats).
 func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]core.Message, time.Time, error) {
 	var rows *sql.Rows
 	var err error
@@ -182,10 +171,6 @@ func (s *Store) HasPendingMessages(jid, botName string) bool {
 	return n == 1
 }
 
-// MarkMessagesErrored annotates the given message IDs so the next agent
-// run sees them tagged "errored" and can try a different approach. The
-// messages stay visible to all read paths; only the circuit breaker
-// prunes them via DeleteErroredMessages.
 func (s *Store) MarkMessagesErrored(ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -200,8 +185,6 @@ func (s *Store) MarkMessagesErrored(ids []string) error {
 	return err
 }
 
-// DeleteErroredMessages hard-prunes all errored rows for a chat.
-// Called by the circuit breaker hard-reset path.
 func (s *Store) DeleteErroredMessages(chatJid string) error {
 	_, err := s.db.Exec(`DELETE FROM messages WHERE chat_jid = ? AND errored = 1`, chatJid)
 	return err
@@ -258,8 +241,6 @@ func scanMessage(r rowScanner) (core.Message, error) {
 	return m, nil
 }
 
-// LatestSource returns the source (adapter name) of the most recent
-// inbound message in chat jid. Empty string if none recorded.
 func (s *Store) LatestSource(jid string) string {
 	var src string
 	s.db.QueryRow(
@@ -311,9 +292,6 @@ func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit in
 	return s.MessagesByThread("web:"+folder, topic, before, limit)
 }
 
-// MessagesByThread returns messages for one (chat_jid, topic) thread, newest
-// first, capped by limit. before=zero means now. Used by both web (via
-// MessagesByTopic, jid="web:<folder>") and the ipc get_thread tool.
 func (s *Store) MessagesByThread(jid, topic string, before time.Time, limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
@@ -370,9 +348,6 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	return collectMessages(rows)
 }
 
-// ObservedMessagesSince returns recent inbound messages from chats that
-// route to groupFolder via the routes table, excluding excludeJid. Used
-// for "what other chats has this group seen lately" prompts.
 func (s *Store) ObservedMessagesSince(groupFolder, excludeJid, since string) []core.Message {
 	jids := s.RouteSourceJIDsInWorld(groupFolder)
 	if len(jids) == 0 {
@@ -490,8 +465,6 @@ func (s *Store) MessagesAll(jid string, limit int) ([]core.Message, error) {
 	return collectMessages(rows)
 }
 
-// JIDRoutedToFolder reports whether jid resolves (via the routes table)
-// to folder or any descendant of folder.
 func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
 	target := s.DefaultFolderForJID(jid)
 	if target == "" {

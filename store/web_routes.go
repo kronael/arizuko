@@ -2,7 +2,6 @@ package store
 
 import "time"
 
-// WebRoute is a row from the web_routes table.
 type WebRoute struct {
 	PathPrefix string
 	Access     string // public | auth | deny | redirect
@@ -21,7 +20,6 @@ func scanWebRoute(r rowScanner) (WebRoute, error) {
 	return wr, nil
 }
 
-// SetWebRoute upserts a web_route row.
 func (s *Store) SetWebRoute(r WebRoute) error {
 	_, err := s.db.Exec(
 		`INSERT INTO web_routes (path_prefix, access, redirect_to, folder, created_at)
@@ -37,7 +35,6 @@ func (s *Store) SetWebRoute(r WebRoute) error {
 	return err
 }
 
-// DelWebRoute deletes a web_route owned by folder. Returns false if not found.
 func (s *Store) DelWebRoute(pathPrefix, folder string) (bool, error) {
 	res, err := s.db.Exec(
 		`DELETE FROM web_routes WHERE path_prefix = ? AND (folder = ? OR ? = '')`,
@@ -50,7 +47,6 @@ func (s *Store) DelWebRoute(pathPrefix, folder string) (bool, error) {
 	return n > 0, nil
 }
 
-// ListWebRoutes returns all web_routes rows owned by folder.
 func (s *Store) ListWebRoutes(folder string) []WebRoute {
 	rows, err := s.db.Query(
 		`SELECT path_prefix, access, COALESCE(redirect_to,''), folder, created_at
@@ -70,7 +66,6 @@ func (s *Store) ListWebRoutes(folder string) []WebRoute {
 	return out
 }
 
-// MatchWebRoute returns the longest-prefix web_route matching urlPath, if any.
 func (s *Store) MatchWebRoute(urlPath string) (WebRoute, bool) {
 	row := s.db.QueryRow(
 		`SELECT path_prefix, access, COALESCE(redirect_to,''), folder, created_at

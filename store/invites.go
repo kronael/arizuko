@@ -22,16 +22,16 @@ type Invite struct {
 }
 
 // ErrInviteUnavailable is returned by ConsumeInvite when the token is
-// missing, exhausted, or expired. Callers render a single user-facing
-// "invalid or used" page; the cause is logged at the call site.
+// missing, exhausted, or expired.
 var ErrInviteUnavailable = errors.New("invite unavailable")
+
+const inviteCols = `token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count`
 
 func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (*Invite, error) {
 	if targetGlob == "" {
 		return nil, errors.New("target_glob required")
 	}
-	// Validate: strip trailing slash (subworld-create mode uses "parent/")
-	// before checking folder validity.
+	// Strip trailing slash (subworld-create mode) before validating folder.
 	check := strings.TrimSuffix(targetGlob, "/")
 	if check == "" {
 		check = "/"
@@ -52,7 +52,7 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 		expStr = sql.NullString{String: expiresAt.UTC().Format(time.RFC3339), Valid: true}
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count)
+		`INSERT INTO invites (`+inviteCols+`)
 		 VALUES (?, ?, ?, ?, ?, ?, 0)`,
 		token, targetGlob, issuedBySub, now.Format(time.RFC3339), expStr, maxUses)
 	if err != nil {
@@ -65,7 +65,6 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 		IssuedAt:    now,
 		ExpiresAt:   expiresAt,
 		MaxUses:     maxUses,
-		UsedCount:   0,
 	}, nil
 }
 
@@ -88,27 +87,19 @@ func scanInvite(row rowScanner) (*Invite, error) {
 }
 
 func (s *Store) GetInvite(token string) (*Invite, error) {
-	row := s.db.QueryRow(
-		`SELECT token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count
-		 FROM invites WHERE token = ?`, token)
-	return scanInvite(row)
+	return scanInvite(s.db.QueryRow(
+		`SELECT `+inviteCols+` FROM invites WHERE token = ?`, token))
 }
 
-// ListInvites returns all invites; if forIssuer != "" only those rows.
 func (s *Store) ListInvites(forIssuer string) ([]Invite, error) {
-	var (
-		rows *sql.Rows
-		err  error
-	)
+	q := `SELECT ` + inviteCols + ` FROM invites`
+	var args []any
 	if forIssuer != "" {
-		rows, err = s.db.Query(
-			`SELECT token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count
-			 FROM invites WHERE issued_by_sub = ? ORDER BY issued_at DESC`, forIssuer)
-	} else {
-		rows, err = s.db.Query(
-			`SELECT token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count
-			 FROM invites ORDER BY issued_at DESC`)
+		q += ` WHERE issued_by_sub = ?`
+		args = append(args, forIssuer)
 	}
+	q += ` ORDER BY issued_at DESC`
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -129,11 +120,9 @@ func (s *Store) RevokeInvite(token string) error {
 	return err
 }
 
-// ConsumeInvite atomically increments used_count (guarding both max_uses
-// and expiry) and inserts a user_groups row in one transaction. Concurrent
-// callers race on the UPDATE — only the first max_uses succeed.
-// Returns ErrInviteUnavailable when the token is missing, exhausted, or
-// expired.
+// ConsumeInvite atomically increments used_count (guarding max_uses and expiry)
+// and inserts a user_groups row in one transaction. Concurrent callers race on
+// the UPDATE — only the first max_uses succeed.
 func (s *Store) ConsumeInvite(token, userSub string) (*Invite, error) {
 	if userSub == "" {
 		return nil, errors.New("user_sub required")
@@ -151,7 +140,7 @@ func (s *Store) ConsumeInvite(token, userSub string) (*Invite, error) {
 		 WHERE token = ?
 		   AND used_count < max_uses
 		   AND (expires_at IS NULL OR expires_at > ?)
-		 RETURNING token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count`,
+		 RETURNING `+inviteCols,
 		token, now)
 	inv, err := scanInvite(row)
 	if err != nil {

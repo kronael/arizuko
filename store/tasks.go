@@ -93,8 +93,7 @@ func (s *Store) CountActiveTasks() int {
 	return n
 }
 
-// defaultTasks are the 5 canonical memory-compaction cron tasks every new
-// group gets. Keep in sync with ant migration 055 which backfills legacy groups.
+// Keep in sync with ant migration 055 which backfills legacy groups.
 var defaultTasks = [...]struct{ prompt, cron string }{
 	{"/compact-memories episodes day", "0 2 * * *"},
 	{"/compact-memories episodes week", "0 3 * * 1"},
@@ -103,10 +102,8 @@ var defaultTasks = [...]struct{ prompt, cron string }{
 	{"/compact-memories diary month", "0 4 1 * *"},
 }
 
-// SeedDefaultTasks inserts the 5 canonical compact-memories cron tasks for a
-// new group. Idempotent (INSERT OR IGNORE on stable IDs `<folder>-mem-N`).
-// New groups inherit MIGRATION_VERSION=latest at creation and therefore skip
-// ant migration 055, which seeds the same tasks for pre-055 legacy groups.
+// SeedDefaultTasks inserts the 5 compact-memories tasks for a new group.
+// Idempotent (INSERT OR IGNORE). New groups skip ant migration 055.
 func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 	now := time.Now().Format(time.RFC3339)
 	for i, t := range defaultTasks {

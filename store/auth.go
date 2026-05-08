@@ -2,17 +2,18 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"time"
 )
 
 type AuthUser struct {
-	ID           int64
-	Sub          string
-	Username     string
-	Hash         string
-	Name         string
-	CreatedAt    time.Time
-	LinkedToSub  string // empty = canonical; non-empty = points at canonical sub
+	ID          int64
+	Sub         string
+	Username    string
+	Hash        string
+	Name        string
+	CreatedAt   time.Time
+	LinkedToSub string // empty = canonical; non-empty = points at canonical sub
 }
 
 type AuthSession struct {
@@ -68,6 +69,8 @@ func (s *Store) CanonicalSub(sub string) string {
 	return u.LinkedToSub
 }
 
+var errInvalidLink = errors.New("invalid link target")
+
 // LinkSubToCanonical attaches newSub to canonical. canonical must already
 // exist in auth_users and itself be canonical (no chains). If newSub is
 // new it is inserted; if it exists it is updated.
@@ -96,7 +99,6 @@ func (s *Store) LinkSubToCanonical(newSub, name, canonical string) error {
 	return err
 }
 
-// LinkedSubs returns every sub linked to canonical (excluding canonical itself).
 func (s *Store) LinkedSubs(canonical string) []string {
 	rows, err := s.db.Query(
 		`SELECT sub FROM auth_users WHERE linked_to_sub = ? ORDER BY sub`, canonical)
@@ -113,12 +115,6 @@ func (s *Store) LinkedSubs(canonical string) []string {
 	}
 	return out
 }
-
-type errInvalidLinkType struct{}
-
-func (errInvalidLinkType) Error() string { return "invalid link target" }
-
-var errInvalidLink error = errInvalidLinkType{}
 
 func (s *Store) CreateAuthSession(tokenHash, userSub string, expiresAt time.Time) error {
 	_, err := s.db.Exec(

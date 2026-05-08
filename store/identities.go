@@ -23,7 +23,6 @@ type IdentityClaim struct {
 
 var ErrLinkCodeInvalid = errors.New("link code invalid or expired")
 
-// CreateIdentity inserts a fresh identity row. ID is a 16-byte hex token.
 func (s *Store) CreateIdentity(name string) (Identity, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -52,8 +51,6 @@ func (s *Store) GetIdentity(id string) (Identity, bool) {
 	return idn, true
 }
 
-// GetIdentityForSub returns the identity claimed by sub plus all claimed subs
-// for that identity. ok=false when sub has no claim.
 func (s *Store) GetIdentityForSub(sub string) (Identity, []string, bool) {
 	var idID string
 	if err := s.db.QueryRow(
@@ -108,9 +105,7 @@ func (s *Store) ListIdentities() ([]Identity, error) {
 	return out, rows.Err()
 }
 
-// LinkSub binds sub to identityID. If sub is already claimed by another
-// identity, the claim is rebound (REPLACE). Caller is responsible for
-// authorizing the rebind — store layer is mechanical.
+// LinkSub binds sub to identityID; rebinds if already claimed elsewhere.
 func (s *Store) LinkSub(identityID, sub string) error {
 	_, err := s.db.Exec(
 		`INSERT OR REPLACE INTO identity_claims (sub, identity_id, claimed_at)
@@ -129,8 +124,6 @@ func (s *Store) UnlinkSub(sub string) (bool, error) {
 	return n > 0, nil
 }
 
-// MintLinkCode creates a one-shot code for identityID. ttl is the validity
-// window from now. Returns the code string.
 func (s *Store) MintLinkCode(identityID string, ttl time.Duration) (string, error) {
 	b := make([]byte, 6)
 	if _, err := rand.Read(b); err != nil {
@@ -146,10 +139,7 @@ func (s *Store) MintLinkCode(identityID string, ttl time.Duration) (string, erro
 	return code, nil
 }
 
-// ConsumeLinkCode atomically claims sub for the identity associated with
-// code, if the code exists and hasn't expired. The code is single-shot:
-// successful consume deletes the row. Expired codes are also pruned.
-// Returns the identity_id on success, ErrLinkCodeInvalid otherwise.
+// ConsumeLinkCode claims sub for the identity, single-shot. Pruned on expiry.
 func (s *Store) ConsumeLinkCode(code, sub string) (string, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -191,8 +181,6 @@ func (s *Store) ConsumeLinkCode(code, sub string) (string, error) {
 	return idID, nil
 }
 
-// PruneExpiredLinkCodes deletes identity_codes whose expires_at is in
-// the past. Cheap; called from background sweepers if any.
 func (s *Store) PruneExpiredLinkCodes() (int64, error) {
 	res, err := s.db.Exec(
 		`DELETE FROM identity_codes WHERE expires_at < ?`,

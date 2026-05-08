@@ -2,9 +2,6 @@ package store
 
 import "time"
 
-// ErroredChat aggregates errored messages per chat, scoped to a folder
-// subtree (or all chats when isRoot=true). A chat is considered scoped
-// to folder when its routed_to column matches folder or a descendant.
 type ErroredChat struct {
 	ChatJID  string    `json:"chat_jid"`
 	Count    int       `json:"count"`
@@ -12,8 +9,6 @@ type ErroredChat struct {
 	RoutedTo string    `json:"routed_to"`
 }
 
-// ErroredChats returns per-chat errored-message aggregates. Root sees
-// all; non-root sees only chats whose routed_to resolves inside folder.
 func (s *Store) ErroredChats(folder string, isRoot bool) []ErroredChat {
 	scope := folder
 	if isRoot {
@@ -53,7 +48,6 @@ type TaskRunLog struct {
 	Error      string    `json:"error,omitempty"`
 }
 
-// TaskRunLogs returns recent run-log rows for taskID, newest first.
 func (s *Store) TaskRunLogs(taskID string, limit int) []TaskRunLog {
 	if limit <= 0 || limit > 200 {
 		limit = 50

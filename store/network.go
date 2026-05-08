@@ -56,8 +56,6 @@ func (s *Store) AllNetworkRules() ([]NetworkRule, error) {
 	return scanNetworkRules(rows)
 }
 
-// ResolveAllowlist returns deduped targets for the folder, walking ancestry
-// from root to the folder. Empty folder ("") = root rules only.
 func (s *Store) ResolveAllowlist(folder string) ([]string, error) {
 	folders := folderAncestry(folder)
 	placeholders := strings.Repeat("?,", len(folders))
@@ -87,7 +85,6 @@ func (s *Store) ResolveAllowlist(folder string) ([]string, error) {
 	return out, rows.Err()
 }
 
-// folderAncestry returns ["", "a", "a/b", "a/b/c"] for "a/b/c".
 func folderAncestry(folder string) []string {
 	out := []string{""}
 	if folder == "" {
