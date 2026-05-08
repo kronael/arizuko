@@ -54,8 +54,7 @@ Developer capabilities are embedded in each product that needs them
 
 Specced in this directory but no template folder shipped yet:
 
-| Spec                                         | Value prop                                     |
-| -------------------------------------------- | ---------------------------------------------- |
-| [product-developer.md](product-developer.md) | Coding assistant with codebase access via davd |
-| [product-ops.md](product-ops.md)             | DevOps/SRE with runbooks + scoped bash         |
-| [product-companion.md](product-companion.md) | Personal companion with proactive check-ins    |
+| Spec                                         | Value prop                                  |
+| -------------------------------------------- | ------------------------------------------- |
+| [product-ops.md](product-ops.md)             | DevOps/SRE with runbooks + scoped bash      |
+| [product-companion.md](product-companion.md) | Personal companion with proactive check-ins |
