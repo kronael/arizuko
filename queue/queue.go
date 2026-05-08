@@ -64,41 +64,27 @@ func (q *GroupQueue) getGroup(groupJid string) *groupState {
 	return s
 }
 
-func (q *GroupQueue) SetProcessMessagesFn(fn processMessagesFn) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.processMessages = fn
-}
+func (q *GroupQueue) SetProcessMessagesFn(fn processMessagesFn) { q.mu.Lock(); defer q.mu.Unlock(); q.processMessages = fn }
+func (q *GroupQueue) SetHasPendingFn(fn hasPendingFn)           { q.mu.Lock(); defer q.mu.Unlock(); q.hasPending = fn }
+func (q *GroupQueue) SetNotifyErrorFn(fn notifyErrorFn)         { q.mu.Lock(); defer q.mu.Unlock(); q.notifyError = fn }
+func (q *GroupQueue) SetFolderForJidFn(fn folderForJidFn)       { q.mu.Lock(); defer q.mu.Unlock(); q.folderForJid = fn }
 
-func (q *GroupQueue) SetHasPendingFn(fn hasPendingFn) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.hasPending = fn
-}
-
-func (q *GroupQueue) SetNotifyErrorFn(fn notifyErrorFn) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.notifyError = fn
-}
-
-// SetFolderForJidFn wires a JID→folder resolver so the queue can serialize
-// runs by folder. Different JIDs that route to the same group folder share
-// one container at a time; the loser is parked on waitingGroups and
-// resumed once the folder frees up.
-func (q *GroupQueue) SetFolderForJidFn(fn folderForJidFn) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.folderForJid = fn
-}
-
-// folderOfLocked returns the group folder for a JID, or "" if unknown.
-// Callers must hold q.mu.
-func (q *GroupQueue) folderOfLocked(jid string) string {
+// Caller must hold q.mu.
+func (q *GroupQueue) folderOf(jid string) string {
 	if q.folderForJid == nil {
 		return ""
 	}
 	return q.folderForJid(jid)
+}
+
+// Caller must hold q.mu.
+func (q *GroupQueue) activateLocked(jid, folder string) {
+	s := q.getGroup(jid)
+	s.active = true
+	q.activeCount++
+	if folder != "" {
+		q.activeFolders[folder] = jid
+	}
 }
 
 func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
@@ -122,7 +108,8 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 		return
 	}
 
-	if folder := q.folderOfLocked(groupJid); folder != "" {
+	folder := q.folderOf(groupJid)
+	if folder != "" {
 		if other, busy := q.activeFolders[folder]; busy && other != groupJid {
 			if !slices.Contains(q.waitingGroups, groupJid) {
 				q.waitingGroups = append(q.waitingGroups, groupJid)
@@ -144,14 +131,10 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 		return
 	}
 
-	s.active = true
-	q.activeCount++
-	if folder := q.folderOfLocked(groupJid); folder != "" {
-		q.activeFolders[folder] = groupJid
-	}
+	q.activateLocked(groupJid, folder)
 	q.mu.Unlock()
 
-	go q.runForGroup(groupJid, "messages")
+	go q.runForGroup(groupJid)
 }
 
 func (q *GroupQueue) RegisterProcess(groupJid, containerName, groupFolder string) {
@@ -164,9 +147,7 @@ func (q *GroupQueue) RegisterProcess(groupJid, containerName, groupFolder string
 	}
 }
 
-// SetActiveForTest simulates an active container for a group, bypassing
-// the normal EnqueueMessageCheck → goroutine → RegisterProcess flow so
-// steering tests can exercise SendMessages without running docker.
+// SetActiveForTest simulates an active container without running docker.
 func (q *GroupQueue) SetActiveForTest(groupJid, containerName, groupFolder string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -245,9 +226,8 @@ func (q *GroupQueue) Shutdown() {
 		"activeCount", q.activeCount, "detachedContainers", detached)
 }
 
-func (q *GroupQueue) runForGroup(groupJid, reason string) {
-	slog.Debug("starting container for group",
-		"groupJid", groupJid, "reason", reason, "activeCount", q.activeCount)
+func (q *GroupQueue) runForGroup(groupJid string) {
+	slog.Debug("starting container for group", "groupJid", groupJid, "activeCount", q.activeCount)
 
 	q.mu.Lock()
 	fn := q.processMessages
@@ -264,8 +244,7 @@ func (q *GroupQueue) runForGroup(groupJid, reason string) {
 	notifyFn := q.notifyError
 	if err != nil {
 		s.consecutiveFailures++
-		slog.Error("error processing messages for group",
-			"groupJid", groupJid, "err", err)
+		slog.Error("error processing messages for group", "groupJid", groupJid, "err", err)
 	} else if success {
 		s.consecutiveFailures = 0
 	} else {
@@ -295,28 +274,20 @@ func (q *GroupQueue) runForGroup(groupJid, reason string) {
 	q.mu.Unlock()
 }
 
-// drainWaitingLocked walks waitingGroups, starting JIDs whose folder is
-// free. Skips folder-blocked JIDs (they stay in the queue and resume when
-// their folder frees). Bypasses hasPending — JIDs are in this queue
-// because EnqueueMessageCheck saw real work for them. Caller holds q.mu.
 func (q *GroupQueue) drainWaitingLocked() {
 	i := 0
 	for i < len(q.waitingGroups) && q.activeCount < q.maxConcurrent {
 		jid := q.waitingGroups[i]
-		if folder := q.folderOfLocked(jid); folder != "" {
+		folder := q.folderOf(jid)
+		if folder != "" {
 			if other, busy := q.activeFolders[folder]; busy && other != jid {
 				i++
 				continue
 			}
 		}
 		q.waitingGroups = append(q.waitingGroups[:i], q.waitingGroups[i+1:]...)
-		s := q.getGroup(jid)
-		s.active = true
-		q.activeCount++
-		if folder := q.folderOfLocked(jid); folder != "" {
-			q.activeFolders[folder] = jid
-		}
-		go q.runForGroup(jid, "drain")
+		q.activateLocked(jid, folder)
+		go q.runForGroup(jid)
 	}
 }
 
@@ -324,18 +295,14 @@ func (q *GroupQueue) startGroupLocked(jid string) bool {
 	if q.hasPending == nil || !q.hasPending(jid) {
 		return false
 	}
-	if folder := q.folderOfLocked(jid); folder != "" {
+	folder := q.folderOf(jid)
+	if folder != "" {
 		if other, busy := q.activeFolders[folder]; busy && other != jid {
 			return false
 		}
 	}
-	s := q.getGroup(jid)
-	s.active = true
-	q.activeCount++
-	if folder := q.folderOfLocked(jid); folder != "" {
-		q.activeFolders[folder] = jid
-	}
-	go q.runForGroup(jid, "drain")
+	q.activateLocked(jid, folder)
+	go q.runForGroup(jid)
 	return true
 }
 
