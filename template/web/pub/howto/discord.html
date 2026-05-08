@@ -70,7 +70,20 @@
     </table>
     <p>DMs always fire the agent regardless of impulse config. Guild messages use impulse weights (default: fire on every message).</p>
 
-    <h2>step 1 — create a Discord application</h2>
+    <h2>token modes</h2>
+    <p>discd supports two authentication modes. Choose based on your use case:</p>
+    <table>
+      <thead><tr><th>mode</th><th>env var</th><th>best for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Bot token</strong></td><td><code>DISCORD_BOT_TOKEN</code></td><td>shared deployments, servers you don&rsquo;t own, production</td></tr>
+        <tr><td><strong>User token</strong></td><td><code>DISCORD_USER_TOKEN</code></td><td>personal use, your own account, servers where adding a bot app isn&rsquo;t possible</td></tr>
+      </tbody>
+    </table>
+    <div class="note"><strong>One token, not both.</strong> Set exactly one of <code>DISCORD_BOT_TOKEN</code> or <code>DISCORD_USER_TOKEN</code>. If both are set, the user token takes precedence. If neither is set, discd exits at startup.</div>
+    <div class="warn"><strong>User token risks</strong>: Using a user token runs the agent as your personal Discord account. Discord&rsquo;s ToS restricts automated use of user accounts. Use on accounts you own and can afford to lose. Bot tokens are the safe choice for any production or team deployment.</div>
+
+    <h2>step 1 — create a Discord application (bot mode)</h2>
+    <p>Skip this if you are using a user token.</p>
     <ol>
       <li>Go to <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">discord.com/developers/applications</a> and click <strong>New Application</strong>.</li>
       <li>Name it (this is the app name, not the bot username).</li>
@@ -81,9 +94,10 @@
           &bull; <strong>Presence Intent</strong> — optional.</li>
       <li>Click <strong>Reset Token</strong> and copy the bot token. Store it; you won&rsquo;t see it again.</li>
     </ol>
-    <div class="warn"><strong>Token security</strong>: treat the bot token like a password. Store it only in your instance&rsquo;s <code>.env</code> file, not in code or chat.</div>
+    <div class="warn"><strong>Token security</strong>: treat tokens like passwords. Store them only in your instance&rsquo;s <code>.env</code> file, not in code or chat.</div>
 
-    <h2>step 2 — invite the bot to your server</h2>
+    <h2>step 2 — invite the bot to your server (bot mode)</h2>
+    <p>Skip this if you are using a user token (your account is already in your servers).</p>
     <ol>
       <li>In the application, go to <strong>OAuth2 &rarr; URL Generator</strong>.</li>
       <li>Select scope: <code>bot</code>.</li>
@@ -97,7 +111,11 @@
 
     <h2>step 3 — configure arizuko</h2>
     <p>Add to <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
-    <pre><code>DISCORD_BOT_TOKEN=your_token_here</code></pre>
+    <pre><code># bot mode (recommended)
+DISCORD_BOT_TOKEN=your_bot_token_here
+
+# user mode (personal use)
+# DISCORD_USER_TOKEN=your_user_token_here</code></pre>
     <p>Then regenerate compose and restart:</p>
     <pre><code>arizuko run &lt;instance&gt;
 sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
@@ -194,11 +212,11 @@ send_file chatJid:="discord:123456789/987654321" \
       <dt>Bot is in the server but doesn&rsquo;t respond</dt>
       <dd>Check that a route exists: <code>/dash/</code> &rarr; Routing. Without a route, messages are stored but no agent is fired.</dd>
 
-      <dt>Messages arrive with empty content</dt>
-      <dd>Message Content Intent is not enabled. Go to Discord Developer Portal &rarr; Bot &rarr; Privileged Gateway Intents and toggle it on.</dd>
+      <dt>Messages arrive with empty content (bot mode)</dt>
+      <dd>Message Content Intent is not enabled. Go to Discord Developer Portal &rarr; Bot &rarr; Privileged Gateway Intents and toggle it on. User mode does not require intents.</dd>
 
       <dt>discd shows &ldquo;disconnected&rdquo; in health</dt>
-      <dd>The bot token is wrong or has been reset. Regenerate it in the Developer Portal, update <code>DISCORD_BOT_TOKEN</code> in <code>.env</code>, and restart: <code>sudo docker restart arizuko_discd_&lt;instance&gt;</code>.</dd>
+      <dd>The token is wrong or has been reset. For bot mode: regenerate in the Developer Portal and update <code>DISCORD_BOT_TOKEN</code>. For user mode: check that <code>DISCORD_USER_TOKEN</code> is still valid (user tokens invalidate on password change or forced logout). Restart after updating: <code>sudo docker restart arizuko_discd_&lt;instance&gt;</code>.</dd>
 
       <dt>Agent responds but replies go to the wrong channel</dt>
       <dd>The agent is using <code>send</code> with a hardcoded JID. Use <code>reply</code> to respond to the originating chat automatically.</dd>
@@ -214,7 +232,8 @@ send_file chatJid:="discord:123456789/987654321" \
     <table>
       <thead><tr><th>variable</th><th>required</th><th>default</th><th>notes</th></tr></thead>
       <tbody>
-        <tr><td><code>DISCORD_BOT_TOKEN</code></td><td>yes</td><td>&mdash;</td><td>from Discord Developer Portal &rarr; Bot</td></tr>
+        <tr><td><code>DISCORD_BOT_TOKEN</code></td><td>one of</td><td>&mdash;</td><td>from Discord Developer Portal &rarr; Bot; required unless using user token</td></tr>
+        <tr><td><code>DISCORD_USER_TOKEN</code></td><td>one of</td><td>&mdash;</td><td>personal user account token; takes precedence over bot token when both are set</td></tr>
         <tr><td><code>DISCD_LISTEN</code></td><td>no</td><td><code>:9002</code></td><td>internal HTTP port for health and file serving</td></tr>
         <tr><td><code>DISCD_LISTEN_URL</code></td><td>no</td><td><code>http://discd:9002</code></td><td>public URL for attachment proxying</td></tr>
         <tr><td><code>ASSISTANT_NAME</code></td><td>no</td><td>&mdash;</td><td>replaces <code>&lt;@bot_id&gt;</code> mentions with a readable name in stored messages</td></tr>

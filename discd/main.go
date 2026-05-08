@@ -45,17 +45,30 @@ type config struct {
 	Name, DiscordToken, RouterURL, ChannelSecret string
 	ListenAddr, ListenURL, AssistantName         string
 	MediaMaxBytes                                int64
+	UserMode                                     bool // true when authenticating as a user account, not a bot
 }
 
 func loadConfig() config {
+	botToken := chanlib.EnvOr("DISCORD_BOT_TOKEN", "")
+	userToken := chanlib.EnvOr("DISCORD_USER_TOKEN", "")
+	if botToken == "" && userToken == "" {
+		chanlib.MustEnv("DISCORD_BOT_TOKEN") // panic with clear message
+	}
+	token := botToken
+	userMode := false
+	if userToken != "" {
+		token = userToken
+		userMode = true
+	}
 	return config{
 		Name:          chanlib.EnvOr("CHANNEL_NAME", "discord"),
-		DiscordToken:  chanlib.MustEnv("DISCORD_BOT_TOKEN"),
+		DiscordToken:  token,
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
 		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9002"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://discord:9002"),
 		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
 		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
+		UserMode:      userMode,
 	}
 }

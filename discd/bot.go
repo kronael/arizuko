@@ -31,15 +31,23 @@ func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
 var _ chanlib.BotHandler = (*bot)(nil)
 
 func newBot(cfg config) (*bot, error) {
-	s, err := discordgo.New("Bot " + cfg.DiscordToken)
+	token := cfg.DiscordToken
+	if !cfg.UserMode {
+		token = "Bot " + token
+	}
+	s, err := discordgo.New(token)
 	if err != nil {
 		return nil, fmt.Errorf("discord session: %w", err)
 	}
-	s.Identify.Intents = discordgo.IntentsGuildMessages |
-		discordgo.IntentsDirectMessages |
-		discordgo.IntentMessageContent |
-		discordgo.IntentsGuildMessageReactions |
-		discordgo.IntentsDirectMessageReactions
+	if !cfg.UserMode {
+		// Bot intents: guild/DM messages + reactions + message content.
+		// User accounts see all content without declaring intents.
+		s.Identify.Intents = discordgo.IntentsGuildMessages |
+			discordgo.IntentsDirectMessages |
+			discordgo.IntentMessageContent |
+			discordgo.IntentsGuildMessageReactions |
+			discordgo.IntentsDirectMessageReactions
+	}
 	b := &bot{session: s, cfg: cfg}
 	b.lastInboundAt.Store(time.Now().Unix())
 	b.typing = chanlib.NewTypingRefresher(4*time.Second, chanlib.DefaultTypingMaxTTL, b.sendTyping, nil)
