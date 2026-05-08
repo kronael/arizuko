@@ -495,18 +495,11 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 	s.davProxy.ServeHTTP(w, r)
 }
 
-// davReadMethods are HTTP/WebDAV verbs that don't mutate the workspace.
 var davReadMethods = map[string]bool{
 	"GET": true, "HEAD": true, "OPTIONS": true, "PROPFIND": true,
 }
 
-// davAllow enforces two protections on top of group-scoped routing:
-//   - sensitive paths (`.env`, `*.pem`, anything under `.git/`) cannot be
-//     written via WebDAV.
-//   - any path under `<group>/logs/` is read-only.
-//
-// rest is the path after `/dav/`, e.g. `myworld/logs/foo.log` or
-// `myworld/.env`. Returns false to block.
+// davAllow returns false to block write methods on sensitive or read-only paths.
 func davAllow(method, rest string) bool {
 	if davReadMethods[method] {
 		return true
@@ -529,14 +522,11 @@ func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []stri
 	r2 := r.Clone(r.Context())
 	r2.Header.Set("X-User-Sub", sub)
 	r2.Header.Set("X-User-Name", name)
-	groupsJSON := "null"
-	if b, err := json.Marshal(groups); err == nil {
-		groupsJSON = string(b)
-	}
-	r2.Header.Set("X-User-Groups", groupsJSON)
+	groupsJSON, _ := json.Marshal(groups)
+	r2.Header.Set("X-User-Groups", string(groupsJSON))
 	if s.cfg.hmacSecret != "" {
 		r2.Header.Set("X-User-Sig",
-			auth.SignHMAC(s.cfg.hmacSecret, auth.UserSigMessage(sub, name, groupsJSON)))
+			auth.SignHMAC(s.cfg.hmacSecret, auth.UserSigMessage(sub, name, string(groupsJSON))))
 	}
 	return r2
 }
