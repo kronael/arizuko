@@ -9,26 +9,15 @@ import (
 	"sync"
 )
 
-// Per-folder network isolation. Each folder gets its own internal Docker
-// network so a compromised agent can only ARP its own crackbox interface,
-// not peer agents in other folders. Crackbox attaches to every folder
-// network as the sole egress path. Networks persist for the instance
-// lifetime (cheap, ~1MB kernel state per net) — operators can
-// `docker network rm <name>` if cleanup is needed.
-
-// netMgr serializes folder-network creation + crackbox attachment so two
-// concurrent spawns on the same folder don't both call docker network
-// create. The outer mutex guards the map; per-folder mutexes guard the
-// docker calls themselves. Per-folder granularity lets parallel spawns
-// on different folders proceed without contention.
+// netMgr serializes folder-network creation + crackbox attachment. The outer
+// mutex guards the map; per-folder mutexes guard the docker calls so parallel
+// spawns on different folders don't block each other.
 type netMgr struct {
 	outer    sync.Mutex
 	perFolder map[string]*sync.Mutex
 
-	// Allocated /24s (key: subnet string "10.99.X.0/24"). Populated lazily
-	// from `docker network inspect` of any folder network we create or
-	// reuse, so re-runs after gated restart don't double-allocate. Guarded
-	// by outer.
+	// Populated lazily from docker network inspect so re-runs after restart
+	// don't double-allocate. Guarded by outer.
 	allocated map[string]bool
 }
 
@@ -48,14 +37,12 @@ func (m *netMgr) folderLock(folder string) *sync.Mutex {
 	return mu
 }
 
-// markAllocated records that subnet is in use. Idempotent.
 func (m *netMgr) markAllocated(subnet string) {
 	m.outer.Lock()
 	defer m.outer.Unlock()
 	m.allocated[subnet] = true
 }
 
-// isAllocated returns whether subnet is already in use locally.
 func (m *netMgr) isAllocated(subnet string) bool {
 	m.outer.Lock()
 	defer m.outer.Unlock()
@@ -68,13 +55,8 @@ func FolderNetwork(prefix, folder string) string {
 	return prefix + "_" + SanitizeFolder(folder)
 }
 
-// pickFolderSubnet derives a /24 inside parent for the given folder.
-// Uses FNV-1a hash for a deterministic starting point, then linear-probes
-// allocated /24s until a free one is found. Returns the subnet CIDR.
-//
-// Parent must be IPv4 with prefix /8 to /23 (gives 1-65536 usable /24s).
-// Caller is responsible for marking the result as allocated and for
-// avoiding races (we hold the per-folder lock during this call).
+// pickFolderSubnet derives a /24 inside parent for folder via FNV-1a hash,
+// linear-probing past allocated slots. Parent must be /8–/23 IPv4.
 func pickFolderSubnet(mgr *netMgr, parent, folder string) (string, error) {
 	_, n, err := net.ParseCIDR(parent)
 	if err != nil {
@@ -95,7 +77,6 @@ func pickFolderSubnet(mgr *netMgr, parent, folder string) (string, error) {
 	h := fnv.New32a()
 	h.Write([]byte(folder))
 	start := int(h.Sum32() % uint32(slots))
-	// base32: 32-bit network address with the slot bits zeroed out.
 	base32 := uint32(ip4[0])<<24 | uint32(ip4[1])<<16 | uint32(ip4[2])<<8 | uint32(ip4[3])
 	slotMask := uint32(slots-1) << 8 // slot bits sit just above the host /24 byte
 	base32 &^= slotMask
@@ -112,13 +93,7 @@ func pickFolderSubnet(mgr *netMgr, parent, folder string) (string, error) {
 }
 
 // ensureFolderNetwork creates the per-folder network if missing, attaches
-// crackbox to it, and returns (network name, /24 cidr). Idempotent and
-// safe under concurrent spawns: serialized per folder.
-//
-// Failure modes:
-//   - parent subnet exhausted -> returns error, caller aborts spawn
-//   - crackbox container missing/stopped -> attach fails, returns error
-//   - network already exists with different subnet -> reuses existing
+// crackbox, and returns (network name, /24 cidr). Idempotent, serialized per folder.
 func ensureFolderNetwork(prefix, crackbox, parent, folder string) (string, string, error) {
 	if prefix == "" {
 		return "", "", fmt.Errorf("network prefix empty")
@@ -132,7 +107,6 @@ func ensureFolderNetwork(prefix, crackbox, parent, folder string) (string, strin
 
 	netName := FolderNetwork(prefix, folder)
 
-	// Check if network already exists.
 	if existingSubnet, ok := inspectNetworkSubnet(netName); ok {
 		defaultNetMgr.markAllocated(existingSubnet)
 		if err := connectCrackbox(crackbox, netName); err != nil {
@@ -141,10 +115,7 @@ func ensureFolderNetwork(prefix, crackbox, parent, folder string) (string, strin
 		return netName, existingSubnet, nil
 	}
 
-	// pickFolderSubnet probes our internal allocator state, but Docker
-	// may already have networks (e.g. orphans from a previous instance
-	// name) sitting on the same /24. Retry with the next slot when
-	// `network create` returns "Pool overlaps". Bounded by slot count.
+	// Retry on "Pool overlaps" — Docker may have orphan networks on the same /24.
 	var subnet string
 	for attempt := 0; attempt < 8; attempt++ {
 		s, err := pickFolderSubnet(defaultNetMgr, parent, folder)
@@ -173,8 +144,6 @@ func ensureFolderNetwork(prefix, crackbox, parent, folder string) (string, strin
 	return netName, subnet, nil
 }
 
-// inspectNetworkSubnet returns the first IPAM /24 subnet of the named
-// network, and ok=false if the network does not exist.
 func inspectNetworkSubnet(name string) (string, bool) {
 	cmd := execCommand(Bin, "network", "inspect", "-f",
 		"{{range .IPAM.Config}}{{.Subnet}}{{\"\\n\"}}{{end}}", name)
@@ -191,10 +160,6 @@ func inspectNetworkSubnet(name string) (string, bool) {
 	return "", false
 }
 
-// createNetwork wraps `docker network create --internal --subnet ...`.
-// Treats "already exists" as success — the inspect path above usually
-// catches it first, but compose creating its own network of the same
-// name is still possible.
 func createNetwork(name, subnet string) error {
 	out, err := execCommand(Bin, "network", "create",
 		"--internal", "--subnet", subnet, name).CombinedOutput()
@@ -209,16 +174,10 @@ func createNetwork(name, subnet string) error {
 	return fmt.Errorf("network create %s: %w (%s)", name, err, strings.TrimSpace(s))
 }
 
-// connectCrackbox attaches the crackbox container to a folder network.
-// Idempotent: re-attaching an already-connected container returns an
-// error string we tolerate.
 func connectCrackbox(crackbox, network string) error {
-	// `--alias crackbox` makes the short hostname resolve via Docker's
-	// embedded DNS on this network. Without it the agent container's
-	// HTTPS_PROXY=http://crackbox:3128 silently fails DNS resolution
-	// (the compose service-name alias only applies to the project's
-	// default network, not the per-folder networks gated creates at
-	// runtime).
+	// --alias crackbox: Docker's embedded DNS resolves "crackbox" per-network.
+	// Without it HTTPS_PROXY=http://crackbox:3128 fails DNS — compose
+	// service aliases only apply to the project's default network.
 	out, err := execCommand(Bin, "network", "connect",
 		"--alias", "crackbox", network, crackbox).CombinedOutput()
 	if err == nil {

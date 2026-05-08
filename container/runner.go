@@ -34,8 +34,6 @@ const (
 	containerSoftDeadlineOffset = 2 * time.Minute
 )
 
-// execCommand is the hook used to spawn the docker CLI. Tests override it
-// to avoid the real runtime while still exercising arg assembly.
 var execCommand = exec.Command
 
 var (
@@ -52,8 +50,6 @@ func SanitizeFolder(folder string) string {
 	return strings.Trim(s, "-")
 }
 
-// worldOf returns the top-level folder segment (tier-1 world).
-// Empty for the root bot.
 func worldOf(folder string, root bool) string {
 	if root {
 		return ""
@@ -64,7 +60,6 @@ func worldOf(folder string, root bool) string {
 	return folder
 }
 
-// tierOf returns the bot's tier: 0 root, 1 world, 2 building, 3+ room.
 func tierOf(folder string, root bool) int {
 	if root {
 		return 0
@@ -102,17 +97,11 @@ type Input struct {
 	GatedFns    ipc.GatedFns     `json:"-"`
 	StoreFns    ipc.StoreFns     `json:"-"`
 
-	// SecretsResolver resolves folder + user secrets at spawn time.
-	// nil disables injection (only `base` env from gated process is used).
 	SecretsResolver SecretsResolver `json:"-"`
-
-	// Egress optionally enables crackbox network isolation. Zero
-	// value disables it; agent spawns on the default Docker bridge.
-	Egress EgressConfig `json:"-"`
+	Egress          EgressConfig    `json:"-"`
 }
 
-// SecretsResolver is the subset of *store.Store the container runner needs to
-// resolve folder + user secrets at spawn. See specs/5/32-tenant-self-service.md.
+// SecretsResolver is the store.Store subset for resolving secrets at spawn.
 type SecretsResolver interface {
 	FolderSecretsResolved(folder string) (map[string]string, error)
 	UserSecrets(userSub string) (map[string]string, error)
@@ -128,8 +117,7 @@ type Output struct {
 	HadOutput    bool   `json:"-"`
 }
 
-// Runner runs a containerized agent invocation. The default implementation
-// is DockerRunner (package-level Run). Tests inject fakes.
+// Runner runs a containerized agent invocation. Tests inject fakes.
 type Runner interface {
 	Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output
 }
@@ -137,7 +125,6 @@ type Runner interface {
 // DockerRunner is the production Runner backed by the docker CLI.
 type DockerRunner struct{}
 
-// Run delegates to the package-level Run.
 func (DockerRunner) Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	return Run(cfg, folders, in)
 }
@@ -170,16 +157,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			"arizuko-%s-%s-%d", cfg.Name, safe, time.Now().UnixMilli())
 	}
 
-	// Pre-assign an egress IP and register with crackbox BEFORE docker run,
-	// so the container's first outbound CONNECT cannot race the registry.
-	// On register failure the container is never spawned — otherwise the
-	// agent would run with HTTPS_PROXY set but every CONNECT 403s.
-	// Tier 0 (root bot) and tier 1 (world) are trusted operator-run
-	// bots — they legitimately need broad internet access. They still
-	// route through crackbox so future logging / secret injection
-	// applies, but the allowlist is "*" (everything matches).
-	// Tier 2+ (buildings and rooms) keep the strict folder-walk
-	// allowlist from store.ResolveAllowlist.
+	// Tier 0/1 are operator-run bots; append "*" so they pass crackbox
+	// unconstrained while still benefiting from logging/secret injection.
 	if tierOf(in.Folder, root) <= 1 && in.Egress.AllowlistFn != nil {
 		base := in.Egress.AllowlistFn
 		in.Egress.AllowlistFn = func(id string) ([]string, error) {
@@ -191,10 +170,6 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		}
 	}
 
-	// registerEgress returns nil error when egress is off (no-op).
-	// A non-nil error therefore means egress was on and we couldn't
-	// register — fail the spawn rather than start a container that
-	// will 403 every outbound call.
 	egressNet, egressIP, eerr := registerEgress(in.Egress, in.Folder)
 	if eerr != nil {
 		return Output{Status: "error", Error: "egress register: " + eerr.Error()}
@@ -260,8 +235,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	var stderrBuf strings.Builder
 	var stderrMu sync.Mutex
-	// resetIdle is wired to the idle timer below; declared early so the
-	// stderr goroutine can reach it. Capped to bound runaway agents.
+	// Declared early so the stderr goroutine can reach it.
 	var idleResets atomic.Int32
 	const maxIdleResets = 240 // 60s * 240 = 4h max via idle resets
 	resetIdle := func() {}
@@ -310,9 +284,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			if err := stop.Run(); err != nil {
 				slog.Warn("graceful stop failed, killing container",
 					"group", in.Folder, "container", containerName, "err", err)
-				// docker stop failed: kill the container itself via docker kill.
-				// cmd.Process.Kill() only kills the local docker CLI client,
-				// leaving the container running (orphan).
+				// docker kill, not cmd.Process.Kill() — the latter only kills the CLI client.
 				if kerr := exec.Command(Bin, "kill", containerName).Run(); kerr != nil {
 					slog.Warn("docker kill failed, forcing removal",
 						"group", in.Folder, "container", containerName, "err", kerr)
@@ -515,32 +487,18 @@ func buildMounts(
 		}
 	}
 
-	// Codex login state — layered mount.
-	//   1. Per-group writable .codex/ (workspace: history, sessions,
-	//      memories, sqlite state). Lives under <groupDir>/.codex/ so
-	//      groups can't cross-contaminate codex's own state.
-	//   2. RO overmounts of auth.json + config.toml from
-	//      cfg.HostCodexDir — shared creds, never written from agents.
-	// No os.Stat — gated runs in-container; HOST paths are resolved
-	// by the docker daemon at spawn time.
+	// Layered codex mount: per-group writable dir first, then RO file
+	// overmounts for shared creds. Order matters for docker volume layering.
+	// No os.Stat — HOST paths are resolved by the docker daemon at spawn time.
 	if cfg.HostCodexDir != "" {
 		groupCodex := filepath.Join(groupDir, ".codex")
 		os.MkdirAll(groupCodex, 0o755)
+		m = append(m, volumeMount{Host: hp(cfg, groupCodex), Container: "/home/node/.codex"})
 		m = append(m, volumeMount{
-			Host:      hp(cfg, groupCodex),
-			Container: "/home/node/.codex",
-		})
-		// File-level RO overmounts MUST follow the parent dir mount.
-		// Docker creates the file path inside the container if needed.
-		m = append(m, volumeMount{
-			Host:      filepath.Join(cfg.HostCodexDir, "auth.json"),
-			Container: "/home/node/.codex/auth.json",
-			RO:        true,
+			Host: filepath.Join(cfg.HostCodexDir, "auth.json"), Container: "/home/node/.codex/auth.json", RO: true,
 		})
 		m = append(m, volumeMount{
-			Host:      filepath.Join(cfg.HostCodexDir, "config.toml"),
-			Container: "/home/node/.codex/config.toml",
-			RO:        true,
+			Host: filepath.Join(cfg.HostCodexDir, "config.toml"), Container: "/home/node/.codex/config.toml", RO: true,
 		})
 	}
 
@@ -548,9 +506,7 @@ func buildMounts(
 		add := make([]mountsec.AdditionalMount, len(in.Config.Mounts))
 		for i, cm := range in.Config.Mounts {
 			ro := cm.RO
-			add[i] = mountsec.AdditionalMount{
-				HostPath: cm.Host, ContainerPath: cm.Container, Readonly: &ro,
-			}
+			add[i] = mountsec.AdditionalMount{HostPath: cm.Host, ContainerPath: cm.Container, Readonly: &ro}
 		}
 		for _, v := range mountsec.ValidateAdditionalMounts(add, in.Folder, root, mountsec.Allowlist{}) {
 			m = append(m, volumeMount{Host: v.HostPath, Container: v.ContainerPath, RO: v.Readonly})
@@ -652,7 +608,6 @@ func readSecrets() map[string]string {
 	return s
 }
 
-// mergeSecrets returns a ∪ b with b overlaying a. Either may be nil.
 func mergeSecrets(a, b map[string]string) map[string]string {
 	out := make(map[string]string, len(a)+len(b))
 	for k, v := range a {
@@ -664,10 +619,8 @@ func mergeSecrets(a, b map[string]string) map[string]string {
 	return out
 }
 
-// resolveSpawnEnv composes the env injected into the agent container per
-// specs/5/32-tenant-self-service.md §Resolution: base ∪ folder ∪ user
-// (user only when chat is single-user). When resolver is nil or its
-// secrets API is disabled (no AUTH_SECRET), returns base unchanged.
+// resolveSpawnEnv composes base ∪ folder ∪ user secrets (user only for
+// single-user chats). Returns base unchanged when resolver is nil or errors.
 func resolveSpawnEnv(
 	resolver SecretsResolver, base map[string]string, folder, chatJID string,
 ) map[string]string {
@@ -676,13 +629,10 @@ func resolveSpawnEnv(
 	}
 	folderSecrets, err := resolver.FolderSecretsResolved(folder)
 	if err != nil {
-		// ErrSecretCipherNotConfigured (no AUTH_SECRET) and any DB error
-		// fall through quietly — base env still flows.
 		slog.Debug("folder secrets resolve skipped", "folder", folder, "err", err)
 		return base
 	}
 	merged := mergeSecrets(base, folderSecrets)
-
 	if !resolver.GetChatIsGroup(chatJID) {
 		if userSub, ok := resolver.UserSubByJID(chatJID); ok {
 			userSecrets, err := resolver.UserSecrets(userSub)
@@ -789,13 +739,11 @@ func seedGroupDir(cfg *core.Config, folder string) error {
 		return err
 	}
 	seedSkills(cfg, claudeDir, folder)
-	// The host process may run as a different uid than the container (node=1000).
-	// Chown the entire group workspace so the ant can write diary, tmp, skills, etc.
+	// Host uid may differ from container node=1000; chown so ant can write.
 	chownR(groupDir, containerUID, containerUID)
 	return nil
 }
 
-// containerUID is the uid of the `node` user inside ant containers.
 const containerUID = 1000
 
 func chownR(root string, uid, gid int) {
@@ -827,8 +775,6 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 			continue
 		}
 		d := filepath.Join(dst, e.Name())
-		// Re-seed on every call so upstream skill updates propagate.
-		// Extra files added locally are preserved (cpDir only overwrites).
 		cpDir(filepath.Join(src, e.Name()), d)
 	}
 
@@ -896,9 +842,7 @@ func cpDir(src, dst string) {
 	for _, e := range entries {
 		sp := filepath.Join(src, e.Name())
 		dp := filepath.Join(dst, e.Name())
-		// Use Lstat so symlinks are detected here rather than followed;
-		// copying a symlink's target would leak arbitrary host files
-		// into the group-writable skills tree.
+		// Lstat: copying symlink targets would leak arbitrary host files.
 		fi, err := os.Lstat(sp)
 		if err != nil {
 			slog.Warn("cpDir: lstat failed", "path", sp, "err", err)

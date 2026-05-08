@@ -10,13 +10,9 @@ import (
 	"github.com/onvos/arizuko/crackbox/pkg/client"
 )
 
-// EgressConfig holds the optional crackbox isolation settings. Zero value
-// disables isolation; spawn falls back to the default Docker bridge.
-//
-// Per-folder isolation: gated creates a fresh internal Docker network
-// per folder under NetworkPrefix and attaches Crackbox to each. The
-// agent container lands on its folder's network and reaches crackbox
-// via Docker DNS (which returns the network-scoped A record).
+// EgressConfig holds crackbox isolation settings. Zero value disables it.
+// Each folder gets its own internal Docker network; crackbox attaches to each
+// and is the sole egress path, reachable via Docker DNS as "crackbox".
 type EgressConfig struct {
 	// NetworkPrefix is prepended to the sanitized folder name to form
 	// the per-folder Docker network name (e.g. "arizuko_krons"). The
@@ -43,8 +39,6 @@ type EgressConfig struct {
 	AllowlistFn func(id string) ([]string, error)
 }
 
-// active returns whether the config is sufficient to enable egress for a
-// spawn. AdminURL presence is the master switch — set the URL or don't.
 func (e EgressConfig) active() bool {
 	return e.AdminURL != "" && e.NetworkPrefix != "" && e.CrackboxContainer != ""
 }
@@ -105,7 +99,7 @@ func registerEgress(cfg EgressConfig, id string) (network, ip string, _ error) {
 	if err != nil {
 		return "", "", fmt.Errorf("resolve allowlist: %w", err)
 	}
-	if err := newClient(cfg).Register(ip, id, allowlist); err != nil {
+	if err := client.New(cfg.AdminURL, cfg.AdminSecret).Register(ip, id, allowlist); err != nil {
 		return "", "", fmt.Errorf("crackbox register: %w", err)
 	}
 	slog.Info("egress registered",
@@ -117,11 +111,7 @@ func unregisterEgress(cfg EgressConfig, ip string) {
 	if !cfg.active() || ip == "" {
 		return
 	}
-	if err := newClient(cfg).Unregister(ip); err != nil {
+	if err := client.New(cfg.AdminURL, cfg.AdminSecret).Unregister(ip); err != nil {
 		slog.Warn("egress unregister", "ip", ip, "err", err)
 	}
-}
-
-func newClient(cfg EgressConfig) *client.Client {
-	return client.New(cfg.AdminURL, cfg.AdminSecret)
 }
