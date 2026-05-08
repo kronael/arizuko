@@ -18,14 +18,12 @@ import (
 )
 
 // ErrUnsupported is returned when an adapter responds 501 to a social
-// verb (post/like/delete) because the underlying platform doesn't
-// support that action. Aliased to chanlib.ErrUnsupported so existing
-// errors.Is(err, ErrUnsupported) checks chain through structured
+// verb. Aliased to chanlib.ErrUnsupported so errors.Is chains through
 // *chanlib.UnsupportedError values too.
 var ErrUnsupported = chanlib.ErrUnsupported
 
 // decodeUnsupported reads a 501 body into a structured *chanlib.UnsupportedError.
-// On parse failure or empty body, it returns plain ErrUnsupported.
+// On parse failure or empty body, returns plain ErrUnsupported.
 func decodeUnsupported(body io.Reader, fallbackTool, fallbackPlatform string) error {
 	var b struct {
 		Tool     string `json:"tool"`
@@ -68,7 +66,6 @@ type outMsg struct {
 	ThreadID string
 	TurnID   string
 	IsFile   bool
-	IsVoice  bool
 	Path     string
 	Name     string
 	Caption  string
@@ -96,10 +93,7 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 	if !h.entry.HasCap("send_text") {
 		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
-	body := map[string]string{
-		"chat_jid": jid,
-		"content":  text,
-	}
+	body := map[string]string{"chat_jid": jid, "content": text}
 	if replyTo != "" {
 		body["reply_to"] = replyTo
 	}
@@ -118,7 +112,7 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 			var resp struct {
 				ID string `json:"id"`
 			}
-			json.NewDecoder(httpResp.Body).Decode(&resp) // ignore decode error — id may be absent
+			json.NewDecoder(httpResp.Body).Decode(&resp)
 			return resp.ID, nil
 		}
 		err = fmt.Errorf("status %d", httpResp.StatusCode)
@@ -147,10 +141,6 @@ func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption 
 	return fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
 }
 
-// SendVoice posts a synthesized audio file to the adapter's /send-voice
-// endpoint. The adapter dispatches via its native voice/PTT primitive
-// (Telegram NewVoice, WhatsApp ptt:true, Discord audio attachment) and
-// returns ErrUnsupported (501) when no native voice primitive exists.
 func (h *HTTPChannel) SendVoice(jid, audioPath, caption string) (string, error) {
 	return h.SendVoiceCtx(context.Background(), jid, audioPath, caption)
 }
@@ -177,9 +167,7 @@ func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption 
 	return r.ID, nil
 }
 
-// uploadMultipart builds a chat_jid/filename/caption/file multipart body
-// and POSTs it to path. Caller decodes the response body. Used by
-// SendFile and SendVoice; both endpoints share the same wire format.
+// uploadMultipart builds a multipart body and POSTs to endpoint.
 func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, name, caption string) (*http.Response, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
@@ -205,8 +193,7 @@ func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, 
 		return nil, fmt.Errorf("copy file: %w", err)
 	}
 	w.Close()
-	url := h.entry.URL + endpoint
-	req, err := http.NewRequestWithContext(ctx, "POST", url, &buf)
+	req, err := http.NewRequestWithContext(ctx, "POST", h.entry.URL+endpoint, &buf)
 	if err != nil {
 		return nil, err
 	}
@@ -232,16 +219,10 @@ func (h *HTTPChannel) Typing(jid string, on bool) error {
 	return nil
 }
 
-// PostRoundDone signals the channel that the agent's run for turnID has
-// closed. Used by webd to emit a terminal round_done SSE frame on slink
-// round-handle subscriptions. 404 from the channel is treated as
-// "channel doesn't implement round-handle protocol" — not an error.
+// PostRoundDone signals the channel that the agent's run for turnID has closed.
+// 404 is treated as "channel doesn't implement round-handle protocol" — not an error.
 func (h *HTTPChannel) PostRoundDone(folder, turnID, status, errMsg string) error {
-	body := map[string]string{
-		"folder":  folder,
-		"turn_id": turnID,
-		"status":  status,
-	}
+	body := map[string]string{"folder": folder, "turn_id": turnID, "status": status}
 	if errMsg != "" {
 		body["error"] = errMsg
 	}
@@ -260,10 +241,8 @@ func (h *HTTPChannel) PostRoundDone(folder, turnID, status, errMsg string) error
 	return nil
 }
 
-// FetchHistory proxies to the adapter's GET /v1/history endpoint and
-// returns the raw JSON bytes. The caller decodes into chanlib.HistoryResponse.
-// Returns an error if the adapter doesn't advertise the fetch_history cap or
-// if the request fails.
+// FetchHistory proxies to the adapter's GET /v1/history endpoint.
+// Returns an error if the adapter doesn't advertise the fetch_history cap.
 func (h *HTTPChannel) FetchHistory(ctx context.Context, jid string, before time.Time, limit int) ([]byte, error) {
 	if !h.entry.HasCap("fetch_history") {
 		return nil, fmt.Errorf("channel %s: fetch_history not supported", h.entry.Name)
@@ -288,25 +267,19 @@ func (h *HTTPChannel) FetchHistory(ctx context.Context, jid string, before time.
 	return io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 }
 
-// Post publishes a standalone post on the adapter (feed/timeline/subreddit).
-// Returns the platform-native ID. Returns ErrUnsupported if the adapter
-// returns 501 (i.e. the platform doesn't support posts).
-func (h *HTTPChannel) Post(ctx context.Context, jid, content string, mediaPaths []string) (string, error) {
-	body := map[string]any{"chat_jid": jid, "content": content}
-	if len(mediaPaths) > 0 {
-		body["media_paths"] = mediaPaths
-	}
-	b, _ := json.Marshal(body)
-	resp, err := h.post(ctx, "/post", b)
+// postVerb posts JSON to endpoint, handles 501→ErrUnsupported, non-200→error,
+// and decodes an optional "id" field from the response. Used by social verbs.
+func (h *HTTPChannel) postVerb(ctx context.Context, verb, endpoint string, body []byte) (string, error) {
+	resp, err := h.post(ctx, endpoint, body)
 	if err != nil {
-		return "", fmt.Errorf("channel %s post: %w", h.entry.Name, err)
+		return "", fmt.Errorf("channel %s %s: %w", h.entry.Name, verb, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotImplemented {
-		return "", decodeUnsupported(resp.Body, "post", h.entry.Name)
+		return "", decodeUnsupported(resp.Body, verb, h.entry.Name)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("channel %s post: status %d", h.entry.Name, resp.StatusCode)
+		return "", fmt.Errorf("channel %s %s: status %d", h.entry.Name, verb, resp.StatusCode)
 	}
 	var r struct {
 		ID string `json:"id"`
@@ -315,50 +288,27 @@ func (h *HTTPChannel) Post(ctx context.Context, jid, content string, mediaPaths 
 	return r.ID, nil
 }
 
-// Like attaches a like/favourite/emoji reaction to a post or message.
+func (h *HTTPChannel) Post(ctx context.Context, jid, content string, mediaPaths []string) (string, error) {
+	body := map[string]any{"chat_jid": jid, "content": content}
+	if len(mediaPaths) > 0 {
+		body["media_paths"] = mediaPaths
+	}
+	b, _ := json.Marshal(body)
+	return h.postVerb(ctx, "post", "/post", b)
+}
+
 func (h *HTTPChannel) Like(ctx context.Context, jid, targetID, reaction string) error {
-	b, _ := json.Marshal(map[string]string{
-		"chat_jid":  jid,
-		"target_id": targetID,
-		"reaction":  reaction,
-	})
-	resp, err := h.post(ctx, "/like", b)
-	if err != nil {
-		return fmt.Errorf("channel %s like: %w", h.entry.Name, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotImplemented {
-		return decodeUnsupported(resp.Body, "like", h.entry.Name)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("channel %s like: status %d", h.entry.Name, resp.StatusCode)
-	}
-	return nil
+	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "target_id": targetID, "reaction": reaction})
+	_, err := h.postVerb(ctx, "like", "/like", b)
+	return err
 }
 
-// Delete removes a post or message authored by the bot.
 func (h *HTTPChannel) Delete(ctx context.Context, jid, targetID string) error {
-	b, _ := json.Marshal(map[string]string{
-		"chat_jid":  jid,
-		"target_id": targetID,
-	})
-	resp, err := h.post(ctx, "/delete", b)
-	if err != nil {
-		return fmt.Errorf("channel %s delete: %w", h.entry.Name, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotImplemented {
-		return decodeUnsupported(resp.Body, "delete", h.entry.Name)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("channel %s delete: status %d", h.entry.Name, resp.StatusCode)
-	}
-	return nil
+	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "target_id": targetID})
+	_, err := h.postVerb(ctx, "delete", "/delete", b)
+	return err
 }
 
-// Forward redelivers an existing message to a different chat (Telegram
-// forwardMessage, WhatsApp forward, email Fwd:). Returns ErrUnsupported
-// when the adapter doesn't advertise the `fwd` capability.
 func (h *HTTPChannel) Forward(ctx context.Context, sourceMsgID, targetJID, comment string) (string, error) {
 	if !h.entry.HasCap("fwd") {
 		return "", chanlib.Unsupported("forward", h.entry.Name, "adapter does not advertise capability")
@@ -368,111 +318,41 @@ func (h *HTTPChannel) Forward(ctx context.Context, sourceMsgID, targetJID, comme
 		body["comment"] = comment
 	}
 	b, _ := json.Marshal(body)
-	resp, err := h.post(ctx, "/forward", b)
-	if err != nil {
-		return "", fmt.Errorf("channel %s forward: %w", h.entry.Name, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotImplemented {
-		return "", decodeUnsupported(resp.Body, "forward", h.entry.Name)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("channel %s forward: status %d", h.entry.Name, resp.StatusCode)
-	}
-	var r struct {
-		ID string `json:"id"`
-	}
-	json.NewDecoder(resp.Body).Decode(&r)
-	return r.ID, nil
+	return h.postVerb(ctx, "forward", "/forward", b)
 }
 
-// Quote republishes a message on the bot's feed with added commentary.
 func (h *HTTPChannel) Quote(ctx context.Context, jid, sourceMsgID, comment string) (string, error) {
 	if !h.entry.HasCap("quote") {
 		return "", chanlib.Unsupported("quote", h.entry.Name, "adapter does not advertise capability")
 	}
-	body := map[string]string{"chat_jid": jid, "source_msg_id": sourceMsgID, "comment": comment}
-	b, _ := json.Marshal(body)
-	resp, err := h.post(ctx, "/quote", b)
-	if err != nil {
-		return "", fmt.Errorf("channel %s quote: %w", h.entry.Name, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotImplemented {
-		return "", decodeUnsupported(resp.Body, "quote", h.entry.Name)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("channel %s quote: status %d", h.entry.Name, resp.StatusCode)
-	}
-	var r struct {
-		ID string `json:"id"`
-	}
-	json.NewDecoder(resp.Body).Decode(&r)
-	return r.ID, nil
+	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "source_msg_id": sourceMsgID, "comment": comment})
+	return h.postVerb(ctx, "quote", "/quote", b)
 }
 
-// Repost amplifies a message on the bot's feed without commentary.
 func (h *HTTPChannel) Repost(ctx context.Context, jid, sourceMsgID string) (string, error) {
 	if !h.entry.HasCap("repost") {
 		return "", chanlib.Unsupported("repost", h.entry.Name, "adapter does not advertise capability")
 	}
 	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "source_msg_id": sourceMsgID})
-	resp, err := h.post(ctx, "/repost", b)
-	if err != nil {
-		return "", fmt.Errorf("channel %s repost: %w", h.entry.Name, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotImplemented {
-		return "", decodeUnsupported(resp.Body, "repost", h.entry.Name)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("channel %s repost: status %d", h.entry.Name, resp.StatusCode)
-	}
-	var r struct {
-		ID string `json:"id"`
-	}
-	json.NewDecoder(resp.Body).Decode(&r)
-	return r.ID, nil
+	return h.postVerb(ctx, "repost", "/repost", b)
 }
 
-// Dislike attaches a downvote/negative reaction to a message.
 func (h *HTTPChannel) Dislike(ctx context.Context, jid, targetID string) error {
 	if !h.entry.HasCap("dislike") {
 		return chanlib.Unsupported("dislike", h.entry.Name, "adapter does not advertise capability")
 	}
 	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "target_id": targetID})
-	resp, err := h.post(ctx, "/dislike", b)
-	if err != nil {
-		return fmt.Errorf("channel %s dislike: %w", h.entry.Name, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotImplemented {
-		return decodeUnsupported(resp.Body, "dislike", h.entry.Name)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("channel %s dislike: status %d", h.entry.Name, resp.StatusCode)
-	}
-	return nil
+	_, err := h.postVerb(ctx, "dislike", "/dislike", b)
+	return err
 }
 
-// Edit modifies a previously-sent bot message in place.
 func (h *HTTPChannel) Edit(ctx context.Context, jid, targetID, content string) error {
 	if !h.entry.HasCap("edit") {
 		return chanlib.Unsupported("edit", h.entry.Name, "adapter does not advertise capability")
 	}
 	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "target_id": targetID, "content": content})
-	resp, err := h.post(ctx, "/edit", b)
-	if err != nil {
-		return fmt.Errorf("channel %s edit: %w", h.entry.Name, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotImplemented {
-		return decodeUnsupported(resp.Body, "edit", h.entry.Name)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("channel %s edit: status %d", h.entry.Name, resp.StatusCode)
-	}
-	return nil
+	_, err := h.postVerb(ctx, "edit", "/edit", b)
+	return err
 }
 
 func (h *HTTPChannel) Disconnect() error { return nil }
@@ -487,18 +367,14 @@ func (h *HTTPChannel) DrainOutbox() {
 
 	for _, m := range q {
 		var err error
-		switch {
-		case m.IsVoice:
-			_, err = h.SendVoice(m.JID, m.Path, m.Caption)
-		case m.IsFile:
+		if m.IsFile {
 			err = h.SendFile(m.JID, m.Path, m.Name, m.Caption)
-		default:
+		} else {
 			_, err = h.Send(m.JID, m.Content, m.ReplyTo, m.ThreadID, m.TurnID)
 		}
 		if err != nil {
-			slog.Warn("outbox drain failed", "channel", h.entry.Name,
-				"jid", m.JID, "err", err)
-			return // stop draining on first failure
+			slog.Warn("outbox drain failed", "channel", h.entry.Name, "jid", m.JID, "err", err)
+			return
 		}
 	}
 }
@@ -510,8 +386,7 @@ func (h *HTTPChannel) QueueLen() int {
 }
 
 func (h *HTTPChannel) post(ctx context.Context, path string, body []byte) (*http.Response, error) {
-	url := h.entry.URL + path
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", h.entry.URL+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -524,8 +399,7 @@ func (h *HTTPChannel) enqueue(m outMsg) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if len(h.outbox) >= maxOutbox {
-		slog.Warn("outbox full, dropping message",
-			"channel", h.entry.Name, "jid", m.JID)
+		slog.Warn("outbox full, dropping message", "channel", h.entry.Name, "jid", m.JID)
 		return
 	}
 	h.outbox = append(h.outbox, m)
