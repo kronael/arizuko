@@ -69,15 +69,12 @@ func ParseUserJID(s string) (UserJID, error) {
 	return UserJID{JID: j}, nil
 }
 
-// validateKind ensures the first path segment is non-empty. Per-kind
-// structure is the adapter's job; core only enforces that something
-// fills the discriminator slot.
+// validateKind ensures the first path segment is non-empty.
 func (j JID) validateKind() error {
 	if j.u == nil {
 		return errors.New("jid: empty")
 	}
-	first, _, _ := strings.Cut(j.u.Opaque, "/")
-	if first == "" {
+	if j.Kind() == "" {
 		return fmt.Errorf("jid: %q has empty first segment", j.u.String())
 	}
 	return nil
@@ -179,38 +176,50 @@ func (j *JID) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Scan/Value/JSON for ChatJID + UserJID — same wire string, but
-// validate the kind segment on parse.
-func (c *ChatJID) Scan(src any) error {
+// scanKindJID scans src into a base JID and validates the kind segment.
+// Returns zero JID for empty input.
+func scanKindJID(src any) (JID, error) {
 	var j JID
 	if err := j.Scan(src); err != nil {
-		return err
+		return JID{}, err
 	}
-	if j.IsZero() {
-		*c = ChatJID{}
-		return nil
+	if !j.IsZero() {
+		if err := j.validateKind(); err != nil {
+			return JID{}, err
+		}
 	}
-	if err := j.validateKind(); err != nil {
+	return j, nil
+}
+
+// unmarshalKindJID unmarshals JSON into a base JID and validates the kind segment.
+func unmarshalKindJID(data []byte) (JID, error) {
+	var j JID
+	if err := j.UnmarshalJSON(data); err != nil {
+		return JID{}, err
+	}
+	if !j.IsZero() {
+		if err := j.validateKind(); err != nil {
+			return JID{}, err
+		}
+	}
+	return j, nil
+}
+
+// Scan/Value/JSON for ChatJID + UserJID — same wire string, validate kind on parse.
+func (c *ChatJID) Scan(src any) error {
+	j, err := scanKindJID(src)
+	if err != nil {
 		return err
 	}
 	c.JID = j
 	return nil
 }
 
-func (c ChatJID) Value() (driver.Value, error) { return c.JID.Value() }
-
-func (c ChatJID) MarshalJSON() ([]byte, error) { return c.JID.MarshalJSON() }
-
+func (c ChatJID) Value() (driver.Value, error)  { return c.JID.Value() }
+func (c ChatJID) MarshalJSON() ([]byte, error)   { return c.JID.MarshalJSON() }
 func (c *ChatJID) UnmarshalJSON(data []byte) error {
-	var j JID
-	if err := j.UnmarshalJSON(data); err != nil {
-		return err
-	}
-	if j.IsZero() {
-		*c = ChatJID{}
-		return nil
-	}
-	if err := j.validateKind(); err != nil {
+	j, err := unmarshalKindJID(data)
+	if err != nil {
 		return err
 	}
 	c.JID = j
@@ -218,35 +227,19 @@ func (c *ChatJID) UnmarshalJSON(data []byte) error {
 }
 
 func (u *UserJID) Scan(src any) error {
-	var j JID
-	if err := j.Scan(src); err != nil {
-		return err
-	}
-	if j.IsZero() {
-		*u = UserJID{}
-		return nil
-	}
-	if err := j.validateKind(); err != nil {
+	j, err := scanKindJID(src)
+	if err != nil {
 		return err
 	}
 	u.JID = j
 	return nil
 }
 
-func (u UserJID) Value() (driver.Value, error) { return u.JID.Value() }
-
-func (u UserJID) MarshalJSON() ([]byte, error) { return u.JID.MarshalJSON() }
-
+func (u UserJID) Value() (driver.Value, error)  { return u.JID.Value() }
+func (u UserJID) MarshalJSON() ([]byte, error)   { return u.JID.MarshalJSON() }
 func (u *UserJID) UnmarshalJSON(data []byte) error {
-	var j JID
-	if err := j.UnmarshalJSON(data); err != nil {
-		return err
-	}
-	if j.IsZero() {
-		*u = UserJID{}
-		return nil
-	}
-	if err := j.validateKind(); err != nil {
+	j, err := unmarshalKindJID(data)
+	if err != nil {
 		return err
 	}
 	u.JID = j

@@ -144,26 +144,19 @@ type SessionRecord struct {
 	MsgCount  int
 }
 
-// GenSlinkToken returns a 256-bit base64url-encoded random token. Panics
-// on RNG failure — a zero-entropy token would be a guessable credential.
-func GenSlinkToken() string {
+func randBytes() []byte {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		panic(fmt.Sprintf("crypto/rand failed: %v", err))
 	}
-	return base64.RawURLEncoding.EncodeToString(b)
+	return b
 }
 
-// GenHexToken returns a 256-bit hex-encoded random token. Panics on
-// RNG failure. Used for invite tokens and CSRF cookies — anywhere a
-// 64-char hex string is wanted.
-func GenHexToken() string {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Sprintf("crypto/rand failed: %v", err))
-	}
-	return hex.EncodeToString(b)
-}
+// GenSlinkToken returns a 256-bit base64url-encoded random token.
+func GenSlinkToken() string { return base64.RawURLEncoding.EncodeToString(randBytes()) }
+
+// GenHexToken returns a 256-bit hex-encoded random token.
+func GenHexToken() string { return hex.EncodeToString(randBytes()) }
 
 var instanceNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,31}$`)
 
