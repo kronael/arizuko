@@ -13,13 +13,14 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-func escapeXml(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, `"`, "&quot;")
-	return s
-}
+var xmlEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	`"`, "&quot;",
+)
+
+func escapeXml(s string) string { return xmlEscaper.Replace(s) }
 
 func timeAgo(t time.Time) string {
 	d := time.Since(t)
@@ -41,7 +42,11 @@ type taggedMsg struct {
 }
 
 func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
-	tagged := make([]taggedMsg, 0, len(msgs))
+	cap := len(msgs)
+	if len(observed) > 0 {
+		cap += len(observed[0])
+	}
+	tagged := make([]taggedMsg, 0, cap)
 	for _, m := range msgs {
 		tagged = append(tagged, taggedMsg{m, "message"})
 	}
@@ -216,7 +221,10 @@ func UserContextXml(sender, groupDir string) string {
 		return ""
 	}
 	id := senderToUserFileID(sender)
-	attrs := []string{`id="` + escapeXml(id) + `"`}
+	var b strings.Builder
+	b.WriteString(`<user id="`)
+	b.WriteString(escapeXml(id))
+	b.WriteByte('"')
 
 	usersDir := filepath.Join(groupDir, "users")
 	userFile := filepath.Join(usersDir, id+".md")
@@ -225,12 +233,17 @@ func UserContextXml(sender, groupDir string) string {
 		if data, err := os.ReadFile(userFile); err == nil {
 			content := string(data)
 			if m := nameRe.FindStringSubmatch(content); len(m) > 1 {
-				attrs = append(attrs, `name="`+escapeXml(strings.TrimSpace(m[1]))+`"`)
+				b.WriteString(` name="`)
+				b.WriteString(escapeXml(strings.TrimSpace(m[1])))
+				b.WriteByte('"')
 			}
-			attrs = append(attrs, `memory="~/users/`+id+`.md"`)
+			b.WriteString(` memory="~/users/`)
+			b.WriteString(id)
+			b.WriteByte('"')
 		}
 	}
-	return "<user " + strings.Join(attrs, " ") + " />"
+	b.WriteString(" />")
+	return b.String()
 }
 
 func IsAuthorizedRoutingTarget(source, target string) bool {
