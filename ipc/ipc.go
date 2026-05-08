@@ -221,11 +221,6 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 	}, nil
 }
 
-// serveConn reads JSON-RPC frames from c, intercepts `submit_turn`
-// (hidden from tools/list — agent-only persistence channel), and
-// delegates everything else to srv.HandleMessage. Each frame is one
-// line of JSON. Concurrent writes are serialised; out-of-band server
-// notifications are not used on this path.
 func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated GatedFns, folder string) {
 	r := bufio.NewReader(c)
 	var writeMu sync.Mutex
@@ -246,7 +241,7 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 		if err != nil {
 			return
 		}
-		raw := trimLine(line)
+		raw := bytes.TrimRight(line, "\r\n")
 		if len(raw) == 0 {
 			continue
 		}
@@ -273,10 +268,6 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			writeJSON(resp)
 		}
 	}
-}
-
-func trimLine(b []byte) []byte {
-	return bytes.TrimRight(b, "\r\n")
 }
 
 func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
@@ -320,8 +311,6 @@ func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write f
 	})
 }
 
-// peerCred returns SO_PEERCRED for a unix-socket peer — kernel-attested
-// pid/uid/gid of the connecting process.
 func peerCred(c net.Conn) (*unix.Ucred, error) {
 	uc, ok := c.(*net.UnixConn)
 	if !ok {
@@ -346,24 +335,16 @@ func toolErr(msg string) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultError(msg), nil
 }
 
-// toolUnsupported formats a *chanlib.UnsupportedError as a tool error
-// carrying the platform-specific hint, so the agent learns the
-// alternative instead of dead-ending.
-func toolUnsupported(ue *chanlib.UnsupportedError) (*mcp.CallToolResult, error) {
-	msg := fmt.Sprintf("unsupported: %s on %s", ue.Tool, ue.Platform)
-	if ue.Hint != "" {
-		msg = msg + "\nhint: " + ue.Hint
-	}
-	return mcp.NewToolResultError(msg), nil
-}
-
-// toolMaybeUnsupported wraps toolErr/toolUnsupported. If err carries a
-// structured *chanlib.UnsupportedError, the hint is rendered; otherwise
-// err.Error() is rendered as a plain tool error.
+// toolMaybeUnsupported renders a *chanlib.UnsupportedError with its platform
+// hint so the agent learns the alternative; falls back to a plain tool error.
 func toolMaybeUnsupported(err error) (*mcp.CallToolResult, error) {
 	var ue *chanlib.UnsupportedError
 	if errors.As(err, &ue) {
-		return toolUnsupported(ue)
+		msg := fmt.Sprintf("unsupported: %s on %s", ue.Tool, ue.Platform)
+		if ue.Hint != "" {
+			msg += "\nhint: " + ue.Hint
+		}
+		return mcp.NewToolResultError(msg), nil
 	}
 	return toolErr(err.Error())
 }
@@ -397,12 +378,6 @@ func recordOutbound(db StoreFns, jid, text, platformID, folder string) {
 	}
 }
 
-// internalSend is the unified internal pathway behind the `send` and
-// `send_file` MCP tools. The two tools stay distinct on the agent surface
-// (different intents, different sharp descriptions) but both funnel
-// through here so persistence (`recordOutbound`) and routing remain
-// symmetric. files is empty for plain text-only sends; non-empty for
-// file deliveries (text becomes the caption).
 func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files []internalSendFile) error {
 	if len(files) == 0 {
 		if gated.SendMessage == nil {
@@ -422,9 +397,6 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		if err := gated.SendDocument(jid, f.LocalPath, f.Filename, text); err != nil {
 			return err
 		}
-		// File deliveries don't return a platform-side message ID through the
-		// SendDocument contract; record with empty ID so reply-chain state
-		// isn't clobbered. Caption (`text`) is the message content.
 		recordOutbound(db, jid, text, "", folder)
 	}
 	return nil
@@ -435,8 +407,6 @@ type internalSendFile struct {
 	Filename  string
 }
 
-// validHostname accepts a DNS-ish hostname: letters/digits/dot/hyphen/colon
-// (for optional :port). Rejects schemes, paths, whitespace, control chars.
 func validHostname(h string) bool {
 	if h == "" || len(h) > 253 {
 		return false
@@ -454,13 +424,8 @@ func validHostname(h string) bool {
 	return true
 }
 
-// authorizeJID resolves the owning folder of jid via the routes table
-// and runs auth.Authorize with action against that folder. Outbound
-// chat verbs (send, send_file, reply, post, like, ...) thread through
-// here so a tier-1 rhias agent cannot dispatch to a JID owned by happy.
-// Tier 0 is unrestricted; unrouted JIDs are reachable only by tier 0.
-// db.DefaultFolderForJID may be nil in trivial test setups — in that
-// case we fall back to a tier-only check (tier 0 allow, others deny).
+// authorizeJID prevents a sub-folder agent from dispatching to a JID owned
+// by a sibling. db.DefaultFolderForJID may be nil in tests.
 func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
 	target := ""
 	if db.DefaultFolderForJID != nil {
@@ -476,10 +441,6 @@ func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
 	return nil
 }
 
-// routeTargetWithin reports whether target refers to owner's own folder
-// or a descendant. Typed prefixes (folder:, daemon:, builtin:) are
-// normalized before comparison; daemon:/builtin: targets are never
-// considered inside a user folder.
 func routeTargetWithin(target, owner string) bool {
 	switch {
 	case strings.HasPrefix(target, "folder:"):
@@ -490,9 +451,7 @@ func routeTargetWithin(target, owner string) bool {
 	return target == owner || strings.HasPrefix(target, owner+"/")
 }
 
-// isSelfDefault reports whether r is owner's primary inbound route
-// (seq=0, target=owner). Such a route MUST NOT be removed by the
-// owner — losing it leaves the folder's JID unrouted.
+// isSelfDefault: seq=0 routes pointing at the owner's own folder must not be deleted.
 func isSelfDefault(r core.Route, owner string) bool {
 	target := strings.TrimPrefix(r.Target, "folder:")
 	return r.Seq == 0 && target == owner
@@ -541,8 +500,6 @@ func writeVhosts(webDir string, m map[string]string) error {
 	return nil
 }
 
-// parseBefore parses an RFC3339 "before" query param from an MCP request.
-// Returns zero time and nil error when the param is absent.
 func parseBefore(req mcp.CallToolRequest) (time.Time, error) {
 	s := req.GetString("before", "")
 	if s == "" {
@@ -559,9 +516,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	id := auth.Resolve(folder)
 	srv := server.NewMCPServer("arizuko", "1.0")
 
-	// registerRaw adds a tool if any rule matches; granted additionally
-	// wraps with a CheckAction(nil-params) gate. Send-* tools use
-	// registerRaw because they do param-aware CheckAction themselves.
 	registerRaw := func(name, desc string, opts []mcp.ToolOption, h server.ToolHandlerFunc) {
 		matching := grantslib.MatchingRules(rules, name)
 		if len(matching) == 0 {
@@ -752,10 +706,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	// Simple social actions: extract string args, grant-check by jidArg,
-	// nil-check hook, call, return OK or {ok,id} JSON. Send/reply/send_file/post
-	// stay inlined upstream because they each have unique pre/post logic
-	// (recordOutbound, workspace path validation, default replyToId from DB).
 	type socialAct struct {
 		name     string
 		desc     string
@@ -1035,8 +985,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 			slog.Info("escalating to parent", "sourceGroup", folder, "parent", parent, "depth", depth, "replyTo", replyTo)
 			wrapped := fmt.Sprintf("<escalation_origin folder=%q jid=%q reply_to=%q/>\n%s", folder, chatJid, replyTo, prompt)
-			// Return address: response goes back to this child via local channel.
-			// Bare folder paths (no `:`) address groups directly.
 			fwdFrom := folder
 			if err := db.PutMessage(core.Message{
 				ID:            core.MsgID("escalate"),
@@ -1251,17 +1199,15 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			}
 
 			var nextRun *time.Time
-			var cronStore string // value written to DB cron column
+			var cronStore string
 			if cronExpr != "" {
-				// interval ms: pure integer string
 				if ms, err := strconv.ParseInt(cronExpr, 10, 64); err == nil && ms > 0 {
 					t := time.Now().Add(time.Duration(ms) * time.Millisecond)
 					nextRun = &t
 					cronStore = cronExpr
 				} else if t, err := time.Parse(time.RFC3339, cronExpr); err == nil {
-					// once: ISO 8601 timestamp → run once at that time
 					nextRun = &t
-					cronStore = "" // empty cron → timed marks completed after firing
+					cronStore = "" // empty cron → timed marks completed after one firing
 				} else {
 					p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 					sched, err := p.Parse(cronExpr)
@@ -1466,7 +1412,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
 		), inspectMessages)
-		// Back-compat alias; remove after next agent release.
 		srv.AddTool(mcp.NewTool("get_history",
 			mcp.WithDescription("DEPRECATED alias for inspect_messages. Do not use in new code — pick inspect_messages for whole-chat DB audit, get_thread for a single (chat_jid, topic) slice, or fetch_history for platform-truth context."),
 			mcp.WithString("chat_jid", mcp.Required()),
@@ -1682,7 +1627,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if p == "" {
 				return toolErr("path required")
 			}
-			// operators (tier 0) may delete any; scope non-operators to own folder
 			scopedFolder := folder
 			if id.Tier == 0 {
 				scopedFolder = ""

@@ -8,11 +8,6 @@ import (
 	"github.com/onvos/arizuko/auth"
 )
 
-// registerInspect wires the read-only inspect_* MCP tools.
-//
-// Tier gating: tier 0 (root) sees all instances; tier ≥1 sees only its
-// own folder subtree. This is enforced by isRoot + per-tool checks
-// (e.g. rejecting a task that isn't owned by this folder).
 func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folder string) {
 	isRoot := id.Tier == 0
 
@@ -63,7 +58,6 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 			tasks := db.ListTasks(folder, isRoot)
 			out := map[string]any{"tasks": tasks}
 			if tid := req.GetString("task_id", ""); tid != "" && db.TaskRunLogs != nil {
-				// Tier-gate: non-root can only read logs for tasks they own.
 				if id.Tier > 0 && db.GetTask != nil {
 					t, ok := db.GetTask(tid)
 					if !ok {
