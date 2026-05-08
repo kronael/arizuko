@@ -95,7 +95,6 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 	return g
 }
 
-// SetRunner overrides the container runner. Test-only entry point.
 func (g *Gateway) SetRunner(r container.Runner) { g.runner = r }
 
 func (g *Gateway) AddChannel(ch core.Channel) {
@@ -635,9 +634,6 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 	return batches
 }
 
-// tryExternalRoute runs the in-code prefix layer (inline @agent / #topic),
-// then the data-driven routing layer (routes table). Returns true if the
-// message was absorbed, meaning the caller should skip further processing.
 func (g *Gateway) tryExternalRoute(
 	routes []core.Route, msg core.Message, group core.Group, chatJid string,
 ) bool {
@@ -659,7 +655,6 @@ func (g *Gateway) tryExternalRoute(
 	return false
 }
 
-// logAgentError writes the error to slog and to the group's recovery diary.
 func (g *Gateway) logAgentError(group core.Group, key, value, errStr string) {
 	slog.Error("agent error", "group", group.Folder, key, value, "err", errStr)
 	if gp, err := g.folders.GroupPath(group.Folder); err == nil {
@@ -874,9 +869,6 @@ func (g *Gateway) makeOutputCallback(ch core.Channel, chatJid, topic, firstMsgID
 	}, &hadOutput
 }
 
-// dispatchOutbound resolves the channel for chatJid (late-binding so a
-// just-registered adapter is picked up) and calls Send. Returns the
-// platform-side message ID and any send error.
 func (g *Gateway) dispatchOutbound(ch core.Channel, chatJid, text, replyToID, threadID, turnID string) (string, error) {
 	c := ch
 	if c == nil {
@@ -888,9 +880,6 @@ func (g *Gateway) dispatchOutbound(ch core.Channel, chatJid, text, replyToID, th
 	return c.Send(chatJid, text, replyToID, threadID, turnID)
 }
 
-// onCircuitBreakerOpen hard-resets a chat after repeated agent failures:
-// prunes errored messages and clears the session so the next inbound
-// starts from a clean slate.
 func (g *Gateway) onCircuitBreakerOpen(jid string, err error) {
 	if pruneErr := g.store.DeleteErroredMessages(jid); pruneErr != nil {
 		slog.Warn("prune errored messages failed", "jid", jid, "err", pruneErr)
@@ -1172,8 +1161,6 @@ func (g *Gateway) channelSocial(jid string) (core.Socializer, error) {
 	return s, nil
 }
 
-// socialCall resolves the channel for jid, sets up a 30s context, and
-// invokes fn. Used by every per-verb dispatch wrapper below.
 func socialCall[T any](g *Gateway, jid string, fn func(s core.Socializer, ctx context.Context) (T, error)) (T, error) {
 	var zero T
 	s, err := g.channelSocial(jid)
@@ -1185,7 +1172,6 @@ func socialCall[T any](g *Gateway, jid string, fn func(s core.Socializer, ctx co
 	return fn(s, ctx)
 }
 
-// socialDo is socialCall for verbs that return only an error.
 func socialDo(g *Gateway, jid string, fn func(s core.Socializer, ctx context.Context) error) error {
 	_, err := socialCall(g, jid, func(s core.Socializer, ctx context.Context) (struct{}, error) {
 		return struct{}{}, fn(s, ctx)
@@ -1690,9 +1676,6 @@ var rePrefixHash = regexp.MustCompile(`^\s*#(\w[\w-]*)`)
 
 func parsePrefix(text string) (name, rest string, ok bool) {
 	for _, re := range []*regexp.Regexp{rePrefixAt, rePrefixHash} {
-		// Submatch index 2..3 is the captured name (without leading
-		// whitespace or the @/# sigil). Whole-match 0..1 is consumed
-		// wholesale when computing the remainder.
 		m := re.FindStringSubmatchIndex(text)
 		if m == nil {
 			continue
@@ -1704,10 +1687,6 @@ func parsePrefix(text string) (name, rest string, ok bool) {
 	return "", "", false
 }
 
-// handlePrefixLayer runs the inline prefix navigation layer. Parses an
-// inline @name or #name token from msg.Content, delegates to child
-// or enqueues a topic-scoped message. Does not read the routes table.
-// Returns true if the prefix was consumed.
 func (g *Gateway) handlePrefixLayer(
 	msg core.Message, group core.Group, chatJid string,
 ) bool {
@@ -1870,9 +1849,6 @@ func (g *Gateway) recoverPendingMessages() {
 	}
 }
 
-// beginTurnRun registers a turnState for folder so submit_turn calls
-// from the agent can reach the per-run output callback. Returns the
-// state pointer; caller must endTurnRun(folder) when the run finishes.
 func (g *Gateway) beginTurnRun(folder string, onOutput func(result, status string)) *turnState {
 	st := &turnState{onOutput: onOutput}
 	g.turnsMu.Lock()

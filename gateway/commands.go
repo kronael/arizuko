@@ -11,7 +11,6 @@ import (
 	"github.com/onvos/arizuko/core"
 )
 
-// cmdText strips media placeholder and routing prefix: "[Doc: f.txt] @root /stop" → "/stop"
 func cmdText(raw string) string {
 	t := strings.TrimSpace(raw)
 	if strings.HasPrefix(t, "[") {
@@ -69,8 +68,6 @@ var gatewayCommands = []gatewayCommand{
 	}},
 }
 
-// lookupCommand returns the matching command and its argument tail, or
-// (nil, "") when raw is not a known gateway command.
 func lookupCommand(raw string) (*gatewayCommand, string) {
 	t := cmdText(raw)
 	if !strings.HasPrefix(t, "/") {

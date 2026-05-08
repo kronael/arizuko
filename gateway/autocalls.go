@@ -37,8 +37,6 @@ var autocalls = []autocall{
 	}},
 }
 
-// autocallsBlock builds the autocalls XML for a (folder, topic).
-// Reads Tier from auth and session id from the store.
 func (g *Gateway) autocallsBlock(folder, topic string) string {
 	sessionID, _ := g.store.GetSession(folder, topic)
 	return renderAutocalls(AutocallCtx{
@@ -50,8 +48,6 @@ func (g *Gateway) autocallsBlock(folder, topic string) string {
 	})
 }
 
-// renderAutocalls produces the <autocalls>...</autocalls> block. Empty
-// eval outputs skip their line. Always terminates with a trailing newline.
 func renderAutocalls(ctx AutocallCtx) string {
 	var b strings.Builder
 	b.WriteString("<autocalls>\n")

@@ -18,18 +18,6 @@ import (
 	"github.com/onvos/arizuko/chanlib"
 )
 
-// sendVoice synthesizes text via the configured TTS backend, caches the
-// audio under <data>/tts/<sha256(text+voice+model)>.ogg, and dispatches
-// to the chat's channel via SendVoice.
-//
-// Voice resolution precedence (highest first):
-//
-//  1. explicit `voice` arg from the agent
-//  2. `voice:` field in the group's SOUL.md YAML frontmatter
-//  3. instance-default Config.TTSVoice (env TTS_VOICE)
-//
-// Returns ErrUnsupported when the channel cannot deliver voice; the IPC
-// layer maps that to a 501 the agent can fall back from (`send` instead).
 func (g *Gateway) sendVoice(jid, text, voice, folder string) (string, error) {
 	if !g.canSendToJID(jid) {
 		return "", nil
@@ -55,7 +43,6 @@ func (g *Gateway) sendVoice(jid, text, voice, folder string) (string, error) {
 	return ch.SendVoice(jid, audioPath, "")
 }
 
-// resolveVoice walks the precedence chain. Empty return → caller errors.
 func (g *Gateway) resolveVoice(arg, folder string) string {
 	if arg != "" {
 		return arg
@@ -68,14 +55,9 @@ func (g *Gateway) resolveVoice(arg, folder string) string {
 	return g.cfg.TTSVoice
 }
 
-// soulFrontmatterRE captures the leading YAML frontmatter block (--- ... ---).
 var soulFrontmatterRE = regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n`)
-
-// soulVoiceRE captures `voice:` lines inside the frontmatter.
 var soulVoiceRE = regexp.MustCompile(`(?m)^voice:\s*([^\s#]+)\s*(?:#.*)?$`)
 
-// readSoulVoice returns the `voice:` field of SOUL.md's frontmatter, or
-// "" if SOUL.md is missing, has no frontmatter, or no voice key.
 func readSoulVoice(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -92,9 +74,6 @@ func readSoulVoice(path string) string {
 	return strings.Trim(string(m[1]), `"'`)
 }
 
-// ttsCacheOrSynthesize returns the local path of the synthesized audio,
-// hitting the on-disk cache by sha256(text+voice+model). Cache lives at
-// <project_root>/tts/.
 func (g *Gateway) ttsCacheOrSynthesize(text, voice, model string) (string, error) {
 	dir := filepath.Join(g.cfg.ProjectRoot, "tts")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -151,12 +130,9 @@ func (g *Gateway) synthesize(text, voice, model string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// ErrTooLong is returned by sendVoice when the input exceeds the 5000-char
-// safety bound (Kokoro starts to time out / chunk awkwardly past that).
+// ErrTooLong: Kokoro times out past 5000 chars.
 var ErrTooLong = errors.New("text too long for voice synthesis (max 5000 chars)")
 
-// validateVoiceText rejects empty / oversize input early so we never
-// wedge a long-running TTS round-trip on a doomed payload.
 func validateVoiceText(text string) error {
 	t := strings.TrimSpace(text)
 	if t == "" {
@@ -168,6 +144,4 @@ func validateVoiceText(text string) error {
 	return nil
 }
 
-// Compile-time guard: keep chanlib.ErrUnsupported import live for the
-// channel-side ErrUnsupported propagation in send_voice.
-var _ = chanlib.ErrUnsupported
+var _ = chanlib.ErrUnsupported // keep import live
