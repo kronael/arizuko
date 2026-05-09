@@ -1,6 +1,7 @@
 ---
 name: dispatch
 description: Match the current task to available skills and invoke matching ones.
+when_to_use: Run via /resolve on every prompt; do not skip.
 user-invocable: false
 ---
 

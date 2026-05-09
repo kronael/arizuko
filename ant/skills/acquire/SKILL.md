@@ -58,17 +58,6 @@ curl -o ~/tmp/img.jpg '<url>'
 - Static: `curl -s '<url>'`
 - JS-rendered / auth-required: `agent-browser` skill
 
-## Useful search services
-
-| Service          | URL                           | Use case                      |
-| ---------------- | ----------------------------- | ----------------------------- |
-| DeepWiki         | `deepwiki.com/<owner>/<repo>` | AI-navigable GitHub repo wiki |
-| Marginalia       | `search.marginalia.nu`        | Small-web, non-commercial     |
-| HN Algolia       | `hn.algolia.com`              | Tech discussion history       |
-| Archive.org      | `web.archive.org/web/<url>`   | Historical snapshots          |
-| Google Scholar   | `scholar.google.com`          | Academic papers               |
-| Semantic Scholar | `semanticscholar.org`         | AI-powered paper search + API |
-
 ## Rules
 
 - ALWAYS prefer transcripts over raw media

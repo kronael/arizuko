@@ -1,7 +1,8 @@
 ---
 name: wisdom
-description: Patterns for writing, structuring, and improving SKILL.md and CLAUDE.md files.
-when_to_use: Use when creating a new skill, refining an existing one, or editing agent instructions.
+description: Patterns for writing, structuring, and improving SKILL.md files.
+when_to_use: Use when creating a new skill, refining an existing one, or debugging why a skill won't trigger.
+user-invocable: true
 ---
 
 # Wisdom
@@ -20,17 +21,19 @@ disable-model-invocation: true  # user-only; Claude never auto-triggers
 ---
 ```
 
-`when_to_use` is the trigger — semantic matching activates skills on this field.
-`description` is a factual one-liner (what the skill does). Avoid vague phrases
-like "general utilities". No duplication between the two fields.
+`when_to_use` is the trigger — `/resolve` matches semantically on this field.
+`description` is a factual one-liner. No duplication between the two.
 
 ## Body rules
 
-- Imperative statements: ALWAYS, NEVER, MUST, SHOULD
-- Concrete steps with code blocks, not prose explaining concepts
-- Under 200 lines; link to supporting files if larger
+- Imperative voice: ALWAYS, NEVER, MUST, SHOULD
+- Concrete steps with code, not prose explaining concepts
 - One skill = one capability. If it does two things, split it.
-- NEVER put a "When to use" section in the body — use when_to_use frontmatter instead.
+- Under 200 lines; link to supporting files if larger
+- NEVER put a "When to use" section in the body — that's the `when_to_use` frontmatter
+- NEVER "This skill helps you..." marketing prose
+- NEVER duplicate logic between skills — call them, don't copy them
+- NEVER store transient info in skills (releases, dates, in-flight work) — use diary/memory
 
 ## Creating a skill
 
@@ -48,15 +51,11 @@ when_to_use: Use when X happens or user asks for Y.
 ## Steps
 1. Do this
 2. Then this
-
-## Rules
-- ALWAYS do X
-- NEVER do Y
 EOF
 ```
 
-Test that `/resolve` matches it for the intended task; if not, improve the
-`description` — that's what resolve reads.
+Test that `/resolve` matches it for the intended task; if not, sharpen the
+`description` and `when_to_use` — those are what resolve reads.
 
 ## Common problems
 
@@ -72,20 +71,11 @@ Test that `/resolve` matches it for the intended task; if not, improve the
 
 ```bash
 ls ~/.claude/skills/
-cat ~/.claude/skills/*/SKILL.md | grep -E '(description|when_to_use):'
+grep -E '(description|when_to_use):' ~/.claude/skills/*/SKILL.md
 diff ~/.claude/skills/myskill/SKILL.md /workspace/self/ant/skills/myskill/SKILL.md
 ```
 
-## Anti-patterns
-
-- NEVER "This skill helps you..." marketing prose
-- NEVER duplicate between skills — one source of truth
-- NEVER put transient info in skills (use diary/memory)
-- NEVER exceed 200 lines without splitting into supporting files
-- NEVER put ops procedures in CLAUDE.md — use a skill
-
 ## Canonical location
 
-- Source: `/workspace/self/ant/skills/` (read-only)
-- Agent copy: `~/.claude/skills/` (seeded once on first spawn)
-- `/migrate` syncs canonical → agent copies
+- Source: `/workspace/self/ant/skills/` (read-only, baked into image)
+- Agent copy: `~/.claude/skills/` (seeded on first spawn; `/migrate` syncs)

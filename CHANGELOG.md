@@ -12,6 +12,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.21] — 2026-05-09
+
+> arizuko v0.33.21 — 09 May 2026
+>
+> • Skills refined — dropped redundancy across the skill library, no capability change; agents load ~70 fewer lines of context per spawn
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- `ant/skills/mcp/` — collapsed Python + Go example blocks into a single bash example with a one-line note that `mcpc` shells out identically from any language
+- `ant/skills/compact-memories/` — collapsed explanatory paragraphs in Gather/Compress sections into procedural one-liners; same rules, fewer words
+- `ant/skills/acquire/` — dropped "Useful search services" reference table (general web reference, not load-bearing for the acquire workflow)
+- `ant/skills/wisdom/` — consolidated body rules and anti-patterns; restored explicit transient-info rule and debugging block
+- `ant/skills/dispatch/` — added missing `when_to_use` frontmatter
+- `ant/skills/hello/`, `ant/skills/hub/` — added missing `user-invocable: true` frontmatter; `hub` description wrapped into folded YAML for ≤100-char lines
+
+---
+
 ## [v0.33.20] — 2026-05-09
 
 > arizuko v0.33.20 — 09 May 2026

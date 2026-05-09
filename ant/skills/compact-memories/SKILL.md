@@ -45,46 +45,27 @@ Diary has no "day" level — daily entries already exist.
    spanning multiple days MUST be sliced. Skip files with zero
    lines in range.
 
-**Identifying real user messages.** See CLAUDE.md "How messages
-arrive". Events typed `role:"user"` are a mix of inbound messages
-(wrapped `<messages><message ...>`) and tool-result turns. Count both
-the XML envelope and plain-text variants. If the DB shows inbound
-messages for the target date but your parser found zero, the parser
-is wrong — trust the DB.
+Events with `role:"user"` mix inbound messages (`<messages><message ...>`)
+and tool-result turns — count both. Trust the DB over parsed transcripts:
+cross-check via `inspect_messages chat_jid:=<jid>` for each route JID
+listed by `inspect_routing`. For per-topic slices use
+`get_thread chat_jid:=<jid> topic:=<topic>`.
 
-**Authoritative cross-check**: use the `inspect_messages` MCP tool per
-chat. Get the list of chats visible to this group from `inspect_routing`
-(each `routes[].match` of the form `room=<jid>` gives a JID); then for
-each JID call `inspect_messages chat_jid:="$jid"` and filter the
-returned rows to the target date. This catches tool calls, steered
-messages, and scheduled tasks the transcripts might miss.
-
-When a chat fans into per-topic threads (Telegram forum topics, web-chat
-topics) and you only want one thread's slice, use `get_thread chat_jid:=<jid>
-topic:=<topic>` instead of filtering `inspect_messages` output by hand.
-
-**Episodes week/month / diary week/month**: Glob the lower-level files
+**Episodes week/month / diary week/month**: glob the lower-level files
 for the target period.
 
 No sources → stop. Never write empty files.
 
 ### 2. Compress
 
-**Preserve what the user corrected, not what the agent concluded.**
-User corrections are authoritative; conclusions get redrawn every
-recall. Quote corrections verbatim.
+Preserve what the user corrected, not what the agent concluded. User
+corrections are authoritative; conclusions get redrawn every recall.
 
-Keep:
-- User corrections, verbatim
-- User preferences ("always X", "never Y")
-- Deliverables the user accepted (shipped, merged, confirmed)
-- Unresolved blockers the user flagged
+Keep: user corrections (verbatim), preferences, accepted deliverables
+(shipped/merged/confirmed), flagged blockers.
 
-Drop:
-- Agent-drawn conclusions, summaries, "insights"
-- Routine ops (migrations, cron triggers, /resolve classifications)
-- Dead-end debugging, internal reasoning
-- Anything the agent inferred without user confirmation
+Drop: agent conclusions, routine ops (migrations, cron, /resolve calls),
+dead-end debugging, unconfirmed inferences.
 
 Each level is shorter than the sum of its sources.
 
