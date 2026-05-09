@@ -16,6 +16,7 @@ out of the box.
 | [4-hitl-firewall.md](4-hitl-firewall.md)         | deferred | pending_actions queue + /dash/review; holds MCP calls for operator review. |
 | [5-authoring-product.md](5-authoring-product.md) | deferred | Authoring agent design reference (see product-creator.md).                 |
 | [6-web-routes.md](6-web-routes.md)               | spec     | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.  |
+| [7-platform-api.md](7-platform-api.md)           | spec     | Unified `/v1/*` REST + MCP control surface; one handler layer, two fronts. |
 
 ## Product catalog
 
