@@ -12,6 +12,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.19] — 2026-05-09
+
+> arizuko v0.33.19 — 09 May 2026
+>
+> • Inbound reactions clarified — agent now connects emoji reactions to the message they target instead of reading them as orphan emojis
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- `ant/CLAUDE.md` "How messages arrive" — documents the inbound reaction shape (`verb="like"`/`"dislike"`, emoji body, `<reply-to>` pointer) so the agent treats reactions as acknowledgement of the parent rather than new turns
+
+---
+
 ## [v0.33.18] — 2026-05-08
 
 > arizuko v0.33.18 — 08 May 2026

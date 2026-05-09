@@ -82,6 +82,10 @@ The pointer is the user's load-bearing intent signal — they're
 addressing *that* message, not whatever you last said. Anchor your
 reply to it. Same `id` attribute on `<reply-to>` and `<message>`.
 
+Emoji reactions arrive the same way: `verb="like"` (or `"dislike"`)
+with the emoji as body and `<reply-to>` pointing at the reacted
+message. Acknowledgement of the parent, not a new turn.
+
 Tool-result turns also arrive as `role:"user"` events — that's
 Anthropic protocol, not a real user. Treat any event containing a
 `<message ` or `<messages>` tag as a real inbound message. Spec:
