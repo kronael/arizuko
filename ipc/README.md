@@ -1,7 +1,7 @@
 # ipc
 
 MCP host — the in-container agent's only way to the host. Runs as a
-subsystem inside the `gated` process; per `specs/6/7-platform-api.md`
+subsystem inside the `gated` process; per `specs/6/R-platform-api.md`
 this is the **MCP host** issuer in the platform-token model.
 
 ## Purpose
@@ -15,7 +15,7 @@ against derived grant rules. Identity (folder, tier) is resolved from
 the socket path; the kernel-attested peer uid (`SO_PEERCRED`) gates
 every connection.
 
-## Capability token (planned, per `specs/6/7-platform-api.md` §"Issuance sites")
+## Capability token (planned, per `specs/6/R-platform-api.md` §"Issuance sites")
 
 At agent socket bind, the MCP host mints a capability token via
 `auth.Mint(...)` carrying:
@@ -119,7 +119,7 @@ tier ≥1 is scoped to its folder subtree. Replaces ad-hoc
 
 - `ARCHITECTURE.md` (IPC section)
 - `specs/5/30-inspect-tools.md`
-- `specs/6/7-platform-api.md` — MCP host's role as token issuer +
+- `specs/6/R-platform-api.md` — MCP host's role as token issuer +
   HTTP-federation pattern for foreign-domain tools
 - `../auth/README.md` — `Mint`/`VerifyHTTP`/`HasScope`/`MatchesFolder` contract
 - `../gated/README.md` — host process; gated-owned tables stay local

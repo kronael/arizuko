@@ -35,7 +35,7 @@ through timed's API.
 
 ## Planned `/v1/tasks` surface
 
-Per `specs/6/7-platform-api.md`, timed will serve `/v1/tasks` as the
+Per `specs/6/R-platform-api.md`, timed will serve `/v1/tasks` as the
 canonical control surface for `scheduled_tasks`:
 
 - `GET /v1/tasks` — list (paginated, filtered by folder, status, kind)
@@ -102,5 +102,5 @@ no `task_run_logs` rows appearing despite active tasks.
 ## Related docs
 
 - `specs/4/8-scheduler-service.md`
-- `specs/6/7-platform-api.md` (full `/v1/*` contract, token model)
+- `specs/6/R-platform-api.md` (full `/v1/*` contract, token model)
 - `ARCHITECTURE.md` (Scheduler section)

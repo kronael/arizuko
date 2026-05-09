@@ -12,7 +12,7 @@ platform-token format** — every issuer mints through this library, every
 verifier validates through this library. No daemon implements its own
 JWT format.
 
-## Platform token (per `specs/6/7-platform-api.md`)
+## Platform token (per `specs/6/R-platform-api.md`)
 
 Single signed JWT shape for all federated `/v1/*` calls and the future
 agent capability token. HS256, signed with `AUTH_SECRET`:
@@ -59,7 +59,7 @@ JWT shape, differs only in scope breadth):
   `RequireSigned(secret)` / `StripUnsigned(secret)` for proxyd-signed
   identity headers (the pre-`/v1/*` trust mechanism)
 
-**Planned (per `specs/6/7-platform-api.md` §"Token model").** Not yet
+**Planned (per `specs/6/R-platform-api.md` §"Token model").** Not yet
 implemented; this README is the contract:
 
 - `Mint(secret []byte, c Claims) (string, error)` — single mint entry
@@ -110,6 +110,6 @@ if !auth.MatchesFolder(ident, taskFolder)       { return 403 }
 
 - `ARCHITECTURE.md` (Auth Hardening)
 - `specs/5/29-acl.md`
-- `specs/6/7-platform-api.md` — full token contract; auth/ is the
+- `specs/6/R-platform-api.md` — full token contract; auth/ is the
   single source of truth for the JWT shape every federated daemon
   consumes

@@ -112,7 +112,7 @@ binaries. See [`specs/9/b-orthogonal-components.md`](specs/9/b-orthogonal-compon
 
 | name     | kind        | role                                                                                                                          | README                                   |
 | -------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| crackbox | integration | umbrella: `egred` proxy daemon (shipped) + `pkg/host/` KVM lib (shipped, see [specs/7/12](specs/7/12-crackbox-sandboxing.md)) | [crackbox/README.md](crackbox/README.md) |
+| crackbox | integration | umbrella: `egred` proxy daemon (shipped) + `pkg/host/` KVM lib (shipped, see [specs/9/12](specs/9/12-crackbox-sandboxing.md)) | [crackbox/README.md](crackbox/README.md) |
 
 ## Features
 

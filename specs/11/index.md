@@ -2,14 +2,15 @@
 status: planned
 ---
 
-# specs/11 — later
+# specs/11 — future features
 
-Specs committed in direction but not scheduled. Each needs a dedicated sprint.
+Pinned messages, CLI tools, dynamic channels, auth tunneling.
 
-| spec                                                         | status    | description                                                                               |
-| ------------------------------------------------------------ | --------- | ----------------------------------------------------------------------------------------- |
-| [d-agent-code-modification.md](d-agent-code-modification.md) | unshipped | Staging area for root-agent-proposed gateway changes                                      |
-| [e-extend-gateway-self.md](e-extend-gateway-self.md)         | unshipped | Root agent modifying gateway codebase (plugin dir or agent branch)                        |
-| [f-replaceability-research.md](f-replaceability-research.md) | research  | Audit each shipped component against off-the-shelf alternatives                           |
-| ~~a-crackbox-sandboxing.md~~                                 | moved     | KVM/qemu sandboxing → [specs/8/12-crackbox-sandboxing.md](../8/12-crackbox-sandboxing.md) |
-| [g-pay-sh.md](g-pay-sh.md)                                   | planned   | pay.sh micropayment layer — agent-native paid API access via HTTP 402 + Solana wallet     |
+- [1-pinned-messages.md](1-pinned-messages.md) `planned` — pinned messages as persistent agent context
+- [2-slink.md](2-slink.md) `deferred` — slink scoped auth token
+- [3-local-cli.md](3-local-cli.md) `planned` — `arizuko send` over slink round-handle protocol
+- [5-cli-chat.md](5-cli-chat.md) `unshipped` — `arizuko chat` interactive terminal agent
+- [6-dynamic-channels.md](6-dynamic-channels.md) `unshipped` — DB-backed channels, dashboard-managed creds
+- [7-auth-tunneling.md](7-auth-tunneling.md) `planned` — web-based credential capture
+- [8-cli-auth-helper.md](8-cli-auth-helper.md) `planned` — CLI auth dispatcher
+- [9-slink-typing.md](9-slink-typing.md) `planned` — typing indicator in slink web chat

@@ -21,7 +21,7 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
 
 ## Tables owned
 
-Per `specs/6/7-platform-api.md`: `web_routes`, `vhosts`, slink tokens.
+Per `specs/6/R-platform-api.md`: `web_routes`, `vhosts`, slink tokens.
 webd does not own messages — it writes them as a client of
 `gated/v1/messages` (channel adapter inbound) and today reads them via
 its own `/api/*` paths directly off the shared DB. Once federation lands
@@ -43,7 +43,7 @@ Shipped today (see `server.go`):
 - `GET /static/*` — embedded assets.
 - `GET /health`.
 
-Planned per `specs/6/7-platform-api.md`:
+Planned per `specs/6/R-platform-api.md`:
 
 - `/v1/web-routes` and `/v1/vhosts` — REST verbs on owned tables.
 
@@ -102,7 +102,7 @@ delivered messages.
 
 ## Related docs
 
-- `specs/6/7-platform-api.md` — federated `/v1/*` contract
+- `specs/6/R-platform-api.md` — federated `/v1/*` contract
 - `specs/5/J-sse.md` — SSE streams + slink-MCP transport
 - `specs/6/3-chat-ui.md`
 - `ARCHITECTURE.md` (Web Channel section)

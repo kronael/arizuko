@@ -47,7 +47,7 @@ position on `/onboard` (auto-refreshes every 30s).
 
 ## Planned `/v1/*` surface
 
-Per `specs/6/7-platform-api.md`, onbod will serve two namespaces:
+Per `specs/6/R-platform-api.md`, onbod will serve two namespaces:
 
 - `/v1/invites` — list/create/revoke invites; today only `arizuko invite`
   CLI mutates these
@@ -107,5 +107,5 @@ rather than panicking. Do not remove this nil-check as dead code.
 
 - `specs/4/26-prototypes.md` (prototype mechanic)
 - `specs/5/28-mass-onboarding.md`
-- `specs/6/7-platform-api.md` (full `/v1/*` contract, token model)
+- `specs/6/R-platform-api.md` (full `/v1/*` contract, token model)
 - `ARCHITECTURE.md` (Onboarding section)

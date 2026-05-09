@@ -144,7 +144,7 @@ boundary. Don't.
 
 One paragraph per component. The actual public surface, CLI,
 shipping plan, and footprint live in each component's own spec
-under `specs/6/`. This file is the pattern, not the plans.
+under `specs/9/`. This file is the pattern, not the plans.
 
 ### crackbox
 
@@ -154,12 +154,12 @@ under this name:
 - **`egred`** — forward HTTP/HTTPS proxy daemon. Per-source-IP
   allowlist, admin API, runnable standalone or under `crackbox
 proxy serve`. Stateless about what's behind the source IPs. See
-  [`specs/8/9-crackbox-standalone.md`](9-crackbox-standalone.md).
+  [`specs/9/9-crackbox-standalone.md`](9-crackbox-standalone.md).
 - **`crackbox/pkg/host/`** — Go library for KVM/qemu sandbox
   lifecycle. Spawns VMs, manages privileges, ensures egred is up.
   Imported by `sandd` (for arizuko deployments) and by the
   `crackbox run --kvm` CLI (for laptop one-shots). See
-  [`specs/8/12-crackbox-sandboxing.md`](12-crackbox-sandboxing.md).
+  [`specs/9/12-crackbox-sandboxing.md`](12-crackbox-sandboxing.md).
 
 The two halves ship in the same component so `crackbox run` can
 compose them into a one-shot sandboxed-execution CLI without an
@@ -168,7 +168,7 @@ egred container in compose; the host library will be imported by
 sandd when KVM backend lands. The proxy half is consumer-side
 shipped today; the host library is planned (next phase).
 
-[`specs/8/10-crackbox-arizuko.md`](10-crackbox-arizuko.md)
+[`specs/9/10-crackbox-arizuko.md`](10-crackbox-arizuko.md)
 covers the today-and-tomorrow consumer pattern and the planned
 [`sandd`](c-sandd.md) extraction.
 

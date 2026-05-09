@@ -2,17 +2,13 @@
 status: active
 ---
 
-# specs/8 — security + standalone
+# specs/8 — operator tools
 
-Hardening the security perimeter and splitting components into
-standalone shippable units usable outside arizuko.
+Operator-facing controls: usage visibility, spend limits, and
+per-instance branding. No user-visible UX changes; all
+operator-configured via env vars or dashd.
 
-| Spec                                                     | Status               | Hook                                                          |
-| -------------------------------------------------------- | -------------------- | ------------------------------------------------------------- |
-| [7-self-learning.md](7-self-learning.md)                 | deferred             | Skill-guard PreToolUse hook (hermes peel)                     |
-| [9-crackbox-standalone.md](9-crackbox-standalone.md)     | shipped              | egred — forward proxy with per-source allowlists (2026-04-29) |
-| [10-crackbox-arizuko.md](10-crackbox-arizuko.md)         | shipped              | arizuko consumer of egred; sandd transition planned           |
-| [11-crackbox-secrets.md](11-crackbox-secrets.md)         | draft                | egred-based secrets injection at egress                       |
-| [12-crackbox-sandboxing.md](12-crackbox-sandboxing.md)   | shipped (2026-05-01) | crackbox `pkg/host/` library for KVM/qemu sandboxing          |
-| [b-orthogonal-components.md](b-orthogonal-components.md) | planned              | Sibling shippable components: crackbox, gateway, mcp-firewall |
-| [c-sandd.md](c-sandd.md)                                 | deferred             | Sandbox-spawn daemon; gated keeps spawn ownership for now     |
+| Spec                                         | Status    | Hook                                                        |
+| -------------------------------------------- | --------- | ----------------------------------------------------------- |
+| [13-onbod-branding.md](13-onbod-branding.md) | draft     | Per-instance brand surface for onbod (env vars + assets).   |
+| [4-rate-limits.md](4-rate-limits.md)         | unshipped | Usage tracking + per-group rate limits + dashd /usage page. |

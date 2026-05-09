@@ -126,7 +126,7 @@ Public pages at `/pub/products/<name>/` when the web layer is running.
    arizuko run testbot
    ```
 
-3. Add a spec file `specs/6/product-<name>.md` documenting skills, channels,
+3. Add a spec file `specs/7/product-<name>.md` documenting skills, channels,
    dependencies, and the web page pitch.
 
 4. Add the product to the catalog table in `specs/6/index.md`.

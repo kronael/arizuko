@@ -32,7 +32,7 @@ carrying `sub`, `iat`, `exp`. Trust is also propagated to backends via
 HMAC-signed identity headers (`X-User-Sub`, `X-User-Groups`) — backends
 verify with `auth.RequireSigned` / `StripUnsigned`.
 
-**Per `specs/6/7-platform-api.md` (planned):** proxyd's minter moves to
+**Per `specs/6/R-platform-api.md` (planned):** proxyd's minter moves to
 `auth.Mint(...)` and embeds the full token shape:
 
 ```
@@ -87,7 +87,7 @@ limiting surface as 401/429 in access logs.
 
 ## Related docs
 
-- `specs/6/7-platform-api.md` — token model + federated `/v1/*` contract
+- `specs/6/R-platform-api.md` — token model + federated `/v1/*` contract
 - `auth/README.md` — shared mint/verify primitives
 - `ARCHITECTURE.md` (Web Channel, Auth Hardening)
 - `SECURITY.md`

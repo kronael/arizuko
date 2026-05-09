@@ -12,7 +12,7 @@ the caller is authorized and does not further scope responses by group.
 
 ## Tables owned
 
-None. Per `specs/6/7-platform-api.md`, dashd is purely a `/v1/*` client
+None. Per `specs/6/R-platform-api.md`, dashd is purely a `/v1/*` client
 of gated, timed, webd, onbod.
 
 ## Surface
@@ -41,7 +41,7 @@ Adds write paths (forms POSTing to `POST/PATCH/DELETE` of the relevant
 daemon) wherever today's UI is read-only. After this refactor, dashd
 never touches tables directly.
 
-Migration table (from `specs/6/7-platform-api.md ## Dashboard`):
+Migration table (from `specs/6/R-platform-api.md ## Dashboard`):
 
 | dashd page        | Today (direct DB)                      | Future (`/v1/*` client)                                     |
 | ----------------- | -------------------------------------- | ----------------------------------------------------------- |
@@ -91,7 +91,7 @@ mapped on the host.
 
 ## Related docs
 
-- `specs/6/7-platform-api.md` — federated `/v1/*` contract + dashd
+- `specs/6/R-platform-api.md` — federated `/v1/*` contract + dashd
   migration table
 - `specs/4/Q-dash-memory.md` — memory view & edit
 - `specs/7/25-dashboards.md`

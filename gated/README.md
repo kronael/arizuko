@@ -13,7 +13,7 @@ the federated platform API.
 
 ## Tables owned
 
-Per `specs/6/7-platform-api.md` §"Daemon ownership", gated owns and is
+Per `specs/6/R-platform-api.md` §"Daemon ownership", gated owns and is
 the sole writer for:
 
 - `groups` — folder tree, group metadata
@@ -40,7 +40,7 @@ gated-owned tables go through gated's HTTP surface.
 
 ## Federated `/v1/*` surface (planned)
 
-Per `specs/6/7-platform-api.md` Phase 2. Gated will mount REST handlers
+Per `specs/6/R-platform-api.md` Phase 2. Gated will mount REST handlers
 for each owned resource:
 
 | Path           | Verbs                    | Notes                                                    |
@@ -91,4 +91,4 @@ Logic lives in imported packages (`gateway/`, `api/`, `container/`, `store/`).
 - `ROUTING.md` — route resolution rules
 - `../gateway/README.md`, `../store/README.md`, `../container/README.md`
 - `../ipc/README.md` — MCP host subsystem (lives inside gated's process)
-- `specs/6/7-platform-api.md` — federated `/v1/*` contract gated implements
+- `specs/6/R-platform-api.md` — federated `/v1/*` contract gated implements

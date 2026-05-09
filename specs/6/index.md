@@ -2,60 +2,48 @@
 status: active
 ---
 
-# specs/6 — products
+# specs/6 — platform: genericization + control API
 
-Launching products built on arizuko: persona templates, packaging,
-and the publish surface that lets operators deploy a configured agent
-out of the box.
+The infrastructure phase that has to ship before products. Two strands:
 
-## Infrastructure
+1. **Genericization** — make each daemon truly standalone and reusable.
+   Today the daemons share `messages.db`, share a `go.mod`, and hardcode
+   arizuko concepts (`folder`, `tier`, `group`). This phase decouples
+   them: each daemon owns its tables, exposes its own contract, and
+   accepts capability tokens for auth. Reusable parts (router core,
+   scheduler, OAuth proxy, auth lib) can be deployed without the AI
+   stack.
 
-| Spec                                             | Status   | Hook                                                                       |
-| ------------------------------------------------ | -------- | -------------------------------------------------------------------------- |
-| [R-products.md](R-products.md)                   | active   | Curated persona+skill templates; `--product` flag on `arizuko create`.     |
-| [4-hitl-firewall.md](4-hitl-firewall.md)         | deferred | pending_actions queue + /dash/review; holds MCP calls for operator review. |
-| [5-authoring-product.md](5-authoring-product.md) | deferred | Authoring agent design reference (see product-creator.md).                 |
-| [6-web-routes.md](6-web-routes.md)               | spec     | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.  |
-| [7-platform-api.md](7-platform-api.md)           | spec     | Unified `/v1/*` REST + MCP control surface; one handler layer, two fronts. |
+2. **Federated control API** — every daemon serves `/v1/*` for the
+   resources it owns; the dashboard consumes those APIs; agents reach
+   the same surface via MCP forwarding. One contract, two fronts. Adds
+   write parity to the dashboard (today the dashboard is read-only;
+   mutations live in scattered MCP tools). Token model and verification
+   centralize in the shared `auth/` library.
 
-## Product catalog
+| Spec                                       | Status | Hook                                                                      |
+| ------------------------------------------ | ------ | ------------------------------------------------------------------------- |
+| [R-genericization.md](R-genericization.md) | draft  | Generic primitives in shared types; per-daemon DB ownership; gated split. |
+| [R-platform-api.md](R-platform-api.md)     | spec   | Federated `/v1/*` per daemon, capability-token auth, shared `auth/` lib.  |
 
-Each product ships as `ant/examples/<name>/` and installs via
-`arizuko create <instance> --product <name>`. Public page at `/pub/products/<name>/`.
+Genericization spec is sketched but not written. It precedes the API
+work in implementation order: a generic daemon with hardcoded arizuko
+concepts isn't reusable, and the API contract is more honest once the
+concepts are factored.
 
-Developer capabilities are embedded in each product that needs them
-(oracle + bash grants, scoped per deployment) — not a separate product.
+## Why this is its own phase
 
-| Spec                                                           | Name     | Brand      | Value prop                                         | Blocked by         |
-| -------------------------------------------------------------- | -------- | ---------- | -------------------------------------------------- | ------------------ |
-| [product-personal-assistant.md](product-personal-assistant.md) | personal | fiu        | Personal assistant with persistent memory          |                    |
-| [product-support.md](product-support.md)                       | support  | atlas      | KB-backed Q&A via ant link; escalates to human     |                    |
-| [product-trip.md](product-trip.md)                             | trip     | may        | Multi-step travel research → structured itinerary  |                    |
-| [product-strategy.md](product-strategy.md)                     | strategy | prometheus | Domain tracker; weekly synthesis → team briefing   |                    |
-| [product-pm.md](product-pm.md)                                 | pm       | sloth      | Team task board + weekly digest                    |                    |
-| [product-rhias.md](product-rhias.md)                           | reality  | rhias      | Ongoing life-context thread holder                 |                    |
-| [product-creator.md](product-creator.md)                       | creator  | inari      | Curation + draft pipeline; approve before publish  | HITL firewall      |
-| [product-socials.md](product-socials.md)                       | socials  | phosphene  | Multi-platform distribution; schedule + engagement | HITL + rate limits |
+Earlier the platform-API spec lived in [specs/7/](../7/) (products), as
+a sub-bullet of "what products need to ship." That framing was wrong:
+the API + genericization is the bigger piece of work and the
+prerequisite for products being properly manageable. Promoted to its
+own phase so that ordering is explicit — platform first, products
+consume it.
 
-## Arizuko features required per product
+## Open questions tracked here
 
-| Feature (shipped ✓ / unshipped ✗) | Personal | Support | Trip  | Strategy | PM  | Reality | Creator | Socials |
-| --------------------------------- | :------: | :-----: | :---: | :------: | :-: | :-----: | :-----: | :-----: |
-| ant link (slink) ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
-| onbod / user reg ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
-| oracle ✓                          |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
-| davd ✓                            |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
-| timed ✓                           |    –     |    –    |   –   |  **✓**   |  –  |  **✓**  |  **✓**  |  **✓**  |
-| social adapters ✓                 |    –     |    –    |   –   |    –     |  –  |    –    |  **✓**  |  **✓**  |
-| send_file ✓                       |    –     |    –    | **✓** |  **✓**   |  –  |    –    |    –    |    –    |
-| rate limits ✗                     |    –     |    ✗    |   –   |    –     |  –  |    –    |    –    |    ✗    |
-| HITL firewall ✗                   |    –     |    –    |   –   |    –     |  –  |    –    |    ✗    |    ✗    |
-
-## Products in spec only (not yet in ant/examples/)
-
-Specced in this directory but no template folder shipped yet:
-
-| Spec                                         | Value prop                                  |
-| -------------------------------------------- | ------------------------------------------- |
-| [product-ops.md](product-ops.md)             | DevOps/SRE with runbooks + scoped bash      |
-| [product-companion.md](product-companion.md) | Personal companion with proactive check-ins |
+- TTL and revocation policy for capability tokens.
+- Whether/when to split storage per daemon (own DB vs shared schema).
+- Whether to add a dedicated `authd` for centralized minting + audit.
+- Whether `gated` should split into `routerd` (generic) +
+  `agent-runnerd` (AI-specific spawner).
