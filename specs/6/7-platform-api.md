@@ -4,274 +4,317 @@ status: spec
 
 # Platform Control API
 
-A single typed surface for controlling the entire arizuko platform —
-consumed by the dashboard (operators), exposed as MCP (agents), and
-the canonical contract for any future client (CLI, third-party
-integrations). Today the surface is split: MCP via `ipc/ipc.go` is the
-comprehensive write API; `dashd` is a read-only HTML dashboard hitting
-the DB directly; `webd` carries chat-specific HTTP. The split costs
-parity, doc surface, and refactor cost. This spec collapses it.
+A federated typed surface for controlling the entire arizuko platform —
+each daemon owns its own tables, exposes its own `/v1/*`, mints or
+validates capability tokens. Consumed by the dashboard (operators),
+exposed as MCP (agents), and the canonical contract for any future
+client. No unified handler library; ownership matches the existing
+process boundaries. Coordination is by signed token, not shared
+function call.
 
 ## Why now
 
-Phase 6 ships products. A product without a way for the operator to
+Phase 6 ships products. A product without an operator-facing way to
 manage it is half a product. The dashboard already covers reading;
-mutations live in scattered MCP tools that operators can't reach.
-Closing that gap is the platform half of the products phase.
+mutations live in scattered MCP tools that operators can't reach from
+a browser. Closing that gap shouldn't be a giant central refactor —
+each daemon already knows its own domain. The spec just makes that
+ownership explicit and gives every daemon a uniform `/v1/*` surface.
 
 ## Constraints
 
-- **One handler per capability**, not two. The HTTP route and the
-  MCP tool dispatch into the same Go function — they differ only in
-  serialization and identity.
-- **Least surface, max orthogonality** for the underlying resource
-  model. Agents may want tailored verbs on top, but those wrap the
-  orthogonal core; they never bypass it.
-- **No new daemon.** The handlers live where the data does (`gated`
-  owns the DB; runtime tools live in `ipc`); the HTTP front lives in
-  `webd` (already routes `/api/`); `dashd` becomes a thin HTML client
-  of the API instead of a parallel DB consumer.
+- **Each daemon owns its tables.** The daemon that writes a table is
+  the one that exposes its `/v1/*` and runs its migrations. No second
+  daemon reaches into another's tables; they call its API.
+- **One uniform contract per daemon.** Every daemon serving control
+  operations exposes the same shape: `/v1/<resource>` with REST verbs,
+  uniform error envelope, uniform pagination, uniform token validation.
+- **Capability tokens, not grant lookups.** Authorization is a signed
+  token carrying `(sub, scopes, exp)`. Each daemon validates the
+  signature and checks scope vs operation. Grant rules live where they
+  are issued from, not in every backend.
+- **Shared verification, distributed issuance.** Token format and
+  signing key live in the `auth/` library; every daemon imports it.
+  Issuance is per-lifecycle: proxyd at user login, MCP host at agent
+  spawn, onbod at invite redemption.
+- **No new daemon for auth.** A future `authd` is one refactor away
+  if centralized revocation/audit becomes load-bearing — until then,
+  distributed minting fits the existing topology.
+- **Every issuer uses the same `auth/` library.** proxyd (user
+  sessions), MCP host (agent caps), onbod (invite redemption) all
+  call `auth.Mint(...)` and produce the same JWT shape. Onbod is not
+  a special case — its tokens look like proxyd's, just with narrower
+  scopes.
 - **Stable contract.** `/v1/` namespace, additive evolution, breaking
-  changes get `/v2/`. Agent-facing MCP names track the API but can be
-  renamed/described independently for agent ergonomics.
+  changes get `/v2/`. MCP tool names track resources but can be
+  renamed for agent ergonomics.
 
-## Today's surface (compressed inventory)
+## Today's surface (compressed)
 
-**MCP (31+ tools)** — comprehensive write surface, tier-gated and
-grant-gated. Maps cleanly to resources: `messages`, `routes`, `tasks`,
-`sessions`, `groups`, `grants`, `invites`, `web_routes`, `vhosts`,
-plus inspect\_\* read tools. Already JSON-RPC over a unix socket per
+**MCP via `ipc/` (inside gated)** — 31+ tools, comprehensive write
+surface, tier-gated and grant-gated, JSON-RPC over a unix socket per
 group.
 
-**dashd** — 12 GET routes returning HTML/HTMX. Reads `groups`,
-`messages`, `routes`, `scheduled_tasks`, `sessions`, `auth_users`,
-`task_run_logs`, `channels`. Only mutations: PUT/DELETE on memory
-files. **No** group/route/task/grant/invite write paths exist in the
-dashboard today.
+**dashd** — 12 GET routes returning HTML/HTMX. Reads multiple tables
+directly from the shared DB. **No** group/route/task/grant/invite write
+paths exist in the dashboard.
 
-**webd** — `/api/groups`, `/api/groups/{folder}/topics`, `/api/groups/{folder}/messages`
-serve the chat UI; `/x/*` returns HTMX partials of the same. `/mcp`
-exposes 3 hand-picked MCP tools (`send_message`, `steer`, `get_round`)
-for browser-side agent integration; `/slink/*` is the public
-unauthenticated guest surface (token-gated). Channel adapters POST
-to `/send`, `/typing`, `/v1/round_done`.
+**webd** — `/api/groups`, `/api/groups/{folder}/topics`,
+`/api/groups/{folder}/messages` for the chat UI; `/x/*` HTMX partials;
+`/mcp` exposes 3 hand-picked tools for browser agents; `/slink/*` is
+the public unauthenticated guest surface; `/send`, `/typing`,
+`/v1/round_done` for channel adapter inbound.
 
-The capability gap is roughly: everything an agent can do via MCP, the
-dashboard cannot do via UI. This API closes that.
+The capability gap: everything an agent can do via MCP, the dashboard
+cannot do via UI. This spec closes that — by adding `/v1/*` to the
+daemons that already hold the data.
+
+## Daemon ownership
+
+Each daemon owns its tables and serves the matching API. No
+cross-daemon reaches into another's storage.
+
+| Daemon     | Owns                                                 | Serves                                                                                   |
+| ---------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **gated**  | groups, routes, sessions, channels, messages, grants | `/v1/groups`, `/v1/routes`, `/v1/sessions`, `/v1/channels`, `/v1/messages`, `/v1/grants` |
+| **timed**  | scheduled_tasks, task_run_logs                       | `/v1/tasks`                                                                              |
+| **webd**   | web_routes, vhosts, slink tokens                     | `/v1/web-routes`, `/v1/vhosts` (chat reads stay on existing `/api/*`)                    |
+| **onbod**  | invites, admissions, auth_users                      | `/v1/invites`, `/v1/users`                                                               |
+| **proxyd** | OAuth state, session-token issuance                  | `/auth/*` (existing); becomes a token issuer surface                                     |
+| **dashd**  | nothing — aggregator UI calling the above            | HTML/HTMX over `/v1/*` of others                                                         |
+
+`grants` lives with gated for now (gated already runs migrations and
+has the broadest schema authority). If a future split puts grants
+elsewhere, the issuance flow doesn't change — issuers query the grants
+owner at mint time.
 
 ## Resource model
 
-Eleven resources. Each has list / get / mutate verbs; nothing else.
-
-| Resource   | Path prefix      | Owns                                  |
-| ---------- | ---------------- | ------------------------------------- |
-| groups     | `/v1/groups`     | folder, parent, name, product, state  |
-| routes     | `/v1/routes`     | jid → folder routing rules            |
-| tasks      | `/v1/tasks`      | scheduled prompts, owner, cron, state |
-| messages   | `/v1/messages`   | read + send (write goes via channels) |
-| sessions   | `/v1/sessions`   | per-group session id, reset           |
-| grants     | `/v1/grants`     | per-folder grant rules                |
-| invites    | `/v1/invites`    | onboarding tokens                     |
-| channels   | `/v1/channels`   | registered platform adapters          |
-| web_routes | `/v1/web-routes` | /pub, /chat, /x dynamic routes        |
-| vhosts     | `/v1/vhosts`     | hostname → folder mapping             |
-| users      | `/v1/users`      | auth_users + identity mapping         |
-
-Verbs:
+Each `/v1/<resource>` namespace exposes the same five verbs:
 
 - `GET /v1/<resource>` — list (paginated, filtered)
 - `GET /v1/<resource>/{id}` — get one
 - `POST /v1/<resource>` — create
-- `PATCH /v1/<resource>/{id}` — partial update (e.g. `{status: "paused"}`)
+- `PATCH /v1/<resource>/{id}` — partial update
 - `DELETE /v1/<resource>/{id}` — delete
 
 Action verbs only when no state-mutation framing fits. E.g.
-`POST /v1/messages` IS "send a message" — no separate `/send` endpoint.
-`POST /v1/sessions/{id}:reset` for the rare action-shaped case (Google's
-`:verb` convention; mechanically distinct from `PATCH`).
+`POST /v1/messages` IS "send a message" — no separate `/send`.
+`POST /v1/sessions/{id}:reset` for action-shaped (Google's `:verb`
+convention).
 
-Inspection verbs (`inspect_*`) collapse into list endpoints with
-filters. `inspect_routing(jid)` becomes `GET /v1/routes?jid=…`;
-`inspect_messages(chat_jid, limit, before)` becomes
-`GET /v1/messages?chat_jid=…&limit=…&before=…`.
+`inspect_*` MCP tools collapse into list endpoints with filters.
+`inspect_routing(jid)` → `GET gated/v1/routes?jid=…`;
+`inspect_messages(chat_jid, limit, before)` →
+`GET gated/v1/messages?chat_jid=…&limit=…&before=…`.
 
-## Architecture
+## Token model
 
-```
-                    ┌─────────────┐    ┌─────────────┐
-                    │  Dashboard  │    │   Agents    │
-                    │  (browser)  │    │ (containers)│
-                    └──────┬──────┘    └──────┬──────┘
-                           │                   │
-                       JSON/REST          MCP JSON-RPC
-                           │                   │
-                    ┌──────┴────────┬──────────┴─────┐
-                    │  webd /v1/*   │   ipc gated.sock│
-                    │  (HTTP front) │   (MCP front)   │
-                    └──────┬────────┴──────────┬─────┘
-                           │                   │
-                           └─────────┬─────────┘
-                                     │
-                          ┌──────────▼──────────┐
-                          │  api/handlers.go    │
-                          │  (one func per      │
-                          │   resource × verb)  │
-                          └──────────┬──────────┘
-                                     │
-                                     ▼
-                              store.* + state
-```
+A platform token is a signed JWT (HS256, signed with `AUTH_SECRET`)
+carrying:
 
-`api/handlers.go` (new package): pure functions taking a typed
-`Identity` (sub, folder, tier, grant set) and a typed request, returning
-a typed response. No HTTP, no JSON-RPC. Pure business logic.
-
-Two thin adapters:
-
-- `webd/api.go` — REST adapter. Decodes URL+JSON to typed request,
-  derives `Identity` from JWT + grants table, calls handler, encodes
-  typed response to JSON.
-- `ipc/api_mcp.go` — MCP adapter. Decodes JSON-RPC tool args to typed
-  request, derives `Identity` from socket-bound folder+tier+grants,
-  calls handler, encodes response to JSON-RPC. Keeps the existing
-  per-group socket model.
-
-Both adapters are mechanical; the contract is the handler signature.
-
-## Auth & identity
-
-Identity is the same shape from both surfaces:
-
-```go
-type Identity struct {
-    Sub    string   // user (HTTP) or "agent:<folder>" (MCP)
-    Folder string   // for HTTP: derived from URL or implicit "*"; for MCP: socket-bound
-    Tier   int      // 0=root, 1=tenant, 2=send-only, 3+=clamped
-    Grants []Grant  // resolved from store.LoadGrants(folder)
+```json
+{
+  "sub": "user:abc123" | "agent:atlas/main" | "key:k_42",
+  "scope": ["groups:read", "tasks:write", "messages:send", "*:read", ...],
+  "folder": "atlas/main",
+  "tier": 2,
+  "iat": 1735000000,
+  "exp": 1735003600,
+  "iss": "proxyd" | "mcp-host" | "onbod"
 }
 ```
 
-Authorization is **per (resource, verb)** with grants checked the same
-way for both surfaces. The grant evaluator already exists; this spec
-just routes both fronts through it.
+**Scopes** are `<resource>:<verb>` pairs. `*:*` is root. `tasks:*`
+all task verbs. Wildcards resolve against `(resource, verb)` of the
+incoming request. Scopes are minted from grant rules at issuance time
+(snapshot), so revoking grants requires either token expiry or an
+explicit revocation list — short TTLs are the default, revocation lists
+deferred until needed.
 
-- HTTP auth: JWT from proxyd (existing `auth.RequireSigned`); folder
-  derived from path segment; tier looked up by sub.
-- MCP auth: socket bind (existing); folder/tier/grants from socket
-  context.
+**`folder`** scopes the token to a subtree. `atlas/main` token can
+operate on `atlas/main/*` resources but not on `rhias/*`. Root tokens
+omit `folder` (or set `folder: "*"`).
 
-If the same user calls `PATCH /v1/tasks/foo` from the dashboard and the
-agent calls `pause_task(taskId=foo)` from MCP, they hit identical
-`PauseTask(ctx, ident, id)` with identical grant checks.
+**`tier`** is denormalized from grants for fast tier-gated checks
+(today's existing tier system is preserved).
 
-## Agent-tailored layer
+### Issuance sites
 
-Agents work better with verb-shaped, narrative tool names:
-`send_voice`, `escalate_group`, `delegate_group`, `schedule_task` are
-clearer than `POST /v1/messages?voice=true&…`. The MCP adapter keeps
-those names. They map 1:1 to API calls — sometimes a single call,
-sometimes a tiny composition (e.g. `send_voice` = TTS render →
-`POST /v1/messages` with attachment).
+| Issuer                                       | Triggers on                         | Token shape                                                               | Verifier                    |
+| -------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------- | --------------------------- |
+| **proxyd**                                   | OAuth login (existing)              | user session, scopes from grants                                          | Every backend daemon        |
+| **MCP host** (currently `ipc/` inside gated) | Agent container spawn / socket bind | agent capability, folder-scoped                                           | Every daemon agent talks to |
+| **onbod**                                    | Invite redemption / admission       | initial user session, narrow scope; **same `auth/` lib, same JWT format** | Every backend daemon        |
+| **dashd**                                    | API key creation (operator action)  | long-lived, narrow scope                                                  | Every backend daemon        |
 
-Rule: every agent-tailored MCP tool is implementable as a thin script
-over `/v1/*` calls. If an MCP tool needs capability the API doesn't
-have, add it to the API first. The MCP layer never reaches past the
-API into the DB directly.
+The MCP host mints the agent token at the moment a container spawns,
+embedding `(folder, tier, grants snapshot)`. The token is passed into
+the container as an env var or via the MCP socket handshake. Agents use
+it for any HTTP call to a sibling daemon's `/v1/*`.
 
-Tool descriptions diverge between surfaces:
+### Verification
 
-- API: machine-oriented OpenAPI spec, terse.
-- MCP: agent-oriented prose, examples, when-to-use.
+`auth/Verify(token) → Identity{sub, scope, folder, tier}` lives in the
+shared `auth/` library. Every daemon imports it. No daemon implements
+its own verification.
 
-## Dashboard refactor
+Per-request auth at every `/v1/*` endpoint:
 
-`dashd` currently makes 12 routes. Each becomes one or more `GET /v1/*`
-calls; HTML rendering moves client-side or stays as Go templates that
-fetch from `/v1/*` instead of the DB. Concretely:
+```go
+ident, err := auth.VerifyHTTP(r)        // signature + exp + iss
+if !auth.HasScope(ident, "tasks", "write") { return 403 }
+if !auth.MatchesFolder(ident, taskFolder) { return 403 }
+// proceed
+```
 
-- `/dash/groups/` → fetches `/v1/groups` + `/v1/routes`, renders.
-- `/dash/tasks/` → fetches `/v1/tasks`, renders. Add task scheduling
-  form posting to `POST /v1/tasks`.
-- `/dash/activity/` → fetches `/v1/messages?limit=50&order=desc`.
-- `/dash/memory/` → split into `/v1/groups/{folder}/files/*` (new
-  resource) for the file editor.
-- `/dash/status/` → fetches `/v1/groups`, `/v1/sessions`, `/v1/channels`.
+## MCP federation
 
-New dashboard pages get write paths for free: any `POST/PATCH/DELETE`
-the API supports has a dashboard form behind the same grant check.
+Today the MCP host (`ipc/` inside gated) handles every tool call
+locally. Some tools touch tables gated owns (groups, routes, sessions,
+channels, messages, grants) — those stay local. Tools touching tables
+owned by other daemons (tasks → timed, invites → onbod) become
+**HTTP forwards** with the agent's capability token:
 
-`dashd` itself can either stay as the HTML host (rendering server-side
-against `/v1/*`) or be deleted in favor of an HTMX shell embedded in
-webd. Either is valid; deferring that choice.
+```
+agent → ipc.tools/call(pause_task, ...)
+       → ipc validates token scope (tasks:write)
+       → ipc HTTP-PATCH timed/v1/tasks/{id} {status: paused}
+              with Authorization: Bearer <agent-token>
+       → timed verifies token, checks scope, executes, returns
+       → ipc returns result to agent as JSON-RPC
+```
 
-## Pagination, filtering, errors
+Single MCP socket per agent (today's model). The socket host becomes
+a thin API gateway for the agent — local in-process calls for own-
+domain operations, HTTP forwards for cross-daemon. Latency added only
+where the daemon split demands it.
 
-Conventions, applied uniformly:
+Alternative considered: multiple MCP sockets per agent (one per
+daemon), agent registers all of them. Rejected for now — more sockets,
+more configuration, no operator benefit. Revisit if MCP host becomes a
+bottleneck.
 
-- List endpoints: `?limit=`, `?cursor=` (opaque), `?order=asc|desc`.
-- Filtering: query string per documented field (`?folder=…&status=…`).
-- Errors: `{error: {code: "STRING_CODE", message: "human", details: {…}}}`.
-- Codes are stable, machine-readable: `not_found`, `forbidden`,
-  `invalid_argument`, `conflict`, `unauthenticated`, `unavailable`.
+Agent-tailored tool names (`send_voice`, `escalate_group`,
+`schedule_task`) keep their narrative shape. Each maps to one or a
+small composition of `/v1/*` calls — the orthogonal core. Tools never
+reach past `/v1/*` into another daemon's DB.
 
-MCP errors map: `forbidden` → JSON-RPC `-32004 forbidden`, etc.
+## Dashboard
+
+`dashd` becomes an aggregator. It holds an operator session token
+(issued by proxyd at login) and makes `/v1/*` calls to gated, timed,
+webd, onbod to render its pages. Adds write paths (forms posting to
+`POST/PATCH/DELETE` of the relevant daemon) wherever today's UI is
+read-only.
+
+Concrete migrations:
+
+| dashd page        | Old (direct DB)                        | New (federated API)                                                                   |
+| ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------- |
+| `/dash/groups/`   | reads `groups`, `routes`               | `gated/v1/groups`, `gated/v1/routes`                                                  |
+| `/dash/tasks/`    | reads `scheduled_tasks`                | `timed/v1/tasks` (+ form → `POST timed/v1/tasks`)                                     |
+| `/dash/activity/` | reads `messages` LIMIT 50              | `gated/v1/messages?limit=50&order=desc`                                               |
+| `/dash/status/`   | reads `groups`, `sessions`, `channels` | `gated/v1/groups`, `gated/v1/sessions`, `gated/v1/channels`                           |
+| `/dash/memory/`   | direct fs read/write                   | new resource on whichever daemon owns the group fs (likely gated): `gated/v1/files/*` |
+| `/dash/profile/`  | reads `auth_users`                     | `onbod/v1/users/{sub}`                                                                |
+
+dashd never touches tables directly after this refactor.
+
+## What changes vs. status quo
+
+| Today                                               | After                                                              |
+| --------------------------------------------------- | ------------------------------------------------------------------ |
+| Every daemon has a DB connection, queries any table | Each daemon owns its tables; others call its `/v1/*`               |
+| Grants stored centrally, looked up per request      | Grants minted into tokens at issuance; verified per request        |
+| No HTTP API for control operations                  | Every daemon serves `/v1/*` for its domain                         |
+| Agent tools are inline in `ipc/ipc.go`              | MCP host calls own logic locally; cross-daemon via HTTP            |
+| Dashboard reads DB directly, can't write            | Dashboard is `/v1/*` client only; full read+write parity           |
+| Token format: signed identity headers from proxyd   | Same wire format, extended to carry scopes; uniform across daemons |
 
 ## What this spec is not
 
 - Not a UI redesign. The dashboard's information architecture is
-  separate work; this spec only changes what it consumes.
-- Not a stability guarantee for MCP tool names. `/v1/*` is the stable
-  contract; agent-facing tool names can evolve.
-- Not a permission model overhaul. The grant evaluator stays;
-  this spec just centralizes invocation.
-- Not a transport spec. JSON over HTTP for the API, JSON-RPC over unix
-  socket for MCP — both already in use.
+  separate work.
+- Not stability for MCP tool names. `/v1/*` per daemon is the stable
+  contract; MCP tool names can evolve for agent ergonomics.
+- Not a permission model overhaul. Grant rules stay; this spec just
+  packages them as scopes in tokens at issuance.
+- Not a transport spec. JSON over HTTP for `/v1/*`, JSON-RPC over
+  unix socket for MCP — both already in use.
+- Not storage federation. Daemons can still share the SQLite DB
+  underneath; what changes is who is allowed to write each table. A
+  future per-daemon-DB migration is a separate spec.
 
 ## Implementation phases
 
-1. **Extract handlers** — create `api/` package. Move business logic
-   out of `ipc/ipc.go` handlers and `dashd/handlers.go` queries into
-   `api/<resource>.go` files. Both existing surfaces dispatch to the
-   new handlers; behaviour unchanged. Pure refactor, no API exposed
-   yet.
-2. **Mount HTTP front** — add `/v1/*` routes to webd, JWT-gated, with
-   per-resource handlers calling into `api/`. Document with an
-   OpenAPI spec at `/v1/openapi.json`.
-3. **Migrate dashboard** — port `dashd` GETs to `/v1/*` calls. Add
-   write forms for the gaps: tasks, routes, grants, invites,
-   web_routes, vhosts.
-4. **MCP audit** — verify every MCP tool dispatches via `api/`. Where
-   a tool encodes agent-tailored composition, document that and keep.
-   Where a tool duplicates API logic, replace with a thin call.
-5. **Document for agents** — `ant/skills/self/SKILL.md` already lists
-   MCP tools; add a top-level "platform API" pointer for agents that
-   want to reach beyond their tier (e.g. `oracle` skill could query
-   `/v1/messages` cross-folder if grants allow).
+Each phase is independently shippable.
 
-Each phase is independently shippable and reversible.
+1. **Token format + verification.** Extend `auth/` library to mint
+   and verify scoped JWTs. Migrate proxyd's existing session-token
+   minter to the new format. Backward-compatible header carrying
+   during cutover. **Deliverable:** any daemon can verify a scoped
+   token.
+
+2. **gated `/v1/*`.** Mount HTTP server on gated for its owned
+   resources (groups, routes, sessions, channels, messages, grants).
+   Every endpoint validates token + checks scope. Document with
+   per-daemon `openapi.json`. **Deliverable:** the largest surface is
+   network-callable.
+
+3. **timed `/v1/tasks` + onbod `/v1/{invites,users}`.** Each daemon
+   gets its slice. **Deliverable:** all control operations have an
+   HTTP endpoint.
+
+4. **MCP host upgrade.** `ipc/` mints agent capability tokens at
+   socket bind. Tools touching foreign-domain resources convert to
+   HTTP forwards with the agent token. Local-domain tools stay
+   in-process. **Deliverable:** MCP federation working.
+
+5. **Dashboard migration.** dashd ports each page to call the
+   relevant daemon's `/v1/*`. Add write forms for tasks, routes,
+   grants, invites, web-routes, vhosts. **Deliverable:** parity with
+   MCP — operators can do everything an agent can.
+
+6. **Cleanup.** Remove direct-DB access from non-owner daemons. Each
+   daemon's go.mod imports trim down. **Deliverable:** ownership
+   boundary enforced by code structure, not just convention.
 
 ## Open
 
-- **Dashboard hosting**: keep `dashd` as separate Go service (current),
-  or fold into webd? Lean: keep, simpler to evolve UI.
-- **Streaming**: API is request/response; SSE for live updates lives
-  on webd's existing `/slink/stream` and dashd's HTMX polling. A
-  unified subscribe model is later work.
-- **Bulk endpoints**: `POST /v1/routes:batch` or just multiple POSTs?
-  Lean: multiple POSTs; bulk only if the dashboard demands it.
-- **Versioning of MCP tool descriptions**: as agents update via
-  migrations, do MCP tool descriptions migrate too? Today they're
-  baked into `ipc/ipc.go`; if descriptions become user-editable per
-  product, that's a separate spec.
-- **Third-party API consumers**: rate limits, API keys (separate from
-  proxyd JWT), webhook callbacks. Defer until first external need.
+- **Token TTL & revocation.** Short TTL (1h?) is the default; revocation
+  list deferred. Long-lived API keys (dashd-issued) need a revocation
+  table — when, where?
+- **Cross-daemon transactions.** Today some operations span tables
+  (e.g. "create group → seed skills → register routes"). Once
+  ownership is split, these become saga-shaped. Acceptable since each
+  step is idempotent; flag if not.
+- **MCP socket lifecycle vs. token TTL.** Container can outlive its
+  token if a turn runs longer than TTL. Refresh via the MCP host?
+  Accept the rare expiry? Deferred — short-lived turns mostly avoid
+  this.
+- **dashd hosting decision.** Keep dashd as Go HTML server, or fold
+  HTML rendering into webd? Lean: keep, separable from this spec.
+- **`authd` daemon.** Adding it later is one refactor (move minting
+  out of proxyd/onbod/MCP-host into a shared service). Triggered by:
+  centralized revocation list, audit log, OIDC delegation.
+- **Bulk endpoints.** `POST /v1/routes:batch` or many POSTs? Lean:
+  many; bulk only on demand.
 
 ## Code pointers
 
-- Today: `ipc/ipc.go` (MCP tools), `ipc/inspect.go` (read tools),
-  `dashd/handlers.go` (dashboard reads), `webd/api.go` (chat API),
-  `auth/middleware.go` (JWT gate), `core/grants.go` (grant evaluator).
-- After phase 1: `api/<resource>.go` per resource, with `ipc/` and
-  `dashd/` calling in.
-- After phase 2: `webd/v1.go` mounting REST front; `webd/openapi.go`
-  generating spec.
+- `auth/` — middleware-only today; gains `Mint(...)`, `VerifyHTTP(...)`,
+  `HasScope(...)`, `MatchesFolder(...)`. The single source of truth for
+  token format.
+- `proxyd/` — existing OAuth + JWT; extends issuance to carry scopes
+  derived from grants.
+- `gated/` (entry) + `ipc/` (MCP host subsystem) — gains its `/v1/*`
+  HTTP front; MCP host gains agent-token minter and HTTP-forward
+  client for cross-daemon tools.
+- `timed/`, `onbod/`, `webd/` — each gains a small `v1.go` for its
+  owned resources.
+- `dashd/` — replaces direct `store.*` calls with `/v1/*` HTTP calls
+  using the operator's session token.
+- `core/grants.go` — stays as the rule evaluator; called only at
+  issuance sites (proxyd, MCP host, dashd) to compute scopes from
+  rules.

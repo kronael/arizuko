@@ -19,11 +19,58 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
   token-only slink-MCP transport at `/slink/<token>/mcp` (`slink_mcp.go`).
 - Accept signed header forwards from `proxyd` (`PROXYD_HMAC_SECRET`).
 
+## Tables owned
+
+Per `specs/6/7-platform-api.md`: `web_routes`, `vhosts`, slink tokens.
+webd does not own messages — it writes them as a client of
+`gated/v1/messages` (channel adapter inbound) and today reads them via
+its own `/api/*` paths directly off the shared DB. Once federation lands
+those reads migrate to `gated/v1/messages` (flagged future work).
+
+## Surface
+
+Shipped today (see `server.go`):
+
+- `POST /send`, `POST /typing`, `POST /v1/round_done` — channel adapter
+  inbound from gated, signed via `CHANNEL_SECRET` (`channel.go`).
+- `GET /api/groups`, `GET /api/groups/{folder}/topics`,
+  `GET /api/groups/{folder}/messages` — chat UI JSON reads
+  (`api.go`).
+- `GET /x/*` — HTMX partials (`partials.go`).
+- `GET|POST /slink/*` — public unauthenticated guest surface
+  (`slink.go`, `slink_mcp.go`, `turn.go`).
+- `POST|GET|DELETE /mcp` — authed user MCP bridge (`mcp.go`).
+- `GET /static/*` — embedded assets.
+- `GET /health`.
+
+Planned per `specs/6/7-platform-api.md`:
+
+- `/v1/web-routes` and `/v1/vhosts` — REST verbs on owned tables.
+
+## Token contract
+
+- `/v1/*` endpoints (current and planned) verify JWTs via
+  `auth.VerifyHTTP`; `auth.Mint` issuance lives at proxyd / MCP host /
+  onbod, never here.
+- `/send`, `/typing`, `/v1/round_done` keep their existing
+  `chanlib.Auth(channelSecret)` HMAC contract.
+- `/api/*`, `/x/*`, `/chat/*`, `/mcp` keep `requireUser` /
+  `requireFolder` middleware over headers signed by `proxyd`
+  (`PROXYD_HMAC_SECRET`).
+- `/slink/*` stays unauthenticated; the URL token IS the capability.
+
+## Future work
+
+webd's `/api/*` chat reads currently hit the shared DB directly. Once
+gated ships `/v1/messages` per the platform API spec, migrate these
+reads to gated; webd then owns only `web_routes`, `vhosts`, and slink
+tokens end-to-end.
+
 ## Entry points
 
 - Binary: `webd/main.go`
 - Listen: `$WEBD_LISTEN` (default `:8080`)
-- Routes listed in `pages.go`, `api.go`, `slink.go`
+- Routes wired in `server.go`
 
 ## Dependencies
 
@@ -55,6 +102,7 @@ delivered messages.
 
 ## Related docs
 
+- `specs/6/7-platform-api.md` — federated `/v1/*` contract
 - `specs/5/J-sse.md` — SSE streams + slink-MCP transport
 - `specs/6/3-chat-ui.md`
 - `ARCHITECTURE.md` (Web Channel section)
