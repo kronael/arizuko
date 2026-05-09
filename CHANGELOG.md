@@ -12,6 +12,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.20] — 2026-05-09
+
+> arizuko v0.33.20 — 09 May 2026
+>
+> • New `/support` skill — verified-answer orchestrator: cites primary source up front, threads multi-turn cases on the same entity, never samples a range query
+> • Support product (Atlas) gets the skill — factual questions land on the recorded outcome instead of a derived guess
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- `/support` skill (`ant/skills/support/`) — orchestrator that answers concrete factual questions about domain entities with primary-source citations. Four phases: case (continuation detection by entity ID, reply-pointer, or correction phrase), gather (open canonical source, grep literal ID, read recorded outcome), reply (front-load answer + cite source path + field, render through `~/SOUL.md` Voice), persist (write new sources to `~/facts/sources.md`)
+- Spec at `specs/7/2-support-skill.md` — rationale, composition table, acceptance criteria. Driven by the 2026-05-09 Atlas support exchange that took 5 correction turns to land on a single field in `results.json`
+
+### Changed
+
+- `specs/7/product-support.md` skills table now requires `support`
+
+---
+
 ## [v0.33.19] — 2026-05-09
 
 > arizuko v0.33.19 — 09 May 2026

@@ -21,13 +21,14 @@ unresolved question to diary so the operator can fill gaps in facts/.
 
 ## Skills
 
-| Skill           | Required |
-| --------------- | -------- |
-| diary           | yes      |
-| facts           | yes      |
-| recall-memories | yes      |
-| users           | yes      |
-| web             | optional |
+| Skill           | Required | Notes                                                       |
+| --------------- | -------- | ----------------------------------------------------------- |
+| support         | yes      | orchestrator — see [2-support-skill.md](2-support-skill.md) |
+| diary           | yes      |                                                             |
+| facts           | yes      |                                                             |
+| recall-memories | yes      |                                                             |
+| users           | yes      |                                                             |
+| web             | optional |                                                             |
 
 No `bash`, no `commit`, no `oracle` — support agent has minimal
 capability footprint.

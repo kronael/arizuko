@@ -10,12 +10,13 @@ out of the box.
 
 ## Infrastructure
 
-| Spec                                             | Status   | Hook                                                                       |
-| ------------------------------------------------ | -------- | -------------------------------------------------------------------------- |
-| [R-products.md](R-products.md)                   | active   | Curated persona+skill templates; `--product` flag on `arizuko create`.     |
-| [4-hitl-firewall.md](4-hitl-firewall.md)         | deferred | pending_actions queue + /dash/review; holds MCP calls for operator review. |
-| [5-authoring-product.md](5-authoring-product.md) | deferred | Authoring agent design reference (see product-creator.md).                 |
-| [6-web-routes.md](6-web-routes.md)               | spec     | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.  |
+| Spec                                             | Status   | Hook                                                                          |
+| ------------------------------------------------ | -------- | ----------------------------------------------------------------------------- |
+| [R-products.md](R-products.md)                   | active   | Curated persona+skill templates; `--product` flag on `arizuko create`.        |
+| [4-hitl-firewall.md](4-hitl-firewall.md)         | deferred | pending_actions queue + /dash/review; holds MCP calls for operator review.    |
+| [5-authoring-product.md](5-authoring-product.md) | deferred | Authoring agent design reference (see product-creator.md).                    |
+| [6-web-routes.md](6-web-routes.md)               | spec     | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.     |
+| [2-support-skill.md](2-support-skill.md)         | spec     | `/support` orchestrator: primary-source citation + multi-turn case threading. |
 
 Platform/API surface moved to [specs/6/](../6/) — products consume the
 control API; the API design ships before the products that depend on it.
