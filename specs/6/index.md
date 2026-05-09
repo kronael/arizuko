@@ -25,7 +25,7 @@ The infrastructure phase that has to ship before products. Two strands:
 | ------------------------------------------------ | ------ | ------------------------------------------------------------------------- |
 | [R-genericization.md](R-genericization.md)       | draft  | Generic primitives in shared types; per-daemon DB ownership; gated split. |
 | [R-platform-api.md](R-platform-api.md)           | spec   | Federated `/v1/*` per daemon, capability-token auth, shared `auth/` lib.  |
-| [1-auth-standalone.md](1-auth-standalone.md)     | spec   | `auth/` library + `authd` daemon + MCP tools — token-authority component. |
+| [1-auth-standalone.md](1-auth-standalone.md)     | spec   | `auth/` capability library — verify/mint/OAuth-flow/MCP-tools, no daemon. |
 | [2-proxyd-standalone.md](2-proxyd-standalone.md) | spec   | proxyd as TOML-driven authenticating gateway; routes via API + MCP tools. |
 
 Genericization spec is sketched but not written. It precedes the API

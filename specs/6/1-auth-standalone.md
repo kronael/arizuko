@@ -2,32 +2,44 @@
 status: spec
 ---
 
-# auth: standalone token authority
+# auth: capability library
 
-Make `auth/` a fully generic token-authority component: a tight Go
-library + a thin `authd` HTTP daemon + a small MCP tool surface.
-Anyone — arizuko or not — should be able to drop it in to mint and
-verify capability tokens, run an OAuth login flow, or expose
-self-service identity to agents and operators.
+`auth/` is a Go capability library — not a daemon. Mint, verify,
+scope-check, OAuth flow, and MCP tool handlers all live in the
+library. Any daemon that needs auth imports the library and mounts
+the handlers it wants on its own HTTP mux and MCP server. No
+network hop for verification. No `authd` binary.
 
-This is the **first blueprint** for genericization. The shape this
-spec lands on (library + daemon + MCP) is the pattern proxyd, timed,
-and the routerd extraction will follow.
+This is the **first blueprint** for genericization. It establishes a
+pattern other components will mirror only where it fits: many
+components (timed, proxyd, routerd) genuinely need a daemon because
+they own long-running state or network protocols. Auth doesn't —
+it's pure functions + handlers — so it ships as a library.
 
-## Why auth first
+## Why no daemon
 
-- The smallest reachable cut: most of the code is already generic
-  (`hmac.go`, `jwt.go`, `oauth.go`, `middleware.go`, `web.go`); only
-  three files carry arizuko-specific concepts (`acl.go`, `policy.go`,
-  `identity.go`).
-- Every other daemon depends on this contract. A clean auth library
-  is the prerequisite for any of them being deployable in isolation
-  (every daemon has to verify tokens; every issuer has to mint them).
-- A standalone `authd` daemon also unblocks non-Go consumers of
-  arizuko's token format — language doesn't matter once HTTP is the
-  contract.
+A daemon makes sense when there's something the library can't do
+in-process:
 
-## Today's surface
+- Long-running state that only one process should own (a cron
+  scheduler, a message router, a gateway holding sessions).
+- A network protocol surface external clients must hit (HTTP,
+  gRPC, MCP socket).
+- Hardware or kernel resources (a sandbox supervisor, a TLS
+  terminator).
+
+Auth has none of those. Verification is a function over `(token,
+key)`. Mint is a function over `(claims, key)`. Scope check is a
+predicate. OAuth flow needs HTTP handlers, but those handlers are
+stateless or use short-TTL pending-state — they can mount on any
+daemon's existing HTTP mux. MCP tools are tiny and can be
+registered with any daemon's MCP server.
+
+Adding a daemon would only add latency (network hop per
+verification) and a fault domain (every backend now depends on auth
+being up). For zero benefit.
+
+## Today's `auth/`
 
 ```
 auth/
@@ -37,7 +49,7 @@ auth/
   middleware.go       generic — RequireSigned / StripUnsigned guards
   web.go              generic — login/callback/logout HTTP handlers
   routes.go           generic — provider route registration
-  link.go             generic — account linking (multi-provider one user)
+  link.go             generic — multi-provider account linking
   collide.go          generic — handles two providers landing on same user
   ───
   acl.go              arizuko — folder-tier ACL evaluator
@@ -45,30 +57,35 @@ auth/
   identity.go         arizuko — identity model with folder/tier fields
 ```
 
-`acl.go`, `policy.go`, `identity.go` will move out (see "Target
-shape" below). The rest stays in `auth/`.
+`acl.go`, `policy.go`, `identity.go` move out (see Target shape).
+The rest stays.
 
 ## Target shape
 
-Three pieces:
+A single Go module exposing four surfaces:
 
-### 1. `auth/` library — pure mint/verify primitives
-
-After cleanup, `auth/` is platform-neutral. It exposes:
+### 1. Verification primitives
 
 ```go
-// Mint a capability token. Caller composes the claims.
-func Mint(claims Claims, key []byte, ttl time.Duration) (string, error)
-
-// Verify any incoming token. Returns Identity if valid.
+// Verify any incoming token. Pure function, no IO.
 func VerifyHTTP(r *http.Request, key []byte) (Identity, error)
 func VerifyToken(token string, key []byte) (Identity, error)
 
 // Scope check primitives.
 func HasScope(ident Identity, resource, verb string) bool
+func MatchesAudience(ident Identity, aud string) bool
+```
 
-// OAuth flow.
-func RegisterRoutes(mux *http.ServeMux, providers []OAuthProvider, key []byte, opts ...Option)
+### 2. Mint primitives
+
+```go
+// Mint a capability token. Caller composes claims + holds the key.
+func Mint(claims Claims, key []byte, ttl time.Duration) (string, error)
+
+// Downscope: mint a narrower token from an existing one. Used for
+// agent → sub-agent delegation, and for the `mint_token` MCP tool.
+// Returns error if requested scope is broader than parent's scope.
+func MintNarrower(parent Identity, claims Claims, key []byte, ttl time.Duration) (string, error)
 ```
 
 `Claims` and `Identity` carry only generic fields:
@@ -77,245 +94,224 @@ func RegisterRoutes(mux *http.ServeMux, providers []OAuthProvider, key []byte, o
 type Claims struct {
     Sub      string                 // subject (user, agent, key)
     Scope    []string               // capability list ("tasks:write", ...)
-    Audience string                 // optional, for multi-app deployments
+    Audience string                 // optional, multi-app deployments
     Extra    map[string]string      // app-specific opaque fields
     TTL      time.Duration
-    Issuer   string                 // "proxyd", "authd", "mcp-host", ...
+    Issuer   string                 // "proxyd", "mcp-host", ...
 }
 
 type Identity struct {
     Sub      string
     Scope    []string
     Audience string
-    Extra    map[string]string      // includes "folder", "tier" for arizuko consumers
+    Extra    map[string]string      // includes "folder", "tier" for arizuko
     Issuer   string
     Expires  time.Time
 }
 ```
 
-Folder, tier, and other arizuko concepts move into `Extra` — the
+Folder, tier, and other arizuko concepts move into `Extra`. The
 library doesn't know what those keys mean. Arizuko-specific helpers
-(folder-match, tier-int) live in a new `arizuko/identity.go` outside
-the library, building on the generic `Identity`.
+live in `arizuko/identity.go` outside `auth/`, building on the
+generic `Identity`.
 
-### 2. `authd/` daemon — HTTP wrapper
+### 3. OAuth flow handlers (mountable)
 
-A minimal Go binary mounting:
+OAuth needs HTTP endpoints (`login`, `callback`, `logout`, `me`).
+Those are exported as handlers any daemon can mount on its own mux:
 
-```
-GET   /auth/login?provider=…&redirect=…
-GET   /auth/callback                       # OAuth code exchange → token cookie
-POST  /auth/logout
-GET   /auth/me                             # current identity (verifies cookie/Bearer)
-POST  /v1/tokens                           # mint (requires admin scope)
-POST  /v1/tokens:verify                    # introspect a token
-POST  /v1/tokens:revoke                    # add to revocation list (planned)
-GET   /v1/providers                        # list configured OAuth providers
-GET   /v1/users/{sub}                      # identity record (multi-provider linking)
-GET   /health
-```
+```go
+// Provider configuration.
+type Provider struct {
+    ID, Type, ClientID, ClientSecret, DiscoveryURL string
+    // ...
+}
 
-Configured via TOML:
+// Returns a set of HTTP handlers ready to mount.
+func Handlers(providers []Provider, key []byte, opts ...Option) AuthHandlers
 
-```toml
-listen     = ":8080"
-secret_env = "AUTH_SECRET"
-ttl        = "1h"
+type AuthHandlers struct {
+    Login    http.HandlerFunc   // GET /auth/login
+    Callback http.HandlerFunc   // GET /auth/callback
+    Logout   http.HandlerFunc   // POST /auth/logout
+    Me       http.HandlerFunc   // GET /auth/me
+}
 
-[[provider]]
-id      = "google"
-type    = "oidc"
-client_id = "..."
-client_secret_env = "GOOGLE_OAUTH_SECRET"
-discovery_url = "https://accounts.google.com/.well-known/openid-configuration"
-
-[[provider]]
-id   = "github"
-type = "github"
-# ...
+// Convenience: mount all four on a mux at the standard paths.
+func Mount(mux *http.ServeMux, providers []Provider, key []byte, opts ...Option)
 ```
 
-Stateless except for: pending OAuth state (short TTL in-memory or
-redis-shaped), account-linking records (sqlite or postgres). No
-arizuko schema dependency.
+Today proxyd is the daemon that mounts these. Tomorrow any daemon
+can — multiple deployments, multiple gateways, all using the same
+handlers from the same library. No `authd` binary mediating.
 
-### 3. MCP tool surface
+Pending-state for OAuth (the short-lived `state` cookie/token between
+`/auth/login` and `/auth/callback`) lives in-process with whichever
+daemon mounted the handlers. Defaults to in-memory; pluggable
+`StateStore` interface for ops needing redis or shared state.
 
-For agents that need to introspect or mint sub-tokens (e.g. a
-delegation pattern where one agent issues a narrower-scope token to
-a sub-agent it spawns):
+Account-linking records (one user, multiple providers) are stored
+via a pluggable `LinkStore` interface. Default: SQLite at a
+configured path. Daemons that don't care about linking pass nil.
 
-| Tool             | Purpose                                        | Scope required     |
-| ---------------- | ---------------------------------------------- | ------------------ |
-| `whoami`         | Return the agent's own Identity                | none               |
-| `mint_token`     | Mint a token narrower than caller's own scope  | `tokens:mint:self` |
-| `verify_token`   | Introspect a token (does it parse, what scope) | `tokens:read`      |
-| `list_providers` | List configured OAuth providers                | none               |
-| `revoke_token`   | Add token to revocation list (when shipped)    | `tokens:revoke`    |
+### 4. MCP tool handlers (mountable)
 
-`mint_token` is the interesting one — it enforces "caller cannot
-mint scopes broader than its own", so an agent can downscope itself
-or a subagent without escalation. Useful once multi-agent flows
-land.
+MCP tools for agents that need to introspect or mint sub-tokens:
 
-The MCP tools are exposed by `authd` as a built-in MCP server (see
-"MCP integration pattern" below); other daemons that need agent-side
-auth pull tools by importing this same MCP server registration.
+```go
+// Returns MCP tool definitions ready to register with any MCP server.
+func MCPTools(key []byte) []MCPTool
 
-## Outward API contract — full
-
-```
-GET  /auth/login?provider=<id>&redirect=<url>
-     302 → provider OAuth URL with state cookie
-
-GET  /auth/callback?code=…&state=…
-     OAuth code exchange. On success: 302 to redirect with
-     Set-Cookie: session=<jwt>. Errors return 4xx with body.
-
-POST /auth/logout
-     Clears cookie. 200.
-
-GET  /auth/me
-     Authorization: Bearer <token>  OR  Cookie: session=<token>
-     200 { sub, scope, audience, extra, issuer, expires }
-     401 if missing/invalid.
-
-POST /v1/tokens
-     Authorization: Bearer <admin-token>
-     { sub, scope[], audience?, extra?, ttl_seconds? }
-     200 { token, expires }
-     403 if caller lacks scope `tokens:mint`.
-     400 if requested scope > caller's scope (downscope only).
-
-POST /v1/tokens:verify
-     Authorization: Bearer <any valid token>  (introspection is open
-     to anyone holding any valid token — they're proving they're
-     known)
-     { token: "..." }
-     200 { valid: true|false, identity: {...}, error: "..." }
-
-GET  /v1/providers
-     200 [{ id, type, label }]
-     Public — used by login UIs.
-
-GET  /v1/users/{sub}
-     Authorization: Bearer <token>  (caller must be sub or admin)
-     200 { sub, name, providers: [{provider, sub_in_provider, linked_at}] }
-     404 if unknown.
-
-GET  /health
-     200 ok
+// MCPTool is a small struct: name, description, schema, handler.
+// Hosting daemon iterates and registers each with its server.
 ```
 
-Errors uniform across `/v1/*`:
+| Tool             | Purpose                                        | Scope required            |
+| ---------------- | ---------------------------------------------- | ------------------------- |
+| `whoami`         | Return the caller's own Identity               | none                      |
+| `mint_token`     | Mint a token narrower than caller's own scope  | (downscope-only enforced) |
+| `verify_token`   | Introspect a token (does it parse, what scope) | any valid token           |
+| `list_providers` | List configured OAuth providers                | none                      |
 
-```json
-{ "error": { "code": "forbidden", "message": "scope tokens:mint required" } }
-```
+`mint_token` enforces downscope-only via `MintNarrower`: the agent
+can only issue tokens with a strict subset of its own scope. This is
+the primitive that makes agent → sub-agent delegation safe without
+admin in the loop.
 
-## Token format
+The MCP host (gated's ipc subsystem today) mounts these alongside its
+existing tools. Each agent's MCP socket then carries the auth tools
+locally — same library, in-process, no network hop.
 
-Standard JWT (HS256) with `AUTH_SECRET`:
+## Mounting pattern
 
-```json
-{
-  "sub": "user:abc123",
-  "scope": ["tasks:write", "messages:read"],
-  "aud": "arizuko",
-  "extra": { "folder": "atlas/main", "tier": "2" },
-  "iat": 1735000000,
-  "exp": 1735003600,
-  "iss": "proxyd"
+A daemon that wants the OAuth flow + MCP tools writes:
+
+```go
+import "github.com/onvos/arizuko/auth"
+
+func main() {
+    key := []byte(os.Getenv("AUTH_SECRET"))
+
+    // OAuth handlers on the HTTP mux.
+    mux := http.NewServeMux()
+    auth.Mount(mux, providers, key,
+        auth.WithLinkStore(linkStore),
+        auth.WithStateStore(stateStore),
+    )
+
+    // MCP tools on the MCP server (if this daemon hosts one).
+    for _, tool := range auth.MCPTools(key) {
+        mcpServer.RegisterTool(tool)
+    }
+
+    // ... daemon's own routes and tools ...
+
+    http.ListenAndServe(":8080", mux)
 }
 ```
 
-`extra` is opaque to `auth/`; arizuko consumers read `folder` /
-`tier` from it. Other deployments ignore the field.
+Three lines per daemon to add full auth, no service dependency.
 
-## What changes from today
+## Where each role lives, after this lands
 
-| Today                                                                  | After                                                                   |
-| ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `auth/` mixes generic + arizuko code                                   | `auth/` is pure generic; `arizuko/identity.go` adds arizuko helpers     |
-| Token mint scattered (proxyd writes its own; `auth.Mint` planned only) | One canonical `auth.Mint` with downscope-only enforcement at HTTP layer |
-| Identity headers signed via HMAC, JWTs separately                      | JWT is the wire format; HMAC headers are a transition mechanism only    |
-| No HTTP API for token operations                                       | `authd` exposes `/v1/tokens/*` for non-Go consumers                     |
-| No agent-facing token tools                                            | MCP tools (`whoami`, `mint_token`, …) for delegation flows              |
-| OAuth provider list hardcoded in proxyd                                | TOML-configured in `authd`                                              |
+| Role                                  | Where                                                   |
+| ------------------------------------- | ------------------------------------------------------- |
+| Verify a token                        | Anywhere — call `auth.VerifyHTTP` in-process            |
+| Mint a token from claims              | Wherever the signing key is (proxyd, MCP host, …)       |
+| Downscope an existing token           | `auth.MintNarrower` in-process                          |
+| OAuth login + callback                | proxyd today (mounts `auth.Handlers`); any daemon could |
+| MCP tools (`whoami`, `mint_token`, …) | gated's ipc subsystem (mounts `auth.MCPTools`)          |
+| Account-linking storage               | Pluggable; default SQLite via `LinkStore`               |
+| Pending OAuth state                   | Pluggable; default in-memory via `StateStore`           |
 
 ## What this spec is not
 
-- Not centralized revocation. A revocation list is sketched but
-  parked — short TTL is the default mitigation. If revocation
-  becomes load-bearing, that's its own spec.
-- Not OIDC discovery beyond what's needed for login. Full OIDC
-  conformance is later work.
-- Not multi-tenancy at the auth layer. `audience` exists for that
-  but enforcement (one signing key per audience) is deferred.
-- Not a database split. `authd`'s state (account linking) lives
-  wherever the operator points it; today that's the same SQLite as
-  the rest. Per-daemon DB is a separate phase.
+- Not an auth daemon. The library is the entire shipping artifact;
+  daemons import it.
+- Not centralized revocation. Short TTL is the default; a
+  revocation list is a future addition (a `RevocationStore`
+  interface; the library checks it during `Verify`).
+- Not full OIDC conformance. Login flow is JWT-issuing OAuth code
+  exchange — enough for arizuko + most deployments.
+- Not multi-key per audience. One `AUTH_SECRET` per deployment.
+  Audience is for routing, not key separation.
 
 ## Implementation phases
 
-1. **Extract arizuko-specific code** — move `acl.go`, `policy.go`,
-   `identity.go` arizuko fields into a new `arizuko/identity.go` (or
-   similar). `auth/` left with only generic primitives. No
-   behaviour change. Pure refactor.
+1. **Extract arizuko-specific code.** Move `acl.go`, `policy.go`,
+   `identity.go` (folder/tier fields) out of `auth/` into a new
+   `arizuko/identity.go`. `auth/` left with only generic primitives.
+   Pure refactor.
 
-2. **Implement `auth.Mint`** — the function is referenced in the
-   API spec but not yet implemented. Land it; migrate proxyd's
-   existing JWT issuance to use it. Backward compatible: same JWT
-   format, same `AUTH_SECRET`.
+2. **Implement `Mint` + `MintNarrower`.** The functions are
+   referenced in the API but not yet coded. Land them; migrate
+   proxyd's existing JWT-mint to call `auth.Mint`.
 
-3. **Stand up `authd`** — new binary at `authd/main.go`. Mount the
-   HTTP API listed above. Initially serves a deployment with
-   identical OAuth config to today's proxyd; can be deployed
-   side-by-side.
+3. **Refactor OAuth handlers as mountable.** `auth.Handlers` /
+   `auth.Mount` returns/registers the four routes. Pluggable
+   `StateStore` and `LinkStore` interfaces with default
+   implementations.
 
-4. **MCP tools** — add `whoami`, `mint_token`, `verify_token`,
-   `list_providers` to a built-in MCP server in `authd`. Expose via
-   unix socket or HTTP-MCP endpoint.
+4. **MCP tool handlers.** `auth.MCPTools` returns the four tools
+   ready to register. gated's ipc subsystem (today's MCP host)
+   mounts them.
 
-5. **Migrate proxyd** — proxyd stops minting tokens directly; it
-   calls `authd /v1/tokens` (or imports the library form). proxyd
-   becomes pure gateway + proxy.
+5. **Document for non-arizuko deployment.** `auth/README.md` covers
+   "drop me in your service" usage. Examples for OAuth providers
+   (Google/GitHub/OIDC), account linking, MCP integration.
 
-6. **Document for non-arizuko deployment** — `authd/README.md`
-   covers "drop me in next to your service" usage. Example configs
-   for Google/GitHub/OIDC providers.
-
-After step 2 the library is clean. After step 3 standalone deployment
-is possible. After step 5 the arizuko stack uses authd as the canonical
-issuer.
+After step 2 the library is internally consistent. After step 4 the
+full target surface is shipped. No new binaries; no new processes.
 
 ## Code pointers
 
-- `auth/hmac.go`, `auth/jwt.go`, `auth/oauth.go` — keep as-is, generic.
-- `auth/middleware.go`, `auth/web.go`, `auth/routes.go`, `auth/link.go`,
-  `auth/collide.go` — keep, generic.
+- `auth/hmac.go`, `auth/jwt.go`, `auth/oauth.go`, `auth/middleware.go`,
+  `auth/web.go`, `auth/routes.go`, `auth/link.go`, `auth/collide.go` —
+  keep, generic.
 - `auth/acl.go`, `auth/policy.go`, `auth/identity.go` — move out
-  (folder/tier-aware code).
-- `proxyd/main.go` — JWT mint moves to call `auth.Mint` (or `authd`).
+  to `arizuko/identity.go` (or similar).
+- `auth/mcp.go` (new) — MCP tool definitions returned by `MCPTools`.
+- `auth/store.go` (new) — `StateStore` and `LinkStore` interfaces +
+  default implementations.
 - `arizuko/identity.go` (new) — folder/tier helpers reading from
   `Identity.Extra`.
-- `authd/main.go` (new) — daemon entry; mounts HTTP API + MCP tools.
-- `authd/README.md` (new) — usage as standalone component.
+- `proxyd/main.go` — calls `auth.Mount` for OAuth, `auth.Mint` for
+  tokens.
+- `gated/ipc/...` (or wherever the MCP host lives) — registers
+  `auth.MCPTools` alongside its own tools.
 
 ## Open
 
-- **Where does `authd` keep linking state?** Defaults to SQLite next
-  to its config. Operators wanting central state (e.g. one authd for
-  many backends) can point at a shared file or postgres. Schema is
-  small (one table + linked-providers join).
-- **How does `mint_token` enforce downscope?** Caller's scope set
-  must be a superset of requested scope set. `*:*` allows anything.
-  Wildcards (`tasks:*`) match anything in the namespace. Easy to
-  implement; needs care on operator-issued tokens.
-- **Does `authd` host the MCP server itself, or expose it via webd
-  for browser-side agents?** Lean: authd hosts directly over a unix
-  socket; webd proxies if a browser-side path is needed.
-- **Does the library form survive long-term, or do all consumers
-  call `authd` over HTTP?** Lean: both — Go consumers can call
-  library or daemon; non-Go must use daemon. The library is just
-  the daemon's handler logic with the HTTP layer stripped.
+- **Where do account-linking records live by default?** SQLite at a
+  configured path. Options to point at postgres or share with another
+  store via `LinkStore` interface.
+- **`mint_token` over MCP — is the agent the bearer or just a
+  proxy?** The agent holds its own token (its identity). When it
+  calls `mint_token`, the library uses the agent's scope as the
+  parent for downscope. The minted token returns to the agent; the
+  agent decides who to give it to (typically a sub-agent it
+  spawns).
+- **Wildcard scopes.** `*:*` allows everything. `tasks:*` allows any
+  task verb. Match logic lives in `HasScope`; spec'd here as exact
+  - namespace wildcards only. More complex matching later.
+- **OAuth state cookie vs JWT.** Today the `state` parameter is a
+  cookie. Library form keeps that; daemons can override via
+  `StateStore`.
+
+## Blueprint takeaway
+
+The pattern this spec lands on:
+
+1. Decide if the component genuinely needs a daemon. (Long-running
+   state? Network protocol? Shared resource?) If no — make it a
+   library.
+2. Export verification primitives, mint primitives (if it issues
+   anything), HTTP handlers (if it needs flows), and MCP handlers
+   (if agents need to interact). All as functions/structs the
+   consuming daemon mounts.
+3. Daemons import and mount what they need.
+
+Auth fits this. proxyd, timed, routerd don't — they're genuinely
+daemons. Their specs follow a different blueprint (library + daemon
+
+- MCP) because they own state and protocols.
