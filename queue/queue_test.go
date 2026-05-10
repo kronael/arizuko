@@ -2,6 +2,7 @@ package queue
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -198,6 +199,7 @@ func TestSendMessages_NoGroupFolderReturnsFalse(t *testing.T) {
 func TestSendMessages_WritesOneFilePerMessage(t *testing.T) {
 	ipcDir := t.TempDir()
 	q := New(1, ipcDir)
+	q.SetSignalContainerForTest(func(string) error { return nil })
 
 	q.mu.Lock()
 	s := q.getGroup("g1")
@@ -243,6 +245,65 @@ func TestSendMessages_WritesOneFilePerMessage(t *testing.T) {
 		if !seen[text] {
 			t.Errorf("missing file with text=%q", text)
 		}
+	}
+}
+
+// Regression: when ant's runner exits ("Input empty, exiting") between
+// gated's queue check and the SIGUSR1, kill fails. Previously the error
+// was swallowed (`_ = exec.Command(...).Run()`) and SendMessages returned
+// true — the chat cursor advanced as if the steer succeeded, but the IPC
+// file was orphaned and no future poll would pick the message back up
+// until the user sent something else. Symptom on sloth 2026-05-10 20:23:
+// user message disappeared, no reply, no error logged. The fix marks the
+// slot inactive and returns false so the caller falls through to
+// EnqueueMessageCheck, spawning a fresh container that drains the orphan.
+func TestSendMessages_SignalFailMarksInactive(t *testing.T) {
+	ipcDir := t.TempDir()
+	q := New(1, ipcDir)
+	q.SetSignalContainerForTest(func(string) error {
+		return fmt.Errorf("container not running")
+	})
+
+	q.mu.Lock()
+	s := q.getGroup("g1")
+	s.active = true
+	s.groupFolder = "fold"
+	s.containerName = "dying-container"
+	q.activeCount = 1
+	q.activeFolders["fold"] = "g1"
+	q.mu.Unlock()
+
+	ok := q.SendMessages("g1", []string{"hello"})
+	if ok {
+		t.Fatal("SendMessages returned true; want false when signal fails")
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if s.active {
+		t.Error("slot still active after signal failure")
+	}
+	if s.containerName != "" {
+		t.Errorf("containerName = %q, want empty", s.containerName)
+	}
+	if q.activeCount != 0 {
+		t.Errorf("activeCount = %d, want 0", q.activeCount)
+	}
+	if _, exists := q.activeFolders["fold"]; exists {
+		t.Error("activeFolders still has entry for fold")
+	}
+
+	// The IPC file is intentionally NOT removed — next spawn drains it
+	// via drainIpcInput() at session start.
+	entries, _ := os.ReadDir(filepath.Join(ipcDir, "fold", "input"))
+	jsonCount := 0
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") {
+			jsonCount++
+		}
+	}
+	if jsonCount != 1 {
+		t.Errorf("orphaned IPC files = %d, want 1 (file persists for next spawn)", jsonCount)
 	}
 }
 

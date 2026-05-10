@@ -44,15 +44,33 @@ type GroupQueue struct {
 	folderForJid    folderForJidFn
 	shuttingDown    bool
 	ipcDir          string
+	// signalContainer triggers SIGUSR1 on a running container by name.
+	// Returns nil on success; non-nil if the container is not running
+	// (used to detect steer-into-dying-container race in SendMessages).
+	signalContainer func(name string) error
 }
 
 func New(maxConcurrent int, ipcDir string) *GroupQueue {
 	return &GroupQueue{
-		groups:        make(map[string]*groupState),
-		activeFolders: make(map[string]string),
-		maxConcurrent: maxConcurrent,
-		ipcDir:        ipcDir,
+		groups:          make(map[string]*groupState),
+		activeFolders:   make(map[string]string),
+		maxConcurrent:   maxConcurrent,
+		ipcDir:          ipcDir,
+		signalContainer: defaultSignalContainer,
 	}
+}
+
+func defaultSignalContainer(name string) error {
+	return exec.Command(container.Bin, "kill", "--signal=SIGUSR1", name).Run()
+}
+
+// SetSignalContainerForTest overrides the SIGUSR1 sender. Tests use this
+// to simulate the race (returns error → slot marked inactive) or the
+// happy path (returns nil → steer succeeds) without a live docker.
+func (q *GroupQueue) SetSignalContainerForTest(fn func(name string) error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.signalContainer = fn
 }
 
 func (q *GroupQueue) getGroup(groupJid string) *groupState {
@@ -148,6 +166,9 @@ func (q *GroupQueue) RegisterProcess(groupJid, containerName, groupFolder string
 }
 
 // SetActiveForTest simulates an active container without running docker.
+// Also installs a no-op signalContainer so SendMessages doesn't try to
+// SIGUSR1 a non-existent container; tests that want to simulate the
+// race override afterwards via SetSignalContainerForTest.
 func (q *GroupQueue) SetActiveForTest(groupJid, containerName, groupFolder string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -156,6 +177,7 @@ func (q *GroupQueue) SetActiveForTest(groupJid, containerName, groupFolder strin
 	s.containerName = containerName
 	s.groupFolder = groupFolder
 	q.activeCount++
+	q.signalContainer = func(string) error { return nil }
 }
 
 func (q *GroupQueue) SendMessages(groupJid string, texts []string) bool {
@@ -185,7 +207,29 @@ func (q *GroupQueue) SendMessages(groupJid string, texts []string) bool {
 	if written == 0 {
 		return false
 	}
-	_ = exec.Command(container.Bin, "kill", "--signal=SIGUSR1", cname).Run()
+	if err := q.signalContainer(cname); err != nil {
+		// Race: ant runner exited (no input → graceful shutdown) but the
+		// docker container hasn't fully reported "exited" yet, so the
+		// queue slot still looks active. The IPC files we just wrote are
+		// orphaned — they'll be drained by the next spawn via
+		// drainIpcInput() at session start (ant/src/index.ts). Mark the
+		// slot inactive so the caller falls through to EnqueueMessageCheck
+		// and we get a fresh container right away instead of waiting for
+		// the next inbound message.
+		q.mu.Lock()
+		s.active = false
+		s.containerName = ""
+		if q.activeFolders[folder] == groupJid {
+			delete(q.activeFolders, folder)
+		}
+		if q.activeCount > 0 {
+			q.activeCount--
+		}
+		q.mu.Unlock()
+		slog.Warn("steer: signal failed, container gone — slot marked inactive, IPC file persists for next spawn",
+			"jid", groupJid, "folder", folder, "container", cname, "err", err)
+		return false
+	}
 	slog.Info("steer: sent messages into running container",
 		"jid", groupJid, "folder", folder, "count", written)
 	return true

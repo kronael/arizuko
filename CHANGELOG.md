@@ -12,6 +12,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.23] — 2026-05-10
+
+> arizuko v0.33.23 — 10 May 2026
+>
+> • Mid-session steer-into-dying-container race fixed — messages arriving in the second a container is shutting down no longer get silently lost
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- `queue.SendMessages` (`queue/queue.go`) now captures the SIGUSR1 error when steering into a running container. Previously the error was discarded (`_ = exec.Command(...).Run()`), so a kill against a dying container returned success from gated's perspective: chat cursor advanced, IPC file orphaned, no spawn ever followed up. Symptom on sloth 2026-05-10 20:23 — user message vanished, no reply, no error logged. The fix marks the slot inactive on signal failure and returns false; the caller falls through to `EnqueueMessageCheck` and a fresh container is spawned that drains the orphan via `drainIpcInput()` at session start.
+
+### Added
+
+- `queue/queue_test.go` `TestSendMessages_SignalFailMarksInactive` — race regression test. Stubs `signalContainer` to return error, asserts slot becomes inactive, `SendMessages` returns false, IPC file persists for next spawn.
+- `queue.GroupQueue.SetSignalContainerForTest` — test seam for the signal sender (default = `docker kill --signal=SIGUSR1`). `SetActiveForTest` now installs a no-op signal by default so existing tests don't accidentally exercise the race.
+
+---
+
 ## [v0.33.22] — 2026-05-10
 
 > arizuko v0.33.22 — 10 May 2026
