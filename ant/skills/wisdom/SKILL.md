@@ -34,6 +34,7 @@ disable-model-invocation: true  # user-only; Claude never auto-triggers
 - NEVER "This skill helps you..." marketing prose
 - NEVER duplicate logic between skills — call them, don't copy them
 - NEVER store transient info in skills (releases, dates, in-flight work) — use diary/memory
+- Minimality may be violated by examples that pinpoint a real past failure mode — those earn their lines because they re-anchor the rule to a concrete cost. Hypothetical examples don't earn lines.
 
 ## Creating a skill
 

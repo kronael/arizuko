@@ -532,13 +532,17 @@ func (g *Gateway) pollOnce() {
 			}
 		}
 
-		texts := make([]string, len(chatMsgs))
-		for i, m := range chatMsgs {
-			texts[i] = m.Content
+		ctx := g.ctx
+		if ctx == nil {
+			ctx = context.Background()
 		}
-		if g.queue.SendMessages(chatJid, texts) {
+		for i := range chatMsgs {
+			g.enrichAttachments(ctx, &chatMsgs[i], group.Folder)
+		}
+		rendered := router.FormatMessages(chatMsgs)
+		if g.queue.SendMessages(chatJid, []string{rendered}) {
 			slog.Info("poll: steered messages into running container",
-				"jid", chatJid, "count", len(texts))
+				"jid", chatJid, "count", len(chatMsgs))
 			g.store.SetLastReplyID(chatJid, g.effectiveTopic(chatJid, last.Topic), last.ID)
 			g.recordSteeredTs(chatJid, chatMsgs)
 			continue

@@ -12,6 +12,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.22] — 2026-05-10
+
+> arizuko v0.33.22 — 10 May 2026
+>
+> • Voice messages mid-session are now transcribed — previously they reached the agent as literal `[Voice message]` text with no attachment or transcript
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- Mid-session steering path (`gateway.go:535`) now calls `enrichAttachments` and renders through `router.FormatMessages` — the same pipeline as cold-start. Previously the steering path flattened raw `m.Content`, so messages arriving while a container was running bypassed media download, Whisper transcription, and the `<attachment>` envelope. Atlas's "the file didn't reach me" reply on marinade 2026-05-10 was the symptom.
+- `ant/src/index.ts` IPC drain hook stops re-wrapping messages in `<message>` and stops XML-escaping (gateway pre-renders the full envelope; the escape was defensive code that corrupted gateway output). Single producer, single trusted format.
+
+### Added
+
+- `gateway/gateway_test.go` `TestPollOnce_SteerEnrichesAttachments` — regression that simulates a voice message arriving while a container is active and asserts the IPC payload contains both `<message>` envelope and `<attachment>` metadata. Would have caught the bug.
+
+---
+
 ## [v0.33.21] — 2026-05-09
 
 > arizuko v0.33.21 — 09 May 2026

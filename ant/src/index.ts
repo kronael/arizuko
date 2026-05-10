@@ -48,13 +48,6 @@ const QUERY_TIMEOUT_MS = 15 * 60_000;
 
 const PROGRESS_INTERVAL_MS = 15 * 60_000;
 
-function escapeForSteering(s: string): string {
-  return s
-    .replace(/\]\]>/g, ']]]]><![CDATA[>')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
 function loadAgentMcpServers(): Record<string, McpServerConfig> {
   try {
     const s = JSON.parse(fs.readFileSync(`${HOME}/.claude/settings.json`, 'utf-8'));
@@ -376,11 +369,10 @@ function createIpcDrainHook(): HookCallback {
     const messages = drainIpcInput();
     if (messages.length === 0) return {};
     log(`Piping ${messages.length} IPC messages into active query via PostToolUse hook`);
-    const body = messages.map(m => `<message>${escapeForSteering(m)}</message>`).join('\n');
     return {
       hookSpecificOutput: {
         hookEventName: 'PostToolUse',
-        additionalContext: `<user-steering>\n${body}\n</user-steering>`,
+        additionalContext: `<user-steering>\n${messages.join('\n')}\n</user-steering>`,
       },
     };
   };

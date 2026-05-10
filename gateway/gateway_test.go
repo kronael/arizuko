@@ -465,6 +465,79 @@ func TestPollOnce_SteerRecordsTimestamp(t *testing.T) {
 	}
 }
 
+// Regression: when a message with an attachment arrives mid-session
+// (steering path), it must be enriched and rendered through the same
+// router.FormatMessages envelope as the cold-start path. Otherwise the
+// agent sees a literal "[Voice message]" placeholder with no
+// <attachment path=...> tag and no transcript, and replies "the file
+// didn't reach me" — which is what shipped on marinade 2026-05-10.
+func TestPollOnce_SteerEnrichesAttachments(t *testing.T) {
+	fileSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/ogg")
+		w.Write([]byte("OggS...fake audio"))
+	}))
+	defer fileSrv.Close()
+	whisperSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.ReadAll(r.Body)
+		json.NewEncoder(w).Encode(map[string]string{"text": "voice transcript"})
+	}))
+	defer whisperSrv.Close()
+
+	gw, s := testGateway(t)
+	gw.cfg.MaxContainers = 2
+	gw.cfg.MediaEnabled = true
+	gw.cfg.MediaMaxBytes = 10 * 1024 * 1024
+	gw.cfg.VoiceEnabled = true
+	gw.cfg.WhisperURL = whisperSrv.URL
+	gw.cfg.WhisperModel = "turbo"
+
+	jid := "telegram:1"
+	setGroup(gw, jid, core.Group{Folder: "grp", Name: "Group"})
+	gw.queue.SetActiveForTest(jid, "fake-container-name", "grp")
+
+	atts := `[{"mime":"audio/ogg","filename":"voice.ogg","url":"` + fileSrv.URL + `/voice.ogg","size":17}]`
+	if err := s.PutMessage(core.Message{
+		ID: "m-voice", ChatJID: jid, Sender: "user", Name: "User",
+		Content: "[Voice message]", Timestamp: time.Now().UTC(), Attachments: atts,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.pollOnce()
+
+	// queue.SendMessages writes to ipc/<folder>/input/*.json. The payload's
+	// "text" field must contain the rendered <messages><message ...> envelope
+	// with the <attachment ...> tag — same shape the cold-start path emits.
+	inputDir := filepath.Join(gw.cfg.IpcDir, "grp", "input")
+	files, err := os.ReadDir(inputDir)
+	if err != nil {
+		t.Fatalf("read ipc input dir: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 IPC file written, got %d", len(files))
+	}
+	raw, err := os.ReadFile(filepath.Join(inputDir, files[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct{ Type, Text string }
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("ipc payload not JSON: %v", err)
+	}
+	// Same envelope shape as cold-start (router.FormatMessages output).
+	// Attachment tags are XML-escaped along with the rest of the body —
+	// the agent's CLAUDE.md teaches it to read either form.
+	if !strings.Contains(payload.Text, "<message ") {
+		t.Errorf("steered payload missing <message ...> envelope: %q", payload.Text)
+	}
+	if !strings.Contains(payload.Text, "voice.ogg") {
+		t.Errorf("steered payload missing attachment filename — voice will be invisible: %q", payload.Text)
+	}
+	if !strings.Contains(payload.Text, "voice transcript") {
+		t.Errorf("steered payload missing whisper transcript: %q", payload.Text)
+	}
+}
+
 // Regression: pollOnce must advance the agent cursor after handlePrefixLayer
 // absorbs a message (real child delegation). Otherwise messages would be
 // re-processed on every restart.
