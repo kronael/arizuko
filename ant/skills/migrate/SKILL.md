@@ -1,11 +1,13 @@
 ---
 name: migrate
-description: Root group only. Sync skills and files across groups with conflict resolution.
-when_to_use: >
-  Use when asked to "migrate", "sync skills", "update skills", or "run
-  migrations", OR after pulling a new agent image / observing a bumped
-  MIGRATION_VERSION. Do NOT invoke on routine prompts, fresh sessions, or
-  messages unrelated to release plumbing.
+description: >
+  Root group only. Sync skills and files across all groups (nested
+  subgroups included) with conflict resolution, run pending migrations,
+  apply template overlays, then announce the release. USE when asked to
+  "migrate", "sync skills", "update skills", "run migrations", OR after
+  pulling a new agent image / observing a bumped MIGRATION_VERSION. NOT
+  for routine prompts, fresh sessions, or messages unrelated to release
+  plumbing.
 user-invocable: true
 ---
 
@@ -52,12 +54,17 @@ Never `cp -r` or `rsync` blindly.
 
 ## b) Run pending migrations
 
+Enumerate ALL groups via `refresh_groups` — including nested subgroups
+like `atlas/support`. The `/workspace/data/groups/*/` glob only matches
+one level; refresh_groups returns the full registered set.
+
 ```bash
 src=/workspace/self/ant/skills/self/migrations
 
-for session in /workspace/data/groups/*/; do
+mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' | while read folder; do
+  session="/workspace/data/groups/$folder"
   skills_dir="$session/.claude/skills/self"
-  group=$(basename "$session")
+  group="$folder"
   current=$(cat "$skills_dir/MIGRATION_VERSION")
   pending=$(ls "$src"/*.md \
     | grep -oP '/(\d+)-' | grep -oP '\d+' | sort -n \
@@ -92,11 +99,12 @@ overlays from `/workspace/self/template/<name>/`.
 ```bash
 src_templates=/workspace/self/template
 
-for session in /workspace/data/groups/*/; do
+mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' | while read folder; do
+  session="/workspace/data/groups/$folder"
   self_dir="$session/.claude/skills/self"
   tfile="$self_dir/TEMPLATES"
   test -f "$tfile" || continue
-  group=$(basename "$session")
+  group="$folder"
 
   while IFS= read -r name || [ -n "$name" ]; do
     name=$(echo "$name" | tr -d '[:space:]')

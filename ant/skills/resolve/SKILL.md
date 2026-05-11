@@ -1,7 +1,11 @@
 ---
 name: resolve
-description: Classify message as new task or continuation, recall context, match skills.
-when_to_use: Runs on every prompt via gateway nudge. Do not skip.
+description: >
+  Triage every incoming message — classify (new task vs continuation),
+  recall context from diary/facts/users, match skills against the request,
+  then act. USE on every prompt via gateway nudge. Continuations preserve
+  the skill set from the prior turn — same skills still apply for follow-ups
+  on the same entity. NOT for first-time skill authoring (use wisdom).
 user-invocable: false
 ---
 
@@ -14,7 +18,9 @@ task —". Wrap reasoning in `<think>…</think>`.
 ## 1. Classify
 
 **Continuation** — follow-up to current work (yes, ok, corrections,
-references to something just discussed). Skip to 4.
+references to something just discussed). Skip recall (step 2);
+proceed to dispatch (step 3). The skills that fired on the prior turn
+usually still apply for follow-ups on the same entity.
 
 **New task** — distinct request, or first message in session. If unsure,
 treat as new task.
@@ -36,7 +42,7 @@ grep -ril "<term>" ~/diary/ ~/facts/ ~/users/ 2>/dev/null | head -5
 If a fact's `verified_at` is >14 days old and the task needs accurate
 data, refresh via `/find <topic>`. Delete facts that are wrong.
 
-## 3. Dispatch (new task only)
+## 3. Dispatch (every turn — new task AND continuation)
 
 ```bash
 for d in ~/.claude/skills/*/; do
@@ -47,7 +53,9 @@ done
 ```
 
 Match descriptions against the request. If a skill matches, read its
-SKILL.md and follow its workflow.
+SKILL.md and follow its workflow. On continuations, the same skills
+that matched the prior turn typically still match — keep using them
+unless the entity has clearly changed.
 
 ## 4. Act
 

@@ -12,6 +12,32 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.26] — 2026-05-11
+
+> arizuko v0.33.26 — 11 May 2026
+>
+> • `/resolve` dispatches on every turn — `/support` and other skills now stick across multi-turn cases on the same entity
+> • `/support` verifies before send and investigates on failure — no more confident wrong answers; honest "I can't verify" is the floor
+> • `/support` cites sources at the END of replies, not the start
+> • `/migrate` now reaches nested subgroups (was silently skipping `atlas/support` etc.)
+> • Tool discipline rule in CLAUDE.md — retry on 429, enumerate alternatives before declaring unavailable
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- `ant/skills/resolve/SKILL.md` — continuations no longer skip dispatch. They still skip recall (cheap) but re-match skills against the request. Same bug had blocked `/support` from firing past turn 1 on the same entity, kept `/recall-memories` from priming facts/ on follow-ups, and let the agent derive instead of reading source on continuations.
+- `ant/skills/support/SKILL.md` — citation block moved to end of message (was sentence 2 after the lead answer). Added phase 4 (verify) and phase 5 (investigate). Verify re-greps the cited source for the value claimed; if fail, investigate re-checks entity ID, source path, field name, facts/, then re-runs Gather. If still unverifiable: ship "I can't verify — alternatives: A, B" honestly. Description gains keywords `verify before send`, `self-correct on derivation` so dispatch matches "verify this" / "check your answer" prompts.
+- `ant/skills/migrate/SKILL.md` — sections (b) and overlay loop enumerate groups via `refresh_groups` MCP call instead of `/workspace/data/groups/*/`. The shell glob matched one level only; nested subgroups (`atlas/support`, `atlas/strengths`, `atlas/martin`, etc.) were silently skipped on every migration since the multi-level group hierarchy shipped. `refresh_groups` returns the full registered set.
+- `ant/CLAUDE.md` adds `# Tool discipline` section — on HTTP 429 / timeout / empty result, retry once with backoff before reporting unavailable. Before declaring an API or path doesn't exist, enumerate alternatives (inspect\_\* / facts/sources.md / refs/). "Not accessible" without enumeration is a contract break, same shape as "I derived" instead of "I read".
+- Skills touched in this release (`resolve`, `support`, `migrate`, `persona`) drop the silently-ignored `when_to_use` frontmatter field. Per Anthropic canonical spec and arizuko's own dispatch (`resolve/SKILL.md:42-47` awks only `description:`), `when_to_use` content has never reached the matcher. Content folded into `description` with USE/NOT pattern. Full 43-skill overhaul queued separately.
+
+### Fixed
+
+- atlas/support `PERSONA.md` was malformed (body, no frontmatter — `personaBlock` returned empty, agent ran in default register). Frontmatter restored with proper `name` + `summary` fields. Atlas's voice register now anchors on every inbound turn for the support subgroup.
+
+---
+
 ## [v0.33.25] — 2026-05-11
 
 > arizuko v0.33.25 — 11 May 2026

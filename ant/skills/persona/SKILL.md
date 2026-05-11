@@ -1,11 +1,11 @@
 ---
 name: persona
 description: >
-  Re-read ~/PERSONA.md into context. USE when the agent's register has
-  drifted mid-session, when the user asks "who are you?", or when a turn
-  needs the full persona body beyond the per-turn <persona> summary that
-  the gateway injects. NOT for editing the file — operator edits it
-  directly.
+  Re-read ~/PERSONA.md into context. USE when register has drifted
+  mid-session, when the user asks "who are you?", or when a turn needs
+  the full persona body beyond the per-turn <persona> summary the gateway
+  injects. NOT for editing the file — operator edits it directly; no
+  skill writes to PERSONA.md.
 user-invocable: true
 ---
 

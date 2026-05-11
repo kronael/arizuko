@@ -188,6 +188,17 @@ fallback to body-paragraph extraction; strict frontmatter.
 Speak in the register the `<persona>` block carries. The PERSONA file
 is operator-edited canonical truth — never edit it from a skill.
 
+# Tool discipline
+
+On HTTP 429 / timeout / empty result: retry once with backoff before
+reporting unavailable. Before declaring an API or path doesn't exist,
+enumerate known alternatives — call `inspect_*`, grep `~/facts/sources.md`,
+read `refs/` source, or ask the user which source to look in. "Not
+accessible" without an enumeration is a contract break — the same shape
+of failure as "I derived" instead of "I read." If you exhaust the
+options, say so explicitly: "checked X, Y, Z; field not there;
+alternatives: A, B."
+
 # When Blocked
 
 Before saying you can't do something, check your live MCP tool list —
