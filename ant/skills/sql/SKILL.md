@@ -1,7 +1,11 @@
 ---
 name: sql
-description: SQL query, schema design, and migration patterns.
-when_to_use: Use when working with SQL tables, joins, DDL, or database migrations.
+description: >
+  SQL query, schema, and migration patterns — JOIN USING, RETURNING,
+  CTEs, DDL. USE for "write a SQL query", "add a migration", "design
+  this schema", JOIN patterns, .sql files, ALTER TABLE. NOT for
+  ORM/model code (use the matching language skill).
+user-invocable: true
 ---
 
 # SQL

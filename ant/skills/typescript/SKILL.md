@@ -1,7 +1,12 @@
 ---
 name: typescript
-description: TypeScript and Node.js patterns — React, Next.js, Bun, Playwright.
-when_to_use: Use when working with .ts/.tsx files, React, Next.js, Bun, or Playwright.
+description: >
+  TypeScript and Node.js patterns — React, Next.js App Router, Bun,
+  Tailwind theming, Playwright, class-validator. USE for "write
+  TypeScript", "fix this .ts file", .ts/.tsx files, package.json, bun
+  scripts, Next.js, React components, Playwright tests. NOT for plain
+  shell scripts (use bash).
+user-invocable: true
 ---
 
 # TypeScript Style

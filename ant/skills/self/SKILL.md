@@ -1,9 +1,11 @@
 ---
 name: self
-description: Introspect this agent — workspace layout, MCP tools, skills, channels, migration version, ant link (slink).
-when_to_use: >
-  Use for "who are you", "introspect", "status", "what version", "what's my
-  chat URL", or when blocked and unsure what you can do.
+description: >
+  Deep introspection of this agent — identity (who/where/tier),
+  workspace layout, MCP tool catalog, skill seeding, migration version,
+  ant chat URL (slink). USE for "who are you", "what version", "what's
+  my chat URL", "what can I do here", blocked-and-unsure. NOT for
+  quick status check (use info).
 user-invocable: true
 ---
 
@@ -47,7 +49,7 @@ and `/workspace/self/ant/CLAUDE.md` to `~/.claude/`. Canonical latest
 at `/workspace/self/ant/skills/`. Run `/migrate` to sync updates and
 apply pending migrations.
 
-Latest migration version: **116**. Compare:
+Latest migration version: **117**. Compare:
 
 ```bash
 cat ~/.claude/skills/self/MIGRATION_VERSION

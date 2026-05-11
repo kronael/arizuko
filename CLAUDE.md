@@ -27,6 +27,27 @@ of what you just did. One-sentence replies are fine. Exceptions only
 when explicitly asked or the task requires it: generating content
 (specs, docs, prose), multi-step plans, root-cause walkthroughs.
 
+## Minimality and orthogonality (non-negotiable)
+
+Every edit, fix, skill, spec must uphold these. Don't make me restate
+them on each request.
+
+- **Minimality**: smallest change that solves the root cause. Cut prose
+  that doesn't change behavior. Examples earn lines only when they
+  document a real past failure (see `~/.claude/CLAUDE.md` Boring Code
+  Philosophy). Hypothetical examples don't earn lines.
+- **Orthogonality**: each fix touches exactly one concern. Persona
+  resolution is not migrate enumeration is not dispatch lifecycle is
+  not tool-use discipline. If a "fix" spans concerns, it's two fixes
+  pretending to be one — split them.
+- **One renderer, many sinks**: when N paths feed one consumer, exactly
+  one renderer produces its input. Two paths drift silently. Same for
+  skill schemas, prompt-build sites, output formatters.
+- **Strict, not magical**: no silent fallbacks for missing data
+  (PERSONA.md without frontmatter returns empty, not "guess from body").
+  No parent-folder inheritance for group-scoped files. Operator data
+  fixes belong to the operator; platform stays mechanical.
+
 ## Essence
 
 arizuko is a multitenant Claude agent router built on plain primitives:

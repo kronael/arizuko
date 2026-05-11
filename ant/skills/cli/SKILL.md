@@ -1,7 +1,11 @@
 ---
 name: cli
-description: CLI tool patterns — argument parsing, --help text, exit codes, signal handling.
-when_to_use: Use when writing CLI tools or entrypoints.
+description: >
+  CLI tool patterns — argparse/click/clap, --help text, exit codes,
+  SIGTERM/SIGINT, config precedence. USE for "build a CLI tool",
+  "add a --flag", entrypoints, argparse/click/clap files, interactive
+  prompts. NOT for web APIs (use service).
+user-invocable: true
 ---
 
 # CLI Style

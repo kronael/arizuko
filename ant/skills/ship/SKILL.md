@@ -1,7 +1,11 @@
 ---
 name: ship
-description: Plan and ship a feature using the `ship` autonomous coding agent CLI. Falls back to in-session implementation when `ship` binary is missing.
-when_to_use: Use when asked to build something substantial.
+description: >
+  Ship multi-file features via the autonomous `ship` coding agent CLI;
+  falls back to in-session implementation if missing. USE for "/ship",
+  "build this feature", substantial new feature spanning >1 session,
+  multi-file implementation from scratch. NOT for small edits (just do
+  them) or refactors of existing code (use refine).
 user-invocable: true
 ---
 

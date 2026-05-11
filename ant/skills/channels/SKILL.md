@@ -1,9 +1,12 @@
 ---
 name: channels
-description: Adapter-aware file dispatch reference — how `send_file` resolves to platform-native attachments per channel.
-when_to_use: >
-  Consult before sending media, or when an attachment lands as a generic
-  document instead of inline.
+description: >
+  Per-platform `send_file` routing matrix — telegram/discord/whatsapp/
+  twitter/bluesky/email/etc. USE before sending media, "how do I send
+  this image on X", "why did my attachment land as a doc", "what
+  platforms support video", capability discovery for `send_file`. NOT
+  for voice/PTT (use voice skill / `send_voice`).
+user-invocable: true
 ---
 
 # Channels

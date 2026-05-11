@@ -1,11 +1,12 @@
 ---
 name: mcp
 description: >
-  Reference for calling arizuko MCP tools from scripts via `mcpc` over
-  `$ARIZUKO_MCP_SOCKET`.
-when_to_use: >
-  Use when writing scheduled tasks, one-off scripts, or anything that needs to
-  invoke an MCP tool outside the agent's live tool surface.
+  Call arizuko MCP tools from scripts via `mcpc` over
+  `$ARIZUKO_MCP_SOCKET`. USE for "scheduled task", "call MCP from
+  script", `mcpc` invocation, cron-driven message sends, one-off scripts
+  that hit MCP tools. NOT for the live in-session MCP calls (those are
+  direct tools).
+user-invocable: true
 ---
 
 # MCP

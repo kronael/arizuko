@@ -1,7 +1,12 @@
 ---
 name: howto
-description: Build and deploy a user-facing howto/docs page for this group.
-when_to_use: Use when asked to "create howto", "generate docs", or "set up getting started page".
+description: >
+  Build and deploy a user-facing howto/getting-started page under
+  `/workspace/web/pub/howto/`. USE for "create howto", "generate docs",
+  "set up getting started page", "show me my web", landing page,
+  onboarding page. NOT for general web apps (use web) or knowledge hubs
+  (use hub).
+user-invocable: true
 ---
 
 # Howto

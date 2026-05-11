@@ -1,7 +1,10 @@
 ---
 name: specs
-description: Write and manage arizuko specs in specs/.
-when_to_use: Use when creating or updating design specs, architecture docs, or status tracking.
+description: >
+  Write and manage arizuko design specs in `specs/` with status
+  frontmatter. USE for new specs, status updates (draft→spec→partial
+  →shipped), `specs/index.md`, architecture docs. NOT for CLAUDE.md
+  (use wisdom) or in-flight tasks (use ship).
 user-invocable: true
 ---
 

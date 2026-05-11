@@ -1,7 +1,12 @@
 ---
 name: data
-description: Scraper, data collector, and ETL pipeline patterns — rate limiting, deduplication, state recovery, backfill.
-when_to_use: Use when building scrapers, data collectors, or ETL pipelines.
+description: >
+  Scraper, data collector, ETL pipeline patterns — asyncio, state.json,
+  LeakyBucket rate limiting, dedup, backfill. USE for "build a scraper",
+  "write an ETL pipeline", real-time feeds, asyncio pipelines,
+  state.json, rate-limited API integrations. NOT for one-off scripts
+  (use python/typescript) or download-and-transcribe (use acquire).
+user-invocable: true
 ---
 
 # Data collection

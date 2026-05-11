@@ -1,9 +1,12 @@
 ---
 name: acquire
-description: Download video/audio (yt-dlp), transcribe (whisper), scrape web pages.
-when_to_use: >
-  Use when gathering source material for research or analysis — "download
-  this video", "transcribe this", "scrape that page".
+description: >
+  Download video/audio (yt-dlp), transcribe (whisper), scrape pages.
+  USE for "download this video", "transcribe this", "scrape that page",
+  gathering source material — also URLs to youtube/twitter/reddit/podcast
+  pages, audio files, static HTML. NOT for JS-rendered/auth pages (use
+  agent-browser).
+user-invocable: true
 ---
 
 # Acquire

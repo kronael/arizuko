@@ -1,7 +1,10 @@
 ---
 name: hello
-description: Send a welcome message to introduce yourself and explain what you can do.
-when_to_use: Use on first contact with a new user or group, or when asked to introduce yourself.
+description: >
+  Greet a new user or group with a 3-part intro (greeting, use cases,
+  commands). USE on first contact, when the user says hi/hello with no
+  specific task, or asks "who are you" as opener. NOT for re-introductions
+  (just answer the actual question), NOT for identity introspection (use self).
 user-invocable: true
 ---
 

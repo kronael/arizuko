@@ -1,7 +1,10 @@
 ---
 name: diary
-description: Record significant events, decisions, and milestones in today's diary entry.
-when_to_use: Use when asked to "write to diary", "log this", or after completing substantial work.
+description: >
+  Append decisions, bugs fixed, milestones to today's `~/diary/YYYYMMDD.md`.
+  USE for "write to diary", "log this", end-of-significant-work, Stop-hook
+  nudge. NOT for routine ops, NOT for stable user facts (use users) or
+  researched knowledge (use find).
 user-invocable: true
 arg: <entry text>
 ---

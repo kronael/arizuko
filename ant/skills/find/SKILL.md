@@ -1,7 +1,10 @@
 ---
 name: find
-description: Research a topic and produce verified facts in facts/.
-when_to_use: Use when /recall-memories finds no match or when asked to research something.
+description: >
+  Research a topic via subagents, verify against primary sources, write
+  to `~/facts/`. USE when `/recall-memories` returns no match, when
+  facts are stale (>14 days), or "research X". NOT for live chat history
+  (use recall-messages) or stored knowledge lookup (use recall-memories).
 user-invocable: true
 arg: <question or topic to research>
 ---

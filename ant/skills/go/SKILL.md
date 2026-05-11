@@ -1,7 +1,11 @@
 ---
 name: go
-description: Go code patterns — goroutines, modules, testing, build tooling.
-when_to_use: Use when working with .go files, go.mod, goroutines, or Go tests.
+description: >
+  Go code patterns — goroutines, modules, *_test.go, build tooling.
+  USE for "write Go", "fix this Go function", .go files, go.mod,
+  goroutines, Go tests, *_test.go, testing.Short. NOT for shell scripts
+  (use bash) or Docker (use ops).
+user-invocable: true
 ---
 
 # Go

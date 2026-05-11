@@ -1,7 +1,12 @@
 ---
 name: web
-description: Deploy web apps, pages, sites, dashboards, or UIs to /workspace/web/pub/.
-when_to_use: Use when asked to build, create, deploy, publish, make, or show anything web-facing.
+description: >
+  Deploy web apps, pages, sites, dashboards to `/workspace/web/pub/<app>/`
+  via vite MPA. USE for "build a page", "deploy this site", "publish
+  a dashboard", "show my web", static sites, index.html, single-page
+  apps. NOT for howto/getting-started (use howto), knowledge hubs
+  (use hub), or REST APIs (use service).
+user-invocable: true
 ---
 
 # Web

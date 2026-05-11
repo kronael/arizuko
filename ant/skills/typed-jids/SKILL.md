@@ -1,9 +1,12 @@
 ---
 name: typed-jids
-description: Reference for the typed JID format — `<platform>:<kind>/<id>` — and route predicates (`room=`, `chat_jid=`).
-when_to_use: >
-  Consult when writing routing rules, calling MCP tools that take a `chatJid`,
-  or rewriting legacy bare-id forms (`telegram:1234`) to the current shape.
+description: >
+  Typed JID format reference — `<platform>:<kind>/<id>` — and route
+  predicates (`room=`, `chat_jid=`). USE for "what's a JID", "add a
+  routing rule", "fix this chat_jid", route predicates, `chatJid`
+  parameter, legacy bare-id rewrites (`telegram:1234`). NOT for chat
+  history reads (use recall-messages).
+user-invocable: true
 ---
 
 # Typed JIDs

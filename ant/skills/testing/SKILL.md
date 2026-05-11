@@ -1,7 +1,12 @@
 ---
 name: testing
-description: Testing patterns — unit, e2e, smoke, testcontainers.
-when_to_use: Use when writing tests, debugging test failures, or setting up test infrastructure.
+description: >
+  Testing patterns — *_test.go, testcontainers, table-driven, test
+  failure triage, conftest.py. USE for "write tests", "fix this failing
+  test", "debug test output", *_test.go, conftest.py, testcontainers
+  setup. NOT for e2e infra setup (use ops) or test setup inside a
+  language skill.
+user-invocable: true
 ---
 
 # Testing

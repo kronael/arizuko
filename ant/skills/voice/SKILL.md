@@ -1,10 +1,12 @@
 ---
 name: voice
-description: Reference for the `send_voice` MCP tool — voice-name resolution, platform support, length cap.
-when_to_use: >
-  Use when the last inbound message was voice/audio, when `~/SOUL.md`
-  has `voice:` set, when the user asks for a spoken reply, or before
-  calling `send_voice` for the first time.
+description: >
+  `send_voice` MCP tool reference — voice-name resolution, platform
+  support, 5000-char cap. USE for "reply with voice", "send a voice
+  note", "speak this", voice/audio inbound messages, PERSONA `voice:`
+  field, before calling `send_voice` first time. NOT for music or
+  pre-recorded files (use send_file).
+user-invocable: true
 ---
 
 # Voice

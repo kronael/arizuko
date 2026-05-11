@@ -1,7 +1,10 @@
 ---
 name: tweet
-description: Write tweets, threads, or X posts — dense, narrative, product-focused. No fluff, no emojis, no hashtags.
-when_to_use: Use when asked to write a tweet, thread, or X post.
+description: >
+  Write X/Twitter threads — dense, narrative, product-focused, no
+  emojis, no hashtags. USE for "/tweet", "write a thread about X",
+  tweet drafting. NOT for other social content (use the platform's
+  send tools directly).
 user-invocable: true
 arg: <topic or draft>
 ---

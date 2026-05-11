@@ -1,7 +1,10 @@
 ---
 name: info
-description: Show instance info, workspace state, available skills and tools.
-when_to_use: Use when asked about status, info, or help.
+description: >
+  Quick status: instance name, available skills, uptime, migration
+  version. USE for "/info", "status", short "what's available". NOT
+  for deep identity/tools introspection (use self) or web hostname
+  setup (use infra).
 user-invocable: true
 ---
 

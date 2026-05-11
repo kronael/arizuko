@@ -1,7 +1,11 @@
 ---
 name: bash
-description: Bash/shell scripting patterns.
-when_to_use: Use when writing .sh files, entrypoints, or shell scripts.
+description: >
+  Bash/shell scripting patterns — set -e, POSIX [ ], quoting, heredocs,
+  fallback patterns. USE for "write a shell script", .sh files,
+  entrypoints, init scripts, POSIX shell, "fix this bash". NOT for
+  application code (use the language skill).
+user-invocable: true
 ---
 
 # Bash Style

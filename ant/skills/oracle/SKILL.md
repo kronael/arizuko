@@ -1,11 +1,13 @@
 ---
 name: oracle
-description: Drives the `codex` CLI as a subprocess for a one-shot second opinion from a second model.
-when_to_use: >
-  Use when uncertain about a tricky algorithm, a library Claude doesn't know well, or before
-  committing to a non-obvious implementation. Also on self-disagreement after a `<think>` round.
-  Do not reach for oracle on routine uncertainty — most questions resolve via `/recall-memories` +
-  `/find` faster without an external call.
+description: >
+  Run `codex` CLI as subprocess for a one-shot second opinion from a
+  different model. USE for "ask the oracle", "second opinion", "/oracle",
+  tricky algorithms, unfamiliar libraries, self-disagreement after a
+  `<think>` round, before non-obvious implementations. NOT for routine
+  uncertainty (use recall-memories + find first — faster, no external
+  call).
+user-invocable: true
 ---
 
 # Oracle

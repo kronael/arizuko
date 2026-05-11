@@ -1,11 +1,12 @@
 ---
 name: issues
-description: Append unresolved bugs and complaints to `~/issues.md` for operator review.
-when_to_use: >
-  Use when a user reports a problem outside this turn's scope, complains about
-  platform behavior, asks for a missing feature, surfaces a deployment flaw,
-  or sends a file that didn't arrive (`[Document: …]` with no attachment path).
-  Skip if you fix it this turn.
+description: >
+  Append unresolved bugs/complaints to `~/issues.md` for operator review.
+  USE for "this is broken", "file an issue", "feature request",
+  platform complaints, deployment flaws, missing-attachment reports,
+  out-of-scope problems. NOT when you fix it this turn, NOT for ordinary
+  work logs (use diary).
+user-invocable: true
 ---
 
 # Issues

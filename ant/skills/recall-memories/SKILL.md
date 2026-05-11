@@ -1,7 +1,11 @@
 ---
 name: recall-memories
-description: Search facts/, diary/, users/, episodes/ for relevant knowledge. Read-only.
-when_to_use: Use for technical questions, person lookups, or recent work context.
+description: >
+  Search stored knowledge — `~/facts/`, `~/diary/`, `~/users/`,
+  `~/episodes/` — for relevant content. Read-only. USE for technical
+  questions, person lookups, recent-work context, "what do I know
+  about X". NOT for live chat history (use recall-messages) or fresh
+  research (use find).
 user-invocable: true
 arg: <question>
 ---

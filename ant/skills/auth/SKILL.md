@@ -1,9 +1,12 @@
 ---
 name: auth
-description: Reference for arizuko's OAuth identity model — canonical sub, account linking, and the seven-branch collision dispatcher.
-when_to_use: >
-  Consult when a user reports an "account collision" page, asks how to log in
-  with a second provider, or wonders why two logins map to one identity.
+description: >
+  Reference for arizuko OAuth identity — canonical sub, account linking,
+  seven-branch collision dispatcher. USE for "account collision",
+  "link my Google account", "why did login fail", "how does OAuth work
+  here", OAuth provider/callback questions. NOT for slink tokens
+  (use slink-mcp).
+user-invocable: true
 ---
 
 # Auth

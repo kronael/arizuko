@@ -1,9 +1,10 @@
 ---
 name: commit
-description: Stage and commit changes to git with proper [section] message format.
-when_to_use: >
-  Use when asked to commit, after completing a cohesive chunk of work,
-  or when a hook triggers auto-commit. Skip if changes span unrelated concerns.
+description: >
+  Stage and commit with `[section] Message` format. USE when asked to
+  commit, after completing a cohesive chunk of work, on hook auto-commit
+  trigger. NOT for PRs (use pr-draft) or changes spanning unrelated
+  concerns (split first).
 user-invocable: true
 ---
 

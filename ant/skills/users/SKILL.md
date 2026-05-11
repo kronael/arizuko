@@ -1,7 +1,11 @@
 ---
 name: users
-description: Read or update user context files in users/.
-when_to_use: Use when you need to remember something about a user or recall what you know about them.
+description: >
+  Read or update per-user memory in `~/users/<channel>-<id>.md`. USE
+  for "remember this about me", "what do you know about <person>",
+  recording durable user facts (role, expertise, preferences), looking
+  up a user's profile. NOT for chat history (use recall-messages) or
+  one-off events (use diary).
 user-invocable: true
 arg: <user-id or action>
 ---

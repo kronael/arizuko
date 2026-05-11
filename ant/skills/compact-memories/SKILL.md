@@ -1,11 +1,11 @@
 ---
 name: compact-memories
-description: Compress episodes (session transcripts) or diary entries into progressive day/week/month summaries.
-when_to_use: >
-  Use when the scheduled cron prompt fires (`/compact-memories episodes|diary day|week|month`),
-  or when the user asks to "compact", "summarise yesterday", or "roll up the week".
-  Do NOT self-trigger mid-conversation. Do NOT recompact a period whose output file
-  already exists unless the user asks for a redo — compaction is lossy and expensive.
+description: >
+  Compress episodes (session transcripts) or diary entries into progressive
+  day/week/month summaries. USE on scheduled cron prompt, or "compact",
+  "summarise yesterday", "roll up the week". NOT mid-conversation
+  (self-trigger forbidden), NOT to recompact existing output unless user
+  asks (lossy + expensive).
 user-invocable: true
 arg: <store> <level>
 ---

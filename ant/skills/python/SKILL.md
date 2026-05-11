@@ -1,7 +1,11 @@
 ---
 name: python
-description: Python code patterns — async/await, FastAPI, pytest, packaging.
-when_to_use: Use when working with .py files, FastAPI, pytest, or Python packaging.
+description: >
+  Python code patterns — async/await, FastAPI, pytest, asyncpg,
+  dataclasses, uv packaging. USE for "write Python", "fix this .py
+  file", .py files, pyproject.toml, pytest, FastAPI, asyncpg. NOT for
+  data pipelines (use data) or trading bots (use trader).
+user-invocable: true
 ---
 
 # Python

@@ -12,6 +12,35 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.27] — 2026-05-11
+
+> arizuko v0.33.27 — 11 May 2026
+>
+> • All skills aligned to Anthropic's canonical Claude Code format — single `description:` with USE/NOT triggers; the silently-ignored `when_to_use:` field is dropped
+> • All skills user-invocable by default — operators can `/skill-name` invoke any of them (except `/resolve` and `/dispatch` which stay internal)
+> • Trigger phrases tightened — literal user phrases + file types in every description so `/resolve`'s dispatcher matches reliably
+> • 8 new skills harvested from kronael/tools — `distill`, `learn`, `pr-draft`, `merge-trivial`, `release`, `improve`, `readme`, `visual`
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- 42 skills migrated from arizuko's two-field schema (`description:` + `when_to_use:`) to Anthropic's canonical single-`description:` field with USE/NOT pattern. `when_to_use:` was silently ignored by arizuko's own dispatch (`resolve/SKILL.md:42-47` awk loop reads only `description:`); the migration makes intent match reality. Content folded into `description` with literal trigger phrases (2-4 per skill) plus file types or contexts.
+- All skills now carry explicit `user-invocable: true` except `dispatch` and `resolve` (internal-only — invoked by gateway nudge / by `/resolve`). Operators can slash-invoke any skill.
+- `wisdom/SKILL.md` body rewritten: documents the canonical single-`description` shape, USE/NOT pattern, user-invocable default rule, and historical context for the dropped `when_to_use` field. Future skill authors apply both rules without re-derivation.
+
+### Added
+
+- 8 skills harvested from `kronael/tools` repo into `ant/skills/`: `distill`, `learn`, `pr-draft`, `merge-trivial`, `release`, `improve`, `readme`, `visual`. Already in canonical format; copied verbatim.
+
+### Operator-review queue (not changed this release)
+
+- `info` vs `self` — sharpened descriptions made them distinct, could still collapse
+- `soul` — deprecated stub redirecting to `/persona`; safe to delete
+- `slink-mcp` vs `mcp` — disambiguated; no consolidation needed
+
+---
+
 ## [v0.33.26] — 2026-05-11
 
 > arizuko v0.33.26 — 11 May 2026

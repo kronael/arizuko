@@ -1,7 +1,11 @@
 ---
 name: rust
-description: Rust code patterns — async tokio, concurrency, Cargo, testing.
-when_to_use: Use when working with .rs files, Cargo.toml, or Rust testing.
+description: >
+  Rust code patterns — tokio, clap, eyre, Cargo, testing,
+  panic/unwrap discipline. USE for "write Rust", "fix this .rs file",
+  .rs files, Cargo.toml, cargo clippy, async/await with tokio, DashMap,
+  testcontainers. NOT for system scripts (use bash).
+user-invocable: true
 ---
 
 # Rust

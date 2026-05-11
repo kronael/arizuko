@@ -1,7 +1,9 @@
 ---
 name: reload
-description: Restart the arizuko container or reload config.
-when_to_use: Use when asked to restart, reload, or refresh the instance.
+description: >
+  Restart this container (SIGTERM PID 1) so it picks up fresh config.
+  USE for "restart", "reload", "refresh the instance". NOT for restarting
+  another service or container (operator-only).
 user-invocable: true
 ---
 

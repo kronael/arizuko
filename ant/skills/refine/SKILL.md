@@ -1,7 +1,10 @@
 ---
 name: refine
-description: Simplify and clean up code after shipping — removes dead code, collapses verbosity, runs tests, commits [refined].
-when_to_use: Use after shipping a feature to simplify and clean up.
+description: >
+  Full refinement pass — simplify, dedupe, document, test, commit
+  [refined]. USE for "/refine", "clean this up", "finalize", "polish",
+  broad quality pass before shipping. NOT for targeted single fixes
+  (just do them directly) or new feature builds (use ship).
 user-invocable: true
 ---
 

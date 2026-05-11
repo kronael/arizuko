@@ -1,7 +1,11 @@
 ---
 name: ops
-description: Ops patterns — Dockerfiles, CI pipelines, deployment config, monitoring, logging, systemd.
-when_to_use: Use when writing Dockerfiles, CI pipelines, or deployment config.
+description: >
+  DevOps and deployment — Dockerfile, systemd, GitHub Actions CI,
+  monitoring, logging. USE for "write a Dockerfile", "add CI", "set
+  up systemd", docker-compose, Ansible playbooks, PID files, deploy
+  config, monitoring setup. NOT for app code (use the language skill).
+user-invocable: true
 ---
 
 # Ops
