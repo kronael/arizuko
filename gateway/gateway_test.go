@@ -955,6 +955,37 @@ func TestMakeOutputCallback_SendsReply(t *testing.T) {
 	}
 }
 
+// Regression: when chatJid is a local folder (no "platform:" prefix)
+// AND it matches the agent's groupFolder, dispatchOutbound is skipped.
+// Otherwise the agent's reply re-persists via LocalChannel.Send as a
+// synthetic inbound, the poll loop spawns another container, and the
+// agent replies to its own echo (witnessed sloth/main 2026-05-10
+// 21:12–21:14, 5 self-acknowledgments in 51s).
+func TestMakeOutputCallback_SkipsSelfRoutedLocalDispatch(t *testing.T) {
+	gw, s := testGateway(t)
+	setGroup(gw, "main", core.Group{Folder: "main", Name: "Main"})
+
+	cb, hadOutput := gw.makeOutputCallback(nil, "main", "", "", "main")
+	cb("/migrate done", "")
+
+	if !*hadOutput {
+		t.Error("hadOutput should be true (row still persisted)")
+	}
+
+	// Exactly one outbound row, marked is_from_me=1 + bot=1. No synthetic
+	// inbound row from LocalChannel.Send (which would have Sender="local").
+	all, _ := s.MessagesSince("main", time.Time{}, "nobot")
+	var inbound int
+	for _, m := range all {
+		if m.Sender == "local" {
+			inbound++
+		}
+	}
+	if inbound != 0 {
+		t.Errorf("inbound count = %d, want 0 (LocalChannel echo must be skipped)", inbound)
+	}
+}
+
 func TestMakeOutputCallback_SendError(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}, sendErr: errors.New("network down")}

@@ -12,6 +12,31 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.24] — 2026-05-11
+
+> arizuko v0.33.24 — 11 May 2026
+>
+> • Self-loop fix — agents no longer reply to their own echoes (the "Migration complete... Confirmed... Acknowledged." cascade is gone)
+> • Migration broadcast scoped to root group only — no more announcements interrupting active DMs
+> • Agents now owe a final reply after `<status>` — no more perpetual ⏳ with no follow-up
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- `gateway.makeOutputCallback` (`gateway/gateway.go:846`) now skips `dispatchOutbound` when the reply chat_jid is a local folder matching the agent's own groupFolder. Previously this triggered `LocalChannel.Send` to re-persist the outbound as a synthetic inbound (sender=`"local"`, BotMsg=false), which the poll loop picked up as fresh input and spawned another container that replied to its own echo. Witnessed sloth/main 2026-05-10 21:12–21:14: 5 self-acknowledgments in 51 seconds. Cross-group sends (groupFolder ≠ chatJid) still flow normally — the legit escalation path is unchanged.
+- `ant/skills/migrate/SKILL.md` announce step — broadcast scoped to the current root folder's primary JID only, not every group's. Previously fanned out to all groups; on marinade 2026-05-10 11:44 the v0.33.22 broadcast landed in an operator DM mid-conversation, displacing a "cool"-acknowledgment reply.
+
+### Changed
+
+- `ant/CLAUDE.md` "# Status updates" — added the contract rule: if you emit a `<status>` block, you owe a final user-visible reply. Silent tasks (file writes, cron compactions) emit neither. Gateway does not rescue contract breaks (would be brittle and break in unrelated ways). Driven by atlas/support 2026-05-11 03:02 — `<status>⏳ checking diary…</status>` emitted, final assistant turn was a `<think>` block stripped to empty, user saw ⏳ forever.
+
+### Added
+
+- `gateway/gateway_test.go` `TestMakeOutputCallback_SkipsSelfRoutedLocalDispatch` — regression for the self-loop fix. Asserts no `sender="local"` row is created when groupFolder == chatJid.
+
+---
+
 ## [v0.33.23] — 2026-05-10
 
 > arizuko v0.33.23 — 10 May 2026

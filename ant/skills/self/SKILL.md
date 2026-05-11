@@ -47,7 +47,7 @@ and `/workspace/self/ant/CLAUDE.md` to `~/.claude/`. Canonical latest
 at `/workspace/self/ant/skills/`. Run `/migrate` to sync updates and
 apply pending migrations.
 
-Latest migration version: **113**. Compare:
+Latest migration version: **114**. Compare:
 
 ```bash
 cat ~/.claude/skills/self/MIGRATION_VERSION

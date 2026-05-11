@@ -169,26 +169,25 @@ Format: see "## Announcing" in root `CLAUDE.md`. The blockquote is the broadcast
 If a version block has no blockquote, fall back to "v0.X deployed" + changelog URL.
 One message per release, not per migration. Repo URL: `github.com/kronael/arizuko`.
 
-Fan out via `refresh_groups` → resolve each folder's primary JID from
-`inspect_routing` (routes with `match` prefix `room=` point at a JID) →
-`send_message`:
+Announce ONLY to the root group's primary JID — not every per-folder
+DM. Previously the fan-out hit every group's primary JID (including
+operator DMs mid-conversation, witnessed marinade 2026-05-10 11:44
+interleaving a v0.33.22 broadcast into a "cool" reply flow). One root,
+one announcement.
 
 ```bash
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
 trap 'mcpc @s close' EXIT
 
 routes=$(mcpc @s tools-call inspect_routing)
+folder="$ARIZUKO_GROUP_FOLDER"
 
-mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
-  | while read folder; do
-    jid=$(echo "$routes" | jq -r --arg f "$folder" '
-      .routes[] | select(.target == $f)
-                | .match | select(startswith("room=")) | sub("^room=";"")
-    ' | head -1)
-    test -n "$jid" && mcpc @s tools-call send_message \
-      jid:="$jid" text:="$MSG"
-  done
+jid=$(echo "$routes" | jq -r --arg f "$folder" '
+  .routes[] | select(.target == $f)
+            | .match | select(startswith("room=")) | sub("^room=";"")
+' | head -1)
+test -n "$jid" && mcpc @s tools-call send_message \
+  jid:="$jid" text:="$MSG"
 ```
 
-Per-group retries are fine; do NOT re-write `~/.announced-version`.
-Send once; let the channel queue handle offline groups.
+Retries are fine; do NOT re-write `~/.announced-version`. Send once.

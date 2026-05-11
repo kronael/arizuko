@@ -845,6 +845,19 @@ func (g *Gateway) makeOutputCallback(
 		}
 		g.store.PutMessage(row)
 
+		// Self-routed local dispatch is redundant — the row above is the
+		// authoritative outbound. Without this skip, LocalChannel.Send
+		// re-persists as inbound and spawns another agent run that replies
+		// to its own echo (witnessed sloth/main 2026-05-10 21:12–21:14,
+		// 5 self-acknowledgments in 51s). Cross-group sends (groupFolder !=
+		// chatJid) still flow through normally — that's the legit
+		// escalation path.
+		if !strings.Contains(chatJid, ":") && chatJid == groupFolder {
+			row.Status = core.MessageStatusSent
+			g.store.MarkMessageDelivered(row.ID, "")
+			return ""
+		}
+
 		platformID, err := g.dispatchOutbound(ch, chatJid, text, replyToID, threadID, turnID)
 		if err != nil {
 			slog.Error("dispatch outbound failed (poll loop will retry)",

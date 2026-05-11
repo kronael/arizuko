@@ -160,6 +160,14 @@ separate interim messages. Keep under 100 chars. Multiple blocks fine.
 <status>reading 12 files, synthesising…</status>
 ```
 
+If you emit a `<status>` block you OWE a final user-visible reply.
+The status promises a result; ending the turn with only a `<think>`
+block (stripped to empty) leaves the user staring at ⏳ forever.
+For silent tasks (file writes, cron compactions where the artifact
+IS the diff) — emit NO status and NO final text. For tasks that
+chat-emit a status — close with a one-line confirmation, even if
+just "done.". Status without conclusion is a contract break.
+
 # When Blocked
 
 Before saying you can't do something, check your live MCP tool list —
