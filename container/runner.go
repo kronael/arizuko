@@ -426,7 +426,17 @@ func prepareInput(cfg *core.Config, in Input, groupDir string) Input {
 		in.Annotations = append(in.Annotations, uc)
 	}
 
-	in.Soul = readOptional(filepath.Join(groupDir, "SOUL.md"))
+	// PERSONA.md is the canonical persona file (v0.33.25+). SOUL.md is
+	// the legacy name — auto-migrate on first read so existing groups
+	// pick up the rename without operator action.
+	personaPath := filepath.Join(groupDir, "PERSONA.md")
+	soulPath := filepath.Join(groupDir, "SOUL.md")
+	if _, err := os.Stat(personaPath); err != nil {
+		if _, err := os.Stat(soulPath); err == nil {
+			_ = os.Rename(soulPath, personaPath)
+		}
+	}
+	in.Soul = readOptional(personaPath)
 	in.SystemMd = readOptional(filepath.Join(groupDir, "SYSTEM.md"))
 
 	in.Annotations = append(in.Annotations,

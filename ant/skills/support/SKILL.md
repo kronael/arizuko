@@ -56,9 +56,9 @@ For a range, paste all rows or summarise with an explicit count: "checked
 can't verify either way." Never "likely", "probably", "should be" — either
 you read it or you didn't.
 
-Re-read `~/SOUL.md` Voice section and rewrite the reply in that register
-before sending. SOUL beats default formatting; drop tables and headers if
-voice rejects them.
+Voice register is anchored by the gateway's per-turn `<persona>` block
+(see ant/CLAUDE.md `# Persona`). If the register feels drifted mid-reply,
+run `/persona` to re-read the full file.
 
 ## 4. Persist
 

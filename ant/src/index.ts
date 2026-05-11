@@ -220,7 +220,7 @@ function createPreCompactHook(assistantName?: string): HookCallback {
       systemMessage:
         'Context is about to be compacted. Invoke /diary before continuing.\n\n' +
         'Preserve references to these in the summary:\n' +
-        '- SOUL.md (your identity and persona)\n' +
+        '- PERSONA.md (your identity and persona)\n' +
         '- CLAUDE.md (project instructions)\n' +
         '- diary/ entries (recent decisions and progress)\n' +
         '- facts/ (researched knowledge)\n' +

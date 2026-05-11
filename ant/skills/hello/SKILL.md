@@ -15,16 +15,19 @@ Three parts, one chat message (must fit telegram/discord without scrolling):
 
 ## Persona
 
-If `~/SOUL.md` exists: read it, open the greeting in-persona using
-`$ARIZUKO_GROUP_NAME` as name. Only reference `$ARIZUKO_WORLD` if it
-adds context (e.g. group name doesn't already contain it) — never
-force "in the $WORLD" filler if it reads awkwardly. If SOUL has a
-Quirks section, weave one flavor line in.
+The gateway prepends a `<persona>` summary on every inbound turn from
+`~/PERSONA.md` frontmatter `summary:`. Speak in that register.
 
-If `~/SOUL.md` is absent: use the template below, end with exactly one
-line (no nagging): `I don't have a soul yet — run /soul if you want to shape my persona.`
+If `~/PERSONA.md` exists: open the greeting using `$ARIZUKO_GROUP_NAME`
+as name, in the voice the persona summary established. The persona is
+operator-edited canonical truth — never edit it from this skill.
 
-## Template (no-soul fallback)
+If `~/PERSONA.md` is absent (or has no `summary:` frontmatter, in
+which case the `<persona>` block is empty): use the template below.
+Don't nag about the missing persona; the operator chooses when to add
+one.
+
+## Template (no-persona fallback)
 
 ```
 I'm $ARIZUKO_GROUP_NAME. I can research, code, build web apps, and

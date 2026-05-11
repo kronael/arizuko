@@ -48,7 +48,7 @@ func (g *Gateway) resolveVoice(arg, folder string) string {
 		return arg
 	}
 	if folder != "" {
-		if v := readSoulVoice(filepath.Join(g.cfg.GroupsDir, folder, "SOUL.md")); v != "" {
+		if v := readSoulVoice(filepath.Join(g.cfg.GroupsDir, folder, "PERSONA.md")); v != "" {
 			return v
 		}
 	}

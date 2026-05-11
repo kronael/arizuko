@@ -697,7 +697,7 @@ func (g *Gateway) processSenderBatch(
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
 	observed := g.store.ObservedMessagesSince(group.Folder, chatJid, agentTs.Format(time.RFC3339Nano))
 	topic := g.effectiveTopic(chatJid, last.Topic)
-	prompt := sysMsgs + g.autocallsBlock(group.Folder, topic) + router.FormatMessages(msgs, observed)
+	prompt := sysMsgs + g.autocallsBlock(group.Folder, topic) + g.personaBlock(group.Folder) + router.FormatMessages(msgs, observed)
 
 	if deliverCh != nil {
 		slog.Debug("typing start", "jid", deliverTo, "channel", deliverCh.Name())
@@ -767,7 +767,7 @@ func (g *Gateway) processWebTopics(
 
 		sysMsgs := g.store.FlushSysMsgs(group.Folder)
 		effectiveTopic := g.effectiveTopic(chatJid, topic)
-		prompt := sysMsgs + g.autocallsBlock(group.Folder, effectiveTopic) + router.FormatMessages(topicMsgs)
+		prompt := sysMsgs + g.autocallsBlock(group.Folder, effectiveTopic) + g.personaBlock(group.Folder) + router.FormatMessages(topicMsgs)
 
 		if ch != nil {
 			ch.Typing(chatJid, true)

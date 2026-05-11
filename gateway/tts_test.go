@@ -74,18 +74,18 @@ func TestTTSCacheRoundtrip(t *testing.T) {
 	}
 }
 
-// TestResolveVoice walks precedence: arg > SOUL.md frontmatter > default.
+// TestResolveVoice walks precedence: arg > PERSONA.md frontmatter > default.
 func TestResolveVoice(t *testing.T) {
 	dir := t.TempDir()
 	groups := filepath.Join(dir, "groups", "alice")
 	os.MkdirAll(groups, 0o755)
-	soul := `---
+	persona := `---
 name: Alice
 voice: nova
 ---
 She speaks softly.
 `
-	os.WriteFile(filepath.Join(groups, "SOUL.md"), []byte(soul), 0o644)
+	os.WriteFile(filepath.Join(groups, "PERSONA.md"), []byte(persona), 0o644)
 
 	st, _ := store.OpenMem()
 	defer st.Close()

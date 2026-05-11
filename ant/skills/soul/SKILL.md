@@ -1,47 +1,24 @@
 ---
 name: soul
-description: Create or refine the group's persona file (`~/SOUL.md`).
-when_to_use: >
-  Use when the user explicitly asks to create, refine, or discuss the bot's
-  personality or voice — "give yourself a personality", "rewrite your soul",
-  "who are you?". Never invoke on greetings, onboarding, or routine tasks.
+description: >
+  DEPRECATED — superseded by `/persona` (read-only refresh of ~/PERSONA.md)
+  and direct operator edit of the file. USE /persona to re-read the persona
+  body. NOT for authoring — the persona file is operator-edited canonical
+  truth; agents read but never write it.
 user-invocable: true
 disable-model-invocation: true
 ---
 
-# Soul
+# Soul (deprecated in v0.33.25)
 
-## If `~/SOUL.md` already exists
+Renamed to **persona**. The persona file lives at `~/PERSONA.md`
+(was `~/SOUL.md`). The gateway prepends a `<persona>` summary on
+every turn from the frontmatter `summary:` field.
 
-1. Read it, summarise the current persona in 3-4 lines.
-2. Ask what they want to change (voice, origin, quirks, tone).
-3. Rewrite only the sections they touched. Keep the rest.
+To re-read the full persona body: `/persona`.
 
-## If `~/SOUL.md` does not exist
+To author or edit the persona: the operator edits `~/PERSONA.md`
+directly. Agents do not write to it from any skill.
 
-Ask three questions, one at a time, and wait for answers:
-
-1. **Persona** — who are you in this world? A name, a role, a stance.
-2. **Voice** — how do you speak? Clipped? Warm? Technical? Give one
-   example line you would say.
-3. **Origin & quirks** — where did you come from, what's one quirk
-   that colours your replies?
-
-Then write `~/SOUL.md` with four sections:
-
-```
-# Persona
-...
-
-# Voice
-...
-
-# Origin
-...
-
-# Quirks
-...
-```
-
-Keep the whole file under 60 lines. Confirm with the user. Do not
-prompt for any other file.
+This skill stays as a soft redirect for older bookmarks. Use
+`/persona` for read-only refresh.

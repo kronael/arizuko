@@ -12,6 +12,37 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.25] — 2026-05-11
+
+> arizuko v0.33.25 — 11 May 2026
+>
+> • SOUL.md renamed to PERSONA.md — universal LLM term, agent recognizes it
+> • Gateway prepends a `<persona>` summary on every turn — voice register no longer drifts mid-session
+> • Schema modeled on elizaOS Character format (summary, bio, lore, messageExamples, style.all/chat, …)
+> • Migration broadcasts fan out to all groups again (v0.33.24 scoping reverted per operator request)
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- `<group>/SOUL.md` → `<group>/PERSONA.md` — auto-migrated on next container spawn (`container/runner.go:429` renames legacy file in place if `PERSONA.md` absent)
+- `ant/CLAUDE.md` adds a `# Persona` section documenting the three-layer mechanism (system-prompt body at session start / gateway `<persona>` summary per turn / `/persona` skill for on-demand full re-read)
+- `ant/examples/support/SOUL.md` → `ant/examples/support/PERSONA.md` rewritten with full eliza-modeled schema: `name`, `summary`, `system`, `bio[]`, `lore[]`, `adjectives[]`, `topics[]`, `style.{all,chat}[]`, `messageExamples[]`, `knowledge[]`
+- `ant/skills/migrate/SKILL.md` copies `PERSONA.md` (template) instead of `SOUL.md`; also reverts the v0.33.24 broadcast scoping — announcements fan out to all group JIDs again, per operator request
+- `ant/skills/hello/SKILL.md` references `PERSONA.md` and the gateway-prepended `<persona>` summary; drops the `/soul` nag for missing personas
+- `ant/skills/support/SKILL.md` phase 3 drops the manual SOUL re-read (gateway anchors every turn now)
+- `ant/skills/soul/SKILL.md` deprecated — redirects to `/persona` for re-reads; authoring is operator-only
+
+### Added
+
+- `gateway/persona.go` — `personaBlock(folder)` reads `<group>/PERSONA.md` frontmatter `summary:`, returns `<persona name="X">summary\n(For full register: /persona)</persona>\n` or empty. Strict — no fallback to body text.
+- `gateway/gateway.go:700, :770` — injects `personaBlock(group.Folder)` next to `autocallsBlock` at both prompt-build sites
+- `ant/skills/persona/SKILL.md` — read-only refresh of `~/PERSONA.md` for mid-session re-anchoring
+- `refs/eliza/` — cloned elizaOS as a reference; canonical character schema lives at `packages/shared/src/onboarding-presets.characters.ts` and the runtime prompt-assembly at `packages/core/src/features/basic-capabilities/providers/character.ts`
+- `gateway/persona_test.go` — tests no-file / no-frontmatter / no-summary / valid-summary paths
+
+---
+
 ## [v0.33.24] — 2026-05-11
 
 > arizuko v0.33.24 — 11 May 2026

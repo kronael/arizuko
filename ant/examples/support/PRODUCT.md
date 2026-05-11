@@ -5,7 +5,7 @@ skills  = ["diary", "facts", "recall-memories", "users", "issues", "web"]
 
 # Operator setup
 #
-# 1. Copy SOUL.md and CLAUDE.md into your group folder
+# 1. Copy PERSONA.md and CLAUDE.md into your group folder
 # 2. Populate facts/ with one markdown file per topic
 #    OR place reference docs under refs/<product>/
 # 3. Set TELEGRAM_BOT_TOKEN for a primary channel + escalation target
