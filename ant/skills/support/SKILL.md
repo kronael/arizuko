@@ -1,35 +1,19 @@
 ---
 name: support
 description: >
-  Support-product orchestrator (Atlas brand). USE ONLY in groups deployed
-  as the support product (check `~/PRODUCT.md` for `name = "support"` or
-  `brand = "atlas"`). Answer concrete factual questions about a domain
-  entity (validator, account, transaction, epoch, order, ticket, named
-  record) with a primary-source citation. Triggers: "is X flagged?",
-  "what's the bid for Y?", "Z's last 10 epochs", "verify this", "check
-  your answer", "show me the source", "self-correct on this". Tracks
-  multi-turn cases; verifies before send; self-corrects on derivation.
-  NOT for non-support groups (do not dispatch — return immediately).
-  NOT for research (use /find), howto pages (use /howto), greetings
-  (use /hello).
+  Answer concrete factual questions about a domain entity (validator, account,
+  transaction, epoch, order, ticket, named record) with a primary-source
+  citation. USE for yes/no or specific-value questions like "is X flagged?",
+  "what's the bid for Y?", "Z's last 10 epochs", "verify this", "check your
+  answer", "show me the source", "self-correct on this". Tracks multi-turn
+  cases on the same entity; verifies before send; self-corrects on derivation.
+  NOT for research into how something works (use /find), howto pages
+  (use /howto), or greetings (use /hello).
 user-invocable: true
 arg: <question, optional — defaults to the latest user message>
 ---
 
 # Support
-
-**Product gate**: this skill is for support-product groups only.
-Before phase 1, verify:
-
-```bash
-test -f ~/PRODUCT.md && grep -qE '^(name|brand) *= *"(support|atlas)"' ~/PRODUCT.md
-```
-
-If the check fails — this group is not the support product. Exit
-immediately, do not invoke any phase. Other skills handle non-support
-work.
-
-## Workflow
 
 Answer with a primary-source citation. Verify before send. Self-correct
 on derivation. Track the case across turns.
