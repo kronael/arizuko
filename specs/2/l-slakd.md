@@ -35,10 +35,14 @@ One `xoxb-` token, one workspace. Multi-workspace = future spec.
 
 ## JID and threading
 
-JID: `slack:T<ws>/C<channel>`. `T<ws>` is informational (workspace ID
-from Slack APIs, log correlation); v1 routing matches `slack:` only.
-Channels: `C` public, `G` private/mpim, `D` DM. `IsGroup`: `D` → false;
-else → true. Registered prefix: `slack:`.
+JID: `slack:<workspace>/<kind>/<id>` — same pattern as Discord
+(`discord:<guild>/<channel>`). Kind is `channel` (public/private),
+`dm` (direct message), or `group` (legacy mpim). Workspace ID and
+channel ID kept verbatim from Slack (paste-back from Slack URLs works:
+`T012ABCD`, `C0HJKL456`, etc.). Multi-workspace: one slakd daemon per
+workspace, JID disambiguates. `IsGroup`: kind=`dm` → false; else →
+true. Registered prefix: `slack:`. Examples:
+`slack:T012ABCD/channel/C0HJKL456`, `slack:T012ABCD/dm/D0XY9876`.
 
 `InboundMsg.Topic` = raw `thread_ts` (e.g. `1715520000.123456`). Three
 states: top-level (`Topic=""`), thread root (`Topic=ID`, equals parent
@@ -75,10 +79,14 @@ emoji (`:partyparrot:`) lack Unicode codepoint, fall through
 agent gets name + like verb, enough for most flows. Custom-as-dislike
 needs a per-workspace mapping; defer.
 
-Slack file URLs require `Authorization: Bearer xoxb-...`. slakd proxies
-content via `http://slakd:<port>/files/<file-id>` using `chanlib.URLCache`
-(exactly like discd). Agent fetches without credentials; Whisper path
-identical to other adapters.
+Files: standard `chanlib.URLCache` + `GET /files/<id>` proxy pattern
+(same shape as `discd` and `teled` — `chanlib.Auth(ChannelSecret, …)`
+middleware in front, `chanlib.ProxyFile` for streaming). Only Slack-
+specific bit: upstream fetch adds `Authorization: Bearer $SLACK_BOT_TOKEN`
+(Discord uses time-signed CDN URLs, Telegram embeds the token in the URL
+path; Slack uses a request header). Agent fetches the stable
+`/files/<id>` URL without credentials; Whisper path identical to other
+adapters.
 
 `users.info` (15 min TTL) → `SenderName`; `conversations.info` (15 min
 TTL) → `ChatName`. `auth.test` returns `bot_user_id`; slakd skips
@@ -109,7 +117,7 @@ From `refs/openclaw/extensions/slack/src/`: `thread-ts.ts` validates
   subscribes events to `SLAKD_PUBLIC_URL/events`.
 - `arizuko create slk && arizuko run slk`; `/health` 200; bot in `#test`;
   agent replies in-channel and in 1:1 DM.
-- Thread round-trip: reply lands as `Topic`; `get_thread chat_jid:=slack:T<ws>/C<chan>
+- Thread round-trip: reply lands as `Topic`; `get_thread chat_jid:=slack:T<ws>/channel/<chan>
 topic:=<thread_ts>` returns the slice; `send_reply` with `replyTo` of
   a thread message posts under the same thread.
 - `:thumbsdown:` → inbound `verb="dislike"`, `Reaction="thumbsdown"`.
