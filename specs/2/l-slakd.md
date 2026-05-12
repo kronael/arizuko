@@ -1,0 +1,131 @@
+---
+status: spec
+---
+
+# slakd — Slack channel adapter (bot-token, v1)
+
+Slack workspace adapter. HTTP Events API webhook in, Slack Web API
+client out. Discord-shaped, most verb surface ports from discd. Same
+shape as `discd` / `teled`: registers with `gated` via
+`chanlib.RouterClient`, exposes `/send`, `/like`, `/delete`, `/upload`,
+`/health`. Lives at `slakd/`; goes in `template/services/slakd.toml`.
+
+## What ships in v1 (bot-token, single-workspace)
+
+One `xoxb-` token, one workspace. Multi-workspace = future spec.
+
+- HTTP Events API on `SLAKD_PORT`. URL-verification handshake
+  (`type=url_verification` → echo `challenge`).
+- Signing: `X-Slack-Signature` HMAC of `v0:<ts>:<body>` using
+  `SLACK_SIGNING_SECRET`; reject if `|ts - now| > 5 min`. proxyd MUST
+  pass body bytes and `X-Slack-Signature` / `X-Slack-Request-Timestamp`
+  headers verbatim (no re-marshal, no TLS re-sign) — else slakd can't verify.
+- Inbound: `message.channels`, `message.groups`, `message.im`,
+  `message.mpim`, `reaction_added`/`removed`, `member_joined_channel`
+  (verb `join`), `file_shared`. NOT `app_mention` — Slack fires it
+  alongside `message.*`; mirror discd, derive `mentions_me` from text
+  containing `<@Uxxx>` matching `auth.test`'s `bot_user_id`.
+- Outbound (Web API, `Bearer xoxb-...`): `chat.postMessage` (+`thread_ts`),
+  `chat.update`, `chat.delete`, `reactions.add`/`remove`,
+  `files.getUploadURLExternal` + `files.completeUploadExternal` ("v2
+  flow"; no HTTP endpoint named `files.uploadV2`, some SDKs wrap the
+  2-step flow under that name; `files.upload` deprecated 2025-05).
+- 429: respect `Retry-After` (same as discd / `ant/CLAUDE.md` tool
+  discipline). Per-method tiers are constants — log, don't compute.
+
+## JID and threading
+
+JID: `slack:T<ws>/C<channel>`. `T<ws>` is informational (workspace ID
+from Slack APIs, log correlation); v1 routing matches `slack:` only.
+Channels: `C` public, `G` private/mpim, `D` DM. `IsGroup`: `D` → false;
+else → true. Registered prefix: `slack:`.
+
+`InboundMsg.Topic` = raw `thread_ts` (e.g. `1715520000.123456`). Three
+states: top-level (`Topic=""`), thread root (`Topic=ID`, equals parent
+message ID), thread reply (`Topic=parent.thread_ts`). `Topic` is opaque
+per-platform to `recall-messages`, `compact-memories`, `get_thread` —
+never compare across platforms. Slack's `thread_ts` IS the parent
+message ID; resolve only within the same chat. Outbound: `ThreadID` →
+`thread_ts`; `ReplyTo` → `thread_ts` from `chat.postMessage` response.
+
+## Verbs
+
+| Verb        | Method                                        |
+| ----------- | --------------------------------------------- |
+| `send`      | `chat.postMessage`                            |
+| `reply`     | `chat.postMessage` + `thread_ts`              |
+| `like`      | `reactions.add` (emoji from `Reaction` field) |
+| `dislike`   | `reactions.add` w/ `👎` per dislike-via-like  |
+| `delete`    | `chat.delete`                                 |
+| `edit`      | `chat.update`                                 |
+| `send_file` | `files.getUploadURLExternal` + complete       |
+| `post`      | maps to `send` on a channel JID               |
+
+DMs (`message.im`) and non-mentioned channel messages emit `verb=""`
+(default `message`); mentions and threads ride in `Topic` or text, not
+the verb. Mirrors `discd/bot.go:147`.
+
+## Reactions, files, caches
+
+`reaction_added` → `InboundMsg{Verb: ClassifyEmoji(name), Content: name,
+Reaction: name, ReplyTo: item.ts}`. Names arrive without colons
+(`thumbsup`); `reaction_removed` not emitted in v1. Workspace-custom
+emoji (`:partyparrot:`) lack Unicode codepoint, fall through
+`ClassifyEmoji`'s unknown→like default; `Reaction` carries the NAME —
+agent gets name + like verb, enough for most flows. Custom-as-dislike
+needs a per-workspace mapping; defer.
+
+Slack file URLs require `Authorization: Bearer xoxb-...`. slakd proxies
+content via `http://slakd:<port>/files/<file-id>` using `chanlib.URLCache`
+(exactly like discd). Agent fetches without credentials; Whisper path
+identical to other adapters.
+
+`users.info` (15 min TTL) → `SenderName`; `conversations.info` (15 min
+TTL) → `ChatName`. `auth.test` returns `bot_user_id`; slakd skips
+inbound where `event.user == bot_user_id` AND events with only `bot_id`
+set. Liveness = `auth.test`; `/health` returns 503 on auth failure.
+
+## Env vars
+
+```
+SLACK_BOT_TOKEN=xoxb-...     required
+SLACK_SIGNING_SECRET=...     required
+SLACK_APP_TOKEN=xapp-...     reserved (Socket Mode)
+SLAKD_PORT=7090              HTTP listener
+SLAKD_PUBLIC_URL=            external URL Slack POSTs to (via proxyd)
+SLAKD_USERS_CACHE_TTL=900    seconds
+```
+
+## OpenClaw inspiration
+
+From `refs/openclaw/extensions/slack/src/`: `thread-ts.ts` validates
+`thread_ts` against `^\d+\.\d+$`; `target-parsing.ts` accepts `<@U123>`,
+`#general`, `slack:...`, and bare `C12345678` on operator CLI (canonical
+= the JID).
+
+## Acceptance
+
+- Operator creates Slack App, sets bot token + signing secret in `.env`,
+  subscribes events to `SLAKD_PUBLIC_URL/events`.
+- `arizuko create slk && arizuko run slk`; `/health` 200; bot in `#test`;
+  agent replies in-channel and in 1:1 DM.
+- Thread round-trip: reply lands as `Topic`; `get_thread chat_jid:=slack:T<ws>/C<chan>
+topic:=<thread_ts>` returns the slice; `send_reply` with `replyTo` of
+  a thread message posts under the same thread.
+- `:thumbsdown:` → inbound `verb="dislike"`, `Reaction="thumbsdown"`.
+- File round-trip (inbound PDF via slakd `/files/` proxy; outbound PNG
+  via `files.getUploadURLExternal` + complete). Forged signature → 401.
+
+## Out of scope (deferred)
+
+- **OAuth install** — manual install only; per-workspace bot install
+  runbook lives in `slakd/README.md` (parallel to `teled/README.md`).
+  Multi-workspace token store = separate spec.
+- **Socket Mode** (`SLACK_APP_TOKEN` reserved, unwired), **Enterprise
+  Grid**, **slash commands / shortcuts / modals / home tab / Block Kit**,
+  **user token** (`xoxp-`) — all separate specs.
+
+## Open
+
+- Signing-secret rotation: startup only (matches mastd) vs SIGHUP reload.
+- `files.uploadV2` posts as the bot, not the agent persona — accept for v1.
