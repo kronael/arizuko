@@ -12,6 +12,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.33.28] — 2026-05-12
+
+> arizuko v0.33.28 — 12 May 2026
+>
+> • `/support` skill now scoped to support-product groups only (Atlas brand) — other agents no-op when dispatched
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- `ant/skills/support/SKILL.md` — frontmatter `description:` now opens with "USE ONLY in groups deployed as the support product" and includes "NOT for non-support groups (do not dispatch — return immediately)". Skill body adds a "Product gate" check that greps `~/PRODUCT.md` for `name = "support"` or `brand = "atlas"`; if missing, exits before phase 1. Interim binding — the architecturally-right move (per-product template overlay) is queued; today's gate is description + first-step check.
+
+---
+
 ## [v0.33.27] — 2026-05-11
 
 > arizuko v0.33.27 — 11 May 2026
