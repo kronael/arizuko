@@ -12,6 +12,48 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.35.0] — 2026-05-13
+
+> arizuko v0.35.0 — 13 May 2026
+>
+> • Channel adapters declare proxyd routes in their service TOML — one PR adds a new adapter, no Go edits in proxyd
+> • `PROXYD_ROUTES_JSON` env carries the route table; compose generates it at run time
+> • New `[[proxyd_route]]` block: `path`, `backend`, `auth`, optional `gated_by`, `preserve_headers`, `strip_prefix`
+> • Existing routes preserved verbatim: `/slack/`, `/slink/`, `/chat/`, `/api/`, `/x/`, `/static/`, `/mcp`, `/dash/`, `/dav/`, `/onbod/`
+> • DNS NXDOMAIN egress filter shipped alongside (crackbox)
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- `proxyd/routes.go` — `Route` struct + `LoadRoutes(raw string)` parser for `PROXYD_ROUTES_JSON`. Loader validates: unique paths (duplicate `path` is a hard error), well-formed `backend` URL, recognised `auth` (`public` / `user` / `operator`). Longest-prefix match at dispatch; ties resolved by load order.
+- `[[proxyd_route]]` block in service TOML — `template/services/slakd.toml` carries the first one (`/slack/`, `auth=public`, `gated_by=SLACK_BOT_TOKEN`, `preserve_headers=[X-Slack-Signature, X-Slack-Request-Timestamp]`). Fields: `path`, `backend`, `auth`, `gated_by` (optional, drops route if env unset), `preserve_headers` (optional, header allowlist), `strip_prefix` (optional, default false).
+- `coreProxydRoutes` slice in `compose/compose.go` — static routes for core daemons (`dashd`, `webd`, `davd`, `onbod`) that don't have a `template/services/*.toml`. Merged with per-service routes before serialisation.
+- DNS NXDOMAIN egress filter (crackbox) — per `specs/9/15-crackbox-dns-filter.md`. Restricts container egress to an allowlist of hostnames; non-matching DNS lookups return NXDOMAIN.
+
+### Changed
+
+- `proxyd/main.go` — route dispatch reads `routes []Route` from `PROXYD_ROUTES_JSON` instead of hardcoded prefixes. Bespoke handlers for `/slink/` (rate limiter + token resolver) and `/dav/` (group-scoped routing + davAllow write-block) remain in `dispatchRoute` (`main.go`), wired by path. Built-in routes (`/auth/*`, `/health`, `/pub/*`, vhost host-header rewrite) stay hand-wired.
+- `compose/compose.go` — `proxydService` no longer injects per-daemon `*_ADDR` env vars. Instead iterates `template/services/*.toml` for `[[proxyd_route]]` blocks, filters by `gated_by`, merges with `coreProxydRoutes`, JSON-encodes, and injects as `PROXYD_ROUTES_JSON`.
+- `proxyd/README.md` — points at `compose/compose.go:coreProxydRoutes` + `template/services/*.toml [[proxyd_route]]` as sources of truth. Spec link to `specs/6/2-proxyd-standalone.md`.
+- `CLAUDE.md` "## Conventions" — adds the channel-adapter convention: ship a `template/services/<daemon>.toml` with the daemon's compose env + a `[[proxyd_route]]` block; no edit to `proxyd/main.go` or `compose/compose.go`.
+
+### Removed
+
+- `proxyd/main.go` per-backend `*httputil.ReverseProxy` fields and the `loadConfig` `EnvOr("DASH_ADDR", ...)` / `WEBD_ADDR` / `DAV_ADDR` / `ONBOD_ADDR` / `SLAKD_ADDR` lines. `VITE_ADDR` retained (vited path falls back through `/pub/`).
+- `compose/compose.go` per-daemon address injection block in `proxydService`. Single `PROXYD_ROUTES_JSON` env replaces it.
+
+### Schema
+
+- Env: drop `DASH_ADDR`, `WEBD_ADDR`, `DAV_ADDR`, `ONBOD_ADDR`, `SLAKD_ADDR`. Add `PROXYD_ROUTES_JSON` (JSON array; absence = empty external table, built-ins still serve). `VITE_ADDR` retained.
+- TOML: new `[[proxyd_route]]` block in `template/services/<daemon>.toml`. Field semantics in `specs/6/2-proxyd-standalone.md`.
+
+### Spec
+
+- `specs/6/2-proxyd-standalone.md` Phase-1 ship (per-daemon TOML routes) marked shipped; HTTP API for runtime management, MCP tool surface, and `[auth].mode = "remote"` remain spec-only.
+
+---
+
 ## [v0.34.0] — 2026-05-13
 
 > arizuko v0.34.0 — 13 May 2026

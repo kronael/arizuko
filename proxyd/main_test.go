@@ -6,11 +6,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -179,16 +181,18 @@ func TestProxydRequireAuthExpiredJWT(t *testing.T) {
 }
 
 func TestProxydSlinkRouteRateLimit(t *testing.T) {
+	// A /slink/ route is needed so the request enters dispatchRoute (where
+	// the rate limiter lives). Pre-fill the limiter bucket so the request
+	// is denied before any upstream hop.
 	s := &server{
 		cfg:     config{},
 		vh:      &vhosts{entries: map[string]string{}},
 		slinkRL: newRateLimiter(1, time.Minute),
+		routes:  []Route{{Path: "/slink/", Backend: "http://stub", Auth: "public"}},
+		proxies: map[string]*httputil.ReverseProxy{
+			"/slink/": buildRouteProxy(Route{Path: "/slink/", Backend: "http://stub"}),
+		},
 	}
-	req1 := httptest.NewRequest("GET", "/slink/tok1", nil)
-	req1.RemoteAddr = "9.9.9.9:1234"
-	// First hit consumes the only slot; it would proceed to upstream (nil),
-	// which would panic. Pre-fill the limiter bucket instead so the second
-	// request is denied before touching upstream.
 	s.slinkRL.allow("9.9.9.9")
 
 	req := httptest.NewRequest("GET", "/slink/tok1", nil)
@@ -200,13 +204,19 @@ func TestProxydSlinkRouteRateLimit(t *testing.T) {
 	}
 }
 
-func TestProxydDashNilProxy(t *testing.T) {
-	s := testServer() // dashProxy is nil
+// With no /dash/ TOML route configured the request falls through to the
+// public-redirect fallback. (When dashd is gated off the operator's
+// PROXYD_ROUTES_JSON simply omits /dash/.)
+func TestProxydDashNoRouteRedirectsToPub(t *testing.T) {
+	s := testServer()
 	req := httptest.NewRequest("GET", "/dash/status/", nil)
 	w := httptest.NewRecorder()
 	s.route(w, req)
-	if w.Code != 404 {
-		t.Errorf("status = %d, want 404", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("status = %d, want 302", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/pub/dash/status/" {
+		t.Errorf("location = %q, want /pub/dash/status/", loc)
 	}
 }
 
@@ -295,6 +305,7 @@ func testServerWithUpstream(t *testing.T) (*server, *httptest.Server) {
 		vh:        &vhosts{entries: map[string]string{}},
 		viteProxy: httputil.NewSingleHostReverseProxy(u),
 		slinkRL:   newRateLimiter(10, time.Minute),
+		proxies:   map[string]*httputil.ReverseProxy{},
 	}
 	return s, up
 }
@@ -332,17 +343,133 @@ func TestProxydRootRedirectToPub(t *testing.T) {
 	}
 }
 
+// stubProbe lets tests force the reachability result and count calls.
+type stubProbe struct {
+	mu     sync.Mutex
+	ok     bool
+	calls  int
+}
+
+func (p *stubProbe) probe(string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	return p.ok
+}
+
+// /pub/* with PUB_REDIRECT_URL set and reachable → 302 to upstream URL,
+// preserving the post-/pub path and query.
+func TestProxydPubExternalRedirectReachable(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+	sp := &stubProbe{ok: true}
+	s.pubRedir = &pubRedirect{url: "https://docs.example.com", ttl: time.Minute, probe: sp.probe}
+
+	req := httptest.NewRequest("GET", "/pub/foo/bar?x=1", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	if loc, want := w.Header().Get("Location"), "https://docs.example.com/foo/bar?x=1"; loc != want {
+		t.Errorf("location = %q, want %q", loc, want)
+	}
+}
+
+// /pub/* with PUB_REDIRECT_URL set but unreachable → falls through to
+// the local viteProxy (no 5xx, no 502 — minimal graceful fallback).
+func TestProxydPubExternalRedirectUnreachable(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+	sp := &stubProbe{ok: false}
+	s.pubRedir = &pubRedirect{url: "https://docs.example.com", ttl: time.Minute, probe: sp.probe}
+
+	req := httptest.NewRequest("GET", "/pub/anything", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200 (fall back to local)", w.Code)
+	}
+	if w.Header().Get("X-Upstream") != "hit" {
+		t.Error("local upstream not reached")
+	}
+}
+
+// Root → external root redirect when reachable.
+func TestProxydRootRedirectExternal(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+	sp := &stubProbe{ok: true}
+	s.pubRedir = &pubRedirect{url: "https://docs.example.com", ttl: time.Minute, probe: sp.probe}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if loc, want := w.Header().Get("Location"), "https://docs.example.com/"; loc != want {
+		t.Errorf("location = %q, want %q", loc, want)
+	}
+}
+
+// Reachability is cached within ttl: N hits → 1 probe call.
+func TestPubRedirectCachesProbe(t *testing.T) {
+	sp := &stubProbe{ok: true}
+	pr := &pubRedirect{url: "https://docs.example.com", ttl: time.Minute, probe: sp.probe}
+	for i := 0; i < 10; i++ {
+		if !pr.reachable() {
+			t.Fatal("want reachable")
+		}
+	}
+	if sp.calls != 1 {
+		t.Errorf("probe calls = %d, want 1 (cached)", sp.calls)
+	}
+}
+
+// Expired cache re-probes.
+func TestPubRedirectRefreshesAfterTTL(t *testing.T) {
+	sp := &stubProbe{ok: true}
+	pr := &pubRedirect{url: "https://docs.example.com", ttl: 10 * time.Millisecond, probe: sp.probe}
+	pr.reachable()
+	time.Sleep(15 * time.Millisecond)
+	pr.reachable()
+	if sp.calls != 2 {
+		t.Errorf("probe calls = %d, want 2 (refreshed)", sp.calls)
+	}
+}
+
+// Websocket upgrades on /pub/ are not redirected (they need the local
+// reverse proxy with hop-by-hop handling).
+func TestProxydPubWebsocketBypassesRedirect(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+	sp := &stubProbe{ok: true}
+	s.pubRedir = &pubRedirect{url: "https://docs.example.com", ttl: time.Minute, probe: sp.probe}
+
+	req := httptest.NewRequest("GET", "/pub/ws", nil)
+	req.Header.Set("Upgrade", "websocket")
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200 (ws falls through to local proxy)", w.Code)
+	}
+}
+
 func TestDavRouteForbidden(t *testing.T) {
 	s := &server{
-		cfg:      config{authSecret: "testsecret"},
-		vh:       &vhosts{entries: map[string]string{}},
-		slinkRL:  newRateLimiter(10, time.Minute),
-		davProxy: nil, // 403 short-circuits before hitting the proxy
+		cfg:     config{authSecret: "testsecret"},
+		vh:      &vhosts{entries: map[string]string{}},
+		slinkRL: newRateLimiter(10, time.Minute),
 	}
 	req := httptest.NewRequest("GET", "/dav/bob/", nil)
 	req.Header.Set("X-User-Groups", `["alice"]`)
 	w := httptest.NewRecorder()
-	s.davRoute(w, req)
+	s.davRoute(nil, w, req) // 403 short-circuits before hitting the proxy
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", w.Code)
@@ -430,7 +557,8 @@ func TestProxydRequireAuthRefreshTokenUserMissing(t *testing.T) {
 // testRouteServer builds a server whose viteProxy forwards to a stub upstream.
 // The returned upstream must be Closed by the caller. secret is configured as
 // the auth signing key; pass empty to disable auth (fails closed for protected
-// routes).
+// routes). Default TOML routes (/chat/, /slink/) are installed pointing at the
+// same upstream so existing tests keep their behaviour.
 func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *httptest.Server) {
 	t.Helper()
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -446,12 +574,19 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 	if err != nil {
 		t.Fatal(err)
 	}
+	chatRoute := Route{Path: "/chat/", Backend: up.URL, Auth: "user"}
+	slinkRoute := Route{Path: "/slink/", Backend: up.URL, Auth: "public"}
 	s := &server{
 		cfg:       config{authSecret: secret},
 		st:        st,
 		vh:        &vhosts{entries: map[string]string{}},
 		viteProxy: httputil.NewSingleHostReverseProxy(u),
 		slinkRL:   newRateLimiter(10, time.Minute),
+		routes:    []Route{chatRoute, slinkRoute},
+		proxies: map[string]*httputil.ReverseProxy{
+			"/chat/":  buildRouteProxy(chatRoute),
+			"/slink/": buildRouteProxy(slinkRoute),
+		},
 	}
 	return s, up
 }
@@ -459,7 +594,7 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 // --- auth gate ---------------------------------------------------------------
 
 // Unknown path redirects to /pub/ prefix (public fallback).
-func TestProxydRouteUnknownPathRequiresAuth(t *testing.T) {
+func TestProxydRouteUnknownPathRedirectsToPub(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")
 	defer up.Close()
 
@@ -467,11 +602,11 @@ func TestProxydRouteUnknownPathRequiresAuth(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.route(w, req)
 
-	if w.Code != http.StatusSeeOther {
-		t.Errorf("status = %d, want 303", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("status = %d, want 302", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "/auth/login" {
-		t.Errorf("location = %q, want /auth/login", loc)
+	if loc := w.Header().Get("Location"); loc != "/pub/arizuko" {
+		t.Errorf("location = %q, want /pub/arizuko", loc)
 	}
 }
 
@@ -793,27 +928,30 @@ func TestProxydVhostStripsPort(t *testing.T) {
 
 // --- /dav rewrite ------------------------------------------------------------
 
-// testDavServer returns a server whose davProxy forwards to the stub upstream.
-// The davProxy uses the same rewrite Director as production.
-func testDavServer(t *testing.T) (*server, *httptest.Server) {
+// testDavServer returns a server with /dav/ wired through a strip-prefix
+// reverse proxy to the stub upstream. The bundled davRoute is invoked
+// directly via the returned proxy.
+func testDavServer(t *testing.T) (*server, *httputil.ReverseProxy, *httptest.Server) {
 	t.Helper()
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Upstream-Path", r.URL.Path)
 		w.WriteHeader(200)
 		w.Write([]byte("dav:" + r.URL.Path))
 	}))
+	rp := buildRouteProxy(Route{Path: "/dav/", Backend: up.URL, StripPrefix: true})
 	s := &server{
-		cfg:      config{authSecret: "testsecret"},
-		vh:       &vhosts{entries: map[string]string{}},
-		davProxy: davProxy(up.URL),
-		slinkRL:  newRateLimiter(10, time.Minute),
+		cfg:     config{authSecret: "testsecret"},
+		vh:      &vhosts{entries: map[string]string{}},
+		slinkRL: newRateLimiter(10, time.Minute),
+		routes:  []Route{{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}},
+		proxies: map[string]*httputil.ReverseProxy{"/dav/": rp},
 	}
-	return s, up
+	return s, rp, up
 }
 
 // /dav/foo/bar is rewritten to /foo/bar before being forwarded.
 func TestProxydDavRewriteStripsPrefix(t *testing.T) {
-	s, up := testDavServer(t)
+	s, rp, up := testDavServer(t)
 	defer up.Close()
 
 	// davRoute's group-matching gate requires the user to be in the folder —
@@ -821,7 +959,7 @@ func TestProxydDavRewriteStripsPrefix(t *testing.T) {
 	req := httptest.NewRequest("GET", "/dav/foo/bar", nil)
 	req.Header.Set("X-User-Groups", `["foo"]`)
 	w := httptest.NewRecorder()
-	s.davRoute(w, req)
+	s.davRoute(rp, w, req)
 
 	if w.Code != 200 {
 		t.Fatalf("status = %d, want 200", w.Code)
@@ -833,13 +971,13 @@ func TestProxydDavRewriteStripsPrefix(t *testing.T) {
 
 // /dav with a trailing slash but no group redirects to the user's first group.
 func TestProxydDavBareRedirects(t *testing.T) {
-	s, up := testDavServer(t)
+	s, rp, up := testDavServer(t)
 	defer up.Close()
 
 	req := httptest.NewRequest("GET", "/dav", nil)
 	req.Header.Set("X-User-Groups", `["alpha","beta"]`)
 	w := httptest.NewRecorder()
-	s.davRoute(w, req)
+	s.davRoute(rp, w, req)
 
 	if w.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", w.Code)
@@ -849,14 +987,34 @@ func TestProxydDavBareRedirects(t *testing.T) {
 	}
 }
 
+// /dav (bare) picks the first non-`**` group in *sorted* order — not the
+// claim's original order. Map iteration upstream is non-deterministic, so
+// "first" must be a sort, not a position.
+func TestProxydDavBareSortsGroups(t *testing.T) {
+	s, rp, up := testDavServer(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/dav", nil)
+	req.Header.Set("X-User-Groups", `["b/x","**","a/y"]`)
+	w := httptest.NewRecorder()
+	s.davRoute(rp, w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	if got := w.Header().Get("Location"); got != "/dav/a/y/" {
+		t.Errorf("location = %q, want /dav/a/y/ (sorted, skips **)", got)
+	}
+}
+
 // /dav (bare) with no X-User-Groups header redirects to /dav/root/.
 func TestProxydDavBareNoGroupsDefaultsRoot(t *testing.T) {
-	s, up := testDavServer(t)
+	s, rp, up := testDavServer(t)
 	defer up.Close()
 
 	req := httptest.NewRequest("GET", "/dav", nil)
 	w := httptest.NewRecorder()
-	s.davRoute(w, req)
+	s.davRoute(rp, w, req)
 
 	if w.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", w.Code)
@@ -869,13 +1027,13 @@ func TestProxydDavBareNoGroupsDefaultsRoot(t *testing.T) {
 // Operator (grant `**`) reaches upstream for any /dav/<folder>. Operator
 // is implicit — there's no separate "no header" bypass.
 func TestProxydDavOperatorProxies(t *testing.T) {
-	s, up := testDavServer(t)
+	s, rp, up := testDavServer(t)
 	defer up.Close()
 
 	req := httptest.NewRequest("GET", "/dav/anything/here", nil)
 	req.Header.Set("X-User-Groups", `["**"]`)
 	w := httptest.NewRecorder()
-	s.davRoute(w, req)
+	s.davRoute(rp, w, req)
 
 	if w.Code != 200 {
 		t.Fatalf("status = %d, want 200", w.Code)
@@ -889,13 +1047,13 @@ func TestProxydDavOperatorProxies(t *testing.T) {
 // group without needing a literal entry. This exercises the MatchGroups
 // path in davRoute.
 func TestProxydDavGlobGroupsAllowed(t *testing.T) {
-	s, up := testDavServer(t)
+	s, rp, up := testDavServer(t)
 	defer up.Close()
 
 	req := httptest.NewRequest("GET", "/dav/pub-alice/file", nil)
 	req.Header.Set("X-User-Groups", `["pub-*"]`)
 	w := httptest.NewRecorder()
-	s.davRoute(w, req)
+	s.davRoute(rp, w, req)
 
 	if w.Code != 200 {
 		t.Fatalf("status = %d, want 200 (glob match allowed)", w.Code)
@@ -904,27 +1062,27 @@ func TestProxydDavGlobGroupsAllowed(t *testing.T) {
 
 // Malformed X-User-Groups header rejects the request.
 func TestProxydDavBadGroupsHeader(t *testing.T) {
-	s, up := testDavServer(t)
+	s, rp, up := testDavServer(t)
 	defer up.Close()
 
 	req := httptest.NewRequest("GET", "/dav/anything", nil)
 	req.Header.Set("X-User-Groups", "not-json")
 	w := httptest.NewRecorder()
-	s.davRoute(w, req)
+	s.davRoute(rp, w, req)
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", w.Code)
 	}
 }
 
-// When davProxy is nil (WEBDAV_ENABLED not set), /dav/* returns 404
-// at the route level before auth is checked.
+// When the /dav/ route is absent (WEBDAV_ENABLED=false), /dav/* returns
+// 404 with the dedicated message before auth is checked.
 func TestDavRouteNotConfigured(t *testing.T) {
 	s := &server{
 		cfg:     config{authSecret: "testsecret"},
 		vh:      &vhosts{entries: map[string]string{}},
 		slinkRL: newRateLimiter(10, time.Minute),
-		// davProxy intentionally nil
+		// routes intentionally empty: no /dav/ route → 404
 	}
 	for _, path := range []string{"/dav", "/dav/", "/dav/folder/file"} {
 		w := httptest.NewRecorder()
@@ -941,7 +1099,7 @@ func TestDavRouteNotConfigured(t *testing.T) {
 // Sensitive write-blocks: PUT/DELETE/MOVE/COPY/MKCOL/POST/PROPPATCH on
 // `.env`, `*.pem`, or under `.git/` are 403 even for the rightful group.
 func TestProxydDavBlocksSensitiveWrites(t *testing.T) {
-	s, up := testDavServer(t)
+	s, rp, up := testDavServer(t)
 	defer up.Close()
 
 	cases := []struct {
@@ -960,7 +1118,7 @@ func TestProxydDavBlocksSensitiveWrites(t *testing.T) {
 			req := httptest.NewRequest(c.method, c.path, nil)
 			req.Header.Set("X-User-Groups", `["myg"]`)
 			w := httptest.NewRecorder()
-			s.davRoute(w, req)
+			s.davRoute(rp, w, req)
 			if w.Code != http.StatusForbidden {
 				t.Errorf("%s %s: status = %d, want 403", c.method, c.path, w.Code)
 			}
@@ -970,14 +1128,14 @@ func TestProxydDavBlocksSensitiveWrites(t *testing.T) {
 
 // Read methods on sensitive files still pass through (operator can inspect).
 func TestProxydDavReadsSensitiveAllowed(t *testing.T) {
-	s, up := testDavServer(t)
+	s, rp, up := testDavServer(t)
 	defer up.Close()
 
 	for _, m := range []string{"GET", "HEAD", "OPTIONS", "PROPFIND"} {
 		req := httptest.NewRequest(m, "/dav/myg/.env", nil)
 		req.Header.Set("X-User-Groups", `["myg"]`)
 		w := httptest.NewRecorder()
-		s.davRoute(w, req)
+		s.davRoute(rp, w, req)
 		if w.Code != 200 {
 			t.Errorf("%s /dav/myg/.env: status = %d, want 200", m, w.Code)
 		}
@@ -986,7 +1144,7 @@ func TestProxydDavReadsSensitiveAllowed(t *testing.T) {
 
 // `<group>/logs/...` is read-only — any non-read method is 403, reads pass.
 func TestProxydDavLogsReadOnly(t *testing.T) {
-	s, up := testDavServer(t)
+	s, rp, up := testDavServer(t)
 	defer up.Close()
 
 	// Writes blocked.
@@ -994,7 +1152,7 @@ func TestProxydDavLogsReadOnly(t *testing.T) {
 		req := httptest.NewRequest(m, "/dav/myg/logs/run.log", nil)
 		req.Header.Set("X-User-Groups", `["myg"]`)
 		w := httptest.NewRecorder()
-		s.davRoute(w, req)
+		s.davRoute(rp, w, req)
 		if w.Code != http.StatusForbidden {
 			t.Errorf("%s /dav/myg/logs/run.log: status = %d, want 403", m, w.Code)
 		}
@@ -1005,7 +1163,7 @@ func TestProxydDavLogsReadOnly(t *testing.T) {
 		req := httptest.NewRequest(m, "/dav/myg/logs/run.log", nil)
 		req.Header.Set("X-User-Groups", `["myg"]`)
 		w := httptest.NewRecorder()
-		s.davRoute(w, req)
+		s.davRoute(rp, w, req)
 		if w.Code != 200 {
 			t.Errorf("%s /dav/myg/logs/run.log: status = %d, want 200", m, w.Code)
 		}
@@ -1015,7 +1173,7 @@ func TestProxydDavLogsReadOnly(t *testing.T) {
 	req := httptest.NewRequest("DELETE", "/dav/myg/logs", nil)
 	req.Header.Set("X-User-Groups", `["myg"]`)
 	w := httptest.NewRecorder()
-	s.davRoute(w, req)
+	s.davRoute(rp, w, req)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("DELETE /dav/myg/logs: status = %d, want 403", w.Code)
 	}
@@ -1023,13 +1181,13 @@ func TestProxydDavLogsReadOnly(t *testing.T) {
 
 // Writes outside logs and sensitive paths still go through.
 func TestProxydDavOrdinaryWriteAllowed(t *testing.T) {
-	s, up := testDavServer(t)
+	s, rp, up := testDavServer(t)
 	defer up.Close()
 
 	req := httptest.NewRequest("PUT", "/dav/myg/notes/todo.md", nil)
 	req.Header.Set("X-User-Groups", `["myg"]`)
 	w := httptest.NewRecorder()
-	s.davRoute(w, req)
+	s.davRoute(rp, w, req)
 	if w.Code != 200 {
 		t.Errorf("PUT /dav/myg/notes/todo.md: status = %d, want 200", w.Code)
 	}
@@ -1096,6 +1254,132 @@ func TestProxydVhostRootPreservesTrailingSlash(t *testing.T) {
 		if got := w.Header().Get("X-Upstream-Path"); got != c.want {
 			t.Errorf("%s: upstream path = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// TOML-route dispatch tests: exercise the PROXYD_ROUTES_JSON code path
+// end-to-end via server.route.
+
+// installRoute is a tiny helper for tests that wires one TOML route into
+// the server's routes/proxies map.
+func installRoute(s *server, r Route) {
+	s.routes = append(s.routes, r)
+	if s.proxies == nil {
+		s.proxies = map[string]*httputil.ReverseProxy{}
+	}
+	s.proxies[r.Path] = buildRouteProxy(r)
+}
+
+func TestProxyd_TOMLRoute_HandlesSlackPrefix(t *testing.T) {
+	var seenPath string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		w.WriteHeader(200)
+	}))
+	defer up.Close()
+
+	s := testServer()
+	s.cfg.authSecret = "testsecret"
+	installRoute(s, Route{Path: "/slack/", Backend: up.URL, Auth: "public"})
+
+	req := httptest.NewRequest("POST", "/slack/events", strings.NewReader("body"))
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if seenPath != "/slack/events" {
+		t.Errorf("backend saw %q, want /slack/events", seenPath)
+	}
+}
+
+func TestProxyd_TOMLRoute_PublicAuth_BypassesIdentityCheck(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer up.Close()
+
+	s := testServer()
+	s.cfg.authSecret = "testsecret"
+	installRoute(s, Route{Path: "/slack/", Backend: up.URL, Auth: "public"})
+
+	// No credentials at all — auth=public means proxyd never asks.
+	req := httptest.NewRequest("POST", "/slack/events", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200 (public route)", w.Code)
+	}
+}
+
+func TestProxyd_TOMLRoute_UserAuth_RequiresIdentity(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer up.Close()
+
+	s := testServer()
+	s.cfg.authSecret = "testsecret"
+	installRoute(s, Route{Path: "/dash/", Backend: up.URL, Auth: "user"})
+
+	req := httptest.NewRequest("GET", "/dash/status", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303 (auth=user redirects to login)", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/auth/login" {
+		t.Errorf("location = %q, want /auth/login", loc)
+	}
+}
+
+func TestProxyd_TOMLRoute_PreservesHeaders(t *testing.T) {
+	// Verifies the three contractual guarantees of `auth=public` + preserve_headers:
+	//   1. body passes through verbatim (Slack HMAC is over the raw body)
+	//   2. preserve_headers entries arrive verbatim
+	//   3. Host is rewritten to the backend by default (no host preservation)
+	var seenSig, seenTs, seenHost string
+	var seenBody []byte
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenSig = r.Header.Get("X-Slack-Signature")
+		seenTs = r.Header.Get("X-Slack-Request-Timestamp")
+		seenHost = r.Host
+		seenBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(200)
+	}))
+	defer up.Close()
+	upURL, _ := url.Parse(up.URL)
+
+	s := testServer()
+	installRoute(s, Route{
+		Path:            "/slack/",
+		Backend:         up.URL,
+		Auth:            "public",
+		PreserveHeaders: []string{"X-Slack-Signature", "X-Slack-Request-Timestamp"},
+	})
+
+	const wantBody = "payload"
+	req := httptest.NewRequest("POST", "/slack/events", strings.NewReader(wantBody))
+	req.Host = "proxyd.example.com"
+	req.Header.Set("X-Slack-Signature", "v0=cafebabe")
+	req.Header.Set("X-Slack-Request-Timestamp", "1700000000")
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if seenSig != "v0=cafebabe" {
+		t.Errorf("backend X-Slack-Signature = %q, want v0=cafebabe", seenSig)
+	}
+	if seenTs != "1700000000" {
+		t.Errorf("backend X-Slack-Request-Timestamp = %q, want 1700000000", seenTs)
+	}
+	if string(seenBody) != wantBody {
+		t.Errorf("backend body = %q, want %q", seenBody, wantBody)
+	}
+	if seenHost != upURL.Host {
+		t.Errorf("backend Host = %q, want %q (Host rewrite default ON)", seenHost, upURL.Host)
 	}
 }
 

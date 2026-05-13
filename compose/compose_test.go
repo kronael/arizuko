@@ -193,8 +193,8 @@ func TestGenerateWebDAVDefaultOn(t *testing.T) {
 	if !strings.Contains(out, "davd:") {
 		t.Error("davd service should be present by default (WEBDAV_ENABLED defaults to true)")
 	}
-	if !strings.Contains(out, "DAV_ADDR") {
-		t.Error("proxyd should receive DAV_ADDR by default")
+	if !strings.Contains(out, `\"path\":\"/dav/\"`) {
+		t.Error("proxyd should receive /dav/ route in PROXYD_ROUTES_JSON by default")
 	}
 }
 
@@ -211,8 +211,8 @@ func TestGenerateWebDAVDisabled(t *testing.T) {
 	if strings.Contains(out, "davd:") {
 		t.Error("davd service should be absent when WEBDAV_ENABLED=false")
 	}
-	if strings.Contains(out, "DAV_ADDR") {
-		t.Error("proxyd should not receive DAV_ADDR when WEBDAV_ENABLED=false")
+	if strings.Contains(out, `\"path\":\"/dav/\"`) {
+		t.Error("proxyd should not receive /dav/ route when WEBDAV_ENABLED=false")
 	}
 }
 
@@ -305,6 +305,96 @@ func TestInterpolate(t *testing.T) {
 	got := interpolate("${FOO}-${BAZ}", env)
 	if got != "bar-qux" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// TestProxydRoutes_AllAdaptersDeclared: every service with a [[proxyd_route]]
+// shows up in the generated PROXYD_ROUTES_JSON env var on proxyd.
+func TestProxydRoutes_AllAdaptersDeclared(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"WEB_PORT=8095\nAPI_PORT=8080\nCHANNEL_SECRET=s\nSLACK_BOT_TOKEN=tok\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
+image = "arizuko:latest"
+entrypoint = ["slakd"]
+[environment]
+SLACK_BOT_TOKEN = "${SLACK_BOT_TOKEN}"
+
+[[proxyd_route]]
+path = "/slack/"
+backend = "http://slakd:8080"
+auth = "public"
+gated_by = "SLACK_BOT_TOKEN"
+preserve_headers = ["X-Slack-Signature", "X-Slack-Request-Timestamp"]
+`), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "PROXYD_ROUTES_JSON") {
+		t.Fatal("proxyd missing PROXYD_ROUTES_JSON env injection")
+	}
+	if !strings.Contains(out, `\"path\":\"/slack/\"`) {
+		t.Errorf("slack route not serialized into PROXYD_ROUTES_JSON; got:\n%s", out)
+	}
+	if !strings.Contains(out, `\"backend\":\"http://slakd:8080\"`) {
+		t.Errorf("slack backend missing in PROXYD_ROUTES_JSON")
+	}
+}
+
+func TestProxydRoutes_GatedBy_Skipped_When_Env_Unset(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"WEB_PORT=8095\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
+image = "arizuko:latest"
+entrypoint = ["slakd"]
+[environment]
+SLACK_BOT_TOKEN = "${SLACK_BOT_TOKEN}"
+
+[[proxyd_route]]
+path = "/slack/"
+backend = "http://slakd:8080"
+auth = "public"
+gated_by = "SLACK_BOT_TOKEN"
+`), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, `\"path\":\"/slack/\"`) {
+		t.Errorf("slack route should be skipped when SLACK_BOT_TOKEN unset; got:\n%s", out)
+	}
+}
+
+func TestProxydRoutes_GatedBy_Included_When_Env_Set(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"WEB_PORT=8095\nAPI_PORT=8080\nCHANNEL_SECRET=s\nSLACK_BOT_TOKEN=tok\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
+image = "arizuko:latest"
+entrypoint = ["slakd"]
+[environment]
+SLACK_BOT_TOKEN = "${SLACK_BOT_TOKEN}"
+
+[[proxyd_route]]
+path = "/slack/"
+backend = "http://slakd:8080"
+auth = "public"
+gated_by = "SLACK_BOT_TOKEN"
+`), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `\"path\":\"/slack/\"`) {
+		t.Errorf("slack route should be present when SLACK_BOT_TOKEN set; got:\n%s", out)
 	}
 }
 

@@ -30,13 +30,11 @@ import (
 
 type config struct {
 	port           string
-	dashAddr       string
-	webdAddr       string
-	davAddr        string
 	viteAddr       string
-	onbodAddr      string
+	pubRedirectURL string
 	authSecret     string
 	hmacSecret     string
+	routesJSON     string
 	trustedProxies []*net.IPNet
 }
 
@@ -55,12 +53,10 @@ func loadConfig() config {
 	}
 	return config{
 		port:           port,
-		dashAddr:       chanlib.EnvOr("DASH_ADDR", "http://dashd:8080"),
-		webdAddr:       chanlib.EnvOr("WEBD_ADDR", "http://webd:8080"),
-		davAddr:        chanlib.EnvOr("DAV_ADDR", ""),
 		viteAddr:       chanlib.EnvOr("VITE_ADDR", "http://vited:8080"),
-		onbodAddr:      chanlib.EnvOr("ONBOD_ADDR", ""),
+		pubRedirectURL: strings.TrimRight(chanlib.EnvOr("PUB_REDIRECT_URL", ""), "/"),
 		hmacSecret:     hmacSecret,
+		routesJSON:     os.Getenv("PROXYD_ROUTES_JSON"),
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
 	}
 }
@@ -108,20 +104,6 @@ func proxy(target string) *httputil.ReverseProxy {
 		os.Exit(1)
 	}
 	return httputil.NewSingleHostReverseProxy(u)
-}
-
-func davProxy(target string) *httputil.ReverseProxy {
-	p := proxy(target)
-	orig := p.Director
-	p.Director = func(r *http.Request) {
-		orig(r)
-		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/dav")
-		if r.URL.Path == "" {
-			r.URL.Path = "/"
-		}
-		r.URL.RawPath = strings.TrimPrefix(r.URL.RawPath, "/dav")
-	}
-	return p
 }
 
 type vhosts struct {
@@ -184,38 +166,130 @@ func (v *vhosts) match(host string) (string, bool) {
 }
 
 type server struct {
-	cfg        config
-	st         *store.Store
-	dashProxy  *httputil.ReverseProxy
-	webdProxy  *httputil.ReverseProxy
-	davProxy   *httputil.ReverseProxy
-	viteProxy  *httputil.ReverseProxy
-	onbodProxy *httputil.ReverseProxy
-	vh         *vhosts
-	slinkRL    *rateLimiter
+	cfg       config
+	st        *store.Store
+	routes    []Route
+	proxies   map[string]*httputil.ReverseProxy // keyed by route path
+	viteProxy *httputil.ReverseProxy
+	vh        *vhosts
+	slinkRL   *rateLimiter
+	pubRedir  *pubRedirect
+}
+
+// pubRedirect probes a configured public-docs URL and caches whether
+// it's reachable. When reachable, /pub/* is served as an HTTP 302 to
+// that URL; when not, the caller falls back to the local viteProxy.
+// Probe is a HEAD with a short timeout; result cached for `ttl`.
+type pubRedirect struct {
+	url    string
+	ttl    time.Duration
+	probe  func(url string) bool
+	mu     sync.Mutex
+	ok     bool
+	expiry time.Time
+}
+
+func newPubRedirect(url string) *pubRedirect {
+	if url == "" {
+		return nil
+	}
+	return &pubRedirect{url: url, ttl: 30 * time.Second, probe: defaultProbe}
+}
+
+func defaultProbe(url string) bool {
+	c := &http.Client{Timeout: 2 * time.Second}
+	req, err := http.NewRequest("HEAD", url, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 500
+}
+
+// reachable returns the cached probe result, refreshing if expired.
+// One probe per ttl window regardless of caller count.
+func (p *pubRedirect) reachable() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if time.Now().Before(p.expiry) {
+		return p.ok
+	}
+	p.ok = p.probe(p.url)
+	p.expiry = time.Now().Add(p.ttl)
+	return p.ok
 }
 
 func newServer(cfg config, st *store.Store, vh *vhosts) *server {
+	routes, err := LoadRoutes(cfg.routesJSON)
+	if err != nil {
+		slog.Error("PROXYD_ROUTES_JSON parse failed", "err", err)
+		os.Exit(1)
+	}
 	s := &server{
 		cfg:       cfg,
 		st:        st,
+		routes:    routes,
+		proxies:   make(map[string]*httputil.ReverseProxy, len(routes)),
 		viteProxy: proxy(cfg.viteAddr),
 		vh:        vh,
 		slinkRL:   newRateLimiter(10, time.Minute),
+		pubRedir:  newPubRedirect(cfg.pubRedirectURL),
 	}
-	if cfg.dashAddr != "" {
-		s.dashProxy = proxy(cfg.dashAddr)
-	}
-	if cfg.webdAddr != "" {
-		s.webdProxy = proxy(cfg.webdAddr)
-	}
-	if cfg.davAddr != "" {
-		s.davProxy = davProxy(cfg.davAddr)
-	}
-	if cfg.onbodAddr != "" {
-		s.onbodProxy = proxy(cfg.onbodAddr)
+	for _, r := range routes {
+		rp := buildRouteProxy(r)
+		if rp == nil {
+			slog.Error("invalid route backend; refusing to boot", "path", r.Path, "backend", r.Backend)
+			os.Exit(1)
+		}
+		s.proxies[r.Path] = rp
 	}
 	return s
+}
+
+// buildRouteProxy constructs a ReverseProxy for one Route, honouring
+// strip_prefix and preserve_headers. Cached per-route so the URL parse +
+// Director setup happens once at boot.
+func buildRouteProxy(r Route) *httputil.ReverseProxy {
+	u, err := url.Parse(r.Backend)
+	if err != nil {
+		slog.Error("invalid route backend", "path", r.Path, "backend", r.Backend, "err", err)
+		return nil
+	}
+	rp := httputil.NewSingleHostReverseProxy(u)
+	orig := rp.Director
+	stripPrefix := r.StripPrefix
+	prefix := strings.TrimSuffix(r.Path, "/")
+	preserveKeys := append([]string(nil), r.PreserveHeaders...)
+	backendHost := u.Host
+	rp.Director = func(rq *http.Request) {
+		saved := map[string]string{}
+		for _, k := range preserveKeys {
+			if v := rq.Header.Get(k); v != "" {
+				saved[k] = v
+			}
+		}
+		orig(rq)
+		// Rewrite Host to the backend's hostname (spec §"preserve_headers"):
+		// proxyd is not transparent; the inbound Host belongs to proxyd, not
+		// the backend. httputil's default Director only updates rq.URL.Host;
+		// rq.Host (used by the Transport) is left as the inbound value.
+		rq.Host = backendHost
+		if stripPrefix && prefix != "" {
+			rq.URL.Path = strings.TrimPrefix(rq.URL.Path, prefix)
+			if rq.URL.Path == "" {
+				rq.URL.Path = "/"
+			}
+			rq.URL.RawPath = strings.TrimPrefix(rq.URL.RawPath, prefix)
+		}
+		for k, v := range saved {
+			rq.Header.Set(k, v)
+		}
+	}
+	return rp
 }
 
 type rateLimiter struct {
@@ -308,13 +382,6 @@ func (s *server) fixForwardedFor(r *http.Request) {
 	r.Header.Set("X-Forwarded-For", peer)
 }
 
-func (s *server) servePub(w http.ResponseWriter, r *http.Request) {
-	r2 := r.Clone(r.Context())
-	r2.URL.Path = "/pub" + r.URL.Path
-	r2.URL.RawPath = ""
-	s.viteProxy.ServeHTTP(w, r2)
-}
-
 func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	stripClientHeaders(r)
 	s.fixForwardedFor(r)
@@ -345,115 +412,130 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.HasPrefix(r.URL.Path, "/dash/") {
-		if s.dashProxy == nil {
-			http.NotFound(w, r)
-			return
-		}
-		s.requireAuth(s.dashProxy.ServeHTTP)(w, r)
-		return
-	}
-
-	if strings.HasPrefix(r.URL.Path, "/dav/") || r.URL.Path == "/dav" {
-		if s.davProxy == nil {
-			http.Error(w, "WebDAV not configured", http.StatusNotFound)
-			return
-		}
-		s.requireAuth(s.davRoute)(w, r)
-		return
-	}
-
 	if r.URL.Path == "/health" {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"ok":true}`))
 		return
 	}
 
-	upstream := s.viteProxy
-	if s.webdProxy != nil {
-		upstream = s.webdProxy
-	}
-
-	if strings.HasPrefix(r.URL.Path, "/slink/") {
-		remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
-		if !s.slinkRL.allow(remoteIP) {
-			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
-			return
-		}
-		var token string
-		if r.URL.Path == "/slink/stream" {
-			token = r.URL.Query().Get("token")
-		} else {
-			token = strings.SplitN(strings.TrimPrefix(r.URL.Path, "/slink/"), "/", 2)[0]
-		}
-		if token != "" && s.st != nil {
-			if group, ok := s.st.GroupBySlinkToken(token); ok {
-				r = r.Clone(r.Context())
-				r.Header.Set("X-Folder", group.Folder)
-				r.Header.Set("X-Group-Name", group.Name)
-				r.Header.Set("X-Slink-Token", token)
-				r.Header.Set("X-Slink-Sig",
-					auth.SignHMAC(s.cfg.hmacSecret, auth.SlinkSigMessage(token, group.Folder)))
-			}
-		}
-		// Attach signed user identity when also logged in so webd can also
-		// accept via folder ACL.
-		s.optionalAuth(upstream.ServeHTTP)(w, r)
-		return
-	}
-
-	if r.URL.Path == "/onboard" || strings.HasPrefix(r.URL.Path, "/onboard/") ||
-		strings.HasPrefix(r.URL.Path, "/invite/") {
-		if s.onbodProxy == nil {
-			http.NotFound(w, r)
-			return
-		}
-		s.optionalAuth(s.onbodProxy.ServeHTTP)(w, r)
-		return
-	}
-
+	// /pub and /, and /pub/* are kept hand-wired: they involve external
+	// redirect probing and websocket-upgrade fall-through, not the static
+	// TOML-route forwarding pattern.
 	if r.URL.Path == "/" || r.URL.Path == "/pub" {
 		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
-			upstream.ServeHTTP(w, r)
+			s.viteProxy.ServeHTTP(w, r)
+			return
+		}
+		if s.pubRedir != nil && s.pubRedir.reachable() {
+			http.Redirect(w, r, s.pubRedir.url+"/", http.StatusFound)
 			return
 		}
 		http.Redirect(w, r, "/pub/", http.StatusFound)
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/pub/") {
+		if s.pubRedir != nil &&
+			!strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
+			s.pubRedir.reachable() {
+			rest := strings.TrimPrefix(r.URL.Path, "/pub")
+			if r.URL.RawQuery != "" {
+				rest += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, s.pubRedir.url+rest, http.StatusFound)
+			return
+		}
 		s.viteProxy.ServeHTTP(w, r)
 		return
 	}
-	for _, p := range []string{"/chat/", "/api/", "/x/", "/static/", "/auth/", "/mcp"} {
-		if strings.HasPrefix(r.URL.Path, p) {
-			s.requireAuth(upstream.ServeHTTP)(w, r)
-			return
+
+	// Bare /dav and /dav/* both route through the /dav/ entry (davRoute picks
+	// a group for the bare case). When the route is absent (WEBDAV_ENABLED=
+	// false) emit the dedicated 404 rather than the public-redirect fallback.
+	if r.URL.Path == "/dav" || strings.HasPrefix(r.URL.Path, "/dav/") {
+		if rt := MatchRoute(s.routes, "/dav/"); rt != nil {
+			s.dispatchRoute(rt, w, r)
+		} else {
+			http.Error(w, "WebDAV not configured", http.StatusNotFound)
 		}
+		return
 	}
 
-	if s.st != nil {
-		if route, ok := s.st.MatchWebRoute(r.URL.Path); ok {
-			switch route.Access {
-			case "public":
-				s.servePub(w, r)
-				return
-			case "auth":
-				s.requireAuth(s.servePub)(w, r)
-				return
-			case "deny":
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			case "redirect":
-				http.Redirect(w, r, route.RedirectTo, http.StatusFound)
-				return
-			}
-		}
+	if rt := MatchRoute(s.routes, r.URL.Path); rt != nil {
+		s.dispatchRoute(rt, w, r)
+		return
 	}
 
-	s.requireAuth(s.servePub)(w, r)
+	// /auth/* never matches a TOML route; the mux already served /auth/login
+	// before reaching here. Any /auth/* path that falls through (e.g. an
+	// unconfigured callback) is treated as a private surface — auth-gate it
+	// so it bounces to /auth/login rather than the public /pub fallback.
+	if strings.HasPrefix(r.URL.Path, "/auth/") {
+		s.requireAuth(s.viteProxy.ServeHTTP)(w, r)
+		return
+	}
+
+	http.Redirect(w, r, "/pub"+r.URL.Path, http.StatusFound)
 }
 
-func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
+// dispatchRoute applies per-route auth + bespoke handling and forwards via
+// the cached ReverseProxy. Bespoke logic for `/slink/` and `/dav/` lives in
+// dedicated helpers so the generic auth switch stays orthogonal.
+func (s *server) dispatchRoute(rt *Route, w http.ResponseWriter, r *http.Request) {
+	rp := s.proxies[rt.Path]
+	if rp == nil {
+		http.NotFound(w, r)
+		return
+	}
+	switch rt.Path {
+	case "/slink/":
+		s.dispatchSlink(rp, w, r)
+		return
+	case "/dav/":
+		s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+			s.davRoute(rp, w, r)
+		})(w, r)
+		return
+	}
+	switch rt.Auth {
+	case "public":
+		rp.ServeHTTP(w, r)
+	default:
+		// `operator` is not yet a distinct gate (spec note: capability tokens
+		// pending in 1-auth-standalone.md). Today it resolves to `user` and
+		// the daemon enforces operator status via grant check.
+		s.requireAuth(rp.ServeHTTP)(w, r)
+	}
+}
+
+// dispatchSlink rate-limits per remote IP, resolves the URL token to a group,
+// and stamps X-Folder/X-Group-Name/X-Slink-Sig before forwarding. Auth is
+// optional: an authed caller still has identity headers from optionalAuth.
+func (s *server) dispatchSlink(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
+	remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if !s.slinkRL.allow(remoteIP) {
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+	var token string
+	if r.URL.Path == "/slink/stream" {
+		token = r.URL.Query().Get("token")
+	} else {
+		token = strings.SplitN(strings.TrimPrefix(r.URL.Path, "/slink/"), "/", 2)[0]
+	}
+	if token != "" && s.st != nil {
+		if group, ok := s.st.GroupBySlinkToken(token); ok {
+			r = r.Clone(r.Context())
+			r.Header.Set("X-Folder", group.Folder)
+			r.Header.Set("X-Group-Name", group.Name)
+			r.Header.Set("X-Slink-Token", token)
+			r.Header.Set("X-Slink-Sig",
+				auth.SignHMAC(s.cfg.hmacSecret, auth.SlinkSigMessage(token, group.Folder)))
+		}
+	}
+	s.optionalAuth(rp.ServeHTTP)(w, r)
+}
+
+func (s *server) davRoute(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.URL.Path, "..") ||
 		strings.Contains(strings.ToLower(r.URL.RawPath), "%2e%2e") {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -497,14 +579,21 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	s.davProxy.ServeHTTP(w, r)
+	rp.ServeHTTP(w, r)
 }
 
+// davReadMethods are HTTP/WebDAV verbs that don't mutate the workspace.
 var davReadMethods = map[string]bool{
 	"GET": true, "HEAD": true, "OPTIONS": true, "PROPFIND": true,
 }
 
-// davAllow returns false to block write methods on sensitive or read-only paths.
+// davAllow enforces two protections on top of group-scoped routing:
+//   - sensitive paths (`.env`, `*.pem`, anything under `.git/`) cannot be
+//     written via WebDAV.
+//   - any path under `<group>/logs/` is read-only.
+//
+// rest is the path after `/dav/`, e.g. `myworld/logs/foo.log` or
+// `myworld/.env`. Returns false to block.
 func davAllow(method, rest string) bool {
 	if davReadMethods[method] {
 		return true
@@ -527,11 +616,14 @@ func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []stri
 	r2 := r.Clone(r.Context())
 	r2.Header.Set("X-User-Sub", sub)
 	r2.Header.Set("X-User-Name", name)
-	groupsJSON, _ := json.Marshal(groups)
-	r2.Header.Set("X-User-Groups", string(groupsJSON))
+	groupsJSON := "null"
+	if b, err := json.Marshal(groups); err == nil {
+		groupsJSON = string(b)
+	}
+	r2.Header.Set("X-User-Groups", groupsJSON)
 	if s.cfg.hmacSecret != "" {
 		r2.Header.Set("X-User-Sig",
-			auth.SignHMAC(s.cfg.hmacSecret, auth.UserSigMessage(sub, name, string(groupsJSON))))
+			auth.SignHMAC(s.cfg.hmacSecret, auth.UserSigMessage(sub, name, groupsJSON)))
 	}
 	return r2
 }
@@ -589,13 +681,7 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
 		slog.Warn("auth denied", "reason", "no_valid_credential",
 			"path", r.URL.Path, "remote", peer)
-		if strings.Contains(r.Header.Get("Accept"), "application/json") ||
-			strings.HasPrefix(r.URL.Path, "/api/") ||
-			strings.HasPrefix(r.URL.Path, "/x/") {
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-			return
-		}
-		if rt := r.URL.Path; rt != "" && rt != "/" &&
+		if rt := r.URL.Path; rt != "" && rt != "/" && strings.HasPrefix(rt, "/") &&
 			!strings.HasPrefix(rt, "/auth/") {
 			if r.URL.RawQuery != "" {
 				rt += "?" + r.URL.RawQuery
@@ -646,7 +732,7 @@ func main() {
 	}()
 
 	slog.Info("proxyd starting",
-		"port", cfg.port, "dash", cfg.dashAddr, "webd", cfg.webdAddr, "vite", cfg.viteAddr)
+		"port", cfg.port, "vite", cfg.viteAddr, "routes", len(s.routes))
 
 	srv := &http.Server{
 		Addr:    cfg.port,

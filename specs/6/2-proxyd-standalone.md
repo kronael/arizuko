@@ -1,5 +1,6 @@
 ---
 status: spec
+shipped: phase-1 (per-daemon TOML routes) in v0.35.0
 ---
 
 # proxyd: standalone authenticating gateway
@@ -24,9 +25,14 @@ and verify to the `auth/` library.
 - ~600 LOC, single-binary Go service.
 - OAuth login flow, JWT mint, reverse proxy, signed identity headers
   — all working.
-- 4 references to `folder` in `main.go`; route table for arizuko
-  backends hardcoded; some assumptions baked in (slink token paths,
-  WebDAV write-block, dashd path).
+- 3 active `folder` references in `proxyd/main.go` (L102, L442, L446)
+  - 1 comment (L450). Route table for arizuko backends hardcoded in
+    `proxyd/main.go:368-511` (`route` method, paths `/dash/`, `/dav/`,
+    `/slink/`, `/onboard`, `/slack/`, `/pub/`, `/api/`, etc.). Backend
+    addresses injected as env vars from `compose/compose.go:451-486`
+    (`DASH_ADDR`, `WEBD_ADDR`, `DAV_ADDR`, `ONBOD_ADDR`, `SLAKD_ADDR`).
+    Slink token paths, WebDAV write-block, dashd path quirks all baked
+    into the route method.
 - No external API for managing routes or sessions; everything is
   config + restart.
 
@@ -212,16 +218,194 @@ After step 6 it's deployable as a standalone component.
 - `auth/` — proxyd consumes mint + verify primitives.
 - `proxyd/README.md` — overhauled for standalone usage.
 
-## Open
+## Per-daemon route declarations (v1 ship target)
 
-- **Hot reload of TOML** — file-watch and reload, or only via
-  `/v1/routes` API? Lean: API for changes; TOML for boot config.
-- **Per-route rate limiting backend** — in-memory only, or
-  pluggable (redis)? Lean: in-memory until a multi-instance
-  deployment needs more.
-- **Slink-style URL tokens** — current behaviour is somewhat
-  bespoke; capturing it as `token_param = "..."` covers it but the
-  rate-limit + tier logic might leak if not carefully factored.
-- **Audience enforcement** — when does proxyd refuse a token
-  because `aud` doesn't match? `require_audience` on a route is the
-  primary lever; default is "any aud signed by our key OK".
+The "Target shape" `[[route]]` table above is the **eventual** proxyd
+config. The Phase-1 ship is narrower: routes live in each adapter's
+`template/services/<name>.toml` as `[[proxyd_route]]` blocks; the
+compose generator extracts them at boot. **One renderer, many sinks**:
+each daemon owns its own routing entry next to its env, and proxyd's
+table is derived, never hand-edited.
+
+### Schema
+
+```toml
+# template/services/slakd.toml
+
+image = "arizuko:latest"
+entrypoint = ["slakd"]
+
+[environment]
+ROUTER_URL = "http://gated:8080"
+SLACK_BOT_TOKEN = "${SLACK_BOT_TOKEN}"
+SLACK_SIGNING_SECRET = "${SLACK_SIGNING_SECRET}"
+LISTEN_ADDR = ":8080"
+CHANNEL_SECRET = "${CHANNEL_SECRET}"
+
+[[proxyd_route]]
+path = "/slack/"                            # leading slash; trailing
+                                            # slash = longest-prefix
+                                            # match; bare path = exact
+backend = "http://slakd:8080"               # full URL; DNS name + :8080
+auth = "public"                              # "public" | "user" | "operator"
+gated_by = "SLACK_BOT_TOKEN"                 # optional; drop route if env unset
+preserve_headers = [                         # optional; verbatim-pass these
+  "X-Slack-Signature",
+  "X-Slack-Request-Timestamp",
+]
+strip_prefix = false                         # optional; default false
+```
+
+### Field semantics
+
+- **`path`** — exact match if no trailing slash; longest-prefix match
+  if trailing slash. No glob, no regex. Among prefix matches, longest
+  wins; ties resolved by load order (filename sort).
+- **`backend`** — full URL. Daemon DNS name + `:8080` per the
+  unified-port convention (CLAUDE.md "## Build & Test" and
+  `compose/compose.go:130-134` healthcheck baseline). No service-mesh
+  resolution.
+- **`auth`** — one of:
+  - `public` — proxyd does no auth; the daemon itself verifies
+    (Slack HMAC over raw body, webhook signatures, etc.). Matches
+    today's `/slack/` handler at `proxyd/main.go:469-476`.
+  - `user` — proxyd requires a valid user session (Bearer JWT or
+    `refresh_token` cookie via `tryAuth`, `proxyd/main.go:608-634`);
+    injects signed identity headers `X-User-Sub` / `X-User-Name` /
+    `X-User-Groups` / `X-User-Sig` per `setUserHeaders`
+    (`proxyd/main.go:590-604`). Matches today's `/dash/` and `/api/`.
+  - `operator` — proxyd requires the operator/admin role.
+    Implementation note: today's `auth.MatchGroups` over `X-User-Groups`
+    with `**` is the operator marker; the spec-level check is "scope
+    `proxyd:operator` or equivalent grant." Until the capability-token
+    work in `1-auth-standalone.md` lands, `operator` may resolve to
+    `user` + a grant check at the daemon — record as a known gap.
+- **`gated_by`** — single env-var name. If unset or empty at compose-
+  generate time, the route is omitted from proxyd's table entirely
+  (`/<path>` 404s). Multiple gating env vars → out of scope v1.
+  Replaces the today's `if envOr(env, "SLACK_BOT_TOKEN", "") != ""`
+  block at `compose/compose.go:464-466`.
+- **`preserve_headers`** — explicit allowlist of inbound headers that
+  proxyd MUST pass through unmodified. `httputil.ReverseProxy`
+  already preserves headers, but proxyd's `stripClientHeaders`
+  (`proxyd/main.go:99-106`) deletes proxyd-owned headers on entry;
+  `preserve_headers` is the contract that webhook-signing headers
+  survive any future filtering pass. proxyd otherwise rewrites the
+  `Host` header to the backend's hostname.
+- **`strip_prefix`** — default `false`. When `true`, strip the path
+  prefix before forwarding (mirrors today's `davProxy` at
+  `proxyd/main.go:117-129`). Webhook URLs default to keeping the prefix.
+
+### Out of scope (v1)
+
+No verb allowlist (WebDAV write-block stays a davd-specific in-proxyd
+check, `proxyd/main.go:572-588`); no per-route `rate_limit` (slink's
+`10/min/ip` at `proxyd/main.go:257` stays hardcoded); no `token_param`
+(slink URL-token resolution at `proxyd/main.go:427-453` stays bespoke);
+single env-var `gated_by` only (no compound gates).
+
+### Loader model
+
+`compose/compose.go` already iterates `template/services/*.toml`
+(`compose.go:198-227`). The loader extension collects every
+`[[proxyd_route]]` entry, evaluates `gated_by` against the operator's
+`.env`, drops disabled routes, and emits the survivors as one env var
+on proxyd:
+
+```
+PROXYD_ROUTES_JSON=[{"path":"/slack/","backend":"http://slakd:8080","auth":"public",...},...]
+```
+
+v1 ships as a plain JSON array. The envelope `{"routes":[...]}` was
+originally specced for namespacing — dropped during implementation as
+redundant; sole consumer is proxyd's `LoadRoutes`.
+
+proxyd parses `PROXYD_ROUTES_JSON` at startup. Absence = empty
+external table (proxyd's built-in `/auth/*`, `/health`, vhost handling
+still serve). Profile-gated daemons (`profile != "minimal"`,
+`WEBDAV_ENABLED`, `ONBOARDING_ENABLED` per `compose.go:241-251`)
+contribute no routes when absent — their TOMLs aren't read or their
+`gated_by` env is unset.
+
+Single source of truth: the per-daemon TOML. Env-var carrier (vs file
+mount) is `compose.go`'s call; lean env-var, no new volume.
+
+### Migration
+
+Code that disappears or shrinks:
+
+| Today (file:lines)                                                                            | Change                                                                                                                                    |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `proxyd/main.go:31-43` `config.{dashAddr, webdAddr, davAddr, viteAddr, onbodAddr, slakdAddr}` | Replaced by `routes []Route` from `PROXYD_ROUTES_JSON`.                                                                                   |
+| `proxyd/main.go:60-65` `loadConfig` `EnvOr("DASH_ADDR", ...)` etc.                            | Removed.                                                                                                                                  |
+| `proxyd/main.go:251-276` `newServer` per-backend `*httputil.ReverseProxy` fields              | `map[string]*httputil.ReverseProxy` keyed by route path.                                                                                  |
+| `proxyd/main.go:368-511` `route` method's hardcoded prefixes                                  | Longest-prefix match against loaded table. Slink, vhost, dav `davAllow`, pub-redirect stay as named handlers attached to matching routes. |
+| `compose/compose.go:451-486` `proxydService` per-daemon env injection                         | Single `PROXYD_ROUTES_JSON` injection from collected `[[proxyd_route]]` blocks.                                                           |
+
+TOML blocks to add: `template/services/slakd.toml` (`/slack/`,
+`auth=public`, `gated_by=SLACK_BOT_TOKEN`, `preserve_headers=
+[X-Slack-Signature, X-Slack-Request-Timestamp]`). Other channel
+adapters (teled, discd, whapd, mastd, bskyd, reditd, emaid, linkd,
+twitd) expose no inbound proxyd routes today; revisit per-adapter
+when they do.
+
+OPEN: core daemons rendered directly by `compose.go` (`dashdService`,
+`webdService`, `davdService`, `onbodService`, `vitedService`) either
+get `template/core-services/<name>.toml` files with `[[proxyd_route]]`
+blocks (orthogonal, one more directory) or stay hardcoded as a static
+slice in `proxydService` (smaller, arizuko-internal). Pick at
+implementation time; both honour "proxyd reads `PROXYD_ROUTES_JSON`,
+nothing else."
+
+### Acceptance
+
+Per-route behaviour tests (`proxyd/main_test.go` or
+`tests/standalone/proxyd_test.go`):
+
+- `route_present_when_gated_by_set` / `route_absent_when_gated_by_unset`
+  — table presence tracks the `gated_by` env at compose-generate time.
+- `auth_public_passes_through` — `auth=public` route receives body
+  and `preserve_headers` verbatim (test-computed HMAC == backend-seen).
+- `auth_user_required_redirects_to_login` — `auth=user` without a
+  valid session: 303 to `/auth/login` + `auth_return` cookie (today's
+  `requireAuth`, `proxyd/main.go:645-673`).
+- `auth_user_injects_signed_headers` — with session, backend sees
+  `X-User-{Sub,Name,Groups,Sig}` per `auth.UserSigMessage`.
+- `preserve_headers_respected` — listed headers verbatim; others may
+  be normalised by httputil.
+- `strip_prefix_off_by_default` / `strip_prefix_on_strips` — `/slack/`
+  - `events` arrives `/slack/events`; `/dav/` + `strip_prefix=true`
+  - `/dav/x` arrives `/x` (mirrors `proxyd/main.go:117-129` davProxy).
+- `longest_prefix_wins` — routes `/api/` and `/api/special/` both
+  match; `/api/special/foo` hits `/api/special/` backend.
+
+End-to-end: `make smoke` on `krons` keeps green; existing
+dash/webd/slink/dav surfaces unchanged.
+
+## Decisions
+
+- **`[auth].mode`** locked to `library` for v1; `remote` (call `authd`)
+  is a future hook left in the TOML schema but not implemented. Matches
+  the bucket-index decision to defer `authd` (see `specs/6/index.md`
+  open Q3 and `1-auth-standalone.md`).
+- **Boot config vs runtime mutation**: boot routes via TOML
+  (`[[proxyd_route]]` per-daemon + `PROXYD_ROUTES_JSON`). Runtime
+  changes via `/v1/routes` only; no file-watch / hot-reload of TOMLs.
+- **Rate-limit backend**: in-memory only. Today's slink limiter
+  (`proxyd/main.go:278-317`) is the model; multi-instance horizontal
+  scaling will trigger a redis-backed swap, not v1.
+- **Audience enforcement**: `require_audience` on a route is the
+  primary lever; default is "any aud signed by our key OK". Locked.
+
+## Open (post-v1)
+
+- **Slink-style URL tokens** — current behaviour
+  (`proxyd/main.go:427-453`) stays bespoke in v1. Generalising to
+  `token_param = "..."` is post-v1; the rate-limit + folder-resolution
+  logic factors out cleanly but adds schema surface not needed for the
+  Phase-1 ship.
+- **Core-daemon TOML home** — whether dashd/webd/davd/onbod/vited get
+  `template/core-services/<name>.toml` files with `[[proxyd_route]]`
+  blocks, or stay hardcoded as a static slice in `compose.go`'s
+  `proxydService`. Pick at implementation time; either way proxyd
+  reads `PROXYD_ROUTES_JSON` only.

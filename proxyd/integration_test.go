@@ -35,12 +35,15 @@ func newIntegProxy(t *testing.T, secret string) (*server, *httptest.Server, *tes
 		t.Fatal(err)
 	}
 
+	chatRoute := Route{Path: "/chat/", Backend: up.URL, Auth: "user"}
 	s := &server{
 		cfg:       config{authSecret: secret, hmacSecret: "test-hmac"},
 		st:        st,
 		vh:        &vhosts{entries: map[string]string{}},
 		viteProxy: httputil.NewSingleHostReverseProxy(u),
 		slinkRL:   newRateLimiter(100, 0),
+		routes:    []Route{chatRoute},
+		proxies:   map[string]*httputil.ReverseProxy{"/chat/": buildRouteProxy(chatRoute)},
 	}
 	return s, up, inst
 }

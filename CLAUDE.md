@@ -138,6 +138,20 @@ owns them). Per-package details co-located in each `<pkg>/README.md`.
 - Business features (gates, grants, onboarding) are DB-backed with CLI +
   chat command for management. Infra (ports, timeouts, images, paths) stays
   as env vars in `.env`.
+- **Adding a channel adapter**: ship a `template/services/<daemon>.toml`
+  with the daemon's compose env + a `[[proxyd_route]]` block. No edit to
+  `proxyd/main.go` or `compose/compose.go`. Spec:
+  `specs/6/2-proxyd-standalone.md`.
+- **Daemon HTTP port: `:8080` inside the container, always.** Every
+  daemon's `LISTEN_ADDR` code-default is `:8080`; every service TOML
+  in `template/services/` declares `LISTEN_ADDR=:8080` explicitly
+  (set in both places so neither drifts). Docker network namespacing
+  makes per-container `:8080` collision-free. Multi-daemon local-dev
+  sets `LISTEN_ADDR=:90XX` explicitly; this is the exception. Backend
+  URLs (proxyd routes, compose generation, intra-container
+  `ROUTER_URL`) all hardcode `:8080`. Don't invent per-adapter port
+  numbers in code defaults — keep them `:8080` so code-and-template
+  agree.
 
 ### Trust boundaries
 

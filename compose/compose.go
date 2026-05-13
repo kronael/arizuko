@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -134,14 +135,94 @@ const healthBlock = "    healthcheck:\n" +
 	"      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n"
 
 type ServiceConfig struct {
-	Image       string            `toml:"image"`
-	Entrypoint  []string          `toml:"entrypoint"`
-	Restart     string            `toml:"restart"`
-	DependsOn   []string          `toml:"depends_on"`
-	Environment map[string]string `toml:"environment"`
-	Ports       []string          `toml:"ports"`
-	Volumes     []string          `toml:"volumes"`
-	Command     []string          `toml:"command"`
+	Image        string            `toml:"image"`
+	Entrypoint   []string          `toml:"entrypoint"`
+	Restart      string            `toml:"restart"`
+	DependsOn    []string          `toml:"depends_on"`
+	Environment  map[string]string `toml:"environment"`
+	Ports        []string          `toml:"ports"`
+	Volumes      []string          `toml:"volumes"`
+	Command      []string          `toml:"command"`
+	ProxydRoutes []ProxydRoute     `toml:"proxyd_route"`
+}
+
+// ProxydRoute mirrors proxyd's Route shape. Each adapter TOML may declare
+// [[proxyd_route]] blocks; compose collects survivors (after gated_by env
+// evaluation) into PROXYD_ROUTES_JSON. JSON tags match proxyd/routes.go.
+type ProxydRoute struct {
+	Path            string   `toml:"path" json:"path"`
+	Backend         string   `toml:"backend" json:"backend"`
+	Auth            string   `toml:"auth" json:"auth"`
+	GatedBy         string   `toml:"gated_by" json:"gated_by,omitempty"`
+	PreserveHeaders []string `toml:"preserve_headers" json:"preserve_headers,omitempty"`
+	StripPrefix     bool     `toml:"strip_prefix" json:"strip_prefix,omitempty"`
+}
+
+// coreProxydRoutes are the always-emitted routes for core daemons rendered
+// directly by compose (dashd, webd, davd, onbod). Their backend URLs follow
+// the unified-port convention (DNS name + :8080). GatedBy maps to env vars
+// that toggle daemon emission so the route presence tracks the daemon.
+var coreProxydRoutes = []ProxydRoute{
+	{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
+	{Path: "/chat/", Backend: "http://webd:8080", Auth: "user"},
+	{Path: "/api/", Backend: "http://webd:8080", Auth: "user"},
+	{Path: "/x/", Backend: "http://webd:8080", Auth: "user"},
+	{Path: "/static/", Backend: "http://webd:8080", Auth: "user"},
+	{Path: "/mcp", Backend: "http://webd:8080", Auth: "user"},
+	{Path: "/slink/", Backend: "http://webd:8080", Auth: "public"},
+	{Path: "/dav/", Backend: "http://davd:8080", Auth: "user", StripPrefix: true, GatedBy: "WEBDAV_ENABLED"},
+	{Path: "/onboard", Backend: "http://onbod:8080", Auth: "public", GatedBy: "ONBOARDING_ENABLED"},
+	{Path: "/onboard/", Backend: "http://onbod:8080", Auth: "public", GatedBy: "ONBOARDING_ENABLED"},
+}
+
+// gatedByOn reports whether the named env-gate is enabled. Empty key = no
+// gate. Boolean gates require literal "true" (with per-key default for the
+// unset case); other keys follow secret-style semantics where any non-empty
+// value enables the route.
+func gatedByOn(env map[string]string, key string) bool {
+	switch key {
+	case "":
+		return true
+	case "WEBDAV_ENABLED":
+		return envOr(env, key, "true") == "true"
+	case "ONBOARDING_ENABLED":
+		return envOr(env, key, "false") == "true"
+	}
+	return envOr(env, key, "") != ""
+}
+
+// collectProxydRoutes returns surviving routes after gated_by filtering.
+// Per spec (specs/6/2-proxyd-standalone.md "Field semantics"): a route whose
+// GatedBy env is unset or empty at compose-generate time is dropped. Core
+// routes come first (skipped under PROFILE=minimal, /dash/ skipped unless
+// full); per-service routes appended in service-name order.
+func collectProxydRoutes(services []svcWithCfg, env map[string]string, profile string) []ProxydRoute {
+	var out []ProxydRoute
+	if profile != "minimal" {
+		for _, r := range coreProxydRoutes {
+			if !gatedByOn(env, r.GatedBy) {
+				continue
+			}
+			if r.Path == "/dash/" && profile != "full" {
+				continue
+			}
+			out = append(out, r)
+		}
+	}
+	for _, s := range services {
+		for _, r := range s.cfg.ProxydRoutes {
+			if !gatedByOn(env, r.GatedBy) {
+				continue
+			}
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+type svcWithCfg struct {
+	name string
+	cfg  ServiceConfig
 }
 
 func Generate(dataDir string) (string, error) {
@@ -202,11 +283,7 @@ func Generate(dataDir string) (string, error) {
 		return "", fmt.Errorf("read services/: %w", err)
 	}
 
-	type svc struct {
-		name string
-		cfg  ServiceConfig
-	}
-	var services []svc
+	var services []svcWithCfg
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
 			continue
@@ -222,11 +299,12 @@ func Generate(dataDir string) (string, error) {
 		if !imageRefRE.MatchString(cfg.Image) {
 			return "", fmt.Errorf("service %q has invalid image %q (must match image-ref regex)", name, cfg.Image)
 		}
-		services = append(services, svc{name, cfg})
+		services = append(services, svcWithCfg{name, cfg})
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
 	profile := envOr(env, "PROFILE", "full")
+	routes := collectProxydRoutes(services, env, profile)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "name: %s\n", project)
@@ -235,7 +313,7 @@ func Generate(dataDir string) (string, error) {
 	webPort := envOr(env, "WEB_PORT", "")
 	if webPort != "" && profile != "minimal" {
 		b.WriteString(webdService(app, flavor, dataDir, env))
-		b.WriteString(proxydService(app, flavor, dataDir, env))
+		b.WriteString(proxydService(app, flavor, dataDir, env, routes))
 		b.WriteString(vitedService(app, flavor, dataDir, env))
 	}
 	if profile != "minimal" && profile != "web" {
@@ -448,18 +526,11 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 	return writeSvc(def)
 }
 
-func proxydService(app, flavor, dataDir string, env map[string]string) string {
+func proxydService(app, flavor, dataDir string, env map[string]string, routes []ProxydRoute) string {
 	webPort := envOr(env, "WEB_PORT", "8095")
-	// Optional upstreams — peer URLs for always-on services (dashd, webd,
-	// vited) are defaulted in proxyd's code to http://<svc>:8080. Only
-	// feature-gated targets (davd, onbod) need explicit addressing so
-	// proxyd's "empty = disabled" check keeps them as 404s when off.
 	environment := map[string]string{}
-	if envOr(env, "WEBDAV_ENABLED", "true") == "true" {
-		environment["DAV_ADDR"] = "http://davd:8080"
-	}
-	if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
-		environment["ONBOD_ADDR"] = "http://onbod:8080"
+	if b, err := json.Marshal(routes); err == nil {
+		environment["PROXYD_ROUTES_JSON"] = string(b)
 	}
 	ports := []string{webPort + ":8080"}
 	if aliases := envOr(env, "WEB_PORT_ALIASES", ""); aliases != "" {
