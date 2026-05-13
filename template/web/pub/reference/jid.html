@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; jid</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .prose table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.9em; width: 100%; }
+    .prose th, .prose td { border: 1px solid var(--border, rgba(127,127,127,0.3)); padding: 0.3em 0.5em; text-align: left; vertical-align: top; }
+    .prose th { background: var(--bg-soft, rgba(127,127,127,0.06)); }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+    .callout { border-left: 3px solid var(--accent, #888); padding: 0.4em 0.8em; margin: 0.8em 0; background: var(--bg-soft, rgba(127,127,127,0.06)); }
+    .meta { font-size: 0.85em; color: var(--dim, #888); }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>jid</h1>
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; jid</p>
+
+    <p class="lede">Every chat and every sender is a JID: a typed URI of the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. The first segment of <code>&lt;rest&gt;</code> is a kind discriminator. Built on <code>net/url</code> for free RFC&nbsp;3986 compliance + percent-encoding; matched with <code>path.Match</code> glob semantics across all routing keys.</p>
+
+    <h2>1. Wire form &amp; grammar</h2>
+
+    <p>From <a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L28"><code>core/jid.go:28</code></a> (<code>ParseJID</code>):</p>
+
+    <pre><code>jid     := platform &quot;:&quot; rest
+platform := scheme (lowercase adapter name; <a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L83">JID.Platform()</a>)
+rest    := non-empty opaque path (<a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L92">JID.Path()</a>)
+kind    := first segment of rest before &quot;/&quot; (<a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L102">JID.Kind()</a>)</code></pre>
+
+    <p>Validation:</p>
+    <ul>
+      <li>Non-empty scheme: <code>ParseJID("")</code> &rarr; error; <code>":foo"</code> &rarr; error (<a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L38"><code>jid.go:38</code></a>).</li>
+      <li>Non-empty opaque path: <code>"telegram:"</code> &rarr; error (<a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L41"><code>jid.go:41</code></a>).</li>
+      <li>Must be opaque-path form (no <code>//</code>): <code>"http://x"</code> &rarr; error.</li>
+      <li><code>ParseChatJID</code> / <code>ParseUserJID</code> additionally require a non-empty <em>kind</em> (first segment): <code>"telegram:/missing"</code> &rarr; error (<a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L73"><code>validateKind</code></a>).</li>
+    </ul>
+
+    <h2>2. Code types</h2>
+
+    <p>From <a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L18"><code>core/jid.go:18</code></a>:</p>
+
+    <pre><code>type JID struct{ u *url.URL }   // wire-typed base
+
+type ChatJID struct{ JID }       // a destination/chat resource
+type UserJID struct{ JID }       // a user identity resource</code></pre>
+
+    <p><code>Message.ChatJID</code> is a typed <code>ChatJID</code> string; <code>Message.Sender</code> is a typed <code>UserJID</code> string. The Go compiler refuses to swap them. Both implement <code>database/sql.Scanner</code> and <code>driver.Valuer</code>, and both round-trip JSON (<code>MarshalJSON</code> &harr; <code>UnmarshalJSON</code>). The empty wire string scans to a zero JID and emits <code>""</code>.</p>
+
+    <h2>3. Per-platform schemas</h2>
+
+    <p>Each adapter owns its <code>&lt;rest&gt;</code> shape. From <a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md"><code>specs/5/S-jid-format.md</code></a> &sect;&nbsp;"Per-platform schemas" plus the rewriter rules in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0042-typed-jids.sql"><code>0042-typed-jids.sql</code></a>:</p>
+
+    <table>
+      <tr><th>platform</th><th>kind</th><th>shape</th><th>example</th></tr>
+      <tr><td rowspan="2"><code>telegram</code></td><td><code>user</code></td><td><code>telegram:user/&lt;chat_id&gt;</code></td><td><code>telegram:user/12345</code></td></tr>
+      <tr><td><code>group</code></td><td><code>telegram:group/&lt;chat_id&gt;</code></td><td><code>telegram:group/67890</code></td></tr>
+      <tr><td rowspan="3"><code>discord</code></td><td><code>&lt;guild_id&gt;</code></td><td><code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code></td><td><code>discord:5678/9012</code></td></tr>
+      <tr><td><code>dm</code></td><td><code>discord:dm/&lt;channel_id&gt;</code></td><td><code>discord:dm/54321</code></td></tr>
+      <tr><td><code>user</code></td><td><code>discord:user/&lt;user_id&gt;</code></td><td><code>discord:user/u123</code></td></tr>
+      <tr><td><code>whatsapp</code></td><td>&mdash; (server suffix)</td><td><code>whatsapp:&lt;id&gt;@&lt;server&gt;</code></td><td><code>whatsapp:1234@g.us</code>, <code>&hellip;@s.whatsapp.net</code>, <code>&hellip;@lid</code></td></tr>
+      <tr><td rowspan="2"><code>mastodon</code></td><td><code>account</code></td><td><code>mastodon:account/&lt;account_id&gt;</code></td><td><code>mastodon:account/42</code></td></tr>
+      <tr><td><code>status</code></td><td><code>mastodon:status/&lt;status_id&gt;</code></td><td><code>mastodon:status/abc</code></td></tr>
+      <tr><td rowspan="4"><code>reddit</code></td><td><code>comment</code></td><td><code>reddit:comment/&lt;id&gt;</code></td><td><code>reddit:comment/abc</code></td></tr>
+      <tr><td><code>submission</code></td><td><code>reddit:submission/&lt;id&gt;</code></td><td><code>reddit:submission/xyz</code></td></tr>
+      <tr><td><code>dm</code></td><td><code>reddit:dm/&lt;id&gt;</code></td><td><code>reddit:dm/m123</code></td></tr>
+      <tr><td><code>user</code></td><td><code>reddit:user/&lt;username&gt;</code></td><td><code>reddit:user/alice</code></td></tr>
+      <tr><td rowspan="2"><code>bluesky</code></td><td><code>user</code></td><td><code>bluesky:user/&lt;did&gt;</code> (DID's <code>:</code> percent-encoded)</td><td><code>bluesky:user/did%3Aplc%3A123</code></td></tr>
+      <tr><td><code>post</code></td><td><code>bluesky:post/&lt;at_uri&gt;</code></td><td><code>bluesky:post/at%3A&hellip;</code></td></tr>
+      <tr><td rowspan="3"><code>twitter</code></td><td><code>user</code></td><td><code>twitter:user/&lt;user_id&gt;</code></td><td><code>twitter:user/123</code></td></tr>
+      <tr><td><code>tweet</code></td><td><code>twitter:tweet/&lt;tweet_id&gt;</code></td><td><code>twitter:tweet/456</code></td></tr>
+      <tr><td><code>dm</code></td><td><code>twitter:dm/&lt;id&gt;</code></td><td><code>twitter:dm/789</code></td></tr>
+      <tr><td rowspan="2"><code>linkedin</code></td><td><code>user</code></td><td><code>linkedin:user/&lt;urn&gt;</code></td><td><code>linkedin:user/urn123</code></td></tr>
+      <tr><td><code>post</code></td><td><code>linkedin:post/&lt;urn&gt;</code></td><td><code>linkedin:post/urn456</code></td></tr>
+      <tr><td rowspan="2"><code>email</code></td><td><code>address</code></td><td><code>email:address/&lt;addr&gt;</code></td><td><code>email:address/foo@bar.com</code></td></tr>
+      <tr><td><code>thread</code></td><td><code>email:thread/&lt;msgid&gt;</code></td><td><code>email:thread/&lt;Message-ID&gt;</code></td></tr>
+      <tr><td rowspan="2"><code>web</code></td><td><code>slink</code></td><td><code>web:slink/&lt;token&gt;</code></td><td><code>web:slink/tok-abc</code></td></tr>
+      <tr><td><code>user</code></td><td><code>web:user/&lt;sub&gt;</code></td><td><code>web:user/sub-1</code></td></tr>
+      <tr><td><code>slack</code></td><td>&mdash;</td><td>per adapter; <code>slack:</code> JIDs handled by <a href="https://github.com/kronael/arizuko/tree/main/slakd"><code>slakd</code></a></td><td></td></tr>
+    </table>
+
+    <p class="meta"><strong>Discord placeholder.</strong> Legacy rows with no stored guild_id migrated to <code>discord:_/&lt;channel&gt;</code> (placeholder kind). New inbound from <code>discd</code> carries the real guild ID. See <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0042-typed-jids.sql#L107"><code>0042-typed-jids.sql:107</code></a>.</p>
+    <p class="meta"><strong>Web legacy.</strong> Some stored rows still use bare <code>web:&lt;folder&gt;</code> as a chat identity for the slink hub (folder-keyed); not migrated to <code>web:slink/&hellip;</code> until the web stack splits token-vs-sub identity (<a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md#L156"><code>spec 5/S</code> &sect; "Web stays folder-keyed"</a>).</p>
+
+    <h2>4. Routing &amp; glob matching</h2>
+
+    <p>The route table's <code>match</code> column is a space-separated list of <code>key=glob</code> predicates. Evaluation lives in <a href="https://github.com/kronael/arizuko/blob/main/router/router.go#L300"><code>router.RouteMatches</code></a>; keys are extracted from the message via <a href="https://github.com/kronael/arizuko/blob/main/router/router.go#L274"><code>msgField</code></a>:</p>
+
+    <table>
+      <tr><th>key</th><th>extracts</th><th>source</th></tr>
+      <tr><td><code>platform</code></td><td><code>JidPlatform(msg.ChatJID)</code> &mdash; everything before the first <code>:</code></td><td><a href="https://github.com/kronael/arizuko/blob/main/core/types.go#L183"><code>core/types.go:183</code></a></td></tr>
+      <tr><td><code>room</code></td><td><code>JidRoom(msg.ChatJID)</code> &mdash; everything after the first <code>:</code></td><td><a href="https://github.com/kronael/arizuko/blob/main/core/types.go#L77"><code>core/types.go:77</code></a></td></tr>
+      <tr><td><code>chat_jid</code></td><td><code>msg.ChatJID</code> &mdash; full canonical string</td><td></td></tr>
+      <tr><td><code>sender</code></td><td><code>msg.Sender</code> &mdash; full sender JID</td><td></td></tr>
+      <tr><td><code>verb</code></td><td><code>msg.Verb</code> &mdash; <code>"message"</code> default; <code>"join"</code>, <code>"edit"</code>, &hellip;</td><td></td></tr>
+    </table>
+
+    <p>Glob match uses Go's <a href="https://pkg.go.dev/path#Match"><code>path.Match</code></a> semantics:</p>
+
+    <ul>
+      <li><code>*</code> matches any non-<code>/</code> sequence (segments are first-class).</li>
+      <li><code>?</code> matches exactly one non-<code>/</code> char.</li>
+      <li><code>[abc]</code> / <code>[a-z]</code> matches a character class.</li>
+      <li><code>\</code> escapes the next character.</li>
+    </ul>
+
+    <p>From the <code>RouteMatches</code> contract (<a href="https://github.com/kronael/arizuko/blob/main/router/router.go#L290"><code>router.go:290-324</code></a>):</p>
+
+    <table>
+      <tr><th>predicate</th><th>matches when</th></tr>
+      <tr><td><code>key=&lt;exact&gt;</code></td><td>value equals <code>&lt;exact&gt;</code></td></tr>
+      <tr><td><code>key=&lt;glob&gt;</code></td><td>value matches glob (<code>*</code>, <code>?</code>, <code>[&hellip;]</code>; <code>*</code> doesn't cross <code>/</code>)</td></tr>
+      <tr><td><code>key=*</code></td><td>value is present (non-empty) &mdash; bare <code>*</code> silently rejects empty</td></tr>
+      <tr><td><code>key=</code></td><td>value is absent (empty)</td></tr>
+      <tr><td>omit key</td><td>unconstrained</td></tr>
+    </table>
+
+    <p class="meta">Malformed tokens (no <code>=</code> or empty key) are skipped, not errored. The empty match expression matches everything.</p>
+
+    <p>The same <code>path.Match</code>-based matcher is available as <a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L252"><code>core.MatchJID(pattern, value)</code></a> for direct JID-pattern checks outside the route engine.</p>
+
+    <h2>5. Examples</h2>
+
+    <pre><code># all telegram groups
+match='platform=telegram chat_jid=telegram:group/*'
+
+# discord guild 67890, any channel/thread
+match='chat_jid=discord:67890/*'
+
+# all Discord DMs
+match='chat_jid=discord:dm/*'
+
+# all WhatsApp groups (server suffix discriminates)
+match='chat_jid=whatsapp:*@g.us'
+
+# all activity on a Mastodon instance (single account-id digit-or-letter)
+match='chat_jid=mastodon:account/*'
+
+# specific Telegram room by signed numeric ID (room=&lt;rest after colon&gt;)
+match='platform=telegram room=group/-100123456'
+
+# any non-message verb on any platform (join, edit, delete, &hellip;)
+match='verb=*'
+match='verb=' is the negation: only verb-less (default 'message') rows</code></pre>
+
+    <h2>6. Globs in grant rules</h2>
+
+    <p>The same <code>jid=&lt;glob&gt;</code> syntax appears in grant rules (<a href="/pub/reference/grants.html">grants reference</a>). The matcher there is <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L73"><code>grants.matchGlob</code></a> with <code>isValueDelim</code> stopping <code>*</code> at <code>,</code> or <code>)</code> &mdash; not at <code>/</code>. That's a deliberate difference: grant param globs span the whole JID, route globs are segment-aware.</p>
+
+    <pre><code>send(jid=telegram:group/*)     # rule: only telegram groups (grants matcher: * spans /)
+match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * doesn't cross /)</code></pre>
+
+    <p>For top-level platform globs both forms agree (<code>telegram:*/*</code> in routes vs <code>telegram:*</code> in grants); both mean "anything telegram." For grant params there's only one trailing segment to match against, so the wider <code>*</code> is harmless.</p>
+
+    <h2>7. Hard cutover &amp; migration history</h2>
+
+    <p>Migrations <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0042-typed-jids.sql"><code>0042-typed-jids.sql</code></a> and <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0043-typed-jids-tail.sql"><code>0043-typed-jids-tail.sql</code></a> rewrote every JID-shaped value in the store to the typed form. Affected columns:</p>
+
+    <ul>
+      <li><code>messages.chat_jid</code>, <code>messages.sender</code>, <code>messages.reply_to_sender</code></li>
+      <li><code>chats.jid</code> (PK)</li>
+      <li><code>user_jids.jid</code></li>
+      <li><code>grants.jid</code> (vestigial table; migrated for completeness)</li>
+      <li><code>onboarding.jid</code></li>
+      <li><code>routes.match</code> &mdash; <code>chat_jid=</code> / <code>sender=</code> / <code>room=</code> predicates</li>
+      <li><code>scheduled_tasks.chat_jid</code></li>
+      <li><code>chat_reply_state.jid</code></li>
+    </ul>
+
+    <p>Every <code>UPDATE</code> is guarded by a <code>NOT LIKE</code> on the new shape, so re-running is idempotent. Rules:</p>
+
+    <ul>
+      <li><strong>Telegram</strong> &mdash; signed integer split: positive &rarr; <code>telegram:user/&lt;id&gt;</code>, negative &rarr; <code>telegram:group/&lt;|id|&gt;</code> (sign dropped).</li>
+      <li><strong>Discord</strong> &mdash; split via <code>chats.is_group</code>: DMs &rarr; <code>discord:dm/&lt;channel&gt;</code>, guild channels &rarr; <code>discord:_/&lt;channel&gt;</code> (placeholder).</li>
+      <li><strong>Mastodon</strong> &mdash; drop host (single-instance per deployment); <code>account/&lt;id&gt;</code> for senders/recipients.</li>
+      <li><strong>Reddit</strong> &mdash; thing-prefix lookup: <code>t1_</code>&rarr;<code>comment</code>, <code>t2_</code>&rarr;<code>user</code>, <code>t3_</code>&rarr;<code>submission</code>.</li>
+      <li><strong>Bluesky</strong> &mdash; percent-encode the embedded <code>:</code> in <code>did:plc:&lt;rest&gt;</code> &rarr; <code>bluesky:user/did%3Aplc%3A&lt;rest&gt;</code>.</li>
+      <li><strong>Email</strong> &mdash; senders rewritten to <code>email:address/&lt;addr&gt;</code>; <code>chat_jid</code> rewrite deferred until <code>emaid</code> emits typed form.</li>
+      <li><strong>LinkedIn</strong> &mdash; <code>&lt;urn&gt;</code> &rarr; <code>user/&lt;urn&gt;</code>.</li>
+      <li><strong>WhatsApp + Twitter</strong> &mdash; already conformant; not touched.</li>
+      <li><strong>Web</strong> &mdash; legacy <code>web:&lt;folder&gt;</code> kept; not migrated to <code>web:slink/&hellip;</code> until token-vs-sub split lands.</li>
+      <li><strong>Routes</strong> &mdash; bare <code>platform:*</code> globs rewritten to <code>platform:*/*</code> so segment-aware <code>path.Match</code> still matches anything on that platform.</li>
+    </ul>
+
+    <h2>8. Design discipline</h2>
+
+    <ul>
+      <li><strong>Kind in the path, type in the code.</strong> The first segment after the colon discriminates resource kind (wire). <code>ChatJID</code> vs <code>UserJID</code> distinguishes resource role at compile time (code).</li>
+      <li><strong>Adapter owns its schema.</strong> Core validates only <code>&lt;platform&gt;:&lt;rest&gt;</code> + non-empty kind. Each adapter parses <code>j.Path()</code> per its own declared shape.</li>
+      <li><strong>URI-clean.</strong> Built on <code>net/url</code> opaque-path form; percent-encoding for reserved chars (Bluesky DIDs) is free.</li>
+      <li><strong>One URL = one resource.</strong> No sign-bit hacks, no <code>t1_</code>/<code>t2_</code>/<code>t3_</code> prefix soup, no in-band server suffixes for code (WhatsApp keeps <code>@server</code> because its existing shape already encodes kind).</li>
+      <li><strong>Adding a kind later is one string.</strong> A new platform kind earns its place when an adapter, the gateway, or the agent treats it differently from siblings. No system-wide format change, no DB migration of existing rows.</li>
+    </ul>
+
+    <h2>9. Go deeper</h2>
+    <ul>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/core/jid.go"><code>core/jid.go</code></a> &mdash; <code>JID</code>, <code>ChatJID</code>, <code>UserJID</code>, <code>ParseJID</code>, <code>MatchJID</code></li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/core/jid_test.go"><code>core/jid_test.go</code></a> &mdash; full happy-path and rejection test cases</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/router/router.go"><code>router/router.go</code></a> &mdash; <code>RouteMatches</code>, <code>msgField</code>, <code>ResolveRoute</code></li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md"><code>specs/5/S-jid-format.md</code></a> &mdash; full spec, per-platform schemas, design discipline</li>
+      <li><a href="/pub/reference/grants.html">grants reference</a> &mdash; how <code>jid=&hellip;</code> appears in grant rule params</li>
+      <li><a href="/pub/reference/schema.html">schema reference</a> &mdash; every column that stores a JID</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

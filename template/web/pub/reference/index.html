@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; reference</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+    .card { border: 1px solid var(--border, rgba(127,127,127,0.2)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; }
+    .card h2 { margin: 0 0 0.3em; font-size: 1.1em; }
+    .card p { margin: 0.2em 0; }
+    .dim { color: var(--dim, #888); font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>reference</h1>
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; reference</p>
+
+    <p class="lede">Comprehensive, grep-verifiable reference for every configurable surface of an arizuko deployment. Each page is generated against the current source tree; every entry cites <code>file:line</code> in the repository.</p>
+
+    <div class="card">
+      <h2><a href="env.html">Environment variables</a></h2>
+      <p>Every env var read by any daemon or library &mdash; 120 entries across 24 sections. Per-entry: name, read sites with line links, type, default behaviour, effect, example value.</p>
+      <p class="dim">Source-of-truth for <code>.env</code> authoring and compose-generation troubleshooting.</p>
+    </div>
+
+    <div class="card">
+      <h2><a href="cli.html">CLI commands</a></h2>
+      <p>Every <code>arizuko</code> subcommand &mdash; 14 top-level commands, 27 sub-actions, 8 sections (instance lifecycle, chat, groups, identities, invites, gates, network, secrets). Signature, flags, what state it changes, examples.</p>
+      <p class="dim">README&apos;s daemon-table is the elevator pitch; this page is the contract.</p>
+    </div>
+
+    <div class="card">
+      <h2><a href="mcp.html">MCP tools</a></h2>
+      <p>Every tool exposed on the per-group MCP unix socket &mdash; 45 tools plus <code>submit_turn</code>, grouped by concern (messages, social actions, history, groups, sessions, scheduling, routing, grants, invites, web, identity, system). Params, return shape, tier badge, registration site.</p>
+      <p class="dim">What the agent can call. Mirrors the operator surface in <a href="cli.html">CLI</a> where applicable.</p>
+    </div>
+
+    <div class="card">
+      <h2><a href="schema.html">SQLite schema</a></h2>
+      <p>Every live table in <code>messages.db</code> &mdash; 30 tables across 11 sections (identity, messages, groups, onboarding, grants, secrets, egress, scheduling). Per-table: columns, indexes, writer call sites, reader summary, migration history.</p>
+      <p class="dim"><code>gated</code> owns migrations; this page tracks the shape readers can rely on.</p>
+    </div>
+
+    <div class="card">
+      <h2><a href="grants.html">Grants</a></h2>
+      <p>Grant rule grammar, tier defaults, the tool-by-tool tier and containment table, <code>user_groups</code> glob semantics. Worked example reproduced verbatim from <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a>.</p>
+      <p class="dim">The authoritative answer to "can this user do this thing in this folder?"</p>
+    </div>
+
+    <div class="card">
+      <h2><a href="jid.html">JID format</a></h2>
+      <p>The typed-JID grammar, per-platform schema (11 platforms: telegram, discord, whatsapp, mastodon, reddit, bluesky, twitter, linkedin, email, web, slack), routing-key extraction, glob semantics.</p>
+      <p class="dim">Routing rules and grants speak this language regardless of channel.</p>
+    </div>
+
+    <div class="card">
+      <h2><a href="stats.html">Codebase stats</a></h2>
+      <p>LOC and test coverage by package &mdash; daemon-by-daemon snapshot of the source tree.</p>
+    </div>
+
+    <h2>Conventions</h2>
+    <ul>
+      <li>Every entry links to the source at <code>github.com/kronael/arizuko/blob/main/&lt;path&gt;#L&lt;line&gt;</code>. If a citation 404s, the page is stale &mdash; file a bug.</li>
+      <li>Pages capture <strong>actual current state</strong>, not spec aspirations. Unshipped fields are marked or absent.</li>
+      <li>One renderer per page; cross-references are one-way pointers to keep drift surface flat.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
