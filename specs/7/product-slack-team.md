@@ -85,7 +85,7 @@ hint     = "Public hostname; Slack delivers events to https://<WEB_HOST>/slack/e
 [[env]]
 key      = "AUTH_SECRET"
 required = true
-hint     = "32-byte hex; AES-GCM key for secrets at rest (see SECURITY.md)"
+hint     = "32-byte hex; HMAC key for JWT and identity headers (see SECURITY.md)"
 ```
 
 `CLAUDE.md` body (channel-specific runbook — drop-in like
@@ -148,14 +148,14 @@ arizuko run acme
 # 5. Bind the Slack channel JID to a group folder
 arizuko group acme add slack:T01ABC/channel/C02XYZ eng-support
 
-# 6. (Optional, until per-user-secret UI ships) pre-seed a folder secret
-#    for an API the agent calls — e.g. a shared Jira token for #eng-support:
+# 6. (Optional, until the operator CLI in spec 9/11 lands) pre-seed a
+#    folder secret for an API the agent calls — e.g. a shared Jira
+#    token for #eng-support:
 sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
-  "INSERT INTO secrets (scope_kind, scope_id, key, enc_value, created_at) \
-   VALUES ('folder','eng-support','JIRA_TOKEN', \
-   X'$(arizuko secret encrypt acme "atlassian-pat-...")', \
+  "INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) \
+   VALUES ('folder','eng-support','JIRA_TOKEN','atlassian-pat-...', \
    datetime('now'));"
-# (NOTE: `arizuko secret encrypt` does not exist today either — see gap 2)
+# (NOTE: `arizuko secret set` is spec'd in 9/11 but not shipped today.)
 
 # 7. Teammates sign in via OAuth so per-user grants/memory link to canonical sub
 #    Open https://<WEB_HOST>/auth/login on each teammate's first visit.
@@ -167,31 +167,30 @@ sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
    `container/runner.go:642` overlays `UserSecrets(userSub)` only
    when `GetChatIsGroup(chatJID) == false`. Slack channel JIDs are
    group chats, so user secrets are **never merged** into the agent
-   spawn env for them. The agent can't access Alice's GitHub PAT
-   on a turn caused by Alice's message in `#eng-support`.
+   spawn env for them. Even if they were, env-injection is the wrong
+   shape for per-user tokens in a multi-user channel — the container
+   spawns once and serves multiple callers.
 
-   Spec covering this: **`specs/9/11-crackbox-secrets.md`** (with
-   scope extension and dashboard write path folded in).
-   Phase A adds:
+   Spec covering this: **`specs/9/11-crackbox-secrets.md`** (tool-level
+   broker). The broker resolves per-call:
    - `/dash/me/secrets` UI for users to paste tokens.
-   - Spawn-time per-user overlay (the `is_group=1` filter in
-     `resolveSpawnEnv` is removed; since spawn is per-turn and
-     single-caller, the caller user_jid is known at spawn).
-   - Container env carries an opaque placeholder; egred substitutes
-     the real value into outbound HTTP headers at egress per spec 11.
-     No MCP tool, no per-turn IPC; tools read placeholders from env
-     exactly like channel-scoped secrets today.
+   - At tool-call time, MCP handlers in `gated` resolve
+     `user(caller.Sub)` then `folder(caller.Folder)` and pass the
+     value as a Go arg to the handler. The container never holds
+     the credential — neither in env nor in placeholders.
+   - Resolution is per-caller per-turn, so Alice's `github_pr` call
+     and Bob's see different tokens in the same channel.
 
-   Until that ships, the product covers **shared, channel-scoped
+   Until 9/11 ships, the product covers **shared, channel-scoped
    tokens** (a team's shared Jira/GitHub bot key), not per-teammate
    credentials. The page promises both; the template should be
    honest in `PRODUCT.md` comments that per-user secrets are
    pending.
 
 2. **No CLI / dash UI to set a folder secret.**
-   `Store.SetSecret` exists but nothing wraps it. Operators today
-   need direct SQLite + manual AES-GCM encryption (which means
-   writing a one-off Go program — not realistically operator-grade).
+   `Store.SetSecret` exists but nothing wraps it. v1 stores plaintext
+   (per spec 9/11), so a direct `sqlite3 INSERT` is the workaround
+   today; the operator CLI lands in 9/11 M4.
    Smallest no-code fix that's still operator-usable:
    - Ship a tiny shell helper at `template/products/slack-team/init.sh`
      that the operator runs once: it prompts for `JIRA_TOKEN` etc.,

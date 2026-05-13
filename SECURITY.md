@@ -33,8 +33,8 @@ Three isolation axes:
 | Authz                | `user_groups` ACL → `auth.MatchGroups`; grants engine for agent tools                                                           | `auth/acl.go`, `grants/`                                                                          |
 | Channel ingress      | `Authorization: Bearer <CHANNEL_SECRET>`; docker-network only                                                                   | `chanlib/run.go`, `chanlib/chanlib.go` (`Auth`), `api/api.go`                                     |
 | Slack webhook        | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew | `slakd/bot.go` (verify), `template/services/slakd.toml` (route), `slakd/README.md` § Threat model |
-| Secrets at rest      | AES-GCM(`AUTH_SECRET`) over folder/user-scoped k=v rows                                                                         | `store/secrets.go`, migration `0034-secrets.sql`                                                  |
-| Secret injection     | Resolved at container spawn; folder always, user only in 1:1 chats                                                              | `container/runner.go` (`resolveSpawnEnv`)                                                         |
+| Secrets at rest      | Plaintext (v1; operator trusts disk + FS perms; encryption at rest deferred per spec 9/11)                                      | `store/secrets.go`, migrations `0034-secrets.sql` + `0047-secrets-plaintext.sql`                  |
+| Secret injection     | Folder secrets merged into spawn env; per-user resolved by broker at tool-call time (spec 9/11)                                 | `container/runner.go` (`resolveSpawnEnv`), `ipc/ipc.go` (`injectSecretsAdapter`)                  |
 | Onboarding rate cap  | Per-gate daily limit from `onboarding_gates` table                                                                              | `onbod/main.go` (`admitFromQueue`)                                                                |
 | Network egress       | Default-deny; per-folder allowlist enforced by forward proxy                                                                    | `crackbox/`, `store/network.go`, `container/egress.go`                                            |
 | DNS filter           | UDP/53 listener returns NXDOMAIN for non-allowlisted hostnames; REFUSED for ANY                                                 | `crackbox/pkg/dns/`, `specs/9/15-crackbox-dns-filter.md`                                          |
@@ -123,16 +123,15 @@ Caveats:
 - Agent secrets (per spec 5/32) are still injected as env into the
   container. The allowlist restricts _where_ the agent can reach;
   it does not prevent leaking secrets to an allowed domain.
-- Spec 11 (proxy-side placeholder injection) is **partially shipped**:
-  the `secrets` table (`scope_kind ∈ {folder, user}`), folder-scoped
-  CLI, and spawn-time overlay are in place (`store/secrets.go`,
-  `container/runner.go` `resolveSpawnEnv`). Per-user overlay is
-  applied **only for non-group chats** — `resolveSpawnEnv` skips it
-  when `GetChatIsGroup(chatJID)` is true, so Slack channel and other
-  group spawns see folder secrets only. Proxy-side placeholder
-  substitution + per-user dashboard CRUD (`/dash/me/secrets`) are
-  spec-only; see `specs/9/11-crackbox-secrets.md` for the M0–M6 plan.
-  Until proxy substitution ships, agents see real secret values in env.
+- Spec 9/11 (tool-level secret broker) is **partially shipped**: the
+  broker middleware (`ipc/ipc.go` `injectSecretsAdapter`) resolves
+  `user(caller.Sub)` then `folder(caller.Folder)` at tool-call time,
+  audit rows flow into `secret_use_log`, and folder-scoped secrets
+  still merge into spawn env for operator anchors. Per-user secrets
+  no longer enter container env at all — they're reachable only via
+  tools that declare `requires_secrets`. The connector path
+  (`mcp_connector` TOML + per-call subprocess) lands under M6; the
+  `/dash/me/secrets` user surface is in place via dashd.
 - IPv6 is not redirected by the entrypoint script.
 
 **DNS filter** (`crackbox/pkg/dns/`,

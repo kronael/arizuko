@@ -102,11 +102,10 @@ type Input struct {
 }
 
 // SecretsResolver is the store.Store subset for resolving secrets at spawn.
+// Only folder-scoped secrets reach the container; per-user tokens are
+// resolved at tool-call time by the broker (spec 9/11).
 type SecretsResolver interface {
 	FolderSecretsResolved(folder string) (map[string]string, error)
-	UserSecrets(userSub string) (map[string]string, error)
-	GetChatIsGroup(jid string) bool
-	UserSubByJID(jid string) (string, bool)
 }
 
 type Output struct {
@@ -232,7 +231,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		return Output{Error: "start: " + err.Error()}
 	}
 
-	in.Secrets = resolveSpawnEnv(in.SecretsResolver, readSecrets(), in.Folder, in.ChatJID)
+	in.Secrets = resolveSpawnEnv(in.SecretsResolver, readSecrets(), in.Folder)
 	in.AsstName = cfg.Name
 	payload, _ := json.Marshal(in)
 	in.Secrets = nil
@@ -637,10 +636,11 @@ func mergeSecrets(a, b map[string]string) map[string]string {
 	return out
 }
 
-// resolveSpawnEnv composes base ∪ folder ∪ user secrets (user only for
-// single-user chats). Returns base unchanged when resolver is nil or errors.
+// resolveSpawnEnv composes base ∪ folder secrets. Per-user secrets do
+// not enter the container — the broker resolves them at tool-call time
+// (spec 9/11). Returns base unchanged when resolver is nil or errors.
 func resolveSpawnEnv(
-	resolver SecretsResolver, base map[string]string, folder, chatJID string,
+	resolver SecretsResolver, base map[string]string, folder string,
 ) map[string]string {
 	if resolver == nil {
 		return base
@@ -650,18 +650,7 @@ func resolveSpawnEnv(
 		slog.Debug("folder secrets resolve skipped", "folder", folder, "err", err)
 		return base
 	}
-	merged := mergeSecrets(base, folderSecrets)
-	if !resolver.GetChatIsGroup(chatJID) {
-		if userSub, ok := resolver.UserSubByJID(chatJID); ok {
-			userSecrets, err := resolver.UserSecrets(userSub)
-			if err == nil {
-				merged = mergeSecrets(merged, userSecrets)
-			} else {
-				slog.Debug("user secrets resolve skipped", "user_sub", userSub, "err", err)
-			}
-		}
-	}
-	return merged
+	return mergeSecrets(base, folderSecrets)
 }
 
 func seedSettings(

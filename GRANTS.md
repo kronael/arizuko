@@ -206,9 +206,9 @@ routed to folder `atlas/support`:
    - …followed by anything in `grant_rules` for `atlas/support`.
 7. **Env** — `resolveSpawnEnv` merges `FolderSecretsResolved("atlas/support")`
    over the base env (catch-all `root` < `atlas` < `atlas/support`,
-   deepest wins). Because Telegram chat `-123` is a group chat
-   (`chats.is_group=1`), no user-secret overlay is added. AES-GCM at
-   rest in `secrets` (`store/migrations/0034-secrets.sql`).
+   deepest wins). Per-user secrets do not enter the container — the
+   broker resolves them at tool-call time inside `gated` (spec 9/11).
+   Stored as plaintext in `secrets` (encryption at rest deferred).
 8. **MCP** — IPC server filters tool registration by these rules
    (`grants.MatchingRules`) AND gates each call (`grants.CheckAction`).
    Outbound verbs additionally pass through `auth.Authorize`, which
@@ -265,10 +265,10 @@ sentence.
   cross-world traffic goes through `escalate_group` / `delegate_group`,
   each with its own `auth.Authorize` rule.
 - **Secrets ride the same hierarchy as grants but resolve
-  independently.** Folder ancestors walk root→F deepest-wins; user
-  overlay applies only when `chats.is_group=0`. AES-GCM key derived
-  from `AUTH_SECRET`; if unset, secrets are silently skipped and
-  base env still flows.
+  independently.** Folder ancestors walk root→F deepest-wins; per-user
+  secrets resolve inside the broker at tool-call time and never enter
+  container env. v1 stores plaintext per spec 9/11 (encryption at rest
+  deferred).
 
 ## Code pointers
 

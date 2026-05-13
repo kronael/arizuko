@@ -122,7 +122,8 @@ of docker container) but not the observable user experience.
 
 ## Out of scope
 
-- Spec 6/11 placeholder injection.
+- Secret resolution (owned by [9/11](11-crackbox-secrets.md) tool-level
+  broker; egred never sees secrets in either model).
 - MCP tools (`request_network`, `list_network_rules`) — CLI only.
 - Per-user network rules (per-folder only).
 - Traffic logging and audit.

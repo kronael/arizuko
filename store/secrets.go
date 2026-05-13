@@ -189,27 +189,3 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 	}
 	return out, nil
 }
-
-func (s *Store) UserSecrets(userSub string) (map[string]string, error) {
-	if userSub == "" {
-		return nil, errors.New("user_sub required")
-	}
-	rows, err := s.db.Query(
-		`SELECT key, value FROM secrets
-		 WHERE scope_kind = ? AND scope_id = ?`,
-		string(ScopeUser), userSub,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]string{}
-	for rows.Next() {
-		var key, value string
-		if err := rows.Scan(&key, &value); err != nil {
-			return nil, err
-		}
-		out[key] = value
-	}
-	return out, rows.Err()
-}

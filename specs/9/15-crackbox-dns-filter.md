@@ -129,9 +129,10 @@ the crackbox listener. It does **not** automatically defend:
   client's resolver returns an address, so the name is the unit of
   enforcement. The HTTP path remains the second gate; DNS is
   additive defense-in-depth.
-- **Spec 11 selective MITM**: same as forward proxy — name-based,
-  reads the same `Registry`. Cross-ref:
-  [`9/11 §"Spec format"`](11-crackbox-secrets.md).
+- **Spec 9/11 secrets**: the tool-level broker model runs in `gated`
+  on the host and never touches egress; the DNS filter and the broker
+  share no data path. Cross-ref:
+  [`9/11`](11-crackbox-secrets.md).
 
 ## Container-side wiring
 
@@ -254,9 +255,9 @@ allows all. No new wildcard syntax.
 - [`9/10-crackbox-arizuko.md`](10-crackbox-arizuko.md) — consumer.
   Discovering the per-folder crackbox IP and adding `--dns` is
   follow-up work owned there.
-- [`9/11-crackbox-secrets.md`](11-crackbox-secrets.md) — selective
-  MITM. DNS filter sits in front for forward-proxy clients;
-  transparent path independent.
+- [`9/11-crackbox-secrets.md`](11-crackbox-secrets.md) — tool-level
+  broker. Independent of egress; DNS filter and broker do not share
+  state.
 
 ## Acceptance
 

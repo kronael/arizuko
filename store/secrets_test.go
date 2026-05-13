@@ -181,36 +181,6 @@ func TestFolderSecretsResolved_RootFallback(t *testing.T) {
 	}
 }
 
-func TestUserSecrets_Scoped(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	if err := s.SetSecret(ScopeUser, "github:A", "K", "A"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetSecret(ScopeUser, "github:B", "K", "B"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetSecret(ScopeFolder, "atlas", "K", "folder"); err != nil {
-		t.Fatal(err)
-	}
-
-	a, err := s.UserSecrets("github:A")
-	if err != nil {
-		t.Fatalf("UserSecrets A: %v", err)
-	}
-	if a["K"] != "A" || len(a) != 1 {
-		t.Errorf("UserSecrets(A) = %v, want {K:A}", a)
-	}
-	b, err := s.UserSecrets("github:B")
-	if err != nil {
-		t.Fatalf("UserSecrets B: %v", err)
-	}
-	if b["K"] != "B" || len(b) != 1 {
-		t.Errorf("UserSecrets(B) = %v, want {K:B}", b)
-	}
-}
-
 // v1 stores plaintext per spec 9/11. Verify the `value` column holds the
 // raw string written, not a ciphertext.
 func TestSecretPlaintextAtRest(t *testing.T) {

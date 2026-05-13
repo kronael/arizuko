@@ -248,7 +248,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at           |
 | `onboarding_gates` | gate (PK), limit_per_day, enabled                                                        |
 | `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count      |
-| `secrets`          | scope_kind + scope_id + key (PK), enc_value (AES-GCM(AUTH_SECRET)), created_at           |
+| `secrets`          | scope_kind + scope_id + key (PK), value (plaintext, spec 9/11), created_at               |
 | `identities`       | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9)            |
 | `identity_claims`  | sub (PK), identity_id, claimed_at — sender-sub → identity merge                          |
 | `turn_results`     | folder + turn_id (PK), session_id, status, recorded_at — per-turn submit_turn outcomes   |
