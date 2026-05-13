@@ -71,6 +71,7 @@ func (s *server) handleSlinkConfig(w http.ResponseWriter, r *http.Request) {
 			"stream": "/slink/" + token + "/{turn_id}/sse",
 			"status": "/slink/" + token + "/{turn_id}/status",
 		},
+		"sdk": "/assets/arizuko-client.js",
 	})
 }
 

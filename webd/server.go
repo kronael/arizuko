@@ -47,6 +47,11 @@ func (s *server) handler() http.Handler {
 	sub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(sub))))
 
+	// /assets/* — shared static files baked into the webd binary
+	// (currently: the slink SDK). CORS permissive; see specs/1/Z2-slink-sdk.md.
+	mux.HandleFunc("GET /assets/{path...}", s.handleAssets)
+	mux.HandleFunc("OPTIONS /assets/{path...}", s.handleAssets)
+
 	mux.HandleFunc("POST /send", chanlib.Auth(s.cfg.channelSecret, s.handleSend))
 	mux.HandleFunc("POST /typing", chanlib.Auth(s.cfg.channelSecret, s.handleTyping))
 	mux.HandleFunc("POST /v1/round_done", chanlib.Auth(s.cfg.channelSecret, s.handleRoundDone))

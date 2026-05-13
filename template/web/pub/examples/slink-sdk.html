@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>slink-sdk sample</title>
+    <script src="/assets/arizuko-client.js"></script>
+    <style>
+      :root {
+        --bg: #0a0a0a;
+        --fg: #e0e0e0;
+        --accent: #4ade80;
+        --dim: #666;
+        --border: #222;
+        --card: #111;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font:
+          14px/1.5 -apple-system,
+          sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        height: 100dvh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        padding: 0.6rem 1rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--card);
+      }
+      header .name {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      header .dim {
+        color: var(--dim);
+        font-size: 0.85em;
+        margin-left: 0.5rem;
+      }
+      #thread {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .msg {
+        max-width: 75%;
+        padding: 0.55rem 0.85rem;
+        border-radius: 12px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .msg.user {
+        align-self: flex-end;
+        background: var(--accent);
+        color: var(--bg);
+      }
+      .msg.assistant {
+        align-self: flex-start;
+        background: var(--card);
+        border: 1px solid var(--border);
+      }
+      .msg.status {
+        align-self: center;
+        color: var(--dim);
+        font-size: 0.85em;
+        font-style: italic;
+      }
+      footer {
+        padding: 0.6rem 1rem;
+        border-top: 1px solid var(--border);
+        background: var(--card);
+      }
+      footer form {
+        display: flex;
+        gap: 0.5rem;
+      }
+      footer input {
+        flex: 1;
+        padding: 0.5rem 0.7rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg);
+        color: var(--fg);
+        font: inherit;
+      }
+      footer button {
+        padding: 0.5rem 1.2rem;
+        background: var(--accent);
+        color: var(--bg);
+        border: 0;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      footer button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="name" id="name">connecting…</span
+      ><span class="dim" id="folder"></span>
+    </header>
+    <div id="thread"></div>
+    <footer>
+      <form id="f">
+        <input
+          id="m"
+          placeholder="type a message…"
+          autofocus
+          autocomplete="off"
+        /><button id="b" disabled>send</button>
+      </form>
+    </footer>
+    <script>
+      // Paste your slink token here, or override via ?token=<t> in the URL.
+      const TOKEN =
+        new URLSearchParams(location.search).get('token') ||
+        'REPLACE_WITH_SLINK_TOKEN';
+
+      const thread = document.getElementById('thread');
+      const btn = document.getElementById('b');
+      const input = document.getElementById('m');
+
+      function add(role, content) {
+        const d = document.createElement('div');
+        d.className = 'msg ' + role;
+        d.textContent = content;
+        thread.appendChild(d);
+        d.scrollIntoView({ behavior: 'smooth' });
+        return d;
+      }
+
+      (async () => {
+        try {
+          const slink = await Arizuko.connect(TOKEN);
+          document.getElementById('name').textContent = slink.name;
+          document.getElementById('folder').textContent = slink.folder;
+          btn.disabled = false;
+
+          document.getElementById('f').onsubmit = async (e) => {
+            e.preventDefault();
+            const content = input.value.trim();
+            if (!content) return;
+            input.value = '';
+            btn.disabled = true;
+            add('user', content);
+            try {
+              const turn = await slink.send(content);
+              const typing = add('status', '⏳ thinking…');
+              slink.stream(turn.turn_id, {
+                onMessage: (f) => {
+                  typing.remove();
+                  add('assistant', f.content);
+                },
+                onStatus: (f) => {
+                  typing.textContent = '⏳ ' + f.content;
+                },
+                onDone: (_) => {
+                  typing.remove();
+                },
+                onError: (err) => {
+                  typing.textContent = 'stream error';
+                  console.error(err);
+                },
+              });
+            } catch (err) {
+              add('status', 'error: ' + err.message);
+            } finally {
+              btn.disabled = false;
+              input.focus();
+            }
+          };
+        } catch (err) {
+          document.getElementById('name').textContent = 'connect failed';
+          add('status', err.message);
+        }
+      })();
+    </script>
+  </body>
+</html>
