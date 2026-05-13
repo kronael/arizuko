@@ -200,7 +200,7 @@ func StripThinkBlocks(s string) string {
 
 var platformShort = map[string]string{
 	"telegram": "tg", "whatsapp": "wa", "discord": "dc",
-	"email": "em", "web": "web",
+	"slack": "sl", "email": "em", "web": "web",
 }
 
 func senderToUserFileID(sender string) string {
