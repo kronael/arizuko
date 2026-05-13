@@ -29,7 +29,7 @@ func newTestServer(t *testing.T, secret string) (*server, *bot) {
 		BotToken:      "xoxb-test",
 		SigningSecret: secret,
 		ChannelSecret: "chsec",
-		ListenURL:     "http://slakd:9009",
+		ListenURL:     "http://slakd:8080",
 		CacheTTL:      time.Minute,
 	}
 	b, err := newBotWithBase(cfg, "http://slack.invalid/api")
@@ -109,7 +109,7 @@ func TestEvents_NoHeaders(t *testing.T) {
 }
 
 // File proxy returns 401 without ChannelSecret bearer — observed-failure
-// anchor: file_shared upstream-auth (file_private requires Bearer xoxb).
+// anchor: url_private upstream-auth requires Bearer xoxb.
 func TestFileProxy_AuthRequired(t *testing.T) {
 	s, _ := newTestServer(t, "shh")
 	s.files.Put("https://files.slack.com/x")

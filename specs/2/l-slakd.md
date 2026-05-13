@@ -23,7 +23,7 @@ One `xoxb-` token, one workspace. Multi-workspace = future spec.
   pass body bytes and `X-Slack-Signature` / `X-Slack-Request-Timestamp`
   headers verbatim (no re-marshal, no TLS re-sign) — else slakd can't verify.
 - Inbound: `message.channels`, `message.groups`, `message.im`,
-  `message.mpim`, `reaction_added`/`removed`, `member_joined_channel`
+  `message.mpim`, `reaction_added`, `member_joined_channel`
   (`verb=join`). Files arrive piggy-backed on `message.*` events via the
   `files` array; do not subscribe to `file_shared`. NOT `app_mention` —
   Slack fires it

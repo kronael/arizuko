@@ -190,7 +190,7 @@ func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 		BotToken:      "xoxb-test",
 		SigningSecret: "shh",
 		ChannelSecret: "chsec",
-		ListenURL:     "http://slakd:9009",
+		ListenURL:     "http://slakd:8080",
 		CacheTTL:      time.Minute,
 	}
 	b, err := newBotWithBase(cfg, mock.srv.URL+"/api")
@@ -203,7 +203,7 @@ func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 	b.botUserID.Store("Ubot")
 	b.teamID.Store("T012")
 	b.connected.Store(true)
-	// Ensure srv has a files cache plumbed through (file_shared path).
+	// Ensure srv has a files cache plumbed through (file proxy path).
 	s := newServer(cfg, b, b.isConnected, b.LastInboundAt)
 	b.files = s.files
 	return b, rm
