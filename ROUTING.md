@@ -12,6 +12,7 @@ treat it as an opaque string with `path.Match` glob semantics over `/`.
 | Adapter | Prefix      | Example                                                             |
 | ------- | ----------- | ------------------------------------------------------------------- |
 | discd   | `discord:`  | `discord:<guild>/<channel>`, `discord:dm/<channel>`                 |
+| slakd   | `slack:`    | `slack:<workspace>/<kind>/<id>` (kind ∈ channel/dm/group)           |
 | teled   | `telegram:` | `telegram:user/<id>`, `telegram:group/<id>`                         |
 | whapd   | `whatsapp:` | `whatsapp:1234567@s.whatsapp.net`                                   |
 | mastd   | `mastodon:` | `mastodon:account/<id>`                                             |

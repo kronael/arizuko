@@ -12,8 +12,8 @@ scaffold that `vited` serves in dev.
 ## Contents
 
 - `env.example` — default `.env` with every knob and a comment per var
-- `services/*.toml` — bundled adapter specs: `teled`, `discd`, `mastd`,
-  `bskyd`, `reditd`, `whapd`, `linkd`
+- `services/*.toml` — bundled adapter specs: `teled`, `discd`, `slakd`,
+  `mastd`, `bskyd`, `reditd`, `emaid`, `whapd`, `twitd`, `linkd`
 - `web/` — Vite project (`pub/`, `priv/`, `secret/` path regions,
   `vite.config.ts`, `package.json`)
 

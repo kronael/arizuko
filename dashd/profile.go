@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-
-	"github.com/kronael/arizuko/theme"
 )
 
 // mirrors auth/routes.go — keep in sync.
@@ -26,7 +24,7 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	sub := strings.TrimSpace(r.Header.Get("X-User-Sub"))
 	pageTop(w, "Profile")
 	if sub == "" {
-		fmt.Fprint(w, `<p class="banner-err">no identity</p>`)
+		fmt.Fprint(w, `<div class="banner-err">no identity — sign in via proxyd to view your profile</div>`)
 		fmt.Fprint(w, pageBot)
 		return
 	}
@@ -34,42 +32,43 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	var name string
 	_ = d.db.QueryRow(
 		`SELECT name FROM auth_users WHERE sub = ?`, sub).Scan(&name)
-	fmt.Fprintf(w, `<p><b>Canonical sub:</b> <code>%s</code>`, esc(sub))
+	fmt.Fprint(w, `<p class="dim">Your canonical identity and linked providers.</p>`)
+	fmt.Fprint(w, `<table><tr><th>Canonical sub</th><td><code>`+esc(sub)+`</code></td></tr>`)
 	if name != "" {
-		fmt.Fprintf(w, ` &middot; %s`, esc(name))
+		fmt.Fprintf(w, `<tr><th>Name</th><td>%s</td></tr>`, esc(name))
 	}
-	fmt.Fprint(w, `</p>`)
+	fmt.Fprint(w, `</table>`)
 
 	linked, _ := d.linkedSubs(sub)
 	fmt.Fprint(w, `<h2>Linked accounts</h2>`)
 	prefixes := map[string]bool{providerPrefix(sub): true}
 	if len(linked) == 0 {
-		fmt.Fprint(w, `<p><em>No additional providers linked.</em></p>`)
+		fmt.Fprint(w, `<p class="empty">No additional providers linked.</p>`)
 	} else {
-		fmt.Fprint(w, `<ul>`)
+		fmt.Fprint(w, `<table><thead><tr><th>Sub</th></tr></thead><tbody>`)
 		for _, ls := range linked {
-			fmt.Fprintf(w, `<li><code>%s</code></li>`, esc(ls))
+			fmt.Fprintf(w, `<tr><td><code>%s</code></td></tr>`, esc(ls))
 			prefixes[providerPrefix(ls)] = true
 		}
-		fmt.Fprint(w, `</ul>`)
+		fmt.Fprint(w, `</tbody></table>`)
 	}
 
 	fmt.Fprint(w, `<h2>Add a provider</h2>`)
 	any := false
+	fmt.Fprint(w, `<div style="max-width:420px">`)
 	for _, p := range supportedProviders {
 		if prefixes[p.prefix] {
 			continue
 		}
 		any = true
 		fmt.Fprintf(w,
-			`<a class="oauth-btn" href="%s?intent=link&return=%s">Link %s</a> `,
+			`<a class="oauth-btn" href="%s?intent=link&return=%s">Link %s</a>`,
 			esc(p.path), esc("/dash/profile/"), esc(p.label))
 	}
+	fmt.Fprint(w, `</div>`)
 	if !any {
-		fmt.Fprint(w, `<p><em>All known providers already linked.</em></p>`)
+		fmt.Fprint(w, `<p class="empty">All known providers already linked.</p>`)
 	}
-
-	fmt.Fprintf(w, `<style>%s</style>`, theme.CSS)
 
 	fmt.Fprint(w, pageBot)
 }

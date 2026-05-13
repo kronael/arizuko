@@ -101,11 +101,22 @@ points in `EXTENDING.md`; the core evolves as a unit.
 
 ## Docs layout
 
-Root UPPERCASE files: `ARCHITECTURE.md`, `SECURITY.md`, `ROUTING.md`,
-`EXTENDING.md`, `CHANGELOG.md`, `CLAUDE.md`. Per-daemon detail lives
-next to the source (e.g. `ipc/SECURITY.md`). No `docs/` directory —
-add a per-daemon `SECURITY.md` when its threat model outgrows a row
-in the root table.
+Root UPPERCASE files: `README.md`, `ARCHITECTURE.md`, `SECURITY.md`,
+`ROUTING.md`, `EXTENDING.md`, `GRANTS.md`, `CHANGELOG.md`, `CLAUDE.md`.
+Per-daemon detail lives next to the source (e.g. `ipc/SECURITY.md`).
+No `docs/` directory — add a per-daemon `SECURITY.md` when its threat
+model outgrows a row in the root table.
+
+### When to read what
+
+- **README.md** — daemon map, public pitch, build/test entry.
+- **ARCHITECTURE.md** — package graph, message flow, SQLite schema.
+- **SECURITY.md** — threat model + egress + secrets boundaries.
+- **ROUTING.md** — route table, topic/sticky/reply rules.
+- **EXTENDING.md** — channels, actions, routing, mounts, skills,
+  tasks, diary, autocall extension points.
+- **GRANTS.md** — tier model + tool authorization scope syntax.
+- **CHANGELOG.md** — what shipped, dated.
 
 Keep `EXTENDING.md` current as extension points evolve (channels,
 actions, routing, mounts, skills, tasks, diary; skill scopes;
@@ -257,7 +268,7 @@ land at once: `• Voice & media — send_voice + per-platform dispatch`.
 
 - **krons** is the test/deploy target. Always deploy here first.
 - Other instances only on explicit user request.
-- Docker requires `sudo`. `make image` / `make agent` will fail without it.
+- Docker requires `sudo`. `make images` / `make agent` will fail without it.
 
 ## "Nothing works" checklist
 

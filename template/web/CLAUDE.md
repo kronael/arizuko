@@ -24,11 +24,11 @@ pub/
   components/
     index.html            all daemons, one-line each, links
     gated.html            gateway daemon — what, why, how it fits, standalone
-    ant.html              agent-as-folder unit (moved here from concepts/)
-    slink.html            public web endpoint (moved here from concepts/)
+    ant.html              agent-as-folder unit (planned move from concepts/)
+    slink.html            public web endpoint (planned move from concepts/)
     proxyd.html           auth proxy
     webd.html             web channel + SSE hub
-    crackbox.html         egress sandbox (moved here from crackbox/)
+    crackbox.html         egress sandbox (planned move from crackbox/)
     onbod.html            onboarding daemon
     dashd.html            operator dashboard
     timed.html            cron/interval scheduler
@@ -41,8 +41,8 @@ pub/
     cli.html              arizuko CLI commands (create, run, invite, chat, group …)
     mcp.html              MCP tools reference (all 30+ tools, params, tiers)
     schema.html           SQLite tables (messages, groups, user_groups, …)
-    grants.html           grant rule syntax (moved here from concepts/)
-    jid.html              JID format reference (moved here from concepts/)
+    grants.html           grant rule syntax (planned move from concepts/)
+    jid.html              JID format reference (planned move from concepts/)
   howto/
     index.html            getting started — install, create instance, first message
   concepts/               kept for external links; thin wrappers pointing to /components/ or /reference/

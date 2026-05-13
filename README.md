@@ -1,10 +1,10 @@
 # arizuko
 
 Multitenant Claude agent router. External channel adapters (Telegram,
-Discord, Mastodon, Bluesky, Reddit, Email, WhatsApp, LinkedIn, web chat)
-register with the router over HTTP; per-group Claude Code agents run in
-Docker containers with an MCP socket bridged in for controlled side
-effects. Go, SQLite (WAL), Docker.
+Discord, Slack, Mastodon, Bluesky, Reddit, Email, WhatsApp, LinkedIn,
+web chat) register with the router over HTTP; per-group Claude Code
+agents run in Docker containers with an MCP socket bridged in for
+controlled side effects. Go, SQLite (WAL), Docker.
 
 ## What it does
 
@@ -15,20 +15,61 @@ delegate to siblings, and act on behalf of users subject to grant rules.
 One SQLite DB (`messages.db`) is the single source of truth; `gated`
 owns the schema, other daemons connect read/write.
 
+## What it can be
+
+The same daemons, configured differently, fill several adjacent niches.
+
+**Shipped today:**
+
+- **A team agent in Slack / Discord / Telegram** — channel-bound persona,
+  mention-only or DM. Via the channel adapters + per-folder
+  `PERSONA.md`; product page at
+  [template/web/pub/products/slack-team/](template/web/pub/products/slack-team/index.html).
+- **A self-hosted RAG-over-team-docs** — mount the team's repo via WebDAV
+  (`davd`) and let the agent grep, read, and cite. Today via mounts +
+  the `facts/` seed dir.
+- **A long-running personal assistant** — per-user memory, linked OAuth
+  identities (GitHub / Google / Discord / Telegram) resolving to one
+  `auth_users.sub`.
+- **A multi-channel orchestrator** — one agent across Slack + Discord +
+  email + WhatsApp + web chat, same `messages.db`. Every adapter speaks
+  the [channel protocol](specs/4/1-channel-protocol.md).
+- **A scheduler / cron-bot** — `timed` writes scheduled turns into the
+  same message bus.
+
+**Spec'd, not yet shipped:**
+
+- **A federated multi-tenant control API** — `/v1/*` surface across every
+  daemon ([specs/6/R-platform-api.md](specs/6/R-platform-api.md), `spec`).
+- **A meta-agent platform** — end users POST an agent definition and get
+  a tenant + slink token back
+  ([specs/6/3-user-spawned-agents.md](specs/6/3-user-spawned-agents.md), `spec`).
+- **Proactive interjection** — lurk-mode + validator chain
+  ([specs/5/33-proactive-interjection.md](specs/5/33-proactive-interjection.md), `spec`).
+- **Cost caps** — per-channel/user budgets with ephemeral nudges
+  ([specs/5/34-cost-caps.md](specs/5/34-cost-caps.md), `spec`).
+
+arizuko's primitives — folders, grants, secrets, channel adapters,
+containerized agents, capability tokens — compose into all of these.
+Curated configurations are published at `/pub/products/` (see
+[specs/7/](specs/7/) for the catalog).
+
 ## Architecture at a glance
 
 ```
-adapter (teled/discd/…) --HTTP--> gated (api + gateway)
-                                    │
-                                    ├── store (messages.db, WAL)
-                                    ├── container (docker run agent)
-                                    │     └── MCP over unix socket (ipc)
-                                    └── chanreg (adapter health, outbound)
+adapter (teled/discd/slakd/…) --HTTP--> gated (api + gateway)
+                                          │
+                                          ├── store (messages.db, WAL)
+                                          ├── container (docker run agent)
+                                          │     └── MCP over unix socket (ipc)
+                                          └── chanreg (adapter health, outbound)
 
 timed   — scheduler, writes messages
 onbod   — onboarding, OAuth, gated admission
 webd    — web chat channel adapter
-proxyd  — auth-gated reverse proxy
+proxyd  — auth-gated reverse proxy (TOML route table)
+vited   — web origin: serves /pub/* + auth-gated default route (Vite)
+davd    — WebDAV workspace (dufs wrapper)
 dashd   — operator dashboards (read-only)
 ```
 
@@ -56,13 +97,14 @@ package graph and [EXTENDING.md](EXTENDING.md) for adding new integrations.
 | davd   | core        | WebDAV workspace (per-group, dufs)                      | [davd/README.md](davd/README.md)     |
 | teled  | integration | Telegram adapter                                        | [teled/README.md](teled/README.md)   |
 | discd  | integration | Discord adapter                                         | [discd/README.md](discd/README.md)   |
+| slakd  | integration | Slack adapter (bot-token, Events API)                   | [slakd/README.md](slakd/README.md)   |
 | mastd  | integration | Mastodon adapter                                        | [mastd/README.md](mastd/README.md)   |
 | bskyd  | integration | Bluesky adapter                                         | [bskyd/README.md](bskyd/README.md)   |
 | reditd | integration | Reddit adapter                                          | [reditd/README.md](reditd/README.md) |
 | emaid  | integration | Email (IMAP/SMTP) adapter                               | [emaid/README.md](emaid/README.md)   |
 | whapd  | integration | WhatsApp adapter (TypeScript, Baileys)                  | [whapd/README.md](whapd/README.md)   |
 | twitd  | integration | X/Twitter adapter (TypeScript, browser emulation)       | [twitd/README.md](twitd/README.md)   |
-| linkd  | integration | LinkedIn adapter (stub)                                 | [linkd/README.md](linkd/README.md)   |
+| linkd  | integration | LinkedIn adapter (partial native, v2 API)               | [linkd/README.md](linkd/README.md)   |
 | ttsd   | integration | OpenAI-compatible TTS proxy (Kokoro by default)         | [ttsd/README.md](ttsd/README.md)     |
 
 A minimal deployment runs core + one channel-adapter integration; a
@@ -75,29 +117,29 @@ vars and skills, not new daemons.
 
 All libraries are core unless marked otherwise.
 
-| name        | kind        | role                                                                          | README                                         |
-| ----------- | ----------- | ----------------------------------------------------------------------------- | ---------------------------------------------- |
-| cmd/arizuko | core        | CLI entrypoint (`create`, `run`, `group`, `gate`, `invite`, `chat`, `status`) | [cmd/arizuko/README.md](cmd/arizuko/README.md) |
-| gateway     | core        | poll loop, routing, autocalls, impulse gate                                   | [gateway/README.md](gateway/README.md)         |
-| core        | core        | types, config, `Channel` interface                                            | [core/README.md](core/README.md)               |
-| store       | core        | SQLite access + migrations                                                    | [store/README.md](store/README.md)             |
-| api         | core        | router-side HTTP API                                                          | [api/README.md](api/README.md)                 |
-| chanreg     | core        | channel registry + `HTTPChannel`                                              | [chanreg/README.md](chanreg/README.md)         |
-| chanlib     | core        | shared HTTP/auth primitives for adapters                                      | [chanlib/README.md](chanlib/README.md)         |
-| router      | core        | message formatting, route evaluation                                          | [router/README.md](router/README.md)           |
-| queue       | core        | per-group concurrency + circuit breaker                                       | [queue/README.md](queue/README.md)             |
-| container   | core        | docker runner + skill seeding                                                 | [container/README.md](container/README.md)     |
-| compose     | core        | `docker-compose.yml` generator                                                | [compose/README.md](compose/README.md)         |
-| ipc         | core        | MCP server on unix socket                                                     | [ipc/README.md](ipc/README.md)                 |
-| auth        | core        | identity, JWT, OAuth, policy, HMAC                                            | [auth/README.md](auth/README.md)               |
-| grants      | core        | grant rule engine                                                             | [grants/README.md](grants/README.md)           |
-| diary       | core        | diary reader for prompt injection                                             | [diary/README.md](diary/README.md)             |
-| db_utils    | core        | embedded-FS migration runner                                                  | [db_utils/README.md](db_utils/README.md)       |
-| theme       | core        | shared CSS/HTML helpers                                                       | [theme/README.md](theme/README.md)             |
-| groupfolder | core        | group-folder path validation                                                  | [groupfolder/README.md](groupfolder/README.md) |
-| mountsec    | core        | mount allowlist + path validation                                             | [mountsec/README.md](mountsec/README.md)       |
-| template    | core        | instance seed files + adapter TOMLs                                           | [template/README.md](template/README.md)       |
-| sidecar     | integration | whisper transcription image                                                   | [sidecar/README.md](sidecar/README.md)         |
+| name        | kind        | role                                                                                                                             | README                                         |
+| ----------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| cmd/arizuko | core        | CLI entrypoint (`create`, `run`, `generate`, `group`, `gate`, `invite`, `identity`, `network`, `pair`, `send`, `chat`, `status`) | [cmd/arizuko/README.md](cmd/arizuko/README.md) |
+| gateway     | core        | poll loop, routing, autocalls, impulse gate                                                                                      | [gateway/README.md](gateway/README.md)         |
+| core        | core        | types, config, `Channel` interface                                                                                               | [core/README.md](core/README.md)               |
+| store       | core        | SQLite access + migrations                                                                                                       | [store/README.md](store/README.md)             |
+| api         | core        | router-side HTTP API                                                                                                             | [api/README.md](api/README.md)                 |
+| chanreg     | core        | channel registry + `HTTPChannel`                                                                                                 | [chanreg/README.md](chanreg/README.md)         |
+| chanlib     | core        | shared HTTP/auth primitives for adapters                                                                                         | [chanlib/README.md](chanlib/README.md)         |
+| router      | core        | message formatting, route evaluation                                                                                             | [router/README.md](router/README.md)           |
+| queue       | core        | per-group concurrency + circuit breaker                                                                                          | [queue/README.md](queue/README.md)             |
+| container   | core        | docker runner + skill seeding                                                                                                    | [container/README.md](container/README.md)     |
+| compose     | core        | `docker-compose.yml` generator                                                                                                   | [compose/README.md](compose/README.md)         |
+| ipc         | core        | MCP server on unix socket                                                                                                        | [ipc/README.md](ipc/README.md)                 |
+| auth        | core        | identity, JWT, OAuth, policy, HMAC                                                                                               | [auth/README.md](auth/README.md)               |
+| grants      | core        | grant rule engine                                                                                                                | [grants/README.md](grants/README.md)           |
+| diary       | core        | diary reader for prompt injection                                                                                                | [diary/README.md](diary/README.md)             |
+| db_utils    | core        | embedded-FS migration runner                                                                                                     | [db_utils/README.md](db_utils/README.md)       |
+| theme       | core        | shared CSS/HTML helpers                                                                                                          | [theme/README.md](theme/README.md)             |
+| groupfolder | core        | group-folder path validation                                                                                                     | [groupfolder/README.md](groupfolder/README.md) |
+| mountsec    | core        | mount allowlist + path validation                                                                                                | [mountsec/README.md](mountsec/README.md)       |
+| template    | core        | instance seed files + adapter TOMLs                                                                                              | [template/README.md](template/README.md)       |
+| sidecar     | integration | whisper transcription image                                                                                                      | [sidecar/README.md](sidecar/README.md)         |
 
 The `ant/` directory (in-container agent, TypeScript) has its own
 layered docs and is not indexed here.
@@ -106,7 +148,7 @@ layered docs and is not indexed here.
 
 Shippable separately, usable outside arizuko. No imports of
 arizuko-internal packages. From arizuko's perspective these are
-**integrations** — opted in per deployment (e.g. `EGRESS_ISOLATION=true`
+**integrations** — opted in per deployment (e.g. `CRACKBOX_ADMIN_API`
 pulls in crackbox); from their own perspective they are standalone
 binaries. See [`specs/9/b-orthogonal-components.md`](specs/9/b-orthogonal-components.md).
 

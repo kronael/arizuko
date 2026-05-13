@@ -13,19 +13,22 @@ evolves as a unit through specs, not via these extension points. See
 
 ## Extension points
 
-| Point         | Location               | Extensible by  | Mechanism                                     |
-| ------------- | ---------------------- | -------------- | --------------------------------------------- |
-| Channels      | external containers    | Developer      | HTTP protocol                                 |
-| Slink         | `webd/slink*.go`       | External agent | Chat UI + MCP transport at `/slink/<token>`   |
-| Actions       | MCP tools              | Agent/Plugin   | Registry + MCP                                |
-| Autocalls     | `gateway/autocalls.go` | Gateway dev    | Registry slice                                |
-| Routing rules | `router/`              | Agent          | MCP tools                                     |
-| Mounts        | `container/`           | Agent          | Container config                              |
-| Skills        | `ant/skills/`          | Agent          | File-based                                    |
-| Tasks         | `timed/`               | Agent          | IPC actions                                   |
-| Diary         | `diary/`               | Agent          | File-based                                    |
-| Network rules | `store/network.go`     | Operator       | CLI + DB rows                                 |
-| Web routes    | `store/web_routes.go`  | Agent          | MCP tools (`set_web_route` / `del_web_route`) |
+| Point         | Location                        | Extensible by  | Mechanism                                     |
+| ------------- | ------------------------------- | -------------- | --------------------------------------------- |
+| Channels      | external containers             | Developer      | HTTP protocol (latest: `slakd/`)              |
+| Proxyd routes | `template/services/<name>.toml` | Daemon author  | `[[proxyd_route]]` block, no Go edits         |
+| Slink         | `webd/slink*.go`                | External agent | Chat UI + MCP transport at `/slink/<token>`   |
+| Slink SDK     | `webd/assets/arizuko-client.js` | Page author    | Embedded JS served at `/assets/`              |
+| Actions       | MCP tools                       | Agent/Plugin   | Registry + MCP                                |
+| Autocalls     | `gateway/autocalls.go`          | Gateway dev    | Registry slice                                |
+| Routing rules | `router/`                       | Agent          | MCP tools                                     |
+| Mounts        | `container/`                    | Agent          | Container config                              |
+| Skills        | `ant/skills/`                   | Agent          | File-based                                    |
+| Tasks         | `timed/`                        | Agent          | IPC actions                                   |
+| Diary         | `diary/`                        | Agent          | File-based                                    |
+| Network rules | `store/network.go`              | Operator       | CLI + DB rows                                 |
+| Web routes    | `store/web_routes.go`           | Agent          | MCP tools (`set_web_route` / `del_web_route`) |
+| Public pages  | `template/web/pub/`             | Operator       | Plain HTML, copied into `<data-dir>/web/pub/` |
 
 ## Adding an autocall
 
@@ -82,7 +85,7 @@ tool's description by proximity.
 
 Only collapse two names into one tool when the action is mechanically
 identical AND the same description naturally covers both — e.g.
-`send_reply` covers comment/reply because both create a threaded
+`reply` covers comment/reply because both create a threaded
 response to a parent message. Do NOT collapse repost/forward/quote
 into `share(kind=…)`; three intents, three tools.
 
@@ -106,20 +109,20 @@ The 12 outbound MCP verbs and their per-platform native support. An
 empty cell means the adapter returns `*UnsupportedError` with a
 concrete hint.
 
-| Verb         | discd | mastd | bskyd | reditd | teled | emaid | linkd | whapd | twitd |
-| ------------ | ----- | ----- | ----- | ------ | ----- | ----- | ----- | ----- | ----- |
-| `send`       | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
-| `reply`      | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
-| `send_file`  | ✓     |       |       |        | ✓     |       |       | ✓     | ✓     |
-| `send_voice` | ✓     |       |       |        | ✓     |       |       | ✓     |       |
-| `post`       | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
-| `like`       | ✓     | ✓     | ✓     | ✓      | ✓     |       |       | ✓     | ✓     |
-| `delete`     | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
-| `forward`    |       |       |       |        | ✓     |       |       | ✓     |       |
-| `quote`      |       |       | ✓     |        |       |       |       |       | ✓     |
-| `repost`     |       | ✓     | ✓     |        |       |       |       |       | ✓     |
-| `dislike`    |       |       |       | ✓      |       |       |       |       |       |
-| `edit`       | ✓     | ✓     |       |        | ✓     |       |       | ✓     |       |
+| Verb         | discd | slakd | mastd | bskyd | reditd | teled | emaid | linkd | whapd | twitd |
+| ------------ | ----- | ----- | ----- | ----- | ------ | ----- | ----- | ----- | ----- | ----- |
+| `send`       | ✓     | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
+| `reply`      | ✓     | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
+| `send_file`  | ✓     | ✓     |       |       |        | ✓     |       |       | ✓     | ✓     |
+| `send_voice` | ✓     |       |       |       |        | ✓     |       |       | ✓     |       |
+| `post`       | ✓     | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
+| `like`       | ✓     | ✓     | ✓     | ✓     | ✓      | ✓     |       |       | ✓     | ✓     |
+| `delete`     | ✓     | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
+| `forward`    |       |       |       |       |        | ✓     |       |       | ✓     |       |
+| `quote`      |       |       |       | ✓     |        |       |       |       |       | ✓     |
+| `repost`     |       |       | ✓     | ✓     |        |       |       |       |       | ✓     |
+| `dislike`    |       | ✓     |       |       | ✓      |       |       |       |       |       |
+| `edit`       | ✓     | ✓     | ✓     |       |        | ✓     |       |       | ✓     |       |
 
 ## Adding web routes
 
@@ -139,11 +142,80 @@ via `store.MatchWebRoute`. These rows only take effect if proxyd is
 configured with a store (`s.st != nil`); they have no effect on channel
 routing.
 
+## Adding a channel adapter
+
+A channel adapter is a standalone HTTP daemon that bridges a chat
+platform to `gated` via `chanlib`. It registers a JID prefix, serves
+inbound webhooks (or polls), and exposes outbound verbs (`/send`,
+`/like`, `/edit`, …) plus `/health`. Latest reference:
+[`slakd/`](slakd/) (Slack Events API, signing-secret HMAC, dislike-
+via-`reactions.add`). Steps:
+
+1. Create `<name>d/` with `main.go` wiring `chanlib.Run`, a `bot.go`
+   for platform I/O, and a JID parser/formatter.
+2. Add `template/services/<name>d.toml` with `[environment]` block.
+   If you need inbound webhooks via proxyd, add a `[[proxyd_route]]`
+   block (see below) — no `compose.go` edits.
+3. Implement only the verbs the platform supports natively; return
+   `chanlib.Unsupported(tool, platform, hint)` for the rest.
+4. Spec under `specs/2/<letter>-<name>.md`; per-platform native
+   support belongs in the verb matrix above.
+
+## Adding a proxyd route
+
+`proxyd`'s route table is built from `[[proxyd_route]]` blocks
+collected at compose-generate time, plus a static core-route slice in
+`compose/compose.go` (`coreProxydRoutes`, for dashd/webd/davd/onbod).
+Adding a new inbound web path = one TOML block, no Go edits:
+
+```toml
+# template/services/<name>d.toml
+[[proxyd_route]]
+path = "/<prefix>/"                   # trailing / = longest-prefix
+backend = "http://<name>d:8080"
+auth = "public"                       # "public" | "user" | "operator"
+gated_by = "<ENV_VAR>"                # route omitted if env unset
+preserve_headers = ["X-Webhook-Sig"]  # optional verbatim-pass list
+```
+
+`compose.go` evaluates `gated_by` against the operator's `.env`, drops
+disabled routes, and emits the survivors as `PROXYD_ROUTES_JSON` on
+proxyd. Reference: `specs/6/2-proxyd-standalone.md`,
+`template/services/slakd.toml`.
+
+## Adding a slink-driven page
+
+Third-party pages talk to a slink via the embedded JS SDK at
+`/assets/arizuko-client.js`. The SDK wraps the `POST → SSE` round-
+handle dance; pages call `Arizuko.connect(token)` and stream frames.
+
+- SDK source: `webd/assets/arizuko-client.js` (baked into `webd` via
+  `embed.FS`, served with `Cache-Control: public, max-age=3600`,
+  CORS `*`).
+- Sample page: `template/web/pub/examples/slink-sdk.html` — copy to
+  `<data-dir>/web/pub/<app>/index.html`, swap the token.
+- Agent skill: `ant/skills/slink/SKILL.md` (drop-in HTML template
+  - API table). Sibling skill `slink-mcp/` covers MCP-over-HTTP.
+- Spec: `specs/1/Z2-slink-sdk.md`.
+
+For agent-written pages, the convention is `/workspace/web/pub/<app>/`
+inside the container, served at `/pub/<app>/` by vited.
+
+## Extending the public site
+
+The public doc site at `/pub/` is plain HTML copied verbatim from
+`template/web/pub/` into each instance's `<data-dir>/web/pub/` on
+`arizuko create`. No build step; edit HTML directly. Per-page
+conventions (breadcrumbs, prose container, `hub.css` + `hub.js`) and
+the site layout (products / components / reference / howto / security)
+live in `template/web/CLAUDE.md`. Operator-facing positioning page:
+`template/web/pub/security/index.html`.
+
 ## Inspect tools
 
 Read-only MCP introspection family, registered in `ipc/inspect.go`:
 `inspect_messages`, `inspect_routing`, `inspect_tasks`,
-`inspect_session`. Delegate to `store.*` accessors; no destructive
+`inspect_session`, `inspect_identity`. Delegate to `store.*` accessors; no destructive
 operations (those stay in `control_*`). Tier 0 sees all instances; tier
 ≥1 is scoped to its own folder subtree. Extend by adding a handler to
 `registerInspect` and wiring a fn into `ipc.StoreFns`.
@@ -198,7 +270,8 @@ Adding one:
 2. If the tool needs host-side credentials/state, add a `HOST_*_DIR`
    env on `core.Config`, plumb through `compose.Generate` and
    `container.runner` so it's bind-mounted into spawns. Pattern:
-   `HOST_CODEX_DIR` (`v0.33.9`).
+   `HOST_CODEX_DIR` → layered mount at `/home/node/.codex` via
+   `container/runner.go`.
 3. Write `ant/skills/<name>/SKILL.md` with sharp frontmatter
    `description` (this is what `/dispatch` matches on), a "when to
    invoke" section, copy-pasteable invocations, and a missing-auth

@@ -13,13 +13,13 @@ New integrations are added via the extension points described in
   container runner, chanlib/chanreg, plus the `gated` daemon that wires
   them. The package graph below is core.
 - **Integrations** are pluggable: per-platform channel adapters
-  (`teled`, `whapd`, `mastd`, `discd`, `bskyd`, `reditd`, `emaid`,
+  (`teled`, `whapd`, `mastd`, `discd`, `slakd`, `bskyd`, `reditd`, `emaid`,
   `twitd`, `linkd`) talking to core over the channel protocol; optional
   capability hooks (Whisper transcription via `WHISPER_BASE_URL`, TTS
   via `ttsd` + `TTS_BASE_URL` (`specs/5/T-voice-synthesis.md`), oracle
   skill in `ant/skills/oracle/` driving the `codex` CLI
   (`specs/5/H-call-llm-mcp.md`), crackbox egress isolation
-  (`EGRESS_ISOLATION=true`), sandbox backend choice (Docker today, KVM
+  (`CRACKBOX_ADMIN_API set`), sandbox backend choice (Docker today, KVM
   via `crackbox/pkg/host/`)).
 
 A minimal deployment runs core plus one channel adapter; a maxed-out
@@ -62,14 +62,14 @@ db_utils/ SQL migration runner
 ## Integrations
 
 ```
-teled/ discd/ mastd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/
+teled/ discd/ slakd/ mastd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/
         channel adapters — separate processes, register with core via
         the HTTP channel protocol (see "Channel Protocol" below)
 
 sidecar/ whisper-cpp container; gateway calls Whisper for inbound
         voice when VOICE_TRANSCRIPTION_ENABLED=true
 crackbox/ egress-isolation proxy + KVM sandbox library; pulled in when
-        EGRESS_ISOLATION=true (see "Compose Containers" below).
+        CRACKBOX_ADMIN_API set (see "Compose Containers" below).
         Shippable separately; specs/9/b-orthogonal-components.md
 ```
 
@@ -113,23 +113,57 @@ and stores them through the standard `/v1/messages` API. When
 `processGroupMessages` encounters a `web:` JID it delegates to
 `processWebTopics`, which splits by topic and runs one agent per topic.
 
-**Path model**:
+**Path model** (overview; full prefix table + DB-backed `web_routes`
+fallthrough in `ROUTING.md` "HTTP Routing (proxyd)"):
 
-- `/pub/*`, `/health` — public
+- `/pub/*`, `/health`, `/slink/*`, `/invite/*`, `/p/*` — public
 - `/slink/*` — rate-limited (10 req/min/IP); token resolved against
   `groups.slink_token`; injects `X-Folder`, `X-Group-Name`, `X-Slink-Token`
 - `/dash/*` — auth-gated, proxied to dashd
-- `/dav/*` — auth-gated, proxied to dufs (strips `/dav` prefix)
-- `/*` — auth-gated
+- `/dav/*` — auth-gated, proxied to dufs via TOML route (bespoke
+  group-scoping + `davAllow` write-block; strips `/dav` prefix)
+- `/*` — DB-backed `web_routes` longest-prefix, else auth-gated to vited
 
 **Auth** in `requireAuth`: `Authorization: Bearer <jwt>` → `refresh_token`
-cookie → redirect to `/auth/login`. JWT claims include `groups` (null =
-operator, `[]` = none, list = specific folders) read from `user_groups` at
-login. `webd.requireFolder` checks `X-User-Groups` on folder-specific
+cookie → redirect to `/auth/login`. JWT claims include `groups` —
+a JSON array read from `user_groups` at login. Operator is represented
+by `["**"]` (glob matching all folders); see "Operator" below. `webd.requireFolder` checks `X-User-Groups` on folder-specific
 endpoints.
 
 WebDAV requires `DAV_ADDR`; the dufs container mounts `groups/` read-only.
 proxyd reads `web/vhosts.json` every 5s. Full protocol: `specs/4/18-web-vhosts.md`.
+
+### Route generation pipeline
+
+Routes are declared in two source-of-truth places and merged into the
+serialized table proxyd loads at startup:
+
+```
+template/services/<adapter>.toml [[proxyd_route]] ─┐
+                                                   ├─► compose.collectProxydRoutes
+compose.coreProxydRoutes (dashd/webd/davd/onbod) ──┘             │
+                                                                  ▼
+                                              PROXYD_ROUTES_JSON env on proxyd
+                                                                  │
+                                                                  ▼
+                                       proxyd.loadConfig parses → []Route
+                                                                  │
+                                                                  ▼
+                                  dispatchRoute longest-prefix match
+                                                                  │
+                                                                  ▼
+                                    DB-backed `web_routes` fallthrough
+                                                                  │
+                                                                  ▼
+                                          default: auth-gate to vited
+```
+
+Hand-wired in `proxyd/main.go` outside this table: `/auth/*`, `/health`,
+`/pub/*` (with optional `PUB_REDIRECT_URL`), `/slink/*` (rate limiter +
+token), `/dav/*` (`davAllow` + group-scope). All other routes flow
+through the TOML/core declaration → JSON env → dispatcher path. Adding
+an adapter means dropping a TOML with a `[[proxyd_route]]` block; no
+proxyd or compose.go edits.
 
 ## Auth Hardening
 
@@ -215,6 +249,11 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `onboarding_gates` | gate (PK), limit_per_day, enabled                                                        |
 | `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count      |
 | `secrets`          | scope_kind + scope_id + key (PK), enc_value (AES-GCM(AUTH_SECRET)), created_at           |
+| `identities`       | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9)            |
+| `identity_claims`  | sub (PK), identity_id, claimed_at — sender-sub → identity merge                          |
+| `turn_results`     | folder + turn_id (PK), session_id, status, recorded_at — per-turn submit_turn outcomes   |
+| `network_rules`    | folder + target (PK), created_at, created_by — crackbox egress allowlist                 |
+| `web_routes`       | path_prefix (PK), access (public/auth/deny/redirect), redirect_to, folder, created_at    |
 
 WAL mode, 5s busy timeout, migrations via `db_utils.Migrate` (`migrations`
 table keyed by service+version).
@@ -328,7 +367,7 @@ its sessions are scoped to users who hold at least one `user_groups` row.
 
 Bundled catalog at `template/services/` (ships in image, Ansible extracts to
 `/srv/app/arizuko/template/services/`): `teled.toml`, `whapd.toml`,
-`discd.toml`, `bskyd.toml`, `mastd.toml`, `reditd.toml`, `linkd.toml`.
+`discd.toml`, `slakd.toml`, `bskyd.toml`, `mastd.toml`, `reditd.toml`, `linkd.toml`.
 
 TOML format:
 
@@ -351,7 +390,7 @@ onbod auto-included when `ONBOARDING_ENABLED=true`. All daemons
 listen on :8080 inside containers.
 
 `crackbox` (sibling component, see `specs/9/b-orthogonal-components.md`)
-and an `agents` internal network are emitted when `EGRESS_ISOLATION=true`.
+and an `agents` internal network are emitted when `CRACKBOX_ADMIN_API` is set.
 The internal network has no default route to the internet; crackbox is
 the only container with both NICs (internal + default bridge). gated
 spawns agent containers on the `agents` network and registers their
@@ -446,12 +485,28 @@ per-chat quarantine.
 
 ## Prompt Assembly
 
-Every prompt begins with an `<autocalls>` block
-(`gateway/autocalls.go`) — zero-arg, one-line facts resolved at
-build time. Ships `now`, `instance`, `folder`, `tier`, `session`.
-Cheaper than an MCP tool when the schema cost exceeds the data
-returned; agent sees the value, pays no per-turn call. Empty eval
-output skips the line. See `EXTENDING.md` for adding one.
+Every inbound turn the gateway emits an envelope of small XML-shaped
+blocks, prepended (or attached) to the agent's prompt. They share
+three properties: **XML-shaped**, **never persisted to `messages`**,
+**per-turn scope only** (recomputed next turn). The blocks emitted
+today:
+
+- `<autocalls>` — zero-arg facts (`now`, `instance`, `folder`,
+  `tier`, `session`); `gateway/autocalls.go`
+- `<persona name=…>` — `PERSONA.md` frontmatter `summary:` re-anchor;
+  `gateway/persona.go`
+- `<previous_session/>` — last session id/timing on a fresh session;
+  `gateway/gateway.go`
+- `<knowledge layer=…>` — recent diary entries with age labels;
+  `diary/diary.go`
+- `<messages>` + `<reply-to>` + `<message>` — inbound batch;
+  `router/router.go`
+- `<attachment …/>` — inbound media path + optional `transcript=`;
+  `gateway/gateway.go`
+
+Full table with line cites and the convention for adding a block
+lives in `gateway/README.md` ("Per-turn ephemeral XML blocks"). See
+`EXTENDING.md` for the autocall extension point in particular.
 
 ## MCP Surface
 
