@@ -22,6 +22,7 @@ import (
 	"github.com/kronael/arizuko/crackbox/pkg/admin"
 	"github.com/kronael/arizuko/crackbox/pkg/client"
 	"github.com/kronael/arizuko/crackbox/pkg/config"
+	"github.com/kronael/arizuko/crackbox/pkg/dns"
 	"github.com/kronael/arizuko/crackbox/pkg/proxy"
 	"github.com/kronael/arizuko/crackbox/pkg/run"
 )
@@ -51,7 +52,7 @@ func usage() {
 	fmt.Fprint(os.Stderr, `crackbox — forward-proxy daemon with per-source allowlist
 
 usage:
-  crackbox proxy serve [--config <path>] [--listen :3128] [--admin :3129] [--transparent :3127]
+  crackbox proxy serve [--config <path>] [--listen :3128] [--admin :3129] [--transparent :3127] [--dns-listen :53] [--dns-upstream 1.1.1.1:53]
   crackbox run --allow <list> [--id <name>] [--image <img>] -- <cmd>...
   crackbox state [--admin <url>]
 `)
@@ -80,6 +81,8 @@ func cmdProxy(args []string) {
 	listen := fs.String("listen", "", "proxy listen addr (overrides config + env)")
 	adminAddr := fs.String("admin", "", "admin api listen addr")
 	transparent := fs.String("transparent", "", "transparent-mode listen addr (\"\" = disable)")
+	dnsListen := fs.String("dns-listen", "", "DNS server UDP listen addr (\"\" = disable)")
+	dnsUpstream := fs.String("dns-upstream", "", "DNS upstream resolver host:port")
 	fs.Parse(args[1:])
 
 	flagSet := map[string]bool{}
@@ -101,6 +104,8 @@ func cmdProxy(args []string) {
 	proxyAddr := resolveAddr(*listen, flagSet["listen"], "CRACKBOX_PROXY_ADDR", cfg.Proxy.Listen)
 	adminListen := resolveAddr(*adminAddr, flagSet["admin"], "CRACKBOX_ADMIN_ADDR", cfg.Proxy.AdminListen)
 	transparentAddr := resolveAddr(*transparent, flagSet["transparent"], "CRACKBOX_TRANSPARENT_ADDR", cfg.Proxy.TransparentListen)
+	dnsAddr := resolveAddr(*dnsListen, flagSet["dns-listen"], "CRACKBOX_DNS_ADDR", cfg.Proxy.DNSListen)
+	dnsUp := resolveAddr(*dnsUpstream, flagSet["dns-upstream"], "CRACKBOX_DNS_UPSTREAM", cfg.Proxy.DNSUpstream)
 
 	statePath := envOr("CRACKBOX_STATE_PATH", cfg.State.Path)
 	var reg *admin.Registry
@@ -134,7 +139,11 @@ func cmdProxy(args []string) {
 	if transparentLog == "" {
 		transparentLog = "disabled"
 	}
-	slog.Info("crackbox up", "proxy", proxyAddr, "admin", adminListen, "transparent", transparentLog)
+	dnsLog := dnsAddr
+	if dnsLog == "" {
+		dnsLog = "disabled"
+	}
+	slog.Info("crackbox up", "proxy", proxyAddr, "admin", adminListen, "transparent", transparentLog, "dns", dnsLog)
 
 	go func() {
 		if err := proxySrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -148,6 +157,22 @@ func cmdProxy(args []string) {
 			os.Exit(1)
 		}
 	}()
+
+	var dnsSrv *dns.Server
+	if dnsAddr != "" {
+		ds, err := dns.New(reg, dnsUp)
+		if err != nil {
+			slog.Error("dns config", "upstream", dnsUp, "err", err)
+			os.Exit(1)
+		}
+		dnsSrv = ds
+		go func() {
+			if err := dnsSrv.Serve(dnsAddr); err != nil {
+				slog.Error("dns serve", "err", err)
+				os.Exit(1)
+			}
+		}()
+	}
 
 	var transparentLis net.Listener
 	if transparentAddr != "" {
@@ -175,6 +200,9 @@ func cmdProxy(args []string) {
 	apiSrv.Shutdown(ctx)
 	if transparentLis != nil {
 		transparentLis.Close()
+	}
+	if dnsSrv != nil {
+		_ = dnsSrv.Close()
 	}
 }
 

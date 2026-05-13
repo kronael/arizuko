@@ -121,6 +121,8 @@ crackbox/
 | `CRACKBOX_PROXY_ADDR`       | `:3128`                 | `proxy serve` listen                                           |
 | `CRACKBOX_ADMIN_ADDR`       | `:3129`                 | `proxy serve` admin                                            |
 | `CRACKBOX_TRANSPARENT_ADDR` | `:3127`                 | `proxy serve` transparent listener; empty = disabled           |
+| `CRACKBOX_DNS_ADDR`         | `:53`                   | `proxy serve` UDP DNS listener (spec 9/15); empty = disabled   |
+| `CRACKBOX_DNS_UPSTREAM`     | `1.1.1.1:53`            | upstream resolver for allowed queries                          |
 | `CRACKBOX_ADMIN_SECRET`     | (unset)                 | bearer token for `/v1/register`+`/v1/unregister`; empty = open |
 | `CRACKBOX_STATE_PATH`       | (unset)                 | persist registry to JSON file; empty = RAM-only                |
 | `CRACKBOX_IMAGE`            | `crackbox:latest`       | `run` proxy image                                              |

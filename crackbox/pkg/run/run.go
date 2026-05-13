@@ -100,6 +100,7 @@ func Run(a Args) (int, error) {
 	logf(a, "creating user container %s @ %s", userName, userIP)
 	createArgs := []string{"create",
 		"--name", userName, "--network", netName, "--ip", userIP,
+		"--dns", proxyIP,
 		"-i",
 		"-e", fmt.Sprintf("HTTP_PROXY=http://%s:3128", proxyIP),
 		"-e", fmt.Sprintf("HTTPS_PROXY=http://%s:3128", proxyIP),

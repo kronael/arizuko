@@ -27,6 +27,8 @@ const (
 	DefaultProxyListen       = ":3128"
 	DefaultAdminListen       = ":3129"
 	DefaultTransparentListen = ":3127"
+	DefaultDNSListen         = ":53"
+	DefaultDNSUpstream       = "1.1.1.1:53"
 )
 
 // Config is the parsed-and-defaulted shape. Empty TransparentListen
@@ -43,6 +45,8 @@ type ProxySection struct {
 	Listen            string `toml:"listen"`
 	AdminListen       string `toml:"admin_listen"`
 	TransparentListen string `toml:"transparent_listen"`
+	DNSListen         string `toml:"dns_listen"`
+	DNSUpstream       string `toml:"dns_upstream"`
 }
 
 type AdminSection struct {
@@ -61,6 +65,8 @@ func Defaults() Config {
 			Listen:            DefaultProxyListen,
 			AdminListen:       DefaultAdminListen,
 			TransparentListen: DefaultTransparentListen,
+			DNSListen:         DefaultDNSListen,
+			DNSUpstream:       DefaultDNSUpstream,
 		},
 	}
 }
@@ -148,6 +154,12 @@ func mergeWithMeta(dst *Config, raw Config, md toml.MetaData) {
 	if md.IsDefined("proxy", "transparent_listen") {
 		dst.Proxy.TransparentListen = raw.Proxy.TransparentListen
 	}
+	if md.IsDefined("proxy", "dns_listen") {
+		dst.Proxy.DNSListen = raw.Proxy.DNSListen
+	}
+	if md.IsDefined("proxy", "dns_upstream") {
+		dst.Proxy.DNSUpstream = raw.Proxy.DNSUpstream
+	}
 	if md.IsDefined("admin", "secret") {
 		dst.Admin.Secret = raw.Admin.Secret
 	}
@@ -165,6 +177,17 @@ func validate(c Config) error {
 	}
 	if c.Proxy.TransparentListen != "" {
 		if err := checkAddr("proxy.transparent_listen", c.Proxy.TransparentListen); err != nil {
+			return err
+		}
+	}
+	if c.Proxy.DNSListen != "" {
+		if err := checkAddr("proxy.dns_listen", c.Proxy.DNSListen); err != nil {
+			return err
+		}
+		if c.Proxy.DNSUpstream == "" {
+			return fmt.Errorf("proxy.dns_upstream: empty (required when dns_listen is set)")
+		}
+		if err := checkAddr("proxy.dns_upstream", c.Proxy.DNSUpstream); err != nil {
 			return err
 		}
 	}
