@@ -36,7 +36,7 @@ func TestSlinkPost_JSONBody(t *testing.T) {
 	}
 }
 
-// POST without Accept=text/event-stream returns an HTML bubble fragment.
+// POST with Accept: text/html returns the legacy HTMX bubble fragment.
 func TestSlinkPost_HTMLBubble(t *testing.T) {
 	s, mr, st := newTestServer(t)
 	g := seedGroup(t, st, "main", "Main")
@@ -44,6 +44,7 @@ func TestSlinkPost_HTMLBubble(t *testing.T) {
 	req := httptest.NewRequest("POST", "/slink/"+g.SlinkToken,
 		strings.NewReader("content=hello&topic=t1"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
 	req.SetPathValue("token", g.SlinkToken)
 	w := httptest.NewRecorder()
 
@@ -57,6 +58,59 @@ func TestSlinkPost_HTMLBubble(t *testing.T) {
 	}
 	if got := mr.sent(); len(got) != 1 || got[0].Content != "hello" {
 		t.Errorf("router did not receive message: %+v", got)
+	}
+}
+
+// POST with no Accept header defaults to JSON (Z-slink-widget.md §JSON-default).
+func TestSlinkPost_DefaultIsJSON(t *testing.T) {
+	s, _, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	req := httptest.NewRequest("POST", "/slink/"+g.SlinkToken,
+		strings.NewReader("content=default&topic=t-default"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("token", g.SlinkToken)
+	w := httptest.NewRecorder()
+
+	s.handleSlinkPost(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Result().Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("default Content-Type should be JSON, got %q", ct)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("default response must be JSON: %v — body=%s", err, w.Body.String())
+	}
+	if _, ok := got["turn_id"]; !ok {
+		t.Errorf("missing turn_id in default JSON response: %+v", got)
+	}
+}
+
+// POST with Accept: text/html opts into the legacy HTMX fragment.
+func TestSlinkPost_AcceptHTMLFragment(t *testing.T) {
+	s, _, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	req := httptest.NewRequest("POST", "/slink/"+g.SlinkToken,
+		strings.NewReader("content=frag&topic=t-frag"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	req.SetPathValue("token", g.SlinkToken)
+	w := httptest.NewRecorder()
+
+	s.handleSlinkPost(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Result().Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Accept: text/html should yield HTML, got Content-Type=%q", ct)
+	}
+	if !strings.Contains(w.Body.String(), `class="msg user"`) {
+		t.Errorf("body missing user bubble: %q", w.Body.String())
 	}
 }
 
@@ -327,15 +381,45 @@ func TestSlinkPost_JSON_WaitTimesOut(t *testing.T) {
 	}
 }
 
-// GET /slink/<token> renders the chat page.
-func TestSlinkPage(t *testing.T) {
+// GET /slink/<token> 301-redirects to /slink/<token>/chat.
+func TestSlinkGet_RootRedirects(t *testing.T) {
 	s, _, st := newTestServer(t)
 	g := seedGroup(t, st, "main", "Main")
 
 	req := httptest.NewRequest("GET", "/slink/"+g.SlinkToken, nil)
 	req.SetPathValue("token", g.SlinkToken)
 	w := httptest.NewRecorder()
-	s.handleSlinkPage(w, req)
+	s.handleSlinkRoot(w, req)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Fatalf("status = %d, want 301", w.Code)
+	}
+	if loc := w.Result().Header.Get("Location"); loc != "/slink/"+g.SlinkToken+"/chat" {
+		t.Errorf("Location = %q, want /slink/<token>/chat", loc)
+	}
+}
+
+// GET /slink/<bad-token> → 404 even on the redirecting root route.
+func TestSlinkGet_RootBadToken(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/slink/nope", nil)
+	req.SetPathValue("token", "nope")
+	w := httptest.NewRecorder()
+	s.handleSlinkRoot(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d", w.Code)
+	}
+}
+
+// GET /slink/<token>/chat serves the minimal built-in chat page.
+func TestSlinkChat_ServesPage(t *testing.T) {
+	s, _, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	req := httptest.NewRequest("GET", "/slink/"+g.SlinkToken+"/chat", nil)
+	req.SetPathValue("token", g.SlinkToken)
+	w := httptest.NewRecorder()
+	s.handleSlinkChat(w, req)
 
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
@@ -350,17 +434,116 @@ func TestSlinkPage(t *testing.T) {
 	if !strings.Contains(body, "ant link") {
 		t.Error("page missing ant link label")
 	}
+	// The inline JS must send Accept: text/html so the POST default (JSON)
+	// doesn't break the built-in chat page.
+	if !strings.Contains(body, `'Accept':'text/html'`) {
+		t.Error("chat page inline JS missing Accept: text/html on its HTMX POST")
+	}
 }
 
-// GET /slink/<bad-token> → 404.
-func TestSlinkPage_BadToken(t *testing.T) {
-	s, _, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/slink/nope", nil)
-	req.SetPathValue("token", "nope")
+// GET /slink/<token>/config returns the JSON bootstrap envelope.
+func TestSlinkConfig_ReturnsBootstrap(t *testing.T) {
+	s, _, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	req := httptest.NewRequest("GET", "/slink/"+g.SlinkToken+"/config", nil)
+	req.SetPathValue("token", g.SlinkToken)
 	w := httptest.NewRecorder()
-	s.handleSlinkPage(w, req)
+	s.handleSlinkConfig(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["token"] != g.SlinkToken {
+		t.Errorf("token = %v, want %s", got["token"], g.SlinkToken)
+	}
+	if got["folder"] != g.Folder {
+		t.Errorf("folder = %v, want %s", got["folder"], g.Folder)
+	}
+	if got["name"] != g.Name {
+		t.Errorf("name = %v, want %s", got["name"], g.Name)
+	}
+	ep, ok := got["endpoints"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing endpoints: %+v", got)
+	}
+	if ep["post"] != "/slink/"+g.SlinkToken {
+		t.Errorf("endpoints.post = %v", ep["post"])
+	}
+	if _, ok := ep["stream"]; !ok {
+		t.Errorf("endpoints.stream missing")
+	}
+	if _, ok := ep["status"]; !ok {
+		t.Errorf("endpoints.status missing")
+	}
+	if got["sdk"] != "/assets/arizuko-client.js" {
+		t.Errorf("sdk = %v, want /assets/arizuko-client.js", got["sdk"])
+	}
+}
+
+// GET /slink/badtoken/config → 404.
+func TestSlinkConfig_BadToken(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/slink/badtoken/config", nil)
+	req.SetPathValue("token", "badtoken")
+	w := httptest.NewRecorder()
+	s.handleSlinkConfig(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d", w.Code)
+	}
+}
+
+// OPTIONS /slink/<token> preflight returns 204 with CORS headers.
+func TestSlinkCORS_PreflightOptions(t *testing.T) {
+	s, _, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("OPTIONS", srv.URL+"/slink/"+g.SlinkToken, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("ACAO = %q, want *", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Methods"); !strings.Contains(got, "POST") {
+		t.Errorf("ACAM = %q, want includes POST", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Content-Type") {
+		t.Errorf("ACAH = %q, want includes Content-Type", got)
+	}
+}
+
+// Every /slink/* response — here the config GET — has Access-Control-Allow-Origin.
+func TestSlinkCORS_GETHasOrigin(t *testing.T) {
+	s, _, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/slink/" + g.SlinkToken + "/config")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("ACAO = %q, want *", got)
 	}
 }
 

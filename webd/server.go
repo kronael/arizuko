@@ -52,15 +52,23 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /v1/round_done", chanlib.Auth(s.cfg.channelSecret, s.handleRoundDone))
 	mux.HandleFunc("GET /health", s.handleHealth)
 
-	// slink: token-gated, see specs/1/W-slink.md
-	mux.HandleFunc("GET /slink/{token}", s.handleSlinkPage)
-	mux.HandleFunc("POST /slink/{token}", s.handleSlinkPost)
-	mux.HandleFunc("POST /slink/{token}/mcp", s.handleSlinkMCP)
-	mux.HandleFunc("GET /slink/stream", s.handleSlinkStream)
-	mux.HandleFunc("POST /slink/{token}/{id}", s.handleSlinkPost) // steer
-	mux.HandleFunc("GET /slink/{token}/{id}", s.handleTurnSnapshot)
-	mux.HandleFunc("GET /slink/{token}/{id}/status", s.handleTurnStatus)
-	mux.HandleFunc("GET /slink/{token}/{id}/sse", s.handleTurnSSE)
+	// slink: token-gated, see specs/1/W-slink.md and specs/1/Z-slink-widget.md.
+	// All /slink/* routes get CORS headers via slinkCORS (token is public credential).
+	slink := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, slinkCORS(h))
+	}
+	slink("GET /slink/{token}", s.handleSlinkRoot)
+	slink("GET /slink/{token}/chat", s.handleSlinkChat)
+	slink("GET /slink/{token}/config", s.handleSlinkConfig)
+	slink("POST /slink/{token}", s.handleSlinkPost)
+	slink("POST /slink/{token}/mcp", s.handleSlinkMCP)
+	slink("GET /slink/stream", s.handleSlinkStream)
+	slink("POST /slink/{token}/{id}", s.handleSlinkPost) // steer
+	slink("GET /slink/{token}/{id}", s.handleTurnSnapshot)
+	slink("GET /slink/{token}/{id}/status", s.handleTurnStatus)
+	slink("GET /slink/{token}/{id}/sse", s.handleTurnSSE)
+	// Preflight: cover every /slink/* path with one pattern.
+	mux.Handle("OPTIONS /slink/", slinkCORS(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})))
 
 	// MCP: single per-instance, user-grant-gated
 	mux.HandleFunc("POST /mcp", s.requireUser(s.handleMCP))

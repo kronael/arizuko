@@ -31,8 +31,19 @@ func anonSender(r *http.Request) string {
 	return fmt.Sprintf("anon:%x", sum[:4])
 }
 
-// GET /slink/<token>
-func (s *server) handleSlinkPage(w http.ResponseWriter, r *http.Request) {
+// GET /slink/<token> → 301 to /slink/<token>/chat. The root URL is reserved
+// for future use; the chat page lives at /chat.
+func (s *server) handleSlinkRoot(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	if _, ok := s.st.GroupBySlinkToken(token); !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	http.Redirect(w, r, "/slink/"+token+"/chat", http.StatusMovedPermanently)
+}
+
+// GET /slink/<token>/chat — built-in minimal chat page.
+func (s *server) handleSlinkChat(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	g, ok := s.st.GroupBySlinkToken(token)
 	if !ok {
@@ -41,6 +52,26 @@ func (s *server) handleSlinkPage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, slinkPageHTML, htmlEscape(g.Name), htmlEscape(g.Name), htmlEscape(g.Folder), htmlEscape(token))
+}
+
+// GET /slink/<token>/config — JSON bootstrap, no auth (token is the credential).
+func (s *server) handleSlinkConfig(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	g, ok := s.st.GroupBySlinkToken(token)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	chanlib.WriteJSON(w, map[string]any{
+		"token":  token,
+		"folder": g.Folder,
+		"name":   g.Name,
+		"endpoints": map[string]string{
+			"post":   "/slink/" + token,
+			"stream": "/slink/" + token + "/{turn_id}/sse",
+			"status": "/slink/" + token + "/{turn_id}/status",
+		},
+	})
 }
 
 const slinkPageHTML = `<!DOCTYPE html><html><head>
@@ -125,7 +156,7 @@ async function send(e){
   try{
     var resp=await fetch('/slink/'+token,{
       method:'POST',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      headers:{'Content-Type':'application/x-www-form-urlencoded','Accept':'text/html'},
       body:'content='+encodeURIComponent(content)+'&topic='+encodeURIComponent(topic)
     });
     if(!resp.ok){addMsg('assistant','Error: '+resp.statusText);return}
@@ -140,8 +171,8 @@ async function send(e){
 </body></html>`
 
 // POST /slink/<token>   body: content=Hello&topic=abc123
-// Accept: text/event-stream → SSE; application/json → JSON {user,[assistant]};
-// default → HTMX <div class="msg user"> bubble.
+// Accept: text/event-stream → SSE; text/html → HTMX <div class="msg user"> bubble
+// (legacy, used by the built-in chat page); anything else → JSON {user,turn_id,...}.
 func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	g, ok := s.st.GroupBySlinkToken(token)
@@ -217,7 +248,8 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 
 	accept := r.Header.Get("Accept")
 	wantSSE := strings.Contains(accept, "text/event-stream")
-	wantJSON := strings.Contains(accept, "application/json")
+	wantHTML := strings.Contains(accept, "text/html")
+	wantJSON := !wantSSE && !wantHTML
 	wait := 0
 	if wantJSON {
 		if n, err := strconv.Atoi(r.URL.Query().Get("wait")); err == nil {
@@ -248,7 +280,11 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case wantSSE:
 		serveSSE(w, r, ch)
-	case wantJSON:
+	case wantHTML:
+		w.Header().Set("Content-Type", "text/html")
+		escaped := strings.ReplaceAll(htmlEscape(content), "\n", "<br>")
+		fmt.Fprintf(w, `<div class="msg user" id="msg-%s">%s</div>`, m.ID, escaped)
+	default:
 		resp := map[string]any{
 			"user":    userPayload,
 			"turn_id": m.ID,
@@ -265,10 +301,6 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 			cancel()
 		}
 		chanlib.WriteJSON(w, resp)
-	default:
-		w.Header().Set("Content-Type", "text/html")
-		escaped := strings.ReplaceAll(htmlEscape(content), "\n", "<br>")
-		fmt.Fprintf(w, `<div class="msg user" id="msg-%s">%s</div>`, m.ID, escaped)
 	}
 }
 
@@ -397,6 +429,23 @@ func (s *server) injectSlink(g core.Group, content, topic, sender, senderName, t
 	payloadJSON, _ := json.Marshal(payload)
 	s.hub.publish(g.Folder, topic, "message", string(payloadJSON))
 	return m, payload, nil
+}
+
+// slinkCORS sets permissive CORS on every /slink/* response and short-circuits
+// preflight OPTIONS with 204. The slink token is already public; CORS adds no
+// new trust surface (see specs/1/Z-slink-widget.md §CORS).
+func slinkCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		h.Set("Access-Control-Allow-Headers", "Accept, Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 var htmlReplacer = strings.NewReplacer(
