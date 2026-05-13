@@ -14,6 +14,18 @@ arg: <store> <level>
 
 Progressive compression: each level built from the level below.
 
+## Shape vs. per-turn context reducers
+
+This is arizuko's long-horizon **context reducer** — the same problem
+other agent systems (e.g. muaddib's `src/rooms/command/context-reducer.ts`)
+solve with a cheap-model condenser that runs *automatically per-turn*
+on the running history. arizuko inverts the cadence: compaction is
+**cron-driven, day/week/month**, writes to `episodes/` and `diary/`
+files, and is reloaded via the diary block + `/recall-memories`. The
+in-session window stays raw and is bounded instead by impulse-gate
+batching plus Claude Code's own compaction. Two different points on
+the same axis; same problem, different mechanism.
+
 ## Stores
 
 ### Episodes (session transcripts → summaries)

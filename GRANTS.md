@@ -151,7 +151,9 @@ From `grants/grants.go`:
 
 `platformActions = {send, send_file, reply, forward, post, quote,
 repost, like, dislike, delete, edit}` — for each platform appearing in
-the world's routes, every action is added as `<action>(jid=<platform>:*)`.
+the routes scoped to the caller's tier (tier 1: the world's routes;
+tier 2: the folder subtree only — see `RouteSourceJIDsInWorld` calls
+above), every action is added as `<action>(jid=<platform>:*)`.
 
 `tier1FixedActions = {schedule_task, register_group, escalate_group,
 delegate_group, get_routes, set_routes, add_route, delete_route,
@@ -212,6 +214,37 @@ routed to folder `atlas/support`:
    enforces subtree containment: the targeted JID's owning folder
    (resolved via `store.DefaultFolderForJID`) must equal `id.Folder`
    or be a descendant of it.
+
+## Grants as the tool pre-filter
+
+Other agent systems narrow the advertised tool set with a **tool
+pre-filter**: a cheap-model classifier picks ≤K relevant tools per
+turn before the main model sees the list (e.g. AnythingLLM's
+"Intelligent Skill Selection"; muaddib's per-mode reducer plays a
+similar token-budget role for context). arizuko reaches the same
+intent — don't waste model context on tools the caller can't use —
+via grants, at a different evaluation point:
+
+- **When**: spawn-time, once per container run, not per-turn.
+  `gateway.runAgentWithOpts` composes the rule list from
+  `grants.DeriveRules` (tier defaults + routed-platform rules) plus the
+  `grant_rules` overlay (`store.GetGrants`); `user_groups` containment
+  is enforced separately at call time via `auth.Authorize`.
+- **What**: the rule list is the filter. At MCP registration
+  (`ipc/ipc.go` `buildMCPServer`) a tool with no matching rule is
+  dropped from `tools/list` entirely; a tool with any matching rule
+  (including param-scoped) stays visible, and `grants.CheckAction`
+  rejects out-of-scope invocations at call time.
+- **Why static**: tier + ACL + route presence already answer "what
+  could this folder ever call." A per-turn classifier would re-decide
+  the same question every turn against the same inputs — pure overhead.
+
+The shape difference is the trade: static pre-filtering misses
+"this turn doesn't need bluesky tools even though the folder has
+them"; dynamic pre-filtering pays a classifier round-trip and risks
+hiding a tool the agent actually wanted. arizuko's bet is that an
+agent's effective tool set is a property of the folder, not the
+sentence.
 
 ## Key invariants
 

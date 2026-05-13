@@ -20,6 +20,36 @@ zero-arg facts to one prompt line each. Autocalls returning empty
 strings are skipped. See `specs/5/31-autocalls.md` and EXTENDING for
 adding one.
 
+## Per-turn ephemeral XML blocks
+
+Every inbound turn the gateway builds an envelope of small XML-shaped
+blocks prepended (or attached) to the agent's prompt. They share three
+properties: **XML-shaped**, **never persisted to `messages`**,
+**per-turn scope only** (recomputed from scratch next turn). Other
+systems (e.g. muaddib's `<meta>...</meta>`) unify these under one tag;
+arizuko keeps them as distinct named tags so the agent can pattern-match
+on intent.
+
+| Block                                     | Source                         | Carries                                                          |
+| ----------------------------------------- | ------------------------------ | ---------------------------------------------------------------- |
+| `<autocalls>`                             | `gateway/autocalls.go:53`      | zero-arg facts: `now`, `instance`, `folder`, `tier`, `session`   |
+| `<persona name=…>`                        | `gateway/persona.go:55`        | `PERSONA.md` frontmatter `summary:` re-anchor                    |
+| `<previous_session/>`                     | `gateway/gateway.go:1799`      | last session id/timing on a fresh session                        |
+| `<knowledge layer=…>`                     | `diary/diary.go:36`            | recent diary entries with age labels (today/yesterday/N ago)     |
+| `<messages>` + `<reply-to>` + `<message>` | `router/router.go:63`/`80`     | inbound batch; `<reply-to>` sibling header above the `<message>` |
+| `<attachment …/>`                         | `gateway/gateway.go:1350,1353` | inbound media path + optional `transcript=`                      |
+
+Coming per specs (same convention, not yet wired):
+
+- `<proactive_reason validator=… score=…>` — `specs/5/33-proactive-interjection.md:78`
+- `<budget_notice level=…>` — `specs/5/34-cost-caps.md:77`
+
+When adding a new block, mirror the convention: new tag name (not
+`<meta>`), ephemeral, write the rendering in exactly one place. The
+"one renderer, many sinks" rule applies — the second site that emits
+the same tag will drift silently. Spec docs introducing new tags
+should cross-reference this table.
+
 ## Mute mode
 
 Outbound directed at a group in `SEND_DISABLED_CHANNELS` (or its

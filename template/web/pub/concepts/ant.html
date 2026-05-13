@@ -48,9 +48,18 @@ ant &lt;folder&gt; --sandbox=none|dockbox|crackbox</code></pre>
       <li><strong>Persona that survives restarts.</strong> <code>SOUL.md</code> is read every turn &mdash; identity is in the folder, not in a session.</li>
       <li><strong>Curated skills.</strong> <code>skills/SKILL.md</code> entries pick the tools the agent gets. No plugin system; what&rsquo;s in the folder at spawn time is what runs.</li>
       <li><strong>Folder-scoped secrets.</strong> Per-agent credentials in <code>secrets/</code> instead of one big env-soup shared across every agent on the host.</li>
-      <li><strong>Persistent diary and memory.</strong> Files written to <code>diary/</code> and <code>facts/</code> stay across runs. Restart, fork, copy &mdash; the agent remembers because the folder remembers.</li>
+      <li><strong>Persistent diary and memory.</strong> Files written to <code>diary/</code> and <code>facts/</code> (resolved to <code>~/diary/</code> and <code>~/facts/</code> inside the container; see <code>ant/CLAUDE.md</code> Storage table) stay across runs. Restart, fork, copy &mdash; the agent remembers because the folder remembers.</li>
       <li><strong>Optional sandbox.</strong> <code>--sandbox=dockbox</code> for Docker isolation; <code>--sandbox=crackbox</code> (when <a href="/pub/crackbox/">crackbox</a> ships its host backend) for tighter egress control.</li>
     </ul>
+
+    <h2>memory: compaction on a different cadence</h2>
+    <p>Most chat-agent systems run a <strong>context reducer</strong> &mdash; a cheap-model summariser that condenses the running message history before each turn (e.g. muaddib&rsquo;s <code>src/rooms/command/context-reducer.ts</code>). arizuko inverts the cadence. In-session context stays raw; impulse-gate batching plus Claude Code&rsquo;s own compaction bound it. Compression is a separate, longer-horizon job:</p>
+    <ul>
+      <li><strong>Cron-driven, day/week/month</strong> &mdash; the <code>/compact-memories</code> skill rolls JSONL session transcripts into <code>episodes/YYYYMMDD.md</code>, then weekly, then monthly. Diary entries are folded the same way.</li>
+      <li><strong>Agent-invoked on demand</strong> &mdash; <code>/distill</code> compresses one specific input on request, writing durable content (skill, fact, episode) rather than an ephemeral prompt block.</li>
+      <li><strong>Recall, not re-summarise</strong> &mdash; <code>/recall-memories</code> pulls relevant slices back when needed; the prompt prepends a small <code>&lt;knowledge layer=&quot;diary&quot;&gt;</code> block at every turn.</li>
+    </ul>
+    <p>Same problem &mdash; token budget vs. fidelity &mdash; at a different point on the axis. No silent per-turn condenser; compaction is durable and inspectable on disk.</p>
 
     <h2>arizuko vs standalone ant</h2>
     <p><strong>Today:</strong> every arizuko group is an ant folder. Each <code>groups/&lt;folder&gt;/</code> already has the shape above &mdash; <code>SOUL.md</code>, <code>CLAUDE.md</code>, <code>skills/</code>, <code>diary/</code>, <code>secrets/</code>. <code>arizuko chat &lt;instance&gt; [group]</code> drops you into one. <code>gated</code> spawns containers from the same folders for inbound messages.</p>
