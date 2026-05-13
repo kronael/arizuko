@@ -52,12 +52,30 @@ should cross-reference this table.
 
 ## Mute mode
 
-Outbound directed at a group in `SEND_DISABLED_CHANNELS` (or its
-`SEND_DISABLED_GROUPS` companion) is recorded to the messages table as
-if delivered, but `channel.Send` is never called. Used for dry-run /
+Outbound directed at a muted target is recorded to the `messages` table
+as if delivered, but `channel.Send` is never called. Used for dry-run /
 shadow-routing setups where the agent should keep producing turns
-without spamming the platform. Tests assert the invariant
-(`gateway_test.go::TestMakeOutputCallback_MutedGroup`).
+without spamming the platform. The agent is **not told** it was muted —
+`hadOutput` flips, `submit_turn` returns success, and the row lands with
+`BotMsg=1, FromMe=1, Status=sent, RoutedTo=<chat_jid>`. Inbound flows
+through untouched; mute is outbound-only.
+
+Two env vars (CSV, case-insensitive), wired in `core/config.go:140-141`,
+enforced in `gateway/gateway.go:821` (`canSendToGroup`) and
+`gateway/gateway.go:1141` (`canSendToJID`):
+
+- `SEND_DISABLED_GROUPS` — folder names. Matches the group folder of
+  the outbound row, regardless of which platform it would have hit.
+  Example: `SEND_DISABLED_GROUPS=atlas,research`.
+- `SEND_DISABLED_CHANNELS` — JID platform prefixes (the part before
+  `:`). Mutes outbound for the entire platform across all groups.
+  Example: `SEND_DISABLED_CHANNELS=discord,telegram`.
+
+Mute is all-or-nothing per group (no per-thread, per-topic, per-verb
+carve-out). Inspect the recorded outbound via `/dash/activity/` (rows
+where `sender` is the folder name) or the `inspect_messages` MCP tool.
+Tests assert the invariant: `gateway_test.go:1052+`
+(`TestMakeOutputCallback_MutedGroup`).
 
 ## Impulse gate
 

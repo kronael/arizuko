@@ -50,6 +50,36 @@
       <li><a href="/pub/howto/webdav.html">mount the workspace over WebDAV</a> &mdash; rclone / Finder / curl, path structure, write-block guard</li>
     </ul>
 
+    <h2 id="audit-mode">audit mode (mute outbound)</h2>
+    <p>Two instance-wide env vars on the gateway let you run a group or a whole platform in <em>shadow</em> mode: the agent keeps producing turns, every outbound is persisted to the <code>messages</code> table, but nothing is forwarded to the channel adapter. Useful for dry-running a new persona, a routing change, or a fresh group before unmuting.</p>
+    <dl>
+      <dt><code>SEND_DISABLED_GROUPS</code></dt>
+      <dd>CSV of folder names. Outbound from any matching group is recorded but not sent. Example: <code>SEND_DISABLED_GROUPS=atlas,research</code>.</dd>
+      <dt><code>SEND_DISABLED_CHANNELS</code></dt>
+      <dd>CSV of platform prefixes (the part before <code>:</code> in a JID). Mutes outbound for an entire platform across all groups. Example: <code>SEND_DISABLED_CHANNELS=discord</code>.</dd>
+    </dl>
+    <p>Behaviour:</p>
+    <ul>
+      <li>Outbound rows land in <code>messages</code> with <code>bot_msg=1</code>, <code>from_me=1</code>, <code>status=sent</code>, <code>routed_to=&lt;chat_jid&gt;</code>. The agent sees <code>send_reply</code> / <code>send_message</code> return success &mdash; it does <strong>not</strong> know it was muted.</li>
+      <li>Inbound is unaffected; mute is outbound-only.</li>
+      <li>Mute is all-or-nothing per group. There is no per-thread, per-topic, or per-verb carve-out.</li>
+      <li>Audit log: rows are visible at <code>/dash/activity/</code> (sender is the folder name) and via the <code>inspect_messages</code> MCP tool. A dedicated per-folder audit view is not shipped today.</li>
+    </ul>
+    <p>Recipe &mdash; deploy a new Discord group in shadow mode:</p>
+    <pre><code># 1. enable the Discord adapter (DISCORD_TOKEN etc.) so messages flow inbound
+# 2. add the mute knob to the instance .env
+echo 'SEND_DISABLED_GROUPS=atlas' &gt;&gt; /srv/data/arizuko_&lt;name&gt;/.env
+
+# 3. restart the instance so gateway picks up the new env
+sudo systemctl restart arizuko_&lt;name&gt;
+
+# 4. send a test message; confirm a row lands in messages without
+#    anything appearing in the Discord channel
+sqlite3 /srv/data/arizuko_&lt;name&gt;/store/messages.db \
+  "SELECT id, sender, routed_to, status FROM messages \
+   WHERE bot_msg=1 ORDER BY timestamp DESC LIMIT 5;"</code></pre>
+    <p>Source &mdash; gateway enforcement: <code>gateway/gateway.go:821</code> (group mute), <code>gateway/gateway.go:1141</code> (platform mute). Config parsing: <code>core/config.go:140</code>. Test that locks the behaviour: <code>gateway/gateway_test.go:1052</code> (<code>TestMakeOutputCallback_MutedGroup</code>).</p>
+
     <h2>more</h2>
     <p><a href="/pub/concepts/">concepts</a> &mdash; how arizuko thinks, primitive by primitive.</p>
   </div>
