@@ -170,7 +170,10 @@ shipped today; the host library is planned (next phase).
 
 [`specs/9/10-crackbox-arizuko.md`](10-crackbox-arizuko.md)
 covers the today-and-tomorrow consumer pattern and the planned
-[`sandd`](c-sandd.md) extraction.
+[`sandd`](c-sandd.md) extraction. KVM lands as one backend behind
+the `ContainerRuntime` seam — see
+[`specs/6/R-genericization.md`](../6/R-genericization.md) §
+_ContainerRuntime — pluggable sandbox backends_.
 
 ### messaging-gateway (future, extracted from gated)
 

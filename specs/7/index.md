@@ -58,7 +58,8 @@ Developer capabilities are embedded in each product that needs them
 
 Specced in this directory but no template folder shipped yet:
 
-| Spec                                         | Value prop                                  |
-| -------------------------------------------- | ------------------------------------------- |
-| [product-ops.md](product-ops.md)             | DevOps/SRE with runbooks + scoped bash      |
-| [product-companion.md](product-companion.md) | Personal companion with proactive check-ins |
+| Spec                                           | Value prop                                                        |
+| ---------------------------------------------- | ----------------------------------------------------------------- |
+| [product-ops.md](product-ops.md)               | DevOps/SRE with runbooks + scoped bash                            |
+| [product-companion.md](product-companion.md)   | Personal companion with proactive check-ins                       |
+| [product-slack-team.md](product-slack-team.md) | Slack team agent — shared channel persona, per-user memory/grants |

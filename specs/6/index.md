@@ -21,12 +21,15 @@ The infrastructure phase that has to ship before products. Two strands:
    mutations live in scattered MCP tools). Token model and verification
    centralize in the shared `auth/` library.
 
-| Spec                                             | Status | Hook                                                                      |
-| ------------------------------------------------ | ------ | ------------------------------------------------------------------------- |
-| [R-genericization.md](R-genericization.md)       | draft  | Generic primitives in shared types; per-daemon DB ownership; gated split. |
-| [R-platform-api.md](R-platform-api.md)           | spec   | Federated `/v1/*` per daemon, capability-token auth, shared `auth/` lib.  |
-| [1-auth-standalone.md](1-auth-standalone.md)     | spec   | `auth/` capability library — verify/mint/OAuth-flow/MCP-tools, no daemon. |
-| [2-proxyd-standalone.md](2-proxyd-standalone.md) | spec   | proxyd as TOML-driven authenticating gateway; routes via API + MCP tools. |
+| Spec                                                   | Status | Hook                                                                                                                                                                                |
+| ------------------------------------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [R-genericization.md](R-genericization.md)             | draft  | Generic primitives in shared types; per-daemon DB ownership; gated split.                                                                                                           |
+| [R-platform-api.md](R-platform-api.md)                 | spec   | Federated `/v1/*` per daemon, capability-token auth, shared `auth/` lib.                                                                                                            |
+| [1-auth-standalone.md](1-auth-standalone.md)           | spec   | `auth/` capability library — verify/mint/OAuth-flow/MCP-tools, no daemon.                                                                                                           |
+| [2-proxyd-standalone.md](2-proxyd-standalone.md)       | spec   | proxyd as TOML-driven authenticating gateway. v1: per-daemon `[[proxyd_route]]` in `template/services/*.toml` → `PROXYD_ROUTES_JSON`; runtime `/v1/routes` API + MCP tools post-v1. |
+| [3-user-spawned-agents.md](3-user-spawned-agents.md)   | spec   | End-user `POST /v1/agents` flow: submit definition, get sandboxed tenant.                                                                                                           |
+| [4-openapi-discoverable.md](4-openapi-discoverable.md) | spec   | Every daemon exposes generated `/openapi.json` + `/docs/`; aggregator landing.                                                                                                      |
+| [5-uniform-mcp-rest.md](5-uniform-mcp-rest.md)         | spec   | Every operator action wired via REST (OAuth-gated) AND MCP (tier-gated) over a single handler; resource registry, scope vocabulary, per-resource access matrix.                     |
 
 Genericization spec is sketched but not written. It precedes the API
 work in implementation order: a generic daemon with hardcoded arizuko

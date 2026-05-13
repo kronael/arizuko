@@ -57,8 +57,8 @@ increments).
 
 Unblockers: threshold tuning (10 may be too rare for DM workloads —
 consider signal-driven: fire when tool-calls ≥3), race with skill-guard
-([7-self-learning.md](7-self-learning.md)) composes naturally (Write
-fails, counter still advances).
+([../9/8-skill-guard.md](../9/8-skill-guard.md)) composes naturally
+(Write fails, counter still advances).
 
 Phase 2: split memory/skill counters, per-group tunable interval,
 dashd self-eval view, revert-log via git tag.
