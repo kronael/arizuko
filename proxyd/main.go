@@ -36,6 +36,8 @@ type config struct {
 	hmacSecret     string
 	routesJSON     string
 	trustedProxies []*net.IPNet
+	slinkAnonRPM   int
+	slinkAuthRPM   int
 }
 
 func loadConfig() config {
@@ -58,6 +60,8 @@ func loadConfig() config {
 		hmacSecret:     hmacSecret,
 		routesJSON:     os.Getenv("PROXYD_ROUTES_JSON"),
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
+		slinkAnonRPM:   chanlib.EnvInt("SLINK_ANON_RPM", 10),
+		slinkAuthRPM:   chanlib.EnvInt("SLINK_AUTH_RPM", 60),
 	}
 }
 
@@ -172,8 +176,9 @@ type server struct {
 	proxies   map[string]*httputil.ReverseProxy // keyed by route path
 	viteProxy *httputil.ReverseProxy
 	vh        *vhosts
-	slinkRL   *rateLimiter
-	pubRedir  *pubRedirect
+	slinkRL     *rateLimiter // anonymous, IP-keyed
+	slinkAuthRL *rateLimiter // authenticated, sub-keyed
+	pubRedir    *pubRedirect
 }
 
 // pubRedirect probes a configured public-docs URL and caches whether
@@ -236,8 +241,9 @@ func newServer(cfg config, st *store.Store, vh *vhosts) *server {
 		proxies:   make(map[string]*httputil.ReverseProxy, len(routes)),
 		viteProxy: proxy(cfg.viteAddr),
 		vh:        vh,
-		slinkRL:   newRateLimiter(10, time.Minute),
-		pubRedir:  newPubRedirect(cfg.pubRedirectURL),
+		slinkRL:     newRateLimiter(cfg.slinkAnonRPM, time.Minute),
+		slinkAuthRL: newRateLimiter(cfg.slinkAuthRPM, time.Minute),
+		pubRedir:    newPubRedirect(cfg.pubRedirectURL),
 	}
 	for _, r := range routes {
 		rp := buildRouteProxy(r)
@@ -507,14 +513,24 @@ func (s *server) dispatchRoute(rt *Route, w http.ResponseWriter, r *http.Request
 	}
 }
 
-// dispatchSlink rate-limits per remote IP, resolves the URL token to a group,
-// and stamps X-Folder/X-Group-Name/X-Slink-Sig before forwarding. Auth is
-// optional: an authed caller still has identity headers from optionalAuth.
+// dispatchSlink applies two-tier rate limiting (anon=IP-keyed, auth=sub-keyed),
+// resolves the URL token to a group, and stamps X-Folder/X-Group-Name/X-Slink-Sig
+// before forwarding. Auth is optional; valid JWT promotes the caller to the
+// authenticated tier with a higher per-minute cap.
 func (s *server) dispatchSlink(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
-	remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if !s.slinkRL.allow(remoteIP) {
-		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
-		return
+	if a := s.tryAuth(r); a != nil {
+		r = a
+		sub := r.Header.Get("X-User-Sub")
+		if !s.slinkAuthRL.allow(sub) {
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+	} else {
+		remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if !s.slinkRL.allow(remoteIP) {
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
 	}
 	var token string
 	if r.URL.Path == "/slink/stream" {
@@ -532,7 +548,7 @@ func (s *server) dispatchSlink(rp *httputil.ReverseProxy, w http.ResponseWriter,
 				auth.SignHMAC(s.cfg.hmacSecret, auth.SlinkSigMessage(token, group.Folder)))
 		}
 	}
-	s.optionalAuth(rp.ServeHTTP)(w, r)
+	rp.ServeHTTP(w, r)
 }
 
 func (s *server) davRoute(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {

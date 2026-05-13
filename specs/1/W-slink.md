@@ -21,13 +21,16 @@ inject a message and watch the round.
 
 ## Rate limiting tiers
 
-| Caller              | Bucket           | Limit                              |
-| ------------------- | ---------------- | ---------------------------------- |
-| Anonymous (no JWT)  | shared per token | 10 req/min across all anon callers |
-| Authenticated (JWT) | per JWT sub      | 60 req/min                         |
-| Agent / operator    | --               | unlimited                          |
+| Caller              | Bucket        | Default    |
+| ------------------- | ------------- | ---------- |
+| Anonymous (no JWT)  | per remote IP | 10 req/min |
+| Authenticated (JWT) | per JWT sub   | 60 req/min |
 
-Configurable: `SLINK_ANON_RPM` / `SLINK_AUTH_RPM` env vars.
+Enforced at the proxyd edge in `dispatchSlink`; both buckets reset on
+a sliding 1-minute window. Tunable via `SLINK_ANON_RPM` and
+`SLINK_AUTH_RPM` env vars on proxyd. Operators and agents reach the
+backing daemons (`gated`, MCP socket) directly without going through
+`/slink/*`, so they don't hit either tier.
 
 ## Sender identity derivation
 

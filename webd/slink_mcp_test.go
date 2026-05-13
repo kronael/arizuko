@@ -142,23 +142,13 @@ func TestSlinkMCP_Steer(t *testing.T) {
 	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
 
 	ctx := context.Background()
-	if _, err := c.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "send_message",
-			Arguments: map[string]any{
-				"content": "first turn",
-				"topic":   "round-2",
-			},
-		},
-	}); err != nil {
-		t.Fatalf("send_message: %v", err)
-	}
+	turnID := slinkMCPSend(t, c, "first turn", "round-2")
 
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
 			Name: "steer",
 			Arguments: map[string]any{
-				"turn_id": "round-2",
+				"turn_id": turnID,
 				"content": "actually wait",
 			},
 		},
@@ -184,18 +174,7 @@ func TestSlinkMCP_GetRound_NoWait(t *testing.T) {
 	s, _, srv, g := newSlinkMCPServer(t)
 	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
 
-	// Seed one user + one bot frame on topic "round-3".
-	if _, err := c.CallTool(context.Background(), mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "send_message",
-			Arguments: map[string]any{
-				"content": "ping",
-				"topic":   "round-3",
-			},
-		},
-	}); err != nil {
-		t.Fatalf("send_message: %v", err)
-	}
+	turnID := slinkMCPSend(t, c, "ping", "round-3")
 	if err := s.st.PutMessage(core.Message{
 		ID:        "bot-r3",
 		ChatJID:   "web:" + g.Folder,
@@ -204,6 +183,7 @@ func TestSlinkMCP_GetRound_NoWait(t *testing.T) {
 		Timestamp: time.Now(),
 		BotMsg:    true,
 		Topic:     "round-3",
+		TurnID:    turnID,
 	}); err != nil {
 		t.Fatalf("PutMessage bot: %v", err)
 	}
@@ -211,7 +191,7 @@ func TestSlinkMCP_GetRound_NoWait(t *testing.T) {
 	res, err := c.CallTool(context.Background(), mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
 			Name:      "get_round",
-			Arguments: map[string]any{"turn_id": "round-3"},
+			Arguments: map[string]any{"turn_id": turnID},
 		},
 	})
 	if err != nil {
@@ -231,8 +211,8 @@ func TestSlinkMCP_GetRound_NoWait(t *testing.T) {
 	if !got.Done {
 		t.Errorf("done = false, want true (assistant frame present)")
 	}
-	if len(got.Frames) != 2 {
-		t.Fatalf("frames = %d, want 2; body=%s", len(got.Frames), body)
+	if len(got.Frames) != 1 {
+		t.Fatalf("frames = %d, want 1 (bot output only — TurnFrames is turn-scoped per W-slink.md); body=%s", len(got.Frames), body)
 	}
 }
 
@@ -242,17 +222,7 @@ func TestSlinkMCP_GetRound_Wait(t *testing.T) {
 	s, _, srv, g := newSlinkMCPServer(t)
 	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
 
-	if _, err := c.CallTool(context.Background(), mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "send_message",
-			Arguments: map[string]any{
-				"content": "are you there?",
-				"topic":   "round-4",
-			},
-		},
-	}); err != nil {
-		t.Fatalf("send_message: %v", err)
-	}
+	turnID := slinkMCPSend(t, c, "are you there?", "round-4")
 
 	go func() {
 		time.Sleep(80 * time.Millisecond)
@@ -266,7 +236,7 @@ func TestSlinkMCP_GetRound_Wait(t *testing.T) {
 		Params: mcp.CallToolParams{
 			Name: "get_round",
 			Arguments: map[string]any{
-				"turn_id": "round-4",
+				"turn_id": turnID,
 				"wait":    true,
 			},
 		},
@@ -300,6 +270,33 @@ func TestSlinkMCP_GetRound_Wait(t *testing.T) {
 }
 
 // Bad token → 404 (matches handleSlinkPost behaviour).
+// slinkMCPSend calls send_message and returns the turn_id from the response —
+// the round handle used by steer/get_round per W-slink.md.
+func slinkMCPSend(t *testing.T, c *mcpclient.Client, content, topic string) string {
+	t.Helper()
+	res, err := c.CallTool(context.Background(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "send_message",
+			Arguments: map[string]any{"content": content, "topic": topic},
+		},
+	})
+	if err != nil {
+		t.Fatalf("send_message: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("send_message error: %s", toolText(t, res))
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(toolText(t, res)), &got); err != nil {
+		t.Fatalf("unmarshal send_message: %v", err)
+	}
+	turnID, _ := got["turn_id"].(string)
+	if turnID == "" {
+		t.Fatalf("send_message missing turn_id: %s", toolText(t, res))
+	}
+	return turnID
+}
+
 func TestSlinkMCP_BadToken(t *testing.T) {
 	s, _, _ := newTestServer(t)
 	srv := httptest.NewServer(s.handler())

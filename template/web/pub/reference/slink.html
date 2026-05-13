@@ -49,13 +49,12 @@
     <p>Enforced at the edge in <a href="https://github.com/kronael/arizuko/blob/main/proxyd/main.go#L510"><code>proxyd/main.go:510</code></a> (<code>dispatchSlink</code>). Excess returns HTTP 429.</p>
 
     <table>
-      <tr><th>Caller</th><th>Bucket key</th><th>Limit</th><th>Env var (spec)</th><th>Shipped today</th></tr>
-      <tr><td>Anonymous (no JWT)</td><td>client IP</td><td>10 req/min</td><td><code>SLINK_ANON_RPM</code></td><td>hardcoded 10/min</td></tr>
-      <tr><td>Authenticated (JWT)</td><td>JWT <code>sub</code></td><td>60 req/min</td><td><code>SLINK_AUTH_RPM</code></td><td>not yet ported &mdash; same 10/min bucket</td></tr>
-      <tr><td>Agent / operator</td><td>&mdash;</td><td>unlimited</td><td>&mdash;</td><td>bypass via internal sig, no edge passage</td></tr>
+      <tr><th>Caller</th><th>Bucket key</th><th>Default</th><th>Env var</th></tr>
+      <tr><td>Anonymous (no JWT)</td><td>client IP</td><td>10 req/min</td><td><code>SLINK_ANON_RPM</code></td></tr>
+      <tr><td>Authenticated (JWT)</td><td>JWT <code>sub</code></td><td>60 req/min</td><td><code>SLINK_AUTH_RPM</code></td></tr>
     </table>
 
-    <div class="callout"><strong>Drift.</strong> <a href="https://github.com/kronael/arizuko/blob/main/specs/1/W-slink.md"><code>W-slink.md</code></a> &sect;Rate limiting tiers documents a per-tier model with <code>SLINK_ANON_RPM</code> / <code>SLINK_AUTH_RPM</code> tunables. The proxyd code in <code>main.go:239</code> still constructs a single <code>newRateLimiter(10, time.Minute)</code> keyed on IP with no env override. Tiered limits land when the env reads ship.</div>
+    <p>Both buckets use a sliding 1-minute window. A valid JWT promotes the caller to the authenticated tier; otherwise the anonymous tier applies. Operators and agents reach <code>gated</code> and the MCP socket directly without going through <code>/slink/*</code>, so they don't hit either tier.</p>
 
     <h2 id="identity">Sender identity</h2>
 
@@ -241,9 +240,9 @@ Access-Control-Allow-Headers: Accept, Content-Type</code></pre>
 
     <table>
       <tr><th>Tool</th><th>Params</th><th>Effect</th></tr>
-      <tr><td><code>send_message</code></td><td><code>content</code> (req), <code>topic?</code></td><td>Start a fresh round. Returns <code>{turn_id, topic, folder}</code>.</td></tr>
-      <tr><td><code>steer</code></td><td><code>turn_id</code> (req), <code>content</code> (req)</td><td>Extend an existing round on the same topic.</td></tr>
-      <tr><td><code>get_round</code></td><td><code>turn_id</code> (req), <code>wait?</code></td><td>Read frames. With <code>wait=true</code>, blocks up to 5 min for an assistant reply. Returns <code>{frames, done}</code>.</td></tr>
+      <tr><td><code>send_message</code></td><td><code>content</code> (req), <code>topic?</code></td><td>Start a fresh round. Returns <code>{turn_id, topic, folder}</code>. <code>turn_id</code> is the originating <code>messages.id</code> &mdash; the round handle.</td></tr>
+      <tr><td><code>steer</code></td><td><code>turn_id</code> (req), <code>content</code> (req)</td><td>Extend a round. While the round is pending, the follow-up reuses the same conversation thread; once done, starts a fresh round chained from this one. Returns <code>{turn_id, topic, folder, chained_from?}</code>.</td></tr>
+      <tr><td><code>get_round</code></td><td><code>turn_id</code> (req), <code>wait?</code></td><td>Read assistant frames for this round (turn-scoped per <code>messages.turn_id</code>). With <code>wait=true</code>, blocks up to 5 min for an assistant reply. Returns <code>{frames, done}</code>.</td></tr>
     </table>
 
     <p>Design rationale (round handle, three-tool surface, statelessness): <a href="https://github.com/kronael/arizuko/blob/main/specs/1/W-slink.md"><code>specs/1/W-slink.md</code></a> &sect;MCP transport.</p>

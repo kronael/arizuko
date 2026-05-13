@@ -43,10 +43,12 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 	sender := "anon:slink-" + chanlib.ShortHash(token)
 	senderName := "slink"
 
+	jid := "web:" + g.Folder
+
 	srv.AddTool(mcp.NewTool("send_message",
-		mcp.WithDescription("Send a fresh user message to the group; starts a new round. Returns {turn_id, topic} where turn_id is the originating message id. Use steer to extend the same round; use get_round to read assistant replies."),
+		mcp.WithDescription("Start a new round in the group. Returns {turn_id} — the originating message id, used as the round handle by steer and get_round. Optional topic groups multiple rounds into the same conversation thread (auto-generated when omitted)."),
 		mcp.WithString("content", mcp.Required()),
-		mcp.WithString("topic", mcp.Description("Optional round identifier. Auto-generated if omitted.")),
+		mcp.WithString("topic", mcp.Description("Optional conversation thread id. Auto-generated if omitted.")),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		content := strings.TrimSpace(req.GetString("content", ""))
 		if content == "" {
@@ -72,57 +74,70 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 	})
 
 	srv.AddTool(mcp.NewTool("steer",
-		mcp.WithDescription("Extend an existing round with a follow-up user message on the same topic. turn_id is the topic returned by send_message. Use for clarifications mid-round; use send_message to start a fresh round."),
-		mcp.WithString("turn_id", mcp.Required(), mcp.Description("Topic id from send_message.")),
+		mcp.WithDescription("Extend an existing round. turn_id is the round handle returned by send_message. While the round is pending, the follow-up enqueues onto the same conversation thread; once the round is done, the steer starts a fresh round chained from this one. Returns {turn_id, topic, chained_from?}."),
+		mcp.WithString("turn_id", mcp.Required(), mcp.Description("Round handle from send_message (originating message id).")),
 		mcp.WithString("content", mcp.Required()),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		topic := strings.TrimSpace(req.GetString("turn_id", ""))
+		turnID := strings.TrimSpace(req.GetString("turn_id", ""))
 		content := strings.TrimSpace(req.GetString("content", ""))
-		if topic == "" {
+		if turnID == "" {
 			return mcp.NewToolResultError("turn_id required"), nil
 		}
 		if content == "" {
 			return mcp.NewToolResultError("content required"), nil
 		}
-		if len(topic) > maxTopicLen {
-			return mcp.NewToolResultError("turn_id too long"), nil
+		stTopic := s.st.TopicByMessageID(turnID, jid)
+		if stTopic == "" {
+			return mcp.NewToolResultError("turn_id not found"), nil
+		}
+		topic := stTopic
+		chainedFrom := turnID
+		info, _ := s.st.GetTurnResult(g.Folder, turnID)
+		if info.Status != "pending" {
+			topic = fmt.Sprintf("t%d", time.Now().UnixMilli())
+			chainedFrom = ""
 		}
 		m, _, err := s.injectSlink(g, content, topic, sender, senderName, token)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		out, _ := json.Marshal(map[string]any{
+		out := map[string]any{
 			"turn_id": m.ID,
 			"topic":   topic,
 			"folder":  g.Folder,
-		})
-		return mcp.NewToolResultText(string(out)), nil
+		}
+		if chainedFrom != "" {
+			out["chained_from"] = chainedFrom
+		}
+		data, _ := json.Marshal(out)
+		return mcp.NewToolResultText(string(data)), nil
 	})
 
 	srv.AddTool(mcp.NewTool("get_round",
-		mcp.WithDescription("Read assistant frames for a round (topic). Without wait, returns whatever frames are stored now. With wait=true, blocks until at least one new assistant frame arrives or the server-side deadline hits (~5 min). Returns {frames, done} — done=true when an assistant reply was observed."),
-		mcp.WithString("turn_id", mcp.Required(), mcp.Description("Topic id from send_message.")),
+		mcp.WithDescription("Read assistant frames for a round. turn_id is the round handle from send_message. Without wait, returns frames stored now. With wait=true, blocks until at least one new assistant frame arrives or the server-side deadline (~5 min). Returns {frames, done} — done=true when an assistant reply was observed."),
+		mcp.WithString("turn_id", mcp.Required(), mcp.Description("Round handle from send_message (originating message id).")),
 		mcp.WithBoolean("wait"),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		topic := strings.TrimSpace(req.GetString("turn_id", ""))
-		if topic == "" {
+		turnID := strings.TrimSpace(req.GetString("turn_id", ""))
+		if turnID == "" {
 			return mcp.NewToolResultError("turn_id required"), nil
-		}
-		if len(topic) > maxTopicLen {
-			return mcp.NewToolResultError("turn_id too long"), nil
 		}
 		wait := req.GetBool("wait", false)
 
-		frames := s.collectRoundFrames(g.Folder, topic)
+		frames := s.collectRoundFrames(turnID)
 		done := hasAssistant(frames)
 		if !wait || done {
 			return roundResult(frames, done), nil
 		}
 
+		topic := s.st.TopicByMessageID(turnID, jid)
+		if topic == "" {
+			return roundResult(frames, false), nil
+		}
 		ch, unsub := s.hub.subscribe(g.Folder, topic)
 		defer unsub()
 
-		frames = s.collectRoundFrames(g.Folder, topic)
+		frames = s.collectRoundFrames(turnID)
 		if hasAssistant(frames) {
 			return roundResult(frames, true), nil
 		}
@@ -139,15 +154,14 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 	return srv
 }
 
-func (s *server) collectRoundFrames(folder, topic string) []map[string]any {
-	msgs, err := s.st.MessagesByTopic(folder, topic, time.Now().Add(time.Hour), 100)
+func (s *server) collectRoundFrames(turnID string) []map[string]any {
+	msgs, err := s.st.TurnFrames(turnID, "", 100)
 	if err != nil {
-		slog.Warn("slink-mcp get_round query", "folder", folder, "topic", topic, "err", err)
+		slog.Warn("slink-mcp get_round query", "turn_id", turnID, "err", err)
 		return nil
 	}
 	out := make([]map[string]any, 0, len(msgs))
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
+	for _, m := range msgs {
 		out = append(out, map[string]any{
 			"id":         m.ID,
 			"role":       messageRole(m),
