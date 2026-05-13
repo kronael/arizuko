@@ -1,44 +1,137 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>arizuko</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
-    .back { font-size: 0.85em; }
-  </style>
-</head>
-<body>
-  <div class="hub-container prose">
-    <h1>arizuko</h1>
-    <p class="dim back">a multitenant Claude agent router &middot; <a href="/pub/howto/">getting started</a> &middot; <a href="/pub/concepts/">concepts</a></p>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>arizuko</title>
+    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <style>
+      .prose p {
+        margin: 0.6em 0;
+      }
+      .prose ul {
+        margin: 0.4em 0 0.8em 1.2em;
+      }
+      .prose li {
+        margin: 0.3em 0;
+      }
+      .prose pre {
+        margin: 0.6em 0;
+      }
+      .lede {
+        font-size: 1.05em;
+        color: var(--fg);
+        margin: 0.4em 0 1em;
+      }
+      .back {
+        font-size: 0.85em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <h1>arizuko</h1>
+      <p class="dim back">
+        self-hosted multi-tenant Claude agent platform &middot;
+        <a href="/pub/howto/">getting started</a> &middot;
+        <a href="/pub/concepts/">concepts</a>
+      </p>
 
-    <p class="lede">Plug a chat platform into arizuko &mdash; Telegram, Discord, WhatsApp, Mastodon, email, or just a shareable web link &mdash; and get a per-group Claude agent with its own files, memory, skills, and scoped permissions. Many groups, many channels, one deployment.</p>
+      <p class="lede">
+        Plug Slack, Discord, Telegram, WhatsApp, Mastodon, email, or a web link
+        into arizuko and get a self-hosted Claude agent platform for many groups
+        and many users in one deployment. Each group has its own files, persona,
+        skills, secrets, and routing; each user keeps their own linked
+        identities, grants, encrypted secrets, and memory inside that group.
+      </p>
 
-    <h2>why</h2>
-    <p>Dropping an LLM into a chat is easy. Making it useful for a real team or community isn&rsquo;t. You want per-user memory, per-group ACLs, scheduled tasks, multi-platform reach, secret management, file workspaces, voice, and you don&rsquo;t want every agent run with raw network access. arizuko bundles those pieces behind one daemon set and one config file.</p>
+      <h2>why</h2>
+      <p>
+        A shared chat agent stops being simple as soon as more than one team and
+        more than one user depend on it. arizuko keeps the control-plane pieces
+        separate: adapters ingest messages, routing maps
+        <a href="/pub/concepts/jid.html">JIDs</a> to group folders,
+        <a href="/pub/concepts/grants.html">grants</a> scope what the agent may
+        do, secrets resolve per folder or per user, and agent egress is
+        allowlisted through <a href="/pub/crackbox/">crackbox</a>. The parts
+        compose without sharing state or policy logic &mdash; build the system
+        you need, swap any layer without rewriting the others.
+      </p>
 
-    <h2>what you get</h2>
-    <ul>
-      <li><strong>Per-group folder.</strong> Each group has its own persona, skills, diary, memory, and secrets under one directory. The agent boots with that folder mounted as its workspace.</li>
-      <li><strong>Chat-platform adapters.</strong> Telegram, Discord, WhatsApp, Mastodon, Bluesky, Reddit, email, and the built-in <a href="/pub/concepts/slink.html">slink</a> web chat. Adapters are independent daemons; add one without touching the rest.</li>
-      <li><strong>Public web endpoint per group.</strong> A token-bound URL anyone can talk to &mdash; chat in a browser, or speak the same protocol from a script. Optional MCP transport on the same path. See <a href="/pub/concepts/slink.html">slink</a>.</li>
-      <li><strong>Operator dashboard.</strong> <code>/dash/</code> for grants, routing rules, scheduled tasks, admission queue, and per-group health.</li>
-      <li><strong>WebDAV workspace.</strong> Mount any group&rsquo;s files at <code>/dav/&lt;group&gt;/</code> from Finder, <code>rclone</code>, or curl. <a href="/pub/concepts/webdav.html">webdav</a>.</li>
-      <li><strong>Egress isolation.</strong> Agents run inside <a href="/pub/crackbox/">crackbox</a> &mdash; a per-container proxy that only forwards to allowlisted hosts. A prompt-injected agent can&rsquo;t reach your internal services or the open internet by accident.</li>
-      <li><strong>Voice in &amp; out.</strong> Inbound audio is transcribed (Whisper); the agent can reply with synthesized speech via <code>send_voice</code> (Kokoro TTS).</li>
-      <li><strong>Typed addresses across platforms.</strong> One <a href="/pub/concepts/jid.html">JID</a> shape covers users, chats, posts, threads &mdash; routing rules and grants speak the same language regardless of channel.</li>
-      <li><strong>OAuth account linking.</strong> A signed-in user reaches their groups across providers; per-group grants decide what each identity can do.</li>
-    </ul>
+      <h2>system shape</h2>
+      <ul>
+        <li>
+          <strong>Per-group folder.</strong> Each tenant group is a folder on
+          disk with its own persona, skills, diary, files, secrets, and agent
+          session state. The agent runs with that folder mounted as its
+          workspace.
+        </li>
+        <li>
+          <strong>Per-user state within a group.</strong> One shared agent acts
+          distinctly for Alice and Bob: each user has their own memory file,
+          encrypted per-user secrets (AES-GCM at rest), and grant rules layered
+          over the group default.
+        </li>
+        <li>
+          <strong>OAuth account linking.</strong> GitHub / Google / Discord /
+          Telegram log-ins all resolve to the same user; per-group grants decide
+          what each linked identity can do.
+        </li>
+        <li>
+          <strong>Chat-platform adapters.</strong> Telegram, Discord, Slack,
+          WhatsApp, Mastodon, Bluesky, Reddit, email, and the built-in
+          <a href="/pub/concepts/slink.html">slink</a> web chat enter through
+          independent adapter daemons that register over HTTP. Adding a channel
+          doesn&rsquo;t change routing, grants, or storage.
+        </li>
+        <li>
+          <strong>Public web endpoint per group.</strong> A token-bound URL
+          anyone can talk to &mdash; chat in a browser, or speak the same
+          protocol from a script. Optional MCP transport on the same path. See
+          <a href="/pub/concepts/slink.html">slink</a>.
+        </li>
+        <li>
+          <strong>WebDAV workspace.</strong> Mount any group&rsquo;s files at
+          <code>/dav/&lt;group&gt;/</code> from Finder, <code>rclone</code>, or
+          curl &mdash; the same files the agent reads.
+          <a href="/pub/concepts/webdav.html">webdav</a>.
+        </li>
+        <li>
+          <strong>Operator dashboard.</strong> <code>/dash/</code> for grants,
+          routing rules, scheduled tasks, admission queue, and per-group health.
+        </li>
+        <li>
+          <strong>Egress isolation by default.</strong> Agents run inside
+          <a href="/pub/crackbox/">crackbox</a> &mdash; per-group allowlists
+          decide which hosts a run may reach. Internal services and arbitrary
+          internet egress stay closed unless you open them.
+        </li>
+        <li>
+          <strong>Voice in &amp; out.</strong> Inbound audio is transcribed
+          (Whisper); the agent can reply with synthesized speech via
+          <code>send_voice</code> (Kokoro TTS).
+        </li>
+        <li>
+          <strong>Typed addresses across platforms.</strong> One
+          <a href="/pub/concepts/jid.html">JID</a> shape covers users, chats,
+          posts, threads &mdash; routing rules and grants speak the same
+          language regardless of channel.
+        </li>
+      </ul>
 
-    <h2>show me</h2>
-    <pre><code># create an instance and run it
+      <h2>architecture</h2>
+      <p>
+        Messages arrive through adapter daemons, cross an HTTP boundary into
+        <code>gated</code>, land in one SQLite (WAL) database, then route by JID
+        to a group folder and its Claude runner. Grants, secrets, files, and
+        egress policy are resolved at spawn from that group and, when present,
+        the calling user. Adapters, routing table, auth layer, and sandbox are
+        independent components, not one fused app &mdash; the daemon ends in
+        <code>d</code>, the contract is HTTP + SQLite, swaps are local.
+      </p>
+
+      <h2>operator path</h2>
+      <pre><code># create an instance and run it
 arizuko create demo
 cd /srv/data/arizuko_demo
 $EDITOR .env             # pick adapters, set tokens
@@ -51,29 +144,95 @@ arizuko run demo         # generates compose, brings the stack up
 curl -X POST https://example.com/slink/&lt;token&gt; \
   -H 'Content-Type: application/json' \
   -d '{"text":"hello"}'</code></pre>
-    <p>One <code>create</code> seeds the data dir and a default group. <code>run</code> generates the compose file from <code>.env</code> and brings up only the daemons you asked for. Add adapters by flipping env vars; the rest of the stack doesn&rsquo;t care.</p>
+      <p>
+        One command seeds the instance directory; another renders compose from
+        <code>.env</code> and starts only the daemons you enabled. The
+        deployment stays single-tenant and self-hosted: your storage, your OAuth
+        apps, your bot tokens, your outbound policy.
+      </p>
 
-    <h2>go deeper</h2>
-    <ul>
-      <li><a href="/pub/howto/">getting started</a> &mdash; what this instance is, how to sign in, what the URLs do</li>
-      <li><a href="/pub/howto/discord.html">deploy on Discord</a> &mdash; bot setup, channel routing, mention-only mode, threads</li>
-      <li><a href="/pub/concepts/">concepts</a> &mdash; the primitives, one page each</li>
-      <li><a href="/pub/concepts/ant.html">ant</a> &mdash; the folder-as-agent unit every group is built on</li>
-      <li><a href="/pub/concepts/routing.html">routing</a> &mdash; one table maps inbound JIDs to ant folders</li>
-      <li><a href="/pub/concepts/jid.html">jid</a> &mdash; typed addresses for chats and senders</li>
-      <li><a href="/pub/concepts/grants.html">grants</a> &mdash; what an agent can do, composed at spawn</li>
-      <li><a href="/pub/concepts/auth.html">auth</a> &mdash; OAuth + local login + account linking</li>
-      <li><a href="/pub/concepts/slink.html">slink</a> &mdash; the public HTTP/MCP endpoint per group</li>
-      <li><a href="/pub/concepts/webdav.html">webdav</a> &mdash; per-group file workspace over WebDAV</li>
-      <li><a href="/pub/concepts/voice.html">voice</a> &mdash; Whisper in, Kokoro out</li>
-      <li><a href="/pub/crackbox/">crackbox</a> &mdash; the egress sandbox agents run inside</li>
-      <li><a href="/pub/changelog/">changelog</a> &mdash; what shipped, dated, terse</li>
-    </ul>
+      <h2>data and trust boundary</h2>
+      <p>
+        A deployment is one single-tenant instance under
+        <code>/srv/data/arizuko_&lt;name&gt;/</code>: SQLite/WAL state, group
+        folders, per-user memory, encrypted secrets, agent files. Outbound
+        traffic is the chat platforms you enabled (your bot&rsquo;s replies) and
+        Anthropic (model prompts). Anything else an agent fetches passes through
+        <a href="/pub/crackbox/">crackbox</a>&rsquo;s per-group allowlist.
+        Backups are file-level &mdash; one <code>tar</code> of the instance
+        directory. There is no managed control plane outside your box.
+      </p>
 
-    <h2>meta</h2>
-    <p>Source: <a href="https://github.com/kronael/arizuko">github.com/kronael/arizuko</a>. Apache-2.0. Daemons end in <code>d</code>; everything talks SQLite (WAL) and HTTP. Schema lives in <code>gated</code>. Read the repo&rsquo;s <code>README.md</code> for the daemon map, <code>ARCHITECTURE.md</code> for the message flow. <a href="/pub/reference/stats.html">Codebase stats</a> &mdash; LOC and test coverage by package.</p>
-  </div>
-  <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
-</body>
+      <h2>products</h2>
+      <p>
+        arizuko ships as primitives; the same daemons assemble into different
+        products depending on how you configure groups, channels, and grants.
+      </p>
+      <ul>
+        <li>
+          <a href="/pub/products/slack-team/">Slack team agent</a> &mdash; one
+          shared bot in your team&rsquo;s Slack workspace, each member gets
+          their own personal files, web workspace, and grants on top of
+          channel-shared context.
+        </li>
+      </ul>
+
+      <h2>read by concern</h2>
+      <ul>
+        <li>
+          <a href="/pub/concepts/">architecture &amp; concepts</a> &mdash; the
+          primitives, one page each (<a href="/pub/concepts/ant.html">ant</a>,
+          <a href="/pub/concepts/routing.html">routing</a>,
+          <a href="/pub/concepts/jid.html">jid</a>,
+          <a href="/pub/concepts/grants.html">grants</a>,
+          <a href="/pub/concepts/auth.html">auth</a>,
+          <a href="/pub/concepts/slink.html">slink</a>,
+          <a href="/pub/concepts/webdav.html">webdav</a>,
+          <a href="/pub/concepts/voice.html">voice</a>)
+        </li>
+        <li>
+          <a href="/pub/security/">security</a> &mdash; threat model, egress
+          sandbox, secrets handling, edge auth
+        </li>
+        <li>
+          <a href="/pub/crackbox/">egress sandbox</a> &mdash; the per-group
+          sandbox agents run inside
+        </li>
+        <li>
+          <a href="/pub/howto/">deployment guide</a> &mdash; what an instance
+          is, how to sign in, what the URLs do
+        </li>
+        <li>
+          <a href="/pub/howto/discord.html">channel example</a> &mdash; deploy
+          on Discord: bot setup, routing, threads
+        </li>
+        <li>
+          <a href="/pub/howto/webdav.html">mount the workspace</a> &mdash;
+          WebDAV how-to: rclone, Finder, curl; auth, paths, write-block
+        </li>
+        <li>
+          <a href="/pub/howto/#audit-mode">audit mode</a> &mdash; mute outbound
+          per group or platform; agent runs, nothing leaves the box
+        </li>
+        <li>
+          <a href="/pub/changelog/">changelog</a> &mdash; what shipped, dated,
+          terse
+        </li>
+      </ul>
+
+      <h2>source and reference</h2>
+      <p>
+        Source on GitHub:
+        <a href="https://github.com/kronael/arizuko"
+          >github.com/kronael/arizuko</a
+        >. Apache-2.0. The repo <code>README.md</code> is the daemon map;
+        <code>ARCHITECTURE.md</code> is the message flow and schema;
+        <code>SECURITY.md</code> is the threat model and egress model.
+        <a href="/pub/reference/stats.html">Codebase stats</a> &mdash; LOC and
+        test coverage by package.
+      </p>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="/pub/assets/hub.js"></script>
+  </body>
 </html>
