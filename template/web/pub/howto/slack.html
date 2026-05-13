@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>deploy on Slack — arizuko</title>
+    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <style>
+      .prose p {
+        margin: 0.6em 0;
+      }
+      .prose ul {
+        margin: 0.4em 0 0.8em 1.2em;
+      }
+      .prose ol {
+        margin: 0.4em 0 0.8em 1.4em;
+      }
+      .prose li {
+        margin: 0.3em 0;
+      }
+      .prose pre {
+        margin: 0.6em 0;
+      }
+      .prose dt {
+        color: var(--accent3);
+        font-weight: bold;
+        margin-top: 0.6em;
+      }
+      .prose dd {
+        margin: 0.1em 0 0 1.2em;
+      }
+      .back {
+        font-size: 0.85em;
+      }
+      .note {
+        background: color-mix(in srgb, var(--accent3) 10%, transparent);
+        border-left: 3px solid var(--accent3);
+        padding: 0.5em 0.8em;
+        margin: 0.8em 0;
+        font-size: 0.92em;
+      }
+      .warn {
+        background: color-mix(in srgb, #e67e22 10%, transparent);
+        border-left: 3px solid #e67e22;
+        padding: 0.5em 0.8em;
+        margin: 0.8em 0;
+        font-size: 0.92em;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 0.8em 0 1.2em;
+        font-size: 0.9em;
+      }
+      th {
+        text-align: left;
+        border-bottom: 1px solid var(--dim, #888);
+        padding: 0.3em 0.8em 0.3em 0;
+        font-weight: 600;
+      }
+      td {
+        padding: 0.25em 0.8em 0.25em 0;
+        border-bottom: 1px solid
+          color-mix(in srgb, var(--dim, #888) 25%, transparent);
+      }
+      code {
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <h1>deploy on Slack</h1>
+      <p class="dim back">
+        <a href="/pub/">&larr; arizuko</a> &middot;
+        <a href="/pub/howto/">&larr; how-to</a>
+      </p>
+
+      <p>
+        arizuko&rsquo;s Slack adapter (<code>slakd</code>) connects one bot to
+        one workspace via Slack&rsquo;s HTTP Events API. Public reachability is
+        provided by <code>proxyd</code> &mdash; Slack posts events to
+        <code>https://&lt;your-host&gt;/slack/events</code> and proxyd forwards
+        them to slakd verbatim so the <code>X-Slack-Signature</code> HMAC
+        verifies.
+      </p>
+
+      <h2>how it works</h2>
+      <ol>
+        <li>
+          <strong>Slack</strong> POSTs a webhook event to
+          <code>https://&lt;your-host&gt;/slack/events</code>.
+        </li>
+        <li>
+          <strong>proxyd</strong> forwards the raw body and Slack signature
+          headers unmodified to <code>slakd:8080</code>.
+        </li>
+        <li>
+          <strong>slakd</strong> verifies the HMAC, converts the event to an
+          internal <code>InboundMsg</code>, posts it to <strong>gated</strong>.
+        </li>
+        <li>
+          <strong>gated</strong> routes to a group and spawns the agent
+          container.
+        </li>
+        <li>
+          The agent runs, calls <code>reply</code> or <code>send</code>; slakd
+          posts via Slack&rsquo;s Web API.
+        </li>
+      </ol>
+
+      <h2>JID format</h2>
+      <p>Every Slack chat has a typed JID that routing rules match against:</p>
+      <table>
+        <thead>
+          <tr>
+            <th>chat type</th>
+            <th>JID format</th>
+            <th>example</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>channel</td>
+            <td>
+              <code>slack:&lt;workspace&gt;/channel/&lt;channel_id&gt;</code>
+            </td>
+            <td><code>slack:T012ABCD/channel/C0HJKL456</code></td>
+          </tr>
+          <tr>
+            <td>DM</td>
+            <td><code>slack:&lt;workspace&gt;/dm/&lt;dm_id&gt;</code></td>
+            <td><code>slack:T012ABCD/dm/D0XY9876</code></td>
+          </tr>
+          <tr>
+            <td>legacy mpim</td>
+            <td><code>slack:&lt;workspace&gt;/group/&lt;mpim_id&gt;</code></td>
+            <td><code>slack:T012ABCD/group/G0AB1234</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Workspace and channel IDs are kept verbatim from Slack &mdash;
+        paste-back from Slack URLs works. Threads use Slack&rsquo;s
+        <code>thread_ts</code> as the message <em>topic</em>; replies in a
+        thread share that topic.
+      </p>
+
+      <h2>step 1 &mdash; create a Slack App</h2>
+      <ol>
+        <li>
+          Go to
+          <a href="https://api.slack.com/apps" target="_blank" rel="noopener"
+            >api.slack.com/apps</a
+          >
+          &rarr; <strong>Create New App</strong> &rarr;
+          <strong>From scratch</strong>.
+        </li>
+        <li>Name the app and pick the workspace to install into.</li>
+      </ol>
+
+      <h2>step 2 &mdash; OAuth &amp; Permissions</h2>
+      <p>Add these <strong>Bot Token Scopes</strong>:</p>
+      <pre><code>channels:history  channels:read
+groups:history    groups:read
+im:history        im:read
+mpim:history      mpim:read
+chat:write        chat:write.public
+reactions:write   files:write       users:read</code></pre>
+
+      <h2>step 3 &mdash; Event Subscriptions</h2>
+      <ol>
+        <li>Enable events.</li>
+        <li>
+          Set <strong>Request URL</strong> to
+          <code>https://&lt;your-host&gt;/slack/events</code>. Slack will POST a
+          <code>url_verification</code> challenge once; slakd echoes it. The
+          Request URL turns green when proxyd + slakd are both running.
+        </li>
+        <li>
+          Subscribe to bot events:<br />
+          &bull; <code>message.channels</code>, <code>message.groups</code>,
+          <code>message.im</code>, <code>message.mpim</code><br />
+          &bull; <code>reaction_added</code><br />
+          &bull; <code>member_joined_channel</code><br />
+          &bull; <code>file_shared</code>
+        </li>
+      </ol>
+      <div class="warn">
+        <strong>Don&rsquo;t subscribe to <code>app_mention</code></strong
+        >: Slack fires it alongside the regular <code>message.*</code> event, so
+        it would deliver every mention twice. slakd derives
+        <code>verb=&quot;mention&quot;</code> from message text containing
+        <code>&lt;@bot_user_id&gt;</code>.
+      </div>
+
+      <h2>step 4 &mdash; copy secrets</h2>
+      <ol>
+        <li>
+          <strong>Basic Information</strong> &rarr; copy
+          <em>Signing Secret</em> &rarr; goes in
+          <code>SLACK_SIGNING_SECRET</code>.
+        </li>
+        <li>
+          <strong>Install to Workspace</strong> &rarr; copy
+          <em>Bot User OAuth Token</em> (starts with <code>xoxb-</code>) &rarr;
+          goes in <code>SLACK_BOT_TOKEN</code>.
+        </li>
+      </ol>
+
+      <h2>step 5 &mdash; configure arizuko</h2>
+      <p>Add to <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
+      <pre><code>SLACK_BOT_TOKEN=xoxb-...
+SLACK_SIGNING_SECRET=...
+# optional
+SLAKD_USERS_CACHE_TTL=900</code></pre>
+      <p>Regenerate compose and restart:</p>
+      <pre><code>arizuko run &lt;instance&gt;
+sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
+      <p>Verify slakd is up:</p>
+      <pre><code>sudo curl -s -o /dev/null -w '%{http_code}\n' http://localhost:&lt;web_port&gt;/health
+sudo journalctl -u arizuko_&lt;instance&gt; --since "30s ago" --no-pager \
+  | grep -E "slack|slakd"</code></pre>
+
+      <h2>step 6 &mdash; invite the bot</h2>
+      <p>In any Slack channel you want the agent to read or post in:</p>
+      <pre><code>/invite @&lt;your-bot-name&gt;</code></pre>
+      <p>
+        DMs work without an explicit invite &mdash; any Slack user in the
+        workspace can DM the bot directly.
+      </p>
+
+      <h2>step 7 &mdash; set up routing</h2>
+      <p>
+        Without a routing entry, messages from Slack are stored but no agent is
+        fired. In the root agent (or via <code>/dash/</code> &rarr; Routing):
+      </p>
+      <pre><code>add a route: match all Slack messages, target folder "main"</code></pre>
+      <p>Or narrow to one channel:</p>
+      <pre><code>match: chat_jid=slack:T012ABCD/channel/C0HJKL456
+target: engineering</code></pre>
+
+      <h2>health check</h2>
+      <p>
+        slakd&rsquo;s <code>/health</code> returns 503 when Slack&rsquo;s
+        <code>auth.test</code> has not succeeded (revoked token, network outage,
+        Slack down). Reconnect = restart the process.
+      </p>
+
+      <h2>troubleshooting</h2>
+      <dl>
+        <dt>Slack&rsquo;s Request URL stays red</dt>
+        <dd>
+          Either proxyd isn&rsquo;t routing <code>/slack/*</code> (check
+          <code>SLAKD_ADDR</code> is set in proxyd&rsquo;s env &mdash; the
+          compose generator sets it automatically when
+          <code>SLACK_BOT_TOKEN</code> is present), or slakd&rsquo;s
+          signing-secret mismatch makes it reject the challenge. Check slakd
+          logs for <code>"slack: bad signature"</code>.
+        </dd>
+
+        <dt>Bot is in the channel but doesn&rsquo;t respond</dt>
+        <dd>
+          Add a routing entry &mdash; without one, messages are stored but no
+          agent fires.
+        </dd>
+
+        <dt><code>/health</code> returns 503 disconnected</dt>
+        <dd>
+          Bot token revoked or wrong. Reinstall the app, copy a fresh
+          <code>xoxb-</code> token, update <code>.env</code>, restart.
+        </dd>
+
+        <dt>Reactions don&rsquo;t arrive as inbound events</dt>
+        <dd>
+          Make sure <code>reaction_added</code> is subscribed under Event
+          Subscriptions &mdash; it isn&rsquo;t on by default.
+        </dd>
+      </dl>
+
+      <h2>env vars reference</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>variable</th>
+            <th>required</th>
+            <th>default</th>
+            <th>notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>SLACK_BOT_TOKEN</code></td>
+            <td>yes</td>
+            <td>&mdash;</td>
+            <td>Bot User OAuth Token (starts <code>xoxb-</code>)</td>
+          </tr>
+          <tr>
+            <td><code>SLACK_SIGNING_SECRET</code></td>
+            <td>yes</td>
+            <td>&mdash;</td>
+            <td>App &rarr; Basic Information &rarr; Signing Secret</td>
+          </tr>
+          <tr>
+            <td><code>SLAKD_USERS_CACHE_TTL</code></td>
+            <td>no</td>
+            <td><code>900</code></td>
+            <td>
+              seconds &mdash; <code>users.info</code>/<code
+                >conversations.info</code
+              >
+              cache TTL
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        Out of scope in v1: OAuth install (manual install only), Socket Mode
+        (HTTP webhooks via proxyd is permanent), Enterprise Grid, slash commands
+        / modals / Block Kit, user tokens.
+      </p>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="/pub/assets/hub.js"></script>
+  </body>
+</html>

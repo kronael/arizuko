@@ -28,12 +28,13 @@ see `ARCHITECTURE.md` for the daemon and package graph.
 ### `groups` table — folder hierarchy
 
 Source of truth for what exists. Defined in
-`store/migrations/0020-groups-refactor.sql` (later patched by 0023 and
-0041, which dropped `state` / `spawn_ttl_days` / `archive_closed_days`
-— groups exist until explicitly removed); current columns are
-`folder TEXT PRIMARY KEY`, plus `name`, `added_at`, `container_config`,
-`slink_token`, `parent`, `updated_at`. Read via
-`store.Store.GroupByFolder` / `AllGroups`.
+`store/migrations/0020-groups-refactor.sql` (later patched by 0041,
+which dropped `state` / `spawn_ttl_days` / `archive_closed_days` —
+groups exist until explicitly removed; and 0044, which added
+`product`); current columns are `folder TEXT PRIMARY KEY`, plus
+`name`, `added_at`, `container_config`, `slink_token`, `parent`,
+`updated_at`, `product`. Read via `store.Store.GroupByFolder` /
+`AllGroups`.
 
 Tier and world are derived from the folder string, not stored:
 

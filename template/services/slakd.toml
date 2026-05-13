@@ -1,0 +1,19 @@
+image = "arizuko:latest"
+entrypoint = ["slakd"]
+
+[environment]
+ROUTER_URL = "http://gated:8080"
+SLACK_BOT_TOKEN = "${SLACK_BOT_TOKEN}"
+SLACK_SIGNING_SECRET = "${SLACK_SIGNING_SECRET}"
+SLAKD_USERS_CACHE_TTL = "${SLAKD_USERS_CACHE_TTL:-900}"
+CHANNEL_SECRET = "${CHANNEL_SECRET}"
+ASSISTANT_NAME = "${ASSISTANT_NAME}"
+LISTEN_ADDR = ":8080"
+LISTEN_URL = "http://slakd:8080"
+
+[[proxyd_route]]
+path = "/slack/"
+backend = "http://slakd:8080"
+auth = "public"
+gated_by = "SLACK_BOT_TOKEN"
+preserve_headers = ["X-Slack-Signature", "X-Slack-Request-Timestamp"]

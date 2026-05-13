@@ -88,7 +88,7 @@ Two flavors of feature, kept distinct in the docs:
   `dashd`, `timed`, `onbod`, `vited`, `davd`, the container runner,
   `chanlib`/`chanreg`, plus the `gated` daemon that wires them.
 - **Integrations** — pluggable, deployments mix and match: per-platform
-  channel adapters (`teled`, `whapd`, `mastd`, `discd`, `bskyd`,
+  channel adapters (`teled`, `whapd`, `mastd`, `discd`, `slakd`, `bskyd`,
   `reditd`, `emaid`, `twitd`, `linkd`); optional capability hooks
   (Whisper transcription via `WHISPER_BASE_URL`, TTS via `ttsd` +
   `TTS_BASE_URL`, oracle skill via `OPENAI_API_KEY` / `CODEX_API_KEY`

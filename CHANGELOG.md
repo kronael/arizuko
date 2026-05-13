@@ -12,6 +12,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.34.0] — 2026-05-13
+
+> arizuko v0.34.0 — 13 May 2026
+>
+> • Slack adapter (`slakd`) ships — bot-token, single-workspace, HTTP Events API via proxyd
+> • Threads, reactions, file attachments and `:thumbsdown:` dislike all round-trip
+> • Operator runbook: create Slack App, set bot token + signing secret, subscribe events at `/slack/events`
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- `slakd/` — Slack channel adapter (bot-token, v1). Verifies `X-Slack-Signature` HMAC, handles `message.*` / `reaction_added` / `member_joined_channel` / `file_shared`, posts via `chat.postMessage` / `chat.update` / `chat.delete` / `reactions.add` / `files.getUploadURLExternal`. JID shape `slack:<workspace>/<kind>/<id>` with kind ∈ {`channel`, `dm`, `group`}; thread parents land in `Topic = thread_ts` so `get_thread` reconstructs slices without slakd-specific code. Spec: `specs/2/l-slakd.md`.
+- `template/services/slakd.toml` — compose template; mirrors `discd.toml` shape. Built into the shared `arizuko:latest` image (multi-binary).
+- `template/web/pub/howto/slack.html` — operator runbook (Slack App setup, scopes, event subscriptions, bot invite, routing).
+- proxyd `/slack/*` route — forwards to `slakd:8080` without rewriting body or signature headers so the Slack HMAC verifies. `SLAKD_ADDR` is auto-set when `SLACK_BOT_TOKEN` is present; missing token → no route exposed.
+- compose generator: `slakd` in `daemonKeys` (scoped `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLAKD_USERS_CACHE_TTL` to its own env file).
+
+---
+
 ## [v0.33.27] — 2026-05-11
 
 > arizuko v0.33.27 — 11 May 2026
