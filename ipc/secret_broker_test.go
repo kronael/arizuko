@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -72,6 +73,85 @@ func lookupFn(store map[[3]string]string) func(scope, scopeID, key string) (stri
 		return v, ok
 	}
 }
+
+// TestEchoSecret_BrokerEndToEnd exercises the broker chain end-to-end
+// through the MCP unix socket: ARIZUKO_DEV=1 registers `echo_secret`,
+// which declares requires=[ECHO_SECRET]. Seeding a folder row makes
+// found=true; removing it makes found=false. Spec 9/11 M1.
+func TestEchoSecret_BrokerEndToEnd(t *testing.T) {
+	t.Setenv("ARIZUKO_DEV", "1")
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+
+	var mu sync.Mutex
+	store := map[[3]string]string{}
+	var auditRows []SecretUseRow
+	db := StoreFns{
+		LookupSecret: func(scope, scopeID, key string) (string, bool) {
+			mu.Lock()
+			defer mu.Unlock()
+			v, ok := store[[3]string{scope, scopeID, key}]
+			return v, ok
+		},
+		LogSecretUse: func(row SecretUseRow) error {
+			mu.Lock()
+			defer mu.Unlock()
+			auditRows = append(auditRows, row)
+			return nil
+		},
+	}
+
+	stop, err := ServeMCP(sock, GatedFns{}, db, "atlas/eng", []string{"*"}, 0)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	// Phase 1: no secret seeded → broker returns "", found=false.
+	got, errText := callTool(t, sock, "echo_secret", map[string]any{})
+	if errText != "" {
+		t.Fatalf("echo_secret unexpected isError: %s", errText)
+	}
+	if got["found"] != false || got["len"].(float64) != 0 {
+		t.Errorf("phase 1: got %v, want {found:false, len:0}", got)
+	}
+
+	// Phase 2: seed folder row → resolver finds it, len=N, no value leak.
+	const seeded = "ECHO_VALUE_TOPSECRET"
+	mu.Lock()
+	store[[3]string{"folder", "atlas/eng", "ECHO_SECRET"}] = seeded
+	mu.Unlock()
+
+	got, errText = callTool(t, sock, "echo_secret", map[string]any{})
+	if errText != "" {
+		t.Fatalf("echo_secret phase 2 isError: %s", errText)
+	}
+	if got["found"] != true || int(got["len"].(float64)) != len(seeded) {
+		t.Errorf("phase 2: got %v, want {found:true, len:%d}", got, len(seeded))
+	}
+
+	// Audit: one row per call × one declared key = at least 2 rows total.
+	mu.Lock()
+	defer mu.Unlock()
+	if len(auditRows) < 2 {
+		t.Fatalf("audit rows = %d, want ≥ 2", len(auditRows))
+	}
+	last := auditRows[len(auditRows)-1]
+	if last.Tool != "echo_secret" || last.Key != "ECHO_SECRET" {
+		t.Errorf("audit tool/key: %+v", last)
+	}
+	if last.Scope != "folder" {
+		t.Errorf("audit scope = %q, want folder", last.Scope)
+	}
+
+	// Audit rows record status only, never the value itself.
+	for _, row := range auditRows {
+		if row.Status != "ok" {
+			t.Errorf("audit row status = %q, want ok", row.Status)
+		}
+	}
+}
+
 
 // End-to-end: the adapter resolves secrets, calls the handler with the
 // resolved map, and emits one audit row per required key with correct scope.

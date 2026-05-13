@@ -628,7 +628,26 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 	_ = granted
-	_ = registerWithSecrets
+
+	// echo_secret is a dev-only tier-1 tool that exercises the broker chain
+	// end-to-end (spec 9/11 M1). The handler declares one required key
+	// (ECHO_SECRET) and reports whether the broker resolved it for the
+	// caller — never returns the value itself. Lets integration tests
+	// verify user→folder fallback without a third-party API surface.
+	// Real connectors land via M6/M7. Gated by ARIZUKO_DEV=1.
+	if os.Getenv("ARIZUKO_DEV") == "1" {
+		registerWithSecrets("echo_secret",
+			"Dev-only: report whether ECHO_SECRET resolved for the caller. "+
+				"Returns {found, len}; never returns the value. "+
+				"Used by 9/11 integration tests.",
+			[]string{"ECHO_SECRET"},
+			nil,
+			func(_ context.Context, _ mcp.CallToolRequest, secrets map[string]string) (*mcp.CallToolResult, error) {
+				v := secrets["ECHO_SECRET"]
+				out, _ := json.Marshal(map[string]any{"found": v != "", "len": len(v)})
+				return mcp.NewToolResultText(string(out)), nil
+			})
+	}
 
 	registerRaw("send", "Deliver a new top-level message to a chat. Use for the normal reply to the user's last message or for a proactive notification. Not for threaded replies to a specific earlier message (`reply`) or file delivery (`send_file` — its caption replaces this call).",
 		[]mcp.ToolOption{
