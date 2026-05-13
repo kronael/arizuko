@@ -175,7 +175,7 @@ in [specs/index.md](specs/index.md).
 - [ARCHITECTURE.md](ARCHITECTURE.md) — package graph, message flow, schema
 - [ROUTING.md](ROUTING.md) — routing rules and examples
 - [SECURITY.md](SECURITY.md) — threat model
-- [EXTENDING.md](EXTENDING.md) — add channels, tools, skills, autocalls
+- [EXTENDING.md](EXTENDING.md) — add channels, tools, skills, autocalls, connectors
 - [CHANGELOG.md](CHANGELOG.md) — shipped changes
 - [MIGRATION.md](MIGRATION.md) — kanipi → arizuko
 - [specs/](specs/) — per-phase specifications (planned + shipped work)

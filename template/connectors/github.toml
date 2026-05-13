@@ -1,0 +1,21 @@
+# GitHub MCP connector (spec 9/11 M7). Operator copy: drop this block into
+# <data_dir>/connectors.toml (multi-block file) and bump gated. PAT-only:
+# write a per-user fine-grained PAT into the broker via
+#   arizuko user-secret <inst> set <user_sub> GITHUB_TOKEN --value ghp_…
+# or hand the user /dash/me/secrets. Spec 9/14 will add the OAuth dance.
+#
+# Choose ONE command:
+#  - npx (zero install, requires node):
+#      command = ["npx", "-y", "@modelcontextprotocol/server-github"]
+#  - GitHub official binary (faster cold-start; install separately):
+#      command = ["github-mcp-server", "stdio"]
+#  - Docker (heavier; requires docker socket access from gated):
+#      command = ["docker", "run", "-i", "--rm",
+#                 "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
+#                 "ghcr.io/github/github-mcp-server"]
+[[mcp_connector]]
+name         = "github"
+command      = ["npx", "-y", "@modelcontextprotocol/server-github"]
+secrets      = ["GITHUB_TOKEN"]
+env_template = { GITHUB_PERSONAL_ACCESS_TOKEN = "{secret:GITHUB_TOKEN}" }
+scope        = "per_call"
