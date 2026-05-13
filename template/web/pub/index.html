@@ -69,8 +69,9 @@
         <li>
           <strong>Per-user state within a group.</strong> One shared agent acts
           distinctly for Alice and Bob: each user has their own memory file,
-          encrypted per-user secrets (AES-GCM at rest), and grant rules layered
-          over the group default.
+          per-user secrets resolved at tool-call time by a host-side broker
+          (spec 9/11) so the container never holds them, and grant rules
+          layered over the group default.
         </li>
         <li>
           <strong>OAuth account linking.</strong> GitHub / Google / Discord /

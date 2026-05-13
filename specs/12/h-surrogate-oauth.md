@@ -8,8 +8,10 @@ depends: [9/11-crackbox-secrets]
 Per-user OAuth where a teammate logs into a third-party site (Jira,
 GitHub, Linear, Notion, Google Calendar) **as themselves**; access +
 refresh tokens persist in arizuko's `secrets` table for the bot to use
-on their turns. The agent never sees them; egred substitutes at
-egress (inherits [`9/11-crackbox-secrets`](../9/11-crackbox-secrets.md)).
+on their turns. The agent never sees them; the tool-level broker
+([`9/11-crackbox-secrets`](../9/11-crackbox-secrets.md)) resolves the
+token in the MCP handler on the host, the container only sees the
+handler's response.
 
 Distinct from **identity OAuth** (`auth/oauth.go`, which authenticates
 the user _to_ arizuko). Surrogate OAuth authenticates arizuko-the-bot

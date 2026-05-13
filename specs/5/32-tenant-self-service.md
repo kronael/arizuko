@@ -85,7 +85,7 @@ CREATE TABLE secrets (
   scope_kind    TEXT NOT NULL,         -- "folder" | "user"
   scope_id      TEXT NOT NULL,         -- folder path OR user_sub
   key           TEXT NOT NULL,
-  enc_value     BLOB NOT NULL,         -- AES-GCM(AUTH_SECRET)
+  value         BLOB NOT NULL,         -- plaintext (see 0047-secrets-plaintext.sql)
   created_at    DATETIME NOT NULL,
   PRIMARY KEY (scope_kind, scope_id, key)
 );

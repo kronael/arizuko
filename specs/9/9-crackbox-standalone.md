@@ -141,11 +141,33 @@ process supervision, no "if I have zero entries for N minutes shut
 myself down." Daemon-mode lifecycle is owned by Docker compose or
 systemd. `crackbox run` lifecycle is owned by the invoking shell.
 
+## Security invariants
+
+Source-IP reuse is safe under egred's registry model because all
+lookups are keyed by current registry state, not by trust in the
+IP itself:
+
+- Each registration is `(source_ip, id, allowlist)`. Lookups on
+  inbound traffic resolve `source_ip → entry` against the live
+  registry. There is no cached state outside the registry.
+- Docker / KVM may reuse a source IP after the previous tenant's
+  container exits and `/v1/unregister` runs. The next tenant POSTs
+  its own `/v1/register` before its container makes egress; the
+  old allowlist is gone.
+- If a source IP makes a request with no registered entry, egred
+  refuses (403). There is no implicit allowlist, no fallback to a
+  prior tenant's rules.
+- Consumers MUST register before the spawned container starts
+  outbound traffic, and MUST unregister on exit. The "register
+  before traffic" ordering is the consumer's invariant, not
+  egred's — egred just enforces "no entry → deny".
+
 ## Out of scope for v1 (proxy-only)
 
 Listed for visibility, deferred:
 
-- Spec 6/11 placeholder injection (selective MITM for secrets).
+- Secret handling (now spec [9/11](11-crackbox-secrets.md), tool-level
+  broker — no proxy involvement).
 - KVM/qemu sandbox host (now lives in [8/a](../6/12-crackbox-sandboxing.md))
 - MCP tools (`request_network`, `list_network_rules`).
 - Traffic logs and audit.

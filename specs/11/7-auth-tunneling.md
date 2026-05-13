@@ -142,7 +142,7 @@ Daemon validates the credential shape and persists.
 - Credentials are **never logged**. `proxyd` redacts the request
   body for `/auth-tunnel/*/[token]` POSTs in its access log.
 - Stored encrypted at rest using the same AES-GCM-from-AUTH_SECRET
-  scheme proposed for `creds_json` in `7/32-dynamic-channels.md`.
+  scheme proposed for `creds_json` in `11/6-dynamic-channels.md`.
   This spec does not redefine the scheme; if `7/32` ships first,
   reuse; if this ships first, define the helper here and `7/32`
   reuses it.
@@ -159,7 +159,7 @@ No new storage surface. Per-channel auth dirs already exist:
 whatever path the daemon chose on `tunnel-receive`; the daemon
 owns the layout.
 
-The `channels` table from `7/32-dynamic-channels.md` (if shipped)
+The `channels` table from `11/6-dynamic-channels.md` (if shipped)
 is where status flips from `pairing` to `active`. Without `7/32`,
 each daemon owns its own status field; no DB changes here.
 
@@ -170,7 +170,7 @@ persistence of unused tokens.
 ## UI placement
 
 `dashd` extends its channels page (the same page proposed in
-`7/32-dynamic-channels.md`):
+`11/6-dynamic-channels.md`):
 
 ```
 Channel: x (twitter)
@@ -190,7 +190,7 @@ the daemons that opt in.
 
 ## Cross-references
 
-- **Depends on** `7/32-dynamic-channels.md` for the channel-row +
+- **Depends on** `11/6-dynamic-channels.md` for the channel-row +
   encrypted-creds infrastructure. If `7/32` is not yet shipped,
   this spec ships a minimal subset (in-memory channel registry,
   per-daemon creds dir) and migrates to `channels` rows later.

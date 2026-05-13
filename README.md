@@ -110,8 +110,8 @@ package graph and [EXTENDING.md](EXTENDING.md) for adding new integrations.
 A minimal deployment runs core + one channel-adapter integration; a
 maxed-out deployment runs all of them. Optional capability hooks
 (Whisper transcription via `WHISPER_BASE_URL`, TTS via `ttsd` +
-`TTS_BASE_URL`, planned oracle skill) plug into the core via env
-vars and skills, not new daemons.
+`TTS_BASE_URL`, oracle skill via `OPENAI_API_KEY`/`CODEX_API_KEY`)
+plug into the core via env vars and skills, not new daemons.
 
 ### Libraries
 
@@ -177,9 +177,8 @@ in [specs/index.md](specs/index.md).
 - [SECURITY.md](SECURITY.md) — threat model
 - [EXTENDING.md](EXTENDING.md) — add channels, tools, skills, autocalls
 - [CHANGELOG.md](CHANGELOG.md) — shipped changes
-- [ROADMAP.md](ROADMAP.md) — planned work
 - [MIGRATION.md](MIGRATION.md) — kanipi → arizuko
-- [specs/](specs/) — per-phase specifications
+- [specs/](specs/) — per-phase specifications (planned + shipped work)
 - [CLAUDE.md](CLAUDE.md) — project-specific patterns, env vars
 
 ## Build & run
