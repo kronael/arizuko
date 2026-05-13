@@ -57,4 +57,34 @@ codex exec "$prompt"
 Stdout = final message. `--json` emits JSONL; terminal event has the full message.
 Treat as advisory. Cite when you act on it.
 
-Spec: `specs/5/H-call-llm-mcp.md`.
+## Cost reporting (spec 5/34)
+
+Anthropic spend is tracked automatically (gateway captures usage from
+every Claude Code turn). **codex/openai spend isn't**, so report it
+explicitly after each call so the budget gate covers it.
+
+Use `--json` so the per-call usage is machine-readable. After the
+codex run, call the `log_external_cost` MCP tool with what you
+captured:
+
+```bash
+codex --json exec "$prompt" > /tmp/oracle.jsonl
+# parse the terminal `task_complete` event for token_usage + total_cost_usd
+```
+
+Then in your turn:
+
+```
+log_external_cost(
+  provider="codex",
+  model="<the model codex used, e.g. gpt-5>",
+  input_tokens=<token_usage.input>,
+  output_tokens=<token_usage.output>,
+  cost_usd=<total_cost_usd>,
+)
+```
+
+Skipping this hides the call from cost-caps. The operator still sees
+it on OpenAI's invoice but the per-folder cap doesn't include it.
+
+Spec: `specs/5/H-call-llm-mcp.md`, `specs/5/34-cost-caps.md`.

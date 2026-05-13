@@ -145,6 +145,9 @@ type StoreFns struct {
 	LookupSecret func(scope, scopeID, key string) (string, bool)
 	// LogSecretUse appends one audit row per (tool call × resolved key).
 	LogSecretUse func(row SecretUseRow) error
+	// LogExternalCost records one cost_log row for a non-Anthropic LLM call
+	// (oracle/codex/openai). Spec 5/34.
+	LogExternalCost func(folder, provider, model string, inputTok, outputTok, costCents int) error
 	// Connectors is the (discovered, namespaced) MCP-subprocess tool
 	// catalog, registered through the broker chain at buildMCPServer.
 	// Empty/nil disables the connector path. Spec 9/11 M6.
@@ -653,6 +656,50 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 	}
 	_ = granted
+
+	// log_external_cost — agent reports a non-Anthropic LLM call's cost
+	// (oracle/codex/openai) so the spec 5/34 budget gate covers it. The
+	// oracle skill calls this after parsing `codex exec --json` output.
+	// Anthropic costs are captured automatically via submit_turn; this
+	// tool is for everything else the agent shells out to.
+	if db.LogExternalCost != nil {
+		registerRaw("log_external_cost",
+			"Record one non-Anthropic LLM call against the folder's daily "+
+				"budget. Call this AFTER invoking an external model (e.g. "+
+				"`codex exec --json` for /oracle). Pass provider, model, "+
+				"token counts and the call's USD cost; gateway converts to "+
+				"cents and writes a cost_log row. Skipping this hides the "+
+				"call from cost-caps (operator-visible drift only via the "+
+				"provider's own invoice). Spec 5/34.",
+			[]mcp.ToolOption{
+				mcp.WithString("provider", mcp.Required(),
+					mcp.Description("openai | codex | other")),
+				mcp.WithString("model", mcp.Required(),
+					mcp.Description("model identifier, e.g. gpt-5, codex-mini")),
+				mcp.WithNumber("input_tokens",
+					mcp.Description("input token count (0 if unknown)")),
+				mcp.WithNumber("output_tokens",
+					mcp.Description("output token count (0 if unknown)")),
+				mcp.WithNumber("cost_usd", mcp.Required(),
+					mcp.Description("USD cost reported by the provider")),
+			},
+			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				provider := req.GetString("provider", "")
+				model := req.GetString("model", "")
+				if provider == "" || model == "" {
+					return toolErr("log_external_cost: provider and model required")
+				}
+				costUSD := req.GetFloat("cost_usd", 0)
+				cents := int(costUSD*100 + 0.5)
+				inputTok := int(req.GetFloat("input_tokens", 0))
+				outputTok := int(req.GetFloat("output_tokens", 0))
+				if err := db.LogExternalCost(folder, provider, model, inputTok, outputTok, cents); err != nil {
+					return toolErr("log_external_cost: " + err.Error())
+				}
+				out, _ := json.Marshal(map[string]any{"ok": true, "cents": cents})
+				return mcp.NewToolResultText(string(out)), nil
+			})
+	}
 
 	// echo_secret is a dev-only tier-1 tool that exercises the broker chain
 	// end-to-end (spec 9/11 M1). The handler declares one required key

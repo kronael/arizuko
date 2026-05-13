@@ -14,6 +14,39 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+> arizuko v0.36.0 — cost caps
+>
+> • Per-folder daily budget caps (`arizuko budget set folder X --daily N` cents)
+> • Anthropic spend captured automatically; oracle/codex via `log_external_cost` MCP tool
+> • Pre-spawn gate refuses turns over cap with a short "Budget reached" reply (no LLM call)
+> • Default 0 = uncapped; existing channels unaffected until operator opts in
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- **Cost caps (spec 5/34).** Per-folder daily budget gate at the
+  pre-spawn site. `groups.cost_cap_cents_per_day` + `auth_users.cost_cap_cents_per_day`
+  store the cap; `cost_log` table aggregates spend (migration 0049).
+  When today's spend ≥ cap, gateway sends "Budget reached for today
+  (...). Resumes at 00:00 UTC." without invoking the LLM.
+- `cmd/arizuko/budget.go` — operator CLI: `set folder|user <name> --daily N`,
+  `show folder|user <name>` (cap + spend + remaining + status).
+- `gateway/budget.go` — `budgetGate` (composes folder + user caps; lower binds)
+  and `recordTurnCost` (writes one cost_log row per model from
+  `submit_turn.Models`).
+- `ant/src/index.ts` — captures `SDKResultMessage.modelUsage` (per-model
+  tokens + `costUSD`) and forwards via `submit_turn`.
+- `ipc.TurnResult.Models` + `ipc.ModelUsage` — the wire shape; cost in
+  cents (SDK's `costUSD × 100`).
+- `log_external_cost` MCP tool — oracle skill calls this after
+  `codex --json exec` to record codex/openai spend; per-folder cap
+  then covers it.
+- `ant/skills/oracle/SKILL.md` — instructions for the `log_external_cost`
+  call pattern.
+- `core.Config.CostCapsEnabled` (`COST_CAPS_ENABLED=true` default).
+  Escape hatch: set false to bypass the gate.
+
 ### Changed
 
 - `slakd/bot.go` — outbound Slack Web API calls route through `chanlib.DoWithRetry`. 5xx and network errors now retry with jittered backoff (~300ms, ~800ms, 3 attempts total) in addition to the existing 429 + `Retry-After` handling. Replaces an ad-hoc 429-only retry loop with fixed 1s sleep.

@@ -266,6 +266,15 @@ func (g *Gateway) Run(ctx context.Context) error {
 				Status: r.Status, LatencyMS: r.LatencyMS,
 			})
 		},
+		LogExternalCost: func(folder, provider, model string, inputTok, outputTok, costCents int) error {
+			return g.store.LogCost(store.CostRow{
+				Folder:    folder,
+				Model:     provider + "/" + model,
+				InputTok:  inputTok,
+				OutputTok: outputTok,
+				Cents:     costCents,
+			})
+		},
 		ListWebRoutes: func(folder string) []ipc.WebRoute {
 			rows := g.store.ListWebRoutes(folder)
 			out := make([]ipc.WebRoute, len(rows))
