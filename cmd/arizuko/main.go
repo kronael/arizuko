@@ -48,6 +48,7 @@ func main() {
 		fmt.Println("  send     <instance> <folder> \"<msg>\" [--wait | --stream] [--steer <turn_id>]")
 		fmt.Println("  secret   <instance> set <folder> KEY --value V | list <folder> | delete <folder> KEY")
 		fmt.Println("  user-secret <instance> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY")
+		fmt.Println("  budget   <instance> set <folder|user> <name|sub> --daily N | show <folder|user> <name|sub>")
 		os.Exit(1)
 	}
 
@@ -66,6 +67,7 @@ func main() {
 		"network":     cmdNetwork,
 		"secret":      cmdSecret,
 		"user-secret": cmdUserSecret,
+		"budget":      cmdBudget,
 	}
 	fn, ok := cmds[os.Args[1]]
 	if !ok {
