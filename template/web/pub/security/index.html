@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; security</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+    .callout { border-left: 3px solid var(--accent, #888); padding: 0.4em 0.8em; margin: 0.8em 0; background: var(--bg-soft, rgba(127,127,127,0.06)); }
+    .status { font-size: 0.85em; color: var(--dim, #888); }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>security</h1>
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; security</p>
+
+    <p class="lede">arizuko treats every agent run as untrusted code. Four enforcement layers stand between the model and the network: per-group egress allowlist at an HTTP/HTTPS proxy, secrets that never enter the container, selective TLS termination for placeholder substitution, and a DNS resolver that returns NXDOMAIN for anything off the allowlist.</p>
+
+    <h2>1. Threat model</h2>
+    <p>The agent is the threat surface. Claude Code runs with <code>bypassPermissions</code> inside its container and can shell out, fetch URLs, run generated scripts &mdash; under normal operation. Under prompt injection, RCE in a tool call, or an adversarial skill, that same scope is what the attacker gets. The platform assumes this and enforces around it.</p>
+    <p>The system surface (operator, gateway daemons, store) sits outside the agent boundary. It trusts the operator, the chat-platform adapter ingress signed by <code>CHANNEL_SECRET</code>, and the <code>user_groups</code> ACL resolved through <code>auth.MatchGroups</code>. Inbound web traffic is OAuth-gated at <code>proxyd</code>; identity headers are HMAC-signed and verified by every backend via <code>auth/middleware.go</code>.</p>
+    <p>The full trust-zone diagram and per-boundary mechanism table is in <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md"><code>SECURITY.md</code></a> in the repo. Per-daemon files ship next to the source when a daemon's threat model outgrows a row (e.g. <a href="https://github.com/kronael/arizuko/blob/main/ipc/SECURITY.md"><code>ipc/SECURITY.md</code></a> for the MCP socket and <code>SO_PEERCRED</code> check).</p>
+
+    <h2>2. crackbox &mdash; egress sandbox</h2>
+    <p>Every agent container attaches to a per-group Docker network created with <code>internal: true</code> &mdash; no default route to the internet. The only path out is the <code>crackbox</code> forward proxy, set as <code>HTTPS_PROXY</code> in the container's environment at spawn. Non-cooperating clients fail closed: a process that ignores <code>HTTPS_PROXY</code> finds the network unrouted.</p>
+    <p>Connections to non-allowlisted hosts are denied silently at the proxy. Connections to allowlisted hosts are CONNECT-tunneled (HTTPS) or forwarded (HTTP). The default seed is <code>anthropic.com</code> and <code>api.anthropic.com</code> (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0037-network-rules.sql"><code>store/migrations/0037-network-rules.sql</code></a>). Operators extend per folder:</p>
+    <pre><code>arizuko network &lt;instance&gt; allow &lt;folder&gt; api.github.com</code></pre>
+    <p>Allowlist resolution walks the folder ancestry and dedupes (<a href="https://github.com/kronael/arizuko/blob/main/store/network.go"><code>store/network.go</code> <code>ResolveAllowlist</code></a>). The proxy itself, packaging, and CLI live in the <a href="/pub/crackbox/">crackbox component page</a>; the same daemon ships standalone for non-arizuko uses (CI scripts, vendor binaries).</p>
+
+    <h2>3. Secrets never enter the model</h2>
+    <p>The destination model: the container holds placeholder strings, never credentials. Real values live only in the proxy. At spawn, <code>gated</code> resolves the (folder, caller-user) secrets overlay into two maps: a flat <code>{env_name: placeholder}</code> map for container env, and a <code>{placeholder: {value, header, domains}}</code> map registered with the proxy alongside the allowlist (<a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md"><code>specs/9/11-crackbox-secrets.md</code></a>).</p>
+    <p>The agent uses placeholders verbatim in outbound HTTP headers. The proxy terminates TLS for the destinations registered with secrets, replaces the placeholder with the real value, and forwards. Two consequences:</p>
+    <ul>
+      <li>A prompt-injected agent can leak placeholder strings to anywhere on its allowlist &mdash; never the real token. Placeholders are per-spawn random suffixed (<code>sk-ant-PLACEHOLDER-anthropic_a3f9b21c</code>); they carry no user identity.</li>
+      <li>Selective TLS termination is scoped: only destinations that have a secrets entry get MITM'd. Anything else stays CONNECT-spliced, opaque to the proxy. Per-destination CA cert distributed via mount.</li>
+    </ul>
+    <p>Two scopes are designed to compose at spawn: folder-scoped (operator-managed, team API keys) and per-user overlay. Per-user values override folder values for the same env name. At rest: AES-GCM under <code>AUTH_SECRET</code> in the <code>secrets</code> table with <code>scope_kind &isin; {folder, user}</code> (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0034-secrets.sql"><code>store/migrations/0034-secrets.sql</code></a>).</p>
+    <p class="status">Status today: secrets table (folder + user rows) and folder-scope CLI shipped. Spawn-time overlay is shipped but the per-user overlay is applied <strong>only for non-group chats</strong> (<a href="https://github.com/kronael/arizuko/blob/main/container/runner.go"><code>container/runner.go</code> <code>resolveSpawnEnv</code></a>), so Slack-channel/Discord-guild spawns see folder secrets only. Real values are still injected into spawn env today &mdash; placeholder strings + proxy-side substitution and the per-user dashboard CRUD at <code>/dash/me/secrets</code> are spec'd next, with milestones M0&ndash;M6 in spec 9/11.</p>
+
+    <h2>4. DNS filtering &mdash; defense in depth</h2>
+    <p>The proxy bundles a UDP/53 listener. The container's resolver points at it via <code>docker create --dns &lt;proxy-ip&gt;</code>. Per query:</p>
+    <ul>
+      <li>Allowlisted host &rarr; forwarded to the configured upstream (default <code>1.1.1.1:53</code>); reply validated against source addr + ID + question, then relayed.</li>
+      <li>Denied host &rarr; synthesized NXDOMAIN, echoing the original ID and question. Same response for genuinely nonexistent names &mdash; reduces allowlist leakage.</li>
+      <li><code>QTYPE=ANY</code> &rarr; REFUSED regardless of allowlist (no amplification reflector).</li>
+      <li>Malformed packets, multi-question packets, pointer-compressed QNAMEs &rarr; dropped silently.</li>
+    </ul>
+    <p>The HTTP/CONNECT enforcement is still the primary gate; DNS is additive. If a client somehow ignores both the proxy env vars and resolv.conf, the <code>internal: true</code> Docker network ends the conversation. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/9/15-crackbox-dns-filter.md"><code>specs/9/15-crackbox-dns-filter.md</code></a>. Implementation: <a href="https://github.com/kronael/arizuko/tree/main/crackbox/pkg/dns"><code>crackbox/pkg/dns/</code></a>.</p>
+    <p class="status">Status: crackbox-side DNS server shipped. arizuko-side container plumbing (passing <code>--dns</code> with the resolved per-folder crackbox IP) tracked as a follow-up under spec 9/10.</p>
+
+    <h2>5. proxyd &mdash; auth at the edge</h2>
+    <p>Every request from outside the docker network passes through <code>proxyd</code>. It terminates TLS, verifies the OAuth-issued JWT (refresh-token cookie fallback), and signs identity headers with an HMAC shared with the backends:</p>
+    <pre><code>X-User-Sub:    google:alice
+X-User-Name:   Alice
+X-User-Groups: solo/inbox,corp/eng/sre
+X-User-Sig:    &lt;HMAC over the above + timestamp&gt;</code></pre>
+    <p>Every backend verifies the signature via <code>auth/middleware.go</code>: <code>RequireSigned</code> (strict, redirect on fail) on always-authed routes; <code>StripUnsigned</code> (scrub spoofed and continue) on mixed public/authed routes like <code>onbod</code>'s invite landing. The shared key is <code>PROXYD_HMAC_SECRET</code>; if unset, proxyd generates an ephemeral one per run and webd will reject everything &mdash; covered in <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md"><code>SECURITY.md</code> &sect; Identity header trust</a>.</p>
+    <p>One OAuth login covers GitHub, Google, Discord, and Telegram &mdash; account linking unifies them under one <code>auth_users.sub</code>. Per-route auth modes (<code>public</code> / <code>user</code> / <code>operator</code>) are declared per-daemon in service config and aggregated into <code>PROXYD_ROUTES_JSON</code> at compose generation (<a href="https://github.com/kronael/arizuko/blob/main/specs/6/2-proxyd-standalone.md"><code>specs/6/2-proxyd-standalone.md</code></a>). Public paths today: <code>/pub/*</code>, <code>/health</code>, <code>/slink/*</code> (token-bound, rate-limited 10/min/IP).</p>
+    <p>Adapter ingress is a separate trust boundary &mdash; channel adapters reach <code>gated</code> over the internal docker network only, authenticated by <code>Authorization: Bearer $CHANNEL_SECRET</code> (<a href="https://github.com/kronael/arizuko/blob/main/chanlib/chanlib.go"><code>chanlib/chanlib.go</code></a>). proxyd does not see channel traffic; channels do not see web traffic.</p>
+
+    <h2>6. Configuration surface &mdash; REST + MCP</h2>
+    <p>The destination: every security configuration (secrets, allowlists, grants, routes, invites) is reachable two ways, sharing one handler per resource.</p>
+    <ul>
+      <li><strong>Outside the box (REST).</strong> Federated per-daemon <code>/v1/&lt;resource&gt;</code>, OAuth-gated through proxyd. Each daemon owns its tables and exposes them; <code>dashd</code> aggregates the UI on top.</li>
+      <li><strong>Inside the agent (MCP).</strong> The same operations registered as MCP tools on the per-group unix socket, tier-gated. Tier 0 = operator-only, tier 1+ = inner-group, lower tiers = guest.</li>
+    </ul>
+    <p>Operations spawning new state, mutating ACLs, or reading audit data are operator-only (tier 0). Operations scoped to a group's own files, members, and tasks are inner-group (tier 1+). The per-daemon ownership table is in <a href="https://github.com/kronael/arizuko/blob/main/specs/6/R-platform-api.md"><code>specs/6/R-platform-api.md</code></a>.</p>
+    <p class="status">Status: REST surface federated per-daemon, partial coverage today (dashd HTML reads + webd <code>/api/*</code>; gated/timed/onbod <code>/v1/*</code> in flight). MCP surface comprehensive on the inside (31+ tools, tier-gated). Uniform principle &mdash; same handler under both surfaces &mdash; being specced.</p>
+
+    <h2>7. What we don't do</h2>
+    <ul>
+      <li><strong>No per-agent VM isolation today.</strong> Containers per group, not KVM per spawn. KVM-based isolation is researched in <a href="https://github.com/kronael/arizuko/blob/main/specs/9/12-crackbox-sandboxing.md"><code>specs/9/12-crackbox-sandboxing.md</code></a>; opt-in, not default.</li>
+      <li><strong>No output classification.</strong> No jailbreak detector, no response scanner. The boundary is what the agent can <em>reach</em>, not what it can <em>say</em>.</li>
+      <li><strong>No mandatory full-disk encryption.</strong> Secrets in the DB are AES-GCM under <code>AUTH_SECRET</code>. The rest of <code>/srv/data/&lt;instance&gt;/</code> is plain files; back it up and protect the host accordingly.</li>
+      <li><strong>No defense against host root.</strong> The operator owns the host. arizuko does not try to keep secrets from the person running it.</li>
+      <li><strong>No revocation list for tokens.</strong> JWT TTL is 1h, refresh 30d. Short TTL is the revocation primitive today.</li>
+      <li><strong>No IPv6 redirection in the entrypoint.</strong> Crackbox covers IPv4 egress; v6 routing is left to the network config.</li>
+    </ul>
+
+    <h2>8. Dig deeper</h2>
+    <ul>
+      <li><a href="/pub/crackbox/">crackbox</a> &mdash; sandbox internals, standalone usage, threat model for the proxy itself</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md"><code>SECURITY.md</code></a> &mdash; full trust model, boundary table, identity-header signing, trust-zone diagram, incident log</li>
+      <li><a href="https://github.com/kronael/arizuko/tree/main/specs/9"><code>specs/9/</code></a> &mdash; security spec bucket: standalone crackbox (9), arizuko integration (10), secrets injection (11), sandboxing options (12), DNS filter (15)</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/2-proxyd-standalone.md"><code>specs/6/2-proxyd-standalone.md</code></a> &mdash; per-route auth modes, federated platform API</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/1-auth-standalone.md"><code>specs/6/1-auth-standalone.md</code></a> &mdash; auth as a library: mint, verify, downscope, MCP tool surface</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/ipc/SECURITY.md"><code>ipc/SECURITY.md</code></a> &mdash; MCP unix socket, <code>SO_PEERCRED</code> peer-uid check, per-group mount isolation</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
