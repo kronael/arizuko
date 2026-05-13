@@ -183,6 +183,44 @@ disabled routes, and emits the survivors as `PROXYD_ROUTES_JSON` on
 proxyd. Reference: `specs/6/2-proxyd-standalone.md`,
 `template/services/slakd.toml`.
 
+## Adding an MCP connector
+
+Third-party MCP servers (github-mcp, linear-mcp, gdrive-mcp…) plug
+in via `<data_dir>/connectors.toml`. Each `[[mcp_connector]]` block
+declares one stdio subprocess; gated discovers its tools at boot
+with `tools/list`, namespaces them `<connector>_<remote_tool>`, and
+registers each through the broker chain. Per-call invocation
+resolves the declared secrets, renders the env template, spawns the
+subprocess, proxies `tools/call`, scrubs the result, tears the
+subprocess down. Spec 9/11 § "Connector declaration".
+
+```toml
+[[mcp_connector]]
+name         = "github"
+command      = ["github-mcp-server", "stdio"]
+secrets      = ["GITHUB_TOKEN"]
+env_template = { GITHUB_PERSONAL_ACCESS_TOKEN = "{secret:GITHUB_TOKEN}" }
+scope        = "per_call"
+```
+
+- `secrets` lists the broker keys the connector needs; resolved at
+  call time via `user(caller.Sub)` → `folder(caller.Folder)` fallback.
+- `env_template` keys are the env vars the subprocess sees;
+  `{secret:KEY}` references the corresponding entry in `secrets`.
+  Nothing else from gated's env leaks in.
+- `scope = "per_call"` is the only v1 mode — subprocess lives one
+  call. `per_session` (pool keyed by `(connector, caller.Sub)`) is
+  reserved for a future spec.
+- Result scrubbing: any non-empty resolved secret value is
+  exact-string-replaced with `«redacted»` in the
+  `mcp.CallToolResult` before the agent sees it.
+- `CONNECTOR_CALL_TIMEOUT_MS` (env) caps each call (default 30 s).
+- Connector subprocess stderr sinks into gated's `slog.Debug` under
+  the connector name; never reaches the agent.
+
+Operator writes per-user tokens via `arizuko user-secret <inst> set
+<sub> KEY --value V` or by handing the user `/dash/me/secrets`.
+
 ## Adding a slink-driven page
 
 Third-party pages talk to a slink via the embedded JS SDK at

@@ -281,6 +281,19 @@ func (g *Gateway) Run(ctx context.Context) error {
 			return out
 		},
 	}
+
+	// Connectors: load <data_dir>/connectors.toml (or $CONNECTORS_TOML),
+	// spawn each connector once to harvest its tool catalog, register
+	// through the broker chain. Spec 9/11 M6. Missing file is fine.
+	if conns, err := LoadConnectors(ctx, g.cfg.ProjectRoot); err != nil {
+		slog.Error("connectors: load failed", "err", err)
+	} else {
+		g.storeFns.Connectors = conns
+		if len(conns) > 0 {
+			slog.Info("connectors loaded", "tools", len(conns))
+		}
+	}
+
 	g.queue.SetProcessMessagesFn(g.processGroupMessages)
 	g.queue.SetHasPendingFn(func(jid string) bool {
 		return g.store.HasPendingMessages(jid, g.cfg.Name)

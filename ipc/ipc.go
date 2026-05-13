@@ -124,6 +124,10 @@ type StoreFns struct {
 	LookupSecret func(scope, scopeID, key string) (string, bool)
 	// LogSecretUse appends one audit row per (tool call × resolved key).
 	LogSecretUse func(row SecretUseRow) error
+	// Connectors is the (discovered, namespaced) MCP-subprocess tool
+	// catalog, registered through the broker chain at buildMCPServer.
+	// Empty/nil disables the connector path. Spec 9/11 M6.
+	Connectors []ConnectorTool
 }
 
 // SecretUseRow mirrors store.SecretUseRow for the ipc layer (ipc must not
@@ -646,6 +650,22 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				v := secrets["ECHO_SECRET"]
 				out, _ := json.Marshal(map[string]any{"found": v != "", "len": len(v)})
 				return mcp.NewToolResultText(string(out)), nil
+			})
+	}
+
+	// MCP connectors (spec 9/11 M6). Each discovered tool registers through
+	// the broker chain with its connector's secrets list. The handler
+	// spawns the subprocess per call, proxies tools/call, scrubs the
+	// result, tears the subprocess down.
+	for i := range db.Connectors {
+		tool := db.Connectors[i] // capture
+		opts := []mcp.ToolOption{}
+		if len(tool.InputSchema) > 0 {
+			opts = append(opts, mcp.WithRawInputSchema(tool.InputSchema))
+		}
+		registerWithSecrets(tool.LocalName, tool.Description, tool.Connector.Secrets, opts,
+			func(ctx context.Context, req mcp.CallToolRequest, secrets map[string]string) (*mcp.CallToolResult, error) {
+				return CallConnectorTool(ctx, tool, req.GetArguments(), secrets)
 			})
 	}
 
