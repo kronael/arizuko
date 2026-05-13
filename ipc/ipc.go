@@ -67,6 +67,27 @@ type TurnResult struct {
 	Status    string `json:"status"` // success | error
 	Result    string `json:"result,omitempty"`
 	Error     string `json:"error,omitempty"`
+
+	// Models carries per-model token usage + pre-computed cost.
+	// Optional; nil/empty when the agent doesn't report (e.g. ant
+	// versions before the cost-caps cutover). One cost_log row per
+	// model when present. Spec 5/34.
+	Models map[string]ModelUsage `json:"models,omitempty"`
+
+	// CallerSub is the user_sub the turn ran on behalf of (empty for
+	// channel-scoped turns). Spec 5/34 uses this for per-user spend
+	// aggregation; spec 6/5 will replace it with full Caller shape.
+	CallerSub string `json:"caller_sub,omitempty"`
+}
+
+// ModelUsage is one model's tokens + pre-computed cost for a turn.
+// Mirrors the SDK's ModelUsage in snake_case for JSON-RPC over MCP.
+type ModelUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CostCents                int `json:"cost_cents"` // SDK costUSD × 100, integer
 }
 
 // InviteInfo mirrors store.Invite for the ipc layer (ipc must not import store).

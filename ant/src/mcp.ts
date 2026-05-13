@@ -2,12 +2,28 @@ import net from 'net';
 
 const MCP_SOCK = '/workspace/ipc/gated.sock';
 
+// ModelUsage is one model's per-turn accounting, forwarded so gated can
+// write a cost_log row per call. Spec 5/34. Mirrors the SDK's ModelUsage
+// in snake_case; cost_cents is the SDK's costUSD × 100 rounded.
+export interface ModelUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+  cost_cents: number;
+}
+
 export interface SubmitTurnPayload {
   turn_id: string;
   session_id?: string;
   status: 'success' | 'error';
   result?: string;
   error?: string;
+  // Per-model usage from the SDK's result message. Optional; gated
+  // no-ops if absent.
+  models?: Record<string, ModelUsage>;
+  // user_sub the turn ran on behalf of. Empty/undefined = channel-scoped.
+  caller_sub?: string;
 }
 
 let nextId = 1;

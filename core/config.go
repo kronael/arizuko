@@ -86,6 +86,11 @@ type Config struct {
 	EgressProxyURL      string // HTTP(S)_PROXY value for the agent (e.g. http://crackbox:3128)
 	EgressParentSubnet  string // parent CIDR carved into per-folder /24s (default 10.99.0.0/16)
 	EgressAdminSecret   string // optional bearer token for crackbox admin API mutations
+
+	// Cost caps (spec 5/34). Enabled by default; pre-spawn gate consults
+	// per-folder + per-user caps in store/cost_log. Set false to bypass
+	// the gate entirely (escape hatch for operators).
+	CostCapsEnabled bool
 }
 
 func LoadConfigFrom(dir string) (*Config, error) {
@@ -159,6 +164,8 @@ func LoadConfig() (*Config, error) {
 		EgressProxyURL:      envOr("CRACKBOX_PROXY_URL", "http://crackbox:3128"),
 		EgressParentSubnet:  envOr("EGRESS_SUBNET", "10.99.0.0/16"),
 		EgressAdminSecret:   envOr("CRACKBOX_ADMIN_SECRET", ""),
+
+		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
 	}
 
 	// Validation of EgressNetworkPrefix / EgressCrackbox lives in gated

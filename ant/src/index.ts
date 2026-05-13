@@ -22,6 +22,9 @@ interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  // Per-model usage harvested from the SDK's result message (Anthropic
+  // usage only; oracle/codex skill captures separately). Spec 5/34.
+  models?: Record<string, import('./mcp.js').ModelUsage>;
 }
 
 interface SessionEntry {
@@ -174,10 +177,34 @@ async function deliverTurn(turnID: string, output: ContainerOutput): Promise<voi
       status: output.status,
       result: output.result ?? undefined,
       error: output.error,
+      models: output.models,
     });
   } catch (err) {
     log(`submit_turn failed: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+// extractModelUsage converts the SDK's modelUsage record to the snake_case
+// shape gated expects. costUSD → cost_cents via × 100 + round. Spec 5/34.
+function extractModelUsage(modelUsage: unknown): Record<string, import('./mcp.js').ModelUsage> | undefined {
+  if (!modelUsage || typeof modelUsage !== 'object') return undefined;
+  const out: Record<string, import('./mcp.js').ModelUsage> = {};
+  for (const [model, u] of Object.entries(modelUsage as Record<string, {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+    costUSD?: number;
+  }>)) {
+    out[model] = {
+      input_tokens: u.inputTokens ?? 0,
+      output_tokens: u.outputTokens ?? 0,
+      cache_read_input_tokens: u.cacheReadInputTokens ?? 0,
+      cache_creation_input_tokens: u.cacheCreationInputTokens ?? 0,
+      cost_cents: Math.round((u.costUSD ?? 0) * 100),
+    };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function log(message: string): void {
@@ -500,7 +527,8 @@ async function runQuery(
       if (message.type === 'result') {
         resultCount++;
         const textResult = 'result' in message ? (message as { result?: string }).result : null;
-        log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+        const models = extractModelUsage((message as { modelUsage?: unknown }).modelUsage);
+        log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}${models ? ` models=${Object.keys(models).join(',')}` : ''}`);
         stream.end();
         if (message.subtype === 'error_max_turns') {
           maxTurnsHit = true;
@@ -508,7 +536,7 @@ async function runQuery(
           log('Session error, will retry without session');
           sessionError = true;
         } else {
-          await deliverTurn(turnID, { status: 'success', result: textResult || null, newSessionId });
+          await deliverTurn(turnID, { status: 'success', result: textResult || null, newSessionId, models });
         }
       }
     }

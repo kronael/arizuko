@@ -951,6 +951,15 @@ func (g *Gateway) runAgentWithOpts(
 	onOutput func(string, string), isolated bool,
 	topic string, msgID string, msgCount int,
 ) container.Output {
+	// Spec 5/34 pre-spawn budget gate. If today's spend hits the cap,
+	// send a short channel-visible refusal (no LLM call) and return.
+	// User-scoped caps land with spec 6/5's Caller shape; v1 checks
+	// folder-only by passing "" for user_sub.
+	if msg := g.budgetGate(group.Folder, ""); msg != "" {
+		onOutput(msg, "ok")
+		return container.Output{}
+	}
+
 	var sessionID string
 	var logRowID int64
 	if !isolated {
@@ -1912,6 +1921,10 @@ func (g *Gateway) handleSubmitTurn(folder string, t ipc.TurnResult) error {
 			"folder", folder, "turn_id", t.TurnID, "status", t.Status)
 		return nil
 	}
+
+	// Spec 5/34: write cost_log rows when the agent reports per-model usage.
+	// Empty Models is the pre-cutover case; recordTurnCost no-ops.
+	g.recordTurnCost(folder, t.CallerSub, t.Models)
 
 	g.publishRoundDone(folder, t.TurnID, t.Status, t.Error)
 
