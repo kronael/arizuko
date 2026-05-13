@@ -1,5 +1,5 @@
 ---
-status: spec
+status: shipped
 ---
 
 # slakd — Slack channel adapter (bot-token, v1)

@@ -251,10 +251,11 @@ target: engineering</code></pre>
       <dl>
         <dt>Slack&rsquo;s Request URL stays red</dt>
         <dd>
-          Either proxyd isn&rsquo;t routing <code>/slack/*</code> (check
-          <code>SLAKD_ADDR</code> is set in proxyd&rsquo;s env &mdash; the
-          compose generator sets it automatically when
-          <code>SLACK_BOT_TOKEN</code> is present), or slakd&rsquo;s
+          Either proxyd isn&rsquo;t routing <code>/slack/*</code> (the
+          <code>[[proxyd_route]]</code> block in
+          <code>template/services/slakd.toml</code> is dropped when
+          <code>SLACK_BOT_TOKEN</code> is unset &mdash; check it&rsquo;s in
+          <code>.env</code> and regenerate compose), or slakd&rsquo;s
           signing-secret mismatch makes it reject the challenge. Check slakd
           logs for <code>"slack: bad signature"</code>.
         </dd>

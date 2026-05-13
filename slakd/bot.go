@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -24,28 +25,25 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
-// slackBase is the Slack Web API root. Overridable in tests via newBotWithBase.
-const slackBase = "https://slack.com/api"
-
-// signingWindow is the max permitted clock skew on inbound webhooks.
-const signingWindow = 5 * time.Minute
-
-// cacheTTL is the default user/conversation cache TTL (15 min per spec).
-const defaultCacheTTL = 15 * time.Minute
+const (
+	slackBase       = "https://slack.com/api"
+	signingWindow   = 5 * time.Minute
+	defaultCacheTTL = 15 * time.Minute
+)
 
 type bot struct {
 	chanlib.NoVoiceSender
 
 	cfg   config
-	api   string // Slack Web API base ("https://slack.com/api" in prod)
+	api   string
 	http  *http.Client
 	rc    *chanlib.RouterClient
 	files *chanlib.URLCache
 	users *ttlCache
 	chans *ttlCache
 
-	botUserID atomic.Value // string — set by authTest at startup
-	teamID    atomic.Value // string — workspace ID
+	botUserID atomic.Value
+	teamID    atomic.Value
 
 	connected     atomic.Bool
 	lastInboundAt atomic.Int64
@@ -86,8 +84,6 @@ func newBotWithBase(cfg config, base string) (*bot, error) {
 	return b, nil
 }
 
-// start verifies the bot token via auth.test, stores bot_user_id + team_id,
-// and marks the bot connected. Failure here aborts startup.
 func (b *bot) start(rc *chanlib.RouterClient) error {
 	b.rc = rc
 	user, team, err := b.authTest(context.Background())
@@ -105,10 +101,6 @@ func (b *bot) stop() {
 	b.connected.Store(false)
 }
 
-// verifySignature confirms the X-Slack-Signature header matches the body
-// signed with the signing secret. Returns nil on success.
-// Spec: signature is hex of HMAC-SHA256 over "v0:<ts>:<body>".
-// Reject if |now - ts| > 5 min.
 func verifySignature(secret, sigHeader, tsHeader string, body []byte, now time.Time) error {
 	if secret == "" {
 		return errors.New("signing secret not configured")
@@ -139,10 +131,7 @@ func verifySignature(secret, sigHeader, tsHeader string, body []byte, now time.T
 	return nil
 }
 
-// handleEvent dispatches a verified Events API payload. URL verification
-// returns the challenge; event_callback is processed inline.
 func (b *bot) handleEvent(body []byte, w http.ResponseWriter) {
-	// Use a small struct that captures the envelope shape we care about.
 	var env struct {
 		Type      string          `json:"type"`
 		Challenge string          `json:"challenge"`
@@ -157,20 +146,15 @@ func (b *bot) handleEvent(body []byte, w http.ResponseWriter) {
 	case "url_verification":
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte(env.Challenge))
-		return
 	case "event_callback":
-		// ack immediately, dispatch synchronously (we're fast); Slack
-		// retries on non-2xx, which we do not want for handled events.
+		// ack first; Slack retries on non-2xx, which we don't want for handled events.
 		w.WriteHeader(http.StatusOK)
 		b.dispatch(env.TeamID, env.Event)
-		return
 	default:
-		// Other envelope types (e.g. app_rate_limited) — ack and ignore.
 		w.WriteHeader(http.StatusOK)
 	}
 }
 
-// dispatch routes a single Slack event by its `type` field.
 func (b *bot) dispatch(teamID string, raw json.RawMessage) {
 	var head struct {
 		Type    string `json:"type"`
@@ -182,43 +166,25 @@ func (b *bot) dispatch(teamID string, raw json.RawMessage) {
 	}
 	switch head.Type {
 	case "message":
-		// We handle message.channels / .groups / .im / .mpim under the
-		// single Events API `message` type — channel_type discriminates.
-		// Subtype "message_changed", "message_deleted", "bot_message" etc
-		// are filtered: only top-level user messages flow inbound.
 		if head.Subtype != "" && head.Subtype != "thread_broadcast" {
 			return
 		}
 		b.handleMessage(teamID, raw)
 	case "reaction_added":
 		b.handleReaction(teamID, raw)
-	case "reaction_removed":
-		// v1: not emitted (per spec).
-		return
 	case "member_joined_channel":
 		b.handleJoin(teamID, raw)
-	case "file_shared":
-		// Slack also delivers a `message` with files[]; we attach via
-		// that path. file_shared without a message is rare; skip — the
-		// follow-up message event carries the attachment.
-		return
-	default:
-		// Unhandled event types are normal — Slack emits many; only the
-		// subset declared in the manifest reaches us.
 	}
 }
 
 type slackFile struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Mimetype  string `json:"mimetype"`
-	URLPriv   string `json:"url_private"`
-	Size      int64  `json:"size"`
+	Name     string `json:"name"`
+	Mimetype string `json:"mimetype"`
+	URLPriv  string `json:"url_private"`
+	Size     int64  `json:"size"`
 }
 
 type slackMessage struct {
-	Type        string      `json:"type"`
-	Subtype     string      `json:"subtype"`
 	User        string      `json:"user"`
 	BotID       string      `json:"bot_id"`
 	Text        string      `json:"text"`
@@ -235,7 +201,6 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 		slog.Warn("slack: message decode failed", "err", err)
 		return
 	}
-	// Skip our own messages: matches bot_user_id, OR bot_id is set with no user (app posts).
 	if m.User != "" && m.User == b.BotUserID() {
 		return
 	}
@@ -246,11 +211,10 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 		return
 	}
 
-	kind, isIM := b.kindFor(m.Channel, m.ChannelType)
-	jid := formatJID(teamIDFallback(teamID, b.TeamID()), kind, m.Channel)
+	conv := b.convInfoFor(m.Channel, m.ChannelType)
+	jid := formatJID(cmp.Or(teamID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), m.Channel)
 
-	content := m.Text
-	atts := b.attachmentsFor(m.Files, &content)
+	content, atts := b.attachmentsFor(m.Text, m.Files)
 	if content == "" && len(atts) == 0 {
 		return
 	}
@@ -260,16 +224,14 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 		topic = m.ThreadTS
 	}
 
-	isGroup := !isIM
-	// Mention detection: text contains `<@bot_user_id>`. Slack's app_mention
-	// fires alongside message.*; we derive Verb here per spec.
+	isGroup := !conv.IsIM
 	verb := ""
 	if isGroup && b.BotUserID() != "" && strings.Contains(m.Text, "<@"+b.BotUserID()+">") {
 		verb = "mention"
 	}
 
 	senderName := b.userName(m.User)
-	chatName := b.chatName(m.Channel)
+	chatName := chatNameFrom(conv)
 
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:          m.TS,
@@ -295,11 +257,9 @@ type slackReaction struct {
 	User     string `json:"user"`
 	Reaction string `json:"reaction"`
 	Item     struct {
-		Type    string `json:"type"`
 		Channel string `json:"channel"`
 		TS      string `json:"ts"`
 	} `json:"item"`
-	EventTS string `json:"event_ts"`
 }
 
 func (b *bot) handleReaction(teamID string, raw json.RawMessage) {
@@ -314,8 +274,8 @@ func (b *bot) handleReaction(teamID string, raw json.RawMessage) {
 	if r.Item.Channel == "" || r.Item.TS == "" || r.Reaction == "" {
 		return
 	}
-	kind, isIM := b.kindFor(r.Item.Channel, "")
-	jid := formatJID(teamIDFallback(teamID, b.TeamID()), kind, r.Item.Channel)
+	conv := b.convInfoFor(r.Item.Channel, "")
+	jid := formatJID(cmp.Or(teamID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), r.Item.Channel)
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:         r.Item.TS + ":r:" + r.Reaction,
 		ChatJID:    jid,
@@ -326,8 +286,8 @@ func (b *bot) handleReaction(teamID string, raw json.RawMessage) {
 		Verb:       chanlib.ClassifyEmoji(r.Reaction),
 		ReplyTo:    r.Item.TS,
 		Reaction:   r.Reaction,
-		IsGroup:    !isIM,
-		ChatName:   b.chatName(r.Item.Channel),
+		IsGroup:    !conv.IsIM,
+		ChatName:   chatNameFrom(conv),
 	}); err != nil {
 		slog.Error("deliver reaction failed", "jid", jid, "err", err)
 		return
@@ -349,8 +309,8 @@ func (b *bot) handleJoin(teamID string, raw json.RawMessage) {
 	if j.User == "" || j.Channel == "" || j.User == b.BotUserID() {
 		return
 	}
-	kind, isIM := b.kindFor(j.Channel, "")
-	jid := formatJID(teamIDFallback(teamID, b.TeamID()), kind, j.Channel)
+	conv := b.convInfoFor(j.Channel, "")
+	jid := formatJID(cmp.Or(teamID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), j.Channel)
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:         "join:" + j.User + ":" + j.EventTS,
 		ChatJID:    jid,
@@ -359,8 +319,8 @@ func (b *bot) handleJoin(teamID string, raw json.RawMessage) {
 		Content:    "joined",
 		Verb:       "join",
 		Timestamp:  time.Now().Unix(),
-		IsGroup:    !isIM,
-		ChatName:   b.chatName(j.Channel),
+		IsGroup:    !conv.IsIM,
+		ChatName:   chatNameFrom(conv),
 	}); err != nil {
 		slog.Error("deliver join failed", "jid", jid, "err", err)
 		return
@@ -368,12 +328,7 @@ func (b *bot) handleJoin(teamID string, raw json.RawMessage) {
 	b.lastInboundAt.Store(time.Now().Unix())
 }
 
-// attachmentsFor folds Slack file blobs into chanlib attachments and appends
-// "[Attachment: <name>]" markers to content. Matches discd.buildAttachments.
-func (b *bot) attachmentsFor(files []slackFile, content *string) []chanlib.InboundAttachment {
-	if len(files) == 0 {
-		return nil
-	}
+func (b *bot) attachmentsFor(content string, files []slackFile) (string, []chanlib.InboundAttachment) {
 	var atts []chanlib.InboundAttachment
 	for _, f := range files {
 		if f.URLPriv == "" {
@@ -383,7 +338,7 @@ func (b *bot) attachmentsFor(files []slackFile, content *string) []chanlib.Inbou
 		if name == "" {
 			name = "attachment"
 		}
-		*content += fmt.Sprintf(" [Attachment: %s]", name)
+		content += fmt.Sprintf(" [Attachment: %s]", name)
 		u := f.URLPriv
 		if b.cfg.ListenURL != "" && b.files != nil {
 			u = fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, b.files.Put(f.URLPriv))
@@ -392,33 +347,30 @@ func (b *bot) attachmentsFor(files []slackFile, content *string) []chanlib.Inbou
 			Mime: f.Mimetype, Filename: name, URL: u, Size: f.Size,
 		})
 	}
-	return atts
+	return content, atts
 }
 
-// kindFor returns the JID kind segment + whether it's a 1:1 DM. Falls back
-// to channel_type from the event when conversations.info has no entry.
-func (b *bot) kindFor(channelID, channelType string) (kind string, isIM bool) {
+// convInfoFor resolves conversation metadata (cached). On conversations.info
+// failure, returns a synthetic info derived from the event's channel_type so
+// the inbound still gets a sensible JID kind and IsGroup flag.
+func (b *bot) convInfoFor(channelID, channelType string) *slackConvInfo {
 	if v, ok := b.chans.get(channelID); ok {
-		c := v.(*slackConvInfo)
-		return chanKind(c.IsIM, c.IsMpim), c.IsIM
+		return v.(*slackConvInfo)
 	}
-	// Lazy lookup; on failure use channel_type from the event.
-	info, err := b.conversationsInfo(channelID)
-	if err == nil && info != nil {
+	if info, err := b.conversationsInfo(channelID); err == nil && info != nil {
 		b.chans.put(channelID, info)
-		return chanKind(info.IsIM, info.IsMpim), info.IsIM
+		return info
 	}
 	switch channelType {
 	case "im":
-		return "dm", true
+		return &slackConvInfo{IsIM: true}
 	case "mpim":
-		return "group", false
+		return &slackConvInfo{IsMpim: true}
 	default:
-		return "channel", false
+		return &slackConvInfo{}
 	}
 }
 
-// userName resolves to a display name via users.info, cached.
 func (b *bot) userName(userID string) string {
 	if userID == "" {
 		return ""
@@ -434,29 +386,11 @@ func (b *bot) userName(userID string) string {
 	return name
 }
 
-// chatName resolves to "#channel" form via conversations.info, cached.
-func (b *bot) chatName(channelID string) string {
-	if v, ok := b.chans.get(channelID); ok {
-		c := v.(*slackConvInfo)
-		if c.IsIM {
-			return ""
-		}
-		if c.Name != "" {
-			return "#" + c.Name
-		}
-	}
-	info, err := b.conversationsInfo(channelID)
-	if err != nil || info == nil {
+func chatNameFrom(c *slackConvInfo) string {
+	if c.IsIM || c.Name == "" {
 		return ""
 	}
-	b.chans.put(channelID, info)
-	if info.IsIM {
-		return ""
-	}
-	if info.Name != "" {
-		return "#" + info.Name
-	}
-	return ""
+	return "#" + c.Name
 }
 
 // ===== Outbound BotHandler =====
@@ -469,11 +403,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	body := url.Values{}
 	body.Set("channel", parts.id)
 	body.Set("text", req.Content)
-	threadTS := req.ThreadID
-	if threadTS == "" {
-		threadTS = req.ReplyTo
-	}
-	if threadTS != "" {
+	if threadTS := cmp.Or(req.ThreadID, req.ReplyTo); threadTS != "" {
 		body.Set("thread_ts", threadTS)
 	}
 	var resp struct {
@@ -508,7 +438,6 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	if name == "" {
 		name = filepath.Base(path)
 	}
-	// Step 1: getUploadURLExternal
 	var get struct {
 		OK        bool   `json:"ok"`
 		Error     string `json:"error"`
@@ -524,7 +453,6 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	if !get.OK {
 		return fmt.Errorf("slack upload url: %s", get.Error)
 	}
-	// Step 2: PUT bytes to upload_url
 	req, err := http.NewRequestWithContext(context.Background(), "POST", get.UploadURL, f)
 	if err != nil {
 		return fmt.Errorf("slack upload req: %w", err)
@@ -538,7 +466,6 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	if upResp.StatusCode/100 != 2 {
 		return fmt.Errorf("slack upload: status %d", upResp.StatusCode)
 	}
-	// Step 3: completeUploadExternal
 	files, _ := json.Marshal([]map[string]string{{"id": get.FileID, "title": name}})
 	complete := url.Values{}
 	complete.Set("files", string(files))
@@ -559,13 +486,10 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	return nil
 }
 
-func (b *bot) Typing(string, bool) {
-	// Slack has no typing primitive for bots — RTM `typing` is user-only.
-	// Silently skip; the agent caller treats this as a soft signal.
-}
+// Typing is a no-op: Slack has no bot-side typing primitive.
+func (b *bot) Typing(string, bool) {}
 
 func (b *bot) Post(req chanlib.PostRequest) (string, error) {
-	// Slack channels are the post surface — map to send (spec).
 	return b.Send(chanlib.SendRequest{ChatJID: req.ChatJID, Content: req.Content})
 }
 
@@ -596,7 +520,6 @@ func (b *bot) Like(req chanlib.LikeRequest) error {
 }
 
 func (b *bot) Dislike(req chanlib.DislikeRequest) error {
-	// Spec: dislike-via-like — emit reactions.add with thumbsdown.
 	return b.Like(chanlib.LikeRequest{ChatJID: req.ChatJID, TargetID: req.TargetID, Reaction: "thumbsdown"})
 }
 
@@ -662,11 +585,10 @@ func (b *bot) Repost(chanlib.RepostRequest) (string, error) {
 
 func (b *bot) authTest(ctx context.Context) (userID, teamID string, err error) {
 	var resp struct {
-		OK        bool   `json:"ok"`
-		Error     string `json:"error"`
-		UserID    string `json:"user_id"`
-		BotID     string `json:"bot_id"`
-		TeamID    string `json:"team_id"`
+		OK     bool   `json:"ok"`
+		Error  string `json:"error"`
+		UserID string `json:"user_id"`
+		TeamID string `json:"team_id"`
 	}
 	if err := b.postForm(ctx, "/auth.test", url.Values{}, &resp); err != nil {
 		return "", "", err
@@ -698,24 +620,18 @@ func (b *bot) usersInfo(userID string) (string, error) {
 	if !resp.OK {
 		return "", errors.New(resp.Error)
 	}
-	if n := resp.User.Profile.DisplayName; n != "" {
-		return n, nil
-	}
-	if n := resp.User.Profile.RealName; n != "" {
-		return n, nil
-	}
-	if n := resp.User.RealName; n != "" {
-		return n, nil
-	}
-	return resp.User.Name, nil
+	return cmp.Or(
+		resp.User.Profile.DisplayName,
+		resp.User.Profile.RealName,
+		resp.User.RealName,
+		resp.User.Name,
+	), nil
 }
 
 type slackConvInfo struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	IsIM    bool   `json:"is_im"`
-	IsMpim  bool   `json:"is_mpim"`
-	IsGroup bool   `json:"is_group"`
+	Name   string `json:"name"`
+	IsIM   bool   `json:"is_im"`
+	IsMpim bool   `json:"is_mpim"`
 }
 
 func (b *bot) conversationsInfo(channelID string) (*slackConvInfo, error) {
@@ -735,77 +651,36 @@ func (b *bot) conversationsInfo(channelID string) (*slackConvInfo, error) {
 	return resp.Channel, nil
 }
 
-// postForm sends a urlencoded request with bearer token, decodes JSON into out.
-// Respects Retry-After on 429; logs and returns the underlying status error.
 func (b *bot) postForm(ctx context.Context, path string, form url.Values, out any) error {
-	for attempt := 0; attempt < 3; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, "POST", b.api+path, strings.NewReader(form.Encode()))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Authorization", "Bearer "+b.cfg.BotToken)
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
-		req.Header.Set("User-Agent", chanlib.UserAgent)
-		resp, err := b.http.Do(req)
-		if err != nil {
-			return fmt.Errorf("slack %s: %w", path, err)
-		}
-		if resp.StatusCode == http.StatusTooManyRequests {
-			ra := resp.Header.Get("Retry-After")
-			d := parseRetryAfter(ra)
-			slog.Warn("slack rate limited", "path", path, "retry_after", d, "attempt", attempt+1)
-			_, _ = io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(d):
-			}
-			continue
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode/100 != 2 {
-			return fmt.Errorf("slack %s: status %d", path, resp.StatusCode)
-		}
-		return json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out)
+	req, err := http.NewRequestWithContext(ctx, "POST", b.api+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("slack %s: rate-limit exhausted", path)
+	req.Header.Set("Authorization", "Bearer "+b.cfg.BotToken)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+	req.Header.Set("User-Agent", chanlib.UserAgent)
+	resp, err := chanlib.DoWithRetry(b.http, req)
+	if err != nil {
+		return fmt.Errorf("slack %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("slack %s: status %d", path, resp.StatusCode)
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out)
 }
 
-func parseRetryAfter(h string) time.Duration {
-	if h == "" {
-		return time.Second
-	}
-	if n, err := strconv.Atoi(h); err == nil && n > 0 {
-		return time.Duration(n) * time.Second
-	}
-	return time.Second
-}
-
-// parseSlackTS turns "1700000000.000200" into a unix seconds int64. On parse
-// failure returns time.Now (events have a TS; this is only a safety net).
+// parseSlackTS converts "1700000000.000200" to unix seconds; falls back to now on parse failure.
 func parseSlackTS(ts string) int64 {
 	if ts == "" {
 		return time.Now().Unix()
 	}
-	dot := strings.IndexByte(ts, '.')
-	s := ts
-	if dot >= 0 {
-		s = ts[:dot]
-	}
+	s, _, _ := strings.Cut(ts, ".")
 	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
 		return time.Now().Unix()
 	}
 	return n
-}
-
-// teamIDFallback prefers the per-event team_id; falls back to auth.test's.
-func teamIDFallback(eventTeamID, authTeamID string) string {
-	if eventTeamID != "" {
-		return eventTeamID
-	}
-	return authTeamID
 }
 
 // ===== TTL cache =====
@@ -832,7 +707,11 @@ func (c *ttlCache) get(k string) (any, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.m[k]
-	if !ok || time.Now().After(e.exp) {
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(e.exp) {
+		delete(c.m, k)
 		return nil, false
 	}
 	return e.v, true

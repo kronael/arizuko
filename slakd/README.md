@@ -25,11 +25,15 @@ in shape — registers with `gated` via `chanlib.RouterClient`, exposes
   (`files.getUploadURLExternal` + `files.completeUploadExternal`).
 - Proxy `url_private` file URLs via `GET /files/<id>` adding upstream
   `Authorization: Bearer $SLACK_BOT_TOKEN`.
+- Outbound Web API calls go through `chanlib.DoWithRetry` — 429 honours
+  `Retry-After` (capped at 30s); 5xx and network errors retry with
+  jittered backoff (~300ms, ~800ms), 3 attempts total.
 
 ## Entry points
 
 - Binary: `slakd/main.go`
-- Listen: `$LISTEN_ADDR` (default `:9009`; compose template sets `:8080`)
+- Listen: `$LISTEN_ADDR` (default `:8080`; container-internal per
+  arizuko convention)
 - Public surface: proxyd forwards `/slack/events` → `slakd:8080`
 - Router registration: `slack:` prefix, caps `send_text`, `send_file`,
   `edit`, `like`, `delete`, `dislike`, `post`. Hint-only verbs
@@ -61,8 +65,8 @@ SLACK_BOT_TOKEN=xoxb-...      required (Bot User OAuth Token)
 SLACK_SIGNING_SECRET=...      required (Slack App → Basic Information)
 ROUTER_URL=http://gated:8080  required
 CHANNEL_SECRET=...            (or SLAKD_CHANNEL_SECRET) for chanlib.Auth
-LISTEN_ADDR=:9009             internal HTTP listener
-LISTEN_URL=http://slakd:9009  URL the router reaches us on
+LISTEN_ADDR=:8080             internal HTTP listener
+LISTEN_URL=http://slakd:8080  URL the router reaches us on
 SLAKD_USERS_CACHE_TTL=900     users.info + conversations.info TTL (seconds)
 MEDIA_MAX_FILE_BYTES=20971520 file-proxy cap
 CHANNEL_NAME=slack            registration name

@@ -12,6 +12,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- `slakd/bot.go` — outbound Slack Web API calls route through `chanlib.DoWithRetry`. 5xx and network errors now retry with jittered backoff (~300ms, ~800ms, 3 attempts total) in addition to the existing 429 + `Retry-After` handling. Replaces an ad-hoc 429-only retry loop with fixed 1s sleep.
+- `slakd/bot.go` — `convInfoFor(channelID, channelType)` merges the prior `kindFor` + `chatName` paths into a single `conversations.info` lookup. Eliminates duplicate round-trips per inbound `message.*` event.
+- `slakd/bot.go` — `ttlCache.get` lazy-deletes expired entries instead of returning stale values.
+- `slakd/bot.go`, `slakd/jid.go` — remove unused `slackMessage.Subtype`, `slackFile.ID`, `jidParts.isGroup()` and other dead JSON fields surfaced by the audit.
+
+### Fixed
+
+- `slakd/README.md` — `LISTEN_ADDR` / `LISTEN_URL` documented defaults corrected to `:8080` (matches code + service template; README previously documented `:9009`, which would have misled operators wiring proxyd routes).
+
+---
+
 ## [v0.35.0] — 2026-05-13
 
 > arizuko v0.35.0 — 13 May 2026

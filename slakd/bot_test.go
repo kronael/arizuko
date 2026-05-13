@@ -17,17 +17,16 @@ func TestParseJID(t *testing.T) {
 		workspace string
 		kind      string
 		id        string
-		isGroup   bool
 	}{
-		{"channel", "slack:T012/channel/C0HJK", false, "T012", "channel", "C0HJK", true},
-		{"dm", "slack:T012/dm/D0XY", false, "T012", "dm", "D0XY", false},
-		{"group_mpim", "slack:T012/group/G123", false, "T012", "group", "G123", true},
-		{"missing_prefix", "discord:T/channel/C", true, "", "", "", false},
-		{"missing_kind_seg", "slack:T012", true, "", "", "", false},
-		{"missing_id", "slack:T012/channel", true, "", "", "", false},
-		{"empty_id", "slack:T012/channel/", true, "", "", "", false},
-		{"bad_kind", "slack:T012/private/C0", true, "", "", "", false},
-		{"empty_workspace", "slack:/channel/C0", true, "", "", "", false},
+		{"channel", "slack:T012/channel/C0HJK", false, "T012", "channel", "C0HJK"},
+		{"dm", "slack:T012/dm/D0XY", false, "T012", "dm", "D0XY"},
+		{"group_mpim", "slack:T012/group/G123", false, "T012", "group", "G123"},
+		{"missing_prefix", "discord:T/channel/C", true, "", "", ""},
+		{"missing_kind_seg", "slack:T012", true, "", "", ""},
+		{"missing_id", "slack:T012/channel", true, "", "", ""},
+		{"empty_id", "slack:T012/channel/", true, "", "", ""},
+		{"bad_kind", "slack:T012/private/C0", true, "", "", ""},
+		{"empty_workspace", "slack:/channel/C0", true, "", "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -43,9 +42,6 @@ func TestParseJID(t *testing.T) {
 			}
 			if got.workspace != c.workspace || got.kind != c.kind || got.id != c.id {
 				t.Errorf("got %+v", got)
-			}
-			if got.isGroup() != c.isGroup {
-				t.Errorf("isGroup = %v, want %v", got.isGroup(), c.isGroup)
 			}
 		})
 	}
@@ -107,20 +103,6 @@ func TestVerifySignature_NoSecret(t *testing.T) {
 func TestVerifySignature_BadTS(t *testing.T) {
 	if err := verifySignature("shh", "v0=x", "not-a-number", []byte(`{}`), time.Now()); err == nil {
 		t.Error("non-numeric ts must error")
-	}
-}
-
-// Bot-self-loop skip — observed-failure anchor: without this, a bot
-// posting any message via chat.postMessage would re-fire the agent.
-func TestParseRetryAfter(t *testing.T) {
-	if d := parseRetryAfter(""); d != time.Second {
-		t.Errorf("empty → %v", d)
-	}
-	if d := parseRetryAfter("5"); d != 5*time.Second {
-		t.Errorf("5 → %v", d)
-	}
-	if d := parseRetryAfter("not-a-number"); d != time.Second {
-		t.Errorf("nonsense → %v", d)
 	}
 }
 

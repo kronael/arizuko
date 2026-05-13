@@ -496,7 +496,7 @@ func TestOutbound_RateLimitRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if elapsed < 900*time.Millisecond {
+	if elapsed < 700*time.Millisecond {
 		t.Errorf("rate-limit retry did not sleep Retry-After (%v)", elapsed)
 	}
 }

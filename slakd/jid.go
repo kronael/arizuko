@@ -6,13 +6,10 @@ import (
 )
 
 // JID format: slack:<workspace>/<kind>/<id> where kind ∈ {channel, dm, group}.
-// Workspace IDs (T012ABCD) and channel IDs (C0HJKL456, D0XY9876, G…) are
-// kept verbatim from Slack. Strict — malformed JIDs return errors; no
-// silent fallbacks. IsGroup: dm → false; else → true.
 
 type jidParts struct {
 	workspace string
-	kind      string // "channel" | "dm" | "group"
+	kind      string
 	id        string
 }
 
@@ -41,9 +38,6 @@ func formatJID(workspace, kind, id string) string {
 	return "slack:" + workspace + "/" + kind + "/" + id
 }
 
-// chanKind maps a Slack conversations.info channel-type bundle to the JID kind.
-// channel.IsIM → "dm"; IsMpim → "group" (legacy mpim group DM); else "channel"
-// (public + private both map to "channel" — see spec).
 func chanKind(isIM, isMpim bool) string {
 	switch {
 	case isIM:
@@ -54,6 +48,3 @@ func chanKind(isIM, isMpim bool) string {
 		return "channel"
 	}
 }
-
-// isGroup reflects the spec rule: dm → false; channel/group → true.
-func (j jidParts) isGroup() bool { return j.kind != "dm" }

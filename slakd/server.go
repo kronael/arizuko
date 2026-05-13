@@ -10,7 +10,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
-const maxEventBody = 1 << 20 // 1 MiB — Slack events are small
+const maxEventBody = 1 << 20
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
@@ -36,16 +36,13 @@ func newServer(cfg config, b *bot, isConnected func() bool, lastInboundAt func()
 
 func (s *server) handler() http.Handler {
 	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"slack:"}, s.bot, s.isConnected, s.lastInboundAt)
-	// Slack Events webhook — verified via signing secret; no chanlib.Auth.
+	// Events webhook is signature-verified, not chanlib.Auth-gated; file proxy adds Bearer xoxb upstream.
 	mux.HandleFunc("POST /slack/events", s.handleEvents)
-	// File proxy — chanlib.Auth-protected; adds Bearer xoxb upstream.
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))
 	return mux
 }
 
-// handleEvents verifies the Slack signature and dispatches the body. proxyd
-// must pass body bytes + headers verbatim; we re-read body before verifying,
-// so any re-marshal upstream breaks the HMAC.
+// handleEvents requires verbatim body bytes — any upstream re-marshal breaks the HMAC.
 func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxEventBody))
 	if err != nil {
@@ -66,9 +63,6 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	s.bot.handleEvent(body, w)
 }
 
-// handleFile proxies a cached file URL through the adapter so the agent
-// fetches without seeing the bot token. Upstream gets `Authorization:
-// Bearer xoxb-…` since Slack files require auth on url_private.
 func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/files/")
 	if id == "" {
