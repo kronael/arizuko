@@ -5,7 +5,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/onvos/arizuko/auth"
+	"github.com/kronael/arizuko/auth"
 )
 
 func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folder string) {

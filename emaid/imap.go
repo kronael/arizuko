@@ -18,7 +18,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 	gomessage "github.com/emersion/go-message/mail"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 var errIdleNotSupported = errors.New("IDLE not supported")

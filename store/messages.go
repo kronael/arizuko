@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 func (s *Store) PutMessage(m core.Message) error {

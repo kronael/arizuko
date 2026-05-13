@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/auth"
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 func testMintJWT(secret []byte, sub string) string {

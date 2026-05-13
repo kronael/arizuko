@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // LinkedIn v2 API reference: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/shares/share-api

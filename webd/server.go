@@ -11,10 +11,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/onvos/arizuko/auth"
-	"github.com/onvos/arizuko/chanlib"
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 //go:embed static

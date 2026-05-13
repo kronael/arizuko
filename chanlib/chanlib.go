@@ -23,7 +23,7 @@ const maxRouterResponseBytes = 10 << 20
 
 // UserAgent is sent on outbound requests. Reddit requires one; Mastodon and
 // Bluesky use it for rate-limit attribution.
-const UserAgent = "arizuko/0.29.0 (+https://github.com/onvos/arizuko)"
+const UserAgent = "arizuko/0.29.0 (+https://github.com/kronael/arizuko)"
 
 // MaxAdapterJSONBody caps inbound JSON bodies at adapters.
 const MaxAdapterJSONBody = 1 << 20

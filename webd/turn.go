@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 )
 
 type frame struct {

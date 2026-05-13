@@ -13,7 +13,7 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 func newSlinkMCPServer(t *testing.T) (*server, *mockRouter, *httptest.Server, core.Group) {

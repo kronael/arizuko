@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 // POST without Accept=text/event-stream returns an HTML bubble fragment.

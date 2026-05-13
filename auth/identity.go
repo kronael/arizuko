@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 type Identity struct {

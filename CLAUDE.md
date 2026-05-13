@@ -6,19 +6,15 @@ NEVER `filepath.Base()` a runtime path to discover project name, container name,
 
 ## Canonical paths
 
-- GitHub: `github.com/kronael/arizuko` — the real home of this project
-- `go.mod` says `github.com/onvos/arizuko` — **stale**, never edit `kronael→onvos`
-  or vice versa as a "fix." The two coexist as a known leftover.
-- Don't bake the module owner into spec acceptance criteria, doc text, or
-  shippable-component identity. For orthogonality tests use a package-list
-  grep (e.g. arizuko-internal subpackages: `store`, `core`, `gateway`, `api`),
-  not the module owner string.
-- Shippable sibling components (`crackbox/`, future `gateway/`, `mcpfw/`) are
-  designed to be usable outside arizuko _as binaries_ (the CLI, Docker
-  image, and HTTP/CLI contracts) — but they share arizuko's single
-  `go.mod`. We don't split them into separate modules; orthogonality is
-  enforced by the import-graph rule (no arizuko-internal subpackage
-  imports), not by module separation.
+- GitHub: `github.com/kronael/arizuko` — the home of this project.
+- `go.mod` module: `github.com/kronael/arizuko`. All imports
+  `github.com/kronael/arizuko/<pkg>`. Renamed 2026-05-13 (was
+  `onvos/arizuko` historically — see CHANGELOG).
+- Shippable sibling components (`crackbox/`, future `gateway/`,
+  `mcpfw/`) are designed to be usable outside arizuko but share
+  arizuko's single `go.mod`. We don't split them into separate
+  modules; orthogonality is enforced by the import-graph rule
+  (no arizuko-internal subpackage imports), not by module separation.
 
 ## Response Style
 

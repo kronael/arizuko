@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/router"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/router"
 )
 
 func (s *Store) CountErroredChats() int {

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/auth"
-	"github.com/onvos/arizuko/chanlib"
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 )
 
 // anonSender derives a stable "anon:<hex>" from the client IP.

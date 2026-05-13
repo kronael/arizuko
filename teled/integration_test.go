@@ -17,7 +17,7 @@ import (
 
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // tgMock exposes a minimal Telegram Bot API over HTTP: getMe, sendMessage,

@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 type tokenResp struct {

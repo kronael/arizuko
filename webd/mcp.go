@@ -11,8 +11,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/onvos/arizuko/chanlib"
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 )
 
 func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {

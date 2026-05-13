@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 var xmlEscaper = strings.NewReplacer(

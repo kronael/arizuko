@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/tests/testutils"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 const e2eShortSkip = "e2e: skipped in short mode (run with `make test-e2e`)"

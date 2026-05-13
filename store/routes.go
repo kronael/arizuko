@@ -1,8 +1,8 @@
 package store
 
 import (
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/router"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/router"
 )
 
 const routeCols = `id, seq, match, target, COALESCE(impulse_config,'')`

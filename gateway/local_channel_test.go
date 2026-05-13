@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 func TestLocalChannelSend_EnqueuesAndStoresAsInbound(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/store"
 )
 
 // cmdSend posts a message to a group's slink endpoint and (optionally) waits

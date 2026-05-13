@@ -20,7 +20,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/onvos/arizuko/crackbox/pkg/client"
+	"github.com/kronael/arizuko/crackbox/pkg/client"
 )
 
 type Args struct {

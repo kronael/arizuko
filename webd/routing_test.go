@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/onvos/arizuko/auth"
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // splitFolderSuffix extracts folder + suffix from a /api|x/groups path rest,

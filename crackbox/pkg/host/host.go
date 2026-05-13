@@ -11,8 +11,8 @@ import (
 	"os/exec"
 	"regexp"
 
-	"github.com/onvos/arizuko/crackbox/pkg/client"
-	"github.com/onvos/arizuko/crackbox/pkg/host/internal"
+	"github.com/kronael/arizuko/crackbox/pkg/client"
+	"github.com/kronael/arizuko/crackbox/pkg/host/internal"
 )
 
 var instanceIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)

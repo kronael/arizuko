@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/auth"
+	"github.com/kronael/arizuko/auth"
 )
 
 // AutocallCtx carries the facts an autocall may resolve at prompt-build

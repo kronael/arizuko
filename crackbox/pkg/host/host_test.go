@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/onvos/arizuko/crackbox/pkg/host/internal"
+	"github.com/kronael/arizuko/crackbox/pkg/host/internal"
 )
 
 func TestValidateInstanceID(t *testing.T) {

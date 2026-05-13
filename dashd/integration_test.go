@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/tests/testutils"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 func newDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {

@@ -18,11 +18,11 @@ import (
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/onvos/arizuko/api"
-	"github.com/onvos/arizuko/chanreg"
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/ipc"
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/api"
+	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/store"
 )
 
 // mockChannel simulates an external channel adapter's HTTP server.

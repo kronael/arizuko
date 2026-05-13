@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/onvos/arizuko/db_utils"
+	"github.com/kronael/arizuko/db_utils"
 	_ "modernc.org/sqlite"
 )
 

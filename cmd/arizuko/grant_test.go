@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/store"
 )
 
 func newMem(t *testing.T) *store.Store {

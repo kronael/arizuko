@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 func main() {

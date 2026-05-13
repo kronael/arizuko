@@ -11,7 +11,7 @@ import (
 
 	"github.com/mattn/go-mastodon"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // routerMock captures inbound messages from handleNotification.

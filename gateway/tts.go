@@ -15,7 +15,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 func (g *Gateway) sendVoice(jid, text, voice, folder string) (string, error) {

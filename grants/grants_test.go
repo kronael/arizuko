@@ -3,8 +3,8 @@ package grants
 import (
 	"testing"
 
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 // --- ParseRule ---

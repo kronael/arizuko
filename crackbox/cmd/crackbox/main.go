@@ -19,11 +19,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/onvos/arizuko/crackbox/pkg/admin"
-	"github.com/onvos/arizuko/crackbox/pkg/client"
-	"github.com/onvos/arizuko/crackbox/pkg/config"
-	"github.com/onvos/arizuko/crackbox/pkg/proxy"
-	"github.com/onvos/arizuko/crackbox/pkg/run"
+	"github.com/kronael/arizuko/crackbox/pkg/admin"
+	"github.com/kronael/arizuko/crackbox/pkg/client"
+	"github.com/kronael/arizuko/crackbox/pkg/config"
+	"github.com/kronael/arizuko/crackbox/pkg/proxy"
+	"github.com/kronael/arizuko/crackbox/pkg/run"
 )
 
 func main() {

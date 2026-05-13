@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // Uses bskyMock from xrpc_test.go (same package).

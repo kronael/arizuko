@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 type ImpulseCfg struct {

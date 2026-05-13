@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 var proxyClient = &http.Client{Timeout: 30 * time.Second}

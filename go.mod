@@ -1,4 +1,4 @@
-module github.com/onvos/arizuko
+module github.com/kronael/arizuko
 
 go 1.25.5
 

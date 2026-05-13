@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/store"
 )
 
 const linkCodeTTL = 10 * time.Minute

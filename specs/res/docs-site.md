@@ -767,8 +767,8 @@ the standalone memory skills cookbook — the license statement matters
 for adopters who want to extract the skills.
 
 **OQ-7: GitHub repo URL**
-The existing landing page links to `github.com/REDACTED/arizuko`. The
-README says `github.com/onvos/arizuko`. Verify canonical URL.
+Canonical URL is `github.com/kronael/arizuko`. Module path was renamed
+from `github.com/onvos/arizuko` on 2026-05-13.
 
 **OQ-8: Web chat (webd) status**
 The web layer (proxyd + webd) is listed as "partial" in specs/index.md.

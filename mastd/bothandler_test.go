@@ -8,7 +8,7 @@ import (
 
 	"github.com/mattn/go-mastodon"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // newTestMasto returns a mastoClient pointing at the given base URL.

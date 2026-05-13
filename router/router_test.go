@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 func TestFormatMessages(t *testing.T) {

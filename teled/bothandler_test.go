@@ -8,8 +8,8 @@ import (
 
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
-	"github.com/onvos/arizuko/chanlib"
-	"github.com/onvos/arizuko/tests/testutils"
+	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // TestBotHandler_Send drives teled's bot.Send against a generic FakePlatform

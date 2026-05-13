@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/crackbox/pkg/admin"
+	"github.com/kronael/arizuko/crackbox/pkg/admin"
 )
 
 const (

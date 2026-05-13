@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/auth"
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 )
 
 func TestBuildMCPServer(t *testing.T) {

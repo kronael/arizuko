@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 func TestSanitizeFolder(t *testing.T) {

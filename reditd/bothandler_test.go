@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // redditMock records form-encoded requests keyed by path.

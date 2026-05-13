@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 // TestTTSCacheRoundtrip drives sendVoice end-to-end with a stub TTS

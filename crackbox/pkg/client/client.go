@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/onvos/arizuko/crackbox/pkg/admin"
+	"github.com/kronael/arizuko/crackbox/pkg/admin"
 )
 
 type Client struct {

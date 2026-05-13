@@ -19,12 +19,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/onvos/arizuko/auth"
-	"github.com/onvos/arizuko/chanlib"
-	"github.com/onvos/arizuko/container"
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/store"
-	"github.com/onvos/arizuko/theme"
+	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/container"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/theme"
 	_ "modernc.org/sqlite"
 )
 

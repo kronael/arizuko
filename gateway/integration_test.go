@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/container"
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/groupfolder"
-	"github.com/onvos/arizuko/ipc"
-	"github.com/onvos/arizuko/store"
-	"github.com/onvos/arizuko/tests/testutils"
+	"github.com/kronael/arizuko/container"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // fakeRunner implements container.Runner for gateway integration tests.

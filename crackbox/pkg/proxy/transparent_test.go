@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/crackbox/pkg/admin"
+	"github.com/kronael/arizuko/crackbox/pkg/admin"
 )
 
 // stubOrigDst replaces origDst for the duration of a test, returning a

@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 type Rule struct {

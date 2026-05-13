@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 func TestParseImpulseCfg(t *testing.T) {

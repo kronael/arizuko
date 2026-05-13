@@ -9,8 +9,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/onvos/arizuko/store"
-	"github.com/onvos/arizuko/tests/testutils"
+	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // newIntegProxy wires a proxyd server against a testutils.NewInstance store,

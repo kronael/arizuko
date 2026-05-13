@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // TestBotHandler_Send exercises Send through the thread-lookup path.

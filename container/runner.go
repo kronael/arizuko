@@ -17,14 +17,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/diary"
-	"github.com/onvos/arizuko/grants"
-	"github.com/onvos/arizuko/groupfolder"
-	"github.com/onvos/arizuko/ipc"
-	"github.com/onvos/arizuko/mountsec"
-	"github.com/onvos/arizuko/router"
+	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/diary"
+	"github.com/kronael/arizuko/grants"
+	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/mountsec"
+	"github.com/kronael/arizuko/router"
 )
 
 const (

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 type mockRouter struct {

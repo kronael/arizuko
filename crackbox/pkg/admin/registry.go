@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/onvos/arizuko/crackbox/pkg/match"
+	"github.com/kronael/arizuko/crackbox/pkg/match"
 )
 
 // Entry is one (id, allowlist) tuple. id is opaque — the proxy treats it

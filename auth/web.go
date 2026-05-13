@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/store"
-	"github.com/onvos/arizuko/theme"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/theme"
 	"golang.org/x/crypto/argon2"
 )
 

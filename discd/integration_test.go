@@ -14,7 +14,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // TestIsRateLimit exercises every detection branch of isRateLimit.

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
-	"github.com/onvos/arizuko/chanreg"
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 func setup(t *testing.T) (*Server, *chanreg.Registry, *store.Store) {

@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onvos/arizuko/container"
-	"github.com/onvos/arizuko/groupfolder"
+	"github.com/kronael/arizuko/container"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 const circuitBreakerThreshold = 3

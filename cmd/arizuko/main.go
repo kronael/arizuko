@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/onvos/arizuko/compose"
-	"github.com/onvos/arizuko/container"
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/groupfolder"
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/compose"
+	"github.com/kronael/arizuko/container"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/store"
 )
 
 type productManifest struct {

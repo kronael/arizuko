@@ -106,7 +106,7 @@ What does not belong:
 - A `<component>/.env` reader that knows about arizuko's keys.
 - A `<component>/migrations/` directory that touches `messages.db`.
 - A `<component>/CLAUDE.md` describing arizuko conventions.
-- A dependency on `github.com/onvos/arizuko/...` other than for
+- A dependency on `github.com/kronael/arizuko/...` other than for
   test fixtures explicitly under the component's own `testdata/`.
 
 ## Domain vs mechanism

@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 func RegisterRoutes(mux *http.ServeMux, s *store.Store, cfg *core.Config) {

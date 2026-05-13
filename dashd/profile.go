@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/onvos/arizuko/theme"
+	"github.com/kronael/arizuko/theme"
 )
 
 // mirrors auth/routes.go — keep in sync.

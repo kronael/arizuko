@@ -61,12 +61,10 @@ concepts/jid.html` waits on this.
   agents can discover + fetch skills on demand instead of bundling
   everything in the image. Prior art: Hermes Agent's `skills browse` /
   `skills search`.
-- **Module-path mismatch** — `go.mod` declares `github.com/onvos/arizuko`
-  but the canonical GitHub home is `github.com/kronael/arizuko`. Fixing
-  is a sweep across every `import` line. Until done, orthogonality tests
-  use an owner-agnostic regex (`github\.com/[^/]+/arizuko/...`).
-  Shippable sibling components stay in arizuko's single `go.mod` — we
-  don't split them into separate modules.
+- ~~Module-path mismatch~~ — done 2026-05-13. `go.mod` and all imports
+  use `github.com/kronael/arizuko`. Shippable sibling components stay
+  in the single `go.mod`; orthogonality enforced by the import-graph
+  rule.
 - **Split gated into focused daemons** — `gated` today blends ~70%
   message work (poll loop, persist, route, deliver), ~20% container
   orchestration, ~10% channel registration + health. Name is also

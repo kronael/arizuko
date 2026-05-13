@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 // RecordTurnResult inserts a row keyed on (folder, turn_id). Returns

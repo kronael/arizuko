@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // bskyMock models a minimal Bluesky server sufficient to exercise the

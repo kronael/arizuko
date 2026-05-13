@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 // TestInspectToolsRegistered verifies the inspect_* family registers at

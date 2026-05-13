@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 // computeSig is a tiny helper mirroring hmac hex-encoding for test payloads.

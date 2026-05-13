@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/store"
 )
 
 // dispatchOAuth has seven branches. Each test seeds the store, builds

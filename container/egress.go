@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net"
 
-	"github.com/onvos/arizuko/crackbox/pkg/client"
+	"github.com/kronael/arizuko/crackbox/pkg/client"
 )
 
 // EgressConfig holds crackbox isolation settings. Zero value disables it.

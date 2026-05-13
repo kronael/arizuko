@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/groupfolder"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 type Invite struct {

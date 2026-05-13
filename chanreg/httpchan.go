@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // ErrUnsupported is returned when an adapter responds 501 to a social

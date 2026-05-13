@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 type TaskPatch struct {

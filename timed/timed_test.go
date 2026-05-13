@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 

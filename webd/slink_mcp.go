@@ -12,8 +12,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/onvos/arizuko/chanlib"
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 )
 
 // slinkMCPWaitCap caps get_round blocking so forgotten clients can't pin goroutines.

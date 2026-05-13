@@ -13,7 +13,7 @@ import (
 
 	"github.com/mattn/go-mastodon"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 const mastodAPITimeout = 15 * time.Second

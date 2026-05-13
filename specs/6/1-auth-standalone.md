@@ -187,7 +187,7 @@ locally — same library, in-process, no network hop.
 A daemon that wants the OAuth flow + MCP tools writes:
 
 ```go
-import "github.com/onvos/arizuko/auth"
+import "github.com/kronael/arizuko/auth"
 
 func main() {
     key := []byte(os.Getenv("AUTH_SECRET"))

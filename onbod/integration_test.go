@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/tests/testutils"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // newOnbodServer wires the real mux against a migrated DB and a fake

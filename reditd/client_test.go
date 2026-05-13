@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // makeRedditClient returns a redditClient with a pre-set valid token and an

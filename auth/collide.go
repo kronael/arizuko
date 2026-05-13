@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onvos/arizuko/store"
-	"github.com/onvos/arizuko/theme"
+	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/theme"
 )
 
 const collideTTL = 10 * time.Minute

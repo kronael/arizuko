@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/groupfolder"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 // fakeExec replaces execCommand so Run() spawns a helper binary

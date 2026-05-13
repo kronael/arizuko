@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/onvos/arizuko/api"
-	"github.com/onvos/arizuko/chanreg"
-	"github.com/onvos/arizuko/core"
-	"github.com/onvos/arizuko/gateway"
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/api"
+	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/gateway"
+	"github.com/kronael/arizuko/store"
 )
 
 func main() {

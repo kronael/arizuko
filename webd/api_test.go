@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 )
 
 // GET /api/groups returns groups the user has ACL for, via s.groupList().

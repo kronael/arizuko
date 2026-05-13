@@ -14,9 +14,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/onvos/arizuko/chanlib"
-	"github.com/onvos/arizuko/diary"
-	"github.com/onvos/arizuko/theme"
+	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/diary"
+	"github.com/kronael/arizuko/theme"
 	_ "modernc.org/sqlite"
 )
 

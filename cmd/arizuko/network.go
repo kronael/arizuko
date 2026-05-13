@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/onvos/arizuko/store"
+	"github.com/kronael/arizuko/store"
 )
 
 func cmdNetwork(args []string) {

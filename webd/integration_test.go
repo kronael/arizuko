@@ -15,9 +15,9 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/onvos/arizuko/chanlib"
-	"github.com/onvos/arizuko/store"
-	"github.com/onvos/arizuko/tests/testutils"
+	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // newIntegServer wires webd against a testutils.NewInstance-backed store and a

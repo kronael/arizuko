@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/onvos/arizuko/core"
+	"github.com/kronael/arizuko/core"
 	"github.com/robfig/cron/v3"
 	_ "modernc.org/sqlite"
 )

@@ -9,7 +9,7 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/onvos/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 type Config struct {
