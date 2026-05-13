@@ -81,13 +81,16 @@ operator can scope the chanlib.Auth bearer per adapter.
 2. **OAuth & Permissions** → add Bot Token Scopes:
    `channels:history`, `channels:read`, `groups:history`, `groups:read`,
    `im:history`, `im:read`, `mpim:history`, `mpim:read`,
-   `chat:write`, `chat:write.public`, `reactions:write`,
-   `files:write`, `users:read`.
+   `chat:write`, `chat:write.public`, `reactions:read`,
+   `reactions:write`, `files:read`, `files:write`, `users:read`.
+   Note: `reactions:read` is required for `reaction_added` event delivery
+   even though only `reactions:write` is used outbound.
 3. **Event Subscriptions** → enable, set Request URL to
    `https://<your-host>/slack/events` (proxyd handles TLS + forwards
    verbatim to slakd). Subscribe to bot events:
    `message.channels`, `message.groups`, `message.im`, `message.mpim`,
-   `reaction_added`, `member_joined_channel`, `file_shared`.
+   `reaction_added`, `member_joined_channel`. File attachments arrive
+   piggy-backed on `message.*` events; do not subscribe to `file_shared`.
 4. **Basic Information** → copy _Signing Secret_ into
    `SLACK_SIGNING_SECRET`.
 5. Install to Workspace → copy _Bot User OAuth Token_ (starts with
@@ -128,7 +131,7 @@ and the raw body unmodified — any re-marshal invalidates the HMAC.
 ## Out of scope (v1)
 
 - OAuth install (manual install only per runbook above).
-- Socket Mode (HTTP webhooks via proxyd is the permanent default).
+- Socket Mode (not supported; HTTP webhooks via proxyd only).
 - Enterprise Grid, slash commands, modals, home tab, Block Kit, user
   tokens — separate specs.
 - Custom-emoji-as-dislike (needs per-workspace `emoji.list` mapping;

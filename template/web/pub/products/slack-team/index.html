@@ -42,41 +42,9 @@
       <h1>Slack team agent</h1>
 
       <p class="lede">
-        One agent in your team&rsquo;s Slack, but not one shared user. arizuko
-        keeps the channel&rsquo;s persona and thread context shared while each
-        teammate gets their own memory, grant rules, and private web chat. The
-        whole system runs on your server; default outbound traffic is the chat
-        platform and the Anthropic API.
+        One agent in a Slack channel, with channel-scoped persona and thread
+        context but per-teammate memory, grants, and private web chat.
       </p>
-
-      <h2>why existing options miss</h2>
-      <p>
-        Most team Slack bots collapse everyone into one prompt or push everyone
-        back into separate per-seat chat apps. Neither is what you want once a
-        team starts depending on an agent.
-      </p>
-      <ul>
-        <li>
-          <strong>A shared ChatGPT or Claude login</strong> &mdash; everyone
-          shares one conversational context, one trust boundary, one credential
-          set. No per-user memory, no per-user grants behind a shared channel
-          presence.
-        </li>
-        <li>
-          <strong>Per-seat AI subscriptions</strong> &mdash; these work well for
-          individual chat. They do not give you a team-visible Slack thread
-          where the persona is channel-scoped but actions still resolve through
-          each teammate&rsquo;s own memory and grants.
-        </li>
-        <li>
-          <strong>Rolling your own</strong> &mdash; then you own the Slack
-          adapter, routing, OAuth account linking, WebDAV surface, dashboard,
-          and egress sandbox. In arizuko those are separate daemons
-          (<code>slakd</code>, <code>proxyd</code>, <code>gated</code>,
-          <code>davd</code>, <code>dashd</code>, <code>crackbox</code>) with
-          file-backed state under one instance directory.
-        </li>
-      </ul>
 
       <h2>system shape</h2>
       <ul>
@@ -120,12 +88,9 @@
         </li>
         <li>
           <strong>Customisable, upgradable in place.</strong> Persona, skills,
-          and channel rules are plain Markdown you (or the agent) edit anytime
-          via WebDAV or chat. Each release ships migrations that the agent
-          applies as a per-group 3-way merge &mdash;
-          <em>your local edits survive upstream changes</em>. No SaaS
-          wipe-and-redeploy: customise as deeply as you want, still get every
-          release.
+          and channel rules are plain Markdown edited via WebDAV or chat. Each
+          release ships migrations the agent applies as a per-group 3-way merge,
+          preserving local edits.
         </li>
       </ul>
 
@@ -168,14 +133,10 @@
         </li>
         <li>
           <strong>Channel-scoped secrets.</strong> API keys for tools the agent
-          calls live in the <code>secrets</code> table (AES-GCM at rest with
-          <code>AUTH_SECRET</code>). <em>Shipping today:</em> folder-scoped
-          values are merged into the container's spawn env (per-user overlay is
-          shipped for 1:1 chats only &mdash; Slack channels get folder secrets
-          only). <em>Shipping next (spec 9/11):</em> the container sees only
-          opaque placeholders and the
-          <a href="/pub/crackbox/">crackbox</a> egress proxy substitutes real
-          values into outbound HTTP, scoped to allowed domains.
+          calls live in the <code>secrets</code> table (plaintext at rest;
+          operator trusts disk + FS perms). Folder-scoped values are merged into
+          the container's spawn env; Slack channels get folder secrets only
+          (per-user overlay is 1:1-chat only).
         </li>
         <li>
           <strong>Channel boundary.</strong> A teammate in #eng-support sees
@@ -196,12 +157,9 @@ arizuko run acme
 #   invite the bot to a channel; teammates sign in via OAuth at /auth/login
 #   linked identities resolve to the same user record; per-user state goes live</code></pre>
       <p>
-        Full step-by-step is in the <a href="/pub/howto/">deployment guide</a>.
-        Per-channel <code>CLAUDE.md</code> override lives in the channel folder;
-        edit via WebDAV or directly on the server. Channel-scoped API keys live
-        in the encrypted <code>secrets</code> table; the egress proxy
-        substitutes them into outbound requests so the container itself never
-        holds them.
+        Full step-by-step is in the <a href="/pub/howto/slack.html">Slack
+        setup guide</a>. Per-channel <code>CLAUDE.md</code> override lives in
+        the channel folder; edit via WebDAV or directly on the server.
       </p>
 
       <h2>go deeper</h2>

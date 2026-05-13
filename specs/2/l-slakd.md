@@ -24,7 +24,9 @@ One `xoxb-` token, one workspace. Multi-workspace = future spec.
   headers verbatim (no re-marshal, no TLS re-sign) — else slakd can't verify.
 - Inbound: `message.channels`, `message.groups`, `message.im`,
   `message.mpim`, `reaction_added`/`removed`, `member_joined_channel`
-  (`verb=join`), `file_shared`. NOT `app_mention` — Slack fires it
+  (`verb=join`). Files arrive piggy-backed on `message.*` events via the
+  `files` array; do not subscribe to `file_shared`. NOT `app_mention` —
+  Slack fires it
   alongside `message.*`; mirror `discd/bot.go:143` and set
   `Verb="mention"` when the text contains `<@Uxxx>` matching
   `auth.test`'s `bot_user_id`; otherwise `Verb=""` (default).

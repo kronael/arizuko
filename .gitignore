@@ -45,6 +45,7 @@ bskyd/bskyd
 reditd/reditd
 reditd/cursors.json
 linkd/linkd
+slakd/slakd
 crackbox/crackbox
 ttsd/ttsd
 *.py

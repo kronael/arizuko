@@ -166,7 +166,9 @@ groups:history    groups:read
 im:history        im:read
 mpim:history      mpim:read
 chat:write        chat:write.public
-reactions:write   files:write       users:read</code></pre>
+reactions:read    reactions:write
+files:read        files:write
+users:read</code></pre>
 
       <h2>step 3 &mdash; Event Subscriptions</h2>
       <ol>
@@ -182,8 +184,7 @@ reactions:write   files:write       users:read</code></pre>
           &bull; <code>message.channels</code>, <code>message.groups</code>,
           <code>message.im</code>, <code>message.mpim</code><br />
           &bull; <code>reaction_added</code><br />
-          &bull; <code>member_joined_channel</code><br />
-          &bull; <code>file_shared</code>
+          &bull; <code>member_joined_channel</code>
         </li>
       </ol>
       <div class="warn">
@@ -257,7 +258,7 @@ target: engineering</code></pre>
           <code>SLACK_BOT_TOKEN</code> is unset &mdash; check it&rsquo;s in
           <code>.env</code> and regenerate compose), or slakd&rsquo;s
           signing-secret mismatch makes it reject the challenge. Check slakd
-          logs for <code>"slack: bad signature"</code>.
+          logs for <code>"slack events: signature rejected"</code>.
         </dd>
 
         <dt>Bot is in the channel but doesn&rsquo;t respond</dt>
@@ -318,7 +319,7 @@ target: engineering</code></pre>
 
       <p>
         Out of scope in v1: OAuth install (manual install only), Socket Mode
-        (HTTP webhooks via proxyd is permanent), Enterprise Grid, slash commands
+        (HTTP webhooks via proxyd only), Enterprise Grid, slash commands
         / modals / Block Kit, user tokens.
       </p>
     </div>
