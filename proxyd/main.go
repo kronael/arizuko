@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -469,7 +470,11 @@ func (s *server) davRoute(w http.ResponseWriter, r *http.Request) {
 
 	if rest == "" {
 		group := "root"
-		for _, g := range gs {
+		// Sort to make the landing pick deterministic — map iteration
+		// upstream produces the groups claim in arbitrary order.
+		sorted := append([]string(nil), gs...)
+		sort.Strings(sorted)
+		for _, g := range sorted {
 			if g != "**" {
 				group = g
 				break

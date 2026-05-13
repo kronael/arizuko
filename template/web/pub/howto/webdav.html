@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mount the workspace over WebDAV &mdash; arizuko</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p  { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose ol { margin: 0.4em 0 0.8em 1.4em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .prose dt { color: var(--accent3); font-weight: bold; margin-top: 0.6em; }
+    .prose dd { margin: 0.1em 0 0 1.2em; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back  { font-size: 0.85em; }
+    .note  { background: color-mix(in srgb, var(--accent3) 10%, transparent);
+             border-left: 3px solid var(--accent3);
+             padding: 0.5em 0.8em; margin: 0.8em 0; font-size: 0.92em; }
+    .warn  { background: color-mix(in srgb, #e67e22 10%, transparent);
+             border-left: 3px solid #e67e22;
+             padding: 0.5em 0.8em; margin: 0.8em 0; font-size: 0.92em; }
+    table  { border-collapse: collapse; width: 100%; margin: 0.8em 0 1.2em; font-size: 0.9em; }
+    th     { text-align: left; border-bottom: 1px solid var(--dim, #888);
+             padding: 0.3em 0.8em 0.3em 0; font-weight: 600; }
+    td     { padding: 0.25em 0.8em 0.25em 0;
+             border-bottom: 1px solid color-mix(in srgb, var(--dim, #888) 25%, transparent);
+             vertical-align: top; }
+    code   { font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>mount the workspace over WebDAV</h1>
+    <p class="dim back"><a href="/pub/">&larr; arizuko</a> &middot; <a href="/pub/howto/">&larr; how-to</a> &middot; webdav</p>
+
+    <p class="lede">Every arizuko group folder is browsable as a real filesystem at <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>. Sign in once, point any WebDAV client (Finder, Windows Explorer, rclone, davfs2, curl) at that URL, and you are looking at the exact files the agent reads and writes &mdash; no <code>scp</code>, no shell, no pasting blobs into chat.</p>
+
+    <h2>quick start</h2>
+    <p>One-time setup of an <code>rclone</code> remote against your instance, plus a mount:</p>
+    <pre><code># 1. point rclone at the WebDAV endpoint (no user/pass yet)
+rclone config create arizuko webdav \
+    url=https://fab.krons.cx/dav/ \
+    vendor=other
+
+# 2. issue a Bearer token from the dashboard:
+#    open https://fab.krons.cx/dash/profile in a browser and copy it.
+
+# 3. tell rclone to use the token (it stores it in ~/.config/rclone/rclone.conf)
+rclone config update arizuko bearer_token=&lt;paste-token-here&gt;
+
+# 4. mount a group as a local folder
+mkdir -p ~/arizuko-atlas
+rclone mount arizuko:atlas ~/arizuko-atlas --vfs-cache-mode writes</code></pre>
+    <p>You should now see the group&rsquo;s files under <code>~/arizuko-atlas/</code> &mdash; <code>CLAUDE.md</code>, <code>diary/</code>, <code>facts/</code>, <code>media/</code>, and so on. Edit them with your editor, drop files in, and the agent picks them up on its next turn.</p>
+    <div class="note"><strong>Just want to peek?</strong> Sign in at <code>/auth/login</code>, then open <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code> in your browser. <code>dufs</code> (the underlying server) ships a directory UI, so you get a clickable file tree for free.</div>
+
+    <h2>path structure</h2>
+    <p>The URL <code>/dav/&lt;group&gt;/&lt;rest&gt;</code> maps one-to-one to <code>/&lt;group&gt;/&lt;rest&gt;</code> under the data directory on the host. <code>davd</code> serves <code>&lt;DATA_DIR&gt;/groups/</code> read-write over WebDAV; <code>proxyd</code> strips the leading <code>/dav</code> before forwarding and applies the <code>davAllow</code> write-block guard on top.</p>
+    <table>
+      <thead><tr><th>URL</th><th>on-disk path (host)</th></tr></thead>
+      <tbody>
+        <tr><td><code>/dav/</code></td><td>redirect to <code>/dav/&lt;first-group&gt;/</code></td></tr>
+        <tr><td><code>/dav/atlas/</code></td><td><code>/srv/data/arizuko_&lt;inst&gt;/groups/atlas/</code></td></tr>
+        <tr><td><code>/dav/atlas/strengths/</code></td><td><code>/srv/data/arizuko_&lt;inst&gt;/groups/atlas/strengths/</code></td></tr>
+        <tr><td><code>/dav/atlas/CLAUDE.md</code></td><td><code>/srv/data/arizuko_&lt;inst&gt;/groups/atlas/CLAUDE.md</code></td></tr>
+        <tr><td><code>/dav/atlas/users/alice.md</code></td><td><code>/srv/data/arizuko_&lt;inst&gt;/groups/atlas/users/alice.md</code></td></tr>
+      </tbody>
+    </table>
+    <p><code>&lt;group&gt;</code> is the group&rsquo;s <em>folder</em> name (the on-disk slug), not the human-friendly group name. If you don&rsquo;t know it, the operator dashboard at <code>/dash/groups</code> lists them. The default group on a fresh instance is called <code>main</code>.</p>
+
+    <h2>authentication</h2>
+    <p>The same auth layer that gates <code>/dash/</code> gates <code>/dav/</code>. There is no separate WebDAV password file and no Basic Auth.</p>
+    <table>
+      <thead><tr><th>client style</th><th>credential</th><th>how</th></tr></thead>
+      <tbody>
+        <tr><td>browser</td><td>JWT cookie</td><td>sign in at <code>/auth/login</code> with GitHub / Google / Discord / Telegram; the <code>refresh_token</code> cookie carries through to <code>/dav/</code></td></tr>
+        <tr><td>rclone, davfs2, curl, Finder, Windows Explorer</td><td>Bearer token</td><td>issue at <code>/dash/profile</code>, send as <code>Authorization: Bearer &lt;token&gt;</code></td></tr>
+      </tbody>
+    </table>
+    <p>An unauthenticated request to <code>/dav/...</code> returns <code>303 See Other</code> with <code>Location: /auth/login</code> &mdash; that&rsquo;s by design. The browser follows it; <code>curl</code> does not unless you pass <code>-L</code>. Verify directly:</p>
+    <pre><code>curl -s -o /dev/null -w '%{http_code}\n' https://fab.krons.cx/dav/
+# 303
+
+curl -s -o /dev/null -w '%{http_code}\n' \
+     -H "Authorization: Bearer $TOKEN" \
+     https://fab.krons.cx/dav/atlas/
+# 200</code></pre>
+    <div class="warn"><strong>Bearer tokens are passwords.</strong> Treat them as such. Anyone who holds your token can read every group you have a grant on. Revoke at <code>/dash/profile</code> if you suspect a leak.</div>
+
+    <h2>per-group access</h2>
+    <p>Authentication tells <code>proxyd</code> who you are; <a href="/pub/concepts/grants.html">grants</a> tell it which group folders you may touch. Grants are stored in the <code>user_groups</code> table and resolved at request time:</p>
+    <ul>
+      <li><strong>Operator</strong> &mdash; any user with a <code>**</code> grant sees <em>every</em> group on the instance. <code>/dav/</code> redirects them to the first non-<code>**</code> group in sorted order (deterministic across requests); they can reach any other group by typing its path directly.</li>
+      <li><strong>Regular user</strong> &mdash; sees only the groups for which a row in <code>user_groups</code> exists. Requesting a group you have no grant on returns <code>403 Forbidden</code> (and proxyd logs <code>dav forbidden</code> with your sub and the path).</li>
+    </ul>
+    <p>Grant scope decides what your token can read; <em>auth alone is not enough</em>. A user signed in to <code>/dav/</code> with no grants gets <code>403</code> on every group path.</p>
+
+    <h2>write-block guard</h2>
+    <p>WebDAV is writable end-to-end &mdash; davd mounts <code>&lt;DATA_DIR&gt;/groups/</code> read-write, and proxyd&rsquo;s <code>davAllow</code> middleware is the single point of write enforcement. The full ruleset, lifted from <code>proxyd/main.go</code>:</p>
+    <ul>
+      <li><strong>Reads always pass.</strong> <code>GET</code>, <code>HEAD</code>, <code>OPTIONS</code>, <code>PROPFIND</code> are never blocked by the guard (grants and auth still apply).</li>
+      <li><strong>Logs are read-only.</strong> Any write method on <code>&lt;group&gt;/logs/...</code> (<code>PUT</code>, <code>POST</code>, <code>MKCOL</code>, <code>DELETE</code>, <code>MOVE</code>, <code>COPY</code>, <code>PROPPATCH</code>) returns <code>403</code>.</li>
+      <li><strong>Sensitive paths are write-blocked anywhere in the tree.</strong> Any path segment equal to <code>.env</code> or <code>.git</code>, or ending in <code>.pem</code>, rejects writes. Reads still work so the agent can self-inspect.</li>
+      <li><strong>Everything else is writable.</strong> A <code>PUT</code> to <code>/dav/atlas/notes/todo.md</code> lands on disk; the agent reads it on its next turn.</li>
+    </ul>
+    <p>The spec at <a href="https://github.com/kronael/arizuko/blob/main/specs/5/M-webdav.md">specs/5/M-webdav.md</a> is the source of truth.</p>
+
+    <h2>common workflows</h2>
+
+    <h3>operator edits a channel&rsquo;s CLAUDE.md from a laptop</h3>
+    <pre><code>rclone mount arizuko:atlas ~/atlas --vfs-cache-mode writes
+$EDITOR ~/atlas/CLAUDE.md
+# save, unmount. The agent picks up the new persona on its next turn.</code></pre>
+
+    <h3>user drops a file the agent should read</h3>
+    <pre><code># put a CSV in the channel's media folder
+curl -u :$TOKEN \
+     -T ./quarterly.csv \
+     https://fab.krons.cx/dav/atlas/media/quarterly.csv
+
+# then in chat, ask the agent: "read media/quarterly.csv and summarise"</code></pre>
+    <p>Or just drag-drop into a Finder window mounted at <code>/dav/atlas/</code>. <code>-u :$TOKEN</code> sends the token as the password with an empty username &mdash; curl maps that to a Basic header which proxyd ignores; the real auth still flows through the Bearer header below if you set it explicitly.</p>
+    <pre><code>curl -H "Authorization: Bearer $TOKEN" \
+     -T ./quarterly.csv \
+     https://fab.krons.cx/dav/atlas/media/quarterly.csv</code></pre>
+
+    <h3>agent writes a file; user pulls it down</h3>
+    <p>The agent runs inside a container with its group folder mounted read-write; it can drop generated artifacts (PDFs, charts, transcripts) anywhere except <code>logs/</code>. The user then pulls them down:</p>
+    <pre><code>curl -H "Authorization: Bearer $TOKEN" \
+     -o report.pdf \
+     https://fab.krons.cx/dav/atlas/out/report.pdf</code></pre>
+
+    <h3>multi-user: peek at a per-user memory file</h3>
+    <p>Per-user memory lives at <code>&lt;group&gt;/users/&lt;user&gt;.md</code>. With operator grants you can list them all:</p>
+    <pre><code>curl -X PROPFIND \
+     -H 'Depth: 1' \
+     -H "Authorization: Bearer $TOKEN" \
+     https://fab.krons.cx/dav/atlas/users/</code></pre>
+
+    <h2>per-client setup notes</h2>
+
+    <h3>rclone (recommended for scripts and headless boxes)</h3>
+    <p>One-liner config (interactive prompts skipped):</p>
+    <pre><code>rclone config create arizuko webdav \
+    url=https://fab.krons.cx/dav/ \
+    vendor=other \
+    bearer_token=$TOKEN</code></pre>
+    <p>Mount with the VFS cache so writes survive editor save-rename dances:</p>
+    <pre><code>rclone mount arizuko:atlas ~/atlas \
+    --vfs-cache-mode writes \
+    --dir-cache-time 30s</code></pre>
+
+    <h3>macOS Finder</h3>
+    <ol>
+      <li>In Finder, <strong>Go &rarr; Connect to Server</strong> (Cmd-K).</li>
+      <li>Enter <code>https://fab.krons.cx/dav/atlas/</code> (include the trailing slash and the group name).</li>
+      <li>When prompted, choose <strong>Registered User</strong>; leave the name blank and paste your Bearer token in the password field. Some macOS versions reject empty usernames &mdash; in that case sign in to <code>/auth/login</code> in Safari first; the JWT cookie is shared.</li>
+    </ol>
+
+    <h3>Linux davfs2</h3>
+    <p>Install <code>davfs2</code>, then add to <code>/etc/davfs2/secrets</code> (root-owned, mode 0600):</p>
+    <pre><code>https://fab.krons.cx/dav/atlas/  &quot;&quot;  &lt;your-bearer-token&gt;</code></pre>
+    <p>Mount:</p>
+    <pre><code>sudo mkdir -p /mnt/atlas
+sudo mount -t davfs https://fab.krons.cx/dav/atlas/ /mnt/atlas</code></pre>
+    <p>davfs2 sends the token as Basic password; proxyd&rsquo;s Bearer check fails, but it then falls back to checking the cookie. davfs2 with token-as-password is not a supported path; prefer rclone on Linux.</p>
+
+    <h3>Windows Explorer</h3>
+    <ol>
+      <li>Open <strong>This PC</strong> &rarr; <strong>Map network drive</strong>.</li>
+      <li>Folder: <code>https://fab.krons.cx/dav/atlas/</code></li>
+      <li>Tick <strong>Connect using different credentials</strong>.</li>
+      <li>Username blank, password = your Bearer token.</li>
+    </ol>
+    <p>Windows&rsquo; built-in client is conservative about HTTPS WebDAV &mdash; if it refuses to connect, install <a href="https://www.rclone.org/install/">rclone</a> and use that instead.</p>
+
+    <h3>curl</h3>
+    <pre><code># read a file
+curl -H "Authorization: Bearer $TOKEN" \
+     https://fab.krons.cx/dav/atlas/CLAUDE.md
+
+# list a directory (Depth: 1 = immediate children only)
+curl -X PROPFIND -H 'Depth: 1' \
+     -H "Authorization: Bearer $TOKEN" \
+     https://fab.krons.cx/dav/atlas/
+
+# upload a file
+curl -X PUT --data-binary @./notes.md \
+     -H "Authorization: Bearer $TOKEN" \
+     https://fab.krons.cx/dav/atlas/notes.md</code></pre>
+
+    <h2>troubleshooting</h2>
+    <dl>
+      <dt>303 redirect to <code>/auth/login</code></dt>
+      <dd>Not signed in. Browser: follow the redirect and log in. <code>curl</code>/rclone: pass <code>Authorization: Bearer &lt;token&gt;</code>. Token comes from <code>/dash/profile</code>.</dd>
+
+      <dt>403 Forbidden on a path you can read elsewhere</dt>
+      <dd>Either (a) the write-block guard fired &mdash; you tried to <code>PUT</code> under <code>logs/</code> or against a sensitive segment (<code>.env</code>, <code>*.pem</code>, <code>.git</code>) &mdash; or (b) you don&rsquo;t have a grant on that group. <code>journalctl -u arizuko_&lt;inst&gt; | grep &quot;dav (forbidden|blocked)&quot;</code> tells you which.</dd>
+
+      <dt>404 Not Found at <code>/dav/&lt;group&gt;/</code></dt>
+      <dd>Either the group folder doesn&rsquo;t exist, or proxyd has no <code>davProxy</code> configured (response body: <code>WebDAV not configured</code>). Check that <code>WEBDAV_ENABLED=true</code> in the instance <code>.env</code> and that compose has been regenerated (<code>arizuko run &lt;inst&gt;</code>).</dd>
+
+      <dt>423 Locked</dt>
+      <dd>Another WebDAV client (Finder is the usual culprit) holds a lock. Unmount that client, or wait for the lock TTL. <code>dufs</code> implements per-file locks; they expire on their own but can persist for minutes after a hard disconnect.</dd>
+
+      <dt>&ldquo;WebDAV not configured&rdquo; from proxyd</dt>
+      <dd><code>DAV_ADDR</code> is unset on the proxyd container. <code>compose/compose.go</code> sets it to <code>http://davd:8080</code> when <code>WEBDAV_ENABLED=true</code>; if you toggled it off, davd isn&rsquo;t in the compose graph. Set <code>WEBDAV_ENABLED=true</code> in <code>.env</code> and re-run <code>arizuko run</code>.</dd>
+
+      <dt>Edits don&rsquo;t reach the agent</dt>
+      <dd>The write landed (no <code>403</code> in proxyd logs) but the agent hasn&rsquo;t seen it. Either it has nothing pending to react to &mdash; new files don&rsquo;t trigger a turn on their own; ping the agent in chat &mdash; or you wrote to a path the agent doesn&rsquo;t consult (e.g. an ad-hoc folder outside <code>media/</code>, <code>facts/</code>, <code>users/</code>). Reference its <code>CLAUDE.md</code> for what it reads.</dd>
+    </dl>
+
+    <h2>security model</h2>
+    <p>TLS terminates at the public edge (nginx in front of <code>proxyd</code>). From there inward &mdash; proxyd to davd, davd to disk &mdash; traffic is plain HTTP on the Docker bridge network; the network namespace is the trust boundary. Identity is signed at proxyd with HMAC over <code>X-User-Sub</code>/<code>X-User-Name</code>/<code>X-User-Groups</code> headers, but davd doesn&rsquo;t verify those today &mdash; it trusts that anything reaching it has already cleared <code>requireAuth</code> + <code>davAllow</code> + <code>MatchGroups</code> upstream. Full threat model in <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+
+    <h2>going deeper</h2>
+    <ul>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/M-webdav.md">specs/5/M-webdav.md</a> &mdash; routing, auth, write-block rules, config flags.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/davd/README.md">davd/README.md</a> &mdash; the daemon (a thin wrap of <code>sigoden/dufs</code>).</li>
+      <li><a href="/pub/concepts/webdav.html">concepts / webdav</a> &mdash; one-page overview of the same surface.</li>
+      <li><a href="/pub/concepts/auth.html">concepts / auth</a> &mdash; where the Bearer token comes from.</li>
+      <li><a href="/pub/concepts/grants.html">concepts / grants</a> &mdash; per-group scoping.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

@@ -17,15 +17,20 @@ Config: `WEBDAV_ENABLED` (default `true` since 2026-04-27),
 
 ## What's shipped
 
-- dufs container included in the compose output by default.
+- dufs container included in the compose output by default. davd's
+  `/data` mount is read-write; write enforcement is in proxyd's
+  `davAllow` guard, not at the Docker volume layer.
 - proxyd `/dav/*` route, JWT-gated via `requireAuth`, group claim
   check against the path's `<group>` segment.
+- `/dav` (bare, no group) redirects to the first non-`**` group in
+  _sorted_ order — deterministic across requests.
 - Rewrite from `/dav/<group>/<rest>` to `/<group>/<rest>` before
   forwarding.
 - proxyd `davAllow` middleware: blocks writes (PUT/POST/MKCOL/DELETE/
   MOVE/COPY/PROPPATCH) on `.env`, `*.pem`, `.git/**` segments; makes
   `<group>/logs/**` read-only (any non-read method → 403). Read methods
-  (GET/HEAD/OPTIONS/PROPFIND) pass through unchanged.
+  (GET/HEAD/OPTIONS/PROPFIND) pass through unchanged. Ordinary writes
+  reach dufs and land on disk.
 
 ## Authentication — final shape
 

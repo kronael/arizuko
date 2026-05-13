@@ -10,8 +10,9 @@ arizuko-standard `wget` healthcheck (`dufs` is distroless).
 
 ## Responsibilities
 
-- Serve `/data` (mounted from `<DATA_DIR>/groups/:ro`) over HTTP +
-  WebDAV on `:8080`.
+- Serve `/data` (mounted from `<DATA_DIR>/groups/`) over HTTP +
+  WebDAV on `:8080`. Write enforcement lives upstream in proxyd's
+  `davAllow` guard, not at the volume mount.
 - Nothing else. Auth and per-group scoping happen upstream in
   `proxyd`; davd has no notion of identity.
 

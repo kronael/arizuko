@@ -488,7 +488,7 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 	// arizuko-davd is sigoden/dufs wrapped in alpine — same binary,
 	// adds wget for the healthcheck (dufs is distroless).
 	b.WriteString("    image: arizuko-davd:latest\n")
-	fmt.Fprintf(&b, "    volumes:\n      - %s/groups:/data:ro\n", dataDir)
+	fmt.Fprintf(&b, "    volumes:\n      - %s/groups:/data\n", dataDir)
 	if davPort := envOr(env, "DAV_PORT", ""); davPort != "" {
 		b.WriteString("    ports:\n")
 		fmt.Fprintf(&b, "      - '%s:8080'\n", davPort)

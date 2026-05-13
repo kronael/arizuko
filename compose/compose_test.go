@@ -169,8 +169,11 @@ func TestGenerateWithWebDAV(t *testing.T) {
 	if !strings.Contains(out, "arizuko-davd") {
 		t.Error("davd should use arizuko-davd image (sigoden/dufs wrapped with healthcheck)")
 	}
-	if !strings.Contains(out, "/data:ro") {
-		t.Error("davd should mount /data:ro (read-only)")
+	if strings.Contains(out, "/data:ro") {
+		t.Error("davd /data mount should be read-write; proxyd davAllow is the write-block enforcement")
+	}
+	if !strings.Contains(out, ":/data\n") {
+		t.Error("davd should mount /data (read-write)")
 	}
 	if !strings.Contains(out, "depends_on") {
 		t.Error("davd missing depends_on")
