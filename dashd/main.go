@@ -91,10 +91,19 @@ func main() {
 	}
 	defer db.Close()
 
+	// Secret CRUD at /dash/me/secrets is the one write path dashd owns;
+	// everything else stays RO. Separate handle keeps the contract narrow.
+	dbRW, err := sql.Open("sqlite", dsn+"?_busy_timeout=5000")
+	if err != nil {
+		slog.Error("open rw db", "err", err)
+		os.Exit(1)
+	}
+	defer dbRW.Close()
+
 	slog.Info("dashd started", "db", dsn, "port", port)
 
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbPath: dsn, groupsDir: groupsDir}
+	d := &dash{db: db, dbRW: dbRW, dbPath: dsn, groupsDir: groupsDir}
 	d.registerRoutes(mux)
 
 	srv := &http.Server{Addr: port, Handler: chanlib.LogMiddleware(mux)}
@@ -115,6 +124,7 @@ func main() {
 
 type dash struct {
 	db        *sql.DB
+	dbRW      *sql.DB // me_secrets writes; nil in some tests (read-only paths)
 	dbPath    string
 	groupsDir string
 }
@@ -132,6 +142,13 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /dash/memory/", d.handleMemoryDelete)
 	mux.HandleFunc("GET /dash/tasks/x/list", d.handleTasksPartial)
 	mux.HandleFunc("GET /dash/activity/x/recent", d.handleActivityPartial)
+
+	// /dash/me/secrets — per-user secret CRUD. Identity-bound to signed-in
+	// X-User-Sub (proxyd-verified). CSRF on writes via same-origin check.
+	mux.HandleFunc("GET /dash/me/secrets", d.handleMeSecrets)
+	mux.HandleFunc("POST /dash/me/secrets", d.handleMeSecretCreate)
+	mux.HandleFunc("PATCH /dash/me/secrets/{key}", d.handleMeSecretUpdate)
+	mux.HandleFunc("DELETE /dash/me/secrets/{key}", d.handleMeSecretDelete)
 }
 
 func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {

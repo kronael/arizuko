@@ -117,6 +117,26 @@ type StoreFns struct {
 	SetWebRoute         func(pathPrefix, access, redirectTo, folder string) error
 	DelWebRoute         func(pathPrefix, folder string) (bool, error)
 	ListWebRoutes       func(folder string) []WebRoute
+
+	// LookupSecret resolves (scope, scopeID, key) to a value or ("", false).
+	// scope is "user" or "folder"; scopeID is auth_users.sub or folder path.
+	// Spec 9/11 broker.
+	LookupSecret func(scope, scopeID, key string) (string, bool)
+	// LogSecretUse appends one audit row per (tool call × resolved key).
+	LogSecretUse func(row SecretUseRow) error
+}
+
+// SecretUseRow mirrors store.SecretUseRow for the ipc layer (ipc must not
+// import store). Spec 9/11.
+type SecretUseRow struct {
+	SpawnID   string
+	CallerSub string
+	Folder    string
+	Tool      string
+	Key       string
+	Scope     string // "user" | "folder" | "missing"
+	Status    string // "ok" | "err" | "timeout"
+	LatencyMS int64
 }
 
 // WebRoute mirrors store.WebRoute for the ipc layer.
@@ -512,6 +532,59 @@ func parseBefore(req mcp.CallToolRequest) (time.Time, error) {
 	return t, nil
 }
 
+// resolveSecret implements the broker fallback chain per spec 9/11: user
+// scope wins over folder; folder walks ancestors deepest-first ending in
+// "root". Returns (value, scope) with scope ∈ {"user","folder","missing"}.
+func resolveSecret(db StoreFns, callerSub, folder, key string) (string, string) {
+	if db.LookupSecret == nil {
+		return "", "missing"
+	}
+	if callerSub != "" {
+		if v, ok := db.LookupSecret("user", callerSub, key); ok {
+			return v, "user"
+		}
+	}
+	f := strings.Trim(folder, "/")
+	if f == "" {
+		f = "root"
+	}
+	parts := strings.Split(f, "/")
+	for i := len(parts); i > 0; i-- {
+		if v, ok := db.LookupSecret("folder", strings.Join(parts[:i], "/"), key); ok {
+			return v, "folder"
+		}
+	}
+	if v, ok := db.LookupSecret("folder", "root", key); ok {
+		return v, "folder"
+	}
+	return "", "missing"
+}
+
+// injectSecretsAdapter resolves `requires` against db, emits one audit row
+// per key via db.LogSecretUse, and invokes `h` with the resolved map. Spec
+// 9/11 broker middleware. Caller is v1-empty (sub); folder reads from closure.
+func injectSecretsAdapter(
+	db StoreFns, folder, name string, requires []string,
+	h func(ctx context.Context, req mcp.CallToolRequest, secrets map[string]string) (*mcp.CallToolResult, error),
+) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		secrets := make(map[string]string, len(requires))
+		for _, key := range requires {
+			start := time.Now()
+			value, scope := resolveSecret(db, "", folder, key)
+			if db.LogSecretUse != nil {
+				_ = db.LogSecretUse(SecretUseRow{
+					Folder: folder, Tool: name, Key: key,
+					Scope: scope, Status: "ok",
+					LatencyMS: time.Since(start).Milliseconds(),
+				})
+			}
+			secrets[key] = value
+		}
+		return h(ctx, req, secrets)
+	}
+}
+
 func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) *server.MCPServer {
 	id := auth.Resolve(folder)
 	srv := server.NewMCPServer("arizuko", "1.0")
@@ -534,6 +607,28 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return h(ctx, req)
 		})
 	}
+
+	// registerWithSecrets wraps a handler with the broker middleware (spec 9/11):
+	// grant check → resolve `requires` keys (user scope wins; folder walks to
+	// "root") → call handler with resolved map. One audit row per key via
+	// db.LogSecretUse. v1: CallerSub is empty (spec 6/5 ships Caller later);
+	// Folder reads from this closure.
+	registerWithSecrets := func(
+		name, desc string,
+		requires []string,
+		opts []mcp.ToolOption,
+		h func(ctx context.Context, req mcp.CallToolRequest, secrets map[string]string) (*mcp.CallToolResult, error),
+	) {
+		inner := injectSecretsAdapter(db, folder, name, requires, h)
+		registerRaw(name, desc, opts, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if !grantslib.CheckAction(rules, name, nil) {
+				return toolErr(name + ": not permitted")
+			}
+			return inner(ctx, req)
+		})
+	}
+	_ = granted
+	_ = registerWithSecrets
 
 	registerRaw("send", "Deliver a new top-level message to a chat. Use for the normal reply to the user's last message or for a proactive notification. Not for threaded replies to a specific earlier message (`reply`) or file delivery (`send_file` — its caption replaces this call).",
 		[]mcp.ToolOption{

@@ -256,6 +256,16 @@ func (g *Gateway) Run(ctx context.Context) error {
 		DelWebRoute: func(pathPrefix, folder string) (bool, error) {
 			return g.store.DelWebRoute(pathPrefix, folder)
 		},
+		LookupSecret: func(scope, scopeID, key string) (string, bool) {
+			return g.store.LookupSecret(store.SecretScope(scope), scopeID, key)
+		},
+		LogSecretUse: func(r ipc.SecretUseRow) error {
+			return g.store.LogSecretUse(store.SecretUseRow{
+				SpawnID: r.SpawnID, CallerSub: r.CallerSub, Folder: r.Folder,
+				Tool: r.Tool, Key: r.Key, Scope: r.Scope,
+				Status: r.Status, LatencyMS: r.LatencyMS,
+			})
+		},
 		ListWebRoutes: func(folder string) []ipc.WebRoute {
 			rows := g.store.ListWebRoutes(folder)
 			out := make([]ipc.WebRoute, len(rows))

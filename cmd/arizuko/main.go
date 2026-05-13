@@ -46,6 +46,8 @@ func main() {
 		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
 		fmt.Println("  chat     <instance>  — interactive Claude Code session bound to root MCP socket")
 		fmt.Println("  send     <instance> <folder> \"<msg>\" [--wait | --stream] [--steer <turn_id>]")
+		fmt.Println("  secret   <instance> set <folder> KEY --value V | list <folder> | delete <folder> KEY")
+		fmt.Println("  user-secret <instance> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY")
 		os.Exit(1)
 	}
 
@@ -61,7 +63,9 @@ func main() {
 		"send":     cmdSend,
 		"status":   cmdStatus,
 		"pair":     cmdPair,
-		"network":  cmdNetwork,
+		"network":     cmdNetwork,
+		"secret":      cmdSecret,
+		"user-secret": cmdUserSecret,
 	}
 	fn, ok := cmds[os.Args[1]]
 	if !ok {

@@ -1,7 +1,6 @@
 package store
 
 import (
-	"crypto/cipher"
 	"database/sql"
 	"embed"
 	"os"
@@ -17,8 +16,7 @@ var migrationFS embed.FS
 const serviceName = "store"
 
 type Store struct {
-	db           *sql.DB
-	secretCipher cipher.AEAD
+	db *sql.DB
 }
 
 func Open(dir string) (*Store, error) {
@@ -46,20 +44,6 @@ func Open(dir string) (*Store, error) {
 	return s, nil
 }
 
-func OpenWithSecret(dir, authSecret string) (*Store, error) {
-	s, err := Open(dir)
-	if err != nil {
-		return nil, err
-	}
-	aead, err := newSecretCipher(authSecret)
-	if err != nil {
-		s.Close()
-		return nil, err
-	}
-	s.secretCipher = aead
-	return s, nil
-}
-
 func OpenMem() (*Store, error) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -70,20 +54,6 @@ func OpenMem() (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return s, nil
-}
-
-func OpenMemWithSecret(authSecret string) (*Store, error) {
-	s, err := OpenMem()
-	if err != nil {
-		return nil, err
-	}
-	aead, err := newSecretCipher(authSecret)
-	if err != nil {
-		s.Close()
-		return nil, err
-	}
-	s.secretCipher = aead
 	return s, nil
 }
 

@@ -1,10 +1,6 @@
 package store
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,7 +9,10 @@ import (
 )
 
 // SecretScope is the kind of scope a secret is bound to: a folder path glob
-// or an auth user sub. See specs/5/32-tenant-self-service.md §Secrets.
+// or an auth user sub. See specs/9/11-crackbox-secrets.md.
+//
+// v1: plaintext storage. Operator trusts disk + FS permissions.
+// Encryption at rest deferred.
 type SecretScope string
 
 const (
@@ -25,7 +24,6 @@ const (
 	rootFolder = "root"
 )
 
-var ErrSecretCipherNotConfigured = errors.New("secrets cipher not configured")
 var ErrSecretNotFound = errors.New("secret not found")
 
 type Secret struct {
@@ -34,47 +32,6 @@ type Secret struct {
 	Key       string
 	Value     string
 	CreatedAt time.Time
-}
-
-func newSecretCipher(authSecret string) (cipher.AEAD, error) {
-	if authSecret == "" {
-		return nil, errors.New("auth_secret required for secrets cipher")
-	}
-	key := sha256.Sum256([]byte(authSecret))
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		return nil, err
-	}
-	return cipher.NewGCM(block)
-}
-
-// encryptSecret serializes `nonce(12B) || ciphertext` for at-rest storage.
-func (s *Store) encryptSecret(plaintext string) ([]byte, error) {
-	if s.secretCipher == nil {
-		return nil, ErrSecretCipherNotConfigured
-	}
-	nonce := make([]byte, s.secretCipher.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	ct := s.secretCipher.Seal(nil, nonce, []byte(plaintext), nil)
-	return append(nonce, ct...), nil
-}
-
-func (s *Store) decryptSecret(blob []byte) (string, error) {
-	if s.secretCipher == nil {
-		return "", ErrSecretCipherNotConfigured
-	}
-	ns := s.secretCipher.NonceSize()
-	if len(blob) < ns {
-		return "", fmt.Errorf("secret blob too short: %d < %d", len(blob), ns)
-	}
-	nonce, ct := blob[:ns], blob[ns:]
-	pt, err := s.secretCipher.Open(nil, nonce, ct, nil)
-	if err != nil {
-		return "", err
-	}
-	return string(pt), nil
 }
 
 func validateScope(scope SecretScope, scopeID, key string) error {
@@ -90,21 +47,17 @@ func validateScope(scope SecretScope, scopeID, key string) error {
 	return nil
 }
 
-func (s *Store) SetSecret(scope SecretScope, scopeID, key, plaintext string) error {
+func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
 	}
-	enc, err := s.encryptSecret(plaintext)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, enc_value, created_at)
+	_, err := s.db.Exec(
+		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
 		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(scope_kind, scope_id, key) DO UPDATE SET
-		   enc_value = excluded.enc_value,
+		   value = excluded.value,
 		   created_at = excluded.created_at`,
-		string(scope), scopeID, key, enc, time.Now().UTC().Format(time.RFC3339),
+		string(scope), scopeID, key, value, time.Now().UTC().Format(time.RFC3339),
 	)
 	return err
 }
@@ -113,28 +66,20 @@ func (s *Store) GetSecret(scope SecretScope, scopeID, key string) (Secret, error
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return Secret{}, err
 	}
-	if s.secretCipher == nil {
-		return Secret{}, ErrSecretCipherNotConfigured
-	}
-	var blob []byte
-	var createdAt string
+	var value, createdAt string
 	err := s.db.QueryRow(
-		`SELECT enc_value, created_at FROM secrets
+		`SELECT value, created_at FROM secrets
 		 WHERE scope_kind = ? AND scope_id = ? AND key = ?`,
 		string(scope), scopeID, key,
-	).Scan(&blob, &createdAt)
+	).Scan(&value, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Secret{}, ErrSecretNotFound
 	}
 	if err != nil {
 		return Secret{}, err
 	}
-	pt, err := s.decryptSecret(blob)
-	if err != nil {
-		return Secret{}, err
-	}
 	t, _ := time.Parse(time.RFC3339, createdAt)
-	return Secret{ScopeKind: scope, ScopeID: scopeID, Key: key, Value: pt, CreatedAt: t}, nil
+	return Secret{ScopeKind: scope, ScopeID: scopeID, Key: key, Value: value, CreatedAt: t}, nil
 }
 
 func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error) {
@@ -144,11 +89,8 @@ func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error)
 	if scopeID == "" {
 		return nil, errors.New("scope_id required")
 	}
-	if s.secretCipher == nil {
-		return nil, ErrSecretCipherNotConfigured
-	}
 	rows, err := s.db.Query(
-		`SELECT key, enc_value, created_at FROM secrets
+		`SELECT key, value, created_at FROM secrets
 		 WHERE scope_kind = ? AND scope_id = ?
 		 ORDER BY key ASC`,
 		string(scope), scopeID,
@@ -159,18 +101,12 @@ func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error)
 	defer rows.Close()
 	var out []Secret
 	for rows.Next() {
-		var key string
-		var blob []byte
-		var createdAt string
-		if err := rows.Scan(&key, &blob, &createdAt); err != nil {
-			return nil, err
-		}
-		pt, err := s.decryptSecret(blob)
-		if err != nil {
+		var key, value, createdAt string
+		if err := rows.Scan(&key, &value, &createdAt); err != nil {
 			return nil, err
 		}
 		t, _ := time.Parse(time.RFC3339, createdAt)
-		out = append(out, Secret{ScopeKind: scope, ScopeID: scopeID, Key: key, Value: pt, CreatedAt: t})
+		out = append(out, Secret{ScopeKind: scope, ScopeID: scopeID, Key: key, Value: value, CreatedAt: t})
 	}
 	return out, rows.Err()
 }
@@ -205,9 +141,6 @@ func folderAncestors(folder string) []string {
 // FolderSecretsResolved walks `folder` up through each parent to the "root"
 // catch-all and returns key=value with deepest-wins precedence.
 func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) {
-	if s.secretCipher == nil {
-		return nil, ErrSecretCipherNotConfigured
-	}
 	paths := folderAncestors(folder)
 	if len(paths) == 0 {
 		return map[string]string{}, nil
@@ -219,7 +152,7 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 	}
 	ph := "(" + strings.TrimSuffix(strings.Repeat("?,", len(paths)), ",") + ")"
 	rows, err := s.db.Query(
-		`SELECT scope_id, key, enc_value FROM secrets
+		`SELECT scope_id, key, value FROM secrets
 		 WHERE scope_kind = ? AND scope_id IN `+ph,
 		args...,
 	)
@@ -238,18 +171,13 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 	}
 	best := map[string]kv{}
 	for rows.Next() {
-		var scopeID, key string
-		var blob []byte
-		if err := rows.Scan(&scopeID, &key, &blob); err != nil {
-			return nil, err
-		}
-		pt, err := s.decryptSecret(blob)
-		if err != nil {
+		var scopeID, key, value string
+		if err := rows.Scan(&scopeID, &key, &value); err != nil {
 			return nil, err
 		}
 		d := depthOf[scopeID]
 		if cur, ok := best[key]; !ok || d > cur.depth {
-			best[key] = kv{val: pt, depth: d}
+			best[key] = kv{val: value, depth: d}
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -266,11 +194,8 @@ func (s *Store) UserSecrets(userSub string) (map[string]string, error) {
 	if userSub == "" {
 		return nil, errors.New("user_sub required")
 	}
-	if s.secretCipher == nil {
-		return nil, ErrSecretCipherNotConfigured
-	}
 	rows, err := s.db.Query(
-		`SELECT key, enc_value FROM secrets
+		`SELECT key, value FROM secrets
 		 WHERE scope_kind = ? AND scope_id = ?`,
 		string(ScopeUser), userSub,
 	)
@@ -280,16 +205,11 @@ func (s *Store) UserSecrets(userSub string) (map[string]string, error) {
 	defer rows.Close()
 	out := map[string]string{}
 	for rows.Next() {
-		var key string
-		var blob []byte
-		if err := rows.Scan(&key, &blob); err != nil {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
 			return nil, err
 		}
-		pt, err := s.decryptSecret(blob)
-		if err != nil {
-			return nil, err
-		}
-		out[key] = pt
+		out[key] = value
 	}
 	return out, rows.Err()
 }

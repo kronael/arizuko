@@ -1,15 +1,12 @@
 package store
 
 import (
-	"bytes"
 	"errors"
 	"testing"
 )
 
-const testAuthSecret = "test-auth-secret-do-not-use-in-prod"
-
 func TestSetGetSecret_RoundTrip(t *testing.T) {
-	s, _ := OpenMemWithSecret(testAuthSecret)
+	s, _ := OpenMem()
 	defer s.Close()
 
 	if err := s.SetSecret(ScopeFolder, "atlas/eng", "API_KEY", "sk-abc-123"); err != nil {
@@ -31,7 +28,7 @@ func TestSetGetSecret_RoundTrip(t *testing.T) {
 }
 
 func TestSetSecret_Overwrites(t *testing.T) {
-	s, _ := OpenMemWithSecret(testAuthSecret)
+	s, _ := OpenMem()
 	defer s.Close()
 
 	if err := s.SetSecret(ScopeFolder, "atlas", "K", "v1"); err != nil {
@@ -57,7 +54,7 @@ func TestSetSecret_Overwrites(t *testing.T) {
 }
 
 func TestGetSecret_MissingFails(t *testing.T) {
-	s, _ := OpenMemWithSecret(testAuthSecret)
+	s, _ := OpenMem()
 	defer s.Close()
 
 	_, err := s.GetSecret(ScopeFolder, "atlas", "MISSING")
@@ -67,7 +64,7 @@ func TestGetSecret_MissingFails(t *testing.T) {
 }
 
 func TestListSecrets_Scope(t *testing.T) {
-	s, _ := OpenMemWithSecret(testAuthSecret)
+	s, _ := OpenMem()
 	defer s.Close()
 
 	if err := s.SetSecret(ScopeFolder, "atlas", "A", "1"); err != nil {
@@ -114,7 +111,7 @@ func TestListSecrets_Scope(t *testing.T) {
 }
 
 func TestDeleteSecret(t *testing.T) {
-	s, _ := OpenMemWithSecret(testAuthSecret)
+	s, _ := OpenMem()
 	defer s.Close()
 
 	if err := s.SetSecret(ScopeFolder, "atlas", "K", "v"); err != nil {
@@ -133,7 +130,7 @@ func TestDeleteSecret(t *testing.T) {
 }
 
 func TestFolderSecretsResolved_DeepestWins(t *testing.T) {
-	s, _ := OpenMemWithSecret(testAuthSecret)
+	s, _ := OpenMem()
 	defer s.Close()
 
 	if err := s.SetSecret(ScopeFolder, "atlas", "KEY", "v1"); err != nil {
@@ -159,7 +156,7 @@ func TestFolderSecretsResolved_DeepestWins(t *testing.T) {
 }
 
 func TestFolderSecretsResolved_RootFallback(t *testing.T) {
-	s, _ := OpenMemWithSecret(testAuthSecret)
+	s, _ := OpenMem()
 	defer s.Close()
 
 	if err := s.SetSecret(ScopeFolder, "root", "KEY", "base"); err != nil {
@@ -185,7 +182,7 @@ func TestFolderSecretsResolved_RootFallback(t *testing.T) {
 }
 
 func TestUserSecrets_Scoped(t *testing.T) {
-	s, _ := OpenMemWithSecret(testAuthSecret)
+	s, _ := OpenMem()
 	defer s.Close()
 
 	if err := s.SetSecret(ScopeUser, "github:A", "K", "A"); err != nil {
@@ -214,62 +211,23 @@ func TestUserSecrets_Scoped(t *testing.T) {
 	}
 }
 
-func TestSecretEncryption_BlobIsCiphertext(t *testing.T) {
-	s, _ := OpenMemWithSecret(testAuthSecret)
+// v1 stores plaintext per spec 9/11. Verify the `value` column holds the
+// raw string written, not a ciphertext.
+func TestSecretPlaintextAtRest(t *testing.T) {
+	s, _ := OpenMem()
 	defer s.Close()
 
-	plaintext := "plain"
-	if err := s.SetSecret(ScopeFolder, "atlas", "K", plaintext); err != nil {
-		t.Fatal(err)
+	const plaintext = "ghp_topsecret_token"
+	if err := s.SetSecret(ScopeFolder, "atlas", "GITHUB_TOKEN", plaintext); err != nil {
+		t.Fatalf("SetSecret: %v", err)
 	}
-	var blob []byte
+	var got string
 	if err := s.db.QueryRow(
-		`SELECT enc_value FROM secrets WHERE scope_kind='folder' AND scope_id='atlas' AND key='K'`,
-	).Scan(&blob); err != nil {
-		t.Fatalf("scan blob: %v", err)
+		`SELECT value FROM secrets WHERE scope_kind='folder' AND scope_id='atlas' AND key='GITHUB_TOKEN'`,
+	).Scan(&got); err != nil {
+		t.Fatalf("scan value: %v", err)
 	}
-	if bytes.Contains(blob, []byte(plaintext)) {
-		t.Errorf("blob contains plaintext: %x", blob)
-	}
-	// First 12 bytes are the AES-GCM nonce; the cipher then yields
-	// plaintext-len + tag-len (16 B) bytes. So total ≥ 12 + len(pt) + 16.
-	const nonceSize = 12
-	const tagSize = 16
-	want := nonceSize + len(plaintext) + tagSize
-	if len(blob) != want {
-		t.Errorf("blob len = %d, want %d (nonce + ct + tag)", len(blob), want)
-	}
-}
-
-func TestEncryption_DifferentNoncesPerSet(t *testing.T) {
-	s, _ := OpenMemWithSecret(testAuthSecret)
-	defer s.Close()
-
-	// Two different keys, identical plaintext, must produce different ciphertexts.
-	if err := s.SetSecret(ScopeFolder, "atlas", "K1", "same-plain"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetSecret(ScopeFolder, "atlas", "K2", "same-plain"); err != nil {
-		t.Fatal(err)
-	}
-	var b1, b2 []byte
-	s.db.QueryRow(`SELECT enc_value FROM secrets WHERE key='K1'`).Scan(&b1)
-	s.db.QueryRow(`SELECT enc_value FROM secrets WHERE key='K2'`).Scan(&b2)
-	if bytes.Equal(b1, b2) {
-		t.Error("identical plaintext produced identical ciphertext (nonce reused)")
-	}
-	// Nonces (first 12 bytes) must differ.
-	if bytes.Equal(b1[:12], b2[:12]) {
-		t.Error("nonces are identical across two SetSecret calls")
-	}
-
-	// And re-setting the same key must also rotate the nonce.
-	if err := s.SetSecret(ScopeFolder, "atlas", "K1", "same-plain"); err != nil {
-		t.Fatal(err)
-	}
-	var b1b []byte
-	s.db.QueryRow(`SELECT enc_value FROM secrets WHERE key='K1'`).Scan(&b1b)
-	if bytes.Equal(b1[:12], b1b[:12]) {
-		t.Error("re-set with same plaintext reused nonce")
+	if got != plaintext {
+		t.Errorf("value at rest = %q, want %q (plaintext)", got, plaintext)
 	}
 }

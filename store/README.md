@@ -12,8 +12,7 @@ timeout tolerate the handoff).
 ## Public API
 
 - `Open(dir string) (*Store, error)` — opens `<dir>/messages.db`, runs migrations
-- `OpenWithSecret(dir, authSecret string) (*Store, error)` — `Open` + AES-GCM cipher for the secrets API
-- `OpenMem() (*Store, error)` / `OpenMemWithSecret(authSecret)` — in-memory (tests)
+- `OpenMem() (*Store, error)` — in-memory (tests)
 - `Migrate(db *sql.DB) error` — migrations only (test fixtures)
 - `New(db *sql.DB) *Store` — wrap an existing connection
 
@@ -28,9 +27,8 @@ Primary methods (by domain):
 - Grants/rules: `GetGrants(folder)`, `SetGrants(folder, rules)`
 - Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `DeleteSecret`,
   `FolderSecretsResolved` (walk parents → root), `UserSecrets`
-  (per-user overlay). Plaintext is AES-GCM-encrypted with a key
-  derived from `AUTH_SECRET`; methods return
-  `ErrSecretCipherNotConfigured` on a `Open`-only Store.
+  (per-user overlay). v1 stores plaintext (operator trusts disk +
+  FS perms; encryption at rest deferred per spec 9/11).
 - Routes, system messages, onboarding, topics — see source
 
 ## Dependencies
@@ -39,7 +37,7 @@ Primary methods (by domain):
 
 ## Files
 
-- `store.go` — `Open`, `OpenWithSecret`, `Migrate`, connection setup
+- `store.go` — `Open`, `OpenMem`, `Migrate`, connection setup
 - `messages.go`, `groups.go`, `sessions.go`, `tasks.go`, `auth.go`, `grants.go`, `routes.go`, `onboarding.go`, `invites.go`, `secrets.go`, `inspect.go`
 - `migrations/NNNN-*.sql` — numbered migrations
 

@@ -44,15 +44,7 @@ func main() {
 		"onboarding", cfg.OnboardingEnabled,
 	)
 
-	var (
-		s *store.Store
-	)
-	if cfg.AuthSecret == "" {
-		slog.Warn("AUTH_SECRET unset; secrets API disabled (folder/user secrets will not be injected at spawn)")
-		s, err = store.Open(cfg.StoreDir)
-	} else {
-		s, err = store.OpenWithSecret(cfg.StoreDir, cfg.AuthSecret)
-	}
+	s, err := store.Open(cfg.StoreDir)
 	if err != nil {
 		slog.Error("database", "err", err)
 		os.Exit(1)
