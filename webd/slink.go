@@ -152,12 +152,30 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBody)
-	if r.ParseForm() != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
+	var content, topic string
+	ct := r.Header.Get("Content-Type")
+	if i := strings.IndexByte(ct, ';'); i >= 0 {
+		ct = ct[:i]
 	}
-	content := strings.TrimSpace(r.FormValue("content"))
-	topic := strings.TrimSpace(r.FormValue("topic"))
+	if strings.TrimSpace(ct) == "application/json" {
+		var body struct {
+			Content string `json:"content"`
+			Topic   string `json:"topic"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		content = strings.TrimSpace(body.Content)
+		topic = strings.TrimSpace(body.Topic)
+	} else {
+		if r.ParseForm() != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		content = strings.TrimSpace(r.FormValue("content"))
+		topic = strings.TrimSpace(r.FormValue("topic"))
+	}
 	if content == "" {
 		http.Error(w, "content required", http.StatusBadRequest)
 		return

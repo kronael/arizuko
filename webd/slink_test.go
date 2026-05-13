@@ -14,6 +14,28 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
+// POST with Content-Type: application/json and {"content":"..."} body
+// is accepted (regression — atlas/strengths submit form 2026-05-11).
+func TestSlinkPost_JSONBody(t *testing.T) {
+	s, mr, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	req := httptest.NewRequest("POST", "/slink/"+g.SlinkToken,
+		strings.NewReader(`{"content":"hello-json","topic":"t-jsonbody"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("token", g.SlinkToken)
+	w := httptest.NewRecorder()
+
+	s.handleSlinkPost(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	if got := mr.sent(); len(got) != 1 || got[0].Content != "hello-json" {
+		t.Errorf("router did not receive json-body message: %+v", got)
+	}
+}
+
 // POST without Accept=text/event-stream returns an HTML bubble fragment.
 func TestSlinkPost_HTMLBubble(t *testing.T) {
 	s, mr, st := newTestServer(t)
