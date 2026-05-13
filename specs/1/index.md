@@ -25,5 +25,5 @@ agent extension.
 | [9-extend-agent.md](9-extend-agent.md)       | shipped | settings.json merge order; hooks hardcoded                      |
 | [B-extend-skills.md](B-extend-skills.md)     | shipped | SKILL.md frontmatter, naming, migration semantics               |
 | [f-auth-oauth.md](f-auth-oauth.md)           | shipped | JWT access + rotating refresh; Telegram/Discord/GH/Google       |
-| [Z-slink-widget.md](Z-slink-widget.md)       | spec    | Embeddable JS widget; /config bootstrap; CORS; JSON default     |
-| [Z2-slink-sdk.md](Z2-slink-sdk.md)           | spec    | `/assets/arizuko-client.js` SDK + shared static-asset mechanism |
+| [Z-slink-widget.md](Z-slink-widget.md)       | shipped | Embeddable JS widget; /config bootstrap; CORS; JSON default     |
+| [Z2-slink-sdk.md](Z2-slink-sdk.md)           | shipped | `/assets/arizuko-client.js` SDK + shared static-asset mechanism |

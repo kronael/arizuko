@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; components</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+    table { border-collapse: collapse; margin: 0.8em 0; width: 100%; }
+    th, td { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.4em 0.7em; text-align: left; vertical-align: top; }
+    th { font-weight: 600; }
+    td.kind { white-space: nowrap; font-size: 0.85em; color: var(--dim, #888); }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>components</h1>
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; components</p>
+
+    <p class="lede">Each daemon and library that makes up an arizuko deployment. Per component: what it is, why it exists, how it fits, whether it runs standalone.</p>
+
+    <table>
+      <thead>
+        <tr><th>name</th><th>kind</th><th>role</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><a href="/pub/components/slink.html">slink</a></td><td class="kind">core</td><td>token-gated HTTP surface on webd; submit a message, observe the round (browser, SDK, MCP)</td></tr>
+        <tr><td><a href="/pub/crackbox/">crackbox</a></td><td class="kind">integration</td><td>egress sandbox proxy; allowlist hosts a workload can reach</td></tr>
+      </tbody>
+    </table>
+
+    <p class="dim">More component pages migrate from <a href="/pub/concepts/">concepts</a> as they are written. See <a href="https://github.com/kronael/arizuko/blob/main/README.md">README.md</a> for the full daemon + library table.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

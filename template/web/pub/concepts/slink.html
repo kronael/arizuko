@@ -1,60 +1,6 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>slink</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
-    .back { font-size: 0.85em; }
-  </style>
-</head>
-<body>
-  <div class="hub-container prose">
-    <h1>slink</h1>
-    <p class="dim back">concepts / slink &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
-
-    <p class="lede">One public URL per group. Open it in a browser for a chat widget; <code>POST</code> JSON to it from a script and the agent runs &mdash; one container spawn, one reply, paged by polling, by SSE, or via MCP.</p>
-
-    <h2>why</h2>
-    <p>An agent is only useful if you can reach it from where the work happens: a web page, a shell script, a CI job, an MCP-capable client. Slink is the lowest common denominator: a token in a URL, a POST with text, an HTTP response carrying a handle for the round that just started. Same surface for the browser chat widget, <code>curl</code> from a cron job, agent-to-agent calls, and Claude Desktop over MCP.</p>
-
-    <h2>show me</h2>
-    <pre><code># post a message, get back a turn_id (the round handle)
-curl -X POST https://&lt;host&gt;/slink/&lt;token&gt; \
-     -H 'Accept: application/json' \
-     -d 'content=summarize today&apos;s diary'
-# {"user":{"id":"msg_abc",...},"turn_id":"msg_abc","status":"pending"}
-
-# stream the reply over SSE; closes on round_done
-curl -N https://&lt;host&gt;/slink/&lt;token&gt;/msg_abc/sse
-
-# or: poll for new frames since the last one you saw
-curl https://&lt;host&gt;/slink/&lt;token&gt;/msg_abc?after=out_002</code></pre>
-
-    <h2>what you get</h2>
-    <ul>
-      <li><strong>Token-based auth.</strong> 32 random bytes in the URL. Public by design &mdash; share it, bookmark it, embed it in a script.</li>
-      <li><strong>Rate-limited at the edge.</strong> <code>proxyd</code> caps <code>/slink/*</code> per client IP so a leaked token is a leaked rate-limit bucket, not a leaked password.</li>
-      <li><strong>Browser chat at <code>GET /slink/&lt;token&gt;</code>.</strong> Drop-in widget &mdash; no signup, no SDK. Same token your scripts use.</li>
-      <li><strong>Round handle for machines.</strong> <code>POST</code> returns a <code>turn_id</code>; <code>GET /&lt;id&gt;</code> snapshots, <code>?after=&lt;last&gt;</code> pages, <code>/sse</code> streams until <code>round_done</code>.</li>
-      <li><strong>Steering.</strong> <code>POST /slink/&lt;token&gt;/&lt;turn_id&gt;</code> chains a follow-up onto an in-flight round, or starts a fresh one if the round already finished.</li>
-      <li><strong>MCP transport on the same path.</strong> <code>POST /slink/&lt;token&gt;/mcp</code> exposes three tools &mdash; <code>send_message</code>, <code>steer</code>, <code>get_round</code> &mdash; for Claude Desktop or any MCP client.</li>
-    </ul>
-
-    <h2>go deeper</h2>
-    <ul>
-      <li><a href="/pub/concepts/slink-reference.html">slink reference</a> &mdash; full HTTP protocol, SSE event shapes, steering semantics, schema dependencies, operator CLI.</li>
-      <li><a href="/pub/concepts/jid.html">jid</a> &mdash; how slink senders fit into arizuko&rsquo;s typed-address routing.</li>
-      <li><a href="/pub/">arizuko</a> &mdash; the daemon set slink lives in.</li>
-    </ul>
-  </div>
-  <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
-</body>
-</html>
+<meta charset="utf-8">
+<title>slink &mdash; moved</title>
+<link rel="canonical" href="/pub/components/slink.html">
+<meta http-equiv="refresh" content="0; url=/pub/components/slink.html">
+<p>This page has moved to <a href="/pub/components/slink.html">/pub/components/slink.html</a>.</p>

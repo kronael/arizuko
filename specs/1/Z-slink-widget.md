@@ -1,5 +1,5 @@
 ---
-status: spec
+status: shipped
 ---
 
 # Slink — agent-built chat pages

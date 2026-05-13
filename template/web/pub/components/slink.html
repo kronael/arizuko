@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>slink &middot; component</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+    .faces h3 { margin: 0.6em 0 0.2em; font-size: 1em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; slink</p>
+    <h1>slink</h1>
+
+    <h2>What is it</h2>
+    <p>A token-gated HTTP surface that lets any client &mdash; browser, <code>curl</code>, or an MCP-speaking agent &mdash; submit a message into a group and observe the resulting round.</p>
+
+    <h2>Why does it exist</h2>
+    <p>One group has many possible consumers: the built-in browser chat page, a third-party page using the JS SDK, a shell script polling for an answer, an external agent calling MCP tools. Without slink each consumer would re-implement the round-handle dance &mdash; POST a message, get back a <code>turn_id</code>, stream or poll until <code>round_done</code>, optionally steer with a follow-up. Slink is that dance, exposed once, behind a public token. <strong>One renderer, many sinks</strong>: every consumer hits the same <code>/slink/&lt;token&gt;/*</code> paths so the contract can't drift between them.</p>
+
+    <h2>How does it fit</h2>
+    <div class="callout">
+      <pre><code>browser / SDK / MCP client / curl
+        |
+        v   POST /slink/&lt;token&gt;[/&lt;turn_id&gt;]
+        v   GET  /slink/&lt;token&gt;/&lt;turn_id&gt;[/sse | /status]
+        v   POST /slink/&lt;token&gt;/mcp
+        |
+      webd     route + token resolve + rate limit + dispatch
+        |
+        v   inbound message + turn_results row
+        |
+      gated    durable round in messages.db, spawns container
+        |
+        v   submit_turn -&gt; POST /v1/round_done -&gt; SSE round_done -&gt; stream closes</code></pre>
+    </div>
+    <p>Token lives in <code>groups.slink_token</code> (32 random bytes, base64url, never rotated). webd owns <code>/slink/*</code>; rate limits per anon-shared-bucket / per-JWT-sub / unlimited for operator. proxyd already covers <code>/slink/*</code> as a public route &mdash; identity headers are stripped on inbound so the token is the only auth surface.</p>
+
+    <h2>Standalone usage</h2>
+    <p>slink is a route on webd, not a separate binary. Running it standalone means running webd + gated (which owns the schema and the round lifecycle) + at least one group so a <code>slink_token</code> exists.</p>
+    <pre><code>arizuko create demo
+arizuko run demo
+# default group is created on first run; the token is in groups.slink_token
+
+# post a message, get the round handle
+curl -X POST https://&lt;host&gt;/slink/&lt;token&gt; \
+     -H 'Content-Type: application/json' \
+     -d '{"content":"hello"}'
+# {"user":{"id":"msg_abc",...},"turn_id":"msg_abc","status":"pending"}
+
+# stream the round; server closes on round_done
+curl -N https://&lt;host&gt;/slink/&lt;token&gt;/msg_abc/sse</code></pre>
+    <p>Full endpoint table, payload shapes, SSE event grammar, and steering semantics: <a href="/pub/reference/slink.html">reference/slink</a>.</p>
+
+    <h2>Three faces</h2>
+    <div class="faces">
+      <h3>Built-in chat page &mdash; <code>GET /slink/&lt;token&gt;/chat</code></h3>
+      <p>The reference HTML chat UI shipped with webd. <code>GET /slink/&lt;token&gt;</code> redirects here. No setup &mdash; share the URL.</p>
+
+      <h3>JS SDK &mdash; <code>/assets/arizuko-client.js</code></h3>
+      <p>Vanilla-JS client served from webd's embedded asset FS, CORS-open. <code>Arizuko.connect(token)</code> returns a handle with <code>send</code>, <code>steer</code>, <code>status</code>, <code>snapshot</code>, <code>stream</code>. Used by branded chat pages on third-party origins.</p>
+
+      <h3>MCP transport &mdash; <code>POST /slink/&lt;token&gt;/mcp</code></h3>
+      <p>Streamable-HTTP MCP endpoint scoped to the token's group. Three tools: <code>send_message</code>, <code>steer</code>, <code>get_round</code>. External agents register the URL in their MCP config and talk to the group like any other tool host.</p>
+    </div>
+
+    <h2>Where it's going</h2>
+    <p>Today, spawning a group is a CLI operation; slink only handles message submission against an already-running group. <a href="/pub/specs/">spec <code>specs/4/N-platform-api.md</code></a> proposes a unified platform API &mdash; <code>POST /v1/groups</code> on gated &mdash; that composes with slink so a single round-trip can create a group and return its <code>slink_url</code> + <code>mcp_url</code> ready to use. The slink protocol itself doesn't change; it just gets a sibling group-CRUD surface at the same <code>WEB_HOST</code>.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="/pub/reference/slink.html">reference/slink</a> &mdash; full endpoint table, payloads, SSE events, MCP tools, schema dependencies.</li>
+      <li><a href="/pub/components/">components</a> &mdash; sibling daemons (webd hosts slink, gated owns the rounds, proxyd routes the public path).</li>
+      <li><code>specs/1/W-slink.md</code> &mdash; round-handle protocol and MCP transport.</li>
+      <li><code>specs/1/Z-slink-widget.md</code> &mdash; webd infrastructure: CORS, <code>/config</code>, <code>/chat</code>.</li>
+      <li><code>specs/1/Z2-slink-sdk.md</code> &mdash; the JS SDK and asset hosting.</li>
+      <li><code>specs/4/N-platform-api.md</code> &mdash; proposed group-CRUD surface that builds on slink.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

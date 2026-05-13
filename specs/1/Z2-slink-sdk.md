@@ -1,5 +1,5 @@
 ---
-status: spec
+status: shipped
 ---
 
 # Slink SDK — `/assets/arizuko-client.js`
