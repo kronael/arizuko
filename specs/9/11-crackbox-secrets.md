@@ -1,555 +1,300 @@
 ---
 status: spec
-depends: [9-crackbox-standalone, 10-crackbox-arizuko]
+depends: [9-crackbox-standalone, 10-crackbox-arizuko, 6/5-uniform-mcp-rest]
 ---
 
-# Egred secrets injection
+# Tool-level secret brokering
 
-> Secrets never enter the sandbox. Egred (the proxy) replaces
-> placeholders on egress.
+> Secrets live in arizuko, never enter the container, and reach external
+> APIs only via MCP tool handlers running on the host.
 
 ## Problem
 
-Container/VM has secrets in env → can exfiltrate them. Even with
-domain filtering, a compromised agent could POST secrets to an
-allowed domain.
+Per-user API tokens (GitHub, Jira, OpenAI, …) must reach external APIs
+on the user's behalf without materializing inside the agent container.
+The previous design (TLS-MITM on `egred` with placeholder substitution
+at egress) added a CA-distribution surface, an HTTP/1.1 ALPN constraint,
+and bytes-in-the-middle injection. Dropped: the agent is not the
+credential carrier.
 
-## Solution
+## Solution: the broker
 
-1. Sandbox gets **placeholder** values, not real secrets.
-2. Real secrets stored in egred (per-spawn-id, alongside the
-   allowlist).
-3. Egred replaces placeholders with real values in outbound
-   requests.
+When an MCP tool declares `requires_secrets: ["GITHUB_TOKEN"]`, the
+gateway resolves those keys at tool-call time and passes them as
+**call arguments to the handler function in arizuko's host process**.
+The handler makes the outbound HTTP with the real credential. The
+agent invokes the tool by name and sees only the handler's response.
 
-Sandbox never sees real secrets. Can't leak what you don't have.
+Muaddib ships this pattern: `ToolContext` carries `authStorage:
+AuthStorage` (`refs/muaddib/src/agent/tools/types.ts:49-62`); tools
+call `options.authStorage.getApiKey("jina")`
+(`refs/muaddib/src/agent/tools/web.ts:156`) and `...getApiKey(
+"openrouter")` (`refs/muaddib/src/agent/tools/image.ts:369`) on the
+host. The Gondolin VM never holds the key. arizuko mirrors this over
+its MCP-over-unix-socket surface.
 
-## Where this lives
+## Trust boundaries
 
-- **egred** (`crackbox/cmd/egred/`, `crackbox/pkg/proxy/`) — the
-  placeholder→real substitution at egress. Only the proxy can
-  MITM cleanly.
-- **arizuko's `secrets` table** (`store/migrations/0034-secrets.sql`)
-  — owns the real values and per-folder / per-user scoping.
-- **`gated` (today's `container.Run`)** — at spawn time, resolves
-  the (folder, caller-user) overlay → flat placeholder map → POSTs
-  to egred alongside the allowlist register.
+| Scope            | Where secrets live                             | Reaches agent? |
+| ---------------- | ---------------------------------------------- | -------------- |
+| Operator anchors | Container env (`ANTHROPIC_API_KEY`, bot creds) | Yes, by design |
+| Folder secrets   | `secrets` table, broker only                   | No             |
+| Per-user secrets | `secrets` table, broker only                   | No             |
 
-```
-secrets table → arizuko picks (folder ∪ user) overlay → flat
-  {env_name: placeholder} map for container env
-  {placeholder: {value, header, domains}} map for egred register
-  → egred holds the map → on outbound, substitutes inline
-```
+`ANTHROPIC_API_KEY` stays in container env — Claude Code CLI needs it
+and the container _is_ the LLM caller. Operator-trusted scope, not
+user-tenant scope. Generic HTTP inside the container (curl, custom MCP
+servers spawned by the agent) reaches only env vars; per-user tokens
+are out of reach by construction.
 
-## Scopes — channel and per-user overlay
+## Storage
 
-Two scopes compose at spawn:
+Existing `secrets` table from `store/migrations/0034-secrets.sql`,
+column renamed by `0047-secrets-plaintext.sql`:
+`(scope_kind, scope_id, key, value, created_at)` with PK
+`(scope_kind, scope_id, key)`. `scope_kind ∈ {folder, user}`;
+`scope_id` is folder path or `auth_users.sub`.
 
-1. **Channel-scoped** (`scope_kind='folder', scope_id=<folder>`).
-   Operator-managed. API keys the team's bot uses for shared tools.
-2. **Per-user overlay** (`scope_kind='user', scope_id=<auth_users.sub>`).
-   User-managed. Each teammate's own credentials.
+v1 stores plaintext in `value` (operator-trusted disk + FS perms).
+AES-GCM was removed in this release; if encryption at rest becomes
+required, add it back behind a future spec.
 
-Resolution at spawn:
+## Tool declaration
 
-```
-env := base ∪ folder-secrets-for(<folder>) ∪ user-secrets-for(<caller_sub>)
-```
+This spec adds **one new field on a tool descriptor** (`RequiresSecrets []string`) and **one middleware** in the dispatch chain. It does not rewrite `ipc/`. The descriptor + middleware shape is the same pattern docker-mcp-gateway and muaddib use (`refs/docker-mcp-gateway/pkg/interceptors/interceptors.go:21`; `refs/muaddib/src/agent/tools/types.ts:49-62`); we adopt the field, not the surrounding architecture.
 
-Per-user values **override** channel-scoped values when both define
-the same env name. The spawn is per-turn and known-single-caller
-(see `container/runner.go:138`), so resolution is unambiguous.
+`ipc/ipc.go:519-528` (today: `registerRaw(name, desc, opts, handler)`)
+gains one optional axis: which secret keys the handler needs.
 
-### Lifting the `is_group=1` filter
-
-`container/runner.go`'s `resolveSpawnEnv` currently skips the
-per-user overlay for group chats. That guard was conservative; the
-caller is just as known in a group chat as in a DM. Remove it:
-
-```diff
-- if !resolver.GetChatIsGroup(chatJID) {
--     if userSub, ok := resolver.UserSubByJID(chatJID); ok {
--         ...
--     }
-- }
-+ if userSub, ok := resolver.UserSubByJID(chatJID); ok {
-+     ...
-+ }
-```
-
-## Identity unification
-
-A teammate in Slack arrives with a platform-bound user_jid (e.g.
-`slack:T012/U345`). The same person signs in to the dashboard via
-identity OAuth (GitHub / Google / Discord / Telegram) and is known
-to arizuko as `auth_users.sub`. The two are linked through the
-existing `user_jids` table — writes to `/dash/me/secrets` land
-under the signed-in user's `sub`; spawn-time overlay resolves the
-inbound `chat_jid` via `SecretsResolver.UserSubByJID` (already wired
-in `container/runner.go:109`). A user with no linked identity for
-the inbound platform contributes no per-user overlay on that turn —
-no-op, not error.
-
-## Spec format (egred register payload)
-
-Extended from the existing `/v1/register`:
-
-```yaml
-POST /v1/register
-{
-  "ip": "10.99.x.y",
-  "id": "<spawn_id>",                    // per-spawn random; egred keys by this
-  "allowlist": ["api.anthropic.com", "api.github.com"],
-  "secrets": {
-    "ANTHROPIC_API_KEY": {               // channel-scoped
-      "placeholder": "sk-ant-PLACEHOLDER-...",
-      "value": "sk-ant-api03-real-key-here",
-      "inject": [{"header": "x-api-key"}],
-      "domains": ["api.anthropic.com"]
-    },
-    "GITHUB_TOKEN": {                    // per-user overlay
-      "placeholder": "ghp_PLACEHOLDER_...",
-      "value": "ghp_real-token",
-      "inject": [{"header": "authorization", "format": "Bearer {value}"}],
-      "domains": ["api.github.com"]
-    }
-  }
-}
+```go
+registerWithSecrets("github_pr",
+    "Create or list pull requests on a GitHub repo.",
+    []string{"GITHUB_TOKEN"},
+    []mcp.ToolOption{ /* params */ },
+    func(ctx context.Context, req mcp.CallToolRequest, secrets map[string]string) (*mcp.CallToolResult, error) {
+        token := secrets["GITHUB_TOKEN"]
+        if token == "" { return toolErr("github_pr: no GITHUB_TOKEN; set at /dash/me/secrets") }
+        // outbound HTTP using token; return result to agent
+    })
 ```
 
-The map is flat-keyed by **env name**, not by user identity. Per-user
-selection happens before the payload is built; egred sees one
-unambiguous map per spawn-id.
+The handler runs in `gated`, not the container. The resolved value is
+a Go string local to the handler — never logged, never marshaled into
+the `mcp.CallToolResult` returned to the agent.
 
-## Placeholder requirements
+## Connector declaration (MCP-as-subprocess)
 
-Placeholders must:
+The Go-handler path above covers built-in tools. For third-party APIs
+the MCP ecosystem already ships standardized servers (`@modelcontextprotocol/server-github`,
+Linear, Notion, GDrive, etc.) — JSON-RPC subprocesses configured by
+env, the same shape Claude Desktop runs locally. The broker spawns
+them per call with `caller.sub`'s secrets injected as env.
 
-- Be unique enough to not collide with real data
-- Match expected format (prefix, length) so client validation passes
-- Be obviously fake on inspection
-- Be **allocated per spawn** (random suffix), so the placeholder
-  string never leaks identity into the wire format
-
-Suggested pattern: `{prefix}PLACEHOLDER_{rand8}`
-
-Examples:
-
-- `sk-ant-PLACEHOLDER-anthropic_a3f9b21c` (Anthropic format)
-- `ghp_PLACEHOLDER_github_e1d2c4ff` (GitHub format)
-- `sk-PLACEHOLDER-openai_77a01b3e` (OpenAI format)
-
-## Injection modes
-
-### Header injection (default; **only mode allowed for user-scope**)
-
-Replace placeholder in any header value:
-
-```
-GET /v1/messages HTTP/1.1
-x-api-key: sk-ant-PLACEHOLDER-anthropic_a3f9b21c
-           ↓ egred replaces ↓
-x-api-key: sk-ant-api03-real-key-here
+```toml
+[[mcp_connector]]
+name         = "github"
+command      = ["docker","run","-i","--rm","ghcr.io/anthropic/mcp-github"]
+secrets      = ["GITHUB_TOKEN"]
+env_template = { GITHUB_PERSONAL_ACCESS_TOKEN = "{secret:GITHUB_TOKEN}" }
+scope        = "per_call"   # subprocess lifetime; "per_session" later
 ```
 
-### Header with format
+On first connect gated calls `tools/list` on the subprocess once,
+caches the catalog, namespaces each tool with the connector prefix
+(`github_create_pr`, `github_list_issues`), and registers them as
+`MCPTool` entries whose `RequiresSecrets` is the connector's
+`secrets` list. Subsequent `tools/call` for a `github_*` tool:
 
-Use `format: 'Bearer {value}'` to wrap the secret in a template.
+1. Broker middleware resolves `secrets` via the same `user`∥`folder`
+   path the Go-handler case uses.
+2. Spawner renders `env_template`, spawns the connector subprocess
+   with that env (no other env from gated leaks in).
+3. JSON-RPC `tools/call(<unprefixed name>, params)` proxied through.
+4. Result returned to agent. Subprocess torn down (`per_call`) or
+   returned to pool keyed by `(connector, caller.sub)` (`per_session`).
 
-### Body injection (**channel-scope only**)
+The handler shape converges: built-in Go tool and connector tool
+both go through `Chain(GrantsCheck, InjectSecrets, Recover, Timeout,
+Audit, Handler)`; the only difference is whether `Handler` is in-
+process Go code or `connector.Call(toolName, params, secrets)`.
+`SpawnEnv` reuses `container/runner.go`'s env-injection primitive at
+finer grain — same mental model, smaller blast radius.
 
-Replace in request body (JSON, form data, etc.):
+## Why the agent can't leak the credential
 
-```json
-{"api_key": "sk-PLACEHOLDER-openai_77a01b3e", "prompt": "hello"}
-              ↓ egred replaces ↓
-{"api_key": "sk-real-openai-key", "prompt": "hello"}
-```
+The container holds no per-user token: by construction it never
+enters `docker exec <container> env`. The MCP subprocess holds the
+token only for its lifetime (per-call: tens of ms; per-session:
+pooled per caller, never cross-user). Three escape paths and their
+gates:
 
-**Caution**: Body injection is string replacement, not JSON-aware.
-Placeholder must not appear in user content. User-scoped rows
-reject `inject_mode='body'` (string-replace is too leaky for
-content the user can influence); operator-scoped channel rows may
-opt in.
+1. **Tool result echoes the token** — the broker scrubs known
+   secret values from the `mcp.CallToolResult` JSON before returning
+   to the agent (a finite list per call, exact-string match). A
+   connector that echoes a token in an error message gets the
+   echoed value redacted; the call still completes.
+2. **Subprocess stderr** — routed to a sink owned by gated, not
+   the agent. Audit log records `status='ok'|'err'|'timeout'`, never
+   stderr content.
+3. **Prompt-injected agent steers the call to leak via the tool** —
+   the MCP server's tool surface is its own API; it can't introspect
+   its env via tool calls unless it's malicious-by-design. Connector
+   registration is operator-only; agents can't add connectors.
 
-## TLS termination
+The audit row (`secret_use_log`) records that the call happened and
+which scope resolved the key. The value is never written anywhere
+gated keeps around past the subprocess lifetime.
 
-CONNECT-tunneled HTTPS is opaque to egred today (the whole point
-of the v1 forward proxy is no MITM). Secrets injection requires
-egred to **terminate TLS for whitelisted destinations** so it can
-modify request bytes.
+## Resolution (the broker middleware)
 
-This is selective MITM:
-
-- Only for destinations in the per-id allowlist
-- Only for ids that have secrets configured
-- Per-destination CA cert distributed to the sandbox via env or
-  filesystem mount
-
-Anything not in the secrets-enabled set keeps the current
-CONNECT-splice behavior — opaque, no certificate manipulation.
-
-## Write path — dashboard
-
-Self-service per-user secrets under `/dash/me/secrets`:
-
-| Route                    | Method | Purpose                                     |
-| ------------------------ | ------ | ------------------------------------------- |
-| `/dash/me/secrets`       | GET    | List the caller's secrets (redacted values) |
-| `/dash/me/secrets`       | POST   | Add a row                                   |
-| `/dash/me/secrets/{key}` | PATCH  | Rotate value                                |
-| `/dash/me/secrets/{key}` | DELETE | Remove                                      |
-
-Authentication: existing identity OAuth. POST body:
-`{key, value, header, target_domain}`. Server rejects
-`inject_mode='body'` for the user scope (HTTP 400).
-
-Channel-scoped secrets are operator-managed through the CLI; no
-self-service UI on the dashboard for them (operator territory).
-
-## Operator CLI
-
-Folder-scope (channel) secrets:
-
-```bash
-arizuko secret <inst> set <folder> ANTHROPIC_API_KEY \
-  --placeholder "sk-ant-PLACEHOLDER-..." \
-  --value "sk-ant-real-key" \
-  --header x-api-key \
-  --domain api.anthropic.com
-
-arizuko secret <inst> list <folder>
-arizuko secret <inst> rm <folder> ANTHROPIC_API_KEY
-```
-
-User-scope overlay:
-
-```bash
-arizuko user-secret <inst> set <user_sub> GITHUB_TOKEN \
-  --value "ghp_real-token" \
-  --header authorization \
-  --domain api.github.com
-
-arizuko user-secret <inst> list <user_sub>
-arizuko user-secret <inst> delete <user_sub> GITHUB_TOKEN
-```
-
-Neither CLI exists in `cmd/arizuko/` today — both ship as the first
-operator-grade tools of the family in this spec. The in-process
-`store.SetSecret` API exists already.
-
-Standalone form for `crackbox run` (no arizuko store):
-
-```bash
-crackbox run --allow api.anthropic.com \
-  --secret ANTHROPIC_API_KEY=sk-real,header=x-api-key,placeholder=sk-PLACEHOLDER-... \
-  -- claude
-```
-
-## Schema
-
-Existing `secrets` table (migration `0034-secrets.sql`):
+The resolution step is implemented as **one middleware** in the
+dispatch chain, callable as `InjectSecrets(handler)`. It sits between
+`GrantsCheck` (which spec 6/5 owns) and the wrapped handler:
 
 ```
-secrets(scope_kind TEXT, scope_id TEXT, key TEXT, enc_value BLOB,
-        created_at TEXT, PRIMARY KEY (scope_kind, scope_id, key))
+GrantsCheck  →  InjectSecrets  →  Recover/Timeout  →  Handler
 ```
 
-Additive migration to carry egred-injection metadata:
+Today `ipc/ipc.go:519-528` does grant checks inline. The broker
+introduces only the `InjectSecrets` middleware; the other chain
+positions are notional (the existing code does Recover/Timeout
+already; spec 6/5 lays out grants). Each tool dispatch already has a
+`Caller` per [`specs/6/5-uniform-mcp-rest.md`](../6/5-uniform-mcp-rest.md).
+The middleware does:
 
-```sql
-ALTER TABLE secrets ADD COLUMN inject_mode TEXT NOT NULL DEFAULT 'header';
-ALTER TABLE secrets ADD COLUMN header      TEXT NOT NULL DEFAULT '';
-ALTER TABLE secrets ADD COLUMN target_domain TEXT NOT NULL DEFAULT '';
+```
+for each key in tool.RequiresSecrets:
+    secret = lookup(scope_kind='user',   scope_id=caller.Sub,    key)
+          || lookup(scope_kind='folder', scope_id=caller.Folder, key)
+    secrets[key] = secret.Value        // "" if neither row exists
 ```
 
-(Do not add a column named `kind` — collides visually with
-`scope_kind`.)
+`user` wins over `folder` when both define the same key. Folder lookup
+walks parents to `root` as `Store.FolderSecretsResolved` does today
+(`store/secrets.go:205-207`). Missing keys flow through as `""`.
 
-## Audit trail
+The container spawn path (`container/runner.go:235,640-660`,
+`resolveSpawnEnv`) **no longer merges user secrets into env**.
+Folder-scoped env for operator anchors stays. `SecretsResolver` shrinks:
+`UserSecrets` and `UserSubByJID` move to a new `BrokerResolver`
+consumed at tool-call time, not at spawn time.
 
-Each spawn produces one register-side log record per secret entry,
-plus one substitution-side record per actual swap on the wire:
+## Write paths
 
-- **Register-side** (arizuko, new table `secret_register_log`):
-  `(spawn_id, user_sub, env_name, destination_host, action, at)`.
-- **Substitution-side** (egred, in-proc log emit):
-  `(spawn_id, env_name, destination_host, request_id, at)`.
+- **Operator CLI** (new in `cmd/arizuko/`):
+  ```
+  arizuko secret <inst> set    <folder>   KEY --value V
+  arizuko secret <inst> list   <folder>
+  arizuko secret <inst> delete <folder>   KEY
+  arizuko user-secret <inst> set    <user_sub> KEY --value V
+  arizuko user-secret <inst> list   <user_sub>
+  arizuko user-secret <inst> delete <user_sub> KEY
+  ```
+- **User self-service** at `/dash/me/secrets`: GET (list, redacted),
+  POST (add), PATCH (rotate), DELETE. Identity-bound to signed-in
+  `X-User-Sub`. CSRF on writes. Rejects empty values; rejects keys not
+  matching `^[A-Z][A-Z0-9_]*$`.
 
-No secret values in logs.
+No `inject_mode`, `header`, `target_domain`, `placeholder` columns.
+The handler owns how the credential is used; storage is "give me the
+value for this key."
 
-## Security properties
+## Audit middleware
 
-1. **No exfiltration**: Sandbox can't leak secrets it doesn't have.
-2. **Scoped injection**: Secrets only injected for that secret's
-   allowed domains.
-3. **Per-spawn isolation**: A spawn for caller Alice receives only
-   Alice's overlay + the folder default; Bob's secrets never enter
-   that spawn's register payload.
-4. **Audit trail**: Egred logs which secret was used, when, where;
-   arizuko logs the register handoff.
-5. **Revocation**: Change the row in arizuko's store; next spawn
-   picks up the new value; the sandbox is unaffected.
+Audit is itself a middleware sitting at the end of the chain
+(`Chain(GrantsCheck, InjectSecrets, Recover, Timeout, Audit)`), not
+ad-hoc `slog.Info` calls scattered through handlers.
+
+It writes structured rows into `secret_use_log`:
+
+```
+secret_use_log(ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms)
+```
+
+with `scope ∈ {user, folder, missing}` and `status ∈ {ok, err, timeout}`.
+One row per `(tool call × resolved key)`. Renamed from
+`secret_register_log` — registration is gone; we record _use_. No
+secret values in the log.
+
+The audit middleware shape (one place, structured) is taken from
+docker-mcp-gateway (`pkg/interceptors/interceptors.go:21`) — measurable
+upside vs scattered logging is "single grep to answer 'what did the
+agent call?'". The middleware framing is the only piece of that
+project's architecture we adopt; HTTP transport, Bearer auth,
+upstream-MCP aggregation, and `se://` vault URIs are explicitly
+**not** imported.
 
 ## Acceptance
 
-1. **Channel-scope**: Operator runs
-   `arizuko secret <inst> set <folder> ANTHROPIC_API_KEY --value ... --header x-api-key --domain api.anthropic.com`.
-   Next spawn for that folder: container env has
-   `ANTHROPIC_API_KEY=<placeholder>`; egred `/v1/register` carries
-   the mapping; outbound request to `api.anthropic.com` has the
-   real key.
-2. **Per-user overlay**: A teammate signs in at `/dash/me/secrets`,
-   POSTs `{key:GITHUB_TOKEN, value:ghp_..., header:authorization,
-target_domain:api.github.com}`. Row lands at
-   `(scope_kind='user', scope_id=<sub>, key='GITHUB_TOKEN')`,
-   AES-GCM-encrypted. Next spawn triggered by that teammate's
-   inbound message carries `GITHUB_TOKEN=<random-placeholder>` in
-   env; the egred register POST contains
-   `<placeholder> → ghp_...` with header + domain.
-3. **MCP/tool use**: A skill reads `process.env.GITHUB_TOKEN`, sends
-   `Authorization: Bearer <placeholder>` to `api.github.com`; egred
-   substitutes; GitHub returns the user's data.
-4. **Cross-user isolation**: Spawn for a different caller in the
-   same channel gets a different placeholder and (if that user has
-   one) a different real value. Bob's secret never enters Alice's
-   spawn.
-5. **Phase A reject body for user-scope**: POST to `/dash/me/secrets`
-   with `inject_mode=body` → 400, no row written.
-6. **Audit**: each spawn emits N `secret_register_log` rows for
-   its N injected secrets.
-
-## Out of scope
-
-- Surrogate OAuth tokens (third-party login as the user, tokens
-  used by the bot in their turns) — deferred, see
-  [`specs/12/h-surrogate-oauth.md`](../12/h-surrogate-oauth.md).
-- Body injection for user-scope secrets — header-only in Phase A;
-  revisit when a documented use case appears.
-- Per-tool grants on per-user secrets — today, scope is
-  `(user, env_name, target_domain)`; egred allowlist enforces
-  destination matching.
-- HSM/KMS for secrets at rest.
-- Secret rotation mid-run.
-- Response scanning.
-- Non-HTTP secret access.
-
-## Decisions
-
-- **Per-spawn random placeholders**. Egred disambiguates by
-  `spawn_id` (the register key); placeholders never embed user
-  identity. Avoids leaking identity into the wire format.
-- **Flat env-name keys** in the register payload. Per-user
-  selection happens before payload build.
-- **Header-only for user-scope**. Operator-scoped folder rows may
-  still opt into body injection.
-- **No new IPC plumbing**. Spawn-time resolution + the existing
-  egred register POST is enough; no per-turn envelope changes, no
-  MCP tool for secret access.
+1. **Per-user token**: Alice POSTs `{key:GITHUB_TOKEN, value:ghp_xxx}`.
+   Agent in Alice's spawn invokes `github_pr`; handler receives
+   `secrets["GITHUB_TOKEN"]="ghp_xxx"`. `docker exec <container> env |
+grep GITHUB_TOKEN` is empty.
+2. **Folder fallback**: Operator sets folder `JIRA_TOKEN`. Alice (no
+   per-user override) invokes `create_jira_issue`; handler receives the
+   folder's value. `secret_use_log.scope='folder'`.
+3. **Missing**: Bob invokes `github_pr` with no row at either scope.
+   Handler receives `""`, returns structured error;
+   `secret_use_log.scope='missing'`.
+4. **Cross-user isolation**: Alice's and Bob's `github_pr` calls in the
+   same channel see distinct tokens; neither sees the other's value.
+5. **Container egress unchanged**: `curl https://api.anthropic.com/...`
+   inside the container works (operator anchor). Per-user GITHUB_TOKEN
+   never reaches container env.
+6. **One audit row per resolution**.
 
 ## Implementation plan
 
-Six milestones, each a single git commit, each green-builds
-(`make test` + `make lint`).
+| M   | Work                                                                             | LOC  |
+| --- | -------------------------------------------------------------------------------- | ---- |
+| M0  | `ipc.registerWithSecrets`; `MCPTool.RequiresSecrets []string`                    | ~30  |
+| M1  | `gateway/secrets_broker.go`: `user`∥`folder` resolve, pass `map[string]string`   | ~80  |
+| M2  | `store/audit.go`: `LogSecretUse` + `0048-secret-use-log.sql`                     | ~40  |
+| M3  | `dashd/me_secrets.go`: GET/POST/PATCH/DELETE + CSRF                              | ~150 |
+| M4  | `cmd/arizuko/secret.go` + `user_secret.go`: operator CLI                         | ~100 |
+| M5  | Drop user-overlay from `container/runner.go`; remove `WireEntry.Secrets`         | ~50  |
+| M6  | Connector path: `mcp_connector` TOML, per-call subprocess spawner, env injection | ~200 |
+| M7  | First connector lands: github-mcp-server. PAT-only; user pastes at M3 surface    | ~30  |
+| M8  | Release: CHANGELOG, migration, version bump                                      | —    |
 
-### Blockers (gaps to close)
+No proxy changes. No CA. No TLS termination. No
+`crackbox/pkg/proxy/mitm.go`. `WireEntry.Secrets` in
+`crackbox/pkg/admin/api.go` becomes dead and is removed in M5.
 
-1. Operator CLIs `arizuko secret` and `arizuko user-secret` don't
-   exist yet (`cmd/arizuko/main.go:38-65`). Both ship in this work.
-2. `crackbox/pkg/admin/api.go:62-72` and `crackbox/pkg/client/client.go:41-43`
-   carry only `{IP, ID, Allowlist}`. The `secrets` map is added in M0.
-3. Egred selective TLS-MITM doesn't exist; `crackbox/pkg/proxy/*` is
-   CONNECT-splice only (`peek.go`, `transparent.go`). M0.
-4. No centralized audit-log table or library today. M1 adds
-   `secret_register_log`.
-5. `dashd/main.go:87` opens the DB read-only; the dashboard write
-   path needs either a writable handle or DB-handle split. Decision:
-   split — `dashd.secretsDB` writable handle just for this use case.
-   `dashd` also needs `AUTH_SECRET` in its env to decrypt — env-var
-   addition required.
+## Open questions
 
-### M0. Spec 11 prereqs (egred wire + selective MITM + CA distribution)
+- **Per-tool override of fallback order?** A tool intrinsically
+  user-scoped (e.g. `github_pr`) may want to refuse folder fallback.
+  Add `MCPTool.SecretScopes map[string]Scope` if needed; not v1.
+- **`caller.Folder` source for chat-routed calls** — `ipc/ipc.go`
+  builds it per turn from the spawn folder; the per-call `Caller` shape
+  lands with spec 6/5. v1 reads `folder` from the existing closure.
 
-**Files**:
+## Out of scope
 
-- `crackbox/pkg/admin/api.go` (lines 62-72: extend `WireEntry` with
-  `Secrets map[string]SecretInject` + `SecretInject` struct).
-- `crackbox/pkg/admin/registry.go` (`Set` signature gains `secrets`).
-- `crackbox/pkg/client/client.go` (lines 41-43: extend `Register`).
-- `crackbox/pkg/proxy/proxy.go`, `crackbox/pkg/proxy/transparent.go`,
-  new `crackbox/pkg/proxy/mitm.go` (selective MITM for hosts with a
-  registered `secrets` entry).
-- `crackbox/cmd/crackbox/main.go` (CA-bootstrap flag, on-disk path).
-- `crackbox/pkg/host/host.go:110`, `crackbox/pkg/run/run.go:96`,
-  `container/egress.go:102` — adapt to new `Register` signature
-  (pass empty `secrets`; real values populated in M2).
+- TLS-MITM at egress (dropped; revisit if an SDK can't be wrapped).
+- AES-GCM at rest — cipher code removed from `store/secrets.go`
+  (v1 stores plaintext). Re-add behind `AUTH_SECRET` when threat
+  model demands.
+- **OAuth dance + token refresh** — [`specs/9/14-surrogate-oauth.md`](14-surrogate-oauth.md).
+  The broker treats `secrets.value` as opaque; whether it landed
+  there via user paste (`/dash/me/secrets`) or via a completed OAuth
+  flow is the writer's concern. v1 ships PAT-only: pastable
+  long-lived tokens (GitHub fine-grained PAT, Linear PAT, OpenAI
+  key). 9/14 adds the dance + refresh wrapper.
+- MCP handler isolation beyond subprocess boundary (containerized
+  per-call MCP servers ship under spec 9/12 sandboxing extensions).
+- HSM / KMS integration.
 
-**Tests**:
+## Cross-references
 
-- `crackbox/pkg/admin/api_test.go`: `TestRegister_AcceptsSecretsField`,
-  `TestState_RoundTripsSecrets`.
-- `crackbox/pkg/client/client_test.go`: `TestRegister_SerializesSecrets`.
-- `crackbox/pkg/proxy/mitm_test.go`: `TestMITM_ReplacesHeaderPlaceholder`,
-  `TestMITM_NotMITMedOutsideSecretsHosts`, `TestMITM_LeavesBodyAlone`
-  (header-only).
-
-**Verify**: `make -C crackbox test`, then `make test` repo-root.
-
-**Migration**: none (additive wire field with `omitempty`). No DB.
-
-### M1. Schema migration + audit table
-
-**Files**:
-
-- `store/migrations/0047-secret-injection-metadata.sql`:
-  `ALTER TABLE secrets ADD COLUMN inject_mode TEXT NOT NULL DEFAULT 'header';`
-  `ALTER TABLE secrets ADD COLUMN header TEXT NOT NULL DEFAULT '';`
-  `ALTER TABLE secrets ADD COLUMN target_domain TEXT NOT NULL DEFAULT '';`
-- `store/migrations/0048-secret-audit.sql`:
-  `CREATE TABLE secret_register_log (spawn_id, user_sub, env_name, destination_host, action, at);`
-- `store/secrets.go`: extend `Secret` struct; add `SetSecretWithMeta`;
-  change `UserSecrets` / `FolderSecretsResolved` return type from
-  `map[string]string` to `map[string]ResolvedSecret`.
-- `store/audit.go` (new): `LogSecretRegister(...)`.
-
-**Tests**: `store/secrets_test.go`, `store/audit_test.go`.
-
-**Verify**: `make test ./store/...`.
-
-**Migration**: SQLite `ALTER TABLE ADD COLUMN` is in-place. No agent
-`MIGRATION_VERSION` bump (bump happens in M6).
-
-### M2. `resolveSpawnEnv` lift + placeholder generation + egred register
-
-**Files**:
-
-- `container/runner.go`: extend `SecretsResolver` to return
-  `ResolvedSecret`; lift `!GetChatIsGroup` guard in `resolveSpawnEnv`;
-  return type becomes `SpawnSecrets{Env, Inject}`.
-- `container/placeholder.go` (new): `newPlaceholder(envName, format)`
-  with prefix heuristic (`ghp_`, `xoxb-`, `sk-ant-`).
-- `container/egress.go`: `registerEgress` gains `secrets` param;
-  allocates `spawnID`.
-- `gateway/gateway.go`: wire `AuditFn` Input field.
-
-**Phase A guard**: `resolveSpawnEnv` drops user-scoped rows with
-`inject_mode != "header"` (logged at `slog.Warn`).
-
-**Tests** (`container/secrets_test.go`, new `placeholder_test.go`,
-extend `egress_test.go`):
-
-- **Delete** `TestResolveSpawnEnv_NoUserSecretsInGroupChat`.
-- Add `TestResolveSpawnEnv_UserOverlaysAppliedInGroupChat`.
-- Add `TestResolveSpawnEnv_PlaceholderEnvSwapped`.
-- Add `TestResolveSpawnEnv_InjectMapMirrorsValues`.
-- Add `TestResolveSpawnEnv_UserOverridesFolderSameKey`.
-- Add `TestResolveSpawnEnv_PhaseA_RejectsBodyInjectForUser`.
-
-**Verify**: `make test`; fake egred records POSTs; `docker exec ... env | grep PLACEHOLDER` shows placeholder, never real value.
-
-### M3. `/dash/me/secrets` CRUD + CSRF
-
-**Files**:
-
-- `dashd/me_secrets.go` (new): GET/POST/PATCH/DELETE handlers.
-  Validates `key ~ ^[A-Z][A-Z0-9_]*$`, rejects `inject_mode=body`,
-  uses identity-bound `X-User-Sub`.
-- `dashd/csrf.go` (new): `HMAC(X-User-Sub + day, AUTH_SECRET)`
-  per-session token. Hidden form field, verified on writes.
-- `dashd/main.go`: add `AUTH_SECRET` env read; open separate writable
-  handle for secrets table; register four routes; add nav entry.
-
-**Tests** (`dashd/me_secrets_test.go`):
-`GET_ListsCallerOnly`, `POST_AcceptsHeaderInject`,
-`POST_RejectsBodyInject_PhaseA`, `PATCH_Rotates`, `DELETE_Removes`,
-`NoIdentityHeader_403`, `CrossUser_CannotReadOthers`,
-`CSRF_RequiredOnWrite`.
-
-**Verify**: `make test ./dashd/...`; manual deploy to krons.
-
-**Migration**: dashd compose env gains `AUTH_SECRET`.
-
-### M4. Operator CLIs
-
-**Files**:
-
-- `cmd/arizuko/secret.go` (new): folder-scope CRUD.
-- `cmd/arizuko/user_secret.go` (new): user-scope CRUD.
-- `cmd/arizuko/main.go`: extend usage banner + `cmds` map.
-
-**Tests** (`cmd/arizuko/{secret,user_secret}_test.go`):
-`Set_PersistsRow`, `List_RedactsValue`, `Delete_RemovesRow`,
-`Set_RequiresHeaderAndDomain` (Phase A).
-
-### M5. Audit-log emit (register-side)
-
-**Files**:
-
-- `container/runner.go` / `container/egress.go`: after egred POST,
-  call `auditFn(spawnID, userSub, envName, host, "register")` per
-  inject entry.
-- `gateway/gateway.go`: bind `Input.AuditFn` to
-  `g.store.LogSecretRegister`.
-- `container/runner.go` `Input`: add `AuditFn` field (`json:"-"`).
-
-**Tests** (`container/audit_test.go`, new):
-`TestRun_EmitsAuditPerInjectEntry`.
-
-### M6. Release
-
-Per `CLAUDE.md:220-258`.
-
-- `CHANGELOG.md`: prepend release block (`>` blockquote ≤ 9 lines,
-  3-6 bullets) plus `### Added/Changed/Schema` sections.
-- `ant/skills/self/migrations/118-vX.Y.0-user-secret-overlay.md`
-  (new; stub body fine).
-- `ant/skills/self/MIGRATION_VERSION`: `117` → `118`.
-- `ant/skills/self/SKILL.md`: bump "Latest migration version".
-- `git tag vX.Y.0`; tag docker images.
-- `.diary/YYYYMMDD.md`.
-
-**Verify**: `make build && make lint && make test && make test-e2e`;
-deploy to krons; `make smoke SMOKE_INSTANCE=krons`; e2e identity-OAuth
-→ POST `GITHUB_TOKEN` → Slack turn → GitHub API call returns user
-data.
-
-### Integration test (`tests/integration/user_secret_e2e_test.go`)
-
-1. Seed `auth_users` row for `google:alice`, `user_jids` linking
-   `google:alice ↔ slack:T1/U1`.
-2. POST to `/dash/me/secrets` with `X-User-Sub: google:alice`.
-3. Trigger gateway spawn with `chatJID=slack:T1/U1` (group chat) via
-   fake docker that captures env.
-4. Assert env contains placeholder, not real value.
-5. Assert fake-egred admin endpoint received the secret with right
-   placeholder, value, header, domain.
-6. Assert `secret_register_log` has one row keyed to spawn.
-
-Edge cases: identity-link no-op (no `user_jids` row → only folder
-secrets, no user-keyed log row); cross-user isolation (two
-sequential spawns → distinct placeholders).
-
-### Rollback
-
-| Step                      | Reversibility                                         |
-| ------------------------- | ----------------------------------------------------- |
-| M0 wire-format            | Forward-compatible (`omitempty`).                     |
-| M1 schema                 | Additive only; no down-migration.                     |
-| M2 `resolveSpawnEnv` lift | Pure code revert.                                     |
-| M3 dashd routes           | Pure code revert; routes 404.                         |
-| M4 CLI                    | Pure code revert.                                     |
-| M5 audit emit             | Pure code revert; table remains.                      |
-| M6 release                | `git tag -d`; revert CHANGELOG + `MIGRATION_VERSION`. |
-
-### Critical-path estimate
-
-| Day | Work                                                            | Milestones     |
-| --- | --------------------------------------------------------------- | -------------- |
-| 1   | Wire-format + selective MITM PoC + CA mount.                    | M0 (if needed) |
-| 2   | M0 finish + tests.                                              | M0             |
-| 3   | M1 schema + store extensions. M2 lift + placeholder + register. | M1 + M2        |
-| 4   | M3 dashd CRUD + CSRF. M5 audit emit.                            | M3 + M5        |
-| 5   | M4 CLIs. Integration test. M6 release + krons deploy + smoke.   | M4 + M6        |
-
-If M0 already done: collapse to 3 days.
+- [`specs/7/product-slack-team.md`](../7/product-slack-team.md) — per-user
+  GitHub token flow, the canonical v1 user.
+- [`specs/6/5-uniform-mcp-rest.md`](../6/5-uniform-mcp-rest.md) — `Caller`
+  shape consumed here.
+- [`specs/9/10-crackbox-arizuko.md`](10-crackbox-arizuko.md) — egred
+  keeps CONNECT-splice + per-source allowlists; untouched by this spec.
+- [`specs/9/14-surrogate-oauth.md`](14-surrogate-oauth.md) — OAuth
+  dance + refresh wrapper; writer-side feed into the `secrets` table
+  the broker reads. Independent ship: 9/11 ships PAT-only and is
+  useful end-to-end without it.
