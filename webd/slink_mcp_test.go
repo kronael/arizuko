@@ -373,14 +373,23 @@ func TestSlinkMCP_GetRound_Wait(t *testing.T) {
 	}
 	body := toolText(t, res)
 	var got struct {
-		Frames []map[string]any `json:"frames"`
-		Done   bool             `json:"done"`
+		TurnID      string           `json:"turn_id"`
+		Status      string           `json:"status"`
+		Frames      []map[string]any `json:"frames"`
+		LastFrameID string           `json:"last_frame_id"`
+		Done        bool             `json:"done"`
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatalf("unmarshal %q: %v", body, err)
 	}
 	if !got.Done {
 		t.Errorf("done = false, want true after assistant publish; body=%s", body)
+	}
+	if got.TurnID != turnID {
+		t.Errorf("turn_id = %q, want %q", got.TurnID, turnID)
+	}
+	if got.LastFrameID == "" {
+		t.Errorf("last_frame_id empty (snapshot-shape parity); body=%s", body)
 	}
 	sawAssistant := false
 	for _, f := range got.Frames {
