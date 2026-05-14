@@ -213,16 +213,29 @@ it covers both tables uniformly.
 
 `POST /slink/<token>/mcp` exposes a standards-compliant Streamable
 HTTP MCP endpoint scoped to the token's group. Token is auth; same
-DoS shield as the form-encoded slink path. Three tools mirroring
-the REST surface 1:1:
+DoS shield as the form-encoded slink path.
 
-- `send_message(content, topic?)` — submit a message. Reusing a
-  `topic` continues that conversation thread.
-- `get_round(turn_id, after?, wait?)` — read frames for a round.
-  `after=<id>` cursor-pages forward; `wait=true` blocks for the first
-  new assistant frame.
-- `get_round_status(turn_id)` — cheap status + counts, no frame
-  payload.
+Slink is a **resource** in the sense of
+[`specs/6/5-uniform-mcp-rest.md`](../6/5-uniform-mcp-rest.md): one
+handler per action, surfaced through both REST and MCP. The mapping
+is 1:1 — drift between transports is structurally precluded:
+
+| Action             | REST                                    | MCP tool                                   |
+| ------------------ | --------------------------------------- | ------------------------------------------ |
+| `submit`           | `POST /slink/<token>`                   | `send_message(content, topic?)`            |
+| `get_round`        | `GET /slink/<token>/<turn_id>[?after=]` | `get_round(turn_id, after?, wait?)`        |
+| `get_round_status` | `GET /slink/<token>/<turn_id>/status`   | `get_round_status(turn_id)`                |
+| `stream`           | `GET /slink/<token>/<turn_id>/sse`      | `get_round(turn_id, wait=true)` (blocking) |
+
+MCP tool names are bare (resource prefix is implicit from the
+`/slink/<token>/mcp` endpoint context), matching the "default
+pattern" clause in spec 6/5. Audit and metrics use the composed
+correlator `slink.<action>`.
+
+`get_round`'s `wait=true` is the request-response form of SSE.
+MCP tool calls are not chunked, so a single blocking response that
+returns once the first new assistant frame lands (or the ~5 min
+deadline trips) is the closest equivalent.
 
 External agents register the URL in their MCP client config and
 talk to the group as if the tools were local. See

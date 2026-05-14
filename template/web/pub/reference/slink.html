@@ -237,6 +237,8 @@ Access-Control-Allow-Headers: Accept, Content-Type</code></pre>
 
     <p>The three tools mirror the REST surface 1:1: <code>send_message</code> = <code>POST /slink/{token}</code>, <code>get_round</code> = <code>GET /slink/{token}/{id}[?after=]</code>, <code>get_round_status</code> = <code>GET /slink/{token}/{id}/status</code>. There is no MCP equivalent of SSE; <code>get_round</code> with <code>wait=true</code> is the request-response form.</p>
 
+    <p>This is the slink instance of the uniform resource pattern from <a href="https://github.com/kronael/arizuko/blob/main/specs/6/5-uniform-mcp-rest.md"><code>specs/6/5-uniform-mcp-rest.md</code></a>: one handler per action, two transports (REST + MCP), one audit correlator (<code>slink.&lt;action&gt;</code>). Drift between transports is structurally precluded.</p>
+
     <table>
       <tr><th>Tool</th><th>Params</th><th>Effect</th></tr>
       <tr><td><code>send_message</code></td><td><code>content</code> (req), <code>topic?</code></td><td>Submit a message. Reusing a <code>topic</code> continues that conversation thread. Returns <code>{turn_id, topic, folder}</code>. <code>turn_id</code> is the originating <code>messages.id</code> — the round handle.</td></tr>
