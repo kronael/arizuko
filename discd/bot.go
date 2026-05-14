@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,6 +25,8 @@ type bot struct {
 	typing        *chanlib.TypingRefresher
 	files         *chanlib.URLCache
 	lastInboundAt atomic.Int64
+	subscribedMu  sync.Mutex
+	subscribed    map[string]struct{}
 }
 
 func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
@@ -58,11 +61,63 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 	b.rc = rc
 	b.session.AddHandler(b.onMessage)
 	b.session.AddHandler(b.onReactionAdd)
+	if b.cfg.UserMode {
+		b.session.AddHandler(b.onReady)
+	}
 	if err := b.session.Open(); err != nil {
 		return fmt.Errorf("discord open: %w", err)
 	}
 	slog.Info("discord connected", "user", b.session.State.User.Username)
 	return nil
+}
+
+// onReady fires after the user-mode session populates state.Guilds.
+// Discord's gateway only pushes MESSAGE_CREATE for channels the user
+// account is actively "subscribed" to via OP 14 (Lazy Request). The
+// official client sends this when a channel is focused; for a headless
+// account we have to do it explicitly or only mentions arrive.
+//
+// discordgo fires Ready on every WS resume, so the subscribe is
+// deduplicated per-guild for the session lifetime.
+func (b *bot) onReady(s *discordgo.Session, _ *discordgo.Ready) {
+	b.subscribedMu.Lock()
+	defer b.subscribedMu.Unlock()
+	if b.subscribed == nil {
+		b.subscribed = make(map[string]struct{})
+	}
+	for _, g := range s.State.Guilds {
+		if _, done := b.subscribed[g.ID]; done {
+			continue
+		}
+		channels := map[string][][2]int{}
+		for _, ch := range g.Channels {
+			if ch.Type == discordgo.ChannelTypeGuildText ||
+				ch.Type == discordgo.ChannelTypeGuildPublicThread ||
+				ch.Type == discordgo.ChannelTypeGuildPrivateThread {
+				channels[ch.ID] = [][2]int{{0, 99}}
+			}
+		}
+		if len(channels) == 0 {
+			continue
+		}
+		err := s.GatewayWriteStruct(map[string]any{
+			"op": 14,
+			"d": map[string]any{
+				"guild_id":   g.ID,
+				"typing":     true,
+				"threads":    true,
+				"activities": true,
+				"members":    []string{},
+				"channels":   channels,
+			},
+		})
+		if err != nil {
+			slog.Warn("guild subscribe failed", "guild", g.ID, "err", err)
+			continue
+		}
+		b.subscribed[g.ID] = struct{}{}
+		slog.Info("guild subscribed for message events", "guild", g.ID, "channels", len(channels))
+	}
 }
 
 func (b *bot) stop() {
