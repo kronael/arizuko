@@ -28,11 +28,11 @@ import (
 // store and posts to the local webd over the configured WEB_HOST.
 func cmdSend(args []string) {
 	if len(args) < 2 {
-		die("usage: arizuko send <instance> <folder> [<message>] [--wait | --stream] [--stdin]")
+		die("usage: arizuko send <instance> <folder> [<message>] [--wait | --stream] [--stdin] [--topic <topic>]")
 	}
 	instance, folder := args[0], args[1]
 
-	var msg string
+	var msg, topic string
 	wait, stream, stdin := false, false, false
 	rest := args[2:]
 	for i := 0; i < len(rest); i++ {
@@ -44,6 +44,12 @@ func cmdSend(args []string) {
 			stream = true
 		case "--stdin":
 			stdin = true
+		case "--topic":
+			i++
+			if i >= len(rest) {
+				die("usage: --topic <topic>")
+			}
+			topic = rest[i]
 		default:
 			if msg != "" {
 				die("usage: arizuko send <instance> <folder> <message>")
@@ -91,7 +97,12 @@ func cmdSend(args []string) {
 	}
 	endpoint := fmt.Sprintf("%s://%s/slink/%s", scheme, host, g.SlinkToken)
 
-	body := strings.NewReader("content=" + url.QueryEscape(msg))
+	form := url.Values{}
+	form.Set("content", msg)
+	if topic != "" {
+		form.Set("topic", topic)
+	}
+	body := strings.NewReader(form.Encode())
 	req, _ := http.NewRequest("POST", endpoint, body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")

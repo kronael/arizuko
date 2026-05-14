@@ -45,7 +45,7 @@ func main() {
 		fmt.Println("  identity <instance> list | link <sub> [--name NAME] [--id ID] | unlink <sub>")
 		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
 		fmt.Println("  chat     <instance>  — interactive Claude Code session bound to root MCP socket")
-		fmt.Println("  send     <instance> <folder> \"<msg>\" [--wait | --stream]")
+		fmt.Println("  send     <instance> <folder> \"<msg>\" [--wait | --stream] [--topic <t>]")
 		fmt.Println("  secret   <instance> set <folder> KEY --value V | list <folder> | delete <folder> KEY")
 		fmt.Println("  user-secret <instance> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY")
 		fmt.Println("  budget   <instance> set <folder|user> <name|sub> --daily N | show <folder|user> <name|sub>")
