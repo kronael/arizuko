@@ -103,6 +103,7 @@ func TestNameOf(t *testing.T) {
 		{"main", "main"},
 		{"main/content", "content"},
 		{"a/b/c", "c"},
+		{"", ""},
 	}
 	for _, c := range cases {
 		if got := NameOf(c.folder); got != c.want {

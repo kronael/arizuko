@@ -1021,8 +1021,6 @@ func (g *Gateway) runAgentWithOpts(
 		Topic:           topic,
 		GroupPath:       groupPath,
 		Name:            cname,
-		GroupName:       groupfolder.NameOf(group.Folder),
-		Parent:          groupfolder.ParentOf(group.Folder),
 		Config:          group.Config,
 		SlinkToken:      group.SlinkToken,
 		Channel:         chanName,

@@ -174,10 +174,9 @@ func TestSeedSettings(t *testing.T) {
 		WebHost: "https://example.com",
 	}
 	in := Input{
-		Folder:    "testgroup",
-		GroupName: "Test World",
-		Depth:     2,
-		Channel:   "telegram",
+		Folder:  "testgroup",
+		Depth:   2,
+		Channel: "telegram",
 	}
 
 	seedSettings(d, cfg, in, true)
@@ -215,8 +214,8 @@ func TestSeedSettings(t *testing.T) {
 	if env["ARIZUKO_GROUP_FOLDER"] != "testgroup" {
 		t.Errorf("group_folder = %v", env["ARIZUKO_GROUP_FOLDER"])
 	}
-	if env["ARIZUKO_GROUP_NAME"] != "Test World" {
-		t.Errorf("group_name = %v", env["ARIZUKO_GROUP_NAME"])
+	if env["ARIZUKO_GROUP_NAME"] != "testgroup" {
+		t.Errorf("group_name (derived from folder basename) = %v", env["ARIZUKO_GROUP_NAME"])
 	}
 	if env["ARIZUKO_WORLD"] != "" {
 		t.Errorf("world (root) = %v, want empty", env["ARIZUKO_WORLD"])
@@ -241,11 +240,7 @@ func TestSeedSettings(t *testing.T) {
 func TestSeedSettingsNonRoot(t *testing.T) {
 	d := t.TempDir()
 	cfg := &core.Config{Name: "Bot"}
-	in := Input{
-		Folder:    "atlas/support",
-		GroupName: "Support",
-		Parent:    "atlas",
-	}
+	in := Input{Folder: "atlas/support"}
 
 	seedSettings(d, cfg, in, false)
 
@@ -263,7 +258,10 @@ func TestSeedSettingsNonRoot(t *testing.T) {
 		t.Errorf("world = %v, want atlas", env["ARIZUKO_WORLD"])
 	}
 	if env["ARIZUKO_GROUP_PARENT"] != "atlas" {
-		t.Errorf("parent = %v, want atlas", env["ARIZUKO_GROUP_PARENT"])
+		t.Errorf("parent (derived from folder path) = %v, want atlas", env["ARIZUKO_GROUP_PARENT"])
+	}
+	if env["ARIZUKO_GROUP_NAME"] != "support" {
+		t.Errorf("name (derived from folder basename) = %v, want support", env["ARIZUKO_GROUP_NAME"])
 	}
 	if env["ARIZUKO_TIER"] != "2" {
 		t.Errorf("tier = %v, want 2", env["ARIZUKO_TIER"])
@@ -273,7 +271,7 @@ func TestSeedSettingsNonRoot(t *testing.T) {
 func TestSeedSettingsTier1World(t *testing.T) {
 	d := t.TempDir()
 	cfg := &core.Config{Name: "Bot"}
-	in := Input{Folder: "atlas", GroupName: "Atlas"}
+	in := Input{Folder: "atlas"}
 
 	seedSettings(d, cfg, in, false)
 

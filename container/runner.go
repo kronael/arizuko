@@ -89,8 +89,6 @@ type Input struct {
 
 	GroupPath   string           `json:"-"`
 	Name        string           `json:"-"`
-	GroupName   string           `json:"-"`
-	Parent      string           `json:"-"`
 	Config      core.GroupConfig `json:"-"`
 	SlinkToken  string           `json:"-"`
 	Annotations []string         `json:"-"`
@@ -685,8 +683,8 @@ func seedSettings(
 	}
 	env["ARIZUKO_DELEGATE_DEPTH"] = strconv.Itoa(in.Depth)
 	env["ARIZUKO_GROUP_FOLDER"] = in.Folder
-	env["ARIZUKO_GROUP_NAME"] = in.GroupName
-	env["ARIZUKO_GROUP_PARENT"] = in.Parent
+	env["ARIZUKO_GROUP_NAME"] = groupfolder.NameOf(in.Folder)
+	env["ARIZUKO_GROUP_PARENT"] = groupfolder.ParentOf(in.Folder)
 	env["ARIZUKO_WORLD"] = worldOf(in.Folder, root)
 	env["ARIZUKO_TIER"] = strconv.Itoa(tierOf(in.Folder, root))
 	if in.Channel != "" {
