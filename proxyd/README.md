@@ -41,6 +41,33 @@ vhost host-header rewriting.
 
 See `specs/6/2-proxyd-standalone.md` for the field semantics.
 
+## Runtime route mutation (`/v1/routes`)
+
+Operators can add, change, or remove routes at runtime via the
+operator-only REST surface. Five endpoints, plus matching MCP tools
+(`routes.list`, `routes.get`, `routes.create`, `routes.update`,
+`routes.delete`) surfaced through webd's `/mcp` bridge. Both faces call
+the same handler in `proxyd/resource.go`; the registry lives in
+`resreg/` (spec 6/5).
+
+```
+GET    /v1/routes
+GET    /v1/routes/{path}       # path urlencoded, e.g. /v1/routes/%2Fslack%2F
+POST   /v1/routes              # body: {path, backend, auth, gated_by?, preserve_headers?, strip_prefix?}
+PATCH  /v1/routes/{path}       # body: any subset of the create fields
+DELETE /v1/routes/{path}       # idempotent (204 either way)
+```
+
+**Precedence**: routes persist to the `proxyd_routes` table. On first
+boot, if the table is empty AND `PROXYD_ROUTES_JSON` is set, proxyd
+seeds the table from the env var. Thereafter the table is authoritative
+and the env var is ignored. Runtime mutations are visible to subsequent
+requests without restart and durable across container restarts.
+
+**Authorization**: today's `**` user_groups marker is the operator
+gate (spec 6/5 §"Token / auth model" — JWT scope claims will replace
+this once the capability-token work lands).
+
 ## WebDAV write-block
 
 Paths under `/dav/` reach `dufs` only after a `davAllow` check on top

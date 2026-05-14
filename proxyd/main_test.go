@@ -188,10 +188,7 @@ func TestProxydSlinkRouteRateLimit(t *testing.T) {
 		cfg:     config{},
 		vh:      &vhosts{entries: map[string]string{}},
 		slinkAnonDOS: newRateLimiter(1, time.Minute),
-		routes:  []Route{{Path: "/slink/", Backend: "http://stub", Auth: "public"}},
-		proxies: map[string]*httputil.ReverseProxy{
-			"/slink/": buildRouteProxy(Route{Path: "/slink/", Backend: "http://stub"}),
-		},
+		rr: newRoutesResource(nil, []Route{{Path: "/slink/", Backend: "http://stub", Auth: "public"}}),
 	}
 	s.slinkAnonDOS.allow("9.9.9.9")
 
@@ -305,7 +302,7 @@ func testServerWithUpstream(t *testing.T) (*server, *httptest.Server) {
 		vh:        &vhosts{entries: map[string]string{}},
 		viteProxy: httputil.NewSingleHostReverseProxy(u),
 		slinkAnonDOS:   newRateLimiter(10, time.Minute),
-		proxies:   map[string]*httputil.ReverseProxy{},
+		rr:        newRoutesResource(nil, nil),
 	}
 	return s, up
 }
@@ -582,11 +579,7 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 		vh:        &vhosts{entries: map[string]string{}},
 		viteProxy: httputil.NewSingleHostReverseProxy(u),
 		slinkAnonDOS:   newRateLimiter(10, time.Minute),
-		routes:    []Route{chatRoute, slinkRoute},
-		proxies: map[string]*httputil.ReverseProxy{
-			"/chat/":  buildRouteProxy(chatRoute),
-			"/slink/": buildRouteProxy(slinkRoute),
-		},
+		rr:        newRoutesResource(nil, []Route{chatRoute, slinkRoute}),
 	}
 	return s, up
 }
@@ -943,8 +936,7 @@ func testDavServer(t *testing.T) (*server, *httputil.ReverseProxy, *httptest.Ser
 		cfg:     config{authSecret: "testsecret"},
 		vh:      &vhosts{entries: map[string]string{}},
 		slinkAnonDOS: newRateLimiter(10, time.Minute),
-		routes:  []Route{{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}},
-		proxies: map[string]*httputil.ReverseProxy{"/dav/": rp},
+		rr: newRoutesResource(nil, []Route{{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}}),
 	}
 	return s, rp, up
 }
@@ -1261,13 +1253,13 @@ func TestProxydVhostRootPreservesTrailingSlash(t *testing.T) {
 // end-to-end via server.route.
 
 // installRoute is a tiny helper for tests that wires one TOML route into
-// the server's routes/proxies map.
+// the server's route table.
 func installRoute(s *server, r Route) {
-	s.routes = append(s.routes, r)
-	if s.proxies == nil {
-		s.proxies = map[string]*httputil.ReverseProxy{}
+	if s.rr == nil {
+		s.rr = newRoutesResource(nil, nil)
 	}
-	s.proxies[r.Path] = buildRouteProxy(r)
+	cur, _ := s.rr.snapshot()
+	_ = s.rr.swap(append(append([]Route(nil), cur...), r))
 }
 
 func TestProxyd_TOMLRoute_HandlesSlackPrefix(t *testing.T) {

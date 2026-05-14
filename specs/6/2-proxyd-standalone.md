@@ -1,6 +1,6 @@
 ---
-status: spec
-shipped: phase-1 (per-daemon TOML routes) in v0.35.0
+status: shipped
+shipped: phase-1 (per-daemon TOML routes) in v0.35.0; phase-3 (runtime /v1/routes + MCP) in v0.36.0
 ---
 
 # proxyd: standalone authenticating gateway

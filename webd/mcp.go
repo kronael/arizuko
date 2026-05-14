@@ -32,6 +32,9 @@ func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
 func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPServer {
 	srv := mcpserver.NewMCPServer("arizuko-web", "1.0")
 
+	// Operator-only resource tools (spec 6/5). Invisible to non-operators.
+	registerRoutesMCP(srv, s.proxyd, sub, name, grants)
+
 	resolveGroup := func(folder string) (core.Group, *mcp.CallToolResult) {
 		folder = strings.TrimSpace(folder)
 		if folder == "" {

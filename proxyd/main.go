@@ -25,6 +25,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -170,12 +171,31 @@ func (v *vhosts) match(host string) (string, bool) {
 type server struct {
 	cfg       config
 	st        *store.Store
-	routes    []Route
-	proxies   map[string]*httputil.ReverseProxy // keyed by route path
+	rr        *routesResource // route table + ReverseProxy map, RWMutex-guarded
 	viteProxy *httputil.ReverseProxy
 	vh        *vhosts
 	slinkAnonDOS *rateLimiter // anon DoS shield, IP-keyed (not metering)
 	pubRedir     *pubRedirect
+}
+
+// routes / proxies are thin snapshot accessors so the rest of proxyd can
+// stay oblivious to the mutex. Slices/maps returned are replaced wholesale
+// on mutation, never appended in place, so the caller can use them safely
+// without holding the lock.
+func (s *server) routes() []Route {
+	if s.rr == nil {
+		return nil
+	}
+	r, _ := s.rr.snapshot()
+	return r
+}
+
+func (s *server) proxies() map[string]*httputil.ReverseProxy {
+	if s.rr == nil {
+		return nil
+	}
+	_, p := s.rr.snapshot()
+	return p
 }
 
 // pubRedirect probes a configured public-docs URL and caches whether
@@ -226,30 +246,61 @@ func (p *pubRedirect) reachable() bool {
 }
 
 func newServer(cfg config, st *store.Store, vh *vhosts) *server {
-	routes, err := LoadRoutes(cfg.routesJSON)
-	if err != nil {
-		slog.Error("PROXYD_ROUTES_JSON parse failed", "err", err)
-		os.Exit(1)
-	}
-	s := &server{
+	routes := loadInitialRoutes(cfg.routesJSON, st)
+	rr := newRoutesResource(st, routes)
+	return &server{
 		cfg:       cfg,
 		st:        st,
-		routes:    routes,
-		proxies:   make(map[string]*httputil.ReverseProxy, len(routes)),
+		rr:        rr,
 		viteProxy: proxy(cfg.viteAddr),
 		vh:        vh,
 		slinkAnonDOS: newRateLimiter(cfg.slinkAnonDosRPM, time.Minute),
 		pubRedir:     newPubRedirect(cfg.pubRedirectURL),
 	}
+}
+
+// loadInitialRoutes picks the boot route table. Persistence wins when
+// proxyd_routes has rows; otherwise seed from PROXYD_ROUTES_JSON into
+// the table. The env var stops being authoritative as soon as the
+// table has any row (operator mutations are durable across restarts).
+// Spec 6/2 Phase-3 §"Boot config vs runtime mutation".
+func loadInitialRoutes(routesJSON string, st *store.Store) []Route {
+	if st != nil {
+		stored, err := st.AllProxydRoutes()
+		if err != nil {
+			slog.Error("read proxyd_routes", "err", err)
+			os.Exit(1)
+		}
+		if len(stored) > 0 {
+			out := make([]Route, 0, len(stored))
+			for _, r := range stored {
+				out = append(out, fromStoreRoute(r))
+			}
+			slog.Info("proxyd routes loaded from db", "count", len(out))
+			return out
+		}
+	}
+	routes, err := LoadRoutes(routesJSON)
+	if err != nil {
+		slog.Error("PROXYD_ROUTES_JSON parse failed", "err", err)
+		os.Exit(1)
+	}
+	if st != nil && len(routes) > 0 {
+		for _, r := range routes {
+			if err := st.InsertProxydRoute(toStoreRoute(r)); err != nil {
+				slog.Error("seed proxyd_routes", "path", r.Path, "err", err)
+				os.Exit(1)
+			}
+		}
+		slog.Info("proxyd routes seeded from env", "count", len(routes))
+	}
 	for _, r := range routes {
-		rp := buildRouteProxy(r)
-		if rp == nil {
+		if p := buildRouteProxy(r); p == nil {
 			slog.Error("invalid route backend; refusing to boot", "path", r.Path, "backend", r.Backend)
 			os.Exit(1)
 		}
-		s.proxies[r.Path] = rp
 	}
-	return s
+	return routes
 }
 
 // buildRouteProxy constructs a ReverseProxy for one Route, honouring
@@ -338,6 +389,7 @@ func (rl *rateLimiter) allow(key string) bool {
 func (s *server) handler(cfg *core.Config) http.Handler {
 	mux := http.NewServeMux()
 	auth.RegisterRoutes(mux, s.st, cfg)
+	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.cfg.hmacSecret))
 	mux.HandleFunc("/", s.route)
 	return logging(mux)
 }
@@ -454,7 +506,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	// a group for the bare case). When the route is absent (WEBDAV_ENABLED=
 	// false) emit the dedicated 404 rather than the public-redirect fallback.
 	if r.URL.Path == "/dav" || strings.HasPrefix(r.URL.Path, "/dav/") {
-		if rt := MatchRoute(s.routes, "/dav/"); rt != nil {
+		if rt := MatchRoute(s.routes(), "/dav/"); rt != nil {
 			s.dispatchRoute(rt, w, r)
 		} else {
 			http.Error(w, "WebDAV not configured", http.StatusNotFound)
@@ -462,7 +514,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rt := MatchRoute(s.routes, r.URL.Path); rt != nil {
+	if rt := MatchRoute(s.routes(), r.URL.Path); rt != nil {
 		s.dispatchRoute(rt, w, r)
 		return
 	}
@@ -483,7 +535,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 // the cached ReverseProxy. Bespoke logic for `/slink/` and `/dav/` lives in
 // dedicated helpers so the generic auth switch stays orthogonal.
 func (s *server) dispatchRoute(rt *Route, w http.ResponseWriter, r *http.Request) {
-	rp := s.proxies[rt.Path]
+	rp := s.proxies()[rt.Path]
 	if rp == nil {
 		http.NotFound(w, r)
 		return
@@ -740,7 +792,7 @@ func main() {
 	}()
 
 	slog.Info("proxyd starting",
-		"port", cfg.port, "vite", cfg.viteAddr, "routes", len(s.routes))
+		"port", cfg.port, "vite", cfg.viteAddr, "routes", len(s.routes()))
 
 	srv := &http.Server{
 		Addr:    cfg.port,

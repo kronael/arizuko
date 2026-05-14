@@ -529,7 +529,8 @@ func (g *Gateway) pollOnce() {
 		last := chatMsgs[len(chatMsgs)-1]
 		group, ok := g.resolveGroup(last)
 		if !ok {
-			if g.cfg.OnboardingEnabled && onboardingAllowed(chatJid, g.cfg.OnboardingPlatforms) {
+			discordGuild := strings.HasPrefix(chatJid, "discord:") && !strings.HasPrefix(chatJid, "discord:dm/")
+			if g.cfg.OnboardingEnabled && onboardingAllowed(chatJid, g.cfg.OnboardingPlatforms) && (!discordGuild || last.Verb == "mention") {
 				if err := g.store.InsertOnboarding(chatJid); err != nil {
 					slog.Warn("insert onboarding", "jid", chatJid, "err", err)
 				}

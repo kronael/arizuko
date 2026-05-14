@@ -20,6 +20,7 @@ type config struct {
 	listenAddr     string
 	listenURL      string
 	routerURL      string
+	proxydURL     string
 	channelSecret  string
 	hmacSecret    string
 	storeDir      string
@@ -36,6 +37,7 @@ func loadConfig() config {
 		listenAddr:    chanlib.EnvOr("WEBD_LISTEN", ":8080"),
 		listenURL:     chanlib.EnvOr("WEBD_URL", "http://webd:8080"),
 		routerURL:     chanlib.EnvOr("ROUTER_URL", "http://gated:8080"),
+		proxydURL:     chanlib.EnvOr("PROXYD_URL", "http://proxyd:8080"),
 		channelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
 		hmacSecret:    loadHMACSecret(),
 		storeDir:      coreCfg.StoreDir,

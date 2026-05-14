@@ -124,28 +124,43 @@ carrying:
 ```json
 {
   "sub": "user:abc123" | "agent:atlas/main" | "key:k_42",
-  "scope": ["groups:read", "tasks:write", "messages:send", "*:read", ...],
+  "scope": ["groups:read", "tasks:write", "messages:send", "groups:*", ...],
   "folder": "atlas/main",
-  "tier": 2,
   "iat": 1735000000,
   "exp": 1735003600,
   "iss": "proxyd" | "mcp-host" | "onbod"
 }
 ```
 
-**Scopes** are `<resource>:<verb>` pairs. `*:*` is root. `tasks:*`
-all task verbs. Wildcards resolve against `(resource, verb)` of the
-incoming request. Scopes are minted from grant rules at issuance time
-(snapshot), so revoking grants requires either token expiry or an
-explicit revocation list — short TTLs are the default, revocation lists
-deferred until needed.
+**Scopes** are `<resource>:<verb>[:own_group]` strings. `<resource>:*`
+covers all verbs on a resource. No global `*:*` wildcard — operators
+carry the enumerated list at current resource count (≤20 strings).
+Scopes are minted from grant rules at issuance time (snapshot), so
+revoking grants requires token expiry or an explicit revocation list —
+short TTLs are the default, revocation lists deferred until needed.
 
 **`folder`** scopes the token to a subtree. `atlas/main` token can
 operate on `atlas/main/*` resources but not on `rhias/*`. Root tokens
 omit `folder` (or set `folder: "*"`).
 
-**`tier`** is denormalized from grants for fast tier-gated checks
-(today's existing tier system is preserved).
+**`tier`** is derived from `folder` by the verifier
+(`auth.Resolve(folder).Tier = min(strings.Count(folder, "/"), 3)`) and
+not transmitted in the JWT. Carrying a derived value across 4 mint
+sites invites drift if one of them computes the depth wrong. Tier
+remains a Go-side property of `Identity`; it does not appear on the
+wire.
+
+**Shared minting.** Every issuer (proxyd, MCP host, onbod, dashd)
+produces scopes through one function:
+
+```go
+func MintScopes(identity Identity, store GrantStore, narrow Narrow) []string
+```
+
+`Narrow` is an issuer-specific parameter (e.g. onbod passes an
+invite-restricted subset, dashd passes a long-lived key's declared
+scope-list). One renderer, many sinks; if drift exists across
+issuers, it lives in `Narrow`, not in the scope-from-grants logic.
 
 ### Issuance sites
 

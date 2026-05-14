@@ -25,6 +25,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **`resreg/` resource registry (spec 6/5 Phase A).** New package with
+  the Resource / Action / Endpoint / MCPTool / Caller / ScopePred types
+  plus two auto-adapters: `RegisterREST(mux, r, build)` emits the HTTP
+  handlers for every endpoint, `MCPTools(srv, r, caller)` emits matching
+  MCP tools. One Handler per resource action drives both surfaces.
+- **proxyd `/v1/routes` runtime API + `routes.*` MCP (spec 6/2 Phase-3).**
+  Five actions: `list`, `get`, `create`, `update`, `delete`. Routes
+  persist to `proxyd_routes` (migration 0050); mutations are visible to
+  subsequent requests without restart. `PROXYD_ROUTES_JSON` keeps
+  working as the seed source on first boot. MCP tools `routes.list`,
+  `routes.get`, `routes.create`, `routes.update`, `routes.delete`
+  surface through `webd /mcp` for operators (`**` group marker today;
+  capability-token scopes per spec 6/5 land later).
+
 - **Cost caps (spec 5/34).** Per-folder daily budget gate at the
   pre-spawn site. `groups.cost_cap_cents_per_day` + `auth_users.cost_cap_cents_per_day`
   store the cap; `cost_log` table aggregates spend (migration 0049).

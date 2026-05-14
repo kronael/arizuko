@@ -31,12 +31,14 @@ type server struct {
 	st          *store.Store
 	hub         *hub
 	rc          *chanlib.RouterClient
+	proxyd      *proxydClient
 	requireUser func(http.HandlerFunc) http.HandlerFunc
 }
 
 func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient) *server {
 	return &server{
 		cfg: cfg, st: st, hub: h, rc: rc,
+		proxyd:      newProxydClient(cfg.proxydURL, cfg.hmacSecret),
 		requireUser: auth.RequireSigned(cfg.hmacSecret),
 	}
 }

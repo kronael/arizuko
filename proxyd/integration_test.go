@@ -42,8 +42,7 @@ func newIntegProxy(t *testing.T, secret string) (*server, *httptest.Server, *tes
 		vh:        &vhosts{entries: map[string]string{}},
 		viteProxy: httputil.NewSingleHostReverseProxy(u),
 		slinkAnonDOS:   newRateLimiter(100, 0),
-		routes:    []Route{chatRoute},
-		proxies:   map[string]*httputil.ReverseProxy{"/chat/": buildRouteProxy(chatRoute)},
+		rr:        newRoutesResource(nil, []Route{chatRoute}),
 	}
 	return s, up, inst
 }
