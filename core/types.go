@@ -178,6 +178,19 @@ func MsgID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
+// ACLRow is one grant in the unified ACL (spec 6/9). Effect is "allow"
+// or "deny" (deny wins). Params/predicate are empty strings when absent.
+type ACLRow struct {
+	Principal string
+	Action    string
+	Scope     string
+	Effect    string
+	Params    string
+	Predicate string
+	GrantedBy string
+	GrantedAt string
+}
+
 func JidPlatform(jid string) string {
 	if i := strings.IndexByte(jid, ':'); i > 0 {
 		return jid[:i]
