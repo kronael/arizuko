@@ -19,7 +19,7 @@ import (
 // slinkMCPWaitCap caps get_round blocking so forgotten clients can't pin goroutines.
 const slinkMCPWaitCap = 5 * time.Minute
 
-// POST /slink/<token>/mcp — 3-tool MCP surface (send_message, steer, get_round).
+// POST /slink/<token>/mcp — 2-tool MCP surface (send_message, get_round).
 // Token possession = group membership.
 func (s *server) handleSlinkMCP(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
@@ -71,46 +71,6 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 			"folder":  g.Folder,
 		})
 		return mcp.NewToolResultText(string(out)), nil
-	})
-
-	srv.AddTool(mcp.NewTool("steer",
-		mcp.WithDescription("Extend an existing round. turn_id is the round handle returned by send_message. While the round is pending, the follow-up enqueues onto the same conversation thread; once the round is done, the steer starts a fresh round chained from this one. Returns {turn_id, topic, chained_from?}."),
-		mcp.WithString("turn_id", mcp.Required(), mcp.Description("Round handle from send_message (originating message id).")),
-		mcp.WithString("content", mcp.Required()),
-	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		turnID := strings.TrimSpace(req.GetString("turn_id", ""))
-		content := strings.TrimSpace(req.GetString("content", ""))
-		if turnID == "" {
-			return mcp.NewToolResultError("turn_id required"), nil
-		}
-		if content == "" {
-			return mcp.NewToolResultError("content required"), nil
-		}
-		stTopic := s.st.TopicByMessageID(turnID, jid)
-		if stTopic == "" {
-			return mcp.NewToolResultError("turn_id not found"), nil
-		}
-		topic := stTopic
-		chainedFrom := turnID
-		info, _ := s.st.GetTurnResult(g.Folder, turnID)
-		if info.Status != "pending" {
-			topic = fmt.Sprintf("t%d", time.Now().UnixMilli())
-			chainedFrom = ""
-		}
-		m, _, err := s.injectSlink(g, content, topic, sender, senderName, token)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		out := map[string]any{
-			"turn_id": m.ID,
-			"topic":   topic,
-			"folder":  g.Folder,
-		}
-		if chainedFrom != "" {
-			out["chained_from"] = chainedFrom
-		}
-		data, _ := json.Marshal(out)
-		return mcp.NewToolResultText(string(data)), nil
 	})
 
 	srv.AddTool(mcp.NewTool("get_round",

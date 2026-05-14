@@ -28,7 +28,6 @@
  * @property {Message} user
  * @property {string}  turn_id
  * @property {string}  status
- * @property {string=} chained_from
  *
  * @typedef {Object} Frame
  * @property {string} id
@@ -115,31 +114,6 @@
         },
         body: JSON.stringify(body),
       });
-    }
-
-    /**
-     * Steer — post a follow-up tied to an existing round.
-     * @param {string} turnId
-     * @param {string} content
-     * @returns {Promise<TurnHandle>}
-     */
-    steer(turnId, content) {
-      return fetchJSON(
-        this._url(
-          '/slink/' +
-            encodeURIComponent(this.token) +
-            '/' +
-            encodeURIComponent(turnId),
-        ),
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({ content }),
-        },
-      );
     }
 
     /**

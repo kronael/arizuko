@@ -97,14 +97,13 @@ arizuko pair krons mastd login --instance mas.to</code></pre>
     <pre><code>arizuko chat krons</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L657"><code>cmd/arizuko/main.go:657</code></a></p>
 
-    <h3 id="send"><span class="sig">arizuko send &lt;instance&gt; &lt;folder&gt; [&lt;message&gt;] [--wait | --stream] [--stdin] [--steer &lt;turn_id&gt;]</span></h3>
-    <p>POST a message to a group's slink endpoint, optionally blocking until the agent's turn finishes. Reads <code>slink_token</code> from the group row and <code>WEB_HOST</code> from <code>.env</code>; scheme is <code>http</code> for <code>localhost</code>/<code>127.0.0.1</code>, otherwise <code>https</code>. With <code>--steer &lt;turn_id&gt;</code> appends <code>/&lt;turn_id&gt;</code> to inject mid-turn (slink round-handle protocol &mdash; see <a href="https://github.com/kronael/arizuko/blob/main/specs/1/W-slink.md"><code>specs/1/W-slink.md</code></a>).</p>
+    <h3 id="send"><span class="sig">arizuko send &lt;instance&gt; &lt;folder&gt; [&lt;message&gt;] [--wait | --stream] [--stdin]</span></h3>
+    <p>POST a message to a group's slink endpoint, optionally blocking until the agent's turn finishes. Reads <code>slink_token</code> from the group row and <code>WEB_HOST</code> from <code>.env</code>; scheme is <code>http</code> for <code>localhost</code>/<code>127.0.0.1</code>, otherwise <code>https</code>. See <a href="https://github.com/kronael/arizuko/blob/main/specs/1/W-slink.md"><code>specs/1/W-slink.md</code></a> for the slink protocol.</p>
     <table>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
       <tr><td><code>--wait</code></td><td>bool</td><td><code>false</code></td><td>After POST, poll <code>/slink/&lt;token&gt;/&lt;turn_id&gt;?after=&lt;seq&gt;</code> at 1s cadence, print frames, exit 0 on <code>success</code> / 1 on <code>failed</code>.</td></tr>
       <tr><td><code>--stream</code></td><td>bool</td><td><code>false</code></td><td>Same as <code>--wait</code> but subscribes to <code>.../sse</code> instead of polling. Exit codes: 0 success, 1 failed, 2 transport error.</td></tr>
       <tr><td><code>--stdin</code></td><td>bool</td><td><code>false</code></td><td>Read message body from stdin (trimmed) instead of the positional arg.</td></tr>
-      <tr><td><code>--steer</code></td><td>string</td><td><code>""</code></td><td>Existing <code>turn_id</code> to steer; appended to the slink endpoint.</td></tr>
     </table>
     <p><strong>State touched:</strong> opens the instance store read-only to fetch the group row; everything else happens server-side via the slink endpoint.</p>
     <pre><code>arizuko send krons main "hello from cli"

@@ -12,12 +12,12 @@ mechanism that hosts it.
 ## Why
 
 Every agent or third-party page that wants to talk to a slink today
-re-implements the same five-call dance: `fetch` POST, `EventSource`
-on `/sse`, status poll on terminal `round_done`, snapshot for backfill,
-optional steer. The dance is small but it drifts — one page lacks
-`Last-Event-Id` replay, another forgets to close the source on
-`round_done`, a third hardcodes paths the `/config` endpoint already
-exposes. **One renderer, many sinks** says we ship the renderer once.
+re-implements the same four-call dance: `fetch` POST, `EventSource`
+on `/sse`, status poll on terminal `round_done`, snapshot for backfill.
+The dance is small but it drifts — one page lacks `Last-Event-Id`
+replay, another forgets to close the source on `round_done`, a third
+hardcodes paths the `/config` endpoint already exposes. **One
+renderer, many sinks** says we ship the renderer once.
 
 ## API surface
 
@@ -31,7 +31,6 @@ interface Slink {
   folder: string;
   name: string;
   send(content: string, opts?: { topic?: string }): Promise<TurnHandle>;
-  steer(turnId: string, content: string): Promise<TurnHandle>;
   status(turnId: string): Promise<StatusEnvelope>;
   snapshot(turnId: string, opts?: { after?: string }): Promise<Snapshot>;
   stream(turnId: string, handlers: StreamHandlers): () => void; // returns close-fn
@@ -41,7 +40,6 @@ interface TurnHandle {
   user: Message;
   turn_id: string;
   status: 'pending';
-  chained_from?: string;
 }
 interface StreamHandlers {
   onMessage?: (frame) => void;

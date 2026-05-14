@@ -68,7 +68,6 @@ func (s *server) handler() http.Handler {
 	slink("POST /slink/{token}", s.handleSlinkPost)
 	slink("POST /slink/{token}/mcp", s.handleSlinkMCP)
 	slink("GET /slink/stream", s.handleSlinkStream)
-	slink("POST /slink/{token}/{id}", s.handleSlinkPost) // steer
 	slink("GET /slink/{token}/{id}", s.handleTurnSnapshot)
 	slink("GET /slink/{token}/{id}/status", s.handleTurnStatus)
 	slink("GET /slink/{token}/{id}/sse", s.handleTurnSSE)

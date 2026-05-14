@@ -25,13 +25,13 @@
     <p>A token-gated HTTP surface that lets any client &mdash; browser, <code>curl</code>, or an MCP-speaking agent &mdash; submit a message into a group and observe the resulting round.</p>
 
     <h2>Why does it exist</h2>
-    <p>One group has many possible consumers: the built-in browser chat page, a third-party page using the JS SDK, a shell script polling for an answer, an external agent calling MCP tools. Without slink each consumer would re-implement the round-handle dance &mdash; POST a message, get back a <code>turn_id</code>, stream or poll until <code>round_done</code>, optionally steer with a follow-up. Slink is that dance, exposed once, behind a public token. <strong>One renderer, many sinks</strong>: every consumer hits the same <code>/slink/&lt;token&gt;/*</code> paths so the contract can't drift between them.</p>
+    <p>One group has many possible consumers: the built-in browser chat page, a third-party page using the JS SDK, a shell script polling for an answer, an external agent calling MCP tools. Without slink each consumer would re-implement the round-handle dance &mdash; POST a message, get back a <code>turn_id</code>, stream or poll until <code>round_done</code>. Slink is that dance, exposed once, behind a public token. <strong>One renderer, many sinks</strong>: every consumer hits the same <code>/slink/&lt;token&gt;/*</code> paths so the contract can't drift between them.</p>
 
     <h2>How does it fit</h2>
     <div class="callout">
       <pre><code>browser / SDK / MCP client / curl
         |
-        v   POST /slink/&lt;token&gt;[/&lt;turn_id&gt;]
+        v   POST /slink/&lt;token&gt;
         v   GET  /slink/&lt;token&gt;/&lt;turn_id&gt;[/sse | /status]
         v   POST /slink/&lt;token&gt;/mcp
         |
@@ -59,7 +59,7 @@ curl -X POST https://&lt;host&gt;/slink/&lt;token&gt; \
 
 # stream the round; server closes on round_done
 curl -N https://&lt;host&gt;/slink/&lt;token&gt;/msg_abc/sse</code></pre>
-    <p>Full endpoint table, payload shapes, SSE event grammar, and steering semantics: <a href="/pub/reference/slink.html">reference/slink</a>.</p>
+    <p>Full endpoint table, payload shapes, SSE event grammar: <a href="/pub/reference/slink.html">reference/slink</a>.</p>
 
     <h2>Three faces</h2>
     <div class="faces">
@@ -67,10 +67,10 @@ curl -N https://&lt;host&gt;/slink/&lt;token&gt;/msg_abc/sse</code></pre>
       <p>The reference HTML chat UI shipped with webd. <code>GET /slink/&lt;token&gt;</code> redirects here. No setup &mdash; share the URL.</p>
 
       <h3>JS SDK &mdash; <code>/assets/arizuko-client.js</code></h3>
-      <p>Vanilla-JS client served from webd's embedded asset FS, CORS-open. <code>Arizuko.connect(token)</code> returns a handle with <code>send</code>, <code>steer</code>, <code>status</code>, <code>snapshot</code>, <code>stream</code>. Used by branded chat pages on third-party origins.</p>
+      <p>Vanilla-JS client served from webd's embedded asset FS, CORS-open. <code>Arizuko.connect(token)</code> returns a handle with <code>send</code>, <code>status</code>, <code>snapshot</code>, <code>stream</code>. Used by branded chat pages on third-party origins.</p>
 
       <h3>MCP transport &mdash; <code>POST /slink/&lt;token&gt;/mcp</code></h3>
-      <p>Streamable-HTTP MCP endpoint scoped to the token's group. Three tools: <code>send_message</code>, <code>steer</code>, <code>get_round</code>. External agents register the URL in their MCP config and talk to the group like any other tool host.</p>
+      <p>Streamable-HTTP MCP endpoint scoped to the token's group. Two tools: <code>send_message</code>, <code>get_round</code>. External agents register the URL in their MCP config and talk to the group like any other tool host.</p>
     </div>
 
     <h2>Where it's going</h2>

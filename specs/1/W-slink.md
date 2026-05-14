@@ -19,18 +19,11 @@ inject a message and watch the round.
 - Generated once at registration, never rotated
 - Security via rate limiting, not token secrecy
 
-## Rate limiting tiers
+## Rate limiting
 
-| Caller              | Bucket        | Default    |
-| ------------------- | ------------- | ---------- |
-| Anonymous (no JWT)  | per remote IP | 10 req/min |
-| Authenticated (JWT) | per JWT sub   | 60 req/min |
-
-Enforced at the proxyd edge in `dispatchSlink`; both buckets reset on
-a sliding 1-minute window. Tunable via `SLINK_ANON_RPM` and
-`SLINK_AUTH_RPM` env vars on proxyd. Operators and agents reach the
-backing daemons (`gated`, MCP socket) directly without going through
-`/slink/*`, so they don't hit either tier.
+- Anon: `SLINK_ANON_DOS_RPM` per-IP request rate (default 10/min) — DoS shield, not metering.
+- Auth: no edge rate limit; governed by per-folder + per-user cost caps (spec 5/34).
+- Agents / operators: bypass /slink/\* entirely via direct daemon access.
 
 ## Sender identity derivation
 
@@ -53,16 +46,16 @@ handle.
 | Method | Path                                      | Purpose                                 |
 | ------ | ----------------------------------------- | --------------------------------------- |
 | GET    | `/slink/<token>`                          | Browser chat UI (HTML page)             |
-| POST   | `/slink/<token>`                          | Inject a fresh message; returns turn_id |
-| POST   | `/slink/<token>/<turn_id>`                | Steer — inject as follow-up to a round  |
+| POST   | `/slink/<token>`                          | Inject a message; returns turn_id       |
 | GET    | `/slink/<token>/<turn_id>`                | Snapshot: status + all assistant frames |
 | GET    | `/slink/<token>/<turn_id>?after=<msg_id>` | Cursor page: frames after `<msg_id>`    |
 | GET    | `/slink/<token>/<turn_id>/status`         | Cheap status check (no frame payload)   |
 | GET    | `/slink/<token>/<turn_id>/sse`            | Live SSE stream + terminal `round_done` |
 
-The verb does the work: POST to a turn URL = "extend this round";
-GET = "observe it." No `/turn/` infix, no `?steer=` query param —
-the second URL segment after the token IS the round handle.
+The second URL segment after the token (when present) is always a
+turn_id used to observe a round. There is no POST endpoint at that
+path — to continue a conversation, POST a fresh message to
+`/slink/<token>` with the same `topic`.
 
 ### POST shape
 
@@ -168,34 +161,17 @@ SSE stream for the round. Events:
 replays frames whose id is greater than the last seen id (same query
 as `?after=<id>`) before resuming live.
 
-### Steering
+### Follow-up messages
 
-```
-POST /slink/<token>/<turn_id>   body: content=...
-```
-
-Inject a follow-up tied to an already-issued round. Two outcomes,
-both returning HTTP 200:
-
-- **Round still pending**: the message is enqueued as the immediate
-  next round for the folder. The Claude Agent SDK does not support
-  mid-turn input injection — the in-flight LLM context is frozen
-  until that turn produces its final response — so "steering" is
-  semantically "cut to the front of the next-turn queue". Response:
-
-  ```json
-  {
-    "user": {"id":"msg_xyz",...},
-    "turn_id": "msg_xyz",
-    "chained_from": "msg_abc",
-    "status": "pending"
-  }
-  ```
-
-- **Round already done**: the steer is not chained; it becomes a
-  fresh round. Response same shape, but `chained_from` is omitted.
-
-Either way the caller observes the new round via the same handle
+To continue a conversation, the caller submits another `POST
+/slink/<token>` with the same `topic` value. Topic continuity is
+the only mechanism: there is no dedicated steer endpoint, no
+`chained_from` field, no round-priority queue. When the gateway
+sees an inbound message while a container is still running for that
+group, it writes the message to the container's IPC inbox and the
+agent picks it up mid-loop (`queue.SendMessages`, automatic). When
+no container is running, a fresh round spawns. Either way the
+caller observes the new round via the same `turn_id` snapshot/SSE
 endpoints.
 
 ## Browser chat UI (legacy path)
@@ -237,13 +213,13 @@ it covers both tables uniformly.
 
 `POST /slink/<token>/mcp` exposes a standards-compliant Streamable
 HTTP MCP endpoint scoped to the token's group. Token is auth; same
-rate-limit tiers as the form-encoded slink path. Three tools:
+DoS shield as the form-encoded slink path. Two tools:
 
-- `send_message(content, topic?)` — start a fresh round.
-- `steer(turn_id, content)` — extend an existing round.
+- `send_message(content, topic?)` — submit a message. Reusing a
+  `topic` continues that conversation thread.
 - `get_round(turn_id, wait?)` — read frames for a round.
 
 External agents register the URL in their MCP client config and
-talk to the group as if the three tools were local. See
+talk to the group as if the two tools were local. See
 [../5/J-sse.md](../5/J-sse.md) for the relationship to the SSE
 stream.

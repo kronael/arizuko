@@ -213,22 +213,6 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Steer: POST /slink/<token>/<turn_id> reuses the in-flight round's topic.
-	// Falls back to a fresh topic when the round has already finished.
-	steerTurn := strings.TrimSpace(r.PathValue("id"))
-	chainedFrom := ""
-	if steerTurn != "" {
-		jid := "web:" + g.Folder
-		stTopic := s.st.TopicByMessageID(steerTurn, jid)
-		if stTopic != "" {
-			info, _ := s.st.GetTurnResult(g.Folder, steerTurn)
-			if info.Status == "pending" {
-				topic = stTopic
-				chainedFrom = steerTurn
-			}
-		}
-	}
-
 	if topic == "" {
 		topic = fmt.Sprintf("t%d", time.Now().UnixMilli())
 	}
@@ -290,9 +274,6 @@ func (s *server) handleSlinkPost(w http.ResponseWriter, r *http.Request) {
 			"user":    userPayload,
 			"turn_id": m.ID,
 			"status":  "pending",
-		}
-		if chainedFrom != "" {
-			resp["chained_from"] = chainedFrom
 		}
 		if wait > 0 {
 			ctx, cancel := context.WithTimeout(r.Context(), time.Duration(wait)*time.Second)

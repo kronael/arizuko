@@ -60,14 +60,14 @@ func TestSlinkMCP_ToolSurface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	if len(res.Tools) != 3 {
+	if len(res.Tools) != 2 {
 		names := make([]string, len(res.Tools))
 		for i, tool := range res.Tools {
 			names[i] = tool.Name
 		}
-		t.Fatalf("tools = %v, want exactly 3 (send_message, steer, get_round)", names)
+		t.Fatalf("tools = %v, want exactly 2 (send_message, get_round)", names)
 	}
-	want := map[string]bool{"send_message": false, "steer": false, "get_round": false}
+	want := map[string]bool{"send_message": false, "get_round": false}
 	for _, tool := range res.Tools {
 		if _, ok := want[tool.Name]; !ok {
 			t.Errorf("unexpected tool %q", tool.Name)
@@ -133,39 +133,6 @@ func TestSlinkMCP_SendMessage(t *testing.T) {
 	}
 	if sent := mr.sent(); len(sent) != 1 || sent[0].Content != "hello from a peer agent" {
 		t.Errorf("router did not receive message: %+v", sent)
-	}
-}
-
-// steer: extends an existing round on the same topic.
-func TestSlinkMCP_Steer(t *testing.T) {
-	s, _, srv, g := newSlinkMCPServer(t)
-	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
-
-	ctx := context.Background()
-	turnID := slinkMCPSend(t, c, "first turn", "round-2")
-
-	res, err := c.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name: "steer",
-			Arguments: map[string]any{
-				"turn_id": turnID,
-				"content": "actually wait",
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("steer: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("steer error: %s", toolText(t, res))
-	}
-
-	msgs, err := s.st.MessagesByTopic(g.Folder, "round-2", time.Now().Add(time.Second), 10)
-	if err != nil {
-		t.Fatalf("MessagesByTopic: %v", err)
-	}
-	if len(msgs) != 2 {
-		t.Fatalf("messages = %d, want 2", len(msgs))
 	}
 }
 

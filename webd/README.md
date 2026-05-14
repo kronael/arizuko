@@ -95,7 +95,7 @@ delivered messages.
 - `channel.go` — gated→webd callbacks (`/send`, `/v1/round_done`)
 - `slink.go` — slink chat UI + `POST /slink/<token>` (form/SSE/JSON)
 - `slink_mcp.go` — slink-MCP transport at `POST /slink/<token>/mcp`
-  (3 tools: send_message, steer, get_round)
+  (2 tools: send_message, get_round)
 - `turn.go` — round-handle endpoints (`/slink/<token>/<id>{,/status,/sse}`)
 - `mcp.go` — authed user MCP bridge at `/mcp`
 - `api.go`, `pages.go`, `partials.go` — HTTP surface

@@ -83,6 +83,6 @@ the built-in chat page migrates off HTMX.
 
 ## Relationship to W-slink.md
 
-W-slink.md owns the round-handle protocol (POST shape, steer, snapshot,
+W-slink.md owns the round-handle protocol (POST shape, snapshot,
 status, SSE, MCP). This spec owns the browser infrastructure (CORS, /chat
 page, /config endpoint, JSON-default POST). No duplication.

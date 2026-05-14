@@ -202,51 +202,6 @@ func TestSlinkE2E_SSEStream(t *testing.T) {
 	}
 }
 
-// TestSlinkE2E_Steer simulates a user sending a follow-up message on the
-// same topic while the first round is in flight ("steering"). The second
-// message must land on the same topic and the agent reply to it must thread
-// onto that topic. Today there is no in-flight cancel primitive in slink —
-// the test asserts what we DO have: same-topic continuation.
-func TestSlinkE2E_Steer(t *testing.T) {
-	if testing.Short() {
-		t.Skip(e2eShortSkip)
-	}
-	e := newE2ERound(t, "steer", "Steer")
-
-	// First user message — agent has not replied yet.
-	postSlink(t, e.srv.URL+"/slink/"+e.token, "content=draft+a+haiku&topic=t-steer")
-
-	// Mid-flight steer: same topic, new content. Both must persist on t-steer.
-	postSlink(t, e.srv.URL+"/slink/"+e.token, "content=actually+a+limerick&topic=t-steer")
-
-	// Now the agent replies once. ReplyTo points at the *latest* user msg —
-	// both the steered turn and the reply share the topic.
-	id := e.inboundIDFor(t, "actually a limerick")
-	e.agentReply(t, id, "there was a chatbot from slink")
-
-	msgs, err := e.st.MessagesByTopic(e.folder, "t-steer", time.Now().Add(time.Second), 50)
-	if err != nil {
-		t.Fatalf("MessagesByTopic: %v", err)
-	}
-	if len(msgs) < 3 {
-		t.Fatalf("expected ≥3 msgs on t-steer, got %d: %+v", len(msgs), msgs)
-	}
-	var sawDraft, sawSteer, sawReply bool
-	for _, m := range msgs {
-		switch {
-		case strings.Contains(m.Content, "haiku"):
-			sawDraft = true
-		case strings.Contains(m.Content, "limerick") && !m.BotMsg:
-			sawSteer = true
-		case m.BotMsg && strings.Contains(m.Content, "from slink"):
-			sawReply = true
-		}
-	}
-	if !sawDraft || !sawSteer || !sawReply {
-		t.Errorf("steer continuity lost: draft=%v steer=%v reply=%v", sawDraft, sawSteer, sawReply)
-	}
-}
-
 // TestSlinkE2E_GetThread posts three messages on a topic, has the agent
 // echo each, and asserts MessagesByTopic returns the full thread in order.
 // This is the read-side surface get_thread MCP would exercise.

@@ -28,11 +28,11 @@ import (
 // store and posts to the local webd over the configured WEB_HOST.
 func cmdSend(args []string) {
 	if len(args) < 2 {
-		die("usage: arizuko send <instance> <folder> [<message>] [--wait | --stream] [--stdin] [--steer <turn_id>]")
+		die("usage: arizuko send <instance> <folder> [<message>] [--wait | --stream] [--stdin]")
 	}
 	instance, folder := args[0], args[1]
 
-	var msg, steer string
+	var msg string
 	wait, stream, stdin := false, false, false
 	rest := args[2:]
 	for i := 0; i < len(rest); i++ {
@@ -44,12 +44,6 @@ func cmdSend(args []string) {
 			stream = true
 		case "--stdin":
 			stdin = true
-		case "--steer":
-			i++
-			if i >= len(rest) {
-				die("usage: --steer <turn_id>")
-			}
-			steer = rest[i]
 		default:
 			if msg != "" {
 				die("usage: arizuko send <instance> <folder> <message>")
@@ -96,9 +90,6 @@ func cmdSend(args []string) {
 		scheme = "http"
 	}
 	endpoint := fmt.Sprintf("%s://%s/slink/%s", scheme, host, g.SlinkToken)
-	if steer != "" {
-		endpoint += "/" + url.PathEscape(steer)
-	}
 
 	body := strings.NewReader("content=" + url.QueryEscape(msg))
 	req, _ := http.NewRequest("POST", endpoint, body)
@@ -116,19 +107,15 @@ func cmdSend(args []string) {
 		die("Failed: %s: %s", resp.Status, strings.TrimSpace(string(raw)))
 	}
 	var posted struct {
-		User        map[string]any `json:"user"`
-		TurnID      string         `json:"turn_id"`
-		Status      string         `json:"status"`
-		ChainedFrom string         `json:"chained_from"`
+		User   map[string]any `json:"user"`
+		TurnID string         `json:"turn_id"`
+		Status string         `json:"status"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&posted); err != nil {
 		die("Failed: decode: %v", err)
 	}
 
 	fmt.Printf("turn_id: %s\n", posted.TurnID)
-	if posted.ChainedFrom != "" {
-		fmt.Printf("chained_from: %s\n", posted.ChainedFrom)
-	}
 	if !wait && !stream {
 		fmt.Printf("status: %s\n", posted.Status)
 		return
