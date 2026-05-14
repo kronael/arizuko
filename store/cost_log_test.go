@@ -107,7 +107,7 @@ func TestSetFolderCap_RoundTrip(t *testing.T) {
 	defer s.Close()
 
 	if _, err := s.db.Exec(
-		`INSERT INTO groups (folder, name, added_at) VALUES (?, ?, ?)`,
+		`INSERT INTO groups (folder, added_at) VALUES (?, ?)`,
 		"team", "team", "2026-01-01T00:00:00Z"); err != nil {
 		t.Fatalf("seed group: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestFolderCap_ZeroWhenUnset(t *testing.T) {
 	defer s.Close()
 
 	if _, err := s.db.Exec(
-		`INSERT INTO groups (folder, name, added_at) VALUES (?, ?, ?)`,
+		`INSERT INTO groups (folder, added_at) VALUES (?, ?)`,
 		"f", "f", "2026-01-01T00:00:00Z"); err != nil {
 		t.Fatalf("seed: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 // POST with Content-Type: application/json and {"content":"..."} body
@@ -425,7 +426,7 @@ func TestSlinkChat_ServesPage(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, g.Name) {
+	if !strings.Contains(body, groupfolder.NameOf(g.Folder)) {
 		t.Error("page missing group name")
 	}
 	if !strings.Contains(body, g.SlinkToken) {
@@ -464,8 +465,8 @@ func TestSlinkConfig_ReturnsBootstrap(t *testing.T) {
 	if got["folder"] != g.Folder {
 		t.Errorf("folder = %v, want %s", got["folder"], g.Folder)
 	}
-	if got["name"] != g.Name {
-		t.Errorf("name = %v, want %s", got["name"], g.Name)
+	if got["name"] != groupfolder.NameOf(g.Folder) {
+		t.Errorf("name = %v, want %s", got["name"], groupfolder.NameOf(g.Folder))
 	}
 	ep, ok := got["endpoints"].(map[string]any)
 	if !ok {

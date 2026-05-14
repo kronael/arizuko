@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 // GET /x/groups
@@ -13,7 +15,7 @@ func (s *server) handleXGroups(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	for _, g := range groups {
 		fmt.Fprintf(w, `<a class="card" href="/chat/%s"><strong>%s</strong></a>`,
-			htmlEscape(g.Folder), htmlEscape(g.Name))
+			htmlEscape(g.Folder), htmlEscape(groupfolder.NameOf(g.Folder)))
 	}
 }
 

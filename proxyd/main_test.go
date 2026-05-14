@@ -818,7 +818,6 @@ func TestProxydSlinkTokenStampsHeaders(t *testing.T) {
 	defer st.Close()
 	if err := st.PutGroup(core.Group{
 		Folder:     "team-a",
-		Name:       "Team A",
 		AddedAt:    time.Now(),
 		SlinkToken: "tokabc",
 	}); err != nil {

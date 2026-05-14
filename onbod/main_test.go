@@ -293,7 +293,7 @@ func TestCreateWorldInvalidUsername(t *testing.T) {
 
 func TestCreateWorldDuplicateUsername(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO groups (folder, name, parent, added_at) VALUES ('alice', 'alice', NULL, '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"alice"}}
 	form.Set("csrf", "c")
@@ -526,8 +526,7 @@ func TestSecondJIDAutoLink(t *testing.T) {
 	// Existing user with a world "alice/".
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, name, parent, added_at)
-		VALUES ('alice', 'alice', NULL, '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO user_groups (user_sub, folder)
 		VALUES ('github:alice', 'alice')`)
 	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed)
@@ -836,8 +835,7 @@ func TestInviteConsume(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:bob', 'bob', 'Bob', '', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, name, parent, added_at)
-		VALUES ('alice', 'alice', NULL, '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed)
 		VALUES ('github:bob', 'telegram:99', '2026-01-01')`)
 
@@ -1126,13 +1124,11 @@ func TestSecondJIDAutoLinkSingleUse(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, name, parent, added_at)
-		VALUES ('alice', 'alice', NULL, '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('github:alice', 'alice')`)
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:eve', 'eve', 'Eve', '', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, name, parent, added_at)
-		VALUES ('eve', 'eve', NULL, '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('eve', '2026-01-01')`)
 	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('github:eve', 'eve')`)
 	// token_used row with user_sub still NULL.
 	db.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
@@ -1179,8 +1175,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:bob', 'bob', 'Bob', '', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, name, parent, added_at)
-		VALUES ('alice', 'alice', NULL, '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	tok := createInvite(t, db, "alice", "telegram:1", 1)
 
 	// First consume.

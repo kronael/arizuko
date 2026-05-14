@@ -101,7 +101,7 @@ func TestPollLoop_RealRun(t *testing.T) {
 	runner.StreamText = "hello back"
 
 	jid := "tg:42"
-	grp := core.Group{Folder: "grp", Name: "Group"}
+	grp := core.Group{Folder: "grp"}
 	s.PutGroup(grp)
 	s.AddRoute(core.Route{Seq: 0, Match: "room=42", Target: "grp"})
 
@@ -153,7 +153,7 @@ func TestPollLoop_RunnerError(t *testing.T) {
 	runner.OutError = "agent blew up"
 
 	jid := "tg:99"
-	s.PutGroup(core.Group{Folder: "grp", Name: "G"})
+	s.PutGroup(core.Group{Folder: "grp"})
 	s.AddRoute(core.Route{Seq: 0, Match: "room=99", Target: "grp"})
 
 	ts := time.Now().UTC()
@@ -189,7 +189,7 @@ func TestPollLoop_EmptyOutput(t *testing.T) {
 	runner.OutStatus = "success" // no stream, no error
 
 	jid := "tg:7"
-	s.PutGroup(core.Group{Folder: "grp", Name: "G"})
+	s.PutGroup(core.Group{Folder: "grp"})
 	s.AddRoute(core.Route{Seq: 0, Match: "room=7", Target: "grp"})
 
 	ts := time.Now().UTC()
@@ -224,7 +224,7 @@ func TestContainerNameIncludesInstance(t *testing.T) {
 	gw, s, _, runner := newGWWithFake(t)
 
 	jid := "tg:99"
-	grp := core.Group{Folder: "content", Name: "Content"}
+	grp := core.Group{Folder: "content"}
 	s.PutGroup(grp)
 	s.AddRoute(core.Route{Seq: 0, Match: "room=99", Target: "content"})
 
@@ -260,7 +260,7 @@ func TestCursorDoesNotSkipBatchOnSteeredMessages(t *testing.T) {
 	runner.StreamText = "ok"
 
 	jid := "tg:77"
-	grp := core.Group{Folder: "grp2", Name: "Grp2"}
+	grp := core.Group{Folder: "grp2"}
 	s.PutGroup(grp)
 	s.AddRoute(core.Route{Seq: 0, Match: "room=77", Target: "grp2"})
 

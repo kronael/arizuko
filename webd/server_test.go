@@ -97,8 +97,9 @@ func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 
 func seedGroup(t *testing.T, st *store.Store, folder, name string) core.Group {
 	t.Helper()
+	_ = name
 	g := core.Group{
-		Name: name, Folder: folder, AddedAt: time.Now(),
+		Folder: folder, AddedAt: time.Now(),
 		SlinkToken: "tok-" + folder,
 	}
 	if err := st.PutGroup(g); err != nil {

@@ -495,12 +495,12 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	parentSQL := sql.NullString{String: parent, Valid: parent != ""}
 	now := time.Now().Format(time.RFC3339)
 	slinkToken := core.GenSlinkToken()
-	db.Exec(`INSERT OR IGNORE INTO groups (folder, name, parent, added_at, slink_token, product) VALUES (?, ?, ?, ?, ?, ?)`,
-		folder, username, parentSQL, now, slinkToken, core.DefaultProduct)
+	db.Exec(`INSERT OR IGNORE INTO groups (folder, added_at, slink_token, product) VALUES (?, ?, ?, ?)`,
+		folder, now, slinkToken, core.DefaultProduct)
 	db.QueryRow(`SELECT slink_token FROM groups WHERE folder = ?`, folder).Scan(&slinkToken)
+	_ = username // captured into auth_users above; group identity is the folder path
 
 	db.Exec(`INSERT OR IGNORE INTO user_groups (user_sub, folder) VALUES (?, ?)`,
 		userSub, folder)

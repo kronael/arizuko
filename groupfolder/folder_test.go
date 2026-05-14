@@ -83,6 +83,34 @@ func TestResolverIpcPath(t *testing.T) {
 	}
 }
 
+func TestParentOf(t *testing.T) {
+	cases := []struct{ folder, want string }{
+		{"main", ""},
+		{"main/content", "main"},
+		{"rhias/nemo", "rhias"},
+		{"a/b/c", "a/b"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := ParentOf(c.folder); got != c.want {
+			t.Errorf("ParentOf(%q) = %q, want %q", c.folder, got, c.want)
+		}
+	}
+}
+
+func TestNameOf(t *testing.T) {
+	cases := []struct{ folder, want string }{
+		{"main", "main"},
+		{"main/content", "content"},
+		{"a/b/c", "c"},
+	}
+	for _, c := range cases {
+		if got := NameOf(c.folder); got != c.want {
+			t.Errorf("NameOf(%q) = %q, want %q", c.folder, got, c.want)
+		}
+	}
+}
+
 func TestIsRoot(t *testing.T) {
 	if !IsRoot("main") {
 		t.Fatal("main should be root")

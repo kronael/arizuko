@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 // GET / (handleGroupsPage) renders header + user name.
@@ -100,7 +101,7 @@ func TestChatPage_Renders(t *testing.T) {
 	buf := make([]byte, 8192)
 	n, _ := resp.Body.Read(buf)
 	body := string(buf[:n])
-	if !strings.Contains(body, g.Name) {
+	if !strings.Contains(body, groupfolder.NameOf(g.Folder)) {
 		t.Errorf("body missing group name")
 	}
 	if !strings.Contains(body, g.SlinkToken) {

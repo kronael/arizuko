@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -38,7 +39,7 @@ func TestSpawnFromPrototype_NoPrototype(t *testing.T) {
 	parentFolder := "main"
 	os.MkdirAll(filepath.Join(dir, parentFolder), 0o755)
 	s.PutGroup(core.Group{
-		Name: "main", Folder: parentFolder,
+		Folder:  parentFolder,
 		AddedAt: time.Now(),
 		Config:  core.GroupConfig{MaxChildren: 5},
 	})
@@ -66,7 +67,7 @@ func TestSpawnFromPrototype_Success(t *testing.T) {
 	os.WriteFile(filepath.Join(protoDir, "CLAUDE.md"), []byte("# proto"), 0o644)
 
 	parent := core.Group{
-		Name: "main", Folder: parentFolder,
+		Folder:  parentFolder,
 		AddedAt: time.Now(),
 		Config:  core.GroupConfig{MaxChildren: 5},
 	}
@@ -99,8 +100,8 @@ func TestSpawnFromPrototype_Success(t *testing.T) {
 	if !ok {
 		t.Fatal("child group not found in store")
 	}
-	if stored.Parent != parentFolder {
-		t.Errorf("stored.Parent = %q, want %q", stored.Parent, parentFolder)
+	if got := groupfolder.ParentOf(stored.Folder); got != parentFolder {
+		t.Errorf("ParentOf(stored.Folder) = %q, want %q", got, parentFolder)
 	}
 
 	// child should be resolvable via DB

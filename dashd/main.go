@@ -16,6 +16,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/diary"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/theme"
 	_ "modernc.org/sqlite"
 )
@@ -428,7 +429,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	pageTop(w, "Groups")
 	fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules.</p>`)
 
-	rows, err := d.db.Query(`SELECT folder, parent, name FROM groups ORDER BY folder LIMIT 500`)
+	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
 		slog.Warn("groups: query", "err", err)
 		fmt.Fprintf(w, `<div class="banner-err">error: %s</div>`, esc(err.Error()))
@@ -439,24 +440,23 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 
 	var n int
 	for rows.Next() {
-		var folder, name string
-		var parent sql.NullString
-		if err := rows.Scan(&folder, &parent, &name); err != nil {
+		var folder string
+		if err := rows.Scan(&folder); err != nil {
 			slog.Warn("groups: scan row", "err", err)
 			fmt.Fprintf(w, `<div class="banner-err">scan error: %s</div>`,
 				esc(err.Error()))
 			continue
 		}
+		parent := groupfolder.ParentOf(folder)
 		label := ""
-		if !parent.Valid || parent.String == "" {
+		if parent == "" {
 			label = ` <span class="dim">(root)</span>`
 		}
-		fmt.Fprintf(w, `<details><summary><code>%s</code> — %s%s</summary><div class="group-detail">`,
+		fmt.Fprintf(w, `<details><summary><code>%s</code>%s</summary><div class="group-detail">`,
 			esc(folder),
-			esc(name),
 			label,
 		)
-		parentDisp := parent.String
+		parentDisp := parent
 		if parentDisp == "" {
 			parentDisp = "—"
 		}

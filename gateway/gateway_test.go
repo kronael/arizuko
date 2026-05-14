@@ -148,7 +148,7 @@ func TestHandleCommand_RecognizedCommands(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &mockChannel{name: "test", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
+	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
 	cmds := []string{"/new", "/ping", "/chatid", "/stop", "/approve", "/reject"}
 	for _, c := range cmds {
@@ -180,7 +180,7 @@ func TestCmdNew_ClearsSession(t *testing.T) {
 	gw, s := testGateway(t)
 	ch := &mockChannel{name: "test", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
+	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
 	s.SetSession("grp", "", "sess-123")
 	if id, ok := s.GetSession("grp", ""); !ok || id == "" {
@@ -235,8 +235,8 @@ func TestCmdRoot_DelegatesToRoot(t *testing.T) {
 	gw.AddChannel(ch)
 
 	// Register root group and child group
-	s.PutGroup(core.Group{Folder: "world", Name: "World"})
-	setGroup(gw, "jid1", core.Group{Folder: "world/child", Name: "Child"})
+	s.PutGroup(core.Group{Folder: "world"})
+	setGroup(gw, "jid1", core.Group{Folder: "world/child"})
 
 	grp, _ := gw.store.GroupByFolder("world/child")
 
@@ -267,7 +267,7 @@ func TestCmdRoot_AlreadyRoot(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &mockChannel{name: "test", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	setGroup(gw, "jid1", core.Group{Folder: "world", Name: "World"})
+	setGroup(gw, "jid1", core.Group{Folder: "world"})
 
 	grp, _ := gw.store.GroupByFolder("world")
 	msg := core.Message{ChatJID: "jid1", Content: "/root hello"}
@@ -280,7 +280,7 @@ func TestCmdRoot_AlreadyRoot(t *testing.T) {
 
 func TestResolveGroup_Found(t *testing.T) {
 	gw, _ := testGateway(t)
-	setGroup(gw, "jid1", core.Group{Folder: "alpha", Name: "Alpha"})
+	setGroup(gw, "jid1", core.Group{Folder: "alpha"})
 
 	msg := core.Message{ChatJID: "jid1", Sender: "user", Verb: "message"}
 	gr, ok := gw.resolveGroup(msg)
@@ -305,15 +305,15 @@ func TestResolveGroup_NotFound(t *testing.T) {
 
 func TestResolveGroup_BareFolder(t *testing.T) {
 	gw, s := testGateway(t)
-	s.PutGroup(core.Group{Folder: "beta", Name: "Beta"})
+	s.PutGroup(core.Group{Folder: "beta"})
 
 	msg := core.Message{ChatJID: "beta", Verb: "message"}
 	gr, ok := gw.resolveGroup(msg)
 	if !ok {
 		t.Fatal("resolveGroup returned false for bare folder JID")
 	}
-	if gr.Name != "Beta" {
-		t.Errorf("name = %q, want %q", gr.Name, "Beta")
+	if gr.Folder != "beta" {
+		t.Errorf("folder = %q, want %q", gr.Folder, "beta")
 	}
 }
 
@@ -351,8 +351,8 @@ func TestResolveTarget_SelfFolder(t *testing.T) {
 
 func TestLoadState_LoadsGroups(t *testing.T) {
 	gw, s := testGateway(t)
-	s.PutGroup(core.Group{Folder: "alpha", Name: "Alpha"})
-	s.PutGroup(core.Group{Folder: "beta", Name: "Beta"})
+	s.PutGroup(core.Group{Folder: "alpha"})
+	s.PutGroup(core.Group{Folder: "beta"})
 	s.AddRoute(core.Route{Match: "room=jid1", Target: "alpha"})
 	s.AddRoute(core.Route{Match: "room=jid2", Target: "beta"})
 
@@ -362,7 +362,7 @@ func TestLoadState_LoadsGroups(t *testing.T) {
 	if len(groups) != 2 {
 		t.Errorf("groups count = %d, want 2", len(groups))
 	}
-	if groups["alpha"].Name != "Alpha" {
+	if _, ok := groups["alpha"]; !ok {
 		t.Error("group alpha not loaded correctly")
 	}
 	if folder := s.DefaultFolderForJID("jid1"); folder != "alpha" {
@@ -426,7 +426,7 @@ func TestPollOnce_SteerRecordsTimestamp(t *testing.T) {
 	gw.cfg.MaxContainers = 2
 
 	jid := "telegram:1"
-	setGroup(gw, jid, core.Group{Folder: "grp", Name: "Group"})
+	setGroup(gw, jid, core.Group{Folder: "grp"})
 
 	// Simulate an active container: pollOnce's steering branch only
 	// fires when queue.SendMessages sees active=true + folder set.
@@ -492,7 +492,7 @@ func TestPollOnce_SteerEnrichesAttachments(t *testing.T) {
 	gw.cfg.WhisperModel = "turbo"
 
 	jid := "telegram:1"
-	setGroup(gw, jid, core.Group{Folder: "grp", Name: "Group"})
+	setGroup(gw, jid, core.Group{Folder: "grp"})
 	gw.queue.SetActiveForTest(jid, "fake-container-name", "grp")
 
 	atts := `[{"mime":"audio/ogg","filename":"voice.ogg","url":"` + fileSrv.URL + `/voice.ogg","size":17}]`
@@ -546,9 +546,9 @@ func TestPollOnce_PrefixRouteAdvancesCursor(t *testing.T) {
 	gw.cfg.MaxContainers = 0 // queue tasks without running them
 
 	jid := "telegram:1"
-	setGroup(gw, jid, core.Group{Folder: "grp", Name: "Group"})
+	setGroup(gw, jid, core.Group{Folder: "grp"})
 	// Child group must exist for the prefix-delegation path.
-	s.PutGroup(core.Group{Folder: "grp/child", Name: "Child"})
+	s.PutGroup(core.Group{Folder: "grp/child"})
 
 	ts := time.Now().UTC()
 	if err := s.PutMessage(core.Message{
@@ -632,7 +632,7 @@ func TestFindChannelForJID_LatestSourceWins(t *testing.T) {
 
 func TestEmitSystemEvents_NewDay(t *testing.T) {
 	gw, s := testGateway(t)
-	grp := core.Group{Folder: "grp1", Name: "Test"}
+	grp := core.Group{Folder: "grp1"}
 	setGroup(gw, "jid1", grp)
 
 	yesterday := time.Now().AddDate(0, 0, -1)
@@ -652,7 +652,7 @@ func TestEmitSystemEvents_NewDay(t *testing.T) {
 
 func TestEmitSystemEvents_NewSession(t *testing.T) {
 	gw, s := testGateway(t)
-	grp := core.Group{Folder: "grp2", Name: "Test"}
+	grp := core.Group{Folder: "grp2"}
 	s.PutGroup(grp)
 
 	s.SetAgentCursor("jid2", time.Now())
@@ -812,7 +812,7 @@ func TestEnrichAttachments_DownloadsFile(t *testing.T) {
 	gw.cfg.MediaEnabled = true
 	gw.cfg.MediaMaxBytes = 10 * 1024 * 1024
 
-	grp := core.Group{Folder: "grp", Name: "Test"}
+	grp := core.Group{Folder: "grp"}
 	setGroup(gw, "jid1", grp)
 
 	atts := `[{"mime":"image/jpeg","filename":"photo.jpg","url":"` + srv.URL + `/photo.jpg","size":22}]`
@@ -851,7 +851,7 @@ func TestEnrichAttachments_SkipsEmptyURL(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.MediaEnabled = true
 
-	grp := core.Group{Folder: "grp2", Name: "Test"}
+	grp := core.Group{Folder: "grp2"}
 	setGroup(gw, "jid2", grp)
 
 	atts := `[{"mime":"image/jpeg","filename":"photo.jpg","url":"","size":0}]`
@@ -930,7 +930,7 @@ func TestMakeOutputCallback_SendsReply(t *testing.T) {
 	gw, s := testGateway(t)
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
+	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
 	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
 	cb("Hello from agent", "")
@@ -963,7 +963,7 @@ func TestMakeOutputCallback_SendsReply(t *testing.T) {
 // 21:12–21:14, 5 self-acknowledgments in 51s).
 func TestMakeOutputCallback_SkipsSelfRoutedLocalDispatch(t *testing.T) {
 	gw, s := testGateway(t)
-	setGroup(gw, "main", core.Group{Folder: "main", Name: "Main"})
+	setGroup(gw, "main", core.Group{Folder: "main"})
 
 	cb, hadOutput := gw.makeOutputCallback(nil, "main", "", "", "main")
 	cb("/migrate done", "")
@@ -990,7 +990,7 @@ func TestMakeOutputCallback_SendError(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}, sendErr: errors.New("network down")}
 	gw.AddChannel(ch)
-	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
+	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
 	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
 	cb("Error test", "")
@@ -1009,7 +1009,7 @@ func TestMakeOutputCallback_EmptySentID(t *testing.T) {
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
 	gw.cfg.SendDisabledChannels = []string{"jid1"}
-	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
+	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
 	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
 	cb("Suppressed message", "")
@@ -1029,7 +1029,7 @@ func TestMakeOutputCallback_StripsThinksAndStatus(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
+	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
 	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
 	cb("<think>internal thought</think>Visible reply<status>Working on it</status>", "")
@@ -1057,7 +1057,7 @@ func TestMakeOutputCallback_MutedGroup(t *testing.T) {
 	gw.cfg.SendDisabledGroups = []string{"grp"}
 	ch := &testChannel{name: "tc", jids: []string{"telegram"}}
 	gw.AddChannel(ch)
-	setGroup(gw, "telegram:12345", core.Group{Folder: "grp", Name: "Test"})
+	setGroup(gw, "telegram:12345", core.Group{Folder: "grp"})
 
 	cb, hadOutput := gw.makeOutputCallback(ch, "telegram:12345", "", "msg-1", "grp")
 	cb("hello world", "")
@@ -1095,7 +1095,7 @@ func TestMakeOutputCallback_ThreadID(t *testing.T) {
 	gw, _ := testGateway(t)
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
 	gw.AddChannel(ch)
-	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
+	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
 	cb, _ := gw.makeOutputCallback(ch, "jid1", "#general", "msg-1", "grp")
 	cb("Threaded reply", "")
@@ -1116,7 +1116,7 @@ func TestMakeOutputCallback_ThreadID(t *testing.T) {
 // the channel came online. Fix: late-bind ch in sendOnce.
 func TestMakeOutputCallback_LateBindsChannel(t *testing.T) {
 	gw, _ := testGateway(t)
-	setGroup(gw, "jid1", core.Group{Folder: "grp", Name: "Test"})
+	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
 	// Build the callback BEFORE the channel registers. This mirrors
 	// processSenderBatch running during the startup window where the
@@ -1198,13 +1198,13 @@ func TestCheckMigrationVersion(t *testing.T) {
 	os.WriteFile(filepath.Join(srcDir, "MIGRATION_VERSION"), []byte("55\n"), 0o644)
 
 	// Create root group with old version
-	s.PutGroup(core.Group{Folder: "myworld", Name: "MyWorld"})
+	s.PutGroup(core.Group{Folder: "myworld"})
 	groupSkillDir := filepath.Join(gw.cfg.GroupsDir, "myworld", ".claude", "skills", "self")
 	os.MkdirAll(groupSkillDir, 0o755)
 	os.WriteFile(filepath.Join(groupSkillDir, "MIGRATION_VERSION"), []byte("54\n"), 0o644)
 
 	// Create child group (should be skipped)
-	s.PutGroup(core.Group{Folder: "myworld/child", Name: "Child"})
+	s.PutGroup(core.Group{Folder: "myworld/child"})
 
 	gw.checkMigrationVersion()
 
@@ -1220,12 +1220,17 @@ func TestCheckMigrationVersion(t *testing.T) {
 		t.Error("expected auto-migration message in myworld")
 	}
 
-	// Child group should NOT have a migration message
+	// Child group receives a notification (separate code path from the
+	// /migrate trigger on the root).
 	childMsgs, _ := s.MessagesSince("myworld/child", time.Time{}, "nobot")
+	childNotified := false
 	for _, m := range childMsgs {
-		if strings.Contains(m.Content, "System update") {
-			t.Error("child group should not get auto-migration message")
+		if strings.Contains(m.Content, "System update") && m.Sender == "system" {
+			childNotified = true
 		}
+	}
+	if !childNotified {
+		t.Error("expected child group to receive auto-migration notification")
 	}
 }
 
@@ -1236,7 +1241,7 @@ func TestCheckMigrationVersion_UpToDate(t *testing.T) {
 	os.MkdirAll(srcDir, 0o755)
 	os.WriteFile(filepath.Join(srcDir, "MIGRATION_VERSION"), []byte("55\n"), 0o644)
 
-	s.PutGroup(core.Group{Folder: "uptodate", Name: "UpToDate"})
+	s.PutGroup(core.Group{Folder: "uptodate"})
 	groupSkillDir := filepath.Join(gw.cfg.GroupsDir, "uptodate", ".claude", "skills", "self")
 	os.MkdirAll(groupSkillDir, 0o755)
 	os.WriteFile(filepath.Join(groupSkillDir, "MIGRATION_VERSION"), []byte("55\n"), 0o644)
@@ -1258,7 +1263,7 @@ func TestCheckMigrationVersion_NoVersionFile(t *testing.T) {
 	os.MkdirAll(srcDir, 0o755)
 	os.WriteFile(filepath.Join(srcDir, "MIGRATION_VERSION"), []byte("10\n"), 0o644)
 
-	s.PutGroup(core.Group{Folder: "fresh", Name: "Fresh"})
+	s.PutGroup(core.Group{Folder: "fresh"})
 	os.MkdirAll(filepath.Join(gw.cfg.GroupsDir, "fresh", ".claude", "skills", "self"), 0o755)
 
 	gw.checkMigrationVersion()
@@ -1440,7 +1445,7 @@ func TestEnrichAttachments_VoiceTranscription(t *testing.T) {
 	gw.cfg.WhisperURL = whisperSrv.URL
 	gw.cfg.WhisperModel = "turbo"
 
-	grp := core.Group{Folder: "grp", Name: "Test"}
+	grp := core.Group{Folder: "grp"}
 	setGroup(gw, "jid1", grp)
 
 	atts := `[{"mime":"audio/ogg","filename":"voice.ogg","url":"` + fileSrv.URL + `/voice.ogg","size":17}]`
@@ -1474,7 +1479,7 @@ func TestEnrichAttachments_VoiceDisabled(t *testing.T) {
 	gw.cfg.MediaMaxBytes = 10 * 1024 * 1024
 	gw.cfg.VoiceEnabled = false
 
-	grp := core.Group{Folder: "grp", Name: "Test"}
+	grp := core.Group{Folder: "grp"}
 	setGroup(gw, "jid1", grp)
 
 	atts := `[{"mime":"audio/ogg","filename":"voice.ogg","url":"` + fileSrv.URL + `/voice.ogg","size":17}]`
@@ -1499,7 +1504,7 @@ func TestEnrichAttachments_Base64Decode(t *testing.T) {
 	gw.cfg.MediaEnabled = true
 	gw.cfg.MediaMaxBytes = 10 * 1024 * 1024
 
-	grp := core.Group{Folder: "grp", Name: "Test"}
+	grp := core.Group{Folder: "grp"}
 	setGroup(gw, "jid1", grp)
 
 	raw := []byte("fake-image-bytes")
@@ -1588,7 +1593,7 @@ func TestReadWhisperLanguages_Missing(t *testing.T) {
 func TestOnCircuitBreakerOpen_PrunesAndResetsSession(t *testing.T) {
 	gw, s := testGateway(t)
 	jid := "telegram:42"
-	setGroup(gw, jid, core.Group{Folder: "grp", Name: "G"})
+	setGroup(gw, jid, core.Group{Folder: "grp"})
 	s.SetSession("grp", "", "sess-abc")
 
 	now := time.Now()

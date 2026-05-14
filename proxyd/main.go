@@ -25,6 +25,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
 )
@@ -586,7 +587,7 @@ func (s *server) dispatchSlink(rp *httputil.ReverseProxy, w http.ResponseWriter,
 		if group, ok := s.st.GroupBySlinkToken(token); ok {
 			r = r.Clone(r.Context())
 			r.Header.Set("X-Folder", group.Folder)
-			r.Header.Set("X-Group-Name", group.Name)
+			r.Header.Set("X-Group-Name", groupfolder.NameOf(group.Folder))
 			r.Header.Set("X-Slink-Token", token)
 			r.Header.Set("X-Slink-Sig",
 				auth.SignHMAC(s.cfg.hmacSecret, auth.SlinkSigMessage(token, group.Folder)))

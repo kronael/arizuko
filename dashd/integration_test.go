@@ -40,7 +40,7 @@ func TestMemoryEndpoint(t *testing.T) {
 
 	folder := "alice"
 	if _, err := inst.DB.Exec(
-		`INSERT INTO groups (folder, name, added_at) VALUES (?, ?, ?)`,
+		`INSERT INTO groups (folder, added_at) VALUES (?, ?)`,
 		folder, folder, time.Now().Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestGroupList(t *testing.T) {
 	now := time.Now().Format(time.RFC3339)
 	for _, f := range []string{"alpha", "bravo"} {
 		if _, err := inst.DB.Exec(
-			`INSERT INTO groups (folder, name, added_at) VALUES (?, ?, ?)`,
+			`INSERT INTO groups (folder, added_at) VALUES (?, ?)`,
 			f, f, now); err != nil {
 			t.Fatal(err)
 		}

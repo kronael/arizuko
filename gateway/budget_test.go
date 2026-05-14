@@ -13,7 +13,7 @@ func TestBudgetGate_DisabledLetsThrough(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.CostCapsEnabled = false
 
-	if err := s.PutGroup(core.Group{Folder: "f", Name: "f"}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "f"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetFolderCap("f", 100); err != nil {
@@ -31,7 +31,7 @@ func TestBudgetGate_NoCapLetsThrough(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.CostCapsEnabled = true
 
-	if err := s.PutGroup(core.Group{Folder: "f", Name: "f"}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "f"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.LogCost(store.CostRow{Folder: "f", Model: "m", Cents: 999}); err != nil {
@@ -46,7 +46,7 @@ func TestBudgetGate_UnderCapLetsThrough(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.CostCapsEnabled = true
 
-	if err := s.PutGroup(core.Group{Folder: "f", Name: "f"}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "f"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetFolderCap("f", 100); err != nil {
@@ -64,7 +64,7 @@ func TestBudgetGate_OverCapRefuses(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.CostCapsEnabled = true
 
-	if err := s.PutGroup(core.Group{Folder: "f", Name: "f"}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "f"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetFolderCap("f", 100); err != nil {
@@ -88,7 +88,7 @@ func TestBudgetGate_UserCapBindsLower(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.CostCapsEnabled = true
 
-	if err := s.PutGroup(core.Group{Folder: "f", Name: "f"}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "f"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetFolderCap("f", 1000); err != nil {
@@ -174,7 +174,7 @@ func TestBudgetGate_AdapterSenderFolderOnly(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.CostCapsEnabled = true
 
-	if err := s.PutGroup(core.Group{Folder: "f", Name: "f"}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "f"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetFolderCap("f", 100); err != nil {
@@ -196,7 +196,7 @@ func TestBudgetGate_JWTSenderActivatesUserCap(t *testing.T) {
 	gw, s := testGateway(t)
 	gw.cfg.CostCapsEnabled = true
 
-	if err := s.PutGroup(core.Group{Folder: "f", Name: "f"}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "f"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetFolderCap("f", 1000); err != nil {

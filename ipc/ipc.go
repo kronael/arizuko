@@ -1096,17 +1096,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		"Create a child agent group and route a jid to it. Use when onboarding a new chat into its own isolated workspace/session, or when spinning up a sub-agent from this group's prototype/ (fromPrototype=true). Not for promoting work up (escalate_group) or handing a task to an existing child (delegate_group).",
 		[]mcp.ToolOption{
 			mcp.WithString("jid", mcp.Required()),
-			mcp.WithString("name"),
 			mcp.WithBoolean("fromPrototype"),
 			mcp.WithString("folder"),
-			mcp.WithString("parent"),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if gated.RegisterGroup == nil {
 				return toolErr("register_group not configured")
 			}
 			jid := req.GetString("jid", "")
-			name := req.GetString("name", jid)
 
 			if req.GetBool("fromPrototype", false) {
 				if gated.SpawnGroup == nil {
@@ -1115,12 +1112,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				child, err := gated.SpawnGroup(folder, jid)
 				if err != nil {
 					return toolErr(err.Error())
-				}
-				if name != jid {
-					child.Name = name
-					if err := gated.RegisterGroup(jid, child); err != nil {
-						slog.Warn("register_group: update name", "jid", jid, "err", err)
-					}
 				}
 				if gated.SetupGroup != nil {
 					if err := gated.SetupGroup(child.Folder); err != nil {
@@ -1145,10 +1136,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				}
 			}
 			gr := core.Group{
-				Name:    name,
 				Folder:  gfld,
 				AddedAt: time.Now(),
-				Parent:  req.GetString("parent", ""),
 			}
 			if err := gated.RegisterGroup(jid, gr); err != nil {
 				return toolErr(err.Error())
@@ -1206,7 +1195,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 
 	if id.Tier <= 2 {
 		srv.AddTool(mcp.NewTool("refresh_groups",
-			mcp.WithDescription("Return folder/name/parent for every registered group. Use to discover delegation targets or audit the group tree. Not for routing details (inspect_routing) or per-group tasks (inspect_tasks)."),
+			mcp.WithDescription("Return folder for every registered group. Use to discover delegation targets or audit the group tree. Not for routing details (inspect_routing) or per-group tasks (inspect_tasks)."),
 		), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if gated.GetGroups == nil {
 				return toolErr("refresh_groups not configured")
@@ -1214,12 +1203,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			groups := gated.GetGroups()
 			type groupInfo struct {
 				Folder string `json:"folder"`
-				Name   string `json:"name"`
-				Parent string `json:"parent,omitempty"`
 			}
 			out := make([]groupInfo, 0, len(groups))
 			for _, g := range groups {
-				out = append(out, groupInfo{Folder: g.Folder, Name: g.Name, Parent: g.Parent})
+				out = append(out, groupInfo{Folder: g.Folder})
 			}
 			return toolJSON(out)
 		})

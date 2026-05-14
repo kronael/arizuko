@@ -12,7 +12,7 @@ import (
 func TestRunBudgetSet_Folder(t *testing.T) {
 	s, _ := store.OpenMem()
 	defer s.Close()
-	if err := s.PutGroup(core.Group{Folder: "atlas/eng", Name: "atlas/eng"}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "atlas/eng"}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	var buf bytes.Buffer
@@ -34,7 +34,7 @@ func TestRunBudgetSet_Folder(t *testing.T) {
 func TestRunBudgetSet_FolderUncap(t *testing.T) {
 	s, _ := store.OpenMem()
 	defer s.Close()
-	if err := s.PutGroup(core.Group{Folder: "f", Name: "f"}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "f"}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	var buf bytes.Buffer
@@ -58,7 +58,7 @@ func TestRunBudgetSet_RejectsBadScope(t *testing.T) {
 func TestRunBudgetShow_Folder(t *testing.T) {
 	s, _ := store.OpenMem()
 	defer s.Close()
-	if err := s.PutGroup(core.Group{Folder: "team", Name: "team"}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "team"}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	if err := s.SetFolderCap("team", 100); err != nil {
@@ -82,7 +82,7 @@ func TestRunBudgetShow_Folder(t *testing.T) {
 func TestRunBudgetShow_Uncapped(t *testing.T) {
 	s, _ := store.OpenMem()
 	defer s.Close()
-	if err := s.PutGroup(core.Group{Folder: "f", Name: "f"}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "f"}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	var buf bytes.Buffer

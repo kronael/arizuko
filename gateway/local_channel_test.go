@@ -14,7 +14,7 @@ func TestLocalChannelSend_EnqueuesAndStoresAsInbound(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	s.PutGroup(core.Group{Folder: "child", Name: "Child"})
+	s.PutGroup(core.Group{Folder: "child"})
 
 	lc := NewLocalChannel(s)
 	var enqueued []string

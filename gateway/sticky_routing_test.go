@@ -190,7 +190,6 @@ func TestHandleStickyCommand_SetGroup(t *testing.T) {
 
 	// Create a group and its default route
 	s.PutGroup(core.Group{
-		Name:   "Test Group",
 		Folder: "test-group",
 	})
 	s.AddRoute(core.Route{Match: "room=test-group", Target: "test-group"})

@@ -56,15 +56,13 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 		all := s.st.AllGroups()
 		type row struct {
 			Folder string `json:"folder"`
-			Name   string `json:"name"`
-			Parent string `json:"parent,omitempty"`
 		}
 		out := make([]row, 0, len(all))
 		for _, g := range all {
 			if !userAllowedFolder(grants, g.Folder) {
 				continue
 			}
-			out = append(out, row{g.Folder, g.Name, g.Parent})
+			out = append(out, row{g.Folder})
 		}
 		data, _ := json.Marshal(map[string]any{"groups": out})
 		return mcp.NewToolResultText(string(data)), nil

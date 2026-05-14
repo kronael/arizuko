@@ -397,7 +397,7 @@ func (g *Gateway) checkMigrationVersion() {
 	}
 	groups := g.store.AllGroups()
 	for _, gr := range groups {
-		if !groupfolder.IsRoot(gr.Folder) || gr.Parent != "" {
+		if !groupfolder.IsRoot(gr.Folder) {
 			continue
 		}
 		agent := container.MigrationVersion(
@@ -422,7 +422,7 @@ func (g *Gateway) checkMigrationVersion() {
 		note := fmt.Sprintf("System update: skills v%d → v%d applied. "+
 			"New capabilities may be available — check /self for details.", agent, latest)
 		for _, child := range groups {
-			if child.Parent != gr.Folder {
+			if groupfolder.ParentOf(child.Folder) != gr.Folder {
 				continue
 			}
 			g.store.PutMessage(core.Message{
@@ -1021,8 +1021,8 @@ func (g *Gateway) runAgentWithOpts(
 		Topic:           topic,
 		GroupPath:       groupPath,
 		Name:            cname,
-		GroupName:       group.Name,
-		Parent:          group.Parent,
+		GroupName:       groupfolder.NameOf(group.Folder),
+		Parent:          groupfolder.ParentOf(group.Folder),
 		Config:          group.Config,
 		SlinkToken:      group.SlinkToken,
 		Channel:         chanName,

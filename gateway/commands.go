@@ -139,8 +139,8 @@ func (g *Gateway) cmdPing(chatJid string, group core.Group) bool {
 	}
 
 	reply := fmt.Sprintf(
-		"pong\ngroup: %s (%s)\nsession: %s\nactive containers: %d\nregistered groups: %d",
-		group.Name, group.Folder, sess, active, nGroups)
+		"pong\ngroup: %s\nsession: %s\nactive containers: %d\nregistered groups: %d",
+		group.Folder, sess, active, nGroups)
 	g.sendMessage(chatJid, reply)
 	return true
 }

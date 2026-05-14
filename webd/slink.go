@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 )
@@ -51,7 +52,8 @@ func (s *server) handleSlinkChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, slinkPageHTML, htmlEscape(g.Name), htmlEscape(g.Name), htmlEscape(g.Folder), htmlEscape(token))
+	name := groupfolder.NameOf(g.Folder)
+	fmt.Fprintf(w, slinkPageHTML, htmlEscape(name), htmlEscape(name), htmlEscape(g.Folder), htmlEscape(token))
 }
 
 // GET /slink/<token>/config — JSON bootstrap, no auth (token is the credential).
@@ -65,7 +67,7 @@ func (s *server) handleSlinkConfig(w http.ResponseWriter, r *http.Request) {
 	chanlib.WriteJSON(w, map[string]any{
 		"token":  token,
 		"folder": g.Folder,
-		"name":   g.Name,
+		"name":   groupfolder.NameOf(g.Folder),
 		"endpoints": map[string]string{
 			"post":   "/slink/" + token,
 			"stream": "/slink/" + token + "/{turn_id}/sse",

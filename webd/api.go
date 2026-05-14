@@ -71,17 +71,13 @@ func (s *server) handleAPITyping(w http.ResponseWriter, r *http.Request) {
 
 type groupOut struct {
 	Folder string `json:"folder"`
-	Name   string `json:"name"`
 }
 
 func (s *server) groupList() []groupOut {
 	groups := s.st.AllGroups()
 	out := make([]groupOut, 0, len(groups))
 	for _, g := range groups {
-		out = append(out, groupOut{
-			Folder: g.Folder,
-			Name:   g.Name,
-		})
+		out = append(out, groupOut{Folder: g.Folder})
 	}
 	return out
 }

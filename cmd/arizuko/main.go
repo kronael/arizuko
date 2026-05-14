@@ -225,7 +225,7 @@ func cmdCreate(args []string) {
 		die("Failed: open db: %v", err)
 	}
 	defer s.Close()
-	if err := s.PutGroup(core.Group{Name: name, Folder: "main", AddedAt: time.Now(), Product: *product}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "main", AddedAt: time.Now(), Product: *product}); err != nil {
 		die("Failed: add default group: %v", err)
 	}
 	if err := container.SetupGroup(cfg, "main", productDir); err != nil {
@@ -269,16 +269,12 @@ func cmdGroup(args []string) {
 	switch action {
 	case "list":
 		for _, g := range s.AllGroups() {
-			fmt.Printf("%s\t%s\n", g.Folder, g.Name)
+			fmt.Println(g.Folder)
 		}
 
 	case "add":
-		need(args, 4, "arizuko group <instance> add <jid> <name> [folder]")
-		jid, name := args[2], args[3]
-		folder := strings.ToLower(name)
-		if len(args) > 4 {
-			folder = args[4]
-		}
+		need(args, 3, "arizuko group <instance> add <jid> <folder>")
+		jid, folder := args[2], args[3]
 		if !groupfolder.IsValidFolder(folder) {
 			die("Failed: invalid folder %q", folder)
 		}
@@ -294,7 +290,7 @@ func cmdGroup(args []string) {
 			slog.Warn("failed to seed default tasks", "folder", folder, "err", err)
 		}
 
-		if err := s.PutGroup(core.Group{Name: name, Folder: folder, AddedAt: time.Now()}); err != nil {
+		if err := s.PutGroup(core.Group{Folder: folder, AddedAt: time.Now()}); err != nil {
 			die("Failed: add group: %v", err)
 		}
 		// Discord guild channels (not DMs) default to mention-only: non-mention
@@ -310,7 +306,7 @@ func cmdGroup(args []string) {
 		}); err != nil {
 			die("Failed: add route: %v", err)
 		}
-		fmt.Printf("added group %s (%s) -> %s\n", name, jid, folder)
+		fmt.Printf("added group %s -> %s\n", jid, folder)
 
 	case "rm":
 		need(args, 3, "arizuko group <instance> rm <folder>")

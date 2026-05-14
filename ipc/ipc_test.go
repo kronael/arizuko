@@ -185,7 +185,7 @@ func TestSendReply(t *testing.T) {
 
 func TestRefreshGroups(t *testing.T) {
 	groups := map[string]core.Group{
-		"world/a": {Folder: "world/a", Name: "Group A"},
+		"world/a": {Folder: "world/a"},
 	}
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },

@@ -223,11 +223,11 @@ func TestGroupsWithRoutes(t *testing.T) {
 	db := testDBFile(t)
 	defer db.Close()
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent) VALUES('root','Root','',NULL)`); err != nil {
+		`INSERT INTO groups(folder, added_at) VALUES('root', '')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent) VALUES('root/child','Child','','root')`); err != nil {
+		`INSERT INTO groups(folder, added_at) VALUES('root/child', '')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(
@@ -248,7 +248,7 @@ func TestGroupsWithRoutes(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"root", "Root", "(root)", "Child", "tel:*", "disc:*"} {
+	for _, want := range []string{"root", "(root)", "root/child", "tel:*", "disc:*"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in body: %s", want, body)
 		}
@@ -259,7 +259,7 @@ func TestGroupsRoutesEmpty(t *testing.T) {
 	db := testDBFile(t)
 	defer db.Close()
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent) VALUES('g1','G1','',NULL)`); err != nil {
+		`INSERT INTO groups(folder, added_at) VALUES('g1', '')`); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{db: db}
@@ -297,11 +297,11 @@ func TestHandleMemoryDropdown(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent) VALUES('alpha','A','',NULL)`); err != nil {
+		`INSERT INTO groups(folder, added_at) VALUES('alpha', '')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent) VALUES('beta','B','',NULL)`); err != nil {
+		`INSERT INTO groups(folder, added_at) VALUES('beta', '')`); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{db: db, groupsDir: t.TempDir()}
@@ -336,7 +336,7 @@ func TestHandleMemorySelectedGroup(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
-		`INSERT INTO groups(folder, name, added_at, parent) VALUES(?, 'G','',NULL)`, folder); err != nil {
+		`INSERT INTO groups(folder, added_at) VALUES(?, '')`, folder); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{db: db, groupsDir: groups}

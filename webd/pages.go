@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 const htmlHead = `<!DOCTYPE html>
@@ -120,6 +122,6 @@ async function sendMsg(e) {
 }
 </script>
 </body></html>`,
-		htmlEscape(g.Name), folderURL, folderURL, folderQ, folderURL, folderJS,
+		htmlEscape(groupfolder.NameOf(g.Folder)), folderURL, folderURL, folderQ, folderURL, folderJS,
 		htmlEscape(g.SlinkToken))
 }

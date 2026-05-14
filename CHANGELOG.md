@@ -14,6 +14,43 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.37.0] — 2026-05-14
+
+> arizuko v0.37.0 — groups: path is identity
+>
+> • Group rows lose `name` + `parent` columns — derived from the folder path (`filepath.Base`, `filepath.Dir`). One source of truth.
+> • `refresh_groups` / `list_groups` MCP responses no longer return `name`/`parent` — agents read `.folder` and derive what they need.
+> • Sloth migration: legacy flat-slug `content` folded into `main/content` across all aux tables.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- **`groups` schema collapsed (migration 0051).** Dropped `name` and
+  `parent` columns. Folder path is the sole identity — parent =
+  `filepath.Dir(folder)`, display name = `filepath.Base(folder)`.
+  Helpers `groupfolder.ParentOf` and `groupfolder.NameOf` exposed for
+  call sites that need the derived values.
+- **MCP `refresh_groups` / `list_groups`** now return only
+  `{folder}`. The `name` and `parent` fields are gone; consumers
+  derive via path. No backwards compat — agent skills already read
+  only `.folder` (`grep ant/skills/`).
+- **`arizuko group add` CLI**: signature changed from
+  `<jid> <name> [folder]` to `<jid> <folder>`. Display label is no
+  longer a CLI concept.
+- **`arizuko group list`**: prints folder only (one column).
+- **`X-Group-Name` proxyd header** now carries the path basename
+  (`groupfolder.NameOf`).
+
+### Operator note
+
+Instances with flat-slug groups (slug doesn't match the parent path
+— e.g. sloth's `content` with `parent='main'`) must rename on-disk
+dirs and aux-table refs BEFORE deploying v0.37.0. The repo ships
+`tmp/sloth-fixup.sh` as the brute-force one-shot used for sloth.
+Krons and marinade had no flat-slug rows; the column-drop migration
+applied cleanly without data fixup.
+
 ## [v0.36.0] — 2026-05-14
 
 > arizuko v0.36.0 — routes, costs, connectors

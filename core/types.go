@@ -45,12 +45,10 @@ const (
 const DefaultProduct = "assistant"
 
 type Group struct {
-	Name       string
 	Folder     string
 	AddedAt    time.Time
 	Config     GroupConfig
 	SlinkToken string
-	Parent     string
 	Product    string
 }
 

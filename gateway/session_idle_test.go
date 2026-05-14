@@ -61,7 +61,7 @@ func TestSpawnResetsStaleSession(t *testing.T) {
 	const staleID = "sid-week-old"
 
 	if err := s.PutGroup(core.Group{
-		Name: folder, Folder: folder,
+		Folder:  folder,
 		AddedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestSpawnKeepsFreshSession(t *testing.T) {
 	const jid = "telegram:42"
 	const freshID = "sid-active"
 
-	s.PutGroup(core.Group{Name: folder, Folder: folder, AddedAt: time.Now()})
+	s.PutGroup(core.Group{Folder: folder, AddedAt: time.Now()})
 	s.SetSession(folder, topic, freshID)
 	s.SetAgentCursor(jid, time.Now().Add(-2*time.Hour))
 
