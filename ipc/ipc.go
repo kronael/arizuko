@@ -81,13 +81,15 @@ type TurnResult struct {
 }
 
 // ModelUsage is one model's tokens + pre-computed cost for a turn.
-// Mirrors the SDK's ModelUsage in snake_case for JSON-RPC over MCP.
+// Field names mirror muaddib's `usage = {input, cacheRead, cacheWrite}`
+// shape (refs/muaddib/src/agent/session-factory.ts:285); JSON tags are
+// snake_case for our JSON-RPC over MCP. CostCents = round(costUSD × 100).
 type ModelUsage struct {
-	InputTokens              int `json:"input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CostCents                int `json:"cost_cents"` // SDK costUSD × 100, integer
+	Input      int `json:"input"`
+	Output     int `json:"output"`
+	CacheRead  int `json:"cache_read"`
+	CacheWrite int `json:"cache_write"`
+	CostCents  int `json:"cost_cents"`
 }
 
 // InviteInfo mirrors store.Invite for the ipc layer (ipc must not import store).

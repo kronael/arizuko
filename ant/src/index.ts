@@ -197,10 +197,10 @@ function extractModelUsage(modelUsage: unknown): Record<string, import('./mcp.js
     costUSD?: number;
   }>)) {
     out[model] = {
-      input_tokens: u.inputTokens ?? 0,
-      output_tokens: u.outputTokens ?? 0,
-      cache_read_input_tokens: u.cacheReadInputTokens ?? 0,
-      cache_creation_input_tokens: u.cacheCreationInputTokens ?? 0,
+      input: u.inputTokens ?? 0,
+      output: u.outputTokens ?? 0,
+      cache_read: u.cacheReadInputTokens ?? 0,
+      cache_write: u.cacheCreationInputTokens ?? 0,
       cost_cents: Math.round((u.costUSD ?? 0) * 100),
     };
   }

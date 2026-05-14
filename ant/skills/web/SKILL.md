@@ -32,6 +32,17 @@ ALWAYS place apps under `/workspace/web/pub/<app>/`. NEVER write to
 2. Live at `https://$WEB_HOST/pub/myapp/`
 3. Vite handles TypeScript, CSS, hot reload natively
 
+## Making paths public (REQUIRED)
+
+Files written to `/workspace/web/pub/<app>/` persist on disk but
+are NOT served until you call `set_web_route`:
+
+    set_web_route path="/<app>" access="public" folder="<your-folder>"
+
+Without this step, visitors get 404 even though files exist.
+For an auth-gated path use `access="auth"`. To verify after:
+the URL `https://<WEB_HOST>/<app>/` should return 200.
+
 ## Stack
 
 - Vite MPA (no build step)

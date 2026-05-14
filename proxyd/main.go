@@ -36,8 +36,7 @@ type config struct {
 	hmacSecret     string
 	routesJSON     string
 	trustedProxies []*net.IPNet
-	slinkAnonRPM   int
-	slinkAuthRPM   int
+	slinkAnonDosRPM int
 }
 
 func loadConfig() config {
@@ -60,8 +59,7 @@ func loadConfig() config {
 		hmacSecret:     hmacSecret,
 		routesJSON:     os.Getenv("PROXYD_ROUTES_JSON"),
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
-		slinkAnonRPM:   chanlib.EnvInt("SLINK_ANON_RPM", 10),
-		slinkAuthRPM:   chanlib.EnvInt("SLINK_AUTH_RPM", 60),
+		slinkAnonDosRPM: chanlib.EnvInt("SLINK_ANON_DOS_RPM", 10),
 	}
 }
 
@@ -176,9 +174,8 @@ type server struct {
 	proxies   map[string]*httputil.ReverseProxy // keyed by route path
 	viteProxy *httputil.ReverseProxy
 	vh        *vhosts
-	slinkRL     *rateLimiter // anonymous, IP-keyed
-	slinkAuthRL *rateLimiter // authenticated, sub-keyed
-	pubRedir    *pubRedirect
+	slinkAnonDOS *rateLimiter // anon DoS shield, IP-keyed (not metering)
+	pubRedir     *pubRedirect
 }
 
 // pubRedirect probes a configured public-docs URL and caches whether
@@ -241,9 +238,8 @@ func newServer(cfg config, st *store.Store, vh *vhosts) *server {
 		proxies:   make(map[string]*httputil.ReverseProxy, len(routes)),
 		viteProxy: proxy(cfg.viteAddr),
 		vh:        vh,
-		slinkRL:     newRateLimiter(cfg.slinkAnonRPM, time.Minute),
-		slinkAuthRL: newRateLimiter(cfg.slinkAuthRPM, time.Minute),
-		pubRedir:    newPubRedirect(cfg.pubRedirectURL),
+		slinkAnonDOS: newRateLimiter(cfg.slinkAnonDosRPM, time.Minute),
+		pubRedir:     newPubRedirect(cfg.pubRedirectURL),
 	}
 	for _, r := range routes {
 		rp := buildRouteProxy(r)
@@ -513,21 +509,17 @@ func (s *server) dispatchRoute(rt *Route, w http.ResponseWriter, r *http.Request
 	}
 }
 
-// dispatchSlink applies two-tier rate limiting (anon=IP-keyed, auth=sub-keyed),
-// resolves the URL token to a group, and stamps X-Folder/X-Group-Name/X-Slink-Sig
-// before forwarding. Auth is optional; valid JWT promotes the caller to the
-// authenticated tier with a higher per-minute cap.
+// dispatchSlink resolves the URL token to a group and stamps
+// X-Folder/X-Group-Name/X-Slink-Sig before forwarding. Auth is optional;
+// valid JWT stamps user identity. Anon callers pass through an IP-keyed
+// DoS shield (not metering — cost-cap governance handles spend per
+// spec 5/34); authenticated callers skip the throttle entirely.
 func (s *server) dispatchSlink(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
 	if a := s.tryAuth(r); a != nil {
 		r = a
-		sub := r.Header.Get("X-User-Sub")
-		if !s.slinkAuthRL.allow(sub) {
-			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
-			return
-		}
 	} else {
 		remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
-		if !s.slinkRL.allow(remoteIP) {
+		if !s.slinkAnonDOS.allow(remoteIP) {
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}

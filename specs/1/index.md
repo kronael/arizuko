@@ -12,7 +12,7 @@ agent extension.
 | [0-actions.md](0-actions.md)                 | shipped | IPC/command action table                                        |
 | [a-task-scheduler.md](a-task-scheduler.md)   | shipped | Cron/interval/once schedules, isolated vs group context         |
 | [8-email.md](8-email.md)                     | shipped | `email:<thread_id>` JID; IMAP IDLE + SMTP reply threading       |
-| [W-slink.md](W-slink.md)                     | shipped | Public 96-bit token; anon/auth/agent rate tiers                 |
+| [W-slink.md](W-slink.md)                     | shipped | Public 96-bit token; anon DoS shield + cost-cap governance      |
 | [e-worlds.md](e-worlds.md)                   | shipped | First folder segment = world; delegation boundary               |
 | [F-group-routing.md](F-group-routing.md)     | shipped | Flat routes table, match=key=glob, four-layer pipeline          |
 | [R-prompt-format.md](R-prompt-format.md)     | shipped | ContainerInput/Output JSON + sentinel markers                   |

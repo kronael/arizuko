@@ -3,10 +3,32 @@ package gateway
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
 )
+
+// authSubPrefixes are the schemes that auth/oauth.go writes into
+// auth_users.sub (see auth/oauth.go google: / github: / local:).
+// Adapter senders (telegram:user/..., slack:user/..., bluesky:user/...)
+// are per-platform user IDs and are NOT bound to auth_users rows, so
+// they can't carry a per-user cap today. Interim until spec 6/5
+// Caller shape lands and unifies the identifier.
+var authSubPrefixes = []string{"google:", "github:", "local:"}
+
+// callerSubOfMsg returns the user_sub to use for the per-user budget
+// cap. Empty string disables the user-cap branch in budgetGate (folder
+// cap still binds). Recognised schemes are only those that auth/oauth
+// writes; anon: and adapter-prefixed senders return "".
+func callerSubOfMsg(sender string) string {
+	for _, p := range authSubPrefixes {
+		if strings.HasPrefix(sender, p) {
+			return sender
+		}
+	}
+	return ""
+}
 
 // budgetGate is the pre-spawn check from spec 5/34. Returns a non-empty
 // refusal message when today's spend is at or above the lower of the
@@ -66,23 +88,29 @@ func budgetMsg(scope string, spent, cap int) string {
 		scope, spent, cap)
 }
 
+// logCost is the single writer into cost_log. Both the Anthropic
+// post-turn path and the external-LLM MCP hook funnel through here so
+// the CostRow shape lives in one place.
+func (g *Gateway) logCost(folder, userSub, model string, u ipc.ModelUsage) error {
+	return g.store.LogCost(store.CostRow{
+		Folder:     folder,
+		UserSub:    userSub,
+		Model:      model,
+		InputTok:   u.Input,
+		CacheRead:  u.CacheRead,
+		CacheWrite: u.CacheWrite,
+		OutputTok:  u.Output,
+		Cents:      u.CostCents,
+	})
+}
+
 // recordTurnCost writes one cost_log row per model when usage was reported.
 // Empty Models is a no-op (ant versions before the cost-caps cutover).
 // Costs are SDK-provided; we treat them as authoritative for v1 and
 // re-aggregate at read time.
 func (g *Gateway) recordTurnCost(folder, callerSub string, models map[string]ipc.ModelUsage) {
 	for model, u := range models {
-		err := g.store.LogCost(store.CostRow{
-			Folder:     folder,
-			UserSub:    callerSub,
-			Model:      model,
-			InputTok:   u.InputTokens,
-			CacheRead:  u.CacheReadInputTokens,
-			CacheWrite: u.CacheCreationInputTokens,
-			OutputTok:  u.OutputTokens,
-			Cents:      u.CostCents,
-		})
-		if err != nil {
+		if err := g.logCost(folder, callerSub, model, u); err != nil {
 			slog.Warn("budget: LogCost failed",
 				"folder", folder, "model", model, "err", err)
 		}

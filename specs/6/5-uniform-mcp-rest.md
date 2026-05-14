@@ -49,9 +49,8 @@ which surface gets a feature is accidental, not principled.
 
 ```go
 type Caller struct {
-    Identity auth.Identity   // Sub, Folder, Tier, Audience, Issuer, Expires
+    Identity auth.Identity   // Sub, Folder, Tier (Go-side derived), Audience, Issuer, Expires
     Scope    []string        // "<resource>:<verb>[:own_group]"
-    Surface  string          // "rest" | "mcp" — diagnostic only; policy never reads it
 }
 
 type Resource struct {
@@ -65,12 +64,26 @@ type Resource struct {
 type Endpoint  struct { Path, Verb string; Action Action }
 type MCPTool   struct { Name string; Action Action }
 type Action    string                         // "create" | "update" | "delete" | "list" | "get"
-type ScopePred interface{ Allows([]string) bool }
+type ScopePred func(c Caller, target Folder) bool
 ```
+
+`ScopePred` takes the target folder explicitly because `:own_group` scopes
+need it; the predicate cannot decide solely from `[]string`. `Surface`
+is not on `Caller` — it's a property of the adapter invocation site,
+not the caller; the audit/metrics adapters carry their own constant.
 
 REST verbs and MCP tool names collapse to one `Action` per handler
 branch. New action: one handler branch + one endpoint + one tool + one
 policy row. New surface for an existing action: one row, no code.
+
+**Action naming convention.** The Go constant is the short verb
+(`Create`, `Update`, `Delete`, `List`, `Get`). The composed string
+`<Resource.Name>.<Action>` (e.g. `groups.create`) is what surfaces
+outside the codebase: OpenAPI `operationId`, MCP tool names where
+they follow the default pattern, audit-log `action=` fields, metrics
+labels, permission-editor rows. The short constant is for switches
+and tables; the composed string is the operator-facing contract and
+survives URL renames + handler-function renames.
 
 ## Token / auth model
 
@@ -96,7 +109,10 @@ addition to
 - `<resource>:read:own_group` / `<resource>:write:own_group` — scoped
   to caller's `Identity.Folder` subtree (matches today's
   [`auth.MatchesFolder`](../../auth/README.md) planned check).
-- `*:*`, `<resource>:*` — admin shortcuts.
+- `<resource>:*` — all verbs on a resource (operator shortcut, useful
+  when verb count grows). No `*:*` global wildcard — operators carry
+  the enumerated list (≤20 strings at current resource count). Two
+  matching paths hurt audit reasoning more than one short list does.
 
 `HasScope(c, "grants", "write")` returns true iff caller has
 `grants:write` OR (`grants:write:own_group` AND target folder ⊆
@@ -153,6 +169,41 @@ OpenAPI emerges from the same registry
 ([`4-openapi-discoverable.md`](4-openapi-discoverable.md)): walking
 `r.Endpoints` produces the spec; MCP `tools/list` walks `r.MCPTools`.
 Drift is structurally impossible.
+
+## Audit + observability
+
+Every adapter logs one row per request with a fixed shape:
+
+```
+caller=<sub> resource=<name> action=<verb>
+surface=rest|mcp|cli target=<folder> result=<allowed|denied|error>
+```
+
+`action` is the cross-surface stable correlator. A single
+`grep 'resource=groups action=create'` returns work regardless of
+whether it arrived via `POST /v1/groups`, MCP `groups.create`, or
+`arizuko group add`. URL renames and handler-function renames don't
+break audit because the Action constant is the contract; the surfaces
+are derivations.
+
+Metrics labels follow the same convention:
+`requests_total{resource="groups",action="create",surface="mcp",result="allowed"}`.
+The permission editor in dashd iterates `(Resource × Action)` pairs to
+present every operation any caller can perform — without walking
+handler functions or grepping URLs. "What can scope X do?" is one
+loop:
+
+```go
+for _, r := range registry {
+    for action, pred := range r.Policy {
+        if pred.Allows(callerScope) { /* show row */ }
+    }
+}
+```
+
+This is the operational reason `Action` exists as a separate type
+rather than implicit in handler-function identity — handler names
+churn, URL paths churn, the enum is the stable axis.
 
 ## OAuth single-login
 
@@ -216,9 +267,10 @@ Phase A unblocks
   Tier model authors which scopes get minted; this spec authors how
   scopes are checked.
 - **vs [`auth/policy.go`](../../auth/policy.go)** today: hand-maintained
-  per-tool switch. After Phase B, per-tool logic moves into per-action
-  `ScopePred`; `Authorize` becomes a thin wrapper looking up the
-  resource by tool name.
+  9-case per-tool switch. After Phase D it is **deleted** — not thinned.
+  The per-action `ScopePred` in the registry is the only authorization
+  site (`r.Policy[action](caller, target)`). The switch survives in
+  CHANGELOG only.
 
 ## Open (parked)
 

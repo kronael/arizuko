@@ -56,7 +56,6 @@ root grants.
 | ---------------------------------------------------------- | ------------------------------------------------------- |
 | `ASSISTANT_HAS_OWN_NUMBER`                                 | WhatsApp-specific, dropped                              |
 | `VITE_PORT`                                                | Use `WEB_PORT`; `VITE_PORT_INTERNAL` for internal       |
-| `SLINK_ANON_RPM` / `SLINK_AUTH_RPM`                        | Slink rate limiting not yet ported                      |
 | `WEB_PUBLIC`                                               | Replaced by `/pub/` convention in proxyd                |
 | `WEBDAV_ENABLED` / `WEBDAV_URL`                            | Replaced by `DAV_ADDR` → dufs container                 |
 | `FILE_TRANSFER_ENABLED` / `FILE_DENY_GLOBS` / `FILE_MAX_*` | File command surface not ported                         |

@@ -1,10 +1,15 @@
 ---
-status: shipped
+status: active
 ---
 
 # specs/4 — dashboards, memory
 
-All specs describe shipped core architecture.
+Core architecture — mostly shipped, plus platform-shaping specs in
+progress.
+
+## Spec
+
+- [N-platform-api.md](N-platform-api.md) — group CRUD + slink under one `/v1/*` surface
 
 ## Shipped
 

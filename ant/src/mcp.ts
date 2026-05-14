@@ -6,10 +6,10 @@ const MCP_SOCK = '/workspace/ipc/gated.sock';
 // write a cost_log row per call. Spec 5/34. Mirrors the SDK's ModelUsage
 // in snake_case; cost_cents is the SDK's costUSD × 100 rounded.
 export interface ModelUsage {
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_input_tokens: number;
-  cache_creation_input_tokens: number;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
   cost_cents: number;
 }
 

@@ -37,7 +37,7 @@ func testServer() *server {
 		cfg:     config{authSecret: ""},
 		st:      nil,
 		vh:      &vhosts{entries: map[string]string{}},
-		slinkRL: newRateLimiter(10, time.Minute),
+		slinkAnonDOS: newRateLimiter(10, time.Minute),
 	}
 }
 
@@ -77,7 +77,7 @@ func TestProxydRequireAuthNoSecret(t *testing.T) {
 }
 
 func TestProxydRequireAuthRawSecretRejected(t *testing.T) {
-	s := &server{cfg: config{authSecret: "rawsecret"}, slinkRL: newRateLimiter(10, time.Minute)}
+	s := &server{cfg: config{authSecret: "rawsecret"}, slinkAnonDOS: newRateLimiter(10, time.Minute)}
 	called := false
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -97,7 +97,7 @@ func TestProxydRequireAuthRawSecretRejected(t *testing.T) {
 
 func TestProxydRequireAuthValidJWT(t *testing.T) {
 	secret := []byte("testsecret")
-	s := &server{cfg: config{authSecret: "testsecret"}, slinkRL: newRateLimiter(10, time.Minute)}
+	s := &server{cfg: config{authSecret: "testsecret"}, slinkAnonDOS: newRateLimiter(10, time.Minute)}
 	called := false
 	var gotSub string
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +119,7 @@ func TestProxydRequireAuthValidJWT(t *testing.T) {
 }
 
 func TestProxydRequireAuthBadToken(t *testing.T) {
-	s := &server{cfg: config{authSecret: "testsecret"}, slinkRL: newRateLimiter(10, time.Minute)}
+	s := &server{cfg: config{authSecret: "testsecret"}, slinkAnonDOS: newRateLimiter(10, time.Minute)}
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Authorization", "Bearer badtoken")
@@ -131,7 +131,7 @@ func TestProxydRequireAuthBadToken(t *testing.T) {
 }
 
 func TestProxydRequireAuthNoHeader(t *testing.T) {
-	s := &server{cfg: config{authSecret: "testsecret"}, slinkRL: newRateLimiter(10, time.Minute)}
+	s := &server{cfg: config{authSecret: "testsecret"}, slinkAnonDOS: newRateLimiter(10, time.Minute)}
 	called := false
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -161,7 +161,7 @@ func testMintExpiredJWT(secret []byte, sub string) string {
 
 func TestProxydRequireAuthExpiredJWT(t *testing.T) {
 	secret := []byte("testsecret")
-	s := &server{cfg: config{authSecret: "testsecret"}, slinkRL: newRateLimiter(10, time.Minute)}
+	s := &server{cfg: config{authSecret: "testsecret"}, slinkAnonDOS: newRateLimiter(10, time.Minute)}
 	called := false
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -187,13 +187,13 @@ func TestProxydSlinkRouteRateLimit(t *testing.T) {
 	s := &server{
 		cfg:     config{},
 		vh:      &vhosts{entries: map[string]string{}},
-		slinkRL: newRateLimiter(1, time.Minute),
+		slinkAnonDOS: newRateLimiter(1, time.Minute),
 		routes:  []Route{{Path: "/slink/", Backend: "http://stub", Auth: "public"}},
 		proxies: map[string]*httputil.ReverseProxy{
 			"/slink/": buildRouteProxy(Route{Path: "/slink/", Backend: "http://stub"}),
 		},
 	}
-	s.slinkRL.allow("9.9.9.9")
+	s.slinkAnonDOS.allow("9.9.9.9")
 
 	req := httptest.NewRequest("GET", "/slink/tok1", nil)
 	req.RemoteAddr = "9.9.9.9:1234"
@@ -223,7 +223,7 @@ func TestProxydDashNoRouteRedirectsToPub(t *testing.T) {
 func TestProxydVhostsRewrite(t *testing.T) {
 	vh := &vhosts{entries: map[string]string{"test.example.com": "myworld"}}
 	// vhost rewrite serves via vite proxy; with no proxy configured → 404
-	s := &server{cfg: config{}, vh: vh, slinkRL: newRateLimiter(10, time.Minute)}
+	s := &server{cfg: config{}, vh: vh, slinkAnonDOS: newRateLimiter(10, time.Minute)}
 	req := httptest.NewRequest("GET", "/some/path", nil)
 	req.Host = "test.example.com"
 	w := httptest.NewRecorder()
@@ -235,7 +235,7 @@ func TestProxydVhostsRewrite(t *testing.T) {
 
 func TestProxydVhostsPathTraversal(t *testing.T) {
 	vh := &vhosts{entries: map[string]string{"evil.com": "world"}}
-	s := &server{cfg: config{}, vh: vh, slinkRL: newRateLimiter(10, time.Minute)}
+	s := &server{cfg: config{}, vh: vh, slinkAnonDOS: newRateLimiter(10, time.Minute)}
 	req := httptest.NewRequest("GET", "/../etc/passwd", nil)
 	req.Host = "evil.com"
 	w := httptest.NewRecorder()
@@ -304,7 +304,7 @@ func testServerWithUpstream(t *testing.T) (*server, *httptest.Server) {
 		cfg:       config{authSecret: "testsecret"},
 		vh:        &vhosts{entries: map[string]string{}},
 		viteProxy: httputil.NewSingleHostReverseProxy(u),
-		slinkRL:   newRateLimiter(10, time.Minute),
+		slinkAnonDOS:   newRateLimiter(10, time.Minute),
 		proxies:   map[string]*httputil.ReverseProxy{},
 	}
 	return s, up
@@ -464,7 +464,7 @@ func TestDavRouteForbidden(t *testing.T) {
 	s := &server{
 		cfg:     config{authSecret: "testsecret"},
 		vh:      &vhosts{entries: map[string]string{}},
-		slinkRL: newRateLimiter(10, time.Minute),
+		slinkAnonDOS: newRateLimiter(10, time.Minute),
 	}
 	req := httptest.NewRequest("GET", "/dav/bob/", nil)
 	req.Header.Set("X-User-Groups", `["alice"]`)
@@ -495,7 +495,7 @@ func TestProxydRequireAuthExpiredRefreshToken(t *testing.T) {
 	s := &server{
 		cfg:     config{authSecret: "testsecret"},
 		st:      st,
-		slinkRL: newRateLimiter(10, time.Minute),
+		slinkAnonDOS: newRateLimiter(10, time.Minute),
 	}
 	called := false
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -532,7 +532,7 @@ func TestProxydRequireAuthRefreshTokenUserMissing(t *testing.T) {
 	s := &server{
 		cfg:     config{authSecret: "testsecret"},
 		st:      st,
-		slinkRL: newRateLimiter(10, time.Minute),
+		slinkAnonDOS: newRateLimiter(10, time.Minute),
 	}
 	called := false
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -581,7 +581,7 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 		st:        st,
 		vh:        &vhosts{entries: map[string]string{}},
 		viteProxy: httputil.NewSingleHostReverseProxy(u),
-		slinkRL:   newRateLimiter(10, time.Minute),
+		slinkAnonDOS:   newRateLimiter(10, time.Minute),
 		routes:    []Route{chatRoute, slinkRoute},
 		proxies: map[string]*httputil.ReverseProxy{
 			"/chat/":  buildRouteProxy(chatRoute),
@@ -761,7 +761,7 @@ func TestProxydHandlerOAuthCallbackGatedWhenUnconfigured(t *testing.T) {
 func TestProxydSlinkRateLimiterBoundary(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")
 	defer up.Close()
-	s.slinkRL = newRateLimiter(3, time.Minute)
+	s.slinkAnonDOS = newRateLimiter(3, time.Minute)
 
 	for i := 0; i < 3; i++ {
 		req := httptest.NewRequest("GET", "/slink/tok/path", nil)
@@ -786,7 +786,7 @@ func TestProxydSlinkRateLimiterBoundary(t *testing.T) {
 func TestProxydSlinkRateLimiterPerIP(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")
 	defer up.Close()
-	s.slinkRL = newRateLimiter(1, time.Minute)
+	s.slinkAnonDOS = newRateLimiter(1, time.Minute)
 
 	// IP A exhausts its slot.
 	req := httptest.NewRequest("GET", "/slink/tok", nil)
@@ -942,7 +942,7 @@ func testDavServer(t *testing.T) (*server, *httputil.ReverseProxy, *httptest.Ser
 	s := &server{
 		cfg:     config{authSecret: "testsecret"},
 		vh:      &vhosts{entries: map[string]string{}},
-		slinkRL: newRateLimiter(10, time.Minute),
+		slinkAnonDOS: newRateLimiter(10, time.Minute),
 		routes:  []Route{{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}},
 		proxies: map[string]*httputil.ReverseProxy{"/dav/": rp},
 	}
@@ -1081,7 +1081,7 @@ func TestDavRouteNotConfigured(t *testing.T) {
 	s := &server{
 		cfg:     config{authSecret: "testsecret"},
 		vh:      &vhosts{entries: map[string]string{}},
-		slinkRL: newRateLimiter(10, time.Minute),
+		slinkAnonDOS: newRateLimiter(10, time.Minute),
 		// routes intentionally empty: no /dav/ route → 404
 	}
 	for _, path := range []string{"/dav", "/dav/", "/dav/folder/file"} {

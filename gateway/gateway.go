@@ -267,12 +267,10 @@ func (g *Gateway) Run(ctx context.Context) error {
 			})
 		},
 		LogExternalCost: func(folder, provider, model string, inputTok, outputTok, costCents int) error {
-			return g.store.LogCost(store.CostRow{
-				Folder:    folder,
-				Model:     provider + "/" + model,
-				InputTok:  inputTok,
-				OutputTok: outputTok,
-				Cents:     costCents,
+			return g.logCost(folder, "", provider+":"+model, ipc.ModelUsage{
+				Input:     inputTok,
+				Output:    outputTok,
+				CostCents: costCents,
 			})
 		},
 		ListWebRoutes: func(folder string) []ipc.WebRoute {
@@ -962,9 +960,10 @@ func (g *Gateway) runAgentWithOpts(
 ) container.Output {
 	// Spec 5/34 pre-spawn budget gate. If today's spend hits the cap,
 	// send a short channel-visible refusal (no LLM call) and return.
-	// User-scoped caps land with spec 6/5's Caller shape; v1 checks
-	// folder-only by passing "" for user_sub.
-	if msg := g.budgetGate(group.Folder, ""); msg != "" {
+	// callerSubOfMsg picks JWT-derived senders only; adapter and anon
+	// senders fall back to folder-only enforcement until spec 6/5's
+	// Caller shape lands.
+	if msg := g.budgetGate(group.Folder, callerSubOfMsg(sender)); msg != "" {
 		onOutput(msg, "ok")
 		return container.Output{}
 	}
