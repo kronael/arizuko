@@ -28,24 +28,25 @@ type AuthorizeOpts struct {
 	Tier        int
 }
 
-// ACLAuthorize returns true iff caller is permitted to perform action
-// on scope. Spec 6/9 §Authorize. Name is ACLAuthorize (not Authorize)
-// because legacy auth.Authorize(id, tool, target) in policy.go still
-// owns the bare name during coexistence; callsite cutover renames it.
+// Authorize returns true iff caller is permitted to perform action on
+// scope. Spec 6/9 §Authorize: row-based grants with deny-wins and
+// tier-default fallback for mcp:* actions. The orthogonal structural
+// concern (tree-shape invariants, tier bounds, task-owner) lives in
+// AuthorizeStructural (policy.go). Many tool callsites need both.
 //
 // Deny wins. No match: for mcp:<tool> actions, fall back to tier
 // defaults via grants.DeriveRules; for interact/admin/*, deny.
-func ACLAuthorize(
+func Authorize(
 	s *store.Store,
 	caller Caller,
 	action, scope string,
 	params map[string]string,
 ) bool {
-	return ACLAuthorizeWith(s, caller, action, scope, params, AuthorizeOpts{})
+	return AuthorizeWith(s, caller, action, scope, params, AuthorizeOpts{})
 }
 
-// ACLAuthorizeWith is ACLAuthorize with explicit tier-default fallback config.
-func ACLAuthorizeWith(
+// AuthorizeWith is Authorize with explicit tier-default fallback config.
+func AuthorizeWith(
 	s *store.Store,
 	caller Caller,
 	action, scope string,

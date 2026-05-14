@@ -419,7 +419,7 @@ func TestTelegramWidgetVerify(t *testing.T) {
 func TestAuthorizeBasicTools(t *testing.T) {
 	// list_tasks is unconditionally allowed.
 	id := Resolve("world/parent/child")
-	if err := Authorize(id, "list_tasks", AuthzTarget{}); err != nil {
+	if err := AuthorizeStructural(id, "list_tasks", AuthzTarget{}); err != nil {
 		t.Errorf("list_tasks should be allowed for all tiers: %v", err)
 	}
 }
@@ -428,34 +428,34 @@ func TestAuthorizeOutboundSubtree(t *testing.T) {
 	// Subtree containment is the only rule. No tier bypass — every
 	// agent is confined to JIDs that route to its folder or descendants.
 	rhias := Resolve("rhias")
-	if err := Authorize(rhias, "send", AuthzTarget{TargetFolder: "rhias"}); err != nil {
+	if err := AuthorizeStructural(rhias, "send", AuthzTarget{TargetFolder: "rhias"}); err != nil {
 		t.Errorf("rhias send to rhias should allow: %v", err)
 	}
-	if err := Authorize(rhias, "send", AuthzTarget{TargetFolder: "rhias/content"}); err != nil {
+	if err := AuthorizeStructural(rhias, "send", AuthzTarget{TargetFolder: "rhias/content"}); err != nil {
 		t.Errorf("rhias send to rhias/content should allow: %v", err)
 	}
 	// Cross-world deny.
 	happy := Resolve("happy")
-	if err := Authorize(happy, "send", AuthzTarget{TargetFolder: "rhias/content"}); err == nil {
+	if err := AuthorizeStructural(happy, "send", AuthzTarget{TargetFolder: "rhias/content"}); err == nil {
 		t.Error("happy send to rhias/content must deny")
 	}
 	// Unrouted JID: denied for every caller (no one notionally owns it).
-	if err := Authorize(rhias, "send", AuthzTarget{TargetFolder: ""}); err == nil {
+	if err := AuthorizeStructural(rhias, "send", AuthzTarget{TargetFolder: ""}); err == nil {
 		t.Error("send to unrouted JID must deny")
 	}
 	// Even root cannot direct-send cross-world; delegate_group is the
 	// inter-world mechanism.
 	root := Resolve("root")
-	if err := Authorize(root, "send", AuthzTarget{TargetFolder: "happy"}); err == nil {
+	if err := AuthorizeStructural(root, "send", AuthzTarget{TargetFolder: "happy"}); err == nil {
 		t.Error("root direct-send cross-world must deny (use delegate_group)")
 	}
 	// Other outbound verbs follow same rule.
 	for _, tool := range []string{"send_file", "reply", "post", "like", "dislike",
 		"delete", "edit", "forward", "quote", "repost"} {
-		if err := Authorize(happy, tool, AuthzTarget{TargetFolder: "rhias"}); err == nil {
+		if err := AuthorizeStructural(happy, tool, AuthzTarget{TargetFolder: "rhias"}); err == nil {
 			t.Errorf("%s cross-world must deny", tool)
 		}
-		if err := Authorize(rhias, tool, AuthzTarget{TargetFolder: "rhias/x"}); err != nil {
+		if err := AuthorizeStructural(rhias, tool, AuthzTarget{TargetFolder: "rhias/x"}); err != nil {
 			t.Errorf("%s within subtree must allow: %v", tool, err)
 		}
 	}
@@ -463,107 +463,107 @@ func TestAuthorizeOutboundSubtree(t *testing.T) {
 
 func TestAuthorizeResetSession(t *testing.T) {
 	id := Resolve("w/a")
-	if err := Authorize(id, "reset_session", AuthzTarget{TargetFolder: "w/a"}); err != nil {
+	if err := AuthorizeStructural(id, "reset_session", AuthzTarget{TargetFolder: "w/a"}); err != nil {
 		t.Fatalf("self reset should work: %v", err)
 	}
-	if err := Authorize(id, "reset_session", AuthzTarget{TargetFolder: "w/a/b"}); err != nil {
+	if err := AuthorizeStructural(id, "reset_session", AuthzTarget{TargetFolder: "w/a/b"}); err != nil {
 		t.Fatalf("child reset should work: %v", err)
 	}
-	if err := Authorize(id, "reset_session", AuthzTarget{TargetFolder: "w/x"}); err == nil {
+	if err := AuthorizeStructural(id, "reset_session", AuthzTarget{TargetFolder: "w/x"}); err == nil {
 		t.Fatal("non-descendant reset should fail")
 	}
 }
 
 func TestAuthorizeInjectMessage(t *testing.T) {
-	if err := Authorize(Resolve("w"), "inject_message", AuthzTarget{}); err != nil {
+	if err := AuthorizeStructural(Resolve("w"), "inject_message", AuthzTarget{}); err != nil {
 		t.Fatal("tier 0 should inject")
 	}
-	if err := Authorize(Resolve("w/a"), "inject_message", AuthzTarget{}); err != nil {
+	if err := AuthorizeStructural(Resolve("w/a"), "inject_message", AuthzTarget{}); err != nil {
 		t.Fatal("tier 1 should inject")
 	}
-	if err := Authorize(Resolve("w/a/b"), "inject_message", AuthzTarget{}); err == nil {
+	if err := AuthorizeStructural(Resolve("w/a/b"), "inject_message", AuthzTarget{}); err == nil {
 		t.Fatal("tier 2 should not inject")
 	}
 }
 
 func TestAuthorizeRegisterGroup(t *testing.T) {
-	if err := Authorize(Resolve("w"), "register_group", AuthzTarget{TargetFolder: "w"}); err == nil {
+	if err := AuthorizeStructural(Resolve("w"), "register_group", AuthzTarget{TargetFolder: "w"}); err == nil {
 		t.Fatal("tier 0 should not register worlds")
 	}
-	if err := Authorize(Resolve("w"), "register_group", AuthzTarget{TargetFolder: "w/child"}); err != nil {
+	if err := AuthorizeStructural(Resolve("w"), "register_group", AuthzTarget{TargetFolder: "w/child"}); err != nil {
 		t.Fatalf("tier 0 should register children: %v", err)
 	}
-	if err := Authorize(Resolve("w/a"), "register_group", AuthzTarget{TargetFolder: "w/a/child"}); err != nil {
+	if err := AuthorizeStructural(Resolve("w/a"), "register_group", AuthzTarget{TargetFolder: "w/a/child"}); err != nil {
 		t.Fatalf("tier 1 should register direct children: %v", err)
 	}
-	if err := Authorize(Resolve("w/a"), "register_group", AuthzTarget{TargetFolder: "w/b/child"}); err == nil {
+	if err := AuthorizeStructural(Resolve("w/a"), "register_group", AuthzTarget{TargetFolder: "w/b/child"}); err == nil {
 		t.Fatal("tier 1 should not register outside own subtree")
 	}
-	if err := Authorize(Resolve("w/a/b"), "register_group", AuthzTarget{}); err == nil {
+	if err := AuthorizeStructural(Resolve("w/a/b"), "register_group", AuthzTarget{}); err == nil {
 		t.Fatal("tier 2 should not register groups")
 	}
 }
 
 func TestAuthorizeEscalateGroup(t *testing.T) {
-	if err := Authorize(Resolve("w/a/b"), "escalate_group", AuthzTarget{}); err != nil {
+	if err := AuthorizeStructural(Resolve("w/a/b"), "escalate_group", AuthzTarget{}); err != nil {
 		t.Fatal("tier 2 should escalate")
 	}
-	if err := Authorize(Resolve("w/a"), "escalate_group", AuthzTarget{}); err == nil {
+	if err := AuthorizeStructural(Resolve("w/a"), "escalate_group", AuthzTarget{}); err == nil {
 		t.Fatal("tier 1 should not escalate")
 	}
 }
 
 func TestAuthorizeDelegateGroup(t *testing.T) {
 	id := Resolve("w/a")
-	if err := Authorize(id, "delegate_group", AuthzTarget{TargetFolder: "w/a/child"}); err != nil {
+	if err := AuthorizeStructural(id, "delegate_group", AuthzTarget{TargetFolder: "w/a/child"}); err != nil {
 		t.Fatalf("should delegate to child: %v", err)
 	}
-	if err := Authorize(id, "delegate_group", AuthzTarget{TargetFolder: "w/b"}); err == nil {
+	if err := AuthorizeStructural(id, "delegate_group", AuthzTarget{TargetFolder: "w/b"}); err == nil {
 		t.Fatal("should not delegate to non-child")
 	}
-	if err := Authorize(Resolve("w/a/b/c"), "delegate_group", AuthzTarget{}); err == nil {
+	if err := AuthorizeStructural(Resolve("w/a/b/c"), "delegate_group", AuthzTarget{}); err == nil {
 		t.Fatal("tier 3 should not delegate")
 	}
 }
 
 func TestAuthorizeRouteTools(t *testing.T) {
 	for _, tool := range []string{"get_routes", "set_routes", "add_route", "delete_route"} {
-		if err := Authorize(Resolve("w"), tool, AuthzTarget{}); err != nil {
+		if err := AuthorizeStructural(Resolve("w"), tool, AuthzTarget{}); err != nil {
 			t.Errorf("%s should work at tier 0: %v", tool, err)
 		}
-		if err := Authorize(Resolve("w/a/b"), tool, AuthzTarget{}); err == nil {
+		if err := AuthorizeStructural(Resolve("w/a/b"), tool, AuthzTarget{}); err == nil {
 			t.Errorf("%s should fail at tier 2", tool)
 		}
 	}
 }
 
 func TestAuthorizeScheduleTask(t *testing.T) {
-	if err := Authorize(Resolve("w"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err != nil {
+	if err := AuthorizeStructural(Resolve("w"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err != nil {
 		t.Fatal("tier 0 should schedule any task")
 	}
-	if err := Authorize(Resolve("w/a"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err != nil {
+	if err := AuthorizeStructural(Resolve("w/a"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err != nil {
 		t.Fatal("tier 1 same world should schedule")
 	}
-	if err := Authorize(Resolve("w/a"), "schedule_task", AuthzTarget{TaskOwner: "x/b"}); err == nil {
+	if err := AuthorizeStructural(Resolve("w/a"), "schedule_task", AuthzTarget{TaskOwner: "x/b"}); err == nil {
 		t.Fatal("tier 1 different world should fail")
 	}
-	if err := Authorize(Resolve("w/a/b"), "schedule_task", AuthzTarget{TaskOwner: "w/a/b"}); err != nil {
+	if err := AuthorizeStructural(Resolve("w/a/b"), "schedule_task", AuthzTarget{TaskOwner: "w/a/b"}); err != nil {
 		t.Fatal("tier 2 own task should schedule")
 	}
-	if err := Authorize(Resolve("w/a/b"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err == nil {
+	if err := AuthorizeStructural(Resolve("w/a/b"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err == nil {
 		t.Fatal("tier 2 other's task should fail")
 	}
-	if err := Authorize(Resolve("w/a/b/c"), "schedule_task", AuthzTarget{}); err == nil {
+	if err := AuthorizeStructural(Resolve("w/a/b/c"), "schedule_task", AuthzTarget{}); err == nil {
 		t.Fatal("tier 3 should not schedule")
 	}
 }
 
 func TestAuthorizeTaskOps(t *testing.T) {
 	for _, tool := range []string{"pause_task", "resume_task", "cancel_task"} {
-		if err := Authorize(Resolve("w"), tool, AuthzTarget{TaskOwner: "w/a"}); err != nil {
+		if err := AuthorizeStructural(Resolve("w"), tool, AuthzTarget{TaskOwner: "w/a"}); err != nil {
 			t.Errorf("%s tier 0 should work: %v", tool, err)
 		}
-		if err := Authorize(Resolve("w/a/b/c"), tool, AuthzTarget{}); err == nil {
+		if err := AuthorizeStructural(Resolve("w/a/b/c"), tool, AuthzTarget{}); err == nil {
 			t.Errorf("%s tier 3 should fail", tool)
 		}
 	}

@@ -11,7 +11,11 @@ type AuthzTarget struct {
 	TargetFolder string
 }
 
-func Authorize(id Identity, tool string, target AuthzTarget) error {
+// AuthorizeStructural checks tree-shape invariants (caller-folder prefix,
+// tier bounds on actions, task-owner-must-match-caller). Spec 6/9's
+// row-grant model lives in auth.Authorize (authorize.go); this function
+// covers the orthogonal structural concern. Many tools require both.
+func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 	switch tool {
 	case "list_tasks":
 		return nil
