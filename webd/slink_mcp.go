@@ -46,7 +46,7 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 	jid := "web:" + g.Folder
 
 	srv.AddTool(mcp.NewTool("send_message",
-		mcp.WithDescription("Start a new round in the group. Returns {turn_id} — the originating message id, used as the round handle by steer and get_round. Optional topic groups multiple rounds into the same conversation thread (auto-generated when omitted)."),
+		mcp.WithDescription("Submit a message to the group. Returns {turn_id} — the originating message id, used as the round handle by get_round. Optional topic groups multiple rounds into the same conversation thread; reuse it on later calls to keep the agent in the same context (auto-generated when omitted)."),
 		mcp.WithString("content", mcp.Required()),
 		mcp.WithString("topic", mcp.Description("Optional conversation thread id. Auto-generated if omitted.")),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

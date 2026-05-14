@@ -238,7 +238,7 @@ func TestSlinkMCP_GetRound_Wait(t *testing.T) {
 
 // Bad token → 404 (matches handleSlinkPost behaviour).
 // slinkMCPSend calls send_message and returns the turn_id from the response —
-// the round handle used by steer/get_round per W-slink.md.
+// the round handle used by get_round per W-slink.md.
 func slinkMCPSend(t *testing.T, c *mcpclient.Client, content, topic string) string {
 	t.Helper()
 	res, err := c.CallTool(context.Background(), mcp.CallToolRequest{

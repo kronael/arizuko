@@ -22,7 +22,7 @@ Your session continues across messages until you explicitly reset it with `/new`
 # first message
 you:  summarise the three main risks in this contract
 
-# steer mid-task
+# follow-up — same topic, same context
 you:  actually focus only on liability clauses
 ```
 
@@ -406,7 +406,7 @@ Log in via OAuth for the full web UI with topics, history, and typing indicators
 
 The web chat slink is an SSE-based interactive widget for humans. The slink MCP endpoint is a separate transport designed for other agents — paste the URL into Claude Code or another MCP-aware runtime and the group becomes a tool target. The token authenticates; no JWT, no extra config.
 
-Three tools are available: `send_message` (push a turn into the group), `steer` (mid-task redirect), and `get_round` (read the latest reply). The endpoint is stateless and idempotent — message history lives in the web chat, not here. Use the MCP transport to embed a group inside another agent's workflow; use the SSE chat for human-in-the-loop interaction.
+Two tools are available: `send_message` (push a turn into the group; pass the same `topic` across calls to continue a conversation) and `get_round` (read the latest reply). The endpoint is stateless and idempotent — message history lives in the web chat, not here. Use the MCP transport to embed a group inside another agent's workflow; use the SSE chat for human-in-the-loop interaction.
 
 ```
 # external agent registers slink MCP as a remote tool

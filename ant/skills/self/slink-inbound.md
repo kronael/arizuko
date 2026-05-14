@@ -6,20 +6,23 @@
 | ------ | ----------------------------------------- | ---------------------------------------- |
 | GET    | `/slink/<token>`                          | Browser chat UI (HTML page)              |
 | POST   | `/slink/<token>`                          | Send message → `{user, turn_id, status}` |
-| POST   | `/slink/<token>/<turn_id>`                | Steer — follow-up to an existing round   |
 | GET    | `/slink/<token>/<turn_id>`                | Snapshot: status + all assistant frames  |
 | GET    | `/slink/<token>/<turn_id>?after=<msg_id>` | Cursor: frames after `<msg_id>`          |
 | GET    | `/slink/<token>/<turn_id>/status`         | Cheap status check (no frame payload)    |
 | GET    | `/slink/<token>/<turn_id>/sse`            | SSE stream until `round_done`            |
 | POST   | `/slink/<token>/mcp`                      | MCP tool surface (agent-to-agent)        |
 
+To continue a conversation, POST another message with the same
+`topic` field. If a container is still running, the gateway delivers
+it mid-loop; otherwise a fresh round spawns.
+
 ## Rate limits
 
 | Caller            | Limit                         |
 | ----------------- | ----------------------------- |
-| Anonymous         | 10 req/min (shared per token) |
-| JWT-authenticated | 60 req/min per user           |
-| Agent / operator  | unlimited                     |
+| Anonymous         | 10 req/min (per IP, DoS only) |
+| JWT-authenticated | governed by cost caps         |
+| Agent / operator  | bypass /slink/*               |
 
 ## Default page
 

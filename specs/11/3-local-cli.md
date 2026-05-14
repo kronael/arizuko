@@ -32,9 +32,8 @@ arizuko send <instance> <folder> "..." --stream
 # pipe stdin as message body
 tail -n 20 /var/log/app.log | arizuko send <instance> <folder> --stdin
 
-# steer an in-flight round (fall back to fresh round on chain miss)
-arizuko send <instance> <folder> "actually focus on errors" \
-  --steer <turn_id>
+# continue a conversation thread (reuse the same topic across calls)
+arizuko send <instance> <folder> "what about errors?" --topic debug
 ```
 
 Exit codes: `0` on `status=done`, `1` on `failed`, `124` on `--wait`
