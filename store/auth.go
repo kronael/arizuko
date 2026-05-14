@@ -145,70 +145,7 @@ func (s *Store) DeleteAuthSession(tokenHash string) error {
 	return err
 }
 
-// UserGroups returns the grant patterns for sub. Operator is implicit: a
-// user with a `**` row just has `**` in the list and auth.MatchGroups
-// handles it. Empty slice = no access.
-func (s *Store) UserGroups(sub string) []string {
-	rows, err := s.db.Query(
-		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, sub)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var folders []string
-	for rows.Next() {
-		var f string
-		rows.Scan(&f)
-		if f != "" {
-			folders = append(folders, f)
-		}
-	}
-	return folders
-}
-
-type Grant struct {
-	Sub       string
-	Pattern   string
-	GrantedAt string
-}
-
-func (s *Store) Grant(sub, pattern string) (bool, error) {
-	res, err := s.db.Exec(
-		`INSERT OR IGNORE INTO user_groups (user_sub, folder, granted_at)
-		 VALUES (?, ?, datetime('now'))`, sub, pattern)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
-}
-
-func (s *Store) Ungrant(sub, pattern string) (int64, error) {
-	res, err := s.db.Exec(
-		`DELETE FROM user_groups WHERE user_sub = ? AND folder = ?`, sub, pattern)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	return n, nil
-}
-
-func (s *Store) Grants(sub string) ([]Grant, error) {
-	rows, err := s.db.Query(
-		`SELECT user_sub, folder, COALESCE(granted_at, '')
-		 FROM user_groups WHERE (? = '' OR user_sub = ?)
-		 ORDER BY user_sub, folder`, sub, sub)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Grant
-	for rows.Next() {
-		var g Grant
-		if err := rows.Scan(&g.Sub, &g.Pattern, &g.GrantedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, g)
-	}
-	return out, rows.Err()
-}
+// User-folder grants live in the `acl` table (post-0053). See
+// store/acl.go for `AddACLRow`, `RemoveACLRow`, `UserScopes`, `ListACL`.
+// Role / JID-claim membership lives in `acl_membership`; see
+// store/membership.go.

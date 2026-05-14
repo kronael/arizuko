@@ -716,7 +716,7 @@ func (s *server) tryAuth(r *http.Request) *http.Request {
 	if !ok {
 		return nil
 	}
-	return s.setUserHeaders(r, u.Sub, u.Name, s.st.UserGroups(u.Sub))
+	return s.setUserHeaders(r, u.Sub, u.Name, s.st.UserScopes(u.Sub))
 }
 
 func (s *server) optionalAuth(next http.HandlerFunc) http.HandlerFunc {

@@ -4,6 +4,15 @@ status: shipped
 
 # Action Grants
 
+> **Storage subsumed by `specs/6/9-acl-unified.md`.** The `grant_rules`
+> table and the `**` operator marker on `user_groups` collapse into the
+> unified `acl` table; rule overrides become `acl` rows with
+> `action='mcp:<tool>'`. The rule grammar (`[!]action[(param=glob)]`)
+> and tier-derivation logic in `grants.DeriveRules` stay code-side —
+> defaults for `mcp:*` are not materialised as rows. Read this spec
+> for the rule grammar and tier matrix; read 6/9 for storage and
+> evaluation.
+
 Grant rules control which MCP actions a container can call.
 Rules derived from routing + tier at spawn, injected into
 `start.json`, validated at dispatch. Agents see allowed actions

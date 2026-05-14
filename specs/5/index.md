@@ -7,8 +7,7 @@ status: active
 | Spec                                                         | Status  | Hook                                                                |
 | ------------------------------------------------------------ | ------- | ------------------------------------------------------------------- |
 | [2-agent-pipeline.md](2-agent-pipeline.md)                   | shipped | Orchestration (slink) vs workflows (Agent tool)                     |
-| [28-mass-onboarding.md](28-mass-onboarding.md)               | shipped | Self-service onboarding, username=world, web auth gate              |
-| [29-acl.md](29-acl.md)                                       | shipped | Glob-matched user_groups, no operator/user distinction              |
+| [A-auth-consolidated.md](A-auth-consolidated.md)             | spec    | Folders+routes+user_groups+identities; the three auth shapes        |
 | [30-inspect-tools.md](30-inspect-tools.md)                   | shipped | inspect\_\* MCP family (messages, routing, tasks, session)          |
 | [31-autocalls.md](31-autocalls.md)                           | shipped | Inline fact injection when schema cost > content cost               |
 | [32-tenant-self-service.md](32-tenant-self-service.md)       | shipped | Org-chart model: invites, secrets, chats.kind, topic kinds          |

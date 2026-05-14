@@ -127,8 +127,7 @@ type StoreFns struct {
 	PutMessage          func(m core.Message) error
 	GetLastReplyID      func(jid, topic string) string
 	SetLastReplyID      func(jid, topic, replyID string)
-	GetGrants           func(folder string) []string
-	SetGrants           func(folder string, rules []string) error
+	ListACL             func(principal string) []core.ACLRow
 	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
 	MessagesByThread    func(jid, topic string, before time.Time, limit int) ([]core.Message, error)
 	JIDRoutedToFolder   func(jid, folder string) bool
@@ -1482,47 +1481,36 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 
 	if id.Tier <= 1 {
-		srv.AddTool(mcp.NewTool("get_grants",
-			mcp.WithDescription("Read the MCP grant rule list for a folder. Use to audit what a group is permitted to do before adjusting. Tier 0-1 only. Pair with set_grants to change."),
+		// Unified ACL inspection. Reads acl rows scoped to folder; subsumes
+		// the legacy get_grants/set_grants surface. Writes go through
+		// dashd or `arizuko grant`. Tier 0-1 only.
+		srv.AddTool(mcp.NewTool("list_acl",
+			mcp.WithDescription("List acl rows for a folder. Returns rows where scope matches the folder. Audit what's permitted before changing. Tier 0-1 only."),
 			mcp.WithString("folder", mcp.Required()),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.GetGrants == nil {
-				return toolErr("get_grants not configured")
+			if db.ListACL == nil {
+				return toolErr("list_acl not configured")
 			}
 			gf := req.GetString("folder", "")
 			if gf == "" {
 				return toolErr("folder required")
 			}
-			if err := auth.AuthorizeStructural(id, "get_grants", auth.AuthzTarget{TargetFolder: gf}); err != nil {
+			if err := auth.AuthorizeStructural(id, "list_acl", auth.AuthzTarget{TargetFolder: gf}); err != nil {
 				return toolErr(err.Error())
 			}
-			return toolJSON(map[string]any{"folder": gf, "rules": db.GetGrants(gf)})
-		})
-
-		srv.AddTool(mcp.NewTool("set_grants",
-			mcp.WithDescription("Overwrite the full grant rule list for a folder. Use when changing what tools/targets a group may invoke; read first with get_grants. Tier 0-1 only. Takes effect on next MCP session."),
-			mcp.WithString("folder", mcp.Required()),
-			mcp.WithString("rules", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.SetGrants == nil {
-				return toolErr("set_grants not configured")
+			rows := db.ListACL("")
+			out := make([]map[string]any, 0, len(rows))
+			for _, r := range rows {
+				if r.Scope != gf {
+					continue
+				}
+				out = append(out, map[string]any{
+					"principal": r.Principal, "action": r.Action,
+					"scope": r.Scope, "effect": r.Effect,
+					"params": r.Params, "predicate": r.Predicate,
+				})
 			}
-			gf := req.GetString("folder", "")
-			if gf == "" {
-				return toolErr("folder required")
-			}
-			if err := auth.AuthorizeStructural(id, "set_grants", auth.AuthzTarget{TargetFolder: gf}); err != nil {
-				return toolErr(err.Error())
-			}
-			var newRules []string
-			if err := json.Unmarshal([]byte(req.GetString("rules", "")), &newRules); err != nil {
-				return toolErr("invalid rules json: " + err.Error())
-			}
-			if err := db.SetGrants(gf, newRules); err != nil {
-				return toolErr(err.Error())
-			}
-			slog.Info("grants set", "folder", gf, "count", len(newRules), "sourceGroup", folder)
-			return toolJSON(map[string]any{"ok": true, "folder": gf, "count": len(newRules)})
+			return toolJSON(map[string]any{"folder": gf, "acl": out})
 		})
 	}
 

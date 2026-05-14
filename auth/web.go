@@ -170,7 +170,7 @@ func handleLogout(s *store.Store, secure bool) http.HandlerFunc {
 
 func issueSession(w http.ResponseWriter, r *http.Request, s *store.Store, secret []byte, sub, name string, secure bool) {
 	sub = s.CanonicalSub(sub)
-	groups := s.UserGroups(sub)
+	groups := s.UserScopes(sub)
 	jwt := mintJWT(secret, sub, name, groups, jwtTTL)
 	refresh, err := genToken()
 	if err != nil {

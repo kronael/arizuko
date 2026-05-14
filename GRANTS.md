@@ -14,6 +14,13 @@ status: shipped
 
 # Grants — how folders, ACL rows, routes and secrets compose into what an agent can do
 
+> **Forward-looking:** `specs/6/9-acl-unified.md` collapses the four
+> layers below into a single `acl` table with a `(principal, action,
+scope, params, predicate, effect)` shape and a unified `Authorize`
+> function. Tier defaults stay in code (`grants.DeriveRules`); only
+> operator overrides become rows. This doc describes the current
+> shipped composition — read 6/9 for the end state.
+
 Three SQLite tables, one folder path, and a fistful of env vars produce
 the rules an agent container is spawned with. Maintainer reference:
 read it with the codebase open. Lives at root (not under `specs/`)

@@ -53,9 +53,8 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT, token TEXT, token_expires TEXT, user_sub TEXT, gate TEXT, queued_at TEXT);
 		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT NOT NULL DEFAULT '');
 		CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT, created_at TEXT, context_mode TEXT);
-		CREATE TABLE user_jids (user_sub TEXT NOT NULL, jid TEXT NOT NULL, claimed TEXT NOT NULL, PRIMARY KEY (user_sub, jid));
-		CREATE UNIQUE INDEX idx_user_jids_jid ON user_jids(jid);
-		CREATE TABLE user_groups (user_sub TEXT NOT NULL, folder TEXT NOT NULL, granted_at TEXT, PRIMARY KEY (user_sub, folder));
+		CREATE TABLE acl (principal TEXT NOT NULL, action TEXT NOT NULL, scope TEXT NOT NULL, effect TEXT NOT NULL DEFAULT 'allow', params TEXT NOT NULL DEFAULT '', predicate TEXT NOT NULL DEFAULT '', granted_by TEXT, granted_at TEXT NOT NULL, PRIMARY KEY (principal, action, scope, params, predicate, effect));
+		CREATE TABLE acl_membership (child TEXT NOT NULL, parent TEXT NOT NULL, added_by TEXT, added_at TEXT NOT NULL, PRIMARY KEY (child, parent));
 		CREATE TABLE auth_users (id INTEGER PRIMARY KEY AUTOINCREMENT, sub TEXT UNIQUE, username TEXT, hash TEXT, name TEXT, created_at TEXT);
 		CREATE TABLE auth_sessions (token_hash TEXT PRIMARY KEY, user_sub TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
 		CREATE TABLE channels (name TEXT PRIMARY KEY, url TEXT, capabilities TEXT);
@@ -187,7 +186,7 @@ func TestDashboardLinksJID(t *testing.T) {
 		VALUES ('telegram:1', 'token_used', '2099-01-01T00:00:00Z', '2026-01-01')`)
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('github:alice', 'alice')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
 
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/onboard", nil)
@@ -198,7 +197,7 @@ func TestDashboardLinksJID(t *testing.T) {
 
 	// JID should be linked
 	var userSub string
-	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = 'telegram:1'`).Scan(&userSub)
+	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:1'`).Scan(&userSub)
 	if userSub != "github:alice" {
 		t.Errorf("want user_sub=github:alice, got %q", userSub)
 	}
@@ -261,7 +260,7 @@ func TestCreateWorldValidUsername(t *testing.T) {
 
 	// user_groups granted
 	var ug string
-	db.QueryRow(`SELECT folder FROM user_groups WHERE user_sub = 'github:new'`).Scan(&ug)
+	db.QueryRow(`SELECT scope FROM acl WHERE principal = 'github:new'`).Scan(&ug)
 	if ug != "alice" {
 		t.Errorf("user_groups not set, got %q", ug)
 	}
@@ -331,7 +330,7 @@ func TestLinkJID(t *testing.T) {
 	linkJID(db, "telegram:1", "github:alice")
 
 	var userSub string
-	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = 'telegram:1'`).Scan(&userSub)
+	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:1'`).Scan(&userSub)
 	if userSub != "github:alice" {
 		t.Errorf("want github:alice, got %q", userSub)
 	}
@@ -416,7 +415,7 @@ func TestLinkJIDIdempotent(t *testing.T) {
 	linkJID(db, "telegram:5", "github:alice")
 
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM user_jids WHERE jid = 'telegram:5'`).Scan(&n)
+	db.QueryRow(`SELECT COUNT(*) FROM acl_membership WHERE child = 'telegram:5'`).Scan(&n)
 	if n != 1 {
 		t.Errorf("expected 1 user_jids row, got %d", n)
 	}
@@ -431,13 +430,13 @@ func TestLinkJIDDifferentUserRejected(t *testing.T) {
 	linkJID(db, "telegram:6", "github:eve")
 
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM user_jids WHERE jid = 'telegram:6'`).Scan(&n)
+	db.QueryRow(`SELECT COUNT(*) FROM acl_membership WHERE child = 'telegram:6'`).Scan(&n)
 	if n != 1 {
 		t.Errorf("expected 1 user_jids row, got %d", n)
 	}
 
 	var userSub string
-	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = 'telegram:6'`).Scan(&userSub)
+	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:6'`).Scan(&userSub)
 	if userSub != "github:alice" {
 		t.Errorf("want github:alice, got %q", userSub)
 	}
@@ -447,8 +446,8 @@ func TestCreateWorldRoutesLinkedJIDs(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:new', 'github:new', 'New User', '', '2026-01-01')`)
-	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed) VALUES ('github:new', 'telegram:10', '2026-01-01')`)
-	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed) VALUES ('github:new', 'discord:20', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('github:new', 'telegram:10', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('github:new', 'discord:20', '2026-01-01')`)
 
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"newworld"}}
@@ -527,9 +526,9 @@ func TestSecondJIDAutoLink(t *testing.T) {
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
 	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder)
-		VALUES ('github:alice', 'alice')`)
-	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at)
+		VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
 		VALUES ('github:alice', 'telegram:1', '2026-01-01')`)
 	// Existing route for first JID.
 	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'alice')`)
@@ -555,7 +554,7 @@ func TestSecondJIDAutoLink(t *testing.T) {
 
 	// discord:42 should be linked.
 	var userSub string
-	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = 'discord:42'`).Scan(&userSub)
+	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'discord:42'`).Scan(&userSub)
 	if userSub != "github:alice" {
 		t.Errorf("want user_sub=github:alice for discord:42, got %q", userSub)
 	}
@@ -573,8 +572,8 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:op', 'op', 'Op', '', '2026-01-01')`)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('github:op', '**')`)
-	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:op', 'admin', '**', 'allow', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
 		VALUES ('github:op', 'telegram:99', '2026-01-01')`)
 
 	cfg := config{}
@@ -836,7 +835,7 @@ func TestInviteConsume(t *testing.T) {
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:bob', 'bob', 'Bob', '', '2026-01-01')`)
 	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed)
+	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
 		VALUES ('github:bob', 'telegram:99', '2026-01-01')`)
 
 	token := createInvite(t, db, "alice", "telegram:1", 1)
@@ -857,7 +856,7 @@ func TestInviteConsume(t *testing.T) {
 
 	// user_groups row should exist
 	var folder string
-	db.QueryRow(`SELECT folder FROM user_groups WHERE user_sub = 'github:bob'`).Scan(&folder)
+	db.QueryRow(`SELECT scope FROM acl WHERE principal = 'github:bob'`).Scan(&folder)
 	if folder != "alice" {
 		t.Errorf("want user_groups folder=alice, got %q", folder)
 	}
@@ -993,7 +992,7 @@ func cloneVals(v url.Values) url.Values {
 func TestDeleteRoute(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
 	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'myroom')`)
 
 	var id int64
@@ -1017,7 +1016,7 @@ func TestDeleteRoute(t *testing.T) {
 func TestDeleteRouteWrongUser(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('bob', 'bobroom')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('bob', 'admin', 'bobroom', 'allow', '2026-01-01')`)
 	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'aliceroom')`)
 
 	var id int64
@@ -1041,9 +1040,9 @@ func TestDeleteRouteWrongUser(t *testing.T) {
 func TestAddRoute(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
 	// Alice must own a JID whose room matches the add_route match pattern.
-	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed) VALUES ('alice', 'telegram:999', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('alice', 'telegram:999', '2026-01-01')`)
 
 	w := postOnboard(db, cfg, "alice", url.Values{
 		"action": {"add_route"},
@@ -1068,7 +1067,7 @@ func TestAddRoute(t *testing.T) {
 func TestAddRouteMatchNotOwned(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
 	// alice has NO user_jids; attempt to claim victim's room.
 	w := postOnboard(db, cfg, "alice", url.Values{
 		"action": {"add_route"},
@@ -1089,7 +1088,7 @@ func TestAddRouteMatchNotOwned(t *testing.T) {
 func TestAddRouteInvalidMatchChars(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
 	for _, bad := range []string{"room=* *", "room=a b", "** match"} {
 		w := postOnboard(db, cfg, "alice", url.Values{
 			"action": {"add_route"},
@@ -1105,7 +1104,7 @@ func TestAddRouteInvalidMatchChars(t *testing.T) {
 func TestCSRFRejected(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
 	// No csrf cookie/field → must be rejected even with X-User-Sub.
 	form := url.Values{"action": {"add_route"}, "match": {"room=1"}, "target": {"myroom"}}
 	req := httptest.NewRequest("POST", "/onboard", strings.NewReader(form.Encode()))
@@ -1125,11 +1124,11 @@ func TestSecondJIDAutoLinkSingleUse(t *testing.T) {
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
 	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('github:alice', 'alice')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:eve', 'eve', 'Eve', '', '2026-01-01')`)
 	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('eve', '2026-01-01')`)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('github:eve', 'eve')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:eve', 'admin', 'eve', 'allow', '2026-01-01')`)
 	// token_used row with user_sub still NULL.
 	db.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
 		VALUES ('telegram:victim', 'token_used', '2099-01-01T00:00:00Z', '2026-01-01')`)
@@ -1142,7 +1141,7 @@ func TestSecondJIDAutoLinkSingleUse(t *testing.T) {
 	handleOnboard(w, req, db, config{})
 
 	var jidOwner string
-	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = 'telegram:victim'`).Scan(&jidOwner)
+	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:victim'`).Scan(&jidOwner)
 	if jidOwner != "github:alice" {
 		t.Fatalf("first claim: want github:alice, got %q", jidOwner)
 	}
@@ -1156,7 +1155,7 @@ func TestSecondJIDAutoLinkSingleUse(t *testing.T) {
 	handleOnboard(w2, req2, db, config{})
 
 	// Ownership unchanged.
-	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = 'telegram:victim'`).Scan(&jidOwner)
+	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:victim'`).Scan(&jidOwner)
 	if jidOwner != "github:alice" {
 		t.Errorf("after replay attempt: want github:alice, got %q", jidOwner)
 	}
@@ -1201,7 +1200,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 	}
 	// Eve should not have user_groups row.
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM user_groups WHERE user_sub = 'github:eve'`).Scan(&n)
+	db.QueryRow(`SELECT COUNT(*) FROM acl WHERE principal = 'github:eve'`).Scan(&n)
 	if n != 0 {
 		t.Errorf("eve must not be granted access, got %d rows", n)
 	}
@@ -1210,7 +1209,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 func TestAddRouteWrongTarget(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('bob', 'bobroom')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('bob', 'admin', 'bobroom', 'allow', '2026-01-01')`)
 
 	w := postOnboard(db, cfg, "bob", url.Values{
 		"action": {"add_route"},
@@ -1261,8 +1260,8 @@ func TestDashboardXSSEscape(t *testing.T) {
 	attacker := `<script>alert(1)</script>`
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES (?, ?, '', '', '2026-01-01')`, attacker, attacker)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES (?, 'room')`, attacker)
-	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed) VALUES (?, ?, '2026-01-01')`,
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES (?, 'admin', 'room', 'allow', '2026-01-01')`, attacker)
+	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES (?, ?, '2026-01-01')`,
 		attacker, attacker)
 
 	w := httptest.NewRecorder()
@@ -1319,7 +1318,7 @@ func TestHandleOnboardPostUnknownAction(t *testing.T) {
 
 func TestAddRouteMissingFields(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
 
 	w := postOnboard(db, config{}, "alice", url.Values{"action": {"add_route"}})
 	if w.Code != http.StatusBadRequest {
@@ -1335,7 +1334,7 @@ func TestAddRouteMissingFields(t *testing.T) {
 
 func TestDeleteRouteInvalidID(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
 
 	w := postOnboard(db, config{}, "alice", url.Values{
 		"action": {"delete_route"}, "route_id": {"not-a-number"},
@@ -1347,7 +1346,7 @@ func TestDeleteRouteInvalidID(t *testing.T) {
 
 func TestDeleteRouteNotFound(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'myroom')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
 	w := postOnboard(db, config{}, "alice", url.Values{
 		"action": {"delete_route"}, "route_id": {"99999"},
 	})
@@ -1360,7 +1359,7 @@ func TestDeleteRouteNotFound(t *testing.T) {
 // auth.MatchGroups integration in folderAllowed.
 func TestOperatorCanManageAnyRoute(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('op', '**')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('op', 'admin', '**', 'allow', '2026-01-01')`)
 	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=X', 'any-world')`)
 
 	var id int64
@@ -1643,7 +1642,7 @@ func TestTokenLandingAuthenticatedRedirectsToDashboard(t *testing.T) {
 	}
 	// linkJID ran synchronously (no gates, no user rows yet — status goes approved).
 	var sub string
-	db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid='telegram:7'`).Scan(&sub)
+	db.QueryRow(`SELECT parent FROM acl_membership WHERE child='telegram:7'`).Scan(&sub)
 	if sub != "github:alice" {
 		t.Errorf("jid not linked on authenticated landing, got %q", sub)
 	}
@@ -1683,7 +1682,7 @@ func TestInviteEmptyToken(t *testing.T) {
 // handleAddRoute: match/target longer than 256 chars is rejected before touching DB.
 func TestAddRouteTooLong(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('op', '**')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('op', 'admin', '**', 'allow', '2026-01-01')`)
 	long := strings.Repeat("a", 257)
 	w := postOnboard(db, config{}, "op", url.Values{
 		"action": {"add_route"}, "match": {"room=1"}, "target": {long},
@@ -1702,7 +1701,7 @@ func TestAddRouteTooLong(t *testing.T) {
 // handleAddRoute: invalid pattern characters (spaces, wildcards) are rejected.
 func TestAddRouteInvalidMatchChars2(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('op', '**')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('op', 'admin', '**', 'allow', '2026-01-01')`)
 	// Note: "room=a\n" (trailing newline) is accepted by the current regex —
 	// Go's default `$` matches before a final \n. Logged in bugs.md.
 	for _, bad := range []string{"room=a b", "room=*", "room=a%", "room=a\nb"} {
@@ -1718,7 +1717,7 @@ func TestAddRouteInvalidMatchChars2(t *testing.T) {
 // handleAddRoute: non-operator must own the room referenced in match.
 func TestAddRouteNonOperatorForbiddenOnUnownedMatch(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'alice')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'alice', 'allow', '2026-01-01')`)
 	// alice has no user_jids → cannot claim any room=<id>.
 	w := postOnboard(db, config{}, "alice", url.Values{
 		"action": {"add_route"}, "match": {"room=9999"}, "target": {"alice"},
@@ -1732,7 +1731,7 @@ func TestAddRouteNonOperatorForbiddenOnUnownedMatch(t *testing.T) {
 // return false.
 func TestUserOwnsMatchRejectsNonRoomPrefix(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_jids (user_sub, jid, claimed) VALUES ('alice','telegram:42','2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('alice','telegram:42','2026-01-01')`)
 	if userOwnsMatch(db, "alice", "peer=42") {
 		t.Error("non-room prefix must not match")
 	}
@@ -1885,8 +1884,8 @@ func TestIsOperator(t *testing.T) {
 // userFolders filters out empty-string rows (defensive — migration scars).
 func TestUserFoldersSkipsEmpty(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', 'real')`)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('alice', '')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'real', 'allow', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', '', 'allow', '2026-01-01')`)
 	got := userFolders(db, "alice")
 	for _, f := range got {
 		if f == "" {
@@ -1920,7 +1919,7 @@ func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 		VALUES ('telegram:1', 'awaiting_message', 'tok-bind', '2099-01-01T00:00:00Z', '2026-01-01')`)
 	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
-	db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('github:alice', 'alice')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
 
 	cfg := config{authBaseURL: "https://example.com"}
 

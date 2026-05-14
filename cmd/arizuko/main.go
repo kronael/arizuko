@@ -348,15 +348,22 @@ func runGrant(s *store.Store, sub, pat string, w io.Writer) error {
 	if sub == "" || pat == "" {
 		return errEmptyGrant
 	}
-	created, err := s.Grant(sub, pat)
-	if err != nil {
+	action := "admin"
+	if pat == "**" {
+		// Operator grant: add to role:operator instead of a per-folder row.
+		if err := s.AddMembership(sub, "role:operator", "arizuko grant"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "granted %s -> role:operator\n", sub)
+		return nil
+	}
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: sub, Action: action, Scope: pat,
+		Effect: "allow", GrantedBy: "arizuko grant",
+	}); err != nil {
 		return err
 	}
-	if created {
-		fmt.Fprintf(w, "granted %s -> %s\n", sub, pat)
-	} else {
-		fmt.Fprintf(w, "already granted: %s -> %s\n", sub, pat)
-	}
+	fmt.Fprintf(w, "granted %s admin -> %s\n", sub, pat)
 	return nil
 }
 
@@ -364,35 +371,43 @@ func runUngrant(s *store.Store, sub, pat string, w io.Writer) error {
 	if sub == "" || pat == "" {
 		return errEmptyGrant
 	}
-	n, err := s.Ungrant(sub, pat)
-	if err != nil {
+	if pat == "**" {
+		if err := s.RemoveMembership(sub, "role:operator"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "ungranted %s -> role:operator\n", sub)
+		return nil
+	}
+	if err := s.RemoveACLRow(core.ACLRow{
+		Principal: sub, Action: "admin", Scope: pat, Effect: "allow",
+	}); err != nil {
 		return err
 	}
-	if n == 0 {
-		fmt.Fprintf(w, "no grant to remove: %s -> %s\n", sub, pat)
-	} else {
-		fmt.Fprintf(w, "ungranted %s -> %s (%d row)\n", sub, pat, n)
-	}
+	fmt.Fprintf(w, "ungranted %s admin -> %s\n", sub, pat)
 	return nil
 }
 
 func runGrants(s *store.Store, sub string, w io.Writer) error {
-	grants, err := s.Grants(sub)
-	if err != nil {
-		return err
-	}
-	if len(grants) == 0 {
+	rows := s.ListACL(sub)
+	if len(rows) == 0 && len(s.Ancestors(sub)) == 0 {
 		fmt.Fprintln(w, "no grants")
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SUB\tPATTERN\tGRANTED_AT")
-	for _, g := range grants {
-		ts := g.GrantedAt
+	fmt.Fprintln(tw, "PRINCIPAL\tACTION\tSCOPE\tEFFECT\tGRANTED_AT")
+	for _, r := range rows {
+		ts := r.GrantedAt
 		if ts == "" {
 			ts = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", g.Sub, g.Pattern, ts)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Principal, r.Action, r.Scope, r.Effect, ts)
+	}
+	// Also show role memberships transitively reachable from sub.
+	if anc := s.Ancestors(sub); len(anc) > 0 {
+		fmt.Fprintf(tw, "\nMEMBER OF\n")
+		for _, p := range anc {
+			fmt.Fprintf(tw, "  %s\n", p)
+		}
 	}
 	return tw.Flush()
 }

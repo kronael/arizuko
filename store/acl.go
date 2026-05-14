@@ -89,6 +89,67 @@ func (s *Store) ACLRowsFor(principals []string) []core.ACLRow {
 	return out
 }
 
+// UserScopes returns the distinct allow-scopes the sub has access to,
+// after expanding membership transitively. Used for building JWT group
+// claims and webdav landing. Equivalent of the legacy UserGroups()
+// pattern list, sourced from the unified acl/acl_membership tables.
+func (s *Store) UserScopes(sub string) []string {
+	if sub == "" {
+		return nil
+	}
+	principals := append([]string{sub}, s.Ancestors(sub)...)
+	if len(principals) == 0 {
+		return nil
+	}
+	placeholders := strings.Repeat("?,", len(principals))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(principals))
+	for _, p := range principals {
+		args = append(args, p)
+	}
+	rows, err := s.db.Query(
+		`SELECT DISTINCT scope FROM acl
+		 WHERE effect='allow' AND principal IN (`+placeholders+`)
+		 ORDER BY scope`, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var sc string
+		if err := rows.Scan(&sc); err == nil && sc != "" {
+			out = append(out, sc)
+		}
+	}
+	return out
+}
+
+// ListACL returns every acl row, optionally filtered by principal.
+// Empty principal returns all rows.
+func (s *Store) ListACL(principal string) []core.ACLRow {
+	q := `SELECT ` + aclCols + ` FROM acl`
+	args := []any{}
+	if principal != "" {
+		q += ` WHERE principal = ?`
+		args = append(args, principal)
+	}
+	q += ` ORDER BY principal, action, scope`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []core.ACLRow
+	for rows.Next() {
+		r, err := scanACLRow(rows)
+		if err == nil {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // ACLWildcardRows returns rows whose stored principal contains a glob
 // segment (`*`). Evaluated by Authorize as a second pass against the
 // expanded principal set.

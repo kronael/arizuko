@@ -25,12 +25,12 @@ func TestGrantThenList(t *testing.T) {
 	if err := runGrant(s, "github:1", "alice", &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
 	}
-	if !strings.Contains(out.String(), "granted github:1 -> alice") {
+	if !strings.Contains(out.String(), "alice") {
 		t.Errorf("grant output = %q", out.String())
 	}
 
 	out.Reset()
-	if err := runGrants(s, "", &out); err != nil {
+	if err := runGrants(s, "github:1", &out); err != nil {
 		t.Fatalf("runGrants: %v", err)
 	}
 	if !strings.Contains(out.String(), "github:1") || !strings.Contains(out.String(), "alice") {
@@ -38,28 +38,27 @@ func TestGrantThenList(t *testing.T) {
 	}
 }
 
-func TestGrantIdempotent(t *testing.T) {
+func TestGrantOperatorMembership(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
 
 	if err := runGrant(s, "github:1", "**", &out); err != nil {
-		t.Fatalf("first grant: %v", err)
+		t.Fatalf("operator grant: %v", err)
 	}
-	out.Reset()
-	if err := runGrant(s, "github:1", "**", &out); err != nil {
-		t.Fatalf("second grant should not error: %v", err)
-	}
-	if !strings.Contains(out.String(), "already granted") {
-		t.Errorf("expected 'already granted', got %q", out.String())
+	if !strings.Contains(out.String(), "role:operator") {
+		t.Errorf("expected role:operator output, got %q", out.String())
 	}
 
-	// Still exactly one row.
-	gs, err := s.Grants("github:1")
-	if err != nil {
-		t.Fatalf("Grants: %v", err)
+	ancs := s.Ancestors("github:1")
+	found := false
+	for _, a := range ancs {
+		if a == "role:operator" {
+			found = true
+			break
+		}
 	}
-	if len(gs) != 1 {
-		t.Fatalf("expected 1 row, got %d", len(gs))
+	if !found {
+		t.Fatalf("expected role:operator in ancestors, got %v", ancs)
 	}
 }
 
@@ -77,9 +76,8 @@ func TestUngrantRemoves(t *testing.T) {
 		t.Errorf("ungrant output = %q", out.String())
 	}
 
-	gs, _ := s.Grants("github:1")
-	if len(gs) != 0 {
-		t.Fatalf("expected 0 rows after ungrant, got %d", len(gs))
+	if rows := s.ListACL("github:1"); len(rows) != 0 {
+		t.Fatalf("expected 0 rows after ungrant, got %d", len(rows))
 	}
 }
 
@@ -87,11 +85,9 @@ func TestUngrantNonexistent(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
 
+	// Should not error even when no row exists; SQL DELETE is a no-op.
 	if err := runUngrant(s, "ghost", "nowhere", &out); err != nil {
 		t.Fatalf("runUngrant should not error: %v", err)
-	}
-	if !strings.Contains(out.String(), "no grant to remove") {
-		t.Errorf("expected 'no grant to remove', got %q", out.String())
 	}
 }
 
@@ -119,7 +115,7 @@ func TestGrantsFilterBySub(t *testing.T) {
 func TestGrantsEmpty(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
-	if err := runGrants(s, "", &out); err != nil {
+	if err := runGrants(s, "nobody", &out); err != nil {
 		t.Fatalf("runGrants: %v", err)
 	}
 	if !strings.Contains(out.String(), "no grants") {

@@ -4,6 +4,7 @@ FROM golang:1.25-alpine AS build
 RUN apk add --no-cache gcc musl-dev sqlite-dev
 WORKDIR /src
 COPY go.mod go.sum ./
+COPY third_party ./third_party
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 go build -o /arizuko ./cmd/arizuko/

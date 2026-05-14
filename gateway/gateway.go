@@ -207,8 +207,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		DeleteRoute:         g.store.DeleteRoute,
 		GetRoute:            g.store.GetRoute,
 		DefaultFolderForJID: g.store.DefaultFolderForJID,
-		GetGrants:           g.store.GetGrants,
-		SetGrants:           g.store.SetGrants,
+		ListACL:             g.store.ListACL,
 		PutMessage:          g.store.PutMessage,
 		GetLastReplyID:      g.store.GetLastReplyID,
 		SetLastReplyID:      g.store.SetLastReplyID,
@@ -985,7 +984,24 @@ func (g *Gateway) runAgentWithOpts(
 
 	id := auth.Resolve(group.Folder)
 	rules := grants.DeriveRules(g.store, group.Folder, id.Tier, auth.WorldOf(group.Folder))
-	rules = append(rules, g.store.GetGrants(group.Folder)...)
+	// Operator overrides for this folder's agent live as acl rows with
+	// principal=folder:<folder> and action=mcp:<tool>. Append them onto
+	// the tier-derived rules so the in-container CheckAction sees both
+	// layers; deny precedence is preserved by Authorize's deny-wins.
+	for _, r := range g.store.ListACL("folder:" + group.Folder) {
+		if !strings.HasPrefix(r.Action, "mcp:") {
+			continue
+		}
+		tool := strings.TrimPrefix(r.Action, "mcp:")
+		rule := tool
+		if r.Params != "" {
+			rule = tool + "(" + r.Params + ")"
+		}
+		if r.Effect == "deny" {
+			rule = "!" + rule
+		}
+		rules = append(rules, rule)
+	}
 
 	groupPath, err := g.folders.GroupPath(group.Folder)
 	if err != nil {

@@ -657,58 +657,50 @@ func TestChatIsGroup_PreservesOtherCols(t *testing.T) {
 	}
 }
 
-func TestUserGroupsNoRows(t *testing.T) {
+func TestUserScopesNoRows(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	got := s.UserGroups("nobody")
+	got := s.UserScopes("nobody")
 	if len(got) != 0 {
 		t.Fatalf("expected empty slice, got %v", got)
 	}
 }
 
-func TestUserGroupsOperator(t *testing.T) {
+func TestUserScopesOperatorViaMembership(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
 	s.CreateAuthUser("op", "op", "", "Operator")
-	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('op', '**')`)
-
-	got := s.UserGroups("op")
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "role:operator", Action: "*", Scope: "**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddMembership("op", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
+	got := s.UserScopes("op")
 	if len(got) != 1 || got[0] != "**" {
 		t.Fatalf("expected [**], got %v", got)
 	}
 }
 
-func TestUserGroupsSpecificFolders(t *testing.T) {
+func TestUserScopesSpecificFolders(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
 	s.CreateAuthUser("u1", "u1", "", "User One")
-	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u1', 'alpha')`)
-	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('u1', 'beta')`)
-
-	got := s.UserGroups("u1")
-	if len(got) != 2 {
-		t.Fatalf("expected 2 folders, got %d", len(got))
+	for _, scope := range []string{"alpha", "beta"} {
+		if err := s.AddACLRow(core.ACLRow{
+			Principal: "u1", Action: "admin", Scope: scope, Effect: "allow",
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if got[0] != "alpha" || got[1] != "beta" {
+	got := s.UserScopes("u1")
+	if len(got) != 2 || got[0] != "alpha" || got[1] != "beta" {
 		t.Fatalf("expected [alpha beta], got %v", got)
-	}
-}
-
-func TestUserGroupsMixed(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	s.CreateAuthUser("mix", "mix", "", "Mixed")
-	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('mix', 'alpha')`)
-	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('mix', '**')`)
-	s.db.Exec(`INSERT INTO user_groups (user_sub, folder) VALUES ('mix', 'beta')`)
-
-	got := s.UserGroups("mix")
-	if len(got) != 3 {
-		t.Fatalf("expected 3 rows (alpha, **, beta), got %v", got)
 	}
 }
 

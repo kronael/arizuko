@@ -116,8 +116,7 @@ func TestAllToolsRegistered(t *testing.T) {
 		DeleteRoute:         func(id int64) error { return nil },
 		GetRoute:            func(id int64) (core.Route, bool) { return core.Route{}, false },
 		DefaultFolderForJID: func(j string) string { return "" },
-		GetGrants:           func(f string) []string { return nil },
-		SetGrants:           func(f string, r []string) error { return nil },
+		ListACL:             func(p string) []core.ACLRow { return nil },
 	}
 
 	// tier-0 with all rules — all tools should be present

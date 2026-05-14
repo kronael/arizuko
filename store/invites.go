@@ -121,7 +121,7 @@ func (s *Store) RevokeInvite(token string) error {
 }
 
 // ConsumeInvite atomically increments used_count (guarding max_uses and expiry)
-// and inserts a user_groups row in one transaction. Concurrent callers race on
+// and inserts an acl admin row in one transaction. Concurrent callers race on
 // the UPDATE — only the first max_uses succeed.
 func (s *Store) ConsumeInvite(token, userSub string) (*Invite, error) {
 	if userSub == "" {
@@ -150,11 +150,12 @@ func (s *Store) ConsumeInvite(token, userSub string) (*Invite, error) {
 		return nil, err
 	}
 	// Subgroup-create invites (trailing slash) do not grant folder access yet —
-	// the user_groups row is added after username selection in handleCreateWorld.
+	// the acl row is added after username selection in handleCreateWorld.
 	if !strings.HasSuffix(inv.TargetGlob, "/") {
 		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO user_groups (user_sub, folder, granted_at)
-			 VALUES (?, ?, datetime('now'))`,
+			`INSERT OR IGNORE INTO acl
+			 (principal, action, scope, effect, params, predicate, granted_at, granted_by)
+			 VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'invite')`,
 			userSub, inv.TargetGlob); err != nil {
 			return nil, err
 		}

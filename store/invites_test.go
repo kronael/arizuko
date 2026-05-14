@@ -102,12 +102,12 @@ func TestConsumeInviteHappyPath(t *testing.T) {
 		t.Errorf("used_count = %d, want 1", got.UsedCount)
 	}
 
-	// user_groups row inserted
+	// acl admin row inserted (replaces legacy user_groups row).
 	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM user_groups WHERE user_sub=? AND folder=?`,
+	s.db.QueryRow(`SELECT COUNT(*) FROM acl WHERE principal=? AND action='admin' AND scope=?`,
 		"github:bob", "alice").Scan(&n)
 	if n != 1 {
-		t.Errorf("user_groups rows for bob/alice = %d, want 1", n)
+		t.Errorf("acl rows for bob/alice = %d, want 1", n)
 	}
 }
 

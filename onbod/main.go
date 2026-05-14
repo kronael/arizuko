@@ -343,8 +343,8 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 			var folder string
 			if err := db.QueryRow(
 				`SELECT g.folder FROM groups g
-				 JOIN user_groups ug ON ug.folder = g.folder
-				 WHERE ug.user_sub = ? LIMIT 1`, userSub).Scan(&folder); err == nil {
+				 JOIN acl a ON a.scope = g.folder
+				 WHERE a.principal = ? AND a.effect='allow' LIMIT 1`, userSub).Scan(&folder); err == nil {
 				db.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
 					"room="+core.JidRoom(c.Value), folder)
 			}
@@ -365,8 +365,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 		return
 	}
 
-	var groupCount int
-	db.QueryRow(`SELECT COUNT(*) FROM user_groups WHERE user_sub = ?`, userSub).Scan(&groupCount)
+	groupCount := len(userFolders(db, userSub))
 
 	if groupCount == 0 {
 		if c, err := r.Cookie("pending_target"); err == nil && c.Value != "" {
@@ -502,11 +501,15 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	db.QueryRow(`SELECT slink_token FROM groups WHERE folder = ?`, folder).Scan(&slinkToken)
 	_ = username // captured into auth_users above; group identity is the folder path
 
-	db.Exec(`INSERT OR IGNORE INTO user_groups (user_sub, folder) VALUES (?, ?)`,
+	// Grant admin on the new world folder (post-0053 schema).
+	db.Exec(`INSERT OR IGNORE INTO acl
+		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
+		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'onbod')`,
 		userSub, folder)
 
 	var jids []string
-	if rows, err := db.Query(`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub); err == nil {
+	if rows, err := db.Query(
+		`SELECT child FROM acl_membership WHERE parent = ?`, userSub); err == nil {
 		for rows.Next() {
 			var jid string
 			rows.Scan(&jid)
@@ -555,13 +558,17 @@ func gateFromKey(key string, limit int) gate {
 
 func linkJID(db *sql.DB, jid, userSub string) {
 	var existingSub string
-	if err := db.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = ?`, jid).Scan(&existingSub); err == nil && existingSub != userSub {
+	if err := db.QueryRow(
+		`SELECT parent FROM acl_membership WHERE child = ?`, jid,
+	).Scan(&existingSub); err == nil && existingSub != userSub {
 		slog.Warn("jid already claimed", "jid", jid, "existing", existingSub, "attempted", userSub)
 		return
 	}
 	now := time.Now().Format(time.RFC3339)
-	db.Exec(`INSERT OR IGNORE INTO user_jids (user_sub, jid, claimed) VALUES (?, ?, ?)`,
-		userSub, jid, now)
+	db.Exec(
+		`INSERT OR IGNORE INTO acl_membership (child, parent, added_at, added_by)
+		 VALUES (?, ?, ?, 'linkJID')`,
+		jid, userSub, now)
 
 	gates := loadGates(db)
 	if len(gates) > 0 {
@@ -732,7 +739,9 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		return
 	}
 
-	if rows, err := db.Query(`SELECT jid FROM user_jids WHERE user_sub = ?`, userSub); err == nil {
+	if rows, err := db.Query(
+		`SELECT child FROM acl_membership WHERE parent = ?`, userSub,
+	); err == nil {
 		var jids []string
 		for rows.Next() {
 			var jid string
@@ -779,7 +788,7 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 
 	var jidsHTML string
 	if rows, err := db.Query(
-		`SELECT jid, claimed FROM user_jids WHERE user_sub = ? ORDER BY claimed`, userSub,
+		`SELECT child, added_at FROM acl_membership WHERE parent = ? ORDER BY added_at`, userSub,
 	); err == nil {
 		for rows.Next() {
 			var jid, claimed string
@@ -799,25 +808,18 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 	}
 
 	var groupsHTML string
-	if rows, err := db.Query(
-		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, userSub,
-	); err == nil {
-		for rows.Next() {
-			var folder string
-			rows.Scan(&folder)
-			groupsHTML += fmt.Sprintf(
-				`<tr><td><span class="dot dot-ok"></span> %s</td></tr>`, esc(folder))
-		}
-		rows.Close()
+	for _, folder := range userFolders(db, userSub) {
+		groupsHTML += fmt.Sprintf(
+			`<tr><td><span class="dot dot-ok"></span> %s</td></tr>`, esc(folder))
 	}
 
 	var routesHTML string
 	if rows, err := db.Query(`
-		SELECT uj.jid, r.target FROM user_jids uj
-		JOIN routes r ON r.match = 'room=' || SUBSTR(uj.jid, INSTR(uj.jid, ':')+1)
-		   OR r.match LIKE 'room=' || SUBSTR(uj.jid, INSTR(uj.jid, ':')+1) || ' %'
-		WHERE uj.user_sub = ?
-		ORDER BY uj.jid, r.target`, userSub); err == nil {
+		SELECT am.child, r.target FROM acl_membership am
+		JOIN routes r ON r.match = 'room=' || SUBSTR(am.child, INSTR(am.child, ':')+1)
+		   OR r.match LIKE 'room=' || SUBSTR(am.child, INSTR(am.child, ':')+1) || ' %'
+		WHERE am.parent = ?
+		ORDER BY am.child, r.target`, userSub); err == nil {
 		for rows.Next() {
 			var jid, target string
 			rows.Scan(&jid, &target)
@@ -887,9 +889,45 @@ func sendReply(cfg config, jid, text string) {
 	}
 }
 
+// userFolders returns the distinct allow-scopes the sub has access to via the
+// unified acl tables (post-0053 cutover). Operator (`role:operator` membership)
+// returns the `**` scope through the role's row.
 func userFolders(db *sql.DB, sub string) []string {
+	if sub == "" {
+		return nil
+	}
+	principals := []string{sub}
+	// Walk acl_membership transitively from sub upward.
+	queue := []string{sub}
+	seen := map[string]bool{sub: true}
+	for len(queue) > 0 {
+		next := queue[0]
+		queue = queue[1:]
+		rows, err := db.Query(`SELECT parent FROM acl_membership WHERE child = ?`, next)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var p string
+			rows.Scan(&p)
+			if p != "" && !seen[p] {
+				seen[p] = true
+				principals = append(principals, p)
+				queue = append(queue, p)
+			}
+		}
+		rows.Close()
+	}
+	placeholders := strings.Repeat("?,", len(principals))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(principals))
+	for _, p := range principals {
+		args = append(args, p)
+	}
 	rows, err := db.Query(
-		`SELECT folder FROM user_groups WHERE user_sub = ? ORDER BY folder`, sub)
+		`SELECT DISTINCT scope FROM acl
+		 WHERE effect='allow' AND principal IN (`+placeholders+`)
+		 ORDER BY scope`, args...)
 	if err != nil {
 		return nil
 	}
@@ -982,7 +1020,7 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 // userOwnsMatch step but still go through this validator.
 var matchRe = regexp.MustCompile(`\A[A-Za-z0-9_.:=@/-]+\z`)
 
-// userOwnsMatch reports whether match references a room the user has a user_jids row for.
+// userOwnsMatch reports whether match references a room the user has claimed via acl_membership.
 // Only "room=<id>" is supported; more expressive patterns require operator grants.
 func userOwnsMatch(db *sql.DB, sub, match string) bool {
 	const prefix = "room="
@@ -994,7 +1032,7 @@ func userOwnsMatch(db *sql.DB, sub, match string) bool {
 		return false
 	}
 	rows, err := db.Query(
-		`SELECT jid FROM user_jids WHERE user_sub = ?`, sub)
+		`SELECT child FROM acl_membership WHERE parent = ?`, sub)
 	if err != nil {
 		return false
 	}

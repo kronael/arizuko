@@ -205,7 +205,7 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Errorf("groups row missing, got %q", folder)
 	}
 	var ug string
-	inst.DB.QueryRow(`SELECT folder FROM user_groups WHERE user_sub = ?`, sub).Scan(&ug)
+	inst.DB.QueryRow(`SELECT scope FROM acl WHERE principal = ?`, sub).Scan(&ug)
 	if ug != "alice" {
 		t.Errorf("user_groups row missing, got %q", ug)
 	}
@@ -267,7 +267,7 @@ func TestOAuthCallback(t *testing.T) {
 		t.Errorf("onboarding.user_sub = %q, want %q", gotSub, sub)
 	}
 	var ujSub string
-	inst.DB.QueryRow(`SELECT user_sub FROM user_jids WHERE jid = ?`, jid).Scan(&ujSub)
+	inst.DB.QueryRow(`SELECT parent FROM acl_membership WHERE child = ?`, jid).Scan(&ujSub)
 	if ujSub != sub {
 		t.Errorf("user_jids.user_sub = %q, want %q", ujSub, sub)
 	}

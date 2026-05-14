@@ -14,6 +14,50 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.38.0] — 2026-05-14
+
+> arizuko v0.38.0 — unified ACL
+>
+> • One `acl` table replaces `user_groups`, `user_jids`, `grant_rules`, dead `grants`. Plus `acl_membership` for roles + JID claims.
+> • One `auth.Authorize(principal, action, scope, claims, params)` replaces `MatchGroups` + `CheckAction`.
+> • Discord user-mode wires fixed: vendored discordgo fork, OP-2 user IDENTIFY, OP-14 subscribe — non-mention messages now deliver.
+> • CLI: `arizuko grant <sub> **` adds operator role membership; per-folder grants land in `acl`.
+> • MCP: `get_grants`/`set_grants` removed; new `list_acl(folder)` tool.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- **Unified ACL.** Migration 0052 introduces `acl` + `acl_membership`.
+  Migration 0053 converts `user_groups` → `acl(sub, admin, folder)` and
+  `user_groups(sub, '**')` → `acl_membership(sub, role:operator)`, then
+  drops `user_groups`, `user_jids`, `grant_rules`, and the dead `grants`
+  table. Spec: `specs/6/9-acl-unified.md`.
+- **`auth.Authorize(s, Caller, action, scope, claims, params)`** is
+  the single authorization entry point. Walks membership transitively,
+  matches against `acl` rows with action implication + deny-wins,
+  falls back to `grants.DeriveRules` for `mcp:*` actions with no row.
+- **`auth.AuthorizeStructural`** (renamed from legacy `auth.Authorize`)
+  retains hierarchy/tier invariants for `register_group`,
+  `delegate_group`, route management, task ownership.
+- **Discord user-mode delivery.** Vendored discordgo fork at
+  `third_party/discordgo/` exposes `RawIdentifyData` so discd can
+  send the canonical user-account IDENTIFY (no `intents`, browser
+  shape, `capabilities=22525`, `client_state.guild_versions`). OP-14
+  guild-subscribe is dedup'd per-guild on Ready.
+- **CLI**: `arizuko grant <sub> **` writes
+  `acl_membership(sub, role:operator)`. `arizuko grant <sub> <folder>`
+  writes `acl(sub, admin, folder, allow)`. `arizuko grants <sub>`
+  prints both direct ACL rows and ancestor memberships.
+
+### Removed
+
+- `auth.MatchGroups` direct DB use — pure matcher remains.
+- `store.UserGroups`, `store.Grant`, `store.Ungrant`, `store.Grants`.
+- `store.GetGrants`, `store.SetGrants`.
+- MCP tools `get_grants`, `set_grants` → replaced by `list_acl(folder)`.
+- Specs `5/28-mass-onboarding.md`, `5/29-acl.md` (superseded by 5/A and 6/9).
+
 ## [v0.37.0] — 2026-05-14
 
 > arizuko v0.37.0 — groups: path is identity

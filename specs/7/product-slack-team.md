@@ -62,8 +62,10 @@ skills  = ["diary", "facts", "recall-memories", "users", "issues", "web", "hello
 # 3. arizuko run <instance>
 # 4. Invite the bot to a Slack channel
 # 5. arizuko group <instance> add slack:<workspace>/channel/<chanid> <name>
-# 6. Each teammate signs in via OAuth at /auth/login to link their Slack
-#    user id → canonical sub (see auth skill)
+# 6. (Optional) teammates sign in via OAuth at /auth/login ONLY if they
+#    need per-user features (web UI, per-user secrets). Baseline channel
+#    access is authorized by the Slack workspace membership via the
+#    channel route — see specs/5/A-auth-consolidated.md.
 # 7. (Optional) operator pre-seeds per-folder API tokens via
 #    `sqlite3 store/messages.db` (runbook below)
 
@@ -157,8 +159,9 @@ sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
    datetime('now'));"
 # (NOTE: `arizuko secret set` is spec'd in 9/11 but not shipped today.)
 
-# 7. Teammates sign in via OAuth so per-user grants/memory link to canonical sub
-#    Open https://<WEB_HOST>/auth/login on each teammate's first visit.
+# 7. (Optional) Teammates only need OAuth at /auth/login for per-user
+#    features (per-user secrets, web UI). Baseline channel access uses
+#    the channel route as the auth fence — see specs/5/A-auth-consolidated.md.
 ```
 
 ## Honest gaps — what doesn't work without code

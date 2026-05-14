@@ -3,69 +3,121 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>grants</title>
+  <title>authorization</title>
   <link rel="stylesheet" href="/pub/assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
     .prose li { margin: 0.3em 0; }
     .prose pre { margin: 0.6em 0; }
+    .prose table { border-collapse: collapse; margin: 0.8em 0; font-size: 0.95em; }
+    .prose th, .prose td { border: 1px solid var(--border); padding: 0.35em 0.7em; text-align: left; }
     .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
     .back { font-size: 0.85em; }
   </style>
 </head>
 <body>
   <div class="hub-container prose">
-    <h1>grants</h1>
-    <p class="dim back">what an agent can do &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/concepts/">concepts</a> &rsaquo; authorization</p>
+    <h1>authorization</h1>
 
-    <p class="lede">What an agent can do is computed at spawn time from three layers: tier defaults from path depth, per-folder rule overlay, and user&times;folder ACL &mdash; composed by the <code>auth</code> package. The agent never asks; the rules are pre-baked into its MCP tool list.</p>
+    <p class="lede">One question, one row: <em>may principal P perform action A on scope S?</em> Two tables &mdash; <code>acl</code> for permissions and <code>acl_membership</code> for identity indirection &mdash; cover humans, agents, channels, and roles. One <code>Authorize()</code> call answers every check.</p>
 
-    <h2>why</h2>
-    <p>A multitenant agent system needs scoped permissions, but the agent shouldn&rsquo;t have to enforce them or even know the full ACL. Asking a model &ldquo;is this allowed?&rdquo; on every call is slow and unreliable; shipping the whole permission table into the prompt is expensive and leaks structure. So we compute the agent&rsquo;s effective rule set at spawn and bake it into the MCP tool list. The agent literally cannot see tools it isn&rsquo;t allowed to call, and each call is re-checked at the IPC boundary. Authorization is the daemon&rsquo;s problem, not the model&rsquo;s.</p>
+    <h2>the mental model</h2>
+    <p>arizuko has principals, actions, and scopes. A <strong>principal</strong> is anyone or anything asking &mdash; an OAuth-bound human (<code>google:114alice</code>), an agent container (<code>folder:atlas/eng</code>), a channel room (<code>discord:837&hellip;/1504&hellip;</code>), or a named role (<code>role:operator</code>). An <strong>action</strong> is what they want to do &mdash; <code>interact</code>, <code>admin</code>, <code>mcp:&lt;tool&gt;</code>, or <code>*</code>. A <strong>scope</strong> is the folder path they want to act on, globbed segment-wise. Permissions live in one table (<code>acl</code>); identity-and-role indirection lives in another (<code>acl_membership</code>). That's the whole system.</p>
 
-    <h2>the three layers</h2>
+    <h2>principals</h2>
+    <table>
+      <tr><th>Kind</th><th>Example</th><th>Notes</th></tr>
+      <tr><td>OAuth sub</td><td><code>google:114019&hellip;</code></td><td>Canonical human, minted by <code>auth/oauth.go</code>.</td></tr>
+      <tr><td>Folder agent</td><td><code>folder:atlas/eng</code></td><td>The container spawned at this folder.</td></tr>
+      <tr><td>Platform identity</td><td><code>telegram:user/123456</code></td><td>Channel-side identity, not yet OAuth-claimed.</td></tr>
+      <tr><td>Room identity</td><td><code>discord:837&hellip;/1504&hellip;</code></td><td>The channel / room JID itself &mdash; carries route grants.</td></tr>
+      <tr><td>Role</td><td><code>role:operator</code></td><td>Indirection. Members via <code>acl_membership</code>.</td></tr>
+      <tr><td>Wildcards</td><td><code>**</code>, <code>google:*</code>, <code>folder:**</code></td><td>Globs anchor on <code>:</code> and <code>/</code>.</td></tr>
+    </table>
+
+    <h2>three common patterns</h2>
+
+    <h3>1. user-bot &mdash; alice has her own folder</h3>
+    <p>One human, one folder, one grant. No membership row needed.</p>
+    <pre><code>INSERT INTO routes (match, target) VALUES
+  ('platform=telegram room=user/alice', 'alice');
+
+INSERT INTO acl (principal, action, scope, granted_at) VALUES
+  ('google:114alice', 'interact', 'alice', now());</code></pre>
+    <p>Operator CLI:</p>
+    <pre><code>arizuko grants add google:114alice interact alice</code></pre>
+
+    <h3>2. channel-bot &mdash; shared discord room</h3>
+    <p>One route, one acl row keyed on the <em>room</em>, zero per-user rows. Everyone arriving via the route picks up <code>interact</code>.</p>
+    <pre><code>INSERT INTO routes (match, target) VALUES
+  ('platform=discord room=837.../1504...', 'main/lab');
+
+INSERT INTO acl (principal, action, scope, granted_at) VALUES
+  ('discord:837.../channel/1504...', 'interact', 'main/lab', now());</code></pre>
+    <pre><code>arizuko grants add discord:837.../channel/1504... interact main/lab</code></pre>
+
+    <h3>3. hybrid &mdash; channel + one elevated admin</h3>
+    <p>The channel-bot rows above, plus one <code>acl_membership</code> edge and one role grant. Adding more admins later is one more membership row.</p>
+    <pre><code>INSERT INTO acl_membership (child, parent, added_at) VALUES
+  ('discord:user/811...', 'role:lab-admin', now());
+
+INSERT INTO acl (principal, action, scope, granted_at) VALUES
+  ('role:lab-admin', 'admin', 'main/lab', now());</code></pre>
+    <pre><code>arizuko roles add lab-admin admin main/lab
+arizuko role-members add lab-admin discord:user/811...</code></pre>
+
+    <h2>identity claiming via OAuth</h2>
+    <p>A user posts in Discord as <code>discord:user/811&hellip;</code>. Later they log in via Google. The OAuth callback writes:</p>
+    <pre><code>INSERT INTO acl_membership (child, parent, added_at) VALUES
+  ('discord:user/811...', 'google:114alice', now());</code></pre>
+    <p>That edge <em>is</em> the claim. Next message from the Discord JID expands to include the canonical sub; any grants on <code>google:114alice</code> apply transitively. No row rewriting, no migration &mdash; the channel-side identity keeps working unchanged.</p>
+
+    <h2>roles &mdash; Postgres / IAM shaped</h2>
+    <p>One member edge, one or more permission rows on the role. Two operations: add the role to the person, edit the role's permissions.</p>
+    <pre><code>-- Define the role: editors may admin the docs subtree.
+INSERT INTO acl (principal, action, scope, granted_at) VALUES
+  ('role:editor', 'admin', 'docs/**', now());
+
+-- Bind alice to the role.
+INSERT INTO acl_membership (child, parent, added_at) VALUES
+  ('google:114alice', 'role:editor', now());</code></pre>
+    <p>Adding another editor &mdash; one row in <code>acl_membership</code>. Granting editors a new scope &mdash; one row in <code>acl</code>. Role-of-role works the same way: <code>acl_membership(role:senior-editor, role:editor)</code>.</p>
+
+    <h2>denies and overrides</h2>
+    <p>The <code>effect</code> column is <code>allow</code> (default) or <code>deny</code>. <strong>Deny wins</strong>: any matching deny row rejects the request, even if matching allow rows exist.</p>
+    <p>Ban one user from a channel they would otherwise enter via the route:</p>
+    <pre><code>INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES
+  ('discord:user/badguy', 'interact', 'main/lab', 'deny', now());</code></pre>
+    <p>Revoke a tier default for a single folder (subtractive override):</p>
+    <pre><code>INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES
+  ('folder:atlas/private', 'mcp:send_file', 'atlas/private', 'deny', now());</code></pre>
+    <p>For the common case of removing access, prefer deleting the membership or allow row over inserting a deny &mdash; see anti-patterns.</p>
+
+    <h2>the agent's perspective</h2>
+    <p>An agent at folder <code>atlas/eng</code> is the principal <code>folder:atlas/eng</code>. Its grants come from two sources: <strong>tier defaults</strong> derived in code from path depth (<code>min(slashes, 3)</code>) plus the routed-platform set, and <strong>operator overrides</strong> as <code>acl</code> rows with <code>action='mcp:&lt;tool&gt;'</code>. Tier defaults are not materialised; they live in <code>grants.DeriveRules</code> for performance and clarity.</p>
+    <p>When the agent invokes a tool, the in-container MCP server calls:</p>
+    <pre><code>Authorize(
+  principal: "folder:atlas/eng",
+  action:    "mcp:send",
+  scope:     "atlas/eng",
+  claims:    {tier: "2", world: "atlas"},
+  params:    {jid: "telegram:group/-1234"},
+)</code></pre>
+    <p>The check tries explicit rows first, then falls back to tier defaults for <code>mcp:*</code> actions. Denied calls return a structured error the agent surfaces &mdash; no pre-announced grant list, no &ldquo;agent asks before trying.&rdquo;</p>
+
+    <h2>anti-patterns</h2>
     <ul>
-      <li><strong><code>groups</code></strong> &mdash; folder hierarchy. The folder path <em>is</em> the identity; tier is derived from depth (<code>min(slashes, 3)</code>). <code>atlas</code> is tier 1 (a world), <code>atlas/support</code> is tier 2, <code>atlas/support/oncall</code> is tier 3.</li>
-      <li><strong><code>user_groups</code></strong> &mdash; <code>(user_sub, folder, granted_at)</code> rows; the <code>folder</code> column is a glob. A row <code>(github:alice, atlas/**)</code> lets alice act on <code>atlas</code> and any descendant. <code>**</code> = operator. No matching row = no access.</li>
-      <li><strong><code>grant_rules</code></strong> &mdash; per-folder rule overlay table. Strings appended to the tier defaults at spawn time. Managed via the <code>get_grants</code> / <code>set_grants</code> MCP tools (tier 0&ndash;1 only) or the operator dashboard.</li>
+      <li><strong>Don't insert deny rows to revoke access.</strong> Remove the membership edge or the allow row instead. Denies are for true exceptions (banning one user from an otherwise-open channel), not for &ldquo;forget I said that.&rdquo;</li>
+      <li><strong>Don't grant <code>admin</code> with a params predicate.</strong> Conditional admin (<code>admin(jid=&hellip;)</code>) is surprising and brittle &mdash; admin is by definition full write access at scope. Use <code>mcp:&lt;tool&gt;</code> with params for narrow capabilities.</li>
+      <li><strong>Don't encode routing in ACL.</strong> The <code>routes</code> table answers &ldquo;where does this message land&rdquo;; <code>acl</code> answers &ldquo;may this principal act here.&rdquo; They share the principal namespace for room JIDs but never merge. Outbound subtree containment (<code>IsAuthorizedRoutingTarget</code>) stays structural.</li>
+      <li><strong>Don't pre-list grants in the agent's manifest.</strong> Agents discover authorization at the failure site &mdash; the gateway returns a denied error; the agent surfaces it. Mid-conversation revoke takes effect on the next message.</li>
+      <li><strong>Don't bypass roles for the operator group.</strong> The first operator is bound via one <code>acl_membership(sub, role:operator)</code> edge at <code>arizuko create</code>. Adding operators later is another membership row &mdash; not a fresh wildcard <code>acl</code> row each time.</li>
     </ul>
-
-    <h2>tiers</h2>
-    <ul>
-      <li><strong>Tier 0</strong> &mdash; instance root. Unrestricted (<code>["*"]</code>). CLI-only surface.</li>
-      <li><strong>Tier 1</strong> &mdash; world (top-level folder). Basic send + per-platform send/post/like/&hellip; for every platform routed anywhere under the world + management tools (<code>register_group</code>, <code>escalate_group</code>, <code>delegate_group</code>, route management, task management) + read-write share mount.</li>
-      <li><strong>Tier 2</strong> &mdash; depth-2 group. Basic send + per-platform actions, but scoped only to platforms routed at this folder or its descendants. Read-only share mount.</li>
-      <li><strong>Tier 3+</strong> &mdash; deep groups. Reply-only: <code>reply</code>, <code>send_file</code>, <code>like</code>, <code>edit</code>.</li>
-    </ul>
-
-    <h2>show me</h2>
-    <p>Rule grammar: <code>[!]action[(param=glob,&hellip;)]</code>. Last match wins. No match = deny.</p>
-    <pre><code>send(jid=telegram:group/*)              # can send to any telegram group
-!post                                   # cannot create new top-level posts
-send_file(jid=*)                        # can attach files to any allowed target
-delete                                  # can delete own messages
-share_mount(readonly=false)             # workspace mount writable</code></pre>
-    <p>Spawn-time composition for folder <code>atlas/support</code> (tier 2) with one telegram route under <code>atlas/</code>:</p>
-    <pre><code>send, send_file, reply
-send(jid=telegram:*), post(jid=telegram:*), like(jid=telegram:*), &hellip;
-share_mount(readonly=true)
-&lt;anything in grant_rules for atlas/support&gt;</code></pre>
-
-    <h2>what you get</h2>
-    <ul>
-      <li><strong>Tier-derived defaults.</strong> No per-folder config needed for the common case &mdash; depth picks the rule set.</li>
-      <li><strong>Per-folder overlay.</strong> <code>grant_rules</code> table when you need to widen or narrow a specific folder; appended after the tier defaults so a later <code>!action</code> wins.</li>
-      <li><strong>User&times;folder ACL with globs.</strong> <code>**</code> for operators, <code>atlas/**</code> for world owners, <code>atlas/support</code> for direct grants. Match logic in <code>auth.MatchGroups</code>; segment-wise, <code>*</code> never crosses <code>/</code>.</li>
-      <li><strong>JID&ndash;folder containment on outbound.</strong> Even if the rule list allows <code>send(jid=telegram:*)</code>, <code>auth.Authorize</code> resolves the target chat&rsquo;s owning folder via <a href="/pub/concepts/routing.html">routes</a> and refuses anything outside the agent&rsquo;s subtree. A tier-1 world agent can&rsquo;t post into another world&rsquo;s chats.</li>
-      <li><strong>Rules baked into the MCP tool list.</strong> The in-container MCP server filters tool registration by these rules and re-checks each call &mdash; the agent literally can&rsquo;t see disallowed tools, and a synthesized call still gets refused at the boundary.</li>
-    </ul>
-
-    <h2>grants as the tool pre-filter</h2>
-    <p>Other agent systems narrow the advertised tool set with a <strong>tool pre-filter</strong> &mdash; a cheap-model classifier picks &le;K relevant tools per turn before the main model sees the list (e.g. AnythingLLM&rsquo;s &ldquo;Intelligent Skill Selection&rdquo;). arizuko reaches the same intent &mdash; don&rsquo;t waste model context on tools the caller can&rsquo;t use &mdash; via grants, evaluated at a different point: <strong>spawn-time</strong>, once per container run, against the <code>user_groups</code> ACL plus capability rules. The composed rule list is the filter; <code>grants.MatchingRules</code> drops unauthorised tools at MCP registration so the agent never sees them in <code>tools/list</code>, and <code>grants.CheckAction</code> re-checks each call. Static pre-filtering misses &ldquo;this turn doesn&rsquo;t need bluesky tools even though the folder has them&rdquo;; dynamic pre-filtering pays a classifier round-trip and risks hiding a tool the agent wanted. arizuko&rsquo;s bet: an agent&rsquo;s effective tool set is a property of the folder, not the sentence.</p>
 
     <h2>go deeper</h2>
-    <p>Canonical reference with the table-by-table breakdown, worked example, and code pointers: <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md">GRANTS.md</a>. The auth package itself: <a href="https://github.com/kronael/arizuko/tree/main/auth">auth/</a>. For how a sub gets resolved before grants are looked up, see <a href="/pub/concepts/auth.html">auth</a>; for how the JIDs that show up in rule params are shaped, see <a href="/pub/concepts/jid.html">jid</a>; for how outbound containment uses the route table, see <a href="/pub/concepts/routing.html">routing</a>.</p>
+    <p>Forward-looking spec with schema, evaluation algorithm, migration plan, and open questions: <a href="https://github.com/kronael/arizuko/blob/main/specs/6/9-acl-unified.md">specs/6/9-acl-unified.md</a>. Current shipped composition (four-layer): <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md">GRANTS.md</a>. Rule grammar reference: <a href="/pub/reference/grants.html">reference / grants</a>. For account linking, see <a href="/pub/concepts/auth.html">auth</a>; for the route table the channel-bot pattern uses, see <a href="/pub/concepts/routing.html">routing</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="/pub/assets/hub.js"></script>

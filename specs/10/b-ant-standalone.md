@@ -65,6 +65,14 @@ shaped (gateway-coupled). Public ant ships only the portable subset:
 
 ## Container runtime — Go binary, replaces TS
 
+> Runtime details (NDJSON wire shapes, MCP front with streaming
+> progress, session model, incubation in `claude-serve` then move
+> into `ant/`) live in sibling spec
+> [c-ant-mcp-runtime.md](c-ant-mcp-runtime.md). Note: the runtime
+> drives `claude` _without_ `-p` — `--input-format stream-json
+--output-format stream-json --verbose` is sufficient and is what
+> the Anthropic Agent SDK / VS Code chat panel use.
+
 Today's TS `ant/` runtime gets replaced by a Go binary that:
 
 - Drives `claude -p --output-format stream-json --input-format

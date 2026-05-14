@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -8,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,8 +25,6 @@ type bot struct {
 	typing        *chanlib.TypingRefresher
 	files         *chanlib.URLCache
 	lastInboundAt atomic.Int64
-	subscribedMu  sync.Mutex
-	subscribed    map[string]struct{}
 }
 
 func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
@@ -42,9 +40,21 @@ func newBot(cfg config) (*bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("discord session: %w", err)
 	}
-	if !cfg.UserMode {
+	if cfg.UserMode {
+		// User-account IDENTIFY. The default discordgo Identify struct
+		// encodes Intents=0 with no omitempty — the user gateway reads
+		// that as "intent filtering with no intents", which collapses
+		// MESSAGE_CREATE delivery to mentions + author-self only. Send
+		// a verbatim user-shaped payload via RawIdentifyData so Discord
+		// treats us as a real client and pushes every channel message.
+		// Shape sourced from discord.py-self (gateway.py identify()).
+		raw, err := buildUserIdentify(cfg.DiscordToken)
+		if err != nil {
+			return nil, fmt.Errorf("build user identify: %w", err)
+		}
+		s.RawIdentifyData = raw
+	} else {
 		// Bot intents: guild/DM messages + reactions + message content.
-		// User accounts see all content without declaring intents.
 		s.Identify.Intents = discordgo.IntentsGuildMessages |
 			discordgo.IntentsDirectMessages |
 			discordgo.IntentMessageContent |
@@ -61,9 +71,6 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 	b.rc = rc
 	b.session.AddHandler(b.onMessage)
 	b.session.AddHandler(b.onReactionAdd)
-	if b.cfg.UserMode {
-		b.session.AddHandler(b.onReady)
-	}
 	if err := b.session.Open(); err != nil {
 		return fmt.Errorf("discord open: %w", err)
 	}
@@ -71,53 +78,46 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 	return nil
 }
 
-// onReady fires after the user-mode session populates state.Guilds.
-// Discord's gateway only pushes MESSAGE_CREATE for channels the user
-// account is actively "subscribed" to via OP 14 (Lazy Request). The
-// official client sends this when a channel is focused; for a headless
-// account we have to do it explicitly or only mentions arrive.
-//
-// discordgo fires Ready on every WS resume, so the subscribe is
-// deduplicated per-guild for the session lifetime.
-func (b *bot) onReady(s *discordgo.Session, _ *discordgo.Ready) {
-	b.subscribedMu.Lock()
-	defer b.subscribedMu.Unlock()
-	if b.subscribed == nil {
-		b.subscribed = make(map[string]struct{})
+// buildUserIdentify produces the OP 2 `d` payload for user-account
+// gateway sessions. Shape mirrors discord.py-self's gateway.identify():
+// capabilities bitfield, browser-shaped properties (no $os/$browser),
+// client_state.guild_versions, presence. Critically NO `intents` key —
+// presence of `intents` flips the gateway to bot-filtering semantics
+// and collapses MESSAGE_CREATE to mentions only.
+func buildUserIdentify(token string) (json.RawMessage, error) {
+	payload := map[string]any{
+		"token": token,
+		// Capabilities bits: 0,2,3,4,5,6,7,8,9,10,12,14 (discord.py-self
+		// Capabilities.default; matches official client). = 22525.
+		"capabilities": 22525,
+		"properties": map[string]any{
+			"os":                        "Mac OS X",
+			"browser":                   "Chrome",
+			"device":                    "",
+			"system_locale":             "en-US",
+			"browser_user_agent":        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+			"browser_version":           "136.0.0.0",
+			"os_version":                "10.15.7",
+			"referrer":                  "",
+			"referring_domain":          "",
+			"referrer_current":          "",
+			"referring_domain_current":  "",
+			"release_channel":           "stable",
+			"client_build_number":       397755,
+			"client_event_source":       nil,
+		},
+		"presence": map[string]any{
+			"status":     "online",
+			"since":      0,
+			"activities": []any{},
+			"afk":        false,
+		},
+		"compress": false,
+		"client_state": map[string]any{
+			"guild_versions": map[string]any{},
+		},
 	}
-	for _, g := range s.State.Guilds {
-		if _, done := b.subscribed[g.ID]; done {
-			continue
-		}
-		channels := map[string][][2]int{}
-		for _, ch := range g.Channels {
-			if ch.Type == discordgo.ChannelTypeGuildText ||
-				ch.Type == discordgo.ChannelTypeGuildPublicThread ||
-				ch.Type == discordgo.ChannelTypeGuildPrivateThread {
-				channels[ch.ID] = [][2]int{{0, 99}}
-			}
-		}
-		if len(channels) == 0 {
-			continue
-		}
-		err := s.GatewayWriteStruct(map[string]any{
-			"op": 14,
-			"d": map[string]any{
-				"guild_id":   g.ID,
-				"typing":     true,
-				"threads":    true,
-				"activities": true,
-				"members":    []string{},
-				"channels":   channels,
-			},
-		})
-		if err != nil {
-			slog.Warn("guild subscribe failed", "guild", g.ID, "err", err)
-			continue
-		}
-		b.subscribed[g.ID] = struct{}{}
-		slog.Info("guild subscribed for message events", "guild", g.ID, "channels", len(channels))
-	}
+	return json.Marshal(payload)
 }
 
 func (b *bot) stop() {
