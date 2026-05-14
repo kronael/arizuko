@@ -70,7 +70,7 @@ curl -N https://&lt;host&gt;/slink/&lt;token&gt;/msg_abc/sse</code></pre>
       <p>Vanilla-JS client served from webd's embedded asset FS, CORS-open. <code>Arizuko.connect(token)</code> returns a handle with <code>send</code>, <code>status</code>, <code>snapshot</code>, <code>stream</code>. Used by branded chat pages on third-party origins.</p>
 
       <h3>MCP transport &mdash; <code>POST /slink/&lt;token&gt;/mcp</code></h3>
-      <p>Streamable-HTTP MCP endpoint scoped to the token's group. Two tools: <code>send_message</code>, <code>get_round</code>. External agents register the URL in their MCP config and talk to the group like any other tool host.</p>
+      <p>Streamable-HTTP MCP endpoint scoped to the token's group. Three tools mirroring the REST surface 1:1: <code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>. External agents register the URL in their MCP config and talk to the group like any other tool host.</p>
     </div>
 
     <h2>Where it's going</h2>

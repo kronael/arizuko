@@ -74,48 +74,80 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 	})
 
 	srv.AddTool(mcp.NewTool("get_round",
-		mcp.WithDescription("Read assistant frames for a round. turn_id is the round handle from send_message. Without wait, returns frames stored now. With wait=true, blocks until at least one new assistant frame arrives or the server-side deadline (~5 min). Returns {frames, done} — done=true when an assistant reply was observed."),
+		mcp.WithDescription("Read assistant frames for a round (mirrors GET /slink/<token>/<turn_id>). turn_id is the round handle from send_message. Optional after=<msg_id> cursor-pages forward. With wait=true, blocks until at least one new assistant frame arrives or the ~5 min deadline. Returns {turn_id, status, frames, last_frame_id, done}."),
 		mcp.WithString("turn_id", mcp.Required(), mcp.Description("Round handle from send_message (originating message id).")),
+		mcp.WithString("after", mcp.Description("Cursor: return only frames after this message id.")),
 		mcp.WithBoolean("wait"),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		turnID := strings.TrimSpace(req.GetString("turn_id", ""))
 		if turnID == "" {
 			return mcp.NewToolResultError("turn_id required"), nil
 		}
+		after := strings.TrimSpace(req.GetString("after", ""))
 		wait := req.GetBool("wait", false)
 
-		frames := s.collectRoundFrames(turnID)
+		frames := s.collectRoundFrames(turnID, after)
+		info, _ := s.st.GetTurnResult(g.Folder, turnID)
 		done := hasAssistant(frames)
 		if !wait || done {
-			return roundResult(frames, done), nil
+			return roundSnapshot(turnID, info.Status, frames, done), nil
 		}
 
 		topic := s.st.TopicByMessageID(turnID, jid)
 		if topic == "" {
-			return roundResult(frames, false), nil
+			return roundSnapshot(turnID, info.Status, frames, false), nil
 		}
 		ch, unsub := s.hub.subscribe(g.Folder, topic)
 		defer unsub()
 
-		frames = s.collectRoundFrames(turnID)
+		frames = s.collectRoundFrames(turnID, after)
 		if hasAssistant(frames) {
-			return roundResult(frames, true), nil
+			info, _ = s.st.GetTurnResult(g.Folder, turnID)
+			return roundSnapshot(turnID, info.Status, frames, true), nil
 		}
 
 		deadline, cancel := context.WithTimeout(ctx, slinkMCPWaitCap)
 		defer cancel()
 		if a, ok := waitForAssistant(deadline, ch); ok {
 			frames = appendUnique(frames, a)
-			return roundResult(frames, true), nil
+			info, _ = s.st.GetTurnResult(g.Folder, turnID)
+			return roundSnapshot(turnID, info.Status, frames, true), nil
 		}
-		return roundResult(frames, false), nil
+		info, _ = s.st.GetTurnResult(g.Folder, turnID)
+		return roundSnapshot(turnID, info.Status, frames, false), nil
+	})
+
+	srv.AddTool(mcp.NewTool("get_round_status",
+		mcp.WithDescription("Cheap status check for a round (mirrors GET /slink/<token>/<turn_id>/status). No frame payload — just status, frames_count, last_frame_id."),
+		mcp.WithString("turn_id", mcp.Required(), mcp.Description("Round handle from send_message.")),
+	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		turnID := strings.TrimSpace(req.GetString("turn_id", ""))
+		if turnID == "" {
+			return mcp.NewToolResultError("turn_id required"), nil
+		}
+		info, _ := s.st.GetTurnResult(g.Folder, turnID)
+		msgs, err := s.st.TurnFrames(turnID, "", 200)
+		if err != nil {
+			return mcp.NewToolResultError("query failed"), nil
+		}
+		last := ""
+		if n := len(msgs); n > 0 {
+			last = msgs[n-1].ID
+		}
+		data, _ := json.Marshal(map[string]any{
+			"turn_id":       turnID,
+			"status":        info.Status,
+			"frames_count":  len(msgs),
+			"last_frame_id": last,
+		})
+		return mcp.NewToolResultText(string(data)), nil
 	})
 
 	return srv
 }
 
-func (s *server) collectRoundFrames(turnID string) []map[string]any {
-	msgs, err := s.st.TurnFrames(turnID, "", 100)
+func (s *server) collectRoundFrames(turnID, after string) []map[string]any {
+	msgs, err := s.st.TurnFrames(turnID, after, 100)
 	if err != nil {
 		slog.Warn("slink-mcp get_round query", "turn_id", turnID, "err", err)
 		return nil
@@ -155,10 +187,20 @@ func appendUnique(frames []map[string]any, frame map[string]any) []map[string]an
 	return append(frames, frame)
 }
 
-func roundResult(frames []map[string]any, done bool) *mcp.CallToolResult {
+// roundSnapshot mirrors the GET /slink/<token>/<turn_id> response shape.
+func roundSnapshot(turnID, status string, frames []map[string]any, done bool) *mcp.CallToolResult {
+	last := ""
+	if n := len(frames); n > 0 {
+		if id, _ := frames[n-1]["id"].(string); id != "" {
+			last = id
+		}
+	}
 	data, _ := json.Marshal(map[string]any{
-		"frames": frames,
-		"done":   done,
+		"turn_id":       turnID,
+		"status":        status,
+		"frames":        frames,
+		"last_frame_id": last,
+		"done":          done,
 	})
 	return mcp.NewToolResultText(string(data))
 }

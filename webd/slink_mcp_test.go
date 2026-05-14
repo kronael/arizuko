@@ -60,14 +60,14 @@ func TestSlinkMCP_ToolSurface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	if len(res.Tools) != 2 {
+	if len(res.Tools) != 3 {
 		names := make([]string, len(res.Tools))
 		for i, tool := range res.Tools {
 			names[i] = tool.Name
 		}
-		t.Fatalf("tools = %v, want exactly 2 (send_message, get_round)", names)
+		t.Fatalf("tools = %v, want exactly 3 (send_message, get_round, get_round_status)", names)
 	}
-	want := map[string]bool{"send_message": false, "get_round": false}
+	want := map[string]bool{"send_message": false, "get_round": false, "get_round_status": false}
 	for _, tool := range res.Tools {
 		if _, ok := want[tool.Name]; !ok {
 			t.Errorf("unexpected tool %q", tool.Name)

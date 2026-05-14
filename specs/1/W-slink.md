@@ -213,13 +213,18 @@ it covers both tables uniformly.
 
 `POST /slink/<token>/mcp` exposes a standards-compliant Streamable
 HTTP MCP endpoint scoped to the token's group. Token is auth; same
-DoS shield as the form-encoded slink path. Two tools:
+DoS shield as the form-encoded slink path. Three tools mirroring
+the REST surface 1:1:
 
 - `send_message(content, topic?)` — submit a message. Reusing a
   `topic` continues that conversation thread.
-- `get_round(turn_id, wait?)` — read frames for a round.
+- `get_round(turn_id, after?, wait?)` — read frames for a round.
+  `after=<id>` cursor-pages forward; `wait=true` blocks for the first
+  new assistant frame.
+- `get_round_status(turn_id)` — cheap status + counts, no frame
+  payload.
 
 External agents register the URL in their MCP client config and
-talk to the group as if the two tools were local. See
+talk to the group as if the tools were local. See
 [../5/J-sse.md](../5/J-sse.md) for the relationship to the SSE
 stream.

@@ -96,7 +96,7 @@
     <h3>MCP</h3>
     <table>
       <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
-      <tr><td>POST</td><td><code>/slink/{token}/mcp</code></td><td>Streamable HTTP MCP endpoint (2 tools, see &sect;MCP)</td></tr>
+      <tr><td>POST</td><td><code>/slink/{token}/mcp</code></td><td>Streamable HTTP MCP endpoint (3 tools, see &sect;MCP)</td></tr>
     </table>
 
     <h2 id="post">POST shape</h2>
@@ -235,13 +235,16 @@ Access-Control-Allow-Headers: Accept, Content-Type</code></pre>
 
     <p><code>POST /slink/{token}/mcp</code> exposes a standards-compliant Streamable HTTP MCP endpoint (<a href="https://github.com/kronael/arizuko/blob/main/webd/slink_mcp.go"><code>webd/slink_mcp.go</code></a>). Token possession is auth &mdash; same rate-limit tier as the form-encoded path. External MCP clients register the URL and call the group's three tools as local tools.</p>
 
+    <p>The three tools mirror the REST surface 1:1: <code>send_message</code> = <code>POST /slink/{token}</code>, <code>get_round</code> = <code>GET /slink/{token}/{id}[?after=]</code>, <code>get_round_status</code> = <code>GET /slink/{token}/{id}/status</code>. There is no MCP equivalent of SSE; <code>get_round</code> with <code>wait=true</code> is the request-response form.</p>
+
     <table>
       <tr><th>Tool</th><th>Params</th><th>Effect</th></tr>
       <tr><td><code>send_message</code></td><td><code>content</code> (req), <code>topic?</code></td><td>Submit a message. Reusing a <code>topic</code> continues that conversation thread. Returns <code>{turn_id, topic, folder}</code>. <code>turn_id</code> is the originating <code>messages.id</code> — the round handle.</td></tr>
-      <tr><td><code>get_round</code></td><td><code>turn_id</code> (req), <code>wait?</code></td><td>Read assistant frames for this round (turn-scoped per <code>messages.turn_id</code>). With <code>wait=true</code>, blocks up to 5 min for an assistant reply. Returns <code>{frames, done}</code>.</td></tr>
+      <tr><td><code>get_round</code></td><td><code>turn_id</code> (req), <code>after?</code>, <code>wait?</code></td><td>Read assistant frames (turn-scoped). <code>after=&lt;msg_id&gt;</code> cursor-pages forward; <code>wait=true</code> blocks up to 5 min for an assistant reply. Returns <code>{turn_id, status, frames, last_frame_id, done}</code>.</td></tr>
+      <tr><td><code>get_round_status</code></td><td><code>turn_id</code> (req)</td><td>Cheap status + counts, no frame payload. Returns <code>{turn_id, status, frames_count, last_frame_id}</code>.</td></tr>
     </table>
 
-    <p>Design rationale (round handle, two-tool surface, statelessness): <a href="https://github.com/kronael/arizuko/blob/main/specs/1/W-slink.md"><code>specs/1/W-slink.md</code></a> &sect;MCP transport.</p>
+    <p>Design rationale (round handle, three-tool surface, statelessness): <a href="https://github.com/kronael/arizuko/blob/main/specs/1/W-slink.md"><code>specs/1/W-slink.md</code></a> &sect;MCP transport.</p>
 
     <h2 id="schema">Schema dependencies</h2>
 
