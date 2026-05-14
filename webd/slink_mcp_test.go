@@ -169,8 +169,11 @@ func TestSlinkMCP_GetRound_NoWait(t *testing.T) {
 	}
 	body := toolText(t, res)
 	var got struct {
-		Frames []map[string]any `json:"frames"`
-		Done   bool             `json:"done"`
+		TurnID      string           `json:"turn_id"`
+		Status      string           `json:"status"`
+		Frames      []map[string]any `json:"frames"`
+		LastFrameID string           `json:"last_frame_id"`
+		Done        bool             `json:"done"`
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatalf("unmarshal %q: %v", body, err)
@@ -180,6 +183,160 @@ func TestSlinkMCP_GetRound_NoWait(t *testing.T) {
 	}
 	if len(got.Frames) != 1 {
 		t.Fatalf("frames = %d, want 1 (bot output only — TurnFrames is turn-scoped per W-slink.md); body=%s", len(got.Frames), body)
+	}
+	if got.TurnID != turnID {
+		t.Errorf("turn_id = %q, want %q", got.TurnID, turnID)
+	}
+	if got.LastFrameID != "bot-r3" {
+		t.Errorf("last_frame_id = %q, want %q (REST snapshot parity)", got.LastFrameID, "bot-r3")
+	}
+}
+
+// get_round with after=<id> cursor returns only frames after that id —
+// mirrors GET /slink/{token}/{id}?after=<msg_id>.
+func TestSlinkMCP_GetRound_AfterCursor(t *testing.T) {
+	s, _, srv, g := newSlinkMCPServer(t)
+	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
+
+	turnID := slinkMCPSend(t, c, "many replies", "round-cursor")
+	t0 := time.Now()
+	for i, id := range []string{"bot-c1", "bot-c2", "bot-c3"} {
+		if err := s.st.PutMessage(core.Message{
+			ID:        id,
+			ChatJID:   "web:" + g.Folder,
+			Sender:    "assistant",
+			Content:   "frame " + id,
+			Timestamp: t0.Add(time.Duration(i+1) * time.Second),
+			BotMsg:    true,
+			Topic:     "round-cursor",
+			TurnID:    turnID,
+		}); err != nil {
+			t.Fatalf("PutMessage %s: %v", id, err)
+		}
+	}
+
+	res, err := c.CallTool(context.Background(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "get_round",
+			Arguments: map[string]any{"turn_id": turnID, "after": "bot-c1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("get_round: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("get_round error: %s", toolText(t, res))
+	}
+	var got struct {
+		Frames      []map[string]any `json:"frames"`
+		LastFrameID string           `json:"last_frame_id"`
+	}
+	if err := json.Unmarshal([]byte(toolText(t, res)), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Frames) != 2 {
+		t.Fatalf("frames after bot-c1 = %d, want 2 (bot-c2, bot-c3); body=%s", len(got.Frames), toolText(t, res))
+	}
+	if id, _ := got.Frames[0]["id"].(string); id != "bot-c2" {
+		t.Errorf("first frame = %q, want bot-c2", id)
+	}
+	if got.LastFrameID != "bot-c3" {
+		t.Errorf("last_frame_id = %q, want bot-c3", got.LastFrameID)
+	}
+}
+
+// get_round_status returns counts + status with no frame payload —
+// mirrors GET /slink/{token}/{id}/status.
+func TestSlinkMCP_GetRoundStatus(t *testing.T) {
+	s, _, srv, g := newSlinkMCPServer(t)
+	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
+
+	turnID := slinkMCPSend(t, c, "ask", "round-status")
+	for _, id := range []string{"bot-s1", "bot-s2"} {
+		if err := s.st.PutMessage(core.Message{
+			ID:        id,
+			ChatJID:   "web:" + g.Folder,
+			Sender:    "assistant",
+			Content:   "reply",
+			Timestamp: time.Now(),
+			BotMsg:    true,
+			Topic:     "round-status",
+			TurnID:    turnID,
+		}); err != nil {
+			t.Fatalf("PutMessage %s: %v", id, err)
+		}
+	}
+
+	res, err := c.CallTool(context.Background(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "get_round_status",
+			Arguments: map[string]any{"turn_id": turnID},
+		},
+	})
+	if err != nil {
+		t.Fatalf("get_round_status: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("get_round_status error: %s", toolText(t, res))
+	}
+	var got struct {
+		TurnID      string `json:"turn_id"`
+		Status      string `json:"status"`
+		FramesCount int    `json:"frames_count"`
+		LastFrameID string `json:"last_frame_id"`
+	}
+	body := toolText(t, res)
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("unmarshal %q: %v", body, err)
+	}
+	if got.TurnID != turnID {
+		t.Errorf("turn_id = %q, want %q", got.TurnID, turnID)
+	}
+	if got.FramesCount != 2 {
+		t.Errorf("frames_count = %d, want 2; body=%s", got.FramesCount, body)
+	}
+	if got.LastFrameID != "bot-s2" {
+		t.Errorf("last_frame_id = %q, want bot-s2", got.LastFrameID)
+	}
+	// Ensure no frame payload leaked (the whole point of /status is cheap).
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(body), &raw); err == nil {
+		if _, hasFrames := raw["frames"]; hasFrames {
+			t.Errorf("get_round_status response contains a frames payload; should be counts-only: %s", body)
+		}
+	}
+}
+
+// get_round_status with unknown turn_id returns frames_count=0 and empty
+// last_frame_id (no error — the form-encoded /status path is similarly lenient).
+func TestSlinkMCP_GetRoundStatus_Unknown(t *testing.T) {
+	_, _, srv, g := newSlinkMCPServer(t)
+	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
+
+	res, err := c.CallTool(context.Background(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "get_round_status",
+			Arguments: map[string]any{"turn_id": "msg_does_not_exist"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("get_round_status: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("get_round_status error: %s", toolText(t, res))
+	}
+	var got struct {
+		FramesCount int    `json:"frames_count"`
+		LastFrameID string `json:"last_frame_id"`
+	}
+	if err := json.Unmarshal([]byte(toolText(t, res)), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.FramesCount != 0 {
+		t.Errorf("frames_count = %d, want 0", got.FramesCount)
+	}
+	if got.LastFrameID != "" {
+		t.Errorf("last_frame_id = %q, want empty", got.LastFrameID)
 	}
 }
 
@@ -236,7 +393,6 @@ func TestSlinkMCP_GetRound_Wait(t *testing.T) {
 	}
 }
 
-// Bad token → 404 (matches handleSlinkPost behaviour).
 // slinkMCPSend calls send_message and returns the turn_id from the response —
 // the round handle used by get_round per W-slink.md.
 func slinkMCPSend(t *testing.T, c *mcpclient.Client, content, topic string) string {
