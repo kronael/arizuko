@@ -37,7 +37,7 @@ type Inst struct {
 func NewInstance(t *testing.T) *Inst {
 	t.Helper()
 	tmp := t.TempDir()
-	dsn := "file:" + filepath.Join(tmp, "test.db") + "?cache=shared&_busy_timeout=5000"
+	dsn := "file:" + filepath.Join(tmp, "test.db") + "?cache=shared&_pragma=busy_timeout(5000)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)

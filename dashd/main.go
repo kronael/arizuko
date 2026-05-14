@@ -84,7 +84,7 @@ func main() {
 		port = ":" + port
 	}
 
-	db, err := sql.Open("sqlite", dsn+"?mode=ro&_busy_timeout=5000")
+	db, err := sql.Open("sqlite", dsn+"?mode=ro&_pragma=busy_timeout(5000)")
 	if err != nil {
 		slog.Error("open db", "err", err)
 		os.Exit(1)
@@ -93,7 +93,7 @@ func main() {
 
 	// Secret CRUD at /dash/me/secrets is the one write path dashd owns;
 	// everything else stays RO. Separate handle keeps the contract narrow.
-	dbRW, err := sql.Open("sqlite", dsn+"?_busy_timeout=5000")
+	dbRW, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		slog.Error("open rw db", "err", err)
 		os.Exit(1)

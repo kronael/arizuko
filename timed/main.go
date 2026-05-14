@@ -37,7 +37,7 @@ func main() {
 	if _, err := time.LoadLocation(tz); tz == "" || err != nil {
 		tz = "UTC"
 	}
-	db, err := sql.Open("sqlite", dsn+"?_busy_timeout=5000")
+	db, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		slog.Error("open db", "err", err)
 		os.Exit(1)

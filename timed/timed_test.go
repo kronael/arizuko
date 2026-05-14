@@ -13,7 +13,7 @@ import (
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file::memory:?mode=memory&cache=shared&_busy_timeout=5000")
+	db, err := sql.Open("sqlite", "file::memory:?mode=memory&cache=shared&_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatal(err)
 	}

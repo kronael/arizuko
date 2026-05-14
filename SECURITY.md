@@ -123,15 +123,16 @@ Caveats:
 - Agent secrets (per spec 5/32) are still injected as env into the
   container. The allowlist restricts _where_ the agent can reach;
   it does not prevent leaking secrets to an allowed domain.
-- Spec 9/11 (tool-level secret broker) is **partially shipped**: the
+- Spec 9/11 (tool-level secret broker) is shipped through M7: the
   broker middleware (`ipc/ipc.go` `injectSecretsAdapter`) resolves
   `user(caller.Sub)` then `folder(caller.Folder)` at tool-call time,
   audit rows flow into `secret_use_log`, and folder-scoped secrets
   still merge into spawn env for operator anchors. Per-user secrets
-  no longer enter container env at all — they're reachable only via
-  tools that declare `requires_secrets`. The connector path
-  (`mcp_connector` TOML + per-call subprocess) lands under M6; the
-  `/dash/me/secrets` user surface is in place via dashd.
+  no longer enter container env at all — reachable only via tools
+  that declare `requires_secrets`. The connector path (`mcp_connector`
+  TOML + per-call subprocess) is live with `github-mcp` as the first
+  shipped connector; `/dash/me/secrets` user surface live via dashd.
+  OAuth-bound connector flows remain deferred to spec 9/14.
 - IPv6 is not redirected by the entrypoint script.
 
 **DNS filter** (`crackbox/pkg/dns/`,

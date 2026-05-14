@@ -14,12 +14,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-> arizuko v0.36.0 — cost caps
+## [v0.36.0] — 2026-05-14
+
+> arizuko v0.36.0 — routes, costs, connectors
 >
-> • Per-folder daily budget caps (`arizuko budget set folder X --daily N` cents)
-> • Anthropic spend captured automatically; oracle/codex via `log_external_cost` MCP tool
-> • Pre-spawn gate refuses turns over cap with a short "Budget reached" reply (no LLM call)
-> • Default 0 = uncapped; existing channels unaffected until operator opts in
+> • Runtime route mutation — `/v1/routes` + `routes.*` MCP, no restart to add/remove an adapter
+> • Cost caps — per-folder/user daily budget; pre-spawn gate refuses over-cap turns
+> • MCP connectors — drop-in stdio subprocess servers (github-mcp shipped)
+> • Secrets broker — plaintext per-folder secrets with audit; `arizuko send --topic` continues a thread from CLI
+> • Fix: multi-adapter `SQLITE_BUSY` flood that dropped inbound messages on busy instances
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
@@ -61,6 +64,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - `core.Config.CostCapsEnabled` (`COST_CAPS_ENABLED=true` default).
   Escape hatch: set false to bypass the gate.
 
+- **Secrets broker (spec 9/11 M0–M7).** Plaintext per-folder secrets
+  stored in `secrets` table (migration 0047), audited via
+  `secret_use_log` (migration 0048). Skills register the secret keys
+  they need via `registerWithSecrets`; the agent receives them through
+  `echo_secret`. dashd UI at `/dash/me/secrets` for operator CRUD; CLI
+  shipped via `arizuko` parent commands. Spawn-env user overlay
+  removed in favour of the per-call broker path.
+- **MCP connector path (spec 9/11 M6–M7).** Skills declare custom MCP
+  servers in TOML (`ant/skills/<name>/connector.toml`); the agent
+  spawns the configured stdio subprocess per call. `github-mcp` is the
+  first shipped connector (PAT-only auth via the secrets broker; OAuth
+  dance deferred to spec 9/14). See `EXTENDING.md` "MCP connectors".
+- **`arizuko send --topic <topic>`** — conversation continuity from the
+  CLI: an injected message lands on the named topic so the agent sees
+  history, instead of starting a fresh thread.
+
 ### Changed
 
 - proxyd: env-var rename `SLINK_ANON_RPM` → `SLINK_ANON_DOS_RPM` (DoS shield, not metering).
@@ -72,11 +91,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **SQLite `busy_timeout` actually applied.** Every `sql.Open("sqlite", …)`
+  site used the mattn DSN form `?_busy_timeout=5000`, which
+  `modernc.org/sqlite` silently ignores (it only honors `_pragma=…`).
+  Effective `busy_timeout` was 0, so any contended write across the
+  daemons sharing `messages.db` returned `SQLITE_BUSY` immediately —
+  surfacing as `router /v1/messages: status 500` and dropped inbound
+  messages on multi-adapter instances. Switched all nine call sites to
+  `?_pragma=busy_timeout(5000)`. Regression test
+  `store.TestPutMessageNoBusyUnderConcurrentWriters` opens two `*sql.DB`
+  handles against the same file and proves zero BUSY surfaces under
+  fan-out writes.
 - `slakd/README.md` — `LISTEN_ADDR` / `LISTEN_URL` documented defaults corrected to `:8080` (matches code + service template; README previously documented `:9009`, which would have misled operators wiring proxyd routes).
 
 ### Removed
 
 - proxyd `SLINK_AUTH_RPM` env var + auth-tier rate limit (subsumed by cost-cap per-user gate, spec 5/34).
+- **slink steer surface (`POST /slink/{token}/{id}`).** The mid-turn steer
+  HTTP path is gone, along with the matching MCP tool. Callers needing
+  steering should poll `get_round_status` and submit a new round. Skill
+  - spec docs reconciled in the same commits.
 
 ---
 

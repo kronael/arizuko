@@ -63,7 +63,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := sql.Open("sqlite", cfg.dsn+"?_busy_timeout=5000")
+	db, err := sql.Open("sqlite", cfg.dsn+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		slog.Error("open db", "err", err)
 		os.Exit(1)

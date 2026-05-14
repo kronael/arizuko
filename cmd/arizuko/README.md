@@ -22,6 +22,8 @@ beyond `docker` for `run` and `pair`).
   - `arizuko invite <inst> create <target_glob> [--max-uses N] [--expires DURATION]`
   - `arizuko invite <inst> list [--issued-by SUB]`
   - `arizuko invite <inst> revoke <token>`
+  - `arizuko send <inst> <folder> [<message>] [--wait | --stream] [--stdin] [--topic <topic>]` — inject a message into a folder's queue (uses topic for conversation continuity)
+  - `arizuko budget <inst> set folder|user <name> --daily N` / `show folder|user <name>` — per-folder or per-user daily spend cap in cents (0 = uncapped); pre-spawn gate enforces lower of (folder cap, user cap)
   - `arizuko chat <instance>` — interactive Claude Code session bound to root MCP socket
 
 ## Dependencies

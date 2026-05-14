@@ -23,7 +23,7 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
-	dsn := filepath.Join(dir, "messages.db") + "?_busy_timeout=5000"
+	dsn := filepath.Join(dir, "messages.db") + "?_pragma=busy_timeout(5000)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

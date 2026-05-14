@@ -392,7 +392,7 @@ func (c connIO) Close() error { return c.Conn.Close() }
 // openRawSQLite opens a second handle on the shared messages.db file,
 // used by tests to bypass store method filters.
 func openRawSQLite(path string) (*sql.DB, error) {
-	return sql.Open("sqlite", path+"?_busy_timeout=5000")
+	return sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
 }
 
 // TestMCPSocketRoundtrip binds ipc.ServeMCP on a tmpdir unix socket,

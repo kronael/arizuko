@@ -1,7 +1,9 @@
 package store
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +16,57 @@ func TestOpenMemAndMigrate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
+}
+
+// Regression: SQLITE_BUSY blasted gated/discd on sloth because the DSN
+// used mattn-style `_busy_timeout=5000`, which modernc.org/sqlite
+// silently ignores. Two writers against the same file file must
+// serialize via busy_timeout, not bubble BUSY up to callers.
+func TestPutMessageNoBusyUnderConcurrentWriters(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+
+	const writers = 8
+	const perWriter = 25
+	var wg sync.WaitGroup
+	errs := make(chan error, writers*perWriter)
+	now := time.Now()
+	for w := 0; w < writers; w++ {
+		wg.Add(1)
+		s := a
+		if w%2 == 1 {
+			s = b
+		}
+		go func(w int, s *Store) {
+			defer wg.Done()
+			for i := 0; i < perWriter; i++ {
+				err := s.PutMessage(core.Message{
+					ID:        fmt.Sprintf("m-%d-%d", w, i),
+					ChatJID:   "tg:1",
+					Sender:    "user",
+					Content:   "x",
+					Timestamp: now,
+				})
+				if err != nil {
+					errs <- err
+				}
+			}
+		}(w, s)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("PutMessage: %v", err)
+	}
 }
 
 func TestPutAndGetMessage(t *testing.T) {

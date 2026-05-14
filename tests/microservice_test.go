@@ -33,7 +33,7 @@ func openSharedDB(t *testing.T) (*store.Store, *sql.DB) {
 	}
 	t.Cleanup(func() { s.Close() })
 
-	dsn := filepath.Join(dir, "store", "messages.db") + "?_busy_timeout=5000"
+	dsn := filepath.Join(dir, "store", "messages.db") + "?_pragma=busy_timeout(5000)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal("sql.Open:", err)
