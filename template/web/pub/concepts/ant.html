@@ -53,7 +53,7 @@ ant &lt;folder&gt; --sandbox=none|dockbox|crackbox</code></pre>
     </ul>
 
     <h2>memory: compaction on a different cadence</h2>
-    <p>Most chat-agent systems run a <strong>context reducer</strong> &mdash; a cheap-model summariser that condenses the running message history before each turn (e.g. muaddib&rsquo;s <code>src/rooms/command/context-reducer.ts</code>). arizuko inverts the cadence. In-session context stays raw; impulse-gate batching plus Claude Code&rsquo;s own compaction bound it. Compression is a separate, longer-horizon job:</p>
+    <p>Most chat-agent systems run a <strong>context reducer</strong> &mdash; a cheap-model summariser that condenses the running message history before each turn (e.g. muaddib&rsquo;s <code>src/rooms/command/context-reducer.ts</code>). arizuko inverts the cadence. In-session context stays raw; Claude Code&rsquo;s own compaction bounds it. Compression is a separate, longer-horizon job:</p>
     <ul>
       <li><strong>Cron-driven, day/week/month</strong> &mdash; the <code>/compact-memories</code> skill rolls JSONL session transcripts into <code>episodes/YYYYMMDD.md</code>, then weekly, then monthly. Diary entries are folded the same way.</li>
       <li><strong>Agent-invoked on demand</strong> &mdash; <code>/distill</code> compresses one specific input on request, writing durable content (skill, fact, episode) rather than an ephemeral prompt block.</li>
