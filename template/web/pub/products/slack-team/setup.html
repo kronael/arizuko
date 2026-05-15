@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Slack team agent setup — arizuko</title>
+    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <style>
+      .prose p { margin: 0.6em 0; }
+      .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+      .prose li { margin: 0.3em 0; }
+      .prose pre { margin: 0.6em 0; }
+      .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+      .back { font-size: 0.85em; }
+      .callout {
+        border-left: 3px solid var(--accent, #888);
+        padding: 0.4em 0.8em;
+        margin: 1em 0;
+        background: var(--callout-bg, rgba(127, 127, 127, 0.06));
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <p class="dim back">
+        <a href="/pub/">arizuko</a> &rsaquo;
+        <a href="/pub/products/slack-team/">Slack team agent</a> &rsaquo; setup
+      </p>
+      <h1>Slack team agent — setup</h1>
+
+      <p class="lede">
+        Stand up one agent shared by a Slack channel: arizuko instance,
+        Slack App, OAuth-linked identities, optional per-teammate web chat.
+      </p>
+
+      <h2>prerequisites</h2>
+      <ul>
+        <li>A host with Docker, ports 80/443 reachable behind a TLS terminator (or run with <code>WEB_HOST</code> on a reverse proxy that handles certs).</li>
+        <li>A Slack workspace where you can install a Slack App.</li>
+        <li>The <code>arizuko</code> binary and the <code>arizuko-ant</code> agent image built locally (<code>make build</code>, <code>sudo make images</code>, <code>sudo make agent</code>).</li>
+        <li>Anthropic API access for the in-container agent.</li>
+      </ul>
+
+      <h2>1. seed the instance</h2>
+      <pre><code>arizuko create acme
+cd /srv/data/arizuko_acme
+$EDITOR .env</code></pre>
+      <p>
+        <code>arizuko create</code> seeds the data dir at
+        <code>/srv/data/arizuko_acme/</code> with a default group, a
+        <code>.env</code>, and the <code>web/</code> tree copied from
+        <code>template/web/</code>.
+      </p>
+
+      <h2>2. fill in <code>.env</code></h2>
+      <p>The Slack-team product needs at least these keys set:</p>
+      <pre><code># Identity + secrets
+ASSISTANT_NAME=acme              # agent display name
+CHANNEL_SECRET=&lt;random hex&gt;      # signing between adapters and gated
+AUTH_SECRET=&lt;random hex&gt;         # JWT signer for /auth/, /dash/, /chat/
+WEB_HOST=acme.example.com        # public hostname for proxyd / OAuth callbacks
+
+# Slack adapter
+SLACK_BOT_TOKEN=xoxb-…           # from the Slack App "OAuth &amp; Permissions" page
+SLACK_SIGNING_SECRET=…           # from the Slack App "Basic Information" page
+
+# OAuth providers for linked identities (any subset)
+GITHUB_CLIENT_ID=…
+GITHUB_CLIENT_SECRET=…
+GOOGLE_CLIENT_ID=…
+GOOGLE_CLIENT_SECRET=…
+DISCORD_CLIENT_ID=…
+DISCORD_CLIENT_SECRET=…</code></pre>
+      <p>
+        Generate the two secrets with <code>openssl rand -hex 32</code>.
+        See <a href="/pub/reference/env.html">reference / env</a> for the
+        complete list and the daemons that read each one.
+      </p>
+
+      <h2>3. create the Slack App</h2>
+      <p>In <a href="https://api.slack.com/apps">api.slack.com/apps</a>, create a new app (from scratch) in your workspace, then:</p>
+      <ul>
+        <li><strong>OAuth &amp; Permissions.</strong> Add bot scopes <code>app_mentions:read</code>, <code>channels:history</code>, <code>chat:write</code>, <code>files:read</code>, <code>im:history</code>, <code>im:write</code>, <code>users:read</code>. Install to your workspace and copy the Bot User OAuth Token into <code>SLACK_BOT_TOKEN</code>.</li>
+        <li><strong>Event Subscriptions.</strong> Enable, set the request URL to <code>https://&lt;WEB_HOST&gt;/slack/events</code>, subscribe to bot events <code>app_mention</code>, <code>message.channels</code>, <code>message.im</code>.</li>
+        <li><strong>Basic Information.</strong> Copy the Signing Secret into <code>SLACK_SIGNING_SECRET</code>.</li>
+      </ul>
+      <p>
+        The <code>/slack/</code> path is wired into proxyd by
+        <code>template/services/slakd.toml</code> &mdash; nothing to edit in
+        compose generation. Slack's request signature is verified by
+        <code>slakd</code> using the signing secret.
+      </p>
+
+      <h2>4. run the instance</h2>
+      <pre><code>arizuko run acme</code></pre>
+      <p>
+        This generates a Docker Compose file in
+        <code>/srv/data/arizuko_acme/compose.yml</code> and runs it.
+        For long-running production, install a systemd unit; see
+        <a href="/pub/howto/">getting started</a> for the template.
+      </p>
+
+      <h2>5. invite teammates</h2>
+      <p>
+        Per-user state (memory, grants, linked identities) needs each
+        teammate to be a known user. They sign in via OAuth at
+        <code>https://&lt;WEB_HOST&gt;/auth/login</code> &mdash; GitHub,
+        Google, or Discord. Subsequent logins on any linked provider
+        resolve to the same <code>auth_users</code> row.
+      </p>
+      <p>
+        Invite their primary Slack/web identity into the channel group
+        with the <code>invite</code> CLI:
+      </p>
+      <pre><code>arizuko invite acme create 'slack:user/U*'  --max-uses 20 --expires 14d
+arizuko invite acme list</code></pre>
+      <p>
+        Or open access via onboarding: set
+        <code>ONBOARDING_ENABLED=true</code> and
+        <code>ONBOARDING_PLATFORMS=slack</code> in <code>.env</code>.
+        Teammates who DM the bot land in the admission queue; the
+        operator approves from <code>/dash/</code>.
+      </p>
+
+      <h2>6. verify</h2>
+      <ul>
+        <li><code>sudo systemctl status arizuko_acme</code> (or <code>docker compose ps</code>) shows all services up.</li>
+        <li><code>curl -s https://&lt;WEB_HOST&gt;/slack/health</code> returns <code>200</code>. A <code>503 disconnected</code> means slakd is up but the Slack token is rejected &mdash; double-check the bot token and that the app is installed in the workspace.</li>
+        <li>Invite the bot to a channel (<code>/invite @acme</code>), then send <code>@acme hello</code>. The agent replies in-thread.</li>
+        <li>Visit <code>https://&lt;WEB_HOST&gt;/dash/</code> as the operator (root) &mdash; you should see the channel as a group with a route.</li>
+      </ul>
+
+      <h2>7. tune per channel</h2>
+      <p>
+        Each Slack channel maps to an arizuko group folder. To
+        customise voice, allowed tools, or skills for one channel,
+        edit its <code>~/CLAUDE.md</code> &mdash; either via WebDAV at
+        <code>https://&lt;WEB_HOST&gt;/dav/&lt;channel&gt;/CLAUDE.md</code>
+        or directly on disk under
+        <code>/srv/data/arizuko_acme/groups/&lt;channel&gt;/</code>.
+      </p>
+      <p>
+        For per-teammate scope (memory file, grants), the agent
+        writes to the channel's <code>users/</code> subfolder
+        automatically &mdash; you do not seed it. Skill toggles and
+        grant rules are managed from <code>/dash/</code> or via the
+        <code>arizuko group grant</code> CLI.
+      </p>
+
+      <div class="callout">
+        <strong>Channel-scoped secrets.</strong> Tool API keys an
+        agent needs in one channel but not another go in the
+        <code>secrets</code> table &mdash; set with
+        <code>arizuko secret &lt;instance&gt; set &lt;folder&gt; KEY --value V</code>.
+        They merge into the agent container's env at spawn time;
+        nothing leaks to other channels.
+      </div>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li><a href="/pub/products/slack-team/">Slack team agent &mdash; intro</a> &mdash; what teammates see</li>
+        <li><a href="/pub/howto/slack.html">Slack adapter how-to</a> &mdash; deeper notes on Slack-specific quirks</li>
+        <li><a href="/pub/concepts/grants.html">grants</a> &mdash; per-user and per-folder action scoping</li>
+        <li><a href="/pub/concepts/auth.html">auth</a> &mdash; OAuth providers, account linking</li>
+        <li><a href="/pub/reference/cli.html">CLI reference</a> &mdash; full command list</li>
+      </ul>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="/pub/assets/hub.js"></script>
+  </body>
+</html>

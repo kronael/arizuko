@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>products — arizuko</title>
+    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <style>
+      .prose p { margin: 0.6em 0; }
+      .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+      .prose li { margin: 0.3em 0; }
+      .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+      .back { font-size: 0.85em; }
+      .grid { display: grid; grid-template-columns: 1fr; gap: 1.2em; margin: 1em 0; }
+      @media (min-width: 720px) { .grid { grid-template-columns: 1fr 1fr; } }
+      .card {
+        border: 1px solid color-mix(in srgb, var(--dim, #888) 30%, transparent);
+        padding: 0.8em 1em;
+        border-radius: 4px;
+      }
+      .card h3 { margin: 0.1em 0 0.2em; }
+      .card .tag { font-size: 0.85em; color: var(--dim, #888); }
+      .card p { margin: 0.4em 0; }
+      .card a.links { font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; products</p>
+      <h1>products</h1>
+      <p class="lede">
+        Shipped product templates &mdash; opinionated agent setups for
+        a specific shape of use. Each is a starting point: a persona,
+        a skill set, channel wiring, and an operator setup guide.
+        Customise from there.
+      </p>
+
+      <div class="grid">
+        <div class="card">
+          <h3><a href="/pub/products/slack-team/">Slack team agent</a></h3>
+          <p class="tag">best channel: Slack &middot; team &middot; shared workspace</p>
+          <p>One agent in a Slack channel with channel-scoped persona and thread context, but per-teammate memory, grants, and private web chat. Linked identities across Slack, GitHub, Google, Discord, Telegram resolve to the same user.</p>
+          <p><a class="links" href="/pub/products/slack-team/">intro</a> &middot; <a class="links" href="/pub/products/slack-team/setup.html">setup</a></p>
+        </div>
+
+        <div class="card">
+          <h3><a href="/pub/products/reality/">Reality agent (Rhias)</a></h3>
+          <p class="tag">best channel: Telegram &middot; personal &middot; ongoing</p>
+          <p>A persistent agent grounded in your actual life and context. Holds named threads for ongoing situations across weeks and months; offers structured reflection on demand; runs a monthly autonomous sweep to surface what changed.</p>
+          <p><a class="links" href="/pub/products/reality/">intro</a> &middot; <a class="links" href="/pub/products/reality/setup.html">setup</a></p>
+        </div>
+      </div>
+
+      <p class="dim">More product templates as they&rsquo;re packaged. See <a href="/pub/howto/">getting started</a> for the platform setup before picking a product.</p>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="/pub/assets/hub.js"></script>
+  </body>
+</html>

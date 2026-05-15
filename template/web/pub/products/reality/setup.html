@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reality agent setup — arizuko</title>
+    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <style>
+      .prose p { margin: 0.6em 0; }
+      .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+      .prose li { margin: 0.3em 0; }
+      .prose pre { margin: 0.6em 0; }
+      .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+      .back { font-size: 0.85em; }
+      .callout {
+        border-left: 3px solid var(--accent, #888);
+        padding: 0.4em 0.8em;
+        margin: 1em 0;
+        background: var(--callout-bg, rgba(127, 127, 127, 0.06));
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <p class="dim back">
+        <a href="/pub/">arizuko</a> &rsaquo;
+        <a href="/pub/products/reality/">Reality agent</a> &rsaquo; setup
+      </p>
+      <h1>Reality agent — setup</h1>
+
+      <p class="lede">
+        Stand up a Rhias-style reality-thread holder on Telegram (and
+        optionally WhatsApp): instance, group template from
+        <code>ant/examples/reality/</code>, facts/threads seeding,
+        monthly sweep task.
+      </p>
+
+      <h2>prerequisites</h2>
+      <ul>
+        <li>Host with Docker + built <code>arizuko</code> binary and <code>arizuko-ant</code> image.</li>
+        <li>A Telegram bot token (<a href="https://t.me/BotFather">@BotFather</a>); optional WhatsApp Business account for the asymmetric-channel pattern.</li>
+        <li>Anthropic API access. Optional <code>OPENAI_API_KEY</code> in folder secrets for the <code>oracle</code> skill (longer synthesis across many threads).</li>
+      </ul>
+
+      <h2>1. seed the instance</h2>
+      <pre><code>arizuko create nemo
+cd /srv/data/arizuko_nemo
+$EDITOR .env</code></pre>
+
+      <h2>2. fill in <code>.env</code></h2>
+      <pre><code>ASSISTANT_NAME=rhias
+CHANNEL_SECRET=&lt;random hex&gt;
+AUTH_SECRET=&lt;random hex&gt;
+WEB_HOST=nemo.example.com
+
+# Primary channel
+TELEGRAM_BOT_TOKEN=…
+
+# Optional WhatsApp side for asymmetric channels
+# WHATSAPP_AUTH_DIR is pre-set by the service TOML; you only need an
+# account that pairs via QR on first run.
+
+# Optional: increase the trigger turn's observe-mode context if WhatsApp
+# is firehose-heavy
+OBSERVE_WINDOW_MESSAGES=25
+OBSERVE_WINDOW_CHARS=8000</code></pre>
+      <p>
+        Generate the two secrets with <code>openssl rand -hex 32</code>.
+        Full env-var list at <a href="/pub/reference/env.html">reference / env</a>.
+      </p>
+
+      <h2>3. lay down the reality group from the template</h2>
+      <p>
+        The shipped template at <code>ant/examples/reality/</code>
+        carries the persona (<code>SOUL.md</code>), the skill set
+        declared in <code>PRODUCT.md</code> (<code>diary</code>,
+        <code>facts</code>, <code>recall-memories</code>,
+        <code>compact-memories</code>, <code>users</code>, optional
+        <code>web</code> + <code>oracle</code>), and an empty
+        <code>facts/threads/</code> directory.
+      </p>
+      <p>
+        Use <code>arizuko create</code> with the product flag (when
+        available) or copy the template into the seeded group:
+      </p>
+      <pre><code>cp -r ant/examples/reality/* /srv/data/arizuko_nemo/groups/rhias/
+# adjust SOUL.md / PERSONA.md to taste before first run</code></pre>
+
+      <h2>4. seed facts/threads</h2>
+      <p>
+        Threads are how the agent holds ongoing context across weeks.
+        Create one file per active situation in
+        <code>groups/rhias/facts/threads/</code>:
+      </p>
+      <pre><code>facts/threads/q3-architecture.md
+facts/threads/launch-prep.md
+facts/threads/relationship-alice.md</code></pre>
+      <p>
+        Each is a Markdown file &mdash; freeform up top, dated
+        entries below. The agent appends as the situation evolves;
+        seed it with whatever context already exists so the first
+        conversation has somewhere to land.
+      </p>
+
+      <h2>5. configure routes</h2>
+      <p>
+        By default <code>arizuko create</code> wires Telegram DMs to
+        the default group. For Rhias, you want one named group
+        (<code>rhias</code>) for the primary conversation and any
+        secondary channels routed deliberately. Use the
+        <code>add_route</code> MCP tool from the operator chat, or
+        directly via SQL during setup:
+      </p>
+      <pre><code>seq  match                                     target
+10   platform=telegram chat=user/&lt;your-tg-id&gt;  rhias
+</code></pre>
+      <p>
+        Add the <code>rhias/content</code> subgroup if you want a
+        distinct memory + persona for longer-form writing &mdash;
+        route it from a separate Telegram chat or a slink URL.
+      </p>
+
+      <h2>6. asymmetric channels (optional WhatsApp)</h2>
+      <p>
+        To ingest WhatsApp signal into the same memory without
+        replying on WhatsApp, add a second route in
+        <code>#observe</code> mode:
+      </p>
+      <pre><code>seq  match                                       target
+10   platform=telegram chat=user/&lt;your-tg-id&gt;    rhias
+20   platform=whatsapp room=&lt;jid-of-group&gt;       rhias#observe
+</code></pre>
+      <p>
+        WhatsApp messages land in <code>rhias/</code> for context
+        but do not fire a turn; the agent replies on Telegram with
+        an attribution line when something from WhatsApp matters.
+        Full walkthrough at
+        <a href="/pub/howto/asymmetric-channels.html">how-to: asymmetric channels</a>.
+      </p>
+
+      <h2>7. monthly autonomous sweep</h2>
+      <p>
+        The <code>compact-memories</code> skill rolls diary entries
+        into <code>episodes/YYYYMMDD.md</code> and folds threads
+        on a longer horizon. Schedule it monthly via
+        <code>timed</code> from the operator chat:
+      </p>
+      <pre><code>/new schedule monthly sweep
+@rhias schedule a task: every first of the month at 06:00 local,
+       run /compact-memories with horizon=month and surface what
+       changed, what was resolved, what's still open.</code></pre>
+      <p>
+        The agent writes the task into the <code>tasks</code> table
+        via the <code>add_task</code> MCP tool; <code>timed</code>
+        picks it up and fires the prompt on schedule.
+      </p>
+
+      <h2>8. verify</h2>
+      <ul>
+        <li><code>docker compose ps</code> shows all services healthy.</li>
+        <li>Send the bot a DM on Telegram &mdash; the agent replies in the persona declared in <code>SOUL.md</code>.</li>
+        <li>Ask <em>"what threads do I have?"</em> &mdash; the agent enumerates from <code>facts/threads/</code>.</li>
+        <li>Visit <code>https://&lt;WEB_HOST&gt;/dash/</code> &mdash; the <code>rhias</code> group, route, and any scheduled tasks are visible.</li>
+      </ul>
+
+      <h2>9. tune the persona</h2>
+      <p>
+        The shipped <code>SOUL.md</code> is the baseline voice.
+        Override or extend it via <code>PERSONA.md</code> (with a
+        <code>summary:</code> frontmatter field) and <code>CLAUDE.md</code>
+        in the group folder &mdash; both edit-via-WebDAV at
+        <code>/dav/rhias/</code>. The agent reloads on the next turn.
+      </p>
+
+      <div class="callout">
+        <strong>Strict frontmatter.</strong> <code>PERSONA.md</code>
+        without a frontmatter <code>summary:</code> renders an empty
+        persona block, not a guessed-from-body fallback. If the agent
+        sounds drifted, check the YAML head of the file.
+      </div>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li><a href="/pub/products/reality/">Reality agent &mdash; intro</a> &mdash; what users experience</li>
+        <li><a href="/pub/howto/asymmetric-channels.html">how-to: asymmetric channels</a> &mdash; the WhatsApp/Telegram split as a generic recipe</li>
+        <li><a href="/pub/concepts/routing.html#modes">routing &mdash; modes</a> &mdash; fragment vocabulary on route targets</li>
+        <li><a href="/pub/reference/env.html">env reference</a> &mdash; including <code>OBSERVE_WINDOW_*</code> tuning</li>
+        <li><a href="/pub/products/slack-team/">Slack team agent</a> &mdash; contrast: shared channel rather than single-user thread holder</li>
+      </ul>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="/pub/assets/hub.js"></script>
+  </body>
+</html>

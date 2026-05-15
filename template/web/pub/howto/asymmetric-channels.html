@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>asymmetric channels — arizuko</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p  { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose ol { margin: 0.4em 0 0.8em 1.4em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .note  { background: color-mix(in srgb, var(--accent3) 10%, transparent);
+             border-left: 3px solid var(--accent3);
+             padding: 0.5em 0.8em; margin: 0.8em 0; font-size: 0.92em; }
+    table  { border-collapse: collapse; width: 100%; margin: 0.8em 0 1.2em; font-size: 0.9em; }
+    th     { text-align: left; border-bottom: 1px solid var(--dim, #888);
+             padding: 0.3em 0.8em 0.3em 0; font-weight: 600; }
+    td     { padding: 0.25em 0.8em 0.25em 0;
+             border-bottom: 1px solid color-mix(in srgb, var(--dim, #888) 25%, transparent); }
+    code   { font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>asymmetric channels</h1>
+    <p class="dim back"><a href="/pub/">&larr; arizuko</a> &middot; <a href="/pub/howto/">&larr; how-to</a></p>
+
+    <p>Ingest signal from one or more channels into a folder's memory <em>without</em> the agent replying there. The agent reads everything that lands; it speaks only on the channel you nominated. Useful when one source is high-volume context (a busy WhatsApp group, an RSS firehose, a mirrored mailing list) and another is the actual conversation surface.</p>
+
+    <h2>the mechanism: target fragment</h2>
+    <p>The <code>routes.target</code> column carries an optional <code>#mode</code> URI fragment that decides what the gateway does <em>after</em> the message lands in the folder:</p>
+
+    <table>
+      <thead><tr><th>target</th><th>effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>folder</code></td><td>store under <code>folder</code> and fire a turn (default)</td></tr>
+        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The message is visible to the agent in history on the next trigger turn.</td></tr>
+      </tbody>
+    </table>
+    <p>One folder, two routes, two effects. The agent's ACL is folder-scoped &mdash; observed messages are fully readable. The mode is the gateway's contract about when to invoke the agent, nothing about visibility.</p>
+
+    <h2>recipe</h2>
+    <p>Two routes against the same folder, one in each mode:</p>
+
+    <pre><code>seq  match                                       target
+10   platform=&lt;reply-channel&gt; chat=&lt;your-jid&gt;     myfolder
+20   platform=&lt;ingest-channel&gt; room=&lt;src-jid&gt;     myfolder#observe</code></pre>
+
+    <ol>
+      <li><strong>Decide which channel speaks.</strong> Pick the one the user is actively conversing on &mdash; their phone, their team's Slack, their Telegram DM. That's the trigger route, no fragment.</li>
+      <li><strong>Decide which channels feed.</strong> Anything else the agent should know about but not reply on. Each gets a route to the <em>same</em> folder with <code>#observe</code>.</li>
+      <li><strong>Put the trigger route first.</strong> Lower <code>seq</code> wins. The first match wins, so a trigger route for a specific chat must be above any catch-all observe route on a broader pattern.</li>
+      <li><strong>Tune the context window if needed.</strong> The trigger turn folds the trailing <code>OBSERVE_WINDOW_MESSAGES</code> (default 10) / <code>OBSERVE_WINDOW_CHARS</code> (default 4000) of observed history into the prompt. For busy ingest channels, raise either at the instance level or per-route via <code>routes.observe_window_messages</code> / <code>routes.observe_window_chars</code>.</li>
+    </ol>
+
+    <h2>worked example: Telegram talks, WhatsApp listens</h2>
+    <pre><code>seq  match                                       target
+10   platform=telegram chat=user/5229089286      rhias/nemo
+20   platform=whatsapp room=420735544891@…       rhias/nemo#observe</code></pre>
+    <p>The team converses on Telegram. WhatsApp messages from the named group land in the <code>rhias/nemo</code> folder as <code>&lt;observed&gt;</code> entries; the agent never replies on WhatsApp. When something from WhatsApp matters, the agent posts to Telegram with a one-line attribution.</p>
+
+    <p>This was first deployed as &ldquo;Nemo&rdquo; under the <a href="/pub/products/reality/">reality product</a> &mdash; the agent holds context across both channels without forking the conversation. The reality page treats it as a case study; this page is the generic recipe.</p>
+
+    <h2>defence in depth (optional)</h2>
+    <p>The route mode is the platform-level enforcement: the gateway will not schedule a turn for an observed message, full stop. If you want a second layer the agent itself acknowledges, drop a soft rule into the folder&rsquo;s <code>CLAUDE.md</code>:</p>
+    <pre><code>## Channels
+
+Reply on Telegram only. Never call `send_message` targeting WhatsApp,
+even if a tool result tempts you to. Observed WhatsApp posts inform
+context; the response goes on Telegram.</code></pre>
+    <p>With the route mode in place this rule is redundant by construction &mdash; useful as documentation, not as a guardrail.</p>
+
+    <h2>extending the pattern</h2>
+    <p>One inbound bus, one outbound channel:</p>
+    <ul>
+      <li>Ingest a Mastodon timeline + a Bluesky firehose + a partner Telegram group; reply only on a single Telegram DM.</li>
+      <li>Ingest support emails into a folder, reply only on Slack (one-way handoff).</li>
+      <li>Mirror a Discord guild&rsquo;s feed into a folder that already serves a Telegram personal chat &mdash; the user gets a single inbox view.</li>
+    </ul>
+    <p>The constraint is on the <em>folder</em>, not the channel: any number of <code>#observe</code> routes can converge on one folder. Each route is just another row in the table.</p>
+
+    <h2>go deeper</h2>
+    <ul>
+      <li><a href="/pub/concepts/routing.html#modes">routing &mdash; modes</a> &mdash; full target-fragment vocabulary</li>
+      <li><a href="/pub/reference/schema.html">schema reference</a> &mdash; <code>routes</code> table columns including <code>observe_window_*</code> per-route overrides</li>
+      <li><a href="/pub/reference/env.html#OBSERVE_WINDOW_MESSAGES">OBSERVE_WINDOW_MESSAGES</a> / <a href="/pub/reference/env.html#OBSERVE_WINDOW_CHARS">OBSERVE_WINDOW_CHARS</a> &mdash; instance-wide defaults</li>
+      <li><a href="/pub/products/reality/">Reality product</a> &mdash; the Nemo deployment that motivated the design</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
