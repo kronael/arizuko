@@ -43,6 +43,14 @@ them on each request.
   (PERSONA.md without frontmatter returns empty, not "guess from body").
   No parent-folder inheritance for group-scoped files. Operator data
   fixes belong to the operator; platform stays mechanical.
+- **MCP + REST hand-rolled and uniform**: every resource is reachable
+  via both MCP (for agents) and REST (for humans / external tools)
+  through one hand-written handler — no auto-generated DSL, no
+  catalog-driven mapper. arizuko is agent-first; MCP is the canonical
+  protocol; REST is the boundary impedance match for non-MCP callers.
+  Spec: `specs/6/5-uniform-mcp-rest.md`. Cost is N+M hand-rolled
+  handlers; gain is one shape across the platform — agent and human
+  see the same actions, the same scopes, the same auth gate.
 
 ## Essence
 
