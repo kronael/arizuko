@@ -283,19 +283,18 @@
 
     <div class="tablecard">
       <h3><code>routes</code></h3>
-      <p>Inbound match-target table. <code>match</code> is space-separated <code>key=glob</code> pairs evaluated by <a href="https://github.com/kronael/arizuko/blob/main/router/router.go#L300"><code>router.RouteMatches</code></a>; <code>target</code> is the folder. Routes are evaluated in <code>(seq, id)</code> order; first match wins.</p>
+      <p>Inbound match-target table. <code>match</code> is space-separated <code>key=glob</code> pairs evaluated by <a href="https://github.com/kronael/arizuko/blob/main/router/router.go#L300"><code>router.RouteMatches</code></a>; <code>target</code> is the destination folder, with an optional <code>#mode</code> fragment (<code>#observe</code> stores without firing a turn). Routes are evaluated in <code>(seq, id)</code> order; first match wins.</p>
       <table>
         <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
         <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td>NOT NULL</td><td></td><td></td></tr>
         <tr><td><code>seq</code></td><td>INTEGER</td><td>NOT NULL</td><td>0</td><td>evaluation order (lower first)</td></tr>
         <tr><td><code>match</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>space-separated key=glob predicates</td></tr>
-        <tr><td><code>target</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>destination folder</td></tr>
-        <tr><td><code>impulse_config</code></td><td>TEXT</td><td>NULL</td><td></td><td>optional JSON config for route-level impulse policy (0018)</td></tr>
+        <tr><td><code>target</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>destination folder, optionally suffixed with <code>#mode</code></td></tr>
       </table>
       <p class="meta"><strong>Indexes:</strong> <code>idx_routes_seq</code> on <code>seq</code> (post-0022 rebuild).</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L38"><code>store/routes.go:38</code></a> (AddRoute), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L55"><code>:55</code></a> (DELETE on folder tear-down), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L62"><code>:62</code></a> (replace set), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L72"><code>:72</code></a> (DELETE by id), <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L974"><code>onbod/main.go:974</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L1039"><code>:1039</code></a>.</p>
       <p class="meta"><strong>Readers:</strong> gated (ResolveRoute), dashd, ipc (route MCP tools).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L106">0001</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0008-topic-sessions.sql#L20">0008</a> ensure-exists + unique index; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0012-fix-prefix-route-seq.sql">0012</a> fix prefix seq; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0018-route-impulse-config.sql">0018</a> add impulse_config; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0022-routes-match.sql">0022</a> rebuild (drop jid/type, add match); 0042/0043 rewrite predicates to typed JIDs.</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L106">0001</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0008-topic-sessions.sql#L20">0008</a> ensure-exists + unique index; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0012-fix-prefix-route-seq.sql">0012</a> fix prefix seq; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0022-routes-match.sql">0022</a> rebuild (drop jid/type, add match); 0042/0043 rewrite predicates to typed JIDs.</p>
     </div>
 
     <div class="tablecard">

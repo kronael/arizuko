@@ -122,7 +122,7 @@ echo "long body" | arizuko send krons main --stdin --wait</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L268"><code>cmd/arizuko/main.go:268</code></a></p>
 
     <h3 id="group-add"><span class="sig">arizuko group &lt;instance&gt; add &lt;jid&gt; &lt;name&gt; [folder]</span></h3>
-    <p>Create a group bound to a channel JID. Folder defaults to <code>strings.ToLower(name)</code>; validated via <code>groupfolder.IsValidFolder</code>. Calls <code>container.SetupGroup</code> for the folder skeleton, seeds default tasks, inserts the group row, then adds a route <code>room=&lt;JidRoom(jid)&gt; -&gt; &lt;folder&gt;</code>. For Discord guild channels (jid prefix <code>discord:</code> but not <code>discord:dm/</code>) the route is created with impulse config <code>{"weights":{"message":0}}</code> so only mentions fire.</p>
+    <p>Create a group bound to a channel JID. Folder defaults to <code>strings.ToLower(name)</code>; validated via <code>groupfolder.IsValidFolder</code>. Calls <code>container.SetupGroup</code> for the folder skeleton, seeds default tasks, inserts the group row, then adds a route <code>room=&lt;JidRoom(jid)&gt; -&gt; &lt;folder&gt;</code>. For Discord guild channels (jid prefix <code>discord:</code> but not <code>discord:dm/</code>) the route is scoped to <code>verb=mention</code> so only mentions fire; other messages fall through to a catch-all <code>#observe</code> row if one exists.</p>
     <p><strong>State touched:</strong> filesystem (group skeleton), <code>groups</code>, <code>routes</code>, default-task seed.</p>
     <pre><code>arizuko group krons add whatsapp:120363042@g.us standup standup
 arizuko group krons add "discord:guild/123/456" eng eng</code></pre>

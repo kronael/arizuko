@@ -58,7 +58,7 @@
     <p>To get IDs: in Discord, open <em>Settings &rarr; Advanced</em> and enable <strong>Developer Mode</strong>. Then right-click any channel or server and choose <strong>Copy Channel ID</strong> / <strong>Copy Server ID</strong>.</p>
 
     <h2>verb system</h2>
-    <p>Each inbound message carries a <em>verb</em> that describes what happened. Verbs let you control which events fire the agent via <code>impulse_config</code> on routes:</p>
+    <p>Each inbound message carries a <em>verb</em> that describes what happened. Routes match on <code>verb=</code> to control which events fire the agent:</p>
     <table>
       <thead><tr><th>verb</th><th>when</th></tr></thead>
       <tbody>
@@ -68,7 +68,6 @@
         <tr><td><code>dislike</code></td><td>👎 or similar negative reaction added</td></tr>
       </tbody>
     </table>
-    <p>DMs always fire the agent regardless of impulse config. Guild messages use impulse weights (default: fire on every message).</p>
 
     <h2>token modes</h2>
     <p>discd supports two authentication modes. Choose based on your use case:</p>
@@ -169,10 +168,12 @@ match: platform=discord
 target: main   &lt;-- catch-all for other channels</code></pre>
 
     <h3>mention-only channels</h3>
-    <p>To make the agent respond only when @mentioned (ignoring regular chat), set an <code>impulse_config</code> on the route:</p>
-    <pre><code>{"weights": {"message": 0}}</code></pre>
-    <p>This sets the default <em>message</em> verb weight to 0, so regular messages accumulate no impulse weight and never fire the agent. A <em>mention</em> carries the default weight of 100 (= threshold), so @mentions still fire immediately.</p>
-    <p>Set via dashboard (Routing &rarr; edit route &rarr; Impulse config) or in the route <code>impulse_config</code> column.</p>
+    <p>To make the agent respond only when @mentioned (ignoring regular chat), use a two-row pattern: one row that fires on mentions, one catch-all row in <code>#observe</code> mode that archives the rest into the same folder for context without firing a turn.</p>
+    <pre><code>seq  match                                       target
+10   platform=discord room=guild/* verb=mention  main
+20   platform=discord room=guild/*               main#observe</code></pre>
+    <p>Row 10 fires the agent on mentions and bot replies. Row 20 stores every other guild message under <code>main</code> so the agent has full thread context the next time it runs, but no turn is invoked. DMs are unaffected — add a separate route for them.</p>
+    <p>See <a href="/pub/concepts/routing.html#modes">routing modes</a> for the full fragment vocabulary.</p>
 
     <h2>threads</h2>
     <p>Discord threads are treated as separate conversations. When a message arrives inside a thread, arizuko sets the <code>topic</code> field to the thread&rsquo;s channel ID. The agent sees threads as distinct conversation threads — replies to a thread stay in that thread&rsquo;s context.</p>
@@ -222,7 +223,7 @@ send_file chatJid:="discord:123456789/987654321" \
       <dd>The agent is using <code>send</code> with a hardcoded JID. Use <code>reply</code> to respond to the originating chat automatically.</dd>
 
       <dt>Only @mentions fire the agent, not regular messages</dt>
-      <dd>The route has <code>impulse_config: {"weights":{"message":0}}</code>. Remove or reset that field to let all messages fire.</dd>
+      <dd>The matching route has <code>verb=mention</code> in its <code>match</code>, or the catch-all row is in <code>#observe</code> mode. Drop the verb constraint or remove the <code>#observe</code> fragment from the target to let all messages fire.</dd>
 
       <dt>Bot doesn&rsquo;t see messages in a channel</dt>
       <dd>Check that the bot has <strong>View Channel</strong> permission for that specific channel in Discord.</dd>

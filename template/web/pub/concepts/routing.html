@@ -46,6 +46,23 @@
       <li><strong>Edit live.</strong> The agent has <code>add_route</code>, <code>delete_route</code>, <code>get_routes</code>, <code>set_routes</code> as MCP tools; the operator dash (<code>dashd</code>) shows the table; changes take effect on the next inbound message, no restart.</li>
     </ul>
 
+    <h2 id="modes">modes</h2>
+    <p>The <code>target</code> column carries an optional <code>#mode</code> fragment that decides what the gateway does <em>after</em> the message lands in the folder.</p>
+    <table>
+      <thead><tr><th>target</th><th>effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>folder</code></td><td>store under <code>folder</code> and fire a turn (default)</td></tr>
+        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL.</td></tr>
+      </tbody>
+    </table>
+    <p>Combine with <code>verb=mention</code> and <code>seq</code> to build a two-row mention-only pattern: a tight row triggers on mentions, a catch-all row observes everything else. Sloth Discord guild:</p>
+    <pre><code>seq  match                                       target
+10   platform=discord room=guild/sloth           main
+20   platform=discord room=guild/* verb=mention  main
+30   platform=discord room=guild/*               main#observe</code></pre>
+    <p>Row 10 fires on every message in the named guild. Row 20 fires on @mentions in any other guild. Row 30 silently archives the rest into <code>main</code> for context without invoking the agent.</p>
+    <p>Future modes (<code>#drop</code>, <code>#digest</code>, &hellip;) extend the fragment vocabulary without schema changes.</p>
+
     <h2>go deeper</h2>
     <p>Full resolution order (reply chain &rarr; sticky &rarr; route table), authorization rules for cross-group delegation, the inline <code>@name</code>/<code>#topic</code> prefix layer, and worked end-to-end examples: <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>. For what the JID strings on the left-hand side actually look like across platforms, see <a href="/pub/concepts/jid.html">jid</a>.</p>
   </div>
