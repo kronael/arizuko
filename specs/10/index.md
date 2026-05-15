@@ -11,6 +11,7 @@ standalone, reusable across other agent workloads beyond arizuko.
 | -------------------------------------------------------- | --------- | --------------------------------------------------------------- |
 | [b-ant-standalone.md](b-ant-standalone.md)               | deferred  | ant as standalone Claude Code distribution; `ant <folder>` CLI  |
 | [c-ant-mcp-runtime.md](c-ant-mcp-runtime.md)             | unshipped | Go runtime: MCP front (stream-progress), claude NDJSON driver   |
+| [d-ant-image-cutover.md](d-ant-image-cutover.md)         | unshipped | `ant:latest` ENTRYPOINT swap to Go binary; soak protocol        |
 | [6-workflows.md](6-workflows.md)                         | deferred  | workflowd — TOML flow engine over shared SQLite; agent-agnostic |
 | [8-self-eval-skill.md](8-self-eval-skill.md)             | deferred  | Self-eval sub-query at container exit; portable skill           |
 | [1-multi-agent-commits.md](1-multi-agent-commits.md)     | deferred  | Committer script for multi-agent git safety (openclaw pattern)  |

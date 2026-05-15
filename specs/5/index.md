@@ -22,3 +22,4 @@ status: active
 | [S-jid-format.md](S-jid-format.md)                           | shipped | Typed ChatJID/UserJID with kind in path; path.Match globs                             |
 | [T-voice-synthesis.md](T-voice-synthesis.md)                 | shipped | `ttsd` + `send_voice` MCP tool                                                        |
 | [34-cost-caps.md](34-cost-caps.md)                           | spec    | Per-folder cost ceilings via `cost_log` + Anthropic billing API                       |
+| [K-ant-backend-codex.md](K-ant-backend-codex.md)             | planned | Ant `Backend` interface; Codex (`app-server`) as second harness                       |
