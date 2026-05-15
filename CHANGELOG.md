@@ -14,6 +14,30 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.39.1] — 2026-05-15
+
+> arizuko v0.39.1 — discord reply + reaction mentions
+>
+> • Replies to the bot's messages now count as mentions, even in user-mode
+> Discord where the gateway omits `ReferencedMessage`.
+> • Reactions on the bot's own messages are promoted to `verb=mention`
+> regardless of emoji — direct engagement, not an emoji vote.
+> • Live MESSAGE_CREATE inbound now populates `reply_to_id` from
+> `m.MessageReference.MessageID` (history fetch already did this).
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- **discd: reply-to-bot and reaction-to-bot fire turns.** Replies to
+  one of the bot's messages set `verb=mention` (matched against an
+  in-memory ring buffer of the last 256 sent message IDs). Same path
+  promotes reactions on bot-authored messages to `verb=mention`. Fixes
+  the silent-fall-through on sloth's wildcard `#observe` catch-all.
+- **discd: inbound MESSAGE_CREATE carries `reply_to_id`.** The live
+  handler now writes `MessageReference.MessageID` into the inbound
+  message, matching the history-fetch path.
+
 ## [v0.39.0] — 2026-05-15
 
 > arizuko v0.39.0 — route modes

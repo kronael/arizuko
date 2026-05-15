@@ -25,6 +25,7 @@ type bot struct {
 	typing        *chanlib.TypingRefresher
 	files         *chanlib.URLCache
 	lastInboundAt atomic.Int64
+	botMsgs       *sentIDs
 }
 
 func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
@@ -61,7 +62,7 @@ func newBot(cfg config) (*bot, error) {
 			discordgo.IntentsGuildMessageReactions |
 			discordgo.IntentsDirectMessageReactions
 	}
-	b := &bot{session: s, cfg: cfg}
+	b := &bot{session: s, cfg: cfg, botMsgs: newSentIDs(256)}
 	b.lastInboundAt.Store(time.Now().Unix())
 	b.typing = chanlib.NewTypingRefresher(4*time.Second, chanlib.DefaultTypingMaxTTL, b.sendTyping, nil)
 	return b, nil
@@ -205,6 +206,10 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if isGroup && b.isMentioned(m) {
 		verb = "mention"
 	}
+	var replyTo string
+	if m.MessageReference != nil {
+		replyTo = m.MessageReference.MessageID
+	}
 
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:          m.ID,
@@ -215,6 +220,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		Verb:        verb,
 		Timestamp:   m.Timestamp.Unix(),
 		Topic:       topic,
+		ReplyTo:     replyTo,
 		Attachments: atts,
 		IsGroup:     isGroup,
 		ChatName:    chatName,
@@ -226,7 +232,9 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	slog.Debug("inbound", "chat_jid", jid, "sender_jid", "discord:user/"+m.Author.ID, "message_id", m.ID, "content_len", len(content))
 }
 
-// onReactionAdd emits verb=like/dislike for each reaction; bot's own reactions skipped.
+// onReactionAdd emits verb=like/dislike for each reaction; bot's own reactions
+// skipped. Reactions targeting one of the bot's own messages are promoted to
+// verb=mention (direct engagement) regardless of the emoji.
 func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAdd) {
 	if m == nil || m.MessageReaction == nil {
 		return
@@ -240,6 +248,9 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 	}
 	jid := chatJID(m.GuildID, m.ChannelID)
 	verb := chanlib.ClassifyEmoji(emoji)
+	if b.botMsgs.has(m.MessageID) {
+		verb = "mention"
+	}
 	senderName := ""
 	if m.Member != nil && m.Member.User != nil {
 		senderName = m.Member.User.Username
@@ -312,8 +323,11 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("discord send: %w", err)
 		}
-		if firstID == "" && msg != nil {
-			firstID = msg.ID
+		if msg != nil {
+			if firstID == "" {
+				firstID = msg.ID
+			}
+			b.botMsgs.add(msg.ID)
 		}
 	}
 	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", firstID, "source", "discord")
@@ -341,6 +355,7 @@ func (b *bot) SendVoice(jid, audioPath, caption string) (string, error) {
 		return "", fmt.Errorf("discord sendvoice: %w", err)
 	}
 	if msg != nil {
+		b.botMsgs.add(msg.ID)
 		return msg.ID, nil
 	}
 	return "", nil
@@ -360,7 +375,7 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	// ContentType. Setting it explicitly here so the rich-media bubble
 	// fires even when the upstream filename has an ambiguous/missing
 	// extension (.bin, no ext, etc).
-	_, err = b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
+	msg, err := b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
 		Content: caption,
 		Files: []*discordgo.File{{
 			Name:        name,
@@ -370,6 +385,9 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("discord sendfile: %w", err)
+	}
+	if msg != nil {
+		b.botMsgs.add(msg.ID)
 	}
 	return nil
 }
@@ -450,6 +468,7 @@ func (b *bot) Quote(req chanlib.QuoteRequest) (string, error) {
 	if msg == nil {
 		return "", nil
 	}
+	b.botMsgs.add(msg.ID)
 	return msg.ID, nil
 }
 
@@ -552,6 +571,9 @@ func isRateLimit(err error) bool {
 
 // isMentioned returns true when the bot is in the Discord-populated Mentions
 // list or when the message is a direct reply to one of the bot's messages.
+// The user-mode Discord gateway often omits the full ReferencedMessage object
+// and ships only MessageReference.MessageID; cross-check that ID against the
+// recently-sent-by-bot set to catch reply-to-bot in user-mode too.
 func (b *bot) isMentioned(m *discordgo.MessageCreate) bool {
 	botID := b.session.State.User.ID
 	for _, u := range m.Mentions {
@@ -559,8 +581,12 @@ func (b *bot) isMentioned(m *discordgo.MessageCreate) bool {
 			return true
 		}
 	}
-	if m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil {
-		return m.ReferencedMessage.Author.ID == botID
+	if m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil &&
+		m.ReferencedMessage.Author.ID == botID {
+		return true
+	}
+	if m.MessageReference != nil && b.botMsgs.has(m.MessageReference.MessageID) {
+		return true
 	}
 	return false
 }
