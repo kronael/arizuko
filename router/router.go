@@ -335,3 +335,9 @@ func ResolveRoute(msg core.Message, routes []core.Route) string {
 	}
 	return ""
 }
+
+// ResolveRouteTarget resolves the matching route and parses target fragment.
+// Returns {Folder:"",Mode:""} when no route matches.
+func ResolveRouteTarget(msg core.Message, routes []core.Route) core.RouteTarget {
+	return core.ParseRouteTarget(ResolveRoute(msg, routes))
+}

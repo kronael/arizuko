@@ -487,3 +487,44 @@ func TestEscapeXml(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveRouteTarget_BareTrigger(t *testing.T) {
+	routes := []core.Route{
+		{Seq: 0, Match: "room=42", Target: "rhias/nemo"},
+	}
+	msg := core.Message{ChatJID: "telegram:42", Verb: "message"}
+	rt := ResolveRouteTarget(msg, routes)
+	if rt.Folder != "rhias/nemo" || rt.Mode != "" {
+		t.Fatalf("bare target should resolve to trigger, got %+v", rt)
+	}
+}
+
+func TestResolveRouteTarget_ObserveFragment(t *testing.T) {
+	routes := []core.Route{
+		{Seq: 0, Match: "room=42", Target: "rhias/nemo#observe"},
+	}
+	msg := core.Message{ChatJID: "telegram:42", Verb: "message"}
+	rt := ResolveRouteTarget(msg, routes)
+	if rt.Folder != "rhias/nemo" || rt.Mode != "observe" {
+		t.Fatalf("expected folder=rhias/nemo mode=observe, got %+v", rt)
+	}
+}
+
+// TestResolveRouteTarget_SlothPattern verifies the canonical mention-only
+// channel setup: a higher-priority verb=mention trigger row + a lower-
+// priority catch-all `#observe` row. Mentions fire; everything else
+// stores under the folder as observed context.
+func TestResolveRouteTarget_SlothPattern(t *testing.T) {
+	routes := []core.Route{
+		{Seq: -1, Match: "room=42 verb=mention", Target: "main"},
+		{Seq: 0, Match: "room=42", Target: "main#observe"},
+	}
+	mention := core.Message{ChatJID: "discord:42", Verb: "mention"}
+	if rt := ResolveRouteTarget(mention, routes); rt.Folder != "main" || rt.Mode != "" {
+		t.Fatalf("mention should fire trigger, got %+v", rt)
+	}
+	regular := core.Message{ChatJID: "discord:42", Verb: "message"}
+	if rt := ResolveRouteTarget(regular, routes); rt.Folder != "main" || rt.Mode != "observe" {
+		t.Fatalf("non-mention should observe, got %+v", rt)
+	}
+}

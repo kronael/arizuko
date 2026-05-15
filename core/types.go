@@ -65,11 +65,34 @@ type Mount struct {
 }
 
 type Route struct {
-	ID            int64  `json:"id"`
-	Seq           int    `json:"seq"`
-	Match         string `json:"match"`
-	Target        string `json:"target"`
-	ImpulseConfig string `json:"impulse_config,omitempty"`
+	ID                     int64  `json:"id"`
+	Seq                    int    `json:"seq"`
+	Match                  string `json:"match"`
+	Target                 string `json:"target"`
+	ObserveWindowMessages  int    `json:"observe_window_messages,omitempty"`
+	ObserveWindowChars     int    `json:"observe_window_chars,omitempty"`
+}
+
+// RouteTarget parses `folder` or `folder#mode` syntax on routes.target.
+// Mode="" means trigger (fire a turn). Mode="observe" stores under Folder
+// without dispatching.
+type RouteTarget struct {
+	Folder string
+	Mode   string
+}
+
+func ParseRouteTarget(s string) RouteTarget {
+	if i := strings.IndexByte(s, '#'); i >= 0 {
+		return RouteTarget{Folder: s[:i], Mode: s[i+1:]}
+	}
+	return RouteTarget{Folder: s}
+}
+
+func (rt RouteTarget) String() string {
+	if rt.Mode == "" {
+		return rt.Folder
+	}
+	return rt.Folder + "#" + rt.Mode
 }
 
 func JidRoom(jid string) string {

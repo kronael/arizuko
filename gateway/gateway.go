@@ -61,8 +61,6 @@ type Gateway struct {
 	turnsMu       sync.Mutex
 	inFlightTurns map[string]*turnState
 
-	impulse *impulseGate
-
 	// ctx is the gateway's root context set at Run. Used to abort
 	// long-running HTTP calls (media download, whisper) on shutdown.
 	ctx context.Context
@@ -90,7 +88,6 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 			GroupsDir: cfg.GroupsDir,
 			IpcDir:    cfg.IpcDir,
 		},
-		impulse: newImpulseGate(),
 	}
 	// Bind submit_turn at construction so the agent path is wired even
 	// in unit tests that drive runAgentWithOpts without calling Run().
@@ -554,12 +551,16 @@ func (g *Gateway) pollOnce() {
 			continue
 		}
 
-		if g.cfg.ImpulseEnabled {
-			impCfg := ParseImpulseCfg(g.store.GetImpulseConfigJSON(last))
-			if !g.impulse.accept(chatJid, chatMsgs, impCfg) {
-				slog.Debug("poll: impulse hold", "jid", chatJid)
-				continue
+		if rt := router.ResolveRouteTarget(last, routes); rt.Mode == "observe" {
+			ids := make([]string, len(chatMsgs))
+			for i, m := range chatMsgs {
+				ids[i] = m.ID
 			}
+			if err := g.store.MarkMessagesObserved(rt.Folder, ids); err != nil {
+				slog.Warn("poll: mark observed", "jid", chatJid, "err", err)
+			}
+			g.advanceAgentCursor(chatJid, chatMsgs)
+			continue
 		}
 
 		ctx := g.ctx
@@ -580,15 +581,6 @@ func (g *Gateway) pollOnce() {
 
 		slog.Debug("poll: enqueue check", "jid", chatJid)
 		g.queue.EnqueueMessageCheck(chatJid)
-	}
-
-	if g.cfg.ImpulseEnabled {
-		for _, jid := range g.impulse.flush(func(jid string) ImpulseCfg {
-			return ParseImpulseCfg(g.store.GetImpulseConfigJSON(core.Message{ChatJID: jid, Verb: "message"}))
-		}) {
-			slog.Debug("poll: impulse timeout flush", "jid", jid)
-			g.queue.EnqueueMessageCheck(jid)
-		}
 	}
 
 	g.saveState()
@@ -725,9 +717,15 @@ func (g *Gateway) processSenderBatch(
 
 	g.emitSystemEvents(group, chatJid)
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
-	observed := g.store.ObservedMessagesSince(group.Folder, chatJid, agentTs.Format(time.RFC3339Nano))
+	maxN, maxC := g.observeWindow(group.Folder)
+	observed := g.store.ObservedTail(group.Folder, chatJid, maxN, maxC)
+	_ = agentTs
 	topic := g.effectiveTopic(chatJid, last.Topic)
-	prompt := sysMsgs + g.autocallsBlock(group.Folder, topic) + g.personaBlock(group.Folder) + router.FormatMessages(msgs, observed)
+	observedRule := ""
+	if len(observed) > 0 {
+		observedRule = "<rule>Observed messages are context, not requests. Do not reply to them; reply to the explicit message.</rule>\n"
+	}
+	prompt := sysMsgs + g.autocallsBlock(group.Folder, topic) + g.personaBlock(group.Folder) + observedRule + router.FormatMessages(msgs, observed)
 
 	if deliverCh != nil {
 		slog.Debug("typing start", "jid", deliverTo, "channel", deliverCh.Name())
@@ -1631,9 +1629,9 @@ func (g *Gateway) resolveGroup(msg core.Message) (core.Group, bool) {
 			return gr, true
 		}
 	}
-	folder := router.ResolveRoute(msg, g.store.AllRoutes())
-	if folder != "" {
-		return g.store.GroupByFolder(folder)
+	rt := router.ResolveRouteTarget(msg, g.store.AllRoutes())
+	if rt.Folder != "" {
+		return g.store.GroupByFolder(rt.Folder)
 	}
 	return core.Group{}, false
 }
@@ -1678,9 +1676,9 @@ func (g *Gateway) resolveTarget(msg core.Message, routes []core.Route, selfFolde
 	if len(routes) == 0 {
 		return ""
 	}
-	t := router.ResolveRoute(msg, routes)
-	if t != "" && t != selfFolder {
-		return t
+	rt := router.ResolveRouteTarget(msg, routes)
+	if rt.Folder != "" && rt.Folder != selfFolder {
+		return rt.Folder
 	}
 	return ""
 }
@@ -1805,6 +1803,28 @@ func (g *Gateway) handlePrefixLayer(
 	})
 	g.queue.EnqueueMessageCheck(chatJid)
 	return true
+}
+
+// observeWindow returns the (maxMessages, maxChars) caps for surfacing
+// observed messages on a folder. Per-route overrides on
+// routes.observe_window_* win over the instance defaults; the route
+// chosen is the first one targeting `folder` (sans fragment) with a
+// non-zero override.
+func (g *Gateway) observeWindow(folder string) (int, int) {
+	maxN := g.cfg.ObserveWindowMessages
+	maxC := g.cfg.ObserveWindowChars
+	for _, r := range g.store.AllRoutes() {
+		if core.ParseRouteTarget(r.Target).Folder != folder {
+			continue
+		}
+		if r.ObserveWindowMessages > 0 {
+			maxN = r.ObserveWindowMessages
+		}
+		if r.ObserveWindowChars > 0 {
+			maxC = r.ObserveWindowChars
+		}
+	}
+	return maxN, maxC
 }
 
 func (g *Gateway) advanceAgentCursor(chatJid string, msgs []core.Message) {

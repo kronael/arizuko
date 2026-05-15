@@ -149,7 +149,8 @@ func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string {
 	seen := make(map[string]struct{})
 	var out []string
 	for _, r := range s.AllRoutes() {
-		if r.Target != worldFolder && !strings.HasPrefix(r.Target, worldFolder+"/") {
+		f := core.ParseRouteTarget(r.Target).Folder
+		if f != worldFolder && !strings.HasPrefix(f, worldFolder+"/") {
 			continue
 		}
 		for _, jid := range routeSourceJIDs(r.Match) {
@@ -165,7 +166,8 @@ func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string {
 
 func (s *Store) DefaultFolderForJID(jid string) string {
 	msg := core.Message{ChatJID: jid, Verb: "message"}
-	return router.ResolveRoute(msg, s.AllRoutes())
+	t := router.ResolveRoute(msg, s.AllRoutes())
+	return core.ParseRouteTarget(t).Folder
 }
 
 func scanGroupFull(r rowScanner) (core.Group, bool) {

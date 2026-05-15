@@ -54,9 +54,13 @@ type Config struct {
 	ChannelSecret        string
 	OnboardingEnabled    bool
 	OnboardingPlatforms  []string
-	ImpulseEnabled       bool
 	SendDisabledChannels []string
 	SendDisabledGroups   []string
+
+	// Observe-mode context window defaults (per-route overrides on
+	// routes.observe_window_messages / routes.observe_window_chars).
+	ObserveWindowMessages int
+	ObserveWindowChars    int
 
 	MediaEnabled  bool
 	MediaMaxBytes int64
@@ -141,9 +145,11 @@ func LoadConfig() (*Config, error) {
 		ChannelSecret:        envOr("CHANNEL_SECRET", ""),
 		OnboardingEnabled:    envOr("ONBOARDING_ENABLED", "false") == "true",
 		OnboardingPlatforms:  parseCSV(envOr("ONBOARDING_PLATFORMS", "")),
-		ImpulseEnabled:       envOr("IMPULSE_ENABLED", "true") == "true",
 		SendDisabledChannels: parseCSV(envOr("SEND_DISABLED_CHANNELS", "")),
 		SendDisabledGroups:   parseCSV(envOr("SEND_DISABLED_GROUPS", "")),
+
+		ObserveWindowMessages: envInt("OBSERVE_WINDOW_MESSAGES", 10),
+		ObserveWindowChars:    envInt("OBSERVE_WINDOW_CHARS", 4000),
 
 		MediaEnabled:  envOr("MEDIA_ENABLED", "false") == "true",
 		MediaMaxBytes: int64(envInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),

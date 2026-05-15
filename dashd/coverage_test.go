@@ -29,7 +29,7 @@ func testDBFile(t *testing.T) *sql.DB {
 		`CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL DEFAULT '')`,
 		`CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, source TEXT NOT NULL DEFAULT '', verb TEXT, errored INTEGER NOT NULL DEFAULT 0)`,
 		`CREATE TABLE task_run_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, run_at TEXT, duration_ms INTEGER, status TEXT, result TEXT, error TEXT)`,
-		`CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER DEFAULT 0, match TEXT, target TEXT, impulse_config TEXT)`,
+		`CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER DEFAULT 0, match TEXT, target TEXT, observe_window_messages INTEGER, observe_window_chars INTEGER)`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("schema: %v", err)

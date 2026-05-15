@@ -348,41 +348,64 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	return collectMessages(rows)
 }
 
-func (s *Store) ObservedMessagesSince(groupFolder, excludeJid, since string) []core.Message {
-	jids := s.RouteSourceJIDsInWorld(groupFolder)
-	if len(jids) == 0 {
+// MarkMessagesObserved sets is_observed=1 and routed_to=folder for the
+// given message IDs. Called by the gateway poll loop when the resolved
+// route target is `folder#observe`.
+func (s *Store) MarkMessagesObserved(folder string, ids []string) error {
+	if len(ids) == 0 {
 		return nil
 	}
-	args := make([]any, 0, len(jids)+2)
-	for _, jid := range jids {
-		if jid != excludeJid {
-			args = append(args, jid)
-		}
+	q := `UPDATE messages SET is_observed = 1, routed_to = ? WHERE id IN (?` +
+		strings.Repeat(",?", len(ids)-1) + `)`
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, folder)
+	for _, id := range ids {
+		args = append(args, id)
 	}
-	if len(args) == 0 {
+	_, err := s.db.Exec(q, args...)
+	return err
+}
+
+// ObservedTail returns the trailing window of observed messages for
+// folder. Capped by maxMsgs and maxChars (older messages drop first,
+// the smaller cap wins). Messages from excludeJid are skipped (the
+// triggering chat sees its own messages via the regular feed).
+func (s *Store) ObservedTail(folder, excludeJid string, maxMsgs, maxChars int) []core.Message {
+	if maxMsgs <= 0 || maxChars <= 0 {
 		return nil
 	}
-	args = append(args, since)
-	ph := "(" + strings.TrimSuffix(strings.Repeat("?,", len(args)-1), ",") + ")"
 	rows, err := s.db.Query(
 		`SELECT `+msgCols+` FROM messages
-		 WHERE chat_jid IN `+ph+` AND timestamp > ?
+		 WHERE routed_to = ? AND is_observed = 1
+		   AND chat_jid != ?
 		   AND is_bot_message = 0 AND content != ''
-		 ORDER BY timestamp ASC
-		 LIMIT 100`,
-		args...,
+		 ORDER BY timestamp DESC
+		 LIMIT ?`,
+		folder, excludeJid, maxMsgs,
 	)
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
-	var out []core.Message
-	for rows.Next() {
-		m, err := scanMessage(rows)
-		if err != nil {
-			continue
+	rev, err := collectMessages(rows)
+	if err != nil {
+		return nil
+	}
+	// Take the youngest messages whose cumulative chars fit under
+	// maxChars, then reverse to ascending.
+	chars := 0
+	cut := 0
+	for i, m := range rev {
+		c := len(m.Content)
+		if chars+c > maxChars {
+			break
 		}
-		out = append(out, m)
+		chars += c
+		cut = i + 1
+	}
+	rev = rev[:cut]
+	out := make([]core.Message, len(rev))
+	for i, m := range rev {
+		out[len(rev)-1-i] = m
 	}
 	return out
 }

@@ -36,7 +36,8 @@ func testDB(t *testing.T) *sql.DB {
 		`CREATE TABLE task_run_logs (id INTEGER PRIMARY KEY AUTOINCREMENT,
 			task_id TEXT, run_at TEXT, duration_ms INTEGER, status TEXT, result TEXT, error TEXT)`,
 		`CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT,
-			seq INTEGER DEFAULT 0, match TEXT, target TEXT, impulse_config TEXT)`,
+			seq INTEGER DEFAULT 0, match TEXT, target TEXT,
+			observe_window_messages INTEGER, observe_window_chars INTEGER)`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("schema: %v", err)
