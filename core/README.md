@@ -15,6 +15,7 @@ imports nothing else arizuko-internal.
 - `LoadConfigFrom(dir string)` — explicit dir
 - `Config` — all tunables and flags (see CLAUDE.md for the full list)
 - `Message`, `Group`, `GroupConfig`, `Mount`, `Route`, `Task`, `SessionRecord`
+- `RouteTarget`, `ParseRouteTarget(s)` — parses `routes.target` as `<folder>[#<mode>]`
 - `Channel` — `Connect`, `Send`, `SendFile`, `Owns`, `Typing`, `Disconnect`
 - `HistoryFetcher`, `Socializer` — optional extensions
 - `JidRoom(jid)`, `JidPlatform(jid)` — JID parsing

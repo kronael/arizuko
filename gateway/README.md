@@ -31,14 +31,15 @@ systems (e.g. muaddib's `<meta>...</meta>`) unify these under one tag;
 arizuko keeps them as distinct named tags so the agent can pattern-match
 on intent.
 
-| Block                                     | Source                         | Carries                                                          |
-| ----------------------------------------- | ------------------------------ | ---------------------------------------------------------------- |
-| `<autocalls>`                             | `gateway/autocalls.go:53`      | zero-arg facts: `now`, `instance`, `folder`, `tier`, `session`   |
-| `<persona name=…>`                        | `gateway/persona.go:55`        | `PERSONA.md` frontmatter `summary:` re-anchor                    |
-| `<previous_session/>`                     | `gateway/gateway.go:1799`      | last session id/timing on a fresh session                        |
-| `<knowledge layer=…>`                     | `diary/diary.go:36`            | recent diary entries with age labels (today/yesterday/N ago)     |
-| `<messages>` + `<reply-to>` + `<message>` | `router/router.go:63`/`80`     | inbound batch; `<reply-to>` sibling header above the `<message>` |
-| `<attachment …/>`                         | `gateway/gateway.go:1350,1353` | inbound media path + optional `transcript=`                      |
+| Block                                     | Source                         | Carries                                                                                                                                                                      |
+| ----------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<autocalls>`                             | `gateway/autocalls.go:53`      | zero-arg facts: `now`, `instance`, `folder`, `tier`, `session`                                                                                                               |
+| `<persona name=…>`                        | `gateway/persona.go:55`        | `PERSONA.md` frontmatter `summary:` re-anchor                                                                                                                                |
+| `<previous_session/>`                     | `gateway/gateway.go:1799`      | last session id/timing on a fresh session                                                                                                                                    |
+| `<knowledge layer=…>`                     | `diary/diary.go:36`            | recent diary entries with age labels (today/yesterday/N ago)                                                                                                                 |
+| `<messages>` + `<reply-to>` + `<message>` | `router/router.go:63`/`80`     | inbound batch; `<reply-to>` sibling header above the `<message>`                                                                                                             |
+| `<attachment …/>`                         | `gateway/gateway.go:1350,1353` | inbound media path + optional `transcript=`                                                                                                                                  |
+| `<observed>`                              | `gateway/gateway.go`           | trailing window of `is_observed=1` rows routed to this folder; capped by `OBSERVE_WINDOW_MESSAGES`/`OBSERVE_WINDOW_CHARS` (per-route overrides on `routes.observe_window_*`) |
 
 Coming per specs (same convention, not yet wired):
 

@@ -32,6 +32,13 @@ Primary methods (by domain):
   FS perms; encryption at rest deferred per spec 9/11).
 - Routes, system messages, onboarding, topics — see source
 
+`messages.is_observed` (migration 0054) marks rows stored under a
+folder via a `#observe` route target — they do not fire a turn but are
+surfaced to the next trigger turn's `<observed>` block. `routes.target`
+is `<folder>[#<mode>]`; per-route caps `observe_window_messages` and
+`observe_window_chars` override the env defaults. Spec:
+`specs/6/B-route-mode-ingestion.md`.
+
 ## Dependencies
 
 - `core`, `db_utils`, `groupfolder`, `modernc.org/sqlite`
