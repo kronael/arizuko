@@ -36,7 +36,7 @@ Developer capabilities are embedded in each product that needs them
 | [product-trip.md](product-trip.md)                             | trip     | may        | Multi-step travel research → structured itinerary  |                    |
 | [product-strategy.md](product-strategy.md)                     | strategy | prometheus | Domain tracker; weekly synthesis → team briefing   |                    |
 | [product-pm.md](product-pm.md)                                 | pm       | sloth      | Team task board + weekly digest                    |                    |
-| [product-rhias.md](product-rhias.md)                           | reality  | rhias      | Ongoing life-context thread holder                 |                    |
+| [product-reality.md](product-reality.md)                       | reality  | rhias      | Ongoing life-context thread holder                 |                    |
 | [product-creator.md](product-creator.md)                       | creator  | inari      | Curation + draft pipeline; approve before publish  | HITL firewall      |
 | [product-socials.md](product-socials.md)                       | socials  | phosphene  | Multi-platform distribution; schedule + engagement | HITL + rate limits |
 

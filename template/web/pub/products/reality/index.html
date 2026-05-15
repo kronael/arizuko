@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reality agent (Rhias) — arizuko</title>
+    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <style>
+      .prose p {
+        margin: 0.6em 0;
+      }
+      .prose ul {
+        margin: 0.4em 0 0.8em 1.2em;
+      }
+      .prose li {
+        margin: 0.3em 0;
+      }
+      .prose pre {
+        margin: 0.6em 0;
+      }
+      .lede {
+        font-size: 1.05em;
+        color: var(--fg);
+        margin: 0.4em 0 1em;
+      }
+      .back {
+        font-size: 0.85em;
+      }
+      .callout {
+        border-left: 3px solid var(--accent, #888);
+        padding: 0.4em 0.8em;
+        margin: 1em 0;
+        background: var(--callout-bg, rgba(127, 127, 127, 0.06));
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <p class="dim back">
+        <a href="/pub/">arizuko</a> &rsaquo; products &rsaquo; Reality agent
+      </p>
+      <h1>Reality agent (Rhias)</h1>
+
+      <p class="lede">
+        Holds the thread of what you&rsquo;re living through &mdash; not to
+        judge it, but because someone has to remember.
+      </p>
+
+      <p>
+        A persistent agent grounded in your actual life and context. Not a
+        task runner or a search tool &mdash; a presence that holds ongoing
+        threads about real-world situations: relationships, decisions,
+        projects, commitments. Template at <code>ant/examples/rhias/</code>.
+      </p>
+
+      <h2>system shape</h2>
+      <ul>
+        <li>
+          <strong>Context threads.</strong> Named threads in
+          <code>facts/threads/</code> for ongoing real-world situations &mdash;
+          a negotiation, a decision, a relationship arc, a project &mdash;
+          updated across sessions without the user re-explaining.
+        </li>
+        <li>
+          <strong>Recall on demand.</strong> &ldquo;What did I say about X
+          last month?&rdquo; &mdash; retrieves from diary + facts/, synthesises,
+          surfaces.
+        </li>
+        <li>
+          <strong>Reflection.</strong> At the end of a session or on request,
+          offers a structured summary of what was discussed and what&rsquo;s
+          unresolved.
+        </li>
+        <li>
+          <strong>Monthly autonomous sweep.</strong> A <code>timed</code> task
+          compacts diary and episodes; surfaces what changed, what was
+          resolved, what&rsquo;s still open. No prompt required.
+        </li>
+        <li>
+          <strong>Content subfolder.</strong> A separate <code>rhias/content</code>
+          group for longer-form work &mdash; drafting, editing, publishing
+          &mdash; with its own memory and persona, distinct from the main
+          conversation.
+        </li>
+      </ul>
+
+      <h2>persona</h2>
+      <p>
+        Rhias is curious and non-judgmental. Holds context without being
+        asked; asks clarifying questions before filing anything; never gives
+        advice unprompted; references prior threads naturally. The
+        <code>SOUL.md</code> in the template encodes that voice; per-deployment
+        <code>CLAUDE.md</code> tunes it without overriding it.
+      </p>
+
+      <h2>example: a thread held across weeks</h2>
+      <pre><code>telegram &middot; DM
+
+  alice  i'm second-guessing the lambda piece of the q3 plan again
+  rhias  We tracked this in q3-architecture (last touched 19 Apr).
+         Two open items there: cold-start latency, and the
+         per-service vs bundled import call. Want to walk through
+         either?
+
+  alice  the cold-start one
+  rhias  Last decision (8 Apr, your diary): per-service imports.
+         Reason logged: bundle growth post-deploy traced to broad
+         SDK imports. Anything new since that changes the call?
+
+  alice  yeah, sentry pinged us about a separate cold start spike
+  rhias  Want me to file that under q3-architecture or open a new
+         thread? It reads like related-but-distinct.
+</code></pre>
+      <p>
+        Two-week gap, multi-thread context, never re-explained. The agent
+        opens the session by scanning diary for recent context; updates
+        <code>facts/threads/q3-architecture.md</code> after the session
+        without being asked.
+      </p>
+
+      <h2>required skills</h2>
+      <ul>
+        <li><code>diary</code>, <code>facts</code>, <code>recall-memories</code>, <code>compact-memories</code>, <code>users</code> &mdash; required.</li>
+        <li><code>web</code> &mdash; optional, for grounding real-world context against external info.</li>
+        <li><code>oracle</code> &mdash; optional, for longer synthesis across many threads.</li>
+      </ul>
+
+      <h2>channels</h2>
+      <p>
+        Telegram is the primary channel &mdash; personal, ongoing
+        conversations. WhatsApp is the alternative for non-Telegram users.
+        The <code>content</code> subfolder is a distinct arizuko group with
+        its own skills and memory, routed from the operator&rsquo;s setup.
+      </p>
+
+      <h2>case study: asymmetric channels (Nemo deployment)</h2>
+      <p>
+        One reality-agent deployment, &ldquo;Nemo&rdquo;, runs on both
+        Telegram and WhatsApp but with different roles. The team reads
+        WhatsApp for situational signal but converses in Telegram. Two pulls
+        in tension:
+      </p>
+      <ul>
+        <li>
+          <strong>Don&rsquo;t lose the signal.</strong> WhatsApp messages
+          should be ingested into Rhias&rsquo;s memory the same as Telegram
+          &mdash; searchable, summarisable, referenceable.
+        </li>
+        <li>
+          <strong>Don&rsquo;t fork the conversation.</strong> If the bot
+          also replies on WhatsApp, the team now has two threads to follow
+          and the WhatsApp group gets noisier than its participants signed
+          up for.
+        </li>
+      </ul>
+      <p>
+        The resolution is a two-route setup. WhatsApp routes to
+        <code>rhias/nemo#observe</code> &mdash; messages land in the
+        folder, agent has full read access via the same ACL, but the route
+        mode tells the router not to fire a turn. Telegram routes plainly
+        to <code>rhias/nemo</code> and fires as usual. Anything Rhias
+        wants to surface from WhatsApp posts to Telegram with a one-line
+        attribution; the WhatsApp side stays silent on the wire.
+      </p>
+      <pre><code>seq  match                                  target
+10   platform=telegram chat=group/5229089286  rhias/nemo
+20   platform=whatsapp room=420735544891@...  rhias/nemo#observe
+</code></pre>
+      <p>
+        The pattern extends. Ingest from many channels (RSS, partner
+        WhatsApp groups, a Mastodon timeline) into a single folder; reply
+        on one canonical channel. One inbound bus, one outbound channel.
+        See <a href="/pub/concepts/routing.html#modes">routing &mdash; modes</a>
+        for the fragment vocabulary.
+      </p>
+      <p>
+        The agent&rsquo;s own <code>CLAUDE.md</code> can add a
+        defence-in-depth rule (&ldquo;never call <code>send_message</code>
+        targeting WhatsApp&rdquo;) on top of the platform-level
+        <code>#observe</code> enforcement, but with the route mode in place
+        the rule is redundant by construction.
+      </p>
+
+      <h2>data &amp; trust</h2>
+      <ul>
+        <li>
+          <strong>Your server.</strong> Threads, diary, memory, channel
+          history &mdash; all live under
+          <code>/srv/data/arizuko_&lt;name&gt;/</code>. Backup is one
+          <code>tar</code>; no DB dump.
+        </li>
+        <li>
+          <strong>Default outbound paths.</strong> Telegram/WhatsApp for bot
+          traffic; Anthropic for model calls. Any extra egress goes through
+          <a href="/pub/crackbox/">crackbox</a> and only reaches hosts you
+          allowlist per group.
+        </li>
+        <li>
+          <strong>Group-scoped memory.</strong> The main conversation
+          group and the <code>content</code> subfolder have distinct
+          memories. Nothing leaks across.
+        </li>
+      </ul>
+
+      <h2>setup</h2>
+      <pre><code>arizuko create &lt;name&gt;
+cd /srv/data/arizuko_&lt;name&gt;
+$EDITOR .env             # Telegram + (optional) WhatsApp tokens
+arizuko run &lt;name&gt;
+
+# inside the instance:
+#   start from ant/examples/rhias/ as the group template
+#   seed facts/threads/ with active life-context entries
+#   create the rhias/content subgroup if you want long-form work isolated
+</code></pre>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li>
+          <a href="/pub/products/slack-team/">Slack team agent</a> &mdash;
+          shared-channel product, contrast with single-user Rhias
+        </li>
+        <li>
+          <a href="/pub/concepts/routing.html">routing</a> &mdash; route
+          table, match keys, target modes (<code>#observe</code> et al.)
+        </li>
+        <li>
+          <a href="/pub/concepts/persona.html">persona &amp; CLAUDE.md</a>
+          &mdash; how per-group rules shape behaviour
+        </li>
+        <li>
+          <a href="/pub/concepts/grants.html">grants</a> &mdash; per-group
+          action scoping
+        </li>
+        <li>
+          <a href="/pub/howto/">deployment guide</a> &mdash; first instance,
+          first channel
+        </li>
+      </ul>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="/pub/assets/hub.js"></script>
+  </body>
+</html>
