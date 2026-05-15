@@ -20,8 +20,7 @@
     <p class="dim back"><a href="/pub/">&larr; hub</a></p>
 
     <h2>what this is</h2>
-    <p>arizuko is a multitenant Claude agent router. Channel adapters (telegram, discord, web, &hellip;) push messages over HTTP; the router routes each message to a per-group containerized Claude agent and streams the reply back.</p>
-    <p>One deployment, many groups, many channels. The agent in each group is a Claude Code CLI process &mdash; full tool use, MCP, skills, hooks.</p>
+    <p>arizuko is a multitenant Claude agent router. Channel adapters (telegram, discord, web, &hellip;) push messages over HTTP to <code>gated</code>; gated routes each message to a per-group containerized Claude Code process and streams the reply back. One instance hosts many groups; each group has its own files, persona, skills, and container.</p>
 
     <h2>what you can do here</h2>
     <ul>

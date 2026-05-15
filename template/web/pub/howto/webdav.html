@@ -35,7 +35,7 @@
     <h1>mount the workspace over WebDAV</h1>
     <p class="dim back"><a href="/pub/">&larr; arizuko</a> &middot; <a href="/pub/howto/">&larr; how-to</a> &middot; webdav</p>
 
-    <p class="lede">Every arizuko group folder is browsable as a real filesystem at <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>. Sign in once, point any WebDAV client (Finder, Windows Explorer, rclone, davfs2, curl) at that URL, and you are looking at the exact files the agent reads and writes &mdash; no <code>scp</code>, no shell, no pasting blobs into chat.</p>
+    <p class="lede">Every arizuko group folder is exposed as WebDAV at <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>. Any WebDAV client (Finder, Windows Explorer, rclone, davfs2, curl) sees the same files the agent reads and writes.</p>
 
     <h2>quick start</h2>
     <p>One-time setup of an <code>rclone</code> remote against your instance, plus a mount:</p>
