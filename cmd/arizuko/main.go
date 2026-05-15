@@ -348,7 +348,6 @@ func runGrant(s *store.Store, sub, pat string, w io.Writer) error {
 	if sub == "" || pat == "" {
 		return errEmptyGrant
 	}
-	action := "admin"
 	if pat == "**" {
 		// Operator grant: add to role:operator instead of a per-folder row.
 		if err := s.AddMembership(sub, "role:operator", "arizuko grant"); err != nil {
@@ -358,7 +357,7 @@ func runGrant(s *store.Store, sub, pat string, w io.Writer) error {
 		return nil
 	}
 	if err := s.AddACLRow(core.ACLRow{
-		Principal: sub, Action: action, Scope: pat,
+		Principal: sub, Action: "admin", Scope: pat,
 		Effect: "allow", GrantedBy: "arizuko grant",
 	}); err != nil {
 		return err

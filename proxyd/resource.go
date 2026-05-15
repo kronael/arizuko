@@ -321,7 +321,7 @@ func callerFromHTTP(hmacSecret string) resreg.CallerFromHTTPFunc {
 			_ = json.Unmarshal([]byte(hdr), &groups)
 		}
 		c := resreg.Caller{Sub: sub, Name: name}
-		// Operator detection: the `**` marker in user_groups is today's
+		// Operator detection: the `**` marker in the groups claim is the
 		// operator gate (auth.MatchGroups). Mint `routes:*` for them.
 		for _, g := range groups {
 			if g == "**" {

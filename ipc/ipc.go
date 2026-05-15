@@ -656,7 +656,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return inner(ctx, req)
 		})
 	}
-	_ = granted
 
 	// log_external_cost — agent reports a non-Anthropic LLM call's cost
 	// (oracle/codex/openai) so the spec 5/34 budget gate covers it. The

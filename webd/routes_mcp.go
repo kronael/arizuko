@@ -109,8 +109,8 @@ func routeArgs(req mcp.CallToolRequest) map[string]any {
 	return body
 }
 
-// isOperator: the `**` marker in user_groups is today's operator gate
-// (auth.MatchGroups). Mirrors proxyd/resource.go callerFromHTTP.
+// isOperator: the `**` marker in the caller's groups claim is the operator
+// gate (auth.MatchGroups). Mirrors proxyd/resource.go callerFromHTTP.
 func isOperator(groups []string) bool {
 	for _, g := range groups {
 		if g == "**" {

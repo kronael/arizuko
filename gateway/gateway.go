@@ -986,8 +986,8 @@ func (g *Gateway) runAgentWithOpts(
 	rules := grants.DeriveRules(g.store, group.Folder, id.Tier, auth.WorldOf(group.Folder))
 	// Operator overrides for this folder's agent live as acl rows with
 	// principal=folder:<folder> and action=mcp:<tool>. Append them onto
-	// the tier-derived rules so the in-container CheckAction sees both
-	// layers; deny precedence is preserved by Authorize's deny-wins.
+	// the tier-derived rules so the in-container grants check sees both
+	// layers; deny precedence is preserved by the rule evaluator.
 	for _, r := range g.store.ListACL("folder:" + group.Folder) {
 		if !strings.HasPrefix(r.Action, "mcp:") {
 			continue

@@ -3,7 +3,6 @@ package auth
 import (
 	"strings"
 
-	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/store"
 )
@@ -297,7 +296,3 @@ func paramsMatch(paramSpec string, params map[string]string) bool {
 	}
 	return true
 }
-
-// Compile-time use of core.ACLRow to keep the import live in case of
-// future struct-typed inputs.
-var _ = core.ACLRow{}
