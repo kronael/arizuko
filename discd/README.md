@@ -81,15 +81,13 @@ other guild messages use verb `message`.
 
 DMs (`discord:dm/<channel>`) always use verb `message`.
 
-When `group add` registers a guild JID, it sets the route's `ImpulseConfig`
-to `{"weights":{"message":0}}`. Non-mention messages accumulate as context
-but never fire the agent; only `mention` (weight 100, the default) fires.
+When `group add` registers a guild JID, it installs two routes: a
+`verb=mention` rule with the bare folder target (fires a turn on
+mention), and a catchall `room=guild/*` rule with `target=<folder>#observe`
+(stores the rest without firing).
 
-To change a guild channel to fire on every message:
-
-```bash
-# via gateway route update — set impulse_config to {}
-```
+To make a guild channel fire on every message, replace the `#observe`
+catchall with a plain `<folder>` target (drop the fragment).
 
 ## Related docs
 

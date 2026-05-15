@@ -30,15 +30,14 @@ and `room=` globs to filter by kind/segment.
 ## Route Table
 
 The `routes` table is a flat list of rules evaluated against every
-inbound message. Schema (after migration 0022):
+inbound message. Schema:
 
-| Column           | Type   | Purpose                                                  |
-| ---------------- | ------ | -------------------------------------------------------- |
-| `id`             | int PK | Auto-increment                                           |
-| `seq`            | int    | Evaluation order (lower = earlier)                       |
-| `match`          | text   | Space-separated `key=glob` predicates (AND)              |
-| `target`         | text   | Group folder to route to                                 |
-| `impulse_config` | text   | Optional JSON — controls whether a match fires the agent |
+| Column   | Type   | Purpose                                            |
+| -------- | ------ | -------------------------------------------------- |
+| `id`     | int PK | Auto-increment                                     |
+| `seq`    | int    | Evaluation order (lower = earlier)                 |
+| `match`  | text   | Space-separated `key=glob` predicates (AND)        |
+| `target` | text   | `<folder>[#<mode>]` — group folder + optional mode |
 
 There is no `jid` or `type` column. Rules are filtered entirely by the
 `match` expression. Rules are evaluated in `seq` order; first rule whose
@@ -103,6 +102,45 @@ INSERT INTO routes (seq, match, target)
 VALUES (0, 'platform=discord', 'atlas/{sender}');
 -- discord:user/alice → atlas/dc-alice, discord:user/bob → atlas/dc-bob
 ```
+
+### Modes
+
+The `target` column is a URI: `<folder>` plus an optional `#<mode>`
+fragment. The fragment selects the ingestion mode for matched messages.
+A target with no fragment means **trigger** — the default and the only
+mode that fires a turn.
+
+| Fragment   | Effect                                                                          |
+| ---------- | ------------------------------------------------------------------------------- |
+| _(none)_   | trigger: store under `target` and fire a turn                                   |
+| `#observe` | store under `target`, no turn; agent sees it via `<observed>` block and history |
+
+Observed messages are visible to the agent in two ways: prepended to
+the next trigger turn's prompt as an `<observed>` block, and via the
+`inspect_messages` / `get_history` MCP tools. Access is governed by
+folder ACL, not by route mode — anything routed to a folder is
+readable by that folder's agent.
+
+Future modes (`#drop`, `#digest`, …) extend the fragment vocabulary
+without a schema change — one column, free-form fragment.
+
+Spec: `specs/6/B-route-mode-ingestion.md`.
+
+### Example: Discord guild mention-only
+
+A guild where the agent reads everything but only replies on mention:
+
+```
+seq  match                                       target
+10   platform=discord room=guild/sloth           main
+20   platform=discord room=guild/* verb=mention  main
+30   platform=discord room=guild/*               main#observe
+```
+
+The verb-mention rule (seq 20) fires turns on `@bot` messages in any
+guild; the catchall (seq 30) silently archives the rest under `main`
+in observe mode. The named-guild rule (seq 10) opts `sloth` out of the
+mention gate and treats every message as a trigger.
 
 ### Inline `@name` / `#topic` prefix layer
 
@@ -411,7 +449,7 @@ Prefix layer (in gateway code, not table):
    - handleCommand? No (not /new, /ping, etc.)
    - handlePrefixLayer? No '@' or '#' at message start
    - tryExternalRoute? resolveTarget returns "" (already in target group)
-   - impulse gate? If enabled, checks weight threshold
+   - route mode: bare folder target → trigger; `#observe` would store-only
    - queue.EnqueueMessageCheck("telegram:12345")
 4. processGroupMessages("telegram:12345"):
    - store.MessagesSince("telegram:12345", agentCursor) → messages

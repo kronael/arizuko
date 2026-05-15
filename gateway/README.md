@@ -6,8 +6,9 @@ Main poll loop, routing, command dispatch, autocalls. Imported by `gated`.
 
 The heart of the router. `Gateway.Run` polls `messages` since
 `lastTimestamp`, resolves each row to a group, dispatches gateway-level
-commands, applies the impulse gate, and either steers a running container
-or enqueues a new container run via `queue.GroupQueue`.
+commands, applies the route-target mode (trigger vs `#observe`), and
+either steers a running container or enqueues a new container run via
+`queue.GroupQueue`.
 
 ## Autocalls
 
@@ -77,16 +78,15 @@ where `sender` is the folder name) or the `inspect_messages` MCP tool.
 Tests assert the invariant: `gateway_test.go:1052+`
 (`TestMakeOutputCallback_MutedGroup`).
 
-## Impulse gate
+## Route-target modes
 
-`impulse.go` batches messages per JID and fires when accumulated weight reaches
-the threshold (default 100). Each message contributes `weightFor(cfg, verb)` —
-default 100 for any verb not listed in the route's `ImpulseConfig.Weights`.
-
-Setting `{"weights":{"message":0}}` on a route makes non-mention guild messages
-accumulate as context without firing. `mention` (not overridden) retains the
-default weight of 100 and fires immediately. This is the automatic default for
-Discord guild channels registered via `group add`.
+A route's `target` is `<folder>[#<mode>]`. With no fragment the match
+fires a turn (trigger mode). `#observe` stores the message under the
+folder without firing — the agent reads observed messages via the
+next trigger turn's `<observed>` block plus `inspect_messages` /
+`get_history`. Verb filtering uses the existing `match` column
+(`verb=mention`, …) layered by `seq` priority. See `ROUTING.md` for
+the table and the Discord guild mention-only example.
 
 ## Public API
 
@@ -95,7 +95,6 @@ Discord guild channels registered via `group add`.
 - `(*Gateway).Shutdown()` — flush and wait
 - `(*Gateway).AddChannel(c core.Channel)`, `RemoveChannel(name)`
 - `AutocallCtx` — context passed to autocall evaluators (`autocalls.go`)
-- `ImpulseCfg`, `ParseImpulseCfg(raw)` — per-route impulse gate config
 - `NewLocalChannel(s)` — in-process channel for bare folder-path JIDs (group-to-group)
 
 ## Dependencies
@@ -107,7 +106,6 @@ Discord guild channels registered via `group add`.
 - `gateway.go` — poll loop, resolveGroup, handleCommand, container run
 - `autocalls.go` — `<autocalls>` block rendering
 - `commands.go` — gateway command dispatch (e.g. `/sticky`, `/reset`)
-- `impulse.go` — weight-based batching gate
 - `spawn.go` — child group spawn helpers
 - `local_channel.go` — in-process channel for bare folder-path JIDs (group-to-group delegation/escalation)
 

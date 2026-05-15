@@ -93,7 +93,7 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
   → store.NewMessages (since lastTimestamp)
   → resolveGroup (route table lookup)
   → handleCommand (prefix dispatch)
-  → impulseGate.accept — weight-based batching (if enabled)
+  → route lookup: trigger fires a turn; #observe stores only
   → queue.SendMessages (steer into running container) OR
   → queue.EnqueueMessageCheck → processGroupMessages
     → enrichAttachments: download media → Whisper for voice
@@ -230,7 +230,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group                             |
 | `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored |
 | `groups`           | folder (PK), name, container_config, slink_token, parent                                 |
-| `routes`           | id (PK), seq, match, target, impulse_config                                              |
+| `routes`           | id (PK), seq, match, target (`<folder>[#<mode>]`)                                        |
 | `sessions`         | group_folder + topic (PK), session_id                                                    |
 | `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error                        |
 | `system_messages`  | id, group_id, origin, event, body                                                        |

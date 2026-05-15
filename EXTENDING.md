@@ -21,7 +21,7 @@ evolves as a unit through specs, not via these extension points. See
 | Slink SDK     | `webd/assets/arizuko-client.js` | Page author    | Embedded JS served at `/assets/`              |
 | Actions       | MCP tools                       | Agent/Plugin   | Registry + MCP                                |
 | Autocalls     | `gateway/autocalls.go`          | Gateway dev    | Registry slice                                |
-| Routing rules | `router/`                       | Agent          | MCP tools                                     |
+| Routing rules | `router/`                       | Agent          | MCP tools; `target=<folder>[#mode]` fragment  |
 | Mounts        | `container/`                    | Agent          | Container config                              |
 | Skills        | `ant/skills/`                   | Agent          | File-based                                    |
 | Tasks         | `timed/`                        | Agent          | IPC actions                                   |
