@@ -68,34 +68,40 @@
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L92">0001</a>.</p>
     </div>
 
-    <div class="tablecard">
-      <h3><code>user_groups</code></h3>
-      <p>Glob ACL: which folder patterns a user may act on. Match logic in <a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go#L9"><code>auth.MatchGroups</code></a> (segment-wise; <code>*</code> doesn't cross <code>/</code>, <code>**</code> matches zero or more segments). A <code>**</code> row is the operator.</p>
+    <div class="tablecard" id="acl">
+      <h3><code>acl</code></h3>
+      <p>Unified permission rows. Answers "may principal P perform action A on scope S?" Replaced the legacy <code>user_groups</code> + <code>grant_rules</code> tables in v0.38.0. Principals are OAuth subs (<code>google:&hellip;</code>), folder agents (<code>folder:&hellip;</code>), room/user JIDs, or roles (<code>role:operator</code>). Match logic in <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth.Authorize</code></a>; <code>effect='deny'</code> wins over <code>allow</code>.</p>
       <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
-        <tr><td><code>user_sub</code></td><td>TEXT</td><td>NOT NULL</td><td><code>auth_users.sub</code></td></tr>
-        <tr><td><code>folder</code></td><td>TEXT</td><td>NOT NULL</td><td>folder glob pattern (despite the column name)</td></tr>
-        <tr><td><code>granted_at</code></td><td>TEXT</td><td>NULL</td><td>RFC3339; nullable for pre-0026 rows</td></tr>
+        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
+        <tr><td><code>principal</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>sub, folder, JID, or <code>role:&lt;name&gt;</code></td></tr>
+        <tr><td><code>action</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td><code>interact</code>, <code>admin</code>, <code>mcp:&lt;tool&gt;</code>, or <code>*</code></td></tr>
+        <tr><td><code>scope</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>folder glob</td></tr>
+        <tr><td><code>effect</code></td><td>TEXT</td><td>NOT NULL</td><td>'allow'</td><td>'allow' or 'deny'</td></tr>
+        <tr><td><code>params</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>JSON predicate constraints (e.g. <code>{"jid":"telegram:*"}</code>)</td></tr>
+        <tr><td><code>predicate</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>reserved for richer expressions</td></tr>
+        <tr><td><code>granted_by</code></td><td>TEXT</td><td>NULL</td><td></td><td>actor source (CLI / dashd / migration)</td></tr>
+        <tr><td><code>granted_at</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>RFC3339</td></tr>
       </table>
-      <p class="meta"><strong>PK:</strong> <code>(user_sub, folder)</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/auth.go#L177"><code>store/auth.go:177</code></a> (INSERT OR IGNORE), <a href="https://github.com/kronael/arizuko/blob/main/store/auth.go#L188"><code>:188</code></a> (DELETE).</p>
-      <p class="meta"><strong>Readers:</strong> many — proxyd, webd, dashd, onbod, gated (every folder-scoped HTTP route via <code>auth.MatchGroups</code>).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0013-user-groups.sql">0013</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0026-user-groups-granted-at.sql">0026</a> added <code>granted_at</code>.</p>
+      <p class="meta"><strong>PK:</strong> <code>(principal, action, scope, params, predicate, effect)</code>. <strong>Indexes:</strong> <code>acl_by_principal_action</code>, <code>acl_by_scope</code>.</p>
+      <p class="meta"><strong>Writers:</strong> <code>store/acl.go</code> (<code>AddACLRow</code>, <code>RemoveACLRow</code>); cmd/arizuko grant; dashd ACL editor; migration 0053 (back-fill).</p>
+      <p class="meta"><strong>Readers:</strong> many — proxyd, webd, dashd, onbod, gated (every folder-scoped HTTP route via <code>auth.Authorize</code>); MCP <code>list_acl</code>.</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0052-acl-unified.sql">0052</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0053-acl-cutover.sql">0053</a> back-filled from <code>user_groups</code> + <code>grant_rules</code> then dropped those tables.</p>
     </div>
 
     <div class="tablecard">
-      <h3><code>user_jids</code></h3>
-      <p>Per-platform identity claims: which platform JID belongs to which canonical sub. Used by onboarding to bind a JID to a user.</p>
+      <h3><code>acl_membership</code></h3>
+      <p>Identity and role indirection. One edge <code>(child, parent)</code> means "anything <code>child</code> proves it is, it also is <code>parent</code>." Used for role membership (<code>(sub, role:operator)</code>) and for OAuth-mediated JID claims (<code>(discord:user/811&hellip;, google:114alice)</code>). Walked transitively at authorization time.</p>
       <table>
         <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
-        <tr><td><code>user_sub</code></td><td>TEXT</td><td>NOT NULL</td><td><code>auth_users.sub</code></td></tr>
-        <tr><td><code>jid</code></td><td>TEXT</td><td>NOT NULL UNIQUE</td><td>typed JID (one user per JID)</td></tr>
-        <tr><td><code>claimed</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
+        <tr><td><code>child</code></td><td>TEXT</td><td>NOT NULL</td><td>the holder of the identity</td></tr>
+        <tr><td><code>parent</code></td><td>TEXT</td><td>NOT NULL</td><td>the role or canonical identity it expands to</td></tr>
+        <tr><td><code>added_by</code></td><td>TEXT</td><td>NULL</td><td>actor source</td></tr>
+        <tr><td><code>added_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
       </table>
-      <p class="meta"><strong>PK:</strong> <code>(user_sub, jid)</code>. <strong>Unique index:</strong> <code>idx_user_jids_jid</code> on <code>jid</code> (0025).</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L563"><code>onbod/main.go:563</code></a> (INSERT OR IGNORE on admission claim).</p>
-      <p class="meta"><strong>Readers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L228"><code>store/groups.go:228</code></a> (<code>UserSubByJID</code>; called by container spawn for per-user secret overlay).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0024-onboarding-auth.sql#L7">0024</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0025-user-jids-unique.sql">0025</a> added unique-jid index; 0042 rewrote rows to typed-JID shape.</p>
+      <p class="meta"><strong>PK:</strong> <code>(child, parent)</code>. <strong>Indexes:</strong> <code>acl_membership_by_child</code>.</p>
+      <p class="meta"><strong>Writers:</strong> <code>store/acl.go</code> (<code>AddMembership</code>, <code>RemoveMembership</code>); <code>arizuko grant &lt;sub&gt; **</code>; OAuth callback for JID claims; migration 0053 (back-fill of pre-0053 <code>user_groups('**')</code> rows and <code>user_jids</code> bindings).</p>
+      <p class="meta"><strong>Readers:</strong> gated, proxyd, webd, dashd, onbod (via <code>auth.Authorize</code> walking <code>Ancestors(sub)</code>).</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0052-acl-unified.sql">0052</a>.</p>
     </div>
 
     <div class="tablecard">
@@ -363,20 +369,9 @@
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0032-invites-rewrite.sql">0032</a> (replaces dropped <code>invitations</code> from 0028).</p>
     </div>
 
-    <h2>5. Grants &amp; secrets</h2>
+    <h2>5. Secrets</h2>
 
-    <div class="tablecard">
-      <h3><code>grant_rules</code></h3>
-      <p>Per-folder rule overlay. JSON array of rule strings (e.g. <code>["send(jid=telegram:*)", "!post"]</code>). Appended to tier defaults at spawn time by <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L160"><code>grants.DeriveRules</code></a>.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>folder</code></td><td>TEXT PK</td><td>folder path</td></tr>
-        <tr><td><code>rules</code></td><td>TEXT NOT NULL</td><td>JSON string[]</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/grants.go#L23"><code>store/grants.go:23</code></a> (INSERT OR REPLACE via <code>SetGrants</code>).</p>
-      <p class="meta"><strong>Readers:</strong> gated (<code>GetGrants</code> at spawn).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0006-grant-rules.sql">0006</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0031-grant-renames.sql">0031</a> rewrote <code>send_message</code>&rarr;<code>send</code>, <code>send_reply</code>&rarr;<code>reply</code>.</p>
-    </div>
+    <p class="meta">Per-folder MCP rule overlays (formerly the <code>grant_rules</code> table, dropped in 0053) now live in <code>acl</code> as <code>(principal=folder:&lt;f&gt;, action=mcp:&lt;tool&gt;, scope=&lt;f&gt;, params, effect)</code> rows. Tier defaults are still derived in code by <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go"><code>grants.DeriveRules</code></a> (used as a fall-back for <code>mcp:*</code> actions with no <code>acl</code> match).</p>
 
     <div class="tablecard">
       <h3><code>secrets</code></h3>
@@ -495,20 +490,7 @@
 
     <h2>9. Vestigial (declared but unused)</h2>
 
-    <div class="tablecard">
-      <h3><code>grants</code> <span class="dead">unused</span></h3>
-      <p>The original (pre-rules) grant model. No live Go reader or writer; rule storage moved to <code>grant_rules</code> + <code>user_groups</code>. Only the migration 0042 rewrite still touches it for typed-JID conversion.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td></td></tr>
-        <tr><td><code>jid</code></td><td>TEXT NOT NULL</td><td></td></tr>
-        <tr><td><code>role</code></td><td>TEXT NOT NULL</td><td></td></tr>
-        <tr><td><code>granted_by</code></td><td>TEXT NULL</td><td></td></tr>
-        <tr><td><code>granted_at</code></td><td>TEXT NOT NULL</td><td></td></tr>
-      </table>
-      <p class="meta"><strong>Indexes:</strong> <code>idx_grants_jid</code> on <code>jid</code>.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0005-grants-outbound.sql#L3">0005</a>.</p>
-    </div>
+    <p class="meta">Pre-v0.38.0 the schema also carried <code>grants</code>, <code>user_groups</code>, <code>user_jids</code>, and <code>grant_rules</code>. Migration <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0053-acl-cutover.sql">0053</a> dropped all four after back-filling <code>acl</code> + <code>acl_membership</code>.</p>
 
     <div class="tablecard">
       <h3><code>channels</code> <span class="dead">read-only (dashd), not written by live code</span></h3>

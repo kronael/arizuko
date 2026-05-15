@@ -135,15 +135,16 @@ arizuko group krons add "discord:guild/123/456" eng eng</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L313"><code>cmd/arizuko/main.go:313</code></a></p>
 
     <h3 id="group-grant"><span class="sig">arizuko group &lt;instance&gt; grant &lt;sub&gt; &lt;pattern&gt;</span></h3>
-    <p>Insert a grant row binding <code>sub</code> to a glob <code>pattern</code> (e.g. <code>solo/**</code>, <code>corp/eng/sre</code>, <code>**</code>). Idempotent: a duplicate prints "already granted". See <a href="/pub/reference/grants.html">grants reference</a> for syntax.</p>
-    <p><strong>State touched:</strong> <code>user_groups</code> table.</p>
+    <p>Authorize <code>sub</code> on a scope. The literal pattern <code>**</code> writes <code>acl_membership(sub, role:operator)</code> (the operator role's permissions live on the role, not duplicated per user); any other pattern writes an <code>acl(principal=sub, action=admin, scope=pattern, effect=allow)</code> row. Idempotent. See <a href="/pub/reference/grants.html">grants reference</a> for syntax.</p>
+    <p><strong>State touched:</strong> <code>acl_membership</code> (for <code>**</code>) or <code>acl</code> table.</p>
     <pre><code>arizuko group krons grant google:alice@example.com 'solo/**'
-arizuko group krons grant telegram:42 'corp/eng/sre'</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L321"><code>cmd/arizuko/main.go:321</code></a></p>
+arizuko group krons grant telegram:42 'corp/eng/sre'
+arizuko group krons grant google:operator@example.com '**'   # operator role</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L347"><code>cmd/arizuko/main.go:347</code></a></p>
 
     <h3 id="group-ungrant"><span class="sig">arizuko group &lt;instance&gt; ungrant &lt;sub&gt; &lt;pattern&gt;</span></h3>
-    <p>Remove a previously granted (sub, pattern) row. Prints the rows-affected count; "no grant to remove" if zero.</p>
-    <p><strong>State touched:</strong> <code>user_groups</code> table.</p>
+    <p>Reverse of <code>grant</code>. <code>**</code> removes the operator-role membership edge; any other pattern deletes the matching <code>acl</code> row.</p>
+    <p><strong>State touched:</strong> <code>acl_membership</code> (for <code>**</code>) or <code>acl</code> table.</p>
     <pre><code>arizuko group krons ungrant google:alice@example.com 'solo/**'</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L327"><code>cmd/arizuko/main.go:327</code></a></p>
 

@@ -40,7 +40,7 @@
     <h1>MCP tools reference</h1>
     <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; MCP tools</p>
 
-    <p class="lede">Every Model Context Protocol tool the arizuko platform registers on a per-group unix socket. Generated from <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go"><code>ipc/ipc.go</code></a> and <a href="https://github.com/kronael/arizuko/blob/main/ipc/inspect.go"><code>ipc/inspect.go</code></a>. The tool set a given session sees is filtered by <code>grants.MatchingRules</code> against the group's rule list &mdash; tools whose name doesn't match any rule are not registered. A handful of tools also gate registration on tier (e.g. <code>get_grants</code>/<code>set_grants</code> are tier 0&ndash;1; <code>set_web_host</code> is tier 0 only).</p>
+    <p class="lede">Every Model Context Protocol tool the arizuko platform registers on a per-group unix socket. Generated from <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go"><code>ipc/ipc.go</code></a> and <a href="https://github.com/kronael/arizuko/blob/main/ipc/inspect.go"><code>ipc/inspect.go</code></a>. The tool set a given session sees is filtered by <code>grants.MatchingRules</code> against the group's rule list &mdash; tools whose name doesn't match any rule are not registered. A handful of tools also gate registration on tier (e.g. <code>list_acl</code> is tier 0&ndash;1; <code>set_web_host</code> is tier 0 only).</p>
 
     <div class="callout">
       <strong>Tier shorthand.</strong> Tier 0 = operator (single user; rules <code>["*"]</code>). Tier 1 = inner group (full platform-scoped send + group ops). Tier 2 = guest (basic send + folder-scoped routes). Tier 3+ = stranger (reply/send_file/like/edit only). Defaults live in <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L143"><code>grants/grants.go DeriveRules</code></a>. Many tools also do inline <code>auth.Authorize</code> checks past the grant filter.
@@ -499,35 +499,23 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"updated": true, "count": &lt;n&gt;}</code>.</p>
 
-    <h2 id="grants-tools">grants</h2>
+    <h2 id="grants-tools">acl</h2>
 
-    <h3 id="get_grants"><code>get_grants</code> <span class="tier">tier 0&ndash;1</span></h3>
-    <p>Read the MCP grant rule list for a folder. Use to audit what a group is permitted to do before adjusting. Pair with <code>set_grants</code> to change.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1389"><code>ipc/ipc.go:1389</code></a> &middot; Registration gated on <code>id.Tier &le; 1</code>; bypasses the rule filter.</p>
+    <h3 id="list_acl"><code>list_acl</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <p>Audit the unified <code>acl</code> rows whose <code>scope</code> equals the target folder. Subsumes the pre-v0.38.0 <code>get_grants</code>/<code>set_grants</code> surface; writes now happen via <code>arizuko grant</code> or the dashd UI, not over MCP.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1486"><code>ipc/ipc.go:1486</code></a> &middot; Registration gated on <code>id.Tier &le; 1</code>; bypasses the rule filter. Authorization: <code>auth.AuthorizeStructural</code> on the target folder.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
         <tr><td class="name">folder</td><td class="type">string</td><td class="req req-y">yes</td><td>Folder to read.</td></tr>
       </tbody>
     </table>
-    <p class="returns"><strong>Returns:</strong> JSON <code>{"folder": "&lt;f&gt;", "rules": [...]}</code>.</p>
-
-    <h3 id="set_grants"><code>set_grants</code> <span class="tier">tier 0&ndash;1</span></h3>
-    <p>Overwrite the full grant rule list for a folder. Use when changing what tools/targets a group may invoke; read first with <code>get_grants</code>. Takes effect on next MCP session.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1406"><code>ipc/ipc.go:1406</code></a> &middot; Registration gated on <code>id.Tier &le; 1</code>; bypasses the rule filter.</p>
-    <table class="params">
-      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
-      <tbody>
-        <tr><td class="name">folder</td><td class="type">string</td><td class="req req-y">yes</td><td>Target folder.</td></tr>
-        <tr><td class="name">rules</td><td class="type">string (JSON)</td><td class="req req-y">yes</td><td>JSON array of grant rule strings.</td></tr>
-      </tbody>
-    </table>
-    <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "folder": "&lt;f&gt;", "count": &lt;n&gt;}</code>.</p>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"folder": "&lt;f&gt;", "acl": [{principal, action, scope, effect, params, predicate}, ...]}</code>.</p>
 
     <h2 id="invites">invites</h2>
 
     <h3 id="invite_create"><code>invite_create</code> <span class="tier">tier 0&ndash;1</span></h3>
-    <p>Issue an invite token granting access to a path glob. The recipient accepts via <code>/invite/&lt;token&gt;</code> and gets a <code>user_groups</code> row matching <code>target_glob</code>. The agent's authority must cover <code>target_glob</code> &mdash; you can't issue access you don't have.</p>
+    <p>Issue an invite token granting access to a path glob. The recipient accepts via <code>/invite/&lt;token&gt;</code> and gets an <code>acl(admin, target_glob)</code> row. The agent's authority must cover <code>target_glob</code> &mdash; you can't issue access you don't have.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1433"><code>ipc/ipc.go:1433</code></a> &middot; Grant action: <code>invite_create</code> &middot; Issued by <code>agent:&lt;folder&gt;</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -626,7 +614,7 @@
     <h2 id="notes">notes &amp; gotchas</h2>
     <ul>
       <li><strong>Registration is filtered by grants.</strong> <code>registerRaw</code> consults <code>grants.MatchingRules(rules, name)</code>; if no rule matches the tool name, the tool is never added to <code>tools/list</code>. The matched rules are appended to the tool description as <code>grants: [...]</code> so the agent sees what it has been granted.</li>
-      <li><strong>Tier-gated registration on top of grants.</strong> <code>refresh_groups</code> (tier &le; 2), <code>set_work</code> (tier &le; 2), <code>get_grants</code>/<code>set_grants</code> (tier &le; 1), <code>get_web_host</code> (tier &le; 1), and <code>set_web_host</code> (tier == 0) wrap the <code>AddTool</code> call in a tier check &mdash; even at tier 0 with rules <code>["*"]</code>, tier-bracketing trumps glob match.</li>
+      <li><strong>Tier-gated registration on top of grants.</strong> <code>refresh_groups</code> (tier &le; 2), <code>set_work</code> (tier &le; 2), <code>list_acl</code> (tier &le; 1), <code>get_web_host</code> (tier &le; 1), and <code>set_web_host</code> (tier == 0) wrap the <code>AddTool</code> call in a tier check &mdash; even at tier 0 with rules <code>["*"]</code>, tier-bracketing trumps glob match.</li>
       <li><strong>Inline auth.Authorize past the grant filter.</strong> Most JID-targeted tools call <code>authorizeJID</code> after the grant check: a tier &ge; 1 caller cannot dispatch to a JID whose <code>DefaultFolderForJID</code> resolves outside the caller's folder subtree, even when grants would otherwise permit it.</li>
       <li><strong>Spec 6/5 (uniform MCP/REST registry) is NOT shipped.</strong> Today, registration is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>. The <code>registerWithSecrets</code>/<code>injectSecretsAdapter</code> broker (spec 9/11) is wired but no tool declares <code>requires=[...]</code> yet &mdash; lookup at <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L616"><code>ipc/ipc.go:616</code></a>.</li>
       <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>get_history</code>, <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>

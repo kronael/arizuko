@@ -166,9 +166,8 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
     <ul>
       <li><code>messages.chat_jid</code>, <code>messages.sender</code>, <code>messages.reply_to_sender</code></li>
       <li><code>chats.jid</code> (PK)</li>
-      <li><code>user_jids.jid</code></li>
-      <li><code>grants.jid</code> (vestigial table; migrated for completeness)</li>
       <li><code>onboarding.jid</code></li>
+      <li>(pre-0053: <code>user_jids.jid</code> and vestigial <code>grants.jid</code> were rewritten too, before being dropped by the ACL unification)</li>
       <li><code>routes.match</code> &mdash; <code>chat_jid=</code> / <code>sender=</code> / <code>room=</code> predicates</li>
       <li><code>scheduled_tasks.chat_jid</code></li>
       <li><code>chat_reply_state.jid</code></li>

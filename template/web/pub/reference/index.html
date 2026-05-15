@@ -44,13 +44,13 @@
 
     <div class="card">
       <h2><a href="schema.html">SQLite schema</a></h2>
-      <p>Every live table in <code>messages.db</code> &mdash; 30 tables across 11 sections (identity, messages, groups, onboarding, grants, secrets, egress, scheduling). Per-table: columns, indexes, writer call sites, reader summary, migration history.</p>
+      <p>Every live table in <code>messages.db</code> &mdash; identity + unified <code>acl</code>, messages, groups, onboarding, secrets, egress, scheduling. Per-table: columns, indexes, writer call sites, reader summary, migration history.</p>
       <p class="dim"><code>gated</code> owns migrations; this page tracks the shape readers can rely on.</p>
     </div>
 
     <div class="card">
       <h2><a href="grants.html">Grants</a></h2>
-      <p>Grant rule grammar, tier defaults, the tool-by-tool tier and containment table, <code>user_groups</code> glob semantics. Worked example reproduced verbatim from <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a>.</p>
+      <p>Grant rule grammar, tier defaults, the tool-by-tool tier and containment table, unified <code>acl</code> + <code>acl_membership</code> semantics. Worked example reproduced verbatim from <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a>.</p>
       <p class="dim">The authoritative answer to "can this user do this thing in this folder?"</p>
     </div>
 

@@ -24,42 +24,53 @@
     <h1>grants</h1>
     <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; grants</p>
 
-    <p class="lede">What an agent can do at runtime is composed at spawn from three SQLite tables and one folder path. The agent never asks; the rules are pre-baked into its MCP tool manifest. Authorization is the daemon's problem, not the model's.</p>
+    <p class="lede">Since v0.38.0 every authorization question &mdash; "may principal P perform action A on scope S?" &mdash; is answered by one <code>auth.Authorize</code> call against two tables: <code>acl</code> (permission rows) and <code>acl_membership</code> (role + identity indirection). This page is the syntax + semantics reference for both the rule grammar (still used for MCP <code>params</code>) and the tier defaults derived in code at spawn time.</p>
 
-    <p>This page is the syntax + semantics reference. See <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> for the maintainer-facing walkthrough and worked example. The reference daemon is the in-container MCP server (<a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go"><code>ipc/ipc.go</code></a>); the rule engine is <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go"><code>grants/grants.go</code></a>; cross-folder containment lives in <a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go"><code>auth/policy.go</code></a>.</p>
+    <p>See <a href="/pub/concepts/grants.html">concepts &rsaquo; authorization</a> for the mental model, <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> for the maintainer walkthrough, and <a href="https://github.com/kronael/arizuko/blob/main/specs/6/9-acl-unified.md">specs/6/9-acl-unified.md</a> for the migration story. Code: <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a>, <a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go"><code>auth/policy.go</code></a> (structural / hierarchy checks), <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go"><code>grants/grants.go</code></a> (rule engine, tier defaults).</p>
 
     <h2>1. Tier model</h2>
 
     <p>Tier is derived from folder depth, not stored. From <a href="https://github.com/kronael/arizuko/blob/main/auth/identity.go#L16"><code>auth/identity.go:16</code></a>:</p>
 
-    <pre><code>Tier = min(strings.Count(folder, "/"), 3)
+    <pre><code>Tier  = min(strings.Count(folder, "/"), 3)
 World = first path segment</code></pre>
 
     <table>
-      <tr><th>tier</th><th>folder shape (slash count)</th><th>example</th><th>role</th></tr>
+      <tr><th>tier</th><th>folder shape</th><th>example</th><th>role</th></tr>
       <tr><td>0</td><td>0 slashes</td><td><code>root</code>, <code>main</code></td><td>instance root &mdash; unrestricted, CLI-only surface</td></tr>
-      <tr><td>1</td><td>1 slash</td><td><code>atlas/support</code></td><td>"world" group &mdash; basic send + per-platform actions for every platform routed under this folder's world + management tools + read-write share mount</td></tr>
+      <tr><td>1</td><td>1 slash</td><td><code>atlas/support</code></td><td>"world" group &mdash; basic send + per-platform actions for every platform routed under this world + management tools + read-write share mount</td></tr>
       <tr><td>2</td><td>2 slashes</td><td><code>atlas/support/oncall</code></td><td>depth-2 group &mdash; basic send + per-platform actions narrowed to routes under this folder's subtree + read-only share mount</td></tr>
-      <tr><td>3</td><td>3 or more slashes</td><td><code>atlas/support/oncall/launch-q3</code></td><td>deep group &mdash; reply-only (<code>reply</code>, <code>send_file</code>, <code>like</code>, <code>edit</code>)</td></tr>
+      <tr><td>3</td><td>3+ slashes</td><td><code>atlas/support/oncall/launch-q3</code></td><td>deep group &mdash; reply-only (<code>reply</code>, <code>send_file</code>, <code>like</code>, <code>edit</code>)</td></tr>
     </table>
 
-    <p class="meta"><strong>Why "min(depth, 3)":</strong> deeper than three is still tier 3. The default tool surface narrows with depth and stops narrowing at the deepest band.</p>
-    <p class="meta"><strong>"World" = first path segment</strong> from <a href="https://github.com/kronael/arizuko/blob/main/auth/identity.go#L24"><code>auth.WorldOf</code></a>. <code>WorldOf("atlas/support") = "atlas"</code>. Independent of tier; used by tier-1 platformRules to pull every JID routed under the world.</p>
-
-    <h2>2. The four layers</h2>
-
-    <p>From <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> &sect;&nbsp;"The four layers":</p>
+    <h2>2. The two tables</h2>
 
     <ul>
-      <li><strong><code>groups</code> table</strong> &mdash; the folder hierarchy. Source of truth for what exists. <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0020-groups-refactor.sql#L22"><code>store/migrations/0020-groups-refactor.sql:22</code></a>.</li>
-      <li><strong><code>user_groups</code> table</strong> &mdash; <code>(user_sub, folder_glob, granted_at)</code> rows. The <code>folder</code> column is a glob. A row <code>(github:alice, atlas/**)</code> lets alice act on <code>atlas</code> and any descendant. No matching row &rArr; no access. Schema: <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0013-user-groups.sql"><code>0013-user-groups.sql</code></a> + <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0026-user-groups-granted-at.sql"><code>0026-user-groups-granted-at.sql</code></a>.</li>
-      <li><strong><code>routes</code> table</strong> &mdash; what JIDs route into which folder. Their presence is what populates platform rules.</li>
-      <li><strong><code>grant_rules</code> table</strong> &mdash; per-folder rule overlay (JSON string[]). Appended to tier defaults at spawn. <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0006-grant-rules.sql"><code>0006-grant-rules.sql</code></a>.</li>
+      <li><strong><code>acl</code></strong> &mdash; <code>(principal, action, scope, effect, params, predicate, granted_by, granted_at)</code>. The whole permission graph. Created by migration <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0052-acl-unified.sql">0052</a>; populated by migration <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0053-acl-cutover.sql">0053</a> from the legacy <code>user_groups</code> + <code>grant_rules</code> tables.</li>
+      <li><strong><code>acl_membership</code></strong> &mdash; <code>(child, parent, added_by, added_at)</code> edges. Walked transitively at authorization time to expand a sub into every role it carries and every canonical identity it has been linked to.</li>
     </ul>
 
-    <h2>3. Rule grammar</h2>
+    <p>Adjacent tables still in play but orthogonal: <code>groups</code> (folder hierarchy &mdash; what exists), <code>routes</code> (which JIDs land in which folder &mdash; what reaches the agent).</p>
 
-    <p>Grant rules are strings parsed by <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L25"><code>grants.ParseRule</code></a>:</p>
+    <h2>3. Principals, actions, scopes</h2>
+
+    <table>
+      <tr><th>principal kind</th><th>example</th><th>notes</th></tr>
+      <tr><td>OAuth sub</td><td><code>google:114019&hellip;</code></td><td>Canonical human, minted by <code>auth/oauth.go</code>.</td></tr>
+      <tr><td>Folder agent</td><td><code>folder:atlas/eng</code></td><td>The container spawned at this folder.</td></tr>
+      <tr><td>Platform identity</td><td><code>telegram:user/123456</code></td><td>Channel-side identity, not yet OAuth-claimed.</td></tr>
+      <tr><td>Room JID</td><td><code>discord:837&hellip;/1504&hellip;</code></td><td>Channel / room itself &mdash; carries route grants.</td></tr>
+      <tr><td>Role</td><td><code>role:operator</code></td><td>Indirection. Members via <code>acl_membership</code>.</td></tr>
+      <tr><td>Wildcards</td><td><code>**</code>, <code>google:*</code>, <code>folder:**</code></td><td>Globs anchor on <code>:</code> and <code>/</code>.</td></tr>
+    </table>
+
+    <p>Actions: <code>interact</code>, <code>admin</code>, <code>mcp:&lt;tool&gt;</code>, or <code>*</code>. The structural / hierarchy gate on outbound verbs, route management, task ownership, etc. lives separately in <code>auth.AuthorizeStructural</code> (formerly <code>auth.Authorize</code> &mdash; renamed in v0.38.0).</p>
+
+    <p>Scope is the folder path globbed segment-wise &mdash; <code>*</code> doesn't cross <code>/</code>, <code>**</code> matches zero or more segments. Same matcher as before, now exposed as <code>auth.MatchGroups</code> (pure function, no DB query).</p>
+
+    <h2>4. Rule grammar (MCP params)</h2>
+
+    <p>The grant-rule grammar still parses <code>params</code> predicates on <code>mcp:&lt;tool&gt;</code> entries. Strings parsed by <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L25"><code>grants.ParseRule</code></a>:</p>
 
     <pre><code>rule    := [&quot;!&quot;] action [&quot;(&quot; params &quot;)&quot;]
 params  := param (&quot;,&quot; param)*
@@ -67,11 +78,10 @@ param   := [&quot;!&quot;] name [&quot;=&quot; glob]</code></pre>
 
     <ul>
       <li><strong><code>!</code></strong> prefix on the action = deny rule. Last match wins (<a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L121"><code>grants.CheckAction</code></a>).</li>
-      <li><strong><code>action</code></strong> is the MCP tool name. Action names match by a glob in which <code>*</code> does not cross a non-word-char boundary (<a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L98"><code>notWordChar</code></a>). <code>*</code> alone matches every action.</li>
-      <li><strong><code>param=glob</code></strong> &mdash; param's value must match. The glob's <code>*</code> stops at <code>,</code> or <code>)</code> (<a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L102"><code>isValueDelim</code></a>).</li>
-      <li><strong><code>!param</code></strong> &mdash; deny when this param is present at all (regardless of value).</li>
-      <li><strong>Bare <code>param</code> (no <code>=</code>)</strong> &mdash; allow when present, no value constraint.</li>
-      <li><strong>Malformed input</strong> (e.g. unterminated paren) parses to <code>Action == ""</code>, which matches nothing &mdash; a typo cannot silently widen access (<a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L25"><code>grants.go:25-44</code></a>).</li>
+      <li><strong><code>action</code></strong> is the MCP tool name. <code>*</code> alone matches every action.</li>
+      <li><strong><code>param=glob</code></strong> &mdash; param's value must match. <code>*</code> stops at <code>,</code> or <code>)</code>.</li>
+      <li><strong><code>!param</code></strong> &mdash; deny when this param is present at all.</li>
+      <li><strong>Malformed input</strong> parses to <code>Action == ""</code>, matching nothing &mdash; a typo cannot silently widen access.</li>
     </ul>
 
     <h3>Examples</h3>
@@ -83,58 +93,40 @@ send_file(jid=*)                        # file send to any allowed target
 share_mount(readonly=false)             # writable workspace mount
 share_mount(readonly=true)              # read-only workspace mount</code></pre>
 
-    <h2>4. Tier defaults</h2>
+    <h2>5. Tier defaults</h2>
 
-    <p>From <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L160"><code>grants.DeriveRules</code></a>. Computed at every spawn, then appended with the folder's <code>grant_rules</code> row.</p>
+    <p>From <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L160"><code>grants.DeriveRules</code></a>. Computed at every spawn, used as the fall-back for <code>mcp:*</code> actions with no matching <code>acl</code> row.</p>
 
     <table>
       <tr><th>tier</th><th>default rules</th></tr>
-      <tr>
-        <td>0</td>
-        <td><code>["*"]</code> &mdash; unrestricted</td>
-      </tr>
-      <tr>
-        <td>1</td>
-        <td>
-          <code>basicSendActions</code> + <code>platformRules(RouteSourceJIDsInWorld(world))</code> + <code>tier1FixedActions</code> + <code>share_mount(readonly=false)</code>
-        </td>
-      </tr>
-      <tr>
-        <td>2</td>
-        <td>
-          <code>basicSendActions</code> + <code>platformRules(RouteSourceJIDsInWorld(folder))</code> + <code>share_mount(readonly=true)</code> &mdash; narrower platform scope: only JIDs routed to this folder or its descendants
-        </td>
-      </tr>
-      <tr>
-        <td>3+</td>
-        <td><code>["reply", "send_file", "like", "edit"]</code></td>
-      </tr>
+      <tr><td>0</td><td><code>["*"]</code> &mdash; unrestricted</td></tr>
+      <tr><td>1</td><td><code>basicSendActions</code> + <code>platformRules(RouteSourceJIDsInWorld(world))</code> + <code>tier1FixedActions</code> + <code>share_mount(readonly=false)</code></td></tr>
+      <tr><td>2</td><td><code>basicSendActions</code> + <code>platformRules(RouteSourceJIDsInWorld(folder))</code> + <code>share_mount(readonly=true)</code> &mdash; narrower platform scope: only JIDs routed to this folder or its descendants</td></tr>
+      <tr><td>3+</td><td><code>["reply", "send_file", "like", "edit"]</code></td></tr>
     </table>
 
     <h3>basicSendActions</h3>
-    <p>From <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L143"><code>grants.go:143</code></a>:</p>
     <pre><code>send, send_file, reply</code></pre>
 
     <h3>platformActions (used by <code>platformRules</code>)</h3>
-    <p>From <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L148"><code>grants.go:148</code></a>. For each platform appearing in the route table's scope, each verb is registered as <code>&lt;verb&gt;(jid=&lt;platform&gt;:*)</code>.</p>
+    <p>For each platform appearing in the route table's scope, each verb is registered as <code>&lt;verb&gt;(jid=&lt;platform&gt;:*)</code>.</p>
     <pre><code>send, send_file, reply,
 forward,
 post, quote, repost, like, dislike, delete, edit</code></pre>
 
     <h3>tier1FixedActions</h3>
-    <p>From <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L154"><code>grants.go:154</code></a>:</p>
     <pre><code>schedule_task, register_group, escalate_group, delegate_group,
 get_routes, set_routes, add_route, delete_route,
 list_tasks, pause_task, resume_task, cancel_task</code></pre>
 
-    <h2>5. Tools authorized by tier (not by rule list)</h2>
+    <h2>6. Structural gate (<code>AuthorizeStructural</code>)</h2>
 
-    <p>A second authorization layer sits in <a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go#L14"><code>auth.Authorize</code></a>: each MCP tool re-checks tier + subtree containment at invocation. Even if a rule allows the action, this gate can reject.</p>
+    <p>A second authorization layer in <a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go"><code>auth/policy.go</code></a> &mdash; renamed from <code>auth.Authorize</code> to <code>auth.AuthorizeStructural</code> in v0.38.0 &mdash; enforces hierarchy and tier invariants the rule list can't express. Even if the agent's rules permit the action, this gate can reject.</p>
 
     <table>
       <tr><th>tool</th><th>tier rule</th><th>extra constraint</th></tr>
       <tr><td><code>list_tasks</code></td><td>any</td><td>none</td></tr>
-      <tr><td><code>send, send_file, reply, post, like, dislike, delete, edit, forward, quote, repost</code></td><td>any</td><td>target JID's owning folder must equal <code>id.Folder</code> or be a descendant (<a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go#L98"><code>authorizeOutbound</code></a>)</td></tr>
+      <tr><td><code>send, send_file, reply, post, like, dislike, delete, edit, forward, quote, repost</code></td><td>any</td><td>target JID's owning folder must equal <code>id.Folder</code> or be a descendant</td></tr>
       <tr><td><code>reset_session</code></td><td>any</td><td>target folder must equal own or descendant</td></tr>
       <tr><td><code>inject_message</code></td><td>tier &le; 1</td><td>&mdash;</td></tr>
       <tr><td><code>register_group</code></td><td>tier &lt; 2</td><td>tier 0 &rArr; target must contain "/" (worlds are CLI-only); tier 1 &rArr; child must be direct child of own folder</td></tr>
@@ -142,92 +134,59 @@ list_tasks, pause_task, resume_task, cancel_task</code></pre>
       <tr><td><code>delegate_group</code></td><td>tier &ne; 3</td><td>target must be strictly inside <code>id.Folder</code></td></tr>
       <tr><td><code>get_routes, set_routes, add_route, delete_route</code></td><td>tier &lt; 2</td><td>tier 1 &rArr; route target inside own folder</td></tr>
       <tr><td><code>schedule_task, pause_task, resume_task, cancel_task</code></td><td>tier &ne; 3</td><td>tier 2 &rArr; task owner == own folder; tier 1 &rArr; task owner in same world</td></tr>
-      <tr><td><code>get_grants, set_grants</code></td><td>tier &le; 1</td><td>tier 1 &rArr; target in same world</td></tr>
+      <tr><td><code>list_acl</code></td><td>tier &le; 1</td><td>tier 1 &rArr; target in same world</td></tr>
       <tr><td><code>invite_create</code></td><td>tier &lt; 2</td><td>tier 1 &rArr; target in same world</td></tr>
     </table>
 
-    <h2>6. user_groups: who can act on a folder</h2>
+    <h2>7. The operator role</h2>
 
-    <p>Glob ACL keyed by user_sub. Match logic in <a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go#L9"><code>auth.MatchGroups</code></a>:</p>
+    <p>Pre-v0.38.0 the operator was a literal <code>user_groups(sub, '**')</code> row. Now it's a role: <code>acl_membership(sub, role:operator)</code>, plus one wildcard <code>acl</code> row granting <code>role:operator</code> the action of choice on scope <code>**</code>. <code>arizuko grant &lt;sub&gt; **</code> writes the membership edge; the role's permissions are seeded once by <code>arizuko create</code>.</p>
 
-    <ul>
-      <li><strong><code>**</code></strong> in a row matches any folder (operator).</li>
-      <li><strong><code>*</code></strong> matches one segment; does not cross <code>/</code>.</li>
-      <li><strong><code>**</code> mid-pattern</strong> matches zero or more segments (e.g. <code>atlas/**</code> matches <code>atlas</code> AND any descendant).</li>
-      <li>No matching row &rArr; no access. Operator is implicit: a user with a <code>**</code> row simply matches every folder.</li>
-    </ul>
+    <pre><code># Make alice an operator.
+arizuko grant google:114alice@example.com '**'
 
-    <pre><code>**                  # operator (any folder)
-*                   # any single top-level folder (one segment)
-pub/*               # any direct child of pub
-atlas/**            # atlas and any descendant
-atlas/support       # exact-match grant</code></pre>
+# Equivalent SQL:
+INSERT INTO acl_membership (child, parent, added_at) VALUES
+  ('google:114alice@example.com', 'role:operator', now());</code></pre>
 
-    <p class="callout"><strong>Tier &ne; ACL.</strong> <code>user_groups</code> answers "may sub touch folder F?" Tier answers "what default tools does folder F's agent see?" A user with a <code>**</code> grant on a tier-3 folder still gets only the deep-group rules; a tier-0 root with no human <code>user_groups</code> rows is still operator-controlled via CLI.</p>
+    <p>Adding more operators is one membership row each &mdash; the permissions row is shared.</p>
 
-    <h2>7. Spawn-time composition</h2>
+    <h2>8. Spawn-time composition</h2>
 
-    <p>From <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> &sect; "The composition" (canonical site: <code>Gateway.runAgentWithOpts</code> in <code>gateway/gateway.go</code>):</p>
+    <p>Canonical site: <code>Gateway.runAgentWithOpts</code> in <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go"><code>gateway/gateway.go</code></a>.</p>
 
     <pre><code>1. Identity  = auth.Resolve(F)
                &rarr; {Folder: F, Tier: min(depth, 3), World: firstSeg}
 
 2. Rules     = grants.DeriveRules(store, F, id.Tier, id.World)
-               ++ store.GetGrants(F)
-               &rarr; tier-default list, extended by routed-platform rules
-                  and by the per-folder grant_rules row
+               &rarr; tier-default list including routed-platform rules
 
 3. Env       = container.resolveSpawnEnv(store, base, F, J)
                &rarr; base &cup; FolderSecretsResolved(F)
                   &cup; UserSecrets(UserSubByJID(J))   (single-user chats only)</code></pre>
 
-    <p>The rule list is injected into <code>start.json</code> for the agent and consumed by the in-container MCP server in two places (<a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go"><code>ipc/ipc.go</code></a>):</p>
-    <ul>
-      <li><strong><code>grants.MatchingRules(rules, action)</code></strong> at MCP <em>registration</em> &mdash; tools with no matching rule are dropped from <code>tools/list</code> entirely. The agent literally cannot see them.</li>
-      <li><strong><code>grants.CheckAction(rules, action, params)</code></strong> at MCP <em>invocation</em> &mdash; a synthesized call still gets refused at the boundary.</li>
-    </ul>
-
-    <h2>8. Worked example</h2>
-
-    <p>From <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> &sect; "Worked example". User <code>u:github-1234</code> sends a Telegram message to chat <code>-123</code>, routed to folder <code>atlas/support</code>.</p>
-
-    <ol>
-      <li><strong>Inbound admission</strong> &mdash; proxyd verifies the user's session and stamps <code>X-User-Sub</code>/<code>X-User-Sig</code>. Backend mounts using <code>auth.RequireSigned</code> reject mismatched sigs. For folder access (e.g. dav), <code>auth.MatchGroups(store.UserGroups(sub), folder)</code> must allow <code>atlas/support</code> &mdash; <code>**</code>, <code>atlas/**</code>, or <code>atlas/support</code>. No matching row &rarr; onbod's admission queue gates the user when <code>ONBOARDING_ENABLED</code>.</li>
-      <li><strong>Routing</strong> &mdash; <code>routes</code> resolves a row with <code>match='platform=telegram room=-123'</code>, target <code>atlas/support</code>.</li>
-      <li><strong>Agent spawn</strong> &mdash; gateway starts a container for folder <code>atlas/support</code>.</li>
-      <li><strong>Tier</strong> &mdash; <code>auth.Resolve("atlas/support")</code> &rarr; tier 1.</li>
-      <li><strong>Routed JIDs in world</strong> &mdash; <code>RouteSourceJIDsInWorld("atlas")</code> collects every <code>&lt;platform&gt;:&lt;room&gt;</code> whose target sits under <code>atlas/</code>.</li>
-      <li><strong>Rules</strong> &mdash; <code>grants.DeriveRules(store, "atlas/support", 1, "atlas")</code> yields:
-        <ul>
-          <li><code>send</code>, <code>reply</code>, <code>send_file</code></li>
-          <li>per-platform: <code>send(jid=telegram:*)</code>, <code>post(jid=telegram:*)</code>, &hellip;</li>
-          <li><code>schedule_task</code>, <code>register_group</code>, <code>escalate_group</code>, <code>delegate_group</code>, <code>get_routes</code>, <code>set_routes</code>, <code>add_route</code>, <code>delete_route</code>, <code>list_tasks</code>, <code>pause_task</code>, <code>resume_task</code>, <code>cancel_task</code></li>
-          <li><code>share_mount(readonly=false)</code></li>
-          <li>&hellip;followed by anything in <code>grant_rules</code> for <code>atlas/support</code>.</li>
-        </ul>
-      </li>
-      <li><strong>Env</strong> &mdash; <code>resolveSpawnEnv</code> merges <code>FolderSecretsResolved("atlas/support")</code> over the base env (root &lt; atlas &lt; atlas/support, deepest wins). Telegram <code>-123</code> is a group chat (<code>chats.is_group=1</code>), so no user-secret overlay is added.</li>
-      <li><strong>MCP gate</strong> &mdash; IPC server filters tool registration via <code>grants.MatchingRules</code> AND gates each call via <code>grants.CheckAction</code>. Outbound verbs additionally pass through <code>auth.Authorize</code>, which enforces subtree containment.</li>
-    </ol>
+    <p>Per-folder MCP overrides live in <code>acl</code> as <code>(principal=folder:&lt;F&gt;, action=mcp:&lt;tool&gt;, scope=&lt;F&gt;, params, effect)</code> rows. The in-container MCP server consults them at registration (<code>grants.MatchingRules</code> &mdash; tools with no match are dropped from <code>tools/list</code>) and at invocation (<code>grants.CheckAction</code> &mdash; synthesized calls still get refused).</p>
 
     <h2>9. Key invariants</h2>
 
     <ul>
-      <li><strong>Tier &ne; ACL.</strong> <code>user_groups</code> (who) is orthogonal to tier (what). A user with a <code>**</code> grant sees only the tools their folder's tier allows.</li>
+      <li><strong>Tier &ne; ACL.</strong> <code>acl</code> answers who. Tier answers what default tools the agent sees. A user with <code>role:operator</code> on a tier-3 folder still gets only deep-group rules.</li>
+      <li><strong>Deny wins.</strong> Any matching <code>effect='deny'</code> row rejects, even if matching <code>allow</code> rows exist. Prefer deleting allow rows or membership edges over inserting denies; denies are for true exceptions (banning one user from an otherwise-open channel).</li>
       <li><strong>No silent inheritance of routes.</strong> Each folder derives its own rules. Tier-1 worlds see all platforms routed anywhere under themselves; tier-2+ groups see only platforms routed at their own subtree.</li>
-      <li><strong>Route presence gates platform access.</strong> No route for <code>bluesky:*</code> to anything under folder F's scope &rArr; no <code>send(jid=bluesky:*)</code> rule &rArr; agent can't post to Bluesky from F even if an adapter is running.</li>
-      <li><strong>Outbound subtree containment is independent of grants.</strong> Even a tier-0 root cannot direct-send cross-world via outbound verbs; cross-world traffic goes through <code>escalate_group</code> / <code>delegate_group</code>, each with its own <code>auth.Authorize</code> rule.</li>
-      <li><strong>Secrets ride the same hierarchy as grants but resolve independently.</strong> Folder ancestors walk root&rarr;F deepest-wins; user overlay applies only when <code>chats.is_group=0</code>. v1 stores plaintext per spec 9/11.</li>
+      <li><strong>Outbound subtree containment is independent of acl.</strong> Even a tier-0 root cannot direct-send cross-world via outbound verbs; cross-world traffic goes through <code>escalate_group</code> / <code>delegate_group</code>, each gated by <code>AuthorizeStructural</code>.</li>
+      <li><strong>Secrets ride the same hierarchy but resolve independently.</strong> Folder ancestors walk root&rarr;F deepest-wins; user overlay applies only when <code>chats.is_group=0</code>. v1 stores plaintext per spec 9/11.</li>
     </ul>
 
     <h2>10. Go deeper</h2>
     <ul>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> &mdash; maintainer reference, table-by-table breakdown</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go"><code>grants/grants.go</code></a> &mdash; rule engine (<code>ParseRule</code>, <code>CheckAction</code>, <code>MatchingRules</code>, <code>DeriveRules</code>)</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/auth/identity.go"><code>auth/identity.go</code></a> &mdash; <code>Resolve</code>, <code>WorldOf</code>, <code>CheckSpawnAllowed</code></li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go"><code>auth/acl.go</code></a> &mdash; <code>MatchGroups</code></li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go"><code>auth/policy.go</code></a> &mdash; per-tool tier + subtree authorization</li>
-      <li><a href="/pub/reference/schema.html#user_groups">schema: user_groups, grant_rules</a></li>
+      <li><a href="/pub/concepts/grants.html">concepts: authorization</a> &mdash; mental model + worked patterns</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/9-acl-unified.md">specs/6/9-acl-unified.md</a> &mdash; design + migration plan</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> &mdash; maintainer reference</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a> &mdash; <code>Authorize</code> (the unified entry point)</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go"><code>auth/policy.go</code></a> &mdash; <code>AuthorizeStructural</code> (hierarchy / tier)</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go"><code>auth/acl.go</code></a> &mdash; <code>MatchGroups</code> (pure scope matcher)</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go"><code>grants/grants.go</code></a> &mdash; <code>ParseRule</code>, <code>CheckAction</code>, <code>MatchingRules</code>, <code>DeriveRules</code></li>
+      <li><a href="/pub/reference/schema.html#acl">schema: acl, acl_membership</a></li>
       <li><a href="/pub/reference/jid.html">jid format</a> &mdash; what the params in <code>send(jid=&hellip;)</code> look like</li>
     </ul>
   </div>

@@ -90,10 +90,10 @@ curl -s -o /dev/null -w '%{http_code}\n' \
     <div class="warn"><strong>Bearer tokens are passwords.</strong> Treat them as such. Anyone who holds your token can read every group you have a grant on. Revoke at <code>/dash/profile</code> if you suspect a leak.</div>
 
     <h2>per-group access</h2>
-    <p>Authentication tells <code>proxyd</code> who you are; <a href="/pub/concepts/grants.html">grants</a> tell it which group folders you may touch. Grants are stored in the <code>user_groups</code> table and resolved at request time:</p>
+    <p>Authentication tells <code>proxyd</code> who you are; <a href="/pub/concepts/grants.html">grants</a> tell it which group folders you may touch. Grants are stored as <code>acl</code> rows (with <code>role:operator</code> membership in <code>acl_membership</code> for the operator) and resolved at request time:</p>
     <ul>
-      <li><strong>Operator</strong> &mdash; any user with a <code>**</code> grant sees <em>every</em> group on the instance. <code>/dav/</code> redirects them to the first non-<code>**</code> group in sorted order (deterministic across requests); they can reach any other group by typing its path directly.</li>
-      <li><strong>Regular user</strong> &mdash; sees only the groups for which a row in <code>user_groups</code> exists. Requesting a group you have no grant on returns <code>403 Forbidden</code> (and proxyd logs <code>dav forbidden</code> with your sub and the path).</li>
+      <li><strong>Operator</strong> &mdash; any user in <code>acl_membership(sub, role:operator)</code> sees <em>every</em> group on the instance. <code>/dav/</code> redirects them to the first non-operator group in sorted order (deterministic across requests); they can reach any other group by typing its path directly.</li>
+      <li><strong>Regular user</strong> &mdash; sees only the groups for which a matching <code>acl</code> row authorizes access. Requesting a group you have no grant on returns <code>403 Forbidden</code> (and proxyd logs <code>dav forbidden</code> with your sub and the path).</li>
     </ul>
     <p>Grant scope decides what your token can read; <em>auth alone is not enough</em>. A user signed in to <code>/dav/</code> with no grants gets <code>403</code> on every group path.</p>
 
@@ -213,7 +213,7 @@ curl -X PUT --data-binary @./notes.md \
     </dl>
 
     <h2>security model</h2>
-    <p>TLS terminates at the public edge (nginx in front of <code>proxyd</code>). From there inward &mdash; proxyd to davd, davd to disk &mdash; traffic is plain HTTP on the Docker bridge network; the network namespace is the trust boundary. Identity is signed at proxyd with HMAC over <code>X-User-Sub</code>/<code>X-User-Name</code>/<code>X-User-Groups</code> headers, but davd doesn&rsquo;t verify those today &mdash; it trusts that anything reaching it has already cleared <code>requireAuth</code> + <code>davAllow</code> + <code>MatchGroups</code> upstream. Full threat model in <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+    <p>TLS terminates at the public edge (nginx in front of <code>proxyd</code>). From there inward &mdash; proxyd to davd, davd to disk &mdash; traffic is plain HTTP on the Docker bridge network; the network namespace is the trust boundary. Identity is signed at proxyd with HMAC over <code>X-User-Sub</code>/<code>X-User-Name</code>/<code>X-User-Groups</code> headers, but davd doesn&rsquo;t verify those today &mdash; it trusts that anything reaching it has already cleared <code>requireAuth</code> + <code>davAllow</code> + <code>auth.Authorize</code> upstream. Full threat model in <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a>.</p>
 
     <h2>going deeper</h2>
     <ul>
