@@ -115,7 +115,7 @@ model outgrows a row in the root table.
 - **ROUTING.md** — route table, topic/sticky/reply rules.
 - **EXTENDING.md** — channels, actions, routing, mounts, skills,
   tasks, diary, autocall extension points.
-- **GRANTS.md** — tier model + tool authorization scope syntax.
+- **GRANTS.md** — pointer to `specs/6/9-acl-unified.md` (canonical) + the operator concepts page.
 - **CHANGELOG.md** — what shipped, dated.
 
 Keep `EXTENDING.md` current as extension points evolve (channels,
@@ -127,6 +127,26 @@ permission tiers).
 See `ARCHITECTURE.md` for the package graph and `README.md` for the
 daemon + library tables. Schema and migrations live in `store/` (gated
 owns them). Per-package details co-located in each `<pkg>/README.md`.
+
+## Refine scope
+
+`/refine` (or any user request like "clean up", "polish", "finalize")
+covers the full surface in one pass:
+
+- **Code** — `improve` + `simplify` agents: minimize, orthogonalize,
+  delete dead paths, kill duplication
+- **Repo docs** — root UPPERCASE files (`README.md`, `ARCHITECTURE.md`,
+  `SECURITY.md`, `GRANTS.md`, `EXTENDING.md`, `CHANGELOG.md`),
+  per-package `<pkg>/README.md`, `specs/index.md` + spec frontmatter
+- **Web docs** — `template/web/pub/` operator-facing pages, including
+  `concepts/`, `reference/`, `howto/`. Drift sweep + link check + match
+  against latest `CHANGELOG.md` blockquote
+- **Verify** — `make build && make lint && go test ./... -short` green
+- **Commit** — single `[refined] <summary>` commit per pass
+
+If a refine round finds nothing to change, it commits nothing and
+reports a clean state. Multiple rounds are valid — each pass surfaces
+issues the prior one couldn't see.
 
 ## Conventions
 
