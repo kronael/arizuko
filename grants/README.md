@@ -27,4 +27,4 @@ also filter the MCP tool manifest.
 ## Related docs
 
 - `ARCHITECTURE.md` (Grants Engine)
-- `specs/5/29-acl.md`
+- `specs/6/9-acl-unified.md` (the broader ACL model `CheckAction` feeds into)

@@ -165,7 +165,7 @@ binaries. See [`specs/9/b-orthogonal-components.md`](specs/9/b-orthogonal-compon
 | multitenant routing + delegation        | [gateway/](gateway/), [router/](router/)                   | [ROUTING.md](ROUTING.md)                                         |
 | MCP tooling (action + inspect families) | [ipc/ipc.go](ipc/ipc.go), [ipc/inspect.go](ipc/inspect.go) | [specs/5/30-inspect-tools.md](specs/5/30-inspect-tools.md)       |
 | channel adapters (HTTP protocol)        | [chanlib/](chanlib/), `<adapter>/`                         | [specs/4/1-channel-protocol.md](specs/4/1-channel-protocol.md)   |
-| web auth + onboarding (OAuth, gated)    | [proxyd/](proxyd/), [onbod/](onbod/)                       | [specs/5/28-mass-onboarding.md](specs/5/28-mass-onboarding.md)   |
+| web auth + onboarding (OAuth, gated)    | [proxyd/](proxyd/), [onbod/](onbod/)                       | [specs/5/A-auth-consolidated.md](specs/5/A-auth-consolidated.md) |
 | scheduler (cron + interval)             | [timed/main.go](timed/main.go)                             | [specs/4/8-scheduler-service.md](specs/4/8-scheduler-service.md) |
 | containerized agents (per-group, MCP)   | [container/](container/), [ant/](ant/)                     | [ARCHITECTURE.md](ARCHITECTURE.md)                               |
 

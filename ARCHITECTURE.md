@@ -126,9 +126,10 @@ fallthrough in `ROUTING.md` "HTTP Routing (proxyd)"):
 
 **Auth** in `requireAuth`: `Authorization: Bearer <jwt>` → `refresh_token`
 cookie → redirect to `/auth/login`. JWT claims include `groups` —
-a JSON array read from `user_groups` at login. Operator is represented
-by `["**"]` (glob matching all folders); see "Operator" below. `webd.requireFolder` checks `X-User-Groups` on folder-specific
-endpoints.
+a JSON array of allow-scopes computed by `store.UserScopes(sub)` from
+the `acl` table (transitively expanded via `acl_membership`). Operator
+membership surfaces as `**` in this list; see "Operator" below.
+`webd.requireFolder` checks `X-User-Groups` on folder-specific endpoints.
 
 WebDAV requires `DAV_ADDR`; the dufs container mounts `groups/` read-only.
 proxyd reads `web/vhosts.json` every 5s. Full protocol: `specs/4/18-web-vhosts.md`.
@@ -239,10 +240,8 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `channels`         | name (PK), url, jid_prefixes, capabilities                                               |
 | `auth_users`       | sub (unique), username (unique), hash, name                                              |
 | `auth_sessions`    | token_hash (PK), user_sub, expires_at                                                    |
-| `user_groups`      | user_sub + folder (PK), granted_at                                                       |
-| `user_jids`        | user_sub + jid (PK), jid (unique), claimed                                               |
-| `grant_rules`      | folder (PK), rules (JSON)                                                                |
-| `grants`           | id, jid, role, granted_by, granted_at                                                    |
+| `acl`              | principal + action + scope + params + predicate + effect (PK), granted_by, granted_at    |
+| `acl_membership`   | child + parent (PK), added_by, added_at — role memberships + JID→sub claims              |
 | `chat_reply_state` | jid + topic (PK), last_reply_id                                                          |
 | `email_threads`    | thread_id (PK), chat_jid, subject                                                        |
 | `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at           |
@@ -293,8 +292,8 @@ advances (partial work preserved).
 
 MCP server on unix socket (`mark3labs/mcp-go`). One per group at
 `ipc/<folder>/gated.sock`. Tools filtered by grants for the caller's group.
-Runtime auth via `auth.Authorize`. `set_grants`/`get_grants` read/write
-rules.
+Runtime auth via `auth.Authorize`. `list_acl(folder)` inspects the
+effective ACL rows for the caller's principal set.
 
 socat bridges the host socket into the container; agent-runner configures
 `arizuko` MCP server in `settings.json` with `socat UNIX-CONNECT`. Server
@@ -339,20 +338,23 @@ filtered by grants.
 
 ## Operator
 
-"Operator" is **not a role, flag, or sentinel** — it is emergent from the
-`user_groups` ACL. Any user with a `**` row (glob matching all folders) in
-`user_groups` is treated as the operator. `auth.MatchGroups` handles tier-0
-visibility uniformly; there is no `groups.is_operator` column, no
-`router_state['operator_jid']` sentinel, and no nil-default routing target.
+"Operator" is **not a role flag or sentinel** — it is membership in the
+`role:operator` principal in the unified ACL. Any sub joined via
+`acl_membership(<sub>, role:operator)` inherits the seeded row
+`acl(role:operator, *, **, allow)` and matches every authorization check.
+`auth.Authorize` handles tier-0 visibility uniformly; there is no
+`groups.is_operator` column, no `router_state['operator_jid']` sentinel,
+and no nil-default routing target.
 
 Cross-group system notifications (errors, health events, scheduled digests)
-resolve their destination by querying `user_groups` for `**`-grant holders
-and routing messages into their existing folders — not by seeding a
-specially-flagged group.
+resolve their destination by querying `acl_membership` for `role:operator`
+members and routing messages into their existing folders — not by seeding
+a specially-flagged group.
 
-What this means in practice: granting a user `**` access is how you make
-them the operator. Revoking it demotes them. dashd is the management UI;
-its sessions are scoped to users who hold at least one `user_groups` row.
+What this means in practice: adding a user to `role:operator` is how you
+make them the operator. Removing the membership demotes them. dashd is the
+management UI; its sessions are scoped to users with at least one allow
+row in `acl` (directly or via membership).
 
 ## Compose Containers
 

@@ -109,7 +109,7 @@ if !auth.MatchesFolder(ident, taskFolder)       { return 403 }
 ## Related docs
 
 - `ARCHITECTURE.md` (Auth Hardening)
-- `specs/5/29-acl.md`
+- `specs/5/A-auth-consolidated.md`, `specs/6/9-acl-unified.md`
 - `specs/6/R-platform-api.md` — full token contract; auth/ is the
   single source of truth for the JWT shape every federated daemon
   consumes

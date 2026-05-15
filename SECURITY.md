@@ -10,8 +10,9 @@ Three isolation axes:
 
 1. **Group isolation** — per-group bind mounts; no path inside one
    group's container resolves to another group's files or sockets.
-2. **User isolation** — users reach groups only via `user_groups` rows.
-   OAuth → JWT at the proxy edge; `auth.MatchGroups` enforces.
+2. **User isolation** — users reach groups only via `acl` allow rows
+   (directly or through `acl_membership`). OAuth → JWT at the proxy
+   edge; `auth.Authorize` enforces.
 3. **Daemon isolation** — adapters reach gated only over the internal
    docker network with a shared `CHANNEL_SECRET` bearer token.
 
@@ -30,7 +31,7 @@ Three isolation axes:
 | Slink identity relay | proxyd signs `X-Folder` via HMAC; webd verifies                                                                                 | `proxyd/main.go`, `auth.SignHMAC`                                                                 |
 | Authn                | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)                                                           | `auth/web.go`, `auth/oauth.go`                                                                    |
 | Login throttle       | 5 POST `/auth/login` per IP per 15min, in-memory                                                                                | `auth/web.go`                                                                                     |
-| Authz                | `user_groups` ACL → `auth.MatchGroups`; grants engine for agent tools                                                           | `auth/acl.go`, `grants/`                                                                          |
+| Authz                | Unified `acl` + `acl_membership` → `auth.Authorize`; `grants.CheckAction` for per-tool param gating                             | `auth/acl.go`, `grants/`                                                                          |
 | Channel ingress      | `Authorization: Bearer <CHANNEL_SECRET>`; docker-network only                                                                   | `chanlib/run.go`, `chanlib/chanlib.go` (`Auth`), `api/api.go`                                     |
 | Slack webhook        | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew | `slakd/bot.go` (verify), `template/services/slakd.toml` (route), `slakd/README.md` § Threat model |
 | Secrets at rest      | Plaintext (v1; operator trusts disk + FS perms; encryption at rest deferred per spec 9/11)                                      | `store/secrets.go`, migrations `0034-secrets.sql` + `0047-secrets-plaintext.sql`                  |

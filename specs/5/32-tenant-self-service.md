@@ -190,8 +190,10 @@ Ship in order; each phase is useful even if later phases never land.
 Specs already shipped or planned that this references (do not duplicate
 their content):
 
-- `5/28-mass-onboarding.md` — gates and admission queue (shipped)
-- `5/29-acl.md` — `user_groups` glob ACL (shipped)
+- `5/A-auth-consolidated.md` — folders + routes + ACL + identities;
+  supersedes the earlier `5/28-mass-onboarding.md` and `5/29-acl.md`
+  drafts (shipped)
+- `6/9-acl-unified.md` — single `acl` + `acl_membership` schema (shipped)
 - `7/6-dynamic-channels.md` — channel adapter credentials (special case
   of folder-scope secrets); planned
 - `5/30-inspect-tools.md` — read-only introspection (shipped)

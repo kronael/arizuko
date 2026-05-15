@@ -22,9 +22,10 @@ Primary methods (by domain):
 - Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `GroupBySlinkToken`
 - Sessions: `GetSession`, `SetSession`, `RecordSession`, `EndSession`, `RecentSessions`
 - Sticky: `SetStickyGroup`, `GetStickyGroup`, `SetStickyTopic`, `GetStickyTopic`
-- Auth: `CreateAuthUser`, `AuthUserBySub`, `CreateAuthSession`, `UserGroups`, `Grant`, `Ungrant`, `Grants`
+- Auth: `CreateAuthUser`, `AuthUserBySub`, `AuthUserByUsername`, `CanonicalSub`, `LinkSubToCanonical`, `LinkedSubs`, `CreateAuthSession`, `AuthSession`, `DeleteAuthSession`
+- ACL (spec 6/9): `AddACLRow`, `RemoveACLRow`, `ListACL`, `ACLRowsFor`, `ACLWildcardRows`, `UserScopes`
+- Membership: `AddMembership`, `RemoveMembership`, `Members`, `Ancestors` — roles + JID→sub claims (`acl_membership` table)
 - Tasks: `CreateTask`, `GetTask`, `ListTasks`, `UpdateTask`, `DeleteTask`, `TaskRunLogs`
-- Grants/rules: `GetGrants(folder)`, `SetGrants(folder, rules)`
 - Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `DeleteSecret`,
   `FolderSecretsResolved` (walk parents → root), `UserSecrets`
   (per-user overlay). v1 stores plaintext (operator trusts disk +
@@ -38,7 +39,7 @@ Primary methods (by domain):
 ## Files
 
 - `store.go` — `Open`, `OpenMem`, `Migrate`, connection setup
-- `messages.go`, `groups.go`, `sessions.go`, `tasks.go`, `auth.go`, `grants.go`, `routes.go`, `onboarding.go`, `invites.go`, `secrets.go`, `inspect.go`
+- `messages.go`, `groups.go`, `sessions.go`, `tasks.go`, `auth.go`, `acl.go`, `membership.go`, `routes.go`, `onboarding.go`, `invites.go`, `secrets.go`, `inspect.go`
 - `migrations/NNNN-*.sql` — numbered migrations
 
 ## Related docs

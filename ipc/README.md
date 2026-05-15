@@ -82,7 +82,7 @@ aliases.)
 
 Routing / groups: `register_group`, `escalate_group`, `delegate_group`,
 `refresh_groups`, `list_routes`, `set_routes`, `add_route`,
-`delete_route`, `get_grants`, `set_grants`, `fetch_history`,
+`delete_route`, `list_acl`, `fetch_history`,
 `get_history` (deprecated alias), `get_thread`, `inject_message`.
 
 Per-turn agent output flows back over the same socket via the

@@ -28,8 +28,10 @@ does not exist — the socket is wired automatically.
 - `schedule_task`: kanipi had `schedule_type`+`schedule_value`+`context_mode`;
   arizuko has `owner` + `cron` (empty = one-shot, `next_run` set at
   creation). `task_run_logs` table does not exist.
-- `get_grants` / `set_grants`: kanipi checked manifest grant; arizuko is a
-  hard tier gate (tier ≤ 1 only).
+- Grants: kanipi exposed `get_grants` / `set_grants` MCP tools backed by
+  per-folder rule blobs. arizuko replaced both with a single unified ACL
+  (`acl` + `acl_membership` tables); `list_acl(folder)` is the read tool,
+  writes go through CLI / dashd. Tier ≤ 1 gates the inspection tool.
 
 ## Root Group
 
@@ -127,7 +129,9 @@ sticky_topic)`. Dropped `name`, `channel`, `is_group`, `last_message_time`
   `schedule_value`+`context_mode`+`last_run`+`last_result`. arizuko `owner`
   - `cron`. No `task_run_logs`.
 - **`sessions`**: both have PK `(group_folder, topic)` post-migration.
-- **`grants` → `grant_rules`**: rename table; data format identical.
+- **Grants**: kanipi `grants` table → arizuko unified `acl` +
+  `acl_membership` (post-v0.38.0); legacy `grant_rules` / `user_groups`
+  / `user_jids` tables dropped in migration 0053.
 - **New in arizuko**: `channels` (persistent adapter registry),
   `outbound_log` (audit).
 

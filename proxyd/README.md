@@ -64,9 +64,10 @@ seeds the table from the env var. Thereafter the table is authoritative
 and the env var is ignored. Runtime mutations are visible to subsequent
 requests without restart and durable across container restarts.
 
-**Authorization**: today's `**` user_groups marker is the operator
-gate (spec 6/5 §"Token / auth model" — JWT scope claims will replace
-this once the capability-token work lands).
+**Authorization**: operator gate is `role:operator` membership in the
+unified ACL (`acl_membership(<sub>, role:operator)`), surfaced as `**`
+in the JWT `groups` claim (spec 6/5 §"Token / auth model" — JWT scope
+claims will replace this once the capability-token work lands).
 
 ## WebDAV write-block
 

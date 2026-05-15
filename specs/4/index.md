@@ -35,3 +35,5 @@ progress.
 - [S-e2e-tests.md](S-e2e-tests.md) — mock-agent-based end-to-end tests
 - [2-proxyd.md](2-proxyd.md) — public-facing auth proxy; routes to dashd/webd/vited
 - [3-chat-ui.md](3-chat-ui.md) — webd channel adapter, HTMX UI, slink/SSE, two auth planes
+- [U-user-dashboard.md](U-user-dashboard.md) — per-user `/me/*` portal (memberships, JIDs, secrets)
+- [V-dashd-acl-ui.md](V-dashd-acl-ui.md) — dashd operator ACL editor on unified `acl` table
