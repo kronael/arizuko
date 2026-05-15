@@ -29,6 +29,7 @@ const (
 	slackBase       = "https://slack.com/api"
 	signingWindow   = 5 * time.Minute
 	defaultCacheTTL = 15 * time.Minute
+	paneTTL         = 30 * time.Minute
 )
 
 type bot struct {
@@ -47,6 +48,14 @@ type bot struct {
 
 	connected     atomic.Bool
 	lastInboundAt atomic.Int64
+
+	paneMu sync.Mutex
+	panes  map[string]paneSession
+}
+
+type paneSession struct {
+	threadTS string
+	seenAt   time.Time
 }
 
 func (b *bot) isConnected() bool    { return b.connected.Load() }
@@ -79,6 +88,7 @@ func newBotWithBase(cfg config, base string) (*bot, error) {
 		http:  &http.Client{Timeout: 30 * time.Second},
 		users: newTTLCache(cfg.CacheTTL),
 		chans: newTTLCache(cfg.CacheTTL),
+		panes: map[string]paneSession{},
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
 	return b, nil
@@ -185,14 +195,17 @@ type slackFile struct {
 }
 
 type slackMessage struct {
-	User        string      `json:"user"`
-	BotID       string      `json:"bot_id"`
-	Text        string      `json:"text"`
-	TS          string      `json:"ts"`
-	ThreadTS    string      `json:"thread_ts"`
-	Channel     string      `json:"channel"`
-	ChannelType string      `json:"channel_type"`
-	Files       []slackFile `json:"files"`
+	User            string      `json:"user"`
+	BotID           string      `json:"bot_id"`
+	Text            string      `json:"text"`
+	TS              string      `json:"ts"`
+	ThreadTS        string      `json:"thread_ts"`
+	Channel         string      `json:"channel"`
+	ChannelType     string      `json:"channel_type"`
+	Files           []slackFile `json:"files"`
+	AssistantThread *struct {
+		ActionToken string `json:"action_token"`
+	} `json:"assistant_thread"`
 }
 
 func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
@@ -213,6 +226,11 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 
 	conv := b.convInfoFor(m.Channel, m.ChannelType)
 	jid := formatJID(cmp.Or(teamID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), m.Channel)
+
+	if m.AssistantThread != nil && m.AssistantThread.ActionToken != "" {
+		root := cmp.Or(m.ThreadTS, m.TS)
+		b.recordPane(jid, root)
+	}
 
 	content, atts := b.attachmentsFor(m.Text, m.Files)
 	if content == "" && len(atts) == 0 {
@@ -486,8 +504,73 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	return nil
 }
 
-// Typing is a no-op: Slack has no bot-side typing primitive.
-func (b *bot) Typing(string, bool) {}
+// Typing surfaces a "thinking…" indicator in the Slack AI pane via
+// assistant.threads.setStatus. Regular DMs and channels have no bot-side
+// typing primitive on Slack — for those the call is a silent no-op.
+// Pane sessions are auto-detected from inbound `assistant_thread.action_token`
+// payloads (see handleMessage); only JIDs with a recorded pane session
+// trigger the API call.
+func (b *bot) Typing(jid string, on bool) {
+	threadTS, ok := b.lookupPane(jid)
+	if !ok {
+		return
+	}
+	parts, err := parseJID(jid)
+	if err != nil {
+		return
+	}
+	status := ""
+	if on {
+		if name := b.cfg.AssistantName; name != "" {
+			status = name + " is thinking…"
+		} else {
+			status = "thinking…"
+		}
+	}
+	go func() {
+		form := url.Values{}
+		form.Set("channel_id", parts.id)
+		form.Set("thread_ts", threadTS)
+		form.Set("status", status)
+		var resp struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		if err := b.postForm(context.Background(), "/assistant.threads.setStatus", form, &resp); err != nil {
+			slog.Debug("slack setStatus failed", "jid", jid, "err", err)
+			return
+		}
+		if !resp.OK && resp.Error == "missing_scope" {
+			slog.Warn("slack setStatus missing_scope (assistant:write required)", "jid", jid)
+		}
+	}()
+}
+
+func (b *bot) recordPane(jid, threadTS string) {
+	b.paneMu.Lock()
+	defer b.paneMu.Unlock()
+	now := time.Now()
+	b.panes[jid] = paneSession{threadTS: threadTS, seenAt: now}
+	for k, v := range b.panes {
+		if now.Sub(v.seenAt) > paneTTL {
+			delete(b.panes, k)
+		}
+	}
+}
+
+func (b *bot) lookupPane(jid string) (string, bool) {
+	b.paneMu.Lock()
+	defer b.paneMu.Unlock()
+	p, ok := b.panes[jid]
+	if !ok {
+		return "", false
+	}
+	if time.Since(p.seenAt) > paneTTL {
+		delete(b.panes, jid)
+		return "", false
+	}
+	return p.threadTS, true
+}
 
 func (b *bot) Post(req chanlib.PostRequest) (string, error) {
 	return b.Send(chanlib.SendRequest{ChatJID: req.ChatJID, Content: req.Content})

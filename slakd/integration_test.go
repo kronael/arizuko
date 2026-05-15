@@ -26,6 +26,7 @@ type slackMock struct {
 	updated   []map[string]string
 	deleted   []map[string]string
 	completed []map[string]string
+	statuses  []map[string]string
 
 	authUserID string
 	authTeamID string
@@ -137,6 +138,17 @@ func newSlackMock() *slackMock {
 			"channel_id":      r.FormValue("channel_id"),
 			"initial_comment": r.FormValue("initial_comment"),
 			"files":           r.FormValue("files"),
+		})
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/assistant.threads.setStatus", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		r.ParseForm()
+		m.statuses = append(m.statuses, map[string]string{
+			"channel_id": r.FormValue("channel_id"),
+			"thread_ts":  r.FormValue("thread_ts"),
+			"status":     r.FormValue("status"),
 		})
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
@@ -676,6 +688,78 @@ func TestInbound_FileAttachment(t *testing.T) {
 	// Proxy URL format
 	if got := a.URL; got == "" || got == "https://files.slack.com/F1/a.pdf" {
 		t.Errorf("attachment URL should be proxied, got %q", got)
+	}
+}
+
+// Typing in agent-pane mode → POST /assistant.threads.setStatus with the
+// recorded thread_ts; Typing on a non-pane JID is a silent no-op.
+func TestTyping_PaneSetStatus(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+
+	// Inbound pane-mode message records the (jid, thread_ts) pair.
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "message",
+	    "channel_type": "im",
+	    "channel": "D0XY",
+	    "user": "U99",
+	    "text": "hi pane",
+	    "ts": "1700000888.000100",
+	    "assistant_thread": {"action_token": "tok-abc"}
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+
+	paneJID := "slack:T012/dm/D0XY"
+	b.Typing(paneJID, true)
+	b.Typing("slack:T012/channel/CNOPE", true) // not a pane → no-op
+
+	// Typing is fire-and-forget; poll briefly.
+	waitFor := func(want int) {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			mock.mu.Lock()
+			n := len(mock.statuses)
+			mock.mu.Unlock()
+			if n >= want {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	waitFor(1)
+
+	mock.mu.Lock()
+	if len(mock.statuses) != 1 {
+		mock.mu.Unlock()
+		t.Fatalf("setStatus calls = %d (expected 1 from pane jid only)", len(mock.statuses))
+	}
+	c := mock.statuses[0]
+	mock.mu.Unlock()
+	if c["channel_id"] != "D0XY" {
+		t.Errorf("channel_id = %q", c["channel_id"])
+	}
+	if c["thread_ts"] != "1700000888.000100" {
+		t.Errorf("thread_ts = %q", c["thread_ts"])
+	}
+	if c["status"] == "" {
+		t.Errorf("status must be non-empty when on=true")
+	}
+
+	// Typing off → status cleared.
+	b.Typing(paneJID, false)
+	waitFor(2)
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.statuses) != 2 {
+		t.Fatalf("setStatus calls after off = %d", len(mock.statuses))
+	}
+	if mock.statuses[1]["status"] != "" {
+		t.Errorf("off status = %q (expected empty)", mock.statuses[1]["status"])
 	}
 }
 

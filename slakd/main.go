@@ -47,6 +47,7 @@ type config struct {
 	ChannelSecret string
 	ListenAddr    string
 	ListenURL     string
+	AssistantName string
 	MediaMaxBytes int64
 	CacheTTL      time.Duration
 }
@@ -60,6 +61,7 @@ func loadConfig() config {
 		ChannelSecret: chanlib.EnvOr("SLAKD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":8080"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://slakd:8080"),
+		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
 		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		CacheTTL:      time.Duration(chanlib.EnvInt("SLAKD_USERS_CACHE_TTL", 900)) * time.Second,
 	}

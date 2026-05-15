@@ -42,20 +42,44 @@ Same pattern wanted for X, GitHub, Linear, Notion, etc.
 
 ## Why MCP at all when REST exists
 
-The agent (Claude Code in container) consumes MCP tools — that's
-the protocol the model uses to discover and invoke tools. So the
-agent's edge MUST be MCP. The question is what's on the OTHER side
-of that edge:
+arizuko is an agent-first platform. The primary consumer of every
+surface is an agent, and agents speak MCP — tool discovery,
+invocation, structured arguments and results. MCP isn't a wrapper
+the agent edge happens to need; it's the protocol that matches the
+shape of how the platform is used. REST is the protocol of
+external services we have to interop with.
 
-| Inside the cluster         | Pros                                   | Cons                              |
-| -------------------------- | -------------------------------------- | --------------------------------- |
-| MCP (option 1)             | Uniform; tool catalogs auto-aggregate  | New servers to write per platform |
-| REST + mapping (option 3)  | Reuses platform SDKs and existing REST | Mapping layer is the new code     |
-| MCP servers + REST (mixed) | Each daemon picks its style            | Two ways to do everything         |
+Designing the platform's internal contracts around MCP means:
 
-So "MCP everywhere internally" is justified only if writing MCP
-servers is cheaper than writing REST-to-MCP mappers. For most
-platforms with mature REST APIs, the mapper is cheaper — declarative.
+- Every operator action is a tool an agent can discover and call.
+  No "dashboard does X but MCP can only do Y" drift.
+- Tool catalogs are the canonical API surface. Documentation is
+  catalog metadata, not separate prose.
+- The agent isn't a special client; it's the canonical client.
+  Human operators consume the same surface through dashd or CLI,
+  which become thin MCP clients.
+
+That reframes the question. The choice isn't "MCP or REST inside
+the cluster", it's "everything is MCP, and REST is what we use to
+reach external platforms that don't speak it." The REST↔MCP
+bridge is the impedance match at the boundary, not the choice
+of internal protocol.
+
+The three framings collapse to one decision: where does the bridge
+live?
+
+| Framing                                  | Bridge location               | Cost                          |
+| ---------------------------------------- | ----------------------------- | ----------------------------- |
+| (1) MCP everywhere via hand-written MCPs | One MCP server per platform   | N server implementations      |
+| (2) MCP router + N platform daemons      | In the platform daemon        | N auth-gate implementations   |
+| (3) REST↔MCP mapping layer               | One bridge daemon, N catalogs | One runtime + N catalog files |
+
+(3) is cheaper if the catalog format is expressive enough; (1) is
+cleaner if hand-writing MCPs is faster than maintaining a catalog
+DSL. Spec 5/H, 6/A, the existing `resreg` registry, and the
+agent's current MCP surface all point at the same answer: MCP is
+the canonical platform protocol, the bridge handles the few
+boundaries where REST shows up.
 
 ## The REST ↔ MCP bridge sketch
 
