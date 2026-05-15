@@ -17,6 +17,51 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
+// TestOnMessage_SkipsSelfAuthor verifies user-mode self-echo filter:
+// Discord delivers our own MESSAGE_CREATE over the gateway, and in user
+// mode Author.Bot is false, so without the Author.ID check we'd loop.
+func TestOnMessage_SkipsSelfAuthor(t *testing.T) {
+	var deliveries int32
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/v1/messages") {
+			atomic.AddInt32(&deliveries, 1)
+		}
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer router.Close()
+
+	s := newTestSession(t)
+	addChannel(t, s, "ch-1", discordgo.ChannelTypeGuildText)
+	b := &bot{
+		session: s,
+		rc:      chanlib.NewRouterClient(router.URL, "secret"),
+		cfg:     config{AssistantName: "sloth"},
+		files:   chanlib.NewURLCache(0),
+	}
+
+	// Self-authored message — must be dropped.
+	b.onMessage(s, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m1", ChannelID: "ch-1", GuildID: "g1", Content: "hi",
+		Author:    &discordgo.User{ID: "bot-self", Username: "sloth"},
+		Timestamp: time.Now(),
+	}})
+	if got := atomic.LoadInt32(&deliveries); got != 0 {
+		t.Errorf("self-authored message delivered %d times, want 0", got)
+	}
+
+	// Different author — must deliver.
+	b.onMessage(s, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m2", ChannelID: "ch-1", GuildID: "g1", Content: "hello",
+		Author:    &discordgo.User{ID: "user-other", Username: "alice"},
+		Timestamp: time.Now(),
+	}})
+	// Allow async delivery to run.
+	time.Sleep(50 * time.Millisecond)
+	if got := atomic.LoadInt32(&deliveries); got != 1 {
+		t.Errorf("other-author delivered %d times, want 1", got)
+	}
+}
+
 // TestIsRateLimit exercises every detection branch of isRateLimit.
 func TestIsRateLimit(t *testing.T) {
 	if isRateLimit(nil) {

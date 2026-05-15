@@ -167,6 +167,12 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if m == nil || m.Author == nil || m.Author.Bot {
 		return
 	}
+	// User-mode: Discord echoes our own MESSAGE_CREATE over the gateway.
+	// Author.Bot is false for user accounts, so the line above doesn't catch
+	// it. Drop self-authored messages to avoid an infinite retrigger loop.
+	if self := b.session.State.User; self != nil && m.Author.ID == self.ID {
+		return
+	}
 	jid := chatJID(m.GuildID, m.ChannelID)
 	content, atts := buildAttachments(m.Attachments, m.Content, b.cfg.ListenURL, b.files)
 	if content == "" {
