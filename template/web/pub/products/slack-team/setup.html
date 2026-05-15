@@ -80,8 +80,8 @@ DISCORD_CLIENT_SECRET=…</code></pre>
       <h2>3. create the Slack App</h2>
       <p>In <a href="https://api.slack.com/apps">api.slack.com/apps</a>, create a new app (from scratch) in your workspace, then:</p>
       <ul>
-        <li><strong>OAuth &amp; Permissions.</strong> Add bot scopes <code>app_mentions:read</code>, <code>channels:history</code>, <code>chat:write</code>, <code>files:read</code>, <code>im:history</code>, <code>im:write</code>, <code>users:read</code>. Install to your workspace and copy the Bot User OAuth Token into <code>SLACK_BOT_TOKEN</code>.</li>
-        <li><strong>Event Subscriptions.</strong> Enable, set the request URL to <code>https://&lt;WEB_HOST&gt;/slack/events</code>, subscribe to bot events <code>app_mention</code>, <code>message.channels</code>, <code>message.im</code>.</li>
+        <li><strong>OAuth &amp; Permissions.</strong> Add bot scopes <code>channels:history</code>, <code>channels:read</code>, <code>groups:history</code>, <code>groups:read</code>, <code>im:history</code>, <code>im:read</code>, <code>mpim:history</code>, <code>mpim:read</code>, <code>chat:write</code>, <code>chat:write.public</code>, <code>reactions:read</code>, <code>reactions:write</code>, <code>files:read</code>, <code>files:write</code>, <code>users:read</code>. Install to your workspace and copy the Bot User OAuth Token into <code>SLACK_BOT_TOKEN</code>.</li>
+        <li><strong>Event Subscriptions.</strong> Enable, set the request URL to <code>https://&lt;WEB_HOST&gt;/slack/events</code>, subscribe to bot events <code>message.channels</code>, <code>message.groups</code>, <code>message.im</code>, <code>message.mpim</code>, <code>reaction_added</code>, <code>member_joined_channel</code>. Do <em>not</em> subscribe to <code>app_mention</code> &mdash; slakd derives <code>verb=mention</code> from message text and the duplicate event would double-fire.</li>
         <li><strong>Basic Information.</strong> Copy the Signing Secret into <code>SLACK_SIGNING_SECRET</code>.</li>
       </ul>
       <p>
@@ -130,7 +130,27 @@ arizuko invite acme list</code></pre>
         <li>Visit <code>https://&lt;WEB_HOST&gt;/dash/</code> as the operator (root) &mdash; you should see the channel as a group with a route.</li>
       </ul>
 
-      <h2>7. tune per channel</h2>
+      <h2>7. recommended routing default</h2>
+      <p>
+        For a workspace bot, the usual shape is &ldquo;answer every DM,
+        stay quiet in channels and mpims unless @-mentioned.&rdquo; In
+        the root agent (or via <code>/dash/</code> &rarr; Routing):
+      </p>
+      <pre><code>seq  match                                          target
+-2   chat_jid=slack:*/dm/*                          main
+-1   chat_jid=slack:*/channel/* verb=mention        main
+-1   chat_jid=slack:*/group/*   verb=mention        main
+0    chat_jid=slack:*/channel/*                     main#observe
+0    chat_jid=slack:*/group/*                       main#observe</code></pre>
+      <p>
+        Channel chatter still lands in <code>main</code> under
+        <code>#observe</code> so the agent has context on the next
+        mention, but no turn fires until someone calls on it. Full
+        recipe and Discord variant:
+        <a href="/pub/howto/asymmetric-channels.html#mention-only">asymmetric channels</a>.
+      </p>
+
+      <h2>8. tune per channel</h2>
       <p>
         Each Slack channel maps to an arizuko group folder. To
         customise voice, allowed tools, or skills for one channel,

@@ -165,7 +165,7 @@ curl -u :$TOKEN \
     <p>Mount:</p>
     <pre><code>sudo mkdir -p /mnt/atlas
 sudo mount -t davfs https://fab.krons.cx/dav/atlas/ /mnt/atlas</code></pre>
-    <p>davfs2 sends the token as Basic password; proxyd&rsquo;s Bearer check fails, but it then falls back to checking the cookie. davfs2 with token-as-password is not a supported path; prefer rclone on Linux.</p>
+    <p>davfs2 sends credentials over HTTP Basic; proxyd only accepts <code>Authorization: Bearer &lt;JWT&gt;</code> or the <code>refresh_token</code> cookie. davfs2 will not authenticate. Use rclone on Linux.</p>
 
     <h3>Windows Explorer</h3>
     <ol>
