@@ -190,6 +190,8 @@ func (g *Gateway) Run(ctx context.Context) error {
 		},
 		SubmitTurn:    g.handleSubmitTurn,
 		AcceptURLBase: g.cfg.AuthBaseURL,
+		PaneSetPrompts: g.paneSetPrompts,
+		PaneSetTitle:   g.paneSetTitle,
 	}
 	g.storeFns = ipc.StoreFns{
 		CreateTask: g.store.CreateTask,
@@ -552,7 +554,8 @@ func (g *Gateway) pollOnce() {
 			continue
 		}
 
-		if rt := router.ResolveRouteTarget(last, routes); rt.Mode == "observe" {
+		rt := router.ResolveRouteTarget(last, routes)
+		if rt.Mode == "observe" {
 			ids := make([]string, len(chatMsgs))
 			for i, m := range chatMsgs {
 				ids[i] = m.ID
@@ -562,6 +565,16 @@ func (g *Gateway) pollOnce() {
 			}
 			g.advanceAgentCursor(chatJid, chatMsgs)
 			continue
+		}
+		// Route-pinned topic (spec 6/F + topic-suffix routing): when
+		// the matched route declares target=folder#<topic>, override
+		// the message's adapter-assigned topic. Lets operators say
+		// "all #alerts go to topic alerts" without touching adapters.
+		if rt.Topic != "" {
+			for i := range chatMsgs {
+				chatMsgs[i].Topic = rt.Topic
+			}
+			last.Topic = rt.Topic
 		}
 
 		ctx := g.ctx
@@ -1353,6 +1366,33 @@ func (g *Gateway) editOnJID(jid, targetID, content string) error {
 	return socialDo(g, jid, func(s core.Socializer, ctx context.Context) error {
 		return s.Edit(ctx, jid, targetID, content)
 	})
+}
+
+// paneSetPrompts / paneSetTitle proxy to the channel owning jid if it
+// implements core.Paner (today: slakd). Returns chanlib.ErrUnsupported
+// when the owner doesn't support panes.
+func (g *Gateway) paneSetPrompts(jid string, prompts []core.PanePrompt) error {
+	ch := g.findChannelForJID(jid)
+	if ch == nil {
+		return fmt.Errorf("pane_set_prompts: no channel for jid %q", jid)
+	}
+	p, ok := ch.(core.Paner)
+	if !ok {
+		return chanlib.Unsupported("pane_set_prompts", ch.Name(), "channel does not support assistant panes")
+	}
+	return p.PaneSetPrompts(context.Background(), jid, prompts)
+}
+
+func (g *Gateway) paneSetTitle(jid, title string) error {
+	ch := g.findChannelForJID(jid)
+	if ch == nil {
+		return fmt.Errorf("pane_set_title: no channel for jid %q", jid)
+	}
+	p, ok := ch.(core.Paner)
+	if !ok {
+		return chanlib.Unsupported("pane_set_title", ch.Name(), "channel does not support assistant panes")
+	}
+	return p.PaneSetTitle(context.Background(), jid, title)
 }
 
 func (g *Gateway) clearSession(folder string) {

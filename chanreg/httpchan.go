@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 )
 
 // ErrUnsupported is returned when an adapter responds 501 to a social
@@ -353,6 +354,41 @@ func (h *HTTPChannel) Edit(ctx context.Context, jid, targetID, content string) e
 	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "target_id": targetID, "content": content})
 	_, err := h.postVerb(ctx, "edit", "/edit", b)
 	return err
+}
+
+// PaneSetPrompts targets the adapter's /v1/pane/prompts endpoint
+// (Slack-only today; spec 6/D). Adapters without pane semantics
+// respond 404 → ErrUnsupported. Idempotent; one-shot per outbound.
+func (h *HTTPChannel) PaneSetPrompts(ctx context.Context, jid string, prompts []core.PanePrompt) error {
+	b, _ := json.Marshal(map[string]any{"jid": jid, "prompts": prompts})
+	resp, err := h.post(ctx, "/v1/pane/prompts", b)
+	if err != nil {
+		return fmt.Errorf("channel %s pane_set_prompts: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return chanlib.Unsupported("pane_set_prompts", h.entry.Name, "adapter has no open pane for jid (or doesn't support panes)")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("channel %s pane_set_prompts: status %d", h.entry.Name, resp.StatusCode)
+	}
+	return nil
+}
+
+func (h *HTTPChannel) PaneSetTitle(ctx context.Context, jid, title string) error {
+	b, _ := json.Marshal(map[string]string{"jid": jid, "title": title})
+	resp, err := h.post(ctx, "/v1/pane/title", b)
+	if err != nil {
+		return fmt.Errorf("channel %s pane_set_title: %w", h.entry.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return chanlib.Unsupported("pane_set_title", h.entry.Name, "adapter has no open pane for jid (or doesn't support panes)")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("channel %s pane_set_title: status %d", h.entry.Name, resp.StatusCode)
+	}
+	return nil
 }
 
 func (h *HTTPChannel) Disconnect() error { return nil }

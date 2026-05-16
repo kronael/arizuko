@@ -87,26 +87,40 @@ type TopicLineage struct {
 	ObservedCursor string
 }
 
-// RouteTarget parses `folder` or `folder#mode` syntax on routes.target.
-// Mode="" means trigger (fire a turn). Mode="observe" stores under Folder
-// without dispatching.
+// RouteTarget parses `folder`, `folder#observe`, or `folder#<topic>`
+// syntax on routes.target. "observe" is the only reserved fragment
+// — it sets Mode and means observe-only (no agent turn). Any other
+// fragment is a topic name pinned for the routed message.
 type RouteTarget struct {
 	Folder string
-	Mode   string
+	Topic  string // when non-empty, route pins this topic on the message
+	Mode   string // "" trigger, "observe" silent ingest
 }
 
 func ParseRouteTarget(s string) RouteTarget {
-	if i := strings.IndexByte(s, '#'); i >= 0 {
-		return RouteTarget{Folder: s[:i], Mode: s[i+1:]}
+	i := strings.IndexByte(s, '#')
+	if i < 0 {
+		return RouteTarget{Folder: s}
 	}
-	return RouteTarget{Folder: s}
+	frag := s[i+1:]
+	rt := RouteTarget{Folder: s[:i]}
+	if frag == "observe" {
+		rt.Mode = frag
+	} else {
+		rt.Topic = frag
+	}
+	return rt
 }
 
 func (rt RouteTarget) String() string {
-	if rt.Mode == "" {
+	switch {
+	case rt.Mode != "":
+		return rt.Folder + "#" + rt.Mode
+	case rt.Topic != "":
+		return rt.Folder + "#" + rt.Topic
+	default:
 		return rt.Folder
 	}
-	return rt.Folder + "#" + rt.Mode
 }
 
 func JidRoom(jid string) string {
@@ -167,6 +181,22 @@ type Socializer interface {
 	Repost(ctx context.Context, jid, sourceMsgID string) (string, error)
 	Dislike(ctx context.Context, jid, targetID string) error
 	Edit(ctx context.Context, jid, targetID, content string) error
+}
+
+// Paner is the optional channel capability for Slack-style assistant
+// pane controls. Only slakd implements it today. Adapters without
+// pane semantics return chanlib.ErrUnsupported; the agent's MCP tool
+// surface for pane_* maps that to a structured error.
+type Paner interface {
+	PaneSetPrompts(ctx context.Context, jid string, prompts []PanePrompt) error
+	PaneSetTitle(ctx context.Context, jid, title string) error
+}
+
+// PanePrompt is one suggested-prompt button shown in a Slack assistant
+// pane (title shown on the button, message sent as user input on click).
+type PanePrompt struct {
+	Title   string `json:"title"`
+	Message string `json:"message"`
 }
 
 type SessionRecord struct {

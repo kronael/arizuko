@@ -57,6 +57,12 @@ type GatedFns struct {
 	AcceptURLBase        string // base URL where /invite/<token> is served (e.g. https://app.example.com)
 	GroupsDir            string
 	WebDir               string
+
+	// Slack assistant-pane controls (spec 6/D). Both stage values on the
+	// owning adapter; values fire after the next outbound into the pane.
+	// Adapters without pane semantics return chanlib.ErrUnsupported.
+	PaneSetPrompts func(jid string, prompts []core.PanePrompt) error
+	PaneSetTitle   func(jid, title string) error
 }
 
 // TurnResult is the agent-submitted turn payload. The MCP `submit_turn`
@@ -512,6 +518,39 @@ func workspaceRel(fp string) (string, error) {
 		return strings.TrimPrefix(fp, "/home/node/"), nil
 	}
 	return "", fmt.Errorf("filepath must be under ~/ (/home/node)")
+}
+
+// decodePanePrompts coerces the MCP `prompts` arg into typed
+// PanePrompt slice. The JSON-RPC envelope decodes the array as
+// []any of map[string]any; we walk it strictly (title+message
+// both required, both strings, non-empty).
+func decodePanePrompts(raw any) ([]core.PanePrompt, error) {
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("prompts: expected array, got %T", raw)
+	}
+	if len(arr) == 0 {
+		return nil, fmt.Errorf("prompts: empty")
+	}
+	if len(arr) > 16 {
+		return nil, fmt.Errorf("prompts: too many (max 16)")
+	}
+	out := make([]core.PanePrompt, 0, len(arr))
+	for i, v := range arr {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("prompts[%d]: expected object", i)
+		}
+		title, _ := m["title"].(string)
+		msg, _ := m["message"].(string)
+		title = strings.TrimSpace(title)
+		msg = strings.TrimSpace(msg)
+		if title == "" || msg == "" {
+			return nil, fmt.Errorf("prompts[%d]: title and message required", i)
+		}
+		out = append(out, core.PanePrompt{Title: title, Message: msg})
+	}
+	return out, nil
 }
 
 func readVhosts(webDir string) (map[string]string, error) {
@@ -1044,6 +1083,67 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return "", gated.Edit(a["chatJid"], a["targetId"], a["content"])
 		},
 	})
+
+	// pane_set_prompts / pane_set_title — Slack assistant pane (spec 6/D).
+	// Both stage values on the owning adapter; the adapter fires the
+	// assistant.threads.* call after the next outbound into the pane.
+	// Adapters without pane semantics return chanlib.ErrUnsupported.
+	if gated.PaneSetPrompts != nil {
+		registerRaw("pane_set_prompts",
+			"Slack only — stage suggested-prompt buttons shown at the bottom of the assistant pane after your next reply lands. Fire-and-forget; the buttons appear once and persist until your next pane_set_prompts call. Use after a reply when you can anticipate the user's likely follow-ups (e.g. \"dig deeper\", \"summarise\", \"export\"). Not for sending messages (use `send`). 3-4 prompts is the visible cap.",
+			[]mcp.ToolOption{
+				mcp.WithString("chatJid", mcp.Required()),
+				mcp.WithArray("prompts", mcp.Required(), mcp.Description("Array of {title, message}. Title shows on the button; message is sent as user input on click.")),
+			},
+			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				jid := req.GetString("chatJid", "")
+				if !grantslib.CheckAction(rules, "pane_set_prompts", map[string]string{"jid": jid}) {
+					return toolErr("pane_set_prompts: not permitted")
+				}
+				if err := authorizeJID(id, "pane_set_prompts", jid, db); err != nil {
+					return toolErr(err.Error())
+				}
+				raw := req.GetArguments()["prompts"]
+				prompts, err := decodePanePrompts(raw)
+				if err != nil {
+					return toolErr(err.Error())
+				}
+				slog.Info("pane_set_prompts", "folder", folder, "jid", jid, "n", len(prompts))
+				if err := gated.PaneSetPrompts(jid, prompts); err != nil {
+					return toolErr(err.Error())
+				}
+				return toolOK()
+			})
+	}
+	if gated.PaneSetTitle != nil {
+		registerRaw("pane_set_title",
+			"Slack only — override the title shown at the top of the assistant pane. Fires after your next reply lands. Use to reflect the active topic (e.g. \"atlas — debugging the build\"). Defaults to \"<assistant> — chat\" when never set.",
+			[]mcp.ToolOption{
+				mcp.WithString("chatJid", mcp.Required()),
+				mcp.WithString("title", mcp.Required()),
+			},
+			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				jid := req.GetString("chatJid", "")
+				if !grantslib.CheckAction(rules, "pane_set_title", map[string]string{"jid": jid}) {
+					return toolErr("pane_set_title: not permitted")
+				}
+				if err := authorizeJID(id, "pane_set_title", jid, db); err != nil {
+					return toolErr(err.Error())
+				}
+				title := strings.TrimSpace(req.GetString("title", ""))
+				if title == "" {
+					return toolErr("pane_set_title: title is empty")
+				}
+				if len(title) > 256 {
+					return toolErr("pane_set_title: title too long (max 256 chars)")
+				}
+				slog.Info("pane_set_title", "folder", folder, "jid", jid, "title", title)
+				if err := gated.PaneSetTitle(jid, title); err != nil {
+					return toolErr(err.Error())
+				}
+				return toolOK()
+			})
+	}
 
 	granted("fork_topic", "Branch a topic from another's current state. Child gets a fresh session_id plus inherits parent's trailing history as <inherited> context on early turns. Use when starting a focused side-conversation that needs the parent's recent state but should not pollute the parent's session. Pass force=true to overwrite an existing child topic.",
 		[]mcp.ToolOption{
