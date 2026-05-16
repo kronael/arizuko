@@ -16,57 +16,63 @@
 </head>
 <body>
   <div class="hub-container prose">
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/concepts/">concepts</a> &rsaquo; auth</p>
     <h1>auth</h1>
-    <p class="dim back">login + account linking &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
 
-    <p class="lede">Log in with any provider &mdash; GitHub, Google, Discord, Telegram, local username/password &mdash; and link as many as you want to one canonical user. Single resolve at JWT mint; no ghost accounts.</p>
+    <p class="lede">Every daemon needs to know who is talking to it. <code>auth</code> turns a browser login &mdash; GitHub, Google, Discord, Telegram, or a local password &mdash; into one canonical user id, and carries that id across the daemon graph as a signed HTTP header.</p>
 
-    <h2>why</h2>
-    <p>People accumulate identities. GitHub at work, Google at home, a Telegram account on the phone, a local username carved out for ops. They&rsquo;re all the same human, and any one of them should land on the same arizuko user with the same grants. Auto-creating a fresh account on every new OAuth provider is the easy default and the wrong one &mdash; it splinters one human into N ghost accounts that share no state. Refusing the second login is also wrong. The right move is to ask once, link explicitly, and from then on resolve every sub to its canonical owner at the only place that matters: JWT mint.</p>
+    <h2>why identity at all</h2>
+    <p>arizuko is a bunch of small Go daemons (<code>gated</code>, <code>webd</code>, <code>dashd</code>, <code>proxyd</code>, more) that talk over HTTP. None of them owns the login session by itself. When <code>dashd</code> serves your operator page or <code>gated</code> decides whether to deliver a message, it needs an answer to one question: <em>who is this request from?</em> If the answer were "look at the cookie yourself," every daemon would re-implement login. Instead, exactly one daemon (<code>proxyd</code>) reads the cookie, looks up the user, and writes the answer into headers the others trust.</p>
 
-    <h2>providers</h2>
+    <h2>where identity comes from</h2>
+    <p>You log in with any provider. Each provider gives back a string the auth code calls a <strong>sub</strong> &mdash; short for "subject," but think "this user's id with this provider." subs always carry their provider as a prefix:</p>
+    <pre><code>github:48291744
+google:114019583...
+discord:837412...
+telegram:user/5511234
+local:alice</code></pre>
+    <p>One human usually has several. You link them at <code>/dash/profile</code>: pick one provider as your canonical sub, click "Link&hellip;" on another, finish the OAuth dance, and arizuko writes <code>auth_users.linked_to_sub = &lt;canonical&gt;</code> for the new row. From then on, <em>any</em> linked sub resolves to the same canonical sub on login. Provider details:</p>
     <ul>
-      <li><strong>GitHub</strong> &mdash; OAuth2, sub prefix <code>github:</code>; optional <code>GITHUB_ALLOWED_ORG</code> members-only check.</li>
-      <li><strong>Google</strong> &mdash; OAuth2 + OIDC, PKCE, sub prefix <code>google:</code>; optional <code>GOOGLE_ALLOWED_EMAILS</code> glob allowlist (only trusted when Google asserts <code>email_verified</code>).</li>
-      <li><strong>Discord</strong> &mdash; OAuth2 + PKCE, sub prefix <code>discord:</code>.</li>
-      <li><strong>Telegram</strong> &mdash; Login Widget, HMAC-verified against <code>SHA256(bot_token)</code> with a 5-minute <code>auth_date</code> window, sub prefix <code>telegram:</code>.</li>
-      <li><strong>Local</strong> &mdash; username + argon2id hash, sub prefix <code>local:</code>; rate-limited to 5 attempts per 15 min per IP.</li>
+      <li><strong>GitHub</strong> &mdash; OAuth2; optional <code>GITHUB_ALLOWED_ORG</code> members-only check.</li>
+      <li><strong>Google</strong> &mdash; OAuth2 + OIDC with PKCE; optional <code>GOOGLE_ALLOWED_EMAILS</code> glob, only honoured when Google asserts <code>email_verified</code>.</li>
+      <li><strong>Discord</strong> &mdash; OAuth2 + PKCE.</li>
+      <li><strong>Telegram</strong> &mdash; Login Widget, HMAC-verified with a 5-minute <code>auth_date</code> window.</li>
+      <li><strong>Local</strong> &mdash; username + argon2id hash; 5 attempts per 15 min per IP.</li>
     </ul>
 
-    <h2>the JWT path</h2>
-    <p>Two tokens. The <strong>access JWT</strong> is 1h-TTL, lives in <code>localStorage</code>, carries <code>{sub, name, provider, exp}</code>, and rides as <code>Authorization: Bearer</code> on API calls. The <strong>refresh token</strong> is 32 random bytes, stored in the DB as a SHA-256 hash, returned to the browser as an <code>HttpOnly; SameSite=Strict; Secure; Path=/auth</code> cookie with 30d TTL. Each refresh rotates the cookie single-use &mdash; one stolen refresh token is good for exactly one swap before it&rsquo;s invalidated.</p>
-
-    <h2>linking accounts</h2>
+    <h2>two tokens</h2>
+    <p>After login, the browser holds two things:</p>
     <ul>
-      <li>Log in with any provider &mdash; that sub becomes your canonical identity.</li>
-      <li>Visit <code>/dash/profile</code> &mdash; the page lists every linked sub and shows a &ldquo;Link&hellip;&rdquo; button per supported provider.</li>
-      <li>Click one &mdash; the browser hits <code>/auth/{provider}?intent=link&amp;return=/dash/profile/</code>. The redirect handler reads your existing session, encodes <code>intent=link</code> + your canonical sub into the signed OAuth state cookie, and sends you to the provider as usual.</li>
-      <li>The callback writes <code>auth_users.linked_to_sub = &lt;your canonical&gt;</code> for the new sub and refreshes your session unchanged. The provider you were already logged in as never blinks.</li>
+      <li>An <strong>access JWT</strong>, 1-hour lifetime, in <code>localStorage</code>. Carries <code>{sub, name, provider, exp}</code>. Sent as <code>Authorization: Bearer &hellip;</code> on API calls.</li>
+      <li>A <strong>refresh token</strong>, 32 random bytes, stored server-side as a SHA-256 hash. Set as an <code>HttpOnly; SameSite=Strict; Secure; Path=/auth</code> cookie with a 30-day TTL. Each refresh rotates the cookie single-use &mdash; a stolen one is good for one swap, then dead.</li>
     </ul>
 
-    <h2>collision</h2>
-    <p>Logged in as A, you OAuth as B without an explicit link intent &mdash; or with link intent, but B is already canonical for someone else. The callback doesn&rsquo;t pick a winner: it renders a collision page with two buttons and a 10-min HMAC-signed token.</p>
+    <h2>one resolve point</h2>
+    <p>The canonical sub is decided exactly once: <code>auth.issueSession</code> calls <code>store.CanonicalSub(sub)</code> right before minting the JWT. Whatever provider you logged in with, the minted token carries your canonical sub. Downstream daemons never re-resolve &mdash; the sub they see is the answer. Link chains are not allowed; <code>LinkSubToCanonical</code> rejects them, so the lookup is always one hop.</p>
+
+    <h2>a request, end to end</h2>
+    <p>Suppose you click a button in the operator dashboard. The browser sends an HTTPS request to <code>https://your-instance/dash/groups</code>. Trace it:</p>
+    <ol>
+      <li>The request arrives at <code>proxyd</code> on port 443. It looks for the <code>Authorization: Bearer</code> header (or, on web pages, the refresh-token cookie).</li>
+      <li><code>proxyd.tryAuth</code> verifies the JWT signature with <code>AUTH_SECRET</code>. If valid, it extracts <code>sub</code>, <code>name</code>, and the user's <code>groups</code>.</li>
+      <li><code>proxyd.setUserHeaders</code> clones the request and stamps four headers: <code>X-User-Sub</code>, <code>X-User-Name</code>, <code>X-User-Groups</code> (JSON), and <code>X-User-Sig</code> &mdash; an HMAC of the first three using <code>CHANNEL_SECRET</code>.</li>
+      <li>The cloned request is proxied to <code>dashd</code> over the docker network.</li>
+      <li><code>dashd</code> wraps its handlers in <code>auth.RequireSigned(CHANNEL_SECRET)</code> from <code>auth/middleware.go</code>. The middleware recomputes the HMAC and compares to <code>X-User-Sig</code>. Mismatch &rarr; strip all four headers, redirect to <code>/auth/login</code>.</li>
+      <li>The handler reads <code>r.Header.Get("X-User-Sub")</code> and trusts it. That sub is what <code>auth.Authorize</code> uses to decide what the user may do.</li>
+    </ol>
+    <div class="callout"><strong>Why two secrets?</strong> <code>AUTH_SECRET</code> signs the JWT the browser holds. <code>CHANNEL_SECRET</code> signs the header <code>proxyd</code> stamps for backends. They are different boundaries: browser&hairsp;&harr;&hairsp;proxyd vs proxyd&hairsp;&harr;&hairsp;backend.</div>
+
+    <h2>collision &mdash; logged in as A, OAuth as B</h2>
+    <p>You are logged in as <code>google:114alice</code> and you click "Link GitHub." The callback gets a fresh sub <code>github:48291744</code>. Three cases the code handles cleanly:</p>
     <ul>
-      <li><strong>Link to current.</strong> Commit <code>linked_to_sub = A</code>, refresh the session as A. Disabled when B is canonical for an existing other user (merging two real accounts is a manual operator step).</li>
-      <li><strong>Log out, become B.</strong> Drop the refresh cookie + session, log in as B (creating a canonical row if new).</li>
+      <li><strong>Brand-new sub.</strong> Write <code>linked_to_sub = google:114alice</code>, keep your session. Done.</li>
+      <li><strong>Sub already linked to you.</strong> No-op.</li>
+      <li><strong>Sub canonical for someone else.</strong> Render a collision page with a 10-minute HMAC-signed token and two buttons: "Link to current" (disabled &mdash; merging two real users is a manual operator step) and "Log out, become B."</li>
     </ul>
-    <p>No silent ghost-account creation, no ambiguous merges.</p>
+    <p>No silent ghost-account creation, no ambiguous merges. The user always picks.</p>
 
-    <h2>resolve point</h2>
-    <p><code>auth.issueSession</code> calls <code>store.CanonicalSub(sub)</code> exactly once before minting the JWT. The minted access token, the refresh row in the DB, and every <code>X-User-Sub</code> header <code>proxyd</code> stamps downstream all carry the canonical sub. <code>gateway</code>, <code>webd</code>, <code>ipc</code>, and the rest never re-resolve &mdash; they treat the sub they see as authoritative.</p>
-
-    <h2>what you get</h2>
-    <ul>
-      <li><strong>Five providers + local password.</strong> Pick whichever is convenient; the system doesn&rsquo;t care which one is &ldquo;primary.&rdquo;</li>
-      <li><strong>One canonical user, many subs.</strong> <code>auth_users.linked_to_sub</code> points each linked row at the canonical row. <code>LinkSubToCanonical</code> rejects chains &mdash; depth is always one hop.</li>
-      <li><strong>Collision UX, never silent dupes.</strong> Seven-case dispatcher, two-button HTML page, signed token. The user always picks.</li>
-      <li><strong>Single resolve point.</strong> One <code>CanonicalSub</code> call at JWT mint. Downstream code is sub-shaped data, not a graph traversal.</li>
-      <li><strong>1h access + 30d refresh, single-use rotation.</strong> Bearer header for API, <code>HttpOnly</code> cookie scoped to <code>/auth</code> for everything else.</li>
-      <li><strong>Stateless OAuth state.</strong> HMAC-signed cookie, 10-min TTL, optional base64url payload carrying <code>intent=link</code> + canonical sub. No server-side state table.</li>
-    </ul>
-
-    <h2>go deeper</h2>
-    <p>Canonical spec with the full seven-case table, state cookie shape, and DB schema: <a href="https://github.com/kronael/arizuko/blob/main/specs/1/f-auth-oauth.md">specs/1/f-auth-oauth.md</a>. For what each canonical sub can <em>do</em> once it&rsquo;s resolved, see <a href="/pub/concepts/grants.html">grants</a>.</p>
+    <h2>where to go next</h2>
+    <p>For the full state machine, OAuth-state cookie layout, and DB schema, read <a href="https://github.com/kronael/arizuko/blob/main/specs/1/f-auth-oauth.md">specs/1/f-auth-oauth.md</a>. For what your canonical sub is allowed to <em>do</em> once it lands in a backend, see <a href="/pub/concepts/grants.html">grants</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="/pub/assets/hub.js"></script>
