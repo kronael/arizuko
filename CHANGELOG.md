@@ -14,18 +14,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-> arizuko v0.40.0 — topic lineage
+> arizuko v0.40.0 — topic lineage + Slack pane
 >
-> • New topics fork from their parent: replying inside `#deploy` keeps
-> you in `#deploy`; replying to a different message branches from
+> • Forks now `cp` the parent's Claude Code session so a new topic
+> resumes from its parent's tail natively, no inline injection.
+> • New topics fork from the message they reply to: replying inside
+> `#deploy` keeps you in `#deploy`, branching elsewhere forks from
 > that thread, not from main.
-> • Forked topics inherit the parent's recent history as an
-> `<inherited>` block on early turns, then fade as live messages
-> accumulate.
 > • New `fork_topic` MCP tool — branch a focused side-conversation
 > without polluting the parent's session.
-> • Per-topic observed cursor: two topics in the same folder both see
-> ambient `<observed>` context without one consuming it for the other.
+> • Slack assistant pane support — pane sessions persist, pane-open
+> fires a turn, `pane_set_prompts` / `pane_set_title` MCP tools let
+> the agent steer the pane UI.
+> • Cross-folder ambient context: a topic in `solo/inbox` can see
+> ambient `<observed>` from `solo/scratch` (and vice versa) by
+> flipping `groups.open`; per-route observe window override via MCP.
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
@@ -33,15 +36,33 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 - **Topic lineage on `sessions`** (spec 6/F): `parent_topic`,
   `forked_at`, `observed_cursor` columns. Migration `0055-topic-lineage`.
-- **`<inherited from=… through=…>` prompt block** rendered on a
-  forked child's early turns from the parent's trailing history. Caps:
-  `INHERIT_WINDOW_MESSAGES` (default 50), `INHERIT_WINDOW_CHARS`
-  (default 20000).
+- **Plain-cp fork** (spec 6/F rev6): on fork the gateway `cp`s the
+  parent topic's Claude Code session jsonl to the child's UUID
+  (`container.CopySession`); the child resumes natively from parent's
+  tail. No inline `<inherited>` block.
+- **`<topic name=…/>` envelope** rendered on every turn so the agent
+  always knows its scope (empty name = main).
 - **`fork_topic` MCP tool** (`ipc/ipc.go`): explicit branch primitive;
   `force=true` to overwrite an existing child.
 - **Default fork-from-parent**: `EnsureTopicLineage` seeds a new topic
   with `parent_topic` resolved from the trigger message's `reply_to`
   (falls back to `""`/main).
+- **Slack assistant pane** (spec 6/D): `pane_sessions` table persists
+  pane state (`store/migrations/0056-pane-sessions.sql`). `slakd`
+  handles `assistant_thread_started` (synthesises a `pane_open`
+  inbound turn, sets title + suggested prompts) and
+  `assistant_thread_context_changed` (updates the bound workspace
+  channel). `<surface>slack-pane</surface>` + optional
+  `<pane-context jid=…/>` blocks emitted by `gateway.paneHints`.
+- **`pane_set_prompts` / `pane_set_title` MCP tools** — stage Slack
+  pane title / suggested-prompt buttons; fire after the next outbound
+  into the pane. `slakd /v1/pane/prompts` and `/v1/pane/title`
+  endpoints carry the staging from gated → adapter.
+- **Cross-folder ambient context** (spec 6/F): `groups.open` flag plus
+  `SiblingFolders` widens `ObservedSince` to include open siblings.
+  New `set_observe_window` MCP tool overrides per-route caps.
+- **dashd TIER 1**: routes editor + group settings + group
+  create/delete UI.
 
 ### Changed
 

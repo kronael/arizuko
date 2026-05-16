@@ -507,9 +507,12 @@ today:
   `gateway/gateway.go`
 - `<observed>` — trailing window of `is_observed=1` messages stored
   under this folder via `#observe` routes; `gateway/gateway.go`
-- `<inherited from=… through=…>` — parent topic's trailing history on
-  a forked child's early turns, until live thread fills the window
-  (spec 6/F); `gateway/gateway.go`
+- `<topic name=…/>` — scope envelope on every turn (empty for main).
+  Parent topic context arrives via the forked Claude Code session,
+  not via injection (spec 6/F rev6); `gateway/gateway.go`
+- `<surface>slack-pane</surface>` + `<pane-context jid=…/>` —
+  emitted when the trigger arrives via an open Slack assistant pane
+  (spec 6/D); `gateway/gateway.go`
 
 Full table with line cites and the convention for adding a block
 lives in `gateway/README.md` ("Per-turn ephemeral XML blocks"). See

@@ -121,3 +121,13 @@ Consolidated from per-group `issues.md` files across krons, sloth, marinade.
 - **Read-only `channels` table** (from migration 0009): dashd reads, no production writer; production registry lives in-memory in `chanreg/`. If the in-memory registry is canonical, drop the table; if the table should hydrate the registry, wire it.
 - **Dead `email_threads` in shared DB**: emaid stores its own `emaid.db` with a different shape. The shared-DB version is orphaned. Audit + drop.
 - **Existing `concepts/grants.html` has wrong tier formula**: claims a bare `atlas` (no slash) is tier 1; actual formula in `grants.DeriveRules` is `Tier = min(strings.Count(folder, "/"), 3)` so bare `atlas` is tier 0. New `reference/grants.html` is correct; either update or redirect the old page.
+
+## Topic / pane MCP tools (2026-05-16, found via integration tests)
+
+- **`fork_topic` calls `auth.AuthorizeStructural` but the policy has no
+  case for `fork_topic`**, so every call hits the `default: unknown tool`
+  branch and the MCP tool errors out with `unknown tool: fork_topic`
+  before reaching `gated.ForkTopic`. Fix: add a `case "fork_topic":` to
+  `auth/policy.go` (likely tier-based same as `reset_session` /
+  `set_group_open`, gating to own subtree). Caught by
+  `tests/topic_lineage_test.go::TestFork_MCP_*`.

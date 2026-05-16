@@ -1163,7 +1163,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			})
 	}
 
-	granted("fork_topic", "Branch a topic from another's current state. Child gets a fresh session_id plus inherits parent's trailing history as <inherited> context on early turns. Use when starting a focused side-conversation that needs the parent's recent state but should not pollute the parent's session. Pass force=true to overwrite an existing child topic.",
+	granted("fork_topic", "Branch a topic from another's current state. Child gets a fresh session_id; the parent's Claude Code session jsonl is copied so the child resumes natively from parent's tail. Use when starting a focused side-conversation that needs the parent's recent state but should not pollute the parent's session. Pass force=true to overwrite an existing child topic.",
 		[]mcp.ToolOption{
 			mcp.WithString("parent", mcp.Required()),
 			mcp.WithString("child", mcp.Required()),

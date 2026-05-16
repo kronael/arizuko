@@ -243,13 +243,13 @@ its own Claude session, reply chain, and message history.
 - **Lineage (spec 6/F)**: every non-main topic carries
   `parent_topic`, `forked_at`, `observed_cursor` in `sessions`. New
   topics default to parent = topic of the message they reply to (or
-  `""`/main if no reply-to). Forked children render an `<inherited
-from=… through=…>` block of the parent's trailing history on early
-  turns. The `fork_topic` MCP tool branches explicitly. Caps:
-  `INHERIT_WINDOW_MESSAGES` (default 50), `INHERIT_WINDOW_CHARS`
-  (default 20000). Observed cursor is per-topic, so two topics in the
-  same folder both see `<observed>` context without one consuming it
-  for the other.
+  `""`/main if no reply-to). On fork the gateway `cp`s the parent's
+  Claude Code session jsonl to the child's UUID so the child resumes
+  natively from parent's tail — no inline `<inherited>` injection. Every
+  turn carries a `<topic name=…/>` envelope so the agent always knows
+  its scope. The `fork_topic` MCP tool branches explicitly. Observed
+  cursor is per-topic, so two topics in the same folder both see
+  `<observed>` context without one consuming it for the other.
 
 ### Effective topic resolution
 

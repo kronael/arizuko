@@ -6,26 +6,30 @@ func TestParseRouteTarget(t *testing.T) {
 	cases := []struct {
 		in     string
 		folder string
+		topic  string
 		mode   string
 	}{
-		{"rhias/nemo", "rhias/nemo", ""},
-		{"rhias/nemo#observe", "rhias/nemo", "observe"},
-		{"main#observe", "main", "observe"},
-		{"", "", ""},
-		{"a#", "a", ""},
-		{"a#b#c", "a", "b#c"},
+		{"rhias/nemo", "rhias/nemo", "", ""},
+		{"rhias/nemo#observe", "rhias/nemo", "", "observe"},
+		{"main#observe", "main", "", "observe"},
+		{"", "", "", ""},
+		{"a#", "a", "", ""},
+		{"a#b#c", "a", "b#c", ""},
+		{"atlas#oncall", "atlas", "oncall", ""},
 	}
 	for _, c := range cases {
 		got := ParseRouteTarget(c.in)
-		if got.Folder != c.folder || got.Mode != c.mode {
-			t.Errorf("ParseRouteTarget(%q) = %+v, want folder=%q mode=%q",
-				c.in, got, c.folder, c.mode)
+		if got.Folder != c.folder || got.Topic != c.topic || got.Mode != c.mode {
+			t.Errorf("ParseRouteTarget(%q) = %+v, want folder=%q topic=%q mode=%q",
+				c.in, got, c.folder, c.topic, c.mode)
 		}
 		round := got.String()
-		// String() emits "folder" when mode is empty, "folder#mode" otherwise.
 		want := c.folder
-		if c.mode != "" {
+		switch {
+		case c.mode != "":
 			want = c.folder + "#" + c.mode
+		case c.topic != "":
+			want = c.folder + "#" + c.topic
 		}
 		if round != want {
 			t.Errorf("ParseRouteTarget(%q).String() = %q, want %q", c.in, round, want)

@@ -41,9 +41,11 @@ is `<folder>[#<mode>]`; per-route caps `observe_window_messages` and
 
 `sessions` (migration 0055) carries topic lineage: `parent_topic`,
 `forked_at`, `observed_cursor`. `EnsureTopicLineage` seeds a row
-idempotently on first turn; `ForkTopic` branches explicitly;
-`TopicHistoryThrough` + `ObservedSince` feed the `<inherited>` and
-`<observed>` blocks. Spec: `specs/6/F-topic-lineage.md`.
+idempotently on first turn; `ForkTopic` branches explicitly. Parent
+context arrives via a `cp` of the parent's Claude Code session jsonl
+(`container.CopySession`) — no inline injection. `ObservedSince` feeds
+the `<observed>` block, advancing each topic's cursor independently.
+Spec: `specs/6/F-topic-lineage.md`.
 
 ## Dependencies
 
