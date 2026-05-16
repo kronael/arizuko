@@ -105,7 +105,7 @@ overrides via `routes.observe_window_messages` /
   Migration 0053 converts `user_groups` → `acl(sub, admin, folder)` and
   `user_groups(sub, '**')` → `acl_membership(sub, role:operator)`, then
   drops `user_groups`, `user_jids`, `grant_rules`, and the dead `grants`
-  table. Spec: `specs/6/9-acl-unified.md`.
+  table. Spec: [`specs/6/9-acl-unified.md`](https://github.com/kronael/arizuko/blob/v0.38.0/specs/6/9-acl-unified.md).
 - **`auth.Authorize(s, Caller, action, scope, claims, params)`** is
   the single authorization entry point. Walks membership transitively,
   matches against `acl` rows with action implication + deny-wins,
@@ -114,7 +114,7 @@ overrides via `routes.observe_window_messages` /
   retains hierarchy/tier invariants for `register_group`,
   `delegate_group`, route management, task ownership.
 - **Discord user-mode delivery.** Vendored discordgo fork at
-  `third_party/discordgo/` exposes `RawIdentifyData` so discd can
+  [`third_party/discordgo/`](https://github.com/kronael/arizuko/tree/v0.38.0/third_party/discordgo) exposes `RawIdentifyData` so discd can
   send the canonical user-account IDENTIFY (no `intents`, browser
   shape, `capabilities=22525`, `client_state.guild_versions`). OP-14
   guild-subscribe is dedup'd per-guild on Ready.
@@ -201,19 +201,19 @@ applied cleanly without data fixup.
   store the cap; `cost_log` table aggregates spend (migration 0049).
   When today's spend ≥ cap, gateway sends "Budget reached for today
   (...). Resumes at 00:00 UTC." without invoking the LLM.
-- `cmd/arizuko/budget.go` — operator CLI: `set folder|user <name> --daily N`,
+- [`cmd/arizuko/budget.go`](https://github.com/kronael/arizuko/blob/v0.36.0/cmd/arizuko/budget.go) — operator CLI: `set folder|user <name> --daily N`,
   `show folder|user <name>` (cap + spend + remaining + status).
-- `gateway/budget.go` — `budgetGate` (composes folder + user caps; lower binds)
+- [`gateway/budget.go`](https://github.com/kronael/arizuko/blob/v0.36.0/gateway/budget.go) — `budgetGate` (composes folder + user caps; lower binds)
   and `recordTurnCost` (writes one cost_log row per model from
   `submit_turn.Models`).
-- `ant/src/index.ts` — captures `SDKResultMessage.modelUsage` (per-model
+- [`ant/src/index.ts`](https://github.com/kronael/arizuko/blob/v0.36.0/ant/src/index.ts) — captures `SDKResultMessage.modelUsage` (per-model
   tokens + `costUSD`) and forwards via `submit_turn`.
 - `ipc.TurnResult.Models` + `ipc.ModelUsage` — the wire shape; cost in
   cents (SDK's `costUSD × 100`).
 - `log_external_cost` MCP tool — oracle skill calls this after
   `codex --json exec` to record codex/openai spend; per-folder cap
   then covers it.
-- `ant/skills/oracle/SKILL.md` — instructions for the `log_external_cost`
+- [`ant/skills/oracle/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.36.0/ant/skills/oracle/SKILL.md) — instructions for the `log_external_cost`
   call pattern.
 - `core.Config.CostCapsEnabled` (`COST_CAPS_ENABLED=true` default).
   Escape hatch: set false to bypass the gate.
@@ -229,7 +229,7 @@ applied cleanly without data fixup.
   servers in TOML (`ant/skills/<name>/connector.toml`); the agent
   spawns the configured stdio subprocess per call. `github-mcp` is the
   first shipped connector (PAT-only auth via the secrets broker; OAuth
-  dance deferred to spec 9/14). See `EXTENDING.md` "MCP connectors".
+  dance deferred to spec 9/14). See [`EXTENDING.md`](https://github.com/kronael/arizuko/blob/v0.36.0/EXTENDING.md) "MCP connectors".
 - **`arizuko send --topic <topic>`** — conversation continuity from the
   CLI: an injected message lands on the named topic so the agent sees
   history, instead of starting a fresh thread.
@@ -238,10 +238,10 @@ applied cleanly without data fixup.
 
 - proxyd: env-var rename `SLINK_ANON_RPM` → `SLINK_ANON_DOS_RPM` (DoS shield, not metering).
 - gateway: per-user cost cap now binds at pre-spawn for slink turns carrying a recognised JWT sub (`google:`, `github:`, `local:`).
-- `slakd/bot.go` — outbound Slack Web API calls route through `chanlib.DoWithRetry`. 5xx and network errors now retry with jittered backoff (~300ms, ~800ms, 3 attempts total) in addition to the existing 429 + `Retry-After` handling. Replaces an ad-hoc 429-only retry loop with fixed 1s sleep.
-- `slakd/bot.go` — `convInfoFor(channelID, channelType)` merges the prior `kindFor` + `chatName` paths into a single `conversations.info` lookup. Eliminates duplicate round-trips per inbound `message.*` event.
-- `slakd/bot.go` — `ttlCache.get` lazy-deletes expired entries instead of returning stale values.
-- `slakd/bot.go`, `slakd/jid.go` — remove unused `slackMessage.Subtype`, `slackFile.ID`, `jidParts.isGroup()` and other dead JSON fields surfaced by the audit.
+- [`slakd/bot.go`](https://github.com/kronael/arizuko/blob/v0.36.0/slakd/bot.go) — outbound Slack Web API calls route through `chanlib.DoWithRetry`. 5xx and network errors now retry with jittered backoff (~300ms, ~800ms, 3 attempts total) in addition to the existing 429 + `Retry-After` handling. Replaces an ad-hoc 429-only retry loop with fixed 1s sleep.
+- [`slakd/bot.go`](https://github.com/kronael/arizuko/blob/v0.36.0/slakd/bot.go) — `convInfoFor(channelID, channelType)` merges the prior `kindFor` + `chatName` paths into a single `conversations.info` lookup. Eliminates duplicate round-trips per inbound `message.*` event.
+- [`slakd/bot.go`](https://github.com/kronael/arizuko/blob/v0.36.0/slakd/bot.go) — `ttlCache.get` lazy-deletes expired entries instead of returning stale values.
+- [`slakd/bot.go`](https://github.com/kronael/arizuko/blob/v0.36.0/slakd/bot.go), [`slakd/jid.go`](https://github.com/kronael/arizuko/blob/v0.36.0/slakd/jid.go) — remove unused `slackMessage.Subtype`, `slackFile.ID`, `jidParts.isGroup()` and other dead JSON fields surfaced by the audit.
 
 ### Fixed
 
@@ -256,7 +256,7 @@ applied cleanly without data fixup.
   `store.TestPutMessageNoBusyUnderConcurrentWriters` opens two `*sql.DB`
   handles against the same file and proves zero BUSY surfaces under
   fan-out writes.
-- `slakd/README.md` — `LISTEN_ADDR` / `LISTEN_URL` documented defaults corrected to `:8080` (matches code + service template; README previously documented `:9009`, which would have misled operators wiring proxyd routes).
+- [`slakd/README.md`](https://github.com/kronael/arizuko/blob/v0.36.0/slakd/README.md) — `LISTEN_ADDR` / `LISTEN_URL` documented defaults corrected to `:8080` (matches code + service template; README previously documented `:9009`, which would have misled operators wiring proxyd routes).
 
 ### Removed
 
@@ -282,31 +282,31 @@ applied cleanly without data fixup.
 
 ### Added
 
-- `proxyd/routes.go` — `Route` struct + `LoadRoutes(raw string)` parser for `PROXYD_ROUTES_JSON`. Loader validates: unique paths (duplicate `path` is a hard error), well-formed `backend` URL, recognised `auth` (`public` / `user` / `operator`). Longest-prefix match at dispatch; ties resolved by load order.
-- `[[proxyd_route]]` block in service TOML — `template/services/slakd.toml` carries the first one (`/slack/`, `auth=public`, `gated_by=SLACK_BOT_TOKEN`, `preserve_headers=[X-Slack-Signature, X-Slack-Request-Timestamp]`). Fields: `path`, `backend`, `auth`, `gated_by` (optional, drops route if env unset), `preserve_headers` (optional, header allowlist), `strip_prefix` (optional, default false).
-- `coreProxydRoutes` slice in `compose/compose.go` — static routes for core daemons (`dashd`, `webd`, `davd`, `onbod`) that don't have a `template/services/*.toml`. Merged with per-service routes before serialisation.
-- DNS NXDOMAIN egress filter (crackbox) — per `specs/9/15-crackbox-dns-filter.md`. Restricts container egress to an allowlist of hostnames; non-matching DNS lookups return NXDOMAIN.
+- [`proxyd/routes.go`](https://github.com/kronael/arizuko/blob/v0.35.0/proxyd/routes.go) — `Route` struct + `LoadRoutes(raw string)` parser for `PROXYD_ROUTES_JSON`. Loader validates: unique paths (duplicate `path` is a hard error), well-formed `backend` URL, recognised `auth` (`public` / `user` / `operator`). Longest-prefix match at dispatch; ties resolved by load order.
+- `[[proxyd_route]]` block in service TOML — [`template/services/slakd.toml`](https://github.com/kronael/arizuko/blob/v0.35.0/template/services/slakd.toml) carries the first one (`/slack/`, `auth=public`, `gated_by=SLACK_BOT_TOKEN`, `preserve_headers=[X-Slack-Signature, X-Slack-Request-Timestamp]`). Fields: `path`, `backend`, `auth`, `gated_by` (optional, drops route if env unset), `preserve_headers` (optional, header allowlist), `strip_prefix` (optional, default false).
+- `coreProxydRoutes` slice in [`compose/compose.go`](https://github.com/kronael/arizuko/blob/v0.35.0/compose/compose.go) — static routes for core daemons (`dashd`, `webd`, `davd`, `onbod`) that don't have a `template/services/*.toml`. Merged with per-service routes before serialisation.
+- DNS NXDOMAIN egress filter (crackbox) — per [`specs/9/15-crackbox-dns-filter.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/9/15-crackbox-dns-filter.md). Restricts container egress to an allowlist of hostnames; non-matching DNS lookups return NXDOMAIN.
 
 ### Changed
 
-- `proxyd/main.go` — route dispatch reads `routes []Route` from `PROXYD_ROUTES_JSON` instead of hardcoded prefixes. Bespoke handlers for `/slink/` (rate limiter + token resolver) and `/dav/` (group-scoped routing + davAllow write-block) remain in `dispatchRoute` (`main.go`), wired by path. Built-in routes (`/auth/*`, `/health`, `/pub/*`, vhost host-header rewrite) stay hand-wired.
-- `compose/compose.go` — `proxydService` no longer injects per-daemon `*_ADDR` env vars. Instead iterates `template/services/*.toml` for `[[proxyd_route]]` blocks, filters by `gated_by`, merges with `coreProxydRoutes`, JSON-encodes, and injects as `PROXYD_ROUTES_JSON`.
-- `proxyd/README.md` — points at `compose/compose.go:coreProxydRoutes` + `template/services/*.toml [[proxyd_route]]` as sources of truth. Spec link to `specs/6/2-proxyd-standalone.md`.
-- `CLAUDE.md` "## Conventions" — adds the channel-adapter convention: ship a `template/services/<daemon>.toml` with the daemon's compose env + a `[[proxyd_route]]` block; no edit to `proxyd/main.go` or `compose/compose.go`.
+- [`proxyd/main.go`](https://github.com/kronael/arizuko/blob/v0.35.0/proxyd/main.go) — route dispatch reads `routes []Route` from `PROXYD_ROUTES_JSON` instead of hardcoded prefixes. Bespoke handlers for `/slink/` (rate limiter + token resolver) and `/dav/` (group-scoped routing + davAllow write-block) remain in `dispatchRoute` (`main.go`), wired by path. Built-in routes (`/auth/*`, `/health`, `/pub/*`, vhost host-header rewrite) stay hand-wired.
+- [`compose/compose.go`](https://github.com/kronael/arizuko/blob/v0.35.0/compose/compose.go) — `proxydService` no longer injects per-daemon `*_ADDR` env vars. Instead iterates `template/services/*.toml` for `[[proxyd_route]]` blocks, filters by `gated_by`, merges with `coreProxydRoutes`, JSON-encodes, and injects as `PROXYD_ROUTES_JSON`.
+- [`proxyd/README.md`](https://github.com/kronael/arizuko/blob/v0.35.0/proxyd/README.md) — points at `compose/compose.go:coreProxydRoutes` + `template/services/*.toml [[proxyd_route]]` as sources of truth. Spec link to [`specs/6/2-proxyd-standalone.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/6/2-proxyd-standalone.md).
+- [`CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.35.0/CLAUDE.md) "## Conventions" — adds the channel-adapter convention: ship a `template/services/<daemon>.toml` with the daemon's compose env + a `[[proxyd_route]]` block; no edit to [`proxyd/main.go`](https://github.com/kronael/arizuko/blob/v0.35.0/proxyd/main.go) or [`compose/compose.go`](https://github.com/kronael/arizuko/blob/v0.35.0/compose/compose.go).
 
 ### Removed
 
-- `proxyd/main.go` per-backend `*httputil.ReverseProxy` fields and the `loadConfig` `EnvOr("DASH_ADDR", ...)` / `WEBD_ADDR` / `DAV_ADDR` / `ONBOD_ADDR` / `SLAKD_ADDR` lines. `VITE_ADDR` retained (vited path falls back through `/pub/`).
-- `compose/compose.go` per-daemon address injection block in `proxydService`. Single `PROXYD_ROUTES_JSON` env replaces it.
+- [`proxyd/main.go`](https://github.com/kronael/arizuko/blob/v0.35.0/proxyd/main.go) per-backend `*httputil.ReverseProxy` fields and the `loadConfig` `EnvOr("DASH_ADDR", ...)` / `WEBD_ADDR` / `DAV_ADDR` / `ONBOD_ADDR` / `SLAKD_ADDR` lines. `VITE_ADDR` retained (vited path falls back through `/pub/`).
+- [`compose/compose.go`](https://github.com/kronael/arizuko/blob/v0.35.0/compose/compose.go) per-daemon address injection block in `proxydService`. Single `PROXYD_ROUTES_JSON` env replaces it.
 
 ### Schema
 
 - Env: drop `DASH_ADDR`, `WEBD_ADDR`, `DAV_ADDR`, `ONBOD_ADDR`, `SLAKD_ADDR`. Add `PROXYD_ROUTES_JSON` (JSON array; absence = empty external table, built-ins still serve). `VITE_ADDR` retained.
-- TOML: new `[[proxyd_route]]` block in `template/services/<daemon>.toml`. Field semantics in `specs/6/2-proxyd-standalone.md`.
+- TOML: new `[[proxyd_route]]` block in `template/services/<daemon>.toml`. Field semantics in [`specs/6/2-proxyd-standalone.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/6/2-proxyd-standalone.md).
 
 ### Spec
 
-- `specs/6/2-proxyd-standalone.md` Phase-1 ship (per-daemon TOML routes) marked shipped; HTTP API for runtime management, MCP tool surface, and `[auth].mode = "remote"` remain spec-only.
+- [`specs/6/2-proxyd-standalone.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/6/2-proxyd-standalone.md) Phase-1 ship (per-daemon TOML routes) marked shipped; HTTP API for runtime management, MCP tool surface, and `[auth].mode = "remote"` remain spec-only.
 
 ---
 
@@ -322,9 +322,9 @@ applied cleanly without data fixup.
 
 ### Added
 
-- `slakd/` — Slack channel adapter (bot-token, v1). Verifies `X-Slack-Signature` HMAC, handles `message.*` / `reaction_added` / `member_joined_channel` (files arrive piggy-backed on `message.*` events), posts via `chat.postMessage` / `chat.update` / `chat.delete` / `reactions.add` / `files.getUploadURLExternal`. JID shape `slack:<workspace>/<kind>/<id>` with kind ∈ {`channel`, `dm`, `group`}; thread parents land in `Topic = thread_ts` so `get_thread` reconstructs slices without slakd-specific code. Spec: `specs/2/l-slakd.md`.
-- `template/services/slakd.toml` — compose template; mirrors `discd.toml` shape. Built into the shared `arizuko:latest` image (multi-binary).
-- `template/web/pub/howto/slack.html` — operator runbook (Slack App setup, scopes, event subscriptions, bot invite, routing).
+- `slakd/` — Slack channel adapter (bot-token, v1). Verifies `X-Slack-Signature` HMAC, handles `message.*` / `reaction_added` / `member_joined_channel` (files arrive piggy-backed on `message.*` events), posts via `chat.postMessage` / `chat.update` / `chat.delete` / `reactions.add` / `files.getUploadURLExternal`. JID shape `slack:<workspace>/<kind>/<id>` with kind ∈ {`channel`, `dm`, `group`}; thread parents land in `Topic = thread_ts` so `get_thread` reconstructs slices without slakd-specific code. Spec: [`specs/2/l-slakd.md`](https://github.com/kronael/arizuko/blob/v0.34.0/specs/2/l-slakd.md).
+- [`template/services/slakd.toml`](https://github.com/kronael/arizuko/blob/v0.34.0/template/services/slakd.toml) — compose template; mirrors `discd.toml` shape. Built into the shared `arizuko:latest` image (multi-binary).
+- [`template/web/pub/howto/slack.html`](https://github.com/kronael/arizuko/blob/v0.34.0/template/web/pub/howto/slack.html) — operator runbook (Slack App setup, scopes, event subscriptions, bot invite, routing).
 - proxyd `/slack/*` route — forwards to `slakd:8080` without rewriting body or signature headers so the Slack HMAC verifies. `SLAKD_ADDR` is auto-set when `SLACK_BOT_TOKEN` is present; missing token → no route exposed.
 - compose generator: `slakd` in `daemonKeys` (scoped `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLAKD_USERS_CACHE_TTL` to its own env file).
 
@@ -349,7 +349,7 @@ applied cleanly without data fixup.
 
 ### Added
 
-- 8 skills harvested from `kronael/tools` repo into `ant/skills/`: `distill`, `learn`, `pr-draft`, `merge-trivial`, `release`, `improve`, `readme`, `visual`. Already in canonical format; copied verbatim.
+- 8 skills harvested from `kronael/tools` repo into [`ant/skills/`](https://github.com/kronael/arizuko/tree/v0.33.27/ant/skills): `distill`, `learn`, `pr-draft`, `merge-trivial`, `release`, `improve`, `readme`, `visual`. Already in canonical format; copied verbatim.
 
 ### Operator-review queue (not changed this release)
 
@@ -373,10 +373,10 @@ applied cleanly without data fixup.
 
 ### Changed
 
-- `ant/skills/resolve/SKILL.md` — continuations no longer skip dispatch. They still skip recall (cheap) but re-match skills against the request. Same bug had blocked `/support` from firing past turn 1 on the same entity, kept `/recall-memories` from priming facts/ on follow-ups, and let the agent derive instead of reading source on continuations.
-- `ant/skills/support/SKILL.md` — citation block moved to end of message (was sentence 2 after the lead answer). Added phase 4 (verify) and phase 5 (investigate). Verify re-greps the cited source for the value claimed; if fail, investigate re-checks entity ID, source path, field name, facts/, then re-runs Gather. If still unverifiable: ship "I can't verify — alternatives: A, B" honestly. Description gains keywords `verify before send`, `self-correct on derivation` so dispatch matches "verify this" / "check your answer" prompts.
-- `ant/skills/migrate/SKILL.md` — sections (b) and overlay loop enumerate groups via `refresh_groups` MCP call instead of `/workspace/data/groups/*/`. The shell glob matched one level only; nested subgroups (`atlas/support`, `atlas/strengths`, `atlas/martin`, etc.) were silently skipped on every migration since the multi-level group hierarchy shipped. `refresh_groups` returns the full registered set.
-- `ant/CLAUDE.md` adds `# Tool discipline` section — on HTTP 429 / timeout / empty result, retry once with backoff before reporting unavailable. Before declaring an API or path doesn't exist, enumerate alternatives (inspect\_\* / facts/sources.md / refs/). "Not accessible" without enumeration is a contract break, same shape as "I derived" instead of "I read".
+- [`ant/skills/resolve/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.26/ant/skills/resolve/SKILL.md) — continuations no longer skip dispatch. They still skip recall (cheap) but re-match skills against the request. Same bug had blocked `/support` from firing past turn 1 on the same entity, kept `/recall-memories` from priming facts/ on follow-ups, and let the agent derive instead of reading source on continuations.
+- [`ant/skills/support/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.26/ant/skills/support/SKILL.md) — citation block moved to end of message (was sentence 2 after the lead answer). Added phase 4 (verify) and phase 5 (investigate). Verify re-greps the cited source for the value claimed; if fail, investigate re-checks entity ID, source path, field name, facts/, then re-runs Gather. If still unverifiable: ship "I can't verify — alternatives: A, B" honestly. Description gains keywords `verify before send`, `self-correct on derivation` so dispatch matches "verify this" / "check your answer" prompts.
+- [`ant/skills/migrate/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.26/ant/skills/migrate/SKILL.md) — sections (b) and overlay loop enumerate groups via `refresh_groups` MCP call instead of `/workspace/data/groups/*/`. The shell glob matched one level only; nested subgroups (`atlas/support`, `atlas/strengths`, `atlas/martin`, etc.) were silently skipped on every migration since the multi-level group hierarchy shipped. `refresh_groups` returns the full registered set.
+- [`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.26/ant/CLAUDE.md) adds `# Tool discipline` section — on HTTP 429 / timeout / empty result, retry once with backoff before reporting unavailable. Before declaring an API or path doesn't exist, enumerate alternatives (inspect\_\* / facts/sources.md / refs/). "Not accessible" without enumeration is a contract break, same shape as "I derived" instead of "I read".
 - Skills touched in this release (`resolve`, `support`, `migrate`, `persona`) drop the silently-ignored `when_to_use` frontmatter field. Per Anthropic canonical spec and arizuko's own dispatch (`resolve/SKILL.md:42-47` awks only `description:`), `when_to_use` content has never reached the matcher. Content folded into `description` with USE/NOT pattern. Full 43-skill overhaul queued separately.
 
 ### Fixed
@@ -398,21 +398,21 @@ applied cleanly without data fixup.
 
 ### Changed
 
-- `<group>/SOUL.md` → `<group>/PERSONA.md` — auto-migrated on next container spawn (`container/runner.go:429` renames legacy file in place if `PERSONA.md` absent)
-- `ant/CLAUDE.md` adds a `# Persona` section documenting the three-layer mechanism (system-prompt body at session start / gateway `<persona>` summary per turn / `/persona` skill for on-demand full re-read)
-- `ant/examples/support/SOUL.md` → `ant/examples/support/PERSONA.md` rewritten with full eliza-modeled schema: `name`, `summary`, `system`, `bio[]`, `lore[]`, `adjectives[]`, `topics[]`, `style.{all,chat}[]`, `messageExamples[]`, `knowledge[]`
-- `ant/skills/migrate/SKILL.md` copies `PERSONA.md` (template) instead of `SOUL.md`; also reverts the v0.33.24 broadcast scoping — announcements fan out to all group JIDs again, per operator request
-- `ant/skills/hello/SKILL.md` references `PERSONA.md` and the gateway-prepended `<persona>` summary; drops the `/soul` nag for missing personas
-- `ant/skills/support/SKILL.md` phase 3 drops the manual SOUL re-read (gateway anchors every turn now)
-- `ant/skills/soul/SKILL.md` deprecated — redirects to `/persona` for re-reads; authoring is operator-only
+- `<group>/SOUL.md` → `<group>/PERSONA.md` — auto-migrated on next container spawn ([`container/runner.go:429`](https://github.com/kronael/arizuko/blob/v0.33.25/container/runner.go#L429) renames legacy file in place if `PERSONA.md` absent)
+- [`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.25/ant/CLAUDE.md) adds a `# Persona` section documenting the three-layer mechanism (system-prompt body at session start / gateway `<persona>` summary per turn / `/persona` skill for on-demand full re-read)
+- `ant/examples/support/SOUL.md` → [`ant/examples/support/PERSONA.md`](https://github.com/kronael/arizuko/blob/v0.33.25/ant/examples/support/PERSONA.md) rewritten with full eliza-modeled schema: `name`, `summary`, `system`, `bio[]`, `lore[]`, `adjectives[]`, `topics[]`, `style.{all,chat}[]`, `messageExamples[]`, `knowledge[]`
+- [`ant/skills/migrate/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.25/ant/skills/migrate/SKILL.md) copies `PERSONA.md` (template) instead of `SOUL.md`; also reverts the v0.33.24 broadcast scoping — announcements fan out to all group JIDs again, per operator request
+- [`ant/skills/hello/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.25/ant/skills/hello/SKILL.md) references `PERSONA.md` and the gateway-prepended `<persona>` summary; drops the `/soul` nag for missing personas
+- [`ant/skills/support/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.25/ant/skills/support/SKILL.md) phase 3 drops the manual SOUL re-read (gateway anchors every turn now)
+- [`ant/skills/soul/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.25/ant/skills/soul/SKILL.md) deprecated — redirects to `/persona` for re-reads; authoring is operator-only
 
 ### Added
 
-- `gateway/persona.go` — `personaBlock(folder)` reads `<group>/PERSONA.md` frontmatter `summary:`, returns `<persona name="X">summary\n(For full register: /persona)</persona>\n` or empty. Strict — no fallback to body text.
+- [`gateway/persona.go`](https://github.com/kronael/arizuko/blob/v0.33.25/gateway/persona.go) — `personaBlock(folder)` reads `<group>/PERSONA.md` frontmatter `summary:`, returns `<persona name="X">summary\n(For full register: /persona)</persona>\n` or empty. Strict — no fallback to body text.
 - `gateway/gateway.go:700, :770` — injects `personaBlock(group.Folder)` next to `autocallsBlock` at both prompt-build sites
-- `ant/skills/persona/SKILL.md` — read-only refresh of `~/PERSONA.md` for mid-session re-anchoring
+- [`ant/skills/persona/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.25/ant/skills/persona/SKILL.md) — read-only refresh of `~/PERSONA.md` for mid-session re-anchoring
 - `refs/eliza/` — cloned elizaOS as a reference; canonical character schema lives at `packages/shared/src/onboarding-presets.characters.ts` and the runtime prompt-assembly at `packages/core/src/features/basic-capabilities/providers/character.ts`
-- `gateway/persona_test.go` — tests no-file / no-frontmatter / no-summary / valid-summary paths
+- [`gateway/persona_test.go`](https://github.com/kronael/arizuko/blob/v0.33.25/gateway/persona_test.go) — tests no-file / no-frontmatter / no-summary / valid-summary paths
 
 ---
 
@@ -428,16 +428,16 @@ applied cleanly without data fixup.
 
 ### Fixed
 
-- `gateway.makeOutputCallback` (`gateway/gateway.go:846`) now skips `dispatchOutbound` when the reply chat_jid is a local folder matching the agent's own groupFolder. Previously this triggered `LocalChannel.Send` to re-persist the outbound as a synthetic inbound (sender=`"local"`, BotMsg=false), which the poll loop picked up as fresh input and spawned another container that replied to its own echo. Witnessed sloth/main 2026-05-10 21:12–21:14: 5 self-acknowledgments in 51 seconds. Cross-group sends (groupFolder ≠ chatJid) still flow normally — the legit escalation path is unchanged.
-- `ant/skills/migrate/SKILL.md` announce step — broadcast scoped to the current root folder's primary JID only, not every group's. Previously fanned out to all groups; on marinade 2026-05-10 11:44 the v0.33.22 broadcast landed in an operator DM mid-conversation, displacing a "cool"-acknowledgment reply.
+- `gateway.makeOutputCallback` ([`gateway/gateway.go:846`](https://github.com/kronael/arizuko/blob/v0.33.24/gateway/gateway.go#L846)) now skips `dispatchOutbound` when the reply chat_jid is a local folder matching the agent's own groupFolder. Previously this triggered `LocalChannel.Send` to re-persist the outbound as a synthetic inbound (sender=`"local"`, BotMsg=false), which the poll loop picked up as fresh input and spawned another container that replied to its own echo. Witnessed sloth/main 2026-05-10 21:12–21:14: 5 self-acknowledgments in 51 seconds. Cross-group sends (groupFolder ≠ chatJid) still flow normally — the legit escalation path is unchanged.
+- [`ant/skills/migrate/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.24/ant/skills/migrate/SKILL.md) announce step — broadcast scoped to the current root folder's primary JID only, not every group's. Previously fanned out to all groups; on marinade 2026-05-10 11:44 the v0.33.22 broadcast landed in an operator DM mid-conversation, displacing a "cool"-acknowledgment reply.
 
 ### Changed
 
-- `ant/CLAUDE.md` "# Status updates" — added the contract rule: if you emit a `<status>` block, you owe a final user-visible reply. Silent tasks (file writes, cron compactions) emit neither. Gateway does not rescue contract breaks (would be brittle and break in unrelated ways). Driven by atlas/support 2026-05-11 03:02 — `<status>⏳ checking diary…</status>` emitted, final assistant turn was a `<think>` block stripped to empty, user saw ⏳ forever.
+- [`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.24/ant/CLAUDE.md) "# Status updates" — added the contract rule: if you emit a `<status>` block, you owe a final user-visible reply. Silent tasks (file writes, cron compactions) emit neither. Gateway does not rescue contract breaks (would be brittle and break in unrelated ways). Driven by atlas/support 2026-05-11 03:02 — `<status>⏳ checking diary…</status>` emitted, final assistant turn was a `<think>` block stripped to empty, user saw ⏳ forever.
 
 ### Added
 
-- `gateway/gateway_test.go` `TestMakeOutputCallback_SkipsSelfRoutedLocalDispatch` — regression for the self-loop fix. Asserts no `sender="local"` row is created when groupFolder == chatJid.
+- [`gateway/gateway_test.go`](https://github.com/kronael/arizuko/blob/v0.33.24/gateway/gateway_test.go) `TestMakeOutputCallback_SkipsSelfRoutedLocalDispatch` — regression for the self-loop fix. Asserts no `sender="local"` row is created when groupFolder == chatJid.
 
 ---
 
@@ -451,11 +451,11 @@ applied cleanly without data fixup.
 
 ### Fixed
 
-- `queue.SendMessages` (`queue/queue.go`) now captures the SIGUSR1 error when steering into a running container. Previously the error was discarded (`_ = exec.Command(...).Run()`), so a kill against a dying container returned success from gated's perspective: chat cursor advanced, IPC file orphaned, no spawn ever followed up. Symptom on sloth 2026-05-10 20:23 — user message vanished, no reply, no error logged. The fix marks the slot inactive on signal failure and returns false; the caller falls through to `EnqueueMessageCheck` and a fresh container is spawned that drains the orphan via `drainIpcInput()` at session start.
+- `queue.SendMessages` ([`queue/queue.go`](https://github.com/kronael/arizuko/blob/v0.33.23/queue/queue.go)) now captures the SIGUSR1 error when steering into a running container. Previously the error was discarded (`_ = exec.Command(...).Run()`), so a kill against a dying container returned success from gated's perspective: chat cursor advanced, IPC file orphaned, no spawn ever followed up. Symptom on sloth 2026-05-10 20:23 — user message vanished, no reply, no error logged. The fix marks the slot inactive on signal failure and returns false; the caller falls through to `EnqueueMessageCheck` and a fresh container is spawned that drains the orphan via `drainIpcInput()` at session start.
 
 ### Added
 
-- `queue/queue_test.go` `TestSendMessages_SignalFailMarksInactive` — race regression test. Stubs `signalContainer` to return error, asserts slot becomes inactive, `SendMessages` returns false, IPC file persists for next spawn.
+- [`queue/queue_test.go`](https://github.com/kronael/arizuko/blob/v0.33.23/queue/queue_test.go) `TestSendMessages_SignalFailMarksInactive` — race regression test. Stubs `signalContainer` to return error, asserts slot becomes inactive, `SendMessages` returns false, IPC file persists for next spawn.
 - `queue.GroupQueue.SetSignalContainerForTest` — test seam for the signal sender (default = `docker kill --signal=SIGUSR1`). `SetActiveForTest` now installs a no-op signal by default so existing tests don't accidentally exercise the race.
 
 ---
@@ -471,11 +471,11 @@ applied cleanly without data fixup.
 ### Fixed
 
 - Mid-session steering path (`gateway.go:535`) now calls `enrichAttachments` and renders through `router.FormatMessages` — the same pipeline as cold-start. Previously the steering path flattened raw `m.Content`, so messages arriving while a container was running bypassed media download, Whisper transcription, and the `<attachment>` envelope. Atlas's "the file didn't reach me" reply on marinade 2026-05-10 was the symptom.
-- `ant/src/index.ts` IPC drain hook stops re-wrapping messages in `<message>` and stops XML-escaping (gateway pre-renders the full envelope; the escape was defensive code that corrupted gateway output). Single producer, single trusted format.
+- [`ant/src/index.ts`](https://github.com/kronael/arizuko/blob/v0.33.22/ant/src/index.ts) IPC drain hook stops re-wrapping messages in `<message>` and stops XML-escaping (gateway pre-renders the full envelope; the escape was defensive code that corrupted gateway output). Single producer, single trusted format.
 
 ### Added
 
-- `gateway/gateway_test.go` `TestPollOnce_SteerEnrichesAttachments` — regression that simulates a voice message arriving while a container is active and asserts the IPC payload contains both `<message>` envelope and `<attachment>` metadata. Would have caught the bug.
+- [`gateway/gateway_test.go`](https://github.com/kronael/arizuko/blob/v0.33.22/gateway/gateway_test.go) `TestPollOnce_SteerEnrichesAttachments` — regression that simulates a voice message arriving while a container is active and asserts the IPC payload contains both `<message>` envelope and `<attachment>` metadata. Would have caught the bug.
 
 ---
 
@@ -489,12 +489,12 @@ applied cleanly without data fixup.
 
 ### Changed
 
-- `ant/skills/mcp/` — collapsed Python + Go example blocks into a single bash example with a one-line note that `mcpc` shells out identically from any language
-- `ant/skills/compact-memories/` — collapsed explanatory paragraphs in Gather/Compress sections into procedural one-liners; same rules, fewer words
-- `ant/skills/acquire/` — dropped "Useful search services" reference table (general web reference, not load-bearing for the acquire workflow)
-- `ant/skills/wisdom/` — consolidated body rules and anti-patterns; restored explicit transient-info rule and debugging block
-- `ant/skills/dispatch/` — added missing `when_to_use` frontmatter
-- `ant/skills/hello/`, `ant/skills/hub/` — added missing `user-invocable: true` frontmatter; `hub` description wrapped into folded YAML for ≤100-char lines
+- [`ant/skills/mcp/`](https://github.com/kronael/arizuko/tree/v0.33.21/ant/skills/mcp) — collapsed Python + Go example blocks into a single bash example with a one-line note that `mcpc` shells out identically from any language
+- [`ant/skills/compact-memories/`](https://github.com/kronael/arizuko/tree/v0.33.21/ant/skills/compact-memories) — collapsed explanatory paragraphs in Gather/Compress sections into procedural one-liners; same rules, fewer words
+- [`ant/skills/acquire/`](https://github.com/kronael/arizuko/tree/v0.33.21/ant/skills/acquire) — dropped "Useful search services" reference table (general web reference, not load-bearing for the acquire workflow)
+- [`ant/skills/wisdom/`](https://github.com/kronael/arizuko/tree/v0.33.21/ant/skills/wisdom) — consolidated body rules and anti-patterns; restored explicit transient-info rule and debugging block
+- [`ant/skills/dispatch/`](https://github.com/kronael/arizuko/tree/v0.33.21/ant/skills/dispatch) — added missing `when_to_use` frontmatter
+- [`ant/skills/hello/`](https://github.com/kronael/arizuko/tree/v0.33.21/ant/skills/hello), [`ant/skills/hub/`](https://github.com/kronael/arizuko/tree/v0.33.21/ant/skills/hub) — added missing `user-invocable: true` frontmatter; `hub` description wrapped into folded YAML for ≤100-char lines
 
 ---
 
@@ -509,12 +509,12 @@ applied cleanly without data fixup.
 
 ### Added
 
-- `/support` skill (`ant/skills/support/`) — orchestrator that answers concrete factual questions about domain entities with primary-source citations. Four phases: case (continuation detection by entity ID, reply-pointer, or correction phrase), gather (open canonical source, grep literal ID, read recorded outcome), reply (front-load answer + cite source path + field, render through `~/SOUL.md` Voice), persist (write new sources to `~/facts/sources.md`)
-- Spec at `specs/7/2-support-skill.md` — rationale, composition table, acceptance criteria. Driven by the 2026-05-09 Atlas support exchange that took 5 correction turns to land on a single field in `results.json`
+- `/support` skill ([`ant/skills/support/`](https://github.com/kronael/arizuko/tree/v0.33.20/ant/skills/support)) — orchestrator that answers concrete factual questions about domain entities with primary-source citations. Four phases: case (continuation detection by entity ID, reply-pointer, or correction phrase), gather (open canonical source, grep literal ID, read recorded outcome), reply (front-load answer + cite source path + field, render through `~/SOUL.md` Voice), persist (write new sources to `~/facts/sources.md`)
+- Spec at [`specs/7/2-support-skill.md`](https://github.com/kronael/arizuko/blob/v0.33.20/specs/7/2-support-skill.md) — rationale, composition table, acceptance criteria. Driven by the 2026-05-09 Atlas support exchange that took 5 correction turns to land on a single field in `results.json`
 
 ### Changed
 
-- `specs/7/product-support.md` skills table now requires `support`
+- [`specs/7/product-support.md`](https://github.com/kronael/arizuko/blob/v0.33.20/specs/7/product-support.md) skills table now requires `support`
 
 ---
 
@@ -528,7 +528,7 @@ applied cleanly without data fixup.
 
 ### Changed
 
-- `ant/CLAUDE.md` "How messages arrive" — documents the inbound reaction shape (`verb="like"`/`"dislike"`, emoji body, `<reply-to>` pointer) so the agent treats reactions as acknowledgement of the parent rather than new turns
+- [`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.19/ant/CLAUDE.md) "How messages arrive" — documents the inbound reaction shape (`verb="like"`/`"dislike"`, emoji body, `<reply-to>` pointer) so the agent treats reactions as acknowledgement of the parent rather than new turns
 
 ---
 
@@ -545,15 +545,15 @@ applied cleanly without data fixup.
 ### Added
 
 - `InboundMsg.ChatName` / `messages.chat_name` — adapters now inject the human-readable channel/group name; emitted as `chat_name=` attribute in XML message context so the agent knows the channel without a tool call (discd: `#name`, teled: `Chat.Title`)
-- `DISCORD_USER_TOKEN` — discd now supports user-account authentication alongside bot tokens; user mode skips Discord intents (see `discd/README.md` for ToS implications)
-- `# Reactions` in `ant/CLAUDE.md` — guidance on when to react vs reply, anti-patterns, and mirroring user emoji register
+- `DISCORD_USER_TOKEN` — discd now supports user-account authentication alongside bot tokens; user mode skips Discord intents (see [`discd/README.md`](https://github.com/kronael/arizuko/blob/main/discd/README.md) for ToS implications)
+- `# Reactions` in [`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/main/ant/CLAUDE.md) — guidance on when to react vs reply, anti-patterns, and mirroring user emoji register
 
 ### Changed
 
-- `discd/bot.go` — `channelName` helper eliminates three `"#" + ch.Name` lookups; `buildAttachments` nil-guard fix (was: panic if `b.files == nil`)
-- `mastd/server.go` — CDN proxy now propagates request context and sends `User-Agent`
-- `gateway/tts.go` — removed dead `var _ = chanlib.ErrUnsupported` compile-time guard
-- `gateway/gateway.go` — `slices.Collect(maps.Values(...))` one-liner; timeout result check flattened to if/else-if
+- [`discd/bot.go`](https://github.com/kronael/arizuko/blob/main/discd/bot.go) — `channelName` helper eliminates three `"#" + ch.Name` lookups; `buildAttachments` nil-guard fix (was: panic if `b.files == nil`)
+- [`mastd/server.go`](https://github.com/kronael/arizuko/blob/main/mastd/server.go) — CDN proxy now propagates request context and sends `User-Agent`
+- [`gateway/tts.go`](https://github.com/kronael/arizuko/blob/main/gateway/tts.go) — removed dead `var _ = chanlib.ErrUnsupported` compile-time guard
+- [`gateway/gateway.go`](https://github.com/kronael/arizuko/blob/main/gateway/gateway.go) — `slices.Collect(maps.Values(...))` one-liner; timeout result check flattened to if/else-if
 
 ---
 
@@ -678,14 +678,14 @@ correct closed-block behavior.
 
 ### Fixed
 
-- **`chanlib/typing.go`** — `TypingRefresher.send` signature changed from
+- **[`chanlib/typing.go`](https://github.com/kronael/arizuko/blob/v0.33.13/chanlib/typing.go)** — `TypingRefresher.send` signature changed from
   `func(string)` to `func(string) bool`; loop exits on `false`.
-- **`teled/bot.go`** — typing interval 4s → 10s; `sendTyping` returns `false`
+- **[`teled/bot.go`](https://github.com/kronael/arizuko/blob/v0.33.13/teled/bot.go)** — typing interval 4s → 10s; `sendTyping` returns `false`
   on any Telegram error (403, network, etc.); loop stops immediately.
-- **`discd/bot.go`** — same `sendTyping` bool return pattern.
-- **`gateway/gateway.go`** — `hadOutput` set after stripping think/status
+- **[`discd/bot.go`](https://github.com/kronael/arizuko/blob/v0.33.13/discd/bot.go)** — same `sendTyping` bool return pattern.
+- **[`gateway/gateway.go`](https://github.com/kronael/arizuko/blob/v0.33.13/gateway/gateway.go)** — `hadOutput` set after stripping think/status
   blocks, not before. Agent-silent log downgraded WARN → INFO.
-- **`ant/CLAUDE.md`** — `# When to respond` rewritten: closed `<think>` blocks
+- **[`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.13/ant/CLAUDE.md)** — `# When to respond` rewritten: closed `<think>` blocks
   only for silence; steered messages follow same response rules; half the length.
 
 ## [v0.33.12] — 2026-05-03
@@ -707,7 +707,7 @@ single-spawn paths were never affected. Fix is a tiny startup hook.
 
 ### Fixed
 
-- **`gateway/gateway.go`** — new `seedCodexDirs()` walks all known
+- **[`gateway/gateway.go`](https://github.com/kronael/arizuko/blob/v0.33.12/gateway/gateway.go)** — new `seedCodexDirs()` walks all known
   groups at gateway start (synchronously, before
   `checkMigrationVersion` enqueues any auto-migrate spawn) and
   ensures each `<groupDir>/.codex/` exists. Runs as gated's uid
@@ -743,22 +743,22 @@ test path so silent mount-skips like v0.33.9's get caught earlier.
 
 ### Changed
 
-- **`container/runner.go`** — codex mount is now layered:
+- **[`container/runner.go`](https://github.com/kronael/arizuko/blob/v0.33.11/container/runner.go)** — codex mount is now layered:
   `<groupDir>/.codex` rw + RO file overmounts of `auth.json` and
   `config.toml` from `HOST_CODEX_DIR`. Per-group writable workspace
   (history, sessions, memories, sqlite state); shared credentials.
-- **`container/run_test.go`** — `TestRun_CodexDirMountWhenSet`
+- **[`container/run_test.go`](https://github.com/kronael/arizuko/blob/v0.33.11/container/run_test.go)** — `TestRun_CodexDirMountWhenSet`
   asserts the parent dir mount + both file overmounts and verifies
   parent precedes file overmounts (mount order matters).
 
 ### Added
 
-- **`webd/slink_e2e_test.go`** — 4 active e2e scenarios + 1 stub:
+- **[`webd/slink_e2e_test.go`](https://github.com/kronael/arizuko/blob/v0.33.11/webd/slink_e2e_test.go)** — 4 active e2e scenarios + 1 stub:
   `DropAndRead`, `SSEStream`, `Steer`, `GetThread`, plus an oracle
   surface stub. Each guards on `testing.Short()`.
-- **`Makefile` / `webd/Makefile`** — `test-e2e` target separate
+- **`Makefile` / [`webd/Makefile`](https://github.com/kronael/arizuko/blob/v0.33.11/webd/Makefile)** — `test-e2e` target separate
   from `test`; the latter now passes `-short` and stays fast.
-- **`.github/workflows/ci.yml`** — `e2e` job gated on
+- **[`.github/workflows/ci.yml`](https://github.com/kronael/arizuko/blob/v0.33.11/.github/workflows/ci.yml)** — `e2e` job gated on
   `refs/tags/v*` so the slow path runs on release.
 
 ### Operator notes
@@ -787,12 +787,12 @@ the mount silently skipped on every spawn.
 
 ### Fixed
 
-- **`container/runner.go`**: dropped the `os.Stat` guard on the
+- **[`container/runner.go`](https://github.com/kronael/arizuko/blob/v0.33.10/container/runner.go)**: dropped the `os.Stat` guard on the
   codex-dir mount. `cfg.HostCodexDir` is a HOST path that the
   docker daemon resolves at agent-spawn time, not a path that gated
   needs to read. Loud failure (docker errors at startup if the
   path is wrong) beats silent skip.
-- **`container/run_test.go`**: simplified the test — uses a
+- **[`container/run_test.go`](https://github.com/kronael/arizuko/blob/v0.33.10/container/run_test.go)**: simplified the test — uses a
   literal `/host/codex` path, doesn't try to mkdir-and-stat
   anymore. `TestRun_CodexDirMountSkippedWhenMissing` retired
   (the runner doesn't probe; that test was testing the bug).
@@ -814,17 +814,17 @@ the v0.33.4 skill was built around. Both now coexist.
 
 ### Added
 
-- **`HOST_CODEX_DIR` env knob** (`core/config.go`,
-  `compose/compose.go`, `container/runner.go`): when set on the
+- **`HOST_CODEX_DIR` env knob** ([`core/config.go`](https://github.com/kronael/arizuko/blob/v0.33.9/core/config.go),
+  [`compose/compose.go`](https://github.com/kronael/arizuko/blob/v0.33.9/compose/compose.go), [`container/runner.go`](https://github.com/kronael/arizuko/blob/v0.33.9/container/runner.go)): when set on the
   gated daemon's env, the host path is bind-mounted into every
   spawned agent at `/home/node/.codex` (rw). codex CLI then reads
   `auth.json` directly — same as on the host, including refresh
   rotation. Empty disables; agents fall back to the env-var path.
-- **Skill update** (`ant/skills/oracle/SKILL.md`): documents both
+- **Skill update** ([`ant/skills/oracle/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.9/ant/skills/oracle/SKILL.md)): documents both
   auth paths (host-mount vs folder-secret), unified missing-auth
   detection (`codex login status` OR env check), corrected
   description to surface the new mount option for `/dispatch`.
-- Tests: `container/run_test.go` covers the mount being present
+- Tests: [`container/run_test.go`](https://github.com/kronael/arizuko/blob/v0.33.9/container/run_test.go) covers the mount being present
   when `HostCodexDir` is set + a real dir, and skipped when unset
   or pointing to a missing dir.
 
@@ -851,23 +851,23 @@ the v0.33.4 skill was built around. Both now coexist.
 
 ### Added
 
-- `ant/skills/issues/SKILL.md` — dedicated skill owning the
+- [`ant/skills/issues/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.8/ant/skills/issues/SKILL.md) — dedicated skill owning the
   user-reported-bug recording workflow. Frontmatter `description`
   surfaces it on `/dispatch`; body covers when to log, format, and
   the operator-consolidation contract.
 
 ### Changed
 
-- `ant/CLAUDE.md` "Recording user-reported issues" section reduced
+- [`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.8/ant/CLAUDE.md) "Recording user-reported issues" section reduced
   to a one-line pointer at `~/.claude/skills/issues/SKILL.md`.
   CLAUDE.md is seeded into every group on spawn, so trimming
   procedure-heavy prose keeps the per-group bootstrap lean.
 
 ### Migration
 
-- `ant/skills/self/migrations/098-v0.33.8-issues-skill.md` —
+- [`ant/skills/self/migrations/098-v0.33.8-issues-skill.md`](https://github.com/kronael/arizuko/blob/v0.33.8/ant/skills/self/migrations/098-v0.33.8-issues-skill.md) —
   no data migration; just announces the new skill location.
-- `ant/skills/self/MIGRATION_VERSION`: 97 → 98.
+- [`ant/skills/self/MIGRATION_VERSION`](https://github.com/kronael/arizuko/blob/v0.33.8/ant/skills/self/MIGRATION_VERSION): 97 → 98.
 
 ## [v0.33.7] — 2026-05-03
 
@@ -885,30 +885,30 @@ the seven releases shipped today.
 
 ### Changed
 
-- **`ROUTING.md`** — platform-JID example column rewritten to typed
+- **[`ROUTING.md`](https://github.com/kronael/arizuko/blob/v0.33.7/ROUTING.md)** — platform-JID example column rewritten to typed
   forms post-v0.33.0 (`telegram:user/<id>`, `telegram:group/<id>`,
   `discord:dm/<channel>`, `reddit:comment/<id>`,
   `mastodon:account/<id>`); route example uses
   `chat_jid=telegram:group/12345`; sender-expansion example uses
   `discord:user/<id>`.
-- **`GRANTS.md`** — `groups` table column list reflects migration
+- **[`GRANTS.md`](https://github.com/kronael/arizuko/blob/v0.33.7/GRANTS.md)** — `groups` table column list reflects migration
   0041 dropping `state` / `spawn_ttl_days` / `archive_closed_days`.
-- **`ARCHITECTURE.md`** — `Group` Key Type description drops `state`;
+- **[`ARCHITECTURE.md`](https://github.com/kronael/arizuko/blob/v0.33.7/ARCHITECTURE.md)** — `Group` Key Type description drops `state`;
   oracle skill and `ttsd` reclassified from "planned" to shipped
   integrations.
-- **`CLAUDE.md`** (root) — core-vs-integrations bullet matches the
+- **[`CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.7/CLAUDE.md)** (root) — core-vs-integrations bullet matches the
   shipped reality (TTS via `ttsd`, oracle via folder secrets).
-- **`EXTENDING.md`** — verb support matrix gained the `send_voice`
+- **[`EXTENDING.md`](https://github.com/kronael/arizuko/blob/v0.33.7/EXTENDING.md)** — verb support matrix gained the `send_voice`
   row; count updated 11 → 12. discd / teled / whapd native;
   twitd hint-only; rest unsupported.
-- **`chanlib/README.md`** — `NewAdapterMux` handler tree now lists
+- **[`chanlib/README.md`](https://github.com/kronael/arizuko/blob/v0.33.7/chanlib/README.md)** — `NewAdapterMux` handler tree now lists
   `/send-voice`; calls out `NoVoiceSender` and `NoFileSender` mixins.
-- **`ipc/README.md`** — tool surface adds `send_voice` and
+- **[`ipc/README.md`](https://github.com/kronael/arizuko/blob/v0.33.7/ipc/README.md)** — tool surface adds `send_voice` and
   `inject_message`; documents `submit_turn` JSON-RPC for per-turn
   agent output.
-- **`SECURITY.md`** — boundaries table gained a slink-MCP row
+- **[`SECURITY.md`](https://github.com/kronael/arizuko/blob/v0.33.7/SECURITY.md)** — boundaries table gained a slink-MCP row
   (`POST /slink/<token>/mcp`, token IS the auth).
-- **`crackbox/README.md`** — fixed `specscs` typo (5 occurrences) →
+- **[`crackbox/README.md`](https://github.com/kronael/arizuko/blob/v0.33.7/crackbox/README.md)** — fixed `specscs` typo (5 occurrences) →
   `specs`.
 - Migration `097-v0.33.7-docs-sweep.md` + version bump 96 → 97.
 
@@ -924,8 +924,8 @@ the seven releases shipped today.
 
 ### Fixed
 
-- `template/services/emaid.toml`: env-var names now match what
-  `emaid/main.go` reads (`EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`,
+- [`template/services/emaid.toml`](https://github.com/kronael/arizuko/blob/v0.33.6/template/services/emaid.toml): env-var names now match what
+  [`emaid/main.go`](https://github.com/kronael/arizuko/blob/v0.33.6/emaid/main.go) reads (`EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`,
   `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`). Compose-deployed emaid was
   starting with empty config because the toml declared `IMAP_HOST` /
   `SMTP_USER` / etc. while the Go side requires the `EMAIL_` prefix.
@@ -951,39 +951,39 @@ the seven releases shipped today.
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
-Foundation pass for a standalone `ant/` Go package — drives the
+Foundation pass for a standalone [`ant/`](https://github.com/kronael/arizuko/tree/v0.33.5/ant) Go package — drives the
 official `claude` CLI against an ant-folder, shippable outside
 arizuko. This pass lays the package skeleton only; the existing TS
-runtime in `ant/src/` and `arizuko-ant:latest` are unchanged.
+runtime in [`ant/src/`](https://github.com/kronael/arizuko/tree/v0.33.5/ant/src) and `arizuko-ant:latest` are unchanged.
 
 ### Added
 
-- `ant/cmd/ant/main.go` — CLI flag stub:
+- [`ant/cmd/ant/main.go`](https://github.com/kronael/arizuko/blob/v0.33.5/ant/cmd/ant/main.go) — CLI flag stub:
   `ant <folder> [--prompt=<text>] [--mcp [--socket=<path>]]
 [--sandbox=none|dockbox|crackbox]`. `--help` exits 0; body is
   unimplemented and exits `64` (EX_USAGE) so misconfigured callers
   fail loud.
-- `ant/pkg/agent/loader.go` — `LoadFolder(path)` resolves
-  `SOUL.md` / `CLAUDE.md` / `skills/` / `diary/` / `secrets/` /
+- [`ant/pkg/agent/loader.go`](https://github.com/kronael/arizuko/blob/v0.33.5/ant/pkg/agent/loader.go) — `LoadFolder(path)` resolves
+  `SOUL.md` / [`CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.5/CLAUDE.md) / `skills/` / `diary/` / `secrets/` /
   `MCP.json` / `workspace/`; `ErrNotFound` for missing or non-dir
   paths. Three unit tests.
-- `ant/pkg/host/`, `ant/pkg/runtime/` — package stubs (sandbox
+- [`ant/pkg/host/`](https://github.com/kronael/arizuko/tree/v0.33.5/ant/pkg/host), [`ant/pkg/runtime/`](https://github.com/kronael/arizuko/tree/v0.33.5/ant/pkg/runtime) — package stubs (sandbox
   abstraction + Claude CLI driver). Doc comments only; wiring lands
   with the runtime port.
-- `ant/scripts/curate-skills.sh` — portable-vs-arizuko-only partition
+- [`ant/scripts/curate-skills.sh`](https://github.com/kronael/arizuko/blob/v0.33.5/ant/scripts/curate-skills.sh) — portable-vs-arizuko-only partition
   gate. Greps `@gated|@arizuko|gated.sock` in each `SKILL.md`.
   Current count: **37 portable, 1 arizuko-only** (`self`). No skills
   moved this pass.
-- `ant/README.md` — three-question intro; documents the deferred work.
+- [`ant/README.md`](https://github.com/kronael/arizuko/blob/v0.33.5/ant/README.md) — three-question intro; documents the deferred work.
 - Migration `095-v0.33.5-ant-foundation.md` + version bump 94 → 95.
 
 ### Notes
 
-- `ant/cmd/`, `ant/pkg/agent`, `ant/pkg/host`, `ant/pkg/runtime`
+- [`ant/cmd/`](https://github.com/kronael/arizuko/tree/v0.33.5/ant/cmd), [`ant/pkg/agent`](https://github.com/kronael/arizuko/tree/v0.33.5/ant/pkg/agent), [`ant/pkg/host`](https://github.com/kronael/arizuko/tree/v0.33.5/ant/pkg/host), [`ant/pkg/runtime`](https://github.com/kronael/arizuko/tree/v0.33.5/ant/pkg/runtime)
   import zero arizuko-internal packages — same orthogonality property
   as `crackbox/`, enforced by the import graph.
 - The new `ant` Go binary is not yet in the root `Makefile`'s
-  `COMPONENTS` recursion (existing `ant/Makefile` does not implement
+  `COMPONENTS` recursion (existing [`ant/Makefile`](https://github.com/kronael/arizuko/blob/v0.33.5/ant/Makefile) does not implement
   `build`/`lint`/`test` targets); `go build ./ant/cmd/ant` builds it
   ad-hoc, `go test ./...` typechecks it.
 
@@ -1000,17 +1000,17 @@ runtime in `ant/src/` and `arizuko-ant:latest` are unchanged.
 Lets Claude consult a second model when uncertain — disagreement
 with self, sanity check on a non-obvious implementation, library
 Claude doesn't know well. Subprocess invocation, no new IPC.
-Spec `specs/5/H-call-llm-mcp.md` is now shipped.
+Spec [`specs/5/H-call-llm-mcp.md`](https://github.com/kronael/arizuko/blob/v0.33.4/specs/5/H-call-llm-mcp.md) is now shipped.
 
 ### Added
 
-- **`/oracle` agent skill** (`ant/skills/oracle/SKILL.md`) — drives
+- **`/oracle` agent skill** ([`ant/skills/oracle/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.4/ant/skills/oracle/SKILL.md)) — drives
   the `codex` CLI as a one-shot subprocess (`codex exec "<prompt>"`
   argv, stdin, or piped). Documents when to invoke (tricky
   algorithm, unknown library, sanity check), the missing-key
   fallback, and how to add the secret via the existing folder
   secrets path. Output is advisory; cite when acting on it.
-- **`@openai/codex` on the agent image** (`ant/Dockerfile`) — added
+- **`@openai/codex` on the agent image** ([`ant/Dockerfile`](https://github.com/kronael/arizuko/blob/v0.33.4/ant/Dockerfile)) — added
   to the same global npm install as `@anthropic-ai/claude-code` and
   `@apify/mcpc`. Binary lands at `/usr/local/bin/codex` on `PATH`.
 
@@ -1042,10 +1042,10 @@ session continuation.
   own `id`, matching `<reply-to>`'s `id` for symmetry. Retired
   `reply_to=` attribute on `<message>` and the inline
   `<reply_to sender="..." id="...">excerpt</reply_to>` element.
-- **`ant/CLAUDE.md` ## How messages arrive**: example rewritten to
+- **[`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.3/ant/CLAUDE.md) ## How messages arrive**: example rewritten to
   show the new shape. Notes the pointer as the user's intent signal.
-- **`specs/4/13-message-ids.md` ## Router XML** and
-  **`specs/1/N-memory-messages.md`**: spec text + examples track
+- **[`specs/4/13-message-ids.md`](https://github.com/kronael/arizuko/blob/v0.33.3/specs/4/13-message-ids.md) ## Router XML** and
+  **[`specs/1/N-memory-messages.md`](https://github.com/kronael/arizuko/blob/v0.33.3/specs/1/N-memory-messages.md)**: spec text + examples track
   the new shape.
 
 ## [v0.33.2] — 2026-05-02
@@ -1064,18 +1064,18 @@ version ships with a matching migration file — stub if no skill
 changes — and the existing auto-migrate hook drives both skill
 updates and announce in one mechanism. Spec
 `specs/4/P-personas.md ## Versioning` rewritten to document this;
-root `CLAUDE.md` "## Shipping changes" enforces it.
+root [`CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.2/CLAUDE.md) "## Shipping changes" enforces it.
 
 ### Changed
 
-- **Spec `specs/4/P-personas.md` ## Versioning**: rewritten to
+- **Spec [`specs/4/P-personas.md`](https://github.com/kronael/arizuko/blob/v0.33.2/specs/4/P-personas.md) ## Versioning**: rewritten to
   require a migration file per release (file name
   `NNN-vX.Y.Z-summary.md`). Stub body fine for docs-only releases.
   Names the single trigger path:
   `gateway.checkMigrationVersion` → `/migrate` → broadcast.
-- **Root `CLAUDE.md` ## Shipping changes**: step 2 spells out
+- **Root [`CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.2/CLAUDE.md) ## Shipping changes**: step 2 spells out
   "every release, including docs-only".
-- **`ant/skills/self/migrations/CLAUDE.md`**: naming convention
+- **[`ant/skills/self/migrations/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.2/ant/skills/self/migrations/CLAUDE.md)**: naming convention
   `NNN-vX.Y.Z-summary.md`; explicit stub example for docs-only
   releases.
 
@@ -1101,13 +1101,13 @@ agent runs `/migrate`.
   context, 3–6 user-benefit bullets, link to the canonical
   CHANGELOG.md anchor on GitHub. Cross-linked from the root
   onepager's "go deeper" list.
-- **Release-announce format spec** in root `CLAUDE.md` ("##
+- **Release-announce format spec** in root [`CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.1/CLAUDE.md) ("##
   Announcing"): each CHANGELOG entry's leading `>` blockquote is
   the chat broadcast verbatim — ≤ 9 lines, 3–6 bullets, user
   benefit before internal detail, no migration numbers / file
   paths / SHAs (those stay in `### Added/Fixed`). Mirrored as a
-  one-line HTML-comment pointer at the top of `CHANGELOG.md` and
-  in `ant/skills/migrate/SKILL.md`'s broadcast example.
+  one-line HTML-comment pointer at the top of [`CHANGELOG.md`](https://github.com/kronael/arizuko/blob/v0.33.1/CHANGELOG.md) and
+  in [`ant/skills/migrate/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.1/ant/skills/migrate/SKILL.md)'s broadcast example.
 
 ### Fixed
 
@@ -1153,7 +1153,7 @@ agent runs `/migrate`.
   prefer Piper/Coqui/OpenAI-cloud override `TTS_BACKEND_URL` and
   skip the bundled service. Config: `TTS_ENABLED`, `TTS_BASE_URL`,
   `TTS_VOICE`, `TTS_MODEL`, `TTS_TIMEOUT`. Spec
-  `specs/5/T-voice-synthesis.md` is now shipped. Agent migration 088.
+  [`specs/5/T-voice-synthesis.md`](https://github.com/kronael/arizuko/blob/v0.33.0/specs/5/T-voice-synthesis.md) is now shipped. Agent migration 088.
 - **OAuth account linking + collision UX**: a new
   `auth_users.linked_to_sub` column collapses linked provider subs
   onto a canonical sub at JWT mint time (single resolve point in
@@ -1170,7 +1170,7 @@ agent runs `/migrate`.
   shares the new `store.MessagesByThread` helper with web chat's
   `MessagesByTopic`. Tier-gated like `inspect_messages` — non-root
   callers only see JIDs routed to their folder. Spec
-  `specs/5/C-message-mcp.md` is now shipped. Agent migration 084.
+  [`specs/5/C-message-mcp.md`](https://github.com/kronael/arizuko/blob/v0.33.0/specs/5/C-message-mcp.md) is now shipped. Agent migration 084.
 - **slink MCP transport** at `POST /slink/<token>/mcp`. External
   agents can register a slink-token-bound URL as a remote MCP
   server in Claude Code (or any MCP client) and call three
@@ -1179,7 +1179,7 @@ agent runs `/migrate`.
   no bearer. Streamable HTTP, stateless, served via the same
   `mcp-go` library used by the existing per-instance `/mcp`.
   Shared `injectSlink` helper underneath `handleSlinkPost` and the
-  MCP tools. Spec `specs/5/J-sse.md` is now shipped. Agent
+  MCP tools. Spec [`specs/5/J-sse.md`](https://github.com/kronael/arizuko/blob/v0.33.0/specs/5/J-sse.md) is now shipped. Agent
   migration 085.
 
 ### Changed
@@ -1199,7 +1199,7 @@ agent runs `/migrate`.
   image blobs; agent should host the file elsewhere and send a link
   in post text). Whapd/twitd already dispatched correctly and were
   verified, no change. Mastodon/Reddit/LinkedIn/Email still
-  `NoFileSender` — tracked in `bugs.md`.
+  `NoFileSender` — tracked in [`bugs.md`](https://github.com/kronael/arizuko/blob/v0.33.0/bugs.md).
 
 ### Fixed
 
@@ -1216,12 +1216,12 @@ agent runs `/migrate`.
   rewrites all three columns using the same kind-discriminator
   semantics as `0042` and is idempotent.
 - **`IDLE_TIMEOUT` default raised to 60 minutes**
-  (`core/config.go`): the previous 30-minute default left short
+  ([`core/config.go`](https://github.com/kronael/arizuko/blob/v0.33.0/core/config.go)): the previous 30-minute default left short
   setups misreading a hand-edited `IDLE_TIMEOUT=60000` (60 ms) as
   60 seconds and killing containers mid-turn. Operators should
   strip the line from per-instance `.env` rather than carry stale
   values.
-- **Agent silent on chat clarification requests** (`ant/CLAUDE.md`):
+- **Agent silent on chat clarification requests** ([`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.0/ant/CLAUDE.md)):
   when the user asked a clarification-shaped question, the agent
   sometimes called the Claude Code SDK `AskUserQuestion` tool — an
   interactive prompt with no chat fallback — and produced no
@@ -1250,7 +1250,7 @@ the second URL segment after the token IS the round handle.
   POST /slink/<token>/<turn_id>       (was POST /slink/<token>?steer=<turn_id>)
   ```
   Cleaner REST shape, fewer special tokens to remember. Spec:
-  `specs/1/W-slink.md`. Agent migration 082.
+  [`specs/1/W-slink.md`](https://github.com/kronael/arizuko/blob/v0.32.2/specs/1/W-slink.md). Agent migration 082.
 - `arizuko send` CLI URL builder + web docs at `/pub/slink/` and
   `/pub/slink/reference/` updated to the new shape.
 
@@ -1277,7 +1277,7 @@ containment is the only rule.
   even the instance root cannot direct-send to a JID that routes to
   a different world. Inter-world communication uses `delegate_group`
   / `escalate_group`. Unrouted JIDs are denied for every caller.
-  Spec: `specs/4/11-auth.md` "Outbound JID authorization." Agent
+  Spec: [`specs/4/11-auth.md`](https://github.com/kronael/arizuko/blob/v0.32.1/specs/4/11-auth.md) "Outbound JID authorization." Agent
   migration 081.
 
 ## [v0.32.0] — 2026-04-30
@@ -1297,7 +1297,7 @@ fixes (crackbox DNS alias, davd healthcheck, migration 079).
 
 ### Added
 
-- **Slink round-handle protocol** (`specs/1/W-slink.md`). Each agent
+- **Slink round-handle protocol** ([`specs/1/W-slink.md`](https://github.com/kronael/arizuko/blob/v0.32.0/specs/1/W-slink.md)). Each agent
   run is exposed as a first-class object keyed by `turn_id` (= the
   inbound message id). Default `POST /slink/<token>` returns
   `{user, turn_id, status:pending}` synchronously and the round can
@@ -1425,13 +1425,13 @@ default-deny egress.
 - Tier 0 (root) and tier 1 (world) bots route through crackbox with
   a `*` wildcard appended to their resolved allowlist. Strict
   filtering applies only to tier 2+ (buildings + rooms).
-- `compose/compose.go` now writes `EGRESS_NETWORK_PREFIX` and
+- [`compose/compose.go`](https://github.com/kronael/arizuko/blob/v0.31.1/compose/compose.go) now writes `EGRESS_NETWORK_PREFIX` and
   `EGRESS_CRACKBOX` into gated's env file explicitly. No more
   filesystem-path-derivation inside daemons.
 
 ### Fixed
 
-- Path-derivation outage: `core/config.go` no longer parses
+- Path-derivation outage: [`core/config.go`](https://github.com/kronael/arizuko/blob/v0.31.1/core/config.go) no longer parses
   `filepath.Base(c.ProjectRoot)` to guess the network prefix.
   Inside a daemon container that yielded `home`; on krons the
   bug caused every `docker network connect` to fail and the
@@ -1460,11 +1460,11 @@ default-deny egress.
 
 ### Wisdom
 
-- "Identity is configured, never derived." `CLAUDE.md` and global
+- "Identity is configured, never derived." [`CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.31.1/CLAUDE.md) and global
   `~/.claude/CLAUDE.md` updated. Don't `filepath.Base()` a runtime
   path to guess project / container / network names.
 - "Components stay in single go.mod." Sibling tools live in arizuko's
-  monorepo with one `go.mod`; orthogonality is enforced by the
+  monorepo with one [`go.mod`](https://github.com/kronael/arizuko/blob/v0.31.1/go.mod); orthogonality is enforced by the
   import graph, not module separation.
 
 ## [v0.31.0] — 2026-04-29
@@ -1479,11 +1479,11 @@ for use on a developer laptop with no arizuko around. Replaces the
 
 ### Added (since v0.30.0 not already covered below)
 
-- `crackbox/pkg/admin`: optional bearer-token auth on `/v1/register`
+- [`crackbox/pkg/admin`](https://github.com/kronael/arizuko/tree/v0.31.0/crackbox/pkg/admin): optional bearer-token auth on `/v1/register`
   and `/v1/unregister` (env `CRACKBOX_ADMIN_SECRET`). Read-only
   `/v1/state` and `/health` stay open. Empty secret keeps the prior
   behavior + warns at startup.
-- `crackbox/pkg/admin`: optional registry persistence via JSON file
+- [`crackbox/pkg/admin`](https://github.com/kronael/arizuko/tree/v0.31.0/crackbox/pkg/admin): optional registry persistence via JSON file
   (env `CRACKBOX_STATE_PATH`). Atomic `tmp + rename` per mutation;
   corrupt or missing file resets to empty with a warning. Survives
   container restart and `docker compose down/up`. Empty path keeps
@@ -1494,7 +1494,7 @@ for use on a developer laptop with no arizuko around. Replaces the
 
 ### Fixed (regressions from the same release cycle)
 
-- `core/config.go`: dropped the auto-derive of egress network prefix /
+- [`core/config.go`](https://github.com/kronael/arizuko/blob/v0.31.0/core/config.go): dropped the auto-derive of egress network prefix /
   crackbox container name from `filepath.Base(c.ProjectRoot)`. Inside
   a daemon container, ProjectRoot is `/srv/app/home`, so derivation
   returned `home` instead of the host's `arizuko_<flavor>`. Compose
@@ -1506,7 +1506,7 @@ for use on a developer laptop with no arizuko around. Replaces the
   reset to the prior cursor, replaying the same broken spawn forever
   whenever any permanent error (e.g. egress register against a
   missing crackbox container) hit.
-- `container/network.go`: when `docker network create` returns "Pool
+- [`container/network.go`](https://github.com/kronael/arizuko/blob/v0.31.0/container/network.go): when `docker network create` returns "Pool
   overlaps with other one on this address space" (orphan from a prior
   instance name on the same /24), the allocator now retries with the
   next slot up to 8 times instead of looping forever.
@@ -1530,14 +1530,14 @@ for use on a developer laptop with no arizuko around. Replaces the
   Compose no longer declares an `agents` network — folder networks are
   runtime-managed by gated.
 - `egred/` → `crackbox/` (specs 6/9 + 6/10): the network-isolation
-  proxy moves to a sibling component (per `specs/8/b-orthogonal-components.md`)
+  proxy moves to a sibling component (per [`specs/8/b-orthogonal-components.md`](https://github.com/kronael/arizuko/blob/v0.31.0/specs/8/b-orthogonal-components.md))
   with its own CLI, `pkg/proxy`, `pkg/match`, `pkg/admin`, `pkg/run`,
   `pkg/client` layout. No semantic change — daemon-mode wire shape
   (admin API at `:3129`, proxy at `:3128`) stays identical. Adds
   `crackbox run --allow X -- <cmd>` for standalone single-shot use
   on a developer laptop. Image renamed `arizuko-egred` → `crackbox`.
   Container env now points at `http://crackbox:3128`. arizuko's
-  `container/egress.go` switches to `crackbox.Client`.
+  [`container/egress.go`](https://github.com/kronael/arizuko/blob/v0.31.0/container/egress.go) switches to `crackbox.Client`.
 
 ### Added
 
@@ -1648,7 +1648,7 @@ for use on a developer laptop with no arizuko around. Replaces the
   with all other adapters (full platform name).
 - `ant`: persona is opt-in. Removed "read SOUL.md, embody its persona"
   from session preamble; `/soul` skill remains for explicit invocation.
-  New baseline `Rigor` section in `ant/CLAUDE.md` — cite sources, verify
+  New baseline `Rigor` section in [`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.30.0/ant/CLAUDE.md) — cite sources, verify
   numbers, refuse fabrication. Agent migrations 067, 068.
 - `ant`: skill `/facts` renamed to `/find`. Agent migration 069.
 - `ant`: `@anthropic-ai/claude-agent-sdk` auto-updates to `@latest` on
@@ -1710,7 +1710,7 @@ for use on a developer laptop with no arizuko around. Replaces the
 ### Removed (submit_turn cutover)
 
 - `---ARIZUKO_OUTPUT_START---` / `---ARIZUKO_OUTPUT_END---` stdout
-  markers. The marker scanner in `container/runner.go` is gone:
+  markers. The marker scanner in [`container/runner.go`](https://github.com/kronael/arizuko/blob/v0.30.0/container/runner.go) is gone:
   `Run` now spawns and waits for exit, no stdout parsing. Heartbeat
   messages are gone (the marker scanner that needed them is gone).
   `OnOutput` field on `container.Input` is removed; per-turn delivery
@@ -1728,7 +1728,7 @@ for use on a developer laptop with no arizuko around. Replaces the
   `--pair` CLI. Cookies rotate atomically to `cookies.json.bak`.
   Polling loop drains mentions on `TWITTER_POLL_INTERVAL` (default
   90s); cursors persist in `cursors.json`. Risks documented in
-  `twitd/README.md`: account suspensions, library churn, 2FA
+  [`twitd/README.md`](https://github.com/kronael/arizuko/blob/v0.30.0/twitd/README.md): account suspensions, library churn, 2FA
   challenges, web-side rate limits.
 
 ### Changed
@@ -1807,9 +1807,9 @@ for use on a developer laptop with no arizuko around. Replaces the
   of every prompt. Resolves `now`, `instance`, `folder`, `tier`,
   `session` at prompt-build time. Zero-arg read-only facts now cost one
   line each instead of paying per-turn MCP schema. `router.ClockXml`
-  deleted. Registry is a flat slice in `gateway/autocalls.go`; empty
-  eval output skips the line. See `specs/5/31-autocalls.md` and
-  `EXTENDING.md` "Adding an autocall".
+  deleted. Registry is a flat slice in [`gateway/autocalls.go`](https://github.com/kronael/arizuko/blob/v0.30.0/gateway/autocalls.go); empty
+  eval output skips the line. See [`specs/5/31-autocalls.md`](https://github.com/kronael/arizuko/blob/v0.30.0/specs/5/31-autocalls.md) and
+  [`EXTENDING.md`](https://github.com/kronael/arizuko/blob/v0.30.0/EXTENDING.md) "Adding an autocall".
 
 ### Fixed
 
@@ -1842,11 +1842,11 @@ func() bool`; `/health` returns 503 `{status:"disconnected"}` when
 - Per-daemon integration tests landed for all daemons (gated, container,
   timed, onbod, dashd, webd, proxyd, teled, discd, mastd, bskyd, reditd,
   emaid, linkd, whapd) plus MCP socket round-trip.
-- New `tests/testutils` package with `FakeChannel`, `FakePlatform`,
+- New [`tests/testutils`](https://github.com/kronael/arizuko/tree/v0.30.0/tests/testutils) package with `FakeChannel`, `FakePlatform`,
   `NewInstance` helpers.
 - `container.Runner` interface extracted for test injection; `run_test.go`
   covers docker arg assembly and marker parsing.
-- `gateway/integration_test.go` exercises poll loop + runner contract.
+- [`gateway/integration_test.go`](https://github.com/kronael/arizuko/blob/v0.30.0/gateway/integration_test.go) exercises poll loop + runner contract.
 - `emaid`: SMTP send happy-path via injectable sender.
 - `whapd`: vitest integration test for send handler.
 
@@ -2034,7 +2034,7 @@ func() bool`; `/health` returns 503 `{status:"disconnected"}` when
   Migration `0026-user-groups-granted-at.sql` adds a nullable
   `granted_at` timestamp column.
 - **auth**: `MatchGroups(allowed, folder)` helper for glob-matched ACL
-  (`auth/acl.go`). `**` matches anything; otherwise `path.Match`
+  ([`auth/acl.go`](https://github.com/kronael/arizuko/blob/v0.29.0/auth/acl.go)). `**` matches anything; otherwise `path.Match`
   semantics. Shared by `onbod` route-creation guard and `proxyd.davRoute`.
 - **onbod**: second-JID auto-link. When a user who already has a world
   messages from a new platform, the dashboard handler auto-routes the
@@ -2043,7 +2043,7 @@ func() bool`; `/health` returns 503 `{status:"disconnected"}` when
   apply, root agent fans out the latest CHANGELOG entry to every
   registered group via `send_message`. Per-group `~/.announced-version`
   prevents re-broadcast. Manual fan-out until the automatic db_utils-based
-  announcement path (`specs/3/e-migration-announce.md`) is implemented.
+  announcement path ([`specs/3/e-migration-announce.md`](https://github.com/kronael/arizuko/blob/v0.29.0/specs/3/e-migration-announce.md)) is implemented.
 
 ### Changed
 
@@ -2065,7 +2065,7 @@ func() bool`; `/health` returns 503 `{status:"disconnected"}` when
 ### Removed
 
 - **timed**: `timed/migrations/` (redundant — store creates the same
-  tables) and the migration runner in `timed/main.go`.
+  tables) and the migration runner in [`timed/main.go`](https://github.com/kronael/arizuko/blob/v0.29.0/timed/main.go).
 - **auth**: `auth/migrations/` (dead code — never loaded; tables live
   in store migrations).
 
@@ -2477,7 +2477,7 @@ func() bool`; `/health` returns 503 `{status:"disconnected"}` when
   refresh) via `BotHandler.Typing` → `typing.Set`. Telegram/Discord native
   typing expires in 5–10s, so long agent runs were losing the indicator.
 - **auth**: `CheckSpawnAllowed(parent, groups)` helper unifies `MaxChildren`
-  enforcement across `gateway/spawn.go` and `ipc/ipc.go` (logic was literally
+  enforcement across [`gateway/spawn.go`](https://github.com/kronael/arizuko/blob/v0.23.0/gateway/spawn.go) and [`ipc/ipc.go`](https://github.com/kronael/arizuko/blob/v0.23.0/ipc/ipc.go) (logic was literally
   duplicated across two buckets).
 - **tests**: 15 new regression tests. 9 in `chanreg` covering
   `ForJID`/`Resolve`/`Entry.Owns` (primary-over-variant preference, fallback
@@ -2531,7 +2531,7 @@ Full refinement pass across 10 subsystem buckets. 58 `[refined]` commits,
   `routerEnvKeys`, dropped dead `HOST_DATA_DIR` empty check.
 - **template**: dropped unused `REDACTED_USERS` from `env.example`.
 - **groupfolder**: unified `GroupPath` and `IpcPath` via `resolve` helper.
-- **mountsec**: dropped `LoadAllowlist` and tests — `container/runner.go`
+- **mountsec**: dropped `LoadAllowlist` and tests — [`container/runner.go`](https://github.com/kronael/arizuko/blob/v0.23.0/container/runner.go)
   always passes empty `Allowlist{}`, so the file loader was dead on arrival.
   ARCHITECTURE.md section corrected.
 
@@ -2789,8 +2789,8 @@ Full daemon audit: 50+ bugs found and fixed across 25+ files. Skills audit and s
 
 ### Changed
 
-- **ant/ rename**: `container/agent-runner/` → `ant/`; `container/skills/` →
-  `ant/skills/`; `container/CLAUDE.md` → `ant/CLAUDE.md`. Go spawn code stays
+- **ant/ rename**: `container/agent-runner/` → [`ant/`](https://github.com/kronael/arizuko/tree/v0.19.0/ant); `container/skills/` →
+  [`ant/skills/`](https://github.com/kronael/arizuko/tree/v0.19.0/ant/skills); `container/CLAUDE.md` → [`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.19.0/ant/CLAUDE.md). Go spawn code stays
   in `container/`. The in-container agent is now called "ant".
 
 - **Image rename**: `arizuko-agent:latest` → `arizuko-ant:latest` throughout
@@ -2817,12 +2817,12 @@ Full daemon audit: 50+ bugs found and fixed across 25+ files. Skills audit and s
 
 - MCP socket permissions: `ipc.go` now sets mode `0666` so agent (uid=1000)
   can connect without being blocked.
-- `RegisterGroup` error was silently dropped with `//nolint` in `ipc/ipc.go`;
+- `RegisterGroup` error was silently dropped with `//nolint` in [`ipc/ipc.go`](https://github.com/kronael/arizuko/blob/v0.19.0/ipc/ipc.go);
   now logged as warn.
 - Dead `sessions/` volume mount for root groups removed from `BuildMounts()`.
-- `cmdCreate` now calls `SeedGroupDir` instead of writing a static `CLAUDE.md`
+- `cmdCreate` now calls `SeedGroupDir` instead of writing a static [`CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.19.0/CLAUDE.md)
   that diverged from what `cmdGroup add` and onbod produce.
-- `groupRunnerDir` (copying `ant/src` on first run) removed — source is baked
+- `groupRunnerDir` (copying [`ant/src`](https://github.com/kronael/arizuko/tree/v0.19.0/ant/src) on first run) removed — source is baked
   into the container image.
 
 ### Added
@@ -2846,7 +2846,7 @@ arizuko-ant` with correct mounts for use outside arizuko.
   Messages accumulate weight; agent fires when threshold (default 100) is
   reached or 5-minute max-hold timeout expires. Social verb events (join/edit/
   delete) carry weight 0 so they don't trigger agents alone. Config via
-  `defaultImpulseCfg()` in `gateway/impulse.go`.
+  `defaultImpulseCfg()` in [`gateway/impulse.go`](https://github.com/kronael/arizuko/blob/v0.18.0/gateway/impulse.go).
 
 - **Verb field on messages**: `core.Message` and `chanlib.InboundMsg` now carry
   a `verb` field (`"join"`, `"edit"`, `"delete"`, etc.; default `""`).
@@ -2858,7 +2858,7 @@ arizuko-ant` with correct mounts for use outside arizuko.
   `/dav/` as an auth-gated reverse proxy with path prefix stripping.
   Controlled via `DAV_ADDR` env in proxyd and `WEBDAV_ENABLED` in compose.
 
-- **Social adapter service templates**: `template/services/mastd.toml`,
+- **Social adapter service templates**: [`template/services/mastd.toml`](https://github.com/kronael/arizuko/blob/v0.18.0/template/services/mastd.toml),
   `bskyd.toml`, `reditd.toml` — drop-in service definitions for Mastodon
   (port 9004), Bluesky (port 9005), and Reddit (port 9006) adapters.
 
@@ -2875,7 +2875,7 @@ arizuko-ant` with correct mounts for use outside arizuko.
     shown when configured.
 
 - **Voice synthesis spec**: `ttsd` daemon design and `send_voice` MCP tool
-  spec in `specs/8/6-voice-synthesis.md`. Open questions resolved.
+  spec in [`specs/8/6-voice-synthesis.md`](https://github.com/kronael/arizuko/blob/v0.18.0/specs/8/6-voice-synthesis.md). Open questions resolved.
 
 ### Fixed
 
@@ -2890,7 +2890,7 @@ arizuko-ant` with correct mounts for use outside arizuko.
 ### Changed
 
 - **`containerHome` constant**: extracted `/home/node` to a named constant in
-  `container/runner.go` and `container/agent-runner/src/index.ts` to avoid
+  [`container/runner.go`](https://github.com/kronael/arizuko/blob/v0.18.0/container/runner.go) and [`container/agent-runner/src/index.ts`](https://github.com/kronael/arizuko/blob/v0.18.0/container/agent-runner/src/index.ts) to avoid
   repeated string literals.
 - **License**: public domain (Unlicense). No restrictions. If you build on
   arizuko, acknowledge it — not because you have to, because that's how
@@ -2953,7 +2953,7 @@ arizuko-ant` with correct mounts for use outside arizuko.
 ### Changed
 
 - **MCP server name**: renamed from `nanoclaw` to `arizuko` in
-  `ipc/ipc.go`, `container/runner.go`, and `agent-runner`. Tool names
+  [`ipc/ipc.go`](https://github.com/kronael/arizuko/blob/v0.16.0/ipc/ipc.go), [`container/runner.go`](https://github.com/kronael/arizuko/blob/v0.16.0/container/runner.go), and `agent-runner`. Tool names
   visible to agents are now `mcp__arizuko__*`.
 - **Isolated container names**: `timed` now encodes the task ID in the
   sender field (`scheduler-isolated:<task_id>`); gateway builds container
@@ -2992,11 +2992,11 @@ arizuko-ant` with correct mounts for use outside arizuko.
 - `.refs/` directory (175 files, ~8 MB of old nanoclaw and arizuka reference
   code) removed from repo and git history. Added to `.gitignore`.
 - `docs/kanipi.html` — stale landing page from pre-rename.
-- `template/web/pub/howto/index.html` — superseded by CONTENT.md + STYLE.md.
+- [`template/web/pub/howto/index.html`](https://github.com/kronael/arizuko/blob/main/template/web/pub/howto/index.html) — superseded by CONTENT.md + STYLE.md.
 
 ### Docs
 
-- `CLAUDE.md`: noted `mastd`, `bskyd`, `reditd`, `chanlib`; CGO requirement
+- [`CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.14.0/CLAUDE.md): noted `mastd`, `bskyd`, `reditd`, `chanlib`; CGO requirement
   for `gated`; single-test command pattern.
 
 ---
@@ -3017,46 +3017,46 @@ arizuko-ant` with correct mounts for use outside arizuko.
   every 30s; replies via `/api/comment`. Config: `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`,
   `REDDIT_USERNAME`, `REDDIT_PASSWORD`, `REDDIT_SUBREDDITS`.
 
-- **Reply-to threading** (`core/`, `gateway/gateway.go`): `Channel.Send` signature
+- **Reply-to threading** (`core/`, [`gateway/gateway.go`](https://github.com/kronael/arizuko/blob/v0.13.0/gateway/gateway.go)): `Channel.Send` signature
   is `Send(jid, text, replyTo string) (string, error)` — accepts a `replyTo`
   message ID and returns the sent message ID; gateway passes the last agent-sent
   message ID as reply context on each outbound send.
-- **Chunk chaining** (`gateway/gateway.go`): `Send` returns the sent message ID;
+- **Chunk chaining** ([`gateway/gateway.go`](https://github.com/kronael/arizuko/blob/v0.13.0/gateway/gateway.go)): `Send` returns the sent message ID;
   gateway chains `lastSentID` per agent run so multi-chunk replies thread correctly.
-- **recall-memories / recall-messages skills** (`container/skills/`): `recall`
+- **recall-memories / recall-messages skills** ([`container/skills/`](https://github.com/kronael/arizuko/tree/v0.13.0/container/skills)): `recall`
   skill renamed to `recall-memories`; new `recall-messages` skill added for
   message history lookup.
-- **Google OAuth workspace hint** (`auth/oauth.go`): `hd=` parameter appended to
+- **Google OAuth workspace hint** ([`auth/oauth.go`](https://github.com/kronael/arizuko/blob/v0.13.0/auth/oauth.go)): `hd=` parameter appended to
   Google OAuth redirect when `GOOGLE_ALLOWED_EMAILS` patterns share a single domain
   (e.g. `*@example.com`), restricting the sign-in picker to that workspace. Supports
   multiple patterns — hint only added when all share one domain.
-- **`register_group` fromPrototype** (`ipc/ipc.go`, `gateway/gateway.go`): `register_group`
+- **`register_group` fromPrototype** ([`ipc/ipc.go`](https://github.com/kronael/arizuko/blob/v0.13.0/ipc/ipc.go), [`gateway/gateway.go`](https://github.com/kronael/arizuko/blob/v0.13.0/gateway/gateway.go)): `register_group`
   now accepts `fromPrototype=true` to copy this group's `prototype/` directory into a new
   child folder (folder derived from jid); `name` is now optional (defaults to jid); merges
   the former `spawn_group` tool.
-- **Agent-runner exits on empty IPC input** (`container/agent-runner/src/index.ts`):
+- **Agent-runner exits on empty IPC input** ([`container/agent-runner/src/index.ts`](https://github.com/kronael/arizuko/blob/v0.13.0/container/agent-runner/src/index.ts)):
   `waitForIpcMessage` (async Promise wrapper) replaced with synchronous
   `checkIpcMessage`; runner exits immediately when IPC input dir is empty,
   enabling L-chat-bound sessions.
 
 ### Changed
 
-- `gateway/gateway.go`: `runAgentWithOpts` variadic `msgID ...string` collapsed
+- [`gateway/gateway.go`](https://github.com/kronael/arizuko/blob/v0.13.0/gateway/gateway.go): `runAgentWithOpts` variadic `msgID ...string` collapsed
   to plain `msgID string`; 3 call sites updated. Removes optional-string ambiguity.
-- `ipc/ipc.go`: `send_reply` handler nil-guard on `SendReply` removed; collapsed
+- [`ipc/ipc.go`](https://github.com/kronael/arizuko/blob/v0.13.0/ipc/ipc.go): `send_reply` handler nil-guard on `SendReply` removed; collapsed
   to single unconditional call (guard was dead — `SendReply` is never nil).
-- `grants/grants.go`: `sortedKeys` uses `sort.Strings` instead of insertion sort;
+- [`grants/grants.go`](https://github.com/kronael/arizuko/blob/v0.13.0/grants/grants.go): `sortedKeys` uses `sort.Strings` instead of insertion sort;
   `nullStr` deduped to single definition.
-- `auth/jwt.go`, `auth/identity.go`: `mintJWT`, `isInWorld` unexported (internal only).
-- `router/router.go`: `EscapeXml`, `TimeAgo`, `StripThinkBlocks`, `SenderToUserFileID`,
+- [`auth/jwt.go`](https://github.com/kronael/arizuko/blob/v0.13.0/auth/jwt.go), [`auth/identity.go`](https://github.com/kronael/arizuko/blob/v0.13.0/auth/identity.go): `mintJWT`, `isInWorld` unexported (internal only).
+- [`router/router.go`](https://github.com/kronael/arizuko/blob/v0.13.0/router/router.go): `EscapeXml`, `TimeAgo`, `StripThinkBlocks`, `SenderToUserFileID`,
   `ExpandTarget` unexported (internal only).
 
 ### Removed
 
 - `store/outbound.go`: deleted (was empty file).
-- `store/tasks.go`: `LogTaskRun`, `ListTaskRuns`, `TaskRun` removed (dead code,
+- [`store/tasks.go`](https://github.com/kronael/arizuko/blob/v0.13.0/store/tasks.go): `LogTaskRun`, `ListTaskRuns`, `TaskRun` removed (dead code,
   unused since timed daemon uses direct SQL).
-- `core/config.go`: `VitePort` field removed (unused).
+- [`core/config.go`](https://github.com/kronael/arizuko/blob/v0.13.0/core/config.go): `VitePort` field removed (unused).
 
 ---
 
@@ -3064,7 +3064,7 @@ arizuko-ant` with correct mounts for use outside arizuko.
 
 ### Added
 
-- **Kanipi skill sync** (`container/skills/`, `container/output-styles/`): 6 new
+- **Kanipi skill sync** ([`container/skills/`](https://github.com/kronael/arizuko/tree/v0.12.0/container/skills), [`container/output-styles/`](https://github.com/kronael/arizuko/tree/v0.12.0/container/output-styles)): 6 new
   agent skills (acquire, compact-memories, recall, specs, users, infra), 3 output
   style guides (discord, telegram, email). Agent migrations 015-043 added;
   `MIGRATION_VERSION` bumped 16 → 38. `hello` skill updated to comprehensive format.
@@ -3074,7 +3074,7 @@ arizuko-ant` with correct mounts for use outside arizuko.
 
 ### Changed
 
-- **Compose container naming** (`compose/compose.go`): all services named
+- **Compose container naming** ([`compose/compose.go`](https://github.com/kronael/arizuko/blob/v0.12.0/compose/compose.go)): all services named
   `<app>_<daemon>_<flavor>` (e.g. `arizuko_gated_REDACTED`, `arizuko_teled_REDACTED`).
   Applies to built-in services (gated, timed, dashd) and user-defined services
   from `services/*.toml`. Prevents container name conflicts when multiple instances
@@ -3094,44 +3094,44 @@ arizuko-ant` with correct mounts for use outside arizuko.
 
 ### Added
 
-- **Google OAuth** (`auth/oauth.go`, `auth/web.go`, `auth/middleware.go`):
+- **Google OAuth** ([`auth/oauth.go`](https://github.com/kronael/arizuko/blob/v0.11.0/auth/oauth.go), [`auth/web.go`](https://github.com/kronael/arizuko/blob/v0.11.0/auth/web.go), [`auth/middleware.go`](https://github.com/kronael/arizuko/blob/v0.11.0/auth/middleware.go)):
   `/auth/google` and `/auth/google/callback` routes. Login page gains a
   Google button when `GOOGLE_CLIENT_ID` env is set.
-- **Prototype spawning** (`gateway/spawn.go`, `store/migrations/0010-prototype-spawn.sql`):
+- **Prototype spawning** ([`gateway/spawn.go`](https://github.com/kronael/arizuko/blob/v0.11.0/gateway/spawn.go), [`store/migrations/0010-prototype-spawn.sql`](https://github.com/kronael/arizuko/blob/v0.11.0/store/migrations/0010-prototype-spawn.sql)):
   when a route targets an unregistered folder and the parent group has a
   `prototype/` subdirectory, a child group is auto-created by copying the
   prototype. Groups gain `state`, `spawn_ttl_days`, `archive_closed_days`
   columns. Daily cleanup in `timed` marks idle spawns closed and archives
   them as `.tar.gz`.
-- **Episode injection** (`container/episodes.go`, `container/runner.go`):
+- **Episode injection** ([`container/episodes.go`](https://github.com/kronael/arizuko/blob/v0.11.0/container/episodes.go), [`container/runner.go`](https://github.com/kronael/arizuko/blob/v0.11.0/container/runner.go)):
   `episodes/` YAML-frontmatter files in a group folder are read at session
   start and injected as `<episodes>` XML into the prompt.
-- **Dashd** (`dashd/main.go`): operator dashboard daemon (HTMX, read-only
+- **Dashd** ([`dashd/main.go`](https://github.com/kronael/arizuko/blob/v0.11.0/dashd/main.go)): operator dashboard daemon (HTMX, read-only
   SQLite). Pages: status, tasks, activity, groups, memory browser. Auth via
   existing JWT session cookie. Added to Makefile and compose generation.
-- **Bot-mention guidance** (`container/CLAUDE.md`): agents always respond
+- **Bot-mention guidance** ([`container/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.11.0/container/CLAUDE.md)): agents always respond
   when @mentioned by name, stay silent otherwise.
 
 ## [v0.10.0] — 2026-03-18
 
 ### Added
 
-- **Topic sessions** (`gateway/gateway.go`, `store/sessions.go`,
-  `store/migrations/0008-topic-sessions.sql`): `#topic` prefix routes
+- **Topic sessions** ([`gateway/gateway.go`](https://github.com/kronael/arizuko/blob/v0.10.0/gateway/gateway.go), [`store/sessions.go`](https://github.com/kronael/arizuko/blob/v0.10.0/store/sessions.go),
+  [`store/migrations/0008-topic-sessions.sql`](https://github.com/kronael/arizuko/blob/v0.10.0/store/migrations/0008-topic-sessions.sql)): `#topic` prefix routes
   messages to isolated sessions within a group. `/new #topic` resets only
   that topic. `sessions` table gains a `topic` column; PK is now
   `(group_folder, topic)`.
-- **Prefix routing** (`router/router.go`): new `prefix` route type. `@name`
+- **Prefix routing** ([`router/router.go`](https://github.com/kronael/arizuko/blob/v0.10.0/router/router.go)): new `prefix` route type. `@name`
   dispatches to a named group, `#topic` selects a topic session. Evaluated
   before `pattern` in tier order.
-- **Grants engine** (`grants/grants.go`): `CheckAction`, `NarrowRules`,
+- **Grants engine** ([`grants/grants.go`](https://github.com/kronael/arizuko/blob/v0.10.0/grants/grants.go)): `CheckAction`, `NarrowRules`,
   `MatchingRules`, `DeriveRules`. Rules are derived at container spawn
-  (`container/runner.go`) and injected into `start.json`.
-- **IPC grants integration** (`ipc/ipc.go`): MCP manifest filtered by grants
+  ([`container/runner.go`](https://github.com/kronael/arizuko/blob/v0.10.0/container/runner.go)) and injected into `start.json`.
+- **IPC grants integration** ([`ipc/ipc.go`](https://github.com/kronael/arizuko/blob/v0.10.0/ipc/ipc.go)): MCP manifest filtered by grants
   rules so agents only see permitted tools. `set_grants`/`get_grants` tools
   added. `delegate_group` calls `NarrowRules` before persisting child rules.
-- **Onboarding daemon** (`onbod/main.go`, `store/onboarding.go`,
-  `store/migrations/0009-onboarding.sql`): state machine
+- **Onboarding daemon** ([`onbod/main.go`](https://github.com/kronael/arizuko/blob/v0.10.0/onbod/main.go), [`store/onboarding.go`](https://github.com/kronael/arizuko/blob/v0.10.0/store/onboarding.go),
+  [`store/migrations/0009-onboarding.sql`](https://github.com/kronael/arizuko/blob/v0.10.0/store/migrations/0009-onboarding.sql)): state machine
   `awaiting_name → pending → approved/rejected`. Poll loop prompts users,
   validates names, notifies tier-0 operators. `/approve` and `/reject`
   commands handled via `/send` HTTP endpoint. On approval, creates group dir,
@@ -3139,18 +3139,18 @@ arizuko-ant` with correct mounts for use outside arizuko.
 
 ### Changed
 
-- `gateway/commands.go`: `cmdText()` strips media placeholders and routing
+- [`gateway/commands.go`](https://github.com/kronael/arizuko/blob/v0.10.0/gateway/commands.go): `cmdText()` strips media placeholders and routing
   prefixes before command detection; `isGatewayCommand()` predicate added;
   `handleCommand()` uses `cmdText()` consistently.
-- `gateway/gateway.go`: `processGroupMessages()` filters gateway commands
+- [`gateway/gateway.go`](https://github.com/kronael/arizuko/blob/v0.10.0/gateway/gateway.go): `processGroupMessages()` filters gateway commands
   from agent context (they are never forwarded to the container);
   `pollOnce()` includes unrouted JIDs when `ONBOARDING_ENABLED` is set;
   `insertOnboarding` hook seeds `onboarding` table for new unrouted JIDs.
-- `store/groups.go`: `UnroutedChatJIDs(since time.Time)` returns chat JIDs
+- [`store/groups.go`](https://github.com/kronael/arizuko/blob/v0.10.0/store/groups.go): `UnroutedChatJIDs(since time.Time)` returns chat JIDs
   with recent messages that have no entry in the routes table.
-- `container/runner.go`: `seedSkills()` seeds `.claude.json` if missing
+- [`container/runner.go`](https://github.com/kronael/arizuko/blob/v0.10.0/container/runner.go): `seedSkills()` seeds `.claude.json` if missing
   (SDK requires it); takes `folder` param for stable userID hash.
-- `core/config.go`: `OnboardingEnabled bool` field (`ONBOARDING_ENABLED` env).
+- [`core/config.go`](https://github.com/kronael/arizuko/blob/v0.10.0/core/config.go): `OnboardingEnabled bool` field (`ONBOARDING_ENABLED` env).
 
 ## [v0.9.1] — 2026-03-17
 
@@ -3161,8 +3161,8 @@ Channel adapters, flat layout, dead code cleanup, container fix.
 - **Flat layout**: services hoisted from `services/` to top-level dirs
   (`gated/`, `timed/`, `teled/`, `discd/`, `whapd/`). Each is a
   standalone program tree.
-- **gated split**: gateway daemon is own binary at `gated/main.go`,
-  no longer embedded in `cmd/arizuko/`. `arizuko run <instance>`
+- **gated split**: gateway daemon is own binary at [`gated/main.go`](https://github.com/kronael/arizuko/blob/main/gated/main.go),
+  no longer embedded in [`cmd/arizuko/`](https://github.com/kronael/arizuko/tree/main/cmd/arizuko). `arizuko run <instance>`
   generates compose and runs `docker compose up`.
 - **Discord adapter** (`discd/`): Go, ~250 LOC. WebSocket events,
   mention rewriting, file sending. Registers via channel protocol.
@@ -3568,13 +3568,13 @@ Go rewrite. All core gateway functionality ported from TypeScript.
 
 ### Specs
 
-- All `specs/1/` marked with shipped/partial/open status
+- All [`specs/1/`](https://github.com/kronael/arizuko/tree/main/specs/1) marked with shipped/partial/open status
 - `specs/1/X-sync.md` rewritten as solved
 
 ### Cleanup
 
 - Delete stale `template/workspace/mcporter.json` artifact
-- Fix stale template path in `container/skills/howto/SKILL.md`
+- Fix stale template path in [`container/skills/howto/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.2.5/container/skills/howto/SKILL.md)
 
 ---
 
@@ -3697,15 +3697,15 @@ Go rewrite. All core gateway functionality ported from TypeScript.
 
 - Added `self` skill: agent introspection — layout, skills, channels, migration version
 - Added `migrate` skill: main-group skill sync + migration runner across all groups
-- Added migration system: `container/skills/self/migrations/` with versioned files
+- Added migration system: [`container/skills/self/migrations/`](https://github.com/kronael/arizuko/tree/v0.2.0/container/skills/self/migrations) with versioned files
 - Added migration 001: move `web/` root files to `web/pub/` per new layout convention
 - Added YAML frontmatter to `web/SKILL.md`
 - Updated `info/SKILL.md` to report migration version and warn if migrations pending
 
 ### Build
 
-- Added `container/Makefile` for `arizuko-agent` image builds
-- Added `sidecar/whisper/Makefile` for `arizuko-whisper` image builds
+- Added [`container/Makefile`](https://github.com/kronael/arizuko/blob/v0.2.0/container/Makefile) for `arizuko-agent` image builds
+- Added [`sidecar/whisper/Makefile`](https://github.com/kronael/arizuko/blob/v0.2.0/sidecar/whisper/Makefile) for `arizuko-whisper` image builds
 - Root `make image` now builds only the gateway (`arizuko`)
 
 ### Testing
@@ -3736,13 +3736,13 @@ Go rewrite. All core gateway functionality ported from TypeScript.
 
 ### Added
 
-- Skills consolidated into `container/skills/`; seeded once per group on
+- Skills consolidated into [`container/skills/`](https://github.com/kronael/arizuko/tree/v0.1.1/container/skills); seeded once per group on
   first container run
 - Vite web server integrated into gateway startup via IPC restart
-- Web app template seeded from `template/web/` on `arizuko create`
+- Web app template seeded from [`template/web/`](https://github.com/kronael/arizuko/tree/v0.1.1/template/web) on `arizuko create`
 - Group management CLI (`arizuko group list|add|rm <instance>`)
 - `hello` and `howto` skills bundled in agent image
-- Pre-commit hooks: prettier, typecheck, hygiene (`.pre-commit-config.yaml`)
+- Pre-commit hooks: prettier, typecheck, hygiene ([`.pre-commit-config.yaml`](https://github.com/kronael/arizuko/blob/v0.1.1/.pre-commit-config.yaml))
 - Makefile targets: `build`, `lint`, `test`
 - Discord channel via discord.js (`channels/discord.ts`)
 - Env-based channel toggling: Telegram by `TELEGRAM_BOT_TOKEN`, Discord by
@@ -3777,7 +3777,7 @@ multitenant instance model.
 - `arizuko` bash entrypoint: `create`, `group`, and instance-run commands
 - Per-instance data layout: `/srv/data/arizuko_<name>/`
 - systemd unit file templating via `arizuko create <name>`
-- `container/agent-runner/` in-container Claude Code entrypoint
+- [`container/agent-runner/`](https://github.com/kronael/arizuko/tree/v0.1.0/container/agent-runner) in-container Claude Code entrypoint
 - Docker-in-docker host path translation (`detectHostPath()` via
   `/proc/self/mountinfo`)
 
