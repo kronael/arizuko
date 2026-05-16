@@ -17,58 +17,27 @@
 <body>
   <div class="hub-container prose">
     <h1>topics</h1>
-    <p class="dim back">transient work-units inside a group &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">threads inside one folder &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
 
-    <p class="lede">A topic is one conversation, overlaid on a group &mdash; not a path level. Groups persist; topics complete. Many topics can live in the same group at once, and each carries its own Claude Code session so context doesn&rsquo;t bleed between threads.</p>
+    <p class="lede">A topic is a label on a message that splits one folder&rsquo;s chat into separate threads. Each thread has its own session and its own reply chain. Messages in <code>#support</code> don&rsquo;t see messages in <code>#billing</code>.</p>
 
-    <h2>what a topic is</h2>
-    <p>Every message row in the store carries a <code>topic</code> column. A topic is just a string &mdash; <code>#tickets-42</code>, a Discord thread channel ID, or empty for the group&rsquo;s default conversation. The <code>(folder, topic)</code> pair keys the <code>sessions</code> table, so a fresh topic gets a fresh Claude session and a fresh context window. Same folder, same skills, same memory, same secrets &mdash; just a different conversation pointer.</p>
-    <p>This keeps the group hierarchy doing one job (where the ant lives, what it can do) and topics doing another (which conversation it is in right now). A support folder taking thirty concurrent tickets is still one folder; it&rsquo;s thirty topics.</p>
-
-    <h2>lifecycle</h2>
-    <p>Topics get created four ways:</p>
+    <h2>where topics come from</h2>
+    <p>The gateway reads the topic from one of three places:</p>
     <ul>
-      <li><strong>Inline prefix.</strong> A user message starting with <code>#name</code> opens topic <code>#name</code> in the current group, persists it on the chat, and the rest of the message is delivered into that topic.</li>
-      <li><strong><code>/new #name</code>.</strong> Drops any existing Claude session for <code>(folder, #name)</code>, then injects the remainder of the message as the first turn of a clean topic.</li>
-      <li><strong>Discord threads.</strong> A message in a public or private thread automatically carries the thread&rsquo;s channel ID as its topic &mdash; one Discord thread = one arizuko topic, with no operator action.</li>
-      <li><strong>Telegram forum topics.</strong> When a message belongs to a Telegram supergroup forum topic, the <code>MessageThreadID</code> rides through as the arizuko topic.</li>
+      <li><strong>Platform-native threads.</strong> Telegram&rsquo;s <code>MessageThreadID</code>, Discord&rsquo;s thread channel ID, and similar fields land on <code>Message.Topic</code> when the adapter hands the message to <code>gated</code>.</li>
+      <li><strong>The web channel.</strong> A web message carries a topic slug directly &mdash; the slink widget chooses it before the request goes out.</li>
+      <li><strong>The <code>#topic</code> prefix.</strong> When a user starts a message with <code>#name</code>, the gateway strips the prefix and runs the rest under topic <code>#name</code>.</li>
     </ul>
-    <p>Topics end the same shapes they start: <code>/new</code> on its own clears the default-topic session; <code>/new #name</code> clears a named one; the agent can call the <code>reset_session</code> MCP tool to drop its own session when context drifts. The group itself never goes anywhere &mdash; only the conversation pointer resets.</p>
 
-    <h2>the active topic</h2>
-    <p>Each chat row carries an optional <code>sticky_topic</code>. At any moment a chat has zero or one active topic; inbound messages without an explicit topic inherit that sticky, and the agent&rsquo;s session is keyed accordingly.</p>
-    <pre><code>user&gt; #q3-launch what&rsquo;s the latest on shipping?
-bot&gt;  topic &rarr; q3-launch
-bot&gt;  &lt;reply scoped to a fresh q3-launch session&gt;
+    <h2>what a topic isolates</h2>
+    <p>The agent keeps one Claude session per <code>(folder, topic)</code> pair. So <code>/new #support</code> resets the support thread without touching anything else in the folder. The store also tracks the last bot message per topic, so reply threading on the platform stays clean &mdash; replies anchor to the right message.</p>
+    <p>For the web channel, the gateway groups inbound messages by topic and runs one agent per topic, one after another.</p>
 
-user&gt;  any blockers?
-bot&gt;  &lt;continues the q3-launch conversation&mdash;sticky_topic carried it&gt;
-
-user&gt; #
-bot&gt;  topic reset to default
-user&gt;  back to small talk
-bot&gt;  &lt;replies in the default-topic session&gt;</code></pre>
-    <p>A bare <code>#</code> clears the sticky topic. After clearing, new messages land in the default (empty-string) topic until something explicitly opens another one.</p>
-
-    <h2>topics vs groups</h2>
-    <p>It&rsquo;s tempting to read <code>rhias/support/#tickets-42</code> as a deeper path. It isn&rsquo;t. <code>rhias/support</code> is the folder; <code>#tickets-42</code> is the conversation. One container, one set of skills, one memory tree &mdash; the topic just decides which Claude session resumes when the next message arrives.</p>
-    <p>If two threads need different skills, different memory, or different secrets, that&rsquo;s a folder split, not a topic split. Topics are cheap (just a string on a message); folders are heavy (a container, a workspace, an MCP socket, an ACL scope).</p>
-
-    <h2>topics and observed messages</h2>
-    <p>Every trigger turn on a folder also surfaces messages from <em>other</em> chats routed to the same folder, as <em>observed</em> messages &mdash; cross-cutting context the agent didn&rsquo;t reply to directly. That trailing window is folder-scoped: it doesn&rsquo;t filter by topic. A turn firing in topic <code>#tickets-42</code> sees observed messages from every chat into the folder regardless of which topics they belong to.</p>
-    <p>This is the design. Folders are the awareness boundary; topics are the conversation focus. If you need strict topic isolation &mdash; no cross-talk, no shared observation window &mdash; split into separate folders. Operators who use topics for organisation inside one folder accept the folder-wide observation as the price.</p>
-
-    <h2>when to use them</h2>
-    <p>Most channels don&rsquo;t need explicit topics. A 1:1 chat <em>is</em> the conversation; the default empty topic works forever. Topics earn their keep when one group hosts multiple parallel threads that shouldn&rsquo;t share a context window:</p>
-    <ul>
-      <li>A support folder handling many independent tickets in parallel.</li>
-      <li>A research folder running concurrent investigations &mdash; each topic preserves its own line of thought.</li>
-      <li>A Discord guild where threads should each get their own session (handled automatically).</li>
-    </ul>
-    <p>Don&rsquo;t reach for topics to organise files or skills &mdash; that&rsquo;s what folders are for. Reach for them when you want context isolation without losing the shared workspace.</p>
+    <h2>sticky topic</h2>
+    <p>A user can pin a chat to a topic by sending <code>#support</code> on its own as the entire message. The gateway stores it on the <code>chats</code> row (<code>sticky_topic</code>), and every later message in that chat runs under <code>#support</code> until someone sends bare <code>#</code> to clear it. Sticky overrides whatever native topic the platform sent.</p>
 
     <h2>go deeper</h2>
-    <p>Schema columns, every creation path with cites, the MCP tools that read or mutate topic state, and the resolution order at message ingest live in <a href="/pub/reference/topics.html">reference/topics</a>. For how a message reaches a folder in the first place, see <a href="/pub/concepts/routing.html">routing</a>. For the typed addresses that name chats, <a href="/pub/concepts/jid.html">jid</a>.</p>
+    <p>Topics ride inside one folder; <a href="/pub/concepts/routing.html">routing</a> picks the folder first, then topic isolation kicks in. Full rules and the resolution order live in <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="/pub/assets/hub.js"></script>

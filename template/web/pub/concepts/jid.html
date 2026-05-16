@@ -17,41 +17,40 @@
 <body>
   <div class="hub-container prose">
     <h1>jid</h1>
-    <p class="dim back">typed addresses for chats and senders &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">addresses for chats and senders &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
 
-    <p class="lede">Every chat and every sender has a typed address &mdash; <code>&lt;platform&gt;:&lt;kind&gt;/&lt;id&gt;</code> &mdash; so a routing rule like <code>chat_jid=telegram:group/*</code> matches all Telegram groups regardless of platform-specific quirks.</p>
+    <p class="lede">Every chat and every sender has an address that looks the same across every platform: <code>&lt;platform&gt;:&lt;rest&gt;</code>. A routing rule like <code>chat_jid=telegram:group/*</code> matches every Telegram group, and nothing else.</p>
 
-    <h2>why</h2>
-    <p>Each platform names things its own way. Telegram chat IDs are signed integers where positive means DM and negative means group &mdash; so old rules carried a sign-bit hack. Reddit shoves comments, users, and submissions behind <code>t1_</code>/<code>t2_</code>/<code>t3_</code> prefix soup on the same <code>reddit:</code>. WhatsApp suffixes a server (<code>@g.us</code>, <code>@s.whatsapp.net</code>) to mean group vs DM. And <code>ChatJID</code> and <code>UserJID</code> were both <code>string</code> in Go &mdash; the compiler couldn&rsquo;t catch a swap.</p>
-    <p>One JID = one resource. The kind goes in the wire form, the type goes in the code, and routes match with plain glob semantics.</p>
-
-    <h2>show me</h2>
+    <h2>the shape</h2>
+    <p>Each platform names things differently. Telegram chat IDs are signed integers, where a negative number means group. WhatsApp suffixes a server name like <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs. Reddit uses prefixes like <code>t1_</code>, <code>t2_</code>, <code>t3_</code> for comments, users, and submissions. Each format is its own little puzzle.</p>
+    <p>arizuko writes one shape over all of them. The platform goes before the colon. Everything after the colon is the platform&rsquo;s business, kept as an opaque string the gateway only matches with globs:</p>
     <pre><code>telegram:user/123              # telegram DM with user 123
-telegram:group/-100456         # telegram group/supergroup/channel
+telegram:group/-100456         # telegram group, supergroup, or channel
 discord:dm/456                 # discord DM channel
-whatsapp:789@g.us              # whatsapp group (server distinguishes kind)
+whatsapp:789@g.us              # whatsapp group
 reddit:comment/abc             # reddit comment
 mastodon:account/42            # mastodon account
-web:slink/&lt;token&gt;              # anonymous web chat via slink
+web:slink/&lt;token&gt;              # anonymous web chat via slink</code></pre>
 
-# routes match with path.Match globs (* never crosses /)
-match='chat_jid=telegram:group/*'    # all telegram groups
+    <h2>matching with globs</h2>
+    <p>Routes use Go&rsquo;s <code>path.Match</code> across <code>/</code> boundaries. So <code>*</code> grabs any run of characters except <code>/</code>, <code>?</code> grabs one character, and <code>[0-9]</code> grabs a digit. The same syntax works on every field:</p>
+    <pre><code>match='chat_jid=telegram:group/*'    # all telegram groups
 match='chat_jid=discord:dm/*'        # all discord DMs
 match='chat_jid=whatsapp:*@g.us'     # all whatsapp groups
 match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
+    <p>Because the platform sits in its own segment, you can write <code>platform=telegram</code> to mean &ldquo;every Telegram chat, regardless of kind&rdquo; without thinking about Telegram&rsquo;s sign-bit trick.</p>
 
-    <h2>what you get</h2>
-    <ul>
-      <li><strong>Kind in the path.</strong> First segment after the colon is the discriminator. No sign-bit tricks, no prefix soup &mdash; <code>telegram:user/</code> is a DM, <code>telegram:group/</code> is a group, the wire form says so.</li>
-      <li><strong>Typed Go values.</strong> <code>core.ChatJID</code> and <code>core.UserJID</code> are distinct types over <code>*url.URL</code>. The compiler refuses to swap a chat for a sender.</li>
-      <li><strong>Plain glob routing.</strong> <code>path.Match</code> semantics &mdash; <code>*</code> matches any non-<code>/</code> sequence, <code>?</code> one char, <code>[&hellip;]</code> a class. Same rules across <code>chat_jid</code>, <code>sender</code>, <code>platform</code>, <code>verb</code>.</li>
-      <li><strong>Hard cutover already done.</strong> Migrations <code>0042-typed-jids.sql</code> + <code>0043-typed-jids-tail.sql</code> rewrote every JID-shaped value in the store &mdash; messages, chats, onboarding, scheduled_tasks, chat_reply_state, and the predicates inside <code>routes.match</code> (the pre-0053 <code>user_jids</code> and <code>grants</code> tables were rewritten then too, before being dropped) (both <code>chat_jid=</code>/<code>sender=</code> and the bare <code>room=</code> form). Idempotent.</li>
-      <li><strong>Per-platform schemas owned by adapters.</strong> Core treats <code>&lt;rest&gt;</code> as opaque except for glob semantics. Each adapter declares its own shape and parses its own paths &mdash; adding a kind is a one-string change there, no system-wide format bump.</li>
-      <li><strong>URI-clean.</strong> Built on <code>net/url</code>, so percent-encoding for IDs with reserved chars (Bluesky DIDs contain <code>:</code>) is free.</li>
-    </ul>
+    <h2>typed in Go</h2>
+    <p>Inside the codebase, <code>core.ChatJID</code> and <code>core.UserJID</code> are different types built on <code>*url.URL</code>. So if a function asks for a chat address and you hand it a sender address, the compiler refuses. Before this split they were both <code>string</code> and a swap silently routed messages to the wrong place.</p>
+
+    <h2>per-platform shapes belong to adapters</h2>
+    <p>The gateway treats everything after <code>platform:</code> as an opaque string and only ever glob-matches it. Each adapter (<code>tgd/</code>, <code>discd/</code>, <code>whapd/</code>, &hellip;) parses and constructs its own paths. Adding a new platform &mdash; or a new <em>kind</em> inside an existing platform &mdash; is a one-place change in that adapter; the gateway and the routes table don&rsquo;t move.</p>
+
+    <h2>URI-clean</h2>
+    <p>The address is built on <code>net/url</code>, so an ID with reserved characters &mdash; a Bluesky DID contains a colon, for example &mdash; encodes safely without breaking the platform/rest split.</p>
 
     <h2>go deeper</h2>
-    <p>Full spec with per-platform schemas, code types, migration rules, and design discipline: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md">specs/5/S-jid-format.md</a>. Adapter-side parse and construction live next to each adapter (e.g. <code>tgd/</code>, <code>discd/</code>, <code>whapd/</code>) in the repo. For how these addresses get matched into ant folders, see <a href="/pub/concepts/routing.html">routing</a>.</p>
+    <p>Per-platform schemas, code types, migration history, and design rules: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md">specs/5/S-jid-format.md</a>. For how these addresses get matched into folders, see <a href="/pub/concepts/routing.html">routing</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="/pub/assets/hub.js"></script>

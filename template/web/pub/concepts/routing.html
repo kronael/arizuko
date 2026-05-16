@@ -17,14 +17,12 @@
 <body>
   <div class="hub-container prose">
     <h1>routing</h1>
-    <p class="dim back">how a JID lands in a folder &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">how a message lands in a folder &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
 
-    <p class="lede">A small table of <code>jid &rarr; folder</code> rules turns inbound platform messages into agent runs in a specific group. Add a row, the next message lands.</p>
+    <p class="lede">When a message arrives, the gateway walks a small table of rules. Each rule says &ldquo;if this message looks like X, run it in folder Y.&rdquo; First match wins.</p>
 
-    <h2>why</h2>
-    <p>Inbound messages from every adapter &mdash; Telegram, Discord, web slinks, Mastodon, email &mdash; arrive in the same store and need to find the right ant folder to run in. Hardcoding a chat-to-folder map in code breaks the moment a second instance wants different layout; per-adapter plumbing breaks differently in every adapter. The <code>routes</code> table is the one indirection: predicates over the message, evaluated in <code>seq</code> order, first match wins.</p>
-
-    <h2>show me</h2>
+    <h2>the table</h2>
+    <p>Every message arriving from Telegram, Discord, Mastodon, email, or the web widget hits the same store. The gateway then asks one question: which folder runs this? The answer comes from the <code>routes</code> table &mdash; one row per rule, evaluated in order:</p>
     <pre><code>seq    match                                  target
 ---    -----                                  ------
 -10    chat_jid=telegram:user/12345           atlas/legal
@@ -34,17 +32,34 @@
 0      chat_jid=web:slink/abc123              solo/chat
 0      platform=discord                       atlas/{sender}
 9999   (empty)                                atlas              # catchall</code></pre>
-    <p>Predicates are space-separated <code>key=glob</code>, AND&rsquo;d. Glob is <code>path.Match</code>: <code>*</code> matches a non-<code>/</code> run, <code>?</code> one char, <code>[&hellip;]</code> a class. <code>{sender}</code> in the target expands to a sanitized sender ID for per-user child groups.</p>
+    <p>Lower <code>seq</code> goes first. The empty <code>match</code> at <code>seq=9999</code> matches every message, so it acts as the fallback.</p>
 
-    <h2>what you get</h2>
-    <ul>
-      <li><strong>Five match keys.</strong> <code>platform</code>, <code>room</code>, <code>chat_jid</code>, <code>sender</code>, <code>verb</code>. Omit a key to leave it unconstrained; <code>key=</code> requires it absent; <code>key=*</code> requires it present.</li>
-      <li><strong>Glob on every field.</strong> Same <code>path.Match</code> semantics across all keys &mdash; <code>chat_jid=telegram:group/*</code>, <code>sender=telegram:user/[0-9]*</code>, <code>room=dm/*</code>.</li>
-      <li><strong>Reply chain takes precedence.</strong> When a user replies to a bot message, the gateway looks up <code>routed_to</code> on the original and sends the reply back to the same group, regardless of what the routes table says.</li>
-      <li><strong>Sticky routing per chat.</strong> <code>@atlas/social</code> as the entire message body locks the chat to that group; <code>#support</code> locks the topic; bare <code>@</code> or <code>#</code> clears. Stored on the <code>chats</code> row, shared by everyone in the chat.</li>
-      <li><strong>Per-user fan-out.</strong> <code>{sender}</code> in the target gives each sender their own child group &mdash; <code>atlas/dc-alice</code>, <code>atlas/dc-bob</code> &mdash; without one route per user.</li>
-      <li><strong>Edit live.</strong> The agent has <code>add_route</code>, <code>delete_route</code>, <code>get_routes</code>, <code>set_routes</code> as MCP tools; the operator dash (<code>dashd</code>) shows the table; changes take effect on the next inbound message, no restart.</li>
-    </ul>
+    <h2>how a rule matches</h2>
+    <p>The <code>match</code> column is a space-separated list of <code>key=value</code> tests, all of which must pass. So <code>platform=discord room=dm/*</code> matches a Discord message whose chat is a DM, and nothing else.</p>
+    <p>Values use <code>path.Match</code> globs: <code>*</code> matches any run of characters except <code>/</code>, <code>?</code> matches one character, <code>[abc]</code> matches a class. That&rsquo;s why <code>discord:dm/*</code> covers every DM but doesn&rsquo;t cross into <code>discord:guild/123/channel/456</code>.</p>
+    <p>Five keys are available: <code>platform</code> (e.g. <code>telegram</code>), <code>room</code> (the part after <code>platform:</code>), <code>chat_jid</code> (the whole address), <code>sender</code> (who sent it), and <code>verb</code> (the action, e.g. <code>post</code>, <code>like</code>). Omit a key and that field is unconstrained.</p>
+
+    <h2>per-user folders</h2>
+    <p>Write <code>{sender}</code> in the target and the gateway expands it to a sanitized sender ID. One rule like <code>platform=discord &rarr; atlas/{sender}</code> gives every Discord user their own child folder &mdash; <code>atlas/dc-alice</code>, <code>atlas/dc-bob</code> &mdash; without one route per person.</p>
+
+    <h2>reply chain wins</h2>
+    <p>When the bot replies in a chat, the gateway records which folder produced the reply on the message row (<code>routed_to</code>). If the user then replies <em>to that bot message</em>, the gateway follows the chain back to the same folder, even if the route table says otherwise. So a thread stays in the folder that started it.</p>
+
+    <h2>sticky and prefix overrides</h2>
+    <p>A user can pin a chat to a folder by sending <code>@atlas/social</code> as the entire message &mdash; the gateway stores it on the <code>chats</code> row and every later message in that chat goes to <code>atlas/social</code> until someone sends bare <code>@</code> to clear it. <code>#support</code> does the same for the topic; bare <code>#</code> clears.</p>
+    <p>Inline at the start of a message, <code>@name something</code> delegates that one message to the child folder <code>&lt;current&gt;/name</code>, and <code>#topic something</code> runs it under that <a href="/pub/concepts/topics.html">topic</a> &mdash; for one message only, sticky state untouched.</p>
+
+    <h2>resolution order</h2>
+    <p>Put together, every inbound message goes through these layers in order:</p>
+    <ol>
+      <li>Reply chain &mdash; if the message replies to a bot message, follow <code>routed_to</code>.</li>
+      <li>Sticky group &mdash; if the chat has one set, use it.</li>
+      <li>Route table &mdash; first matching row wins; the empty catchall rule is last.</li>
+    </ol>
+    <p>The inline <code>@name</code>/<code>#topic</code> prefix is handled separately before the route table, so it can override a default route without touching sticky state.</p>
+
+    <h2>editing live</h2>
+    <p>The agent edits the table through the MCP tools <code>add_route</code>, <code>delete_route</code>, <code>get_routes</code>, <code>set_routes</code>. The operator dashboard (<code>dashd</code>) shows the same table in a browser. Changes take effect on the next inbound message &mdash; no restart.</p>
 
     <h2 id="modes">modes</h2>
     <p>The <code>target</code> column carries an optional <code>#mode</code> fragment that decides what the gateway does <em>after</em> the message lands in the folder.</p>
@@ -64,7 +79,7 @@
     <p>Future modes (<code>#drop</code>, <code>#digest</code>, &hellip;) extend the fragment vocabulary without schema changes.</p>
 
     <h2>go deeper</h2>
-    <p>Full resolution order (reply chain &rarr; sticky &rarr; route table), authorization rules for cross-group delegation, the inline <code>@name</code>/<code>#topic</code> prefix layer, and worked end-to-end examples: <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>. For what the JID strings on the left-hand side actually look like across platforms, see <a href="/pub/concepts/jid.html">jid</a>.</p>
+    <p>Full rules &mdash; reply-chain mechanics, cross-folder authorization, worked end-to-end traces &mdash; live in <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>. For what the address strings on the left side actually look like, see <a href="/pub/concepts/jid.html">jid</a>. For how <code>#topic</code> isolates a thread inside one folder, see <a href="/pub/concepts/topics.html">topics</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="/pub/assets/hub.js"></script>
