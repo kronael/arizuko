@@ -61,13 +61,14 @@
     <h2>editing live</h2>
     <p>The agent edits the table through the MCP tools <code>add_route</code>, <code>delete_route</code>, <code>get_routes</code>, <code>set_routes</code>. The operator dashboard (<code>dashd</code>) shows the same table in a browser. Changes take effect on the next inbound message &mdash; no restart.</p>
 
-    <h2 id="modes">modes</h2>
-    <p>The <code>target</code> column carries an optional <code>#mode</code> fragment that decides what the gateway does <em>after</em> the message lands in the folder.</p>
+    <h2 id="modes">modes and topic pinning</h2>
+    <p>The <code>target</code> column carries an optional <code>#</code> fragment that decides what the gateway does <em>after</em> the message lands in the folder. <code>#observe</code> is the only reserved fragment &mdash; it sets a mode. Every other fragment is a <a href="/pub/concepts/topics.html">topic name</a> pinned for the routed message.</p>
     <table>
       <thead><tr><th>target</th><th>effect</th></tr></thead>
       <tbody>
-        <tr><td><code>folder</code></td><td>store under <code>folder</code> and fire a turn (default)</td></tr>
+        <tr><td><code>folder</code></td><td>store under <code>folder</code> and fire a turn on main (default)</td></tr>
         <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL.</td></tr>
+        <tr><td><code>folder#deploy</code></td><td>store under <code>folder</code> with topic <code>#deploy</code> and fire a turn there. Useful for piping a webhook source into a dedicated topic without operator @-prefixes.</td></tr>
       </tbody>
     </table>
     <p>Combine with <code>verb=mention</code> and <code>seq</code> to build a two-row mention-only pattern: a tight row triggers on mentions, a catch-all row observes everything else. Sloth Discord guild:</p>

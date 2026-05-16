@@ -241,6 +241,41 @@ sudo journalctl -u arizuko_&lt;instance&gt; --since "30s ago" --no-pager \
       <pre><code>match: chat_jid=slack:T012ABCD/channel/C0HJKL456
 target: engineering</code></pre>
 
+      <h2>step 8 (optional) &mdash; enable the AI sidebar</h2>
+      <p>
+        Slack&rsquo;s &ldquo;Agents &amp; AI Apps&rdquo; sidebar gives the bot a
+        dedicated pane with a title, suggested-prompt buttons, and a typing
+        indicator. The bot can also see which channel the user is currently
+        viewing. Concept page: <a href="/pub/concepts/slack-pane.html">slack pane</a>.
+      </p>
+      <ol>
+        <li>
+          <strong>Agents &amp; AI Apps</strong> &rarr; toggle <strong>on</strong>
+          for the app.
+        </li>
+        <li>
+          <strong>OAuth &amp; Permissions</strong> &rarr; add
+          <code>assistant:write</code> to the bot token scopes. Keep
+          <code>chat:write</code>. Reinstall the app so the new scope takes
+          effect.
+        </li>
+        <li>
+          <strong>Event Subscriptions</strong> &rarr; subscribe to:
+          <code>assistant_thread_started</code>,
+          <code>assistant_thread_context_changed</code>. Keep
+          <code>message.im</code> &mdash; the bot reads pane messages from
+          the same DM channel.
+        </li>
+      </ol>
+      <p>
+        slakd handles the events transparently &mdash; when the user clicks the
+        AI icon, slakd upserts a row in <code>pane_sessions</code>, sets the
+        pane title from <code>ASSISTANT_NAME</code> (or per-folder
+        <code>PERSONA.md</code> frontmatter <code>pane_title</code>), and
+        stages starter prompts. The agent then controls subsequent prompts via
+        the <code>pane_set_prompts</code> MCP tool.
+      </p>
+
       <h2>health check</h2>
       <p>
         slakd&rsquo;s <code>/health</code> returns 503 when Slack&rsquo;s

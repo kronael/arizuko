@@ -169,7 +169,7 @@
         <tr><td><code>topic</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>topic key</td></tr>
         <tr><td><code>session_id</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>Claude Code session UUID</td></tr>
         <tr><td><code>parent_topic</code></td><td>TEXT</td><td>NULL</td><td></td><td>topic this one forked from (<code>''</code> = main); NULL when no lineage (main itself)</td></tr>
-        <tr><td><code>forked_at</code></td><td>TEXT</td><td>NULL</td><td></td><td>RFC3339Nano UTC fork point &mdash; ceiling for the <code>&lt;inherited&gt;</code> window</td></tr>
+        <tr><td><code>forked_at</code></td><td>TEXT</td><td>NULL</td><td></td><td>RFC3339Nano UTC fork point &mdash; audit metadata (the parent&rsquo;s session file is already copied into the child&rsquo;s session)</td></tr>
         <tr><td><code>observed_cursor</code></td><td>TEXT</td><td>NULL</td><td></td><td>per-topic high-water mark over <code>is_observed=1</code> messages; gateway advances it after each turn</td></tr>
       </table>
       <p class="meta"><strong>PK:</strong> <code>(group_folder, topic)</code>.</p>
@@ -245,6 +245,26 @@
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/messages.go#L401"><code>store/messages.go:401</code></a>.</p>
       <p class="meta"><strong>Readers:</strong> gateway/adapter outbound layer.</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0014-reply-state.sql">0014</a>; 0043 rewrote rows to typed JID.</p>
+      <p class="meta"><strong>Spec (not yet shipped):</strong> <a href="https://github.com/kronael/arizuko/blob/main/specs/6/G-engagement.md">6/G</a> adds <code>last_reply_at</code> (RFC3339Nano UTC) for the engagement TTL.</p>
+    </div>
+
+    <div class="tablecard">
+      <h3><code>pane_sessions</code></h3>
+      <p>Slack assistant-pane state per <code>(team, user, thread_ts)</code>. Persists across slakd restarts; the in-memory map is a read-through cache. See <a href="/pub/concepts/slack-pane.html">slack pane</a> for the concept.</p>
+      <table>
+        <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
+        <tr><td><code>team_id</code></td><td>TEXT</td><td>NOT NULL</td><td>Slack workspace ID</td></tr>
+        <tr><td><code>user_id</code></td><td>TEXT</td><td>NOT NULL</td><td>Slack user who opened the pane</td></tr>
+        <tr><td><code>thread_ts</code></td><td>TEXT</td><td>NOT NULL</td><td>pane thread timestamp</td></tr>
+        <tr><td><code>channel_id</code></td><td>TEXT</td><td>NOT NULL</td><td>DM channel that hosts the pane</td></tr>
+        <tr><td><code>context_jid</code></td><td>TEXT</td><td>NULL</td><td>workspace channel the user is currently viewing</td></tr>
+        <tr><td><code>opened_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339Nano UTC</td></tr>
+        <tr><td><code>last_status_at</code></td><td>TEXT</td><td>NULL</td><td>last <code>setStatus</code> call &mdash; used to debounce</td></tr>
+      </table>
+      <p class="meta"><strong>PK:</strong> <code>(team_id, user_id, thread_ts)</code>. <strong>Index:</strong> <code>idx_pane_sessions_channel</code> on <code>channel_id</code>.</p>
+      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/pane_sessions.go"><code>store/pane_sessions.go</code></a> &mdash; <code>UpsertPane</code>, <code>SetPaneContext</code>, <code>SetPaneStatusAt</code>.</p>
+      <p class="meta"><strong>Readers:</strong> slakd (pane lookup keyed by channel), gateway (pane-context hint in <code>buildAgentPrompt</code>).</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0056-pane-sessions.sql">0056</a>.</p>
     </div>
 
     <h2>3. Groups (folders), chats, routes</h2>

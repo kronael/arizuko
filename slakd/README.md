@@ -41,22 +41,66 @@ in shape — registers with `gated` via `chanlib.RouterClient`, exposes
 
 ## Verb support
 
-| Verb        | Status | Notes                                                            |
-| ----------- | ------ | ---------------------------------------------------------------- |
-| `send`      | native | `chat.postMessage`; honours `reply_to` → `thread_ts`             |
-| `send_file` | native | `files.getUploadURLExternal` + PUT + `completeUploadExternal`    |
-| `edit`      | native | `chat.update`                                                    |
-| `delete`    | native | `chat.delete`                                                    |
-| `like`      | native | `reactions.add` (emoji name from `Reaction`, default `thumbsup`) |
-| `dislike`   | native | `reactions.add` with `thumbsdown` (per dislike-via-like)         |
-| `post`      | native | maps to `send` on a channel JID                                  |
-| `forward`   | hint   | redirects to `send` quoting source                               |
-| `quote`     | hint   | redirects to `send(reply_to=<ts>)` to thread under the source    |
-| `repost`    | hint   | redirects to `send`                                              |
+| Verb               | Status             | Notes                                                            |
+| ------------------ | ------------------ | ---------------------------------------------------------------- |
+| `send`             | native             | `chat.postMessage`; honours `reply_to` → `thread_ts`             |
+| `send_file`        | native             | `files.getUploadURLExternal` + PUT + `completeUploadExternal`    |
+| `edit`             | native             | `chat.update`                                                    |
+| `delete`           | native             | `chat.delete`                                                    |
+| `like`             | native             | `reactions.add` (emoji name from `Reaction`, default `thumbsup`) |
+| `dislike`          | native             | `reactions.add` with `thumbsdown` (per dislike-via-like)         |
+| `post`             | native             | maps to `send` on a channel JID                                  |
+| `forward`          | hint               | redirects to `send` quoting source                               |
+| `quote`            | hint               | redirects to `send(reply_to=<ts>)` to thread under the source    |
+| `repost`           | hint               | redirects to `send`                                              |
+| `pane_set_prompts` | native (pane only) | `assistant.threads.setSuggestedPrompts` after next Send          |
+| `pane_set_title`   | native (pane only) | `assistant.threads.setTitle` after next Send                     |
+
+## Assistant pane (specs/6/D)
+
+Slack's "Agents & AI Apps" feature gives the bot a dedicated sidebar
+pane. slakd implements the full lifecycle when the app has
+`assistant:write` scope and subscribes to `assistant_thread_started`
+
+- `assistant_thread_context_changed`:
+
+* `assistant_thread_started` → upserts a row in `pane_sessions` keyed
+  by `(team_id, user_id, thread_ts)`, sets the pane title
+  (`<ASSISTANT_NAME> — chat`), seeds three default suggested prompts,
+  and dispatches a synthetic `pane_open` inbound so the agent gets
+  a turn.
+* `assistant_thread_context_changed` → updates
+  `pane_sessions.context_jid` with the workspace channel the user is
+  viewing. No synthetic turn (context drift isn't a user action).
+* `Typing()` calls `assistant.threads.setStatus` only when the JID
+  maps to an open pane (`pane_sessions` lookup by `channel_id`);
+  stamps `last_status_at` for debounce.
+* `Send()` into a pane channel drains pending prompts/title staged
+  via the MCP tools below and fires `assistant.threads.setSuggestedPrompts`
+  / `setTitle` after the `chat.postMessage` succeeds.
+
+MCP-driven control (per outbound, one-shot):
+
+- `POST /v1/pane/prompts {jid, prompts}` — channel-secret gated;
+  stages prompts on the bot for the next Send into that pane.
+  Returns 404 when the jid doesn't map to an open pane (chanreg
+  maps that to `chanlib.ErrUnsupported`).
+- `POST /v1/pane/title {jid, title}` — same shape; one-shot title.
+
+Both endpoints are reached by gated via `chanreg.HTTPChannel`'s
+`PaneSetPrompts` / `PaneSetTitle` (implementing the optional
+`core.Paner` capability). Today slakd is the only adapter that
+implements it.
+
+slakd opens the shared `messages.db` directly to read/write
+`pane_sessions` rows; `DB_PATH` (preferred) or `DATA_DIR/store`
+points to the file. Unset → pane persistence becomes a no-op and the
+pane lifecycle handlers degrade silently to type-only logging.
 
 ## Dependencies
 
-- `chanlib`
+- `chanlib`, `store` (pane_sessions table only — `gated` owns the
+  schema and runs migrations)
 
 ## Configuration
 
