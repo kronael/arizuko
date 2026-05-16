@@ -130,6 +130,34 @@ Keep `EXTENDING.md` current as extension points evolve (channels,
 actions, routing, mounts, skills, tasks, diary; skill scopes;
 permission tiers).
 
+### Updating the web docs
+
+Operator-facing web docs (the `/pub/...` site) live in
+`template/web/pub/` — that's source-of-truth. Voice and style guide
+is in `template/web/CLAUDE.md`. Workflow:
+
+1. Edit pages under `template/web/pub/`.
+2. Verify locally: open the HTML directly or via any static file
+   server. No build step.
+3. Sync to running instances (krons hosts the canonical site at
+   `https://fab.krons.cx/pub/arizuko/`):
+
+   ```bash
+   sudo rsync -a --delete template/web/pub/ /srv/data/arizuko_krons/web/pub/arizuko/
+   ```
+
+4. Verify live: `curl -s https://fab.krons.cx/pub/arizuko/concepts/routing.html | head`.
+
+The arizuko docs live under `/pub/arizuko/` on the krons host (one
+of several sites that vited serves from
+`/srv/data/arizuko_krons/web/pub/`). Don't sync to other instances'
+web roots unless they explicitly serve the docs site too.
+
+`template/web/pub/` is checked into git. Edits to `/srv/data/.../web/pub/`
+are NOT — they're a deployment artifact. If you find improvements on
+the live krons that aren't in template, copy them back before
+overwriting.
+
 ## Layout
 
 See `ARCHITECTURE.md` for the package graph and `README.md` for the

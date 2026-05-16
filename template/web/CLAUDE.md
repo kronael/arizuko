@@ -154,6 +154,47 @@ first channel, first invite, verify agent responds.
 Additional howto pages (future): upgrade, backup, multi-instance,
 custom skills, custom products.
 
+## Voice
+
+Target reader: a smart 13-year-old who reads docs. Not a 13yo who
+doesn't — a sharp, curious one with no patience for buzzwords. Make
+the explanation accessible without dumbing down the truth.
+
+**Use:**
+
+- Concrete nouns and verbs. "Proxyd writes a signed header" beats
+  "Proxyd performs identity attestation."
+- File paths, daemon names, SQL column names where they sharpen
+  meaning: `gated`, `proxyd`, `auth/middleware.go:RequireSigned`,
+  `messages.db`, `acl` table.
+- Sentences a smart 13yo can follow on first read. If they'd stop
+  to look up a word, replace the word.
+- One picture per paragraph. Don't pile abstractions.
+- Examples — show, don't just describe. A grants page without an
+  example rule teaches nothing.
+- Causation: "when X arrives, Y happens because Z."
+
+**Avoid:**
+
+- Marketing adjectives ("powerful", "robust", "elegant", "seamless",
+  "scalable", "intuitive"). Each one is a flag for a smart reader
+  to bounce.
+- Abstract nouns when a concrete one exists. "Abstraction" → name
+  the thing (a table, a row, a file, a column). "Primitive" → name
+  the thing. "Subsystem" → name the daemon. "Tenancy" → "groups"
+  or "folders". "Surface" → "URL" or "endpoint" or "page".
+- Three-noun stacks ("a typed, scoped, composable primitive").
+- "Note that", "It's important to understand", "As you can see".
+- Emoji. Exclamation marks.
+- "We" / "us" — say what the system does.
+- Sentences over 30 words.
+- Headers that aren't doing real work — if a section has two
+  lines, fold it into the parent.
+
+**Trick to apply:** read each paragraph as a 13yo. If they'd trip on
+a word, replace it. If they'd skim past, sharpen the image. If they'd
+ask "wait, how does that actually work" — you owe a sentence.
+
 ## Style rules
 
 All pages use `hub.css` + `hub.js`. Patterns:
