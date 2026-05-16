@@ -18,8 +18,6 @@
     .prose dd { margin: 0 0 0.3em 1.2em; }
     .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
     .back { font-size: 0.85em; }
-    .callout { border-left: 3px solid var(--accent, #888); padding: 0.4em 0.8em; margin: 0.8em 0; background: var(--bg-soft, rgba(127,127,127,0.06)); }
-    .meta { font-size: 0.85em; color: var(--dim, #888); }
   </style>
 </head>
 <body>
@@ -27,110 +25,90 @@
     <h1>slink</h1>
     <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; slink</p>
 
-    <p class="lede">Public per-group web channel: one token, one POST endpoint, one round-handle protocol. Drops a message into the group's inbox and exposes the agent's reply as a snapshot, status probe, or SSE stream. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/1/W-slink.md"><code>specs/1/W-slink.md</code></a>; implementation in <a href="https://github.com/kronael/arizuko/blob/main/webd/slink.go"><code>webd/slink.go</code></a>, <a href="https://github.com/kronael/arizuko/blob/main/webd/turn.go"><code>webd/turn.go</code></a>, <a href="https://github.com/kronael/arizuko/blob/main/webd/slink_mcp.go"><code>webd/slink_mcp.go</code></a>.</p>
+    <p class="lede">Developer reference for the slink HTTP surface. One token per group, one POST to send, one round-handle to read. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/1/W-slink.md"><code>specs/1/W-slink.md</code></a>. Code: <a href="https://github.com/kronael/arizuko/blob/main/webd/slink.go"><code>webd/slink.go</code></a>, <a href="https://github.com/kronael/arizuko/blob/main/webd/turn.go"><code>webd/turn.go</code></a>, <a href="https://github.com/kronael/arizuko/blob/main/webd/slink_mcp.go"><code>webd/slink_mcp.go</code></a>.</p>
 
     <h2 id="token">Token</h2>
 
     <dl>
       <dt>Format</dt>
-      <dd>32 random bytes, base64url-encoded (~43 chars, 256 bits).</dd>
+      <dd>32 random bytes, base64url-encoded (~43 characters, 256 bits of entropy).</dd>
       <dt>Storage</dt>
-      <dd>Column <code>groups.slink_token</code>; resolved via <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L196"><code>store.GroupBySlinkToken</code></a> on every <code>/slink/*</code> hit.</dd>
+      <dd><code>groups.slink_token</code>. Resolved via <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L190"><code>store.GroupBySlinkToken</code></a> on every <code>/slink/*</code> request.</dd>
       <dt>Lifetime</dt>
-      <dd>Minted once at group registration. Not rotated, not expired.</dd>
+      <dd>Minted once when the group is created. Not rotated, not expired.</dd>
       <dt>Visibility</dt>
-      <dd>Public &mdash; embedded verbatim in page source, links, scripts, MCP client config.</dd>
-      <dt>Security model</dt>
-      <dd>Treat a leaked token like a leaked rate-limit bucket, not like a leaked password. Defence is rate limiting (see below) + grant scope of the bound group, not token secrecy.</dd>
+      <dd>Public. It appears verbatim in page source, links, and MCP client config.</dd>
+      <dt>Trust model</dt>
+      <dd>A leaked token is a leaked rate-limit bucket, not a leaked password. Defence is rate limiting plus the group&rsquo;s grants.</dd>
     </dl>
 
     <h2 id="rate-limits">Rate limits</h2>
 
-    <p>Anonymous callers pass through a DoS shield in <a href="https://github.com/kronael/arizuko/blob/main/proxyd/main.go"><code>proxyd/main.go</code></a> (<code>dispatchSlink</code>) &mdash; not metering. Excess returns HTTP 429. Authenticated callers skip the edge throttle; their spend is governed by the per-folder + per-user cost caps in <a href="https://github.com/kronael/arizuko/blob/main/specs/5/34-cost-caps.md"><code>specs/5/34-cost-caps.md</code></a>.</p>
+    <p>Anonymous callers go through the DoS shield in <a href="https://github.com/kronael/arizuko/blob/main/proxyd/main.go"><code>proxyd/main.go</code></a> (<code>dispatchSlink</code>). Excess returns HTTP 429. No <code>X-RateLimit-*</code> headers are emitted. Signed-in callers skip the shield; their spend is governed by the per-folder cost caps in <a href="https://github.com/kronael/arizuko/blob/main/specs/5/34-cost-caps.md"><code>specs/5/34-cost-caps.md</code></a>.</p>
 
     <table>
-      <tr><th>Caller</th><th>Bucket key</th><th>Default</th><th>Env var</th></tr>
-      <tr><td>Anonymous (no JWT)</td><td>client IP</td><td>10 req/min</td><td><code>SLINK_ANON_DOS_RPM</code></td></tr>
+      <tr><th>Caller</th><th>Bucket</th><th>Default</th><th>Env</th></tr>
+      <tr><td>Anonymous</td><td>client IP, 1-min sliding window</td><td>10 req/min</td><td><code>SLINK_ANON_DOS_RPM</code></td></tr>
     </table>
-
-    <p>Sliding 1-minute window, IP-keyed. Operators and agents reach <code>gated</code> and the MCP socket directly without going through <code>/slink/*</code>, so they're never throttled here.</p>
 
     <h2 id="identity">Sender identity</h2>
 
-    <p>Derived in <a href="https://github.com/kronael/arizuko/blob/main/webd/slink.go#L240"><code>webd/slink.go:240</code></a> on every <code>POST /slink/&hellip;</code>:</p>
+    <p>Computed on every POST in <a href="https://github.com/kronael/arizuko/blob/main/webd/slink.go#L240"><code>webd/slink.go</code></a>:</p>
 
     <ul>
-      <li><strong>Valid JWT</strong> &mdash; <code>sender = X-User-Sub</code>, <code>sender_name = X-User-Name</code> (proxyd-signed identity headers; <code>auth.VerifyUserSig</code> must pass).</li>
-      <li><strong>No <code>Authorization</code> header</strong> &mdash; <code>sender = anon:&lt;ip-hash&gt;</code> (first 4 bytes of SHA-256(<code>X-Forwarded-For</code>)), <code>sender_name = "Anonymous"</code>.</li>
+      <li><strong>Valid JWT</strong> &mdash; <code>sender = X-User-Sub</code>, <code>sender_name = X-User-Name</code>. proxyd-signed; <code>auth.VerifyUserSig</code> must pass.</li>
+      <li><strong>No <code>Authorization</code> header</strong> &mdash; <code>sender = anon:&lt;ip-hash&gt;</code> (first 4 bytes of SHA-256 of <code>X-Forwarded-For</code>), <code>sender_name = "Anonymous"</code>.</li>
       <li><strong>Malformed JWT</strong> &mdash; rejected upstream by proxyd with 401.</li>
     </ul>
 
     <h2 id="endpoints">HTTP endpoints</h2>
 
-    <p>Every route registered in <a href="https://github.com/kronael/arizuko/blob/main/webd/server.go#L62"><code>webd/server.go:62</code></a> under the <code>slinkCORS</code> wrapper. <code>{token}</code> is the slink token; <code>{id}</code> is a <code>turn_id</code> (= the originating inbound <code>messages.id</code>).</p>
+    <p>Registered in <a href="https://github.com/kronael/arizuko/blob/main/webd/server.go#L62"><code>webd/server.go</code></a>, all wrapped by <code>slinkCORS</code>. <code>{token}</code> is the slink token; <code>{id}</code> is a <code>turn_id</code> (the originating inbound <code>messages.id</code>).</p>
 
-    <h3>Chat UI &amp; bootstrap</h3>
     <table>
       <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
       <tr><td>GET</td><td><code>/slink/{token}</code></td><td>301 to <code>/slink/{token}/chat</code></td></tr>
-      <tr><td>GET</td><td><code>/slink/{token}/chat</code></td><td>Built-in minimal chat page (HTML)</td></tr>
-      <tr><td>GET</td><td><code>/slink/{token}/config</code></td><td>JSON bootstrap (token, folder, name, endpoints, SDK URL)</td></tr>
-    </table>
-
-    <h3>Round handle</h3>
-    <table>
-      <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
-      <tr><td>POST</td><td><code>/slink/{token}</code></td><td>Inject a message; returns <code>turn_id</code></td></tr>
-      <tr><td>GET</td><td><code>/slink/{token}/{id}</code></td><td>Snapshot: status + all frames</td></tr>
-      <tr><td>GET</td><td><code>/slink/{token}/{id}?after={msg_id}</code></td><td>Cursor page: frames after <code>{msg_id}</code></td></tr>
-      <tr><td>GET</td><td><code>/slink/{token}/{id}/status</code></td><td>Cheap status + counts, no frame payload</td></tr>
-      <tr><td>GET</td><td><code>/slink/{token}/{id}/sse</code></td><td>Live SSE stream + terminal <code>round_done</code></td></tr>
-    </table>
-
-    <h3>Legacy chat-widget SSE</h3>
-    <table>
-      <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
-      <tr><td>GET</td><td><code>/slink/stream?token=&amp;group=&amp;topic=</code></td><td>SSE keyed on <code>(folder, topic)</code>; used by built-in <code>/chat</code> only</td></tr>
-    </table>
-
-    <h3>MCP</h3>
-    <table>
-      <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
-      <tr><td>POST</td><td><code>/slink/{token}/mcp</code></td><td>Streamable HTTP MCP endpoint (3 tools, see &sect;MCP)</td></tr>
+      <tr><td>GET</td><td><code>/slink/{token}/chat</code></td><td>Built-in chat page (HTML)</td></tr>
+      <tr><td>GET</td><td><code>/slink/{token}/config</code></td><td>JSON bootstrap: token, folder, name, endpoints, SDK URL</td></tr>
+      <tr><td>POST</td><td><code>/slink/{token}</code></td><td>Send a message. Returns <code>turn_id</code>.</td></tr>
+      <tr><td>GET</td><td><code>/slink/{token}/{id}</code></td><td>Snapshot: status + all frames; <code>?after={msg_id}</code> for cursor pages.</td></tr>
+      <tr><td>GET</td><td><code>/slink/{token}/{id}/status</code></td><td>Status + counts, no frame payload.</td></tr>
+      <tr><td>GET</td><td><code>/slink/{token}/{id}/sse</code></td><td>Live SSE; closes on <code>round_done</code>.</td></tr>
+      <tr><td>POST</td><td><code>/slink/{token}/mcp</code></td><td>Streamable HTTP MCP endpoint &mdash; three tools.</td></tr>
     </table>
 
     <h2 id="post">POST shape</h2>
 
-    <p>Request body (one of):</p>
+    <p>Request body, either form or JSON:</p>
     <pre><code>content=&lt;text&gt;&amp;topic=&lt;optional&gt;       # application/x-www-form-urlencoded
 {"content":"...","topic":"..."}      # application/json</code></pre>
 
-    <p>Content negotiation on <code>Accept</code>:</p>
+    <p>The response depends on the <code>Accept</code> header:</p>
     <ul>
-      <li>Default (no <code>Accept</code> or <code>application/json</code>) &mdash; JSON, fire-and-handle.</li>
-      <li><code>text/html</code> &mdash; HTMX bubble fragment (used by the built-in <code>/chat</code> page only).</li>
-      <li><code>text/event-stream</code> &mdash; legacy SSE upgrade keyed on <code>(folder, topic)</code>; preserved for chat-widget compat.</li>
+      <li>Default or <code>application/json</code> &mdash; JSON envelope (below).</li>
+      <li><code>text/html</code> &mdash; HTMX fragment (used by the built-in <code>/chat</code> only).</li>
+      <li><code>text/event-stream</code> &mdash; legacy SSE upgrade; chat-widget compat.</li>
     </ul>
 
     <p>Default JSON response:</p>
     <pre><code>{
-  "user": { "id": "msg_abc", "content": "...", "created_at": "..." },
+  "user":    { "id": "msg_abc", "content": "...", "created_at": "..." },
   "turn_id": "msg_abc",
-  "status": "pending"
+  "status":  "pending"
 }</code></pre>
 
-    <p><code>turn_id == user.id</code> for the first message of a round. Optional <code>?wait=&lt;sec&gt;</code> (capped 120 s) blocks the response until the first assistant frame and adds <code>"assistant": {&hellip;}</code>.</p>
+    <p><code>turn_id == user.id</code> for the first message of a round. Add <code>?wait=&lt;sec&gt;</code> (capped 120 s) to block until the first assistant frame; the response then includes <code>"assistant": {&hellip;}</code>.</p>
 
-    <p>To continue a conversation: POST another message with the same <code>topic</code>. If a container is already running for the group, the gateway delivers the new message to it mid-loop (<a href="https://github.com/kronael/arizuko/blob/main/queue/queue.go"><code>queue.SendMessages</code></a>). Otherwise a fresh round spawns. No separate steer endpoint.</p>
+    <p>To continue a thread, POST again with the same <code>topic</code>. If the group&rsquo;s container is still running, the new message is delivered mid-loop (<a href="https://github.com/kronael/arizuko/blob/main/queue/queue.go"><code>queue.SendMessages</code></a>). Otherwise a fresh round spawns.</p>
 
-    <h2 id="snapshot">GET snapshot &amp; cursor</h2>
+    <h2 id="snapshot">GET snapshot</h2>
 
     <pre><code>GET /slink/{token}/{id}
 GET /slink/{token}/{id}?after={msg_id}</code></pre>
 
     <pre><code>{
   "turn_id": "msg_abc",
-  "status": "pending|done|failed",
+  "status":  "pending|done|failed",
   "frames": [
     {"id":"out_001","content":"...","created_at":"...","kind":"message","turn_id":"msg_abc"},
     {"id":"out_002","content":"...","created_at":"...","kind":"status","turn_id":"msg_abc"}
@@ -138,49 +116,48 @@ GET /slink/{token}/{id}?after={msg_id}</code></pre>
   "last_frame_id": "out_002"
 }</code></pre>
 
-    <p><code>frames[]</code> is ordered by <code>created_at</code> ascending. Each <code>id</code> is a stable <code>messages.id</code>; pass it as <code>?after={id}</code> on the next call to fetch only what's new.</p>
+    <p>Frames are sorted by <code>created_at</code> ascending. Pass the last <code>id</code> as <code>?after={id}</code> on the next call to fetch only what is new. Stop when <code>status == "done"</code>. A <code>"failed"</code> response carries an <code>error</code> string. Hard cap: 200 frames per call.</p>
 
     <p><code>kind</code>:</p>
     <ul>
-      <li><code>message</code> &mdash; the agent's reply.</li>
-      <li><code>status</code> &mdash; interim <code>&lt;status&gt;</code> block from the agent's status protocol (any frame whose content begins with <code>&#9203;&nbsp;</code>; see <a href="https://github.com/kronael/arizuko/blob/main/webd/turn.go#L27"><code>turn.go:27</code></a>).</li>
+      <li><code>message</code> &mdash; the agent&rsquo;s reply text.</li>
+      <li><code>status</code> &mdash; interim status frame; content starts with <code>&#9203;&nbsp;</code>. See <a href="https://github.com/kronael/arizuko/blob/main/webd/turn.go#L27"><code>turn.go</code></a>.</li>
     </ul>
-
-    <p>Stop polling once <code>status == "done"</code>. <code>"failed"</code> carries an <code>error</code> string. Hard cap: 200 frames per snapshot call.</p>
 
     <h2 id="status">GET status</h2>
 
-    <pre><code>GET /slink/{token}/{id}/status</code></pre>
+    <pre><code>GET /slink/{token}/{id}/status
 
-    <pre><code>{
-  "turn_id": "msg_abc",
-  "status": "pending",
-  "frames_count": 2,
+{
+  "turn_id":       "msg_abc",
+  "status":        "pending",
+  "frames_count":  2,
   "last_frame_id": "out_002"
 }</code></pre>
 
-    <p>Use this to decide between &ldquo;poll once and stop&rdquo; vs &ldquo;open SSE&rdquo; without paying for the frame payload.</p>
+    <p>Cheap probe; no frame payload. Use it to decide between &ldquo;poll once more&rdquo; and &ldquo;open SSE.&rdquo;</p>
 
-    <h2 id="sse">GET SSE stream</h2>
+    <h2 id="sse">SSE stream</h2>
 
     <pre><code>GET /slink/{token}/{id}/sse</code></pre>
 
-    <p>Events:</p>
+    <p>Event types:</p>
     <ul>
-      <li><code>event: message</code> / <code>event: status</code> &mdash; payload is one <code>frame</code> object (same shape as snapshot frames).</li>
-      <li><code>event: round_done</code> &mdash; fires exactly once after <code>submit_turn</code>. Payload <code>{turn_id, status, error?}</code>. The server then closes the stream.</li>
+      <li><code>event: message</code> &mdash; one frame object (same shape as snapshot frames).</li>
+      <li><code>event: status</code> &mdash; one status frame.</li>
+      <li><code>event: round_done</code> &mdash; fires once. Payload <code>{turn_id, status, error?}</code>. Server then closes.</li>
     </ul>
 
-    <p><code>Last-Event-Id</code> reconnect is supported; on reconnect the server replays frames with id greater than the last seen id before resuming live. Keep-alive ping (<code>: ping</code>) every 15 s.</p>
+    <p>Reconnect is supported via <code>Last-Event-Id</code>: the server replays frames newer than the supplied id before resuming live. Keep-alive ping (<code>: ping</code>) every 15 s.</p>
 
-    <h2 id="config">/config JSON shape</h2>
+    <h2 id="config">/config</h2>
 
-    <p>From <a href="https://github.com/kronael/arizuko/blob/main/webd/slink.go#L58"><code>webd/slink.go:58</code></a>. No auth (token in URL is the credential).</p>
+    <p>From <a href="https://github.com/kronael/arizuko/blob/main/webd/slink.go#L58"><code>webd/slink.go</code></a>. No auth &mdash; the token in the URL is the credential.</p>
 
     <pre><code>{
-  "token": "646a...",
+  "token":  "646a...",
   "folder": "acme/support",
-  "name": "Support",
+  "name":   "Support",
   "endpoints": {
     "post":   "/slink/{token}",
     "stream": "/slink/{token}/{turn_id}/sse",
@@ -189,84 +166,62 @@ GET /slink/{token}/{id}?after={msg_id}</code></pre>
   "sdk": "/assets/arizuko-client.js"
 }</code></pre>
 
-    <p>Pages that don't bake paths at build time call <code>/config</code> first, then drive the rest of the protocol from the returned URLs. The <code>sdk</code> field lets cross-origin pages discover and <code>import()</code> the SDK at runtime.</p>
-
-    <h2 id="sdk">JavaScript SDK</h2>
-
-    <p>Hosted at <code>/assets/arizuko-client.js</code> from <code>embed.FS</code> baked into the webd binary (<a href="https://github.com/kronael/arizuko/blob/main/webd/assets.go"><code>webd/assets.go</code></a>). Cache-control <code>public, max-age=3600</code>; ETag content-hash; <code>Access-Control-Allow-Origin: *</code>. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/1/Z2-slink-sdk.md"><code>specs/1/Z2-slink-sdk.md</code></a>.</p>
-
-    <table>
-      <tr><th>Method</th><th>Signature</th><th>Returns</th></tr>
-      <tr><td><code>Arizuko.connect</code></td><td><code>(token, {baseURL?})</code></td><td><code>Promise&lt;Slink&gt;</code> &mdash; fetches <code>/config</code></td></tr>
-      <tr><td><code>Slink.send</code></td><td><code>(content, {topic?})</code></td><td><code>Promise&lt;TurnHandle&gt;</code></td></tr>
-      <tr><td><code>Slink.status</code></td><td><code>(turnId)</code></td><td><code>Promise&lt;StatusEnvelope&gt;</code></td></tr>
-      <tr><td><code>Slink.snapshot</code></td><td><code>(turnId, {after?})</code></td><td><code>Promise&lt;Snapshot&gt;</code></td></tr>
-      <tr><td><code>Slink.stream</code></td><td><code>(turnId, {onMessage, onStatus, onDone, onError})</code></td><td><code>() =&gt; void</code> (close fn)</td></tr>
-    </table>
-
-    <p>Minimal page:</p>
-    <pre><code>&lt;!DOCTYPE html&gt;
-&lt;script src="/assets/arizuko-client.js"&gt;&lt;/script&gt;
-&lt;script&gt;
-  const slink = await Arizuko.connect("&lt;token&gt;");
-  const turn  = await slink.send("hello");
-  slink.stream(turn.turn_id, {
-    onMessage: m =&gt; console.log("msg", m),
-    onStatus:  s =&gt; console.log("status", s),
-    onDone:    e =&gt; console.log("done", e),
-  });
-&lt;/script&gt;</code></pre>
-
-    <p>Vanilla JS, no build step, no dependencies, ES2017 baseline. Source: <a href="https://github.com/kronael/arizuko/blob/main/webd/assets/arizuko-client.js"><code>webd/assets/arizuko-client.js</code></a>.</p>
+    <p>Pages that do not bake paths at build time call <code>/config</code> first and drive the rest of the protocol from the returned URLs.</p>
 
     <h2 id="cors">CORS</h2>
 
-    <p>Every <code>/slink/*</code> response (including <code>/config</code>, the snapshot endpoints, SSE, and MCP) carries:</p>
+    <p>Every <code>/slink/*</code> response carries <code>Access-Control-Allow-Origin: *</code>, <code>Allow-Methods: GET, POST, OPTIONS</code>, <code>Allow-Headers: Accept, Content-Type</code>. Set by <code>slinkCORS</code> in <a href="https://github.com/kronael/arizuko/blob/main/webd/slink.go#L418"><code>webd/slink.go</code></a>; <code>OPTIONS</code> short-circuits to 204. Scope: <code>/slink/*</code> and <code>/assets/*</code> only.</p>
 
-    <pre><code>Access-Control-Allow-Origin:  *
-Access-Control-Allow-Methods: GET, POST, OPTIONS
-Access-Control-Allow-Headers: Accept, Content-Type</code></pre>
-
-    <p>Set by <code>slinkCORS</code> in <a href="https://github.com/kronael/arizuko/blob/main/webd/slink.go#L438"><code>webd/slink.go:438</code></a>; preflight <code>OPTIONS</code> short-circuits to 204. Scope is <code>/slink/*</code> and <code>/assets/*</code> only &mdash; nothing else in webd is affected.</p>
-
-    <p>This is safe because: (1) the token is already public &mdash; CORS adds no new trust surface; (2) proxyd strips inbound identity headers on the way in, so cross-origin pages can't elevate to JWT identity via this path; (3) the rate-limit bucket is keyed on IP regardless of origin.</p>
+    <p>Safe because the token is already public, proxyd strips inbound identity headers, and the rate-limit bucket keys on IP.</p>
 
     <h2 id="mcp">MCP transport</h2>
 
-    <p><code>POST /slink/{token}/mcp</code> exposes a standards-compliant Streamable HTTP MCP endpoint (<a href="https://github.com/kronael/arizuko/blob/main/webd/slink_mcp.go"><code>webd/slink_mcp.go</code></a>). Token possession is auth &mdash; same rate-limit tier as the form-encoded path. External MCP clients register the URL and call the group's three tools as local tools.</p>
-
-    <p>The three tools mirror the REST surface 1:1: <code>send_message</code> = <code>POST /slink/{token}</code>, <code>get_round</code> = <code>GET /slink/{token}/{id}[?after=]</code>, <code>get_round_status</code> = <code>GET /slink/{token}/{id}/status</code>. There is no MCP equivalent of SSE; <code>get_round</code> with <code>wait=true</code> is the request-response form.</p>
-
-    <p>This is the slink instance of the uniform resource pattern from <a href="https://github.com/kronael/arizuko/blob/main/specs/6/5-uniform-mcp-rest.md"><code>specs/6/5-uniform-mcp-rest.md</code></a>: one handler per action, two transports (REST + MCP), one audit correlator (<code>slink.&lt;action&gt;</code>). Drift between transports is structurally precluded.</p>
+    <p><code>POST /slink/{token}/mcp</code> is a Streamable HTTP MCP endpoint (<a href="https://github.com/kronael/arizuko/blob/main/webd/slink_mcp.go"><code>webd/slink_mcp.go</code></a>). Token possession is the auth. Three tools mirror the REST surface one-to-one.</p>
 
     <table>
       <tr><th>Tool</th><th>Params</th><th>Effect</th></tr>
-      <tr><td><code>send_message</code></td><td><code>content</code> (req), <code>topic?</code></td><td>Submit a message. Reusing a <code>topic</code> continues that conversation thread. Returns <code>{turn_id, topic, folder}</code>. <code>turn_id</code> is the originating <code>messages.id</code> — the round handle.</td></tr>
-      <tr><td><code>get_round</code></td><td><code>turn_id</code> (req), <code>after?</code>, <code>wait?</code></td><td>Read assistant frames (turn-scoped). <code>after=&lt;msg_id&gt;</code> cursor-pages forward; <code>wait=true</code> blocks up to 5 min for an assistant reply. Returns <code>{turn_id, status, frames, last_frame_id, done}</code>.</td></tr>
-      <tr><td><code>get_round_status</code></td><td><code>turn_id</code> (req)</td><td>Cheap status + counts, no frame payload. Returns <code>{turn_id, status, frames_count, last_frame_id}</code>.</td></tr>
+      <tr><td><code>send_message</code></td><td><code>content</code> (req), <code>topic?</code></td><td>Same as <code>POST /slink/{token}</code>. Reusing a <code>topic</code> continues that thread. Returns <code>{turn_id, topic, folder}</code>.</td></tr>
+      <tr><td><code>get_round</code></td><td><code>turn_id</code> (req), <code>after?</code>, <code>wait?</code></td><td>Same as the snapshot GET. <code>wait=true</code> blocks up to 5 min for the next assistant frame. Returns <code>{turn_id, status, frames, last_frame_id, done}</code>.</td></tr>
+      <tr><td><code>get_round_status</code></td><td><code>turn_id</code> (req)</td><td>Same as the status GET. Returns <code>{turn_id, status, frames_count, last_frame_id}</code>.</td></tr>
     </table>
 
-    <p>Design rationale (round handle, three-tool surface, statelessness): <a href="https://github.com/kronael/arizuko/blob/main/specs/1/W-slink.md"><code>specs/1/W-slink.md</code></a> &sect;MCP transport.</p>
+    <p>One handler per action, two transports (REST and MCP), one audit correlator (<code>slink.&lt;action&gt;</code>). Drift is structurally precluded. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/6/5-uniform-mcp-rest.md"><code>specs/6/5-uniform-mcp-rest.md</code></a>.</p>
 
-    <h2 id="schema">Schema dependencies</h2>
+    <h2 id="sdk">JavaScript SDK</h2>
+
+    <p>Hosted at <code>/assets/arizuko-client.js</code> from a baked-in <code>embed.FS</code> (<a href="https://github.com/kronael/arizuko/blob/main/webd/assets.go"><code>webd/assets.go</code></a>). ETag content-hash, <code>Cache-Control: public, max-age=3600</code>, CORS open. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/1/Z2-slink-sdk.md"><code>specs/1/Z2-slink-sdk.md</code></a>.</p>
+
+    <table>
+      <tr><th>Method</th><th>Signature</th></tr>
+      <tr><td><code>Arizuko.connect</code></td><td><code>(token, {baseURL?}) &rarr; Promise&lt;Slink&gt;</code> (fetches <code>/config</code>)</td></tr>
+      <tr><td><code>Slink.send</code></td><td><code>(content, {topic?}) &rarr; Promise&lt;TurnHandle&gt;</code></td></tr>
+      <tr><td><code>Slink.status</code></td><td><code>(turnId) &rarr; Promise&lt;StatusEnvelope&gt;</code></td></tr>
+      <tr><td><code>Slink.snapshot</code></td><td><code>(turnId, {after?}) &rarr; Promise&lt;Snapshot&gt;</code></td></tr>
+      <tr><td><code>Slink.stream</code></td><td><code>(turnId, {onMessage, onStatus, onDone, onError}) &rarr; () =&gt; void</code></td></tr>
+    </table>
+
+    <pre><code>&lt;script src="/assets/arizuko-client.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  const slink = await Arizuko.connect("&lt;token&gt;");
+  const turn  = await slink.send("hello");
+  slink.stream(turn.turn_id, { onMessage: m =&gt; console.log(m) });
+&lt;/script&gt;</code></pre>
+
+    <h2 id="schema">Schema</h2>
 
     <ul>
-      <li><code>groups.slink_token</code> &mdash; per-group token column.</li>
-      <li><code>messages.turn_id</code> (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0038-message-turn-id.sql"><code>migration 0038</code></a>, indexed) &mdash; every outbound assistant message carries the inbound message id that triggered it. Snapshot/SSE page exactly by foreign key.</li>
-      <li><code>turn_results(folder, turn_id)</code> (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0036-turn-results.sql"><code>migration 0036</code></a>) &mdash; one row per completed round; consumed by snapshot and status.</li>
+      <li><code>groups.slink_token</code> &mdash; per-group token.</li>
+      <li><code>messages.turn_id</code> (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0038-message-turn-id.sql">migration 0038</a>, indexed) &mdash; every outbound assistant message carries the inbound id that triggered it. Snapshot and SSE page by this column.</li>
+      <li><code>turn_results(folder, turn_id)</code> (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0036-turn-results.sql">migration 0036</a>) &mdash; one row per completed round.</li>
     </ul>
-
-    <p>See <a href="/pub/reference/schema.html">reference/schema</a> for column-level detail.</p>
 
     <h2 id="related">Related</h2>
 
     <ul>
-      <li><a href="/pub/components/slink.html">components/slink</a> &mdash; what slink is and why it exists (level-2 page).</li>
-      <li><a href="/pub/reference/env.html#webd">reference/env &sect;webd</a> &mdash; env vars read by webd.</li>
-      <li><a href="/pub/reference/mcp.html">reference/mcp</a> &mdash; the per-group MCP surface (different from the 3-tool slink surface).</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/1/W-slink.md"><code>specs/1/W-slink.md</code></a> &mdash; protocol spec.</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/1/Z-slink-widget.md"><code>specs/1/Z-slink-widget.md</code></a> &mdash; webd infrastructure (CORS, <code>/chat</code>, <code>/config</code>).</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/1/Z2-slink-sdk.md"><code>specs/1/Z2-slink-sdk.md</code></a> &mdash; SDK hosting + API surface.</li>
+      <li><a href="/pub/components/slink.html">components/slink</a> &mdash; concept page.</li>
+      <li><a href="/pub/reference/env.html#webd">reference/env &sect;webd</a> &mdash; webd env vars.</li>
+      <li><a href="/pub/reference/mcp.html">reference/mcp</a> &mdash; the per-group MCP surface (separate from the 3-tool slink surface).</li>
+      <li>Specs: <a href="https://github.com/kronael/arizuko/blob/main/specs/1/W-slink.md"><code>W-slink</code></a> (protocol), <a href="https://github.com/kronael/arizuko/blob/main/specs/1/Z-slink-widget.md"><code>Z-slink-widget</code></a> (chat page), <a href="https://github.com/kronael/arizuko/blob/main/specs/1/Z2-slink-sdk.md"><code>Z2-slink-sdk</code></a> (SDK).</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>

@@ -21,69 +21,80 @@
     <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; slink</p>
     <h1>slink</h1>
 
-    <h2>What is it</h2>
-    <p>A token-gated HTTP surface that lets any client &mdash; browser, <code>curl</code>, or an MCP-speaking agent &mdash; submit a message into a group and observe the resulting round.</p>
+    <h2>What it is</h2>
+    <p>A slink is a public URL that opens a chat with one group&rsquo;s agent. The URL looks like <code>https://&lt;host&gt;/slink/&lt;token&gt;</code>. There is no login. Whoever holds the URL can talk to that group.</p>
 
-    <h2>Why does it exist</h2>
-    <p>One group has many possible consumers: the built-in browser chat page, a third-party page using the JS SDK, a shell script polling for an answer, an external agent calling MCP tools. Without slink each consumer would re-implement the round-handle dance &mdash; POST a message, get back a <code>turn_id</code>, stream or poll until <code>round_done</code>. Slink is that dance, exposed once, behind a public token. <strong>One renderer, many sinks</strong>: every consumer hits the same <code>/slink/&lt;token&gt;/*</code> paths so the contract can't drift between them.</p>
+    <p>The <code>&lt;token&gt;</code> is 32 random bytes, base64url-encoded (~43 characters). It is stored in the column <code>groups.slink_token</code>. Every request to <code>/slink/&lt;token&gt;/*</code> looks the token up and resolves it to one folder.</p>
 
-    <h2>How does it fit</h2>
+    <h2>Why it exists</h2>
+    <p>Most arizuko channels (Telegram, Discord, WhatsApp) tie a chat to a platform account. Sometimes a group needs a chat that anyone can open from a link &mdash; a support page, a public demo, a script that talks to the agent. Slink is that link.</p>
+
+    <p>One group can have one slink token, minted when the group is created. It is not rotated and does not expire. Treat the URL like a public chat-room invite, not a password &mdash; the defence is rate limiting and the group&rsquo;s grants, not keeping the token secret.</p>
+
+    <h2>The URL shape</h2>
+    <pre><code>https://&lt;host&gt;/slink/&lt;token&gt;            &rarr; chat page (HTML)
+https://&lt;host&gt;/slink/&lt;token&gt;        POST &rarr; send a message
+https://&lt;host&gt;/slink/&lt;token&gt;/&lt;id&gt;/sse  &rarr; stream the agent&rsquo;s reply
+https://&lt;host&gt;/slink/&lt;token&gt;/mcp   POST &rarr; talk over MCP</code></pre>
+
+    <p>Open the bare URL in a browser and you get a small chat page. POST JSON to the same URL and you get a <code>turn_id</code> back &mdash; the handle to the round the agent is now running.</p>
+
+    <h2>How it fits</h2>
     <div class="callout">
-      <pre><code>browser / SDK / MCP client / curl
+      <pre><code>browser / curl / MCP client
         |
-        v   POST /slink/&lt;token&gt;
-        v   GET  /slink/&lt;token&gt;/&lt;turn_id&gt;[/sse | /status]
-        v   POST /slink/&lt;token&gt;/mcp
+        v   /slink/&lt;token&gt;/...
         |
-      webd     route + token resolve + rate limit + dispatch
+      proxyd   public route, strips identity headers, runs the DoS shield
         |
-        v   inbound message + turn_results row
+      webd     resolves token, drops message, serves SSE/snapshot
         |
-      gated    durable round in messages.db, spawns container
-        |
-        v   submit_turn -&gt; POST /v1/round_done -&gt; SSE round_done -&gt; stream closes</code></pre>
+      gated    runs the round in the group&rsquo;s container, writes frames to messages.db</code></pre>
     </div>
-    <p>Token lives in <code>groups.slink_token</code> (32 random bytes, base64url, never rotated). webd owns <code>/slink/*</code>; rate limits per anon-shared-bucket / per-JWT-sub / unlimited for operator. proxyd already covers <code>/slink/*</code> as a public route &mdash; identity headers are stripped on inbound so the token is the only auth surface.</p>
 
-    <h2>Standalone usage</h2>
-    <p>slink is a route on webd, not a separate binary. Running it standalone means running webd + gated (which owns the schema and the round lifecycle) + at least one group so a <code>slink_token</code> exists.</p>
+    <p>proxyd handles <code>/slink/*</code> as a public path: no JWT needed, identity headers are stripped, and anonymous callers go through a rate shield (10 requests per minute per IP by default, controlled by <code>SLINK_ANON_DOS_RPM</code>). Excess returns HTTP 429.</p>
+
+    <h2>Real-time without WebSockets</h2>
+    <p>The transport is plain HTTP. The browser POSTs a message; the server replies with a <code>turn_id</code>. The browser then opens an SSE stream at <code>/slink/&lt;token&gt;/&lt;turn_id&gt;/sse</code> and reads <code>event: message</code> lines as the agent produces them. The stream closes on <code>event: round_done</code>.</p>
+
+    <p>If the connection drops, the browser reconnects with a <code>Last-Event-Id</code> header. The server replays the frames the client missed, then resumes the live stream.</p>
+
+    <h2>Quick try</h2>
     <pre><code>arizuko create demo
 arizuko run demo
-# default group is created on first run; the token is in groups.slink_token
+# the default group&rsquo;s token is in groups.slink_token
 
-# post a message, get the round handle
+# send a message
 curl -X POST https://&lt;host&gt;/slink/&lt;token&gt; \
      -H 'Content-Type: application/json' \
      -d '{"content":"hello"}'
 # {"user":{"id":"msg_abc",...},"turn_id":"msg_abc","status":"pending"}
 
-# stream the round; server closes on round_done
+# stream the reply
 curl -N https://&lt;host&gt;/slink/&lt;token&gt;/msg_abc/sse</code></pre>
-    <p>Full endpoint table, payload shapes, SSE event grammar: <a href="/pub/reference/slink.html">reference/slink</a>.</p>
 
-    <h2>Three faces</h2>
+    <h2>Three faces, one path</h2>
     <div class="faces">
-      <h3>Built-in chat page &mdash; <code>GET /slink/&lt;token&gt;/chat</code></h3>
-      <p>The reference HTML chat UI shipped with webd. <code>GET /slink/&lt;token&gt;</code> redirects here. No setup &mdash; share the URL.</p>
+      <h3>Built-in chat page &mdash; <code>GET /slink/&lt;token&gt;</code></h3>
+      <p>A minimal HTML chat UI shipped inside the webd binary. Share the URL; the recipient gets a working chat.</p>
 
       <h3>JS SDK &mdash; <code>/assets/arizuko-client.js</code></h3>
-      <p>Vanilla-JS client served from webd's embedded asset FS, CORS-open. <code>Arizuko.connect(token)</code> returns a handle with <code>send</code>, <code>status</code>, <code>snapshot</code>, <code>stream</code>. Used by branded chat pages on third-party origins.</p>
+      <p>A vanilla JS client served by webd with permissive CORS. A third-party page can embed it and call <code>Arizuko.connect(token)</code> to drive the protocol.</p>
 
-      <h3>MCP transport &mdash; <code>POST /slink/&lt;token&gt;/mcp</code></h3>
-      <p>Streamable-HTTP MCP endpoint scoped to the token's group. Three tools mirroring the REST surface 1:1: <code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>. External agents register the URL in their MCP config and talk to the group like any other tool host.</p>
+      <h3>MCP &mdash; <code>POST /slink/&lt;token&gt;/mcp</code></h3>
+      <p>A Streamable HTTP MCP endpoint with three tools: <code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>. Another agent can register the URL and talk to the group as if it were a local tool.</p>
     </div>
 
-    <h2>Where it's going</h2>
-    <p>Today, spawning a group is a CLI operation; slink only handles message submission against an already-running group. <a href="/pub/specs/">spec <code>specs/4/N-platform-api.md</code></a> proposes a unified platform API &mdash; <code>POST /v1/groups</code> on gated &mdash; that composes with slink so a single round-trip can create a group and return its <code>slink_url</code> + <code>mcp_url</code> ready to use. The slink protocol itself doesn't change; it just gets a sibling group-CRUD surface at the same <code>WEB_HOST</code>.</p>
+    <h2>What slink does not do</h2>
+    <p>Slink is a chat surface for users. It does not expose admin actions, the operator dashboard, the WebDAV workspace, or per-user mounts. Those live behind <a href="/pub/components/proxyd.html">proxyd</a>&rsquo;s authenticated routes. Slink is one folder, one chat, no login.</p>
 
     <h2>Go deeper</h2>
     <ul>
-      <li><a href="/pub/reference/slink.html">reference/slink</a> &mdash; full endpoint table, payloads, SSE events, MCP tools, schema dependencies.</li>
-      <li><a href="/pub/components/">components</a> &mdash; sibling daemons (webd hosts slink, gated owns the rounds, proxyd routes the public path).</li>
+      <li><a href="/pub/reference/slink.html">reference/slink</a> &mdash; endpoint table, payload shapes, SSE events, MCP tools.</li>
+      <li><a href="/pub/components/webd.html">components/webd</a> &mdash; the daemon that hosts the slink routes.</li>
       <li><code>specs/1/W-slink.md</code> &mdash; round-handle protocol and MCP transport.</li>
-      <li><code>specs/1/Z-slink-widget.md</code> &mdash; webd infrastructure: CORS, <code>/config</code>, <code>/chat</code>.</li>
-      <li><code>specs/1/Z2-slink-sdk.md</code> &mdash; the JS SDK and asset hosting.</li>
-      <li><code>specs/4/N-platform-api.md</code> &mdash; proposed group-CRUD surface that builds on slink.</li>
+      <li><code>specs/1/Z-slink-widget.md</code> &mdash; chat page, <code>/config</code>, CORS.</li>
+      <li><code>specs/1/Z2-slink-sdk.md</code> &mdash; the JS SDK.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
