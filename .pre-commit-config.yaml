@@ -28,7 +28,7 @@ repos:
         language: system
         pass_filenames: false
         files: \.ts$
-        exclude: ^(\.refs/|container/|ant/|whapd/|twitd/)
+        exclude: ^(\.refs/|container/|ant/|whapd/|twitd/|tests/dashd-playwright/)
       - id: typecheck-agent
         name: typecheck-agent
         entry: bash -c 'cd ant && npm install --silent && bunx tsc --noEmit'

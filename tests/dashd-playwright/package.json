@@ -1,0 +1,15 @@
+{
+  "name": "dashd-playwright",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Playwright end-to-end coverage for the arizuko dashd dashboard.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  }
+}

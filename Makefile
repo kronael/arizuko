@@ -33,6 +33,13 @@ test-e2e:
 	go test ./webd/... -count=1 -run E2E -timeout 300s
 .PHONY: test-e2e
 
+# test-dash: Playwright suite against a throwaway dashd + seeded sqlite.
+# Builds the seed + dashd binaries on demand. Requires Node + a one-time
+# `npx playwright install --with-deps chromium` under tests/dashd-playwright/.
+test-dash:
+	cd tests/dashd-playwright && npx playwright test
+.PHONY: test-dash
+
 # smoke: post-deploy verification on a running instance. Pings the
 # admin and sends a synthetic message through the registered-channel
 # path; confirms egress register fires (when on) and the message
