@@ -111,10 +111,7 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/groups/", http.StatusSeeOther)
 }
 
-// GET /dash/groups/{folder}/settings — show current state.
-// POST persists. Cross-folder ambient (open + observe_window_*) helpers
-// from spec 6/F aren't on Store yet; render the form disabled with a
-// notice when the columns are absent.
+// GET /dash/groups/{folder}/settings — show current state. POST persists.
 func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
 		return
@@ -140,26 +137,27 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	open, owMsgs, owChars, hasAmbient := readAmbientSettings(d, folder)
-	notice := ""
-	disabledAttr := ""
-	if !hasAmbient {
-		notice = `<div class="banner-warn">Cross-folder ambient settings (open / observe_window_messages / observe_window_chars) ship pending — spec 6/F. Form disabled.</div>`
-		disabledAttr = " disabled"
+	s := store.New(d.dbRW)
+	open := s.IsGroupOpen(folder)
+	owMsgs, owChars := s.GroupObserveWindow(folder)
+	if owMsgs < 0 {
+		owMsgs = 0
+	}
+	if owChars < 0 {
+		owChars = 0
 	}
 
 	fmt.Fprintf(w, `<p class="dim">Group <code>%s</code> &middot; product <code>%s</code></p>`, esc(folder), esc(product))
-	fmt.Fprint(w, notice)
 	openChecked := ""
 	if open {
 		openChecked = " checked"
 	}
 	fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">
-<p><label><input type="checkbox" name="open" value="1"%s%s> open (allow cross-folder ambient observation)</label></p>
-<p><label>observe_window_messages <input type="number" name="observe_window_messages" value="%d"%s min="0"></label></p>
-<p><label>observe_window_chars <input type="number" name="observe_window_chars" value="%d"%s min="0"></label></p>
-<p><button type="submit"%s>save</button></p>
-</form>`, esc(folder), openChecked, disabledAttr, owMsgs, disabledAttr, owChars, disabledAttr, disabledAttr)
+<p><label><input type="checkbox" name="open" value="1"%s> open (allow cross-folder ambient observation)</label></p>
+<p><label>observe_window_messages <input type="number" name="observe_window_messages" value="%d" min="0"></label></p>
+<p><label>observe_window_chars <input type="number" name="observe_window_chars" value="%d" min="0"></label></p>
+<p><button type="submit">save</button></p>
+</form>`, esc(folder), openChecked, owMsgs, owChars)
 
 	fmt.Fprintf(w, `<h2>Danger zone</h2>
 <form method="post" action="/dash/groups/%s/delete" onsubmit="return confirm('Delete group %s? Routes, sessions, files remain on disk; the DB row is removed.')">
@@ -167,21 +165,6 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 </form>`, esc(folder), esc(folder))
 
 	fmt.Fprint(w, pageBot)
-}
-
-// readAmbientSettings: returns open/observe-window fields when the
-// schema supports them, false in hasAmbient if columns are missing.
-// Spec 6/F (cross-folder ambient) hasn't landed; this stays soft so
-// the page renders today and lights up the day the columns appear.
-func readAmbientSettings(d *dash, folder string) (open bool, owMsgs, owChars int, hasAmbient bool) {
-	row := d.dbRW.QueryRow(
-		`SELECT COALESCE(open,0), COALESCE(observe_window_messages,0), COALESCE(observe_window_chars,0)
-		 FROM groups WHERE folder = ?`, folder)
-	if err := row.Scan(&open, &owMsgs, &owChars); err != nil {
-		// Either no row (handled above) or missing columns — treat as unsupported.
-		return false, 0, 0, false
-	}
-	return open, owMsgs, owChars, true
 }
 
 func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
@@ -197,20 +180,17 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	// Reject save if ambient columns aren't there; form is disabled in the
-	// happy path anyway, but a hand-crafted POST shouldn't silently no-op.
-	if _, _, _, has := readAmbientSettings(d, folder); !has {
-		http.Error(w, "ambient settings feature ship pending", http.StatusServiceUnavailable)
-		return
-	}
 	open := r.FormValue("open") == "1"
 	owMsgs, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("observe_window_messages")))
 	owChars, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("observe_window_chars")))
-	if _, err := d.dbRW.Exec(
-		`UPDATE groups SET open = ?, observe_window_messages = ?, observe_window_chars = ?
-		 WHERE folder = ?`,
-		open, owMsgs, owChars, folder); err != nil {
-		slog.Warn("group settings save", "folder", folder, "err", err)
+	s := store.New(d.dbRW)
+	if err := s.SetGroupOpen(folder, open); err != nil {
+		slog.Warn("group settings save: open", "folder", folder, "err", err)
+		http.Error(w, "write failed", http.StatusInternalServerError)
+		return
+	}
+	if err := s.SetGroupObserveWindow(folder, owMsgs, owChars); err != nil {
+		slog.Warn("group settings save: observe", "folder", folder, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
