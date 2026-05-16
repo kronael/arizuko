@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; topics</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .prose table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.9em; width: 100%; }
+    .prose th, .prose td { border: 1px solid var(--border, rgba(127,127,127,0.3)); padding: 0.3em 0.5em; text-align: left; vertical-align: top; }
+    .prose th { background: var(--bg-soft, rgba(127,127,127,0.06)); }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+    .callout { border-left: 3px solid var(--accent, #888); padding: 0.4em 0.8em; margin: 0.8em 0; background: var(--bg-soft, rgba(127,127,127,0.06)); }
+    .tablecard { border: 1px solid var(--border, rgba(127,127,127,0.3)); padding: 0.6em 1em; margin: 1em 0; border-radius: 4px; }
+    .tablecard h3 { margin-top: 0.2em; }
+    .meta { font-size: 0.85em; color: var(--dim, #888); }
+    .meta strong { color: var(--fg); }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>topics</h1>
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; topics</p>
+
+    <p class="lede">Schema, creation paths, MCP tools, and resolution order for arizuko topics &mdash; the transient work-units overlaid on a group. Narrative introduction lives at <a href="/pub/concepts/topics.html">concepts/topics</a>.</p>
+
+    <h2>1. Schema</h2>
+
+    <div class="tablecard">
+      <h3>columns that carry topic state</h3>
+      <table>
+        <tr><th>table.column</th><th>type</th><th>default</th><th>meaning</th></tr>
+        <tr><td><code>messages.topic</code></td><td>TEXT NOT NULL</td><td><code>''</code></td><td>topic-sessions key, set on inbound and outbound (migration 0008)</td></tr>
+        <tr><td><code>chats.sticky_topic</code></td><td>TEXT</td><td>NULL</td><td>active-topic pin per chat; <code>NULL</code> / empty = default topic (migration 0016)</td></tr>
+        <tr><td><code>chats.sticky_group</code></td><td>TEXT</td><td>NULL</td><td>orthogonal &mdash; folder pin, not topic (listed only to distinguish)</td></tr>
+        <tr><td><code>sessions.(group_folder, topic)</code></td><td>TEXT, TEXT</td><td><code>''</code></td><td>composite PK; one Claude session per <code>(folder, topic)</code> pair (migration 0008)</td></tr>
+        <tr><td><code>chat_reply_state.(jid, topic)</code></td><td>TEXT, TEXT</td><td><code>''</code></td><td>last bot reply ID per <code>(chat_jid, topic)</code> &mdash; threads outbound on platforms with thread/reply pointers (migration 0014)</td></tr>
+      </table>
+      <p class="meta">Empty-string topic is the default-topic sentinel; <code>NULL</code> in <code>chats.sticky_topic</code> means "no sticky pin set" and is treated as empty when resolving. The store-side normalisation lives at <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L237"><code>store/groups.go:237</code></a> (uses <code>nilIfEmpty</code> on write).</p>
+      <p class="meta">Full table-by-table schema reference: <a href="/pub/reference/schema.html">schema</a>.</p>
+    </div>
+
+    <h2>2. Creation paths</h2>
+
+    <p>Four sources set a non-empty topic on a message:</p>
+
+    <div class="tablecard">
+      <h3>inline <code>#name</code> prefix</h3>
+      <p>A message whose body starts with <code>#name</code> (optionally preceded by whitespace) opens topic <code>#name</code>. The prefix is stripped, a synthetic <code>core.Message</code> with <code>Topic = "#" + name</code> is inserted, and the queue fires a turn against that topic.</p>
+      <p class="meta"><strong>Regex:</strong> <code>^\s*#(\w[\w-]*)</code> &mdash; <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1746"><code>gateway/gateway.go:1746</code></a> (<code>rePrefixHash</code>).</p>
+      <p class="meta"><strong>Dispatch:</strong> <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1761"><code>gateway.handlePrefixLayer</code></a>; the <code>#name</code> branch synthesises a message at <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1796"><code>gateway/gateway.go:1796</code></a>.</p>
+    </div>
+
+    <div class="tablecard">
+      <h3>bare <code>#</code> sticky command</h3>
+      <p>A message that is exactly <code>#name</code> (whole-message sticky) updates <code>chats.sticky_topic</code> for the chat. Bare <code>#</code> clears the sticky.</p>
+      <p class="meta"><strong>Detection:</strong> <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1688"><code>gateway.isStickyCommand</code></a>; handler at <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1721"><code>gateway/gateway.go:1721</code></a> calls <code>store.SetStickyTopic</code> and acks with <code>topic &rarr; &lt;name&gt;</code> or <code>topic reset to default</code>.</p>
+    </div>
+
+    <div class="tablecard">
+      <h3><code>/new</code> and <code>/new #name</code></h3>
+      <p><code>/new</code> alone clears the default-topic Claude session for the active folder. <code>/new #name [rest]</code> calls <code>store.DeleteSession(folder, "#name")</code>, then injects <code>"#name " + rest</code> as a fresh inbound, which re-enters <code>handlePrefixLayer</code> on the topic branch.</p>
+      <p class="meta"><strong>Command table:</strong> <a href="https://github.com/kronael/arizuko/blob/main/gateway/commands.go#L37"><code>gateway/commands.go:37</code></a>. <strong>Handler:</strong> <a href="https://github.com/kronael/arizuko/blob/main/gateway/commands.go#L100"><code>cmdNew</code></a>.</p>
+    </div>
+
+    <div class="tablecard">
+      <h3>platform-native threads</h3>
+      <ul>
+        <li><strong>Discord.</strong> If the inbound channel is <code>ChannelTypeGuildPublicThread</code> or <code>ChannelTypeGuildPrivateThread</code>, the topic is set to the thread&rsquo;s channel ID &mdash; <a href="https://github.com/kronael/arizuko/blob/main/discd/bot.go#L177"><code>discd/bot.go:177</code></a>.</li>
+        <li><strong>Telegram.</strong> If <code>msg.MessageThreadID</code> is non-zero (forum-topic supergroup), the topic is set to that integer as a string &mdash; <a href="https://github.com/kronael/arizuko/blob/main/teled/bot.go#L267"><code>teled/bot.go:267</code></a>.</li>
+        <li>Other adapters currently leave <code>Topic</code> empty; outbound goes into the default topic unless the chat carries a sticky.</li>
+      </ul>
+      <p class="meta">Reply-chain inheritance for plain Telegram replies is not implemented as topic carry &mdash; <code>reply_to_id</code> threads the visible message, but topic resolution stays sticky-driven. (Behaviour confirmed only for the cases above; other platforms produce empty topic.)</p>
+    </div>
+
+    <h2>3. Active-topic resolution</h2>
+
+    <p>At turn-formation time the gateway calls <code>effectiveTopic(chatJid, msgTopic)</code> &mdash; <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1733"><code>gateway/gateway.go:1733</code></a>:</p>
+
+    <pre><code>func (g *Gateway) effectiveTopic(chatJid, msgTopic string) string {
+    stickyTopic := g.store.GetStickyTopic(chatJid)
+    if stickyTopic != "" {
+        return stickyTopic
+    }
+    return msgTopic
+}</code></pre>
+
+    <p>Precedence:</p>
+    <ol>
+      <li><code>chats.sticky_topic</code> on the chat row, if non-empty.</li>
+      <li>The message&rsquo;s own <code>topic</code> column (from the inline prefix or adapter-set thread ID).</li>
+      <li>Empty string &mdash; the default topic.</li>
+    </ol>
+
+    <p>The resolved value keys the Claude session lookup at <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L729"><code>gateway/gateway.go:729</code></a> and the multi-topic dispatch loop at <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L799"><code>gateway/gateway.go:799</code></a> (one Claude run per distinct topic per chat-turn batch).</p>
+
+    <div class="callout"><strong>Note.</strong> Because sticky beats inline, a message containing <code>#other</code> while the chat is stuck on <code>#current</code> still runs under <code>#current</code> &mdash; the <code>#</code> prefix opens a topic via the synthesis path, not by overriding sticky on the current message. Clear sticky with bare <code>#</code> to escape.</div>
+
+    <h2>4. MCP tools</h2>
+
+    <div class="tablecard">
+      <h3><code>reset_session</code></h3>
+      <p>Drops the Claude session for a folder so the next message starts fresh context. Operates on the <em>current resolved topic</em> for that folder &mdash; the tool itself takes only <code>groupFolder</code>.</p>
+      <table>
+        <tr><th>param</th><th>type</th><th>required</th><th>meaning</th></tr>
+        <tr><td><code>groupFolder</code></td><td>string</td><td>yes</td><td>target folder</td></tr>
+      </table>
+      <p class="meta"><strong>Returns:</strong> <code>ok</code> on success, error string otherwise.</p>
+      <p class="meta"><strong>Registered:</strong> <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1047"><code>ipc/ipc.go:1047</code></a>. <strong>Authorization:</strong> <code>auth.AuthorizeStructural(id, "reset_session", &hellip;)</code> &mdash; <a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go#L25"><code>auth/policy.go:25</code></a>.</p>
+    </div>
+
+    <div class="tablecard">
+      <h3><code>inspect_session</code></h3>
+      <p>Returns the current <code>session_id</code> for <code>(folder, topic)</code> plus recent <code>session_log</code> rows. Use to verify a reset took or to see whether a topic has a live session.</p>
+      <table>
+        <tr><th>param</th><th>type</th><th>required</th><th>default</th><th>meaning</th></tr>
+        <tr><td><code>topic</code></td><td>string</td><td>no</td><td><code>''</code></td><td>topic to inspect; empty = default topic</td></tr>
+        <tr><td><code>limit</code></td><td>number</td><td>no</td><td>10</td><td>recent session-log rows; clamped to 1&ndash;100</td></tr>
+      </table>
+      <p class="meta"><strong>Returns:</strong> <code>{folder, topic, session_id, recent: [&hellip;]}</code>.</p>
+      <p class="meta"><strong>Registered:</strong> <a href="https://github.com/kronael/arizuko/blob/main/ipc/inspect.go#L77"><code>ipc/inspect.go:77</code></a>.</p>
+    </div>
+
+    <p class="meta">Other topic-adjacent tools: <code>inject_message</code> writes a synthetic inbound (the message&rsquo;s topic field is derived the same way as a real inbound &mdash; sticky and <code>#prefix</code> rules apply on the next turn). No dedicated <code>set_topic</code> / <code>get_topic</code> tool exists today &mdash; sticky changes go through the chat-side <code>#name</code> command.</p>
+
+    <h2>5. Topics and observation</h2>
+
+    <p>Observed messages are surfaced to every trigger turn alongside the directly-routed messages. The query is folder-scoped, not topic-scoped &mdash; see <a href="https://github.com/kronael/arizuko/blob/main/store/messages.go#L351"><code>store.ObservedMessagesSince</code></a>:</p>
+
+    <pre><code>SELECT &hellip; FROM messages
+WHERE chat_jid IN (&lt;jids routed to this folder, minus the firing chat&gt;)
+  AND timestamp &gt; ?
+  AND is_bot_message = 0 AND content != ''
+ORDER BY timestamp ASC
+LIMIT 100</code></pre>
+
+    <p>The predicate omits <code>topic</code> entirely. A turn that fires in topic <code>#tickets-42</code> on folder <code>support</code> sees recent inbound from every chat routed to <code>support</code>, no matter what topic those messages carry. Cross-cutting awareness is the design; operators wanting hard isolation should split into separate folders.</p>
+
+    <p class="meta">Composition into the agent prompt: <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L728"><code>gateway/gateway.go:728</code></a> calls <code>ObservedMessagesSince</code>; <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L730"><code>:730</code></a> hands the observed list to <code>router.FormatMessages</code> alongside the topic-scoped batch.</p>
+
+    <h2>6. Operator commands</h2>
+
+    <ul>
+      <li><strong>Reset a topic from chat.</strong> <code>/new #name</code> &mdash; clears the named session and starts fresh; with no argument, clears the default-topic session.</li>
+      <li><strong>Pin / unpin a sticky topic.</strong> Send the chat a bare <code>#name</code> to pin, bare <code>#</code> to clear. Acks with <code>topic &rarr; &lt;name&gt;</code> / <code>topic reset to default</code>.</li>
+      <li><strong>Inspect from the agent.</strong> Call the <code>inspect_session</code> MCP tool with a <code>topic</code> string to see whether that <code>(folder, topic)</code> has a live Claude session and what the recent session log looks like.</li>
+      <li><strong>Reset from the agent.</strong> Call <code>reset_session</code> with the target <code>groupFolder</code>. Clears the session for the resolved current topic of that folder.</li>
+      <li><strong>Operator dashboard.</strong> The dashd group view shows recent <code>session_log</code> rows and chat-level state including <code>sticky_topic</code>. No CLI subcommand on <code>arizuko</code> sets or inspects topics directly today &mdash; sticky changes go through chat, session inspection goes through MCP.</li>
+    </ul>
+
+    <p>See also: <a href="/pub/concepts/topics.html">concepts/topics</a> (narrative), <a href="/pub/concepts/routing.html">concepts/routing</a> (how a chat reaches a folder before topics enter the picture), <a href="/pub/reference/mcp.html">reference/mcp</a> (every MCP tool).</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
