@@ -366,23 +366,31 @@ func (s *Store) MarkMessagesObserved(folder string, ids []string) error {
 	return err
 }
 
-// ObservedTail returns the trailing window of observed messages for
-// folder. Capped by maxMsgs and maxChars (older messages drop first,
-// the smaller cap wins). is_observed=1 messages are by construction
-// past the agent cursor (the observe-route advances the cursor at
-// gateway.go:562) so they cannot appear in the regular trigger feed
-// regardless of chat_jid match.
-func (s *Store) ObservedTail(folder string, maxMsgs, maxChars int) []core.Message {
+// ObservedSince returns the trailing window of observed messages for
+// folder whose timestamp is strictly greater than cursor (RFC3339Nano
+// UTC). Empty cursor means "no lower bound; let the window cap
+// decide" — same shape as the old ObservedTail. Capped by maxMsgs
+// and maxChars; older messages drop first when the char cap binds.
+// Per spec 6/F, the gateway advances the topic's observed_cursor to
+// the youngest message's timestamp after rendering.
+func (s *Store) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []core.Message {
 	if maxMsgs <= 0 || maxChars <= 0 {
 		return nil
 	}
+	args := []any{folder}
+	cursorClause := ""
+	if cursor != "" {
+		cursorClause = " AND timestamp > ?"
+		args = append(args, cursor)
+	}
+	args = append(args, maxMsgs)
 	rows, err := s.db.Query(
 		`SELECT `+msgCols+` FROM messages
 		 WHERE routed_to = ? AND is_observed = 1
-		   AND is_bot_message = 0 AND content != ''
+		   AND is_bot_message = 0 AND content != ''`+cursorClause+`
 		 ORDER BY timestamp DESC
 		 LIMIT ?`,
-		folder, maxMsgs,
+		args...,
 	)
 	if err != nil {
 		return nil

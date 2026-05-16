@@ -34,6 +34,89 @@ func (s *Store) DeleteSession(folder, topic string) error {
 	return err
 }
 
+// TopicLineage returns the lineage row for (folder, topic) — parent
+// topic name (empty string when NULL), fork point, and observed cursor.
+// Returns ok=false when the sessions row doesn't exist; callers treat
+// that as default lineage (no parent, no cursor).
+func (s *Store) TopicLineage(folder, topic string) (core.TopicLineage, bool) {
+	var parent, forked, cursor *string
+	err := s.db.QueryRow(
+		`SELECT parent_topic, forked_at, observed_cursor
+		 FROM sessions WHERE group_folder = ? AND topic = ?`,
+		folder, topic,
+	).Scan(&parent, &forked, &cursor)
+	if err != nil {
+		return core.TopicLineage{}, false
+	}
+	out := core.TopicLineage{Folder: folder, Topic: topic}
+	if parent != nil {
+		out.ParentTopic = *parent
+	}
+	if forked != nil {
+		out.ForkedAt = *forked
+	}
+	if cursor != nil {
+		out.ObservedCursor = *cursor
+	}
+	return out, true
+}
+
+// UpdateObservedCursor advances a topic's observed cursor to ts
+// (RFC3339Nano UTC). Idempotent: only writes when the new cursor is
+// strictly greater than the stored one (or stored is NULL).
+func (s *Store) UpdateObservedCursor(folder, topic, ts string) error {
+	_, err := s.db.Exec(
+		`UPDATE sessions
+		 SET observed_cursor = ?
+		 WHERE group_folder = ? AND topic = ?
+		   AND (observed_cursor IS NULL OR observed_cursor < ?)`,
+		ts, folder, topic, ts,
+	)
+	return err
+}
+
+// ForkTopic creates a new sessions row as a fork of (folder, parent).
+// Returns ErrTopicExists if child already exists and force=false.
+// On success the child carries a fresh session_id and
+// parent_topic=parent, forked_at=now, observed_cursor=now.
+func (s *Store) ForkTopic(folder, parent, child, newSessionID string, force bool) error {
+	if child == "" {
+		return fmt.Errorf("fork: child topic empty")
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if force {
+		_, err := s.db.Exec(
+			`INSERT INTO sessions (group_folder, topic, session_id,
+			                       parent_topic, forked_at, observed_cursor)
+			 VALUES (?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(group_folder, topic) DO UPDATE SET
+			   session_id      = excluded.session_id,
+			   parent_topic    = excluded.parent_topic,
+			   forked_at       = excluded.forked_at,
+			   observed_cursor = excluded.observed_cursor`,
+			folder, child, newSessionID, parent, now, now,
+		)
+		return err
+	}
+	res, err := s.db.Exec(
+		`INSERT OR IGNORE INTO sessions
+		   (group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		folder, child, newSessionID, parent, now, now,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrTopicExists
+	}
+	return nil
+}
+
+// ErrTopicExists signals ForkTopic(force=false) refused to overwrite.
+var ErrTopicExists = fmt.Errorf("topic exists")
+
 func (s *Store) GetState(key string) string {
 	var val string
 	s.db.QueryRow(`SELECT value FROM router_state WHERE key = ?`, key).Scan(&val)

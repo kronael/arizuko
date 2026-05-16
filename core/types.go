@@ -73,6 +73,20 @@ type Route struct {
 	ObserveWindowChars     int    `json:"observe_window_chars,omitempty"`
 }
 
+// TopicLineage is the per-topic state introduced by spec 6/F:
+// who the topic forked from, when the fork was taken, and what
+// observed-message cursor it last processed. All timestamps are
+// RFC3339Nano UTC. Empty ParentTopic means no parent (root /
+// no inheritance). Empty ObservedCursor means "no cursor recorded
+// yet" — callers treat that as no lower bound on observed reads.
+type TopicLineage struct {
+	Folder         string
+	Topic          string
+	ParentTopic    string
+	ForkedAt       string
+	ObservedCursor string
+}
+
 // RouteTarget parses `folder` or `folder#mode` syntax on routes.target.
 // Mode="" means trigger (fire a turn). Mode="observe" stores under Folder
 // without dispatching.

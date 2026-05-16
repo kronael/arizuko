@@ -30,7 +30,7 @@ func TestObservedTail_PromptIncludesBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	observed := s.ObservedTail(folder, 10, 4000)
+	observed := s.ObservedSince(folder, "", 10, 4000)
 	if len(observed) != 1 {
 		t.Fatalf("observed tail = %d, want 1", len(observed))
 	}
@@ -83,12 +83,57 @@ func TestObservedTail_SameJIDAsTriggerSurfaces(t *testing.T) {
 
 	// Trigger arrives in the same chat_jid: the observed message must
 	// still appear in the tail (regression: used to be filtered out).
-	observed := s.ObservedTail(folder, 10, 4000)
+	observed := s.ObservedSince(folder, "", 10, 4000)
 	if len(observed) != 1 {
 		t.Fatalf("observed from same JID as trigger len = %d, want 1", len(observed))
 	}
 	if observed[0].ID != "alza-1" {
 		t.Errorf("got id=%q, want alza-1", observed[0].ID)
+	}
+}
+
+// Per spec 6/F: two topics in same folder must both see ambient
+// observed messages. Cursor on topic A doesn't starve topic B.
+func TestObservedSince_PerTopicCursorIsolation(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	folder := "main"
+	now := time.Now().UTC()
+	// One observed message at t=1.
+	if err := s.PutMessage(core.Message{
+		ID: "o-1", ChatJID: "telegram:99", Sender: "bob", Name: "bob",
+		Content: "ambient context", Timestamp: now.Add(-2 * time.Minute),
+		Verb: "message", Source: "telegram",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkMessagesObserved(folder, []string{"o-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Topic A reads with cursor="" — sees the observed message.
+	a := s.ObservedSince(folder, "", 10, 4000)
+	if len(a) != 1 || a[0].ID != "o-1" {
+		t.Fatalf("topic A read: got %v, want [o-1]", a)
+	}
+
+	// Simulate cursor advance for topic A.
+	cursorA := a[0].Timestamp.UTC().Format(time.RFC3339Nano)
+
+	// Topic A reads again WITH cursor — must see nothing new.
+	a2 := s.ObservedSince(folder, cursorA, 10, 4000)
+	if len(a2) != 0 {
+		t.Errorf("topic A re-read with cursor: got %d, want 0", len(a2))
+	}
+
+	// Topic B (different cursor — empty, fresh topic) — still sees o-1.
+	b := s.ObservedSince(folder, "", 10, 4000)
+	if len(b) != 1 || b[0].ID != "o-1" {
+		t.Errorf("topic B read: got %v, want [o-1]", b)
 	}
 }
 
@@ -116,7 +161,7 @@ func TestObservedTail_CharCap(t *testing.T) {
 	}
 
 	// Char cap of 4000 must drop older messages (3000+3000>4000, so 1 fits).
-	out := s.ObservedTail(folder, 10, 4000)
+	out := s.ObservedSince(folder, "", 10, 4000)
 	if len(out) != 1 {
 		t.Fatalf("char-cap len = %d, want 1", len(out))
 	}
