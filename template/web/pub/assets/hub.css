@@ -1,25 +1,29 @@
 :root {
-  --bg: #0a0a0a;
-  --fg: #e0e0e0;
-  --accent: #4ade80;
-  --accent2: #a78bfa;
-  --accent3: #58a6ff;
-  --dim: #666;
-  --border: #222;
-  --card: #111;
-  --code-bg: #1a1a1a;
+  /* Dark theme - Arizuko gold/blue (recovered from live krons) */
+  --bg: #0a0e1a;
+  --fg: #f5f5f0;
+  --bright: #f8f9fa;
+  --dim: #a0a8b8;
+  --accent: #d4af37;
+  --accent2: #4a90e2;
+  --accent3: #87ceeb;
+  --border: #1a2332;
+  --card: #151b28;
+  --code-bg: #1a2332;
 }
 
 [data-theme="light"] {
-  --bg: #ffffff;
+  /* Light theme - Arizuko deeper gold/blue */
+  --bg: #fafaf8;
   --fg: #1a1a1a;
-  --accent: #15803d;
-  --accent2: #6d28d9;
-  --accent3: #0550ae;
-  --dim: #555;
-  --border: #c5c5c5;
-  --card: #f4f4f4;
-  --code-bg: #ebebeb;
+  --bright: #0a0a0a;
+  --dim: #404040;
+  --accent: #8b6914;
+  --accent2: #1d4ed8;
+  --accent3: #1e40af;
+  --border: #d4d4d0;
+  --card: #ffffff;
+  --code-bg: #f0f0ec;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
