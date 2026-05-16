@@ -78,6 +78,16 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 			return fmt.Errorf("unauthorized")
 		}
 		return nil
+	case "set_group_open":
+		if id.Tier > 1 {
+			return fmt.Errorf("unauthorized: tier %d cannot edit group config", id.Tier)
+		}
+		if target.TargetFolder != "" &&
+			target.TargetFolder != id.Folder &&
+			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
+			return fmt.Errorf("unauthorized: target outside own subtree")
+		}
+		return nil
 	case "get_grants", "set_grants":
 		if id.Tier > 1 {
 			return fmt.Errorf("unauthorized: tier %d cannot manage grants", id.Tier)

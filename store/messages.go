@@ -377,7 +377,15 @@ func (s *Store) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []co
 	if maxMsgs <= 0 || maxChars <= 0 {
 		return nil
 	}
-	args := []any{folder}
+	// Spec 6/F ambient join: include open siblings so a topic in folder A
+	// surfaces ambient context from sibling B (and vice versa). The query
+	// stays a single SELECT — siblings widen routed_to, nothing else.
+	folders := append([]string{folder}, s.SiblingFolders(folder)...)
+	placeholders := "?" + strings.Repeat(",?", len(folders)-1)
+	args := make([]any, 0, len(folders)+2)
+	for _, f := range folders {
+		args = append(args, f)
+	}
 	cursorClause := ""
 	if cursor != "" {
 		cursorClause = " AND timestamp > ?"
@@ -386,7 +394,7 @@ func (s *Store) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []co
 	args = append(args, maxMsgs)
 	rows, err := s.db.Query(
 		`SELECT `+msgCols+` FROM messages
-		 WHERE routed_to = ? AND is_observed = 1
+		 WHERE routed_to IN (`+placeholders+`) AND is_observed = 1
 		   AND is_bot_message = 0 AND content != ''`+cursorClause+`
 		 ORDER BY timestamp DESC
 		 LIMIT ?`,

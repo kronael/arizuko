@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/router"
 )
 
@@ -230,6 +231,97 @@ func (s *Store) GetStickyGroup(jid string) string {
 	var folder sql.NullString
 	s.db.QueryRow(`SELECT sticky_group FROM chats WHERE jid = ?`, jid).Scan(&folder)
 	return folder.String
+}
+
+// IsGroupOpen reports the folder's `open` flag. Missing rows default to
+// true so a freshly-created or pre-migration group stays visible to its
+// siblings until an operator explicitly closes it. Spec 6/F.
+func (s *Store) IsGroupOpen(folder string) bool {
+	var open sql.NullInt64
+	s.db.QueryRow(`SELECT open FROM groups WHERE folder = ?`, folder).Scan(&open)
+	if !open.Valid {
+		return true
+	}
+	return open.Int64 != 0
+}
+
+// SetGroupOpen flips the visibility bit. The row must exist (groups are
+// created via SetupGroup/PutGroup before any caller can flip the flag).
+func (s *Store) SetGroupOpen(folder string, open bool) error {
+	_, err := s.db.Exec(`UPDATE groups SET open = ? WHERE folder = ?`,
+		btoi(open), folder)
+	return err
+}
+
+// GroupObserveWindow returns the per-group observe-window caps. (-1,-1)
+// means "not set; fall back to env defaults". Per-route caps still win
+// over per-group; per-group still wins over env. Spec 6/F.
+func (s *Store) GroupObserveWindow(folder string) (msgs, chars int) {
+	var m, c sql.NullInt64
+	s.db.QueryRow(
+		`SELECT observe_window_messages, observe_window_chars FROM groups WHERE folder = ?`,
+		folder,
+	).Scan(&m, &c)
+	msgs = -1
+	chars = -1
+	if m.Valid {
+		msgs = int(m.Int64)
+	}
+	if c.Valid {
+		chars = int(c.Int64)
+	}
+	return
+}
+
+// SetGroupObserveWindow writes per-group caps; pass -1 to clear (the
+// gateway then falls back to the env default for that field).
+func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
+	var mv, cv any
+	if msgs >= 0 {
+		mv = msgs
+	}
+	if chars >= 0 {
+		cv = chars
+	}
+	_, err := s.db.Exec(
+		`UPDATE groups
+		   SET observe_window_messages = ?, observe_window_chars = ?
+		 WHERE folder = ?`,
+		mv, cv, folder,
+	)
+	return err
+}
+
+// SiblingFolders returns folders that share folder's immediate parent,
+// excluding folder itself and any closed sibling. Root folders (no
+// parent) have no siblings — returns nil. Spec 6/F ambient join.
+func (s *Store) SiblingFolders(folder string) []string {
+	parent := groupfolder.ParentOf(folder)
+	if parent == "" {
+		return nil
+	}
+	rows, err := s.db.Query(
+		`SELECT folder FROM groups
+		 WHERE folder LIKE ? AND folder != ? AND open = 1`,
+		parent+"/%", folder,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var f string
+		if rows.Scan(&f) != nil {
+			continue
+		}
+		// Direct children only — exclude grandchildren like "parent/x/y".
+		if groupfolder.ParentOf(f) != parent {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 func (s *Store) SetStickyTopic(jid, topic string) error {

@@ -192,6 +192,9 @@ func (g *Gateway) Run(ctx context.Context) error {
 		AcceptURLBase: g.cfg.AuthBaseURL,
 		PaneSetPrompts: g.paneSetPrompts,
 		PaneSetTitle:   g.paneSetTitle,
+		SetGroupOpen:           g.store.SetGroupOpen,
+		SetGroupObserveWindow:  g.store.SetGroupObserveWindow,
+		GroupObserveWindow:     g.store.GroupObserveWindow,
 	}
 	g.storeFns = ipc.StoreFns{
 		CreateTask: g.store.CreateTask,
@@ -1982,13 +1985,25 @@ func (g *Gateway) handlePrefixLayer(
 }
 
 // observeWindow returns the (maxMessages, maxChars) caps for surfacing
-// observed messages on a folder. Per-route overrides on
-// routes.observe_window_* win over the instance defaults; the route
-// chosen is the first one targeting `folder` (sans fragment) with a
-// non-zero override.
+// observed messages on a folder. Precedence (spec 6/F):
+//
+//   per-route override (routes.observe_window_*)  >
+//   per-group override (groups.observe_window_*)  >
+//   instance default (env OBSERVE_WINDOW_*)
+//
+// The route chosen is the first one targeting `folder` (sans fragment)
+// with a non-zero override.
 func (g *Gateway) observeWindow(folder string) (int, int) {
 	maxN := g.cfg.ObserveWindowMessages
 	maxC := g.cfg.ObserveWindowChars
+	if gn, gc := g.store.GroupObserveWindow(folder); gn >= 0 || gc >= 0 {
+		if gn >= 0 {
+			maxN = gn
+		}
+		if gc >= 0 {
+			maxC = gc
+		}
+	}
 	for _, r := range g.store.AllRoutes() {
 		if core.ParseRouteTarget(r.Target).Folder != folder {
 			continue

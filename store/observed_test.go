@@ -169,3 +169,56 @@ func TestObservedTail_CharCap(t *testing.T) {
 		t.Errorf("char-cap kept = %s, want c (newest)", out[0].ID)
 	}
 }
+
+// Spec 6/F: open siblings' observed messages surface in this folder's
+// ambient block. Closed siblings stay isolated.
+func TestObservedSince_OpenSiblingsCrossFolder(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// Two sibling folders both under "main".
+	for _, f := range []string{"main/a", "main/b"} {
+		if err := s.PutGroup(core.Group{Folder: f, AddedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	if err := s.PutMessage(core.Message{
+		ID: "a-1", ChatJID: "telegram:1", Sender: "u", Name: "u",
+		Content: "from-a", Timestamp: now.Add(-2 * time.Minute),
+		Verb: "message", Source: "telegram",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutMessage(core.Message{
+		ID: "b-1", ChatJID: "telegram:2", Sender: "u", Name: "u",
+		Content: "from-b", Timestamp: now.Add(-time.Minute),
+		Verb: "message", Source: "telegram",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkMessagesObserved("main/a", []string{"a-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkMessagesObserved("main/b", []string{"b-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A reading (B still open) sees both.
+	got := s.ObservedSince("main/a", "", 10, 4000)
+	if len(got) != 2 {
+		t.Fatalf("open siblings: got %d msgs, want 2 (%+v)", len(got), got)
+	}
+
+	// Close B; A now sees only its own.
+	if err := s.SetGroupOpen("main/b", false); err != nil {
+		t.Fatal(err)
+	}
+	got = s.ObservedSince("main/a", "", 10, 4000)
+	if len(got) != 1 || got[0].ID != "a-1" {
+		t.Fatalf("after closing B: got %+v, want [a-1]", got)
+	}
+}

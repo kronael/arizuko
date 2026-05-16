@@ -54,6 +54,10 @@ type GatedFns struct {
 	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
 	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
 	SubmitTurn           func(folder string, t TurnResult) error
+	// Per-group ambient controls (spec 6/F).
+	SetGroupOpen           func(folder string, open bool) error
+	SetGroupObserveWindow  func(folder string, msgs, chars int) error
+	GroupObserveWindow     func(folder string) (msgs, chars int)
 	AcceptURLBase        string // base URL where /invite/<token> is served (e.g. https://app.example.com)
 	GroupsDir            string
 	WebDir               string
@@ -412,6 +416,20 @@ func toolJSON(v any) (*mcp.CallToolResult, error) {
 
 func toolOK() (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText("ok"), nil
+}
+
+// numArg pulls an integer-valued JSON number from the args map. Returns
+// (0, false) when missing or non-numeric. JSON numbers arrive as float64.
+func numArg(args map[string]any, key string) (int, bool) {
+	v, ok := args[key]
+	if !ok || v == nil {
+		return 0, false
+	}
+	f, ok := v.(float64)
+	if !ok {
+		return 0, false
+	}
+	return int(f), true
 }
 
 func recordOutbound(db StoreFns, jid, text, platformID, folder string) {
@@ -1194,6 +1212,70 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			slog.Info("reset_session", "folder", folder, "targetFolder", gf)
 			gated.ClearSession(gf)
 			return toolOK()
+		})
+
+	// Per-group ambient controls (spec 6/F). Both write the calling
+	// folder's row; cross-folder edits go through CLI, not MCP.
+	granted("set_observe_window",
+		"Override this group's ambient observe-window caps (messages and/or chars). Per-group caps win over instance env defaults; per-route caps still win over both. Pass -1 to clear an override. Omit a field to leave it unchanged.",
+		[]mcp.ToolOption{
+			mcp.WithNumber("messages",
+				mcp.Description("max ambient messages surfaced per turn; -1 clears override")),
+			mcp.WithNumber("chars",
+				mcp.Description("max ambient chars surfaced per turn; -1 clears override")),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.SetGroupObserveWindow == nil || gated.GroupObserveWindow == nil {
+				return toolErr("set_observe_window not configured")
+			}
+			args := req.GetArguments()
+			msgs, mOK := numArg(args, "messages")
+			chars, cOK := numArg(args, "chars")
+			if !mOK && !cOK {
+				return toolErr("set_observe_window: at least one of messages|chars required")
+			}
+			// Absent args preserve the stored value; explicit -1 clears.
+			prevM, prevC := gated.GroupObserveWindow(folder)
+			if !mOK {
+				msgs = prevM
+			}
+			if !cOK {
+				chars = prevC
+			}
+			if err := gated.SetGroupObserveWindow(folder, msgs, chars); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("set_observe_window", "folder", folder, "messages", msgs, "chars", chars)
+			return toolJSON(map[string]any{"ok": true, "messages": msgs, "chars": chars})
+		})
+
+	granted("set_group_open",
+		"Toggle this group's visibility to its siblings. When open=true, sibling folders' ambient observed messages surface in this group's <observed> block (and vice versa) — see spec 6/F. Tier 0-1 only.",
+		[]mcp.ToolOption{
+			mcp.WithBoolean("open", mcp.Required(),
+				mcp.Description("true to expose to siblings, false to seal off")),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.SetGroupOpen == nil {
+				return toolErr("set_group_open not configured")
+			}
+			args := req.GetArguments()
+			rawOpen, ok := args["open"]
+			if !ok {
+				return toolErr("set_group_open: open required")
+			}
+			open, ok := rawOpen.(bool)
+			if !ok {
+				return toolErr("set_group_open: open must be bool")
+			}
+			if err := auth.AuthorizeStructural(id, "set_group_open", auth.AuthzTarget{TargetFolder: folder}); err != nil {
+				return toolErr(err.Error())
+			}
+			if err := gated.SetGroupOpen(folder, open); err != nil {
+				return toolErr(err.Error())
+			}
+			slog.Info("set_group_open", "folder", folder, "open", open)
+			return toolJSON(map[string]any{"ok": true, "open": open})
 		})
 
 	granted("inject_message", "Write a synthetic inbound message into the store as if received from chat, triggering the normal agent loop. Use for programmatic prompts, tests, or scheduling one-off runs from tool code. Not for clearing context (reset_session) or sending output to users (`send`).",
