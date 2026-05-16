@@ -728,7 +728,7 @@ func (g *Gateway) processSenderBatch(
 	if last.ReplyToID != "" {
 		parent = g.store.TopicByMessageID(last.ReplyToID, chatJid)
 	}
-	_ = g.store.EnsureTopicLineage(group.Folder, topic, parent, core.NewSessionID())
+	g.ensureTopicWithFork(group.Folder, topic, parent)
 	prompt := g.buildAgentPrompt(group, topic, msgs)
 
 	if deliverCh != nil {
@@ -802,7 +802,7 @@ func (g *Gateway) processWebTopics(
 		if last.ReplyToID != "" {
 			parent = g.store.TopicByMessageID(last.ReplyToID, chatJid)
 		}
-		_ = g.store.EnsureTopicLineage(group.Folder, effectiveTopic, parent, core.NewSessionID())
+		g.ensureTopicWithFork(group.Folder, effectiveTopic, parent)
 		prompt := g.buildAgentPrompt(group, effectiveTopic, topicMsgs)
 
 		if ch != nil {
@@ -858,68 +858,27 @@ func (g *Gateway) buildAgentPrompt(group core.Group, topic string, trigger []cor
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
 	maxN, maxC := g.observeWindow(group.Folder)
 
-	var lin core.TopicLineage
+	var cursor string
 	if l, ok := g.store.TopicLineage(group.Folder, topic); ok {
-		lin = l
+		cursor = l.ObservedCursor
 	}
-	observed := g.store.ObservedSince(group.Folder, lin.ObservedCursor, maxN, maxC)
+	observed := g.store.ObservedSince(group.Folder, cursor, maxN, maxC)
 	if len(observed) > 0 {
 		newest := observed[len(observed)-1].Timestamp.UTC().Format(time.RFC3339Nano)
 		_ = g.store.UpdateObservedCursor(group.Folder, topic, newest)
 	}
 
-	inherited := ""
-	if lin.ParentTopic != nil && *lin.ParentTopic != topic {
-		parentMsgs := g.store.TopicHistoryThrough(
-			group.Folder, *lin.ParentTopic, lin.ForkedAt,
-			g.cfg.InheritWindowMessages, g.cfg.InheritWindowChars,
-		)
-		if len(parentMsgs) > 0 {
-			inherited = renderInheritedBlock(*lin.ParentTopic, lin.ForkedAt, parentMsgs)
-		}
-	}
-
 	rules := ""
-	if inherited != "" {
-		rules += "<rule>Inherited messages are the parent topic's history up to the fork point. Treat as background; do not re-respond to them. The live thread starts after this block.</rule>\n"
-	}
 	if len(observed) > 0 {
 		rules += "<rule>Observed messages are context, not requests. Do not reply to them; reply to the explicit message.</rule>\n"
 	}
+	envelope := `<topic name="` + topic + `" />` + "\n"
 	return sysMsgs +
 		g.autocallsBlock(group.Folder, topic) +
 		g.personaBlock(group.Folder) +
 		rules +
-		inherited +
+		envelope +
 		router.FormatMessages(trigger, observed)
-}
-
-// renderInheritedBlock emits the parent topic's trailing history as
-// a single <inherited from="…" through="…"> block. Used on forked
-// topics' early turns until enough live messages accumulate that the
-// parent context fades from window. Spec 6/F.
-func renderInheritedBlock(parentTopic, forkedAt string, msgs []core.Message) string {
-	var b strings.Builder
-	b.WriteString(`<inherited from="`)
-	b.WriteString(parentTopic)
-	b.WriteString(`" through="`)
-	b.WriteString(forkedAt)
-	b.WriteString("\">\n")
-	for _, m := range msgs {
-		name := m.Name
-		if name == "" {
-			name = m.Sender
-		}
-		b.WriteString(`<msg sender="`)
-		b.WriteString(name)
-		b.WriteString(`" time="`)
-		b.WriteString(m.Timestamp.UTC().Format("2006-01-02T15:04:05Z"))
-		b.WriteString(`">`)
-		b.WriteString(m.Content)
-		b.WriteString("</msg>\n")
-	}
-	b.WriteString("</inherited>\n")
-	return b.String()
 }
 
 func (g *Gateway) makeOutputCallback(
@@ -1402,13 +1361,61 @@ func (g *Gateway) clearSession(folder string) {
 
 // forkTopic creates a new child topic forked from parent. Spec 6/F.
 // The child carries parent_topic, forked_at, observed_cursor set to
-// now() and a fresh session_id. Returns store.ErrTopicExists if
-// child already exists and force=false.
+// now() and a fresh session_id; the parent's Claude Code session
+// file is copied so the child resumes natively from parent's tail.
+// Returns store.ErrTopicExists if child already exists and force=false.
 func (g *Gateway) forkTopic(folder, parent, child string, force bool) error {
 	if folder == "" || child == "" {
 		return fmt.Errorf("fork: folder and child required")
 	}
-	return g.store.ForkTopic(folder, parent, child, core.NewSessionID(), force)
+	childUUID := core.NewSessionID()
+	if err := g.store.ForkTopic(folder, parent, child, childUUID, force); err != nil {
+		return err
+	}
+	g.copyParentSession(folder, parent, childUUID)
+	return nil
+}
+
+// ensureTopicWithFork ensures (folder, topic) has a sessions row and,
+// when newly inserted, copies the parent topic's Claude Code session
+// file so the child resumes from the parent's tail. Spec 6/F: triggers
+// 2 (default-fork-from-main) and 3 (reply-to-parent) both land here.
+// Failures are logged but never block the agent turn — child simply
+// starts fresh.
+func (g *Gateway) ensureTopicWithFork(folder, topic, parent string) {
+	childUUID := core.NewSessionID()
+	inserted, err := g.store.EnsureTopicLineage(folder, topic, parent, childUUID)
+	if err != nil {
+		slog.Warn("ensureTopicWithFork: lineage insert failed",
+			"folder", folder, "topic", topic, "err", err)
+		return
+	}
+	if !inserted {
+		return
+	}
+	g.copyParentSession(folder, parent, childUUID)
+}
+
+// copyParentSession looks up the parent topic's session_id and copies
+// its Claude Code session jsonl to childUUID. No-op when parent has no
+// session yet (cold-start main: child gets fresh session). Failures
+// log WARN and proceed — agent runs fine without forked context.
+func (g *Gateway) copyParentSession(folder, parent, childUUID string) {
+	parentUUID, ok := g.store.GetSession(folder, parent)
+	if !ok || parentUUID == "" {
+		return
+	}
+	groupDir, err := g.folders.GroupPath(folder)
+	if err != nil {
+		slog.Warn("copyParentSession: group path",
+			"folder", folder, "err", err)
+		return
+	}
+	if err := container.CopySession(groupDir, parentUUID, childUUID); err != nil {
+		slog.Warn("copyParentSession: cp failed",
+			"folder", folder, "parent", parent,
+			"parentUUID", parentUUID, "childUUID", childUUID, "err", err)
+	}
 }
 
 func (g *Gateway) injectMessage(jid, content, sender, senderName string) (string, error) {

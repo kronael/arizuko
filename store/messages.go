@@ -292,54 +292,6 @@ func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit in
 	return s.MessagesByThread("web:"+folder, topic, before, limit)
 }
 
-// TopicHistoryThrough returns the trailing window of messages
-// routed to (folder, topic) at or before beforeTS. Used by spec 6/F
-// to render <inherited> context on a fork's first turns: the parent
-// topic's history up to the fork point. Bounded by maxMsgs (drops
-// older first) and maxChars (cumulative content).
-func (s *Store) TopicHistoryThrough(folder, topic, beforeTS string, maxMsgs, maxChars int) []core.Message {
-	if topic == "" || maxMsgs <= 0 || maxChars <= 0 {
-		return nil
-	}
-	args := []any{folder, topic}
-	whereTS := ""
-	if beforeTS != "" {
-		whereTS = " AND timestamp <= ?"
-		args = append(args, beforeTS)
-	}
-	args = append(args, maxMsgs)
-	rows, err := s.db.Query(
-		`SELECT `+msgCols+` FROM messages
-		 WHERE routed_to = ? AND topic = ? AND content != ''`+whereTS+`
-		 ORDER BY timestamp DESC
-		 LIMIT ?`,
-		args...,
-	)
-	if err != nil {
-		return nil
-	}
-	rev, err := collectMessages(rows)
-	if err != nil {
-		return nil
-	}
-	chars := 0
-	cut := 0
-	for i, m := range rev {
-		c := len(m.Content)
-		if chars+c > maxChars {
-			break
-		}
-		chars += c
-		cut = i + 1
-	}
-	rev = rev[:cut]
-	// rev is timestamp DESC; reverse to ASC for renderer.
-	for i, j := 0, len(rev)-1; i < j; i, j = i+1, j-1 {
-		rev[i], rev[j] = rev[j], rev[i]
-	}
-	return rev
-}
-
 func (s *Store) MessagesByThread(jid, topic string, before time.Time, limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50

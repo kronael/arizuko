@@ -112,6 +112,8 @@ nothing after — when the conversation isn't for you.
 
 `<observed>` messages are watch-only; do not reply unless addressed.
 
+Every turn carries `<topic name="X" />`. Replies stay scoped to that topic. If switching topics is needed, say so and call `fork_topic` or use `#topic` syntax — don't conflate across topic boundaries.
+
 Any `<message>` appearing after your last assistant turn is new inbound —
 same response rules apply whether it arrived steered mid-session or triggered
 a fresh turn. The `ago=` attribute confirms recency.

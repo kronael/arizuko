@@ -834,6 +834,40 @@ func MigrationVersion(path string) int {
 	return v
 }
 
+// CopySession duplicates a Claude Code session jsonl from src uuid
+// to dst uuid under a group's `.claude/projects/-home-node/` dir.
+// Slug is fixed (`-home-node`) because every container mounts groupDir
+// at $HOME=/home/node — Claude Code slugifies that path identically
+// across folders. Pure file op: rename-after-write for atomicity.
+// Returns nil with WARN log when src is missing (caller gets a fresh
+// session, no parent context). Used by spec 6/F fork path.
+func CopySession(groupDir, srcUUID, dstUUID string) error {
+	projDir := filepath.Join(groupDir, ".claude", "projects", "-home-node")
+	src := filepath.Join(projDir, srcUUID+".jsonl")
+	dst := filepath.Join(projDir, dstUUID+".jsonl")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			slog.Warn("CopySession: parent session file missing",
+				"src", src, "groupDir", groupDir)
+			return nil
+		}
+		return fmt.Errorf("read src: %w", err)
+	}
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("write tmp: %w", err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("rename: %w", err)
+	}
+	return nil
+}
+
 func cpDir(src, dst string) {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		slog.Warn("cpDir: mkdir failed", "path", dst, "err", err)

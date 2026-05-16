@@ -32,24 +32,27 @@ func (s *Store) SetSession(folder, topic, id string) error {
 
 // EnsureTopicLineage inserts a sessions row for (folder, topic) with
 // lineage if no row exists yet. Idempotent: a no-op when the row
-// already exists. Used before agent run so the first turn for a new
-// topic already has lineage and the <inherited> block fires from
-// turn one. parentTopic="" means fork from main (the default for any
-// non-main topic). Caller passes folder's main topic name ""
-// untouched — we skip the insert because the main topic itself has
-// no parent. newSessionID is used only on INSERT.
-func (s *Store) EnsureTopicLineage(folder, topic, parentTopic, newSessionID string) error {
+// already exists. parentTopic="" means fork from main (the default for
+// any non-main topic). Caller passes main topic "" untouched — main
+// has no parent, so we skip. newSessionID is used only on INSERT.
+// Returns inserted=true when a new row was created (caller should
+// trigger the cp of the parent session file — spec 6/F).
+func (s *Store) EnsureTopicLineage(folder, topic, parentTopic, newSessionID string) (bool, error) {
 	if topic == "" {
-		return nil
+		return false, nil
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err := s.db.Exec(
+	res, err := s.db.Exec(
 		`INSERT OR IGNORE INTO sessions
 		   (group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		folder, topic, newSessionID, parentTopic, now, now,
 	)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 
@@ -61,11 +64,9 @@ func (s *Store) DeleteSession(folder, topic string) error {
 	return err
 }
 
-// TopicLineage returns the lineage row for (folder, topic).
-// ParentTopic stays nil when the column is NULL — distinguishes
-// "no parent" (e.g. root main topic) from "forked from main"
-// (parent_topic = "" string). ok=false when the sessions row
-// doesn't exist; callers treat that as no lineage at all.
+// TopicLineage returns the lineage row for (folder, topic). After
+// spec 6/F rev6 the prompt path only consumes ObservedCursor; parent
+// + forked_at remain as audit metadata. ok=false when no row exists.
 func (s *Store) TopicLineage(folder, topic string) (core.TopicLineage, bool) {
 	var parent, forked, cursor *string
 	err := s.db.QueryRow(
