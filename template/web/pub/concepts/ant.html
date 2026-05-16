@@ -19,58 +19,49 @@
     <h1>ant</h1>
     <p class="dim back">concepts / ant &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
 
-    <p class="lede">An ant is a Claude agent defined by a folder. Drop in <code>SOUL.md</code> for persona, <code>skills/</code> for tools, <code>secrets/</code> for credentials &mdash; and arizuko (or <code>ant</code> standalone) runs it.</p>
-
-    <h2>why</h2>
-    <p>Chat agents need persona, skills, secrets, and a memory that survives restarts. Most apps reinvent that layout from scratch &mdash; an env var here, a config file there, a prompt template in a Python string. Ant is the layout: one folder, one shape, forkable and version-controllable. Copy the folder, tweak <code>SOUL.md</code>, ship a new agent.</p>
+    <p class="lede">An ant is one Claude Code process running inside a Docker container. There is one ant per group, and the group&rsquo;s folder on disk IS the ant. Its memory, its skills, its persona &mdash; all files in that folder.</p>
 
     <h2>the folder is the agent</h2>
-    <pre><code>my-agent/
-  SOUL.md          &mdash; persona, voice, identity
-  CLAUDE.md        &mdash; operator runbook the agent reads each turn
-  skills/          &mdash; SKILL.md files (custom + curated)
-  diary/           &mdash; running log, persistent across runs
-  secrets/         &mdash; folder-scoped credentials, env-injected
-  MCP.json         &mdash; optional, declares MCP servers wired in
-  workspace/       &mdash; the agent&rsquo;s working directory</code></pre>
-    <p>That&rsquo;s the unit. Everything else &mdash; CLI, sandbox, orchestrator &mdash; is delivery mechanism.</p>
+    <p>Every group lives at <code>/srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/</code> on the host. When a message arrives, <code>gated</code> spawns a container and mounts that folder at <code>/home/node/</code> inside. Whatever&rsquo;s in the folder is what the agent sees:</p>
+    <pre><code>groups/solo/inbox/
+  SOUL.md          persona &mdash; name, tone, voice
+  CLAUDE.md        runbook the agent reads each turn
+  skills/          SKILL.md files the agent can call
+  diary/           append-only log, survives restarts
+  facts/           durable knowledge
+  secrets/         folder-scoped credentials, env-injected
+  .claude/         Claude Code session state</code></pre>
+    <p>Copy the folder, you copy the ant. Delete the folder, the ant is gone. There is no separate database row that holds the personality.</p>
 
-    <h2>three commands</h2>
-    <p>One binary, three IO modes by flag, sandbox orthogonal:</p>
-    <pre><code>ant &lt;folder&gt;                              # interactive chat (stdin/stdout)
-ant &lt;folder&gt; --prompt="&lt;text&gt;"            # one-shot, exit on completion
-ant &lt;folder&gt; --mcp [--socket=&lt;path&gt;]      # expose as an MCP server
-ant &lt;folder&gt; --sandbox=none|dockbox|crackbox</code></pre>
-    <p>The runtime is the same in every mode: spawn <code>claude</code> with the folder&rsquo;s skills, secrets, and workspace mounted; route diary writes to <code>&lt;folder&gt;/diary/</code>; wire MCP servers per <code>MCP.json</code>. Flags only pick where input comes from and where output goes.</p>
+    <h2>one container per turn</h2>
+    <p>The container is short-lived. <code>gated</code> starts it when a message arrives, the agent reads the prompt, replies, and the container exits. Nothing important lives inside the container &mdash; only inside the mounted folder. The next turn gets a fresh container with the same folder.</p>
 
-    <h2>what you get</h2>
+    <h2>tier is path depth</h2>
+    <p>Groups nest. <code>solo/inbox</code> is two levels deep; <code>corp/eng/sre/oncall</code> is four. The deeper the folder, the higher the tier number, and higher tiers get fewer default permissions. <code>grants.DeriveRules</code> reads the folder path and the tier together to decide which MCP tools that ant can call. A tier-1 ant in a public-facing room gets <code>send</code>, <code>send_file</code>, <code>reply</code>. A tier-0 root ant gets everything.</p>
+
+    <h2>how the agent talks back</h2>
+    <p>The agent calls MCP tools (like <code>send</code> or <code>recall</code>) over a unix socket. <code>gated</code> creates one socket per group at <code>ipc/&lt;folder&gt;/gated.sock</code> on the host and mounts it into the container at <code>/workspace/ipc/gated.sock</code>. Inside the container, Claude Code is wired up to that path via <code>MCP.json</code>. Every tool call is a JSON-RPC message over that socket.</p>
+
+    <h2>the migration trick</h2>
+    <p>When arizuko ships a new version of the built-in skills, you don&rsquo;t want every group&rsquo;s folder to fall behind. <code>gated</code> reads <code>ant/skills/self/MIGRATION_VERSION</code> from the agent image, compares it to <code>&lt;group&gt;/.claude/skills/self/MIGRATION_VERSION</code>, and if the group is older it injects a <code>/migrate</code> prompt on next spawn. The agent runs <code>/migrate</code>, which copies the upstream skills into its own folder. Old groups catch up at their own pace; nothing is force-pushed.</p>
+
+    <h2>what stays, what goes</h2>
     <ul>
-      <li><strong>Persona that survives restarts.</strong> <code>SOUL.md</code> is read every turn &mdash; identity is in the folder, not in a session.</li>
-      <li><strong>Curated skills.</strong> <code>skills/SKILL.md</code> entries pick the tools the agent gets. No plugin system; what&rsquo;s in the folder at spawn time is what runs.</li>
-      <li><strong>Folder-scoped secrets.</strong> Per-agent credentials in <code>secrets/</code> instead of one big env-soup shared across every agent on the host.</li>
-      <li><strong>Persistent diary and memory.</strong> Files written to <code>diary/</code> and <code>facts/</code> (resolved to <code>~/diary/</code> and <code>~/facts/</code> inside the container; see <code>ant/CLAUDE.md</code> Storage table) stay across runs. Restart, fork, copy &mdash; the agent remembers because the folder remembers.</li>
-      <li><strong>Optional sandbox.</strong> <code>--sandbox=dockbox</code> for Docker isolation; <code>--sandbox=crackbox</code> (when <a href="/pub/crackbox/">crackbox</a> ships its host backend) for tighter egress control.</li>
+      <li><strong>Stays</strong> &mdash; everything under <code>groups/&lt;folder&gt;/</code>: diary, facts, skills, the JSONL session transcripts in <code>.claude/</code>.</li>
+      <li><strong>Goes</strong> &mdash; the container itself, anything written to <code>/tmp</code> inside, any process state held in RAM.</li>
     </ul>
-
-    <h2>memory: compaction on a different cadence</h2>
-    <p>Most chat-agent systems run a <strong>context reducer</strong> &mdash; a cheap-model summariser that condenses the running message history before each turn (e.g. muaddib&rsquo;s <code>src/rooms/command/context-reducer.ts</code>). arizuko inverts the cadence. In-session context stays raw; Claude Code&rsquo;s own compaction bounds it. Compression is a separate, longer-horizon job:</p>
-    <ul>
-      <li><strong>Cron-driven, day/week/month</strong> &mdash; the <code>/compact-memories</code> skill rolls JSONL session transcripts into <code>episodes/YYYYMMDD.md</code>, then weekly, then monthly. Diary entries are folded the same way.</li>
-      <li><strong>Agent-invoked on demand</strong> &mdash; <code>/distill</code> compresses one specific input on request, writing durable content (skill, fact, episode) rather than an ephemeral prompt block.</li>
-      <li><strong>Recall, not re-summarise</strong> &mdash; <code>/recall-memories</code> pulls relevant slices back when needed; the prompt prepends a small <code>&lt;knowledge layer=&quot;diary&quot;&gt;</code> block at every turn.</li>
-    </ul>
-    <p>Same problem &mdash; token budget vs. fidelity &mdash; at a different point on the axis. No silent per-turn condenser; compaction is durable and inspectable on disk.</p>
+    <p>This is why &ldquo;just edit the folder&rdquo; works. Change <code>SOUL.md</code> on the host (or via <a href="/pub/concepts/webdav.html">WebDAV</a>) and the next spawn picks up the new persona &mdash; no restart, no reload.</p>
 
     <h2>arizuko vs standalone ant</h2>
-    <p><strong>Today:</strong> every arizuko group is an ant folder. Each <code>groups/&lt;folder&gt;/</code> already has the shape above &mdash; <code>SOUL.md</code>, <code>CLAUDE.md</code>, <code>skills/</code>, <code>diary/</code>, <code>secrets/</code>. <code>arizuko chat &lt;instance&gt; [group]</code> drops you into one. <code>gated</code> spawns containers from the same folders for inbound messages.</p>
-    <p><strong>Planned:</strong> a standalone <code>ant &lt;folder&gt;</code> CLI that runs one agent without arizuko anywhere on the system &mdash; no gateway, no scheduler, no router. Spec at <a href="https://github.com/kronael/arizuko/blob/main/specs/5/b-ant-standalone.md">specs/5/b-ant-standalone.md</a>; status: unshipped, packaging in flight.</p>
+    <p><strong>Today:</strong> every arizuko group is an ant folder. <code>arizuko chat &lt;instance&gt; [group]</code> drops you into one for interactive use. <code>gated</code> spawns containers from the same folders for inbound chat messages.</p>
+    <p><strong>Planned:</strong> a standalone <code>ant &lt;folder&gt;</code> CLI that runs one agent without arizuko anywhere on the system &mdash; no gateway, no scheduler, no router. Spec at <a href="https://github.com/kronael/arizuko/blob/main/specs/5/b-ant-standalone.md">specs/5/b-ant-standalone.md</a>.</p>
 
     <h2>go deeper</h2>
     <ul>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/b-ant-standalone.md">specs/5/b-ant-standalone.md</a> &mdash; canonical spec for the standalone CLI, container runtime, and skill curation rules.</li>
-      <li><a href="/pub/concepts/slink.html">slink</a> &mdash; how to talk to an ant from a browser, a script, or an MCP client.</li>
-      <li><a href="/pub/crackbox/">crackbox</a> &mdash; how to sandbox one when you don&rsquo;t fully trust the workload.</li>
-      <li><a href="/pub/concepts/jid.html">jid</a> &mdash; typed addresses an ant uses for routing across platforms.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/b-ant-standalone.md">specs/5/b-ant-standalone.md</a> &mdash; standalone CLI, container runtime, skill curation.</li>
+      <li><a href="/pub/concepts/slink.html">slink</a> &mdash; how to reach an ant from a browser or script.</li>
+      <li><a href="/pub/concepts/grants.html">grants</a> &mdash; how tier turns into per-tool permissions.</li>
+      <li><a href="/pub/concepts/jid.html">jid</a> &mdash; the addresses the agent uses to send messages back out.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>

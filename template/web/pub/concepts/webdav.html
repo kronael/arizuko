@@ -6,50 +6,50 @@
     <title>webdav</title>
     <link rel="stylesheet" href="/pub/assets/hub.css" />
     <style>
-      .prose p {
-        margin: 0.6em 0;
-      }
-      .prose ul {
-        margin: 0.4em 0 0.8em 1.2em;
-      }
-      .prose li {
-        margin: 0.3em 0;
-      }
-      .prose pre {
-        margin: 0.6em 0;
-      }
-      .lede {
-        font-size: 1.05em;
-        color: var(--fg);
-        margin: 0.4em 0 1em;
-      }
-      .back {
-        font-size: 0.85em;
-      }
+      .prose p { margin: 0.6em 0; }
+      .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+      .prose li { margin: 0.3em 0; }
+      .prose pre { margin: 0.6em 0; }
+      .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+      .back { font-size: 0.85em; }
     </style>
   </head>
   <body>
     <div class="hub-container prose">
       <h1>webdav</h1>
       <p class="dim back">
-        concepts / webdav &middot; <a href="/pub/concepts/">&larr; concepts</a>
+        concepts / webdav &middot;
+        <a href="/pub/concepts/">&larr; concepts</a>
       </p>
 
       <p class="lede">
-        Every group&rsquo;s workspace is a real filesystem you can mount from
-        Finder, <code>rclone</code>, curl, or any WebDAV client at
-        <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>. For the
-        step-by-step setup see
-        <a href="/pub/howto/webdav.html">how-to / webdav</a>.
+        Each group folder is exposed over WebDAV at
+        <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>. You can mount it
+        from Finder, sync it with <code>rclone</code>, or edit a file in any
+        editor &mdash; and the next agent turn picks up your changes. Step-by-step
+        setup: <a href="/pub/howto/webdav.html">how-to / webdav</a>.
       </p>
 
-      <h2>why</h2>
+      <h2>what davd does</h2>
       <p>
-        Agents read and write files all day &mdash; diary, facts, generated
-        drafts, downloaded attachments. You want to drop in a CSV from your
-        laptop, edit a post in your editor, browse what the agent produced
-        &mdash; without <code>scp</code>, without pasting blobs into chat,
-        without giving the box shell access.
+        The <code>davd</code> daemon is a thin wrapper around
+        <code>sigoden/dufs</code> &mdash; one Rust binary that serves a directory
+        over WebDAV. It mounts <code>&lt;data-dir&gt;/groups/</code> at
+        <code>/data</code> inside its container and exposes it on
+        <code>:8080</code>. That&rsquo;s the whole daemon.
+      </p>
+      <p>
+        davd has no idea who you are. Authentication and per-group scoping
+        happen one hop earlier, in <code>proxyd</code>.
+      </p>
+
+      <h2>why it matters</h2>
+      <p>
+        The same folder you see over WebDAV is the folder the agent reads
+        each turn. Edit <code>CLAUDE.md</code> from your laptop, save, send
+        the agent a message &mdash; the new runbook is already in effect. No
+        deploy, no restart. Drop a CSV in <code>facts/</code>, the agent finds
+        it on the next recall.
       </p>
 
       <h2>show me</h2>
@@ -58,45 +58,69 @@ curl -X PROPFIND https://&lt;host&gt;/dav/&lt;group&gt;/ \
      -H 'Depth: 1' \
      -H "Authorization: Bearer $TOKEN"
 
-# or mount it as a real filesystem
-rclone mount mygroup:/dav/&lt;group&gt;/ ~/mnt/&lt;group&gt; --vfs-cache-mode writes</code></pre>
+# mount it as a real filesystem
+rclone mount mygroup:/dav/&lt;group&gt;/ ~/mnt/&lt;group&gt; --vfs-cache-mode writes
+
+# now edit a file like any other
+vim ~/mnt/&lt;group&gt;/CLAUDE.md</code></pre>
       <p>
-        Get <code>$TOKEN</code> from <code>/dash/profile</code> &mdash; or sign
-        in at <code>/auth/login</code> and the JWT cookie works the same way for
-        browser clients.
+        Get <code>$TOKEN</code> from <code>/dash/profile</code>. Browsers can
+        sign in at <code>/auth/login</code> and use the JWT cookie instead.
       </p>
+
+      <h2>auth: proxyd in front</h2>
+      <p>
+        Every <code>/dav/&lt;group&gt;/...</code> request hits
+        <code>proxyd</code> first. proxyd verifies the JWT (cookie or Bearer
+        token), reads the user&rsquo;s groups claim, and checks the
+        <code>&lt;group&gt;</code> in the URL against that claim. No match,
+        no upstream &mdash; 403 before <code>davd</code> sees the request.
+        Operators with the <code>**</code> grant reach any folder.
+      </p>
+
+      <h2>the write-block guard</h2>
+      <p>
+        Even with a valid grant, proxyd refuses writes to a few paths inside
+        the group folder. Reads still pass through &mdash; the operator can
+        always inspect.
+      </p>
+      <ul>
+        <li>
+          <strong>Secrets-ish files</strong> &mdash; <code>.env</code>,
+          <code>*.pem</code>, anything under <code>.git/</code>. PUT, DELETE,
+          MOVE, MKCOL, PROPPATCH all return 403.
+        </li>
+        <li>
+          <strong><code>&lt;group&gt;/logs/</code></strong> is read-only.
+          GET and PROPFIND pass; anything that writes returns 403. The agent
+          can&rsquo;t scribble over its own logs, and you can&rsquo;t
+          accidentally delete them either.
+        </li>
+        <li>
+          <strong>Cross-group writes are impossible</strong> &mdash; the path
+          check in proxyd is per-group, so a request to
+          <code>/dav/other-group/</code> is judged against <em>other-group</em>
+          and only succeeds if your grant covers it.
+        </li>
+      </ul>
 
       <h2>what you get</h2>
       <ul>
         <li>
-          <strong>JWT/Bearer auth.</strong> Same JWT that gates
-          <code>/dash/</code>. No Basic Auth &mdash; proxyd&rsquo;s local OAuth
-          issues Bearer tokens for clients that don&rsquo;t carry cookies.
-        </li>
-        <li>
-          <strong>Per-group scoping.</strong> proxyd checks the user&rsquo;s
-          groups claim against <code>&lt;group&gt;</code> in the path; without a
-          matching grant the request is 403.
-        </li>
-        <li>
-          <strong>Sensitive-path write block.</strong> <code>.env</code>,
-          <code>*.pem</code>, anything under <code>.git/</code> can be read but
-          never written via WebDAV.
-        </li>
-        <li>
-          <strong>Logs are read-only.</strong> Anything under
-          <code>&lt;group&gt;/logs/</code> answers GET/PROPFIND but rejects
-          PUT/DELETE/MOVE.
-        </li>
-        <li>
           <strong>Browse from anything.</strong> Finder, Windows Explorer,
-          cyberduck, rclone, curl &mdash; standard WebDAV verbs, no
-          client-specific shim.
+          Cyberduck, rclone, curl &mdash; standard WebDAV verbs.
         </li>
         <li>
-          <strong>dufs under the hood.</strong> A single Rust binary serves the
-          files; proxyd does auth, path scoping, and the write-block guard
-          before forwarding.
+          <strong>JWT or Bearer auth.</strong> The same token that gates
+          <code>/dash/</code>. No Basic Auth.
+        </li>
+        <li>
+          <strong>Live workspace.</strong> Your edits are the agent&rsquo;s
+          next-turn reality.
+        </li>
+        <li>
+          <strong>Sensitive paths read-only.</strong> Secrets and logs can
+          be inspected, not overwritten.
         </li>
       </ul>
 
@@ -107,8 +131,7 @@ rclone mount mygroup:/dav/&lt;group&gt;/ ~/mnt/&lt;group&gt; --vfs-cache-mode wr
             href="https://github.com/kronael/arizuko/blob/main/specs/5/M-webdav.md"
             >specs/5/M-webdav.md</a
           >
-          &mdash; canonical spec: routing, auth, write-block rules, config
-          flags.
+          &mdash; routing, auth, write-block rules, config flags.
         </li>
         <li>
           <a href="/pub/concepts/auth.html">auth</a> &mdash; how the JWT/Bearer

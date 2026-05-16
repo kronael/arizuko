@@ -21,43 +21,39 @@
     <h1>voice</h1>
     <p class="dim back">concepts / voice &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
 
-    <p class="lede">Send a voice message &mdash; Whisper transcribes it into the agent&rsquo;s prompt. Reply with <code>send_voice</code> &mdash; Kokoro synthesizes audio and the platform delivers a real voice note.</p>
+    <p class="lede">Voice in: a user sends an audio note, Whisper turns it into text before the agent reads anything. Voice out: the agent calls <code>send_voice</code>, the TTS daemon turns text into an ogg file, and the chat platform delivers it as a real voice note.</p>
 
-    <h2>why</h2>
-    <p>Users who send voice expect voice replies. Whisper has handled the inbound side for a while; <code>send_voice</code> closes the loop on the outbound side. The two are symmetric: voice in is just text-in to the agent, voice out is just text the agent decides to speak. The agent picks the modality &mdash; voice-first personas, matching the user&rsquo;s channel, or staying silent &mdash; the system doesn&rsquo;t auto-convert anything.</p>
+    <h2>voice in &mdash; transcription</h2>
+    <p>When a voice note arrives at an adapter (Telegram, WhatsApp, Discord), the adapter downloads the audio and hands it to <code>gated</code>. If <code>WHISPER_BASE_URL</code> is set and <code>VOICE_TRANSCRIPTION_ENABLED=true</code>, the gateway POSTs the audio to that Whisper server before the agent ever sees the message. The transcript comes back as plain text and gets glued onto the attachment tag the agent sees in its prompt:</p>
+    <pre><code>&lt;attachment path="/home/node/media/20260515/note.ogg"
+            mime="audio/ogg"
+            transcript="hey can you check the inbox"&gt;</code></pre>
+    <p>The agent reads the <code>transcript=</code> like any other text and never re-transcribes. The raw audio is still on disk in <code>media/&lt;date&gt;/</code> if a skill ever needs the bytes.</p>
 
-    <h2>voice in (Whisper)</h2>
-    <p>Set <code>WHISPER_BASE_URL</code> and <code>VOICE_TRANSCRIPTION_ENABLED=true</code>. Inbound voice notes are downloaded, transcribed, and surface in the agent&rsquo;s prompt as an attachment with the transcript inline:</p>
-    <pre><code>&lt;attachment path="..." mime="audio/ogg" transcript="..."&gt;</code></pre>
-    <p>The agent reads the transcript like any other text. The audio file is on disk if it ever needs the raw bytes.</p>
-
-    <h2>voice out (<code>send_voice</code>)</h2>
-    <p>MCP tool: <code>send_voice(chatJid, text, voice?)</code>. Distinct from <code>send_file</code> because each platform&rsquo;s voice primitive is distinct from its file/audio primitive (Telegram <code>sendVoice</code> vs <code>sendAudio</code>; WhatsApp <code>ptt:true</code> vs plain audio).</p>
-    <p>Voice resolution chain: explicit <code>voice</code> arg &gt; <code>voice:</code> frontmatter in <code>SOUL.md</code> &gt; <code>TTS_VOICE</code> env. Gateway hashes <code>sha256(text+voice+model)</code>, checks <code>&lt;data_dir&gt;/tts/&lt;hash&gt;.ogg</code>, and on miss POSTs to an OpenAI-compatible <code>/v1/audio/speech</code> at <code>TTS_BASE_URL</code> &mdash; default points at the bundled <code>ttsd</code> daemon, a thin Go proxy in front of Kokoro-FastAPI. Operators who prefer Piper, Coqui, or OpenAI cloud override <code>TTS_BACKEND_URL</code> and skip the bundled service. Text capped at 5000 chars.</p>
+    <h2>voice out &mdash; synthesis</h2>
+    <p>The agent decides to reply with voice by calling the <code>send_voice</code> MCP tool with the chat&rsquo;s JID, the text, and an optional voice name. <code>gated</code> handles the rest:</p>
+    <ol>
+      <li>Pick the voice. Explicit argument wins; otherwise <code>voice:</code> from the persona&rsquo;s <code>SOUL.md</code> frontmatter; otherwise <code>TTS_VOICE</code> env.</li>
+      <li>Hash <code>sha256(text + voice + model)</code>. If <code>&lt;data_dir&gt;/tts/&lt;hash&gt;.ogg</code> already exists, reuse it &mdash; no re-synth.</li>
+      <li>On miss, POST to <code>TTS_BASE_URL</code> at the OpenAI-shaped path <code>/v1/audio/speech</code>. The bundled <code>ttsd</code> daemon forwards to a Kokoro-FastAPI container running locally.</li>
+      <li>Hand the ogg file to the channel adapter; it sends it using the platform&rsquo;s native voice primitive.</li>
+    </ol>
+    <p>Text is capped at 5000 characters. The TTS endpoint is OpenAI-compatible, so swapping in Piper, Coqui, or OpenAI cloud is just changing <code>TTS_BACKEND_URL</code> on <code>ttsd</code>.</p>
 
     <h2>platform support</h2>
     <table>
-      <tr><th>Platform</th><th>voice out (<code>send_voice</code>)</th></tr>
-      <tr><td>Telegram</td><td><code>sendVoice</code> (push-to-talk UI)</td></tr>
-      <tr><td>WhatsApp</td><td><code>audio + ptt:true</code> (Baileys)</td></tr>
+      <tr><th>Platform</th><th>How <code>send_voice</code> is delivered</th></tr>
+      <tr><td>Telegram</td><td><code>sendVoice</code> &mdash; push-to-talk UI</td></tr>
+      <tr><td>WhatsApp</td><td>audio with <code>ptt:true</code> via Baileys</td></tr>
       <tr><td>Discord</td><td><code>audio/ogg</code> attachment</td></tr>
-      <tr><td>Mastodon</td><td>Unsupported (falls back to <code>send</code>)</td></tr>
-      <tr><td>Reddit</td><td>Unsupported</td></tr>
-      <tr><td>Bluesky</td><td>Unsupported</td></tr>
-      <tr><td>LinkedIn</td><td>Unsupported</td></tr>
-      <tr><td>X (Twitter)</td><td>Unsupported</td></tr>
-      <tr><td>Email</td><td>Unsupported</td></tr>
+      <tr><td>Mastodon, Reddit, Bluesky, LinkedIn, X, email</td><td>Unsupported &mdash; <code>chanlib.ErrUnsupported</code>, agent falls back to <code>send</code></td></tr>
     </table>
 
-    <h2>what you get</h2>
-    <ul>
-      <li><strong>Symmetric voice in/out.</strong> Whisper for inbound, Kokoro for outbound &mdash; one mental model on both sides.</li>
-      <li><strong>Local TTS by default.</strong> Bundled <code>ttsd</code> proxies a Kokoro-FastAPI container; no cloud round-trip, no per-character billing.</li>
-      <li><strong>Operator-swappable backend.</strong> Point <code>TTS_BASE_URL</code> at any OpenAI-compatible <code>/v1/audio/speech</code> endpoint &mdash; Piper, Coqui, OpenAI cloud, anything.</li>
-      <li><strong>Per-agent voice.</strong> <code>voice:</code> in <code>SOUL.md</code> frontmatter pins one ant&rsquo;s voice; <code>TTS_VOICE</code> sets the instance default.</li>
-      <li><strong>Cached output.</strong> Same text + voice + model hits disk on the second send &mdash; no re-synth.</li>
-      <li><strong>Native push-to-talk where it exists.</strong> Telegram and WhatsApp render as PTT; Discord renders inline audio; unsupported platforms get <code>chanlib.ErrUnsupported</code> and the agent falls back to plain <code>send</code>.</li>
-    </ul>
+    <h2>when does the agent voice back?</h2>
+    <p>The persona picks. A voice-first persona (think a phone-only assistant) always voices. A text-first persona only voices when the user voiced first &mdash; matching modality is friendlier than auto-converting every message to audio. The agent makes the choice in its prompt logic; the system doesn&rsquo;t auto-convert.</p>
+
+    <h2>failure mode</h2>
+    <p>If <code>ttsd</code> is down, its <code>/health</code> returns 503 and <code>gated</code> flips <code>TTS_ENABLED=false</code> for that turn. <code>send_voice</code> returns <code>chanlib.ErrUnsupported</code>; the agent&rsquo;s wrapper sees that and falls back to a plain text <code>send</code>. The user gets a text reply instead of silence.</p>
 
     <h2>go deeper</h2>
     <p>Canonical spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/T-voice-synthesis.md">specs/5/T-voice-synthesis.md</a>. The <code>voice:</code> frontmatter that pins a per-agent voice lives in <code>SOUL.md</code> &mdash; see <a href="/pub/concepts/ant.html">ant</a> for the folder layout. For how the JIDs in <code>send_voice(chatJid, &hellip;)</code> are shaped, see <a href="/pub/concepts/jid.html">jid</a>.</p>
