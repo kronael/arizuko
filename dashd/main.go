@@ -85,26 +85,17 @@ func main() {
 		port = ":" + port
 	}
 
-	db, err := sql.Open("sqlite", dsn+"?mode=ro&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		slog.Error("open db", "err", err)
 		os.Exit(1)
 	}
 	defer db.Close()
 
-	// Secret CRUD at /dash/me/secrets is the one write path dashd owns;
-	// everything else stays RO. Separate handle keeps the contract narrow.
-	dbRW, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)")
-	if err != nil {
-		slog.Error("open rw db", "err", err)
-		os.Exit(1)
-	}
-	defer dbRW.Close()
-
 	slog.Info("dashd started", "db", dsn, "port", port)
 
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: dbRW, dbPath: dsn, groupsDir: groupsDir}
+	d := &dash{db: db, dbRW: db, dbPath: dsn, groupsDir: groupsDir}
 	d.registerRoutes(mux)
 
 	srv := &http.Server{Addr: port, Handler: chanlib.LogMiddleware(mux)}
@@ -125,7 +116,7 @@ func main() {
 
 type dash struct {
 	db        *sql.DB
-	dbRW      *sql.DB // me_secrets writes; nil in some tests (read-only paths)
+	dbRW      *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
 	dbPath    string
 	groupsDir string
 }
@@ -150,6 +141,21 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/me/secrets", d.handleMeSecretCreate)
 	mux.HandleFunc("PATCH /dash/me/secrets/{key}", d.handleMeSecretUpdate)
 	mux.HandleFunc("DELETE /dash/me/secrets/{key}", d.handleMeSecretDelete)
+
+	// Routes editor — admin-gated CRUD against the `routes` table.
+	mux.HandleFunc("GET /dash/routes/", d.handleRoutes)
+	mux.HandleFunc("POST /dash/routes/", d.handleRouteCreate)
+	mux.HandleFunc("PATCH /dash/routes/{id}", d.handleRouteUpdate)
+	mux.HandleFunc("DELETE /dash/routes/{id}", d.handleRouteDelete)
+	mux.HandleFunc("POST /dash/routes/{id}/delete", d.handleRouteDelete)
+
+	// Group create / delete / settings — admin-gated.
+	mux.HandleFunc("GET /dash/groups/new", d.handleGroupNewForm)
+	mux.HandleFunc("POST /dash/groups/new", d.handleGroupCreate)
+	mux.HandleFunc("GET /dash/groups/{folder}/settings", d.handleGroupSettings)
+	mux.HandleFunc("POST /dash/groups/{folder}/settings", d.handleGroupSettingsSave)
+	mux.HandleFunc("DELETE /dash/groups/{folder}", d.handleGroupDelete)
+	mux.HandleFunc("POST /dash/groups/{folder}/delete", d.handleGroupDelete)
 }
 
 func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +163,7 @@ func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, `{"ok":true}`)
 }
 
-const dashNav = `<nav><a href="/dash/">arizuko</a><a href="/dash/status/">status</a><a href="/dash/tasks/">tasks</a><a href="/dash/activity/">activity</a><a href="/dash/groups/">groups</a><a href="/dash/memory/">memory</a><a href="/dash/profile/">profile</a></nav><button class="theme-toggle"></button>`
+const dashNav = `<nav><a href="/dash/">arizuko</a><a href="/dash/status/">status</a><a href="/dash/tasks/">tasks</a><a href="/dash/activity/">activity</a><a href="/dash/groups/">groups</a><a href="/dash/routes/">routes</a><a href="/dash/memory/">memory</a><a href="/dash/profile/">profile</a></nav><button class="theme-toggle"></button>`
 
 func dashHead(title string) string {
 	return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
