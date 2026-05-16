@@ -9,27 +9,28 @@ revision: 2
 
 ## v1 scope (this spec)
 
-Two things ship now:
+Four things ship together:
 
 1. **`fork_topic(parent, child)` MCP command** — explicit topic
    forking with parent context inherited up to the fork point.
 2. **Per-topic `observed_cursor`** — fixes the "topic A consumes
    observed window, topic B never sees them" problem.
+3. **Default-fork-from-main** — every non-main topic auto-forks from
+   main on first session creation. Slack `#deploy` started by user
+   command, web-topic created via slink, Telegram bot menu topic —
+   all start with main's recent history as `<inherited>` context.
+4. **Thread auto-fork (implicit)** — every adapter that creates a
+   new Topic for a platform thread (Slack thread_ts, Discord thread
+   channel, Telegram thread id) inherits via #3 automatically. No
+   adapter-side wiring needed; thread-spawned topics ARE non-main
+   topics and EnsureTopicLineage forks them like any other.
 
-That's it. The original v1 also bundled (a) default-fork-from-main
-for new topics and (b) native platform threads auto-forking. Both
-were cut after oracle review:
-
-- **Default-fork-from-main is a product decision dressed as a
-  default.** It silently changes behavior on every existing folder
-  (a `#deploy` topic that started empty for hygiene reasons suddenly
-  inherits main's last N messages). v1 ships the primitive; folders
-  opt in via a per-folder setting in a follow-up.
-- **Platform threads ≠ topic forks.** A Slack thread is _about_ the
-  parent message, not a continuation of channel context. Users open
-  threads precisely to escape channel noise; auto-inheriting it
-  inverts the platform's UX. Out of v1; revisit when a real user
-  asks for it.
+Oracle's earlier objection to bundling #3 and #4 was framed as
+"silent behavior change on existing folders" and "Slack threads
+aren't forks." Operator's call: ship clean over back-compat-cautious.
+The objections are real but the operator wants the simpler shape;
+opt-out via `fork_topic --force` reassignment if a topic needs
+an empty-start.
 
 ## Pre-requisite: extract `buildAgentPrompt`
 
@@ -166,10 +167,6 @@ handler shape as other resreg-style endpoints.
 
 ## What this is NOT (v1)
 
-- **NOT default-fork-from-main.** Existing topics keep current
-  behavior. Operator opt-in deferred to v2 via per-folder setting.
-- **NOT auto-fork for platform threads.** Slack thread_ts continues
-  to map to fresh topic. Revisit only when there's a real ask.
 - **NOT crash-safe-atomic cursor.** At-least-once with agent-prompt
   rule preventing double-action.
 - **NOT replay of observed at fork.** Child's `observed_cursor =
@@ -178,6 +175,16 @@ now()` — child sees observed messages that arrive AFTER fork, not
 - **NOT a fork from arbitrary message ID.** Fork is always from
   parent's state at `now()`. "Fork from message X" is a different
   primitive; spec defers.
+- **NOT REST yet.** `fork_topic` ships MCP-only. The `POST
+/v1/topics/{folder}/fork` REST counterpart waits on the resreg
+  pattern for non-CRUD verbs.
+- **NOT per-folder opt-out for default-fork-from-main.** Operator
+  asked for the simple shape; every non-main topic forks from main.
+  If a topic needs an empty session, the operator can
+  `fork_topic main #x --force` (force-resetting from main is still
+  default-fork; to truly start empty, delete the row and let it
+  be re-created — but the next create will fork again unless we
+  add an opt-out, which v1 deliberately doesn't).
 
 ## Code changes (revised)
 
