@@ -14,69 +14,66 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-> arizuko v0.40.0 — topic lineage + Slack pane
+## [v0.40.0] — 2026-05-16
+
+> arizuko v0.40.0 — topic lineage, Slack pane, ambient siblings
 >
-> • Forks now `cp` the parent's Claude Code session so a new topic
-> resumes from its parent's tail natively, no inline injection.
-> • New topics fork from the message they reply to: replying inside
-> `#deploy` keeps you in `#deploy`, branching elsewhere forks from
-> that thread, not from main.
-> • New `fork_topic` MCP tool — branch a focused side-conversation
-> without polluting the parent's session.
-> • Slack assistant pane support — pane sessions persist, pane-open
-> fires a turn, `pane_set_prompts` / `pane_set_title` MCP tools let
-> the agent steer the pane UI.
-> • Cross-folder ambient context: a topic in `solo/inbox` can see
-> ambient `<observed>` from `solo/scratch` (and vice versa) by
-> flipping `groups.open`; per-route observe window override via MCP.
+> Topics fork from where you reply, the Slack assistant pane is wired end-to-end, and folders can share ambient context.
+>
+> • Forks `cp` the parent's Claude Code session — new topics resume from parent's tail natively.
+> • New `fork_topic` MCP tool + default fork-from-reply: branching elsewhere forks from that thread, not main.
+> • Slack assistant pane shipped — pane-open fires a turn; `pane_set_prompts` / `pane_set_title` steer the UI.
+> • Cross-folder ambient: flip `groups.open` and siblings share `<observed>` context; `set_observe_window` overrides per-route caps.
+> • dashd TIER 1: routes editor, group settings, group create/delete UI for operators.
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ### Added
 
-- **Topic lineage on `sessions`** (spec 6/F): `parent_topic`,
-  `forked_at`, `observed_cursor` columns. Migration `0055-topic-lineage`.
-- **Plain-cp fork** (spec 6/F rev6): on fork the gateway `cp`s the
-  parent topic's Claude Code session jsonl to the child's UUID
-  (`container.CopySession`); the child resumes natively from parent's
-  tail. No inline `<inherited>` block.
-- **`<topic name=…/>` envelope** rendered on every turn so the agent
-  always knows its scope (empty name = main).
-- **`fork_topic` MCP tool** (`ipc/ipc.go`): explicit branch primitive;
-  `force=true` to overwrite an existing child.
-- **Default fork-from-parent**: `EnsureTopicLineage` seeds a new topic
-  with `parent_topic` resolved from the trigger message's `reply_to`
-  (falls back to `""`/main).
-- **Slack assistant pane** (spec 6/D): `pane_sessions` table persists
-  pane state (`store/migrations/0056-pane-sessions.sql`). `slakd`
-  handles `assistant_thread_started` (synthesises a `pane_open`
-  inbound turn, sets title + suggested prompts) and
-  `assistant_thread_context_changed` (updates the bound workspace
-  channel). `<surface>slack-pane</surface>` + optional
-  `<pane-context jid=…/>` blocks emitted by `gateway.paneHints`.
+- **Topic lineage** (spec 6/F): `sessions.parent_topic`, `forked_at`,
+  `observed_cursor`. On fork the gateway `cp`s parent topic's session
+  jsonl to child UUID — child resumes natively from parent's tail.
+- **`fork_topic` MCP tool** + default fork-from-parent: new topics seed
+  `parent_topic` from the trigger message's `reply_to`. `<topic name=…/>`
+  envelope rendered every turn.
+- **Slack assistant pane** (spec 6/D, all 8 phases): `pane_sessions`
+  persists pane state; `assistant_thread_started` synthesises a
+  `pane_open` turn + sets title + suggested prompts;
+  `assistant_thread_context_changed` rebinds the workspace channel.
+  `<surface>slack-pane</surface>` + `<pane-context jid=…/>` hints.
 - **`pane_set_prompts` / `pane_set_title` MCP tools** — stage Slack
-  pane title / suggested-prompt buttons; fire after the next outbound
-  into the pane. `slakd /v1/pane/prompts` and `/v1/pane/title`
-  endpoints carry the staging from gated → adapter.
-- **Cross-folder ambient context** (spec 6/F): `groups.open` flag plus
-  `SiblingFolders` widens `ObservedSince` to include open siblings.
-  New `set_observe_window` MCP tool overrides per-route caps.
-- **dashd TIER 1**: routes editor + group settings + group
-  create/delete UI.
+  pane UI; fires after the next outbound. Backed by slakd
+  `/v1/pane/prompts` + `/v1/pane/title`.
+- **Cross-folder ambient** (spec 6/F): `groups.open` flag widens
+  `ObservedSince` to include open siblings. `set_observe_window` MCP
+  overrides per-route caps. Slack typing via `assistant.threads.setStatus`.
+- **dashd TIER 1**: routes editor, group settings, group
+  create/delete, admin auth.
+- **Playwright test suite** for dashd (routes + groups + auth coverage).
 
 ### Changed
 
 - **`buildAgentPrompt` is the single renderer** for chat + web-topic
-  paths (`gateway/gateway.go`); both call sites went from inline
-  assembly to one function so the two paths cannot drift.
-- **Observed cursor is per-topic**, not per-folder: `ObservedSince`
-  replaces `ObservedTail`; gateway advances each topic's cursor
-  independently after rendering.
+  paths — two call sites cannot drift.
+- **Observed cursor is per-topic, not per-folder**: `ObservedSince`
+  replaces `ObservedTail`; each topic advances independently.
+- **Web docs**: gold/blue palette restored, light-theme contrast +
+  footer, new concept pages (scopes, engagement, slack-pane).
+- **ant/CLAUDE.md** hard ceiling on response length.
 
 ### Fixed
 
-- **`ObservedTail` no longer excluded the trigger JID** — observed
-  context now includes the channel that fired the turn.
+- **`ObservedTail` no longer excludes the trigger JID** — observed
+  context includes the channel that fired the turn.
+- **discd self-loop** dropped in user mode.
+- **`fork_topic` auth** — added to `AuthorizeStructural` switch.
+
+### Schema
+
+- Migration **0055** adds `sessions.parent_topic`, `forked_at`,
+  `observed_cursor`.
+- Migration **0056** adds `pane_sessions` table.
+- Migration **0057** adds `groups.open` flag.
 
 ## [v0.39.1] — 2026-05-15
 
