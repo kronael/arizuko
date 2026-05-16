@@ -41,51 +41,54 @@
       <h2>what you get</h2>
       <ul>
         <li>
+          <strong>Topics that fork.</strong> A conversation can branch into a
+          side-topic; the child inherits its parent&rsquo;s Claude session via
+          plain <code>cp -r</code> on <code>.claude/</code>. Every new
+          inbound topic also auto-forks from the group&rsquo;s main topic, so
+          the agent walks in with prior context, not a blank slate. Agents
+          fork themselves with the <code>fork_topic</code> MCP tool. See
+          <a href="/pub/concepts/topics.html">concepts/topics</a>.
+        </li>
+        <li>
+          <strong>Sibling folders share context.</strong> A folder&rsquo;s
+          <code>observe</code>-window messages are visible to its siblings by
+          default; set <code>open=0</code> on a group to seal it off. Lets
+          <code>corp/eng/sre</code> see what <code>corp/eng/launch-q3</code>
+          is saying without explicit cross-posts. See
+          <a href="/pub/concepts/scopes.html">concepts/scopes</a>.
+        </li>
+        <li>
+          <strong>Slack AI sidebar.</strong> The Agents &amp; AI Apps pane is a
+          first-class surface: <code>setStatus</code>, <code>setTitle</code>,
+          <code>setSuggestedPrompts</code>, and pane-context awareness all
+          flow through MCP tools (<code>pane_set_prompts</code>,
+          <code>pane_set_title</code>). The agent knows which channel and
+          thread the pane is attached to. See
+          <a href="/pub/concepts/slack-pane.html">concepts/slack-pane</a>.
+        </li>
+        <li>
+          <strong>Operator dashboard CRUD.</strong> <code>dashd</code> serves
+          <code>/dash/</code> with a routes editor, group settings (open /
+          closed toggle, observe window), and group create / delete. No more
+          editing <code>.env</code> by hand to rewire a route.
+        </li>
+        <li>
+          <strong>Topic-suffix routing.</strong>
+          <code>target=corp/eng#alerts</code> pins routed messages to a named
+          topic at route time &mdash; one topic per source, no manual sorting.
+        </li>
+        <li>
           <strong>Orthogonal primitives.</strong> Folders are paths on disk.
           Routes match on key=glob pairs. ACL grants scope per principal &times;
           action &times; folder. Channels speak HTTP. Containers are
-          per-group. None of these know about each other &mdash; they meet at
-          <code>messages.db</code>.
+          per-group. They meet at <code>messages.db</code> and nowhere else.
         </li>
         <li>
           <strong>Compose, don&rsquo;t patch.</strong> Adding a channel adapter
           is a <code>template/services/&lt;daemon&gt;.toml</code> file with a
-          <code>[[proxyd_route]]</code> block. No edit to
-          <code>proxyd/main.go</code> or <code>compose/compose.go</code>.
-          Adding a tenant is a folder + a route + a grant row.
-        </li>
-        <li>
-          <strong>Many groups, one process.</strong> One instance hosts an
-          arbitrary tree of groups. <code>solo/inbox</code> and
-          <code>corp/eng/sre/oncall</code> run the same code. Each group owns
-          its files, diary, skills, secrets, container, MCP socket.
-        </li>
-        <li>
-          <strong>Many users per group, isolated.</strong> Within a group,
-          users get per-user memory files and per-user grants. Per-user
-          secrets resolve through a host-side broker at tool-call time &mdash;
-          they never enter the container env.
-        </li>
-        <li>
-          <strong>Identity unified across channels.</strong> GitHub / Google /
-          Discord / Telegram OAuth all resolve to one
-          <code>auth_users.sub</code>. The same person reaching the bot from
-          Discord and Telegram is one principal, one set of grants.
-        </li>
-        <li>
-          <strong>Signed identity headers.</strong> <code>proxyd</code> is the
-          sole signer; every backend verifies via <code>auth/middleware.go</code>
-          (<code>RequireSigned</code> strict, <code>StripUnsigned</code>
-          lenient). No handler trusts <code>X-User-Sub</code> without a sig
-          check.
-        </li>
-        <li>
-          <strong>Per-group sandbox.</strong> Each group runs in its own Docker
-          container with bind-mounted group files and a per-group MCP socket.
-          With <code>CRACKBOX_ADMIN_API</code> set, containers attach to an
-          <code>internal: true</code> network; outbound HTTP/HTTPS goes through
-          <code>crackbox</code>, which enforces a per-folder hostname
-          allowlist.
+          <code>[[proxyd_route]]</code> block. Adding a tenant is a folder + a
+          route + a grant row. New MCP tools land in
+          <a href="/pub/reference/mcp.html">reference/mcp</a>.
         </li>
         <li>
           <strong>Your server, your disk, your backup.</strong> One
@@ -151,11 +154,14 @@ dashd   &mdash; operator dashboards (read-only)</code></pre>
         <li>
           <a href="/pub/concepts/">concepts</a> &mdash; the primitives one
           page each:
-          <a href="/pub/concepts/ant.html">ant</a>,
+          <a href="/pub/concepts/topics.html">topics</a>,
+          <a href="/pub/concepts/scopes.html">scopes</a>,
+          <a href="/pub/concepts/slack-pane.html">slack pane</a>,
           <a href="/pub/concepts/routing.html">routing</a>,
-          <a href="/pub/concepts/jid.html">jid</a>,
+          <a href="/pub/concepts/ant.html">ant</a>,
           <a href="/pub/concepts/grants.html">grants</a>,
           <a href="/pub/concepts/auth.html">auth</a>,
+          <a href="/pub/concepts/jid.html">jid</a>,
           <a href="/pub/concepts/slink.html">slink</a>,
           <a href="/pub/concepts/webdav.html">webdav</a>,
           <a href="/pub/concepts/voice.html">voice</a>.
