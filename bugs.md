@@ -128,3 +128,15 @@ Consolidated from per-group `issues.md` files across krons, sloth, marinade.
   switch; every call hit the `default: unknown tool` branch and the MCP
   tool errored out with `unknown tool: fork_topic`. Added to the
   `reset_session` case (same subtree-gated rule). Test unskipped + passes.
+
+## dashd nested-folder path routing (2026-05-16, found via playwright)
+
+- **dashd admin endpoints can't address nested folders.**
+  `mux.HandleFunc("GET /dash/groups/{folder}/settings", ...)` — Go's
+  `{folder}` path-value matches a single segment. `/dash/groups/solo/inbox/settings`
+  falls through to the list handler and silently returns the wrong page
+  with status 200. Affects: settings, delete, settings POST. Fix:
+  use `{folder...}` (trailing wildcard) and trim the suffix.
+  Production groups like `solo/inbox` or `corp/eng/sre/oncall` are
+  unreachable by these endpoints today. Caught by
+  `tests/dashd-playwright/groups.spec.ts` (working around via flat seed).
