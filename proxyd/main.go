@@ -719,15 +719,6 @@ func (s *server) tryAuth(r *http.Request) *http.Request {
 	return s.setUserHeaders(r, u.Sub, u.Name, s.st.UserScopes(u.Sub))
 }
 
-func (s *server) optionalAuth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if a := s.tryAuth(r); a != nil {
-			r = a
-		}
-		next(w, r)
-	}
-}
-
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.authSecret == "" {
