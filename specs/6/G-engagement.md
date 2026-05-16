@@ -43,19 +43,28 @@ Add one column:
 ALTER TABLE chat_reply_state ADD COLUMN last_reply_at TEXT;
 ```
 
-RFC3339Nano UTC, set on every bot outbound. The freshness check at
-routing time is a column comparison; no new table, no new index
-(existing PK is enough).
+RFC3339Nano UTC. **Single write site**: `MarkMessageDelivered` in
+`store/messages.go` — the one chokepoint for "this outbound was
+acked by the channel adapter." Today three sites call
+`SetLastReplyID` (steered echo at `gateway.go:578`, `putAndDeliver`
+at `:1004`, retry at `:487`) — the retry path must NOT re-bump
+engagement (a 2-hour-stale retry shouldn't re-engage). Bumping at
+`MarkMessageDelivered` instead of `SetLastReplyID` puts the write
+at the right boundary and audits all callers in one place.
 
 ## Routing logic change
 
-In gateway's poll loop, after route resolution and before observe-
-vs-trigger decision (gateway.go:554):
+In gateway's poll loop, **after** the observe-mode short-circuit at
+`gateway.go:554`. **Observe always wins** — operators set
+`target=#observe` precisely to silence the bot in that channel;
+engagement state must not override.
 
 ```go
+if rt.Mode == "observe" {
+    // existing path: mark observed, advance cursor, continue
+    continue
+}
 switch {
-case routeMode == "observe":
-    // existing: store and continue
 case verb == "mention":
     // existing: trigger
 case engaged(jid, topic):
@@ -67,29 +76,40 @@ default:
 }
 ```
 
-`engaged()` is: `chat_reply_state.last_reply_at > now() - ENGAGEMENT_TTL`.
+`engaged()` is **sliding-from-any-activity** (oracle critique:
+sliding-from-bot-reply only would reintroduce the very re-mention
+friction this spec attacks):
+
+```
+engaged := max(last_reply_at, last_inbound_in_topic_at) > now() - ENGAGEMENT_TTL
+```
+
+`last_inbound_in_topic_at` is the max `messages.timestamp` for
+`(chat_jid, topic)` — already covered by `idx_messages_chat_ts`.
+No new index.
 
 `replyToBotMsg(last)` is: `last.ReplyToID` resolves to a row with
-`is_bot_message=1`. Already trivially computable from existing
-schema — one query per turn, indexed on (id, chat_jid).
+`is_bot_message=1`. Single PK lookup (`messages.id`), AND-filtered
+on chat_jid + bot flag. Done once per channel inbound; cheap.
 
-## Thread-by-default on Slack channels
+## Thread-by-default on Slack channels — only for conversational replies
 
-Two rules, both adapter-local in `slakd/bot.go:Send()`:
+Three rules, all in `slakd/bot.go:Send()`:
 
-1. **Always thread in non-DM, non-mpim channels** — when sending to
-   `slack:T/channel/C…`, set `thread_ts` to the parent message ts
-   (the trigger's ts, or its ReplyTo if it's already in a thread).
-2. **Preserve existing thread** — if `req.ThreadID` or `req.ReplyTo`
-   is already set (today's path for in-thread replies), leave it.
+1. **Preserve existing thread** — if `req.ThreadID` or `req.ReplyTo`
+   is set (today's path), leave it.
+2. **Conversational reply with no explicit thread** — set
+   `thread_ts = req.ReplyTo` if the trigger had one, else the
+   trigger message ts. "Conversational" = `req.TurnID != ""` (which
+   we already set on agent replies — distinguishes from broadcasts).
+3. **Broadcast / unsolicited outbound** — leave thread_ts empty,
+   lands top-level. This is `timed` scheduled messages, migrate
+   announcements, system notifications. They have no parent to
+   thread under.
 
-Net effect: bot opens a thread on the user's mention. Subsequent
-thread replies engage automatically (rule above). Channel feed stays
-free of bot output.
-
-No new field on outbound: `chanlib.SendRequest.ThreadID` exists;
-slakd just chooses to populate it when missing AND target is a
-top-level channel message.
+Net effect: bot opens a thread on the user's mention; subsequent
+thread replies engage automatically; broadcasts stay visible in the
+main channel feed.
 
 ## Corrective exchanges fork to a side thread
 
@@ -146,15 +166,27 @@ Computed from `chat_jid` shape + thread context. Agent's prompt
 rule (in `ant/CLAUDE.md`) reads this and self-caps. Surface is a
 hint, not enforcement — the agent decides.
 
+**Replaces the global ceiling.** The existing 500ch/6-line rule
+in `ant/CLAUDE.md` becomes the **default surface cap** for any
+unspecified surface; named surfaces override. Single source: the
+per-surface table is canonical, the global rule reads "if surface
+hint absent, fall back to 500/6." Spec ships removing the
+freestanding 500/6 line and folding it into this table.
+
 ## MCP tools
 
-- **`disengage(jid?: string)`** — clears `last_reply_at` for
-  current `(jid, topic)` (or the explicit jid). Bot calls this when
-  it's done helping. Subsequent inbounds need mention to re-engage.
-- **`engage(jid?, topic?)`** — explicit re-engagement without a
-  user mention. Useful for scheduled / autonomous turns.
+- **`disengage(jid: string, topic: string)`** — clears
+  `last_reply_at` for `(jid, topic)`. Bot calls when it's done
+  helping. Subsequent inbounds need mention to re-engage.
+- **`engage(jid: string, topic: string)`** — explicit re-engagement
+  without a user mention. For scheduled / autonomous turns.
 
-Both wrap a single store helper `SetEngagement(jid, topic, t)`.
+Both args required — MCP sockets are per-folder, not per-conversation,
+so there's no implicit "current" jid the tool can default to. The
+agent passes the jid it intends to act on.
+
+Both wrap one store helper `SetEngagement(jid, topic, t)` —
+t=now sets, t=zero-time clears.
 
 ## Migration
 

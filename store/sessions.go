@@ -17,28 +17,15 @@ func (s *Store) GetSession(folder, topic string) (string, bool) {
 	return id, err == nil
 }
 
-// SetSession upserts a session_id for (folder, topic). On the first
-// INSERT for a non-main topic, lineage columns default to forked-from-
-// main at now() — spec 6/F default-fork-from-main. UPDATE path
-// preserves existing lineage (only session_id changes). Pass an
-// explicit parent via SetSessionForked to override the default.
+// SetSession upserts a session_id for (folder, topic). Lineage
+// columns are owned by EnsureTopicLineage / ForkTopic (spec 6/F),
+// which always run before the first agent turn — so this UPSERT
+// only ever flips session_id on an existing row, never seeds lineage.
 func (s *Store) SetSession(folder, topic, id string) error {
-	if topic == "" {
-		// Root main topic — no parent, no fork point.
-		_, err := s.db.Exec(
-			`INSERT INTO sessions (group_folder, topic, session_id) VALUES (?, ?, ?)
-			 ON CONFLICT(group_folder, topic) DO UPDATE SET session_id = excluded.session_id`,
-			folder, topic, id,
-		)
-		return err
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err := s.db.Exec(
-		`INSERT INTO sessions
-		   (group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
-		 VALUES (?, ?, ?, '', ?, ?)
+		`INSERT INTO sessions (group_folder, topic, session_id) VALUES (?, ?, ?)
 		 ON CONFLICT(group_folder, topic) DO UPDATE SET session_id = excluded.session_id`,
-		folder, topic, id, now, now,
+		folder, topic, id,
 	)
 	return err
 }

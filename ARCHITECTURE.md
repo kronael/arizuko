@@ -231,7 +231,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored, is_observed |
 | `groups`           | folder (PK), name, container_config, slink_token, parent                                              |
 | `routes`           | id (PK), seq, match, target (`<folder>[#<mode>]`), observe_window_messages, observe_window_chars      |
-| `sessions`         | group_folder + topic (PK), session_id                                                                 |
+| `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (spec 6/F)            |
 | `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error                                     |
 | `system_messages`  | id, group_id, origin, event, body                                                                     |
 | `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode                                |
@@ -507,6 +507,9 @@ today:
   `gateway/gateway.go`
 - `<observed>` — trailing window of `is_observed=1` messages stored
   under this folder via `#observe` routes; `gateway/gateway.go`
+- `<inherited from=… through=…>` — parent topic's trailing history on
+  a forked child's early turns, until live thread fills the window
+  (spec 6/F); `gateway/gateway.go`
 
 Full table with line cites and the convention for adding a block
 lives in `gateway/README.md` ("Per-turn ephemeral XML blocks"). See
