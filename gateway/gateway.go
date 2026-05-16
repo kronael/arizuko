@@ -145,6 +145,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		Dislike:      g.dislikeOnJID,
 		Edit:         g.editOnJID,
 		ClearSession: g.clearSession,
+		ForkTopic:    g.forkTopic,
 		GroupsDir:    g.cfg.GroupsDir,
 		WebDir:       g.cfg.WebDir,
 		InjectMessage: g.injectMessage,
@@ -842,28 +843,68 @@ func (g *Gateway) buildAgentPrompt(group core.Group, topic string, trigger []cor
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
 	maxN, maxC := g.observeWindow(group.Folder)
 
-	cursor := ""
-	if lin, ok := g.store.TopicLineage(group.Folder, topic); ok {
-		cursor = lin.ObservedCursor
+	var lin core.TopicLineage
+	if l, ok := g.store.TopicLineage(group.Folder, topic); ok {
+		lin = l
 	}
-	observed := g.store.ObservedSince(group.Folder, cursor, maxN, maxC)
-
+	observed := g.store.ObservedSince(group.Folder, lin.ObservedCursor, maxN, maxC)
 	if len(observed) > 0 {
-		// Advance cursor to the youngest observed timestamp in the
-		// returned window. Idempotent in the store layer.
 		newest := observed[len(observed)-1].Timestamp.UTC().Format(time.RFC3339Nano)
 		_ = g.store.UpdateObservedCursor(group.Folder, topic, newest)
 	}
 
-	observedRule := ""
+	inherited := ""
+	if lin.ParentTopic != "" {
+		parentMsgs := g.store.TopicHistoryThrough(
+			group.Folder, lin.ParentTopic, lin.ForkedAt,
+			g.cfg.InheritWindowMessages, g.cfg.InheritWindowChars,
+		)
+		if len(parentMsgs) > 0 {
+			inherited = renderInheritedBlock(lin.ParentTopic, lin.ForkedAt, parentMsgs)
+		}
+	}
+
+	rules := ""
+	if inherited != "" {
+		rules += "<rule>Inherited messages are the parent topic's history up to the fork point. Treat as background; do not re-respond to them. The live thread starts after this block.</rule>\n"
+	}
 	if len(observed) > 0 {
-		observedRule = "<rule>Observed messages are context, not requests. Do not reply to them; reply to the explicit message.</rule>\n"
+		rules += "<rule>Observed messages are context, not requests. Do not reply to them; reply to the explicit message.</rule>\n"
 	}
 	return sysMsgs +
 		g.autocallsBlock(group.Folder, topic) +
 		g.personaBlock(group.Folder) +
-		observedRule +
+		rules +
+		inherited +
 		router.FormatMessages(trigger, observed)
+}
+
+// renderInheritedBlock emits the parent topic's trailing history as
+// a single <inherited from="…" through="…"> block. Used on forked
+// topics' early turns until enough live messages accumulate that the
+// parent context fades from window. Spec 6/F.
+func renderInheritedBlock(parentTopic, forkedAt string, msgs []core.Message) string {
+	var b strings.Builder
+	b.WriteString(`<inherited from="`)
+	b.WriteString(parentTopic)
+	b.WriteString(`" through="`)
+	b.WriteString(forkedAt)
+	b.WriteString("\">\n")
+	for _, m := range msgs {
+		name := m.Name
+		if name == "" {
+			name = m.Sender
+		}
+		b.WriteString(`<msg sender="`)
+		b.WriteString(name)
+		b.WriteString(`" time="`)
+		b.WriteString(m.Timestamp.UTC().Format("2006-01-02T15:04:05Z"))
+		b.WriteString(`">`)
+		b.WriteString(m.Content)
+		b.WriteString("</msg>\n")
+	}
+	b.WriteString("</inherited>\n")
+	return b.String()
 }
 
 func (g *Gateway) makeOutputCallback(
@@ -1342,6 +1383,17 @@ func (g *Gateway) editOnJID(jid, targetID, content string) error {
 
 func (g *Gateway) clearSession(folder string) {
 	g.store.DeleteSession(folder, "")
+}
+
+// forkTopic creates a new child topic forked from parent. Spec 6/F.
+// The child carries parent_topic, forked_at, observed_cursor set to
+// now() and a fresh session_id. Returns store.ErrTopicExists if
+// child already exists and force=false.
+func (g *Gateway) forkTopic(folder, parent, child string, force bool) error {
+	if folder == "" || child == "" {
+		return fmt.Errorf("fork: folder and child required")
+	}
+	return g.store.ForkTopic(folder, parent, child, core.NewSessionID(), force)
 }
 
 func (g *Gateway) injectMessage(jid, content, sender, senderName string) (string, error) {

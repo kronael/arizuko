@@ -109,13 +109,10 @@ func (s *Store) ForkTopic(folder, parent, child, newSessionID string, force bool
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return ErrTopicExists
+		return core.ErrTopicExists
 	}
 	return nil
 }
-
-// ErrTopicExists signals ForkTopic(force=false) refused to overwrite.
-var ErrTopicExists = fmt.Errorf("topic exists")
 
 func (s *Store) GetState(key string) string {
 	var val string

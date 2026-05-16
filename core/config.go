@@ -62,6 +62,13 @@ type Config struct {
 	ObserveWindowMessages int
 	ObserveWindowChars    int
 
+	// Inherit window caps the <inherited> block on forked topics
+	// (spec 6/F). Separate from OBSERVE_WINDOW_* — inherited is the
+	// parent topic's history up to the fork point; observed is
+	// ambient sidechannel context.
+	InheritWindowMessages int
+	InheritWindowChars    int
+
 	MediaEnabled  bool
 	MediaMaxBytes int64
 	WhisperURL    string
@@ -150,6 +157,8 @@ func LoadConfig() (*Config, error) {
 
 		ObserveWindowMessages: envInt("OBSERVE_WINDOW_MESSAGES", 10),
 		ObserveWindowChars:    envInt("OBSERVE_WINDOW_CHARS", 4000),
+		InheritWindowMessages: envInt("INHERIT_WINDOW_MESSAGES", 50),
+		InheritWindowChars:    envInt("INHERIT_WINDOW_CHARS", 20000),
 
 		MediaEnabled:  envOr("MEDIA_ENABLED", "false") == "true",
 		MediaMaxBytes: int64(envInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),

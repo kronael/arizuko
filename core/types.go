@@ -215,6 +215,16 @@ func MsgID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
+// NewSessionID mints a fresh session ID for a topic (spec 4/23,
+// extended by spec 6/F for forked children). Format: "sess-<nano>".
+func NewSessionID() string {
+	return fmt.Sprintf("sess-%d", time.Now().UnixNano())
+}
+
+// ErrTopicExists signals a fork attempted to overwrite an existing
+// (folder, topic) without force=true. Spec 6/F.
+var ErrTopicExists = fmt.Errorf("topic exists")
+
 // ACLRow is one grant in the unified ACL (spec 6/9). Effect is "allow"
 // or "deny" (deny wins). Params/predicate are empty strings when absent.
 type ACLRow struct {

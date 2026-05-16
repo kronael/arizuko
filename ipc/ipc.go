@@ -43,6 +43,7 @@ type GatedFns struct {
 	Dislike             func(jid, targetID string) error
 	Edit                func(jid, targetID, content string) error
 	ClearSession        func(folder string)
+	ForkTopic           func(folder, parent, child string, force bool) error
 	InjectMessage       func(jid, content, sender, senderName string) (string, error)
 	RegisterGroup       func(jid string, group core.Group) error
 	SetupGroup          func(folder string) error
@@ -1043,6 +1044,39 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return "", gated.Edit(a["chatJid"], a["targetId"], a["content"])
 		},
 	})
+
+	granted("fork_topic", "Branch a topic from another's current state. Child gets a fresh session_id plus inherits parent's trailing history as <inherited> context on early turns. Use when starting a focused side-conversation that needs the parent's recent state but should not pollute the parent's session. Pass force=true to overwrite an existing child topic.",
+		[]mcp.ToolOption{
+			mcp.WithString("parent", mcp.Required()),
+			mcp.WithString("child", mcp.Required()),
+			mcp.WithBoolean("force"),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.ForkTopic == nil {
+				return toolErr("fork_topic not configured")
+			}
+			parent := req.GetString("parent", "")
+			child := req.GetString("child", "")
+			if child == "" {
+				return toolErr("child required")
+			}
+			if err := auth.AuthorizeStructural(id, "fork_topic", auth.AuthzTarget{TargetFolder: id.Folder}); err != nil {
+				return toolErr(err.Error())
+			}
+			force := req.GetBool("force", false)
+			if err := gated.ForkTopic(id.Folder, parent, child, force); err != nil {
+				if errors.Is(err, core.ErrTopicExists) {
+					return toolErr("topic_exists")
+				}
+				return toolErr(err.Error())
+			}
+			slog.Info("topic forked", "folder", id.Folder, "parent", parent, "child", child, "force", force)
+			return toolJSON(map[string]any{
+				"folder":       id.Folder,
+				"parent_topic": parent,
+				"child_topic":  child,
+			})
+		})
 
 	granted("reset_session", "Drop the Claude session for a group so the next message starts fresh context. Use when the user asks for /new, when context is confused/polluted, or before a topic switch. Not for injecting content (inject_message) — this discards, it doesn't add.",
 		[]mcp.ToolOption{mcp.WithString("groupFolder", mcp.Required())},
