@@ -362,6 +362,29 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"registered": true, "folder": "&lt;f&gt;", "jid": "&lt;jid&gt;"}</code>; <code>SetupGroup</code> seeds skills/settings/tasks.</p>
 
+    <h3 id="set_group_open"><code>set_group_open</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <p>Toggle this group's visibility to sibling folders. When <code>open=true</code>, sibling folders' ambient messages surface in this group's <code>&lt;observed&gt;</code> block (and this group's messages surface to open siblings). Default: open. Use to seal off a sensitive folder from cross-folder ambient context. Spec: 6/F. Concept: <a href="/pub/concepts/scopes.html">scopes</a>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1252"><code>ipc/ipc.go:1252</code></a> &middot; Grant action: <code>set_group_open</code> &middot; <code>auth.AuthorizeStructural</code> on the calling folder.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">open</td><td class="type">bool</td><td class="req req-y">yes</td><td><code>true</code> to expose to siblings, <code>false</code> to seal off.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "open": &lt;bool&gt;}</code>.</p>
+
+    <h3 id="set_observe_window"><code>set_observe_window</code></h3>
+    <p>Override this group's ambient observe-window caps (messages and/or chars). Per-group caps win over instance env defaults (<a href="env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a>, <a href="env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a>); per-route caps still win over both. Pass <code>-1</code> to clear an override; omit a field to leave it unchanged. Spec: 6/F.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1219"><code>ipc/ipc.go:1219</code></a> &middot; Grant action: <code>set_observe_window</code>.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">messages</td><td class="type">number</td><td class="req req-n">no</td><td>Max ambient messages surfaced per turn; <code>-1</code> clears override. At least one of <code>messages</code> / <code>chars</code> must be present.</td></tr>
+        <tr><td class="name">chars</td><td class="type">number</td><td class="req req-n">no</td><td>Max ambient chars per turn; <code>-1</code> clears override.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "messages": &lt;n&gt;, "chars": &lt;n&gt;}</code>.</p>
+
     <h2 id="sessions">sessions &amp; work</h2>
 
     <h3 id="get_work"><code>get_work</code></h3>

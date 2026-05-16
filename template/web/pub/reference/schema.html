@@ -282,10 +282,13 @@
         <tr><td><code>parent</code></td><td>TEXT</td><td>NULL</td><td></td><td>parent folder path</td></tr>
         <tr><td><code>updated_at</code></td><td>TEXT</td><td>NULL</td><td></td><td>RFC3339</td></tr>
         <tr><td><code>product</code></td><td>TEXT</td><td>NOT NULL</td><td>'assistant'</td><td>product slug (0044)</td></tr>
+        <tr><td><code>open</code></td><td>INTEGER</td><td>NOT NULL</td><td>1</td><td>1 = visible to sibling folders as ambient source (cross-folder <code>&lt;observed&gt;</code>); 0 = sealed off. Spec 6/F. Toggled via <a href="mcp.html#set_group_open"><code>set_group_open</code></a>.</td></tr>
+        <tr><td><code>observe_window_messages</code></td><td>INTEGER</td><td>NULL</td><td></td><td>per-group cap on ambient messages surfaced per turn (NULL = fall back to <a href="env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a>). Per-route override wins.</td></tr>
+        <tr><td><code>observe_window_chars</code></td><td>INTEGER</td><td>NULL</td><td></td><td>per-group cap on ambient chars per turn (NULL = fall back to <a href="env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a>).</td></tr>
       </table>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L30"><code>store/groups.go:30</code></a> (INSERT), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L50"><code>:50</code></a> (DELETE).</p>
+      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L30"><code>store/groups.go:30</code></a> (INSERT), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L50"><code>:50</code></a> (DELETE), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L250"><code>:250</code></a> (<code>SetGroupOpen</code>), <code>SetGroupObserveWindow</code>.</p>
       <p class="meta"><strong>Readers:</strong> many — gated, dashd, webd, davd, onbod, timed, every MCP tool that scopes to a folder.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0020-groups-refactor.sql#L22">0020</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0041-drop-groups-state.sql">0041</a> dropped <code>state</code>, <code>spawn_ttl_days</code>, <code>archive_closed_days</code>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0044-product.sql">0044</a> added <code>product</code>.</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0020-groups-refactor.sql#L22">0020</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0041-drop-groups-state.sql">0041</a> dropped <code>state</code>, <code>spawn_ttl_days</code>, <code>archive_closed_days</code>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0044-product.sql">0044</a> added <code>product</code>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0057-group-visibility.sql">0057</a> added <code>open</code>, <code>observe_window_messages</code>, <code>observe_window_chars</code> (spec 6/F).</p>
     </div>
 
     <div class="tablecard">
@@ -306,7 +309,7 @@
 
     <div class="tablecard">
       <h3><code>routes</code></h3>
-      <p>Inbound match-target table. <code>match</code> is space-separated <code>key=glob</code> pairs evaluated by <a href="https://github.com/kronael/arizuko/blob/main/router/router.go#L300"><code>router.RouteMatches</code></a>; <code>target</code> is the destination folder, with an optional <code>#mode</code> fragment (<code>#observe</code> stores without firing a turn). Routes are evaluated in <code>(seq, id)</code> order; first match wins.</p>
+      <p>Inbound match-target table. <code>match</code> is space-separated <code>key=glob</code> pairs evaluated by <a href="https://github.com/kronael/arizuko/blob/main/router/router.go#L300"><code>router.RouteMatches</code></a>; <code>target</code> is the destination folder with an optional <code>#fragment</code>. <code>#observe</code> is the only reserved mode (store without firing a turn); any other fragment (<code>folder#deploy</code>, <code>folder#triage</code>) pins the routed message to that <a href="/pub/concepts/topics.html">topic</a>. Routes evaluate in <code>(seq, id)</code> order; first match wins.</p>
       <table>
         <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
         <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td>NOT NULL</td><td></td><td></td></tr>
