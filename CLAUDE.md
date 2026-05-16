@@ -140,13 +140,13 @@ is in `template/web/CLAUDE.md`. Workflow:
 2. Verify locally: open the HTML directly or via any static file
    server. No build step.
 3. Sync to running instances (krons hosts the canonical site at
-   `https://fab.krons.cx/pub/arizuko/`):
+   `https://krons.fiu.wtf/pub/arizuko/`):
 
    ```bash
    sudo rsync -a --delete template/web/pub/ /srv/data/arizuko_krons/web/pub/arizuko/
    ```
 
-4. Verify live: `curl -s https://fab.krons.cx/pub/arizuko/concepts/routing.html | head`.
+4. Verify live: `curl -s https://krons.fiu.wtf/pub/arizuko/concepts/routing.html | head`.
 
 The arizuko docs live under `/pub/arizuko/` on the krons host (one
 of several sites that vited serves from
