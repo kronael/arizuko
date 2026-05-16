@@ -165,6 +165,28 @@ REST counterpart per the "MCP+REST hand-rolled and uniform" CLAUDE.md
 principle: `POST /v1/topics/{folder}/fork {parent, child}`. Same
 handler shape as other resreg-style endpoints.
 
+## Fork implementation: plain copy of parent session jsonl
+
+Claude Code stores each session as a single jsonl file at
+`~/.claude/projects/<slug>/<uuid>.jsonl`. The minimum-viable fork:
+
+1. `child_uuid = NewSessionID()`
+2. `cp ~/.claude/projects/<slug>/<parent_uuid>.jsonl
+   ~/.claude/projects/<slug>/<child_uuid>.jsonl`
+3. `sessions.session_id` for the child topic = `child_uuid`
+4. Child's first agent run uses `--resume <child_uuid>` — picks
+   up the parent's full history as its own.
+
+No truncation, no rewriting, no clean-cut logic. The parent's
+tail is by definition a valid resume point (the parent ran fine
+when forked); the child just continues from there. Next user
+prompt is the next message in the conversation.
+
+The `<inherited>` block injection (`TopicHistoryThrough` +
+renderer) becomes the fallback for cases where the session file
+path isn't reachable — tests, first deploy before any session
+exists, non-Claude-Code agent runtimes.
+
 ## What this is NOT (v1)
 
 - **NOT crash-safe-atomic cursor.** At-least-once with agent-prompt
