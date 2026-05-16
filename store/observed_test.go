@@ -30,7 +30,7 @@ func TestObservedTail_PromptIncludesBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	observed := s.ObservedTail(folder, "telegram:1", 10, 4000)
+	observed := s.ObservedTail(folder, 10, 4000)
 	if len(observed) != 1 {
 		t.Fatalf("observed tail = %d, want 1", len(observed))
 	}
@@ -52,6 +52,43 @@ func TestObservedTail_PromptIncludesBlock(t *testing.T) {
 	empty := router.FormatMessages(trig, nil)
 	if strings.Contains(empty, "<observed") {
 		t.Errorf("expected no <observed> block, got:\n%s", empty)
+	}
+}
+
+// Regression: a non-mention message in the SAME chat_jid as the next
+// trigger used to get filtered out twice — past the cursor in the
+// regular feed AND excluded from ObservedTail. Confirmed live on
+// sloth (#general retold a link as observed, then a @mention turn
+// in the same channel landed with the link content invisible).
+func TestObservedTail_SameJIDAsTriggerSurfaces(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	folder := "main"
+	now := time.Now()
+	jid := "discord:837270552959516682/870660344358506566"
+	if err := s.PutMessage(core.Message{
+		ID: "alza-1", ChatJID: jid, Sender: "user", Name: "user",
+		Content: "https://example/dgx-spark", Timestamp: now.Add(-time.Minute),
+		Verb: "message", Source: "discord",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkMessagesObserved(folder, []string{"alza-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Trigger arrives in the same chat_jid: the observed message must
+	// still appear in the tail (regression: used to be filtered out).
+	observed := s.ObservedTail(folder, 10, 4000)
+	if len(observed) != 1 {
+		t.Fatalf("observed from same JID as trigger len = %d, want 1", len(observed))
+	}
+	if observed[0].ID != "alza-1" {
+		t.Errorf("got id=%q, want alza-1", observed[0].ID)
 	}
 }
 
@@ -79,7 +116,7 @@ func TestObservedTail_CharCap(t *testing.T) {
 	}
 
 	// Char cap of 4000 must drop older messages (3000+3000>4000, so 1 fits).
-	out := s.ObservedTail(folder, "telegram:1", 10, 4000)
+	out := s.ObservedTail(folder, 10, 4000)
 	if len(out) != 1 {
 		t.Fatalf("char-cap len = %d, want 1", len(out))
 	}

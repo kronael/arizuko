@@ -368,20 +368,21 @@ func (s *Store) MarkMessagesObserved(folder string, ids []string) error {
 
 // ObservedTail returns the trailing window of observed messages for
 // folder. Capped by maxMsgs and maxChars (older messages drop first,
-// the smaller cap wins). Messages from excludeJid are skipped (the
-// triggering chat sees its own messages via the regular feed).
-func (s *Store) ObservedTail(folder, excludeJid string, maxMsgs, maxChars int) []core.Message {
+// the smaller cap wins). is_observed=1 messages are by construction
+// past the agent cursor (the observe-route advances the cursor at
+// gateway.go:562) so they cannot appear in the regular trigger feed
+// regardless of chat_jid match.
+func (s *Store) ObservedTail(folder string, maxMsgs, maxChars int) []core.Message {
 	if maxMsgs <= 0 || maxChars <= 0 {
 		return nil
 	}
 	rows, err := s.db.Query(
 		`SELECT `+msgCols+` FROM messages
 		 WHERE routed_to = ? AND is_observed = 1
-		   AND chat_jid != ?
 		   AND is_bot_message = 0 AND content != ''
 		 ORDER BY timestamp DESC
 		 LIMIT ?`,
-		folder, excludeJid, maxMsgs,
+		folder, maxMsgs,
 	)
 	if err != nil {
 		return nil

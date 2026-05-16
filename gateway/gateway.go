@@ -718,7 +718,7 @@ func (g *Gateway) processSenderBatch(
 	g.emitSystemEvents(group, chatJid)
 	sysMsgs := g.store.FlushSysMsgs(group.Folder)
 	maxN, maxC := g.observeWindow(group.Folder)
-	observed := g.store.ObservedTail(group.Folder, chatJid, maxN, maxC)
+	observed := g.store.ObservedTail(group.Folder, maxN, maxC)
 	_ = agentTs
 	topic := g.effectiveTopic(chatJid, last.Topic)
 	observedRule := ""
