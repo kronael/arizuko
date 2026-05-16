@@ -125,7 +125,6 @@ func TestFork_MCP_InsertsLineageAndForceOverwrites(t *testing.T) {
 	// auth.AuthorizeStructural has no `fork_topic` case so the MCP call
 	// errors with "unknown tool: fork_topic" before reaching the handler.
 	// Store-layer fork is covered by store/sessions_test.go::TestForkTopic_*.
-	t.Skip("blocked on missing AuthorizeStructural case for fork_topic; see bugs.md")
 	h := newMCPHarness(t, "world/sub")
 
 	if _, err := h.S.EnsureTopicLineage("world/sub", "main", "", "main-uuid"); err != nil {

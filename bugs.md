@@ -124,10 +124,7 @@ Consolidated from per-group `issues.md` files across krons, sloth, marinade.
 
 ## Topic / pane MCP tools (2026-05-16, found via integration tests)
 
-- **`fork_topic` calls `auth.AuthorizeStructural` but the policy has no
-  case for `fork_topic`**, so every call hits the `default: unknown tool`
-  branch and the MCP tool errors out with `unknown tool: fork_topic`
-  before reaching `gated.ForkTopic`. Fix: add a `case "fork_topic":` to
-  `auth/policy.go` (likely tier-based same as `reset_session` /
-  `set_group_open`, gating to own subtree). Caught by
-  `tests/topic_lineage_test.go::TestFork_MCP_*`.
+- ✅ **FIXED** — `fork_topic` was missing from `auth.AuthorizeStructural`
+  switch; every call hit the `default: unknown tool` branch and the MCP
+  tool errored out with `unknown tool: fork_topic`. Added to the
+  `reset_session` case (same subtree-gated rule). Test unskipped + passes.

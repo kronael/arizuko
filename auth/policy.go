@@ -22,10 +22,10 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 	case "send", "send_file", "reply", "post", "like", "dislike",
 		"delete", "edit", "forward", "quote", "repost":
 		return authorizeOutbound(id, tool, target)
-	case "reset_session":
+	case "reset_session", "fork_topic":
 		if target.TargetFolder != id.Folder &&
 			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
-			return fmt.Errorf("unauthorized: can only reset own or descendant sessions")
+			return fmt.Errorf("unauthorized: can only %s own or descendant folders", "act on")
 		}
 		return nil
 	case "inject_message":
