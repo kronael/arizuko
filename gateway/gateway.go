@@ -719,11 +719,16 @@ func (g *Gateway) processSenderBatch(
 	g.emitSystemEvents(group, chatJid)
 	_ = agentTs
 	topic := g.effectiveTopic(chatJid, last.Topic)
-	// Spec 6/F default-fork-from-main: any non-main topic without
-	// existing lineage defaults to forking from main at first turn.
-	// Thread auto-fork (parent_topic from adapter) is set at inbound
-	// time in api.go — this call is a no-op then.
-	_ = g.store.EnsureTopicLineage(group.Folder, topic, "", core.NewSessionID())
+	// Spec 6/F: new topic's parent is the topic of the message it
+	// replies to (the natural "branch from here" semantics). Falls
+	// back to "" (main) when there's no reply-to or the parent
+	// message isn't on file. Slack thread within #deploy → forks
+	// from #deploy, not from main.
+	parent := ""
+	if last.ReplyToID != "" {
+		parent = g.store.TopicByMessageID(last.ReplyToID, chatJid)
+	}
+	_ = g.store.EnsureTopicLineage(group.Folder, topic, parent, core.NewSessionID())
 	prompt := g.buildAgentPrompt(group, topic, msgs)
 
 	if deliverCh != nil {
@@ -793,7 +798,11 @@ func (g *Gateway) processWebTopics(
 		last := topicMsgs[len(topicMsgs)-1]
 
 		effectiveTopic := g.effectiveTopic(chatJid, topic)
-		_ = g.store.EnsureTopicLineage(group.Folder, effectiveTopic, "", core.NewSessionID())
+		parent := ""
+		if last.ReplyToID != "" {
+			parent = g.store.TopicByMessageID(last.ReplyToID, chatJid)
+		}
+		_ = g.store.EnsureTopicLineage(group.Folder, effectiveTopic, parent, core.NewSessionID())
 		prompt := g.buildAgentPrompt(group, effectiveTopic, topicMsgs)
 
 		if ch != nil {
