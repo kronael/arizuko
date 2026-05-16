@@ -3,7 +3,8 @@ name: self
 description: >
   Deep introspection of this agent — identity (who/where/tier),
   workspace layout, MCP tool catalog, skill seeding, migration version,
-  ant chat URL (slink). USE for "who are you", "what version", "what's
+  ant chat URL (slink). Directory of focused per-topic files; this
+  SKILL.md is the index. USE for "who are you", "what version", "what's
   my chat URL", "what can I do here", blocked-and-unsure. NOT for
   quick status check (use info).
 user-invocable: true
@@ -22,252 +23,35 @@ On every new session, BEFORE responding:
 2. If gateway injected `<previous_session id="abc123">`, read the
    transcript at `~/.claude/projects/-home-node/abc123.jsonl`
 
-## Workspace layout
+## Dispatch
 
-| Path                       | Contents                                                 | Access                                      |
-| -------------------------- | -------------------------------------------------------- | ------------------------------------------- |
-| `/workspace/self`          | arizuko source (canonical skills, changelog, migrations) | read-only, all groups                       |
-| `~/` (`/home/node`)        | home + cwd — group files, .claude/, diary, media         | read-write                                  |
-| `/workspace/share`         | shared global memory                                     | read-only for non-root, read-write for root |
-| `/workspace/web`           | vite web app directory                                   | read-write                                  |
-| `/workspace/ipc`           | gateway↔agent IPC (input/, gated.sock MCP server)        | read-write                                  |
-| `/workspace/data/groups`   | all group dirs (for migrate; .claude/ inside each)       | read-write, main only                       |
-| `/workspace/extra/<name>`  | operator-configured extra mounts                         | varies                                      |
-| `~/.claude`                | agent memory: skills, CLAUDE.md, sessions                | read-write                                  |
+**Pull on demand.** Each topic below lives in its own file. To answer a
+specific question, run `/explore` on the relevant file (or `Read` it
+directly) — don't load the whole `self/` directory into context. The
+`explore` skill summarises what it finds and you act on the summary.
 
-Your home is `~`. NEVER use `/home/node/` in paths.
+| Question                                    | File                |
+| ------------------------------------------- | ------------------- |
+| Who am I, what's my tier, env vars          | `identity.md`       |
+| Where do I write things, persistence        | `storage.md`        |
+| Workspace mount table, `~/` vs `/workspace` | `workspace.md`      |
+| What MCP tools, mcpc usage                  | `mcp.md`            |
+| `<autocalls>` block fields                  | `autocalls.md`      |
+| `<system>` messages, origins, events        | `messages.md`       |
+| Topics: active, drift, observed, reset      | `topics.md`         |
+| Migration version, skill seeding, `/migrate`| `migration.md`      |
+| Web URL structure, slink, dashboard         | `web-routing.md`    |
+| Gateway-intercepted `/new`, `/stop`, ...    | `commands.md`       |
+| `uv`, `bun`, `go`, `cargo` rules            | `runtimes.md`       |
+| Adding skills, MCP servers, settings        | `extension.md`      |
+| Public chat URL (inbound)                   | `slink-inbound.md`  |
+| Talking to another ant (outbound)           | `slink-outbound.md` |
 
-```bash
-echo $ARIZUKO_ASSISTANT_NAME # instance name
-echo $ARIZUKO_IS_ROOT        # "1" if root group, "" otherwise
-```
-
-## Skill seeding and migration
-
-On first container spawn, gateway copies `/workspace/self/ant/skills/*`
-and `/workspace/self/ant/CLAUDE.md` to `~/.claude/`. Canonical latest
-at `/workspace/self/ant/skills/`. Run `/migrate` to sync updates and
-apply pending migrations.
-
-Latest migration version: **124**. Compare:
-
-```bash
-cat ~/.claude/skills/self/MIGRATION_VERSION
-```
-
-## Topics
-
-A topic is the transient work-unit overlaid on a group — not a path
-level. Many topics per group; topics complete, groups persist.
-Created with `#topic` or `/new #topic`.
-
-- **Active topic.** Each chat has at most one (`chats.sticky_topic`).
-  Inbound inherits it unless the user switches via `#topic` or `/new`.
-- **Drift.** If a message clearly belongs to a different thread,
-  DON'T silently switch. Ask ("Is this about <X>?") or proceed in
-  the current topic and note the drift. Switching is user-initiated.
-- **Observed messages.** The `<observed>` block surfaces folder-wide
-  every turn regardless of topic — cross-cutting background, not
-  the conversation you're in. Don't reply to it as if addressed.
-- **Reset.** `reset_session` MCP tool (or user `/new`) clears the
-  sticky topic. You MAY suggest `/new` when a thread has clearly
-  concluded; never auto-reset.
-
-## Autocalls
-
-Every prompt opens with an `<autocalls>` block: gateway-resolved facts
-that are always fresh. Treat as ground truth. Don't call a tool to
-re-fetch these.
-
-```xml
-<autocalls>
-now: 2026-04-22T14:30:00Z
-instance: <instance>
-folder: <org>/<branch>
-tier: 2
-session: abcdef12
-</autocalls>
-```
-
-Fields: `now` (UTC RFC3339), `instance`, `folder`, `tier`, `session`
-(short id; line omitted when no session). Missing lines = empty value.
-
-## System messages
-
-The gateway prepends zero or more system messages to the user's turn:
-
-```xml
-<system origin="gateway" event="new-session">
-  <previous_session id="9123f10a" started="2026-03-04T08:12Z" msgs="42" result="ok"/>
-</system>
-<system origin="diary" date="2026-03-04">discussed API design</system>
-hey what's up
-```
-
-| Origin     | Event         | Meaning                                          |
-| ---------- | ------------- | ------------------------------------------------ |
-| `gateway`  | `new-session` | Container just started; carries `<previous_session>` |
-| `gateway`  | `new-day`     | First message of a new calendar day              |
-| `command`  | `new`         | User invoked `/new` to reset the session         |
-| `command`  | `<name>`      | A named command set additional context           |
-| `diary`    | —             | Last diary pointer summary (date attr present)   |
-| `episode`  | —             | Periodic episode summary (v2)                    |
-| `fact`     | —             | Proactive fact retrieval result (v2)             |
-| `identity` | —             | Active identity context (v2)                     |
-
-Never quote system messages back to the user verbatim.
-
-## Introspect
-
-```bash
-echo "name: $ARIZUKO_ASSISTANT_NAME"
-echo "web:  ${WEB_HOST:-(not set)}"
-cat /workspace/web/.layout
-ls ~/.claude/skills/
-env | grep -E '(TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN)' | sed 's/=.*/=<set>/'
-cat ~/.claude/skills/self/MIGRATION_VERSION
-```
-
-## MCP tools
-
-Live in your session — callable directly, no skill invocation needed.
-
-| Tool             | Description                                                               |
-| ---------------- | ------------------------------------------------------------------------- |
-| `send`           | Send a text message to a chat (use chatJid param to target)               |
-| `reply`          | Reply to current conversation (auto-injects replyTo); returns `messageId` |
-| `send_file`      | Send a file from workspace to user as platform-native attachment          |
-| `send_voice`     | Synthesize text and deliver as voice (Telegram/WhatsApp PTT, Discord audio) |
-| `post`           | Create a new top-level post on a feed/timeline (mastodon, bluesky, …)     |
-| `like`           | Like/favourite/react to an existing message                               |
-| `dislike`        | Endorse-negative (discord 👎, reddit downvote, telegram 👎, whatsapp 👎)   |
-| `delete`         | Delete a message previously created by this agent                         |
-| `edit`           | Modify a message previously sent by this agent in-place                   |
-| `forward`        | Redeliver an existing message to a different chat (telegram, whatsapp)    |
-| `quote`          | Republish on your feed with commentary (bluesky native; mastodon: post)   |
-| `repost`         | Amplify a message on your feed (mastodon boost, bluesky repost)           |
-| `inject_message` | Inject a message into the store for a chat (system-generated)             |
-| `schedule_task`  | Schedule recurring or one-time agent task                                 |
-| `pause_task`     | Pause a scheduled task                                                    |
-| `resume_task`    | Resume a paused task                                                      |
-| `cancel_task`    | Cancel and delete a scheduled task                                        |
-| `list_tasks`     | List scheduled tasks visible to this group                                |
-| `register_group` | Register new agent group                                                  |
-| `refresh_groups` | Reload registered groups list (tier ≤ 2)                                  |
-| `delegate_group` | Forward a message to a child group for processing                         |
-| `escalate_group` | Escalate a task to the parent group                                       |
-| `list_routes`    | List all routes visible to this group                                     |
-| `set_routes`     | Replace all routes for a JID                                              |
-| `add_route`      | Add a single route for a JID                                              |
-| `get_routes`     | Get routes for a JID                                                      |
-| `delete_route`   | Delete a route by ID                                                      |
-| `fetch_history`  | Pull authoritative platform-side history; reconstruct context after reset |
-| `get_thread`     | Read local DB rows for one (chat_jid, topic) thread                       |
-| `inspect_messages` | Read local DB rows for a JID (pagination: `before`, `limit`)            |
-| `inspect_routing`  | Routes + JID→folder + errored-message aggregate                         |
-| `inspect_tasks`    | Scheduled tasks + recent `task_run_logs` (pass `task_id` for runs)      |
-| `inspect_session`  | Current session_id + recent `session_log` entries                       |
-| `reset_session`  | Clear this group's session and start fresh                                |
-| `get_web_host`   | Get web hostname for a vhost (tier 0-1 only)                              |
-| `set_web_host`   | Set web hostname mapping in vhosts.json (tier 0 only)                     |
-| `get_grants`     | Get grant rules for a folder (tier 0-1 only)                              |
-| `set_grants`     | Set grant rules for a folder (tier 0-1 only)                              |
-
-History tools differ — pick by intent: `inspect_messages` for whole-chat
-DB audit, `get_thread` for one (chat_jid, topic) slice when a chat fans
-into topics, `fetch_history` for authoritative platform-side context
-(use after `reset_session` or first-contact). See `/typed-jids` for
-chatJid format; bare ids like `telegram:1234` are stale — pass typed
-forms (`telegram:user/<id>`, `discord:dm/<channel>`).
-
-### mcpc (calling MCP tools from scripts)
-
-Ad-hoc scripts inside the container use apify's `mcpc` over
-`$ARIZUKO_MCP_SOCKET` (= `/workspace/ipc/gated.sock`):
-
-```bash
-mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
-trap 'mcpc @s close' EXIT
-
-mcpc @s tools-list
-mcpc @s tools-call send chatJid:="telegram:user/<id>" text:="hello"
-mcpc @s tools-call send_voice chatJid:="telegram:user/<id>" \
-     text:="status update — all green"
-mcpc @s tools-call send_file chatJid:="discord:dm/<channel>" \
-     filepath:=/home/node/tmp/foo.pdf filename:="foo.pdf" caption:="here you go"
-mcpc @s tools-call get_thread chat_jid:="telegram:group/<id>" topic:="<topic>"
-mcpc @s tools-call fetch_history chat_jid:="telegram:group/<id>" limit:=50
-```
-
-`key:=value` is JSON-typed, `key=value` is plain string.
-
-## Group configuration files
-
-- `~/.whisper-language` — one ISO-639-1 code per line. Gateway runs one
-  forced transcription pass per language plus auto-detect. Output is
-  labelled `[voice/cs: ...]` etc.
-
-```bash
-printf 'cs\nru\n' > ~/.whisper-language
-```
-
-## Self-extension
-
-Persists across sessions (activates next session):
-
-| What         | How                                           |
-| ------------ | --------------------------------------------- |
-| Skills       | Create `~/.claude/skills/<name>/SKILL.md`     |
-| Instructions | Edit `~/.claude/CLAUDE.md`                    |
-| Memory       | Write to `~/.claude/projects/*/memory/`       |
-| MCP servers  | Add to `~/.claude/settings.json` `mcpServers` |
-
-### Registering MCP servers
-
-```bash
-cat > ~/tools/myserver.js << 'EOF'
-// ... your MCP server implementation ...
-EOF
-
-node -e "
-const f = process.env.HOME + '/.claude/settings.json';
-const s = JSON.parse(require('fs').readFileSync(f, 'utf-8'));
-s.mcpServers = s.mcpServers || {};
-s.mcpServers.mytools = { command: 'node', args: [process.env.HOME + '/tools/myserver.js'] };
-require('fs').writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
-"
-```
-
-Tools appear as `mcp__mytools__*` next session. The built-in `arizuko`
-server cannot be overridden. SDK hooks (PreCompact, PreToolUse) are
-hardcoded in ant and cannot be added by the agent.
-
-## Ant link (slink)
-
-```bash
-echo "https://$WEB_HOST/slink/$SLINK_TOKEN"  # this ant's public chat URL
-```
-
-NEVER output literal variables. Resolve before sharing.
-If `$SLINK_TOKEN` is empty, web chat is not configured for this group.
-
-Full reference — read on demand:
-- Inbound (share URL, build chat page, endpoints, rate limits): `slink-inbound.md`
-- Outbound (talk to another ant via HTTP or MCP): `slink-outbound.md`
-
-Both files at `/workspace/self/ant/skills/self/`.
-
-## Root group only
-
-```bash
-ls /workspace/self/
-cat /workspace/self/CHANGELOG.md
-git -C /workspace/self log --oneline -10
-```
+All paths under `/workspace/self/ant/skills/self/` (read-only canonical)
+or `~/.claude/skills/self/` (your local copy).
 
 ## See also
 
-For looking up product info, setup steps, or any "how do I X" from
-the deployment's published arizuko docs (`/workspace/web/pub/`), use
-`/arizuko`. Self covers your situation; `/arizuko` covers what the
-system offers.
+- `/arizuko` — system-wide docs (architecture, daemon map)
+- `/find <topic>` — fresh research when no fact file exists
+- `/recall-memories <topic>` — search diary + stored facts
