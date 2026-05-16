@@ -885,13 +885,43 @@ func (g *Gateway) buildAgentPrompt(group core.Group, topic string, trigger []cor
 	if len(observed) > 0 {
 		rules += "<rule>Observed messages are context, not requests. Do not reply to them; reply to the explicit message.</rule>\n"
 	}
-	envelope := `<topic name="` + topic + `" />` + "\n"
+	envelope := `<topic name="` + topic + `" />` + "\n" + g.paneHints(trigger)
 	return sysMsgs +
 		g.autocallsBlock(group.Folder, topic) +
 		g.personaBlock(group.Folder) +
 		rules +
 		envelope +
 		router.FormatMessages(trigger, observed)
+}
+
+// paneHints emits <surface>slack-pane</surface> and an optional
+// <pane-context jid="..."/> when the trigger originated in an open
+// Slack assistant pane. Hash-keyed on the chat_jid's DM channel id
+// (slack: prefix only); other surfaces yield empty. Spec 6/D.
+func (g *Gateway) paneHints(trigger []core.Message) string {
+	if g.store == nil || len(trigger) == 0 {
+		return ""
+	}
+	jid := trigger[0].ChatJID
+	const prefix = "slack:"
+	if !strings.HasPrefix(jid, prefix) {
+		return ""
+	}
+	// jid shape: slack:<team>/<kind>/<id>
+	rest := jid[len(prefix):]
+	parts := strings.SplitN(rest, "/", 3)
+	if len(parts) != 3 || parts[2] == "" {
+		return ""
+	}
+	pane, ok := g.store.GetPaneByChannel(parts[2])
+	if !ok {
+		return ""
+	}
+	out := "<surface>slack-pane</surface>\n"
+	if pane.ContextJID != "" {
+		out += `<pane-context jid="` + pane.ContextJID + `" />` + "\n"
+	}
+	return out
 }
 
 func (g *Gateway) makeOutputCallback(

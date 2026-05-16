@@ -1641,6 +1641,54 @@ func TestBuildAgentPrompt_TopicEnvelope(t *testing.T) {
 	}
 }
 
+// Spec 6/D: when the trigger comes from a Slack channel that maps to
+// an open pane, buildAgentPrompt emits <surface>slack-pane</surface>
+// and optionally <pane-context jid="..."/> when the pane has a
+// recorded context channel.
+func TestBuildAgentPrompt_PaneHints(t *testing.T) {
+	gw, s := testGateway(t)
+	g := core.Group{Folder: "main"}
+	now := time.Now()
+
+	// No pane row → no hints.
+	trigger := []core.Message{{
+		ID: "t1", ChatJID: "slack:T1/dm/D0XY", Sender: "u", Content: "hi",
+		Timestamp: now, Verb: "message",
+	}}
+	got := gw.buildAgentPrompt(g, "", trigger)
+	if strings.Contains(got, "<surface>slack-pane") {
+		t.Errorf("non-pane jid emitted pane surface; prompt:\n%s", got)
+	}
+
+	// Pane row without context → surface only.
+	if err := s.UpsertPane("T1", "U99", "1700.1", "D0XY"); err != nil {
+		t.Fatal(err)
+	}
+	got = gw.buildAgentPrompt(g, "", trigger)
+	if !strings.Contains(got, "<surface>slack-pane</surface>") {
+		t.Errorf("missing pane surface; prompt:\n%s", got)
+	}
+	if strings.Contains(got, "<pane-context") {
+		t.Errorf("unexpected pane-context without context_jid; prompt:\n%s", got)
+	}
+
+	// Pane row with context → context tag too.
+	if err := s.SetPaneContext("T1", "U99", "1700.1", "slack:T1/channel/C42"); err != nil {
+		t.Fatal(err)
+	}
+	got = gw.buildAgentPrompt(g, "", trigger)
+	if !strings.Contains(got, `<pane-context jid="slack:T1/channel/C42" />`) {
+		t.Errorf("missing pane-context; prompt:\n%s", got)
+	}
+
+	// Non-slack jid → no hints even if pane exists.
+	trigger[0].ChatJID = "telegram:99"
+	got = gw.buildAgentPrompt(g, "", trigger)
+	if strings.Contains(got, "slack-pane") {
+		t.Errorf("non-slack jid leaked pane hint; prompt:\n%s", got)
+	}
+}
+
 // Spec 6/F: fork_topic copies the parent's Claude Code session jsonl
 // so the child resumes with full history. Gateway wraps store.ForkTopic
 // with the cp step.
