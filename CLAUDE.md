@@ -317,22 +317,50 @@ what fires it. Tag and broadcast travel together.
 
 Each release entry opens with a `>` blockquote — that's the chat
 broadcast (Telegram/Discord/WhatsApp), extracted verbatim by the
-`migrate` skill. Keep it ≤ 9 lines:
+`migrate` skill. Shape:
 
 ```markdown
-> arizuko vX.Y.Z — DD Mon YYYY
+> arizuko vX.Y.Z — <3-6 word tagline>
 >
-> • <feature> (`<api>`) — <one-line user benefit>
+> <one sentence: what changed, why a user cares>
+>
+> • <change> — <what now works better>
 > • ...
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 ```
 
-Rules: 3–6 bullets; lead with the biggest user-facing change; active
-voice; one line each; user benefit before internal detail. NO migration
-numbers, file paths, commit SHAs in the blockquote — those stay in the
-maintainer-facing `### Added/Changed/Fixed`. Group when more than 6
-land at once: `• Voice & media — send_voice + per-platform dispatch`.
+**Audience.** A sharp, curious 13-year-old skimming a chat channel AND
+an engineer asking "is this real?" — same voice as `template/web/CLAUDE.md`.
+Accessible without dumbing down the truth.
+
+**The lede sentence** (between tagline and bullets) is the ONLY prose
+permitted. ≤ 22 words. Names the user-observable change in plain
+English, with mechanism only if it fits without jargon. It is a
+distillation, not a teaser — a skimmer must learn what shipped from
+this sentence alone.
+
+- Good: `Replies to the bot and reactions on its messages now count as mentions, so the agent actually answers when you tap reply.`
+- Bad: `We're excited to introduce a powerful new mention-detection pipeline that seamlessly elevates engagement.` (puffery, no information)
+- Bad: `Promotes inbound `reply_to_id`to`verb=mention` via the ring-buffer matcher.` (jargon, no benefit)
+
+**The bullets** (3–6, ≤ 100 chars each) are technical changes framed
+as user-observable deltas. Name the API/verb/surface — engineers
+reading the broadcast need the hook — but lead each bullet with what
+now works, not the internal symbol. One line each, active voice.
+
+- Good: `• Routes get a #observe mode — store messages as context without firing the agent.`
+- Bad: `• Refactored impulse_config into match-key seq priority for cleaner gating.` (no behavior delta)
+
+**Banned in the blockquote**: "powerful", "seamless", "robust",
+"excited to announce", "we've improved", "various", exclamation marks
+(unless something actually exploded), emoji decoration, migration
+numbers, file paths, commit SHAs, internal symbol names without
+context. Those belong in `### Added/Changed/Fixed`.
+
+**Group only when forced**: >6 bullets land at once → collapse
+related ones (`• Voice & media — send_voice + per-platform dispatch`).
+Don't pad — 3 sharp bullets beat 6 padded ones.
 
 ## Deploy policy
 
