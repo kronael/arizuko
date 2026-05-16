@@ -897,6 +897,77 @@ func TestAssistantThreadContextChanged(t *testing.T) {
 	}
 }
 
+// Send into a pane channel drains staged prompts/title and fires
+// setSuggestedPrompts + setTitle. Send into a non-pane channel doesn't.
+func TestSend_PaneStagedPromptsFire(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+
+	// Seed pane row + stage prompts.
+	if err := b.store.UpsertPane("T012", "U99", "1700.001", "D0XY"); err != nil {
+		t.Fatal(err)
+	}
+	b.setPanePending("T012", "U99", "1700.001",
+		[]panePrompt{{Title: "next", Message: "what's next?"}}, "atlas — chat")
+
+	if _, err := b.Send(chanlib.SendRequest{ChatJID: "slack:T012/dm/D0XY", Content: "reply"}); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mock.mu.Lock()
+		ok := len(mock.prompts) >= 1 && len(mock.titles) >= 1
+		mock.mu.Unlock()
+		if ok {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mock.mu.Lock()
+	gotPrompts := len(mock.prompts)
+	gotTitles := len(mock.titles)
+	var titleVal string
+	if gotTitles > 0 {
+		titleVal = mock.titles[0]["title"]
+	}
+	mock.mu.Unlock()
+	if gotPrompts != 1 {
+		t.Fatalf("expected 1 prompts call, got %d", gotPrompts)
+	}
+	if gotTitles != 1 || titleVal != "atlas — chat" {
+		t.Errorf("titles count=%d val=%q", gotTitles, titleVal)
+	}
+
+	// Drained — second send must not refire.
+	if _, err := b.Send(chanlib.SendRequest{ChatJID: "slack:T012/dm/D0XY", Content: "again"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.prompts) != 1 || len(mock.titles) != 1 {
+		t.Errorf("staging not drained: prompts=%d titles=%d", len(mock.prompts), len(mock.titles))
+	}
+}
+
+// Send into a non-pane channel must not fire any pane API.
+func TestSend_NonPaneNoPromptCall(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+	if _, err := b.Send(chanlib.SendRequest{ChatJID: "slack:T012/channel/CNORM", Content: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.prompts) != 0 || len(mock.titles) != 0 {
+		t.Errorf("non-pane send leaked: prompts=%d titles=%d", len(mock.prompts), len(mock.titles))
+	}
+}
+
 // ===== helpers =====
 
 func writeFile(t *testing.T, path string, data []byte) {

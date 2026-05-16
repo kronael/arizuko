@@ -58,6 +58,14 @@ type bot struct {
 
 	connected     atomic.Bool
 	lastInboundAt atomic.Int64
+
+	// pendingPrompts holds prompts the agent staged via MCP for the
+	// next outbound on a pane (keyed by team/user/thread_ts). Consumed
+	// — and cleared — on the first Send into that pane. Also a one-shot
+	// title slot.
+	paneOutMu       sync.Mutex
+	pendingPrompts  map[string][]panePrompt
+	pendingTitle    map[string]string
 }
 
 func (b *bot) isConnected() bool    { return b.connected.Load() }
@@ -85,11 +93,13 @@ func newBot(cfg config) (*bot, error) {
 
 func newBotWithBase(cfg config, base string) (*bot, error) {
 	b := &bot{
-		cfg:   cfg,
-		api:   base,
-		http:  &http.Client{Timeout: 30 * time.Second},
-		users: newTTLCache(cfg.CacheTTL),
-		chans: newTTLCache(cfg.CacheTTL),
+		cfg:            cfg,
+		api:            base,
+		http:           &http.Client{Timeout: 30 * time.Second},
+		users:          newTTLCache(cfg.CacheTTL),
+		chans:          newTTLCache(cfg.CacheTTL),
+		pendingPrompts: map[string][]panePrompt{},
+		pendingTitle:   map[string]string{},
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
 	return b, nil
@@ -587,7 +597,53 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		return "", fmt.Errorf("slack send: %s", resp.Error)
 	}
 	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", resp.TS, "source", "slack")
+	b.applyPanePending(parts.id)
 	return resp.TS, nil
+}
+
+// applyPanePending fires any pending pane title / suggested-prompts
+// calls staged via MCP for the pane bound to channelID. One-shot per
+// outbound — drains the staged values. No-op when channel isn't a pane.
+func (b *bot) applyPanePending(channelID string) {
+	if b.store == nil {
+		return
+	}
+	pane, ok := b.store.GetPaneByChannel(channelID)
+	if !ok {
+		return
+	}
+	key := paneKey(pane.TeamID, pane.UserID, pane.ThreadTS)
+	b.paneOutMu.Lock()
+	prompts := b.pendingPrompts[key]
+	delete(b.pendingPrompts, key)
+	title := b.pendingTitle[key]
+	delete(b.pendingTitle, key)
+	b.paneOutMu.Unlock()
+	if title != "" {
+		go b.setPaneTitle(pane.ChannelID, pane.ThreadTS, title)
+	}
+	if len(prompts) > 0 {
+		go b.setSuggestedPrompts(pane.ChannelID, pane.ThreadTS, prompts)
+	}
+}
+
+func paneKey(team, user, thread string) string { return team + "|" + user + "|" + thread }
+
+// setPanePending stages prompts and/or title to fire after the next
+// Send into the given pane. Empty title leaves any prior staged title
+// untouched (so prompts and title can be set independently). Replacing
+// prompts with a non-nil empty slice clears them; nil leaves prior
+// staging untouched.
+func (b *bot) setPanePending(team, user, thread string, prompts []panePrompt, title string) {
+	key := paneKey(team, user, thread)
+	b.paneOutMu.Lock()
+	defer b.paneOutMu.Unlock()
+	if prompts != nil {
+		b.pendingPrompts[key] = prompts
+	}
+	if title != "" {
+		b.pendingTitle[key] = title
+	}
 }
 
 func (b *bot) SendFile(jid, path, name, caption string) error {
