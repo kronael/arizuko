@@ -1,5 +1,5 @@
 ---
-status: spec
+status: shipped
 depends: [B-route-mode-ingestion]
 relates-to:
   [4/23-topic-routing, 3/Y-thread-routing, 3/a-sticky-routing, G-engagement]

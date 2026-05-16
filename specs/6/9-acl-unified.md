@@ -1,5 +1,5 @@
 ---
-status: spec
+status: shipped
 depends: [5-uniform-mcp-rest, 6-middleware-pipeline]
 supersedes-in-part: [5/A-auth-consolidated.md, 4/19-action-grants.md]
 ---
