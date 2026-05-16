@@ -185,6 +185,10 @@ func (b *bot) dispatch(teamID string, raw json.RawMessage) {
 		b.handleReaction(teamID, raw)
 	case "member_joined_channel":
 		b.handleJoin(teamID, raw)
+	case "assistant_thread_started":
+		b.handleAssistantThreadStarted(teamID, raw)
+	case "assistant_thread_context_changed":
+		b.handleAssistantThreadContextChanged(teamID, raw)
 	}
 }
 
@@ -345,6 +349,152 @@ func (b *bot) handleJoin(teamID string, raw json.RawMessage) {
 		return
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
+}
+
+// ===== assistant pane (specs/6/D) =====
+
+// defaultPanePrompts is the suggested-prompt set shown when a pane
+// opens. Operator-overridable later via PERSONA.md (deferred).
+var defaultPanePrompts = []panePrompt{
+	{Title: "help", Message: "what can you do?"},
+	{Title: "summarize", Message: "summarize my latest thread"},
+	{Title: "research", Message: "research a topic for me"},
+}
+
+type panePrompt struct {
+	Title   string `json:"title"`
+	Message string `json:"message"`
+}
+
+type assistantThreadEvent struct {
+	AssistantThread struct {
+		UserID    string `json:"user_id"`
+		ChannelID string `json:"channel_id"`
+		ThreadTS  string `json:"thread_ts"`
+		Context   struct {
+			ChannelID string `json:"channel_id"`
+			TeamID    string `json:"team_id"`
+		} `json:"context"`
+	} `json:"assistant_thread"`
+}
+
+// handleAssistantThreadStarted persists the pane row, sets the pane
+// title + default suggested prompts, and synthesizes a pane_open
+// inbound so gateway sees the open as a turn trigger.
+func (b *bot) handleAssistantThreadStarted(teamID string, raw json.RawMessage) {
+	var ev assistantThreadEvent
+	if err := json.Unmarshal(raw, &ev); err != nil {
+		slog.Warn("slack: assistant_thread_started decode failed", "err", err)
+		return
+	}
+	at := ev.AssistantThread
+	if at.UserID == "" || at.ChannelID == "" || at.ThreadTS == "" {
+		slog.Warn("slack: assistant_thread_started missing fields", "user", at.UserID, "channel", at.ChannelID, "thread", at.ThreadTS)
+		return
+	}
+	team := cmp.Or(teamID, b.TeamID())
+	b.recordPane(team, at.UserID, at.ThreadTS, at.ChannelID)
+	if ctx := at.Context.ChannelID; ctx != "" && b.store != nil {
+		ctxTeam := cmp.Or(at.Context.TeamID, team)
+		ctxJID := formatJID(ctxTeam, "channel", ctx)
+		_ = b.store.SetPaneContext(team, at.UserID, at.ThreadTS, ctxJID)
+	}
+
+	go b.setPaneTitle(at.ChannelID, at.ThreadTS, b.paneTitle())
+	go b.setSuggestedPrompts(at.ChannelID, at.ThreadTS, defaultPanePrompts)
+
+	// Synthetic inbound — gateway routes pane_open like any verb.
+	// Content empty, sender = user_id; no Slack TS for the open event,
+	// so synthesize an ID from thread_ts to keep uniqueness.
+	conv := b.convInfoFor(at.ChannelID, "im")
+	jid := formatJID(team, chanKind(conv.IsIM, conv.IsMpim), at.ChannelID)
+	if err := b.rc.SendMessage(chanlib.InboundMsg{
+		ID:         "pane_open:" + at.ThreadTS,
+		ChatJID:    jid,
+		Sender:     "slack:user/" + at.UserID,
+		SenderName: b.userName(at.UserID),
+		Verb:       "pane_open",
+		Timestamp:  time.Now().Unix(),
+		IsGroup:    false,
+		ChatName:   chatNameFrom(conv),
+	}); err != nil {
+		slog.Error("deliver pane_open failed", "jid", jid, "err", err)
+	}
+}
+
+// handleAssistantThreadContextChanged updates the workspace channel
+// the user is viewing while the pane is open. Does NOT synthesize a
+// turn — context change alone isn't a user action.
+func (b *bot) handleAssistantThreadContextChanged(teamID string, raw json.RawMessage) {
+	var ev assistantThreadEvent
+	if err := json.Unmarshal(raw, &ev); err != nil {
+		slog.Warn("slack: assistant_thread_context_changed decode failed", "err", err)
+		return
+	}
+	at := ev.AssistantThread
+	if at.UserID == "" || at.ThreadTS == "" || b.store == nil {
+		return
+	}
+	team := cmp.Or(teamID, b.TeamID())
+	ctxJID := ""
+	if ctx := at.Context.ChannelID; ctx != "" {
+		ctxJID = formatJID(cmp.Or(at.Context.TeamID, team), "channel", ctx)
+	}
+	if err := b.store.SetPaneContext(team, at.UserID, at.ThreadTS, ctxJID); err != nil {
+		slog.Warn("slack: pane context update failed", "err", err)
+	}
+}
+
+// paneTitle returns the pane title shown in Slack's sidebar. Format:
+// "<assistant> — chat" when ASSISTANT_NAME is set; otherwise just "chat".
+func (b *bot) paneTitle() string {
+	if name := b.cfg.AssistantName; name != "" {
+		return name + " — chat"
+	}
+	return "chat"
+}
+
+func (b *bot) setPaneTitle(channelID, threadTS, title string) {
+	form := url.Values{}
+	form.Set("channel_id", channelID)
+	form.Set("thread_ts", threadTS)
+	form.Set("title", title)
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := b.postForm(context.Background(), "/assistant.threads.setTitle", form, &resp); err != nil {
+		slog.Debug("slack setTitle failed", "channel", channelID, "err", err)
+		return
+	}
+	if !resp.OK {
+		slog.Warn("slack setTitle non-ok", "err", resp.Error, "channel", channelID)
+	}
+}
+
+func (b *bot) setSuggestedPrompts(channelID, threadTS string, prompts []panePrompt) {
+	if len(prompts) == 0 {
+		return
+	}
+	pj, err := json.Marshal(prompts)
+	if err != nil {
+		return
+	}
+	form := url.Values{}
+	form.Set("channel_id", channelID)
+	form.Set("thread_ts", threadTS)
+	form.Set("prompts", string(pj))
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := b.postForm(context.Background(), "/assistant.threads.setSuggestedPrompts", form, &resp); err != nil {
+		slog.Debug("slack setSuggestedPrompts failed", "channel", channelID, "err", err)
+		return
+	}
+	if !resp.OK {
+		slog.Warn("slack setSuggestedPrompts non-ok", "err", resp.Error, "channel", channelID)
+	}
 }
 
 func (b *bot) attachmentsFor(content string, files []slackFile) (string, []chanlib.InboundAttachment) {

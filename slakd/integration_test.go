@@ -28,6 +28,8 @@ type slackMock struct {
 	deleted   []map[string]string
 	completed []map[string]string
 	statuses  []map[string]string
+	titles    []map[string]string
+	prompts   []map[string]string
 
 	authUserID string
 	authTeamID string
@@ -150,6 +152,28 @@ func newSlackMock() *slackMock {
 			"channel_id": r.FormValue("channel_id"),
 			"thread_ts":  r.FormValue("thread_ts"),
 			"status":     r.FormValue("status"),
+		})
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/assistant.threads.setTitle", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		r.ParseForm()
+		m.titles = append(m.titles, map[string]string{
+			"channel_id": r.FormValue("channel_id"),
+			"thread_ts":  r.FormValue("thread_ts"),
+			"title":      r.FormValue("title"),
+		})
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/assistant.threads.setSuggestedPrompts", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		r.ParseForm()
+		m.prompts = append(m.prompts, map[string]string{
+			"channel_id": r.FormValue("channel_id"),
+			"thread_ts":  r.FormValue("thread_ts"),
+			"prompts":    r.FormValue("prompts"),
 		})
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
@@ -767,6 +791,109 @@ func TestTyping_PaneSetStatus(t *testing.T) {
 	}
 	if mock.statuses[1]["status"] != "" {
 		t.Errorf("off status = %q (expected empty)", mock.statuses[1]["status"])
+	}
+}
+
+// assistant_thread_started persists the pane, sets title + default
+// prompts, and synthesizes a pane_open inbound.
+func TestAssistantThreadStarted(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, rm := setupBot(t, mock)
+	b.cfg.AssistantName = "atlas"
+
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "assistant_thread_started",
+	    "assistant_thread": {
+	      "user_id": "U99",
+	      "channel_id": "D0XY",
+	      "thread_ts": "1700000111.000100",
+	      "context": {"channel_id": "C42", "team_id": "T012"}
+	    }
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+
+	// Wait for the async setTitle/setSuggestedPrompts calls and the
+	// synchronous SendMessage to land.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mock.mu.Lock()
+		tn, pn := len(mock.titles), len(mock.prompts)
+		mock.mu.Unlock()
+		if tn >= 1 && pn >= 1 && len(rm.snapshot()) >= 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	mock.mu.Lock()
+	if len(mock.titles) != 1 || mock.titles[0]["title"] != "atlas — chat" {
+		t.Errorf("titles = %+v", mock.titles)
+	}
+	if len(mock.prompts) != 1 {
+		t.Errorf("prompts calls = %d", len(mock.prompts))
+	} else if !bytes.Contains([]byte(mock.prompts[0]["prompts"]), []byte(`"title":"help"`)) {
+		t.Errorf("prompts payload missing default: %q", mock.prompts[0]["prompts"])
+	}
+	mock.mu.Unlock()
+
+	msgs := rm.snapshot()
+	if len(msgs) != 1 || msgs[0].Verb != "pane_open" {
+		t.Fatalf("expected one pane_open inbound, got %+v", msgs)
+	}
+	if msgs[0].ChatJID != "slack:T012/dm/D0XY" {
+		t.Errorf("inbound jid = %q", msgs[0].ChatJID)
+	}
+	if msgs[0].Sender != "slack:user/U99" {
+		t.Errorf("inbound sender = %q", msgs[0].Sender)
+	}
+
+	// Pane row persisted with context_jid.
+	p, ok := b.store.GetPaneByChannel("D0XY")
+	if !ok {
+		t.Fatal("pane row missing after started")
+	}
+	if p.ContextJID != "slack:T012/channel/C42" {
+		t.Errorf("context_jid = %q", p.ContextJID)
+	}
+}
+
+// assistant_thread_context_changed updates context_jid; no inbound synth.
+func TestAssistantThreadContextChanged(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, rm := setupBot(t, mock)
+
+	// Seed a pane row.
+	if err := b.store.UpsertPane("T012", "U99", "1700.001", "D0XY"); err != nil {
+		t.Fatal(err)
+	}
+
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "assistant_thread_context_changed",
+	    "assistant_thread": {
+	      "user_id": "U99",
+	      "channel_id": "D0XY",
+	      "thread_ts": "1700.001",
+	      "context": {"channel_id": "Cnew"}
+	    }
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+
+	p, _ := b.store.GetPaneByChannel("D0XY")
+	if p.ContextJID != "slack:T012/channel/Cnew" {
+		t.Errorf("context_jid = %q", p.ContextJID)
+	}
+	if len(rm.snapshot()) != 0 {
+		t.Errorf("context change must not synthesize inbound: %+v", rm.snapshot())
 	}
 }
 
