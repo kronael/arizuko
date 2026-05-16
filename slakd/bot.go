@@ -629,6 +629,49 @@ func (b *bot) applyPanePending(channelID string) {
 
 func paneKey(team, user, thread string) string { return team + "|" + user + "|" + thread }
 
+// stagePanePromptsByJID looks up the pane bound to jid (DM channel)
+// and stages prompts for the next Send. Returns error if jid doesn't
+// map to an open pane (caller renders 404).
+func (b *bot) stagePanePromptsByJID(jid string, prompts []panePrompt) error {
+	pane, ok, err := b.paneByJID(jid)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("no open pane for jid")
+	}
+	b.setPanePending(pane.TeamID, pane.UserID, pane.ThreadTS, prompts, "")
+	return nil
+}
+
+// stagePaneTitleByJID stages a one-shot pane title for the next Send.
+func (b *bot) stagePaneTitleByJID(jid, title string) error {
+	pane, ok, err := b.paneByJID(jid)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("no open pane for jid")
+	}
+	if title == "" {
+		return errors.New("title required")
+	}
+	b.setPanePending(pane.TeamID, pane.UserID, pane.ThreadTS, nil, title)
+	return nil
+}
+
+func (b *bot) paneByJID(jid string) (store.PaneSession, bool, error) {
+	if b.store == nil {
+		return store.PaneSession{}, false, errors.New("store not configured")
+	}
+	parts, err := parseJID(jid)
+	if err != nil {
+		return store.PaneSession{}, false, err
+	}
+	p, ok := b.store.GetPaneByChannel(parts.id)
+	return p, ok, nil
+}
+
 // setPanePending stages prompts and/or title to fire after the next
 // Send into the given pane. Empty title leaves any prior staged title
 // untouched (so prompts and title can be set independently). Replacing

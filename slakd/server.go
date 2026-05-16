@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -39,7 +40,51 @@ func (s *server) handler() http.Handler {
 	// Events webhook is signature-verified, not chanlib.Auth-gated; file proxy adds Bearer xoxb upstream.
 	mux.HandleFunc("POST /slack/events", s.handleEvents)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))
+	mux.HandleFunc("POST /v1/pane/prompts", chanlib.Auth(s.cfg.ChannelSecret, s.handlePanePrompts))
+	mux.HandleFunc("POST /v1/pane/title", chanlib.Auth(s.cfg.ChannelSecret, s.handlePaneTitle))
 	return mux
+}
+
+// pane control endpoints — gated POSTs here when the agent calls
+// pane_set_prompts / pane_set_title via MCP. Both stash values into
+// the bot's pending slot; values fire after the next chat.postMessage
+// into the pane (one outbound = one drained set).
+type panePromptsReq struct {
+	JID     string       `json:"jid"`
+	Prompts []panePrompt `json:"prompts"`
+}
+
+func (s *server) handlePanePrompts(w http.ResponseWriter, r *http.Request) {
+	var req panePromptsReq
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&req); err != nil {
+		chanlib.WriteErr(w, 400, "invalid json")
+		return
+	}
+	if err := s.bot.stagePanePromptsByJID(req.JID, req.Prompts); err != nil {
+		chanlib.WriteErr(w, 404, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"ok":true}`))
+}
+
+type paneTitleReq struct {
+	JID   string `json:"jid"`
+	Title string `json:"title"`
+}
+
+func (s *server) handlePaneTitle(w http.ResponseWriter, r *http.Request) {
+	var req paneTitleReq
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err != nil {
+		chanlib.WriteErr(w, 400, "invalid json")
+		return
+	}
+	if err := s.bot.stagePaneTitleByJID(req.JID, req.Title); err != nil {
+		chanlib.WriteErr(w, 404, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"ok":true}`))
 }
 
 // handleEvents requires verbatim body bytes — any upstream re-marshal breaks the HMAC.
