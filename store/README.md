@@ -39,6 +39,12 @@ is `<folder>[#<mode>]`; per-route caps `observe_window_messages` and
 `observe_window_chars` override the env defaults. Spec:
 `specs/6/B-route-mode-ingestion.md`.
 
+`sessions` (migration 0055) carries topic lineage: `parent_topic`,
+`forked_at`, `observed_cursor`. `EnsureTopicLineage` seeds a row
+idempotently on first turn; `ForkTopic` branches explicitly;
+`TopicHistoryThrough` + `ObservedSince` feed the `<inherited>` and
+`<observed>` blocks. Spec: `specs/6/F-topic-lineage.md`.
+
 ## Dependencies
 
 - `core`, `db_utils`, `groupfolder`, `modernc.org/sqlite`

@@ -168,11 +168,14 @@
         <tr><td><code>group_folder</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>folder path</td></tr>
         <tr><td><code>topic</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>topic key</td></tr>
         <tr><td><code>session_id</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>Claude Code session UUID</td></tr>
+        <tr><td><code>parent_topic</code></td><td>TEXT</td><td>NULL</td><td></td><td>topic this one forked from (<code>''</code> = main); NULL when no lineage (main itself)</td></tr>
+        <tr><td><code>forked_at</code></td><td>TEXT</td><td>NULL</td><td></td><td>RFC3339Nano UTC fork point &mdash; ceiling for the <code>&lt;inherited&gt;</code> window</td></tr>
+        <tr><td><code>observed_cursor</code></td><td>TEXT</td><td>NULL</td><td></td><td>per-topic high-water mark over <code>is_observed=1</code> messages; gateway advances it after each turn</td></tr>
       </table>
       <p class="meta"><strong>PK:</strong> <code>(group_folder, topic)</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/sessions.go#L22"><code>store/sessions.go:22</code></a> (INSERT OR REPLACE), <a href="https://github.com/kronael/arizuko/blob/main/store/sessions.go#L31"><code>:31</code></a> (DELETE).</p>
+      <p class="meta"><strong>Writers:</strong> <code>store/sessions.go</code> &mdash; <code>SetSession</code> (UPSERT session_id), <code>EnsureTopicLineage</code> (seed lineage on first turn), <code>ForkTopic</code> (explicit branch), <code>UpdateObservedCursor</code>, <code>DeleteSession</code>.</p>
       <p class="meta"><strong>Readers:</strong> gated.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L40">0001</a>; rebuilt <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0008-topic-sessions.sql">0008</a> with topic column + composite PK.</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L40">0001</a>; rebuilt <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0008-topic-sessions.sql">0008</a> with topic column + composite PK; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0055-topic-lineage.sql">0055</a> add <code>parent_topic</code>, <code>forked_at</code>, <code>observed_cursor</code> (spec 6/F).</p>
     </div>
 
     <div class="tablecard">

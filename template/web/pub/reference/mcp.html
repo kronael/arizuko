@@ -383,6 +383,19 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"injected": true, "id": "&lt;mid&gt;"}</code>.</p>
 
+    <h3 id="fork_topic"><code>fork_topic</code></h3>
+    <p>Branch a topic from another&rsquo;s current state. The child gets a fresh <code>session_id</code> and inherits the parent&rsquo;s trailing history as an <code>&lt;inherited&gt;</code> context block on early turns. Use when starting a focused side-conversation that needs the parent&rsquo;s recent state but should not pollute the parent&rsquo;s session. Pass <code>force=true</code> to overwrite an existing child. Spec: 6/F.</p>
+    <p class="meta">Source: <code>ipc/ipc.go</code> &middot; Grant action: <code>fork_topic</code> &middot; <code>auth.AuthorizeStructural</code> on caller&rsquo;s folder.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">parent</td><td class="type">string</td><td class="req req-y">yes</td><td>Parent topic to fork from (<code>""</code> = main).</td></tr>
+        <tr><td class="name">child</td><td class="type">string</td><td class="req req-y">yes</td><td>New child topic name.</td></tr>
+        <tr><td class="name">force</td><td class="type">bool</td><td class="req req-n">no</td><td>Overwrite the child if it already exists.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"folder", "parent_topic", "child_topic"}</code>. Error <code>"topic_exists"</code> when child exists and <code>force=false</code>.</p>
+
     <h3 id="reset_session"><code>reset_session</code></h3>
     <p>Drop the Claude session for a group so the next message starts fresh context. Use when the user asks for <code>/new</code>, when context is confused/polluted, or before a topic switch. Not for injecting content (<code>inject_message</code>).</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L940"><code>ipc/ipc.go:940</code></a> &middot; Grant action: <code>reset_session</code> &middot; <code>auth.Authorize</code> on target folder.</p>

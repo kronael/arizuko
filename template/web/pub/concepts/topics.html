@@ -33,6 +33,12 @@
     <p>The agent keeps one Claude session per <code>(folder, topic)</code> pair. So <code>/new #support</code> resets the support thread without touching anything else in the folder. The store also tracks the last bot message per topic, so reply threading on the platform stays clean &mdash; replies anchor to the right message.</p>
     <p>For the web channel, the gateway groups inbound messages by topic and runs one agent per topic, one after another.</p>
 
+    <h2>forks and inheritance</h2>
+    <p>Every non-main topic remembers where it came from. The <code>sessions</code> table stores <code>parent_topic</code> and <code>forked_at</code> per topic, and a new topic defaults to forking from the topic of the message it replies to. Reply inside <code>#deploy</code> and you stay in <code>#deploy</code>; reply to a message in <code>#triage</code> from a fresh thread and the new topic forks from <code>#triage</code>, not from main.</p>
+    <p>On a forked topic&rsquo;s early turns the agent sees an <code>&lt;inherited from=&quot;parent&quot; through=&quot;ts&quot;&gt;</code> block carrying the parent&rsquo;s recent history up to the fork point. It&rsquo;s background &mdash; the agent doesn&rsquo;t re-reply to it &mdash; and it fades as live messages accumulate. Caps live in <code>INHERIT_WINDOW_MESSAGES</code> (default 50) and <code>INHERIT_WINDOW_CHARS</code> (default 20000).</p>
+    <p>An agent can branch a focused side-conversation explicitly with the <code>fork_topic</code> MCP tool. Pass <code>force=true</code> to overwrite an existing child.</p>
+    <p>The <code>observed_cursor</code> column is per-topic too, so two topics in the same folder both see the ambient <code>&lt;observed&gt;</code> sidechannel without one consuming it for the other.</p>
+
     <h2>sticky topic</h2>
     <p>A user can pin a chat to a topic by sending <code>#support</code> on its own as the entire message. The gateway stores it on the <code>chats</code> row (<code>sticky_topic</code>), and every later message in that chat runs under <code>#support</code> until someone sends bare <code>#</code> to clear it. Sticky overrides whatever native topic the platform sent.</p>
 

@@ -14,6 +14,49 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+> arizuko v0.40.0 — topic lineage
+>
+> • New topics fork from their parent: replying inside `#deploy` keeps
+> you in `#deploy`; replying to a different message branches from
+> that thread, not from main.
+> • Forked topics inherit the parent's recent history as an
+> `<inherited>` block on early turns, then fade as live messages
+> accumulate.
+> • New `fork_topic` MCP tool — branch a focused side-conversation
+> without polluting the parent's session.
+> • Per-topic observed cursor: two topics in the same folder both see
+> ambient `<observed>` context without one consuming it for the other.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- **Topic lineage on `sessions`** (spec 6/F): `parent_topic`,
+  `forked_at`, `observed_cursor` columns. Migration `0055-topic-lineage`.
+- **`<inherited from=… through=…>` prompt block** rendered on a
+  forked child's early turns from the parent's trailing history. Caps:
+  `INHERIT_WINDOW_MESSAGES` (default 50), `INHERIT_WINDOW_CHARS`
+  (default 20000).
+- **`fork_topic` MCP tool** (`ipc/ipc.go`): explicit branch primitive;
+  `force=true` to overwrite an existing child.
+- **Default fork-from-parent**: `EnsureTopicLineage` seeds a new topic
+  with `parent_topic` resolved from the trigger message's `reply_to`
+  (falls back to `""`/main).
+
+### Changed
+
+- **`buildAgentPrompt` is the single renderer** for chat + web-topic
+  paths (`gateway/gateway.go`); both call sites went from inline
+  assembly to one function so the two paths cannot drift.
+- **Observed cursor is per-topic**, not per-folder: `ObservedSince`
+  replaces `ObservedTail`; gateway advances each topic's cursor
+  independently after rendering.
+
+### Fixed
+
+- **`ObservedTail` no longer excluded the trigger JID** — observed
+  context now includes the channel that fired the turn.
+
 ## [v0.39.1] — 2026-05-15
 
 > arizuko v0.39.1 — discord reply + reaction mentions
