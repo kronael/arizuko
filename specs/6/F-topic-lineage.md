@@ -2,249 +2,248 @@
 status: spec
 depends: [B-route-mode-ingestion]
 relates-to: [4/23-topic-routing, 3/Y-thread-routing, 3/a-sticky-routing]
+revision: 2
 ---
 
-# specs/6/F — topic lineage: forks, default-fork-from-main, per-topic observed
+# specs/6/F — topic lineage: forks + per-topic observed cursor
 
-## What this solves
+## v1 scope (this spec)
 
-Four operator asks, one primitive:
+Two things ship now:
 
-1. **`fork` command** — branch a topic from another's current state.
-2. **Platform threads start by forking** — when Slack/Discord/Telegram
-   spawns a new thread off a parent message, the child topic inherits
-   parent context up to the fork point. Today the child starts empty.
-3. **New topics default to forking `main`** — `/new #deploy` should
-   inherit main's context up to creation time, not start from scratch.
-4. **All topics in a group see observed messages** — currently
-   `is_observed=1` messages are read once per folder; subsequent topic
-   turns either re-feed (double-vision) or never see them. Each topic
-   needs its own observed cursor.
+1. **`fork_topic(parent, child)` MCP command** — explicit topic
+   forking with parent context inherited up to the fork point.
+2. **Per-topic `observed_cursor`** — fixes the "topic A consumes
+   observed window, topic B never sees them" problem.
 
-The shape: **a topic carries lineage** — `parent_topic`, `forked_at`,
-`observed_cursor`. With those three columns, all four asks fall out
-without further primitives.
+That's it. The original v1 also bundled (a) default-fork-from-main
+for new topics and (b) native platform threads auto-forking. Both
+were cut after oracle review:
+
+- **Default-fork-from-main is a product decision dressed as a
+  default.** It silently changes behavior on every existing folder
+  (a `#deploy` topic that started empty for hygiene reasons suddenly
+  inherits main's last N messages). v1 ships the primitive; folders
+  opt in via a per-folder setting in a follow-up.
+- **Platform threads ≠ topic forks.** A Slack thread is _about_ the
+  parent message, not a continuation of channel context. Users open
+  threads precisely to escape channel noise; auto-inheriting it
+  inverts the platform's UX. Out of v1; revisit when a real user
+  asks for it.
+
+## Pre-requisite: extract `buildAgentPrompt`
+
+**Before any lineage code lands**, the prompt-rendering call sites
+in `gateway.go:728` (chat path) and `:798` (web-topic path) must
+collapse to one function. Today they hand-assemble:
+
+```go
+prompt := sysMsgs + autocallsBlock + personaBlock + observedRule + FormatMessages(...)
+```
+
+…with subtle differences (web path skips observed). Adding lineage
+to one path silently makes the other drift further. Same shape as
+the cold-start vs steered drift documented in CLAUDE.md.
+
+The extraction is its own commit, no behavior change. The signature:
+
+```go
+func (g *Gateway) buildAgentPrompt(
+    group  core.Group,
+    chatJid string,
+    topic   string,
+    trigger []core.Message,
+) string
+```
+
+Both existing call sites call it. After this commit the codebase has
+one renderer. Lineage code then has one place to land.
 
 ## The primitive
 
-A topic is a `(folder, topic)` pair in `sessions`. After this spec it
-gains three nullable columns:
+Three nullable columns on `sessions`:
 
 ```sql
-ALTER TABLE sessions ADD COLUMN parent_topic     TEXT;     -- which topic forked from; "" = main
-ALTER TABLE sessions ADD COLUMN forked_at        TEXT;     -- ISO8601 timestamp the fork point was taken
-ALTER TABLE sessions ADD COLUMN observed_cursor  TEXT;     -- ISO8601 timestamp of last observed message processed
+ALTER TABLE sessions ADD COLUMN parent_topic     TEXT;     -- which topic forked from; NULL = no parent
+ALTER TABLE sessions ADD COLUMN forked_at        TEXT;     -- RFC3339Nano UTC; the fork point
+ALTER TABLE sessions ADD COLUMN observed_cursor  TEXT;     -- RFC3339Nano UTC; last observed ts processed
 ```
 
-Three nullable columns on an existing table. No new table. No new
-relations. Index `(folder, parent_topic)` for fork-children lookup.
+**Format invariant**: every timestamp in arizuko's schema is
+`time.Now().UTC().Format(time.RFC3339Nano)`. The store helpers
+`messages.go:25` already do this for `messages.timestamp`; lineage
+columns join the same convention. **No `strftime` in migrations** —
+backfills compute the value in Go before insert, so format stays
+single-sourced.
 
-### Defaults
-
-- New row from `GetOrCreateSession(folder, topic)`:
-  - `parent_topic = ""` (main)
-  - `forked_at    = now()`
-  - `observed_cursor = now()`
-- The `main` topic (topic = `""`) has `parent_topic = NULL` (root, no parent).
-
-### Reading a topic's full context
-
-On every trigger turn for `(folder, topic)`:
+## Reading a topic's full context
 
 ```
-1. trigger_msgs   = MessagesSince(chat_jid, agent_cursor)          // unchanged
-2. parent_msgs    = TopicHistoryThrough(folder, parent_topic, forked_at)
-                    // messages routed to parent_topic, timestamp <= forked_at
-                    // empty if parent_topic = "" or NULL
-3. observed_msgs  = ObservedSince(folder, observed_cursor)
-                    // observed messages after this topic's cursor
-4. advance observed_cursor = max(observed_msgs.timestamp)
-5. render prompt with parent_msgs + observed_msgs + trigger_msgs
+1. trigger_msgs  = MessagesSince(chat_jid, agent_cursor)               // unchanged
+2. parent_msgs   = TopicHistoryThrough(folder, parent_topic, forked_at, INHERIT_WINDOW_*)
+                   // skipped when parent_topic IS NULL
+3. observed_msgs = ObservedSince(folder, observed_cursor, OBSERVE_WINDOW_*)
+                   // separate from inherited; separate cap
+4. render: buildAgentPrompt → <inherited>…</inherited> <observed>…</observed> + trigger
 ```
 
-Concretely: the agent sees the parent's history up to the fork
-moment as `<inherited>` context, the observed window as `<observed>`,
-and the current trigger turn as the live thread.
+Rendered into the existing prompt. Two new env vars:
 
-## How each ask falls out
+- `INHERIT_WINDOW_MESSAGES` (default 50)
+- `INHERIT_WINDOW_CHARS` (default 20000)
 
-### 1. `fork` command (MCP tool)
+Separate from `OBSERVE_WINDOW_*` because they bound semantically
+different things — inherited is "context up to here", observed is
+ambient sidechannel. Conflating them would be the same overload-one-
+knob-with-two-meanings smell that route mode just escaped.
 
-```
-fork_topic(parent: string, child: string)
-  -> upsert sessions row (folder, child)
-       with parent_topic = parent, forked_at = now(), observed_cursor = now()
-  -> reset session_id (new fresh agent state); child agent starts
-     with parent's history as `<inherited>` block
-```
+## Cursor advancement — at-least-once semantics
 
-Exposed via MCP for the agent itself, and via REST/dashd for operators.
-~30 LOC.
+Cursor advance is **not transactional with the agent turn**. The
+spec accepts at-least-once delivery of `<observed>` messages on
+crash recovery. Rationale:
 
-### 2. Platform threads = forks
+- The agent's prompt already includes the rule "observed messages
+  are context, not requests" (from spec 6/B). Re-feeding the same
+  observed message on a retry is benign — the agent doesn't act on
+  it twice.
+- The alternative (advance-before-run + lose on failure) silently
+  drops messages, which IS a correctness bug.
+- The third alternative (advance inside `EndSession`, atomic with
+  turn success record) is real engineering but spec-out-of-scope
+  for v1; can ship later without schema change.
 
-Each adapter already maps native thread IDs to `Message.Topic`. The
-change: when the inbound carries a parent message (Slack `parent_user_message.ts`,
-Discord `MessageReference.MessageID`, Telegram `reply_to_message`), the
-adapter populates a new `Message.ParentTopic` field with the parent's
-topic. The gateway, when calling `GetOrCreateSession`, passes the
-parent if present.
+Cursor advance lives in `buildAgentPrompt` right after reading
+`ObservedSince` — before the agent runs. Same place, same write.
 
-```go
-// In each adapter's inbound mapping:
-if reply := m.ReplyToMessage; reply != nil {
-    inbound.ParentTopic = parentTopicFor(reply)  // adapter-specific
-}
-```
+Documented in `EXTENDING.md`: "Observed messages may surface twice
+on crash recovery. The agent's prompt rule prevents double-response."
 
-`parentTopicFor` is one line per adapter: pick the parent message's
-own topic if known, else `""` (main). ~10 LOC per adapter × 4 = ~40 LOC.
-
-### 3. New topics fork main by default
-
-This is just the defaults at top: `parent_topic = ""` (main) when
-inserting a new sessions row. Behavior is automatic for every
-non-thread topic command (`/new #deploy`, sticky `#topic`, etc.).
-Zero extra code if the defaults are set correctly in
-`GetOrCreateSession`.
-
-### 4. Per-topic observed cursor
-
-`ObservedTail(folder, maxMsgs, maxChars)` becomes
-`ObservedSince(folder, observed_cursor, maxMsgs, maxChars)`. Reads
-messages where `routed_to=folder AND is_observed=1 AND timestamp >
-observed_cursor`. Gateway advances `observed_cursor` to the youngest
-observed message timestamp after rendering the prompt. Each topic
-keeps its own cursor in the `sessions` row.
-
-Edge case: if a topic is created today (cursor = now()), it sees only
-observed messages that arrive AFTER creation. Older observed messages
-arrive only via the parent's inherited history (step 2). That's the
-correct boundary — observed context is forward-looking from the
-topic's creation, not retrospective.
-
-## Schema migration
-
-`store/migrations/0055-topic-lineage.sql`:
+## Migration backfill — neither now() nor zero
 
 ```sql
--- Three columns on sessions. All nullable; existing rows continue to work
--- (main session, topic=""). Defaults applied at insert site in Go.
-ALTER TABLE sessions ADD COLUMN parent_topic     TEXT;
-ALTER TABLE sessions ADD COLUMN forked_at        TEXT;
-ALTER TABLE sessions ADD COLUMN observed_cursor  TEXT;
+-- 0055-topic-lineage.sql
+ALTER TABLE sessions ADD COLUMN parent_topic    TEXT;
+ALTER TABLE sessions ADD COLUMN forked_at       TEXT;
+ALTER TABLE sessions ADD COLUMN observed_cursor TEXT;
 
-CREATE INDEX idx_sessions_parent ON sessions(group_folder, parent_topic)
-  WHERE parent_topic IS NOT NULL;
+-- No backfill in SQL. observed_cursor stays NULL; Go layer
+-- treats NULL as "see all current observed messages up to
+-- the standard window cap" on first read after migration.
+-- This is the same behavior as a fresh topic and matches
+-- the spec 6/B promise.
 
--- Existing rows: backfill observed_cursor=now() so the first turn after
--- migration doesn't replay the full observed history.
-UPDATE sessions
-SET observed_cursor = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-WHERE observed_cursor IS NULL;
+CREATE INDEX idx_sessions_lineage ON sessions(group_folder, parent_topic);
 ```
 
-One migration. Backwards-compatible: rows without lineage just use
-defaults (parent = main, forked_at = creation, observed = creation).
+(Index without `WHERE` predicate per oracle: partial index excluding
+~1 root row per folder isn't worth its weight.)
 
-## Code changes
+`ObservedSince(folder, cursor, ...)` treats `cursor IS NULL` as
+"no lower bound; let OBSERVE*WINDOW*\* cap it." This matches today's
+`ObservedTail` behavior exactly for existing rows — zero behavior
+change at migration. First turn after migration writes the cursor.
 
-| File                                                                  | Change                                                                                                                | LOC               |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `store/migrations/0055-topic-lineage.sql`                             | new                                                                                                                   | 12                |
-| `store/sessions.go`                                                   | extend `GetOrCreateSession`, add `TopicLineage`, `AdvanceObservedCursor`, `ForkTopic`                                 | ~80               |
-| `store/messages.go`                                                   | rename `ObservedTail` → `ObservedSince(folder, cursor, ...)`; add `TopicHistoryThrough(folder, topic, beforeTS, ...)` | ~40               |
-| `gateway/gateway.go`                                                  | call new functions; thread `parent_topic` from inbound; advance cursor after rendering                                | ~30               |
-| `core/types.go`                                                       | add `Message.ParentTopic string` field; `core.TopicLineage` struct                                                    | ~10               |
-| `chanlib/types.go` + per-adapter (`slakd`, `discd`, `teled`, `whapd`) | map native parent-message to `ParentTopic`                                                                            | ~10 each × 4 = 40 |
-| `ipc/ipc.go`                                                          | new MCP tool `fork_topic`                                                                                             | ~30               |
-| `proxyd/...` or `dashd/...`                                           | REST endpoint for fork (per "MCP+REST uniform" principle)                                                             | ~30               |
-| Tests (per call site + integration)                                   | new                                                                                                                   | ~150              |
+## `fork_topic(parent, child)` MCP tool
 
-**Net: ~420 LOC** including tests. Three concerns kept orthogonal:
-(a) lineage in store, (b) inbound parent detection in adapters,
-(c) cursor advancement in gateway. No daemon learns more than one new
-verb.
+```
+fork_topic(parent: string, child: string, force: bool = false)
+```
 
-## What this is NOT
+- Errors if child already exists with `topic_exists` unless `force=true`.
+- Inserts `sessions(group_folder=current, topic=child,
+parent_topic=parent, forked_at=now(), observed_cursor=now(),
+session_id=NEW_UUID)`.
+- Does **not** touch `chat_reply_state` — reply-threading is per-JID
+  and orthogonal to topic lineage. Documented in the spec, REST/MCP
+  docs, and `ROUTING.md`. (Operator who wants reply-thread reset
+  uses the separate `clear_reply_state` tool.)
+- Returns `{topic: child, parent_topic: parent, forked_at: ts}`.
 
-- **NOT a per-message branching system.** Fork takes a snapshot of
-  topic state at `now()`; it doesn't let you "fork from message ID X
-  in the middle." If we ever need that, `forked_at` accepts any
-  timestamp — but the command surface ships with `now()` only.
-- **NOT a session-state copy.** Forked child starts with a fresh
-  `session_id`. The parent's _message history_ is what's inherited via
-  the `<inherited>` block; the parent's _agent memory/turn state_ is
-  not copied. Clean separation.
-- **NOT per-chat_jid topic scoping.** Topics remain `(folder, topic)`,
-  shared across all chat_jids that route to the folder. Two channels
-  both posting to `#deploy` in the same folder participate in the same
-  topic.
-- **NOT a replacement for `agent_cursor`.** The chat-level cursor on
-  `chats(jid)` stays — it's the per-channel watermark for "what
-  messages have been processed at all." The topic-level
-  `observed_cursor` is a different layer — it's per-topic "which
-  observed messages has THIS conversation seen."
-- **NOT auto-fork of non-thread messages.** A plain channel message
-  (no thread, no `#topic` command) lands in main as before. Only
-  explicit threads + the `fork` command create child topics.
+REST counterpart per the "MCP+REST hand-rolled and uniform" CLAUDE.md
+principle: `POST /v1/topics/{folder}/fork {parent, child}`. Same
+handler shape as other resreg-style endpoints.
 
-## Prompt rendering
+## What this is NOT (v1)
 
-The `<observed>` block stays as today (per spec 6/B). New block:
-`<inherited from="parent_topic" through="2026-05-16T08:42:11Z">…</inherited>`
-emitted when `parent_topic != ""` and parent has messages before
-`forked_at`. The agent's prompt rule (added to ant CLAUDE.md):
+- **NOT default-fork-from-main.** Existing topics keep current
+  behavior. Operator opt-in deferred to v2 via per-folder setting.
+- **NOT auto-fork for platform threads.** Slack thread_ts continues
+  to map to fresh topic. Revisit only when there's a real ask.
+- **NOT crash-safe-atomic cursor.** At-least-once with agent-prompt
+  rule preventing double-action.
+- **NOT replay of observed at fork.** Child's `observed_cursor =
+now()` — child sees observed messages that arrive AFTER fork, not
+  before. The "before" lives in `<inherited>` from parent.
+- **NOT a fork from arbitrary message ID.** Fork is always from
+  parent's state at `now()`. "Fork from message X" is a different
+  primitive; spec defers.
 
-> Inherited messages are the parent topic's history up to the fork
-> point. Treat as background; do not re-respond to them. The live
-> thread starts after this block.
+## Code changes (revised)
 
-Same shape as the existing `<observed>` rule.
+| File                                      | Change                                                                                                                | LOC              |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `gateway/gateway.go`                      | extract `buildAgentPrompt` (Phase 0)                                                                                  | 0 net (refactor) |
+| `store/migrations/0055-topic-lineage.sql` | new                                                                                                                   | 8                |
+| `store/sessions.go`                       | add `TopicLineage()`, `UpdateObservedCursor()`, `Fork()`                                                              | ~60              |
+| `store/messages.go`                       | rename `ObservedTail` → `ObservedSince(folder, cursor, ...)`; add `TopicHistoryThrough(folder, topic, beforeTS, ...)` | ~40              |
+| `gateway/gateway.go`                      | wire lineage into `buildAgentPrompt`; advance cursor                                                                  | ~25              |
+| `core/types.go`                           | add `core.TopicLineage` struct                                                                                        | ~8               |
+| `ipc/ipc.go`                              | new MCP tool `fork_topic`                                                                                             | ~30              |
+| `proxyd/...` or `dashd/...`               | REST `POST /v1/topics/{folder}/fork`                                                                                  | ~30              |
+| Tests                                     | new + regression                                                                                                      | ~120             |
+
+**Net: ~320 LOC** (vs ~420 in the original draft).
 
 ## Migration order
 
-1. **Ship the schema migration** (0055) alone — adds nullable columns,
-   no behavior change. Verify no regressions.
-2. **Per-topic `observed_cursor`** — gateway reads + advances. Other
-   features still work because parent_topic / forked_at default to
-   "fork from main at row creation," but `<inherited>` rendering is
-   gated off (next step).
-3. **Inherited rendering + parent detection in adapters** — emit the
-   `<inherited>` block when parent has messages. Per-adapter PRs for
-   slakd/discd/teled/whapd in order.
-4. **`fork_topic` MCP + REST** — exposes the primitive operators can
-   call directly. Last because it's the most user-facing change and
-   wants a stable underlying primitive first.
+1. **Phase 0** — extract `buildAgentPrompt`. Zero behavior change.
+   Commit `[refactor] gateway: one renderer for chat + web-topic`.
+2. **Phase 1** — schema migration + `ObservedSince(folder, cursor)` +
+   gateway reads/advances `observed_cursor`. Per-topic cursor active.
+   Ship. Smoke test: open two topics in one folder, send observed
+   message between them, both topics should see it on next turn.
+3. **Phase 2** — `TopicHistoryThrough` + `<inherited>` block rendering
+   when `parent_topic` is set. No way to set parent_topic yet — code
+   path inactive but tested.
+4. **Phase 3** — `fork_topic` MCP + REST. Now operators can mint
+   forks; `<inherited>` block lights up for forked children.
+5. **Smoke** on sloth (lower-stakes than krons): operator runs
+   `fork_topic main #deploy`, verifies child sees main's tail as
+   inherited. Then krons.
 
-Each step is independently revertable. Each ships its own tests.
+Each phase is independently revertable.
 
-## Risks
+## Risks (revised after oracle)
 
-- **`<inherited>` block size**: parent's history can be enormous. Cap
-  by the same `OBSERVE_WINDOW_*` env vars (the operator already tunes
-  these); inherited block reuses the same window math.
-- **Forked-cursor advancement under steered batches**: when the
-  gateway steers a batch into a running container, the observed cursor
-  advance must happen for each topic that fires, not just the first.
-  Single call site in the rendering function — straightforward.
-- **`fork_topic(parent, child)` where child already exists**: error
-  by default; `--force` flag for explicit reset. Per the
-  strict-not-magical principle (CLAUDE.md), no implicit overwrite.
-- **Thread storms**: a channel with many threads creates many topic
-  rows. `sessions` is unbounded today; no GC. Out of scope for this
-  spec; tracked separately as a sessions-pruning task.
+- **`<inherited>` cap is the right size?** Operator-tunable via
+  `INHERIT_WINDOW_*`; default 50 msgs / 20KB based on typical main
+  topic size. If too small, fork loses context; if too big, blows
+  prompt budget. Watch in smoke; tune.
+- **At-least-once observed**: documented in EXTENDING.md and ant
+  CLAUDE.md. Future work: atomic-advance variant after `EndSession`
+  shape is finalized.
+- **`fork_topic --force` on a topic with active container**: container
+  keeps its session_id until next spawn. Fork swaps session_id in DB;
+  next spawn picks up new lineage. Document this lag.
+
+## Out of scope (tracked as follow-ups)
+
+- v2: per-folder `default_fork_main` setting + opt-in default.
+- v2: `fork_topic` from arbitrary timestamp / message id.
+- v2: native thread auto-fork (slack/discord/telegram-platform-native).
+- v2: GC of orphaned topics with no recent messages.
+- v2: atomic observed-cursor advance via `EndSession` integration.
 
 ## Open questions
 
-- **Should `forked_at` accept past timestamps via the MCP API?**
-  Probably no for v1 — only `now()`. Adding "fork from message ID X"
-  is a real new primitive, separate spec.
-- **Should the `<inherited>` block include the parent topic's own
-  observed messages, or only its trigger messages?** Probably only
-  trigger messages — observed-of-observed risks recursive blow-up.
-- **What happens to `observed_cursor` when topics fork from each other
-  recursively?** Each topic owns its own cursor; no inheritance of
-  cursors. Each fork starts at `now()`. Simple, no recursion.
-- **Should we GC orphaned topics (no messages for N days)?** Yes
-  eventually; out of scope here. Track as `sessions-gc` task.
+- Resolved: `parent_topic` NULL vs `""` for root — NULL (no parent).
+  Empty string is reserved for the main topic name.
+- Resolved: timestamp format — RFC3339Nano UTC everywhere, computed
+  in Go, never via SQLite `strftime`.
+- Resolved: cursor advance semantics — at-least-once + agent-prompt
+  rule.
+- Open: what to do if `parent_topic` references a non-existent sessions
+  row? Treat as no inheritance (empty `<inherited>` block), don't
+  error. Strict-not-magical says: error. Spec says: tolerate; the
+  parent might have been GC'd later. Pick on first hit.
