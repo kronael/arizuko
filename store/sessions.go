@@ -17,14 +17,54 @@ func (s *Store) GetSession(folder, topic string) (string, bool) {
 	return id, err == nil
 }
 
+// SetSession upserts a session_id for (folder, topic). On the first
+// INSERT for a non-main topic, lineage columns default to forked-from-
+// main at now() — spec 6/F default-fork-from-main. UPDATE path
+// preserves existing lineage (only session_id changes). Pass an
+// explicit parent via SetSessionForked to override the default.
 func (s *Store) SetSession(folder, topic, id string) error {
+	if topic == "" {
+		// Root main topic — no parent, no fork point.
+		_, err := s.db.Exec(
+			`INSERT INTO sessions (group_folder, topic, session_id) VALUES (?, ?, ?)
+			 ON CONFLICT(group_folder, topic) DO UPDATE SET session_id = excluded.session_id`,
+			folder, topic, id,
+		)
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err := s.db.Exec(
-		`INSERT INTO sessions (group_folder, topic, session_id) VALUES (?, ?, ?)
+		`INSERT INTO sessions
+		   (group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
+		 VALUES (?, ?, ?, '', ?, ?)
 		 ON CONFLICT(group_folder, topic) DO UPDATE SET session_id = excluded.session_id`,
-		folder, topic, id,
+		folder, topic, id, now, now,
 	)
 	return err
 }
+
+// EnsureTopicLineage inserts a sessions row for (folder, topic) with
+// lineage if no row exists yet. Idempotent: a no-op when the row
+// already exists. Used before agent run so the first turn for a new
+// topic already has lineage and the <inherited> block fires from
+// turn one. parentTopic="" means fork from main (the default for any
+// non-main topic). Caller passes folder's main topic name ""
+// untouched — we skip the insert because the main topic itself has
+// no parent. newSessionID is used only on INSERT.
+func (s *Store) EnsureTopicLineage(folder, topic, parentTopic, newSessionID string) error {
+	if topic == "" {
+		return nil
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO sessions
+		   (group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		folder, topic, newSessionID, parentTopic, now, now,
+	)
+	return err
+}
+
 
 func (s *Store) DeleteSession(folder, topic string) error {
 	_, err := s.db.Exec(
@@ -34,10 +74,11 @@ func (s *Store) DeleteSession(folder, topic string) error {
 	return err
 }
 
-// TopicLineage returns the lineage row for (folder, topic) — parent
-// topic name (empty string when NULL), fork point, and observed cursor.
-// Returns ok=false when the sessions row doesn't exist; callers treat
-// that as default lineage (no parent, no cursor).
+// TopicLineage returns the lineage row for (folder, topic).
+// ParentTopic stays nil when the column is NULL — distinguishes
+// "no parent" (e.g. root main topic) from "forked from main"
+// (parent_topic = "" string). ok=false when the sessions row
+// doesn't exist; callers treat that as no lineage at all.
 func (s *Store) TopicLineage(folder, topic string) (core.TopicLineage, bool) {
 	var parent, forked, cursor *string
 	err := s.db.QueryRow(
@@ -48,10 +89,7 @@ func (s *Store) TopicLineage(folder, topic string) (core.TopicLineage, bool) {
 	if err != nil {
 		return core.TopicLineage{}, false
 	}
-	out := core.TopicLineage{Folder: folder, Topic: topic}
-	if parent != nil {
-		out.ParentTopic = *parent
-	}
+	out := core.TopicLineage{Folder: folder, Topic: topic, ParentTopic: parent}
 	if forked != nil {
 		out.ForkedAt = *forked
 	}

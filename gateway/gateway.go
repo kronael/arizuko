@@ -719,6 +719,11 @@ func (g *Gateway) processSenderBatch(
 	g.emitSystemEvents(group, chatJid)
 	_ = agentTs
 	topic := g.effectiveTopic(chatJid, last.Topic)
+	// Spec 6/F default-fork-from-main: any non-main topic without
+	// existing lineage defaults to forking from main at first turn.
+	// Thread auto-fork (parent_topic from adapter) is set at inbound
+	// time in api.go — this call is a no-op then.
+	_ = g.store.EnsureTopicLineage(group.Folder, topic, "", core.NewSessionID())
 	prompt := g.buildAgentPrompt(group, topic, msgs)
 
 	if deliverCh != nil {
@@ -788,6 +793,7 @@ func (g *Gateway) processWebTopics(
 		last := topicMsgs[len(topicMsgs)-1]
 
 		effectiveTopic := g.effectiveTopic(chatJid, topic)
+		_ = g.store.EnsureTopicLineage(group.Folder, effectiveTopic, "", core.NewSessionID())
 		prompt := g.buildAgentPrompt(group, effectiveTopic, topicMsgs)
 
 		if ch != nil {
@@ -854,13 +860,13 @@ func (g *Gateway) buildAgentPrompt(group core.Group, topic string, trigger []cor
 	}
 
 	inherited := ""
-	if lin.ParentTopic != "" {
+	if lin.ParentTopic != nil && *lin.ParentTopic != topic {
 		parentMsgs := g.store.TopicHistoryThrough(
-			group.Folder, lin.ParentTopic, lin.ForkedAt,
+			group.Folder, *lin.ParentTopic, lin.ForkedAt,
 			g.cfg.InheritWindowMessages, g.cfg.InheritWindowChars,
 		)
 		if len(parentMsgs) > 0 {
-			inherited = renderInheritedBlock(lin.ParentTopic, lin.ForkedAt, parentMsgs)
+			inherited = renderInheritedBlock(*lin.ParentTopic, lin.ForkedAt, parentMsgs)
 		}
 	}
 
