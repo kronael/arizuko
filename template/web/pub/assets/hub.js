@@ -21,6 +21,18 @@
     if (btn) btn.textContent = theme === 'dark' ? '\u{1F506}' : '\u{1F319}';
   }
 
+  function injectFooter() {
+    // Site-wide footer with the two anchors the operator wants on every page:
+    // GitHub source + the canonical krons-hosted instance.
+    if (document.querySelector('.hub-footer')) return;
+    var f = document.createElement('footer');
+    f.className = 'hub-footer';
+    f.innerHTML =
+      '<a href="https://github.com/kronael/arizuko">github.com/kronael/arizuko</a>' +
+      ' · <a href="https://krons.fiu.wtf/pub/arizuko/">krons.fiu.wtf</a>';
+    document.body.appendChild(f);
+  }
+
   function init() {
     initTheme();
     var btn = document.querySelector('.theme-toggle');
@@ -28,6 +40,7 @@
     var grid = document.querySelector('.grid');
     var empty = document.querySelector('.empty');
     if (grid && empty && grid.children.length > 0) empty.style.display = 'none';
+    injectFooter();
   }
 
   if (document.readyState === 'loading') {
