@@ -1613,3 +1613,103 @@ func TestOnCircuitBreakerOpen_PrunesAndResetsSession(t *testing.T) {
 		t.Errorf("session should be cleared, got %q", id)
 	}
 }
+
+// Spec 6/F rev6: every prompt carries <topic name="X" /> so the
+// agent always knows its scope. No <inherited> block — parent context
+// arrives via the forked Claude Code session, not via injection.
+func TestBuildAgentPrompt_TopicEnvelope(t *testing.T) {
+	gw, _ := testGateway(t)
+	g := core.Group{Folder: "main"}
+
+	now := time.Now()
+	trigger := []core.Message{{
+		ID: "t1", ChatJID: "telegram:1", Sender: "alice",
+		Content: "hey", Timestamp: now, Verb: "message",
+	}}
+
+	got := gw.buildAgentPrompt(g, "#deploy", trigger)
+	if !strings.Contains(got, `<topic name="#deploy" />`) {
+		t.Errorf("missing <topic> envelope for #deploy; prompt:\n%s", got)
+	}
+	if strings.Contains(got, "<inherited") {
+		t.Errorf("<inherited> block must not appear; prompt:\n%s", got)
+	}
+
+	gotMain := gw.buildAgentPrompt(g, "", trigger)
+	if !strings.Contains(gotMain, `<topic name="" />`) {
+		t.Errorf("missing <topic name=\"\" /> envelope for main; prompt:\n%s", gotMain)
+	}
+}
+
+// Spec 6/F: fork_topic copies the parent's Claude Code session jsonl
+// so the child resumes with full history. Gateway wraps store.ForkTopic
+// with the cp step.
+func TestForkTopic_CopiesParentSession(t *testing.T) {
+	gw, s := testGateway(t)
+	folder := "main"
+
+	// Seed parent session and a fake jsonl file in the group's
+	// container-mounted projects dir.
+	parentUUID := "parent-uuid"
+	s.SetSession(folder, "", parentUUID)
+	groupDir, err := gw.folders.GroupPath(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projDir := filepath.Join(groupDir, ".claude", "projects", "-home-node")
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	parentContents := []byte(`{"type":"summary"}` + "\n")
+	if err := os.WriteFile(filepath.Join(projDir, parentUUID+".jsonl"), parentContents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := gw.forkTopic(folder, "", "#deploy", false); err != nil {
+		t.Fatalf("forkTopic: %v", err)
+	}
+	childUUID, ok := s.GetSession(folder, "#deploy")
+	if !ok || childUUID == "" {
+		t.Fatal("child session not registered")
+	}
+	got, err := os.ReadFile(filepath.Join(projDir, childUUID+".jsonl"))
+	if err != nil {
+		t.Fatalf("child file not created: %v", err)
+	}
+	if string(got) != string(parentContents) {
+		t.Errorf("child file content drift\nwant: %q\n got: %q", parentContents, got)
+	}
+}
+
+// Default-fork-from-main path: first turn on a non-main topic creates
+// the lineage row AND copies main's session. Models the explicit-MCP-
+// fork case but routed via ensureTopicWithFork (gateway-internal).
+func TestEnsureTopicWithFork_CopiesMainSession(t *testing.T) {
+	gw, s := testGateway(t)
+	folder := "main"
+
+	parentUUID := "main-uuid"
+	s.SetSession(folder, "", parentUUID)
+	groupDir, _ := gw.folders.GroupPath(folder)
+	projDir := filepath.Join(groupDir, ".claude", "projects", "-home-node")
+	os.MkdirAll(projDir, 0o755)
+	os.WriteFile(filepath.Join(projDir, parentUUID+".jsonl"), []byte("parent\n"), 0o644)
+
+	gw.ensureTopicWithFork(folder, "#deploy", "")
+	childUUID, ok := s.GetSession(folder, "#deploy")
+	if !ok {
+		t.Fatal("child session row missing")
+	}
+	if _, err := os.Stat(filepath.Join(projDir, childUUID+".jsonl")); err != nil {
+		t.Errorf("child file not copied: %v", err)
+	}
+
+	// Second call must be a no-op: same child uuid, no second cp
+	// (lineage row already exists so ForkTopic-on-INSERT-OR-IGNORE
+	// returns inserted=false).
+	gw.ensureTopicWithFork(folder, "#deploy", "")
+	childUUID2, _ := s.GetSession(folder, "#deploy")
+	if childUUID2 != childUUID {
+		t.Errorf("second call clobbered session id: %q -> %q", childUUID, childUUID2)
+	}
+}
