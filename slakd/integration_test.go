@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/store"
 )
 
 // slackMock spins up an httptest server that mimics the Slack Web API
@@ -209,6 +210,12 @@ func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	b.store = st
 	rc := chanlib.NewRouterClient(rm.srv.URL, "chsec")
 	rc.SetToken("tok")
 	b.rc = rc

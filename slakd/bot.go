@@ -23,14 +23,23 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/store"
 )
 
 const (
 	slackBase       = "https://slack.com/api"
 	signingWindow   = 5 * time.Minute
 	defaultCacheTTL = 15 * time.Minute
-	paneTTL         = 30 * time.Minute
 )
+
+// paneStore is the subset of *store.Store slakd needs for pane sessions.
+// Kept narrow so tests can stub it without dragging the DB in.
+type paneStore interface {
+	UpsertPane(teamID, userID, threadTS, channelID string) error
+	GetPaneByChannel(channelID string) (store.PaneSession, bool)
+	SetPaneContext(teamID, userID, threadTS, contextJID string) error
+	SetPaneStatusAt(teamID, userID, threadTS, ts string) error
+}
 
 type bot struct {
 	chanlib.NoVoiceSender
@@ -42,20 +51,13 @@ type bot struct {
 	files *chanlib.URLCache
 	users *ttlCache
 	chans *ttlCache
+	store paneStore
 
 	botUserID atomic.Value
 	teamID    atomic.Value
 
 	connected     atomic.Bool
 	lastInboundAt atomic.Int64
-
-	paneMu sync.Mutex
-	panes  map[string]paneSession
-}
-
-type paneSession struct {
-	threadTS string
-	seenAt   time.Time
 }
 
 func (b *bot) isConnected() bool    { return b.connected.Load() }
@@ -88,7 +90,6 @@ func newBotWithBase(cfg config, base string) (*bot, error) {
 		http:  &http.Client{Timeout: 30 * time.Second},
 		users: newTTLCache(cfg.CacheTTL),
 		chans: newTTLCache(cfg.CacheTTL),
-		panes: map[string]paneSession{},
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
 	return b, nil
@@ -229,7 +230,7 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 
 	if m.AssistantThread != nil && m.AssistantThread.ActionToken != "" {
 		root := cmp.Or(m.ThreadTS, m.TS)
-		b.recordPane(jid, root)
+		b.recordPane(cmp.Or(teamID, b.TeamID()), m.User, root, m.Channel)
 	}
 
 	content, atts := b.attachmentsFor(m.Text, m.Files)
@@ -511,7 +512,7 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 // payloads (see handleMessage); only JIDs with a recorded pane session
 // trigger the API call.
 func (b *bot) Typing(jid string, on bool) {
-	threadTS, ok := b.lookupPane(jid)
+	pane, ok := b.lookupPane(jid)
 	if !ok {
 		return
 	}
@@ -530,7 +531,7 @@ func (b *bot) Typing(jid string, on bool) {
 	go func() {
 		form := url.Values{}
 		form.Set("channel_id", parts.id)
-		form.Set("thread_ts", threadTS)
+		form.Set("thread_ts", pane.ThreadTS)
 		form.Set("status", status)
 		var resp struct {
 			OK    bool   `json:"ok"`
@@ -542,34 +543,39 @@ func (b *bot) Typing(jid string, on bool) {
 		}
 		if !resp.OK && resp.Error == "missing_scope" {
 			slog.Warn("slack setStatus missing_scope (assistant:write required)", "jid", jid)
+			return
+		}
+		if resp.OK && b.store != nil {
+			now := time.Now().UTC().Format(time.RFC3339Nano)
+			_ = b.store.SetPaneStatusAt(pane.TeamID, pane.UserID, pane.ThreadTS, now)
 		}
 	}()
 }
 
-func (b *bot) recordPane(jid, threadTS string) {
-	b.paneMu.Lock()
-	defer b.paneMu.Unlock()
-	now := time.Now()
-	b.panes[jid] = paneSession{threadTS: threadTS, seenAt: now}
-	for k, v := range b.panes {
-		if now.Sub(v.seenAt) > paneTTL {
-			delete(b.panes, k)
-		}
+// recordPane persists a pane session triggered by an inbound carrying
+// assistant_thread.action_token. teamID and userID are required for the
+// PK; an empty user (rare — pane messages always have a user_id from
+// Slack) skips persistence rather than write an unkeyable row.
+func (b *bot) recordPane(teamID, userID, threadTS, channelID string) {
+	if b.store == nil || teamID == "" || userID == "" || threadTS == "" || channelID == "" {
+		return
+	}
+	if err := b.store.UpsertPane(teamID, userID, threadTS, channelID); err != nil {
+		slog.Warn("slack: pane upsert failed", "channel", channelID, "err", err)
 	}
 }
 
-func (b *bot) lookupPane(jid string) (string, bool) {
-	b.paneMu.Lock()
-	defer b.paneMu.Unlock()
-	p, ok := b.panes[jid]
-	if !ok {
-		return "", false
+// lookupPane reads the pane session by DM channel_id (extracted from
+// the jid). Returns (zero, false) when the channel isn't a pane.
+func (b *bot) lookupPane(jid string) (store.PaneSession, bool) {
+	if b.store == nil {
+		return store.PaneSession{}, false
 	}
-	if time.Since(p.seenAt) > paneTTL {
-		delete(b.panes, jid)
-		return "", false
+	parts, err := parseJID(jid)
+	if err != nil {
+		return store.PaneSession{}, false
 	}
-	return p.threadTS, true
+	return b.store.GetPaneByChannel(parts.id)
 }
 
 func (b *bot) Post(req chanlib.PostRequest) (string, error) {
