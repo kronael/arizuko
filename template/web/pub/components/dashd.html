@@ -46,12 +46,12 @@
       filesystem: &lt;groups&gt;/&lt;folder&gt;/MEMORY.md, diary/*.md, ...</code></pre>
     </div>
 
-    <p>dashd assumes the caller is already authorised &mdash; <a href="/pub/components/proxyd.html">proxyd</a>&rsquo;s <code>requireAuth</code> middleware runs first and either bounces the request to <code>/auth/login</code> or stamps a signed identity header. dashd does not re-check scope per group today; that work lands with the <code>/v1/*</code> migration.</p>
+    <p>dashd reads identity from signed headers set by <a href="/pub/components/proxyd.html">proxyd</a>&rsquo;s <code>requireAuth</code>. Write verbs go further: every TIER 1 mutation runs <code>requireAdmin</code>, which calls <code>auth.Authorize</code> with action <code>admin</code> against the caller&rsquo;s groups, plus a same-origin CSRF guard. Read views still depend on proxyd alone for the front gate.</p>
 
-    <p>The memory editor is the only write surface. It accepts <code>MEMORY.md</code>, <code>.claude/CLAUDE.md</code>, and flat <code>*.md</code> files under <code>diary/</code>, <code>facts/</code>, <code>users/</code>, and <code>episodes/</code>. File reads are capped at 1&nbsp;MiB. The path joiner resolves symlinks and rejects anything that escapes the group sandbox.</p>
+    <p>Two write surfaces today. <strong>Memory editor</strong> accepts <code>MEMORY.md</code>, <code>.claude/CLAUDE.md</code>, and flat <code>*.md</code> under <code>diary/</code>, <code>facts/</code>, <code>users/</code>, <code>episodes/</code>; reads capped at 1&nbsp;MiB; path joiner blocks symlink escape. <strong>TIER 1 admin</strong> — routes editor, groups CRUD, per-user secrets — gated by the admin check above.</p>
 
     <h2>Standalone usage</h2>
-    <p>dashd needs a SQLite file and a port. It will boot with no auth check of its own &mdash; production deployments must keep it behind proxyd or some other authenticating front.</p>
+    <p>dashd needs a SQLite file and a port. The TIER 1 write surface refuses requests without a signed admin identity; read views still need proxyd&rsquo;s front gate to be safe on the public internet.</p>
 
     <pre><code>export DATA_DIR=/srv/data/arizuko_demo
 export DASH_PORT=:8080
@@ -64,7 +64,7 @@ export INSTANCE_NAME=demo
     <p>Health: <code>GET /health</code> returns 200 when the database is reachable. Exposing dashd directly on the public internet skips the auth gate &mdash; do not do this.</p>
 
     <h2>The page set</h2>
-    <p>Twelve GET routes today, each one HTML the browser can read directly:</p>
+    <p>Read views (each one HTML the browser renders directly):</p>
 
     <ul>
       <li><code>/dash/</code> &mdash; portal index linking the other pages.</li>
@@ -76,7 +76,15 @@ export INSTANCE_NAME=demo
       <li><code>/dash/profile/</code> &mdash; the calling user&rsquo;s <code>auth_users</code> row.</li>
     </ul>
 
-    <p>Two HTMX partial endpoints (<code>tasks/x/list</code>, <code>activity/x/recent</code>) feed the live sub-views on the matching pages.</p>
+    <p>HTMX partials (<code>tasks/x/list</code>, <code>activity/x/recent</code>) feed live sub-views.</p>
+
+    <p>TIER 1 admin surfaces (admin auth + CSRF):</p>
+
+    <ul>
+      <li><code>/dash/routes/</code> &mdash; routes editor: list, create, edit, delete rules.</li>
+      <li><code>/dash/groups/new</code> + <code>/dash/groups/{folder}/settings</code> &mdash; group create / settings / delete.</li>
+      <li><code>/dash/me/secrets</code> &mdash; per-user secret set, list, delete.</li>
+    </ul>
 
     <h2>The migration to /v1/*</h2>
     <p>Today every page queries SQLite directly. The plan is to swap each read for a call to the sibling daemon that owns the table:</p>
@@ -91,7 +99,7 @@ export INSTANCE_NAME=demo
     <p>After the migration dashd holds an operator session token (issued by proxyd at OAuth login), forwards it as <code>Authorization: Bearer ...</code> on every <code>/v1/*</code> call, and stops touching <code>messages.db</code> at all.</p>
 
     <h2>What dashd does not do</h2>
-    <p>dashd is read-mostly. It does not send messages, schedule tasks, mint tokens, or admit users &mdash; those belong to gated, timed, proxyd, and <a href="/pub/components/onbod.html">onbod</a>. The single write surface is the memory editor, and it accepts a fixed allow-list of markdown paths under each group&rsquo;s folder. Everything else is a view.</p>
+    <p>dashd does not send messages, schedule tasks, mint tokens, or admit users &mdash; those belong to gated, timed, proxyd, and <a href="/pub/components/onbod.html">onbod</a>. Writes are scoped to the surfaces listed above: memory editor and TIER 1 admin. Everything else is a view.</p>
 
     <h2>Go deeper</h2>
     <ul>

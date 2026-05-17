@@ -71,7 +71,7 @@ webd    — web chat channel adapter
 proxyd  — auth-gated reverse proxy (TOML route table)
 vited   — web origin: serves /pub/* + auth-gated default route (Vite)
 davd    — WebDAV workspace (dufs wrapper)
-dashd   — operator dashboards (read-only)
+dashd   — operator dashboards + TIER 1 routes/groups/secrets CRUD
 ```
 
 Full graph, message flow, container lifecycle, SQLite schema in
@@ -92,7 +92,7 @@ package graph and [EXTENDING.md](EXTENDING.md) for adding new integrations.
 | gated  | core        | HTTP API + message loop + container runner; owns schema | [gated/README.md](gated/README.md)   |
 | timed  | core        | cron/interval scheduler                                 | [timed/README.md](timed/README.md)   |
 | onbod  | core        | onboarding, OAuth, gated admission queue                | [onbod/README.md](onbod/README.md)   |
-| dashd  | core        | read-only HTMX operator dashboards                      | [dashd/README.md](dashd/README.md)   |
+| dashd  | core        | HTMX operator dashboards + TIER 1 admin CRUD            | [dashd/README.md](dashd/README.md)   |
 | webd   | core        | web channel: SSE hub, slink chat + MCP transport        | [webd/README.md](webd/README.md)     |
 | proxyd | core        | auth-gated reverse proxy                                | [proxyd/README.md](proxyd/README.md) |
 | davd   | core        | WebDAV workspace (per-group, dufs)                      | [davd/README.md](davd/README.md)     |
