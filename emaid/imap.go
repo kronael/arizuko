@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/mail"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -325,19 +326,23 @@ func (p *poller) handleMsg(
 	bodyRaw := msg.FindBodySection(&imap.FetchItemBodySection{})
 	body := ""
 	var atts []chanlib.InboundAttachment
+	auth := classifyRaw(bodyRaw, p.cfg.Auth)
+	if auth.State == "untrusted" && p.cfg.Auth.StrictAuth {
+		slog.Warn("dropping mail: auth untrusted (strict)",
+			"uid", msg.UID, "from", fromAddr, "reason", auth.Reason)
+		c.Store(imap.UIDSetNum(msg.UID), &imap.StoreFlags{
+			Op: imap.StoreFlagsAdd, Flags: []imap.Flag{imap.FlagSeen},
+		}, nil).Close() //nolint:errcheck
+		return nil
+	}
 	if bodyRaw != nil {
-		if p.cfg.StrictAuth && !authResultsPass(bodyRaw) {
-			slog.Warn("dropping mail: auth-results fail", "uid", msg.UID, "from", fromAddr)
-			// Mark seen so we don't re-process the same rejected message.
-			c.Store(imap.UIDSetNum(msg.UID), &imap.StoreFlags{
-				Op: imap.StoreFlagsAdd, Flags: []imap.Flag{imap.FlagSeen},
-			}, nil).Close() //nolint:errcheck
-			return nil
-		}
 		body, atts = extractContent(bodyRaw, msg.UID, p.cfg.ListenURL, p.reg, p.cfg.MaxAttachment)
 	}
 
 	subject := env.Subject
+	if auth.State == "untrusted" && p.cfg.Auth.SubjectPrefix {
+		subject = "[UNVERIFIED] " + subject
+	}
 	toAddr := ""
 	if len(env.To) > 0 {
 		toAddr = env.To[0].Addr()
@@ -351,6 +356,7 @@ func (p *poller) handleMsg(
 	}
 
 	jid := "email:thread/" + threadID
+	verb := VerbForState(auth.State)
 
 	if err := rc.SendMessage(chanlib.InboundMsg{
 		ID:          msgID,
@@ -359,6 +365,7 @@ func (p *poller) handleMsg(
 		SenderName:  fromName,
 		Content:     content,
 		Timestamp:   ts,
+		Verb:        verb,
 		Attachments: atts,
 		// Email threads are 1:1 by default. Mailing-list inbound is a
 		// future extension that should set IsGroup=true here.
@@ -385,30 +392,22 @@ func (p *poller) handleMsg(
 	return nil
 }
 
-// authResultsPass returns false if Authentication-Results indicates
-// spf=fail / dkim=fail / dmarc=fail. Missing header → pass (many
-// providers omit it). Only consulted when cfg.StrictAuth is set.
-func authResultsPass(raw []byte) bool {
-	limit := len(raw)
-	if limit > 64*1024 {
-		limit = 64 * 1024
+// classifyRaw extracts Authentication-Results + From headers from the
+// raw RFC 5322 message and feeds them to Classify. Uses net/mail to
+// handle line folding (RFC 5322 §2.2.3) correctly — substring scans of
+// the raw bytes silently miss folded headers.
+func classifyRaw(raw []byte, cfg AuthConfig) ClassifyResult {
+	if raw == nil {
+		return Classify(nil, "", cfg)
 	}
-	head := strings.ToLower(string(raw[:limit]))
-	if idx := strings.Index(head, "\r\n\r\n"); idx >= 0 {
-		head = head[:idx]
+	m, err := mail.ReadMessage(strings.NewReader(string(raw)))
+	if err != nil {
+		// Header-parse failure → treat as untrusted (fail-closed).
+		return ClassifyResult{State: "untrusted", DMARC: "missing", Reason: "header parse: " + err.Error()}
 	}
-	for _, ln := range strings.Split(head, "\n") {
-		ln = strings.TrimSpace(ln)
-		if !strings.HasPrefix(ln, "authentication-results:") {
-			continue
-		}
-		if strings.Contains(ln, "spf=fail") ||
-			strings.Contains(ln, "dkim=fail") ||
-			strings.Contains(ln, "dmarc=fail") {
-			return false
-		}
-	}
-	return true
+	ar := m.Header["Authentication-Results"]
+	from := m.Header.Get("From")
+	return Classify(ar, from, cfg)
 }
 
 // extractContent walks the MIME tree. go-message's Reader flattens nested

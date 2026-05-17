@@ -47,7 +47,7 @@ type config struct {
 	ListenURL     string
 	DataDir       string
 	MaxAttachment int64
-	StrictAuth    bool
+	Auth          AuthConfig
 }
 
 func loadConfig() config {
@@ -65,6 +65,6 @@ func loadConfig() config {
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://email:9003"),
 		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/emaid"),
 		MaxAttachment: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
-		StrictAuth:    os.Getenv("EMAIL_STRICT_AUTH") == "true",
+		Auth:          LoadAuthConfig(os.Getenv),
 	}
 }

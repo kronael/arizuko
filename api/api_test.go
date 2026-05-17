@@ -197,6 +197,8 @@ func TestDeliverMessage_PromoteReplyToBot(t *testing.T) {
 		{"already-mention-no-overwrite", "m1", "mention", botID, "mention"},
 		{"reaction-no-reply-to", "r3", "like", "", "like"},
 		{"reaction-on-missing-id", "r4", "like", "no-such-id", "like"},
+		// spec 8/17 collision: untrusted reply-to-bot must NOT promote to mention.
+		{"untrusted-reply-on-bot", "u1", "untrusted", botID, "untrusted"},
 	}
 
 	for _, c := range cases {
