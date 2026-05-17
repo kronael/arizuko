@@ -102,6 +102,20 @@ func TestPickOutputStyle_UnknownPlatformReturnsPlatform(t *testing.T) {
 	}
 }
 
+func TestPickOutputStyle_EmptyStylesDirNonFatal(t *testing.T) {
+	// Misconfigured HostAppDir → empty stylesDir. Picker must still
+	// return SOMETHING reasonable (the candidate name) and not panic.
+	got := pickOutputStyle("slack", "slack:T1/channel/C1", "T123", "", never)
+	if got != "slack-thread" {
+		t.Fatalf("got %q want %q", got, "slack-thread")
+	}
+	// And without a surface match, falls through to the channel name.
+	got = pickOutputStyle("whapd", "whatsapp:foo", "", "", never)
+	if got != "whapd" {
+		t.Fatalf("got %q want %q", got, "whapd")
+	}
+}
+
 func TestParseSlackJID(t *testing.T) {
 	cases := []struct {
 		jid                       string

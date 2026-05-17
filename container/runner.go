@@ -743,6 +743,8 @@ func pickOutputStyle(
 	if surface != "" {
 		name := channel + "-" + surface
 		if stylesDir == "" {
+			slog.Warn("output style dir empty; returning candidate without existence check",
+				"candidate", name, "channel", channel)
 			return name
 		}
 		if _, err := os.Stat(filepath.Join(stylesDir, name+".md")); err == nil {
@@ -750,6 +752,8 @@ func pickOutputStyle(
 		}
 	}
 	if stylesDir == "" {
+		slog.Warn("output style dir empty; returning channel without existence check",
+			"candidate", channel, "channel", channel)
 		return channel
 	}
 	if _, err := os.Stat(filepath.Join(stylesDir, channel+".md")); err == nil {
