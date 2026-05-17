@@ -14,6 +14,63 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.40.7] — 2026-05-17
+
+> arizuko v0.40.7 — slack replies render properly
+>
+> Slack replies now use native mrkdwn, so _bold_, _italic_ and links render instead of showing raw asterisks and brackets.
+>
+> • New `slack` output-style — agent emits `*bold*`, `_italic_`, `~strike~`, `<url|text>` directly.
+> • Selected automatically on the Slack channel; other channels unaffected.
+> • Existing groups pick it up on next `/migrate`; new groups get it from the agent image.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- `ant/output-styles/slack.md` — channel-specific output style instructing
+  the agent to emit Slack mrkdwn (`*bold*`, `_italic_`, `~strike~`,
+  `<url|text>`) instead of CommonMark. Selected by `container/runner.go`
+  when the inbound channel is `slack`; written into the container's
+  `~/.claude/settings.json` as `outputStyle: "slack"` and prepended to
+  the system prompt by `ant/src/index.ts`. Ships via Dockerfile COPY
+  (new groups) and `/migrate` skill (existing groups).
+
+## [v0.40.6] — 2026-05-17
+
+> arizuko v0.40.6 — slack-team installable end-to-end
+>
+> Hostile oracle on the slack-team product flow found three broken commands that would trip a fresh operator on first run. All fixed; the compose-with-support pattern now actually composes.
+>
+> • `arizuko create acme --product slack-team` now lands a fully-seeded main group (PERSONA + CLAUDE + facts). Setup.html §1 was telling operators to skip the very product the page exists to ship.
+> • `arizuko group <inst> add <jid> <folder> --product <name>` is real. cmdGroup accepts `--product`, mirroring cmdCreate.
+> • setup.html §12 `add_route` invocations rewritten to single `route:='<json>'` shape per ipc/ipc.go:1525.
+> • setup.html §11 email ingest inlines `EMAIL_TRUSTED_AUTHSERV` + `EMAIL_TRUSTED_DOMAINS` + `EMAIL_STRICT_AUTH` (spec 8/17) — slack-team CLAUDE.md routes on verb=untrusted which needs these set.
+> • Root docs (README/ARCHITECTURE/ROUTING/SECURITY/EXTENDING) surgical updates from the root-doc audit pass.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- `cmd/arizuko/main.go cmdGroup add`: accept `--product <name>` flag,
+  passing productDir to container.SetupGroup. The compose-with-support
+  story in slack-team setup.html §12 was fiction; child groups got no
+  product overlay. Fixed.
+- `cmd/arizuko/main.go cmdCreate`: --product help string lists
+  slack-team (was missing from `creator|personal|pm|reality|...`).
+- `template/web/pub/products/slack-team/setup.html`: §1 uses
+  --product slack-team; §11 inlines EMAIL_TRUSTED_AUTHSERV/DOMAINS/
+  STRICT_AUTH; §12 add_route uses real `route:='<json>'` shape.
+- Root docs surgical updates (autoviv cross-link in ARCHITECTURE,
+  verb=untrusted in ROUTING + SECURITY, .disabled sentinel +
+  .merge-base in EXTENDING, email/webhook ingest in README).
+- `slakd/bot.go`: drop mdToMrkdwn call (matches working-tree state).
+
+### Changed
+
+- `template/web/pub/concepts/jid.html`: refinements.
+- `ant/output-styles/slack.md`: new style override for Slack outbound.
+
 ## [v0.40.5] — 2026-05-17
 
 > arizuko v0.40.5 — emaid sender auth, dashd visual refresh, slack-team installable
