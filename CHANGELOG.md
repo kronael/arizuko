@@ -14,6 +14,33 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.40.2] — 2026-05-17
+
+> arizuko v0.40.2 — self-service WhatsApp re-pair + uniform reaction-mentions
+>
+> Operator clicks a button to re-pair WhatsApp instead of running docker by hand. Reactions on the bot now trigger the agent on every platform, not just Discord.
+>
+> • New `/dash/channels/whatsapp/pair` page — operator-only (`**` super-grant). Code returned once, 60s expiry, 5/hr rate limit. Audit row to `messages`. Spec 8/15.
+> • Reactions and text-replies pointing at the bot get `verb=mention` promotion uniformly across Discord, Telegram, WhatsApp, Slack — driven by `is_bot_message` in the gateway, not per-adapter ring buffers. Spec 6/J.
+> • slack-team product docs: new "same shape on Discord" section (3 deltas: no sidebar, mention syntax, JID namespace); persona-pane reframed as runtime steering by design, not a TODO.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- dashd: `/dash/channels/whatsapp/pair` re-pair page + handler.
+  Operator gate via `requireAdmin(w, r, "**")` (CSRF inside).
+  Proxies to whapd `/v1/pair/start` with `CHANNEL_SECRET`; writes
+  an audit row (`sender=whapd:pair`, `verb=admin.pair`,
+  `chat_jid=arizuko:admin/whapd`) on every start. Spec 8/15.
+- whapd: `WhapdBot` class with in-memory pair state machine, mutex,
+  60s expiry timer, 5/hr rate-limit deque, socket swap on
+  `connection.update.open`. New `POST /v1/pair/start` (code returned
+  ONCE) and `GET /v1/pair/status` (state only — code redacted; any
+  process with `CHANNEL_SECRET` can read /status). 55 tests across
+  4 files.
+- compose: `dashd` env extended with `CHANNEL_SECRET` + `WHAPD_URL`.
+
 ### Changed
 
 - gateway: reactions and text replies pointing at the bot's own
@@ -24,6 +51,12 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   promotion removed from `discd`. Spec: `specs/6/J-mention-promotion.md`.
   Operators with `verb=mention`-filtered routes will now see
   reactions-on-bot fire on every platform, not just Discord.
+
+### Docs
+
+- slack-team product: "same shape on Discord" section + persona-pane
+  reframed (runtime `pane_set_prompts` + `ARIZUKO_ASSISTANT_NAME`
+  cover both axes; no need for static frontmatter — by design).
 
 ## [v0.40.1] — 2026-05-17
 
