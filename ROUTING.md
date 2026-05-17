@@ -367,6 +367,14 @@ one of these — no additional text:
 | `#support`       | Lock chat topic to `support`          | `topic -> support`         |
 | `#`              | Clear sticky topic                    | `topic reset to default`   |
 
+`@<unknown>` (name doesn't match any group folder) is **not** consumed —
+the gateway passes the message through to the agent unchanged, no
+confirmation, no error. Rationale: messages starting with `@` have too
+many other meanings (mentions like `@everyone`, cross-instance refs like
+`@sloth`, Czech/English sentences) for an unknown name to safely imply
+"set sticky". The agent decides: typo, mention, or `delegate_group` to
+a child.
+
 Sticky state is stored per-chat in the `chats` table (`sticky_group`,
 `sticky_topic` columns). All users in the same chat share one sticky
 state.

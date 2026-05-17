@@ -1889,8 +1889,14 @@ func (g *Gateway) handleStickyCommand(chatJid string, msg core.Message) bool {
 			return true
 		}
 		if _, ok := g.store.GroupByFolder(name); !ok {
-			g.sendMessage(chatJid, fmt.Sprintf("Failed: group %q not found", name))
-			return true
+			// Pass through to the agent instead of consuming + erroring.
+			// Bare @ at the start of a message has too many other meanings
+			// (@everyone, agent-to-agent mention, cross-instance reference,
+			// Czech/English sentence). The agent decides: typo, real
+			// @mention, or delegate_group to a child.
+			slog.Debug("@-prefix: unknown group, passing to agent",
+				"chat_jid", chatJid, "name", name)
+			return false
 		}
 		g.store.SetStickyGroup(chatJid, name)
 		g.sendMessage(chatJid, fmt.Sprintf("routing → %s", name))

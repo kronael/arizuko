@@ -39,7 +39,10 @@ fire within the sticky target.
 
 - `"routing -> name"` on set
 - `"routing reset to default"` on clear
-- `"Failed: group \"xyz\" not found"` on bad target
+- Unknown target (`@nope`): no reply; gateway passes the message
+  through to the agent unchanged. `@` collides with mentions,
+  cross-instance refs, and non-English prose, so a name miss is
+  not consumed.
 
 ## Edge cases
 

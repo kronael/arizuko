@@ -238,21 +238,23 @@ func TestHandleStickyCommand_SetGroupNotFound(t *testing.T) {
 		BotMsg:  false,
 	}
 
+	// Unknown @<name> must fall through to the agent rather than be
+	// consumed with an error — the @ prefix has too many other valid
+	// uses (@mentions, cross-instance refs, plain text starting with @).
 	handled := gw.handleStickyCommand(jid, msg)
-	if !handled {
-		t.Fatal("handleStickyCommand should have handled @nonexistent")
+	if handled {
+		t.Fatal("handleStickyCommand should pass @nonexistent through (handled=false)")
 	}
 
-	// Sticky group should NOT be set
+	// Sticky group must NOT have been set.
 	got := s.GetStickyGroup(jid)
 	if got != "" {
-		t.Errorf("GetStickyGroup = %q, want empty (group not found)", got)
+		t.Errorf("GetStickyGroup = %q, want empty (no match)", got)
 	}
 
-	// Check error message
-	sent := ch.lastSent()
-	if sent != "Failed: group \"nonexistent\" not found" {
-		t.Errorf("sent message = %q, want error", sent)
+	// Must NOT have sent a Failed: ... message back.
+	if sent := ch.lastSent(); sent != "" {
+		t.Errorf("sent message = %q, want empty (pass-through, no echo)", sent)
 	}
 }
 

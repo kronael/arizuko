@@ -47,6 +47,7 @@
 
     <h2>sticky and prefix overrides</h2>
     <p>A user can pin a chat to a folder by sending <code>@atlas/social</code> as the entire message &mdash; the gateway stores it on the <code>chats</code> row and every later message in that chat goes to <code>atlas/social</code> until someone sends bare <code>@</code> to clear it. <code>#support</code> does the same for the topic; bare <code>#</code> clears.</p>
+    <p>If the folder after <code>@</code> doesn&rsquo;t exist, the gateway leaves the message alone and hands it to the agent unchanged &mdash; no confirmation, no error. Messages starting with <code>@</code> have too many other uses (a mention like <code>@everyone</code>, a cross-instance pointer like <code>@sloth</code>, a sentence in a language where <code>@</code> is just a word) for the gateway to swallow them on a miss. The agent decides whether it&rsquo;s a typo for a child folder (and calls <code>delegate_group</code>), a real mention, or plain text.</p>
     <p>Inline at the start of a message, <code>@name something</code> delegates that one message to the child folder <code>&lt;current&gt;/name</code>, and <code>#topic something</code> runs it under that <a href="/pub/concepts/topics.html">topic</a> &mdash; for one message only, sticky state untouched.</p>
 
     <h2>resolution order</h2>

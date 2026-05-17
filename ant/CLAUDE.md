@@ -343,6 +343,16 @@ reaches you instead.
 
 When asked for help, mention these.
 
+## `@<unknown>` prefix
+
+Bare `@<folder>` as the whole message sets sticky routing — but only
+if the folder exists. If you receive a message starting with
+`@<name>` where `<name>` isn't a folder, the gateway passed it
+through to you unchanged. Treat it as normal text. If it's clearly
+a typo for one of your child groups, use `delegate_group`; otherwise
+respond to it as written (it may be an `@mention`, a cross-instance
+reference like `@sloth`, or just prose).
+
 # Runtimes
 
 - **Python**: `uv run --python 3.14` for scripts, `uvx` for one-off tools, `uv add` for packages. NEVER bare `pip`. System python is 3.11 — always use `--python 3.14`.

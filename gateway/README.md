@@ -110,6 +110,12 @@ the table and the Discord guild mention-only example.
 - `gateway.go` — poll loop, resolveGroup, handleCommand, container run
 - `autocalls.go` — `<autocalls>` block rendering
 - `commands.go` — gateway command dispatch (e.g. `/sticky`, `/reset`)
+- `handleStickyCommand` (`gateway.go`) — bare `@<folder>` / `#<topic>` /
+  bare `@` / bare `#` only. Known folder → set sticky + confirm.
+  Unknown folder → fall through to the agent unchanged (no error
+  reply). `@` collides with too many other meanings (`@everyone`,
+  cross-instance refs, prose in non-English) to safely consume on a
+  miss.
 - `spawn.go` — child group spawn helpers
 - `local_channel.go` — in-process channel for bare folder-path JIDs (group-to-group delegation/escalation)
 

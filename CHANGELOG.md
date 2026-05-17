@@ -30,6 +30,11 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   (SetSuggestions) and `Namer` (SetName) — single-method capability
   interfaces per Effective Go. MCP tools (`pane_set_prompts`,
   `pane_set_title`) and HTTP endpoints (`/v1/pane/*`) unchanged.
+- gateway: `@<folder>` sticky-routing command now passes unknown group
+  names through to the agent instead of erroring; known folders still
+  pin routing as before. Removes false-positive consumption of messages
+  starting with `@` (mentions, cross-instance refs, sentences in
+  non-English).
 
 ## [v0.40.0] — 2026-05-16
 
