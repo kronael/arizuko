@@ -1402,18 +1402,18 @@ func (g *Gateway) editOnJID(jid, targetID, content string) error {
 }
 
 // paneSetPrompts / paneSetTitle proxy to the channel owning jid if it
-// implements core.Paner (today: slakd). Returns chanlib.ErrUnsupported
-// when the owner doesn't support panes.
+// implements core.Suggester / core.Namer (today: slakd). Returns
+// chanlib.ErrUnsupported when the owner doesn't implement the capability.
 func (g *Gateway) paneSetPrompts(jid string, prompts []core.PanePrompt) error {
 	ch := g.findChannelForJID(jid)
 	if ch == nil {
 		return fmt.Errorf("pane_set_prompts: no channel for jid %q", jid)
 	}
-	p, ok := ch.(core.Paner)
+	s, ok := ch.(core.Suggester)
 	if !ok {
-		return chanlib.Unsupported("pane_set_prompts", ch.Name(), "channel does not support assistant panes")
+		return chanlib.Unsupported("pane_set_prompts", ch.Name(), "channel does not support suggested prompts")
 	}
-	return p.PaneSetPrompts(context.Background(), jid, prompts)
+	return s.SetSuggestions(context.Background(), jid, prompts)
 }
 
 func (g *Gateway) paneSetTitle(jid, title string) error {
@@ -1421,11 +1421,11 @@ func (g *Gateway) paneSetTitle(jid, title string) error {
 	if ch == nil {
 		return fmt.Errorf("pane_set_title: no channel for jid %q", jid)
 	}
-	p, ok := ch.(core.Paner)
+	n, ok := ch.(core.Namer)
 	if !ok {
-		return chanlib.Unsupported("pane_set_title", ch.Name(), "channel does not support assistant panes")
+		return chanlib.Unsupported("pane_set_title", ch.Name(), "channel does not support rename")
 	}
-	return p.PaneSetTitle(context.Background(), jid, title)
+	return n.SetName(context.Background(), jid, title)
 }
 
 func (g *Gateway) clearSession(folder string) {

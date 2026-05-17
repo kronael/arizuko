@@ -183,18 +183,27 @@ type Socializer interface {
 	Edit(ctx context.Context, jid, targetID, content string) error
 }
 
-// Paner is the optional channel capability for Slack-style assistant
-// pane controls. Implemented by chanreg.HTTPChannel for any adapter
-// whose backend serves /v1/pane/*; slakd serves them, others 404.
-// Gateway type-asserts on this interface to route pane_* MCP calls
-// through the HTTP path.
-type Paner interface {
-	PaneSetPrompts(ctx context.Context, jid string, prompts []PanePrompt) error
-	PaneSetTitle(ctx context.Context, jid, title string) error
+// Suggester is the optional channel capability for staging
+// suggested-prompt buttons shown to the user before their next
+// message (Slack assistant-pane prompts; future: Telegram
+// inline_keyboard, Discord ActionRow, WhatsApp interactive buttons).
+// Implemented by chanreg.HTTPChannel for any adapter whose backend
+// serves POST /v1/pane/prompts; slakd serves it, others 404.
+type Suggester interface {
+	SetSuggestions(ctx context.Context, jid string, prompts []PanePrompt) error
 }
 
-// PanePrompt is one suggested-prompt button shown in a Slack assistant
-// pane (title shown on the button, message sent as user input on click).
+// Namer is the optional channel capability for renaming an open
+// conversation (Slack assistant-pane title; future: Telegram forum
+// topic name, Discord thread name, WhatsApp group subject).
+// Implemented by chanreg.HTTPChannel for any adapter whose backend
+// serves POST /v1/pane/title.
+type Namer interface {
+	SetName(ctx context.Context, jid, name string) error
+}
+
+// PanePrompt is one suggested-prompt button (title shown on the button,
+// message sent as user input on click).
 type PanePrompt struct {
 	Title   string `json:"title"`
 	Message string `json:"message"`

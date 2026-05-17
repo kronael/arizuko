@@ -356,10 +356,10 @@ func (h *HTTPChannel) Edit(ctx context.Context, jid, targetID, content string) e
 	return err
 }
 
-// PaneSetPrompts targets the adapter's /v1/pane/prompts endpoint
-// (Slack-only today; spec 6/D). Adapters without pane semantics
+// SetSuggestions targets the adapter's /v1/pane/prompts endpoint
+// (Slack-only today; spec 6/D). Adapters without the capability
 // respond 404 → ErrUnsupported. Idempotent; one-shot per outbound.
-func (h *HTTPChannel) PaneSetPrompts(ctx context.Context, jid string, prompts []core.PanePrompt) error {
+func (h *HTTPChannel) SetSuggestions(ctx context.Context, jid string, prompts []core.PanePrompt) error {
 	b, _ := json.Marshal(map[string]any{"jid": jid, "prompts": prompts})
 	resp, err := h.post(ctx, "/v1/pane/prompts", b)
 	if err != nil {
@@ -367,7 +367,7 @@ func (h *HTTPChannel) PaneSetPrompts(ctx context.Context, jid string, prompts []
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		return chanlib.Unsupported("pane_set_prompts", h.entry.Name, "adapter has no open pane for jid (or doesn't support panes)")
+		return chanlib.Unsupported("pane_set_prompts", h.entry.Name, "adapter has no open pane for jid (or doesn't support suggestions)")
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("channel %s pane_set_prompts: status %d", h.entry.Name, resp.StatusCode)
@@ -375,15 +375,15 @@ func (h *HTTPChannel) PaneSetPrompts(ctx context.Context, jid string, prompts []
 	return nil
 }
 
-func (h *HTTPChannel) PaneSetTitle(ctx context.Context, jid, title string) error {
-	b, _ := json.Marshal(map[string]string{"jid": jid, "title": title})
+func (h *HTTPChannel) SetName(ctx context.Context, jid, name string) error {
+	b, _ := json.Marshal(map[string]string{"jid": jid, "title": name})
 	resp, err := h.post(ctx, "/v1/pane/title", b)
 	if err != nil {
 		return fmt.Errorf("channel %s pane_set_title: %w", h.entry.Name, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		return chanlib.Unsupported("pane_set_title", h.entry.Name, "adapter has no open pane for jid (or doesn't support panes)")
+		return chanlib.Unsupported("pane_set_title", h.entry.Name, "adapter has no open pane for jid (or doesn't support rename)")
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("channel %s pane_set_title: status %d", h.entry.Name, resp.StatusCode)
