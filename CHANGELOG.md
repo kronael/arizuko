@@ -33,7 +33,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   supersedes `specs/1/W-slink.md`). One table, two URL prefixes
   (`/chat/<token>/` for browser widget + SSE, `/hook/<token>` for
   webhook ingest), JID prefix carries intent (`web:<folder>` vs
-  `hook:<owner>/<source>`). MCP surface: `issue_chat_link`,
+  `hook:<folder>/<source>`). MCP surface: `issue_chat_link`,
   `issue_webhook`, `list_route_tokens`, `revoke_route_token`; REST
   mirrors at `/v1/route_tokens/{chat,hook}`. ACL per tier
   (`9-acl-unified`). Operator-facing concept page at

@@ -67,6 +67,14 @@ CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
       <tr><td>Revoke</td><td><code>revoke_route_token(jid)</code></td><td><code>DELETE /v1/route_tokens/{jid}</code></td></tr>
     </table>
 
+    <h3 id="rest-body">REST request body</h3>
+    <p>Each <code>POST</code> body carries the same params as the matching MCP tool:</p>
+    <pre><code>POST /v1/route_tokens/chat
+{ "jid_suffix": "support" }                          // optional
+
+POST /v1/route_tokens/hook
+{ "source_label": "github", "jid_suffix": "main" }   // jid_suffix optional</code></pre>
+
     <p><code>owner_folder</code> is bound from session context (the agent's folder or the caller's grants) and is never a parameter. Tier scope (lower = wider reach):</p>
 
     <table>
