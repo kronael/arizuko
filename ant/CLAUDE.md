@@ -414,3 +414,76 @@ text. Call with an absolute path under `~/` (`/home/node/`); use
 `~/tmp/` for temp output. Use the `caption` parameter for an
 accompanying message — do NOT call `send_message` separately after
 `send_file`.
+
+# Local paths vs public URLs
+
+The user CANNOT open `/home/node/...` or `/workspace/web/...` paths.
+NEVER emit those in chat as if they were links. When you want to
+point the user at a file or page, translate to the public URL first.
+
+## Mapping
+
+Three mounts, three public surfaces. Resolve `$WEB_HOST` and
+`$WEB_PREFIX` with `echo` first — never emit the literal `$…`.
+
+| Where you wrote it (local) | What the user opens (public) |
+| --- | --- |
+| `~/<file>` or `/home/node/<file>` | `https://$WEB_HOST/dav/$ARIZUKO_GROUP_FOLDER/<file>` (WebDAV, read-only for the user via browser) |
+| `/workspace/web/pub/<app>/<file>` (tier 0) | `https://$WEB_HOST/pub/<app>/<file>` |
+| `/workspace/web/<app>/<file>` (tier 1) | `https://$WEB_PREFIX.$WEB_HOST/<app>/<file>` (vhost subdomain) |
+| `/workspace/web/...` (tier 2+) | NOT publishable — see env section |
+
+Rule of thumb when referencing your own working file in chat:
+
+- Persistent reference (report, log, generated artifact you want the
+  user to read later): write it under `~/reports/` and link it via the
+  WebDAV URL.
+- One-shot deliverable (the user wants the file now): `send_file ~/...`
+  with a caption. They get the actual file in the chat platform, not
+  a link they have to click.
+- Public web page (anyone with the URL can open it): write under
+  `/workspace/web/...` per the env section, send the URL.
+
+Wrong: `Saved to /home/node/reports/weekly.md` — the user can't open this.
+Right: `Saved to https://krons.fiu.wtf/dav/krons/reports/weekly.md`
+(or `send_file ~/reports/weekly.md caption="this week's roundup"`).
+
+# Response size + medium
+
+Each surface has a different sweet spot. The `outputStyle` field in
+your settings tells you which channel you're on; combine with common
+sense:
+
+| Surface | Sweet spot | Hard cap (rough) |
+| --- | --- | --- |
+| WhatsApp / Telegram / Discord DM | 1–3 short paragraphs | ~4000 chars |
+| Slack channel / thread | 1–4 paragraphs, lists OK | ~8000 chars |
+| Slack assistant pane | a few sentences | ~4000 chars |
+| Web chat (slink) | 1–6 paragraphs, markdown OK | ~16000 chars |
+| Email | full prose, sections, lists | large |
+
+## The long-answer pattern
+
+If your draft would exceed the sweet spot for the surface:
+
+1. Write the FULL report to a file under `~/reports/<YYYYMMDD>-<topic>.md`.
+2. In chat, post a short answer (3-6 sentences MAX) covering the
+   headline finding + one or two concrete actions.
+3. Offer the full report: either link via WebDAV URL ("full writeup:
+   https://$WEB_HOST/dav/$ARIZUKO_GROUP_FOLDER/reports/...") or
+   attach with `send_file ~/reports/<file>`.
+
+Wrong: dumping 60 bullet points into a Telegram DM.
+Right: "TL;DR: the rust path needs 6 months; the solana path needs
+9-12. I wrote the full breakdown including company shortlists and
+salary bands — open https://.../dav/.../reports/career-pivot.md or
+ask me to send the file."
+
+If unsure whether the user wants depth: post the short version and
+ASK ("want the full report?"). One follow-up beats a wall of text
+that obscures the headline.
+
+## Don't paste large content twice
+
+If you already sent it as a file or wrote it to a published URL, do
+NOT also paste it inline. The user has it; they don't want two copies.
