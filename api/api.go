@@ -253,7 +253,13 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	// so the row, the routing decision, and the engagement state move
 	// together.
 	if verb == "mention" && s.engagementTTL > 0 {
-		_ = s.store.SetEngagement(req.ChatJID, req.Topic, time.Now().Add(s.engagementTTL))
+		// Folder = where this jid is routed by default. Writes engaged_folder
+		// so EngagedFolder() resolves even when no bot reply has succeeded
+		// yet (spec 5/G — oracle round 2 fix 4). Empty folder is fine; the
+		// engagement-fallback in the gateway will fall through to onboarding
+		// when EngagedFolder returns "".
+		folder := s.store.DefaultFolderForJID(req.ChatJID)
+		_ = s.store.SetEngagement(req.ChatJID, req.Topic, folder, time.Now().Add(s.engagementTTL))
 	}
 	msg := core.Message{
 		ID:            req.ID,

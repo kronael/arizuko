@@ -55,6 +55,13 @@ type Gateway struct {
 	// to advance the cursor past steered messages on completion.
 	steeredTs map[string]time.Time
 
+	// currentTrigger maps folder → trigger sender of the active turn.
+	// Read by MCP recordOutbound to honour the timed-* engagement skip
+	// (spec 5/G — same policy as gateway-side bump sites). Set by
+	// processSenderBatch on entry, cleared on exit. Concurrent turns in
+	// the same folder are serialized at the queue layer.
+	currentTrigger map[string]string
+
 	// turnsMu guards inFlightTurns. Each entry is the active run for a
 	// folder; submit_turn over MCP looks itself up here and invokes the
 	// per-run callback (text delivery + session capture).
@@ -82,8 +89,9 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 		store:         s,
 		queue:         queue.New(cfg.MaxContainers, cfg.IpcDir),
 		runner:        container.DockerRunner{},
-		steeredTs:     make(map[string]time.Time),
-		inFlightTurns: make(map[string]*turnState),
+		steeredTs:      make(map[string]time.Time),
+		currentTrigger: make(map[string]string),
+		inFlightTurns:  make(map[string]*turnState),
 		folders: &groupfolder.Resolver{
 			GroupsDir: cfg.GroupsDir,
 			IpcDir:    cfg.IpcDir,
@@ -96,6 +104,52 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 }
 
 func (g *Gateway) SetRunner(r container.Runner) { g.runner = r }
+
+// resolveOrEngaged is the single renderer for "find the group that owns
+// this chat", shared by pollOnce and processGroupMessages. When the
+// route table misses, it falls back to spec 5/G engagement: an engaged
+// (jid, topic) was granted at original-route time so we deliver to the
+// last folder that spoke there. Onboarding handling stays at each
+// caller — this helper only resolves the group.
+func (g *Gateway) resolveOrEngaged(chatJid string, last core.Message) (core.Group, bool) {
+	if gr, ok := g.resolveGroup(last); ok {
+		return gr, true
+	}
+	if g.cfg.EngagementTTL <= 0 {
+		return core.Group{}, false
+	}
+	effTopic := g.effectiveTopic(chatJid, last.Topic)
+	if !g.store.IsEngaged(chatJid, effTopic, time.Now()) {
+		return core.Group{}, false
+	}
+	folder := g.store.EngagedFolder(chatJid, effTopic)
+	if folder == "" {
+		return core.Group{}, false
+	}
+	return g.store.GroupByFolder(folder)
+}
+
+// setCurrentTrigger records the per-turn trigger sender for `folder` so
+// MCP recordOutbound can honour the timed-* engagement skip without
+// plumbing per-call context through MCP. clearCurrentTrigger drops the
+// entry when the turn completes.
+func (g *Gateway) setCurrentTrigger(folder, sender string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.currentTrigger[folder] = sender
+}
+
+func (g *Gateway) clearCurrentTrigger(folder string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.currentTrigger, folder)
+}
+
+func (g *Gateway) currentTriggerSender(folder string) string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.currentTrigger[folder]
+}
 
 func (g *Gateway) AddChannel(ch core.Channel) {
 	g.mu.Lock()
@@ -214,9 +268,11 @@ func (g *Gateway) Run(ctx context.Context) error {
 		ListACL:             g.store.ListACL,
 		PutMessage:          g.store.PutMessage,
 		GetLastReplyID:        g.store.GetLastReplyID,
-		SetLastReplyAndEngage: g.store.SetLastReplyAndEngage,
+		SetLastReply:          g.store.SetLastReply,
+		BumpEngagement:        g.store.BumpEngagement,
 		SetEngagement:         g.store.SetEngagement,
 		EngagedFolder:         g.store.EngagedFolder,
+		CurrentTriggerSender:  g.currentTriggerSender,
 		MessagesBefore:      g.store.MessagesBefore,
 		MessagesByThread:    g.store.MessagesByThread,
 		JIDRoutedToFolder:   g.store.JIDRoutedToFolder,
@@ -535,23 +591,11 @@ func (g *Gateway) pollOnce() {
 
 	for chatJid, chatMsgs := range byChat {
 		last := chatMsgs[len(chatMsgs)-1]
-		group, ok := g.resolveGroup(last)
-		if !ok {
-			// Spec 5/G: engagement is the implicit-route fallback.
-			// Fires BEFORE onboarding and the cursor-drop: an engaged
-			// (jid, topic) was already granted access at the original
-			// route time, so the lifecycle invariant "engaged ⇒ formerly
-			// granted" lets us bypass re-routing without re-checking
-			// grants. Operator revokes via disengage() or TTL.
-			effTopic := g.effectiveTopic(chatJid, last.Topic)
-			if g.cfg.EngagementTTL > 0 && g.store.IsEngaged(chatJid, effTopic, time.Now()) {
-				if folder := g.store.EngagedFolder(chatJid, effTopic); folder != "" {
-					if gr, exists := g.store.GroupByFolder(folder); exists {
-						group, ok = gr, true
-					}
-				}
-			}
-		}
+		// Spec 5/G — single renderer for route+engagement lookup
+		// (resolveOrEngaged), shared with processGroupMessages so the
+		// engagement fallback fires whether the gateway is steering into
+		// a running container or the worker is enqueuing a new one.
+		group, ok := g.resolveOrEngaged(chatJid, last)
 		if !ok {
 			discordGuild := strings.HasPrefix(chatJid, "discord:") && !strings.HasPrefix(chatJid, "discord:dm/")
 			if g.cfg.OnboardingEnabled && onboardingAllowed(chatJid, g.cfg.OnboardingPlatforms) && (!discordGuild || last.Verb == "mention") {
@@ -613,11 +657,14 @@ func (g *Gateway) pollOnce() {
 		if g.queue.SendMessages(chatJid, []string{rendered}) {
 			slog.Info("poll: steered messages into running container",
 				"jid", chatJid, "count", len(chatMsgs))
-			var until time.Time
-			if g.cfg.EngagementTTL > 0 {
-				until = time.Now().Add(g.cfg.EngagementTTL)
+			topic := g.effectiveTopic(chatJid, last.Topic)
+			_ = g.store.SetLastReply(chatJid, topic, last.ID, group.Folder)
+			// Spec 5/G — timed-* triggers (scheduled / autonomous) must
+			// NOT bump engagement; same policy as makeOutputCallback.
+			if g.cfg.EngagementTTL > 0 && !strings.HasPrefix(last.Sender, "timed-") {
+				_ = g.store.BumpEngagement(chatJid, topic, group.Folder,
+					time.Now().Add(g.cfg.EngagementTTL))
 			}
-			_ = g.store.SetLastReplyAndEngage(chatJid, g.effectiveTopic(chatJid, last.Topic), last.ID, until)
 			g.recordSteeredTs(chatJid, chatMsgs)
 			continue
 		}
@@ -640,8 +687,11 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 		return true, nil
 	}
 
-	group, ok := g.resolveGroup(msgs[len(msgs)-1])
+	group, ok := g.resolveOrEngaged(chatJid, msgs[len(msgs)-1])
 	if !ok {
+		// Spec 5/G — engagement fallback already consulted; idle route-miss
+		// drops here. Rescued message would otherwise be lost when the
+		// container isn't running on first delivery.
 		g.advanceAgentCursor(chatJid, msgs)
 		return true, nil
 	}
@@ -782,6 +832,10 @@ func (g *Gateway) processSenderBatch(
 
 	isolated := strings.HasPrefix(last.Sender, "timed-isolated")
 	onOutput, hadOutput := g.makeOutputCallback(deliverCh, deliverTo, topic, last.ID, group.Folder, last.Sender)
+	// Spec 5/G — expose trigger sender to MCP recordOutbound so the
+	// timed-* skip works for agent-side send/reply/post too.
+	g.setCurrentTrigger(group.Folder, last.Sender)
+	defer g.clearCurrentTrigger(group.Folder)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		onOutput, isolated, topic, last.ID, len(msgs))
 
@@ -1032,14 +1086,14 @@ func (g *Gateway) makeOutputCallback(
 			sentID := putAndDeliver(clean, replyTo, topic)
 			if sentID != "" {
 				replyTo = sentID
-				var until time.Time
+				_ = g.store.SetLastReply(chatJid, topic, sentID, groupFolder)
 				// Broadcast/scheduled turns must NOT bump engagement.
-				// timed-* sender prefix (gateway-internal convention,
-				// see handleStickyCommand:1891) distinguishes them.
+				// timed-* sender prefix is the gateway-internal convention
+				// (handleStickyCommand). Same policy at every write site.
 				if g.cfg.EngagementTTL > 0 && !strings.HasPrefix(triggerSender, "timed-") {
-					until = time.Now().Add(g.cfg.EngagementTTL)
+					_ = g.store.BumpEngagement(chatJid, topic, groupFolder,
+						time.Now().Add(g.cfg.EngagementTTL))
 				}
-				_ = g.store.SetLastReplyAndEngage(chatJid, topic, sentID, until)
 			}
 		}
 	}, &hadOutput

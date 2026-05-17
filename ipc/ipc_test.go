@@ -565,14 +565,19 @@ func TestServeMCP_Engagement_Authz(t *testing.T) {
 	sock := dir + "/gated.sock"
 
 	var stored time.Time
+	var storedFolder string
 	db := StoreFns{
-		SetEngagement: func(jid, topic string, until time.Time) error {
+		SetEngagement: func(jid, topic, folder string, until time.Time) error {
 			stored = until
+			storedFolder = folder
 			return nil
 		},
 		EngagedFolder: func(jid, topic string) string {
-			if jid == "tg:1" {
+			switch jid {
+			case "tg:1":
 				return "world"
+			case "tg:9":
+				return "someone-else"
 			}
 			return ""
 		},
@@ -606,13 +611,18 @@ func TestServeMCP_Engagement_Authz(t *testing.T) {
 		t.Fatal("expected non-zero engaged_until")
 	}
 
-	// Not owned → engage denied.
+	// Active engagement owned by another folder → engage denied.
 	_, errText = callTool(t, sock, "engage", map[string]any{"jid": "tg:9"})
 	if errText == "" {
-		t.Fatal("expected denial for unowned jid")
+		t.Fatal("expected denial for foreign-owned jid")
 	}
-	if !strings.Contains(errText, "not owned") {
+	if !strings.Contains(errText, "owned by") {
 		t.Fatalf("unexpected denial message: %s", errText)
+	}
+
+	// All engage writes claim engaged_folder = caller (fix 5).
+	if storedFolder != "world" {
+		t.Fatalf("engaged_folder = %q, want world", storedFolder)
 	}
 
 	// disengage on owned jid writes zero time.
@@ -625,9 +635,100 @@ func TestServeMCP_Engagement_Authz(t *testing.T) {
 		t.Fatalf("disengage should pass zero time, got %v", stored)
 	}
 
-	// disengage on unowned jid denied.
+	// disengage on foreign-owned jid denied.
 	_, errText = callTool(t, sock, "disengage", map[string]any{"jid": "tg:9"})
 	if errText == "" {
 		t.Fatal("expected disengage denial")
+	}
+}
+
+// Spec 5/G fix 5 — fresh chat (no current engagement, no default route) is
+// engageable by any caller. Lets autonomous turns bootstrap conversations
+// without a pre-existing route.
+func TestServeMCP_Engagement_FreshChatAuthz(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+
+	var stored time.Time
+	var storedFolder string
+	db := StoreFns{
+		SetEngagement: func(jid, topic, folder string, until time.Time) error {
+			stored = until
+			storedFolder = folder
+			return nil
+		},
+		EngagedFolder:     func(jid, topic string) string { return "" }, // no prior engagement
+		JIDRoutedToFolder: func(jid, folder string) bool { return false },
+	}
+	gated := GatedFns{EngagementTTL: 10 * time.Minute}
+	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	_, errText := callTool(t, sock, "engage", map[string]any{"jid": "tg:fresh"})
+	if errText != "" {
+		t.Fatalf("engage on fresh chat: %s", errText)
+	}
+	if stored.IsZero() {
+		t.Fatal("expected non-zero engaged_until on fresh chat")
+	}
+	if storedFolder != "world" {
+		t.Fatalf("engaged_folder = %q, want world", storedFolder)
+	}
+}
+
+// Spec 5/G fix 2 — recordOutbound writes last_reply for every conversational
+// outbound but skips the engagement bump when the turn's trigger sender is
+// timed-* (scheduled / autonomous broadcasts must not extend engagement).
+func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
+	var lastReplyWrites, bumps int
+	var triggerLookup string
+	mkDB := func(triggerSender string) StoreFns {
+		return StoreFns{
+			SetLastReply: func(jid, topic, replyID, folder string) error {
+				lastReplyWrites++
+				return nil
+			},
+			BumpEngagement: func(jid, topic, folder string, until time.Time) error {
+				bumps++
+				return nil
+			},
+			CurrentTriggerSender: func(folder string) string {
+				triggerLookup = folder
+				return triggerSender
+			},
+		}
+	}
+	gated := GatedFns{EngagementTTL: 10 * time.Minute}
+
+	// Human-triggered turn: bump fires.
+	db := mkDB("user:42")
+	recordOutbound(gated, db, "tg:1", "hi", "plat-1", "world")
+	if lastReplyWrites != 1 || bumps != 1 {
+		t.Fatalf("user turn: writes=%d bumps=%d, want 1/1", lastReplyWrites, bumps)
+	}
+	if triggerLookup != "world" {
+		t.Fatalf("CurrentTriggerSender called with %q, want world", triggerLookup)
+	}
+
+	// Timed-triggered turn: bump skipped, last_reply still written.
+	lastReplyWrites, bumps, triggerLookup = 0, 0, ""
+	db = mkDB("timed-isolated-abc")
+	recordOutbound(gated, db, "tg:1", "hi", "plat-2", "world")
+	if lastReplyWrites != 1 {
+		t.Fatalf("timed turn: SetLastReply writes=%d, want 1", lastReplyWrites)
+	}
+	if bumps != 0 {
+		t.Fatalf("timed turn: bumps=%d, want 0 (timed-* must not engage)", bumps)
+	}
+
+	// Empty platformID (failed send): neither write fires.
+	lastReplyWrites, bumps = 0, 0
+	db = mkDB("user:42")
+	recordOutbound(gated, db, "tg:1", "hi", "", "world")
+	if lastReplyWrites != 0 || bumps != 0 {
+		t.Fatalf("empty platformID: writes=%d bumps=%d, want 0/0", lastReplyWrites, bumps)
 	}
 }

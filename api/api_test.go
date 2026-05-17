@@ -255,6 +255,41 @@ func TestDeliverMessage_MentionWritesEngagement(t *testing.T) {
 	}
 }
 
+// Spec 5/G fix 4 — verb=mention writes engaged_folder even when no bot
+// reply has succeeded in the (jid, topic) yet. EngagedFolder() reads the
+// column directly, so the gateway engagement-fallback can resolve the
+// folder on the very first inbound, not just after a prior reply.
+func TestDeliverMessage_MentionWritesEngagedFolder(t *testing.T) {
+	srv, reg, s := setup(t)
+	srv.SetEngagementTTL(10 * time.Minute)
+	h := srv.Handler()
+	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+
+	// Seed a route so DefaultFolderForJID resolves.
+	if _, err := s.AddRoute(core.Route{
+		Match:  "tg:42",
+		Target: "world",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	w := postJSON(h, "/v1/messages", messageReq{
+		ID: "m1", ChatJID: "tg:42", Sender: "tg:9", Topic: "",
+		Content: "hi @bot", Timestamp: now.Unix(),
+		Verb: "mention",
+	}, token)
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if !s.IsEngaged("tg:42", "", now) {
+		t.Fatal("expected engaged after verb=mention")
+	}
+	if got := s.EngagedFolder("tg:42", ""); got != "world" {
+		t.Fatalf("EngagedFolder = %q, want %q (no prior reply needed)", got, "world")
+	}
+}
+
 func TestDeliverMessage_PersistsIsGroup(t *testing.T) {
 	srv, reg, s := setup(t)
 	h := srv.Handler()

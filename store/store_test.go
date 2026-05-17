@@ -796,21 +796,21 @@ func TestEngagement_SetAndCheck(t *testing.T) {
 		t.Fatal("missing row should be idle")
 	}
 	// Set into the future → engaged.
-	if err := s.SetEngagement("jid1", "", now.Add(10*time.Minute)); err != nil {
+	if err := s.SetEngagement("jid1", "", "folderA", now.Add(10*time.Minute)); err != nil {
 		t.Fatalf("SetEngagement: %v", err)
 	}
 	if !s.IsEngaged("jid1", "", now) {
 		t.Fatal("expected engaged after SetEngagement")
 	}
 	// Clear with zero time → idle.
-	if err := s.SetEngagement("jid1", "", time.Time{}); err != nil {
+	if err := s.SetEngagement("jid1", "", "folderA", time.Time{}); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
 	if s.IsEngaged("jid1", "", now) {
 		t.Fatal("expected idle after clear")
 	}
 	// Past deadline → idle.
-	if err := s.SetEngagement("jid1", "", now.Add(-time.Second)); err != nil {
+	if err := s.SetEngagement("jid1", "", "folderA", now.Add(-time.Second)); err != nil {
 		t.Fatalf("past: %v", err)
 	}
 	if s.IsEngaged("jid1", "", now) {
@@ -818,14 +818,18 @@ func TestEngagement_SetAndCheck(t *testing.T) {
 	}
 }
 
-// SetLastReplyAndEngage upserts both columns atomically and preserves
-// last_reply_id when later writes pass an empty replyID.
-func TestEngagement_SetLastReplyAndEngage(t *testing.T) {
+// SetLastReply preserves last_reply_id on empty replyID and records the
+// folder in engaged_folder. BumpEngagement toggles engaged_until without
+// stomping last_reply_id.
+func TestEngagement_SetLastReplyAndBump(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 	now := time.Now()
 
-	if err := s.SetLastReplyAndEngage("jid1", "", "rid-1", now.Add(5*time.Minute)); err != nil {
+	if err := s.SetLastReply("jid1", "", "rid-1", "folderA"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BumpEngagement("jid1", "", "folderA", now.Add(5*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.GetLastReplyID("jid1", ""); got != "rid-1" {
@@ -834,8 +838,8 @@ func TestEngagement_SetLastReplyAndEngage(t *testing.T) {
 	if !s.IsEngaged("jid1", "", now) {
 		t.Fatal("expected engaged")
 	}
-	// Second write with empty replyID clears engagement but preserves rid.
-	if err := s.SetLastReplyAndEngage("jid1", "", "", time.Time{}); err != nil {
+	// Clear engagement; last_reply_id stays put.
+	if err := s.BumpEngagement("jid1", "", "folderA", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.GetLastReplyID("jid1", ""); got != "rid-1" {
@@ -846,37 +850,23 @@ func TestEngagement_SetLastReplyAndEngage(t *testing.T) {
 	}
 }
 
-// EngagedFolder reads the routed_to of the message pointed at by
-// chat_reply_state.last_reply_id.
+// EngagedFolder reads engaged_folder directly — no prior reply needed.
+// A SetEngagement on a fresh (jid, topic) still surfaces the folder.
 func TestEngagement_EngagedFolder(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 	now := time.Now()
 
-	// No prior bot reply → "".
+	// No row → "".
 	if got := s.EngagedFolder("jid1", ""); got != "" {
 		t.Fatalf("EngagedFolder empty case = %q", got)
 	}
 
-	// Insert a delivered bot message routed_to=folderA and point
-	// last_reply_id at it.
-	if err := s.PutMessage(core.Message{
-		ID:        "out-1",
-		ChatJID:   "jid1",
-		Sender:    "folderA",
-		Content:   "hi",
-		Timestamp: now,
-		FromMe:    true,
-		BotMsg:    true,
-		RoutedTo:  "folderA",
-		Status:    core.MessageStatusSent,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetLastReplyAndEngage("jid1", "", "out-1", now.Add(time.Minute)); err != nil {
+	// SetEngagement on a fresh pair (no prior bot reply): folder still set.
+	if err := s.SetEngagement("jid1", "", "folderA", now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.EngagedFolder("jid1", ""); got != "folderA" {
-		t.Fatalf("EngagedFolder = %q, want folderA", got)
+		t.Fatalf("EngagedFolder (no prior reply) = %q, want folderA", got)
 	}
 }

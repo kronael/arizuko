@@ -436,47 +436,59 @@ func (s *Store) GetLastReplyID(jid, topic string) string {
 	return id
 }
 
-// SetLastReplyAndEngage upserts the last_reply_id AND engaged_until for
-// a (jid, topic) in one statement. Called at every conversational
-// outbound site so the engagement window and reply-threading state
-// move together (spec 5/G).
+// SetLastReply upserts last_reply_id AND engaged_folder for (jid, topic).
+// Called by every conversational outbound site (gateway + MCP recordOutbound)
+// — engagement bump is a separate call (BumpEngagement) so timed-* turns
+// can skip the bump while still recording the last reply. Spec 5/G.
 //
-// `until` zero clears engaged_until (NULL). Non-zero stores
-// RFC3339Nano. `replyID` empty leaves last_reply_id unchanged on
-// existing rows; on insert it sets the column to "".
-func (s *Store) SetLastReplyAndEngage(jid, topic, replyID string, until time.Time) error {
-	var engaged any
-	if !until.IsZero() {
-		engaged = until.UTC().Format(time.RFC3339Nano)
-	}
+// `replyID` empty leaves last_reply_id unchanged on existing rows (insert
+// sets it to ""). `folder` is the bot folder that produced the reply;
+// recorded as engaged_folder so EngagedFolder() is a single-row read
+// independent of any prior reply having succeeded.
+func (s *Store) SetLastReply(jid, topic, replyID, folder string) error {
 	_, err := s.db.Exec(
-		`INSERT INTO chat_reply_state (jid, topic, last_reply_id, engaged_until)
+		`INSERT INTO chat_reply_state (jid, topic, last_reply_id, engaged_folder)
 		 VALUES (?,?,?,?)
 		 ON CONFLICT(jid, topic) DO UPDATE SET
 		   last_reply_id = CASE WHEN excluded.last_reply_id != ''
 		                        THEN excluded.last_reply_id
 		                        ELSE chat_reply_state.last_reply_id END,
-		   engaged_until = excluded.engaged_until`,
-		jid, topic, replyID, engaged,
+		   engaged_folder = CASE WHEN excluded.engaged_folder != ''
+		                         THEN excluded.engaged_folder
+		                         ELSE chat_reply_state.engaged_folder END`,
+		jid, topic, replyID, folder,
 	)
 	return err
 }
 
-// SetEngagement upserts engaged_until without touching last_reply_id.
-// Used by the mention write site (api.handleMessage) and the
-// engage/disengage MCP tools. Zero `until` writes NULL (clears).
-func (s *Store) SetEngagement(jid, topic string, until time.Time) error {
+// BumpEngagement upserts engaged_until and engaged_folder for (jid, topic).
+// Called only by sites that know the trigger sender is not timed-*; the
+// timed-skip policy lives at the call sites (spec 5/G: scheduled / autonomous
+// turns must not extend engagement). Zero `until` clears (writes NULL).
+// `folder` is the bot folder claiming the conversation.
+func (s *Store) BumpEngagement(jid, topic, folder string, until time.Time) error {
 	var engaged any
 	if !until.IsZero() {
 		engaged = until.UTC().Format(time.RFC3339Nano)
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO chat_reply_state (jid, topic, last_reply_id, engaged_until)
-		 VALUES (?,?,'',?)
-		 ON CONFLICT(jid, topic) DO UPDATE SET engaged_until = excluded.engaged_until`,
-		jid, topic, engaged,
+		`INSERT INTO chat_reply_state (jid, topic, last_reply_id, engaged_until, engaged_folder)
+		 VALUES (?,?,'',?,?)
+		 ON CONFLICT(jid, topic) DO UPDATE SET
+		   engaged_until = excluded.engaged_until,
+		   engaged_folder = CASE WHEN excluded.engaged_folder != ''
+		                         THEN excluded.engaged_folder
+		                         ELSE chat_reply_state.engaged_folder END`,
+		jid, topic, engaged, folder,
 	)
 	return err
+}
+
+// SetEngagement is the legacy entrypoint for the mention write site
+// (api.handleMessage) and engage/disengage MCP tools. Identical to
+// BumpEngagement; kept under this name because tests + callers reference it.
+func (s *Store) SetEngagement(jid, topic, folder string, until time.Time) error {
+	return s.BumpEngagement(jid, topic, folder, until)
 }
 
 // IsEngaged returns true when (jid, topic) has a non-NULL engaged_until
@@ -497,15 +509,17 @@ func (s *Store) IsEngaged(jid, topic string, now time.Time) bool {
 	return t.After(now)
 }
 
-// EngagedFolder returns the folder of the last bot reply for
-// (jid, topic), or "" if none. Used by the routing fallback to deliver
-// engaged inbounds to whichever group most recently spoke there.
+// EngagedFolder returns the folder claiming (jid, topic), or "" if none.
+// Reads engaged_folder directly (single row, no JOIN) so the value survives
+// turn-by-turn rewrites and is correct even when verb=mention engaged the
+// pair before any bot reply has succeeded.
 func (s *Store) EngagedFolder(jid, topic string) string {
-	last := s.GetLastReplyID(jid, topic)
-	if last == "" {
-		return ""
-	}
-	return s.RoutedToByMessageID(last)
+	var f string
+	s.db.QueryRow(
+		`SELECT COALESCE(engaged_folder,'') FROM chat_reply_state WHERE jid=? AND topic=?`,
+		jid, topic,
+	).Scan(&f)
+	return f
 }
 
 func (s *Store) RoutedToByMessageID(id string) string {

@@ -28,18 +28,23 @@ thread-by-default on Slack channels, the engagement scope becomes
 
 A `(jid, topic)` has one of two states: **engaged** or **idle**.
 
-Storage: one nullable column on the existing `chat_reply_state`
-table (`store/migrations/0014-reply-state.sql` — keyed on
-`(jid, topic)`).
+Storage: two columns on the existing `chat_reply_state` table
+(`store/migrations/0014-reply-state.sql` — keyed on `(jid, topic)`).
 
 ```sql
 ALTER TABLE chat_reply_state ADD COLUMN engaged_until TEXT;
 -- RFC3339Nano UTC. NULL = idle.
+ALTER TABLE chat_reply_state ADD COLUMN engaged_folder TEXT NOT NULL DEFAULT '';
+-- The folder claiming the engagement. Set on EVERY engagement write
+-- (mention promotion, bot reply, MCP engage) so EngagedFolder() is a
+-- single-row read independent of any prior reply having succeeded.
+-- Empty = no claim.
 ```
 
-The column carries the **deadline** directly, not the timestamp of
-the last reply. `IsEngaged(jid, topic)` is then a single-row read,
-no clock arithmetic in SQL beyond a `>` compare.
+`engaged_until` carries the **deadline** directly. `IsEngaged(jid,
+topic)` is a single-row read. `engaged_folder` is the routing target
+the engagement-fallback resolves to; written at the same site as
+`engaged_until` so the pair never drifts.
 
 ## State transitions
 
@@ -53,18 +58,29 @@ one statement.
 | MCP `engage(jid, topic)`                                 | `engaged_until = now + ENGAGEMENT_TTL` |
 | MCP `disengage(jid, topic)`                              | `engaged_until = NULL`                 |
 
-**Outbound write site.** Piggyback on the two existing `SetLastReplyID`
-call sites (`gateway.go:597` steered echo, `gateway.go:1012`
-`putAndDeliver` echo) — both already have `(jid, topic)` in scope.
-Both call a new combined helper:
+**Outbound write sites — one renderer, many sinks.** Three sites write
+on conversational outbound (gateway steered echo, gateway output
+callback, MCP `recordOutbound`). They split the write into TWO calls
+so the engagement bump shares ONE policy:
 
 ```go
-func (s *Store) SetLastReplyAndEngage(jid, topic, replyID string, until time.Time) error
+func (s *Store) SetLastReply(jid, topic, replyID, folder string) error
+// Always called. Writes last_reply_id + engaged_folder.
+
+func (s *Store) BumpEngagement(jid, topic, folder string, until time.Time) error
+// Called only when the active turn's trigger sender is NOT timed-*.
+// Writes engaged_until + engaged_folder.
 ```
 
-`SetLastReplyID` is removed from the store API; the two gateway call
-sites and the one MCP `recordOutbound` site at `ipc/ipc.go:436` switch
-to the combined helper.
+Every call site checks `strings.HasPrefix(triggerSender, "timed-")`
+before invoking `BumpEngagement`. MCP `recordOutbound` reads the
+current turn's trigger via `StoreFns.CurrentTriggerSender(folder)` —
+gateway publishes the value at `processSenderBatch` entry and clears
+on exit. Audit invariant: every `BumpEngagement` callsite must be
+guarded by the same `!strings.HasPrefix(triggerSender, "timed-")`.
+
+Why not `MarkMessageDelivered`: its signature is `(id, platformID)`,
+no jid/topic in scope.
 
 Why not `MarkMessageDelivered`: its signature is `(id, platformID)`,
 no jid/topic in scope. Bumping there would require a JOIN-back to
@@ -79,9 +95,14 @@ immediately after the verb-promotion block, before `PutMessage`:
 
 ```go
 if verb == "mention" {
-    _ = s.store.SetEngagement(req.ChatJID, req.Topic, now.Add(EngagementTTL))
+    folder := s.store.DefaultFolderForJID(req.ChatJID)
+    _ = s.store.SetEngagement(req.ChatJID, req.Topic, folder, now.Add(EngagementTTL))
 }
 ```
+
+`SetEngagement` writes both `engaged_until` and `engaged_folder` so
+the mention path resolves the routing fallback on the first inbound,
+not just after a prior bot reply has succeeded.
 
 ## Read path
 
@@ -98,13 +119,14 @@ bool`.
 
 ```go
 func (s *Store) EngagedFolder(jid, topic string) string
-// = RoutedToByMessageID(GetLastReplyID(jid, topic)) or "".
+// SELECT engaged_folder FROM chat_reply_state WHERE jid=? AND topic=?
 ```
 
-Two reads against existing data: last_reply_id from
-`chat_reply_state`, then routed_to from `messages`. Used by the
-routing fallback to deliver engaged inbounds to whichever folder
-most recently spoke there, and by the MCP authz check below.
+One row, one column — the `engaged_folder` column is the single
+source of truth. Survives turn-by-turn rewrites and is correct
+even when `verb=mention` engaged the pair before any bot reply
+has succeeded. Used by the routing fallback to deliver engaged
+inbounds and by the MCP authz check below.
 
 ## Routing logic change
 
@@ -122,19 +144,23 @@ resolved folder, the loop checks: was the prior bot reply in this
 `(jid, topic)` still inside its engagement window? If yes, deliver
 to that folder even if the route table wouldn't have.
 
-Concretely, two surgical edits:
+Concretely, one helper used by both `pollOnce` and
+`processGroupMessages`:
 
-1. **`resolveGroup` miss path (`gateway.go:535-546`)**: before
-   dropping, look up the last engaged folder for `(chatJid,
-last.Topic)` — derive from `messages.routed_to` of the row
-   pointed at by `chat_reply_state.last_reply_id`. If
-   `IsEngaged(chatJid, effectiveTopic(...))` returns true, treat
-   that folder as the resolved group and fall through to the normal
-   routing tail.
-2. **Observe short-circuit (`gateway.go:564`) is unchanged.**
-   Observe always wins — operators set `target=#observe` precisely
-   to silence the bot in that channel; engagement state must not
-   override.
+```go
+func (g *Gateway) resolveOrEngaged(chatJid string, last core.Message) (core.Group, bool)
+```
+
+Falls through to engagement on `resolveGroup` miss: reads
+`IsEngaged + EngagedFolder` and returns the engaged group if any.
+Both poll sites (`pollOnce` and `processGroupMessages`) call this
+helper instead of `resolveGroup`. Without the shared helper,
+rescued-by-engagement inbounds drop on the worker path whenever the
+container isn't already running.
+
+Observe short-circuit is unchanged. Operators set `target=#observe`
+precisely to silence the bot in that channel; engagement state must
+not override.
 
 Mention and reply-to-bot already route via the existing path
 (route table + spec 5/L verb promotion). Engagement adds **no new
@@ -205,22 +231,28 @@ Both args required — MCP sockets are per-folder, not
 per-conversation, so there is no implicit "current" jid the tool
 can default to. The agent passes the jid it intends to act on.
 
-Both wrap one store helper `SetEngagement(jid, topic, t time.Time)`
-— zero `t` means clear (NULL), non-zero writes
-`t.Format(RFC3339Nano)`.
+Both wrap `SetEngagement(jid, topic, folder, t time.Time)` — zero
+`t` clears (NULL), non-zero writes `t.Format(RFC3339Nano)`. The
+`folder` argument is the caller's folder; `engage` writes
+`engaged_folder = callerFolder` so future inbounds steer to the
+agent that just claimed the conversation.
 
-**Authorization.** Agents can engage/disengage only their own
-conversations. The MCP handler verifies one of:
+**Authorization (three arms).** Agents can engage/disengage only
+their own conversations. The MCP handler accepts the call if any
+of:
 
-- `EngagedFolder(jid, topic) == callerFolder` (the last bot reply in
-  this pair was routed to this folder), or
-- `JIDRoutedToFolder(jid, callerFolder)` (the jid's default route
-  resolves to this folder — covers the first-engagement case before
-  any reply has shipped).
+1. `EngagedFolder(jid, topic) == callerFolder` — caller already
+   owns the active engagement.
+2. `JIDRoutedToFolder(jid, callerFolder)` — caller is the jid's
+   default route target.
+3. `EngagedFolder(jid, topic) == ""` — no current engagement
+   (fresh chat). Escape hatch so scheduled / autonomous turns can
+   bootstrap a conversation without a pre-existing route. Stealing
+   an active engagement still requires arm 1 or 2.
 
-Cross-folder calls return a permission error. Implemented in
-`ipc/ipc.go` as a shared `engagementAuthz` closure around both tool
-handlers.
+Cross-folder calls against an active engagement return a permission
+error. Implemented in `ipc/ipc.go` as a shared `engagementAuthz`
+closure around both tool handlers.
 
 ## Env vars
 
@@ -230,25 +262,24 @@ handlers.
 
 ## Migration
 
-Next free number after `0057-group-visibility.sql` is `0058`.
+Migration `0058-engagement-column.sql` adds both columns in one
+file (single deploy, single migration):
 
 ```sql
--- store/migrations/0058-engagement-column.sql
 ALTER TABLE chat_reply_state ADD COLUMN engaged_until TEXT;
+ALTER TABLE chat_reply_state ADD COLUMN engaged_folder TEXT NOT NULL DEFAULT '';
 ```
 
-No backfill: NULL = idle. Pre-existing rows stay idle until the
-next bot reply or mention populates the column. Zero behavior
+No backfill: NULL/empty = idle. Pre-existing rows stay idle until
+the next bot reply or mention populates the columns. Zero behavior
 change at migration time.
 
 ## Restart-safe
 
 Nothing to recover. The column lives in SQLite (WAL); every
-routing decision re-reads. A crash mid-turn leaves engagement
-state consistent with whichever side of the
-`SetLastReplyAndEngage` write the process died on — at worst, one
-delivered outbound did not bump engagement. Next inbound that's
-verb=mention re-engages.
+routing decision re-reads. A crash between `SetLastReply` and `BumpEngagement` leaves
+state consistent — at worst the engagement window doesn't extend
+for one outbound. Next inbound that's verb=mention re-engages.
 
 ## What this is NOT
 

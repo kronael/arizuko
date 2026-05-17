@@ -438,7 +438,10 @@ func TestPollOnce_EngagementFallback_Delivers(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetLastReplyAndEngage(jid, "", "out-1", time.Now().Add(5*time.Minute)); err != nil {
+	if err := s.SetLastReply(jid, "", "out-1", "grp"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BumpEngagement(jid, "", "grp", time.Now().Add(5*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -457,6 +460,49 @@ func TestPollOnce_EngagementFallback_Delivers(t *testing.T) {
 	got := s.GetAgentCursor(jid)
 	if !got.IsZero() {
 		t.Errorf("cursor advanced past engaged inbound: %v", got)
+	}
+}
+
+// Spec 5/G fix 1 — resolveOrEngaged is the single renderer used by both
+// pollOnce and processGroupMessages so rescued-by-engagement inbounds
+// don't drop on the worker path when the route table misses.
+func TestResolveOrEngaged_FallbackHits(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.EngagementTTL = 10 * time.Minute
+
+	jid := "telegram:88" // no route
+	if err := s.PutGroup(core.Group{Folder: "grp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEngagement(jid, "", "grp", time.Now().Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	msg := core.Message{ID: "m1", ChatJID: jid, Sender: "user", Content: "hi", Timestamp: time.Now()}
+
+	// Route miss + engaged → returns the engaged folder.
+	gr, ok := gw.resolveOrEngaged(jid, msg)
+	if !ok {
+		t.Fatal("expected resolveOrEngaged hit via engagement")
+	}
+	if gr.Folder != "grp" {
+		t.Fatalf("folder = %q, want grp", gr.Folder)
+	}
+
+	// Same logic applies on both pollOnce + processGroupMessages call
+	// sites — both invoke this helper. Verified by reading the source;
+	// the call-graph rule "one renderer" makes this a structural test.
+}
+
+// Spec 5/G fix 1 — idle conversations still drop via resolveOrEngaged.
+func TestResolveOrEngaged_IdleMisses(t *testing.T) {
+	gw, _ := testGateway(t)
+	gw.cfg.EngagementTTL = 10 * time.Minute
+
+	jid := "telegram:77"
+	msg := core.Message{ID: "m1", ChatJID: jid, Sender: "user", Timestamp: time.Now()}
+	if _, ok := gw.resolveOrEngaged(jid, msg); ok {
+		t.Fatal("expected miss on idle, route-less jid")
 	}
 }
 
