@@ -14,6 +14,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- gateway: reactions and text replies pointing at the bot's own
+  messages are now promoted to `verb=mention` uniformly across all
+  adapters (Discord, Telegram, WhatsApp, Slack). Promotion happens
+  once in `api.handleMessage` driven by `is_bot_message` in the
+  stored row; per-adapter `botMsgs` ring buffers + adapter-side
+  promotion removed from `discd`. Spec: `specs/6/J-mention-promotion.md`.
+  Operators with `verb=mention`-filtered routes will now see
+  reactions-on-bot fire on every platform, not just Discord.
+
 ## [v0.40.1] — 2026-05-17
 
 > arizuko v0.40.1 — web URLs that resolve, @ messages that arrive

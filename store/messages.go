@@ -451,6 +451,57 @@ func (s *Store) RoutedToByMessageID(id string) string {
 	return routedTo
 }
 
+// IsBotMessageByID returns true when the id refers to a stored message
+// the bot itself sent (is_bot_message=1). Used by the gateway-side
+// reply-to-bot → verb=mention promotion (spec 6/J). Missing id → false.
+//
+// Outbound bot rows carry a SYNTHETIC primary id (e.g. "out-<nano>") set
+// by gateway, and `MarkMessageDelivered` stuffs the platform's returned
+// id into the `reply_to_id` column. An inbound reaction's `reply_to`
+// carries the platform id — so we have to match either column.
+func (s *Store) IsBotMessageByID(id string) bool {
+	if id == "" {
+		return false
+	}
+	var v int
+	s.db.QueryRow(
+		`SELECT 1 FROM messages
+		  WHERE (id=? OR reply_to_id=?) AND is_bot_message=1
+		  LIMIT 1`,
+		id, id,
+	).Scan(&v)
+	return v == 1
+}
+
+// MessageByID returns one message by primary key, or ok=false if missing.
+// Light-weight read for tests and probes; production routing paths use
+// the bulk `NewMessages` window instead.
+func (s *Store) MessageByID(id string) (core.Message, bool) {
+	if id == "" {
+		return core.Message{}, false
+	}
+	var m core.Message
+	var ts string
+	var fromMe, botMsg int
+	err := s.db.QueryRow(`
+		SELECT id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp,
+		       is_from_me, is_bot_message, COALESCE(reply_to_id,''),
+		       topic, COALESCE(routed_to,''), verb, COALESCE(source,''),
+		       COALESCE(chat_name,'')
+		  FROM messages WHERE id=?`, id).Scan(
+		&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content, &ts,
+		&fromMe, &botMsg, &m.ReplyToID, &m.Topic, &m.RoutedTo,
+		&m.Verb, &m.Source, &m.ChatName,
+	)
+	if err != nil {
+		return core.Message{}, false
+	}
+	m.FromMe = fromMe != 0
+	m.BotMsg = botMsg != 0
+	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
+	return m, true
+}
+
 func btoi(b bool) int {
 	if b {
 		return 1

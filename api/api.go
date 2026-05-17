@@ -228,6 +228,13 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	if verb == "" {
 		verb = "message"
 	}
+	// spec 6/J — promote any inbound whose ReplyTo points at one of the
+	// bot's own messages to verb=mention. Keeps adapters dumb (they ship
+	// the raw like/dislike/message); routing layer sees a uniform signal
+	// across all platforms. Skip when already 'mention' (no overwrite).
+	if verb != "mention" && req.ReplyTo != "" && s.store.IsBotMessageByID(req.ReplyTo) {
+		verb = "mention"
+	}
 	msg := core.Message{
 		ID:            req.ID,
 		ChatJID:       req.ChatJID,

@@ -148,6 +148,78 @@ func TestDeliverMessage(t *testing.T) {
 	}
 }
 
+// TestDeliverMessage_PromoteReplyToBot covers spec 6/J — gateway promotes
+// any inbound whose reply_to points at one of the bot's own messages to
+// verb=mention so route filters work consistently across all adapters.
+func TestDeliverMessage_PromoteReplyToBot(t *testing.T) {
+	srv, reg, s := setup(t)
+	h := srv.Handler()
+	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+
+	// Plant a bot-authored parent message. Mirror production shape:
+	// gateway-assigned synthetic id ("out-..."), platform id ("plat-")
+	// lands in reply_to_id via MarkMessageDelivered after the adapter
+	// returns the platform id from Send.
+	botLocalID := "out-1"
+	botPlatformID := "plat-1"
+	if err := s.PutMessage(core.Message{
+		ID: botLocalID, ChatJID: "tg:123", Sender: "main",
+		Content: "hi", Timestamp: time.Unix(1709942400, 0).UTC(),
+		FromMe: true, BotMsg: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkMessageDelivered(botLocalID, botPlatformID); err != nil {
+		t.Fatal(err)
+	}
+	// The inbound reaction's reply_to carries the PLATFORM id, not the
+	// synthetic local id — IsBotMessageByID must match either column.
+	botID := botPlatformID
+	// Plant a user-authored parent message for the negative case.
+	userID := "user-msg-1"
+	if err := s.PutMessage(core.Message{
+		ID: userID, ChatJID: "tg:123", Sender: "tg:456",
+		Content: "hi", Timestamp: time.Unix(1709942401, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name     string
+		id       string
+		verb     string
+		replyTo  string
+		wantVerb string
+	}{
+		{"reaction-on-bot", "r1", "like", botID, "mention"},
+		{"reaction-on-user", "r2", "like", userID, "like"},
+		{"text-reply-on-bot", "t1", "message", botID, "mention"},
+		{"already-mention-no-overwrite", "m1", "mention", botID, "mention"},
+		{"reaction-no-reply-to", "r3", "like", "", "like"},
+		{"reaction-on-missing-id", "r4", "like", "no-such-id", "like"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := postJSON(h, "/v1/messages", messageReq{
+				ID: c.id, ChatJID: "tg:123", Sender: "tg:456",
+				Content: c.verb, Timestamp: 1709942500,
+				Verb: c.verb, ReplyTo: c.replyTo,
+			}, token)
+			if w.Code != 200 {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+			got, ok := s.MessageByID(c.id)
+			if !ok {
+				t.Fatalf("message %s not persisted", c.id)
+			}
+			if got.Verb != c.wantVerb {
+				t.Errorf("verb = %q, want %q", got.Verb, c.wantVerb)
+			}
+		})
+	}
+}
+
 func TestDeliverMessage_PersistsIsGroup(t *testing.T) {
 	srv, reg, s := setup(t)
 	h := srv.Handler()

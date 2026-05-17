@@ -55,8 +55,9 @@ func TestSentIDs_CapDefault(t *testing.T) {
 	}
 }
 
-// isMentioned checks @mention, full ReferencedMessage author, and the
-// botMsgs cache (the user-mode fallback). Exercise each path.
+// isMentioned now only checks the explicit @<bot> text-mention. Reply-to-bot
+// promotion moved to the gateway (spec 6/J), driven by is_bot_message in
+// the stored row — uniform across all adapters, no per-adapter ring buffer.
 func TestIsMentioned(t *testing.T) {
 	const botID = "bot-1"
 	b := &bot{
@@ -75,31 +76,12 @@ func TestIsMentioned(t *testing.T) {
 		}
 	})
 
-	t.Run("reply via full ReferencedMessage", func(t *testing.T) {
+	t.Run("reply via ReferencedMessage no longer counts (gateway handles)", func(t *testing.T) {
 		m := &discordgo.MessageCreate{Message: &discordgo.Message{
 			ReferencedMessage: &discordgo.Message{Author: &discordgo.User{ID: botID}},
 		}}
-		if !b.isMentioned(m) {
-			t.Fatal("reply with ReferencedMessage.Author=bot should be detected")
-		}
-	})
-
-	t.Run("reply via MessageReference only (user-mode case)", func(t *testing.T) {
-		b.botMsgs.add("msg-xyz")
-		m := &discordgo.MessageCreate{Message: &discordgo.Message{
-			MessageReference: &discordgo.MessageReference{MessageID: "msg-xyz"},
-		}}
-		if !b.isMentioned(m) {
-			t.Fatal("MessageReference.MessageID matching botMsgs should be detected")
-		}
-	})
-
-	t.Run("MessageReference unknown to botMsgs", func(t *testing.T) {
-		m := &discordgo.MessageCreate{Message: &discordgo.Message{
-			MessageReference: &discordgo.MessageReference{MessageID: "msg-other"},
-		}}
 		if b.isMentioned(m) {
-			t.Fatal("unknown referenced ID should not count as mention")
+			t.Fatal("reply-to-bot promotion lives in gateway now; isMentioned must NOT classify it")
 		}
 	})
 

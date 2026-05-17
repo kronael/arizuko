@@ -247,10 +247,10 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 		return
 	}
 	jid := chatJID(m.GuildID, m.ChannelID)
+	// Reply-to-bot promotion to verb=mention happens in gateway/api
+	// (spec 6/J) — uniform across all adapters. Ship the raw emoji
+	// classification; gateway upgrades when ReplyTo points at a bot row.
 	verb := chanlib.ClassifyEmoji(emoji)
-	if b.botMsgs.has(m.MessageID) {
-		verb = "mention"
-	}
 	senderName := ""
 	if m.Member != nil && m.Member.User != nil {
 		senderName = m.Member.User.Username
@@ -569,24 +569,16 @@ func isRateLimit(err error) bool {
 	return strings.Contains(es, "429") || strings.Contains(es, "rate limit")
 }
 
-// isMentioned returns true when the bot is in the Discord-populated Mentions
-// list or when the message is a direct reply to one of the bot's messages.
-// The user-mode Discord gateway often omits the full ReferencedMessage object
-// and ships only MessageReference.MessageID; cross-check that ID against the
-// recently-sent-by-bot set to catch reply-to-bot in user-mode too.
+// isMentioned returns true when the bot is in the Discord-populated
+// Mentions list — i.e. the user typed `@<bot>` in body. Reply-to-bot
+// promotion lives in gateway/api (spec 6/J), driven by ReplyTo + the
+// stored is_bot_message column; no per-adapter ring buffer needed.
 func (b *bot) isMentioned(m *discordgo.MessageCreate) bool {
 	botID := b.session.State.User.ID
 	for _, u := range m.Mentions {
 		if u != nil && u.ID == botID {
 			return true
 		}
-	}
-	if m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil &&
-		m.ReferencedMessage.Author.ID == botID {
-		return true
-	}
-	if m.MessageReference != nil && b.botMsgs.has(m.MessageReference.MessageID) {
-		return true
 	}
 	return false
 }
