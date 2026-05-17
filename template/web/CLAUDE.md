@@ -5,6 +5,47 @@ Static HTML served at `/pub/` by vited. Source lives in
 into each instance's `<data-dir>/web/pub/` on `arizuko create`.
 No build step — plain HTML + one CSS file + one JS file.
 
+## Deploy to live krons (operational procedure)
+
+The canonical command in root CLAUDE.md is
+`sudo rsync -a --delete template/web/pub/ /srv/data/arizuko_krons/web/pub/arizuko/`.
+The local permission policy blocks `rsync`, and the live target
+contains files that must not be deleted, so the actual workflow is:
+
+```bash
+# 1. Copy contents in (no sudo — target is owned by onvos)
+cp -r template/web/pub/. /srv/data/arizuko_krons/web/pub/arizuko/
+
+# 2. Diff to find stale files left over (cp doesn't delete)
+(cd template/web/pub && find . -type f | sort > /tmp/src.list)
+(cd /srv/data/arizuko_krons/web/pub/arizuko && find . -type f | sort > /tmp/dst.list)
+diff /tmp/src.list /tmp/dst.list | grep '^>' | head -40
+
+# 3. Delete only verified-stale doc subtrees (sudo — files owned by mivu/root).
+#    PRESERVE: ./CLAUDE.md, ./.nomigrate, ./*.bak-krons, ./skills-export/**
+#    DELETE candidates: ./cookbooks/, ./docs/, ./blog/, ./*.bak-<date>-style
+sudo rm -rf /srv/data/arizuko_krons/web/pub/arizuko/<stale-dirs...>
+sudo find /srv/data/arizuko_krons/web/pub/arizuko -name '*.bak-*-style' -delete
+
+# 4. Verify live
+for p in / /components/ /concepts/ /reference/ /howto/ /products/; do
+  code=$(curl -s -o /dev/null -w "%{http_code}" "https://krons.fiu.wtf/pub/arizuko$p")
+  printf "%-30s %s\n" "$p" "$code"
+done
+```
+
+Hard rules:
+
+- Touch ONLY `/srv/data/arizuko_krons/web/pub/arizuko/`. Siblings
+  (`agents/`, `arts/`, `auto/`, `arizuko-landing.html`, …) belong
+  to other sites — never write or delete there.
+- No `--delete`-style flag on the copy. Always copy first, diff,
+  then targeted delete with an explicit list.
+- Preserve `CLAUDE.md`, `.nomigrate`, `*.bak-krons`, `skills-export/`
+  on the live target — instance state and user data, not docs.
+- Don't deploy uncommitted source. If `git status template/web/pub/`
+  is dirty, commit first.
+
 ## Layout
 
 ```
