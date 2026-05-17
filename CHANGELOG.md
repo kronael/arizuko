@@ -14,27 +14,6 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-## [v0.40.3] — 2026-05-17
-
-> arizuko v0.40.3 — migrate skill stops lying, releases now actually propagate
->
-> The migrate skill's "sync skills" step was vibes prose — no tools, no diff base. It silently no-op'd while bumping MIGRATION_VERSION, so v0.40.1 + v0.40.2 instructions never reached running agents until a hand-correction cp.
->
-> • migrate/SKILL.md step (a) deleted. Skill now defers to container/runner.go:seedSkills (the deterministic cp path that always worked).
-> • All 18 .claude/CLAUDE.md across krons/sloth/marinade hand-resynced today. No more drift.
-> • Description rewritten: "do NOT spawn a Task agent to merge these files."
->
-> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
-
-### Fixed
-
-- ant/skills/migrate/SKILL.md: drop fictional "step (a) sync skills".
-  Skill+CLAUDE.md content sync is exclusively `container/runner.go:
-seedSkills`'s job (the unconditional cp on every spawn when
-  MIGRATION_VERSION is behind). The skill now does only: migration
-  notes, template overlays, announce. Description updated to reflect
-  the real responsibilities.
-
 ## [v0.40.2] — 2026-05-17
 
 > arizuko v0.40.2 — self-service WhatsApp re-pair + uniform reaction-mentions

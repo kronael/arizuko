@@ -53,21 +53,10 @@ type Group struct {
 }
 
 type GroupConfig struct {
-	Mounts  []Mount
-	Timeout time.Duration
-	// MaxChildren caps direct children spawnable from this group.
-	// Semantics: positive = cap; 0 = disabled (auth.CheckSpawnAllowed
-	// blocks); negative = unlimited. All Group construction sites pass
-	// DefaultMaxChildren explicitly so 0 only appears when an operator
-	// has deliberately locked spawning.
+	Mounts      []Mount
+	Timeout     time.Duration
 	MaxChildren int
 }
-
-// DefaultMaxChildren is the cap every Group gets at construction time
-// unless the caller passes its own number. Sized to cover normal
-// per-channel autoviv use cases (one folder per Slack/Discord channel
-// per world) without leaving the door wide open for runaway spawning.
-const DefaultMaxChildren = 16
 
 type Mount struct {
 	Host      string
