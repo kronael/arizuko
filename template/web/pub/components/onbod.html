@@ -23,7 +23,7 @@
     <h2>What it is</h2>
     <p>onbod is the onboarding daemon. It admits new users (invite token, OAuth bind, queued admission) and stands up the group folder for each one via <code>container.SetupGroup</code> &mdash; the single canonical path for creating a group.</p>
 
-    <p>It owns three tables: <code>invites</code>, <code>admissions</code>, and <code>auth_users</code>. gated runs the schema migrations; onbod is the only daemon that writes those rows.</p>
+    <p>It owns three tables: <code>invites</code>, <code>onboarding</code>, and <code>auth_users</code>. gated runs the schema migrations; onbod is the only daemon that writes those rows.</p>
 
     <h2>Why it exists</h2>
     <p>Two problems would have no good answer without onbod. First, a new user reaching the bot has nothing &mdash; no record in <code>auth_users</code>, no folder, no skills, no settings, no default tasks. Something has to put them through identity confirmation, decide whether to admit them, and bring them online.</p>
@@ -42,7 +42,7 @@
         |
       onbod   poll loop sends auth link via gated outbound API
         |     /onboard landing → OAuth (GitHub/Google/Discord)
-        |     gate match → admissions queue (per-gate daily limit)
+        |     gate match → onboarding queue (per-gate daily limit)
         |     admitFromQueue (~60s) → approved
         |     container.SetupGroup(folder, prototype)
         v     auth.Mint(sub, scope=[users:read self], iss=onbod)
