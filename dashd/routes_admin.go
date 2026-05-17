@@ -28,7 +28,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTop(w, "Routes")
+	pageTopFor(w, r, "Routes")
 	fmt.Fprint(w, `<p class="dim">Routing rules. Each inbound message walks the table in <code>seq</code> order; the first <code>match</code> hit pins the <code>target</code> group.</p>`)
 
 	if d.dbRW == nil {

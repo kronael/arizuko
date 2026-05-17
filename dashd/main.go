@@ -168,6 +168,45 @@ func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, `{"ok":true}`)
 }
 
+// navLinks: nav order + href + label. Path-prefix match decides which
+// gets aria-current. /dash/ is special-cased so child pages don't all
+// light up the home link.
+var navLinks = []struct{ Href, Label string }{
+	{"/dash/", "arizuko"},
+	{"/dash/status/", "status"},
+	{"/dash/tasks/", "tasks"},
+	{"/dash/activity/", "activity"},
+	{"/dash/groups/", "groups"},
+	{"/dash/routes/", "routes"},
+	{"/dash/memory/", "memory"},
+	{"/dash/profile/", "profile"},
+}
+
+// dashNavFor renders the top nav with aria-current="page" on the link
+// whose href is a prefix of urlPath. urlPath "" or "/dash/" lights the
+// home link only.
+func dashNavFor(urlPath string) string {
+	var b strings.Builder
+	b.WriteString(`<nav>`)
+	for _, l := range navLinks {
+		active := false
+		if l.Href == "/dash/" {
+			active = urlPath == "" || urlPath == "/dash/" || urlPath == "/dash"
+		} else {
+			active = strings.HasPrefix(urlPath, l.Href)
+		}
+		if active {
+			fmt.Fprintf(&b, `<a href=%q aria-current="page">%s</a>`, l.Href, l.Label)
+		} else {
+			fmt.Fprintf(&b, `<a href=%q>%s</a>`, l.Href, l.Label)
+		}
+	}
+	b.WriteString(`</nav><button class="theme-toggle"></button>`)
+	return b.String()
+}
+
+// dashNav: legacy unscoped nav (no active state). Kept for templates
+// that don't have request context. Prefer dashNavFor(r.URL.Path).
 const dashNav = `<nav><a href="/dash/">arizuko</a><a href="/dash/status/">status</a><a href="/dash/tasks/">tasks</a><a href="/dash/activity/">activity</a><a href="/dash/groups/">groups</a><a href="/dash/routes/">routes</a><a href="/dash/memory/">memory</a><a href="/dash/profile/">profile</a></nav><button class="theme-toggle"></button>`
 
 func dashHead(title string) string {
@@ -246,11 +285,36 @@ func pageTop(w http.ResponseWriter, title string) {
 		dashHead(title), dashNav, esc(title))
 }
 
+// pageTopFor renders the same shell as pageTop but with a path-aware
+// nav (active-link aria-current). Pass r.URL.Path. Optional crumbs
+// render as a breadcrumb line above the h1.
+func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...struct{ Href, Label string }) {
+	fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s`,
+		dashHead(title), dashNavFor(r.URL.Path))
+	if len(crumbs) > 0 {
+		var b strings.Builder
+		b.WriteString(`<p class="crumbs">`)
+		for i, c := range crumbs {
+			if i > 0 {
+				b.WriteString(` &rsaquo; `)
+			}
+			if c.Href != "" {
+				fmt.Fprintf(&b, `<a href=%q>%s</a>`, c.Href, esc(c.Label))
+			} else {
+				b.WriteString(esc(c.Label))
+			}
+		}
+		b.WriteString(`</p>`)
+		w.Write([]byte(b.String()))
+	}
+	fmt.Fprintf(w, `<h1>%s</h1>`, esc(title))
+}
+
 const pageBot = `</div></body></html>`
 
 func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTop(w, "Status")
+	pageTopFor(w, r, "Status")
 
 	var groupCount, sessionCount, chanCount, erroredCount int
 	for _, q := range []struct {
@@ -315,7 +379,7 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTop(w, "Tasks")
+	pageTopFor(w, r, "Tasks")
 	fmt.Fprint(w, `<p class="dim">Scheduled jobs. Auto-refreshes every 10s.</p>`)
 	fmt.Fprint(w, `<table hx-get="/dash/tasks/x/list" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">
 <thead><tr><th>ID</th><th>Group</th><th>Cron</th><th>Status</th><th>Created</th><th>Next Run</th></tr></thead>
@@ -379,7 +443,7 @@ func (d *dash) writeTaskRows(w http.ResponseWriter) {
 
 func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTop(w, "Activity")
+	pageTopFor(w, r, "Activity")
 	fmt.Fprint(w, `<p class="dim">Last 50 messages across all channels. Auto-refreshes every 10s.</p>`)
 	fmt.Fprint(w, `<table hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">
 <thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Verb</th><th>Content</th></tr></thead>
@@ -437,7 +501,7 @@ func (d *dash) writeActivityRows(w http.ResponseWriter) {
 
 func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTop(w, "Groups")
+	pageTopFor(w, r, "Groups")
 	fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules.</p>`)
 
 	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
@@ -666,7 +730,7 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	selectedGroup := r.URL.Query().Get("group")
 
-	pageTop(w, "Memory")
+	pageTopFor(w, r, "Memory")
 	fmt.Fprint(w, `<p class="dim">Browse per-group MEMORY.md, CLAUDE.md, diary, episodes, users, facts.</p>`)
 
 	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)

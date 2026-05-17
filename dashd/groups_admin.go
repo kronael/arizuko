@@ -23,7 +23,10 @@ func (d *dash) handleGroupNewForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTop(w, "New group")
+	pageTopFor(w, r, "New group",
+		struct{ Href, Label string }{"/dash/groups/", "Groups"},
+		struct{ Href, Label string }{"", "New"},
+	)
 	fmt.Fprint(w, `<p class="dim">Create a group folder. Use <code>parent/child</code> to nest.</p>
 <form method="post" action="/dash/groups/new">
 <p><label>Folder <input type="text" name="folder" placeholder="solo/inbox" required size="40"></label></p>
@@ -122,7 +125,11 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTop(w, "Settings — "+folder)
+	pageTopFor(w, r, "Settings — "+folder,
+		struct{ Href, Label string }{"/dash/groups/", "Groups"},
+		struct{ Href, Label string }{"", folder},
+		struct{ Href, Label string }{"", "Settings"},
+	)
 
 	if d.dbRW == nil {
 		fmt.Fprint(w, `<div class="banner-err">store unavailable</div>`)

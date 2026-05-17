@@ -50,7 +50,11 @@ func (d *dash) handleWhatsappPair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTop(w, "WhatsApp re-pair")
+	pageTopFor(w, r, "WhatsApp re-pair",
+		struct{ Href, Label string }{"", "Channels"},
+		struct{ Href, Label string }{"", "WhatsApp"},
+		struct{ Href, Label string }{"", "re-pair"},
+	)
 
 	st := d.fetchPairStatus()
 	phone := os.Getenv("WHATSAPP_PHONE")
