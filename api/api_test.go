@@ -222,6 +222,39 @@ func TestDeliverMessage_PromoteReplyToBot(t *testing.T) {
 	}
 }
 
+// Spec 5/G — verb=mention inbound bumps engaged_until on the
+// (jid, topic). Reply-to-bot promotion (spec 5/L) routes through the
+// same path so it engages too.
+func TestDeliverMessage_MentionWritesEngagement(t *testing.T) {
+	srv, reg, s := setup(t)
+	srv.SetEngagementTTL(10 * time.Minute)
+	h := srv.Handler()
+	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+
+	now := time.Now()
+	w := postJSON(h, "/v1/messages", messageReq{
+		ID: "m1", ChatJID: "tg:42", Sender: "tg:9", Topic: "",
+		Content: "hello", Timestamp: now.Unix(),
+		Verb: "mention",
+	}, token)
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if !s.IsEngaged("tg:42", "", now) {
+		t.Fatal("expected engaged after verb=mention")
+	}
+
+	// non-mention inbound does NOT engage (different jid).
+	_ = postJSON(h, "/v1/messages", messageReq{
+		ID: "m2", ChatJID: "tg:43", Sender: "tg:9",
+		Content: "hi", Timestamp: now.Unix(),
+		Verb: "message",
+	}, token)
+	if s.IsEngaged("tg:43", "", now) {
+		t.Fatal("plain message should not engage")
+	}
+}
+
 func TestDeliverMessage_PersistsIsGroup(t *testing.T) {
 	srv, reg, s := setup(t)
 	h := srv.Handler()

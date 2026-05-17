@@ -29,6 +29,11 @@ type Server struct {
 	onRegister    func(name string, ch *chanreg.HTTPChannel)
 	onDeregister  func(name string)
 	channelLookup func(name string) *chanreg.HTTPChannel
+
+	// engagementTTL is the spec 5/G window applied when verb=mention
+	// inbound writes engaged_until. Zero disables the bump (used by
+	// the api integration tests that don't construct a full Config).
+	engagementTTL time.Duration
 }
 
 func New(reg *chanreg.Registry, s *store.Store) *Server {
@@ -41,6 +46,10 @@ func (s *Server) OnDeregister(fn func(string))                     { s.onDeregis
 func (s *Server) ChannelLookup(fn func(name string) *chanreg.HTTPChannel) {
 	s.channelLookup = fn
 }
+
+// SetEngagementTTL configures the spec 5/G window applied to verb=mention
+// inbound writes. Zero leaves it disabled.
+func (s *Server) SetEngagementTTL(d time.Duration) { s.engagementTTL = d }
 
 func (s *Server) Handler() http.Handler {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
@@ -237,6 +246,14 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	if verb != "mention" && verb != "untrusted" && req.ReplyTo != "" &&
 		s.store.IsBotMessageByID(req.ReplyTo) {
 		verb = "mention"
+	}
+	// Spec 5/G — engagement: any inbound that triggers the agent
+	// (verb=mention, includes the 5/L reply-to-bot promotion above)
+	// bumps engaged_until for the (jid, topic). Write BEFORE PutMessage
+	// so the row, the routing decision, and the engagement state move
+	// together.
+	if verb == "mention" && s.engagementTTL > 0 {
+		_ = s.store.SetEngagement(req.ChatJID, req.Topic, time.Now().Add(s.engagementTTL))
 	}
 	msg := core.Message{
 		ID:            req.ID,

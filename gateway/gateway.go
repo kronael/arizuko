@@ -195,6 +195,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		SetGroupOpen:           g.store.SetGroupOpen,
 		SetGroupObserveWindow:  g.store.SetGroupObserveWindow,
 		GroupObserveWindow:     g.store.GroupObserveWindow,
+		EngagementTTL:          g.cfg.EngagementTTL,
 	}
 	g.storeFns = ipc.StoreFns{
 		CreateTask: g.store.CreateTask,
@@ -212,8 +213,10 @@ func (g *Gateway) Run(ctx context.Context) error {
 		DefaultFolderForJID: g.store.DefaultFolderForJID,
 		ListACL:             g.store.ListACL,
 		PutMessage:          g.store.PutMessage,
-		GetLastReplyID:      g.store.GetLastReplyID,
-		SetLastReplyID:      g.store.SetLastReplyID,
+		GetLastReplyID:        g.store.GetLastReplyID,
+		SetLastReplyAndEngage: g.store.SetLastReplyAndEngage,
+		SetEngagement:         g.store.SetEngagement,
+		EngagedFolder:         g.store.EngagedFolder,
 		MessagesBefore:      g.store.MessagesBefore,
 		MessagesByThread:    g.store.MessagesByThread,
 		JIDRoutedToFolder:   g.store.JIDRoutedToFolder,
@@ -534,6 +537,22 @@ func (g *Gateway) pollOnce() {
 		last := chatMsgs[len(chatMsgs)-1]
 		group, ok := g.resolveGroup(last)
 		if !ok {
+			// Spec 5/G: engagement is the implicit-route fallback.
+			// Fires BEFORE onboarding and the cursor-drop: an engaged
+			// (jid, topic) was already granted access at the original
+			// route time, so the lifecycle invariant "engaged ⇒ formerly
+			// granted" lets us bypass re-routing without re-checking
+			// grants. Operator revokes via disengage() or TTL.
+			effTopic := g.effectiveTopic(chatJid, last.Topic)
+			if g.cfg.EngagementTTL > 0 && g.store.IsEngaged(chatJid, effTopic, time.Now()) {
+				if folder := g.store.EngagedFolder(chatJid, effTopic); folder != "" {
+					if gr, exists := g.store.GroupByFolder(folder); exists {
+						group, ok = gr, true
+					}
+				}
+			}
+		}
+		if !ok {
 			discordGuild := strings.HasPrefix(chatJid, "discord:") && !strings.HasPrefix(chatJid, "discord:dm/")
 			if g.cfg.OnboardingEnabled && onboardingAllowed(chatJid, g.cfg.OnboardingPlatforms) && (!discordGuild || last.Verb == "mention") {
 				if err := g.store.InsertOnboarding(chatJid); err != nil {
@@ -594,7 +613,11 @@ func (g *Gateway) pollOnce() {
 		if g.queue.SendMessages(chatJid, []string{rendered}) {
 			slog.Info("poll: steered messages into running container",
 				"jid", chatJid, "count", len(chatMsgs))
-			g.store.SetLastReplyID(chatJid, g.effectiveTopic(chatJid, last.Topic), last.ID)
+			var until time.Time
+			if g.cfg.EngagementTTL > 0 {
+				until = time.Now().Add(g.cfg.EngagementTTL)
+			}
+			_ = g.store.SetLastReplyAndEngage(chatJid, g.effectiveTopic(chatJid, last.Topic), last.ID, until)
 			g.recordSteeredTs(chatJid, chatMsgs)
 			continue
 		}
@@ -758,7 +781,7 @@ func (g *Gateway) processSenderBatch(
 	}
 
 	isolated := strings.HasPrefix(last.Sender, "timed-isolated")
-	onOutput, hadOutput := g.makeOutputCallback(deliverCh, deliverTo, topic, last.ID, group.Folder)
+	onOutput, hadOutput := g.makeOutputCallback(deliverCh, deliverTo, topic, last.ID, group.Folder, last.Sender)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		onOutput, isolated, topic, last.ID, len(msgs))
 
@@ -828,7 +851,7 @@ func (g *Gateway) processWebTopics(
 			ch.Typing(chatJid, true)
 		}
 
-		onOutput, hadOutput := g.makeOutputCallback(ch, chatJid, effectiveTopic, last.ID, group.Folder)
+		onOutput, hadOutput := g.makeOutputCallback(ch, chatJid, effectiveTopic, last.ID, group.Folder, last.Sender)
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 			onOutput, false, effectiveTopic, last.ID, len(topicMsgs))
 
@@ -931,7 +954,7 @@ func (g *Gateway) paneHints(trigger []core.Message) string {
 }
 
 func (g *Gateway) makeOutputCallback(
-	ch core.Channel, chatJid, topic, firstMsgID, groupFolder string,
+	ch core.Channel, chatJid, topic, firstMsgID, groupFolder, triggerSender string,
 ) (func(string, string), *bool) {
 	var hadOutput bool
 	turnID := firstMsgID
@@ -1009,7 +1032,14 @@ func (g *Gateway) makeOutputCallback(
 			sentID := putAndDeliver(clean, replyTo, topic)
 			if sentID != "" {
 				replyTo = sentID
-				g.store.SetLastReplyID(chatJid, topic, sentID)
+				var until time.Time
+				// Broadcast/scheduled turns must NOT bump engagement.
+				// timed-* sender prefix (gateway-internal convention,
+				// see handleStickyCommand:1891) distinguishes them.
+				if g.cfg.EngagementTTL > 0 && !strings.HasPrefix(triggerSender, "timed-") {
+					until = time.Now().Add(g.cfg.EngagementTTL)
+				}
+				_ = g.store.SetLastReplyAndEngage(chatJid, topic, sentID, until)
 			}
 		}
 	}, &hadOutput

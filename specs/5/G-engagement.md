@@ -1,10 +1,10 @@
 ---
 status: spec
-depends: [B-route-mode-ingestion, F-topic-lineage]
-relates-to: [3/Y-thread-routing]
+depends: [B-route-mode-ingestion, F-topic-lineage, L-reply-to-bot-verb]
+relates-to: [3/Y-thread-routing, 5/O-output-styles-per-surface]
 ---
 
-# specs/6/G — engagement: stay-in-conversation after mention; thread by default
+# specs/5/G — engagement: stay-in-conversation after mention; thread by default
 
 ## What this solves
 
@@ -18,252 +18,309 @@ Two operator complaints, one primitive:
    feed.
 
 Single primitive: **engagement**. Once the bot has spoken in a
-`(jid, topic)`, that pair is **engaged** for a TTL. Engaged turns
-fire on every inbound, no re-mention needed. Bot can disengage
-explicitly. Combined with thread-by-default on Slack channels, the
-engagement scope becomes "the thread" and the channel stays clean.
+`(jid, topic)`, that pair is **engaged** until a TTL expires. Engaged
+inbounds fire even when the route table wouldn't otherwise route
+them to the bot. Bot can disengage explicitly. Combined with
+thread-by-default on Slack channels, the engagement scope becomes
+"the thread" and the channel stays clean.
 
 ## The primitive
 
 A `(jid, topic)` has one of two states: **engaged** or **idle**.
 
-- **Triggered to engaged**: mention OR reply-to-bot OR explicit
-  `fork_topic` AND first bot reply in that topic.
-- **Engaged → engaged**: any inbound in the pair while `now() -
-last_reply_at < ENGAGEMENT_TTL` fires the agent without
-  requiring mention.
-- **Engaged → idle**: TTL expires OR bot calls `disengage()` MCP.
-- **Disengaged stays idle**: subsequent inbounds need a fresh
-  mention to re-engage.
-
-`chat_reply_state` already keys on `(jid, topic, last_reply_id)`.
-Add one column:
+Storage: one nullable column on the existing `chat_reply_state`
+table (`store/migrations/0014-reply-state.sql` — keyed on
+`(jid, topic)`).
 
 ```sql
-ALTER TABLE chat_reply_state ADD COLUMN last_reply_at TEXT;
+ALTER TABLE chat_reply_state ADD COLUMN engaged_until TEXT;
+-- RFC3339Nano UTC. NULL = idle.
 ```
 
-RFC3339Nano UTC. **Single write site**: `MarkMessageDelivered` in
-`store/messages.go` — the one chokepoint for "this outbound was
-acked by the channel adapter." Today three sites call
-`SetLastReplyID` (steered echo at `gateway.go:578`, `putAndDeliver`
-at `:1004`, retry at `:487`) — the retry path must NOT re-bump
-engagement (a 2-hour-stale retry shouldn't re-engage). Bumping at
-`MarkMessageDelivered` instead of `SetLastReplyID` puts the write
-at the right boundary and audits all callers in one place.
+The column carries the **deadline** directly, not the timestamp of
+the last reply. `IsEngaged(jid, topic)` is then a single-row read,
+no clock arithmetic in SQL beyond a `>` compare.
+
+## State transitions
+
+All writes upsert the `(jid, topic)` row and set `engaged_until` in
+one statement.
+
+| Event                                                    | Write                                  |
+| -------------------------------------------------------- | -------------------------------------- |
+| Bot reply delivered (conversational outbound)            | `engaged_until = now + ENGAGEMENT_TTL` |
+| Inbound `verb=mention` (includes 5/L reply-to-bot promo) | `engaged_until = now + ENGAGEMENT_TTL` |
+| MCP `engage(jid, topic)`                                 | `engaged_until = now + ENGAGEMENT_TTL` |
+| MCP `disengage(jid, topic)`                              | `engaged_until = NULL`                 |
+
+**Outbound write site.** Piggyback on the two existing `SetLastReplyID`
+call sites (`gateway.go:597` steered echo, `gateway.go:1012`
+`putAndDeliver` echo) — both already have `(jid, topic)` in scope.
+Both call a new combined helper:
+
+```go
+func (s *Store) SetLastReplyAndEngage(jid, topic, replyID string, until time.Time) error
+```
+
+`SetLastReplyID` is removed from the store API; the two gateway call
+sites and the one MCP `recordOutbound` site at `ipc/ipc.go:436` switch
+to the combined helper.
+
+Why not `MarkMessageDelivered`: its signature is `(id, platformID)`,
+no jid/topic in scope. Bumping there would require a JOIN-back to
+`messages` for jid/topic, and the empty-text early-exit at
+`gateway.go:981` calls it unconditionally (no actual send) — that
+would falsely engage a never-delivered row.
+
+**Inbound mention write site.** Spec 5/L already collapses
+reply-to-bot to `verb=mention` BEFORE `PutMessage` at
+`api/api.go:237-240`. There is one verb to watch. The write fires
+immediately after the verb-promotion block, before `PutMessage`:
+
+```go
+if verb == "mention" {
+    _ = s.store.SetEngagement(req.ChatJID, req.Topic, now.Add(EngagementTTL))
+}
+```
+
+## Read path
+
+```sql
+SELECT engaged_until IS NOT NULL AND engaged_until > ?
+  FROM chat_reply_state WHERE jid=? AND topic=?
+```
+
+One row, no JOIN, no subquery. No row → false (no prior bot
+interaction in that pair). Helper: `Store.IsEngaged(jid, topic, now)
+bool`.
+
+## EngagedFolder helper
+
+```go
+func (s *Store) EngagedFolder(jid, topic string) string
+// = RoutedToByMessageID(GetLastReplyID(jid, topic)) or "".
+```
+
+Two reads against existing data: last_reply_id from
+`chat_reply_state`, then routed_to from `messages`. Used by the
+routing fallback to deliver engaged inbounds to whichever folder
+most recently spoke there, and by the MCP authz check below.
 
 ## Routing logic change
 
-In gateway's poll loop, **after** the observe-mode short-circuit at
-`gateway.go:554`. **Observe always wins** — operators set
-`target=#observe` precisely to silence the bot in that channel;
-engagement state must not override.
+The current poll loop (`gateway/gateway.go:533-604`) has **no
+mention gate**. Routing is route-table-driven via
+`router.ResolveRouteTarget` (`:563`) plus sticky/reply-aware
+`resolveTarget` (`:1846`). When no route matches earlier,
+`resolveGroup` returns `!ok` at `:535` and the loop drops with
+`"poll: no route for message"` (`:543`), advancing the cursor.
 
-```go
-if rt.Mode == "observe" {
-    // existing path: mark observed, advance cursor, continue
-    continue
-}
-switch {
-case verb == "mention":
-    // existing: trigger
-case engaged(jid, topic):
-    // NEW: trigger (no mention needed)
-case replyToBotMsg(last):
-    // NEW: trigger (reply-to-bot is implicit re-engagement)
-default:
-    // existing: observe-only or drop
-}
-```
+Engagement is the **implicit-route fallback**. After the existing
+observe short-circuit (`:564`) and BEFORE the
+`router.ResolveRouteTarget` fallthrough that delivers to the
+resolved folder, the loop checks: was the prior bot reply in this
+`(jid, topic)` still inside its engagement window? If yes, deliver
+to that folder even if the route table wouldn't have.
 
-`engaged()` is **sliding-from-any-activity** (oracle critique:
-sliding-from-bot-reply only would reintroduce the very re-mention
-friction this spec attacks):
+Concretely, two surgical edits:
 
-```
-engaged := max(last_reply_at, last_inbound_in_topic_at) > now() - ENGAGEMENT_TTL
-```
+1. **`resolveGroup` miss path (`gateway.go:535-546`)**: before
+   dropping, look up the last engaged folder for `(chatJid,
+last.Topic)` — derive from `messages.routed_to` of the row
+   pointed at by `chat_reply_state.last_reply_id`. If
+   `IsEngaged(chatJid, effectiveTopic(...))` returns true, treat
+   that folder as the resolved group and fall through to the normal
+   routing tail.
+2. **Observe short-circuit (`gateway.go:564`) is unchanged.**
+   Observe always wins — operators set `target=#observe` precisely
+   to silence the bot in that channel; engagement state must not
+   override.
 
-`last_inbound_in_topic_at` is the max `messages.timestamp` for
-`(chat_jid, topic)` — already covered by `idx_messages_chat_ts`.
-No new index.
+Mention and reply-to-bot already route via the existing path
+(route table + spec 5/L verb promotion). Engagement adds **no new
+gate** for them; it only catches the inbounds that would otherwise
+not route at all.
 
-`replyToBotMsg(last)` is: `last.ReplyToID` resolves to a row with
-`is_bot_message=1`. Single PK lookup (`messages.id`), AND-filtered
-on chat_jid + bot flag. Done once per channel inbound; cheap.
+**Precedence over onboarding.** The `resolveGroup` miss branch
+(`gateway.go:535-546`) also fires onboarding when enabled.
+Engagement check fires **first**: if engaged, skip onboarding and the
+cursor-drop, fall through to the engaged folder. Cross-cuts
+onboarding because engagement requires a prior bot reply, which
+already required a prior grant check at the original route time.
+Grants are not re-validated on the engagement path — the lifecycle
+invariant is "engaged ⇒ formerly granted." Operators revoke engaged
+conversations via `disengage()` or wait for TTL.
 
-## Thread-by-default on Slack channels — only for conversational replies
+## Thread-by-default on Slack channels
 
-Three rules, all in `slakd/bot.go:Send()`:
+Today `slakd/bot.go:Send` already threads on `ReplyTo`
+(`threadTS := cmp.Or(req.ThreadID, req.ReplyTo)`). Engagement does
+not modify `Send()`. Instead the gateway ensures `ReplyTo` is set on
+conversational outbounds — already done at `gateway.go:1009-1011`
+where `replyTo = sentID` chains successive turns into the same
+thread.
 
-1. **Preserve existing thread** — if `req.ThreadID` or `req.ReplyTo`
-   is set (today's path), leave it.
-2. **Conversational reply with no explicit thread** — set
-   `thread_ts = req.ReplyTo` if the trigger had one, else the
-   trigger message ts. "Conversational" = `req.TurnID != ""` (which
-   we already set on agent replies — distinguishes from broadcasts).
-3. **Broadcast / unsolicited outbound** — leave thread_ts empty,
-   lands top-level. This is `timed` scheduled messages, migrate
-   announcements, system notifications. They have no parent to
-   thread under.
+**Broadcast discriminator.** `m.Sender` prefix `timed-` is the
+existing convention for scheduled / autonomous outbounds
+(`gateway.go:1884, 1957`). Broadcast detection in the gateway
+engagement bump: `strings.HasPrefix(triggerSender, "timed-")` →
+no bump, no auto-thread. Conversational turns (any non-timed
+trigger) bump. (`TurnID != ""` is **not** a valid discriminator
+because timed/scheduled outbounds also carry non-empty TurnIDs.)
 
-Net effect: bot opens a thread on the user's mention; subsequent
-thread replies engage automatically; broadcasts stay visible in the
-main channel feed.
+Net change in `slakd`: **zero LOC**.
 
 ## Corrective exchanges fork to a side thread
 
 A "correction" turn is when the user is _meta-talking about the
 bot's last reply_ rather than continuing the substantive
-conversation. Examples: "no that's wrong because…", "you missed
-the context", "rephrase that please", "ignore the last bit".
+conversation: "no that's wrong because…", "you missed the context",
+"rephrase that please".
 
-These exchanges shouldn't pollute the main thread — they're
-plumbing, not content. The main flow should look like
-`[user-q] [bot-a] [user-q2] [bot-a2]…` even when corrections
-happened along the way.
+These shouldn't pollute the main thread — plumbing, not content.
+Convention only (no enforcement): the agent calls
+`fork_topic(current, current+"#fix")` from spec 6/F, runs the
+correction loop in the fork, posts a clean answer back into the
+parent topic, then calls `disengage()` on the fix topic. Slack
+threads the fork under the bot's incorrect message via the
+thread-by-default rule. If the agent skips the fork, corrections
+happen inline (today's behavior).
 
-**Mechanism**: when the agent detects it's mid-correction (a tool
-the agent calls explicitly, or a heuristic on user inbound), it
-forks a side topic via `fork_topic(current, current+"#fix")` and
-continues the correction loop there. Once converged, agent can
-post a single corrected reply back into the main topic and call
-`disengage()` on the fix topic.
-
-On Slack specifically: the side-fork lands in a new thread off
-the bot's incorrect reply (sets `thread_ts` to the bot's message
-ts). User sees the correction loop in-thread; main channel/thread
-stays clean.
-
-Implementation: leverages existing `fork_topic` MCP from spec 6/F
-
-- thread-by-default outbound (rule above). No new primitive. Agent
-  prompt rule (added to ant CLAUDE.md): "if the user is correcting
-  your last reply rather than asking a new question, fork the topic
-  to `<current>#fix` and continue there. Return a clean answer to
-  the parent topic when convergence reached."
-
-This is a **convention**, not enforced by the gateway. If the
-agent doesn't fork, corrections happen inline (today's behavior).
-Operators who want enforcement can configure a route mode (future)
-or a skill that wraps the detection + fork.
+Agent prompt rule added to `ant/CLAUDE.md`.
 
 ## Length policy per surface
 
-Per-surface length rules live in per-surface output-style files.
-Spec: `specs/5/O-output-styles-per-surface.md`.
+Per-surface output rules live in `specs/5/O-output-styles-per-surface.md`.
 
 ## MCP tools
 
+- **`engage(jid: string, topic: string)`** — sets `engaged_until =
+now + ENGAGEMENT_TTL`. For scheduled / autonomous turns or
+  recovery after a failed reply.
 - **`disengage(jid: string, topic: string)`** — clears
-  `last_reply_at` for `(jid, topic)`. Bot calls when it's done
-  helping. Subsequent inbounds need mention to re-engage.
-- **`engage(jid: string, topic: string)`** — explicit re-engagement
-  without a user mention. For scheduled / autonomous turns.
+  `engaged_until` (writes NULL). Subsequent inbounds need a fresh
+  mention to re-engage.
 
-Both args required — MCP sockets are per-folder, not per-conversation,
-so there's no implicit "current" jid the tool can default to. The
-agent passes the jid it intends to act on.
+Both args required — MCP sockets are per-folder, not
+per-conversation, so there is no implicit "current" jid the tool
+can default to. The agent passes the jid it intends to act on.
 
-Both wrap one store helper `SetEngagement(jid, topic, t)` —
-t=now sets, t=zero-time clears.
+Both wrap one store helper `SetEngagement(jid, topic, t time.Time)`
+— zero `t` means clear (NULL), non-zero writes
+`t.Format(RFC3339Nano)`.
 
-## Migration
+**Authorization.** Agents can engage/disengage only their own
+conversations. The MCP handler verifies one of:
 
-```sql
--- 0056-engagement.sql
-ALTER TABLE chat_reply_state ADD COLUMN last_reply_at TEXT;
--- No backfill: NULL = idle. First bot reply per topic populates it.
-```
+- `EngagedFolder(jid, topic) == callerFolder` (the last bot reply in
+  this pair was routed to this folder), or
+- `JIDRoutedToFolder(jid, callerFolder)` (the jid's default route
+  resolves to this folder — covers the first-engagement case before
+  any reply has shipped).
 
-One column. No index changes (existing PK covers the lookup). Zero
-behavior change at migration — until a bot replies, every topic is
-idle, today's mention-required behavior holds.
+Cross-folder calls return a permission error. Implemented in
+`ipc/ipc.go` as a shared `engagementAuthz` closure around both tool
+handlers.
 
 ## Env vars
 
-- `ENGAGEMENT_TTL` (default `10m`) — sliding window after last bot
-  reply during which inbounds auto-trigger.
-- `SLACK_CHANNEL_HARD_CAP_CHARS` (default `200`) — char ceiling for
-  the rare top-level channel reply.
+- `ENGAGEMENT_TTL` (default `10m`) — window after a triggering
+  event during which inbounds auto-fire via the engagement
+  fallback.
+
+## Migration
+
+Next free number after `0057-group-visibility.sql` is `0058`.
+
+```sql
+-- store/migrations/0058-engagement-column.sql
+ALTER TABLE chat_reply_state ADD COLUMN engaged_until TEXT;
+```
+
+No backfill: NULL = idle. Pre-existing rows stay idle until the
+next bot reply or mention populates the column. Zero behavior
+change at migration time.
+
+## Restart-safe
+
+Nothing to recover. The column lives in SQLite (WAL); every
+routing decision re-reads. A crash mid-turn leaves engagement
+state consistent with whichever side of the
+`SetLastReplyAndEngage` write the process died on — at worst, one
+delivered outbound did not bump engagement. Next inbound that's
+verb=mention re-engages.
 
 ## What this is NOT
 
-- **NOT a per-topic engagement override.** Operators can't pin a
-  topic to "always engaged" via config — they'd use a route
-  `target=#bare` (already exists) to make every inbound fire.
+- **NOT a sentinel-message scheme.** No `verb=disengage` synthetic
+  message in the queue. Engagement is a column read; the queue is
+  unchanged.
+- **NOT a `last_reply_at` column.** The column carries the
+  deadline (`engaged_until`), not the timestamp of the last reply.
+  The TTL is applied at write time once.
+- **NOT a per-route engagement override.** Operators wanting
+  "always engaged" use a route `target=#bare` (already exists).
   Engagement is per-conversation-instance, not per-route.
-- **NOT a multi-bot engagement model.** If multiple bots are routed
-  to the same folder, they each track their own `chat_reply_state`
-  rows. No coordination.
-- **NOT thread-creation for Discord/Telegram.** Discord threads need
-  explicit API calls (`startThreadFromMessage`); Telegram threads
-  are forum-channel-specific. Slack is the only platform with cheap
-  threading at every channel message. The thread-by-default rule
-  ships Slack-only; other adapters keep current top-level reply.
+- **NOT a multi-bot engagement model.** Multiple bots routed to
+  the same folder each track their own `chat_reply_state` rows.
+  No coordination.
+- **NOT thread-creation for Discord/Telegram.** Discord threads
+  need explicit API calls; Telegram threads are forum-channel
+  specific. Slack-only.
 - **NOT a disengage on every bot reply.** The bot stays engaged
-  until TTL or explicit call. A single reply doesn't end the
-  conversation.
+  until TTL or explicit `disengage()`. A single reply doesn't end
+  the conversation.
 
-## Code changes
+## Code surface
 
-| File                                      | Change                                                        | LOC |
-| ----------------------------------------- | ------------------------------------------------------------- | --- |
-| `store/migrations/0056-engagement.sql`    | new                                                           | 3   |
-| `store/chat_reply_state.go` (or wherever) | `SetEngagement`, `IsEngaged`                                  | ~30 |
-| `gateway/gateway.go`                      | engagement check in routing; surface hint in buildAgentPrompt | ~25 |
-| `slakd/bot.go`                            | thread_ts auto-set for top-level channel replies              | ~15 |
-| `ipc/ipc.go`                              | `disengage`, `engage` MCP tools                               | ~50 |
-| `core/config.go`                          | `ENGAGEMENT_TTL`, `SLACK_CHANNEL_HARD_CAP_CHARS`              | ~6  |
-| `ant/CLAUDE.md`                           | `<surface>` rule + per-surface caps                           | ~15 |
-| Tests                                     | engagement TTL, thread auto-set, disengage path               | ~80 |
+| File                                                | Change                                                                                             | LOC |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --- |
+| `store/migrations/0058-engagement-column.sql`       | new — single `ALTER TABLE`                                                                         | 3   |
+| `store/messages.go`                                 | `SetEngagement`, `IsEngaged`, `EngagedFolder`, `SetLastReplyAndEngage` (replaces `SetLastReplyID`) | ~60 |
+| `gateway/gateway.go` (poll loop near `:535`)        | engagement fallback before onboarding when route table yields no group                             | ~12 |
+| `gateway/gateway.go` (steered echo + putAndDeliver) | switch to `SetLastReplyAndEngage`, skip bump when sender is `timed-*`                              | ~10 |
+| `api/api.go handleMessage`                          | `SetEngagement` on `verb=mention` after promotion                                                  | ~6  |
+| `slakd/bot.go`                                      | **no change** (Send already threads on ReplyTo)                                                    | 0   |
+| `ipc/ipc.go`                                        | `engage`, `disengage` MCP tools wrapping `SetEngagement`                                           | ~50 |
+| `core/config.go`                                    | `ENGAGEMENT_TTL` (default `10m`)                                                                   | ~3  |
+| `ant/CLAUDE.md`                                     | corrective-fork convention                                                                         | ~8  |
+| Tests (`store/store_test.go`, gateway, ipc)         | TTL window, MCP set/clear, thread auto-set, fallback routing                                       | ~80 |
 
-**Net: ~225 LOC.**
+**Net: ~235 LOC.**
 
-## Migration order
+## Tests
 
-1. **Schema migration 0056** — adds nullable column, no behavior change.
-2. **`SetEngagement` write path** — gateway sets `last_reply_at` on
-   every bot outbound. Read path unused yet. No behavior change.
-3. **`IsEngaged` read path + routing logic** — engaged topics
-   auto-trigger. **First behavior change.** Ship to sloth for live
-   validation.
-4. **Thread-by-default in slakd** — channel mentions reply in
-   thread. Validate on marinade (atlas).
-5. **`<surface>` hint + ant/CLAUDE.md rule** — agent self-caps.
-6. **`disengage`/`engage` MCP tools** — operator/agent explicit
-   control.
-
-Each phase ships and verifies live before the next.
+- `store/store_test.go`:
+  - `SetEngagement(now+10m)` → `IsEngaged` true.
+  - `SetEngagement(zero)` → `IsEngaged` false.
+  - No row → `IsEngaged` false.
+  - Past deadline → `IsEngaged` false.
+  - `SetLastReplyAndEngage` preserves `last_reply_id` on later
+    empty-replyID writes.
+  - `EngagedFolder` reads `routed_to` via `last_reply_id`.
+- `gateway/gateway_test.go` (`TestPollOnce_EngagementFallback_*`):
+  - Route-miss + engaged → does NOT advance cursor (delivers to last folder).
+  - Route-miss + idle → cursor advances (drops).
+- `api/api_test.go` (`TestDeliverMessage_MentionWritesEngagement`):
+  - `verb=mention` inbound writes `engaged_until`.
+  - `verb=message` inbound does not.
+- `ipc/ipc_test.go` (`TestServeMCP_Engagement_Authz`):
+  - `engage` allowed when `EngagedFolder == callerFolder`.
+  - `engage` allowed when `JIDRoutedToFolder(callerFolder)`.
+  - `engage` denied on unowned jid.
+  - `disengage` writes zero time and is denied for unowned jid.
+- `slakd/`: no test needed (zero LOC change).
 
 ## Risks
 
-- **TTL too long**: bot fires on stale inbounds long after the
-  user moved on. Mitigated by 10-minute default; operator-tunable.
-- **Engagement after a bot error**: failed turn shouldn't set
-  engagement (it would re-engage on every retry). `last_reply_at`
-  is set only on successful outbound (already the gate for
-  `chat_reply_state.last_reply_id`).
+- **TTL too long**: bot fires on stale inbounds after the user
+  moved on. Mitigated by 10-minute default; operator-tunable.
+- **Engagement after a bot error**: failed turn shouldn't engage.
+  Write sites are the two `SetLastReplyAndEngage` calls in the
+  output callback / steered echo, both gated on a non-empty platform
+  reply id (`sentID != ""`); a Send that errored returns "" and
+  skips the bump.
 - **Slack thread auto-creation on every mention is loud**: every
-  bot reply creates a new thread the user didn't ask for. Mitigated
-  by the engagement model — second reply in the same thread doesn't
-  create another thread; it continues.
-- **Bot "stuck" engaged**: TTL prevents permanent engagement. If
-  bot crashes after writing `last_reply_at` but before another
-  inbound, next inbound just triggers (correct, since the bot WAS
-  engaged when it crashed).
-
-## Open questions
-
-- **TTL reset on user inbound vs only on bot reply?** Spec proposes
-  reset on bot reply only (sliding window from last bot turn).
-  Alternative: reset on every inbound while engaged (sliding window
-  from last activity either side). The former is simpler; the
-  latter avoids the "10 minutes of typing → bot replies once → 10
-  minutes more typing → bot times out" failure.
-- **Should `disengage` be silent or send a "ok, stepping out"
-  message?** Spec leaves it silent; operator can override via a
-  skill that wraps `disengage` + `send`.
-- **`engage(jid?, topic?)` without args — does it engage the
-  current `(jid, topic)` or all open conversations?** Spec says
-  current only; explicit args required for cross-conversation.
+  bot reply creates a new thread the user didn't ask for.
+  Mitigated by the engagement model — second reply in the same
+  thread doesn't create another thread; it continues.

@@ -67,6 +67,10 @@ type GatedFns struct {
 	// Adapters without pane semantics return chanlib.ErrUnsupported.
 	PaneSetPrompts func(jid string, prompts []core.PanePrompt) error
 	PaneSetTitle   func(jid, title string) error
+
+	// EngagementTTL is the window applied at write-time when a bot
+	// outbound bumps engaged_until. Spec 5/G. Zero disables the bump.
+	EngagementTTL time.Duration
 }
 
 // TurnResult is the agent-submitted turn payload. The MCP `submit_turn`
@@ -137,7 +141,10 @@ type StoreFns struct {
 	DefaultFolderForJID func(jid string) string
 	PutMessage          func(m core.Message) error
 	GetLastReplyID      func(jid, topic string) string
-	SetLastReplyID      func(jid, topic, replyID string)
+	// SetLastReplyAndEngage upserts last_reply_id and engaged_until for
+	// (jid, topic). Used by every outbound bot reply site so engagement
+	// state moves with the reply id. Spec 5/G.
+	SetLastReplyAndEngage func(jid, topic, replyID string, until time.Time) error
 	ListACL             func(principal string) []core.ACLRow
 	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
 	MessagesByThread    func(jid, topic string, before time.Time, limit int) ([]core.Message, error)
@@ -150,6 +157,13 @@ type StoreFns struct {
 	SetWebRoute         func(pathPrefix, access, redirectTo, folder string) error
 	DelWebRoute         func(pathPrefix, folder string) (bool, error)
 	ListWebRoutes       func(folder string) []WebRoute
+
+	// Spec 5/G engagement primitives. SetEngagement is used by the
+	// engage/disengage MCP tools and by api.handleMessage (verb=mention).
+	// EngagedFolder powers the routing-miss fallback and the MCP authz
+	// check (caller folder must own the conversation).
+	SetEngagement func(jid, topic string, until time.Time) error
+	EngagedFolder func(jid, topic string) string
 
 	// LookupSecret resolves (scope, scopeID, key) to a value or ("", false).
 	// scope is "user" or "folder"; scopeID is auth_users.sub or folder path.
@@ -432,9 +446,13 @@ func numArg(args map[string]any, key string) (int, bool) {
 	return int(f), true
 }
 
-func recordOutbound(db StoreFns, jid, text, platformID, folder string) {
-	if platformID != "" && db.SetLastReplyID != nil {
-		db.SetLastReplyID(jid, "", platformID)
+func recordOutbound(db StoreFns, jid, text, platformID, folder string, engagementTTL time.Duration) {
+	if platformID != "" && db.SetLastReplyAndEngage != nil {
+		var until time.Time
+		if engagementTTL > 0 {
+			until = time.Now().Add(engagementTTL)
+		}
+		_ = db.SetLastReplyAndEngage(jid, "", platformID, until)
 	}
 	if db.PutMessage != nil {
 		db.PutMessage(core.Message{
@@ -461,7 +479,7 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		if err != nil {
 			return err
 		}
-		recordOutbound(db, jid, text, platformID, folder)
+		recordOutbound(db, jid, text, platformID, folder, gated.EngagementTTL)
 		return nil
 	}
 	if gated.SendDocument == nil {
@@ -471,7 +489,7 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		if err := gated.SendDocument(jid, f.LocalPath, f.Filename, text); err != nil {
 			return err
 		}
-		recordOutbound(db, jid, text, "", folder)
+		recordOutbound(db, jid, text, "", folder, gated.EngagementTTL)
 	}
 	return nil
 }
@@ -846,7 +864,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err != nil {
 				return toolErr(err.Error())
 			}
-			recordOutbound(db, jid, text, platformID, folder)
+			recordOutbound(db, jid, text, platformID, folder, gated.EngagementTTL)
 			return toolOK()
 		})
 
@@ -920,7 +938,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}
-			recordOutbound(db, jid, text, platformID, folder)
+			recordOutbound(db, jid, text, platformID, folder, gated.EngagementTTL)
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
@@ -962,7 +980,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}
-			recordOutbound(db, jid, content, platformID, folder)
+			recordOutbound(db, jid, content, platformID, folder, gated.EngagementTTL)
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
@@ -1194,6 +1212,74 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				"parent_topic": parent,
 				"child_topic":  child,
 			})
+		})
+
+	// Spec 5/G engagement primitives. Both MCP sockets are per-folder,
+	// so the agent passes (jid, topic) explicitly. Authz: caller folder
+	// must own the conversation — either the last bot reply in
+	// (jid, topic) was routed to this folder, or the jid's default
+	// route resolves here. No cross-folder engage/disengage.
+	engagementAuthz := func(jid, topic string) error {
+		if id.Folder == "" {
+			return fmt.Errorf("engagement: caller folder unresolved")
+		}
+		if db.EngagedFolder != nil {
+			if f := db.EngagedFolder(jid, topic); f != "" && f == id.Folder {
+				return nil
+			}
+		}
+		if db.JIDRoutedToFolder != nil && db.JIDRoutedToFolder(jid, id.Folder) {
+			return nil
+		}
+		return fmt.Errorf("engagement: %q not owned by caller %q", jid, id.Folder)
+	}
+
+	granted("engage",
+		"Mark (jid, topic) engaged for the spec 5/G TTL so subsequent inbounds fire even when the route table wouldn't route them here. Use for scheduled / autonomous turns or recovery after a failed reply. Caller folder must already own the conversation (last reply here OR default route here).",
+		[]mcp.ToolOption{
+			mcp.WithString("jid", mcp.Required()),
+			mcp.WithString("topic"),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("jid", "")
+			topic := req.GetString("topic", "")
+			if jid == "" {
+				return toolErr("engage: jid required")
+			}
+			if err := engagementAuthz(jid, topic); err != nil {
+				return toolErr(err.Error())
+			}
+			if db.SetEngagement == nil || gated.EngagementTTL <= 0 {
+				return toolErr("engage not configured")
+			}
+			if err := db.SetEngagement(jid, topic, time.Now().Add(gated.EngagementTTL)); err != nil {
+				return toolErr(err.Error())
+			}
+			return toolJSON(map[string]any{"ok": true})
+		})
+
+	granted("disengage",
+		"Clear engagement for (jid, topic). Subsequent inbounds need a fresh mention to re-fire. Use when the bot is done with a conversation or when a corrective fork is closing. Caller folder must own the conversation.",
+		[]mcp.ToolOption{
+			mcp.WithString("jid", mcp.Required()),
+			mcp.WithString("topic"),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			jid := req.GetString("jid", "")
+			topic := req.GetString("topic", "")
+			if jid == "" {
+				return toolErr("disengage: jid required")
+			}
+			if err := engagementAuthz(jid, topic); err != nil {
+				return toolErr(err.Error())
+			}
+			if db.SetEngagement == nil {
+				return toolErr("disengage not configured")
+			}
+			if err := db.SetEngagement(jid, topic, time.Time{}); err != nil {
+				return toolErr(err.Error())
+			}
+			return toolJSON(map[string]any{"ok": true})
 		})
 
 	granted("reset_session", "Drop the Claude session for a group so the next message starts fresh context. Use when the user asks for /new, when context is confused/polluted, or before a topic switch. Not for injecting content (inject_message) — this discards, it doesn't add.",

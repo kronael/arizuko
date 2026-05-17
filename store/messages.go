@@ -436,12 +436,76 @@ func (s *Store) GetLastReplyID(jid, topic string) string {
 	return id
 }
 
-func (s *Store) SetLastReplyID(jid, topic, replyID string) {
-	s.db.Exec(
-		`INSERT INTO chat_reply_state (jid, topic, last_reply_id) VALUES (?,?,?)
-		 ON CONFLICT(jid, topic) DO UPDATE SET last_reply_id=excluded.last_reply_id`,
-		jid, topic, replyID,
+// SetLastReplyAndEngage upserts the last_reply_id AND engaged_until for
+// a (jid, topic) in one statement. Called at every conversational
+// outbound site so the engagement window and reply-threading state
+// move together (spec 5/G).
+//
+// `until` zero clears engaged_until (NULL). Non-zero stores
+// RFC3339Nano. `replyID` empty leaves last_reply_id unchanged on
+// existing rows; on insert it sets the column to "".
+func (s *Store) SetLastReplyAndEngage(jid, topic, replyID string, until time.Time) error {
+	var engaged any
+	if !until.IsZero() {
+		engaged = until.UTC().Format(time.RFC3339Nano)
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO chat_reply_state (jid, topic, last_reply_id, engaged_until)
+		 VALUES (?,?,?,?)
+		 ON CONFLICT(jid, topic) DO UPDATE SET
+		   last_reply_id = CASE WHEN excluded.last_reply_id != ''
+		                        THEN excluded.last_reply_id
+		                        ELSE chat_reply_state.last_reply_id END,
+		   engaged_until = excluded.engaged_until`,
+		jid, topic, replyID, engaged,
 	)
+	return err
+}
+
+// SetEngagement upserts engaged_until without touching last_reply_id.
+// Used by the mention write site (api.handleMessage) and the
+// engage/disengage MCP tools. Zero `until` writes NULL (clears).
+func (s *Store) SetEngagement(jid, topic string, until time.Time) error {
+	var engaged any
+	if !until.IsZero() {
+		engaged = until.UTC().Format(time.RFC3339Nano)
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO chat_reply_state (jid, topic, last_reply_id, engaged_until)
+		 VALUES (?,?,'',?)
+		 ON CONFLICT(jid, topic) DO UPDATE SET engaged_until = excluded.engaged_until`,
+		jid, topic, engaged,
+	)
+	return err
+}
+
+// IsEngaged returns true when (jid, topic) has a non-NULL engaged_until
+// strictly after `now`. Missing row → false.
+func (s *Store) IsEngaged(jid, topic string, now time.Time) bool {
+	var s_ string
+	err := s.db.QueryRow(
+		`SELECT COALESCE(engaged_until,'') FROM chat_reply_state WHERE jid=? AND topic=?`,
+		jid, topic,
+	).Scan(&s_)
+	if err != nil || s_ == "" {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339Nano, s_)
+	if err != nil {
+		return false
+	}
+	return t.After(now)
+}
+
+// EngagedFolder returns the folder of the last bot reply for
+// (jid, topic), or "" if none. Used by the routing fallback to deliver
+// engaged inbounds to whichever group most recently spoke there.
+func (s *Store) EngagedFolder(jid, topic string) string {
+	last := s.GetLastReplyID(jid, topic)
+	if last == "" {
+		return ""
+	}
+	return s.RoutedToByMessageID(last)
 }
 
 func (s *Store) RoutedToByMessageID(id string) string {

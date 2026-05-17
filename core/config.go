@@ -95,6 +95,12 @@ type Config struct {
 	// per-folder + per-user caps in store/cost_log. Set false to bypass
 	// the gate entirely (escape hatch for operators).
 	CostCapsEnabled bool
+
+	// EngagementTTL is the stay-in-conversation window (spec 5/G).
+	// On a bot outbound or inbound verb=mention, engaged_until is set
+	// to now+TTL. Engaged (jid, topic) pairs fall through the routing
+	// miss branch to whichever folder most recently spoke there.
+	EngagementTTL time.Duration
 }
 
 func LoadConfigFrom(dir string) (*Config, error) {
@@ -172,6 +178,8 @@ func LoadConfig() (*Config, error) {
 		EgressAdminSecret:   envOr("CRACKBOX_ADMIN_SECRET", ""),
 
 		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
+
+		EngagementTTL: envDur("ENGAGEMENT_TTL", 10*time.Minute),
 	}
 
 	// Validation of EgressNetworkPrefix / EgressCrackbox lives in gated

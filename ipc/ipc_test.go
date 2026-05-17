@@ -557,3 +557,77 @@ func TestServeMCP_PeerCredRejectsWrongUID(t *testing.T) {
 		t.Fatalf("expected conn closed, got timeout: %v", err)
 	}
 }
+
+// Spec 5/G — engage/disengage roundtrip with authz. Caller folder
+// must own the conversation (EngagedFolder match OR JID default route).
+func TestServeMCP_Engagement_Authz(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+
+	var stored time.Time
+	db := StoreFns{
+		SetEngagement: func(jid, topic string, until time.Time) error {
+			stored = until
+			return nil
+		},
+		EngagedFolder: func(jid, topic string) string {
+			if jid == "tg:1" {
+				return "world"
+			}
+			return ""
+		},
+		JIDRoutedToFolder: func(jid, folder string) bool {
+			return jid == "tg:2" && folder == "world"
+		},
+	}
+	gated := GatedFns{EngagementTTL: 10 * time.Minute}
+	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	// Owned via EngagedFolder match → engage succeeds.
+	_, errText := callTool(t, sock, "engage", map[string]any{"jid": "tg:1"})
+	if errText != "" {
+		t.Fatalf("engage (own folder via EngagedFolder): %s", errText)
+	}
+	if stored.IsZero() {
+		t.Fatal("expected non-zero engaged_until")
+	}
+
+	// Owned via JID default route → engage succeeds.
+	stored = time.Time{}
+	_, errText = callTool(t, sock, "engage", map[string]any{"jid": "tg:2"})
+	if errText != "" {
+		t.Fatalf("engage (own folder via route): %s", errText)
+	}
+	if stored.IsZero() {
+		t.Fatal("expected non-zero engaged_until")
+	}
+
+	// Not owned → engage denied.
+	_, errText = callTool(t, sock, "engage", map[string]any{"jid": "tg:9"})
+	if errText == "" {
+		t.Fatal("expected denial for unowned jid")
+	}
+	if !strings.Contains(errText, "not owned") {
+		t.Fatalf("unexpected denial message: %s", errText)
+	}
+
+	// disengage on owned jid writes zero time.
+	stored = time.Now().Add(time.Minute) // sentinel non-zero
+	_, errText = callTool(t, sock, "disengage", map[string]any{"jid": "tg:1"})
+	if errText != "" {
+		t.Fatalf("disengage: %s", errText)
+	}
+	if !stored.IsZero() {
+		t.Fatalf("disengage should pass zero time, got %v", stored)
+	}
+
+	// disengage on unowned jid denied.
+	_, errText = callTool(t, sock, "disengage", map[string]any{"jid": "tg:9"})
+	if errText == "" {
+		t.Fatal("expected disengage denial")
+	}
+}

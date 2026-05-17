@@ -418,6 +418,69 @@ func TestAdvanceAgentCursor_Empty(t *testing.T) {
 	}
 }
 
+// Spec 5/G — engaged conversations bypass the route-table miss branch.
+// An inbound that the route table would normally drop is delivered to
+// the engaged folder.
+func TestPollOnce_EngagementFallback_Delivers(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.EngagementTTL = 10 * time.Minute
+
+	jid := "telegram:99" // no route registered for this jid
+	if err := s.PutGroup(core.Group{Folder: "grp"}); err != nil {
+		t.Fatal(err)
+	}
+	// Plant a prior bot reply routed_to=grp and engage the (jid, "").
+	if err := s.PutMessage(core.Message{
+		ID: "out-1", ChatJID: jid, Sender: "grp",
+		Content: "earlier reply", Timestamp: time.Now().Add(-time.Minute),
+		FromMe: true, BotMsg: true, RoutedTo: "grp",
+		Status: core.MessageStatusSent,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetLastReplyAndEngage(jid, "", "out-1", time.Now().Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	// New inbound that the route table can't resolve.
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: jid, Sender: "user",
+		Content: "follow up", Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.pollOnce()
+
+	// Cursor must NOT have advanced past m1 (would mean the message was
+	// dropped). The engagement path should have steered or enqueued.
+	got := s.GetAgentCursor(jid)
+	if !got.IsZero() {
+		t.Errorf("cursor advanced past engaged inbound: %v", got)
+	}
+}
+
+// Spec 5/G — idle conversations still drop on route miss (cursor advance).
+func TestPollOnce_EngagementFallback_IdleDrops(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.EngagementTTL = 10 * time.Minute
+
+	jid := "telegram:77" // no route
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: jid, Sender: "user",
+		Content: "hi", Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.pollOnce()
+
+	got := s.GetAgentCursor(jid)
+	if got.IsZero() {
+		t.Error("cursor should advance past dropped (idle, no route) message")
+	}
+}
+
 // Regression: pollOnce records steered timestamps so advanceAgentCursor
 // can include them when the container completes. The cursor is NOT
 // advanced during steer — only on container completion.
@@ -932,7 +995,7 @@ func TestMakeOutputCallback_SendsReply(t *testing.T) {
 	gw.AddChannel(ch)
 	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
-	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
+	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp", "user-1")
 	cb("Hello from agent", "")
 
 	if !*hadOutput {
@@ -965,7 +1028,7 @@ func TestMakeOutputCallback_SkipsSelfRoutedLocalDispatch(t *testing.T) {
 	gw, s := testGateway(t)
 	setGroup(gw, "main", core.Group{Folder: "main"})
 
-	cb, hadOutput := gw.makeOutputCallback(nil, "main", "", "", "main")
+	cb, hadOutput := gw.makeOutputCallback(nil, "main", "", "", "main", "user-1")
 	cb("/migrate done", "")
 
 	if !*hadOutput {
@@ -992,7 +1055,7 @@ func TestMakeOutputCallback_SendError(t *testing.T) {
 	gw.AddChannel(ch)
 	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
-	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
+	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp", "user-1")
 	cb("Error test", "")
 
 	if !*hadOutput {
@@ -1011,7 +1074,7 @@ func TestMakeOutputCallback_EmptySentID(t *testing.T) {
 	gw.cfg.SendDisabledChannels = []string{"jid1"}
 	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
-	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
+	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp", "user-1")
 	cb("Suppressed message", "")
 
 	if !*hadOutput {
@@ -1031,7 +1094,7 @@ func TestMakeOutputCallback_StripsThinksAndStatus(t *testing.T) {
 	gw.AddChannel(ch)
 	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
-	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp")
+	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp", "user-1")
 	cb("<think>internal thought</think>Visible reply<status>Working on it</status>", "")
 
 	if !*hadOutput {
@@ -1059,7 +1122,7 @@ func TestMakeOutputCallback_MutedGroup(t *testing.T) {
 	gw.AddChannel(ch)
 	setGroup(gw, "telegram:12345", core.Group{Folder: "grp"})
 
-	cb, hadOutput := gw.makeOutputCallback(ch, "telegram:12345", "", "msg-1", "grp")
+	cb, hadOutput := gw.makeOutputCallback(ch, "telegram:12345", "", "msg-1", "grp", "user-1")
 	cb("hello world", "")
 
 	if got := len(ch.getSent()); got != 0 {
@@ -1097,7 +1160,7 @@ func TestMakeOutputCallback_ThreadID(t *testing.T) {
 	gw.AddChannel(ch)
 	setGroup(gw, "jid1", core.Group{Folder: "grp"})
 
-	cb, _ := gw.makeOutputCallback(ch, "jid1", "#general", "msg-1", "grp")
+	cb, _ := gw.makeOutputCallback(ch, "jid1", "#general", "msg-1", "grp", "user-1")
 	cb("Threaded reply", "")
 
 	sent := ch.getSent()
@@ -1121,7 +1184,7 @@ func TestMakeOutputCallback_LateBindsChannel(t *testing.T) {
 	// Build the callback BEFORE the channel registers. This mirrors
 	// processSenderBatch running during the startup window where the
 	// adapter HTTP POST /v1/channels/register hasn't arrived yet.
-	cb, hadOutput := gw.makeOutputCallback(nil, "jid1", "", "msg-1", "grp")
+	cb, hadOutput := gw.makeOutputCallback(nil, "jid1", "", "msg-1", "grp", "user-1")
 
 	// Channel registers after the callback was built (startup race).
 	ch := &testChannel{name: "tc", jids: []string{"jid1"}}
