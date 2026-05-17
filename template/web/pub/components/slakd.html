@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>slakd &middot; component</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; slakd</p>
+    <h1>slakd</h1>
+
+    <h2>What it is</h2>
+    <p>slakd is the Slack channel adapter. It receives Slack workspace events over the HTTP Events API (proxyd forwards <code>/slack/events</code> to slakd) and posts outbound via the Slack Web API. From gated&rsquo;s point of view it is a normal channel adapter with JID prefix <code>slack:</code> and per-message JIDs of the form <code>slack:&lt;workspace&gt;/&lt;kind&gt;/&lt;id&gt;</code> where <code>kind</code> is <code>channel</code>, <code>dm</code>, or <code>group</code>.</p>
+
+    <h2>Why it exists</h2>
+    <p>Slack is the canonical team chat surface and the only platform arizuko targets that ships an &ldquo;Agents &amp; AI Apps&rdquo; assistant pane &mdash; a dedicated sidebar with suggested prompts and a conversation title. Talking to Slack directly (rather than through a SaaS gateway) is what lets slakd implement that pane natively and ride the same trust boundary as every other adapter.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>Slack workspace
+        |  HTTPS Events API webhook
+        v
+      proxyd  (verifies X-Slack-Signature, forwards /slack/...)
+        |
+        v
+      slakd     (LISTEN_ADDR=:8080)
+        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        v
+      gated
+        |  POST /v1/send         (callback to slakd)
+        v
+      slakd     (chat.postMessage / files.* / reactions.add)
+        |
+        v
+      Slack Web API</code></pre>
+    </div>
+
+    <p>slakd verifies the <code>X-Slack-Signature</code> HMAC of <code>v0:&lt;ts&gt;:&lt;body&gt;</code> on every webhook and rejects skew &gt; 5 minutes. Reactions added on Slack become synthetic <code>like</code> / <code>dislike</code> inbound rows (classified by <code>chanlib.ClassifyEmoji</code>). Channel messages that contain <code>&lt;@bot_user_id&gt;</code> are tagged <code>verb=mention</code>; DMs and unaddressed channel messages ride <code>verb=message</code>.</p>
+
+    <p>Wired verbs (see <code>slakd/bot.go</code>, <code>slakd/server.go</code>): <code>send</code>, <code>send_file</code>, <code>edit</code>, <code>delete</code>, <code>like</code>, <code>dislike</code>, <code>post</code>, plus the assistant-pane verbs <code>pane_set_prompts</code> and <code>pane_set_title</code>. <code>forward</code>, <code>quote</code>, <code>repost</code> are 501-with-hint.</p>
+
+    <h2>Assistant pane</h2>
+    <p>With <code>assistant:write</code> scope and the <code>assistant_thread_started</code> + <code>assistant_thread_context_changed</code> subscriptions, slakd upserts a row in <code>pane_sessions</code> when a user opens the sidebar, sets the title to <code>&lt;ASSISTANT_NAME&gt; &mdash; chat</code>, seeds three suggested prompts, and dispatches a synthetic <code>pane_open</code> inbound. Pending prompts and title updates staged via MCP tools are drained on the next <code>chat.postMessage</code>.</p>
+
+    <p>Output rendering switches the agent into the <code>slack</code> Claude Code output style (<code>*bold*</code>, <code>_italic_</code>, <code>&lt;url|text&gt;</code>) since v0.40.7 so the bot speaks Slack mrkdwn instead of CommonMark.</p>
+
+    <h2>Standalone usage</h2>
+    <p>slakd is a plain Go binary. It needs a reachable gated, a Slack app with a bot token, and a public URL that forwards <code>/slack/events</code> to it.</p>
+
+    <pre><code>export ROUTER_URL=http://gated:8080
+export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export LISTEN_ADDR=:8080
+export SLACK_BOT_TOKEN=xoxb-...
+export SLACK_SIGNING_SECRET=...
+export ASSISTANT_NAME=arizuko
+export DB_PATH=/srv/app/home/store/messages.db
+./slakd</code></pre>
+
+    <p>Slack-side setup: create a Slack app, enable Events API with request URL pointing at <code>/slack/events</code>, subscribe to <code>message.channels</code>, <code>message.im</code>, <code>message.groups</code>, <code>reaction_added</code>, <code>app_mention</code>, and (for the pane) <code>assistant_thread_started</code> + <code>assistant_thread_context_changed</code>. Scopes: <code>chat:write</code>, <code>files:write</code>, <code>reactions:write</code>, <code>im:history</code>, <code>channels:history</code>, <code>groups:history</code>, <code>assistant:write</code>.</p>
+
+    <p><code>GET /health</code> returns 503 when Slack auth fails or the workspace cache cannot warm.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="/pub/components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
+      <li><code>slakd/README.md</code> &mdash; full env var table, file map, pane lifecycle.</li>
+      <li><code>specs/6/D-*</code> &mdash; assistant pane spec.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

@@ -56,7 +56,7 @@
       <li><strong>Slink round-handle protocol</strong> &mdash; <code>POST /slink/&lt;token&gt;</code> returns <code>{user, turn_id, status:pending}</code>; the round is observable via snapshot, cursor paging, cheap status, or live SSE with a terminal <code>round_done</code> event.</li>
       <li><strong>Steering</strong> &mdash; inject a follow-up onto an in-flight round; per-folder queue serialization makes it the immediate next round, with <code>chained_from</code> linking the two.</li>
       <li><strong><code>arizuko send</code></strong> CLI &mdash; inject messages from the server into any group via slink; <code>--wait</code>, <code>--stream</code>, <code>--steer</code> flags.</li>
-      <li><strong>Public web docs</strong> at <a href="/pub/concepts/slink.html">/pub/concepts/slink.html</a> and <code>/pub/slink/reference/</code>.</li>
+      <li><strong>Public web docs</strong> at <code>/pub/concepts/slink.html</code> and <code>/pub/slink/reference/</code>.</li>
       <li><strong>Group state machinery removed</strong> &mdash; no more closure-then-archive cycle, no <code>spawn_ttl_days</code>, no daily cleanup loop. Groups exist until explicitly removed.</li>
       <li><strong>Crackbox DNS &amp; davd healthcheck fixes</strong> rolled in from v0.31.1 &mdash; per-folder networks now resolve <code>crackbox</code>; davd reports health.</li>
     </ul>

@@ -197,9 +197,15 @@ custom skills, custom products.
 
 ## Voice
 
-Target reader: a smart 13-year-old who reads docs. Not a 13yo who
-doesn't — a sharp, curious one with no patience for buzzwords. Make
-the explanation accessible without dumbing down the truth.
+**Warm caveman.** Picture a senior engineer at a whiteboard,
+walking a colleague through how the thing actually works. Patient,
+plain, concrete. No buzzwords, no theatre, but not robotic either —
+a small aside or dry observation is welcome when it lands. Roughly
+30% of the way from Mr Spock toward warm; if you ever feel yourself
+reaching for the marketing register, you've gone too far.
+
+Make explanations accessible without dumbing them down. The reader
+is bright and curious; treat them that way.
 
 **Use:**
 
@@ -208,18 +214,20 @@ the explanation accessible without dumbing down the truth.
 - File paths, daemon names, SQL column names where they sharpen
   meaning: `gated`, `proxyd`, `auth/middleware.go:RequireSigned`,
   `messages.db`, `acl` table.
-- Sentences a smart 13yo can follow on first read. If they'd stop
-  to look up a word, replace the word.
+- Direct address — "you" is fine. "Once you've set this, the
+  agent stays in the thread."
+- Contractions where natural. "It's", "doesn't", "won't".
 - One picture per paragraph. Don't pile abstractions.
 - Examples — show, don't just describe. A grants page without an
   example rule teaches nothing.
 - Causation: "when X arrives, Y happens because Z."
+- An occasional dry aside if it earns its place ("there's no
+  managed control plane — that's the feature, not an oversight").
 
 **Avoid:**
 
 - Marketing adjectives ("powerful", "robust", "elegant", "seamless",
-  "scalable", "intuitive"). Each one is a flag for a smart reader
-  to bounce.
+  "scalable", "intuitive"). Each one signals theatre over truth.
 - Abstract nouns when a concrete one exists. "Abstraction" → name
   the thing (a table, a row, a file, a column). "Primitive" → name
   the thing. "Subsystem" → name the daemon. "Tenancy" → "groups"
@@ -227,14 +235,20 @@ the explanation accessible without dumbing down the truth.
 - Three-noun stacks ("a typed, scoped, composable primitive").
 - "Note that", "It's important to understand", "As you can see".
 - Emoji. Exclamation marks.
-- "We" / "us" — say what the system does.
+- "We" / "us" — say what the system does, or address "you".
 - Sentences over 30 words.
 - Headers that aren't doing real work — if a section has two
   lines, fold it into the parent.
+- Forced warmth: "great news!", "we're thrilled to", "love this
+  for you". Warmth must be a side-effect of clear writing, never
+  a layer on top.
 
-**Trick to apply:** read each paragraph as a 13yo. If they'd trip on
-a word, replace it. If they'd skim past, sharpen the image. If they'd
-ask "wait, how does that actually work" — you owe a sentence.
+**Trick to apply:** read each paragraph imagining you're explaining
+it to someone you respect, in person, over coffee. If you'd stop to
+unpack a word, replace it. If you'd skim past a sentence, sharpen
+the image. If they'd ask "wait, how does that actually work" — you
+owe a sentence. If your draft sounds like a press release, scrap
+that paragraph.
 
 ## Style rules
 

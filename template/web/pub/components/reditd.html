@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>reditd &middot; component</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; reditd</p>
+    <h1>reditd</h1>
+
+    <h2>What it is</h2>
+    <p>reditd is the Reddit channel adapter. It polls a configured list of subreddits plus the bot account&rsquo;s inbox for new posts, mentions, and replies, posts them to gated, and sends outbound via the Reddit comment/submit API. JID prefix is <code>reddit:</code>; per-thing JIDs use Reddit&rsquo;s fullname format (<code>reddit:t1_&lt;id&gt;</code> for comments, <code>reddit:t3_&lt;id&gt;</code> for posts).</p>
+
+    <h2>Why it exists</h2>
+    <p>Reddit is the only adapter on a platform with a true downvote primitive &mdash; everywhere else <code>dislike</code> degrades to a thumbs-down reaction or a textual reply. reditd is also where script-app OAuth lives: username + password against <code>REDDIT_CLIENT_ID/SECRET</code>, with cursor persistence in <code>cursors.json</code> so a restart doesn&rsquo;t replay the inbox.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>Reddit (oauth.reddit.com)
+        |  poll: /r/&lt;sub&gt;/new.json + /message/inbox.json
+        v
+      reditd     (LISTEN_ADDR=:8080)
+        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        v
+      gated
+        |  POST /v1/send         (callback to reditd)
+        v
+      reditd     (POST /api/comment | /api/submit | /api/vote | /api/del | /api/editusertext)
+        |
+        v
+      Reddit</code></pre>
+    </div>
+
+    <p>Wired verbs (<code>reditd/client.go</code>): <code>send</code> / <code>reply</code> (<code>/api/comment</code>), <code>post</code> (<code>/api/submit kind=self</code>), <code>like</code> (<code>/api/vote dir=1</code>), <code>dislike</code> (<code>/api/vote dir=-1</code>) &mdash; the only native dislike across all adapters &mdash; <code>delete</code> (<code>/api/del</code>), <code>edit</code> (<code>/api/editusertext</code>; self-posts + comments only). <code>send_file</code>, <code>forward</code>, <code>quote</code>, <code>repost</code> are 501-with-hint.</p>
+
+    <p>Inbound votes are not surfaced as <code>like</code> events. Reddit&rsquo;s API only exposes aggregate <code>score</code>/<code>ups</code> on polled things, not discrete vote events; <code>inbox.json</code> covers replies / mentions / PMs only. The agent sees <code>verb=message</code>, <code>reply</code>, or <code>post</code> for inbound.</p>
+
+    <h2>Standalone usage</h2>
+    <p>reditd is a plain Go binary. It needs a reachable gated and a Reddit <em>script app</em> with the bot account&rsquo;s username + password.</p>
+
+    <pre><code>export ROUTER_URL=http://gated:8080
+export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export LISTEN_ADDR=:8080
+export REDDIT_CLIENT_ID=...
+export REDDIT_CLIENT_SECRET=...
+export REDDIT_USERNAME=mybot
+export REDDIT_PASSWORD=...
+export REDDIT_SUBREDDITS=arizuko_dev,programming
+export REDDIT_USER_AGENT=arizuko/1.0
+export DATA_DIR=/srv/data/arizuko_demo
+./reditd</code></pre>
+
+    <p>Reddit-side setup: <em>old.reddit.com/prefs/apps &rarr; Create another app &rarr; script</em> (not web app or installed app &mdash; script-app is what supports password grant). Set the redirect URI to anything; it&rsquo;s unused. Copy client ID + secret. <code>GET /health</code> returns 503 when token refresh fails or the rate limit is saturated.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="/pub/components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
+      <li><code>reditd/README.md</code> &mdash; verb table, vote-event limitation.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>
