@@ -14,6 +14,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- container: `WEB_PREFIX` now matches the agent's actual mount and
+  served URL. Previously every non-root tier got `WEB_PREFIX=pub/<folder>`,
+  but tier 1 worlds publish via the vhost subdomain (no `/pub/` path) and
+  tier 2+ have no web mount at all. Tier 1 now gets `WEB_PREFIX=<folder>`
+  (the vhost subdomain prefix); tier 2+ gets empty `WEB_PREFIX` so the
+  agent can detect "no publishing surface" and ask its parent world.
+  `ant/CLAUDE.md` updated with the three tier cases.
+
 ### Changed
 
 - core: split `Paner` capability interface into `Suggester`

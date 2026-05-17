@@ -223,6 +223,10 @@ func TestSeedSettings(t *testing.T) {
 	if env["ARIZUKO_TIER"] != "0" {
 		t.Errorf("tier (root) = %v, want 0", env["ARIZUKO_TIER"])
 	}
+	// Root publishes under DATA_DIR/web/pub/ → URL /pub/<path>.
+	if env["WEB_PREFIX"] != "pub" {
+		t.Errorf("WEB_PREFIX (root) = %v, want pub", env["WEB_PREFIX"])
+	}
 
 	servers, ok := s["mcpServers"].(map[string]any)
 	if !ok {
@@ -266,6 +270,11 @@ func TestSeedSettingsNonRoot(t *testing.T) {
 	if env["ARIZUKO_TIER"] != "2" {
 		t.Errorf("tier = %v, want 2", env["ARIZUKO_TIER"])
 	}
+	// Tier 2+ has no web mount — WEB_PREFIX must be empty so the agent
+	// can detect "no publishing surface" and ask its parent world.
+	if env["WEB_PREFIX"] != "" {
+		t.Errorf("WEB_PREFIX (tier 2) = %v, want empty", env["WEB_PREFIX"])
+	}
 }
 
 func TestSeedSettingsTier1World(t *testing.T) {
@@ -288,6 +297,11 @@ func TestSeedSettingsTier1World(t *testing.T) {
 	}
 	if env["ARIZUKO_GROUP_PARENT"] != "" {
 		t.Errorf("parent (tier-1) = %v, want empty", env["ARIZUKO_GROUP_PARENT"])
+	}
+	// Tier 1 world publishes via the vhost subdomain <world>.$WEB_HOST,
+	// NOT via path-prefix /pub/<world>/. WEB_PREFIX is the bare folder.
+	if env["WEB_PREFIX"] != "atlas" {
+		t.Errorf("WEB_PREFIX (tier 1) = %v, want atlas", env["WEB_PREFIX"])
 	}
 }
 

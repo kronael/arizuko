@@ -675,11 +675,20 @@ func seedSettings(
 	env["WEB_HOST"] = cfg.WebHost
 	env["ARIZUKO_ASSISTANT_NAME"] = cfg.Name
 	env["ARIZUKO_IS_ROOT"] = ""
-	if root {
+	// WEB_PREFIX must agree with the agent's mount + the URL that actually
+	// resolves to it. Tier 0 writes under /workspace/web/pub/ → served at
+	// /pub/<path>. Tier 1 writes under /workspace/web/ which is mounted from
+	// DATA_DIR/web/<world>/ → reachable only via the vhost subdomain
+	// <world>.$WEB_HOST. Tier 2+ has no web mount: leave WEB_PREFIX empty so
+	// the agent can detect "no publishing surface" and ask its parent world.
+	switch tier := tierOf(in.Folder, root); {
+	case root:
 		env["ARIZUKO_IS_ROOT"] = "1"
 		env["WEB_PREFIX"] = "pub"
-	} else {
-		env["WEB_PREFIX"] = "pub/" + in.Folder
+	case tier == 1:
+		env["WEB_PREFIX"] = in.Folder // vhost subdomain prefix
+	default:
+		env["WEB_PREFIX"] = "" // tier 2+: no mount, no surface
 	}
 	env["ARIZUKO_DELEGATE_DEPTH"] = strconv.Itoa(in.Depth)
 	env["ARIZUKO_GROUP_FOLDER"] = in.Folder

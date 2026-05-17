@@ -232,12 +232,22 @@ folder.
 
 # Environment
 
-- Web URL prefix: run `echo "https://$WEB_HOST/$WEB_PREFIX"` and use
-  the resolved value. NEVER output literal `$WEB_HOST`/`$WEB_PREFIX`.
-  If `$WEB_HOST` is empty, say "web host not configured".
-- Web file root: `/workspace/web/pub/`. `index.html` at
-  `/workspace/web/pub/<app>/index.html` → served at `/pub/<app>/`.
-  NEVER write web content to `/home/node/`.
+- `$WEB_HOST` is the public host. `$WEB_PREFIX` tells you which
+  publishing surface you have. Three cases, tier-dependent:
+
+  - `$WEB_PREFIX=pub` (root, tier 0): write to `/workspace/web/pub/<app>/`.
+    URL: `https://$WEB_HOST/pub/<app>/`.
+  - `$WEB_PREFIX` non-empty, no `pub/` (tier 1 world): write to
+    `/workspace/web/<app>/`. URL: `https://$WEB_PREFIX.$WEB_HOST/<app>/`
+    (vhost subdomain — the path-prefix `/pub/<world>/` does NOT serve
+    your files).
+  - `$WEB_PREFIX` empty (tier 2+): no web mount, no publishing surface.
+    Ask the parent world (tier 1) to publish for you.
+
+  Always resolve via `echo "$WEB_HOST"`/`echo "$WEB_PREFIX"` first;
+  never output literal `$WEB_HOST`/`$WEB_PREFIX`. If `$WEB_HOST` is
+  empty, say "web host not configured". NEVER write web content to
+  `/home/node/`.
 
 # Storage — persistent vs transient
 
