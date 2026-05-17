@@ -14,6 +14,33 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+> arizuko — route tokens spec landed (design, not yet shipped)
+>
+> Spec for one token table behind two URL prefixes — `/chat/<token>/` keeps the widget, `/hook/<token>` accepts webhook posts.
+>
+> • One `route_tokens` table; JID prefix (`web:` vs `hook:`) encodes intent — `agent at acme/eng` calls `issue_webhook("github")` and pastes the URL into GitHub.
+> • MCP gains `issue_chat_link`, `issue_webhook`, `list_route_tokens`, `revoke_route_token`; REST mirrors at `/v1/route_tokens/*`.
+> • Mint scope by tier: 0 any, 1 self+descendants, 2 self only, 3+ none. Bearer token is the auth at the URL boundary.
+> • Implementation lands in a follow-up release; this entry announces the design.
+> • Existing `slink` code path deleted entirely on impl — no aliases, no fallback. `SLINK_TOKEN` env renames to `CHAT_TOKEN`.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Spec
+
+- `specs/5/W-webhook-routes.md` — route_tokens primitive (status: `spec`,
+  supersedes `specs/1/W-slink.md`). One table, two URL prefixes
+  (`/chat/<token>/` for browser widget + SSE, `/hook/<token>` for
+  webhook ingest), JID prefix carries intent (`web:<folder>` vs
+  `hook:<owner>/<source>`). MCP surface: `issue_chat_link`,
+  `issue_webhook`, `list_route_tokens`, `revoke_route_token`; REST
+  mirrors at `/v1/route_tokens/{chat,hook}`. ACL per tier
+  (`9-acl-unified`). Operator-facing concept page at
+  `template/web/pub/concepts/tokens.html`.
+- Implementation and `/slink/*` URL removal land in a follow-up
+  release. No backfill — the single live slink consumer reissues by
+  hand via `issue_chat_link` post-deploy.
+
 ## [v0.40.7] — 2026-05-17
 
 > arizuko v0.40.7 — slack replies render properly

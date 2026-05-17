@@ -27,7 +27,7 @@ To opt out of a stock skill, drop `~/.claude/skills/<name>/.disabled`.
 seedSkills will skip the dir AND remove its `SKILL.md` so Claude
 Code stops indexing it; the migrate skill skips it too.
 
-Latest migration version: **131**. Compare:
+Latest migration version: **132**. Compare:
 
 ```bash
 cat ~/.claude/skills/self/MIGRATION_VERSION

@@ -120,7 +120,9 @@ model outgrows a row in the root table.
 - **README.md** — daemon map, public pitch, build/test entry.
 - **ARCHITECTURE.md** — package graph, message flow, SQLite schema.
 - **SECURITY.md** — threat model + egress + secrets boundaries.
-- **ROUTING.md** — route table, topic/sticky/reply rules.
+- **ROUTING.md** — route table, topic/sticky/reply rules. `/slink/*`
+  surface is being replaced by `route_tokens` per
+  `specs/5/W-webhook-routes.md` (spec only; impl lands later).
 - **EXTENDING.md** — channels, actions, routing, mounts, skills,
   tasks, diary, autocall extension points.
 - **GRANTS.md** — pointer to `specs/6/9-acl-unified.md` (canonical) + the operator concepts page.

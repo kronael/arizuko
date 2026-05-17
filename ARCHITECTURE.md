@@ -120,6 +120,11 @@ fallthrough in `ROUTING.md` "HTTP Routing (proxyd)"):
 - `/pub/*`, `/health`, `/slink/*`, `/invite/*`, `/p/*` — public
 - `/slink/*` — rate-limited (10 req/min/IP); token resolved against
   `groups.slink_token`; injects `X-Folder`, `X-Group-Name`, `X-Slink-Token`
+- `/chat/<token>/` (GET widget + POST) and `/hook/<token>` (POST only)
+  — **spec, not yet shipped** ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md)).
+  Unified `route_tokens` table replaces `groups.slink_token` on impl;
+  `/slink/*` is removed at cutover (in-the-wild URLs break, reissue
+  via `issue_chat_link`).
 - `/dash/*` — auth-gated, proxied to dashd
 - `/dav/*` — auth-gated, proxied to dufs via TOML route (bespoke
   group-scoping + `davAllow` write-block; strips `/dav` prefix)
@@ -226,34 +231,35 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 
 ## SQLite Schema
 
-| Table              | Key columns                                                                                           |
-| ------------------ | ----------------------------------------------------------------------------------------------------- |
-| `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group                                          |
-| `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored, is_observed |
-| `groups`           | folder (PK), name, container_config, slink_token, parent                                              |
-| `routes`           | id (PK), seq, match, target (`<folder>[#<mode>]`), observe_window_messages, observe_window_chars      |
-| `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (spec 6/F)            |
-| `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error                                     |
-| `system_messages`  | id, group_id, origin, event, body                                                                     |
-| `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode                                |
-| `task_run_logs`    | id (PK), task_id, run_at, duration_ms, status, error                                                  |
-| `router_state`     | key (PK), value                                                                                       |
-| `channels`         | name (PK), url, jid_prefixes, capabilities                                                            |
-| `auth_users`       | sub (unique), username (unique), hash, name                                                           |
-| `auth_sessions`    | token_hash (PK), user_sub, expires_at                                                                 |
-| `acl`              | principal + action + scope + params + predicate + effect (PK), granted_by, granted_at                 |
-| `acl_membership`   | child + parent (PK), added_by, added_at — role memberships + JID→sub claims                           |
-| `chat_reply_state` | jid + topic (PK), last_reply_id                                                                       |
-| `email_threads`    | thread_id (PK), chat_jid, subject                                                                     |
-| `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at                        |
-| `onboarding_gates` | gate (PK), limit_per_day, enabled                                                                     |
-| `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count                   |
-| `secrets`          | scope_kind + scope_id + key (PK), value (plaintext, spec 9/11), created_at                            |
-| `identities`       | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9)                         |
-| `identity_claims`  | sub (PK), identity_id, claimed_at — sender-sub → identity merge                                       |
-| `turn_results`     | folder + turn_id (PK), session_id, status, recorded_at — per-turn submit_turn outcomes                |
-| `network_rules`    | folder + target (PK), created_at, created_by — crackbox egress allowlist                              |
-| `web_routes`       | path_prefix (PK), access (public/auth/deny/redirect), redirect_to, folder, created_at                 |
+| Table              | Key columns                                                                                                                 |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group                                                                |
+| `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored, is_observed                       |
+| `groups`           | folder (PK), name, container_config, slink_token, parent (slink_token migrates to `route_tokens` per spec 5/W)              |
+| `route_tokens`     | token_hash (PK), jid, owner_folder, created_at — **spec only** ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md)) |
+| `routes`           | id (PK), seq, match, target (`<folder>[#<mode>]`), observe_window_messages, observe_window_chars                            |
+| `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (spec 6/F)                                  |
+| `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error                                                           |
+| `system_messages`  | id, group_id, origin, event, body                                                                                           |
+| `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode                                                      |
+| `task_run_logs`    | id (PK), task_id, run_at, duration_ms, status, error                                                                        |
+| `router_state`     | key (PK), value                                                                                                             |
+| `channels`         | name (PK), url, jid_prefixes, capabilities                                                                                  |
+| `auth_users`       | sub (unique), username (unique), hash, name                                                                                 |
+| `auth_sessions`    | token_hash (PK), user_sub, expires_at                                                                                       |
+| `acl`              | principal + action + scope + params + predicate + effect (PK), granted_by, granted_at                                       |
+| `acl_membership`   | child + parent (PK), added_by, added_at — role memberships + JID→sub claims                                                 |
+| `chat_reply_state` | jid + topic (PK), last_reply_id                                                                                             |
+| `email_threads`    | thread_id (PK), chat_jid, subject                                                                                           |
+| `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at                                              |
+| `onboarding_gates` | gate (PK), limit_per_day, enabled                                                                                           |
+| `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count                                         |
+| `secrets`          | scope_kind + scope_id + key (PK), value (plaintext, spec 9/11), created_at                                                  |
+| `identities`       | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9)                                               |
+| `identity_claims`  | sub (PK), identity_id, claimed_at — sender-sub → identity merge                                                             |
+| `turn_results`     | folder + turn_id (PK), session_id, status, recorded_at — per-turn submit_turn outcomes                                      |
+| `network_rules`    | folder + target (PK), created_at, created_by — crackbox egress allowlist                                                    |
+| `web_routes`       | path_prefix (PK), access (public/auth/deny/redirect), redirect_to, folder, created_at                                       |
 
 WAL mode, 5s busy timeout, migrations via `db_utils.Migrate` (`migrations`
 table keyed by service+version).
