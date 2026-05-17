@@ -37,6 +37,7 @@ created_at    when it was minted</code></pre>
     <table>
       <tr><th>URL</th><th>JID prefix</th><th>Methods</th><th>What happens</th></tr>
       <tr><td><code>/chat/&lt;token&gt;/</code></td><td><code>web:</code></td><td>GET, POST</td><td>GET serves the chat widget. POST appends a message and opens an SSE reply stream.</td></tr>
+      <tr><td><code>/chat/&lt;token&gt;/mcp</code></td><td><code>web:</code></td><td>GET, POST</td><td>Per-token MCP surface (<code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>) for chat-token API consumers.</td></tr>
       <tr><td><code>/hook/&lt;token&gt;</code></td><td><code>hook:</code></td><td>POST</td><td>Appends the body as one inbound message. Returns 204. No reply channel.</td></tr>
     </table>
 

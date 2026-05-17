@@ -89,6 +89,7 @@ CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
       <tr><td>GET</td><td><code>/chat/{token}/</code></td><td>Chat widget (HTML).</td></tr>
       <tr><td>POST</td><td><code>/chat/{token}/</code></td><td>Send a message. Returns <code>turn_id</code>.</td></tr>
       <tr><td>GET</td><td><code>/chat/{token}/{turn_id}/sse</code></td><td>Live SSE for the round.</td></tr>
+      <tr><td>GET, POST</td><td><code>/chat/{token}/mcp</code></td><td>Per-token MCP surface: <code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>.</td></tr>
     </table>
 
     <p>The token must resolve to a <code>web:</code> JID. Hook tokens on these paths return 401. The body shape, snapshot/status URLs, SSE events, and reconnect via <code>Last-Event-Id</code> are the same round-handle protocol used by every web reply &mdash; see <a href="/pub/components/webd.html">components/webd</a> for the SSE event vocabulary.</p>
