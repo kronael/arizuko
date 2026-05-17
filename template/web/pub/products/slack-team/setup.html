@@ -80,7 +80,7 @@ DISCORD_CLIENT_SECRET=…</code></pre>
       <h2>3. create the Slack App</h2>
       <p>In <a href="https://api.slack.com/apps">api.slack.com/apps</a>, create a new app (from scratch) in your workspace, then:</p>
       <ul>
-        <li><strong>OAuth &amp; Permissions.</strong> Add bot scopes <code>channels:history</code>, <code>channels:read</code>, <code>groups:history</code>, <code>groups:read</code>, <code>im:history</code>, <code>im:read</code>, <code>mpim:history</code>, <code>mpim:read</code>, <code>chat:write</code>, <code>chat:write.public</code>, <code>reactions:read</code>, <code>reactions:write</code>, <code>files:read</code>, <code>files:write</code>, <code>users:read</code>. Install to your workspace and copy the Bot User OAuth Token into <code>SLACK_BOT_TOKEN</code>.</li>
+        <li><strong>OAuth &amp; Permissions.</strong> Add bot scopes <code>channels:history</code>, <code>channels:read</code>, <code>groups:history</code>, <code>groups:read</code>, <code>im:history</code>, <code>im:read</code>, <code>mpim:history</code>, <code>mpim:read</code>, <code>chat:write</code>, <code>chat:write.public</code>, <code>reactions:read</code>, <code>reactions:write</code>, <code>files:read</code>, <code>files:write</code>, <code>users:read</code>, <code>assistant:write</code> (required for the AI sidebar pane). Install to your workspace and copy the Bot User OAuth Token into <code>SLACK_BOT_TOKEN</code>.</li>
         <li><strong>Event Subscriptions.</strong> Enable, set the request URL to <code>https://&lt;WEB_HOST&gt;/slack/events</code>, subscribe to bot events <code>message.channels</code>, <code>message.groups</code>, <code>message.im</code>, <code>message.mpim</code>, <code>reaction_added</code>, <code>member_joined_channel</code>. Do <em>not</em> subscribe to <code>app_mention</code> &mdash; slakd derives <code>verb=mention</code> from message text and the duplicate event would double-fire.</li>
         <li><strong>Basic Information.</strong> Copy the Signing Secret into <code>SLACK_SIGNING_SECRET</code>.</li>
       </ul>
@@ -89,6 +89,27 @@ DISCORD_CLIENT_SECRET=…</code></pre>
         <code>template/services/slakd.toml</code> &mdash; nothing to edit in
         compose generation. Slack's request signature is verified by
         <code>slakd</code> using the signing secret.
+      </p>
+
+      <h3>enable the AI sidebar (optional)</h3>
+      <p>
+        The AI sidebar is the per-user pane behind Slack&rsquo;s AI
+        icon &mdash; suggested-prompt buttons, a per-pane title, and
+        full channel context. It requires the <code>assistant:write</code>
+        scope (already in the list above). In the Slack App &rarr;
+        <em>Agents &amp; AI Apps</em>, toggle &ldquo;Agent or
+        Assistant&rdquo; on. Step-by-step with screenshots:
+        <a href="/pub/howto/slack.html#step-8">Slack adapter how-to,
+        step 8</a>. Verify by clicking the AI icon next to the bot in
+        Slack &mdash; a pane should open.
+      </p>
+      <p>
+        At runtime the agent can call the
+        <code>pane_set_title</code> and <code>pane_set_prompts</code>
+        MCP tools to steer the pane. Static per-folder defaults via
+        <code>PERSONA.md</code> frontmatter
+        (<code>pane_title</code> / <code>pane_prompts</code>) are spec
+        6/D &mdash; not yet implemented.
       </p>
 
       <h2>4. run the instance</h2>
@@ -102,11 +123,18 @@ DISCORD_CLIENT_SECRET=…</code></pre>
 
       <h2>5. invite teammates</h2>
       <p>
-        Per-user state (memory, grants, linked identities) needs each
-        teammate to be a known user. They sign in via OAuth at
-        <code>https://&lt;WEB_HOST&gt;/auth/login</code> &mdash; GitHub,
-        Google, or Discord. Subsequent logins on any linked provider
-        resolve to the same <code>auth_users</code> row.
+        Plain channel use needs no sign-in. The route rule that maps
+        the Slack channel to an arizuko group is the auth fence:
+        anyone the workspace lets into the channel can talk to the
+        bot, and per-channel grants gate what the agent will do.
+        OAuth login is only needed for surfaces that key off a
+        cross-platform user identity &mdash; the private web chat,
+        per-user secrets (<a href="/pub/concepts/secrets.html">spec 9/11</a>),
+        and merging memory across Slack + GitHub + Discord. To opt
+        in, a teammate signs in at
+        <code>https://&lt;WEB_HOST&gt;/auth/login</code>; subsequent
+        logins on any linked provider resolve to the same
+        <code>auth_users</code> row.
       </p>
       <p>
         Invite their primary Slack/web identity into the channel group
@@ -176,12 +204,79 @@ arizuko invite acme list</code></pre>
         nothing leaks to other channels.
       </div>
 
+      <h2>9. adding more channels</h2>
+      <p>
+        Each Slack channel becomes its own arizuko group folder.
+        Map a new channel ID to a folder:
+      </p>
+      <pre><code>arizuko group acme add 'slack:T012ABCD/channel/C0HJKL456' eng-support</code></pre>
+      <p>
+        The JID matches the route table (see step 7). For a
+        per-channel persona or skill set, edit
+        <code>~/CLAUDE.md</code> in the new folder &mdash; over
+        WebDAV at
+        <code>https://&lt;WEB_HOST&gt;/dav/eng-support/CLAUDE.md</code>
+        or directly under
+        <code>/srv/data/arizuko_acme/groups/eng-support/</code>.
+      </p>
+      <p>
+        Per-channel grants &mdash; who can run which actions in this
+        folder &mdash; live in the <code>acl</code> table. Operator
+        grants are admin-scoped via
+        <code>arizuko group acme grant &lt;sub&gt; '&lt;pattern&gt;'</code>;
+        finer per-role and per-user rules
+        (<code>interact</code>, <code>mcp:&lt;tool&gt;</code>, deny
+        effects) are managed from <code>/dash/</code> &rarr; Grants
+        today. Full rule shape:
+        <a href="/pub/concepts/grants.html">grants</a>.
+        CLI reference: <a href="/pub/reference/cli.html">cli</a>.
+      </p>
+
+      <h2>common issues</h2>
+      <dl>
+        <dt><strong>Bot dropped from the channel.</strong></dt>
+        <dd>Slack removes the bot when a channel is archived or an
+        admin kicks it. Re-invite with <code>/invite @acme</code>
+        from inside the channel. No restart needed.</dd>
+
+        <dt><strong>Bot is in the channel but doesn&rsquo;t respond.</strong></dt>
+        <dd>Check two things: (1) the route table matches this
+        channel&rsquo;s JID and target is not <code>#observe</code>
+        for mentions (see step 7); (2) the calling user has at least
+        <code>interact</code> in this folder &mdash; check
+        <code>/dash/</code> &rarr; Grants.</dd>
+
+        <dt><strong>Slack token rejected / <code>/slack/health</code> returns 503.</strong></dt>
+        <dd>Token was rotated or the app was reinstalled. Copy the
+        new Bot User OAuth Token into <code>SLACK_BOT_TOKEN</code>
+        in <code>.env</code> and restart:
+        <code>sudo systemctl restart arizuko_acme</code>.</dd>
+
+        <dt><strong>AI sidebar feels sluggish.</strong></dt>
+        <dd>Slack&rsquo;s <code>assistant.threads.*</code> endpoints
+        are Tier 2 (rate-limited). Grep
+        <code>sudo journalctl -u arizuko_acme | grep 429</code> &mdash;
+        if you see throttle warnings, the agent is calling
+        <code>pane_set_status</code> / <code>pane_set_prompts</code>
+        more often than Slack allows for that workspace.</dd>
+
+        <dt><strong>Per-user memory not updating after OAuth login.</strong></dt>
+        <dd>Linkage didn&rsquo;t complete &mdash; visit
+        <code>https://&lt;WEB_HOST&gt;/auth/login</code> as the user
+        and sign in again with the provider they want linked.
+        Check <code>/dash/</code> &rarr; Users to see the resolved
+        <code>auth_users</code> row and its linked identities.</dd>
+      </dl>
+
       <h2>go deeper</h2>
       <ul>
         <li><a href="/pub/products/slack-team/">Slack team agent &mdash; intro</a> &mdash; what teammates see</li>
         <li><a href="/pub/howto/slack.html">Slack adapter how-to</a> &mdash; deeper notes on Slack-specific quirks</li>
         <li><a href="/pub/concepts/grants.html">grants</a> &mdash; per-user and per-folder action scoping</li>
         <li><a href="/pub/concepts/auth.html">auth</a> &mdash; OAuth providers, account linking</li>
+        <li><a href="/pub/concepts/slack-pane.html">slack pane</a> &mdash; AI sidebar surface, pane events, suggested prompts</li>
+        <li><a href="/pub/concepts/personas.html">personas</a> &mdash; how voice + skills + frontmatter shape a channel agent</li>
+        <li><a href="/pub/components/channels.html">channels (slakd)</a> &mdash; the Slack adapter daemon</li>
         <li><a href="/pub/reference/cli.html">CLI reference</a> &mdash; full command list</li>
       </ul>
     </div>

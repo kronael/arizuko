@@ -62,7 +62,9 @@
           <strong>Per-user memory.</strong> The agent maintains a memory file
           per teammate (<code>users/&lt;channel&gt;-&lt;id&gt;.md</code> inside
           the channel folder) &mdash; preferences, recurring tasks, prior
-          conclusions. Alice has hers, Bob has his.
+          conclusions. Alice has hers, Bob has his. (Per-user
+          <em>secrets</em> &mdash; distinct from memory &mdash; are spec 9/11,
+          not yet shipped; folder-scoped secrets work today.)
         </li>
         <li>
           <strong>Per-user grants.</strong> Per-user grant rules decide which
@@ -117,6 +119,43 @@
         channel&rsquo;s shared context.
       </p>
 
+      <h2>how teammates use it</h2>
+      <ul>
+        <li>
+          <strong>AI sidebar pane.</strong> Click the AI icon in Slack
+          to open a private pane against the channel agent &mdash;
+          suggested-prompt buttons, a per-pane title, and full channel
+          context. Details:
+          <a href="/pub/concepts/slack-pane.html">slack pane</a>.
+        </li>
+        <li>
+          <strong>In a channel.</strong> The bot stays quiet by default.
+          <code>@bot</code> mentions fire a turn. With the recommended
+          routing rule (see setup), channel chatter lands in
+          <code>#observe</code> &mdash; agent reads for context but
+          doesn&rsquo;t reply unless called on.
+        </li>
+        <li>
+          <strong>In a thread.</strong> Replying to one of the bot&rsquo;s
+          messages counts as a mention &mdash; the agent answers in the
+          same thread, with the thread&rsquo;s history as context.
+        </li>
+        <li>
+          <strong>In a DM.</strong> Every message is for the bot. No
+          mention needed; replies come back in the same DM.
+        </li>
+        <li>
+          <strong>File uploads.</strong> Drop a file on the bot or in a
+          mentioned thread. The agent reads it via the file-read skill
+          and replies in-thread.
+        </li>
+        <li>
+          <strong>Reactions.</strong> An emoji reaction on a bot message
+          can fire a turn if the route table is set up for it &mdash;
+          handy for &ldquo;thumbs up to confirm&rdquo; flows.
+        </li>
+      </ul>
+
       <h2>data &amp; trust</h2>
       <ul>
         <li>
@@ -142,6 +181,32 @@
           <strong>Channel boundary.</strong> A teammate in #eng-support sees
           that channel&rsquo;s context and their own user area; #design&rsquo;s
           files and persona are inaccessible unless granted explicitly.
+        </li>
+      </ul>
+
+      <h2>per-user features (optional)</h2>
+      <ul>
+        <li>
+          <strong>Per-teammate memory file.</strong> Auto-created on a
+          teammate&rsquo;s first message; keyed by Slack user ID. Not
+          shared with the channel; not visible to other teammates.
+          Works without any sign-in &mdash; Slack workspace membership
+          is the fence.
+        </li>
+        <li>
+          <strong>OAuth sign-in (optional).</strong> A teammate who
+          signs in at <code>/auth/login</code> with GitHub or Google
+          links that identity to their Slack user. Memory and grants
+          then survive across surfaces: the same person reaches the
+          same notes from the web chat, from a DM, or from a different
+          channel.
+        </li>
+        <li>
+          <strong>Per-user secrets.</strong> Spec
+          <a href="/pub/concepts/secrets.html">9/11</a> &mdash; the
+          <code>arizuko user-secret</code> CLI exists today, but the
+          full broker model (per-tool, audit-logged) is not yet shipped.
+          For now, secrets are folder-scoped.
         </li>
       </ul>
 
@@ -174,6 +239,18 @@ arizuko run acme
         <li>
           <a href="/pub/concepts/grants.html">grants</a> &mdash; per-user and
           per-group action scoping
+        </li>
+        <li>
+          <a href="/pub/concepts/slack-pane.html">slack pane</a> &mdash;
+          the AI sidebar surface, pane-open events, suggested prompts
+        </li>
+        <li>
+          <a href="/pub/concepts/personas.html">personas</a> &mdash;
+          how voice + skills + frontmatter shape one channel&rsquo;s agent
+        </li>
+        <li>
+          <a href="/pub/howto/slack.html">Slack adapter how-to</a> &mdash;
+          Slack-specific quirks and verification steps
         </li>
         <li>
           <a href="/pub/concepts/auth.html">auth</a> &mdash; OAuth providers,
