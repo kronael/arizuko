@@ -104,12 +104,13 @@ DISCORD_CLIENT_SECRET=…</code></pre>
         Slack &mdash; a pane should open.
       </p>
       <p>
-        At runtime the agent can call the
+        The agent steers the pane at runtime via the
         <code>pane_set_title</code> and <code>pane_set_prompts</code>
-        MCP tools to steer the pane. Static per-folder defaults via
-        <code>PERSONA.md</code> frontmatter
-        (<code>pane_title</code> / <code>pane_prompts</code>) are spec
-        6/D &mdash; not yet implemented.
+        MCP tools — title and suggested prompts can change per turn,
+        per channel, per context. Branding is the env var
+        <code>ARIZUKO_ASSISTANT_NAME</code> (instance-wide). No
+        static per-folder frontmatter; runtime steering + instance
+        env covers both axes.
       </p>
 
       <h2>4. run the instance</h2>

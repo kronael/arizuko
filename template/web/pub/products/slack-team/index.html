@@ -210,6 +210,39 @@
         </li>
       </ul>
 
+      <h2>same shape on Discord</h2>
+      <p>
+        Most of this maps to Discord 1:1 — guild channels behave like
+        Slack channels (room JID, per-channel <code>CLAUDE.md</code>,
+        per-user memory), threads behave like Slack threads. Three
+        deltas worth flagging:
+      </p>
+      <ul>
+        <li>
+          <strong>No AI sidebar.</strong> Discord has no equivalent of
+          Slack's assistant pane. Suggested-prompt buttons land on
+          Discord via interaction components (different mechanism, not
+          yet ported to <code>discd</code>). DM + mention flow works
+          the same.
+        </li>
+        <li>
+          <strong>Mentions look different.</strong> Slack uses
+          <code>&lt;@USERID&gt;</code> in body; Discord uses
+          <code>&lt;@123…&gt;</code>. Both are normalized to
+          <code>@&lt;assistant-name&gt;</code> before reaching the agent.
+        </li>
+        <li>
+          <strong>Routing JIDs differ.</strong> Slack:
+          <code>slack:T1234/channel/C5678</code>. Discord:
+          <code>discord:guild/channel</code>. Same grant primitive,
+          different namespace.
+        </li>
+      </ul>
+      <p>
+        Run the same product over both: install both adapters, route
+        each channel to the same folder, agent doesn't care.
+      </p>
+
       <h2>setup</h2>
       <pre><code>arizuko create acme
 cd /srv/data/arizuko_acme
