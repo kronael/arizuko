@@ -41,30 +41,20 @@
       <h2>what you get</h2>
       <ul>
         <li>
-          <strong>Topics that fork.</strong> A conversation can branch into a
-          side-topic; the child inherits its parent&rsquo;s Claude session via
-          plain <code>cp -r</code> on <code>.claude/</code>. Every new
-          inbound topic also auto-forks from the group&rsquo;s main topic, so
-          the agent walks in with prior context, not a blank slate. Agents
-          fork themselves with the <code>fork_topic</code> MCP tool. See
+          <strong>Topics that fork.</strong> A side-topic copies its parent&rsquo;s
+          Claude session via plain <code>cp -r</code> on <code>.claude/</code>,
+          so the agent walks in with context. See
           <a href="/pub/concepts/topics.html">concepts/topics</a>.
         </li>
         <li>
-          <strong>Sibling folders share context.</strong> A folder&rsquo;s
-          <code>observe</code>-window messages are visible to its siblings by
-          default; set <code>open=0</code> on a group to seal it off. Lets
-          <code>corp/eng/sre</code> see what <code>corp/eng/launch-q3</code>
-          is saying without explicit cross-posts. See
+          <strong>Sibling folders share context.</strong> Observed messages in a
+          folder are visible to its siblings unless <code>open=0</code>. See
           <a href="/pub/concepts/scopes.html">concepts/scopes</a>.
         </li>
         <li>
-          <strong>Slack AI sidebar.</strong> The Agents &amp; AI Apps pane is a
-          first-class surface: <code>setStatus</code>, <code>setTitle</code>,
-          <code>setSuggestedPrompts</code>, and pane-context awareness all
-          flow through MCP tools (<code>pane_set_prompts</code>,
-          <code>pane_set_title</code>). The agent knows which channel and
-          thread the pane is attached to. See
-          <a href="/pub/concepts/slack-pane.html">concepts/slack-pane</a>.
+          <strong>Slack AI sidebar.</strong> The agent stages suggested prompts
+          and pane titles via MCP and knows which channel the pane is attached
+          to. See <a href="/pub/concepts/slack-pane.html">concepts/slack-pane</a>.
         </li>
         <li>
           <strong>Operator dashboard CRUD.</strong> <code>dashd</code> serves
@@ -121,30 +111,6 @@ curl -X POST https://example.com/slink/&lt;token&gt; \
   -H 'Content-Type: application/json' \
   -d '{"text":"hello"}'</code></pre>
 
-      <h2>architecture in one glance</h2>
-      <pre class="diagram"><code>adapter (teled/discd/slakd/&hellip;) --HTTP--&gt; gated
-                                          &#9474;
-                                          &#9500;&#9472; store     (messages.db, WAL)
-                                          &#9500;&#9472; container (docker run per group)
-                                          &#9474;            &#9492;&#9472; MCP over unix socket
-                                          &#9492;&#9472; chanreg   (adapter health, outbound)
-
-timed   &mdash; scheduler, writes messages
-onbod   &mdash; onboarding, OAuth, gated admission
-webd    &mdash; web chat channel adapter (slink + SSE)
-proxyd  &mdash; auth-gated reverse proxy, signs identity headers
-vited   &mdash; static origin: /pub/* + auth-gated default route
-davd    &mdash; WebDAV workspace (group files)
-dashd   &mdash; operator dashboards (read-only)</code></pre>
-      <p>
-        The contract is HTTP plus one SQLite file.
-        <code>gated</code> owns the schema; other daemons connect read/write
-        but never migrate. Adapters, routing table, auth layer, and sandbox
-        are independent components &mdash; the daemon ends in <code>d</code>,
-        swaps are local. Full graph and message flow in
-        <a href="https://github.com/kronael/arizuko/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a>.
-      </p>
-
       <h2>go deeper</h2>
       <ul>
         <li>
@@ -152,19 +118,16 @@ dashd   &mdash; operator dashboards (read-only)</code></pre>
           of the same daemons (Slack team agent, &hellip;).
         </li>
         <li>
+          <a href="/pub/components/">components</a> &mdash; the daemons one
+          page each: <code>gated</code>, <code>webd</code>,
+          <code>proxyd</code>, <code>dashd</code>, <code>onbod</code>,
+          <code>timed</code>, plus the channel adapters.
+        </li>
+        <li>
           <a href="/pub/concepts/">concepts</a> &mdash; the primitives one
-          page each:
-          <a href="/pub/concepts/topics.html">topics</a>,
-          <a href="/pub/concepts/scopes.html">scopes</a>,
-          <a href="/pub/concepts/slack-pane.html">slack pane</a>,
-          <a href="/pub/concepts/routing.html">routing</a>,
-          <a href="/pub/concepts/ant.html">ant</a>,
-          <a href="/pub/concepts/grants.html">grants</a>,
-          <a href="/pub/concepts/auth.html">auth</a>,
-          <a href="/pub/concepts/jid.html">jid</a>,
-          <a href="/pub/concepts/slink.html">slink</a>,
-          <a href="/pub/concepts/webdav.html">webdav</a>,
-          <a href="/pub/concepts/voice.html">voice</a>.
+          page each: topics, scopes, routing, grants, auth, jid, tasks,
+          secrets, personas, skills, onboarding, slack pane, slink, webdav,
+          voice.
         </li>
         <li>
           <a href="/pub/reference/">reference</a> &mdash; every configurable
