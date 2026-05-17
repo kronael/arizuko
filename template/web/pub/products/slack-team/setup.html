@@ -378,6 +378,129 @@ sqlite3 /srv/data/arizuko_acme/store/messages.db \
         <a href="https://github.com/kronael/arizuko/blob/main/specs/8/17-emaid-auth.md">specs/8/17-emaid-auth.md</a>.
       </p>
 
+      <h2>12. compose with support (optional)</h2>
+      <p>
+        The slack-team product is a generalist agent &mdash; it answers
+        questions, summarizes threads, files issues. For a more
+        focused experience in one particular channel (say
+        <code>#eng-support</code>), compose the
+        <a href="/pub/products/">support</a> product as a child group
+        under the slack-team root. The result: most channels keep the
+        slack-team persona; <code>#eng-support</code> gets the
+        support persona &mdash; KB-first, cite-or-say-I-don't-know,
+        escalate-when-stuck.
+      </p>
+
+      <h3>why compose, don't replace</h3>
+      <p>
+        Both products ship the same default skillset (diary, facts,
+        recall-memories, users, issues, web). They differ in
+        <code>PERSONA.md</code> + <code>CLAUDE.md</code> only. By
+        running them as sibling groups under one Slack instance you
+        get one bot identity in Slack (operator manages one app,
+        one token, one onboarding flow) but two distinct behaviors,
+        scoped by channel.
+      </p>
+
+      <h3>setup</h3>
+      <p>
+        With slack-team already deployed (sections 1&ndash;6 above
+        done), add a support sub-group:
+      </p>
+      <pre><code># 1. create the sub-group with the support product seed
+arizuko group add acme main/support --product support
+
+# 2. populate facts/ &mdash; copy your KB markdown into
+#    /srv/data/arizuko_acme/groups/main/support/facts/
+#    (one file per topic; the support persona's first move is /recall-memories)
+$EDITOR /srv/data/arizuko_acme/groups/main/support/facts/<topic>.md
+
+# 3. route #eng-support to it
+#    Find the channel ID (Slack: right-click channel → Copy link → C... at end)
+mcpc @s tools-call add_route \
+  match:='"chat_jid=slack:T123/channel/C456"' \
+  target:='"main/support"' \
+  seq:=-3   # higher priority than catch-all routes
+
+# 4. if you want #eng-support to fire on mention only (not on every msg)
+mcpc @s tools-call add_route \
+  match:='"chat_jid=slack:T123/channel/C456 verb=mention"' \
+  target:='"main/support"' \
+  seq:=-3
+mcpc @s tools-call add_route \
+  match:='"chat_jid=slack:T123/channel/C456"' \
+  target:='"main/support#observe"' \
+  seq:=-2  # observe-only catch lower-priority than the trigger row above</code></pre>
+      <p>
+        After <code>add_route</code> calls the agent has full per-channel
+        scope: messages from <code>C456</code> hit
+        <code>main/support</code>'s session, with its persona, its
+        memory, its <code>facts/</code> dir &mdash; isolated from the
+        rest of slack-team. Threading state is per-group so
+        cross-channel context doesn't leak.
+      </p>
+
+      <h3>what each piece gives you</h3>
+      <ul>
+        <li>
+          <strong>slack-team (root, <code>main</code>):</strong>
+          generalist voice, answers any channel without a more specific
+          route. Persona at
+          <code>groups/main/PERSONA.md</code>.
+        </li>
+        <li>
+          <strong>support (child, <code>main/support</code>):</strong>
+          fact-cite voice, refuses to guess, escalates to the parent
+          group when stuck. Persona at
+          <code>groups/main/support/PERSONA.md</code>. Behavior rules
+          (KB lookup order, escalation procedure, citation format)
+          at <code>groups/main/support/CLAUDE.md</code>.
+        </li>
+        <li>
+          <strong>Routes</strong> are the auth fence: a Slack user
+          who can post in <code>#eng-support</code> talks to the
+          support persona; the same user in <code>#general</code>
+          talks to the slack-team persona. Grants on
+          <code>main/support</code> can further constrain what the
+          support agent will do per-user.
+        </li>
+        <li>
+          <strong>WebDAV</strong>: each group's <code>facts/</code>,
+          <code>PERSONA.md</code>, <code>CLAUDE.md</code> are
+          editable at <code>/dav/main/</code> and
+          <code>/dav/main/support/</code>. Operators tune persona
+          per group in Finder / VS Code without docker exec.
+        </li>
+      </ul>
+
+      <h3>composing more products</h3>
+      <p>
+        Same pattern, different child folder. Add <code>main/eng</code>
+        with <code>--product pm</code> for engineering-channel
+        project-management voice; <code>main/marketing</code> with
+        <code>--product creator</code>; etc. Each child is one
+        <code>arizuko group add</code> + one route. The slack-team
+        parent stays generalist; specialized children inherit nothing
+        from it (group-level isolation by design).
+      </p>
+      <p>
+        Limits: each child runs its own container per agent turn, so
+        spawn budget matters. Tune via the parent's
+        <code>max_children</code> (default 16 from v0.40.1
+        onward) at <code>/dash/groups/main/settings</code>.
+      </p>
+
+      <h3>tradeoff: when to NOT compose</h3>
+      <p>
+        Small teams with one busy channel: the slack-team persona is
+        already capable. Composing support adds a folder, a route, a
+        facts/ to maintain &mdash; only worth it when you can name the
+        channel that needs different behavior. Start with slack-team
+        flat; promote a channel to its own sub-group when you find
+        yourself rewriting <code>main/CLAUDE.md</code> for one
+        channel's quirks.
+      </p>
+
       <h2>common issues</h2>
       <dl>
         <dt><strong>Bot dropped from the channel.</strong></dt>
