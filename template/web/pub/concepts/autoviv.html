@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>autoviv</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+    .callout {
+      border-left: 3px solid var(--accent, #888);
+      padding: 0.4em 0.8em;
+      margin: 1em 0;
+      background: var(--callout-bg, rgba(127, 127, 127, 0.06));
+    }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>autoviv</h1>
+    <p class="dim back">new chats get their own folder, without operator intervention &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+
+    <p class="lede">Autoviv is the pattern by which a tier-1 agent registers a child folder the first time a new chat (a Slack channel, a Discord guild, a Telegram group) talks to it. No daemon, no env var, no magic &mdash; just a catch-all route and one MCP tool call.</p>
+
+    <h2>the recipe</h2>
+    <p>Three primitives, composed:</p>
+    <ol>
+      <li><strong>Catch-all routes to a tier-1 agent.</strong> Two rows at low priority send every message from a platform into one folder, the tier-1 &ldquo;world&rdquo; agent (call it <code>atlas</code>):
+        <pre><code>seq  match                                          target
+100  chat_jid=slack:*/channel/* verb=mention        atlas
+200  chat_jid=slack:*/channel/*                     atlas#observe</code></pre>
+        The <code>#observe</code> row stores every channel message so the agent has context. The mention row fires a turn when someone calls <code>@atlas</code>.
+      </li>
+      <li><strong>The tier-1 agent notices an unrouted channel.</strong> When <code>atlas</code> runs a turn, it sees the inbound message&rsquo;s <code>chat_jid</code>. If no specific child folder is wired to that JID and the sender holds operator grant, it calls the MCP tool <code>register_group</code> with the JID and a sanitized folder name.</li>
+      <li><strong><code>register_group</code> does the rest.</strong> <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1309"><code>ipc/ipc.go:1309</code></a> &rarr; <code>gateway.registerGroupIPC</code> writes the group row, seeds the folder with skills and settings (<code>SetupGroup</code>), and inserts a high-priority route <code>room=&lt;jid-room&gt; &rarr; &lt;folder&gt;</code> in one step. The next message in that channel lands in <code>atlas/eng-support</code> instead of <code>atlas</code>.</li>
+    </ol>
+
+    <h2>worked example</h2>
+    <p>A teammate invites the bot to a new Slack channel <code>#eng-support</code> with JID <code>slack:T1234/channel/C5678</code> and posts &ldquo;@atlas can you help here?&rdquo;</p>
+    <ul>
+      <li>Route table has no specific row for <code>C5678</code>; the catch-all rule sends the message to <code>atlas</code> with <code>verb=mention</code>.</li>
+      <li><code>atlas</code> runs a turn, sees the JID and the sender&rsquo;s operator grant, and calls <code>register_group(jid="slack:T1234/channel/C5678", folder="atlas/eng-support")</code>.</li>
+      <li>Gateway writes the group, seeds <code>groups/atlas/eng-support/</code> with the default skills, inserts route <code>room=T1234/channel/C5678 &rarr; atlas/eng-support</code> at <code>seq=0</code>.</li>
+      <li>The agent replies in-thread from <code>atlas</code>. The next message in that channel routes to <code>atlas/eng-support</code> directly &mdash; its own folder, its own session, its own CLAUDE.md.</li>
+    </ul>
+
+    <h2>why no special env var or daemon</h2>
+    <p>Autoviv is not a feature; it is the absence of a feature. The pieces already exist: <a href="/pub/concepts/routing.html">glob route matching</a>, the <code>register_group</code> MCP tool, group seeding via <code>SetupGroup</code>, the <a href="/pub/reference/grants.html">operator grant</a>. An operator who wants per-channel folders writes a catch-all route and a paragraph in the tier-1 agent&rsquo;s CLAUDE.md. An operator who prefers to register each channel by hand omits both. Same code path either way.</p>
+
+    <h2>what your tier-1 agent needs to know</h2>
+    <p>Paste a paragraph like this into the tier-1 agent&rsquo;s <code>CLAUDE.md</code> or PERSONA.md:</p>
+    <pre><code>When you receive a message from a Slack channel JID
+(slack:*/channel/*) that does not yet have its own folder,
+and the sender holds operator grant, call register_group
+with folder="atlas/&lt;short-name-derived-from-channel&gt;" and
+jid="&lt;the channel JID&gt;". Sanitize the channel name:
+lowercase, replace spaces and punctuation with '-'.
+Reply once in the new folder confirming the channel
+is now registered. Do not register channels for non-operator
+senders &mdash; ask the operator instead.</code></pre>
+    <p>Tune it: auto-register channels matching a pattern, ask the operator first, only register on explicit request. The agent is making the policy decision; the platform just runs the call.</p>
+
+    <h2>limits</h2>
+    <ul>
+      <li><strong>Operator grant required.</strong> <code>register_group</code> goes through <code>auth.AuthorizeStructural</code> (<a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go"><code>auth/policy.go</code></a>): tier-1 callers may only create direct children of their own folder. <code>atlas</code> can register <code>atlas/eng-support</code>; it cannot register <code>main/foo</code>. Tier-0 (root) is needed for top-level folders.</li>
+      <li><strong>Spawn quota.</strong> <code>auth.CheckSpawnAllowed</code> caps direct children at <code>max_children</code> (default <code>16</code>, set via the parent group&rsquo;s <code>container_config</code>). Set <code>max_children=-1</code> for unlimited; <code>0</code> disables spawning entirely.</li>
+      <li><strong>Folder name sanitization is the agent&rsquo;s job.</strong> Pass a clean folder string &mdash; the gateway accepts what you give it. Stick to lowercase, hyphens, slashes.</li>
+      <li><strong>Idempotency is partial.</strong> <code>PutGroup</code> uses <code>ON CONFLICT(folder) DO UPDATE</code>, so re-registering the same folder is safe. The route insert is unconditional, so calling <code>register_group</code> twice with the same JID writes a duplicate route row. Have the agent check existing routes (via <code>get_routes</code>) before registering.</li>
+      <li><strong>Folder seeding is best-effort.</strong> If <code>SetupGroup</code> fails (filesystem error, missing prototype), the group + route are still written; the gateway logs a warning and continues. Inspect <code>groups/&lt;folder&gt;/</code> if the new agent acts blank.</li>
+    </ul>
+
+    <h2>go deeper</h2>
+    <p>Route tables, glob matching, and <code>#observe</code> mode: <a href="/pub/concepts/routing.html">routing</a>. Operator grant and tier rules: <a href="/pub/reference/grants.html">grants reference</a>. Full <code>register_group</code> signature and other MCP tools: <a href="/pub/reference/mcp.html#register_group">mcp reference</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

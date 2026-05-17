@@ -233,6 +233,97 @@ arizuko invite acme list</code></pre>
         CLI reference: <a href="/pub/reference/cli.html">cli</a>.
       </p>
 
+      <h3>autoviv (optional)</h3>
+      <p>
+        If you don&rsquo;t want to run <code>arizuko group add</code>
+        for every new channel, set a catch-all route to a tier-1
+        agent (e.g. <code>atlas</code>) and add an autoviv paragraph
+        to that agent&rsquo;s <code>CLAUDE.md</code>. New channels
+        the bot is invited to land in <code>atlas</code> on first
+        message; the agent calls <code>register_group</code> itself
+        and the next message in that channel routes to its own
+        folder. Recipe and limits:
+        <a href="/pub/concepts/autoviv.html">autoviv</a>.
+      </p>
+
+      <h2>10. multi-workspace</h2>
+      <p>
+        One <code>slakd</code> process talks to one workspace &mdash;
+        the bot token is read once at startup
+        (<code>slakd/main.go</code> calls
+        <code>chanlib.MustEnv("SLACK_BOT_TOKEN")</code>). Two ways
+        to cover more than one workspace.
+      </p>
+
+      <h3>option A &mdash; one arizuko instance, multiple slakd</h3>
+      <p>
+        Drop a second service TOML beside the default
+        <code>slakd.toml</code>. The compose generator picks up every
+        <code>services/*.toml</code> file
+        (<code>compose/compose.go</code> reads <code>services/</code>
+        in lexical order) and names each container
+        <code>arizuko_&lt;file&gt;_&lt;flavor&gt;</code>, so
+        <code>slakd-acme.toml</code> and <code>slakd-beta.toml</code>
+        run side by side. This is the shipped pattern in
+        <a href="https://github.com/kronael/arizuko/blob/main/specs/5/R-multi-account.md">specs/5/R-multi-account.md</a>.
+        Files named <code>&lt;adapter&gt;-&lt;label&gt;.toml</code>
+        share the base adapter's <code>env_file</code> (see
+        <code>envFileFor</code>) &mdash; per-workspace tokens go in
+        the TOML's <code>[environment]</code> block, not in
+        <code>.env</code>.
+      </p>
+      <pre><code># /srv/data/arizuko_acme/services/slakd-beta.toml
+image = "arizuko:latest"
+entrypoint = ["slakd"]
+volumes = ["${HOST_DATA_DIR}:/srv/app/home"]
+
+[environment]
+ROUTER_URL = "http://gated:8080"
+SLACK_BOT_TOKEN = "xoxb-beta-workspace-token"
+SLACK_SIGNING_SECRET = "beta-signing-secret"
+CHANNEL_SECRET = "${CHANNEL_SECRET}"
+ASSISTANT_NAME = "${ASSISTANT_NAME}"
+LISTEN_ADDR = ":8080"
+LISTEN_URL = "http://slakd-beta:8080"
+
+[[proxyd_route]]
+path = "/slack-beta/"
+backend = "http://slakd-beta:8080"
+auth = "public"
+gated_by = "SLACK_BOT_TOKEN"
+preserve_headers = ["X-Slack-Signature", "X-Slack-Request-Timestamp"]</code></pre>
+      <p>
+        Set the second Slack App's Event Subscription URL to
+        <code>https://&lt;WEB_HOST&gt;/slack-beta/events</code> &mdash;
+        distinct path keeps the two webhooks separate. Each
+        workspace's JIDs already carry its team ID
+        (<code>slack:T012/channel/C0HJK</code>, see
+        <code>slakd/jid.go</code>), so route rules and group
+        mappings stay per-workspace without extra plumbing.
+        <code>arizuko run acme</code> then brings both containers
+        up; restart the instance after dropping the file.
+      </p>
+      <p>
+        Pick this when the workspaces belong to the same operator
+        and should share state &mdash; one Anthropic key, one
+        <code>/dash/</code>, one <code>/auth/</code> OAuth setup,
+        one <code>messages.db</code>, one set of users that can
+        sign in across workspaces. The cost is shared spend and
+        shared blast radius: a bad skill or an Anthropic outage
+        hits every workspace at once.
+      </p>
+
+      <h3>option B &mdash; one arizuko instance per workspace</h3>
+      <p>
+        Run <code>arizuko create acme</code> and
+        <code>arizuko create beta</code> as separate instances on
+        the same host. Each gets its own <code>WEB_HOST</code>,
+        its own database, its own systemd unit, its own Anthropic
+        key, its own <code>/dash/</code>. Pick this for
+        per-customer isolation &mdash; one workspace's runaway
+        agent or compromised token can't reach the other.
+      </p>
+
       <h2>common issues</h2>
       <dl>
         <dt><strong>Bot dropped from the channel.</strong></dt>
