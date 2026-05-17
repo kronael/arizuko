@@ -696,8 +696,7 @@ func seedSettings(
 	env["ARIZUKO_WORLD"] = worldOf(in.Folder, root)
 	env["ARIZUKO_TIER"] = strconv.Itoa(tierOf(in.Folder, root))
 	if in.Channel != "" {
-		stylesDir := filepath.Join(cfg.HostAppDir, "ant", "output-styles")
-		if name := pickOutputStyle(in.Channel, in.ChatJID, in.Topic, stylesDir, in.PaneLookup); name != "" {
+		if name := pickOutputStyle(in.Channel, in.ChatJID, in.Topic, in.PaneLookup); name != "" {
 			settings["outputStyle"] = name
 		}
 	}
@@ -729,37 +728,26 @@ func seedSettings(
 }
 
 // pickOutputStyle resolves the agent's outputStyle setting for one turn.
-// Derives <platform>-<surface> from the JID/topic/pane signal, falls
-// back to <platform>, then to "" (no override). Stats the host-side
-// output-styles dir once per candidate. Spec 5/O.
+// Derives <platform>-<surface> from the JID/topic/pane signal; falls
+// back to <platform> when no surface split applies. Spec 5/O.
+//
+// Image contract: the agent image ships every per-surface file listed
+// in the spec table. Claude Code's readOutputStyle reads the named
+// file from <home>/.claude/output-styles/<name>.md at agent startup;
+// per-group operator overrides at the same path take precedence
+// automatically. No host-side existence check — name selection and
+// file loading are separate concerns.
 func pickOutputStyle(
-	channel, chatJID, topic, stylesDir string,
+	channel, chatJID, topic string,
 	paneLookup func(channelID string) bool,
 ) string {
 	if channel == "" {
 		return ""
 	}
-	surface := deriveSurface(channel, chatJID, topic, paneLookup)
-	if surface != "" {
-		name := channel + "-" + surface
-		if stylesDir == "" {
-			slog.Warn("output style dir empty; returning candidate without existence check",
-				"candidate", name, "channel", channel)
-			return name
-		}
-		if _, err := os.Stat(filepath.Join(stylesDir, name+".md")); err == nil {
-			return name
-		}
+	if surface := deriveSurface(channel, chatJID, topic, paneLookup); surface != "" {
+		return channel + "-" + surface
 	}
-	if stylesDir == "" {
-		slog.Warn("output style dir empty; returning channel without existence check",
-			"candidate", channel, "channel", channel)
-		return channel
-	}
-	if _, err := os.Stat(filepath.Join(stylesDir, channel+".md")); err == nil {
-		return channel
-	}
-	return ""
+	return channel
 }
 
 // deriveSurface maps (channel, chatJID, topic, pane) to a surface
@@ -771,18 +759,17 @@ func deriveSurface(
 ) string {
 	switch channel {
 	case "slack":
-		ws, kind, id, ok := parseSlackJID(chatJID)
-		_ = ws
+		p, ok := chanlib.ParseSlackJID(chatJID)
 		if !ok {
 			return ""
 		}
-		switch kind {
+		switch p.Kind {
 		case "dm":
 			return "dm"
 		case "group":
 			return "channel"
 		case "channel":
-			if paneLookup != nil && paneLookup(id) {
+			if paneLookup != nil && paneLookup(p.ID) {
 				return "pane"
 			}
 			if topic != "" {
@@ -820,24 +807,6 @@ func deriveSurface(
 		return "channel"
 	}
 	return ""
-}
-
-// parseSlackJID mirrors slakd/parseJID for the runner's pane lookup.
-// Format: slack:<workspace>/<kind>/<id> where kind ∈ {channel,dm,group}.
-func parseSlackJID(jid string) (workspace, kind, id string, ok bool) {
-	rest := strings.TrimPrefix(jid, "slack:")
-	if rest == jid {
-		return "", "", "", false
-	}
-	ws, after, ok := strings.Cut(rest, "/")
-	if !ok || ws == "" {
-		return "", "", "", false
-	}
-	k, i, ok := strings.Cut(after, "/")
-	if !ok || k == "" || i == "" {
-		return "", "", "", false
-	}
-	return ws, k, i, true
 }
 
 func SetupGroup(cfg *core.Config, folder, prototype string) error {

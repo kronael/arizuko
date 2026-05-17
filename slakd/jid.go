@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
-	"strings"
+
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // JID format: slack:<workspace>/<kind>/<id> where kind ∈ {channel, dm, group}.
+// Parsing lives in chanlib so the container runner shares one parser.
 
 type jidParts struct {
 	workspace string
@@ -14,28 +16,15 @@ type jidParts struct {
 }
 
 func parseJID(jid string) (jidParts, error) {
-	rest := strings.TrimPrefix(jid, "slack:")
-	if rest == jid {
-		return jidParts{}, fmt.Errorf("slakd: jid missing slack: prefix")
+	p, ok := chanlib.ParseSlackJID(jid)
+	if !ok {
+		return jidParts{}, fmt.Errorf("slakd: malformed slack jid: %q", jid)
 	}
-	ws, after, ok := strings.Cut(rest, "/")
-	if !ok || ws == "" {
-		return jidParts{}, fmt.Errorf("slakd: jid missing workspace segment: %q", jid)
-	}
-	kind, id, ok := strings.Cut(after, "/")
-	if !ok || kind == "" || id == "" {
-		return jidParts{}, fmt.Errorf("slakd: jid missing kind/id segment: %q", jid)
-	}
-	switch kind {
-	case "channel", "dm", "group":
-	default:
-		return jidParts{}, fmt.Errorf("slakd: jid kind must be channel|dm|group, got %q", kind)
-	}
-	return jidParts{workspace: ws, kind: kind, id: id}, nil
+	return jidParts{workspace: p.Workspace, kind: p.Kind, id: p.ID}, nil
 }
 
 func formatJID(workspace, kind, id string) string {
-	return "slack:" + workspace + "/" + kind + "/" + id
+	return chanlib.FormatSlackJID(workspace, kind, id)
 }
 
 func chanKind(isIM, isMpim bool) string {
