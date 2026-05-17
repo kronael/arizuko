@@ -10,8 +10,10 @@ supersedes: [specs/1/W-slink.md]
 
 The legacy anonymous-token path coupled "token → drop a message into a
 group" to one client shape (browser widget) and one URL prefix.
-Webhook ingest wants the same primitive at a different shape. One
-token table, two URL prefixes, JID prefix encodes intent.
+Webhook ingest wants the same primitive. One token table, one handler,
+two friendly URL aliases (`/chat/<token>/` and `/hook/<token>`). JID
+prefix encodes routing intent at the data layer; the URL prefix is a
+label for human readers.
 
 ## Usecase
 
@@ -63,18 +65,9 @@ X-GitHub-Event: push
 {"ref":"refs/heads/main","commits":[...]}
 ```
 
-webd hashes the token, looks up the row, appends an inbound message:
-
-```json
-{
-  "jid": "hook:acme/eng/github",
-  "sender": "github",
-  "body": "{\"ref\":\"refs/heads/main\", ...}",
-  "headers": { "x-github-event": "push" }
-}
-```
-
-webd returns 204. Routing per `Q-unified-routing` delivers it to the
+webd hashes the token, looks up the row, appends an inbound at
+`hook:acme/eng/github` with `sender="github"`, body verbatim, and
+headers map. Routing per `Q-unified-routing` delivers it to the
 `acme/eng` agent, which decides whether to reply.
 
 ## The primitive
@@ -106,20 +99,26 @@ token returned exactly once at issue time.
 
 ## URL routing
 
-| Path                | Token JID  | Methods   | Behavior                                                          |
-| ------------------- | ---------- | --------- | ----------------------------------------------------------------- |
-| `/chat/<token>/`    | `web:...`  | GET, POST | GET → widget; POST → message + SSE reply                          |
-| `/chat/<token>/mcp` | `web:...`  | GET, POST | Per-token MCP surface (send_message, get_round, get_round_status) |
-| `/hook/<token>`     | `hook:...` | POST      | Append body to JID; 204; no response channel                      |
+| Path                | Token JID         | Methods   | Behavior                                                          |
+| ------------------- | ----------------- | --------- | ----------------------------------------------------------------- |
+| `/chat/<token>/`    | `web:` or `hook:` | GET, POST | GET → widget; POST → message + SSE reply                          |
+| `/chat/<token>/mcp` | `web:` or `hook:` | GET, POST | Per-token MCP surface (send_message, get_round, get_round_status) |
+| `/hook/<token>`     | `web:` or `hook:` | GET, POST | Alias of `/chat/<token>/` — same handler                          |
+| `/chat/`            | (JWT)             | GET, POST | Authenticated chat (no token segment)                             |
 
-JID prefix and URL prefix must match — mismatch → 401, same response
-as unknown token (one error model: bearer didn't authorize this
-ingress). proxyd routes `/chat/<token>/` by token-segment presence.
+Both token URLs route to the same handler. JID prefix determines
+sender attribution and default output style, not URL access. Pick
+the URL prefix that reads right — `/hook/` for webhook providers,
+`/chat/` for browser users. `/chat/` without a token segment routes
+to the authenticated handler.
 
 ## JID shape (consistent with S-jid-format)
 
 - `web:<folder>[/<suffix>]` — anonymous web chat at folder
 - `hook:<folder>/<source>[/<suffix>]` — labeled webhook ingest at folder
+
+The `web:` and `hook:` prefixes are data-layer markers — they drive
+sender attribution and default rendering, not URL access.
 
 `<folder>` is the destination folder path (e.g. `acme/eng`).
 `<source>` derives from the `source_label` argument at issuance and
@@ -150,9 +149,11 @@ context, never a parameter. Token returned once.
 `9-acl-unified`, gated applies the ACL gate at issue, list, and
 revoke.
 
-`webd` reads `route_tokens` at the URL boundary (`/chat/<token>/` and
-`/hook/<token>`). No ACL gate at this surface — the bearer token IS
-the auth. webd enforces the per-token rate limit (see below).
+`webd` reads `route_tokens` at the URL boundary. One handler is
+mounted at both `/chat/<token>/` and `/hook/<token>`: GET serves the
+widget, POST appends a message (SSE stream for browsers, plain
+response otherwise). No ACL gate — the bearer token IS the auth.
+webd enforces the per-token rate limit.
 
 Inbound dispatch flows through normal routing per `Q-unified-routing`
 — the ACL is re-applied on the JID at message-handling time, same as
@@ -184,8 +185,9 @@ reach):
 
 Revocation requires `Authorize(principal, admin, owner_folder)` —
 agent in folder A cannot revoke a token whose `owner_folder = B`.
-Tokens themselves are public bearer credentials — no ACL at
-`/chat/<token>/` or `/hook/<token>` beyond row existence + rate limit.
+Tokens themselves are public bearer credentials — no ACL at the
+`/chat/<token>/` or `/hook/<token>` aliases beyond row existence +
+rate limit.
 
 ## Rate limits, body limits
 
@@ -196,24 +198,21 @@ is a skill concern, not platform.
 
 ## Cutover
 
-No backfill. No production slink tokens are in use; the only live
-token (Atlas on marinade) gets reissued by hand after deploy.
+No backfill. Only live token (Atlas on marinade) gets reissued by hand.
 
 1. `CREATE TABLE route_tokens` and `DROP COLUMN groups.slink_token`
-   in one migration. No data carry-over.
-2. Delete all `slink*` code paths (no rename, no aliases) and replace
-   with the new `chat`/`hook` handlers.
+   in one migration.
+2. Delete all `slink*` code paths; replace with `chat`/`hook` handlers.
 3. Rename `SLINK_TOKEN` env → `CHAT_TOKEN`.
-4. Post-deploy: operator issues a new chat token for Atlas via
-   `arizuko token issue marinade/atlas chat`, updates Atlas's slack
-   integration with the new URL.
+4. Post-deploy: reissue Atlas's chat token via
+   `arizuko token issue marinade/atlas chat`, update the marinade-side embed.
 
 ## Tests
 
 - `issue_webhook('github')` from `acme/eng` → POST `/hook/<token>`
-  appends at `hook:acme/eng/github`; GET → 405.
-- Chat token on `/hook/<token>` → 401; hook token on
-  `/chat/<token>/` → 401.
+  appends at `hook:acme/eng/github`.
+- Chat token at `/hook/<token>` succeeds (alias); hook token at
+  `/chat/<token>/` succeeds (alias).
 - Revoke → next request 401, no grace.
 - Agent in folder A cannot revoke folder B's token (ACL scope).
 - Tier 1 at `acme` can mint for `acme/eng`; tier 2 at `acme` cannot.

@@ -46,6 +46,14 @@
         three sources you are most likely to wire up.
       </p>
 
+      <div class="note">
+        The webhook URL is <code>/hook/&lt;token&gt;</code> by
+        convention &mdash; it reads right to providers like GitHub.
+        It is an alias of <code>/chat/&lt;token&gt;/</code>; either
+        URL accepts either token. Use <code>/hook/</code> for webhook
+        sources and <code>/chat/</code> for browser visitors.
+      </div>
+
       <h2>use cases</h2>
 
       <p>
@@ -139,9 +147,9 @@
         skill, not the platform.
       </p>
 
-      <p>webd returns 204 to GitHub. No reply channel on
-        <code>/hook/</code> &mdash; the agent acknowledges (if at
-        all) on whichever channel makes sense.</p>
+      <p>webd returns a plain response to GitHub. The agent
+        acknowledges (if at all) on whichever channel makes sense
+        &mdash; webhooks rarely care about an in-band reply.</p>
 
       <h2>multiple sources under one folder</h2>
 
@@ -223,10 +231,8 @@ arizuko token revoke hook:acme/eng/github</code></pre>
   | grep -iE 'hook:|/hook/'</code></pre>
 
       <p>
-        A 401 means the token is unknown or the URL prefix does
-        not match the JID prefix (chat token on <code>/hook/</code>,
-        or vice versa). A 429 is the rate-limit bucket. A 413 is
-        body over 1 MiB.
+        A 401 means the token is unknown or revoked. A 429 is the
+        rate-limit bucket. A 413 is body over 1 MiB.
       </p>
 
       <h2>go deeper</h2>

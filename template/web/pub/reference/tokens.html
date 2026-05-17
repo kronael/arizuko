@@ -29,7 +29,7 @@
       <strong>Status:</strong> Spec'd &mdash; implementation lands in a follow-up release. This page describes the planned surface. See <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md">spec 5/W</a>.
     </div>
 
-    <p class="lede">Developer reference for the <code>route_tokens</code> primitive: schema, mint surface (MCP + REST), URL handlers (<code>/chat/</code> + <code>/hook/</code>), SSE events, rate limits. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a>.</p>
+    <p class="lede">Developer reference for the <code>route_tokens</code> primitive: schema, mint surface (MCP + REST), URL handler mounted at the <code>/chat/</code> and <code>/hook/</code> aliases, SSE events, rate limits. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a>.</p>
 
     <h2 id="schema">Schema</h2>
 
@@ -91,40 +91,33 @@ POST /v1/route_tokens/hook
   "url":   "https://&lt;host&gt;/hook/Yp3v...Q2",
   "jid":   "hook:acme/eng/github"
 }</code></pre>
-    <p>Token returned once. The <code>&lt;folder&gt;</code> segment of the JID is the destination folder (here <code>acme/eng</code>); for cross-folder mints the row's <code>owner_folder</code> may differ.</p>
-    <p>Note: legacy text below may say "owner" where it means "destination folder" — the JID embeds the destination, the column <code>owner_folder</code> records the issuer. <code>url</code> is built from <code>WEB_HOST</code> plus the prefix dictated by JID type (<code>/chat/&lt;token&gt;/</code> for <code>web:</code>, <code>/hook/&lt;token&gt;</code> for <code>hook:</code>).</p>
+    <p>Token returned once. The <code>&lt;folder&gt;</code> segment of the JID is the destination folder (here <code>acme/eng</code>); for cross-folder mints the row's <code>owner_folder</code> may differ. <code>url</code> is built from <code>WEB_HOST</code> plus a friendly prefix &mdash; <code>/chat/&lt;token&gt;/</code> for <code>web:</code> JIDs, <code>/hook/&lt;token&gt;</code> for <code>hook:</code> JIDs &mdash; but either alias accepts either token.</p>
 
-    <h2 id="chat-endpoint">/chat/&lt;token&gt;/ &mdash; web chat</h2>
+    <h2 id="endpoint">/chat/&lt;token&gt;/ and /hook/&lt;token&gt; &mdash; one handler, two aliases</h2>
 
     <table>
       <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
-      <tr><td>GET</td><td><code>/chat/{token}/</code></td><td>Chat widget (HTML).</td></tr>
-      <tr><td>POST</td><td><code>/chat/{token}/</code></td><td>Send a message. Returns <code>turn_id</code>.</td></tr>
-      <tr><td>GET</td><td><code>/chat/{token}/{turn_id}/sse</code></td><td>Live SSE for the round.</td></tr>
-      <tr><td>GET, POST</td><td><code>/chat/{token}/mcp</code></td><td>Per-token MCP surface: <code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>.</td></tr>
+      <tr><td>GET</td><td><code>/chat/{token}/</code> or <code>/hook/{token}</code></td><td>Chat widget (HTML).</td></tr>
+      <tr><td>POST</td><td><code>/chat/{token}/</code> or <code>/hook/{token}</code></td><td>Append body as one inbound at the row's JID. Returns <code>turn_id</code> (browsers open SSE).</td></tr>
+      <tr><td>GET</td><td><code>/chat/{token}/{turn_id}/sse</code> or <code>/hook/{token}/{turn_id}/sse</code></td><td>Live SSE for the round.</td></tr>
+      <tr><td>GET, POST</td><td><code>/chat/{token}/mcp</code> or <code>/hook/{token}/mcp</code></td><td>Per-token MCP surface: <code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>.</td></tr>
     </table>
 
-    <p>The token must resolve to a <code>web:</code> JID. Hook tokens on these paths return 401. The body shape, snapshot/status URLs, SSE events, and reconnect via <code>Last-Event-Id</code> are the same round-handle protocol used by every web reply &mdash; see <a href="/pub/components/webd.html">components/webd</a> for the SSE event vocabulary.</p>
+    <p>Either URL prefix accepts either JID prefix &mdash; pick what reads right to your caller. The token row's JID prefix drives sender attribution and default output style, not URL access. Body shape, snapshot/status URLs, SSE events, and reconnect via <code>Last-Event-Id</code> are the same round-handle protocol used by every web reply &mdash; see <a href="/pub/components/webd.html">components/webd</a>.</p>
 
     <p>POST body:</p>
     <pre><code>{"content": "...", "topic": "..."}    # JSON
-content=...&amp;topic=...                  # form</code></pre>
+content=...&amp;topic=...                  # form
+&lt;any opaque bytes&gt;                      # webhook payloads: body verbatim</code></pre>
 
-    <p>Default JSON response:</p>
+    <p>Default JSON response (browser path):</p>
     <pre><code>{
   "user":    { "id": "msg_abc", "content": "...", "created_at": "..." },
   "turn_id": "msg_abc",
   "status":  "pending"
 }</code></pre>
 
-    <h2 id="hook-endpoint">/hook/&lt;token&gt; &mdash; webhook ingest</h2>
-
-    <table>
-      <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
-      <tr><td>POST</td><td><code>/hook/{token}</code></td><td>Append body as one inbound at the row's JID. Returns 204.</td></tr>
-    </table>
-
-    <p>The token must resolve to a <code>hook:</code> JID. Chat tokens on this path return 401. GET on this path returns 405. The inbound message webd writes:</p>
+    <p>For <code>hook:</code> tokens, the inbound message webd writes:</p>
 
     <pre><code>{
   "jid":     "hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]",

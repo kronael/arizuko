@@ -25,9 +25,9 @@
       <strong>Status:</strong> Spec'd &mdash; implementation lands in a follow-up release. This page describes the planned surface. See <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md">spec 5/W</a>.
     </div>
 
-    <p>A route token is a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix says which kind of inbound this is &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anywhere else that knows how to POST JSON.</p>
+    <p>A route token is a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix encodes routing intent at the data layer &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anywhere else that knows how to POST JSON.</p>
 
-    <h2>One table, two URL prefixes</h2>
+    <h2>One table, two URL aliases</h2>
 
     <p>All tokens live in the <code>route_tokens</code> table. Four columns:</p>
 
@@ -36,16 +36,16 @@ jid           web:&lt;folder&gt;[/&lt;suffix&gt;]  |  hook:&lt;folder&gt;/&lt;so
 owner_folder  the folder that minted the row; bounds revocation
 created_at    when it was minted</code></pre>
 
-    <p>Two URL prefixes read from this table:</p>
+    <p>One handler is mounted at two friendly URL aliases:</p>
 
     <table>
-      <tr><th>URL</th><th>JID prefix</th><th>Methods</th><th>What happens</th></tr>
-      <tr><td><code>/chat/&lt;token&gt;/</code></td><td><code>web:</code></td><td>GET, POST</td><td>GET serves the chat widget. POST appends a message and opens an SSE reply stream.</td></tr>
-      <tr><td><code>/chat/&lt;token&gt;/mcp</code></td><td><code>web:</code></td><td>GET, POST</td><td>Per-token MCP surface (<code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>) for chat-token API consumers.</td></tr>
-      <tr><td><code>/hook/&lt;token&gt;</code></td><td><code>hook:</code></td><td>POST</td><td>Appends the body as one inbound message. Returns 204. No reply channel.</td></tr>
+      <tr><th>URL</th><th>Token JID</th><th>Methods</th><th>What happens</th></tr>
+      <tr><td><code>/chat/&lt;token&gt;/</code></td><td><code>web:</code> or <code>hook:</code></td><td>GET, POST</td><td>GET serves the chat widget. POST appends a message; SSE streams the reply for browsers, plain response for non-browser callers.</td></tr>
+      <tr><td><code>/chat/&lt;token&gt;/mcp</code></td><td><code>web:</code> or <code>hook:</code></td><td>GET, POST</td><td>Per-token MCP surface (<code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>).</td></tr>
+      <tr><td><code>/hook/&lt;token&gt;</code></td><td><code>web:</code> or <code>hook:</code></td><td>GET, POST</td><td>Alias of <code>/chat/&lt;token&gt;/</code> &mdash; same handler.</td></tr>
     </table>
 
-    <p>The URL prefix and the JID prefix must match. A chat token on <code>/hook/</code> returns 401; a hook token on <code>/chat/</code> returns 401. Mismatches are not retryable &mdash; the row exists, but the surface is wrong.</p>
+    <p>Pick the URL prefix that reads right to your caller &mdash; <code>/hook/</code> for webhook providers like GitHub, <code>/chat/</code> for browser users. The JID prefix on the token still distinguishes the streams at the data layer (sender attribution, routing rules), but it does not gate URL access.</p>
 
     <h2>What the JID encodes</h2>
 
@@ -53,7 +53,7 @@ created_at    when it was minted</code></pre>
 
     <p><code>hook:&lt;folder&gt;/&lt;source&gt;</code> means &ldquo;webhook from <em>source</em> targeting <em>folder</em>.&rdquo; <code>hook:acme/eng/github</code> is GitHub events for the <code>acme/eng</code> folder. <code>hook:acme/eng/linear/comments</code> partitions Linear into a comments stream separate from <code>hook:acme/eng/linear/issues</code>. The <code>&lt;source&gt;</code> segment is what the agent sees in the inbound's <code>sender</code> field.</p>
 
-    <p>JID prefixes are not interchangeable. A chat conversation cannot land at a <code>hook:</code> JID; webhook traffic cannot land at <code>web:</code>. Route rules treat them as different platforms even though one table issued both.</p>
+    <p>JID prefixes still split routing &mdash; a <code>hook:</code> message and a <code>web:</code> message can fire different rules even though one table issued both tokens. The URL alias you used to mint or POST does not affect this.</p>
 
     <h2>Issuance</h2>
 
