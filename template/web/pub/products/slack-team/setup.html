@@ -324,6 +324,60 @@ preserve_headers = ["X-Slack-Signature", "X-Slack-Request-Timestamp"]</code></pr
         agent or compromised token can't reach the other.
       </p>
 
+      <h2>11. webhook ingest (optional)</h2>
+      <p>
+        Bring external events &mdash; GitHub PRs, Linear issues,
+        Sentry alerts, Stripe charges &mdash; into a Slack-team
+        agent by POSTing to the folder's slink token. Same path a
+        slink chat user takes; no new daemon. Full recipe:
+        <a href="/pub/howto/webhooks.html">webhooks</a>.
+      </p>
+      <p>
+        Quick GitHub example. Create a folder for the source, read
+        its token, paste the URL into the repo's webhook config:
+      </p>
+      <pre><code># one folder per source keeps tokens scoped
+arizuko group acme add 'web:atlas/github' atlas-github
+
+sqlite3 /srv/data/arizuko_acme/store/messages.db \
+  "SELECT slink_token FROM groups WHERE folder='atlas-github'"
+
+# in github.com/&lt;repo&gt;/settings/hooks:
+# Payload URL: https://&lt;WEB_HOST&gt;/slink/&lt;token&gt;
+# Content-Type: application/json</code></pre>
+      <p>
+        Events arrive as messages in the <code>atlas-github</code>
+        folder with <code>chat_jid = web:atlas-github</code>. Route
+        from there to your main Slack channel with a normal route
+        rule, or let the <code>atlas-github</code> agent triage and
+        <code>escalate_group</code> to its parent when something
+        needs human attention. Cross-channel and cross-platform
+        moves use the same MCP tools the agents already share
+        (<a href="/pub/howto/talking-to-agents.html#crossing-agents">talking to agents</a>).
+      </p>
+      <p>
+        GitHub's payload is not in webd's <code>{content, topic}</code>
+        shape &mdash; you'll want a tiny adapter (Cloudflare Worker,
+        Lambda, or a script on the host) to project the JSON to a
+        one-line summary before POSTing. Sources that let you write
+        the body directly (Grafana, Healthchecks.io, custom
+        cron+curl) skip the bridge. webd does <em>not</em> verify
+        upstream HMAC headers today; the slink token is the
+        credential. Mitigations in the
+        <a href="/pub/howto/webhooks.html#security">webhooks security section</a>.
+      </p>
+
+      <h3>email ingest</h3>
+      <p>
+        For email-as-webhook (forwarded alerts, mailing-list
+        digests), use the <code>emaid</code> adapter instead of
+        slink &mdash; it owns IMAP receive, SMTP send, and threading
+        by Message-ID. See
+        <a href="/pub/components/emaid.html">emaid</a> for setup;
+        the in-progress identity model for inbound mail is in
+        <a href="https://github.com/kronael/arizuko/blob/main/specs/8/17-emaid-auth.md">specs/8/17-emaid-auth.md</a>.
+      </p>
+
       <h2>common issues</h2>
       <dl>
         <dt><strong>Bot dropped from the channel.</strong></dt>

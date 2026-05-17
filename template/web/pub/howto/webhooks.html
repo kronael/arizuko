@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>wire webhooks into arizuko — arizuko</title>
+    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <style>
+      .prose p { margin: 0.6em 0; }
+      .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+      .prose ol { margin: 0.4em 0 0.8em 1.4em; }
+      .prose li { margin: 0.3em 0; }
+      .prose pre { margin: 0.6em 0; }
+      .back { font-size: 0.85em; }
+      .note {
+        background: color-mix(in srgb, var(--accent3) 10%, transparent);
+        border-left: 3px solid var(--accent3);
+        padding: 0.5em 0.8em;
+        margin: 0.8em 0;
+        font-size: 0.92em;
+      }
+      .warn {
+        background: color-mix(in srgb, #e67e22 10%, transparent);
+        border-left: 3px solid #e67e22;
+        padding: 0.5em 0.8em;
+        margin: 0.8em 0;
+        font-size: 0.92em;
+      }
+      table { border-collapse: collapse; width: 100%; margin: 0.8em 0 1.2em; font-size: 0.9em; }
+      th { text-align: left; border-bottom: 1px solid var(--dim, #888); padding: 0.3em 0.8em 0.3em 0; font-weight: 600; }
+      td { padding: 0.25em 0.8em 0.25em 0; border-bottom: 1px solid color-mix(in srgb, var(--dim, #888) 25%, transparent); }
+      code { font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <p class="dim back">
+        <a href="/pub/">arizuko</a> &rsaquo;
+        <a href="/pub/howto/">how-to</a> &rsaquo; webhooks
+      </p>
+      <h1>wire webhooks into arizuko</h1>
+
+      <p>
+        GitHub, Linear, Sentry, Stripe, Grafana &mdash; every SaaS
+        with a "send a POST when X happens" knob can hand events to
+        an arizuko agent today. No new daemon: <code>webd</code>'s
+        <code>/slink/&lt;token&gt;</code> endpoint already accepts
+        POSTs and routes them through gated like any other inbound
+        message.
+      </p>
+
+      <h2>how it works</h2>
+      <ol>
+        <li>Every group has a <code>slink_token</code> in its row
+          (auto-generated at group creation by
+          <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L498"><code>onbod/main.go:498</code></a>).</li>
+        <li>POST <code>{"content": "...", "topic": "..."}</code> to
+          <code>https://&lt;WEB_HOST&gt;/slink/&lt;token&gt;</code>.</li>
+        <li><code>webd</code> looks up the token, stores the message
+          with <code>chat_jid = web:&lt;folder&gt;</code> and
+          <code>sender = anon:&lt;sha-of-ip&gt;</code>, then forwards
+          to gated &mdash; same path a slink chat user takes.</li>
+        <li>Gated runs the routing table against
+          <code>web:&lt;folder&gt;</code>; the agent for that folder
+          spawns and processes the turn.</li>
+      </ol>
+
+      <h2>JID shape today</h2>
+      <p>
+        Every webhook POST through one token lands with the same
+        <code>chat_jid</code> &mdash; the group's folder:
+      </p>
+      <pre><code>chat_jid:  web:&lt;folder&gt;
+sender:    anon:&lt;sha-of-ip&gt;
+source:    web</code></pre>
+      <p>
+        The token itself is <strong>not</strong> in the JID. There
+        is one token per group folder
+        (<a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L193"><code>store/groups.go:193</code></a>:
+        <code>GroupBySlinkToken</code> is a unique lookup). To
+        distinguish "this came from GitHub" from "this came from
+        Stripe", scope each source to its own group folder and give
+        each its own token.
+      </p>
+
+      <h3>topic as a within-source label</h3>
+      <p>
+        Inside one folder, set <code>topic</code> in the POST body
+        to fan events into threads: <code>github/issues</code>,
+        <code>github/prs</code>, <code>stripe/charges</code>. The
+        gateway treats <code>topic</code> as the conversation key,
+        so the agent sees one thread per event-class without
+        polluting the chat_jid.
+      </p>
+
+      <h2>get a token</h2>
+      <p>
+        Create a folder for the source (if you don't already have
+        one), then read its token from the DB:
+      </p>
+      <pre><code># create the folder (the JID is the route key gated will match on)
+arizuko group acme add 'web:github' github
+
+# read its slink_token
+sqlite3 /srv/data/arizuko_acme/store/messages.db \
+  "SELECT slink_token FROM groups WHERE folder='github'"</code></pre>
+      <p>
+        Treat the token like a password &mdash; whoever holds it
+        can POST messages into that folder.
+      </p>
+
+      <h2>example: GitHub &rarr; arizuko</h2>
+      <ol>
+        <li>In the repo settings &rarr; <strong>Webhooks</strong> &rarr;
+          <strong>Add webhook</strong>.</li>
+        <li>Payload URL: <code>https://&lt;WEB_HOST&gt;/slink/&lt;token&gt;</code></li>
+        <li>Content type: <code>application/json</code></li>
+        <li>SSL verification: enabled.</li>
+        <li>Events: pick what you want the agent to hear about
+          (issues, pull requests, releases, &hellip;).</li>
+      </ol>
+      <p>
+        GitHub's payload field names don't match what webd expects.
+        webd reads <code>content</code> and <code>topic</code>; GitHub
+        sends <code>action</code>, <code>issue</code>, <code>pull_request</code>,
+        and so on. Two ways to bridge:
+      </p>
+      <ul>
+        <li><strong>Adapter script in front of the webhook.</strong> A
+          tiny script (Cloudflare Worker, Lambda, or a Python
+          one-liner on the same host) accepts GitHub's payload,
+          extracts a one-line summary, POSTs <code>{content,topic}</code>
+          to slink. Honest path.</li>
+        <li><strong>Skip the bridge for sources that send plain text.</strong>
+          Grafana alerts, Healthchecks.io, custom curl-from-cron all
+          let you write the JSON body directly.</li>
+      </ul>
+
+      <h2>example: Grafana alert &rarr; arizuko</h2>
+      <p>
+        Grafana's <em>Webhook</em> contact point sends a JSON body
+        you control. Set the template to:
+      </p>
+      <pre><code>{
+  "content": "[{{ .Status }}] {{ .CommonLabels.alertname }} &mdash; {{ .CommonAnnotations.summary }}",
+  "topic": "grafana/{{ .CommonLabels.alertname }}"
+}</code></pre>
+      <p>
+        Each distinct alert keeps its own thread; firing/resolved
+        transitions land in the same one.
+      </p>
+
+      <h2>example: Stripe &rarr; arizuko</h2>
+      <p>
+        Same shape as GitHub &mdash; Stripe's payload is JSON but
+        not in webd's <code>{content, topic}</code> shape. Use a
+        thin adapter to project the event to a one-liner like
+        <code>"charge.succeeded $42.00 cus_ABC"</code> and POST it.
+      </p>
+      <p>
+        Stripe also sends a <code>Stripe-Signature</code> HMAC
+        header. The adapter is where you verify it &mdash; arizuko
+        does not (see security below).
+      </p>
+
+      <h2 id="security">security: what arizuko does and doesn't do</h2>
+      <div class="warn">
+        <strong>No HMAC verification on inbound slink POSTs.</strong>
+        The slink token is the credential. If the token leaks,
+        anyone who finds it can POST messages into that folder
+        until you rotate. webd accepts JSON
+        (<a href="https://github.com/kronael/arizuko/blob/main/webd/slink.go#L194"><code>webd/slink.go:194</code></a>)
+        or form-encoded bodies and never checks a signature header.
+      </div>
+      <p>The honest mitigations:</p>
+      <ul>
+        <li><strong>One token per source.</strong> A leaked
+          GitHub-source token can post into the <code>github</code>
+          folder. It cannot post into <code>stripe</code> or any
+          other folder.</li>
+        <li><strong>Scope the folder narrowly.</strong> Grants on the
+          target folder still apply to the agent's tool use. A
+          webhook-only folder needs no human grants, so an attacker
+          posting in cannot use the agent to reach into other
+          folders &mdash; the agent's <code>delegate_group</code>
+          and <code>escalate_group</code> targets are constrained
+          by the folder's grants
+          (<a href="/pub/concepts/grants.html">grants</a>).</li>
+        <li><strong>Rotate.</strong> Replace the token in the DB
+          and update the webhook URL at the source. There is no
+          revoke CLI today &mdash; UPDATE the row.</li>
+        <li><strong>Verify upstream signatures in an adapter.</strong>
+          If the source ships an HMAC header (Stripe, GitHub,
+          Slack-style), check it in the adapter script before
+          POSTing to slink. arizuko sees only verified events.</li>
+      </ul>
+
+      <h2>rate-limiting</h2>
+      <p>
+        Two backstops live in webd. POST body is capped at 64 KiB
+        (<code>maxFormBody</code>,
+        <a href="https://github.com/kronael/arizuko/blob/main/webd/server.go#L25"><code>webd/server.go:25</code></a>).
+        The <code>topic</code> field is capped at 128 chars
+        (<code>maxTopicLen</code>, same file) to keep the SSE hub's
+        map size bounded. Beyond that, the platform does not rate
+        limit a hot webhook source. A noisy upstream becomes a
+        noisy agent turn queue. Use folder-scoped routes with
+        <code>#observe</code> mode
+        (<a href="/pub/concepts/routing.html">routing</a>) to land
+        events without firing the agent on every one.
+      </p>
+
+      <h2>how this looks to the agent</h2>
+      <p>
+        The agent sees a normal message in its folder, sender
+        <code>anon:&lt;hex&gt;</code>. If you set <code>topic</code>,
+        the agent sees that as the thread. To respond, the agent
+        calls <code>reply</code> with the same chat_jid &mdash; the
+        reply lands on webd's SSE stream
+        (<a href="/pub/components/webd.html">webd</a>), reachable
+        by anyone subscribed to that folder via the chat widget or
+        an SDK call. The agent's reply does <em>not</em> go back
+        to the upstream webhook source &mdash; webhooks are
+        one-way ingest.
+      </p>
+
+      <h2>checking it works</h2>
+      <pre><code># tail logs as you fire a test event
+sudo journalctl -u arizuko_acme --since "30s ago" -f | grep -iE 'slink|web:'</code></pre>
+      <p>
+        Look for <code>slink inbound folder=github</code> when the
+        POST lands, then <code>spawn folder=github</code> as the
+        agent starts a turn. A 404 means the token is unknown
+        (typo or rotated). A 400 means the body is missing
+        <code>content</code>.
+      </p>
+
+      <h2>future enhancement (not shipped)</h2>
+      <p>
+        Operator-tunable JID prefix per token. Today every webhook
+        through a folder's token lands as
+        <code>web:&lt;folder&gt;</code>. A small change to
+        <a href="https://github.com/kronael/arizuko/blob/main/webd/slink.go#L372"><code>webd/slink.go:372</code></a>
+        (<code>injectSlink</code>) plus a new
+        <code>jid_prefix</code> column on the <code>groups</code>
+        table would let you label a token "github" and have inbound
+        post as <code>webhook:github/&lt;folder&gt;</code>. Useful
+        for route rules that fan one folder across many sources.
+        Not shipped &mdash; for now, one folder per source covers
+        the same intent. Open an issue if you need the JID-level
+        split.
+      </p>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li><a href="/pub/components/webd.html">webd</a> &mdash; the daemon that owns <code>/slink/*</code>.</li>
+        <li><a href="/pub/concepts/slink.html">slink</a> &mdash; the shareable web-chat endpoint webhooks reuse.</li>
+        <li><a href="/pub/concepts/routing.html">routing</a> &mdash; how <code>web:&lt;folder&gt;</code> reaches an agent.</li>
+        <li><a href="/pub/concepts/jid.html">JID format</a> &mdash; address shape across every platform.</li>
+        <li><a href="/pub/reference/cli.html">CLI reference</a> &mdash; <code>arizuko group add</code>, <code>arizuko send</code>.</li>
+      </ul>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="/pub/assets/hub.js"></script>
+  </body>
+</html>
