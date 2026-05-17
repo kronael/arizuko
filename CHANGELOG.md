@@ -14,6 +14,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.40.1] — 2026-05-17
+
+> arizuko v0.40.1 — web URLs that resolve, @ messages that arrive
+>
+> Two friction fixes from this week's krons runs: agents now know their real publishing URL, and bare `@` no longer eats your message.
+>
+> • `$WEB_PREFIX` matches the actual mount per tier — root publishes at `/pub/...`, tier-1 worlds at `<world>.host`, tier-2 hands off to the parent.
+> • `@<unknown-folder>` falls through to the agent instead of "Failed: group X not found". Mentions and cross-instance refs stop disappearing.
+> • Agent gets a concrete recipe in CLAUDE.md: per-tier publish steps, local-path → public-URL mapping, response-size pattern (short summary + offered report file).
+> • Web docs site refilled: every daemon has a component page, five new concept pages (tasks, secrets, personas, onboarding, skills), landing tightened.
+> • Specs 8/15 + 8/16 for self-service whapd re-pair (in dashd) landed as drafts.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Fixed
 
 - container: `WEB_PREFIX` now matches the agent's actual mount and
@@ -22,7 +36,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   tier 2+ have no web mount at all. Tier 1 now gets `WEB_PREFIX=<folder>`
   (the vhost subdomain prefix); tier 2+ gets empty `WEB_PREFIX` so the
   agent can detect "no publishing surface" and ask its parent world.
-  `ant/CLAUDE.md` updated with the three tier cases.
+  `ant/CLAUDE.md` updated with the three tier cases + per-tier publish
+  recipe (`ls /workspace/web/`, `echo $WEB_PREFIX`, `curl -sI`).
 
 ### Changed
 
@@ -35,6 +50,36 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   pin routing as before. Removes false-positive consumption of messages
   starting with `@` (mentions, cross-instance refs, sentences in
   non-English).
+- ant/CLAUDE.md: new sections — "Local paths vs public URLs" (mapping
+  table for `~/`, `/workspace/web/pub/`, `/workspace/web/` plus
+  WebDAV `/dav/<folder>/` translation) and "Response size + medium"
+  (surface-vs-sweet-spot table, long-answer pattern: write to
+  `~/reports/`, post summary, offer file).
+
+### Docs
+
+- Web docs site (`template/web/pub/`): five new concept pages (tasks,
+  secrets, personas, onboarding, skills), five new component pages
+  (gated, webd, proxyd, dashd, onbod) plus timed, ttsd, davd and a
+  channels overview. Landing tightened. Howto rewritten as an
+  operator on-ramp. Old `cookbooks/`, `docs/`, `blog/` directories
+  removed.
+- In-repo docs: refilled five weak per-pkg READMEs (sidecar, api,
+  theme, db_utils, router). Three oracle review passes cleared
+  accuracy bugs (Paner refs, fictional `grants`/`admissions`/`vhosts`
+  tables, dashd "read-only" stale claim in 4 places) and ring-rule
+  violations.
+- `template/web/CLAUDE.md`: documents the actual cp + sudo-delete
+  deploy procedure for krons.
+
+### Specs
+
+- 8/15 (status: spec): self-service WhatsApp re-pair in dashd
+  (operator-only via `**` super-grant). Replaces the manual
+  stop/wipe/`--pair`/restart docker dance with a button.
+- 8/16 (status: discussion): companion whapd auth-dir auto-rotate
+  on consecutive 401s.
+- 6/I (status: discussion): per-turn modality envelope design space.
 
 ## [v0.40.0] — 2026-05-16
 
