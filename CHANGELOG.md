@@ -14,6 +14,53 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.40.4] — 2026-05-17
+
+> arizuko v0.40.4 — migrate skill stops lying, does real 3-way merge
+>
+> The migrate skill claimed to merge skills + CLAUDE.md across versions. It had no merge base. Two releases (v0.40.1, v0.40.2) shipped without their content reaching subgroups until a hand-correction cp.
+>
+> • `.merge-base/` snapshot under each group's `~/.claude/`. seedSkills mirrors upstream exactly (renames + deletions propagate). Operator-edited `ours/` preserved on re-seed.
+> • migrate skill step (a) is a real 3-way merge per file: missing/changed/conflict branches explicit.
+> • `.disabled` sentinel disables a stock skill (removes SKILL.md AND wipes its merge-base for a clean re-enable).
+> • `<group>/CLAUDE.md` operator-owned; `<group>/.claude/CLAUDE.md` ant-managed via merge. Customize at the group level.
+> • Gateway keeps the child-notify backstop so a failed `/migrate` doesn't silently hide release news from subgroups.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- `container/seedSkills`: write each synced file to both `~/.claude/<path>`
+  AND `~/.claude/.merge-base/<path>` (new merge base for the migrate
+  skill's 3-way merge). Merge-base mirrors upstream exactly via
+  RemoveAll-before-cp; live `ours/` preserved via skip-if-exists.
+- `container/seedSkills`: honor `~/.claude/skills/<name>/.disabled`
+  sentinel — remove its SKILL.md so Claude Code stops indexing AND
+  RemoveAll its merge-base (re-enable starts fresh, no stale base).
+- `ant/skills/migrate/SKILL.md` step (a) rewritten with real 3-way merge
+  using `.merge-base/` as base. Bash hardened: `set -euo pipefail`,
+  `shopt -s nullglob`, `find -print0` + `while IFS= read -r -d ''`.
+- Inline "both changed" merge: agent reads base/ours/theirs, writes
+  merged ours in the current turn (no Task subagent spawn).
+
+### Changed
+
+- `ant/CLAUDE.md` Storage section: document `<group>/CLAUDE.md` as
+  operator-owned overlay vs `<group>/.claude/CLAUDE.md` as ant-managed.
+- Tests: TestSeedSkills_PreservesOursOnRerun (S1),
+  TestSeedSkills_MergeBaseMirrorsUpstream (S2/S3),
+  TestSeedSkills_DisabledRemovesMergeBase (S7).
+  Gateway test re-asserts children DO get notified on auto-migrate.
+
+### Docs
+
+- New `/pub/concepts/autoviv.html` — compose existing primitives for
+  per-channel autoviv (catch-all route to tier-1 + register_group call
+  from tier-1 agent when sender holds `**` super-grant).
+- `slack-team/setup.html` `## 10. multi-workspace`: documents BOTH paths
+  (multiple slakd in one instance via distinct .toml filenames per spec
+  5/R-multi-account, OR multiple arizuko instances for full isolation).
+
 ## [v0.40.2] — 2026-05-17
 
 > arizuko v0.40.2 — self-service WhatsApp re-pair + uniform reaction-mentions
