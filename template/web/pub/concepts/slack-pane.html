@@ -37,8 +37,8 @@
     <p>Per pane, slakd stores a row in <code>pane_sessions</code> keyed by <code>(team_id, user_id, thread_ts)</code> with the pane DM channel and the optional <code>context_jid</code> the user is viewing. When <code>assistant_thread_started</code> arrives, slakd:</p>
     <ol>
       <li>Upserts the <code>pane_sessions</code> row.</li>
-      <li>Sets the pane title from the bot&rsquo;s <code>ASSISTANT_NAME</code> (or <code>PERSONA.md</code> frontmatter <code>pane_title</code>).</li>
-      <li>Stages default suggested prompts from <code>PERSONA.md</code> frontmatter <code>pane_prompts</code> or a built-in starter list.</li>
+      <li>Sets the pane title from <code>ARIZUKO_ASSISTANT_NAME</code> (falls back to the instance name) via <code>bot.paneTitle()</code> at <a href="https://github.com/kronael/arizuko/blob/main/slakd/bot.go#L413"><code>slakd/bot.go:413</code></a>.</li>
+      <li>Stages default suggested prompts from the bot&rsquo;s compiled starter list; the agent overrides them per pane with <a href="https://github.com/kronael/arizuko/blob/main/reference/mcp.html#pane_set_prompts"><code>pane_set_prompts</code></a> MCP calls.</li>
       <li>Synthesises an inbound with <code>verb="pane_open"</code> so the route table can match on it.</li>
     </ol>
     <p>On every agent reply in a pane, slakd posts via <code>chat.postMessage</code> with <code>thread_ts</code> set to the pane&rsquo;s thread, then optionally calls <code>setSuggestedPrompts</code> with whatever the agent staged via <code>pane_set_prompts</code>.</p>

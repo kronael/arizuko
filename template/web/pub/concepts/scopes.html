@@ -27,6 +27,7 @@
     <h2>same-level siblings observe each other</h2>
     <p>Two folders under the same parent see each other&rsquo;s messages as ambient <code>&lt;observed&gt;</code> context on every turn. The default sibling list is &ldquo;all folders sharing my immediate parent.&rdquo; So <code>corp/eng/sre</code> and <code>corp/eng/oncall</code> both observe traffic in the other &mdash; useful when an incident in one is relevant to the other team.</p>
     <p>The window is bounded: see <a href="/pub/reference/env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a> and <a href="/pub/reference/env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a> for the instance default; <code>routes.observe_window_messages</code> and <code>routes.observe_window_chars</code> override per route.</p>
+    <p>Each topic in a folder tracks its own <code>sessions.observed_cursor</code>, so one topic consuming an observed message does not hide it from another topic in the same folder (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/6/F-topic-lineage.md">6/F</a>).</p>
 
     <h2>children are isolated</h2>
     <p>A child folder is <em>not</em> a sibling. <code>corp/eng/oncall/incident-42</code> sits under <code>oncall</code>; the parent does not auto-observe the child, and the child does not auto-observe its uncles. To break the wall, route the child&rsquo;s traffic up explicitly with a routing rule, or grant a specific cross-folder ACL.</p>

@@ -28,7 +28,7 @@
     <h1>schema</h1>
     <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; schema</p>
 
-    <p class="lede">Every SQLite table in arizuko's shared <code>messages.db</code>. Schema lives in <a href="https://github.com/kronael/arizuko/tree/main/store/migrations"><code>store/migrations/</code></a> (embedded via <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a>); <code>gated</code> applies them at boot, every other daemon connects read/write but never migrates. State described here is the cumulative result of migrations 0001 through 0048.</p>
+    <p class="lede">Every SQLite table in arizuko's shared <code>messages.db</code>. Schema lives in <a href="https://github.com/kronael/arizuko/tree/main/store/migrations"><code>store/migrations/</code></a> (embedded via <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a>); <code>gated</code> applies them at boot, every other daemon connects read/write but never migrates. State described here is the cumulative result of migrations 0001 through 0057 &mdash; the 0049&ndash;0057 run added cost-log, proxyd-routes, unified ACL, topic lineage, pane sessions, and group visibility.</p>
 
     <p>30 live tables, grouped by concern. Two carry-overs from the 0001 baseline (<code>grants</code>, <code>channels</code>) have no live Go writers and are noted as vestigial.</p>
 

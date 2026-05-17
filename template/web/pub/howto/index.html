@@ -16,73 +16,103 @@
 </head>
 <body>
   <div class="hub-container prose">
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; howto &rsaquo; getting started</p>
     <h1>getting started</h1>
-    <p class="dim back"><a href="/pub/">&larr; hub</a></p>
 
-    <h2>what this is</h2>
-    <p>arizuko is a multitenant Claude agent router. Channel adapters (telegram, discord, web, &hellip;) push messages over HTTP to <code>gated</code>; gated routes each message to a per-group containerized Claude Code process and streams the reply back. One instance hosts many groups; each group has its own files, persona, skills, and container.</p>
+    <p>This page walks a fresh host from zero to a running instance with one channel and one invited user. Each step is one command. Skim the whole list first; come back and run them in order.</p>
 
-    <h2>what you can do here</h2>
+    <h2>1. What you need</h2>
     <ul>
-      <li>sign in at <a href="/auth/login"><code>/auth/login</code></a> to reach dashboards and your chat.</li>
-      <li>chat anonymously at <code>/slink/&lt;token&gt;</code> when an operator shares a link &mdash; no login required. The same endpoint is also a public HTTP API; see <a href="/pub/concepts/slink.html">slink</a>.</li>
-      <li>browse public apps from the <a href="/pub/">hub</a>. Each app is a static site under a group&rsquo;s <code>web/pub/</code> directory.</li>
+      <li>A Linux host you can <code>sudo</code> on. arizuko is tested on Debian 12.</li>
+      <li>Docker (with the <code>docker compose</code> plugin). Every daemon and every agent runs in a container.</li>
+      <li>Go 1.22+ if you build from source. Skip this if you grab a pre-built binary.</li>
+      <li>About 4 GB of free disk under <code>/srv/data/</code> per instance.</li>
+      <li>A public domain and TLS, only if you want web chat, OAuth login, or inbound webhooks from Slack/Discord. A local-only instance needs neither.</li>
+      <li>No ports open to the internet by default. Channel adapters listen on the docker network; <code>webd</code> + <code>proxyd</code> bind <code>:80</code>/<code>:443</code> only when you turn on the web layer.</li>
     </ul>
 
-    <h2>glossary</h2>
+    <h2>2. Install</h2>
+    <p>Clone the repo and build. The Makefile produces <code>./arizuko</code> plus every daemon binary.</p>
+    <pre><code>git clone https://github.com/kronael/arizuko.git
+cd arizuko
+make build
+sudo make images   # build agent + daemon docker images
+sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
+    <p>The <code>make images</code> step is the longest (several minutes the first time). It builds <code>arizuko-ant:latest</code>, the per-group agent image, plus one image per shipped adapter.</p>
+
+    <h2>3. Create your first instance</h2>
+    <p>Pick a short name. The name becomes the data directory and the systemd unit name.</p>
+    <pre><code>sudo arizuko create demo</code></pre>
+    <p>This seeds <code>/srv/data/arizuko_demo/</code> with:</p>
+    <ul>
+      <li><code>.env</code> &mdash; instance config with a fresh <code>CHANNEL_SECRET</code>. Mode <code>0600</code>. Edit it to add API keys later.</li>
+      <li><code>store/messages.db</code> &mdash; SQLite database (WAL). One default group called <code>main</code>.</li>
+      <li><code>groups/main/</code> &mdash; the first agent's home: <code>PERSONA.md</code>, <code>.claude/</code> session dir, <code>facts/</code>, <code>diary/</code>.</li>
+      <li><code>ipc/main/</code> &mdash; placeholder for the MCP unix socket the agent will use.</li>
+      <li><code>web/pub/</code> &mdash; a copy of these docs, served by <code>vited</code>.</li>
+    </ul>
+    <p>Pass <code>--product &lt;name&gt;</code> (for example <code>--product assistant</code>) to seed skills and a checklist of API keys to fill in. See <a href="/pub/products/">products</a> for the catalog.</p>
+
+    <h2>4. Run it</h2>
+    <p><code>arizuko run</code> generates <code>docker-compose.yml</code> from the instance state and brings the stack up in the foreground.</p>
+    <pre><code>sudo arizuko run demo</code></pre>
+    <p>You should see <code>gated</code>, <code>timed</code>, <code>onbod</code>, <code>dashd</code>, and the agent runner come up. In another shell, check status:</p>
+    <pre><code>sudo arizuko status demo</code></pre>
+    <p>For production, run arizuko as a systemd service named <code>arizuko_demo</code> instead of in the foreground. Logs then live in <code>journalctl -u arizuko_demo</code> &mdash; the docker log driver is <code>none</code> on purpose, so <code>docker logs</code> shows nothing.</p>
+
+    <h2>5. Wire your first channel</h2>
+    <p>An instance with no channel adapter has no way to receive messages from the outside. Pick one platform to start. Each guide covers the platform's app/bot setup, the env vars to drop into <code>.env</code>, and the <code>arizuko group add</code> command that binds a chat to a folder.</p>
+    <ul>
+      <li><a href="/pub/howto/slack.html">Slack</a> &mdash; Slack App, signing secret, Events API.</li>
+      <li><a href="/pub/howto/discord.html">Discord</a> &mdash; bot token, mention-only channels, threads.</li>
+      <li><a href="/pub/howto/asymmetric-channels.html">Asymmetric channels</a> &mdash; ingest on one platform, reply on another.</li>
+    </ul>
+    <p>Telegram, WhatsApp, Mastodon, Bluesky, Reddit, Email, X, and LinkedIn adapters ship in the repo. Their setup follows the same shape; see the <code>README.md</code> next to each daemon (<code>teled/</code>, <code>whapd/</code>, &hellip;).</p>
+
+    <h2>6. Invite your first user</h2>
+    <p>Mint a one-time invite link. <code>target_glob</code> decides which folders the new user will be granted access to. <code>main/**</code> means &ldquo;the <code>main</code> group and any sub-group under it.&rdquo;</p>
+    <pre><code>sudo arizuko invite demo create 'main/**' --max-uses 1 --expires 24h</code></pre>
+    <p>The command prints a token. Share <code>https://&lt;your-host&gt;/onboarding/&lt;token&gt;</code>. The recipient signs in with one of the configured OAuth providers, lands on a confirmation page, and their <code>auth_users.sub</code> is granted admin on the matched folders. List and revoke with <code>arizuko invite demo list</code> and <code>arizuko invite demo revoke &lt;token&gt;</code>.</p>
+
+    <h2>7. Verify the agent responds</h2>
+    <p>Two ways to confirm the loop is live.</p>
+    <p><strong>From the host</strong>, inject a message and wait for the reply:</p>
+    <pre><code>sudo arizuko send demo main "ping" --wait</code></pre>
+    <p><strong>From the channel</strong>, send a message in the wired chat and watch the gateway pick it up:</p>
+    <pre><code>sudo journalctl -u arizuko_demo --since "2 min ago" --no-pager | grep -iE 'mention|spawn|reply'</code></pre>
+    <p>Red flags in the log: <code>error in message loop</code>, <code>container timeout</code>, <code>circuit breaker open</code>, <code>pull access denied for arizuko-ant</code> (means <code>make images</code> never ran on this host).</p>
+
+    <h2>Further reading</h2>
+    <p>Vocabulary:</p>
     <dl>
       <dt>group</dt>
-      <dd>A workspace. Files, diary, skills, and one agent live here.</dd>
+      <dd>A workspace. Files, diary, skills, and one agent live here. Folder name like <code>main</code> or <code>corp/eng/sre</code>.</dd>
       <dt>agent</dt>
-      <dd>The Claude Code instance for a group. Runs in a Docker container, started on demand.</dd>
+      <dd>The Claude Code instance for a group. Runs in a docker container, started on demand, idle-killed.</dd>
       <dt>channel</dt>
-      <dd>Where messages flow in and out: telegram, discord, web, email, and so on. Adapters are independent daemons.</dd>
+      <dd>Where messages flow in and out: Slack, Discord, Telegram, web, email, &hellip;. Each adapter is a separate daemon.</dd>
       <dt>skill</dt>
-      <dd>A markdown file the agent loads on start. Encodes one capability or convention.</dd>
+      <dd>A markdown file under <code>groups/&lt;folder&gt;/.claude/skills/</code> the agent loads on start. One file, one capability.</dd>
       <dt>slink</dt>
-      <dd>A shareable chat link bound to a group, and the public HTTP protocol behind it. Anyone with the URL can talk to the agent &mdash; no login. <a href="/pub/concepts/slink.html">docs</a>.</dd>
+      <dd>A shareable chat link bound to a group. Anyone with the URL can talk to the agent &mdash; no login. See <a href="/pub/concepts/slink.html">slink</a>.</dd>
     </dl>
 
-    <h2>deploy guides</h2>
+    <p>More guides:</p>
     <ul>
-      <li><a href="/pub/howto/discord.html">deploy on Discord</a> &mdash; bot setup, routing, mention-only channels, threads</li>
-      <li><a href="/pub/howto/slack.html">deploy on Slack</a> &mdash; Slack App, event subscriptions, signing secret</li>
-      <li><a href="/pub/howto/asymmetric-channels.html">asymmetric channels</a> &mdash; ingest from one channel, reply on another (the <code>#observe</code> recipe)</li>
-      <li><a href="/pub/howto/webdav.html">mount the workspace over WebDAV</a> &mdash; rclone / Finder / curl, path structure, write-block guard</li>
+      <li><a href="/pub/howto/webdav.html">Mount the workspace over WebDAV</a> &mdash; rclone, Finder, curl.</li>
+      <li><a href="/pub/concepts/">Concepts</a> &mdash; routing, auth, grants, slink, voice.</li>
+      <li><a href="/pub/reference/">Reference</a> &mdash; CLI, env vars, MCP tools, schema.</li>
     </ul>
 
-    <h2 id="audit-mode">audit mode (mute outbound)</h2>
-    <p>Two instance-wide env vars on the gateway let you run a group or a whole platform in <em>shadow</em> mode: the agent keeps producing turns, every outbound is persisted to the <code>messages</code> table, but nothing is forwarded to the channel adapter. Useful for dry-running a new persona, a routing change, or a fresh group before unmuting.</p>
+    <h2 id="audit-mode">Audit mode (mute outbound)</h2>
+    <p>Two env vars on the gateway run a group or platform in shadow mode: the agent keeps producing turns, every outbound row lands in <code>messages</code>, but nothing reaches the channel.</p>
     <dl>
       <dt><code>SEND_DISABLED_GROUPS</code></dt>
-      <dd>CSV of folder names. Outbound from any matching group is recorded but not sent. Example: <code>SEND_DISABLED_GROUPS=atlas,research</code>.</dd>
+      <dd>CSV of folder names. Example: <code>SEND_DISABLED_GROUPS=atlas,research</code>.</dd>
       <dt><code>SEND_DISABLED_CHANNELS</code></dt>
-      <dd>CSV of platform prefixes (the part before <code>:</code> in a JID). Mutes outbound for an entire platform across all groups. Example: <code>SEND_DISABLED_CHANNELS=discord</code>.</dd>
+      <dd>CSV of platform prefixes (the part before <code>:</code> in a JID). Example: <code>SEND_DISABLED_CHANNELS=discord</code>.</dd>
     </dl>
-    <p>Behaviour:</p>
-    <ul>
-      <li>Outbound rows land in <code>messages</code> with <code>bot_msg=1</code>, <code>from_me=1</code>, <code>status=sent</code>, <code>routed_to=&lt;chat_jid&gt;</code>. The agent sees <code>send_reply</code> / <code>send_message</code> return success &mdash; it does <strong>not</strong> know it was muted.</li>
-      <li>Inbound is unaffected; mute is outbound-only.</li>
-      <li>Mute is all-or-nothing per group. There is no per-thread, per-topic, or per-verb carve-out.</li>
-      <li>Audit log: rows are visible at <code>/dash/activity/</code> (sender is the folder name) and via the <code>inspect_messages</code> MCP tool. A dedicated per-folder audit view is not shipped today.</li>
-    </ul>
-    <p>Recipe &mdash; deploy a new Discord group in shadow mode:</p>
-    <pre><code># 1. enable the Discord adapter (DISCORD_TOKEN etc.) so messages flow inbound
-# 2. add the mute knob to the instance .env
-echo 'SEND_DISABLED_GROUPS=atlas' &gt;&gt; /srv/data/arizuko_&lt;name&gt;/.env
-
-# 3. restart the instance so gateway picks up the new env
-sudo systemctl restart arizuko_&lt;name&gt;
-
-# 4. send a test message; confirm a row lands in messages without
-#    anything appearing in the Discord channel
-sqlite3 /srv/data/arizuko_&lt;name&gt;/store/messages.db \
-  "SELECT id, sender, routed_to, status FROM messages \
-   WHERE bot_msg=1 ORDER BY timestamp DESC LIMIT 5;"</code></pre>
-    <p>Source &mdash; gateway enforcement: <code>gateway/gateway.go:821</code> (group mute), <code>gateway/gateway.go:1141</code> (platform mute). Config parsing: <code>core/config.go:140</code>. Test that locks the behaviour: <code>gateway/gateway_test.go:1052</code> (<code>TestMakeOutputCallback_MutedGroup</code>).</p>
-
-    <h2>more</h2>
-    <p><a href="/pub/concepts/">concepts</a> &mdash; how arizuko thinks, primitive by primitive.</p>
+    <p>Inbound is unaffected. The agent does not know it was muted &mdash; <code>send_reply</code> returns success. Rows are visible at <code>/dash/activity/</code> and via the <code>inspect_messages</code> MCP tool. Source: <code>gateway/gateway.go</code> (group + platform mute), <code>core/config.go</code> (parsing), <code>gateway/gateway_test.go</code> <code>TestMakeOutputCallback_MutedGroup</code> (locked behaviour).</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="/pub/assets/hub.js"></script>

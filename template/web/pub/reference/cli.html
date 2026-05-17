@@ -45,6 +45,7 @@
         <li><a href="#identity">Identities</a> &mdash; <code>identity list|link|unlink</code></li>
         <li><a href="#invite">Invites</a> &mdash; <code>invite create|list|revoke</code></li>
         <li><a href="#gate">Gates (rate limits)</a> &mdash; <code>gate list|add|rm|enable|disable</code></li>
+        <li><a href="#budget">Budget (cost caps)</a> &mdash; <code>budget set|show folder|user</code></li>
         <li><a href="#network">Network allowlist</a> &mdash; <code>network allow|deny|list|resolve</code></li>
         <li><a href="#secret">Secrets (folder &amp; user)</a> &mdash; <code>secret</code>, <code>user-secret</code></li>
       </ul>
@@ -247,6 +248,28 @@ arizuko gate krons add 'corp/eng/**' 1000</code></pre>
     <p><strong>State touched:</strong> <code>gates</code> table.</p>
     <pre><code>arizuko gate krons disable solo/inbox</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L461"><code>cmd/arizuko/main.go:461</code></a></p>
+
+    <h2 id="budget" class="group-h2">Budget (cost caps)</h2>
+    <p>Per-folder and per-user daily spend caps in cents. The pre-spawn gate in <code>gateway/</code> refuses to spawn when today's spend exceeds the lower of (folder cap, user cap). Caps live on <code>groups.cost_cap_cents_per_day</code> and <code>auth_users.cost_cap_cents_per_day</code>; spend is summed from <code>cost_log</code>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/34-cost-caps.md">5/34</a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L18"><code>budget.go:18</code></a>.</p>
+
+    <h3 id="budget-set"><span class="sig">arizuko budget &lt;instance&gt; set &lt;folder|user&gt; &lt;name|sub&gt; --daily N</span></h3>
+    <p>Set a daily cap (in cents) on a folder or user. <code>--daily 0</code> removes the cap (uncapped). Negative values are rejected.</p>
+    <table>
+      <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
+      <tr><td><code>--daily</code></td><td>int</td><td>required</td><td>Daily cap in cents. <code>0</code> = uncapped (cap row removed).</td></tr>
+    </table>
+    <p><strong>State touched:</strong> <code>groups.cost_cap_cents_per_day</code> (folder scope) or <code>auth_users.cost_cap_cents_per_day</code> (user scope).</p>
+    <pre><code>arizuko budget krons set folder corp/eng --daily 5000
+arizuko budget krons set user google:alice@example.com --daily 1000
+arizuko budget krons set folder solo/inbox --daily 0   # uncapped</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L30"><code>cmd/arizuko/budget.go:30</code></a></p>
+
+    <h3 id="budget-show"><span class="sig">arizuko budget &lt;instance&gt; show &lt;folder|user&gt; &lt;name|sub&gt;</span></h3>
+    <p>Print the cap, today's spend, remaining budget, and a status line (<code>ok</code>, <code>WARN</code> at &ge;80%, <code>EXHAUSTED</code> when turns will be refused). Tab-aligned key/value table.</p>
+    <p><strong>State touched:</strong> read-only.</p>
+    <pre><code>arizuko budget krons show folder corp/eng
+arizuko budget krons show user google:alice@example.com</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L43"><code>cmd/arizuko/budget.go:43</code></a></p>
 
     <h2 id="network" class="group-h2">Network allowlist</h2>
     <p>Per-folder egress rules consumed by the crackbox proxy. Walks the folder ancestry on resolve. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L12"><code>network.go:12</code></a>.</p>
