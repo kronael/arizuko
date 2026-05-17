@@ -49,6 +49,7 @@ timed/    scheduler: polls scheduled_tasks, inserts messages
 onbod/    onboarding state machine + gated admission queue
 dashd/    operator dashboard (HTMX, read-only SQLite)
 webd/     web chat channel adapter (HTTP/SSE, registers as "web")
+vited/    Vite dev server / static origin behind proxyd
 proxyd/   reverse proxy: auth, vhost routing, slink rate limiting
 grants/   CheckAction, MatchingRules, DeriveRules
 chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
@@ -68,8 +69,8 @@ teled/ discd/ slakd/ mastd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/
 
 sidecar/ whisper-cpp container; gateway calls Whisper for inbound
         voice when VOICE_TRANSCRIPTION_ENABLED=true
-crackbox/ egress-isolation proxy + KVM sandbox library; pulled in when
-        CRACKBOX_ADMIN_API set (see "Compose Containers" below).
+crackbox/ optional egress-isolation proxy + KVM sandbox library; pulled
+        in when CRACKBOX_ADMIN_API set (see "Compose Containers" below).
         Shippable separately; specs/9/b-orthogonal-components.md
 ```
 

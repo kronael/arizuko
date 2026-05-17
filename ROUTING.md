@@ -347,6 +347,9 @@ reply. Updated in three cases:
    then re-reads `GetLastReplyID` before each chunk to pick up mid-run
    steering updates
 
+Topics forked via `fork_topic` inherit the parent's last-reply context as
+their starting anchor but advance the child's `lastReplyID` independently.
+
 ## Sticky Routing
 
 Sticky commands let users lock a chat to a specific group or topic

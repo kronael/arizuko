@@ -141,8 +141,8 @@ Caveats:
 listener is shipped: gated allowlisted hostnames forward to the
 upstream resolver; denied hostnames return NXDOMAIN; `QTYPE=ANY`
 returns REFUSED; malformed/multi-question packets drop silently.
-**Status:** arizuko-side wiring (passing `--dns <crackbox-ip>` from
-`container.Run` to `docker create`) is pending follow-up under
+**Pending:** arizuko-side wiring (passing `--dns <crackbox-ip>` from
+`container.Run` to `docker create`) under
 `specs/9/10-crackbox-arizuko.md`; today agent containers still use
 the default Docker resolver, so the DNS path is additive defense
 rather than the primary gate. The HTTP/CONNECT 403 in
