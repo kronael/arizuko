@@ -86,7 +86,7 @@ X suspensions are common. To swap an account:
 ## Limitations
 
 - No streaming. The library has no reliable streaming hook; web surface
-  doesn't expose one. We poll mentions on `TWITTER_POLL_INTERVAL`.
+  doesn't expose one. twitd polls mentions on `TWITTER_POLL_INTERVAL`.
 - No `fetch_history`. Gateway's local-DB cache covers history queries.
 - DM media uploads are degraded to text-only — `agent-twitter-client`
   doesn't expose DM attachment upload cleanly.

@@ -47,7 +47,7 @@ cmd/arizuko/main
 gated/    wires core + store + gateway + api + chanreg + ipc + auth
 timed/    scheduler: polls scheduled_tasks, inserts messages
 onbod/    onboarding state machine + gated admission queue
-dashd/    operator dashboard (HTMX, read-only SQLite)
+dashd/    operator dashboard (HTMX read views + TIER 1 routes/groups/secrets CRUD)
 webd/     web chat channel adapter (HTTP/SSE, registers as "web")
 vited/    Vite dev server / static origin behind proxyd
 proxyd/   reverse proxy: auth, vhost routing, slink rate limiting
@@ -405,23 +405,19 @@ per-folder allowlist by host name on every CONNECT/HTTP request. See
 ## Onboarding (onbod/)
 
 Self-service token-based onboarding with optional gated admission. Turns
-inbound JIDs into provisioned groups via OAuth + `container.SetupGroup`,
-optionally rate-limited by `ONBOARDING_GATES`. Details (state machine,
-poll cadence, prototype copy semantics): `onbod/README.md`.
+inbound JIDs into provisioned groups via OAuth + `container.SetupGroup`.
+See `onbod/README.md`.
 
 ## Scheduler (timed/)
 
 Standalone daemon that turns `scheduled_tasks` rows into messages on the
-shared DB; gateway picks them up via normal poll. Schema owned by
-`store/migrations/`, must be migrated by gated before timed starts.
-Details (claim protocol, cron evaluation, run logs): `timed/README.md`.
+shared DB; gateway picks them up via normal poll. See `timed/README.md`.
 
 ## Operator Dashboard (dashd/)
 
-Read-only HTMX portal over the shared SQLite; the human-facing window
-into instance state. Auth enforced upstream by proxyd's `requireAuth`.
-Spec: `specs/3/d-dashboards.md`. Details (views, URL shape, port
-config): `dashd/README.md`.
+HTMX portal over the shared SQLite plus TIER 1 write surface (routes
+editor, groups CRUD, per-user secrets) gated by admin auth. Spec:
+`specs/3/d-dashboards.md`. See `dashd/README.md`.
 
 ## Diary (diary package)
 
