@@ -47,11 +47,10 @@
       </p>
 
       <div class="note">
-        <code>/chat/&lt;token&gt;/</code> is the conventional URL for
-        browser callers &mdash; it reads right on a website. It is
-        an alias of <code>/hook/&lt;token&gt;</code>; either URL
-        accepts either token. Pick the prefix that suits the
-        audience.
+        <code>/chat/&lt;token&gt;/</code> accepts only <code>web:</code>
+        tokens; presenting a <code>hook:</code> webhook token there
+        returns 404. <code>issue_chat_link</code> always returns a
+        <code>/chat/&lt;token&gt;/</code> URL.
       </div>
 
       <h2>use case</h2>

@@ -47,11 +47,10 @@
       </p>
 
       <div class="note">
-        The webhook URL is <code>/hook/&lt;token&gt;</code> by
-        convention &mdash; it reads right to providers like GitHub.
-        It is an alias of <code>/chat/&lt;token&gt;/</code>; either
-        URL accepts either token. Use <code>/hook/</code> for webhook
-        sources and <code>/chat/</code> for browser visitors.
+        The webhook URL is <code>/hook/&lt;token&gt;</code>. It accepts
+        only <code>hook:</code> tokens; presenting a <code>web:</code>
+        chat token there returns 404. <code>issue_webhook</code> always
+        returns a <code>/hook/&lt;token&gt;</code> URL.
       </div>
 
       <h2>use cases</h2>

@@ -27,7 +27,7 @@
 
     <p>A route token is a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix encodes routing intent at the data layer &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anywhere else that knows how to POST JSON.</p>
 
-    <h2>One table, two URL aliases</h2>
+    <h2>One table, two URL surfaces</h2>
 
     <p>All tokens live in the <code>route_tokens</code> table. Four columns:</p>
 
@@ -36,16 +36,16 @@ jid           web:&lt;folder&gt;[/&lt;suffix&gt;]  |  hook:&lt;folder&gt;/&lt;so
 owner_folder  the folder that minted the row; bounds revocation
 created_at    when it was minted</code></pre>
 
-    <p>One handler is mounted at two friendly URL aliases:</p>
+    <p>Each URL is bound to its JID prefix kind; mechanics shared:</p>
 
     <table>
       <tr><th>URL</th><th>Token JID</th><th>Methods</th><th>What happens</th></tr>
-      <tr><td><code>/chat/&lt;token&gt;/</code></td><td><code>web:</code> or <code>hook:</code></td><td>GET, POST</td><td>GET serves the chat widget. POST appends a message; SSE streams the reply for browsers, plain response for non-browser callers.</td></tr>
-      <tr><td><code>/chat/&lt;token&gt;/mcp</code></td><td><code>web:</code> or <code>hook:</code></td><td>GET, POST</td><td>Per-token MCP surface (<code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>).</td></tr>
-      <tr><td><code>/hook/&lt;token&gt;</code></td><td><code>web:</code> or <code>hook:</code></td><td>GET, POST</td><td>Alias of <code>/chat/&lt;token&gt;/</code> &mdash; same handler.</td></tr>
+      <tr><td><code>/chat/&lt;token&gt;/</code></td><td><code>web:</code> only</td><td>GET, POST</td><td>GET serves the chat widget. POST appends a message; SSE streams the reply for browsers, plain response for non-browser callers.</td></tr>
+      <tr><td><code>/chat/&lt;token&gt;/mcp</code></td><td><code>web:</code> only</td><td>GET, POST</td><td>Per-token MCP surface (<code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>).</td></tr>
+      <tr><td><code>/hook/&lt;token&gt;</code></td><td><code>hook:</code> only</td><td>GET, POST</td><td>Same widget on GET, same POST behavior, same SSE as <code>/chat/&lt;token&gt;/</code>. Different URL, different JID prefix kind.</td></tr>
     </table>
 
-    <p>Pick the URL prefix that reads right to your caller &mdash; <code>/hook/</code> for webhook providers like GitHub, <code>/chat/</code> for browser users. The JID prefix on the token still distinguishes the streams at the data layer (sender attribution, routing rules), but it does not gate URL access.</p>
+    <p>The two URLs share their handler internals &mdash; same widget, same POST path, same SSE &mdash; but the binding is enforced at token lookup: a <code>hook:</code> token presented at <code>/chat/&lt;token&gt;/</code> returns 404, and a <code>web:</code> token at <code>/hook/&lt;token&gt;</code> returns 404. Each issuance verb picks its URL: <code>issue_chat_link</code> returns <code>/chat/&lt;token&gt;/</code>, <code>issue_webhook</code> returns <code>/hook/&lt;token&gt;</code>. One URL per kind keeps each surface single-purpose.</p>
 
     <h2>What the JID encodes</h2>
 
@@ -53,7 +53,7 @@ created_at    when it was minted</code></pre>
 
     <p><code>hook:&lt;folder&gt;/&lt;source&gt;</code> means &ldquo;webhook from <em>source</em> targeting <em>folder</em>.&rdquo; <code>hook:acme/eng/github</code> is GitHub events for the <code>acme/eng</code> folder. <code>hook:acme/eng/linear/comments</code> partitions Linear into a comments stream separate from <code>hook:acme/eng/linear/issues</code>. The <code>&lt;source&gt;</code> segment is what the agent sees in the inbound's <code>sender</code> field.</p>
 
-    <p>JID prefixes still split routing &mdash; a <code>hook:</code> message and a <code>web:</code> message can fire different rules even though one table issued both tokens. The URL alias you used to mint or POST does not affect this.</p>
+    <p>JID prefixes split routing &mdash; a <code>hook:</code> message and a <code>web:</code> message can fire different rules even though one table issued both tokens. The URL the request arrived on matches the JID prefix one-to-one.</p>
 
     <h2>Issuance</h2>
 

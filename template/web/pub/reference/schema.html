@@ -328,7 +328,7 @@
     <div class="tablecard">
       <h3><code>route_tokens</code></h3>
       <p class="meta"><strong>Spec (not yet shipped):</strong> implementation lands in a follow-up release. See <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md">spec 5/W</a>.</p>
-      <p>URL-bound credentials. One row per issued URL; the JID prefix drives sender attribution and default output style, not URL access (both <code>/chat/&lt;token&gt;/</code> and <code>/hook/&lt;token&gt;</code> are aliases of one handler).</p>
+      <p>URL-bound credentials. One row per issued URL; the JID prefix drives sender attribution and default output style. Each URL is bound to its JID prefix kind: <code>/chat/&lt;token&gt;/</code> accepts only <code>web:</code> tokens, <code>/hook/&lt;token&gt;</code> only <code>hook:</code> tokens. Mechanics shared at the handler; binding enforced at token lookup.</p>
       <table>
         <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
         <tr><td><code>token_hash</code></td><td>BLOB PK</td><td>NOT NULL</td><td>sha256 of the raw token; raw token returned once at issuance</td></tr>
