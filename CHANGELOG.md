@@ -16,15 +16,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [v0.40.8] — 2026-05-17
 
-> arizuko v0.40.8 — route tokens spec landed (design, not yet shipped)
+> arizuko v0.40.8 — route tokens spec
 >
-> Spec for one token table behind two URL prefixes — `/chat/<token>/` keeps the widget, `/hook/<token>` accepts webhook posts.
+> Design landed for unified browser-chat + webhook tokens — one table, two URL prefixes, no behavior change yet.
 >
-> • One `route_tokens` table; JID prefix (`web:` vs `hook:`) encodes intent — `agent at acme/eng` calls `issue_webhook("github")` and pastes the URL into GitHub.
-> • MCP gains `issue_chat_link`, `issue_webhook`, `list_route_tokens`, `revoke_route_token`; REST mirrors at `/v1/route_tokens/*`.
-> • Mint scope by tier: 0 any, 1 self+descendants, 2 self only, 3+ none. Bearer token is the auth at the URL boundary.
-> • Implementation lands in a follow-up release; this entry announces the design.
-> • Existing `slink` code path deleted entirely on impl — no aliases, no fallback. `SLINK_TOKEN` env renames to `CHAT_TOKEN`.
+> • Spec at github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md.
+> • Reference docs preview the surface: /pub/arizuko/reference/tokens.html.
+> • Concept overview at /pub/arizuko/concepts/tokens.html.
+> • Implementation tracked under the v0.41 line — slink stays live until then.
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
