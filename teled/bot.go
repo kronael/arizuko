@@ -237,7 +237,13 @@ func (b *bot) stop() {
 }
 
 func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
-	if msg.From != nil && msg.From.IsBot {
+	// Drop self only — third-party bots in the same group (DeeperDexBot,
+	// etc.) must reach the gateway so routes can `#observe` them. The
+	// pre-fix behavior filtered every `From.IsBot=true` which silently
+	// dropped legitimate bot-published content (witnessed on sloth/main
+	// route 12 → telegram:group/5125571890 storing zero DeeperDexBot
+	// messages despite the bot posting daily).
+	if msg.From != nil && msg.From.ID == b.api.Self.ID {
 		return true
 	}
 	jid := chatJIDFromID(msg.Chat.ID)

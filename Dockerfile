@@ -18,6 +18,10 @@ RUN CGO_ENABLED=0 go build -o /proxyd ./proxyd/
 RUN CGO_ENABLED=0 go build -o /webd ./webd/
 RUN CGO_ENABLED=0 go build -o /linkd ./linkd/
 RUN CGO_ENABLED=0 go build -o /slakd ./slakd/
+RUN CGO_ENABLED=0 go build -o /emaid ./emaid/
+RUN CGO_ENABLED=0 go build -o /bskyd ./bskyd/
+RUN CGO_ENABLED=0 go build -o /mastd ./mastd/
+RUN CGO_ENABLED=0 go build -o /reditd ./reditd/
 
 FROM alpine:3.20
 RUN apk add --no-cache sqlite-libs ca-certificates docker-cli wget \
@@ -36,6 +40,10 @@ COPY --from=build /proxyd /usr/local/bin/proxyd
 COPY --from=build /webd /usr/local/bin/webd
 COPY --from=build /linkd /usr/local/bin/linkd
 COPY --from=build /slakd /usr/local/bin/slakd
+COPY --from=build /emaid /usr/local/bin/emaid
+COPY --from=build /bskyd /usr/local/bin/bskyd
+COPY --from=build /mastd /usr/local/bin/mastd
+COPY --from=build /reditd /usr/local/bin/reditd
 COPY --from=build /src/ant/skills /opt/arizuko/ant/skills
 COPY --from=build /src/ant/CLAUDE.md /opt/arizuko/ant/CLAUDE.md
 COPY --from=build /src/template/services /opt/arizuko/template/services

@@ -344,7 +344,9 @@ func TestBotHandle_RoutesInbound(t *testing.T) {
 	}
 }
 
-func TestBotHandle_SkipBot(t *testing.T) {
+func TestBotHandle_SkipSelfOnly(t *testing.T) {
+	// teled must drop messages from ITSELF (avoid self-loop) but deliver
+	// third-party bots (DeeperDexBot etc.) so routes can #observe them.
 	m := newTGMock()
 	defer m.close()
 	mr := newTeledRouterMock()
@@ -354,21 +356,48 @@ func TestBotHandle_SkipBot(t *testing.T) {
 
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
+	selfID := b.api.Self.ID
 
-	msg := &tgbotapi.Message{
-		MessageID: 1,
-		Chat:      &tgbotapi.Chat{ID: 1},
-		From:      &tgbotapi.User{ID: 2, IsBot: true},
-		Text:      "hi",
-	}
-	if !b.handle(msg, rc) {
-		t.Error("bot message should return true (safe to ack)")
-	}
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 0 {
-		t.Errorf("bot message should not dispatch, got %d", len(mr.msgs))
-	}
+	t.Run("self-bot dropped", func(t *testing.T) {
+		mr.mu.Lock()
+		mr.msgs = nil
+		mr.mu.Unlock()
+		msg := &tgbotapi.Message{
+			MessageID: 1, Chat: &tgbotapi.Chat{ID: 1},
+			From: &tgbotapi.User{ID: selfID, IsBot: true},
+			Text: "hi",
+		}
+		if !b.handle(msg, rc) {
+			t.Error("self bot should ack")
+		}
+		mr.mu.Lock()
+		defer mr.mu.Unlock()
+		if len(mr.msgs) != 0 {
+			t.Errorf("self bot should not dispatch, got %d", len(mr.msgs))
+		}
+	})
+
+	t.Run("third-party bot delivered", func(t *testing.T) {
+		mr.mu.Lock()
+		mr.msgs = nil
+		mr.mu.Unlock()
+		msg := &tgbotapi.Message{
+			MessageID: 2, Chat: &tgbotapi.Chat{ID: 1},
+			From: &tgbotapi.User{ID: selfID + 1, IsBot: true, UserName: "DeeperDexBot"},
+			Text: "market update",
+		}
+		if !b.handle(msg, rc) {
+			t.Error("third-party bot should ack")
+		}
+		mr.mu.Lock()
+		defer mr.mu.Unlock()
+		if len(mr.msgs) != 1 {
+			t.Fatalf("third-party bot should dispatch, got %d", len(mr.msgs))
+		}
+		if mr.msgs[0].Content != "market update" {
+			t.Errorf("content = %q", mr.msgs[0].Content)
+		}
+	})
 }
 
 func TestBotHandle_EmptyContent(t *testing.T) {
