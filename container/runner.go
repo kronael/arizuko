@@ -97,6 +97,13 @@ type Input struct {
 
 	SecretsResolver SecretsResolver `json:"-"`
 	Egress          EgressConfig    `json:"-"`
+
+	// PaneLookup returns true when the given platform channel ID
+	// corresponds to an open Slack assistant pane. Used by
+	// pickOutputStyle to map slack:<ws>/channel/<id> → slack-pane.
+	// Other platforms always pass nil or a func returning false.
+	// Spec 5/O.
+	PaneLookup func(channelID string) bool `json:"-"`
 }
 
 // SecretsResolver is the store.Store subset for resolving secrets at spawn.
@@ -689,7 +696,10 @@ func seedSettings(
 	env["ARIZUKO_WORLD"] = worldOf(in.Folder, root)
 	env["ARIZUKO_TIER"] = strconv.Itoa(tierOf(in.Folder, root))
 	if in.Channel != "" {
-		settings["outputStyle"] = in.Channel
+		stylesDir := filepath.Join(cfg.HostAppDir, "ant", "output-styles")
+		if name := pickOutputStyle(in.Channel, in.ChatJID, in.Topic, stylesDir, in.PaneLookup); name != "" {
+			settings["outputStyle"] = name
+		}
 	}
 	if in.SlinkToken != "" {
 		env["SLINK_TOKEN"] = in.SlinkToken
@@ -716,6 +726,114 @@ func seedSettings(
 		slog.Warn("failed to rename settings", "from", tmp, "to", fp, "err", err)
 	}
 	slog.Debug("settings seeded", "path", fp)
+}
+
+// pickOutputStyle resolves the agent's outputStyle setting for one turn.
+// Derives <platform>-<surface> from the JID/topic/pane signal, falls
+// back to <platform>, then to "" (no override). Stats the host-side
+// output-styles dir once per candidate. Spec 5/O.
+func pickOutputStyle(
+	channel, chatJID, topic, stylesDir string,
+	paneLookup func(channelID string) bool,
+) string {
+	if channel == "" {
+		return ""
+	}
+	surface := deriveSurface(channel, chatJID, topic, paneLookup)
+	if surface != "" {
+		name := channel + "-" + surface
+		if stylesDir == "" {
+			return name
+		}
+		if _, err := os.Stat(filepath.Join(stylesDir, name+".md")); err == nil {
+			return name
+		}
+	}
+	if stylesDir == "" {
+		return channel
+	}
+	if _, err := os.Stat(filepath.Join(stylesDir, channel+".md")); err == nil {
+		return channel
+	}
+	return ""
+}
+
+// deriveSurface maps (channel, chatJID, topic, pane) to a surface
+// suffix. Returns "" when the platform has no per-surface split.
+// Mirrors the table in specs/5/O-output-styles-per-surface.md.
+func deriveSurface(
+	channel, chatJID, topic string,
+	paneLookup func(channelID string) bool,
+) string {
+	switch channel {
+	case "slack":
+		ws, kind, id, ok := parseSlackJID(chatJID)
+		_ = ws
+		if !ok {
+			return ""
+		}
+		switch kind {
+		case "dm":
+			return "dm"
+		case "group":
+			return "channel"
+		case "channel":
+			if paneLookup != nil && paneLookup(id) {
+				return "pane"
+			}
+			if topic != "" {
+				return "thread"
+			}
+			return "channel"
+		}
+	case "telegram":
+		rest := strings.TrimPrefix(chatJID, "telegram:")
+		if rest == chatJID {
+			return ""
+		}
+		kind, _, ok := strings.Cut(rest, "/")
+		if !ok {
+			return ""
+		}
+		switch kind {
+		case "user":
+			return "dm"
+		case "group":
+			return "group"
+		}
+	case "discord":
+		rest := strings.TrimPrefix(chatJID, "discord:")
+		if rest == chatJID {
+			return ""
+		}
+		kind, _, ok := strings.Cut(rest, "/")
+		if !ok {
+			return ""
+		}
+		if kind == "dm" {
+			return "dm"
+		}
+		return "channel"
+	}
+	return ""
+}
+
+// parseSlackJID mirrors slakd/parseJID for the runner's pane lookup.
+// Format: slack:<workspace>/<kind>/<id> where kind ∈ {channel,dm,group}.
+func parseSlackJID(jid string) (workspace, kind, id string, ok bool) {
+	rest := strings.TrimPrefix(jid, "slack:")
+	if rest == jid {
+		return "", "", "", false
+	}
+	ws, after, ok := strings.Cut(rest, "/")
+	if !ok || ws == "" {
+		return "", "", "", false
+	}
+	k, i, ok := strings.Cut(after, "/")
+	if !ok || k == "" || i == "" {
+		return "", "", "", false
+	}
+	return ws, k, i, true
 }
 
 func SetupGroup(cfg *core.Config, folder, prototype string) error {

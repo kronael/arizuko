@@ -150,28 +150,8 @@ or a skill that wraps the detection + fork.
 
 ## Length policy per surface
 
-`buildAgentPrompt` gains a one-line `<surface>` hint:
-
-```
-<surface>slack-channel-thread</surface>     # threaded reply, full ceiling
-<surface>slack-channel</surface>             # rare: top-level, hard-cap 200ch
-<surface>slack-dm</surface>                  # full ceiling
-<surface>slack-pane</surface>                # AI sidebar, full ceiling
-<surface>discord-channel</surface>           # mention-triggered, default ceiling
-<surface>telegram-group</surface>            # same
-<surface>telegram-dm</surface>               # full ceiling
-```
-
-Computed from `chat_jid` shape + thread context. Agent's prompt
-rule (in `ant/CLAUDE.md`) reads this and self-caps. Surface is a
-hint, not enforcement — the agent decides.
-
-**Replaces the global ceiling.** The existing 500ch/6-line rule
-in `ant/CLAUDE.md` becomes the **default surface cap** for any
-unspecified surface; named surfaces override. Single source: the
-per-surface table is canonical, the global rule reads "if surface
-hint absent, fall back to 500/6." Spec ships removing the
-freestanding 500/6 line and folding it into this table.
+Per-surface length rules live in per-surface output-style files.
+Spec: `specs/5/O-output-styles-per-surface.md`.
 
 ## MCP tools
 

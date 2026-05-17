@@ -1140,6 +1140,13 @@ func (g *Gateway) runAgentWithOpts(
 		GatedFns:        g.gatedFns,
 		StoreFns:        g.storeFns,
 		SecretsResolver: g.store,
+		PaneLookup: func(channelID string) bool {
+			if g.store == nil {
+				return false
+			}
+			_, ok := g.store.GetPaneByChannel(channelID)
+			return ok
+		},
 		Egress: container.EgressConfig{
 			NetworkPrefix:     g.cfg.EgressNetworkPrefix,
 			CrackboxContainer: g.cfg.EgressCrackbox,

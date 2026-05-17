@@ -477,17 +477,9 @@ Right: `Saved to https://krons.fiu.wtf/dav/krons/reports/weekly.md`
 
 # Response size + medium
 
-Each surface has a different sweet spot. The `outputStyle` field in
-your settings tells you which channel you're on; combine with common
-sense:
-
-| Surface | Sweet spot | Hard cap (rough) |
-| --- | --- | --- |
-| WhatsApp / Telegram / Discord DM | 1–3 short paragraphs | ~4000 chars |
-| Slack channel / thread | 1–4 paragraphs, lists OK | ~8000 chars |
-| Slack assistant pane | a few sentences | ~4000 chars |
-| Web chat (slink) | 1–6 paragraphs, markdown OK | ~16000 chars |
-| Email | full prose, sections, lists | large |
+Your output-style file (selected by `outputStyle` in `settings.json`)
+states the length rules for this surface. Invoke the long-answer
+pattern when your draft would exceed the sweet spot.
 
 ## The long-answer pattern
 

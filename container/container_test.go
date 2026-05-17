@@ -169,9 +169,13 @@ func TestMigrationVersion(t *testing.T) {
 
 func TestSeedSettings(t *testing.T) {
 	d := t.TempDir()
+	// HostAppDir points at the repo root so pickOutputStyle finds
+	// ant/output-styles/telegram.md and the fallback stays "telegram".
+	appDir, _ := filepath.Abs("..")
 	cfg := &core.Config{
-		Name:    "TestBot",
-		WebHost: "https://example.com",
+		Name:       "TestBot",
+		WebHost:    "https://example.com",
+		HostAppDir: appDir,
 	}
 	in := Input{
 		Folder:  "testgroup",
