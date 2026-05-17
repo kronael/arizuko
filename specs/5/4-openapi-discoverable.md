@@ -7,7 +7,7 @@ status: spec
 **Current state (2026-05-13):** 0 daemons implement this. No
 `/openapi.json` handler is registered anywhere in the codebase
 (`grep -rn openapi --include='*.go'` returns no hits). Phased rollout
-lives in [`specs/6/00-finalise-plan.md`](00-finalise-plan.md).
+lives in [`specs/6/00-finalise-plan.md`](../6/00-finalise-plan.md).
 
 Every arizuko daemon serving HTTP ships a generated OpenAPI 3.1 document
 at `GET /openapi.json` and a Swagger UI page at `GET /docs/`. Generated

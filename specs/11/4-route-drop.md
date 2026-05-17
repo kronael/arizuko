@@ -45,7 +45,7 @@ column + one branch in `ResolveRoute` + `core.Route` field +
 CLI/MCP plumbing.
 
 - Pros: mirrors `acl.effect` semantically (already shipped pattern in
-  `specs/6/9-acl-unified.md`); no reserved strings in the target
+  `specs/5/9-acl-unified.md`); no reserved strings in the target
   namespace; `SetRoutes` groups by folder regardless of effect;
   `target` stays meaningful on drop rows (documents which folder
   "would have" matched, useful when toggling drop → allow).

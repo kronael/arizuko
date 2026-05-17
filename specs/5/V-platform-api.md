@@ -92,7 +92,7 @@ owner at mint time.
 per-daemon in `template/services/<name>.toml` `[[proxyd_route]]`
 blocks (and equivalent for core daemons), aggregated by
 `compose/compose.go` at compose-generate time, and consumed by proxyd
-via `PROXYD_ROUTES_JSON`. See `specs/6/2-proxyd-standalone.md` "Per-
+via `PROXYD_ROUTES_JSON`. See `specs/5/35-proxyd-standalone.md` "Per-
 daemon route declarations". proxyd remains the verifier — it doesn't
 "own" a routes table; it executes the operator-composed one.
 

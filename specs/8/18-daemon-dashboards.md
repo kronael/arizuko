@@ -1,6 +1,6 @@
 ---
 status: discussion
-depends: [5-uniform-mcp-rest, 2-proxyd-standalone]
+depends: [5/5-uniform-mcp-rest, 5/35-proxyd-standalone]
 ---
 
 # Per-daemon dashboards + central index
@@ -193,7 +193,7 @@ Backend, Auth}` shape; no schema change needed.
   `Page()` helpers every daemon imports.
 - [`auth/middleware.go:9-35`](../../auth/middleware.go) —
   `RequireSigned` / `StripUnsigned` verify identity headers.
-- [`specs/6/5-uniform-mcp-rest.md`](../6/5-uniform-mcp-rest.md) —
+- [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) —
   resource handlers expose REST + MCP; this spec adds an HTML face
   ON THE SAME DAEMON, owned by the same handler set. The hub is a
   third face (navigation), not a fourth surface.

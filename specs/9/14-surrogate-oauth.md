@@ -1,6 +1,6 @@
 ---
 status: spec
-depends: [9/11-crackbox-secrets, 6/1-auth-standalone]
+depends: [9/11-crackbox-secrets, 5/1-auth-standalone]
 ---
 
 # Surrogate OAuth — fill the broker's `secrets` table via OAuth flows
@@ -206,7 +206,7 @@ N days per new provider thereafter.
 
 - [`specs/9/11-crackbox-secrets.md`](11-crackbox-secrets.md) — the
   broker that reads the rows this spec writes.
-- [`specs/6/1-auth-standalone.md`](../6/1-auth-standalone.md) — auth
+- [`specs/5/1-auth-standalone.md`](../5/1-auth-standalone.md) — auth
   capability library; surrogate flows are a sibling of identity OAuth.
 - [`specs/7/product-slack-team.md`](../7/product-slack-team.md) — the
   product that benefits first: "Alice asks @bot about her PRs" goes

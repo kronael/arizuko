@@ -37,7 +37,7 @@ operator-justified shapes:
    channel where the human team works. The Slack thread becomes
    the work record; WhatsApp stays the customer conversation.
 5. **Observed-context relay.** Operator adds a `#observe` route
-   (`specs/6/B-route-mode-ingestion.md`) that stores but doesn't
+   (`specs/5/B-route-mode-ingestion.md`) that stores but doesn't
    fire. Bot, called later, forwards the relevant observed message
    into the active thread as evidence.
 

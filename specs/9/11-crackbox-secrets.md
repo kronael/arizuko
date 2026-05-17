@@ -1,6 +1,6 @@
 ---
 status: spec
-depends: [9-crackbox-standalone, 10-crackbox-arizuko, 6/5-uniform-mcp-rest]
+depends: [9-crackbox-standalone, 10-crackbox-arizuko, 5/5-uniform-mcp-rest]
 ---
 
 # Tool-level secret brokering
@@ -159,7 +159,7 @@ Today `ipc/ipc.go:519-528` does grant checks inline. The broker
 introduces only the `InjectSecrets` middleware; the other chain
 positions are notional (the existing code does Recover/Timeout
 already; spec 6/5 lays out grants). Each tool dispatch already has a
-`Caller` per [`specs/6/5-uniform-mcp-rest.md`](../6/5-uniform-mcp-rest.md).
+`Caller` per [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md).
 The middleware does:
 
 ```
@@ -290,7 +290,7 @@ No proxy changes. No CA. No TLS termination. No
 
 - [`specs/7/product-slack-team.md`](../7/product-slack-team.md) — per-user
   GitHub token flow, the canonical v1 user.
-- [`specs/6/5-uniform-mcp-rest.md`](../6/5-uniform-mcp-rest.md) — `Caller`
+- [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) — `Caller`
   shape consumed here.
 - [`specs/9/10-crackbox-arizuko.md`](10-crackbox-arizuko.md) — egred
   keeps CONNECT-splice + per-source allowlists; untouched by this spec.

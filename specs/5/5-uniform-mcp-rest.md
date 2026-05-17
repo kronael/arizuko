@@ -1,6 +1,6 @@
 ---
 status: spec
-depends: [R-platform-api, 1-auth-standalone, 2-proxyd-standalone]
+depends: [V-platform-api, 1-auth-standalone, 35-proxyd-standalone]
 ---
 
 # Uniform REST + MCP per resource

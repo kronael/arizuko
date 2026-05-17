@@ -172,7 +172,7 @@ shipped today; the host library is planned (next phase).
 covers the today-and-tomorrow consumer pattern and the planned
 [`sandd`](c-sandd.md) extraction. KVM lands as one backend behind
 the `ContainerRuntime` seam — see
-[`specs/6/R-genericization.md`](../6/R-genericization.md) §
+[`specs/5/U-genericization.md`](../5/U-genericization.md) §
 _ContainerRuntime — pluggable sandbox backends_.
 
 ### messaging-gateway (future, extracted from gated)

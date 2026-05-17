@@ -3,8 +3,8 @@ status: spec
 depends:
   [
     ../1/W-slink.md,
-    ../6/5-uniform-mcp-rest.md,
-    ../6/R-platform-api.md,
+    ../5/5-uniform-mcp-rest.md,
+    ../5/V-platform-api.md,
     ../5/32-tenant-self-service.md,
   ]
 ---
@@ -39,14 +39,14 @@ slink subset already carries the submission semantics
 ## Surface choice
 
 Mounted on **gated**'s `/v1/*` namespace alongside the resources from
-[`6/R-platform-api.md`](../6/R-platform-api.md). gated owns the
+[`5/V-platform-api.md`](../5/V-platform-api.md). gated owns the
 backing tables (`groups`, `routes`, `user_groups`, `secrets`) and
 holds `SetupGroup` in-process ([`gateway/gateway.go:155`](../../gateway/gateway.go))
 — any sibling daemon would re-wire it over HTTP. webd's `/slink/*` is
 the public unauthenticated guest surface ([Z-slink-widget.md](../1/Z-slink-widget.md));
 authenticated control operations don't fit there.
 
-MCP face is automatic per [`6/5-uniform-mcp-rest.md`](../6/5-uniform-mcp-rest.md):
+MCP face is automatic per [`5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md):
 each `/v1/groups` action registers as an MCP tool through the same
 `Resource{}`. Agents call `groups.create` over MCP; operators call
 `POST /v1/groups` over HTTPS. One handler, two faces.
@@ -64,7 +64,7 @@ from [W-slink.md](../1/W-slink.md); group rows are new.
 | GET    | `/v1/groups/{folder}`          | `groups.get`      | gated, MCP | new                                                           |
 | PATCH  | `/v1/groups/{folder}`          | `groups.update`   | gated, MCP | new (rename, change parent, persona)                          |
 | DELETE | `/v1/groups/{folder}`          | `groups.delete`   | gated, MCP | new                                                           |
-| POST   | `/v1/groups/{folder}/grants`   | `grants.create`   | gated, MCP | [6/R-platform-api.md](../6/R-platform-api.md)                 |
+| POST   | `/v1/groups/{folder}/grants`   | `grants.create`   | gated, MCP | [5/V-platform-api.md](../5/V-platform-api.md)                 |
 | POST   | `/v1/groups/{folder}/secrets`  | `secrets.put`     | gated, MCP | [5/32-tenant-self-service.md](../5/32-tenant-self-service.md) |
 | POST   | `/slink/{token}`               | `messages.submit` | webd, MCP  | [W-slink.md](../1/W-slink.md)                                 |
 | GET    | `/slink/{token}/{turn_id}`     | `rounds.get`      | webd, MCP  | [W-slink.md](../1/W-slink.md)                                 |
@@ -140,7 +140,7 @@ caller polls `GET /v1/groups/{folder}` for `404` to confirm cleanup.
 
 ## Auth and grants
 
-One auth model: the [`6/R-platform-api.md` "Token model"](../6/R-platform-api.md)
+One auth model: the [`5/V-platform-api.md` "Token model"](../5/V-platform-api.md)
 JWT, verified by [`auth/middleware.go`](../../auth/middleware.go)
 `RequireSigned`. No new scheme. The platform API just declares which
 scopes gate which actions, citing [GRANTS.md](../../GRANTS.md):
@@ -209,7 +209,7 @@ Out of scope:
 6. MCP `tools/list` over the group socket includes `groups.create`,
    `groups.list`, `groups.get`, `groups.update`, `groups.delete` — the
    same handler set, surfaced via the registry in
-   [`6/5-uniform-mcp-rest.md`](../6/5-uniform-mcp-rest.md).
+   [`5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md).
 7. End-to-end: a fresh JWT issued at OAuth login can create a group,
    POST a message to the returned `slink_url`, stream the round's SSE,
    and delete the group — without any CLI step.
@@ -218,7 +218,7 @@ Out of scope:
 
 | Package / file        | Change                                                                                         |
 | --------------------- | ---------------------------------------------------------------------------------------------- |
-| `gated/v1_groups.go`  | New: `Resource{Name:"groups",...}` + handler, registered per [6/5](../6/5-uniform-mcp-rest.md) |
+| `gated/v1_groups.go`  | New: `Resource{Name:"groups",...}` + handler, registered per [6/5](../5/5-uniform-mcp-rest.md) |
 | `gated/main.go`       | Wire `RegisterResource` call                                                                   |
 | `gateway/gateway.go`  | Expose `spawnFromPrototype` + `SetupGroup` to handler; no behavior change                      |
 | `auth/policy.go`      | Add `groups:write:own_group` scope predicate                                                   |
@@ -235,16 +235,16 @@ Out of scope:
   inline is fine. Revisit with `202 + jobs` if skill-seeding grows.
 - **Reparenting.** `PATCH {parent:...}` requires moving the folder
   on disk + rewriting child rows; not v1.
-- **Bulk create.** Inherit [6/R-platform-api.md](../6/R-platform-api.md):
+- **Bulk create.** Inherit [5/V-platform-api.md](../5/V-platform-api.md):
   many POSTs, bulk on demand.
 
 ## Reconciliations
 
-- **vs [6/R-platform-api.md](../6/R-platform-api.md)** — that spec
+- **vs [5/V-platform-api.md](../5/V-platform-api.md)** — that spec
   declares the federated surface + token model; this spec is the
   first concrete resource definition and brings W-slink under the
   same roof.
-- **vs [6/5-uniform-mcp-rest.md](../6/5-uniform-mcp-rest.md)** — that
+- **vs [5/5-uniform-mcp-rest.md](../5/5-uniform-mcp-rest.md)** — that
   spec defines the `Resource{}` registry; this spec is one
   registration. No new mechanism.
 - **vs [W-slink.md](../1/W-slink.md)** — unchanged. Only addition:

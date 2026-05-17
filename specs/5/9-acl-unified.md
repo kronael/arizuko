@@ -253,14 +253,14 @@ satisfies spec 5/A's "next message" contract.
 
 ## Cross-spec impact
 
-- **`specs/6/6` middleware**: `granted` + `grantedJID` collapse to one
+- **`specs/5/6` middleware**: `granted` + `grantedJID` collapse to one
   `gated(Authorize)` wrapper — JID flows through `params`.
 - **`specs/5/A`**: subsumed. The `right` + `audience_predicate`
   columns proposed there become rows in `acl`. Route-as-auth survives
   as the room-JID principal pattern.
 - **`specs/4/19`**: tier derivation stays in code; deny semantics
   live in the `effect='deny'` column.
-- **`specs/6/5`**: `ScopePred` calls `Authorize`; the
+- **`specs/5/5`**: `ScopePred` calls `Authorize`; the
   `<resource>:<verb>[:own_group]` scope shorthand mints `acl` rows.
 
 ## Bootstrap

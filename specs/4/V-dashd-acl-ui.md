@@ -1,6 +1,6 @@
 ---
 status: spec
-depends: [6/9-acl-unified.md, 4/Q-dash-memory.md]
+depends: [5/9-acl-unified.md, 4/Q-dash-memory.md]
 ---
 
 # dashd ACL UI — operator surface for the unified authorization model
@@ -11,7 +11,7 @@ The dashd ACL UI lets an operator inspect, query, and write `acl` and
 `acl_membership` rows directly, plus manage `role:*` principals as
 first-class objects. Every authorization question in arizuko goes
 through one `Authorize` call against these two tables
-(`specs/6/9-acl-unified.md:9-18`); this UI is the operator-facing
+(`specs/5/9-acl-unified.md:9-18`); this UI is the operator-facing
 side of that same primitive. Four pages — rows, edges, roles,
 principal-effective — over the existing dashd HTMX + partial pattern
 (`dashd/main.go:309-320`). Read-only views first, then writes,
@@ -37,7 +37,7 @@ gated by `Authorize(caller, "admin", "**", ...)`.
 The composite-key DELETE form posts every PK column
 (`principal, action, scope, params, predicate, effect` for `acl`;
 `child, parent` for `acl_membership`) — schema lacks a surrogate
-id (`specs/6/9-acl-unified.md:58, 70`).
+id (`specs/5/9-acl-unified.md:58, 70`).
 
 ## Pages
 
@@ -55,7 +55,7 @@ fields plus a "validate" preview that calls
 `/dash/acl/x/preview` (read-only `Authorize` dry-run vs the current
 row set) before submit. Predicate and params fields are free text;
 basic syntactic check (`key=value`, single conjunction per row,
-matching `specs/6/9-acl-unified.md:284-286` lean) rejects obviously
+matching `specs/5/9-acl-unified.md:284-286` lean) rejects obviously
 malformed input — full grammar validation is a backend job in
 `grants/`.
 
@@ -70,13 +70,13 @@ Two-column layout: edge table on the left, transitive expander on
 the right. Edge table columns: child, parent, added_by, added_at,
 delete-button. Add-edge form (top) takes `child` + `parent`, posts
 to `POST /dash/membership`; server runs the cycle check
-(`specs/6/9-acl-unified.md:157-159`) before insert.
+(`specs/5/9-acl-unified.md:157-159`) before insert.
 
 Transitive expander: text input for a principal; on change it issues
 `GET /dash/membership/x/expand?p=<id>` which returns a nested
 `<ul>` rendering the closure of `acl_membership` reachable from that
 principal. Same evaluation as step 1 of `Authorize`
-(`specs/6/9-acl-unified.md:176-177`). Re-uses the lookup; does not
+(`specs/5/9-acl-unified.md:176-177`). Re-uses the lookup; does not
 reimplement.
 
 ### `/dash/roles` — role index + detail
@@ -107,12 +107,12 @@ The "what can this principal actually do" page. Three sections:
    role it came from.
 3. **Tier-default fallback** — for `folder:` principals, output of
    `grants.DeriveRules(folder)` filtered to `mcp:*` actions
-   (`specs/6/9-acl-unified.md:184-187`); shown only when no
+   (`specs/5/9-acl-unified.md:184-187`); shown only when no
    explicit row covers that tool.
 
 Optional `?scope=<s>` parameter narrows everything to rows whose
 scope glob-matches `s`, producing the exact effective rule list
-`RenderACL` returns (`specs/6/9-acl-unified.md:234-239`). When
+`RenderACL` returns (`specs/5/9-acl-unified.md:234-239`). When
 absent, show all rows regardless of scope.
 
 ## Existing `/dash/groups` refresh
@@ -147,7 +147,7 @@ proxyd-signed `X-User-Sub` header (verified by
 fragment so inline writes show an error banner rather than a hard
 page swap. No bypass for the bootstrap operator at the UI layer —
 they pass the check via the `role:operator` row seeded at
-`arizuko create` (`specs/6/9-acl-unified.md:266-280`).
+`arizuko create` (`specs/5/9-acl-unified.md:266-280`).
 
 ## HTMX patterns
 

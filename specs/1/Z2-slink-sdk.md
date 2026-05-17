@@ -141,7 +141,7 @@ token, and have a branded chat in under a minute.
 The `/assets/*` mechanism is generic. Later work can:
 
 1. Add a `/docs/*` route in webd that serves a Swagger-UI bundle from
-   the same `embed.FS` (referenced by `specs/6/4-openapi-discoverable`).
+   the same `embed.FS` (referenced by `specs/5/4-openapi-discoverable`).
 2. Migrate parts of `template/web/pub/` (CSS, JS) to the embedded FS
    so cold-start `arizuko create` ships fewer copy-prone files.
 

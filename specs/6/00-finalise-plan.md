@@ -240,7 +240,7 @@ Sections it needs (light):
 
 ### 2-proxyd-standalone (DONE 2026-05-13)
 
-All five items landed in the spec (`specs/6/2-proxyd-standalone.md`):
+All five items landed in the spec (`specs/5/35-proxyd-standalone.md`):
 
 - Folder-ref count updated to 3 active + 1 comment with file:line
   cites.

@@ -1,13 +1,13 @@
 ---
 status: draft
-depends: [5-uniform-mcp-rest, 9-acl-unified, 2-proxyd-standalone]
+depends: [5-uniform-mcp-rest, 9-acl-unified, 35-proxyd-standalone]
 ---
 
 # MCP-everywhere for platform management
 
 Every state-changing operation on the platform is reachable via an MCP
 tool (and the symmetric `/v1/*` REST endpoint), through one handler in
-the `resreg` registry (`resreg/README.md`, `specs/6/5-uniform-mcp-rest.md`).
+the `resreg` registry (`resreg/README.md`, `specs/5/5-uniform-mcp-rest.md`).
 The CLI becomes a thin client; dashd becomes a thin server; direct SQL
 writes outside `store/` are deleted.
 
@@ -23,7 +23,7 @@ token), CLI (operator over a local socket). All converge on the same
 function in `resreg.Resource.Handler`. No surface is privileged with
 features the others lack.
 
-Auth uniformly via `Authorize` from `specs/6/9-acl-unified.md`. The
+Auth uniformly via `Authorize` from `specs/5/9-acl-unified.md`. The
 `Caller` in `resreg/resreg.go:44` is the surface-agnostic principal;
 its `Scope` field is the operator-token shorthand resolved against
 the ACL at session bind.
@@ -164,7 +164,7 @@ in a saner state (REST parity); M3+M4 are the structural wins.
 
 ## Auth shape for management operations
 
-Under unified ACL (`specs/6/9-acl-unified.md`):
+Under unified ACL (`specs/5/9-acl-unified.md`):
 
 - **Operator human** — `(google:114operator, '*', '**')`. One row.
   All resources, all actions, everywhere.
@@ -190,7 +190,7 @@ operator-token-minting affordance over the same ACL rows.
    direct for the dashboard's own UI.
 3. **Secret value reads via MCP.** The broker invariant
    (`specs/9/11-crackbox-secrets.md`, referenced
-   `specs/6/5-uniform-mcp-rest.md:144`) says the agent never reads
+   `specs/5/5-uniform-mcp-rest.md:144`) says the agent never reads
    secret values. The registry must enforce this — `secrets.get`
    returns metadata only, never the value. How to express in
    `resreg`? A per-action handler that scrubs the response, or a
