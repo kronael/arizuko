@@ -91,6 +91,8 @@
 
     <p>Per-platform quirks stay inside the adapter. Slack threads, Discord ActionRows, WhatsApp QR pairing, IMAP folder watching &mdash; none of it leaks into <code>gated</code>. The DB sees a uniform <code>messages</code> row no matter where the message came from.</p>
 
+    <p>Output rendering follows the same one-renderer rule. The agent picks a Claude Code output style per channel: <code>slack</code> emits Slack mrkdwn (<code>*bold*</code>, <code>_italic_</code>, <code>&lt;url|text&gt;</code>); other channels use CommonMark. The runner selects the style when it spawns the container (<code>container/runner.go</code>) so the adapter receives text already shaped for the surface.</p>
+
     <p>Language choice follows the upstream SDK. Most platforms have a maintained Go client, so the adapter is Go. WhatsApp and X have richer TypeScript clients (Baileys, twitter-api-v2), so those adapters run on Node. The HTTP contract is identical either way.</p>
 
     <h2>Adding a new adapter</h2>
@@ -101,7 +103,7 @@
       <li>Drop a <code>template/services/&lt;daemon&gt;.toml</code> with the compose env block and a <code>[[proxyd_route]]</code> entry. The next <code>arizuko run</code> picks it up.</li>
     </ol>
 
-    <p>Spec: <code>specs/6/2-proxyd-standalone.md</code>. Extension points: <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">EXTENDING.md</a>.</p>
+    <p>Spec: <code>specs/5/35-proxyd-standalone.md</code>. Extension points: <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">EXTENDING.md</a>.</p>
 
     <h2>Asymmetric channels</h2>
     <p>An inbound channel and an outbound channel do not have to be the same daemon. A message can arrive on email and the reply can go out on Slack &mdash; the route table decides. See <a href="/pub/howto/asymmetric-channels.html">howto/asymmetric-channels</a>.</p>

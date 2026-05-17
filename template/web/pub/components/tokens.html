@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>route tokens &middot; component</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; route tokens</p>
+    <h1>route tokens</h1>
+
+    <h2>What it is</h2>
+    <p>The <code>route_tokens</code> table plus the two URL prefixes that read from it: <code>/chat/&lt;token&gt;/</code> for visitor web chat, <code>/hook/&lt;token&gt;</code> for inbound webhooks. One row per token, four columns (<code>token_hash</code>, <code>jid</code>, <code>owner_folder</code>, <code>created_at</code>). The JID prefix tells webd which surface a token belongs to.</p>
+
+    <p>Each token is 32 random bytes, base64url-encoded. Stored as <code>sha256(token)</code>; raw token returned once at issuance.</p>
+
+    <h2>Why it exists</h2>
+    <p>Two long-standing needs &mdash; &ldquo;give my site a chat URL&rdquo; and &ldquo;let GitHub POST events to the agent&rdquo; &mdash; want the same primitive: a URL bound to a destination JID. Before this table the chat URL was hardcoded as one column on the <code>groups</code> table and webhooks improvised on top of it. Pulling the token out into a first-class row gives every inbound URL a uniform shape, a uniform mint surface, and a uniform revoke step.</p>
+
+    <h2>The two surfaces</h2>
+    <pre><code>GET  /chat/&lt;token&gt;/            &rarr; chat widget (HTML)
+POST /chat/&lt;token&gt;/            &rarr; message in; SSE reply stream out
+POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no reply</code></pre>
+
+    <p>Chat tokens carry JIDs prefixed <code>web:</code>; hook tokens carry <code>hook:</code>. webd checks the prefix matches the URL before doing anything else. Wrong surface for the token &rarr; 401.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>browser / curl / GitHub / Linear / ...
+        |
+        v   /chat/&lt;token&gt;/...   or   /hook/&lt;token&gt;
+        |
+      proxyd     (public path; per-token rate shield)
+        |
+      webd       (hash token, look up row, append inbound at row.jid)
+        |
+      gated      (route + spawn the agent; SSE replies only for /chat/)</code></pre>
+    </div>
+
+    <p>Issuance is handled in gated &mdash; both the MCP tools (<code>issue_chat_link</code>, <code>issue_webhook</code>) and the REST endpoints (<code>POST /v1/route_tokens/chat</code>, <code>POST /v1/route_tokens/hook</code>) call one internal <code>insertRouteToken</code> writer. webd never writes the table; gated never reads the <code>/chat/</code> or <code>/hook/</code> URLs.</p>
+
+    <h2>Mint authorization</h2>
+    <p>The <a href="/pub/concepts/grants.html">grants</a> tier of the caller bounds which folders they can mint for. Tier 0 mints for any folder; tier 1 mints for self and descendants; tier 2 mints for self only; tier 3+ cannot mint. The row's <code>owner_folder</code> records the issuer's folder, not the JID target &mdash; revocation requires admin on <code>owner_folder</code>.</p>
+
+    <h2>Rate limits</h2>
+    <p>Per-token in-memory bucket in webd. The bucket ceiling is chosen by JID prefix: <code>web:</code> uses a smaller bucket sized for human typing; <code>hook:</code> uses a larger bucket sized for machine bursts. Body cap is 1 MiB. Excess returns 429.</p>
+
+    <h2>What it does not do</h2>
+    <p>No body signature verification (no <code>X-Hub-Signature</code> check), no second-factor auth on the URL, no per-IP fingerprinting. The bearer model is intentional &mdash; the URL <em>is</em> the credential. Upstream HMAC validation is a skill concern, executed on the agent side from the row's <code>headers</code> field.</p>
+
+    <p>No automatic reissue on schedule. No back-channel reply on <code>/hook/</code> &mdash; agents that want to acknowledge a webhook reply on a different channel (Slack, email).</p>
+
+    <h2>Standalone usage</h2>
+    <p>The table and writer live in gated; the URL handlers live in webd. Neither runs standalone &mdash; both need the shared SQLite file and the gated <code>/v1/messages</code> endpoint to deliver inbounds. The unit of standalone use is webd itself; see <a href="/pub/components/webd.html">components/webd</a>.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="/pub/concepts/tokens.html">concepts/route tokens</a> &mdash; the primitive, the JID prefixes, the bearer model.</li>
+      <li><a href="/pub/reference/tokens.html">reference/tokens</a> &mdash; full endpoint table, payload shapes, SSE events, MCP tools.</li>
+      <li><a href="/pub/howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site.</li>
+      <li><a href="/pub/howto/webhooks.html">how-to: webhooks</a> &mdash; wire GitHub, Linear, custom alerts.</li>
+      <li><a href="/pub/components/webd.html">components/webd</a> &mdash; the daemon that hosts <code>/chat/*</code> and <code>/hook/*</code>.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a> &mdash; the route_tokens spec.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

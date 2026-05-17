@@ -332,52 +332,51 @@ preserve_headers = ["X-Slack-Signature", "X-Slack-Request-Timestamp"]</code></pr
       <h2>11. webhook ingest (optional)</h2>
       <p>
         Bring external events &mdash; GitHub PRs, Linear issues,
-        Sentry alerts, Stripe charges &mdash; into a Slack-team
-        agent by POSTing to the folder's slink token. Same path a
-        slink chat user takes; no new daemon. Full recipe:
+        Sentry alerts &mdash; into a Slack-team agent by minting a
+        <a href="/pub/concepts/tokens.html">hook token</a> for the
+        folder. Events arrive as messages at
+        <code>hook:&lt;folder&gt;/&lt;source&gt;</code>; the body is
+        delivered verbatim. Full recipe:
         <a href="/pub/howto/webhooks.html">webhooks</a>.
       </p>
       <p>
-        Quick GitHub example. Create a folder for the source, read
-        its token, paste the URL into the repo's webhook config:
+        Quick GitHub example. Mint a hook token for the engineering
+        folder and paste the URL into the repo's webhook config:
       </p>
-      <pre><code># one folder per source keeps tokens scoped
-arizuko group acme add 'web:atlas/github' atlas-github
-
-sqlite3 /srv/data/arizuko_acme/store/messages.db \
-  "SELECT slink_token FROM groups WHERE folder='atlas-github'"
+      <pre><code># mint via CLI (operator) or issue_webhook (agent)
+arizuko token issue atlas/eng hook github
+# https://&lt;WEB_HOST&gt;/hook/&lt;token&gt;
 
 # in github.com/&lt;repo&gt;/settings/hooks:
-# Payload URL: https://&lt;WEB_HOST&gt;/slink/&lt;token&gt;
+# Payload URL: https://&lt;WEB_HOST&gt;/hook/&lt;token&gt;
 # Content-Type: application/json</code></pre>
       <p>
-        Events arrive as messages in the <code>atlas-github</code>
-        folder with <code>chat_jid = web:atlas-github</code>. Route
-        from there to your main Slack channel with a normal route
-        rule, or let the <code>atlas-github</code> agent triage and
+        Events arrive in the <code>atlas/eng</code> folder with
+        <code>chat_jid = hook:atlas/eng/github</code> and the full
+        request body and headers preserved. Route from there to your
+        main Slack channel with a normal route rule, or let the
+        <code>atlas/eng</code> agent triage and
         <code>escalate_group</code> to its parent when something
         needs human attention. Cross-channel and cross-platform
         moves use the same MCP tools the agents already share
         (<a href="/pub/howto/talking-to-agents.html#crossing-agents">talking to agents</a>).
       </p>
       <p>
-        GitHub's payload is not in webd's <code>{content, topic}</code>
-        shape &mdash; you'll want a tiny adapter (Cloudflare Worker,
-        Lambda, or a script on the host) to project the JSON to a
-        one-line summary before POSTing. Sources that let you write
-        the body directly (Grafana, Healthchecks.io, custom
-        cron+curl) skip the bridge. webd does <em>not</em> verify
-        upstream HMAC headers today; the slink token is the
-        credential. Mitigations in the
-        <a href="/pub/howto/webhooks.html#security">webhooks security section</a>.
+        webd delivers GitHub's JSON verbatim with the
+        <code>X-GitHub-Event</code> and signature headers attached.
+        Parsing and (optional) <code>X-Hub-Signature-256</code>
+        verification are skill concerns on the agent side &mdash;
+        the platform is intentionally hands-off. The URL token is
+        the bearer credential; rotate by reissue. See the
+        <a href="/pub/howto/webhooks.html#security-model">webhooks security model</a>.
       </p>
 
       <h3>email ingest</h3>
       <p>
         For email-as-webhook (forwarded alerts, mailing-list
-        digests), use the <code>emaid</code> adapter instead of
-        slink &mdash; it owns IMAP receive, SMTP send, and threading
-        by Message-ID. See
+        digests), use the <code>emaid</code> adapter instead of a
+        hook token &mdash; it owns IMAP receive, SMTP send, and
+        threading by Message-ID. See
         <a href="/pub/components/emaid.html">emaid</a> for the
         connection setup. Auth-related env vars (spec 8/17) gate
         whether inbound is treated as trusted:

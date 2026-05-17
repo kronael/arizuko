@@ -26,7 +26,7 @@
     <p>Routes are matched by longest path prefix from a table loaded out of <code>PROXYD_ROUTES_JSON</code> on first boot and persisted into the <code>proxyd_routes</code> SQLite table. After the first boot the table is authoritative; operators can mutate it at runtime via <code>/v1/routes</code>.</p>
 
     <h2>Why it exists</h2>
-    <p>Backends like <a href="/pub/components/dashd.html">dashd</a>, <a href="/pub/components/webd.html">webd</a>, and <a href="/pub/components/onbod.html">onbod</a> listen on <code>:8080</code> inside their containers and trust whatever they get over the wire. Without proxyd there is no place to check a JWT, no shared HMAC to prove who the caller is, and no rate shield in front of <a href="/pub/components/slink.html">slink</a> POSTs.</p>
+    <p>Backends like <a href="/pub/components/dashd.html">dashd</a>, <a href="/pub/components/webd.html">webd</a>, and <a href="/pub/components/onbod.html">onbod</a> listen on <code>:8080</code> inside their containers and trust whatever they get over the wire. Without proxyd there is no place to check a JWT, no shared HMAC to prove who the caller is, and no rate shield in front of <a href="/pub/components/tokens.html">route-token</a> POSTs.</p>
 
     <p>proxyd is the single trust boundary. It strips every <code>X-User-*</code> header on entry, runs the auth check, then re-stamps <code>X-User-Sub</code>, <code>X-User-Name</code>, <code>X-User-Groups</code>, and an HMAC signature over those fields. Backends verify the signature via <code>auth.RequireSigned</code> (redirect to login on failure) or <code>auth.StripUnsigned</code> (drop the header and continue anonymous). Both helpers live in <code>auth/middleware.go</code>.</p>
 
@@ -48,10 +48,10 @@
 
     <p>The route table comes from two places: a static core list in <code>compose/compose.go</code> (dashd, webd, davd, onbod) and per-service <code>[[proxyd_route]]</code> blocks in <code>template/services/*.toml</code>. Compose generation collects the survivors after env-gating and writes <code>PROXYD_ROUTES_JSON</code>. Adding a channel adapter means shipping a TOML; no edit to <code>main.go</code>.</p>
 
-    <p>Two paths get bespoke treatment in <code>dispatchRoute</code>. <code>/slink/*</code> resolves the token to a folder, stamps <code>X-Folder</code> and an <code>X-Slink-Sig</code> HMAC, and runs anonymous callers through an IP-keyed DoS shield (<code>SLINK_ANON_DOS_RPM</code>, default 10 per minute). <code>/dav/*</code> requires auth, scopes the path to a group the caller belongs to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code>, and anything under <code>&lt;group&gt;/logs/</code>.</p>
+    <p>Two paths get bespoke treatment in <code>dispatchRoute</code>. <code>/chat/*</code> and <code>/hook/*</code> route by token-segment presence; webd hashes the token against <code>route_tokens</code>, anonymous callers run through a per-token in-memory bucket sized by JID prefix. <code>/dav/*</code> requires auth, scopes the path to a group the caller belongs to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code>, and anything under <code>&lt;group&gt;/logs/</code>.</p>
 
     <h2>Standalone usage</h2>
-    <p>proxyd needs three things to run on its own: a SQLite store (for the route table, sessions, and slink-token lookup), an HMAC secret shared with every backend, and at least one route in <code>PROXYD_ROUTES_JSON</code>.</p>
+    <p>proxyd needs three things to run on its own: a SQLite store (for the route table, sessions, and route-token lookup), an HMAC secret shared with every backend, and at least one route in <code>PROXYD_ROUTES_JSON</code>.</p>
 
     <pre><code>export DATA_DIR=/srv/data/arizuko_demo
 export PROXYD_LISTEN=:8080
@@ -64,7 +64,7 @@ export PROXYD_ROUTES_JSON='[{"path":"/api/","backend":"http://api:8080","auth":"
 
     <p><code>TRUSTED_PROXIES</code> is a comma-separated CIDR list. Only peers inside one of those ranges get their <code>X-Forwarded-For</code> honoured; everyone else has it replaced with the TCP peer. Empty means trust nothing.</p>
 
-    <p>Health: <code>GET /health</code> returns <code>{"ok":true}</code>. Auth failures show up as 401 with a <code>Set-Cookie: auth_return=&lt;path&gt;</code> and a 303 to <code>/auth/login</code>; slink rate trips return 429.</p>
+    <p>Health: <code>GET /health</code> returns <code>{"ok":true}</code>. Auth failures show up as 401 with a <code>Set-Cookie: auth_return=&lt;path&gt;</code> and a 303 to <code>/auth/login</code>; route-token rate trips return 429.</p>
 
     <h2>Runtime route mutation</h2>
     <p>Routes are mutable at runtime through a small REST surface. <code>GET /v1/routes</code> lists them; <code>POST /v1/routes</code> creates one; <code>PATCH</code> and <code>DELETE</code> on <code>/v1/routes/{path}</code> update or drop a route. The path segment is URL-encoded, so <code>/slack/</code> becomes <code>%2Fslack%2F</code>.</p>
@@ -84,16 +84,16 @@ export PROXYD_ROUTES_JSON='[{"path":"/api/","backend":"http://api:8080","auth":"
     <p>Both paths log <code>auth: user sig verify failed</code> with <code>attempted_sub</code> and <code>remote</code> so spoofing attempts show up in <code>journalctl</code>.</p>
 
     <h2>What proxyd does not do</h2>
-    <p>proxyd does not run business logic. It does not query <code>messages.db</code> beyond the route table, sessions, and slink-token lookup. It does not enforce per-group scope (backends do, after verifying the signed header). It does not terminate TLS in production deployments &mdash; that belongs to a front like Caddy or nginx, which forwards to proxyd over loopback or a trusted network.</p>
+    <p>proxyd does not run business logic. It does not query <code>messages.db</code> beyond the route table, sessions, and route-token lookup. It does not enforce per-group scope (backends do, after verifying the signed header). It does not terminate TLS in production deployments &mdash; that belongs to a front like Caddy or nginx, which forwards to proxyd over loopback or a trusted network.</p>
 
     <h2>Go deeper</h2>
     <ul>
       <li><a href="/pub/reference/env.html#proxyd">reference/env &mdash; proxyd</a> &mdash; full env var table.</li>
-      <li><a href="/pub/components/slink.html">components/slink</a> &mdash; the public chat surface gated by proxyd.</li>
+      <li><a href="/pub/components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook surfaces gated by proxyd.</li>
       <li><a href="/pub/components/dashd.html">components/dashd</a> &mdash; an auth-required backend behind proxyd.</li>
       <li><code>SECURITY.md</code> &mdash; trust model, signed headers, secret rotation.</li>
-      <li><code>specs/6/2-proxyd-standalone.md</code> &mdash; TOML route field semantics.</li>
-      <li><code>specs/6/5-uniform-mcp-rest.md</code> &mdash; the <code>/v1/routes</code> runtime mutation surface.</li>
+      <li><code>specs/5/35-proxyd-standalone.md</code> &mdash; TOML route field semantics.</li>
+      <li><code>specs/5/5-uniform-mcp-rest.md</code> &mdash; the <code>/v1/routes</code> runtime mutation surface.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>

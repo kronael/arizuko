@@ -29,7 +29,8 @@
 0      platform=telegram                      atlas/content
 0      platform=discord room=dm/*             atlas/dm
 0      platform=reddit verb=post              atlas/posts
-0      chat_jid=web:slink/abc123              solo/chat
+0      chat_jid=web:acme                      solo/chat
+0      chat_jid=hook:acme/eng/github          acme/eng#observe
 0      platform=discord                       atlas/{sender}
 9999   (empty)                                atlas              # catchall</code></pre>
     <p>Lower <code>seq</code> goes first. The empty <code>match</code> at <code>seq=9999</code> matches every message, so it acts as the fallback.</p>

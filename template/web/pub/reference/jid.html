@@ -81,13 +81,14 @@ type UserJID struct{ JID }       // a user identity resource</code></pre>
       <tr><td><code>post</code></td><td><code>linkedin:post/&lt;urn&gt;</code></td><td><code>linkedin:post/urn456</code></td></tr>
       <tr><td rowspan="2"><code>email</code></td><td><code>address</code></td><td><code>email:address/&lt;addr&gt;</code></td><td><code>email:address/foo@bar.com</code></td></tr>
       <tr><td><code>thread</code></td><td><code>email:thread/&lt;msgid&gt;</code></td><td><code>email:thread/&lt;Message-ID&gt;</code></td></tr>
-      <tr><td rowspan="2"><code>web</code></td><td><code>slink</code></td><td><code>web:slink/&lt;token&gt;</code></td><td><code>web:slink/tok-abc</code></td></tr>
+      <tr><td rowspan="3"><code>web</code></td><td><code>folder</code></td><td><code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code></td><td><code>web:acme/support</code></td></tr>
       <tr><td><code>user</code></td><td><code>web:user/&lt;sub&gt;</code></td><td><code>web:user/sub-1</code></td></tr>
+      <tr><td><code>hook</code></td><td><code>hook:&lt;owner&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code></td><td><code>hook:acme/eng/github</code></td></tr>
       <tr><td><code>slack</code></td><td>&mdash;</td><td>per adapter; <code>slack:</code> JIDs handled by <a href="https://github.com/kronael/arizuko/tree/main/slakd"><code>slakd</code></a></td><td></td></tr>
     </table>
 
     <p class="meta"><strong>Discord placeholder.</strong> Legacy rows with no stored guild_id migrated to <code>discord:_/&lt;channel&gt;</code> (placeholder kind). New inbound from <code>discd</code> carries the real guild ID. See <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0042-typed-jids.sql#L107"><code>0042-typed-jids.sql:107</code></a>.</p>
-    <p class="meta"><strong>Web legacy.</strong> Some stored rows still use bare <code>web:&lt;folder&gt;</code> as a chat identity for the slink hub (folder-keyed); not migrated to <code>web:slink/&hellip;</code> until the web stack splits token-vs-sub identity (<a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md#L156"><code>spec 5/S</code> &sect; "Web stays folder-keyed"</a>).</p>
+    <p class="meta"><strong>Web is folder-keyed.</strong> The chat JID is the folder (with optional <code>/&lt;suffix&gt;</code>); the URL token is a separate row in <code>route_tokens</code> that maps to this JID. See <a href="/pub/concepts/tokens.html">route tokens</a>.</p>
 
     <h2>4. Routing &amp; glob matching</h2>
 
@@ -184,7 +185,8 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
       <li><strong>Email</strong> &mdash; senders rewritten to <code>email:address/&lt;addr&gt;</code>; <code>chat_jid</code> rewrite deferred until <code>emaid</code> emits typed form.</li>
       <li><strong>LinkedIn</strong> &mdash; <code>&lt;urn&gt;</code> &rarr; <code>user/&lt;urn&gt;</code>.</li>
       <li><strong>WhatsApp + Twitter</strong> &mdash; already conformant; not touched.</li>
-      <li><strong>Web</strong> &mdash; legacy <code>web:&lt;folder&gt;</code> kept; not migrated to <code>web:slink/&hellip;</code> until token-vs-sub split lands.</li>
+      <li><strong>Web</strong> &mdash; <code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> remains folder-keyed; the URL token is decoupled into the <code>route_tokens</code> table (one row per URL, JID per row).</li>
+      <li><strong>Hook</strong> &mdash; new top-level platform <code>hook:&lt;owner&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhook ingest via <code>route_tokens</code>; <code>sender</code> on inbound is the <code>&lt;source&gt;</code> segment.</li>
       <li><strong>Routes</strong> &mdash; bare <code>platform:*</code> globs rewritten to <code>platform:*/*</code> so segment-aware <code>path.Match</code> still matches anything on that platform.</li>
     </ul>
 

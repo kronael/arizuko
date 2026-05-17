@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>slink-sdk sample</title>
+    <title>chat-sdk sample</title>
     <script src="/assets/arizuko-client.js"></script>
     <style>
       :root {
@@ -125,10 +125,10 @@
       </form>
     </footer>
     <script>
-      // Paste your slink token here, or override via ?token=<t> in the URL.
+      // Paste your chat token here, or override via ?token=<t> in the URL.
       const TOKEN =
         new URLSearchParams(location.search).get('token') ||
-        'REPLACE_WITH_SLINK_TOKEN';
+        'REPLACE_WITH_CHAT_TOKEN';
 
       const thread = document.getElementById('thread');
       const btn = document.getElementById('b');

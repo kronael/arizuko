@@ -28,7 +28,7 @@
     <h2>Why it exists</h2>
     <p>Without dashd, operators inspect an arizuko instance through <code>sqlite3 messages.db</code>, <code>journalctl -u arizuko_&lt;inst&gt;</code>, and the <code>arizuko</code> CLI. That works but does not scale to non-engineers and does not give a one-screen answer to &ldquo;what is this instance doing right now&rdquo;.</p>
 
-    <p>dashd owns no tables of its own. It is an aggregator: it reads from <code>groups</code>, <code>routes</code>, <code>scheduled_tasks</code>, <code>messages</code>, <code>sessions</code>, <code>channels</code>, and <code>auth_users</code> &mdash; tables owned by gated, timed, and onbod &mdash; and renders them. The plan in <code>specs/6/R-platform-api.md</code> is to migrate those direct reads onto the sibling daemons&rsquo; <code>/v1/*</code> APIs; dashd becomes pure client.</p>
+    <p>dashd owns no tables of its own. It is an aggregator: it reads from <code>groups</code>, <code>routes</code>, <code>scheduled_tasks</code>, <code>messages</code>, <code>sessions</code>, <code>channels</code>, and <code>auth_users</code> &mdash; tables owned by gated, timed, and onbod &mdash; and renders them. The plan in <code>specs/5/V-platform-api.md</code> is to migrate those direct reads onto the sibling daemons&rsquo; <code>/v1/*</code> APIs; dashd becomes pure client.</p>
 
     <h2>How it fits</h2>
     <div class="callout">
@@ -84,6 +84,7 @@ export INSTANCE_NAME=demo
       <li><code>/dash/routes/</code> &mdash; routes editor: list, create, edit, delete rules.</li>
       <li><code>/dash/groups/new</code> + <code>/dash/groups/{folder}/settings</code> &mdash; group create / settings / delete.</li>
       <li><code>/dash/me/secrets</code> &mdash; per-user secret set, list, delete.</li>
+      <li><code>/dash/channels/whatsapp/pair</code> &mdash; self-service WhatsApp re-pair page. Requires the <code>**</code> operator super-grant. Calls whapd <code>/v1/pair/start</code>; the pairing code is returned once, expires in 60s, rate-limited to 5/hr. Every start writes an audit row in <code>messages</code>.</li>
     </ul>
 
     <h2>The migration to /v1/*</h2>
@@ -105,9 +106,8 @@ export INSTANCE_NAME=demo
     <ul>
       <li><a href="/pub/reference/env.html#dashd">reference/env &mdash; dashd</a> &mdash; full env var table.</li>
       <li><a href="/pub/components/proxyd.html">components/proxyd</a> &mdash; the auth gate that sits in front.</li>
-      <li><code>specs/6/R-platform-api.md</code> &mdash; the <code>/v1/*</code> migration plan.</li>
+      <li><code>specs/5/V-platform-api.md</code> &mdash; the <code>/v1/*</code> migration plan.</li>
       <li><code>specs/4/Q-dash-memory.md</code> &mdash; memory view and edit surface.</li>
-      <li><code>specs/7/25-dashboards.md</code> &mdash; the dashboard product spec.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>

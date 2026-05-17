@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>route tokens &middot; concept</title>
+  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .prose table { border-collapse: collapse; margin: 0.6em 0; width: 100%; font-size: 0.92em; }
+    .prose th, .prose td { border: 1px solid var(--border, rgba(127,127,127,0.3)); padding: 0.3em 0.6em; text-align: left; vertical-align: top; }
+    .prose th { background: var(--bg-soft, rgba(127,127,127,0.06)); }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/concepts/">concepts</a> &rsaquo; route tokens</p>
+    <h1>route tokens</h1>
+
+    <p>A route token is a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix says which kind of inbound this is &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anywhere else that knows how to POST JSON.</p>
+
+    <h2>One table, two URL prefixes</h2>
+
+    <p>All tokens live in the <code>route_tokens</code> table. Four columns:</p>
+
+    <pre><code>token_hash    sha256 of the raw token; lookup key
+jid           web:&lt;folder&gt;[/&lt;suffix&gt;]  |  hook:&lt;owner&gt;/&lt;source&gt;[/&lt;suffix&gt;]
+owner_folder  the folder that minted the row; bounds revocation
+created_at    when it was minted</code></pre>
+
+    <p>Two URL prefixes read from this table:</p>
+
+    <table>
+      <tr><th>URL</th><th>JID prefix</th><th>Methods</th><th>What happens</th></tr>
+      <tr><td><code>/chat/&lt;token&gt;/</code></td><td><code>web:</code></td><td>GET, POST</td><td>GET serves the chat widget. POST appends a message and opens an SSE reply stream.</td></tr>
+      <tr><td><code>/hook/&lt;token&gt;</code></td><td><code>hook:</code></td><td>POST</td><td>Appends the body as one inbound message. Returns 204. No reply channel.</td></tr>
+    </table>
+
+    <p>The URL prefix and the JID prefix must match. A chat token on <code>/hook/</code> returns 401; a hook token on <code>/chat/</code> returns 401. Mismatches are not retryable &mdash; the row exists, but the surface is wrong.</p>
+
+    <h2>What the JID encodes</h2>
+
+    <p><code>web:&lt;folder&gt;</code> means &ldquo;anonymous visitor chat at this folder.&rdquo; <code>web:acme</code> is acme's public chat URL. Add a suffix to split one folder across pages: <code>web:acme/support</code> and <code>web:acme/sales</code> are different conversations against the same agent, distinguishable in routing rules.</p>
+
+    <p><code>hook:&lt;owner&gt;/&lt;source&gt;</code> means &ldquo;webhook from <em>source</em> targeting <em>owner</em>.&rdquo; <code>hook:acme/eng/github</code> is GitHub events for the <code>acme/eng</code> folder. <code>hook:acme/eng/linear/comments</code> partitions Linear into a comments stream separate from <code>hook:acme/eng/linear/issues</code>. The <code>&lt;source&gt;</code> segment is what the agent sees in the inbound's <code>sender</code> field.</p>
+
+    <p>JID prefixes are not interchangeable. A chat conversation cannot land at a <code>hook:</code> JID; webhook traffic cannot land at <code>web:</code>. Route rules treat them as different platforms even though one table issued both.</p>
+
+    <h2>Issuance</h2>
+
+    <p>Two sources mint tokens, one writer inserts the row.</p>
+
+    <ul>
+      <li><strong>An agent over MCP.</strong> A turn calls <code>issue_chat_link</code> or <code>issue_webhook</code> on its group's MCP socket. The agent gets the URL back once and hands it to a human to paste.</li>
+      <li><strong>An operator over REST or CLI.</strong> <code>arizuko token issue &lt;folder&gt; chat</code> mints a chat token for a folder. The same command with <code>hook &lt;source&gt;</code> mints a webhook. The REST equivalent is <code>POST /v1/route_tokens/chat</code> or <code>/v1/route_tokens/hook</code>, OAuth-gated through proxyd. dashd surfaces a button on the folder page.</li>
+    </ul>
+
+    <p>Both paths hit the same <code>insertRouteToken</code> writer. Same row shape, same audit trail.</p>
+
+    <p>The raw token is returned exactly once at issue time. Only the sha256 is stored. Losing the token means reissuing &mdash; there is no recovery.</p>
+
+    <p>Folders do not get a chat token automatically when they are created. A folder gets a token when someone calls <code>issue_chat_link</code> for it. This keeps unused folders from accumulating live URLs.</p>
+
+    <h2>Who can mint for which folder</h2>
+
+    <p>Resolved by the unified <a href="/pub/concepts/grants.html">grants</a> tier. Lower tier = broader mint reach.</p>
+
+    <table>
+      <tr><th>Tier</th><th>Can mint for</th></tr>
+      <tr><td>0</td><td>any folder</td></tr>
+      <tr><td>1</td><td>self and any descendant</td></tr>
+      <tr><td>2</td><td>self only</td></tr>
+      <tr><td>3+</td><td>no mint</td></tr>
+    </table>
+
+    <p>Tier 1 at <code>acme</code> can mint <code>hook:acme/eng/github</code> on behalf of the <code>acme/eng</code> child. In that case the row's <code>owner_folder</code> stays at <code>acme</code> &mdash; the issuer, not the JID target. Revocation follows <code>owner_folder</code>, so <code>acme</code> retains control of the tokens it minted.</p>
+
+    <h2>Revocation</h2>
+
+    <p>One <code>DELETE</code> on the row. The next request to the URL returns 401 immediately &mdash; no grace period, no cache to wait out. An agent in folder A cannot delete a token whose <code>owner_folder = B</code>; the ACL gate at <code>revoke_route_token</code> requires admin on <code>owner_folder</code>.</p>
+
+    <h2>The bearer model</h2>
+
+    <p>Whoever holds the URL can POST to it. There is no second factor, no signing on the body, no per-caller identity at this surface. webd does not verify <code>X-Hub-Signature</code> or any other upstream HMAC &mdash; that belongs to a skill on the agent side, not the platform. Rotation is by reissue: mint a new token, swap the URL at the source, delete the old row.</p>
+
+    <p>webd applies a per-token rate limit in memory. The ceiling is chosen by JID prefix &mdash; <code>web:</code> sits at a lower bucket sized for humans, <code>hook:</code> at a higher bucket for machine bursts. Body size is capped at 1 MiB.</p>
+
+    <h2>Name</h2>
+
+    <p>Previously called <em>slink</em>; renamed to <em>route tokens</em> for clarity once webhooks joined the same primitive.</p>
+
+    <h2>Go deeper</h2>
+
+    <ul>
+      <li><a href="/pub/howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site, what the visitor sees.</li>
+      <li><a href="/pub/howto/webhooks.html">how-to: webhooks</a> &mdash; wire GitHub, Linear, custom alerts.</li>
+      <li><a href="/pub/reference/tokens.html">reference: tokens</a> &mdash; full HTTP surface, payload shapes, SSE events, MCP tools.</li>
+      <li><a href="/pub/concepts/routing.html">routing</a> &mdash; how <code>web:&lt;folder&gt;</code> and <code>hook:&lt;owner&gt;/&lt;source&gt;</code> reach an agent.</li>
+      <li><a href="/pub/concepts/jid.html">jid</a> &mdash; address shape across every platform.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a> &mdash; the route_tokens spec.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="/pub/assets/hub.js"></script>
+</body>
+</html>

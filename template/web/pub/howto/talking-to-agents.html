@@ -57,7 +57,7 @@
           <tr><td>Discord</td><td><code>@&lt;bot&gt; hello</code></td><td>Same shape. Replies to bot messages and reactions on them are promoted to mentions.</td></tr>
           <tr><td>Telegram</td><td><code>@&lt;botname&gt;</code> or reply</td><td>Group chats fire on @-mention or on reply to a bot message. DMs always fire.</td></tr>
           <tr><td>WhatsApp</td><td><code>@&lt;phone&gt;</code> or reply</td><td>WhatsApp groups need @-mention. Reply-to-bot promotes to mention (<a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md">v0.40.2</a>).</td></tr>
-          <tr><td>web (slink chat)</td><td>any message</td><td>The slink page is one-on-one with the agent. Every message is a turn.</td></tr>
+          <tr><td>web (<code>/chat/&lt;token&gt;/</code>)</td><td>any message</td><td>The chat page is one-on-one with the agent. Every message is a turn.</td></tr>
           <tr><td>email</td><td>To: <code>&lt;bot&gt;@&lt;domain&gt;</code></td><td>emaid threads by Message-ID. Reply-all keeps the thread.</td></tr>
         </tbody>
       </table>
@@ -181,7 +181,8 @@
 discord:dm/123             # one Discord DM
 telegram:group/-100456     # one Telegram group
 whatsapp:789@g.us          # one WhatsApp group
-web:&lt;folder&gt;               # slink chat or webhook into &lt;folder&gt;</code></pre>
+web:&lt;folder&gt;               # browser chat at folder (via /chat/&lt;token&gt;/)
+hook:&lt;owner&gt;/&lt;source&gt;      # webhook ingest at folder (via /hook/&lt;token&gt;)</code></pre>
 
       <h2>which mechanism for which job</h2>
       <table>

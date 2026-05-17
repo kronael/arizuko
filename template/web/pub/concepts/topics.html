@@ -25,7 +25,7 @@
     <p>The gateway reads the topic from one of three places:</p>
     <ul>
       <li><strong>Platform-native threads.</strong> Telegram&rsquo;s <code>MessageThreadID</code>, Discord&rsquo;s thread channel ID, and similar fields land on <code>Message.Topic</code> when the adapter hands the message to <code>gated</code>.</li>
-      <li><strong>The web channel.</strong> A web message carries a topic slug directly &mdash; the slink widget chooses it before the request goes out.</li>
+      <li><strong>The web channel.</strong> A web message carries a topic slug directly &mdash; the chat widget chooses it before the request goes out.</li>
       <li><strong>The <code>#topic</code> prefix.</strong> When a user starts a message with <code>#name</code>, the gateway strips the prefix and runs the rest under topic <code>#name</code>.</li>
     </ul>
 

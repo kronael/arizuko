@@ -210,7 +210,7 @@
       </table>
       <p class="meta"><strong>PK:</strong> <code>(folder, turn_id)</code>.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/turns.go#L15"><code>store/turns.go:15</code></a> (gateway).</p>
-      <p class="meta"><strong>Readers:</strong> webd (slink round-handle).</p>
+      <p class="meta"><strong>Readers:</strong> webd (round-handle for <code>/chat/&lt;token&gt;/</code>).</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0036-turn-results.sql">0036</a>.</p>
     </div>
 
@@ -278,7 +278,7 @@
         <tr><td><code>name</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>display name</td></tr>
         <tr><td><code>added_at</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>RFC3339</td></tr>
         <tr><td><code>container_config</code></td><td>TEXT</td><td>NULL</td><td></td><td>JSON GroupConfig (mounts, timeout, max_children)</td></tr>
-        <tr><td><code>slink_token</code></td><td>TEXT</td><td>NULL</td><td></td><td>public-web slink token</td></tr>
+        <!-- removed by spec 5/W: tokens live in the route_tokens table now -->
         <tr><td><code>parent</code></td><td>TEXT</td><td>NULL</td><td></td><td>parent folder path</td></tr>
         <tr><td><code>updated_at</code></td><td>TEXT</td><td>NULL</td><td></td><td>RFC3339</td></tr>
         <tr><td><code>product</code></td><td>TEXT</td><td>NOT NULL</td><td>'assistant'</td><td>product slug (0044)</td></tr>
@@ -323,6 +323,21 @@
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L38"><code>store/routes.go:38</code></a> (AddRoute), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L55"><code>:55</code></a> (DELETE on folder tear-down), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L62"><code>:62</code></a> (replace set), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L72"><code>:72</code></a> (DELETE by id), <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L974"><code>onbod/main.go:974</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L1039"><code>:1039</code></a>.</p>
       <p class="meta"><strong>Readers:</strong> gated (ResolveRoute), dashd, ipc (route MCP tools).</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L106">0001</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0008-topic-sessions.sql#L20">0008</a> ensure-exists + unique index; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0012-fix-prefix-route-seq.sql">0012</a> fix prefix seq; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0022-routes-match.sql">0022</a> rebuild (drop jid/type, add match); 0042/0043 rewrite predicates to typed JIDs; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0054-route-target-fragment.sql">0054</a> drop <code>impulse_config</code>, encode mode in <code>target</code> fragment, add <code>observe_window_*</code>.</p>
+    </div>
+
+    <div class="tablecard">
+      <h3><code>route_tokens</code></h3>
+      <p>URL-bound credentials for <code>/chat/&lt;token&gt;/</code> visitor chat and <code>/hook/&lt;token&gt;</code> webhook ingest. One row per issued URL; the JID prefix tells webd which surface the token belongs to. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a>.</p>
+      <table>
+        <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
+        <tr><td><code>token_hash</code></td><td>BLOB PK</td><td>NOT NULL</td><td>sha256 of the raw token; raw token returned once at issuance</td></tr>
+        <tr><td><code>jid</code></td><td>TEXT</td><td>NOT NULL</td><td><code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> or <code>hook:&lt;owner&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code></td></tr>
+        <tr><td><code>owner_folder</code></td><td>TEXT</td><td>NOT NULL</td><td>issuing folder; bounds revocation</td></tr>
+        <tr><td><code>created_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
+      </table>
+      <p class="meta"><strong>Indexes:</strong> <code>route_tokens_jid</code> on <code>jid</code>.</p>
+      <p class="meta"><strong>Writers:</strong> gated (<code>insertRouteToken</code>, called from both MCP <code>issue_chat_link</code>/<code>issue_webhook</code> and REST <code>POST /v1/route_tokens/*</code>).</p>
+      <p class="meta"><strong>Readers:</strong> webd (hash + lookup on every <code>/chat/*</code> and <code>/hook/*</code> request); gated (list, revoke).</p>
     </div>
 
     <div class="tablecard">

@@ -33,9 +33,11 @@
     <div class="hub-container prose">
       <h1>arizuko</h1>
       <p class="lede">
-        Multi-tenant Claude agent router. Self-hosted. Channel adapters speak
-        HTTP to <code>gated</code>; per-group Claude Code agents run in Docker
-        containers with an MCP socket bridged in. Go, SQLite (WAL), Docker.
+        Self-hosted router for Claude agents that live in your team&rsquo;s
+        chats. Slack, Telegram, WhatsApp, Discord, email &mdash; 11 channel
+        adapters, folder per team, container per folder. Memory and
+        secrets stay scoped per team; your box, your Anthropic key, one
+        <code>tar</code> backs up everything.
       </p>
 
       <h2>what you get</h2>
@@ -68,10 +70,17 @@
           topic at route time &mdash; one topic per source, no manual sorting.
         </li>
         <li>
-          <strong>Orthogonal primitives.</strong> Folders are paths on disk.
-          Routes match on key=glob pairs. ACL grants scope per principal &times;
-          action &times; folder. Channels speak HTTP. Containers are
-          per-group. They meet at <code>messages.db</code> and nowhere else.
+          <strong>Email in, email out.</strong> <code>emaid</code> ingests
+          DMARC-verified mail as a normal channel; unverified senders route
+          to a <code>verb=untrusted</code> quarantine instead of reaching
+          the agent. SMTP send works the same direction.
+        </li>
+        <li>
+          <strong>Named primitives, not abstractions.</strong> Folders are
+          folders. Routes match on <code>key=glob</code>. ACL is one row:
+          <code>(principal, action, scope, params)</code>. Channels speak
+          HTTP. Containers are per-group. They meet at
+          <code>messages.db</code> and nowhere else.
         </li>
         <li>
           <strong>Compose, don&rsquo;t patch.</strong> Adding a channel adapter
@@ -87,6 +96,17 @@
           per-user memory, secrets, agent files. No managed control plane.
         </li>
       </ul>
+
+      <p class="dim" style="margin: 1em 0 0.4em">
+        Products like
+        <a href="/pub/products/slack-team/">slack-team</a>,
+        <a href="/pub/products/support/">support</a>,
+        <a href="/pub/products/researcher/">researcher</a>
+        are pre-seeded recipes on this substrate &mdash;
+        <code>arizuko create &lt;name&gt; --product &lt;recipe&gt;</code>
+        lands one in five minutes. Or build your own; the primitives are
+        the same.
+      </p>
 
       <h2>show me</h2>
       <pre><code># seed the instance directory
@@ -104,10 +124,10 @@ arizuko run demo
 # systemd unit: arizuko_demo (sudo systemctl status arizuko_demo)
 
 # talk to the default group from a browser
-arizuko invite demo --slink   # prints a token-bound URL
+arizuko token issue demo chat   # prints a /chat/&lt;token&gt;/ URL
 
 # or from a script &mdash; same endpoint, JSON in / JSON out
-curl -X POST https://example.com/slink/&lt;token&gt; \
+curl -X POST https://example.com/chat/&lt;token&gt;/ \
   -H 'Content-Type: application/json' \
   -d '{"text":"hello"}'</code></pre>
 
@@ -126,8 +146,8 @@ curl -X POST https://example.com/slink/&lt;token&gt; \
         <li>
           <a href="/pub/concepts/">concepts</a> &mdash; the primitives one
           page each: topics, scopes, routing, grants, auth, jid, tasks,
-          secrets, personas, skills, onboarding, slack pane, slink, webdav,
-          voice.
+          secrets, personas, skills, onboarding, slack pane, route tokens,
+          webdav, voice.
         </li>
         <li>
           <a href="/pub/reference/">reference</a> &mdash; every configurable
@@ -160,6 +180,12 @@ curl -X POST https://example.com/slink/&lt;token&gt; \
           <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>.
         </li>
       </ul>
+
+      <p class="dim" style="margin-top: 2em; font-size: 0.9em">
+        <a href="/pub/changelog/">v0.40.7</a> &middot; MIT &middot;
+        Go + SQLite (WAL) + Docker &middot; running on
+        <code>krons</code>, <code>marinade</code>, <code>sloth</code>.
+      </p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="/pub/assets/hub.js"></script>
