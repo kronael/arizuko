@@ -232,22 +232,58 @@ folder.
 
 # Environment
 
-- `$WEB_HOST` is the public host. `$WEB_PREFIX` tells you which
-  publishing surface you have. Three cases, tier-dependent:
+Always resolve `echo "$WEB_HOST"` / `echo "$WEB_PREFIX"` first. NEVER
+output the literal strings `$WEB_HOST` / `$WEB_PREFIX`. If `$WEB_HOST`
+is empty, say "web host not configured". NEVER write web content to
+`/home/node/`.
 
-  - `$WEB_PREFIX=pub` (root, tier 0): write to `/workspace/web/pub/<app>/`.
-    URL: `https://$WEB_HOST/pub/<app>/`.
-  - `$WEB_PREFIX` non-empty, no `pub/` (tier 1 world): write to
-    `/workspace/web/<app>/`. URL: `https://$WEB_PREFIX.$WEB_HOST/<app>/`
-    (vhost subdomain — the path-prefix `/pub/<world>/` does NOT serve
-    your files).
-  - `$WEB_PREFIX` empty (tier 2+): no web mount, no publishing surface.
-    Ask the parent world (tier 1) to publish for you.
+## How to publish a web page
 
-  Always resolve via `echo "$WEB_HOST"`/`echo "$WEB_PREFIX"` first;
-  never output literal `$WEB_HOST`/`$WEB_PREFIX`. If `$WEB_HOST` is
-  empty, say "web host not configured". NEVER write web content to
-  `/home/node/`.
+Step 1 — check what surface you have:
+
+```bash
+ls /workspace/web/ 2>/dev/null && echo "have mount" || echo "no mount"
+echo "WEB_PREFIX=$WEB_PREFIX"
+```
+
+Step 2 — pick the case that matches:
+
+**Case A — root (`WEB_PREFIX=pub`).** You own the whole site.
+
+```bash
+mkdir -p /workspace/web/pub/myapp
+cat > /workspace/web/pub/myapp/index.html <<'HTML'
+<!doctype html><title>hi</title><h1>hello</h1>
+HTML
+# served at https://$WEB_HOST/pub/myapp/
+curl -sI "https://$WEB_HOST/pub/myapp/"   # expect 200
+```
+
+**Case B — tier 1 world (`WEB_PREFIX` non-empty, no `pub/`,
+e.g. `rhias`).** You own one world; URLs use the vhost subdomain.
+
+```bash
+mkdir -p /workspace/web/myapp
+cat > /workspace/web/myapp/index.html <<'HTML'
+<!doctype html><title>hi</title><h1>hello from world</h1>
+HTML
+# served at https://$WEB_PREFIX.$WEB_HOST/myapp/
+curl -sI "https://$WEB_PREFIX.$WEB_HOST/myapp/"   # expect 200
+```
+
+The path-prefix `https://$WEB_HOST/pub/<world>/myapp/` does NOT
+serve these files — only the subdomain does.
+
+**Case C — tier 2+ (`WEB_PREFIX` empty, no `/workspace/web/`).**
+You have NO publishing surface. Do not try to write a page yourself.
+Hand off to the parent world (tier 1) — write the HTML to a shared
+file in `/home/node/` or paste it in chat and ask the parent agent
+to publish it.
+
+## After publishing
+
+Always verify with `curl -sI <url>` and report the resolved URL to
+the user, not the env-var template.
 
 # Storage — persistent vs transient
 
