@@ -88,9 +88,9 @@ MCP-driven control (per outbound, one-shot):
 - `POST /v1/pane/title {jid, title}` — same shape; one-shot title.
 
 Both endpoints are reached by gated via `chanreg.HTTPChannel`'s
-`PaneSetPrompts` / `PaneSetTitle` (implementing the optional
-`core.Paner` capability). Today slakd is the only adapter that
-implements it.
+`SetSuggestions` / `SetName` (implementing the optional
+`core.Suggester` and `core.Namer` capabilities). Today slakd is the
+only adapter that implements them.
 
 slakd opens the shared `messages.db` directly to read/write
 `pane_sessions` rows; `DB_PATH` (preferred) or `DATA_DIR/store`

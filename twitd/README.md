@@ -115,7 +115,7 @@ cd twitd && bun test
 
 42 tests cover server routes, hint behavior, error paths, JID parsing,
 cookie persistence, and the 3-path auth flow. The Scraper is stubbed
-in tests; we never exercise the real X surface in CI.
+in tests; CI never exercises the real X surface.
 
 ## Related docs
 

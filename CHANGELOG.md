@@ -14,6 +14,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- core: split `Paner` capability interface into `Suggester`
+  (SetSuggestions) and `Namer` (SetName) — single-method capability
+  interfaces per Effective Go. MCP tools (`pane_set_prompts`,
+  `pane_set_title`) and HTTP endpoints (`/v1/pane/*`) unchanged.
+
 ## [v0.40.0] — 2026-05-16
 
 > arizuko v0.40.0 — topic lineage, Slack pane, ambient siblings

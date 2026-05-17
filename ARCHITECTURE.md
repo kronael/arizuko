@@ -389,8 +389,9 @@ Container naming: `<app>_<service>_<flavor>` (e.g. `arizuko_teled_REDACTED`).
 Operator copies desired TOMLs into `/srv/data/arizuko_<flavor>/services/`
 before start; Ansible via `arizuko_instances[].extra_services`.
 
-onbod auto-included when `ONBOARDING_ENABLED=true`. All daemons
-listen on :8080 inside containers.
+onbod auto-included when `ONBOARDING_ENABLED=true`. All Go daemons
+listen on :8080 internally except ttsd at :8880 — historical default
+that predates the invariant.
 
 `crackbox` (sibling component, see `specs/9/b-orthogonal-components.md`)
 and an `agents` internal network are emitted when `CRACKBOX_ADMIN_API` is set.
@@ -403,57 +404,24 @@ per-folder allowlist by host name on every CONNECT/HTTP request. See
 
 ## Onboarding (onbod/)
 
-Self-service token-based onboarding with optional gated admission.
-
-State machine per JID (`onboarding` table):
-
-```
-awaiting_message → token_used (clicked link) → [queued] → approved (OAuth + world created)
-```
-
-Poll loop (10s): picks up `awaiting_message` rows with no `prompted_at`,
-generates one-time token (24h TTL), sends auth link via gated outbound API.
-
-When `ONBOARDING_GATES` is set (comma-separated gate specs like
-`github:org=mycompany:10/day`, `google:domain=example.com:20/day`, `*:50/day`),
-users who click the link enter `queued` status with a matched gate.
-`admitFromQueue` runs every ~60s and promotes queued users up to each gate's
-daily limit. Queue position page auto-refreshes (30s). Without gates, users
-go directly to `approved`.
-
-Web dashboard at `/onboard`: token landing → OAuth → username picker →
-world creation via `container.SetupGroup`. Second-JID auto-link when
-user already has a world.
-
-Prototype copy: `CLAUDE.md` and `SOUL.md` only (no session or memory). Agents
-spawn children via `register_group` MCP with `fromPrototype=true`. Spec:
-`specs/4/26-prototypes.md`.
+Self-service token-based onboarding with optional gated admission. Turns
+inbound JIDs into provisioned groups via OAuth + `container.SetupGroup`,
+optionally rate-limited by `ONBOARDING_GATES`. Details (state machine,
+poll cadence, prototype copy semantics): `onbod/README.md`.
 
 ## Scheduler (timed/)
 
-Spec: `specs/4/8-scheduler-service.md`. Polls `scheduled_tasks` every 60s.
-For each due task (status=active, next_run <= now):
-
-1. Atomically claim due tasks (`status='firing'`) to prevent double-fire
-2. Insert prompt as message (sender: `timed` or `timed-isolated:<id>`)
-3. Compute next run (robfig/cron or interval-ms), update `next_run`
-4. Tasks without cron get `status='completed'` (one-shot)
-5. Log each run to `task_run_logs`
-
-Gateway picks up scheduler messages via normal poll. timed opens the same
-SQLite DB (WAL mode); schema is owned by `store/migrations/` and must
-already be migrated by gated before timed starts.
+Standalone daemon that turns `scheduled_tasks` rows into messages on the
+shared DB; gateway picks them up via normal poll. Schema owned by
+`store/migrations/`, must be migrated by gated before timed starts.
+Details (claim protocol, cron evaluation, run logs): `timed/README.md`.
 
 ## Operator Dashboard (dashd/)
 
-Standalone read-only HTMX portal on `:8080` (configurable via `DASH_PORT`
-env; exposed on host only if `DASH_PORT` is set in compose, otherwise
-accessed via proxyd at `/dash/`). Opens SQLite read-only. Six views: portal,
-status, tasks, activity, groups, memory. Auth enforced by proxyd's
-`requireAuth` middleware. Spec: `specs/3/d-dashboards.md`.
-
-URLs: `/dash/` portal, `/dash/<name>/` page, `/dash/<name>/x/<frag>` HTMX
-partial.
+Read-only HTMX portal over the shared SQLite; the human-facing window
+into instance state. Auth enforced upstream by proxyd's `requireAuth`.
+Spec: `specs/3/d-dashboards.md`. Details (views, URL shape, port
+config): `dashd/README.md`.
 
 ## Diary (diary package)
 

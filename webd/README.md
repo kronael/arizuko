@@ -21,8 +21,9 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
 
 ## Tables owned
 
-Per `specs/6/R-platform-api.md`: `web_routes`, `vhosts`, slink tokens.
-webd does not own messages — it writes them as a client of
+Per `specs/6/R-platform-api.md`: `web_routes` and the `slink_token`
+column on `groups`. Vhost config lives in `web/vhosts.json` (file, not
+table). webd does not own messages — it writes them as a client of
 `gated/v1/messages` (channel adapter inbound) and today reads them via
 its own `/api/*` paths directly off the shared DB. Once federation lands
 those reads migrate to `gated/v1/messages` (flagged future work).
@@ -45,7 +46,7 @@ Shipped today (see `server.go`):
 
 Planned per `specs/6/R-platform-api.md`:
 
-- `/v1/web-routes` and `/v1/vhosts` — REST verbs on owned tables.
+- `/v1/web-routes` — REST verbs on owned tables.
 
 ## Token contract
 
@@ -63,8 +64,8 @@ Planned per `specs/6/R-platform-api.md`:
 
 webd's `/api/*` chat reads currently hit the shared DB directly. Once
 gated ships `/v1/messages` per the platform API spec, migrate these
-reads to gated; webd then owns only `web_routes`, `vhosts`, and slink
-tokens end-to-end.
+reads to gated. A `/v1/vhosts` REST surface over `web/vhosts.json` is
+also planned.
 
 ## Entry points
 

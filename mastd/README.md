@@ -50,8 +50,8 @@ posts inbound to the router. Outbound uses the Mastodon REST API.
 ## Known gaps
 
 - **DM semantics**: `Send` posts publicly. To DM the author of a
-  `mastodon:<account_id>` JID we need (a) the `acct` handle to
-  @-mention and (b) `Toot.Visibility = "direct"`. JIDs currently
+  `mastodon:<account_id>` JID, the adapter needs (a) the `acct` handle
+  to @-mention and (b) `Toot.Visibility = "direct"`. JIDs currently
   store only the numeric account ID.
 - **PostRequest fields**: Mastodon-specific knobs (content warning,
   language, visibility) are not on `chanlib.PostRequest`; the adapter

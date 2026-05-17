@@ -19,6 +19,9 @@ imports nothing else arizuko-internal.
 - `RouteTarget`, `ParseRouteTarget(s)` — parses `routes.target` as `<folder>[#<mode>]`
 - `Channel` — `Connect`, `Send`, `SendFile`, `Owns`, `Typing`, `Disconnect`
 - `HistoryFetcher`, `Socializer` — optional extensions
+- `Suggester` — optional capability: `SetSuggestions(jid, []PanePrompt)` stages suggested-prompt buttons for the user's next message
+- `Namer` — optional capability: `SetName(jid, name)` renames an open conversation (Slack pane title, etc.)
+- `PanePrompt` — one suggested-prompt button (`Title`, `Message`)
 - `JidRoom(jid)`, `JidPlatform(jid)` — JID parsing
 - `GenSlinkToken()`, `GenHexToken()`, `MsgID(prefix)`, `NewSessionID()`, `SanitizeInstance(name)`
 

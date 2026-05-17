@@ -37,7 +37,7 @@ until scanned.
 
 - No `fetch_history`. Baileys' history sync is unreliable across LID/JID
   translation; the gateway falls back to its local-DB cache.
-- `forward` cannot true-relay because we receive `source_msg_id` only.
+- `forward` cannot true-relay because Baileys delivers `source_msg_id` only.
 - `edit` and `delete` only succeed on bot-authored messages; WhatsApp
   enforces a 15-minute edit window server-side.
 

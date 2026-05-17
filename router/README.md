@@ -53,45 +53,12 @@ id=… name=… memory="~/users/<id>"/>` element, derived from the
   that a non-`root/*` source can only route into its own direct
   children.
 
-## Rule grammar (canonical: `ROUTING.md`)
+## Rule grammar
 
-`r.Match` is a space-separated list of `key=glob` predicates; every
-predicate must match (AND). Predicates against unknown keys yield
-empty values, which only match `key=`.
-
-| key        | source                      |
-| ---------- | --------------------------- |
-| `platform` | `core.JidPlatform(ChatJID)` |
-| `room`     | `core.JidRoom(ChatJID)`     |
-| `chat_jid` | `msg.ChatJID`               |
-| `sender`   | `msg.Sender`                |
-| `verb`     | `msg.Verb`                  |
-
-Glob semantics (`path.Match`, `*` does NOT cross `/`):
-
-- `key=<exact>` — equality
-- `key=<glob>` — glob match
-- `key=*` — value non-empty
-- `key=` — value empty/absent
-- omit key — unconstrained
-
+`r.Match` is a space-separated list of `key=glob` predicates (AND);
 `r.Target` may contain `{sender}`, expanded to the canonical user
-file id (`platform-short + "-" + ident`, e.g. `tg-12345`).
-
-### Example
-
-```
-match: platform=telegram verb=mention
-target: atlas/inbox
-```
-
-Matches any Telegram mention regardless of sender or room and routes
-it into `atlas/inbox`. With `target: atlas/{sender}` the same rule
-would route into a per-sender subfolder.
-
-Full table semantics, precedence rules, and worked examples live in
-`../ROUTING.md` — this README documents only what the Go package
-exports.
+file id. Grammar canonically in `../ROUTING.md` — match keys, glob
+semantics, precedence.
 
 ## Where it's called
 

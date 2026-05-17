@@ -21,8 +21,9 @@ the sole writer for:
 - `sessions` — agent session state per group
 - `channels` — registered channel adapter rows
 - `messages` — inbound + outbound platform messages
-- `grants` — authorization rules (rule evaluator in `core/grants.go`,
-  called only at token issuance sites — gated, proxyd, onbod)
+- `acl`, `acl_membership` — unified authorization rules (rule evaluator
+  in `grants/grants.go`, called only at token issuance sites — gated,
+  proxyd, onbod)
 
 Schema lives in `store/migrations/`; gated runs them on startup. **No
 other daemon migrates.** Other daemons may still hold a read connection

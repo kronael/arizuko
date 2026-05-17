@@ -19,7 +19,7 @@ throttle admission.
 
 ## Tables owned
 
-`invites`, `admissions`, `auth_users`. gated runs the migrations, but
+`invites`, `onboarding`, `auth_users`. gated runs the migrations, but
 onbod is the only writer. Other daemons read user identity via onbod's
 API rather than touching `auth_users` directly.
 
