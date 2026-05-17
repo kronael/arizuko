@@ -14,6 +14,58 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.40.5] — 2026-05-17
+
+> arizuko v0.40.5 — emaid sender auth, dashd visual refresh, slack-team installable
+>
+> Grab-bag tightening operator-facing surfaces: email ingest with DMARC + sender-allowlist + quarantine routing; AWS-style dashboard refresh; the slack-team product template now actually ships something `arizuko create` can apply.
+>
+> • emaid: `EMAIL_TRUSTED_AUTHSERV` env required (fail-closed default). DMARC pass + optional domain allowlist → `verb=message`; everything else → `verb=untrusted` (operator routes to a quarantine sub-group). `EMAIL_STRICT_AUTH=1` drops outright. Spec 8/17.
+> • dashd: sans body + single accent + sticky tables + breadcrumbs; nav highlights active page. CSS-only round 1 + dashd handler tweaks round 2.
+> • slack-team product template at `ant/examples/slack-team/` finally complete (PRODUCT manifest + PERSONA + CLAUDE overlay + facts/README). `arizuko create --product slack-team` works end-to-end.
+> • teled: drop only self (not every other bot). Third-party bots in observed channels reach the gateway.
+> • Spec 8/18 (discussion): per-daemon /dash/ + central hub; shared chanlib template wins big.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- emaid sender authentication + quarantine (spec 8/17). New
+  `EMAIL_TRUSTED_AUTHSERV` (required), `EMAIL_TRUSTED_DOMAINS`
+  (optional allowlist), `EMAIL_STRICT_AUTH` (drop untrusted),
+  `EMAIL_UNVERIFIED_SUBJECT_PREFIX` (opt-in [UNVERIFIED] marker).
+  Library: `emersion/go-msgauth/authres` (MIT, small). Adds
+  `verb=untrusted` to the verb taxonomy; gateway spec 6/J amended
+  to skip mention promotion on untrusted (attacker reply-to-bot
+  must not escalate).
+- dashd theme refresh (CSS in `theme/theme.go`): system sans body,
+  single blue accent, sticky-header tables, zebra rows, `.btn-danger`,
+  `.btn-secondary`, `.crumbs`, `--danger/--warn/--ok` color vars.
+- dashd path-aware nav + breadcrumbs: new `dashNavFor(urlPath)` +
+  `pageTopFor(w, r, title, crumbs...)`; group settings / new-group /
+  whatsapp-pair pages render a breadcrumb chain.
+- slack-team product template complete (`ant/examples/slack-team/`):
+  PERSONA.md, CLAUDE.md (autoviv + email-quarantine instructions),
+  facts/README.md alongside the existing PRODUCT.md + BRANDING.md.
+- spec 8/18 (status: discussion): per-daemon /dash/ + central hub
+  pattern. Audit identifies shared chanlib template as the biggest
+  build-order win.
+
+### Fixed
+
+- teled: drop only OWN bot messages (was dropping every `From.IsBot`,
+  silently swallowing legitimate third-party-bot content for any
+  `#observe`-routed channel — DeeperDexBot postings on sloth/main
+  route 12 stored zero rows for weeks).
+- Dockerfile: emaid, bskyd, mastd, reditd binaries added to image
+  build + COPY layer. Without these the template/services/\*.toml
+  drop-ins could enable adapters that couldn't actually start.
+- emaid oracle ship-blockers: bool env vars accept truthy strings
+  (`true`/`1`/`yes`/`on` case-insensitive — was literal `true` only,
+  silently failing open on operator typos); strict-drop mark-seen
+  error surfaced instead of swallowed (was causing infinite reprocess
+  loop on a single bad message).
+
 ## [v0.40.4] — 2026-05-17
 
 > arizuko v0.40.4 — migrate skill stops lying, does real 3-way merge
