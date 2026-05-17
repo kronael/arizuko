@@ -30,7 +30,7 @@ discord:dm/456                 # discord DM channel
 whatsapp:789@g.us              # whatsapp group
 reddit:comment/abc             # reddit comment
 mastodon:account/42            # mastodon account
-web:slink/&lt;token&gt;              # anonymous web chat via slink</code></pre>
+web:&lt;folder&gt;                   # web chat (slink) — JID is the folder name; token is a separate URL secret</code></pre>
 
     <h2>matching with globs</h2>
     <p>Routes use Go&rsquo;s <code>path.Match</code> across <code>/</code> boundaries. So <code>*</code> grabs any run of characters except <code>/</code>, <code>?</code> grabs one character, and <code>[0-9]</code> grabs a digit. The same syntax works on every field:</p>

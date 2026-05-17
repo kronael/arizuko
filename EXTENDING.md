@@ -161,6 +161,11 @@ via-`reactions.add`). Steps:
 4. Spec under `specs/2/<letter>-<name>.md`; per-platform native
    support belongs in the verb matrix above.
 
+Generic HTTP webhook ingest is the same path: any caller can POST
+`/v1/messages` with the channel-protocol envelope; route inbound
+webhooks through proxyd via a `[[proxyd_route]]` block on the
+receiving daemon's TOML. No separate "webhook adapter" abstraction.
+
 ## Adding a proxyd route
 
 `proxyd`'s route table is built from `[[proxyd_route]]` blocks
@@ -274,7 +279,10 @@ Three scopes, no inheritance:
 
 Canonical definitions at `/workspace/self/ant/skills/` (ro mount) for
 `/migrate` diffing. `MIGRATION_VERSION` integer + `/migrate` skill
-drive upgrades.
+drive upgrades. `/migrate` runs a real 3-way merge against
+`.claude/.merge-base/<path>` (snapshot laid down at seed-time), so
+local edits survive upstream changes. A `.disabled` sentinel inside a
+skill dir opts that skill out of seeding + migration entirely.
 
 Skill layout:
 

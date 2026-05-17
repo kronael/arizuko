@@ -162,7 +162,7 @@ func instanceDir(name string) (string, error) {
 
 func cmdCreate(args []string) {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
-	product := fs.String("product", "", "product template (personal|support|trip|strategy|pm|reality|creator|socials)")
+	product := fs.String("product", "", "product template (creator|personal|pm|reality|slack-team|socials|strategy|support|trip)")
 	fs.Parse(args)
 	if fs.NArg() < 1 {
 		fmt.Println("usage: arizuko create <name> [--product <name>]")
@@ -273,8 +273,16 @@ func cmdGroup(args []string) {
 		}
 
 	case "add":
-		need(args, 3, "arizuko group <instance> add <jid> <folder>")
-		jid, folder := args[2], args[3]
+		// Parse positionals + optional --product flag from the action-args
+		// (args[2:]). Mirror cmdCreate so a child group can be seeded from
+		// the same product template (PERSONA.md + CLAUDE.md + facts/).
+		fs := flag.NewFlagSet("group add", flag.ExitOnError)
+		productFlag := fs.String("product", "", "product template applied to this group (same set as `arizuko create --product`)")
+		fs.Parse(args[2:])
+		if fs.NArg() < 2 {
+			die("usage: arizuko group <instance> add <jid> <folder> [--product <name>]")
+		}
+		jid, folder := fs.Arg(0), fs.Arg(1)
 		if !groupfolder.IsValidFolder(folder) {
 			die("Failed: invalid folder %q", folder)
 		}
@@ -283,7 +291,14 @@ func cmdGroup(args []string) {
 		if err != nil {
 			die("Failed: load config: %v", err)
 		}
-		if err := container.SetupGroup(cfg, folder, ""); err != nil {
+		productDir := ""
+		if *productFlag != "" {
+			productDir = filepath.Join(cfg.HostAppDir, "ant", "examples", *productFlag)
+			if _, err := os.Stat(filepath.Join(productDir, "PRODUCT.md")); err != nil {
+				die("Failed: unknown product %q (looked for %s/PRODUCT.md)", *productFlag, productDir)
+			}
+		}
+		if err := container.SetupGroup(cfg, folder, productDir); err != nil {
 			die("Failed: setup group dir: %v", err)
 		}
 		if err := s.SeedDefaultTasks(folder, folder); err != nil {

@@ -42,14 +42,19 @@
       </ul>
 
       <h2>1. seed the instance</h2>
-      <pre><code>arizuko create acme
+      <pre><code>arizuko create acme --product slack-team
 cd /srv/data/arizuko_acme
 $EDITOR .env</code></pre>
       <p>
-        <code>arizuko create</code> seeds the data dir at
-        <code>/srv/data/arizuko_acme/</code> with a default group, a
-        <code>.env</code>, and the <code>web/</code> tree copied from
-        <code>template/web/</code>.
+        <code>arizuko create --product slack-team</code> seeds the data
+        dir at <code>/srv/data/arizuko_acme/</code> with the slack-team
+        product applied: <code>main</code> group gets the slack-team
+        <code>PERSONA.md</code>, <code>CLAUDE.md</code> overlay, and a
+        starter <code>facts/</code> dir. Plus the default
+        <code>.env</code> and the <code>web/</code> tree copied from
+        <code>template/web/</code>. Without <code>--product</code> the
+        instance comes up with the generic agent persona; the rest of
+        this guide assumes you used the product flag.
       </p>
 
       <h2>2. fill in <code>.env</code></h2>
@@ -373,9 +378,22 @@ sqlite3 /srv/data/arizuko_acme/store/messages.db \
         digests), use the <code>emaid</code> adapter instead of
         slink &mdash; it owns IMAP receive, SMTP send, and threading
         by Message-ID. See
-        <a href="/pub/components/emaid.html">emaid</a> for setup;
-        the in-progress identity model for inbound mail is in
-        <a href="https://github.com/kronael/arizuko/blob/main/specs/8/17-emaid-auth.md">specs/8/17-emaid-auth.md</a>.
+        <a href="/pub/components/emaid.html">emaid</a> for the
+        connection setup. Auth-related env vars (spec 8/17) gate
+        whether inbound is treated as trusted:
+      </p>
+      <pre><code># In .env — required to mark ANY inbound as trusted
+EMAIL_TRUSTED_AUTHSERV=mx.google.com          # your upstream MX authserv-id
+EMAIL_TRUSTED_DOMAINS=mycompany.com,partner.com  # optional; empty = DMARC alone gates
+EMAIL_STRICT_AUTH=false                       # true = drop unauthenticated outright</code></pre>
+      <p>
+        Without <code>EMAIL_TRUSTED_AUTHSERV</code> set, every inbound
+        is shipped with <code>verb=untrusted</code> and the slack-team
+        <code>CLAUDE.md</code> rule routes it to quarantine. Set
+        <code>EMAIL_TRUSTED_AUTHSERV</code> to your provider's
+        authserv-id (Gmail: <code>mx.google.com</code>, Fastmail:
+        <code>mail.fastmail.com</code>) to enable DMARC-pass trust.
+        Full design: <a href="https://github.com/kronael/arizuko/blob/main/specs/8/17-emaid-auth.md">specs/8/17-emaid-auth.md</a>.
       </p>
 
       <h2>12. compose with support (optional)</h2>
@@ -408,29 +426,21 @@ sqlite3 /srv/data/arizuko_acme/store/messages.db \
         done), add a support sub-group:
       </p>
       <pre><code># 1. create the sub-group with the support product seed
-arizuko group add acme main/support --product support
+arizuko group acme add 'slack:T123/channel/C456' main/support --product support
 
 # 2. populate facts/ &mdash; copy your KB markdown into
 #    /srv/data/arizuko_acme/groups/main/support/facts/
 #    (one file per topic; the support persona's first move is /recall-memories)
 $EDITOR /srv/data/arizuko_acme/groups/main/support/facts/<topic>.md
 
-# 3. route #eng-support to it
-#    Find the channel ID (Slack: right-click channel → Copy link → C... at end)
+# 3. (optional) override the auto-seeded route to fire on mention only,
+#    not on every msg. add_route takes ONE 'route' arg with the rule as
+#    JSON (seq lower = higher priority; the bare 'add' above writes
+#    seq=0; -3 wins over it).
 mcpc @s tools-call add_route \
-  match:='"chat_jid=slack:T123/channel/C456"' \
-  target:='"main/support"' \
-  seq:=-3   # higher priority than catch-all routes
-
-# 4. if you want #eng-support to fire on mention only (not on every msg)
+  route:='"{\"seq\":-3,\"match\":\"chat_jid=slack:T123/channel/C456 verb=mention\",\"target\":\"main/support\"}"'
 mcpc @s tools-call add_route \
-  match:='"chat_jid=slack:T123/channel/C456 verb=mention"' \
-  target:='"main/support"' \
-  seq:=-3
-mcpc @s tools-call add_route \
-  match:='"chat_jid=slack:T123/channel/C456"' \
-  target:='"main/support#observe"' \
-  seq:=-2  # observe-only catch lower-priority than the trigger row above</code></pre>
+  route:='"{\"seq\":-2,\"match\":\"chat_jid=slack:T123/channel/C456\",\"target\":\"main/support#observe\"}"'</code></pre>
       <p>
         After <code>add_route</code> calls the agent has full per-channel
         scope: messages from <code>C456</code> hit

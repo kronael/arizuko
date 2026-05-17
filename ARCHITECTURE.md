@@ -323,7 +323,10 @@ a row via `PutMessage` and calls `EnqueueMessageCheck`.
 ## Routing
 
 Route table, route types, topic routing, reply routing, sticky routing,
-full flow examples: `ROUTING.md`.
+full flow examples: `ROUTING.md`. The autoviv pattern (tier-1 agent calls
+`register_group` to auto-create per-channel children when unrouted JIDs
+arrive) is `template/web/pub/concepts/autoviv.html` — no new mechanism,
+just routes + MCP + operator grant composing.
 
 ## Grants Engine (grants package)
 

@@ -36,6 +36,9 @@ The same daemons, configured differently, fill several adjacent niches.
   the [channel protocol](specs/4/1-channel-protocol.md).
 - **A scheduler / cron-bot** — `timed` writes scheduled turns into the
   same message bus.
+- **An email or webhook agent** — `emaid` ingests IMAP with DMARC + sender
+  allowlist (spec 8/17); arbitrary HTTP callers POST to `/v1/messages` via
+  the same channel protocol.
 
 **Spec'd, not yet shipped:**
 

@@ -63,13 +63,13 @@ VALUES (9999, 'platform=discord', 'atlas/social');
 `key=glob` predicates, AND'd together. An empty `match` matches every
 message.
 
-| Key        | Source                                 |
-| ---------- | -------------------------------------- |
-| `platform` | `core.JidPlatform(msg.ChatJID)`        |
-| `room`     | `core.JidRoom(msg.ChatJID)` (post-`:`) |
-| `chat_jid` | `msg.ChatJID` (full JID)               |
-| `sender`   | `msg.Sender`                           |
-| `verb`     | `msg.Verb` (e.g. `join`, `like`)       |
+| Key        | Source                                                   |
+| ---------- | -------------------------------------------------------- |
+| `platform` | `core.JidPlatform(msg.ChatJID)`                          |
+| `room`     | `core.JidRoom(msg.ChatJID)` (post-`:`)                   |
+| `chat_jid` | `msg.ChatJID` (full JID)                                 |
+| `sender`   | `msg.Sender`                                             |
+| `verb`     | `msg.Verb` (e.g. `join`, `like`, `mention`, `untrusted`) |
 
 Glob semantics use `path.Match` over `/`-separated segments:
 
@@ -125,6 +125,22 @@ Future modes (`#drop`, `#digest`, …) extend the fragment vocabulary
 without a schema change — one column, free-form fragment.
 
 Spec: `specs/6/B-route-mode-ingestion.md`.
+
+### Verb promotion + annotation (gateway-side)
+
+Gateway rewrites `verb` at inbound ingest before routing, uniformly
+across adapters: reactions or text replies pointing at a bot-authored
+message promote to `verb=mention` (spec 6/J); emaid stamps
+`verb=untrusted` on mail failing DMARC + allowlist (spec 8/17). Route
+on these directly — e.g. `platform=email verb=untrusted` → quarantine
+folder, `verb=mention` → trigger turn.
+
+### Autoviv (auto-create groups from routing)
+
+A tier-1 agent with operator grant can call `register_group` when an
+unrouted JID arrives, atomically creating a child folder + high-prio
+route. No core mechanism — just routes + MCP composing. See
+`template/web/pub/concepts/autoviv.html`.
 
 ### Example: Discord guild mention-only
 
