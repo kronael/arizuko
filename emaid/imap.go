@@ -330,9 +330,14 @@ func (p *poller) handleMsg(
 	if auth.State == "untrusted" && p.cfg.Auth.StrictAuth {
 		slog.Warn("dropping mail: auth untrusted (strict)",
 			"uid", msg.UID, "from", fromAddr, "reason", auth.Reason)
-		c.Store(imap.UIDSetNum(msg.UID), &imap.StoreFlags{
+		// Surface the mark-seen error so the next poll doesn't re-drop
+		// the same UID forever. Matches the non-drop path at line 388.
+		markCmd := c.Store(imap.UIDSetNum(msg.UID), &imap.StoreFlags{
 			Op: imap.StoreFlagsAdd, Flags: []imap.Flag{imap.FlagSeen},
-		}, nil).Close() //nolint:errcheck
+		}, nil)
+		if err := markCmd.Close(); err != nil {
+			return fmt.Errorf("mark seen (drop) uid %d: %w", msg.UID, err)
+		}
 		return nil
 	}
 	if bodyRaw != nil {
@@ -400,7 +405,7 @@ func classifyRaw(raw []byte, cfg AuthConfig) ClassifyResult {
 	if raw == nil {
 		return Classify(nil, "", cfg)
 	}
-	m, err := mail.ReadMessage(strings.NewReader(string(raw)))
+	m, err := mail.ReadMessage(bytes.NewReader(raw))
 	if err != nil {
 		// Header-parse failure → treat as untrusted (fail-closed).
 		return ClassifyResult{State: "untrusted", DMARC: "missing", Reason: "header parse: " + err.Error()}

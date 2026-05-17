@@ -46,13 +46,24 @@ type ClassifyResult struct {
 	Reason string
 }
 
+// envBool accepts truthy strings: "true", "1", "yes", "on" (case-insensitive).
+// Spec security knob `EMAIL_STRICT_AUTH` fail-closed must not silently fail
+// open on `=1` typos; same for other bool envs.
+func envBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "1", "yes", "on":
+		return true
+	}
+	return false
+}
+
 // LoadAuthConfig reads env vars relevant to the auth classifier.
 func LoadAuthConfig(getenv func(string) string) AuthConfig {
 	cfg := AuthConfig{
 		TrustedAuthserv: strings.ToLower(strings.TrimSpace(getenv("EMAIL_TRUSTED_AUTHSERV"))),
-		StrictAuth:      getenv("EMAIL_STRICT_AUTH") == "true",
-		SubjectPrefix:   getenv("EMAIL_UNVERIFIED_SUBJECT_PREFIX") == "true",
-		VerifyDKIM:      getenv("EMAIL_VERIFY_DKIM") == "true",
+		StrictAuth:      envBool(getenv("EMAIL_STRICT_AUTH")),
+		SubjectPrefix:   envBool(getenv("EMAIL_UNVERIFIED_SUBJECT_PREFIX")),
+		VerifyDKIM:      envBool(getenv("EMAIL_VERIFY_DKIM")),
 	}
 	if raw := getenv("EMAIL_TRUSTED_DOMAINS"); raw != "" {
 		for _, d := range strings.Split(raw, ",") {

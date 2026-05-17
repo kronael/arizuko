@@ -11,6 +11,15 @@ import (
 
 func main() {
 	cfg := loadConfig()
+	// Spec 8/17 tier-3 DKIM is pre-wired but unimplemented. Surface the
+	// gap loudly so an operator who set EMAIL_VERIFY_DKIM=true knows
+	// they got A-R parsing only, not cryptographic re-verification.
+	if cfg.Auth.VerifyDKIM {
+		slog.Warn("EMAIL_VERIFY_DKIM=true but DKIM tier-3 not implemented; A-R parsing only (spec 8/17)")
+	}
+	if cfg.Auth.TrustedAuthserv == "" {
+		slog.Warn("EMAIL_TRUSTED_AUTHSERV unset; every inbound classified as untrusted (fail-closed default per spec 8/17)")
+	}
 	chanlib.Run(chanlib.RunOpts{
 		Name:          cfg.Name,
 		RouterURL:     cfg.RouterURL,

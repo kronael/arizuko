@@ -183,6 +183,28 @@ func TestLoadAuthConfig_SubjectPrefixDefaultOff(t *testing.T) {
 // Extra case beyond the spec's 15: empty/whitespace TRUSTED_DOMAINS entries
 // must not match a From with an empty domain (regression guard against
 // "" ∈ allowlist after a stray trailing comma).
+// Spec security knob: EMAIL_STRICT_AUTH must accept truthy strings, not
+// just the literal "true". Operator typing "1" / "yes" / "TRUE" should
+// land fail-closed, not silently fail-open.
+func TestLoadAuthConfig_BoolEnvAcceptsTruthy(t *testing.T) {
+	for _, v := range []string{"true", "True", "TRUE", "1", "yes", "on"} {
+		cfg := LoadAuthConfig(envMap(map[string]string{
+			"EMAIL_STRICT_AUTH": v,
+		}))
+		if !cfg.StrictAuth {
+			t.Errorf("StrictAuth = false for env value %q; want true", v)
+		}
+	}
+	for _, v := range []string{"", "false", "no", "off", "0", "anything-else"} {
+		cfg := LoadAuthConfig(envMap(map[string]string{
+			"EMAIL_STRICT_AUTH": v,
+		}))
+		if cfg.StrictAuth {
+			t.Errorf("StrictAuth = true for env value %q; want false", v)
+		}
+	}
+}
+
 func TestLoadAuthConfig_DropsBlankAllowlistEntries(t *testing.T) {
 	cfg := LoadAuthConfig(envMap(map[string]string{
 		"EMAIL_TRUSTED_AUTHSERV": "mx.google.com",
