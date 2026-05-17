@@ -14,7 +14,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-> arizuko — route tokens spec landed (design, not yet shipped)
+## [v0.40.8] — 2026-05-17
+
+> arizuko v0.40.8 — route tokens spec landed (design, not yet shipped)
 >
 > Spec for one token table behind two URL prefixes — `/chat/<token>/` keeps the widget, `/hook/<token>` accepts webhook posts.
 >
