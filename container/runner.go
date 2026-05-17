@@ -142,14 +142,6 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	os.MkdirAll(groupDir, 0o755)
 	writeGatewayCaps(groupDir, cfg)
 
-	claudeDir := filepath.Join(groupDir, ".claude")
-	latest := MigrationVersion(filepath.Join(cfg.HostAppDir, "ant", "skills", "self", "MIGRATION_VERSION"))
-	agent := MigrationVersion(filepath.Join(claudeDir, "skills", "self", "MIGRATION_VERSION"))
-	if agent < latest {
-		slog.Info("runner: syncing skills to latest", "folder", in.Folder, "from", agent, "to", latest)
-		seedSkills(cfg, claudeDir, in.Folder)
-	}
-
 	mounts := buildMounts(cfg, in, groupDir, root, folders)
 	in = prepareInput(cfg, in, groupDir)
 
@@ -773,6 +765,7 @@ func chownR(root string, uid, gid int) {
 func seedSkills(cfg *core.Config, claudeDir, folder string) {
 	src := filepath.Join(cfg.HostAppDir, "ant", "skills")
 	dst := filepath.Join(claudeDir, "skills")
+	base := filepath.Join(claudeDir, ".merge-base", "skills")
 
 	entries, err := os.ReadDir(src)
 	if err != nil {
@@ -789,13 +782,24 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 			continue
 		}
 		d := filepath.Join(dst, e.Name())
-		cpDir(filepath.Join(src, e.Name()), d)
+		if _, err := os.Stat(filepath.Join(d, ".disabled")); err == nil {
+			// Disabled by operator: don't seed; also remove SKILL.md
+			// so Claude Code doesn't index it.
+			os.Remove(filepath.Join(d, "SKILL.md"))
+			continue
+		}
+		s := filepath.Join(src, e.Name())
+		cpDir(s, d)
+		cpDir(s, filepath.Join(base, e.Name()))
 	}
 
 	mdSrc := filepath.Join(cfg.HostAppDir, "ant", "CLAUDE.md")
 	mdDst := filepath.Join(claudeDir, "CLAUDE.md")
+	mdBase := filepath.Join(claudeDir, ".merge-base", "CLAUDE.md")
 	if data, err := os.ReadFile(mdSrc); err == nil {
 		os.WriteFile(mdDst, data, 0o644)
+		os.MkdirAll(filepath.Dir(mdBase), 0o755)
+		os.WriteFile(mdBase, data, 0o644)
 	}
 
 	jsonDst := filepath.Join(claudeDir, ".claude.json")

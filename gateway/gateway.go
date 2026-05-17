@@ -419,24 +419,6 @@ func (g *Gateway) checkMigrationVersion() {
 			Timestamp: time.Now(),
 		})
 		g.queue.EnqueueMessageCheck(gr.Folder)
-
-		// Notify child groups directly — don't rely on root agent.
-		note := fmt.Sprintf("System update: skills v%d → v%d applied. "+
-			"New capabilities may be available — check /self for details.", agent, latest)
-		for _, child := range groups {
-			if groupfolder.ParentOf(child.Folder) != gr.Folder {
-				continue
-			}
-			g.store.PutMessage(core.Message{
-				ID:        core.MsgID("auto-migrate-notify-" + child.Folder),
-				ChatJID:   child.Folder,
-				Sender:    "system",
-				Content:   note,
-				Timestamp: time.Now(),
-			})
-			slog.Info("auto-migrate: notified child group",
-				"child", child.Folder, "parent", gr.Folder)
-		}
 	}
 }
 

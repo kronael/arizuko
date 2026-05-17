@@ -13,9 +13,21 @@ user-invocable: true
 
 # Migrate
 
-Sync skills and config across groups. Merges upstream changes, preserves
-local edits. Then runs pending migrations, applies template overlays,
-announces the release.
+Sync skills and `~/.claude/CLAUDE.md` across groups via a real 3-way
+merge against the `.merge-base/` snapshot Go laid down at seed-time.
+Custom skills and the operator-owned `~/CLAUDE.md` are never touched.
+Then runs pending migrations, applies template overlays, announces
+the release.
+
+## How sync actually works
+
+Per file: `base = .claude/.merge-base/<path>`,
+`ours = .claude/<path>`, `theirs = /workspace/self/ant/<path>`.
+Standard 3-way outcome table — see step (a). Operator changes survive
+upstream rewrites; direct conflicts resolve to upstream. After every
+write to `ours`, `base` is overwritten by `theirs` so the next sync's
+diff is honest. A `.disabled` sentinel in a skill dir opts that skill
+out of seeding and merging.
 
 ## Container paths
 
@@ -29,28 +41,74 @@ announces the release.
 [ "$ARIZUKO_IS_ROOT" = "1" ] || { echo "ERROR: root-only"; exit 1; }
 ```
 
-## a) Sync skills
+## a) Sync stock skills + CLAUDE.md (3-way merge)
 
-Call `refresh_groups` for the group list. Each group lives at
-`/workspace/data/groups/<folder>/`.
+For each group, walk every file under `/workspace/self/ant/` that has
+(or should have) a counterpart under `.claude/`. The merge base is
+the snapshot Go laid down at seed-time (or at the last successful
+merge): `.claude/.merge-base/<path>`.
 
-Per group, spawn a Task agent to merge `/workspace/self/ant/` into the
-group dir. Rules:
+Custom skills — those NOT present under `/workspace/self/ant/skills/`
+— are never touched. `<group>/CLAUDE.md` (operator overlay) is also
+never touched; only `<group>/.claude/CLAUDE.md` is merged.
 
-- New in source → copy
-- Unchanged → skip
-- Upstream-only changes → update
-- Local-only changes → preserve
-- Both changed → 3-way merge
+For each candidate file:
 
-For conflicts:
+```
+base   = $session/.claude/.merge-base/<path>
+ours   = $session/.claude/<path>
+theirs = /workspace/self/ant/<path>
+```
 
-- **SKILL.md** — merge YAML (prefer source description), add new rules,
-  preserve local additions.
-- **CLAUDE.md** — merge sections additively, preserve local sections.
-- **Web / code files** — preserve local mods, update unchanged files.
+Skip the whole skill dir if `$session/.claude/skills/<name>/.disabled`
+exists.
 
-Never `cp -r` or `rsync` blindly.
+Outcomes:
+
+- `base` missing → first sync: `cp theirs ours; cp theirs base`.
+- `theirs` missing → upstream deleted the file: leave `ours` alone,
+  record the deletion in the announce notes.
+- `ours == base` → only upstream changed: `cp theirs ours; cp theirs base`.
+- `theirs == base` → only operator changed: no-op (operator edits preserved).
+- both differ → 3-way merge inline (see below), then `cp theirs base`.
+
+Inline 3-way merge (no Task subagent — do it in this turn):
+
+1. Read all three files with the `Read` tool.
+2. Produce a merged result favoring operator changes that don't conflict
+   with upstream, and upstream on direct conflict. Be conservative: when
+   in doubt, keep both with a clear ordering. For SKILL.md frontmatter,
+   prefer upstream `description`. For CLAUDE.md, prefer section-additive
+   merges.
+3. Write the merged file with `Write` (overwrites `ours`).
+4. `cp theirs base` so the next sync's diff is correct.
+
+Driver — enumerate groups and files:
+
+```bash
+mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
+trap 'mcpc @s close' EXIT
+
+src_root=/workspace/self/ant
+mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' | while read folder; do
+  session="/workspace/data/groups/$folder"
+  base_root="$session/.claude/.merge-base"
+  ours_root="$session/.claude"
+
+  # CLAUDE.md (operator's $session/CLAUDE.md is OFF-LIMITS)
+  find "$src_root" -maxdepth 1 -name CLAUDE.md -print
+
+  # Stock skills only (those present upstream)
+  for sk in "$src_root/skills"/*/; do
+    name=$(basename "$sk")
+    [ -f "$ours_root/skills/$name/.disabled" ] && { echo "skip $folder/$name"; continue; }
+    find "$sk" -type f -print
+  done
+done
+```
+
+For each printed file, compute base/ours/theirs paths by string
+substitution and apply the outcomes table above.
 
 ## b) Run pending migrations
 

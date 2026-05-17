@@ -577,6 +577,73 @@ func TestSeedSkillsClaudeJSON_UserIDDerivedFromFolder(t *testing.T) {
 	}
 }
 
+func TestSeedSkills_MergeBase(t *testing.T) {
+	claudeDir := t.TempDir()
+	appDir := t.TempDir()
+	// Stock skill: ant/skills/foo/SKILL.md
+	skillSrc := filepath.Join(appDir, "ant", "skills", "foo")
+	os.MkdirAll(skillSrc, 0o755)
+	os.WriteFile(filepath.Join(skillSrc, "SKILL.md"), []byte("stock-foo"), 0o644)
+	// Stock CLAUDE.md
+	os.WriteFile(filepath.Join(appDir, "ant", "CLAUDE.md"), []byte("stock-claude"), 0o644)
+
+	cfg := &core.Config{HostAppDir: appDir}
+	seedSkills(cfg, claudeDir, "g")
+
+	// .merge-base/CLAUDE.md matches source
+	bClaude, err := os.ReadFile(filepath.Join(claudeDir, ".merge-base", "CLAUDE.md"))
+	if err != nil || string(bClaude) != "stock-claude" {
+		t.Errorf(".merge-base/CLAUDE.md: %q err=%v", bClaude, err)
+	}
+	// .merge-base/skills/foo/SKILL.md matches source
+	bSkill, err := os.ReadFile(filepath.Join(claudeDir, ".merge-base", "skills", "foo", "SKILL.md"))
+	if err != nil || string(bSkill) != "stock-foo" {
+		t.Errorf(".merge-base/skills/foo/SKILL.md: %q err=%v", bSkill, err)
+	}
+	// Live copy also present
+	live, _ := os.ReadFile(filepath.Join(claudeDir, "skills", "foo", "SKILL.md"))
+	if string(live) != "stock-foo" {
+		t.Errorf("live skill: %q", live)
+	}
+}
+
+func TestSeedSkills_DotDisabled(t *testing.T) {
+	claudeDir := t.TempDir()
+	appDir := t.TempDir()
+	skillSrc := filepath.Join(appDir, "ant", "skills", "foo")
+	os.MkdirAll(skillSrc, 0o755)
+	os.WriteFile(filepath.Join(skillSrc, "SKILL.md"), []byte("v2"), 0o644)
+	os.WriteFile(filepath.Join(skillSrc, "helper.md"), []byte("h2"), 0o644)
+
+	// Pre-existing target dir with .disabled sentinel + a stale SKILL.md
+	// and an operator-kept helper file.
+	tgt := filepath.Join(claudeDir, "skills", "foo")
+	os.MkdirAll(tgt, 0o755)
+	os.WriteFile(filepath.Join(tgt, ".disabled"), []byte(""), 0o644)
+	os.WriteFile(filepath.Join(tgt, "SKILL.md"), []byte("stale"), 0o644)
+	os.WriteFile(filepath.Join(tgt, "operator.md"), []byte("op"), 0o644)
+
+	cfg := &core.Config{HostAppDir: appDir}
+	seedSkills(cfg, claudeDir, "g")
+
+	// SKILL.md must be removed (so Claude Code stops indexing).
+	if _, err := os.Stat(filepath.Join(tgt, "SKILL.md")); !os.IsNotExist(err) {
+		t.Error("SKILL.md should be removed when .disabled present")
+	}
+	// Operator files preserved.
+	if data, err := os.ReadFile(filepath.Join(tgt, "operator.md")); err != nil || string(data) != "op" {
+		t.Errorf("operator.md should be preserved: %q err=%v", data, err)
+	}
+	// Stock helper must NOT have been seeded.
+	if _, err := os.Stat(filepath.Join(tgt, "helper.md")); !os.IsNotExist(err) {
+		t.Error("helper.md should not have been seeded for disabled skill")
+	}
+	// Merge-base must NOT include the disabled skill (we skip the whole dir).
+	if _, err := os.Stat(filepath.Join(claudeDir, ".merge-base", "skills", "foo")); !os.IsNotExist(err) {
+		t.Error(".merge-base must skip disabled skill")
+	}
+}
+
 func TestReadOptional(t *testing.T) {
 	d := t.TempDir()
 

@@ -301,6 +301,23 @@ restarts and sessions. Write anything here that should survive.
 
 `/workspace/web/pub/` is served publicly and persists (separate mount).
 
+## CLAUDE.md ownership
+
+Two `CLAUDE.md` files live near you, with different owners:
+
+- `~/CLAUDE.md` (== `/home/node/CLAUDE.md`) — **operator-owned overlay**.
+  Never touched by the agent or by `/migrate`. Edit only when the
+  operator explicitly asks.
+- `~/.claude/CLAUDE.md` — **agent-managed**. Seeded from
+  `ant/CLAUDE.md` at group create, then 3-way merged on `/migrate`
+  using `~/.claude/.merge-base/CLAUDE.md` as the merge base.
+
+Same model applies to `~/.claude/skills/<stock-name>/*` (managed)
+vs `~/.claude/skills/<custom-name>/*` (untouched — anything not
+present in `/workspace/self/ant/skills/`). Drop a `.disabled` file
+in a stock skill dir to opt out of seeding/merging; seedSkills
+removes its `SKILL.md` so Claude Code stops indexing it.
+
 Containers are **ephemeral per turn** — a fresh container starts for
 each agent run. `/home/node/` is volume-mounted so it persists; anything
 written OUTSIDE `/home/node/` or `/workspace/` (e.g. `/tmp/`) is lost

@@ -1203,7 +1203,8 @@ func TestCheckMigrationVersion(t *testing.T) {
 	os.MkdirAll(groupSkillDir, 0o755)
 	os.WriteFile(filepath.Join(groupSkillDir, "MIGRATION_VERSION"), []byte("54\n"), 0o644)
 
-	// Create child group (should be skipped)
+	// Create child group: must NOT receive a direct notification.
+	// The /migrate skill fans out to children itself.
 	s.PutGroup(core.Group{Folder: "myworld/child"})
 
 	gw.checkMigrationVersion()
@@ -1220,17 +1221,13 @@ func TestCheckMigrationVersion(t *testing.T) {
 		t.Error("expected auto-migration message in myworld")
 	}
 
-	// Child group receives a notification (separate code path from the
-	// /migrate trigger on the root).
+	// Child must NOT be notified directly by gateway — that's the
+	// /migrate skill's job (announce step).
 	childMsgs, _ := s.MessagesSince("myworld/child", time.Time{}, "nobot")
-	childNotified := false
 	for _, m := range childMsgs {
 		if strings.Contains(m.Content, "System update") && m.Sender == "system" {
-			childNotified = true
+			t.Error("child must not be notified by gateway; /migrate fans out itself")
 		}
-	}
-	if !childNotified {
-		t.Error("expected child group to receive auto-migration notification")
 	}
 }
 
