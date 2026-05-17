@@ -54,6 +54,13 @@ func TestFormatOutbound(t *testing.T) {
 		{"strips internal", "before<internal>secret</internal>after", "beforeafter"},
 		{"multiline internal", "a<internal>\nfoo\nbar\n</internal>b", "ab"},
 		{"trims whitespace", "  hello  ", "hello"},
+		// silent-refusal meta-comments suppressed at boundary.
+		{"silent: no response requested", "No response requested.", ""},
+		{"silent: no period", "no response requested", ""},
+		{"silent: bracket remaining silent", "[Remaining silent]", ""},
+		{"silent: bare remaining silent", "Remaining silent.", ""},
+		{"silent: bracket silent", "[Silent]", ""},
+		{"keeps when substring", "I have no response requested as a tool", "I have no response requested as a tool"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

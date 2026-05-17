@@ -156,11 +156,21 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 var internalRe = regexp.MustCompile(`(?s)<internal>.*?</internal>`)
 var statusRe = regexp.MustCompile(`(?s)<status>(.*?)</status>`)
 
+// silentRefusalRe matches whole-message meta-comments the agent emits
+// when it has nothing to say but didn't wrap silence in <think>. Caught
+// at the boundary so the agent doesn't have to be perfect every turn.
+// Whole-string match only; substrings stay.
+var silentRefusalRe = regexp.MustCompile(`(?is)^\s*(no response requested\.?|\[?remaining silent\]?\.?|\[silent\])\s*$`)
+
 func FormatOutbound(raw string) string {
 	s := internalRe.ReplaceAllString(raw, "")
 	s = StripThinkBlocks(s)
 	s = statusRe.ReplaceAllString(s, "")
-	return strings.TrimSpace(s)
+	s = strings.TrimSpace(s)
+	if silentRefusalRe.MatchString(s) {
+		return ""
+	}
+	return s
 }
 
 func ExtractStatusBlocks(s string) (string, []string) {
