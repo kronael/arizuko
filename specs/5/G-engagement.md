@@ -304,18 +304,18 @@ for one outbound. Next inbound that's verb=mention re-engages.
 
 ## Code surface
 
-| File                                                | Change                                                                                             | LOC |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --- |
-| `store/migrations/0058-engagement-column.sql`       | new — single `ALTER TABLE`                                                                         | 3   |
-| `store/messages.go`                                 | `SetEngagement`, `IsEngaged`, `EngagedFolder`, `SetLastReplyAndEngage` (replaces `SetLastReplyID`) | ~60 |
-| `gateway/gateway.go` (poll loop near `:535`)        | engagement fallback before onboarding when route table yields no group                             | ~12 |
-| `gateway/gateway.go` (steered echo + putAndDeliver) | switch to `SetLastReplyAndEngage`, skip bump when sender is `timed-*`                              | ~10 |
-| `api/api.go handleMessage`                          | `SetEngagement` on `verb=mention` after promotion                                                  | ~6  |
-| `slakd/bot.go`                                      | **no change** (Send already threads on ReplyTo)                                                    | 0   |
-| `ipc/ipc.go`                                        | `engage`, `disengage` MCP tools wrapping `SetEngagement`                                           | ~50 |
-| `core/config.go`                                    | `ENGAGEMENT_TTL` (default `10m`)                                                                   | ~3  |
-| `ant/CLAUDE.md`                                     | corrective-fork convention                                                                         | ~8  |
-| Tests (`store/store_test.go`, gateway, ipc)         | TTL window, MCP set/clear, thread auto-set, fallback routing                                       | ~80 |
+| File                                          | Change                                                                                            | LOC |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------- | --- |
+| `store/migrations/0058-engagement-column.sql` | new — two `ALTER TABLE` (engaged_until, engaged_folder)                                           | 4   |
+| `store/messages.go`                           | `SetLastReply` + `BumpEngagement` (split renderer), `SetEngagement`, `IsEngaged`, `EngagedFolder` | ~70 |
+| `gateway/gateway.go` (poll + worker)          | `resolveOrEngaged` helper shared by `pollOnce` + `processGroupMessages` (one renderer for both)   | ~25 |
+| `gateway/gateway.go` (three bump sites)       | `SetLastReply` unconditional + `BumpEngagement` guarded by `!strings.HasPrefix(sender, "timed-")` | ~12 |
+| `api/api.go handleMessage`                    | `SetEngagement` on `verb=mention` after promotion                                                 | ~6  |
+| `slakd/bot.go`                                | **no change** (Send already threads on ReplyTo)                                                   | 0   |
+| `ipc/ipc.go`                                  | `engage`, `disengage` MCP tools wrapping `SetEngagement`                                          | ~50 |
+| `core/config.go`                              | `ENGAGEMENT_TTL` (default `10m`)                                                                  | ~3  |
+| `ant/CLAUDE.md`                               | corrective-fork convention                                                                        | ~8  |
+| Tests (`store/store_test.go`, gateway, ipc)   | TTL window, MCP set/clear, thread auto-set, fallback routing                                      | ~80 |
 
 **Net: ~235 LOC.**
 
@@ -326,9 +326,9 @@ for one outbound. Next inbound that's verb=mention re-engages.
   - `SetEngagement(zero)` → `IsEngaged` false.
   - No row → `IsEngaged` false.
   - Past deadline → `IsEngaged` false.
-  - `SetLastReplyAndEngage` preserves `last_reply_id` on later
-    empty-replyID writes.
-  - `EngagedFolder` reads `routed_to` via `last_reply_id`.
+  - `SetLastReply` preserves prior `last_reply_id` when called with empty replyID.
+  - `BumpEngagement` writes `engaged_until` and `engaged_folder` together.
+  - `EngagedFolder` reads `chat_reply_state.engaged_folder` directly (one query, no JOIN).
 - `gateway/gateway_test.go` (`TestPollOnce_EngagementFallback_*`):
   - Route-miss + engaged → does NOT advance cursor (delivers to last folder).
   - Route-miss + idle → cursor advances (drops).
@@ -347,10 +347,10 @@ for one outbound. Next inbound that's verb=mention re-engages.
 - **TTL too long**: bot fires on stale inbounds after the user
   moved on. Mitigated by 10-minute default; operator-tunable.
 - **Engagement after a bot error**: failed turn shouldn't engage.
-  Write sites are the two `SetLastReplyAndEngage` calls in the
-  output callback / steered echo, both gated on a non-empty platform
-  reply id (`sentID != ""`); a Send that errored returns "" and
-  skips the bump.
+  All three `BumpEngagement` call sites are gated on a non-empty
+  platform reply id (`sentID != ""`); a Send that errored returns ""
+  and skips the bump. The `timed-` sender prefix is also skipped
+  uniformly across all three sites — single audit invariant.
 - **Slack thread auto-creation on every mention is loud**: every
   bot reply creates a new thread the user didn't ask for.
   Mitigated by the engagement model — second reply in the same
