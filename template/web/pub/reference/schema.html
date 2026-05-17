@@ -331,7 +331,7 @@
       <table>
         <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
         <tr><td><code>token_hash</code></td><td>BLOB PK</td><td>NOT NULL</td><td>sha256 of the raw token; raw token returned once at issuance</td></tr>
-        <tr><td><code>jid</code></td><td>TEXT</td><td>NOT NULL</td><td><code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> or <code>hook:&lt;owner&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code></td></tr>
+        <tr><td><code>jid</code></td><td>TEXT</td><td>NOT NULL</td><td><code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> or <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> &mdash; <code>&lt;folder&gt;</code> is the destination, distinct from <code>owner_folder</code></td></tr>
         <tr><td><code>owner_folder</code></td><td>TEXT</td><td>NOT NULL</td><td>issuing folder; bounds revocation</td></tr>
         <tr><td><code>created_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
       </table>

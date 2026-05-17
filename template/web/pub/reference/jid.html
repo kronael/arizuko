@@ -83,7 +83,7 @@ type UserJID struct{ JID }       // a user identity resource</code></pre>
       <tr><td><code>thread</code></td><td><code>email:thread/&lt;msgid&gt;</code></td><td><code>email:thread/&lt;Message-ID&gt;</code></td></tr>
       <tr><td rowspan="3"><code>web</code></td><td><code>folder</code></td><td><code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code></td><td><code>web:acme/support</code></td></tr>
       <tr><td><code>user</code></td><td><code>web:user/&lt;sub&gt;</code></td><td><code>web:user/sub-1</code></td></tr>
-      <tr><td><code>hook</code></td><td><code>hook:&lt;owner&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code></td><td><code>hook:acme/eng/github</code></td></tr>
+      <tr><td><code>hook</code></td><td><code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code></td><td><code>hook:acme/eng/github</code></td></tr>
       <tr><td><code>slack</code></td><td>&mdash;</td><td>per adapter; <code>slack:</code> JIDs handled by <a href="https://github.com/kronael/arizuko/tree/main/slakd"><code>slakd</code></a></td><td></td></tr>
     </table>
 
@@ -186,7 +186,7 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
       <li><strong>LinkedIn</strong> &mdash; <code>&lt;urn&gt;</code> &rarr; <code>user/&lt;urn&gt;</code>.</li>
       <li><strong>WhatsApp + Twitter</strong> &mdash; already conformant; not touched.</li>
       <li><strong>Web</strong> &mdash; <code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> remains folder-keyed; the URL token is decoupled into the <code>route_tokens</code> table (one row per URL, JID per row).</li>
-      <li><strong>Hook</strong> &mdash; new top-level platform <code>hook:&lt;owner&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhook ingest via <code>route_tokens</code>; <code>sender</code> on inbound is the <code>&lt;source&gt;</code> segment.</li>
+      <li><strong>Hook</strong> &mdash; new top-level platform <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhook ingest via <code>route_tokens</code>; <code>&lt;folder&gt;</code> is the destination folder, <code>sender</code> on inbound is the <code>&lt;source&gt;</code> segment.</li>
       <li><strong>Routes</strong> &mdash; bare <code>platform:*</code> globs rewritten to <code>platform:*/*</code> so segment-aware <code>path.Match</code> still matches anything on that platform.</li>
     </ul>
 

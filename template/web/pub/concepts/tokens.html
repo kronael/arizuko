@@ -28,7 +28,7 @@
     <p>All tokens live in the <code>route_tokens</code> table. Four columns:</p>
 
     <pre><code>token_hash    sha256 of the raw token; lookup key
-jid           web:&lt;folder&gt;[/&lt;suffix&gt;]  |  hook:&lt;owner&gt;/&lt;source&gt;[/&lt;suffix&gt;]
+jid           web:&lt;folder&gt;[/&lt;suffix&gt;]  |  hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]
 owner_folder  the folder that minted the row; bounds revocation
 created_at    when it was minted</code></pre>
 
@@ -46,7 +46,7 @@ created_at    when it was minted</code></pre>
 
     <p><code>web:&lt;folder&gt;</code> means &ldquo;anonymous visitor chat at this folder.&rdquo; <code>web:acme</code> is acme's public chat URL. Add a suffix to split one folder across pages: <code>web:acme/support</code> and <code>web:acme/sales</code> are different conversations against the same agent, distinguishable in routing rules.</p>
 
-    <p><code>hook:&lt;owner&gt;/&lt;source&gt;</code> means &ldquo;webhook from <em>source</em> targeting <em>owner</em>.&rdquo; <code>hook:acme/eng/github</code> is GitHub events for the <code>acme/eng</code> folder. <code>hook:acme/eng/linear/comments</code> partitions Linear into a comments stream separate from <code>hook:acme/eng/linear/issues</code>. The <code>&lt;source&gt;</code> segment is what the agent sees in the inbound's <code>sender</code> field.</p>
+    <p><code>hook:&lt;folder&gt;/&lt;source&gt;</code> means &ldquo;webhook from <em>source</em> targeting <em>folder</em>.&rdquo; <code>hook:acme/eng/github</code> is GitHub events for the <code>acme/eng</code> folder. <code>hook:acme/eng/linear/comments</code> partitions Linear into a comments stream separate from <code>hook:acme/eng/linear/issues</code>. The <code>&lt;source&gt;</code> segment is what the agent sees in the inbound's <code>sender</code> field.</p>
 
     <p>JID prefixes are not interchangeable. A chat conversation cannot land at a <code>hook:</code> JID; webhook traffic cannot land at <code>web:</code>. Route rules treat them as different platforms even though one table issued both.</p>
 
@@ -99,7 +99,7 @@ created_at    when it was minted</code></pre>
       <li><a href="/pub/howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site, what the visitor sees.</li>
       <li><a href="/pub/howto/webhooks.html">how-to: webhooks</a> &mdash; wire GitHub, Linear, custom alerts.</li>
       <li><a href="/pub/reference/tokens.html">reference: tokens</a> &mdash; full HTTP surface, payload shapes, SSE events, MCP tools.</li>
-      <li><a href="/pub/concepts/routing.html">routing</a> &mdash; how <code>web:&lt;folder&gt;</code> and <code>hook:&lt;owner&gt;/&lt;source&gt;</code> reach an agent.</li>
+      <li><a href="/pub/concepts/routing.html">routing</a> &mdash; how <code>web:&lt;folder&gt;</code> and <code>hook:&lt;folder&gt;/&lt;source&gt;</code> reach an agent.</li>
       <li><a href="/pub/concepts/jid.html">jid</a> &mdash; address shape across every platform.</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a> &mdash; the route_tokens spec.</li>
     </ul>

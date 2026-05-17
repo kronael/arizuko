@@ -39,7 +39,7 @@ CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
 
     <dl>
       <dt>token_hash</dt><dd>sha256 of the raw token. The raw token is returned exactly once at issuance.</dd>
-      <dt>jid</dt><dd>Destination. <code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> for chat tokens, <code>hook:&lt;owner&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhooks.</dd>
+      <dt>jid</dt><dd>Destination. <code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> for chat tokens, <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhooks. <code>&lt;folder&gt;</code> is the destination folder, distinct from <code>owner_folder</code> (the issuer).</dd>
       <dt>owner_folder</dt><dd>Folder of the issuing principal. Bounds revocation: <code>revoke_route_token</code> requires admin on this folder, not on the JID folder.</dd>
       <dt>created_at</dt><dd>RFC3339 timestamp.</dd>
     </dl>
@@ -79,7 +79,8 @@ CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
   "url":   "https://&lt;host&gt;/hook/Yp3v...Q2",
   "jid":   "hook:acme/eng/github"
 }</code></pre>
-    <p>Token returned once. <code>url</code> is built from <code>WEB_HOST</code> plus the prefix dictated by JID type (<code>/chat/&lt;token&gt;/</code> for <code>web:</code>, <code>/hook/&lt;token&gt;</code> for <code>hook:</code>).</p>
+    <p>Token returned once. The <code>&lt;folder&gt;</code> segment of the JID is the destination folder (here <code>acme/eng</code>); for cross-folder mints the row's <code>owner_folder</code> may differ.</p>
+    <p>Note: legacy text below may say "owner" where it means "destination folder" — the JID embeds the destination, the column <code>owner_folder</code> records the issuer. <code>url</code> is built from <code>WEB_HOST</code> plus the prefix dictated by JID type (<code>/chat/&lt;token&gt;/</code> for <code>web:</code>, <code>/hook/&lt;token&gt;</code> for <code>hook:</code>).</p>
 
     <h2 id="chat-endpoint">/chat/&lt;token&gt;/ &mdash; web chat</h2>
 
@@ -113,7 +114,7 @@ content=...&amp;topic=...                  # form</code></pre>
     <p>The token must resolve to a <code>hook:</code> JID. Chat tokens on this path return 401. GET on this path returns 405. The inbound message webd writes:</p>
 
     <pre><code>{
-  "jid":     "hook:&lt;owner&gt;/&lt;source&gt;[/&lt;suffix&gt;]",
+  "jid":     "hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]",
   "sender":  "&lt;source&gt;",
   "body":    "&lt;raw POST body, verbatim&gt;",
   "headers": { "x-github-event": "push", ... }
@@ -135,7 +136,7 @@ content=...&amp;topic=...                  # form</code></pre>
 
     <pre><code>arizuko token issue &lt;folder&gt; chat                       # mints web:&lt;folder&gt;
 arizuko token issue &lt;folder&gt; chat --suffix support       # mints web:&lt;folder&gt;/support
-arizuko token issue &lt;folder&gt; hook github                 # mints hook:&lt;folder&gt;/github
+arizuko token issue &lt;folder&gt; hook github                 # mints hook:&lt;folder&gt;/github (destination folder)
 arizuko token issue &lt;folder&gt; hook linear --suffix issues # mints hook:&lt;folder&gt;/linear/issues
 arizuko token list
 arizuko token revoke &lt;jid&gt;</code></pre>

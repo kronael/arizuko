@@ -47,7 +47,7 @@
       <p>
         <strong>GitHub push &rarr; agent.</strong> A repo's webhook
         settings POST a push payload to <code>/hook/&lt;token&gt;</code>.
-        The agent sees one inbound per push at <code>hook:&lt;owner&gt;/github</code>
+        The agent sees one inbound per push at <code>hook:&lt;folder&gt;/github</code>
         with the body verbatim and the <code>X-GitHub-Event</code> header
         intact. A skill on the agent side parses the payload, decides
         whether to reply on Slack, file a sub-task, or stay silent.
@@ -57,8 +57,8 @@
         <strong>Linear comment &rarr; agent.</strong> Linear posts new
         comments to a webhook URL. With a <code>jid_suffix</code> the
         agent can split issues and comments into two streams &mdash;
-        <code>hook:&lt;owner&gt;/linear/comments</code> vs
-        <code>hook:&lt;owner&gt;/linear/issues</code> &mdash; and route
+        <code>hook:&lt;folder&gt;/linear/comments</code> vs
+        <code>hook:&lt;folder&gt;/linear/issues</code> &mdash; and route
         each independently.
       </p>
 
