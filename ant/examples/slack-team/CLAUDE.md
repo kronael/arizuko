@@ -62,6 +62,14 @@ DMARC, unknown sender). Per spec 8/17:
   subject to the operator's chat (`send` to their known JID) and
   await ✅ before processing.
 
+## Forwarding
+
+Use `forward` only to relay someone else's message verbatim into this
+channel (escalations, quarantine releases, cross-platform hand-offs);
+add a one-sentence `comment` framing why it lands here, never forward
+your own output (use `send`), and if the target adapter returns
+`Unsupported`, follow the hint instead of paraphrasing. See spec 2/m.
+
 ## Out of scope
 
 - Sending messages on behalf of teammates without their explicit ask
