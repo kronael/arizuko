@@ -142,6 +142,11 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /dash/me/secrets/{key}", d.handleMeSecretUpdate)
 	mux.HandleFunc("DELETE /dash/me/secrets/{key}", d.handleMeSecretDelete)
 
+	// WhatsApp re-pair — operator-only (** super-grant). Spec 8/15.
+	mux.HandleFunc("GET /dash/channels/whatsapp/pair", d.handleWhatsappPair)
+	mux.HandleFunc("GET /dash/channels/whatsapp/pair/status", d.handleWhatsappPairStatus)
+	mux.HandleFunc("POST /dash/channels/whatsapp/pair/start", d.handleWhatsappPairStart)
+
 	// Routes editor — admin-gated CRUD against the `routes` table.
 	mux.HandleFunc("GET /dash/routes/", d.handleRoutes)
 	mux.HandleFunc("POST /dash/routes/", d.handleRouteCreate)

@@ -11,6 +11,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
+import { WhapdBot, authDirHasCreds, type SocketBuilder } from './bot.js';
 import { RouterClient } from './client.js';
 import { log } from './log.js';
 import { flushQueue } from './queue.js';
@@ -150,7 +151,56 @@ async function pairOnce(phone?: string): Promise<void> {
   });
 }
 
+// Live socket handle. Kept as a module-level binding so existing helpers
+// (queue flush, presence, message handlers) read the current connection
+// without threading the bot through every callsite. `bot.sock` is the
+// authoritative source; we mirror writes here.
 let sock: WASocket | null = null;
+
+// pairSocketBuilder: feeds WhapdBot.requestPair. Builds a fresh socket,
+// kicks requestPairingCode after the handshake, and exposes both a
+// code-resolved promise and an open-resolved promise so the bot can
+// transition states distinctly (requesting -> pending -> idle).
+const pairSocketBuilder: SocketBuilder = async (phone) => {
+  const { s, saveCreds } = await makeSocket();
+  let codeResolve: (v: string) => void;
+  let codeReject: (e: unknown) => void;
+  const codePromise = new Promise<string>((res, rej) => {
+    codeResolve = res;
+    codeReject = rej;
+  });
+  let openResolve: () => void;
+  let openReject: (e: unknown) => void;
+  const openPromise = new Promise<void>((res, rej) => {
+    openResolve = res;
+    openReject = rej;
+  });
+  setTimeout(async () => {
+    try {
+      const code = await s.requestPairingCode(phone);
+      codeResolve(code);
+    } catch (e) {
+      codeReject(e);
+    }
+  }, 3000);
+  s.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect } = update;
+    if (connection === 'open') {
+      saveCreds()
+        .then(() => openResolve())
+        .catch(openReject);
+    }
+    if (connection === 'close') {
+      const code = (lastDisconnect?.error as any)?.output?.statusCode;
+      if (code === 515) return; // Baileys restarts after pairing; ignore.
+      openReject(new Error(`connection closed: ${code}`));
+    }
+  });
+  return { sock: s, codePromise, openPromise };
+};
+
+const bot = new WhapdBot(pairSocketBuilder, () => authDirHasCreds(authDir));
+
 const routerURL = env('ROUTER_URL');
 const channelSecret = env('CHANNEL_SECRET', '');
 const listenAddr = env('LISTEN_ADDR', ':9002');
@@ -244,7 +294,12 @@ async function extractContent(msg: WAMessage): Promise<{
 }
 
 async function connect(): Promise<void> {
+  if (bot.suspended) {
+    log('info', 'connect: bot suspended for pair flow; skipping reconnect');
+    return;
+  }
   ({ s: sock } = await makeSocket());
+  bot.sock = sock;
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
@@ -257,12 +312,19 @@ async function connect(): Promise<void> {
     if (connection === 'close') {
       connected = false;
       const code = (lastDisconnect?.error as any)?.output?.statusCode;
-      // 405 = server-side session termination. Both cases require re-pairing.
+      // 405 / loggedOut = server-side session termination. Re-pair required;
+      // mark the bot so /v1/pair/status surfaces it, then exit so the
+      // container restart can pick up the new auth dir post-rebind.
       if (code === DisconnectReason.loggedOut || code === 405) {
         log('error', 'session invalidated, delete auth dir and re-pair', {
           code,
         });
+        bot.markUnauthenticated();
         process.exit(1);
+      }
+      if (bot.suspended) {
+        log('info', 'reconnect skipped: pair flow active');
+        return;
       }
       reconnectAttempts++;
       if (reconnectAttempts > 10) {
@@ -288,6 +350,7 @@ async function connect(): Promise<void> {
     if (connection === 'open') {
       reconnectAttempts = 0;
       connected = true;
+      bot.markIdle();
       log('info', 'connected to whatsapp');
       sock!.sendPresenceUpdate('unavailable').catch(() => {});
 
@@ -399,7 +462,9 @@ async function connect(): Promise<void> {
 }
 
 export function getSocket(): WASocket | null {
-  return sock;
+  // bot.sock is the post-pair-swap authority; fall back to the module
+  // binding for boot-time callers that fire before the first connect().
+  return bot.sock ?? sock;
 }
 
 export function isConnected(): boolean {
@@ -493,6 +558,7 @@ async function main() {
     queueOutbound,
     setTyping,
     () => lastInboundAt,
+    bot,
   );
 
   async function shutdown() {

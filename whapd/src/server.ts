@@ -1,6 +1,7 @@
 import http from 'node:http';
 import Busboy from 'busboy';
 import type { WAMessage, WASocket } from '@whiskeysockets/baileys';
+import { PairError, type WhapdBot } from './bot.js';
 import { log } from './log.js';
 
 interface SendReq {
@@ -143,6 +144,7 @@ export function startServer(
   queueOutbound: (jid: string, text: string) => void,
   setTyping: (jid: string, on: boolean) => void,
   lastInboundAt: () => number,
+  bot?: WhapdBot,
 ): http.Server {
   const srv = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -174,6 +176,15 @@ export function startServer(
         json(res, 401, { ok: false, error: 'invalid secret' });
         return;
       }
+    }
+
+    if (req.method === 'GET' && req.url === '/v1/pair/status') {
+      if (!bot) {
+        json(res, 501, { ok: false, error: 'pair flow not wired' });
+        return;
+      }
+      json(res, 200, bot.getStatus());
+      return;
     }
 
     if (req.method !== 'POST') {
@@ -349,6 +360,30 @@ export function startServer(
           } as any);
           return (sent as any)?.key?.id ?? '';
         });
+        return;
+      }
+
+      case '/v1/pair/start': {
+        if (!bot) {
+          json(res, 501, { ok: false, error: 'pair flow not wired' });
+          return;
+        }
+        const body = await readBody<{ phone?: string }>(req);
+        const phone = (body.phone ?? '').trim();
+        if (!phone) {
+          json(res, 400, { error: 'phone required' });
+          return;
+        }
+        try {
+          const out = await bot.requestPair(phone);
+          json(res, 200, { code: out.code, expires_at: out.expires_at });
+        } catch (e) {
+          if (e instanceof PairError) {
+            json(res, e.status, { error: e.message });
+          } else {
+            json(res, 500, { error: String((e as Error).message ?? e) });
+          }
+        }
         return;
       }
 

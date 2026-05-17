@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
+import { WhapdBot, type SocketBuilder } from './bot';
 import { startServer } from './server';
 import { flushQueue } from './queue';
 import { extractReplyMeta } from './reply';
