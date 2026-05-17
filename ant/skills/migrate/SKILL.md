@@ -1,21 +1,38 @@
 ---
 name: migrate
 description: >
-  Root group only. Sync skills and files across all groups (nested
-  subgroups included) with conflict resolution, run pending migrations,
-  apply template overlays, then announce the release. USE when asked to
-  "migrate", "sync skills", "update skills", "run migrations", OR after
-  pulling a new agent image / observing a bumped MIGRATION_VERSION. NOT
-  for routine prompts, fresh sessions, or messages unrelated to release
-  plumbing.
+  Root group only. Read pending migration notes, apply template overlays,
+  announce the release. Skills + ant/CLAUDE.md sync happens automatically
+  in container.seedSkills before this skill runs — do not try to merge
+  those files yourself. USE when asked to "migrate", "run migrations",
+  OR after pulling a new agent image / observing a bumped
+  MIGRATION_VERSION. NOT for routine prompts or messages unrelated to
+  release plumbing.
 user-invocable: true
 ---
 
 # Migrate
 
-Sync skills and config across groups. Merges upstream changes, preserves
-local edits. Then runs pending migrations, applies template overlays,
-announces the release.
+Process pending migration notes, apply template overlays, announce the
+release. Skill+CLAUDE.md content sync is NOT done here — see below.
+
+## How sync actually works
+
+`container/runner.go:seedSkills` unconditionally overwrites
+`~/.claude/CLAUDE.md` AND every skill directory under
+`~/.claude/skills/` from `/workspace/self/ant/` on every container
+spawn that detects `MIGRATION_VERSION` is behind. That path is `cp`,
+deterministic, runs BEFORE this skill runs.
+
+So by the time you're reading this, `~/.claude/` is already fresh.
+Do NOT spawn a Task agent to "merge" these files. The previous version
+of this skill had a step (a) telling you to do that — it never worked
+and silently no-op'd because it had no diff base, no tools, just
+vibes. seedSkills is the source-of-truth path.
+
+Local edits in `~/PERSONA.md`, `~/diary/`, `~/users/`, `~/facts/`
+are never touched by seedSkills — those are operator/agent data, not
+deployment artifacts. Safe.
 
 ## Container paths
 
@@ -29,30 +46,7 @@ announces the release.
 [ "$ARIZUKO_IS_ROOT" = "1" ] || { echo "ERROR: root-only"; exit 1; }
 ```
 
-## a) Sync skills
-
-Call `refresh_groups` for the group list. Each group lives at
-`/workspace/data/groups/<folder>/`.
-
-Per group, spawn a Task agent to merge `/workspace/self/ant/` into the
-group dir. Rules:
-
-- New in source → copy
-- Unchanged → skip
-- Upstream-only changes → update
-- Local-only changes → preserve
-- Both changed → 3-way merge
-
-For conflicts:
-
-- **SKILL.md** — merge YAML (prefer source description), add new rules,
-  preserve local additions.
-- **CLAUDE.md** — merge sections additively, preserve local sections.
-- **Web / code files** — preserve local mods, update unchanged files.
-
-Never `cp -r` or `rsync` blindly.
-
-## b) Run pending migrations
+## a) Read pending migrations
 
 Enumerate ALL groups via `refresh_groups` — including nested subgroups
 like `atlas/support`. The `/workspace/data/groups/*/` glob only matches
@@ -82,7 +76,7 @@ mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' | while read fol
 done
 ```
 
-## c) Re-read CLAUDE.md
+## b) Re-read CLAUDE.md
 
 If migrations updated `~/.claude/CLAUDE.md`, re-read it and follow new
 instructions immediately.
@@ -91,7 +85,7 @@ instructions immediately.
 cat ~/.claude/CLAUDE.md
 ```
 
-## d) Apply template overlays
+## c) Apply template overlays
 
 For each group with `~/.claude/skills/self/TEMPLATES`, apply named
 overlays from `/workspace/self/template/<name>/`.
@@ -149,7 +143,7 @@ with open('$target', 'a') as f:
 done
 ```
 
-## e) Announce the release
+## d) Announce the release
 
 Claim the version before fan-out so a mid-broadcast restart cannot re-announce:
 
