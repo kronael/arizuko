@@ -184,9 +184,10 @@ type Socializer interface {
 }
 
 // Paner is the optional channel capability for Slack-style assistant
-// pane controls. Only slakd implements it today. Adapters without
-// pane semantics return chanlib.ErrUnsupported; the agent's MCP tool
-// surface for pane_* maps that to a structured error.
+// pane controls. Implemented by chanreg.HTTPChannel for any adapter
+// whose backend serves /v1/pane/*; slakd serves them, others 404.
+// Gateway type-asserts on this interface to route pane_* MCP calls
+// through the HTTP path.
 type Paner interface {
 	PaneSetPrompts(ctx context.Context, jid string, prompts []PanePrompt) error
 	PaneSetTitle(ctx context.Context, jid, title string) error
