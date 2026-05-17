@@ -160,7 +160,7 @@ var statusRe = regexp.MustCompile(`(?s)<status>(.*?)</status>`)
 // when it has nothing to say but didn't wrap silence in <think>. Caught
 // at the boundary so the agent doesn't have to be perfect every turn.
 // Whole-string match only; substrings stay.
-var silentRefusalRe = regexp.MustCompile(`(?is)^\s*(no response requested\.?|\[?remaining silent\]?\.?|\[silent\])\s*$`)
+var silentRefusalRe = regexp.MustCompile(`(?is)^\s*\(?\[?\s*(no response(?: requested| needed)?|no reply(?: needed)?|nothing to (?:add|say)|staying silent|remaining silent|silent|acknowledged)\s*\.?\s*\]?\)?\s*$`)
 
 func FormatOutbound(raw string) string {
 	s := internalRe.ReplaceAllString(raw, "")

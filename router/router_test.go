@@ -60,6 +60,11 @@ func TestFormatOutbound(t *testing.T) {
 		{"silent: bracket remaining silent", "[Remaining silent]", ""},
 		{"silent: bare remaining silent", "Remaining silent.", ""},
 		{"silent: bracket silent", "[Silent]", ""},
+		{"silent: parens no response", "(no response)", ""},
+		{"silent: no reply needed", "no reply needed", ""},
+		{"silent: nothing to add", "nothing to add.", ""},
+		{"silent: staying silent", "staying silent.", ""},
+		{"silent: acknowledged", "Acknowledged.", ""},
 		{"keeps when substring", "I have no response requested as a tool", "I have no response requested as a tool"},
 	}
 	for _, tc := range cases {
