@@ -419,6 +419,27 @@ func (g *Gateway) checkMigrationVersion() {
 			Timestamp: time.Now(),
 		})
 		g.queue.EnqueueMessageCheck(gr.Folder)
+
+		// Backstop: notify each child group directly so they hear about
+		// the upgrade even if the root's /migrate skill partially fails.
+		// The skill's announce step (step e) also fans out — two
+		// messages is acceptable; silent regression isn't.
+		note := fmt.Sprintf("System update: skills v%d → v%d applied. "+
+			"New capabilities may be available — check /self for details.", agent, latest)
+		for _, child := range groups {
+			if groupfolder.ParentOf(child.Folder) != gr.Folder {
+				continue
+			}
+			g.store.PutMessage(core.Message{
+				ID:        core.MsgID("auto-migrate-notify-" + child.Folder),
+				ChatJID:   child.Folder,
+				Sender:    "system",
+				Content:   note,
+				Timestamp: time.Now(),
+			})
+			slog.Info("auto-migrate: notified child group",
+				"child", child.Folder, "parent", gr.Folder)
+		}
 	}
 }
 

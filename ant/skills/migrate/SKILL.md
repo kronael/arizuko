@@ -86,23 +86,32 @@ Inline 3-way merge (no Task subagent — do it in this turn):
 Driver — enumerate groups and files:
 
 ```bash
+set -euo pipefail
+shopt -s nullglob
+
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
 trap 'mcpc @s close' EXIT
 
 src_root=/workspace/self/ant
-mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' | while read folder; do
+mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
+  | while IFS= read -r folder; do
   session="/workspace/data/groups/$folder"
   base_root="$session/.claude/.merge-base"
   ours_root="$session/.claude"
 
   # CLAUDE.md (operator's $session/CLAUDE.md is OFF-LIMITS)
-  find "$src_root" -maxdepth 1 -name CLAUDE.md -print
+  find "$src_root" -maxdepth 1 -name CLAUDE.md -print0 \
+    | while IFS= read -r -d '' f; do echo "$f"; done
 
   # Stock skills only (those present upstream)
   for sk in "$src_root/skills"/*/; do
     name=$(basename "$sk")
-    [ -f "$ours_root/skills/$name/.disabled" ] && { echo "skip $folder/$name"; continue; }
-    find "$sk" -type f -print
+    if [ -f "$ours_root/skills/$name/.disabled" ]; then
+      echo "skip $folder/$name"
+      continue
+    fi
+    find "$sk" -type f -print0 \
+      | while IFS= read -r -d '' f; do echo "$f"; done
   done
 done
 ```

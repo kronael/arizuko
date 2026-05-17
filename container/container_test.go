@@ -644,6 +644,108 @@ func TestSeedSkills_DotDisabled(t *testing.T) {
 	}
 }
 
+// S1: re-running seedSkills must NOT clobber operator edits in ours/.
+func TestSeedSkills_PreservesOursOnRerun(t *testing.T) {
+	claudeDir := t.TempDir()
+	appDir := t.TempDir()
+	skillSrc := filepath.Join(appDir, "ant", "skills", "foo")
+	os.MkdirAll(skillSrc, 0o755)
+	os.WriteFile(filepath.Join(skillSrc, "SKILL.md"), []byte("upstream-v1"), 0o644)
+	os.WriteFile(filepath.Join(appDir, "ant", "CLAUDE.md"), []byte("upstream-claude-v1"), 0o644)
+
+	cfg := &core.Config{HostAppDir: appDir}
+	seedSkills(cfg, claudeDir, "g")
+
+	// Operator edits ours after first seed.
+	liveSkill := filepath.Join(claudeDir, "skills", "foo", "SKILL.md")
+	liveClaude := filepath.Join(claudeDir, "CLAUDE.md")
+	os.WriteFile(liveSkill, []byte("operator-edit"), 0o644)
+	os.WriteFile(liveClaude, []byte("operator-claude"), 0o644)
+
+	// Upstream changes; re-seed (simulating re-invite / re-spawn).
+	os.WriteFile(filepath.Join(skillSrc, "SKILL.md"), []byte("upstream-v2"), 0o644)
+	os.WriteFile(filepath.Join(appDir, "ant", "CLAUDE.md"), []byte("upstream-claude-v2"), 0o644)
+	seedSkills(cfg, claudeDir, "g")
+
+	if data, _ := os.ReadFile(liveSkill); string(data) != "operator-edit" {
+		t.Errorf("ours skill clobbered: %q", data)
+	}
+	if data, _ := os.ReadFile(liveClaude); string(data) != "operator-claude" {
+		t.Errorf("ours CLAUDE.md clobbered: %q", data)
+	}
+	// Merge-base must mirror upstream-v2.
+	bSkill, _ := os.ReadFile(filepath.Join(claudeDir, ".merge-base", "skills", "foo", "SKILL.md"))
+	if string(bSkill) != "upstream-v2" {
+		t.Errorf("merge-base skill not refreshed: %q", bSkill)
+	}
+	bClaude, _ := os.ReadFile(filepath.Join(claudeDir, ".merge-base", "CLAUDE.md"))
+	if string(bClaude) != "upstream-claude-v2" {
+		t.Errorf("merge-base CLAUDE.md not refreshed: %q", bClaude)
+	}
+}
+
+// S2/S3: merge-base/ must mirror upstream — stale files from prior
+// versions (renames / deletes) must not accumulate forever.
+func TestSeedSkills_MergeBaseMirrorsUpstream(t *testing.T) {
+	claudeDir := t.TempDir()
+	appDir := t.TempDir()
+	skillSrc := filepath.Join(appDir, "ant", "skills", "foo")
+	os.MkdirAll(skillSrc, 0o755)
+	os.WriteFile(filepath.Join(skillSrc, "SKILL.md"), []byte("v1"), 0o644)
+	os.WriteFile(filepath.Join(skillSrc, "helper.md"), []byte("h1"), 0o644)
+
+	cfg := &core.Config{HostAppDir: appDir}
+	seedSkills(cfg, claudeDir, "g")
+
+	baseHelper := filepath.Join(claudeDir, ".merge-base", "skills", "foo", "helper.md")
+	if _, err := os.Stat(baseHelper); err != nil {
+		t.Fatalf("base helper.md missing: %v", err)
+	}
+
+	// Upstream renames helper.md → helper2.md.
+	os.Remove(filepath.Join(skillSrc, "helper.md"))
+	os.WriteFile(filepath.Join(skillSrc, "helper2.md"), []byte("h2"), 0o644)
+	seedSkills(cfg, claudeDir, "g")
+
+	// Old helper.md must be GONE from merge-base.
+	if _, err := os.Stat(baseHelper); !os.IsNotExist(err) {
+		t.Error("merge-base helper.md should have been removed (upstream renamed it)")
+	}
+	if _, err := os.Stat(filepath.Join(claudeDir, ".merge-base", "skills", "foo", "helper2.md")); err != nil {
+		t.Errorf("merge-base helper2.md missing: %v", err)
+	}
+}
+
+// S7: re-enabling a previously .disabled skill must start from a fresh
+// merge-base (the stale base must be removed when seedSkills sees
+// .disabled).
+func TestSeedSkills_DisabledRemovesMergeBase(t *testing.T) {
+	claudeDir := t.TempDir()
+	appDir := t.TempDir()
+	skillSrc := filepath.Join(appDir, "ant", "skills", "foo")
+	os.MkdirAll(skillSrc, 0o755)
+	os.WriteFile(filepath.Join(skillSrc, "SKILL.md"), []byte("v1"), 0o644)
+
+	cfg := &core.Config{HostAppDir: appDir}
+	seedSkills(cfg, claudeDir, "g")
+
+	// Confirm merge-base exists.
+	base := filepath.Join(claudeDir, ".merge-base", "skills", "foo")
+	if _, err := os.Stat(base); err != nil {
+		t.Fatalf("merge-base not seeded: %v", err)
+	}
+
+	// Operator disables the skill.
+	tgt := filepath.Join(claudeDir, "skills", "foo")
+	os.WriteFile(filepath.Join(tgt, ".disabled"), []byte(""), 0o644)
+	seedSkills(cfg, claudeDir, "g")
+
+	// Merge-base must be wiped so re-enable starts fresh.
+	if _, err := os.Stat(base); !os.IsNotExist(err) {
+		t.Error("merge-base must be removed when .disabled sentinel present")
+	}
+}
+
 func TestReadOptional(t *testing.T) {
 	d := t.TempDir()
 

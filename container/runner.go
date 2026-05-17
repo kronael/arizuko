@@ -783,21 +783,31 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 		}
 		d := filepath.Join(dst, e.Name())
 		if _, err := os.Stat(filepath.Join(d, ".disabled")); err == nil {
-			// Disabled by operator: don't seed; also remove SKILL.md
-			// so Claude Code doesn't index it.
+			// Disabled by operator: don't seed; remove SKILL.md so
+			// Claude Code stops indexing it, and drop the stale
+			// merge-base so re-enable starts from a fresh sync.
 			os.Remove(filepath.Join(d, "SKILL.md"))
+			os.RemoveAll(filepath.Join(base, e.Name()))
 			continue
 		}
 		s := filepath.Join(src, e.Name())
-		cpDir(s, d)
-		cpDir(s, filepath.Join(base, e.Name()))
+		// ours: preserve operator edits — only write missing files.
+		cpDirFresh(s, d)
+		// merge-base: full mirror of upstream — wipe then copy.
+		baseDir := filepath.Join(base, e.Name())
+		os.RemoveAll(baseDir)
+		cpDirOverwrite(s, baseDir)
 	}
 
 	mdSrc := filepath.Join(cfg.HostAppDir, "ant", "CLAUDE.md")
 	mdDst := filepath.Join(claudeDir, "CLAUDE.md")
 	mdBase := filepath.Join(claudeDir, ".merge-base", "CLAUDE.md")
 	if data, err := os.ReadFile(mdSrc); err == nil {
-		os.WriteFile(mdDst, data, 0o644)
+		// ours: only write if missing — preserve operator edits.
+		if _, err := os.Stat(mdDst); os.IsNotExist(err) {
+			os.WriteFile(mdDst, data, 0o644)
+		}
+		// merge-base: always refresh to mirror upstream.
 		os.MkdirAll(filepath.Dir(mdBase), 0o755)
 		os.WriteFile(mdBase, data, 0o644)
 	}
@@ -881,7 +891,19 @@ func CopySession(groupDir, srcUUID, dstUUID string) error {
 	return nil
 }
 
-func cpDir(src, dst string) {
+// cpDir copies src→dst, always overwriting. Kept as the default for
+// merge-base seeding (caller pre-removes dst for a true mirror).
+func cpDir(src, dst string) { cpDirImpl(src, dst, false) }
+
+// cpDirOverwrite is an explicit alias; same semantics as cpDir but the
+// name documents intent at the call site.
+func cpDirOverwrite(src, dst string) { cpDirImpl(src, dst, false) }
+
+// cpDirFresh copies src→dst, skipping files that already exist in dst.
+// Used to seed operator-owned `ours` without clobbering live edits.
+func cpDirFresh(src, dst string) { cpDirImpl(src, dst, true) }
+
+func cpDirImpl(src, dst string, skipExisting bool) {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		slog.Warn("cpDir: mkdir failed", "path", dst, "err", err)
 		return
@@ -905,8 +927,15 @@ func cpDir(src, dst string) {
 			continue
 		}
 		if fi.IsDir() {
-			cpDir(sp, dp)
-		} else if data, err := os.ReadFile(sp); err != nil {
+			cpDirImpl(sp, dp, skipExisting)
+			continue
+		}
+		if skipExisting {
+			if _, err := os.Stat(dp); err == nil {
+				continue
+			}
+		}
+		if data, err := os.ReadFile(sp); err != nil {
 			slog.Warn("cpDir: read failed", "path", sp, "err", err)
 		} else if err := os.WriteFile(dp, data, 0o644); err != nil {
 			slog.Warn("cpDir: write failed", "path", dp, "err", err)
