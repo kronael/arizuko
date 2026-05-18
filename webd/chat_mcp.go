@@ -23,18 +23,15 @@ const chatMCPWaitCap = 5 * time.Minute
 // route_tokens row is accepted; kind metadata is for the agent only.
 // Spec 5/W.
 func (s *server) handleChatTokenMCP(w http.ResponseWriter, r *http.Request) {
-	token := r.PathValue("token")
-	row, ok := s.st.LookupRouteToken(token)
+	row, ok := s.lookupRouteToken(w, r)
 	if !ok {
-		slog.Warn("chat-mcp token not found", "token_hash", chanlib.ShortHash(token))
-		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 	folder := jidFolder(row.JID)
 	if r.Body != nil {
 		r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	}
-	mcpSrv := s.buildChatTokenMCP(row.JID, folder, token)
+	mcpSrv := s.buildChatTokenMCP(row.JID, folder, r.PathValue("token"))
 	h := mcpserver.NewStreamableHTTPServer(mcpSrv, mcpserver.WithStateLess(true))
 	h.ServeHTTP(w, r)
 }
