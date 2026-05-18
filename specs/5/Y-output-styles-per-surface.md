@@ -241,11 +241,11 @@ Unit (`container/runner_test.go`):
 Net: ~330 LOC, mostly new style-file content. Picker logic is one
 table-driven function with two stat calls.
 
-## Open questions
+## Closed questions
 
-None blocking. Two minor:
-
-- Does `web` (slink) deserve a per-surface split (chat widget vs
-  embedded iframe)? Defer until we ship a second web surface.
-- Should `email.md` also split by direction (inbound reply vs
-  outbound first-touch)? Defer until tone drift is observed.
+- **Web surface split (iframe vs chat widget)**: no native iframe surface.
+  `web:<token>` JIDs arrive via GET+SSE regardless of how the host page embeds
+  the widget. The agent can't distinguish and there is no routing-layer split to
+  drive an output-style split. `web.md` covers all web surfaces; no further split.
+- **Email direction split**: no split. `email.md` is one file, minimal,
+  same convention as every other channel. Length/tone judgment is the LLM's.
