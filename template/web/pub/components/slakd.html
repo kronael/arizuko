@@ -67,7 +67,7 @@ export ASSISTANT_NAME=arizuko
 export DB_PATH=/srv/app/home/store/messages.db
 ./slakd</code></pre>
 
-    <p>Slack-side setup: create a Slack app, enable Events API with request URL pointing at <code>/slack/events</code>, subscribe to <code>message.channels</code>, <code>message.im</code>, <code>message.groups</code>, <code>reaction_added</code>, <code>app_mention</code>, and (for the pane) <code>assistant_thread_started</code> + <code>assistant_thread_context_changed</code>. Scopes: <code>chat:write</code>, <code>files:write</code>, <code>reactions:write</code>, <code>im:history</code>, <code>channels:history</code>, <code>groups:history</code>, <code>assistant:write</code>.</p>
+    <p>Slack-side setup: create a Slack app, enable Events API with request URL pointing at <code>/slack/events</code>, subscribe to <code>message.channels</code>, <code>message.im</code>, <code>message.groups</code>, <code>reaction_added</code>, and (for the pane) <code>assistant_thread_started</code> + <code>assistant_thread_context_changed</code>. Do <strong>not</strong> subscribe to <code>app_mention</code> &mdash; slakd detects mentions from <code>&lt;@bot_user_id&gt;</code> in the message text, and a parallel <code>app_mention</code> subscription causes duplicate processing. Scopes: <code>chat:write</code>, <code>files:write</code>, <code>reactions:write</code>, <code>im:history</code>, <code>channels:history</code>, <code>groups:history</code>, <code>assistant:write</code>.</p>
 
     <p><code>GET /health</code> returns 503 when Slack auth fails or the workspace cache cannot warm.</p>
 
