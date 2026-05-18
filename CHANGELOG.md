@@ -12,7 +12,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
-## [Unreleased]
+## [v0.41.0] — 2026-05-18
 
 > arizuko — chat links and webhooks share one primitive
 >
