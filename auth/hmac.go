@@ -24,8 +24,8 @@ func UserSigMessage(sub, name, groupsJSON string) string {
 	return "user:" + sub + "|" + name + "|" + groupsJSON
 }
 
-func SlinkSigMessage(token, folder string) string {
-	return "slink:" + token + "|" + folder
+func ChatSigMessage(token, folder string) string {
+	return "chat:" + token + "|" + folder
 }
 
 func VerifyUserSig(secret string, r *http.Request) bool {
@@ -36,11 +36,11 @@ func VerifyUserSig(secret string, r *http.Request) bool {
 	return VerifyHMAC(secret, UserSigMessage(sub, r.Header.Get("X-User-Name"), r.Header.Get("X-User-Groups")), r.Header.Get("X-User-Sig"))
 }
 
-func VerifySlinkSig(secret string, r *http.Request) bool {
-	token := r.Header.Get("X-Slink-Token")
+func VerifyChatSig(secret string, r *http.Request) bool {
+	token := r.Header.Get("X-Chat-Token")
 	folder := r.Header.Get("X-Folder")
 	if token == "" || folder == "" {
 		return false
 	}
-	return VerifyHMAC(secret, SlinkSigMessage(token, folder), r.Header.Get("X-Slink-Sig"))
+	return VerifyHMAC(secret, ChatSigMessage(token, folder), r.Header.Get("X-Chat-Sig"))
 }

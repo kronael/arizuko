@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -66,6 +68,41 @@ func (s *server) handleAPIMessages(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/groups/<folder>/typing
 func (s *server) handleAPITyping(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// POST /api/groups/<folder>/messages — authenticated operator message
+// injection from the /panel/<folder> chat page. JSON {content, topic}.
+func (s *server) handleAPIMessagesPost(w http.ResponseWriter, r *http.Request) {
+	folder := folderParam(r)
+	if _, ok := s.st.GroupByFolder(folder); !ok {
+		chanlib.WriteErr(w, 404, "group not found")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBody)
+	var body struct {
+		Content string `json:"content"`
+		Topic   string `json:"topic"`
+	}
+	if json.NewDecoder(r.Body).Decode(&body) != nil || body.Content == "" {
+		chanlib.WriteErr(w, 400, "content required")
+		return
+	}
+	topic := body.Topic
+	if topic == "" {
+		topic = fmt.Sprintf("t%d", time.Now().UnixMilli())
+	}
+	jid := "web:" + folder
+	sender := userSub(r)
+	senderName := userName(r)
+	if sender == "" {
+		sender = "operator"
+		senderName = "Operator"
+	}
+	if _, _, err := s.injectRouteMessage(jid, folder, body.Content, topic, sender, senderName, ""); err != nil {
+		chanlib.WriteErr(w, 500, err.Error())
+		return
+	}
 	w.WriteHeader(http.StatusAccepted)
 }
 

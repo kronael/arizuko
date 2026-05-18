@@ -38,7 +38,7 @@ type config struct {
 	hmacSecret     string
 	routesJSON     string
 	trustedProxies []*net.IPNet
-	slinkAnonDosRPM int
+	chatAnonDosRPM int
 }
 
 func loadConfig() config {
@@ -61,7 +61,7 @@ func loadConfig() config {
 		hmacSecret:     hmacSecret,
 		routesJSON:     os.Getenv("PROXYD_ROUTES_JSON"),
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
-		slinkAnonDosRPM: chanlib.EnvInt("SLINK_ANON_DOS_RPM", 10),
+		chatAnonDosRPM: chanlib.EnvInt("CHAT_ANON_DOS_RPM", 10),
 	}
 }
 
@@ -91,11 +91,11 @@ func parseTrustedProxies(s string) []*net.IPNet {
 }
 
 // stripClientHeaders deletes proxyd-owned headers on entry; they are
-// repopulated only after auth or slink-token resolution.
+// repopulated only after auth or chat-token resolution.
 func stripClientHeaders(r *http.Request) {
 	for _, h := range []string{
 		"X-User-Sub", "X-User-Name", "X-User-Groups", "X-User-Sig",
-		"X-Folder", "X-Group-Name", "X-Slink-Token", "X-Slink-Sig",
+		"X-Folder", "X-Group-Name", "X-Chat-Token", "X-Chat-Sig",
 	} {
 		r.Header.Del(h)
 	}
@@ -175,7 +175,7 @@ type server struct {
 	rr        *routesResource // route table + ReverseProxy map, RWMutex-guarded
 	viteProxy *httputil.ReverseProxy
 	vh        *vhosts
-	slinkAnonDOS *rateLimiter // anon DoS shield, IP-keyed (not metering)
+	chatAnonDOS *rateLimiter // anon DoS shield, IP-keyed (not metering)
 	pubRedir     *pubRedirect
 }
 
@@ -255,7 +255,7 @@ func newServer(cfg config, st *store.Store, vh *vhosts) *server {
 		rr:        rr,
 		viteProxy: proxy(cfg.viteAddr),
 		vh:        vh,
-		slinkAnonDOS: newRateLimiter(cfg.slinkAnonDosRPM, time.Minute),
+		chatAnonDOS: newRateLimiter(cfg.chatAnonDosRPM, time.Minute),
 		pubRedir:     newPubRedirect(cfg.pubRedirectURL),
 	}
 }
@@ -533,8 +533,9 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 }
 
 // dispatchRoute applies per-route auth + bespoke handling and forwards via
-// the cached ReverseProxy. Bespoke logic for `/slink/` and `/dav/` lives in
-// dedicated helpers so the generic auth switch stays orthogonal.
+// the cached ReverseProxy. Bespoke logic for `/chat/`, `/hook/`, and
+// `/dav/` lives in dedicated helpers so the generic auth switch stays
+// orthogonal.
 func (s *server) dispatchRoute(rt *Route, w http.ResponseWriter, r *http.Request) {
 	rp := s.proxies()[rt.Path]
 	if rp == nil {
@@ -542,8 +543,8 @@ func (s *server) dispatchRoute(rt *Route, w http.ResponseWriter, r *http.Request
 		return
 	}
 	switch rt.Path {
-	case "/slink/":
-		s.dispatchSlink(rp, w, r)
+	case "/chat/", "/hook/":
+		s.dispatchRouteToken(rp, w, r)
 		return
 	case "/dav/":
 		s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -562,38 +563,62 @@ func (s *server) dispatchRoute(rt *Route, w http.ResponseWriter, r *http.Request
 	}
 }
 
-// dispatchSlink resolves the URL token to a group and stamps
-// X-Folder/X-Group-Name/X-Slink-Sig before forwarding. Auth is optional;
-// valid JWT stamps user identity. Anon callers pass through an IP-keyed
-// DoS shield (not metering — cost-cap governance handles spend per
-// spec 5/34); authenticated callers skip the throttle entirely.
-func (s *server) dispatchSlink(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
+// dispatchRouteToken resolves the URL's route token to a folder and
+// stamps X-Folder/X-Group-Name/X-Chat-Token/X-Chat-Sig before
+// forwarding. Spec 5/W. Auth is optional; valid JWT stamps user
+// identity. Anon callers pass through an IP-keyed DoS shield (not
+// metering — cost-cap governance handles spend per spec 5/34);
+// authenticated callers skip the throttle entirely.
+func (s *server) dispatchRouteToken(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
 	if a := s.tryAuth(r); a != nil {
 		r = a
 	} else {
 		remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
-		if !s.slinkAnonDOS.allow(remoteIP) {
+		if !s.chatAnonDOS.allow(remoteIP) {
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
 	}
+	// Path shapes: /chat/<token>/..., /hook/<token>, /chat/stream?token=...
 	var token string
-	if r.URL.Path == "/slink/stream" {
+	if r.URL.Path == "/chat/stream" {
 		token = r.URL.Query().Get("token")
 	} else {
-		token = strings.SplitN(strings.TrimPrefix(r.URL.Path, "/slink/"), "/", 2)[0]
+		for _, prefix := range []string{"/chat/", "/hook/"} {
+			if strings.HasPrefix(r.URL.Path, prefix) {
+				token = strings.SplitN(strings.TrimPrefix(r.URL.Path, prefix), "/", 2)[0]
+				break
+			}
+		}
 	}
 	if token != "" && s.st != nil {
-		if group, ok := s.st.GroupBySlinkToken(token); ok {
+		if row, ok := s.st.LookupRouteToken(token); ok {
+			folder := jidFolder(row.JID)
 			r = r.Clone(r.Context())
-			r.Header.Set("X-Folder", group.Folder)
-			r.Header.Set("X-Group-Name", groupfolder.NameOf(group.Folder))
-			r.Header.Set("X-Slink-Token", token)
-			r.Header.Set("X-Slink-Sig",
-				auth.SignHMAC(s.cfg.hmacSecret, auth.SlinkSigMessage(token, group.Folder)))
+			r.Header.Set("X-Folder", folder)
+			r.Header.Set("X-Group-Name", groupfolder.NameOf(folder))
+			r.Header.Set("X-Chat-Token", token)
+			r.Header.Set("X-Chat-Sig",
+				auth.SignHMAC(s.cfg.hmacSecret, auth.ChatSigMessage(token, folder)))
 		}
 	}
 	rp.ServeHTTP(w, r)
+}
+
+// jidFolder mirrors webd/route_token.go's helper — strip the
+// web:/hook: prefix and (for hook:) the source segment.
+func jidFolder(jid string) string {
+	switch {
+	case strings.HasPrefix(jid, "web:"):
+		return strings.TrimPrefix(jid, "web:")
+	case strings.HasPrefix(jid, "hook:"):
+		rest := strings.TrimPrefix(jid, "hook:")
+		if i := strings.LastIndexByte(rest, '/'); i > 0 {
+			return rest[:i]
+		}
+		return rest
+	}
+	return ""
 }
 
 func (s *server) davRoute(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {

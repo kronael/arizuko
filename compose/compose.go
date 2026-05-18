@@ -166,11 +166,17 @@ type ProxydRoute struct {
 // that toggle daemon emission so the route presence tracks the daemon.
 var coreProxydRoutes = []ProxydRoute{
 	{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
-	{Path: "/chat/", Backend: "http://webd:8080", Auth: "user"},
+	// /chat/ — bespoke handler in proxyd (dispatchRouteToken). Token in
+	// path → public; no token segment (operator panel moved to /panel/)
+	// → handler routes by presence. Spec 5/W.
+	{Path: "/chat/", Backend: "http://webd:8080", Auth: "public"},
+	{Path: "/hook/", Backend: "http://webd:8080", Auth: "public"},
+	{Path: "/panel/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/api/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/x/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/static/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/mcp", Backend: "http://webd:8080", Auth: "user"},
+	// Legacy /slink/* → handled by webd as 301 → /chat/. Public.
 	{Path: "/slink/", Backend: "http://webd:8080", Auth: "public"},
 	{Path: "/dav/", Backend: "http://davd:8080", Auth: "user", StripPrefix: true, GatedBy: "WEBDAV_ENABLED"},
 	{Path: "/onboard", Backend: "http://onbod:8080", Auth: "public", GatedBy: "ONBOARDING_ENABLED"},

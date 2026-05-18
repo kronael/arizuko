@@ -90,7 +90,6 @@ type Input struct {
 	GroupPath   string           `json:"-"`
 	Name        string           `json:"-"`
 	Config      core.GroupConfig `json:"-"`
-	SlinkToken  string           `json:"-"`
 	Annotations []string         `json:"-"`
 	GatedFns    ipc.GatedFns     `json:"-"`
 	StoreFns    ipc.StoreFns     `json:"-"`
@@ -700,9 +699,6 @@ func seedSettings(
 		if name := pickOutputStyle(in.Channel, in.ChatJID, in.Topic, in.PaneLookup); name != "" {
 			settings["outputStyle"] = name
 		}
-	}
-	if in.SlinkToken != "" {
-		env["SLINK_TOKEN"] = in.SlinkToken
 	}
 	settings["env"] = env
 

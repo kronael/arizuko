@@ -31,16 +31,21 @@ func signUserHeaders(h map[string]string) map[string]string {
 	return h
 }
 
-// signSlinkHeaders fills in X-Slink-Sig for an anonymous slink caller.
-func signSlinkHeaders(token, folder string) map[string]string {
-	msg := "slink:" + token + "|" + folder
+// signChatHeaders fills in X-Chat-Sig for an anonymous route-token caller.
+func signChatHeaders(token, folder string) map[string]string {
+	msg := "chat:" + token + "|" + folder
 	mac := hmac.New(sha256.New, []byte(testHMACSecret))
 	mac.Write([]byte(msg))
 	return map[string]string{
-		"X-Slink-Token": token,
-		"X-Folder":      folder,
-		"X-Slink-Sig":   hex.EncodeToString(mac.Sum(nil)),
+		"X-Chat-Token": token,
+		"X-Folder":     folder,
+		"X-Chat-Sig":   hex.EncodeToString(mac.Sum(nil)),
 	}
+}
+
+// signSlinkHeaders is an alias kept for test compatibility during transition.
+func signSlinkHeaders(token, folder string) map[string]string {
+	return signChatHeaders(token, folder)
 }
 
 // mockRouter is a minimal fake of the router API used by webd.
@@ -98,15 +103,23 @@ func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 func seedGroup(t *testing.T, st *store.Store, folder, name string) core.Group {
 	t.Helper()
 	_ = name
-	g := core.Group{
-		Folder: folder, AddedAt: time.Now(),
-		SlinkToken: "tok-" + folder,
-	}
+	g := core.Group{Folder: folder, AddedAt: time.Now()}
 	if err := st.PutGroup(g); err != nil {
 		t.Fatalf("PutGroup: %v", err)
 	}
 	got, _ := st.GroupByFolder(folder)
 	return got
+}
+
+// seedChatToken inserts a web: route token for folder and returns the raw token.
+func seedChatToken(t *testing.T, st *store.Store, folder string) string {
+	t.Helper()
+	raw := store.GenRouteToken()
+	rt := store.RouteToken{JID: "web:" + folder, OwnerFolder: folder}
+	if err := st.InsertRouteToken(raw, rt); err != nil {
+		t.Fatalf("InsertRouteToken: %v", err)
+	}
+	return raw
 }
 
 func TestUserAllowedFolder(t *testing.T) {

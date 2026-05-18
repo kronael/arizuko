@@ -15,25 +15,25 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// cmdSend posts a message to a group's slink endpoint and (optionally) waits
-// for the agent's run to finish. Trivial wrapper over the slink round-handle
-// protocol — see specs/1/W-slink.md.
+// cmdSend posts a message to a group's chat-token endpoint and (optionally)
+// waits for the agent's run to finish.
 //
 // arizuko send <instance> <folder> "<msg>"           fire and forget
 // arizuko send <instance> <folder> "<msg>" --wait    block on round_done
 // arizuko send <instance> <folder> "<msg>" --stream  same, but SSE
 // arizuko send <instance> <folder> --stdin           read body from stdin
 //
-// Server-side: reads the folder's slink_token directly from the instance
-// store and posts to the local webd over the configured WEB_HOST.
+// Server-side: looks up the freshest web: route_token for the folder and
+// posts to the local webd via WEB_HOST.
 func cmdSend(args []string) {
 	if len(args) < 2 {
 		die("usage: arizuko send <instance> <folder> [<message>] [--wait | --stream] [--stdin] [--topic <topic>]")
 	}
 	instance, folder := args[0], args[1]
 
-	var msg, topic string
+	var msg, topic, chatToken string
 	wait, stream, stdin := false, false, false
+	chatToken = os.Getenv("ARIZUKO_CHAT_TOKEN")
 	rest := args[2:]
 	for i := 0; i < len(rest); i++ {
 		a := rest[i]
@@ -44,6 +44,12 @@ func cmdSend(args []string) {
 			stream = true
 		case "--stdin":
 			stdin = true
+		case "--token":
+			i++
+			if i >= len(rest) {
+				die("usage: --token <raw_token>")
+			}
+			chatToken = rest[i]
 		case "--topic":
 			i++
 			if i >= len(rest) {
@@ -75,12 +81,13 @@ func cmdSend(args []string) {
 	}
 	defer st.Close()
 
-	g, ok := st.GroupByFolder(folder)
-	if !ok {
+	if _, ok := st.GroupByFolder(folder); !ok {
 		die("Failed: group %q not found in instance %q", folder, instance)
 	}
-	if g.SlinkToken == "" {
-		die("Failed: group %q has no slink_token", folder)
+	// Raw tokens are never stored (only hash). Caller supplies via --token or
+	// ARIZUKO_CHAT_TOKEN env; token is printed on issue_chat_link / arizuko token issue.
+	if chatToken == "" {
+		die("Failed: --token required (see: arizuko token issue chat %s %s)", instance, folder)
 	}
 
 	cfg, err := loadInstanceEnv(dataDir)
@@ -95,7 +102,7 @@ func cmdSend(args []string) {
 	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") {
 		scheme = "http"
 	}
-	endpoint := fmt.Sprintf("%s://%s/slink/%s", scheme, host, g.SlinkToken)
+	endpoint := fmt.Sprintf("%s://%s/chat/%s", scheme, host, chatToken)
 
 	form := url.Values{}
 	form.Set("content", msg)
@@ -132,8 +139,8 @@ func cmdSend(args []string) {
 		return
 	}
 
-	turnURL := fmt.Sprintf("%s://%s/slink/%s/%s",
-		scheme, host, g.SlinkToken, url.PathEscape(posted.TurnID))
+	turnURL := fmt.Sprintf("%s://%s/chat/%s/%s",
+		scheme, host, chatToken, url.PathEscape(posted.TurnID))
 
 	if stream {
 		os.Exit(streamRound(client, turnURL+"/sse"))

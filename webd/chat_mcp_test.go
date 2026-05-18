@@ -16,13 +16,14 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-func newSlinkMCPServer(t *testing.T) (*server, *mockRouter, *httptest.Server, core.Group) {
+func newSlinkMCPServer(t *testing.T) (*server, *mockRouter, *httptest.Server, core.Group, string) {
 	t.Helper()
 	s, mr, st := newTestServer(t)
 	g := seedGroup(t, st, "main", "Main")
+	tok := seedChatToken(t, st, "main")
 	srv := httptest.NewServer(s.handler())
 	t.Cleanup(srv.Close)
-	return s, mr, srv, g
+	return s, mr, srv, g, tok
 }
 
 func slinkMCPDial(t *testing.T, url string) *mcpclient.Client {
@@ -52,8 +53,8 @@ func slinkMCPDial(t *testing.T, url string) *mcpclient.Client {
 
 // tools/list returns exactly 3 tools and no more.
 func TestSlinkMCP_ToolSurface(t *testing.T) {
-	_, _, srv, g := newSlinkMCPServer(t)
-	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
+	_, _, srv, _, tok := newSlinkMCPServer(t)
+	c := slinkMCPDial(t, srv.URL+"/chat/"+tok+"/mcp")
 
 	ctx := context.Background()
 	res, err := c.ListTools(ctx, mcp.ListToolsRequest{})
@@ -83,8 +84,8 @@ func TestSlinkMCP_ToolSurface(t *testing.T) {
 
 // send_message: stores a row, returns {turn_id, topic, folder}, hits router.
 func TestSlinkMCP_SendMessage(t *testing.T) {
-	s, mr, srv, g := newSlinkMCPServer(t)
-	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
+	s, mr, srv, g, tok := newSlinkMCPServer(t)
+	c := slinkMCPDial(t, srv.URL+"/chat/"+tok+"/mcp")
 
 	ctx := context.Background()
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
@@ -138,8 +139,8 @@ func TestSlinkMCP_SendMessage(t *testing.T) {
 
 // get_round (no wait): returns existing frames synchronously.
 func TestSlinkMCP_GetRound_NoWait(t *testing.T) {
-	s, _, srv, g := newSlinkMCPServer(t)
-	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
+	s, _, srv, g, tok := newSlinkMCPServer(t)
+	c := slinkMCPDial(t, srv.URL+"/chat/"+tok+"/mcp")
 
 	turnID := slinkMCPSend(t, c, "ping", "round-3")
 	if err := s.st.PutMessage(core.Message{
@@ -195,8 +196,8 @@ func TestSlinkMCP_GetRound_NoWait(t *testing.T) {
 // get_round with after=<id> cursor returns only frames after that id —
 // mirrors GET /slink/{token}/{id}?after=<msg_id>.
 func TestSlinkMCP_GetRound_AfterCursor(t *testing.T) {
-	s, _, srv, g := newSlinkMCPServer(t)
-	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
+	s, _, srv, g, tok := newSlinkMCPServer(t)
+	c := slinkMCPDial(t, srv.URL+"/chat/"+tok+"/mcp")
 
 	turnID := slinkMCPSend(t, c, "many replies", "round-cursor")
 	t0 := time.Now()
@@ -248,8 +249,8 @@ func TestSlinkMCP_GetRound_AfterCursor(t *testing.T) {
 // get_round_status returns counts + status with no frame payload —
 // mirrors GET /slink/{token}/{id}/status.
 func TestSlinkMCP_GetRoundStatus(t *testing.T) {
-	s, _, srv, g := newSlinkMCPServer(t)
-	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
+	s, _, srv, g, tok := newSlinkMCPServer(t)
+	c := slinkMCPDial(t, srv.URL+"/chat/"+tok+"/mcp")
 
 	turnID := slinkMCPSend(t, c, "ask", "round-status")
 	for _, id := range []string{"bot-s1", "bot-s2"} {
@@ -310,8 +311,8 @@ func TestSlinkMCP_GetRoundStatus(t *testing.T) {
 // get_round_status with unknown turn_id returns frames_count=0 and empty
 // last_frame_id (no error — the form-encoded /status path is similarly lenient).
 func TestSlinkMCP_GetRoundStatus_Unknown(t *testing.T) {
-	_, _, srv, g := newSlinkMCPServer(t)
-	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
+	_, _, srv, _, tok := newSlinkMCPServer(t)
+	c := slinkMCPDial(t, srv.URL+"/chat/"+tok+"/mcp")
 
 	res, err := c.CallTool(context.Background(), mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -343,8 +344,8 @@ func TestSlinkMCP_GetRoundStatus_Unknown(t *testing.T) {
 // get_round (wait=true): subscribes and returns when an assistant frame
 // publishes after the call.
 func TestSlinkMCP_GetRound_Wait(t *testing.T) {
-	s, _, srv, g := newSlinkMCPServer(t)
-	c := slinkMCPDial(t, srv.URL+"/slink/"+g.SlinkToken+"/mcp")
+	s, _, srv, g, tok := newSlinkMCPServer(t)
+	c := slinkMCPDial(t, srv.URL+"/chat/"+tok+"/mcp")
 
 	turnID := slinkMCPSend(t, c, "are you there?", "round-4")
 
@@ -434,7 +435,7 @@ func TestSlinkMCP_BadToken(t *testing.T) {
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 
-	resp, err := http.Post(srv.URL+"/slink/nope/mcp", "application/json",
+	resp, err := http.Post(srv.URL+"/chat/nope/mcp", "application/json",
 		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
 	if err != nil {
 		t.Fatalf("post: %v", err)

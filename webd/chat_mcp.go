@@ -13,37 +13,37 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/chanlib"
-	"github.com/kronael/arizuko/core"
 )
 
-// slinkMCPWaitCap caps get_round blocking so forgotten clients can't pin goroutines.
-const slinkMCPWaitCap = 5 * time.Minute
+// chatMCPWaitCap caps get_round blocking so forgotten clients can't pin goroutines.
+const chatMCPWaitCap = 5 * time.Minute
 
-// POST /slink/<token>/mcp — 2-tool MCP surface (send_message, get_round).
-// Token possession = group membership.
-func (s *server) handleSlinkMCP(w http.ResponseWriter, r *http.Request) {
+// POST /chat/<token>/mcp — 3-tool MCP surface (send_message, get_round,
+// get_round_status). Token possession = group membership. Any valid
+// route_tokens row is accepted; kind metadata is for the agent only.
+// Spec 5/W.
+func (s *server) handleChatTokenMCP(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
-	g, ok := s.st.GroupBySlinkToken(token)
+	row, ok := s.st.LookupRouteToken(token)
 	if !ok {
-		slog.Warn("slink-mcp token not found", "token_hash", chanlib.ShortHash(token))
+		slog.Warn("chat-mcp token not found", "token_hash", chanlib.ShortHash(token))
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	folder := jidFolder(row.JID)
 	if r.Body != nil {
 		r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	}
-	mcpSrv := s.buildSlinkMCP(g, token)
+	mcpSrv := s.buildChatTokenMCP(row.JID, folder, token)
 	h := mcpserver.NewStreamableHTTPServer(mcpSrv, mcpserver.WithStateLess(true))
 	h.ServeHTTP(w, r)
 }
 
-func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer {
-	srv := mcpserver.NewMCPServer("arizuko-slink", "1.0")
+func (s *server) buildChatTokenMCP(jid, folder, token string) *mcpserver.MCPServer {
+	srv := mcpserver.NewMCPServer("arizuko-chat", "1.0")
 
-	sender := "anon:slink-" + chanlib.ShortHash(token)
-	senderName := "slink"
-
-	jid := "web:" + g.Folder
+	sender := "anon:chat-" + chanlib.ShortHash(token)
+	senderName := "chat"
 
 	srv.AddTool(mcp.NewTool("send_message",
 		mcp.WithDescription("Submit a message to the group. Returns {turn_id} — the originating message id, used as the round handle by get_round. Optional topic groups multiple rounds into the same conversation thread; reuse it on later calls to keep the agent in the same context (auto-generated when omitted)."),
@@ -61,20 +61,20 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 		if len(topic) > maxTopicLen {
 			return mcp.NewToolResultError("topic too long"), nil
 		}
-		m, _, err := s.injectSlink(g, content, topic, sender, senderName, token)
+		m, _, err := s.injectRouteMessage(jid, folder, content, topic, sender, senderName, token)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		out, _ := json.Marshal(map[string]any{
 			"turn_id": m.ID,
 			"topic":   topic,
-			"folder":  g.Folder,
+			"folder":  folder,
 		})
 		return mcp.NewToolResultText(string(out)), nil
 	})
 
 	srv.AddTool(mcp.NewTool("get_round",
-		mcp.WithDescription("Read assistant frames for a round (mirrors GET /slink/<token>/<turn_id>). turn_id is the round handle from send_message. Optional after=<msg_id> cursor-pages forward. With wait=true, blocks until at least one new assistant frame arrives or the ~5 min deadline. Returns {turn_id, status, frames, last_frame_id, done}."),
+		mcp.WithDescription("Read assistant frames for a round (mirrors GET /chat/<token>/<turn_id>). turn_id is the round handle from send_message. Optional after=<msg_id> cursor-pages forward. With wait=true, blocks until at least one new assistant frame arrives or the ~5 min deadline. Returns {turn_id, status, frames, last_frame_id, done}."),
 		mcp.WithString("turn_id", mcp.Required(), mcp.Description("Round handle from send_message (originating message id).")),
 		mcp.WithString("after", mcp.Description("Cursor: return only frames after this message id.")),
 		mcp.WithBoolean("wait"),
@@ -87,7 +87,7 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 		wait := req.GetBool("wait", false)
 
 		frames := s.collectRoundFrames(turnID, after)
-		info, _ := s.st.GetTurnResult(g.Folder, turnID)
+		info, _ := s.st.GetTurnResult(folder, turnID)
 		done := hasAssistant(frames)
 		if !wait || done {
 			return roundSnapshot(turnID, info.Status, frames, done), nil
@@ -97,35 +97,35 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 		if topic == "" {
 			return roundSnapshot(turnID, info.Status, frames, false), nil
 		}
-		ch, unsub := s.hub.subscribe(g.Folder, topic)
+		ch, unsub := s.hub.subscribe(folder, topic)
 		defer unsub()
 
 		frames = s.collectRoundFrames(turnID, after)
 		if hasAssistant(frames) {
-			info, _ = s.st.GetTurnResult(g.Folder, turnID)
+			info, _ = s.st.GetTurnResult(folder, turnID)
 			return roundSnapshot(turnID, info.Status, frames, true), nil
 		}
 
-		deadline, cancel := context.WithTimeout(ctx, slinkMCPWaitCap)
+		deadline, cancel := context.WithTimeout(ctx, chatMCPWaitCap)
 		defer cancel()
 		if a, ok := waitForAssistant(deadline, ch); ok {
 			frames = appendUnique(frames, a)
-			info, _ = s.st.GetTurnResult(g.Folder, turnID)
+			info, _ = s.st.GetTurnResult(folder, turnID)
 			return roundSnapshot(turnID, info.Status, frames, true), nil
 		}
-		info, _ = s.st.GetTurnResult(g.Folder, turnID)
+		info, _ = s.st.GetTurnResult(folder, turnID)
 		return roundSnapshot(turnID, info.Status, frames, false), nil
 	})
 
 	srv.AddTool(mcp.NewTool("get_round_status",
-		mcp.WithDescription("Cheap status check for a round (mirrors GET /slink/<token>/<turn_id>/status). No frame payload — just status, frames_count, last_frame_id."),
+		mcp.WithDescription("Cheap status check for a round (mirrors GET /chat/<token>/<turn_id>/status). No frame payload — just status, frames_count, last_frame_id."),
 		mcp.WithString("turn_id", mcp.Required(), mcp.Description("Round handle from send_message.")),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		turnID := strings.TrimSpace(req.GetString("turn_id", ""))
 		if turnID == "" {
 			return mcp.NewToolResultError("turn_id required"), nil
 		}
-		info, _ := s.st.GetTurnResult(g.Folder, turnID)
+		info, _ := s.st.GetTurnResult(folder, turnID)
 		msgs, err := s.st.TurnFrames(turnID, "", 200)
 		if err != nil {
 			return mcp.NewToolResultError("query failed"), nil
@@ -149,7 +149,7 @@ func (s *server) buildSlinkMCP(g core.Group, token string) *mcpserver.MCPServer 
 func (s *server) collectRoundFrames(turnID, after string) []map[string]any {
 	msgs, err := s.st.TurnFrames(turnID, after, 100)
 	if err != nil {
-		slog.Warn("slink-mcp get_round query", "turn_id", turnID, "err", err)
+		slog.Warn("chat-mcp get_round query", "turn_id", turnID, "err", err)
 		return nil
 	}
 	out := make([]map[string]any, 0, len(msgs))
@@ -187,7 +187,7 @@ func appendUnique(frames []map[string]any, frame map[string]any) []map[string]an
 	return append(frames, frame)
 }
 
-// roundSnapshot mirrors the GET /slink/<token>/<turn_id> response shape.
+// roundSnapshot mirrors the GET /chat/<token>/<turn_id> response shape.
 func roundSnapshot(turnID, status string, frames []map[string]any, done bool) *mcp.CallToolResult {
 	last := ""
 	if n := len(frames); n > 0 {

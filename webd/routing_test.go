@@ -217,19 +217,19 @@ func TestHMACVerify(t *testing.T) {
 	}
 }
 
-// verifySlinkSig: token+folder+correct sig passes.
-func TestVerifySlinkSig(t *testing.T) {
-	req := httptest.NewRequest("GET", "/slink/stream", nil)
-	h := signSlinkHeaders("mytok", "main")
+// verifyChatSig: token+folder+correct sig passes.
+func TestVerifyChatSig(t *testing.T) {
+	req := httptest.NewRequest("GET", "/chat/stream", nil)
+	h := signChatHeaders("mytok", "main")
 	for k, v := range h {
 		req.Header.Set(k, v)
 	}
-	if !auth.VerifySlinkSig(testHMACSecret, req) {
-		t.Error("signed slink should verify")
+	if !auth.VerifyChatSig(testHMACSecret, req) {
+		t.Error("signed chat should verify")
 	}
 	// Missing folder → fail.
 	req.Header.Del("X-Folder")
-	if auth.VerifySlinkSig(testHMACSecret, req) {
+	if auth.VerifyChatSig(testHMACSecret, req) {
 		t.Error("missing folder should fail")
 	}
 }

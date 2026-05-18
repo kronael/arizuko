@@ -51,7 +51,8 @@ func newIntegServer(t *testing.T) *integInst {
 // the same client (subscribed via SSE) receives it.
 func TestSlinkWebsocketEcho(t *testing.T) {
 	ii := newIntegServer(t)
-	g := seedGroup(t, ii.st, "echo", "Echo")
+	_ = seedGroup(t, ii.st, "echo", "Echo")
+	tok := seedChatToken(t, ii.st, "echo")
 
 	srv := httptest.NewServer(ii.srv.handler())
 	defer srv.Close()
@@ -62,7 +63,7 @@ func TestSlinkWebsocketEcho(t *testing.T) {
 	// POST with Accept: text/event-stream holds the stream open.
 	body := strings.NewReader("content=hello&topic=echo1")
 	req, _ := http.NewRequestWithContext(ctx, "POST",
-		srv.URL+"/slink/"+g.SlinkToken, body)
+		srv.URL+"/chat/"+tok, body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "text/event-stream")
 

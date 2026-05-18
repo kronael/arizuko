@@ -22,7 +22,7 @@ var staticFS embed.FS
 
 const (
 	maxJSONBody = 1 << 20  // 1 MiB — generous for MCP/channel callbacks
-	maxFormBody = 64 << 10 // 64 KiB — slink form posts
+	maxFormBody = 64 << 10 // 64 KiB — route-token form posts
 	maxTopicLen = 128      // prevents hub map growth from attacker-chosen keys
 )
 
@@ -50,7 +50,7 @@ func (s *server) handler() http.Handler {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(sub))))
 
 	// /assets/* — shared static files baked into the webd binary
-	// (currently: the slink SDK). CORS permissive; see specs/1/Z2-slink-sdk.md.
+	// (currently: the chat-widget SDK). CORS permissive.
 	mux.HandleFunc("GET /assets/{path...}", s.handleAssets)
 	mux.HandleFunc("OPTIONS /assets/{path...}", s.handleAssets)
 
@@ -59,22 +59,33 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /v1/round_done", chanlib.Auth(s.cfg.channelSecret, s.handleRoundDone))
 	mux.HandleFunc("GET /health", s.handleHealth)
 
-	// slink: token-gated, see specs/1/W-slink.md and specs/1/Z-slink-widget.md.
-	// All /slink/* routes get CORS headers via slinkCORS (token is public credential).
-	slink := func(pattern string, h http.HandlerFunc) {
-		mux.Handle(pattern, slinkCORS(h))
+	// Route tokens (spec 5/W). Two URL prefixes share one set of
+	// handlers; kind metadata is for the agent, not a URL gate. Both
+	// /chat/* and /hook/* paths get permissive CORS — the route token
+	// IS the public credential.
+	withCORS := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, chatCORS(h))
 	}
-	slink("GET /slink/{token}", s.handleSlinkRoot)
-	slink("GET /slink/{token}/chat", s.handleSlinkChat)
-	slink("GET /slink/{token}/config", s.handleSlinkConfig)
-	slink("POST /slink/{token}", s.handleSlinkPost)
-	slink("POST /slink/{token}/mcp", s.handleSlinkMCP)
-	slink("GET /slink/stream", s.handleSlinkStream)
-	slink("GET /slink/{token}/{id}", s.handleTurnSnapshot)
-	slink("GET /slink/{token}/{id}/status", s.handleTurnStatus)
-	slink("GET /slink/{token}/{id}/sse", s.handleTurnSSE)
-	// Preflight: cover every /slink/* path with one pattern.
-	mux.Handle("OPTIONS /slink/", slinkCORS(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})))
+	// /chat/<token>/ — human chat widget + SSE.
+	withCORS("GET /chat/{token}/{$}", s.handleChatTokenRoot)
+	withCORS("GET /chat/{token}/config", s.handleChatTokenConfig)
+	withCORS("POST /chat/{token}", s.handleChatTokenPost)
+	withCORS("POST /chat/{token}/", s.handleChatTokenPost)
+	withCORS("POST /chat/{token}/mcp", s.handleChatTokenMCP)
+	withCORS("GET /chat/stream", s.handleRouteTokenStream)
+	withCORS("GET /chat/{token}/{id}", s.handleTurnSnapshot)
+	withCORS("GET /chat/{token}/{id}/status", s.handleTurnStatus)
+	withCORS("GET /chat/{token}/{id}/sse", s.handleTurnSSE)
+	// /hook/<token> — fire-and-forget webhook ingest.
+	withCORS("POST /hook/{token}", s.handleHookTokenPost)
+	// Preflight covers both prefixes.
+	mux.Handle("OPTIONS /chat/", chatCORS(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})))
+	mux.Handle("OPTIONS /hook/", chatCORS(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})))
+	// Legacy /slink/<token>/... → 301 to /chat/<token>/...
+	mux.HandleFunc("GET /slink/{token}/{rest...}", s.handleSlinkRedirect)
+	mux.HandleFunc("POST /slink/{token}/{rest...}", s.handleSlinkRedirect)
+	mux.HandleFunc("GET /slink/{token}", s.handleSlinkRedirect)
+	mux.HandleFunc("POST /slink/{token}", s.handleSlinkRedirect)
 
 	// MCP: single per-instance, user-grant-gated
 	mux.HandleFunc("POST /mcp", s.requireUser(s.handleMCP))
@@ -82,7 +93,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("DELETE /mcp", s.requireUser(s.handleMCP))
 
 	mux.HandleFunc("GET /{$}", s.requireUser(s.handleGroupsPage))
-	mux.HandleFunc("GET /chat/{folder...}", s.requireFolder(s.handleChatPage))
+	mux.HandleFunc("GET /panel/{folder...}", s.requireFolder(s.handleChatPage))
 
 	mux.HandleFunc("GET /api/groups", s.requireUser(s.handleAPIGroups))
 	mux.HandleFunc("GET /api/groups/{rest...}", s.requireUser(s.routeAPIGroups))
@@ -161,6 +172,8 @@ func (s *server) routeAPIGroups(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case suffix == "topics":
 		s.requireFolder(s.handleAPITopics)(w, r)
+	case suffix == "messages" && r.Method == http.MethodPost:
+		s.requireFolder(s.handleAPIMessagesPost)(w, r)
 	case suffix == "messages":
 		s.requireFolder(s.handleAPIMessages)(w, r)
 	case suffix == "typing" && r.Method == http.MethodPost:
@@ -189,6 +202,17 @@ func userName(r *http.Request) string { return r.Header.Get("X-User-Name") }
 
 func folderParam(r *http.Request) string {
 	return strings.TrimPrefix(r.PathValue("folder"), "/")
+}
+
+// handleSlinkRedirect 301s legacy /slink/<token>/... → /chat/<token>/...
+// One-pass back-compat for already-pasted slink URLs (spec 5/W cutover).
+func (s *server) handleSlinkRedirect(w http.ResponseWriter, r *http.Request) {
+	tail := strings.TrimPrefix(r.URL.Path, "/slink/")
+	target := "/chat/" + tail
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, target, http.StatusMovedPermanently)
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {

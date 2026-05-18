@@ -41,17 +41,17 @@ func messageFrames(msgs []core.Message) []frame {
 func (s *server) authorizeTurn(w http.ResponseWriter, r *http.Request) (folder, turnID string) {
 	token := r.PathValue("token")
 	turnID = r.PathValue("id")
-	g, ok := s.st.GroupBySlinkToken(token)
+	row, ok := s.st.LookupRouteToken(token)
 	if !ok {
 		http.Error(w, "not found", http.StatusNotFound)
 		return "", ""
 	}
-	jid := "web:" + g.Folder
-	if _, ok := s.st.MessageTimestampByID(turnID, jid); !ok {
+	folder = jidFolder(row.JID)
+	if _, ok := s.st.MessageTimestampByID(turnID, row.JID); !ok {
 		http.Error(w, "turn not found", http.StatusNotFound)
 		return "", ""
 	}
-	return g.Folder, turnID
+	return folder, turnID
 }
 
 // GET /slink/<token>/turn/<id>[?after=<msg_id>]

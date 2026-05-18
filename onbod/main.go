@@ -495,10 +495,10 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	})
 
 	now := time.Now().Format(time.RFC3339)
-	slinkToken := core.GenSlinkToken()
-	db.Exec(`INSERT OR IGNORE INTO groups (folder, added_at, slink_token, product) VALUES (?, ?, ?, ?)`,
-		folder, now, slinkToken, core.DefaultProduct)
-	db.QueryRow(`SELECT slink_token FROM groups WHERE folder = ?`, folder).Scan(&slinkToken)
+	// Spec 5/W: no automatic chat token at folder creation. Operator
+	// (or the agent, via `issue_chat_link`) mints on demand.
+	db.Exec(`INSERT OR IGNORE INTO groups (folder, added_at, product) VALUES (?, ?, ?)`,
+		folder, now, core.DefaultProduct)
 
 	// Grant admin on the new world folder (post-0053 schema).
 	db.Exec(`INSERT OR IGNORE INTO acl
@@ -522,10 +522,8 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	}
 
 	slog.Info("world created", "folder", folder, "parent", parent, "user", userSub)
-	if slinkToken != "" {
-		http.Redirect(w, r, "/slink/"+slinkToken, http.StatusSeeOther)
-		return
-	}
+	// Spec 5/W: post-onboarding lands on /onboard; chat tokens are
+	// issued explicitly (no auto-redirect to a slink link).
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
@@ -754,14 +752,9 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		}
 	}
 
-	if !strings.Contains(target, "*") {
-		var slinkToken string
-		db.QueryRow(`SELECT slink_token FROM groups WHERE folder = ?`, target).Scan(&slinkToken)
-		if slinkToken != "" {
-			http.Redirect(w, r, "/slink/"+slinkToken, http.StatusSeeOther)
-			return
-		}
-	}
+	// Spec 5/W: no slink redirect — the operator (or agent) issues a
+	// chat link on demand. Land on /onboard after invite redemption.
+	_ = target
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 

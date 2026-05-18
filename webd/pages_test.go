@@ -73,7 +73,7 @@ func TestGroupsPage_UnauthedRedirects(t *testing.T) {
 	}
 }
 
-// GET /chat/<folder> renders chat page with group-specific content.
+// GET /panel/<folder> renders chat page with group-specific content.
 func TestChatPage_Renders(t *testing.T) {
 	s, _, st := newTestServer(t)
 	g := seedGroup(t, st, "main", "MyGroup")
@@ -86,7 +86,7 @@ func TestChatPage_Renders(t *testing.T) {
 		"X-User-Name":   "Alice",
 		"X-User-Groups": string(groups),
 	})
-	req, _ := http.NewRequest("GET", srv.URL+"/chat/main", nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/panel/main", nil)
 	for k, v := range h {
 		req.Header.Set(k, v)
 	}
@@ -104,12 +104,12 @@ func TestChatPage_Renders(t *testing.T) {
 	if !strings.Contains(body, groupfolder.NameOf(g.Folder)) {
 		t.Errorf("body missing group name")
 	}
-	if !strings.Contains(body, g.SlinkToken) {
-		t.Errorf("body missing slink token")
+	if !strings.Contains(body, g.Folder) {
+		t.Errorf("body missing folder")
 	}
 }
 
-// /chat/<nonexistent> returns 404 (past folder ACL).
+// /panel/<nonexistent> returns 404 (past folder ACL).
 func TestChatPage_UnknownGroup_404(t *testing.T) {
 	s, _, _ := newTestServer(t)
 	srv := httptest.NewServer(s.handler())
@@ -121,7 +121,7 @@ func TestChatPage_UnknownGroup_404(t *testing.T) {
 		"X-User-Name":   "Alice",
 		"X-User-Groups": string(groups),
 	})
-	req, _ := http.NewRequest("GET", srv.URL+"/chat/ghost", nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/panel/ghost", nil)
 	for k, v := range h {
 		req.Header.Set(k, v)
 	}
@@ -135,7 +135,7 @@ func TestChatPage_UnknownGroup_404(t *testing.T) {
 	}
 }
 
-// /chat/<folder> without grant → 403.
+// /panel/<folder> without grant → 403.
 func TestChatPage_Forbidden(t *testing.T) {
 	s, _, st := newTestServer(t)
 	seedGroup(t, st, "main", "Main")
@@ -148,7 +148,7 @@ func TestChatPage_Forbidden(t *testing.T) {
 		"X-User-Name":   "Bob",
 		"X-User-Groups": string(groups),
 	})
-	req, _ := http.NewRequest("GET", srv.URL+"/chat/main", nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/panel/main", nil)
 	for k, v := range h {
 		req.Header.Set(k, v)
 	}

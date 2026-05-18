@@ -44,7 +44,10 @@ func (s *server) handleGroupsPage(w http.ResponseWriter, r *http.Request) {
 </body></html>`, htmlEscape(name))
 }
 
-// GET /chat/<folder>
+// GET /panel/<folder> — operator-authenticated chat panel for a folder.
+// Token-less; sends via /api/groups/<folder>/messages POST (authenticated
+// via proxyd-signed user identity). Spec 5/W moved the public chat
+// surface to /chat/<token>/ and renamed this operator view to /panel.
 func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
 	g, ok := s.st.GroupByFolder(folder)
@@ -55,7 +58,6 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	folderURL := url.PathEscape(folder)
 	folderQ := url.QueryEscape(folder)
-	folderJS := htmlEscape(folder)
 	fmt.Fprint(w, htmlHead)
 	fmt.Fprintf(w, `<body>
 <header>
@@ -78,7 +80,7 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
        hx-include="#topic-select"
        hx-vals="js:{topic: currentTopic()}"
        hx-ext="sse"
-       sse-connect="/slink/stream?group=%s&topic="
+       sse-connect="/chat/stream?group=%s&topic="
        sse-swap:message="beforeend">
   </div>
 </main>
@@ -93,12 +95,13 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
 </footer>
 <script>
 var _topic = '';
+var folder = %q;
 function currentTopic() { return _topic; }
 function switchTopic(t) {
   _topic = t;
-  htmx.ajax('GET', '/x/groups/%s/messages?topic=' + encodeURIComponent(t), {target:'#thread', swap:'innerHTML'});
+  htmx.ajax('GET', '/x/groups/' + encodeURIComponent(folder) + '/messages?topic=' + encodeURIComponent(t), {target:'#thread', swap:'innerHTML'});
   var sse = document.getElementById('thread');
-  sse.setAttribute('sse-connect', '/slink/stream?group=%s&topic=' + encodeURIComponent(t));
+  sse.setAttribute('sse-connect', '/chat/stream?group=' + encodeURIComponent(folder) + '&topic=' + encodeURIComponent(t));
   htmx.process(sse);
 }
 function newTopic() {
@@ -111,17 +114,13 @@ async function sendMsg(e) {
   var content = input.value.trim();
   if (!content) return;
   input.value = '';
-  var token = '%s';
-  var resp = await fetch('/slink/' + token, {
+  await fetch('/api/groups/' + encodeURIComponent(folder) + '/messages', {
     method: 'POST',
-    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: 'content=' + encodeURIComponent(content) + '&topic=' + encodeURIComponent(_topic)
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: content, topic: _topic})
   });
-  var html = await resp.text();
-  document.getElementById('thread').insertAdjacentHTML('beforeend', html);
 }
 </script>
 </body></html>`,
-		htmlEscape(groupfolder.NameOf(g.Folder)), folderURL, folderURL, folderQ, folderURL, folderJS,
-		htmlEscape(g.SlinkToken))
+		htmlEscape(groupfolder.NameOf(g.Folder)), folderURL, folderURL, folderQ, folder)
 }

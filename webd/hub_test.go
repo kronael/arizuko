@@ -143,13 +143,13 @@ func TestHub_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
-// GET /slink/stream without auth (no user sig, no slink sig) → 403.
+// GET /chat/stream without auth (no user sig, no slink sig) → 403.
 func TestSlinkStream_Forbidden(t *testing.T) {
 	s, _, _ := newTestServer(t)
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/slink/stream?group=main&topic=t")
+	resp, err := http.Get(srv.URL + "/chat/stream?group=main&topic=t")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -159,13 +159,13 @@ func TestSlinkStream_Forbidden(t *testing.T) {
 	}
 }
 
-// GET /slink/stream missing group/topic → 400.
+// GET /chat/stream missing group/topic → 400.
 func TestSlinkStream_MissingParams(t *testing.T) {
 	s, _, _ := newTestServer(t)
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/slink/stream")
+	resp, err := http.Get(srv.URL + "/chat/stream")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -175,14 +175,14 @@ func TestSlinkStream_MissingParams(t *testing.T) {
 	}
 }
 
-// GET /slink/stream with an overlong topic → 400.
+// GET /chat/stream with an overlong topic → 400.
 func TestSlinkStream_TopicTooLong(t *testing.T) {
 	s, _, _ := newTestServer(t)
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 
 	topic := strings.Repeat("x", maxTopicLen+1)
-	resp, err := http.Get(srv.URL + "/slink/stream?group=main&topic=" + topic)
+	resp, err := http.Get(srv.URL + "/chat/stream?group=main&topic=" + topic)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -192,18 +192,18 @@ func TestSlinkStream_TopicTooLong(t *testing.T) {
 	}
 }
 
-// GET /slink/stream with slink signature streams events for the folder.
+// GET /chat/stream with slink signature streams events for the folder.
 func TestSlinkStream_SlinkSigOK(t *testing.T) {
 	s, _, st := newTestServer(t)
-	g := seedGroup(t, st, "main", "Main")
+	_ = seedGroup(t, st, "main", "Main")
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET",
-		srv.URL+"/slink/stream?group=main&topic=tt", nil)
-	for k, v := range signSlinkHeaders(g.SlinkToken, "main") {
+		srv.URL+"/chat/stream?group=main&topic=tt", nil)
+	for k, v := range signChatHeaders("test-tok", "main") {
 		req.Header.Set(k, v)
 	}
 	resp, err := http.DefaultClient.Do(req)
@@ -244,7 +244,7 @@ func TestSlinkStream_SlinkSigOK(t *testing.T) {
 	}
 }
 
-// GET /slink/stream with user-sig auth + grant for folder also works.
+// GET /chat/stream with user-sig auth + grant for folder also works.
 func TestSlinkStream_UserSigOK(t *testing.T) {
 	s, _, st := newTestServer(t)
 	seedGroup(t, st, "main", "Main")
@@ -255,7 +255,7 @@ func TestSlinkStream_UserSigOK(t *testing.T) {
 	defer cancel()
 	groups, _ := json.Marshal([]string{"main"})
 	req, _ := http.NewRequestWithContext(ctx, "GET",
-		srv.URL+"/slink/stream?group=main&topic=tt2", nil)
+		srv.URL+"/chat/stream?group=main&topic=tt2", nil)
 	for k, v := range signUserHeaders(map[string]string{
 		"X-User-Sub":    "user:alice",
 		"X-User-Name":   "Alice",
@@ -276,7 +276,7 @@ func TestSlinkStream_UserSigOK(t *testing.T) {
 // Reconnect with Last-Event-Id replays any messages since the anchor.
 func TestSlinkStream_Replay(t *testing.T) {
 	s, _, st := newTestServer(t)
-	g := seedGroup(t, st, "main", "Main")
+	_ = seedGroup(t, st, "main", "Main")
 
 	now := time.Now()
 	// Anchor — the one the client already saw.
@@ -300,8 +300,8 @@ func TestSlinkStream_Replay(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET",
-		srv.URL+"/slink/stream?group=main&topic=tt-replay", nil)
-	for k, v := range signSlinkHeaders(g.SlinkToken, "main") {
+		srv.URL+"/chat/stream?group=main&topic=tt-replay", nil)
+	for k, v := range signChatHeaders("test-tok", "main") {
 		req.Header.Set(k, v)
 	}
 	req.Header.Set("Last-Event-Id", "anchor")
