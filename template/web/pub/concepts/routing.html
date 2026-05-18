@@ -69,7 +69,7 @@
       <thead><tr><th>target</th><th>effect</th></tr></thead>
       <tbody>
         <tr><td><code>folder</code></td><td>store under <code>folder</code> and fire a turn on main (default)</td></tr>
-        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL.</td></tr>
+        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL. Exception: if the bot has already replied in that <code>(chat, topic)</code> within the engagement window, the turn fires anyway — see <a href="/pub/concepts/engagement.html">engagement</a>.</td></tr>
         <tr><td><code>folder#deploy</code></td><td>store under <code>folder</code> with topic <code>#deploy</code> and fire a turn there. Useful for piping a webhook source into a dedicated topic without operator @-prefixes.</td></tr>
       </tbody>
     </table>

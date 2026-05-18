@@ -158,9 +158,11 @@ helper instead of `resolveGroup`. Without the shared helper,
 rescued-by-engagement inbounds drop on the worker path whenever the
 container isn't already running.
 
-Observe short-circuit is unchanged. Operators set `target=#observe`
-precisely to silence the bot in that channel; engagement state must
-not override.
+Observe short-circuit is overridden by engagement. When a `(jid, topic)`
+pair is engaged, the gateway fires a turn even if the matched route has
+`target=#observe`. Rationale: once the bot has replied in a thread, the
+user expects a live conversation; silencing it mid-thread is worse than
+the operator's original intent to reduce noise on cold messages.
 
 Mention and reply-to-bot already route via the existing path
 (route table + spec 5/L verb promotion). Engagement adds **no new
