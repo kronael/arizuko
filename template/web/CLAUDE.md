@@ -252,16 +252,20 @@ that paragraph.
 
 ## Style rules
 
-All pages use `hub.css` + `hub.js`. Patterns:
+All pages use `hub.css` + `hub.js`. Use **relative paths** for all
+internal links and asset references — never `/pub/...` absolute paths.
+The docs are served from a subpath (`/pub/arizuko/`) and absolute paths
+break navigation. Use `../assets/hub.css`, `../../assets/hub.js`, etc.
+based on the file's depth under `pub/`.
 
 ```html
 <div class="hub-container prose">
-  <p class="dim back"><a href="/pub/">arizuko</a> › section › page</p>
+  <p class="dim back"><a href="../">arizuko</a> › section › page</p>
   <h1>Page title</h1>
   …
 </div>
 <button class="theme-toggle">🌙</button>
-<script src="/pub/assets/hub.js"></script>
+<script src="../assets/hub.js"></script>
 ```
 
 Breadcrumb: always present, links to parent sections. Format: `arizuko › components › gated`.
