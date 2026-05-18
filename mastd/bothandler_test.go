@@ -134,6 +134,51 @@ func contains(xs []string, s string) bool {
 	return false
 }
 
+func TestBotHandler_Repost(t *testing.T) {
+	m := newMastoMock(t)
+	mc := newTestMasto(t, m.srv.URL)
+
+	id, err := mc.Repost(chanlib.RepostRequest{
+		ChatJID: "mastodon:user", SourceMsgID: "55",
+	})
+	if err != nil {
+		t.Fatalf("Repost: %v", err)
+	}
+	if id == "" {
+		t.Errorf("empty id")
+	}
+	ok := false
+	for _, p := range m.paths() {
+		if strings.HasPrefix(p, "POST /api/v1/statuses/55/reblog") {
+			ok = true
+		}
+	}
+	if !ok {
+		t.Errorf("no reblog call: %v", m.paths())
+	}
+}
+
+func TestBotHandler_Edit_Mastd(t *testing.T) {
+	m := newMastoMock(t)
+	mc := newTestMasto(t, m.srv.URL)
+
+	if err := mc.Edit(chanlib.EditRequest{
+		ChatJID: "mastodon:user", TargetID: "77", Content: "fixed",
+	}); err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	// UpdateStatus issues PUT /api/v1/statuses/<id>
+	ok := false
+	for _, p := range m.paths() {
+		if p == "PUT /api/v1/statuses/77" {
+			ok = true
+		}
+	}
+	if !ok {
+		t.Errorf("no PUT statuses/77: %v", m.paths())
+	}
+}
+
 func TestBotHandler_UnsupportedHints_Mastd(t *testing.T) {
 	mc := &mastoClient{}
 	if _, err := mc.Forward(chanlib.ForwardRequest{}); !hasHint(err) {

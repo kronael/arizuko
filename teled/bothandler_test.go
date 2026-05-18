@@ -149,3 +149,75 @@ func teledHasHint(err error) bool {
 	ue, ok := err.(*chanlib.UnsupportedError)
 	return ok && ue.Hint != ""
 }
+
+// Edit/Delete dispatch via b.do → MakeRequest; both round-trip through
+// the same FakePlatform stub. Verifies they reach the right Telegram
+// endpoints and forward chat_id/message_id parameters correctly.
+func TestBotHandler_Edit_Teled(t *testing.T) {
+	fp := testutils.NewFakePlatform()
+	defer fp.Close()
+	fp.On("POST /bot"+testToken+"/getMe", func(testutils.PlatformReq) (int, any) {
+		return 200, map[string]any{"ok": true, "result": map[string]any{
+			"id": 1, "is_bot": true, "username": "TestBot", "first_name": "Test",
+		}}
+	})
+	var seen url.Values
+	fp.On("POST /bot"+testToken+"/editMessageText", func(req testutils.PlatformReq) (int, any) {
+		seen, _ = url.ParseQuery(string(req.Body))
+		return 200, map[string]any{"ok": true, "result": map[string]any{
+			"message_id": 42, "chat": map[string]any{"id": 555}, "date": 1,
+		}}
+	})
+	b := newTeledBotForPlatform(t, fp)
+	defer b.typing.Stop()
+
+	if err := b.Edit(chanlib.EditRequest{
+		ChatJID: "telegram:555", TargetID: "42", Content: "updated",
+	}); err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	if seen.Get("chat_id") != "555" || seen.Get("message_id") != "42" {
+		t.Errorf("ids = %v", seen)
+	}
+	if seen.Get("text") != "updated" {
+		t.Errorf("text = %q", seen.Get("text"))
+	}
+}
+
+func TestBotHandler_Delete_Teled(t *testing.T) {
+	fp := testutils.NewFakePlatform()
+	defer fp.Close()
+	fp.On("POST /bot"+testToken+"/getMe", func(testutils.PlatformReq) (int, any) {
+		return 200, map[string]any{"ok": true, "result": map[string]any{
+			"id": 1, "is_bot": true, "username": "TestBot", "first_name": "Test",
+		}}
+	})
+	var seen url.Values
+	fp.On("POST /bot"+testToken+"/deleteMessage", func(req testutils.PlatformReq) (int, any) {
+		seen, _ = url.ParseQuery(string(req.Body))
+		return 200, map[string]any{"ok": true, "result": true}
+	})
+	b := newTeledBotForPlatform(t, fp)
+	defer b.typing.Stop()
+
+	if err := b.Delete(chanlib.DeleteRequest{
+		ChatJID: "telegram:555", TargetID: "42",
+	}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if seen.Get("chat_id") != "555" || seen.Get("message_id") != "42" {
+		t.Errorf("ids = %v", seen)
+	}
+}
+
+// Forward requires source_msg_id in "<sourceChatJid>|<msgId>" form; the
+// hint-only error path fires for malformed inputs.
+func TestBotHandler_Forward_BadFormat_Teled(t *testing.T) {
+	b := &bot{}
+	_, err := b.Forward(chanlib.ForwardRequest{
+		SourceMsgID: "no-pipe-here", TargetJID: "telegram:555",
+	})
+	if !teledHasHint(err) {
+		t.Errorf("forward without pipe should return UnsupportedError hint, got %v", err)
+	}
+}
