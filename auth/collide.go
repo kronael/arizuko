@@ -75,7 +75,7 @@ var collideTmpl = template.Must(template.New("collide").Parse(`<!DOCTYPE html><h
 </form>
 </div></div></body></html>`))
 
-func renderCollision(w http.ResponseWriter, secret []byte, newSub, newName, newCanonical, currentSub string, _ bool) {
+func renderCollision(w http.ResponseWriter, secret []byte, newSub, newName, newCanonical, currentSub string) {
 	tok := signCollide(secret, collideToken{
 		NewSub: newSub, NewName: newName,
 		NewCanonical: newCanonical, CurrentSub: currentSub,

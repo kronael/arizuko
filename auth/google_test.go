@@ -39,7 +39,7 @@ func TestGoogleCallback_MissingCode(t *testing.T) {
 	cfg := &core.Config{GoogleClientID: "gid", GoogleSecret: "gsec"}
 	secret := []byte("testsecret")
 
-	state := signState(secret)
+	state := signStateP(secret, stateIntent{})
 	req := httptest.NewRequest("GET", "/auth/google/callback?state="+url.QueryEscape(state), nil)
 	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
 	rec := httptest.NewRecorder()
@@ -98,7 +98,7 @@ func TestGoogleCallback_Success(t *testing.T) {
 	cfg := &core.Config{GoogleClientID: "gid", GoogleSecret: "gsec", WebHost: "example.com"}
 	secret := []byte("testsecret")
 
-	state := signState(secret)
+	state := signStateP(secret, stateIntent{})
 	req := httptest.NewRequest("GET", "/auth/google/callback?state="+url.QueryEscape(state)+"&code=testcode", nil)
 	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
 	rec := httptest.NewRecorder()
@@ -181,7 +181,7 @@ func TestGoogleAllowlistBlock(t *testing.T) {
 	}
 	secret := []byte("testsecret")
 
-	state := signState(secret)
+	state := signStateP(secret, stateIntent{})
 	req := httptest.NewRequest("GET",
 		"/auth/google/callback?state="+url.QueryEscape(state)+"&code=testcode", nil)
 	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})

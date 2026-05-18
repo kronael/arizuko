@@ -102,7 +102,6 @@ func currentSub(s *store.Store, secret []byte, r *http.Request) string {
 	return s.CanonicalSub(sess.UserSub)
 }
 
-
 func consumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
 	c, err := r.Cookie("oauth_pkce")
 	if err != nil || c.Value == "" {
@@ -379,7 +378,7 @@ func dispatchOAuth(w http.ResponseWriter, r *http.Request, s *store.Store, secre
 		issueSession(w, r, s, secret, intent.LinkFrom, name, secure)
 
 	case linking && exists && subCanonical != intent.LinkFrom:
-		renderCollision(w, secret, sub, name, subCanonical, intent.LinkFrom, secure)
+		renderCollision(w, secret, sub, name, subCanonical, intent.LinkFrom)
 
 	case linking && !exists:
 		if err := s.LinkSubToCanonical(sub, name, intent.LinkFrom); err != nil {
@@ -390,10 +389,10 @@ func dispatchOAuth(w http.ResponseWriter, r *http.Request, s *store.Store, secre
 		issueSession(w, r, s, secret, intent.LinkFrom, name, secure)
 
 	case !linking && sessionSub != "" && !exists:
-		renderCollision(w, secret, sub, name, "", sessionSub, secure)
+		renderCollision(w, secret, sub, name, "", sessionSub)
 
 	case !linking && sessionSub != "" && exists && subCanonical != sessionSub:
-		renderCollision(w, secret, sub, name, subCanonical, sessionSub, secure)
+		renderCollision(w, secret, sub, name, subCanonical, sessionSub)
 
 	case !linking && sessionSub == "" && !exists:
 		if err := s.CreateAuthUser(sub, sub, "", name); err != nil {
@@ -412,10 +411,6 @@ type stateIntent struct {
 	Intent   string `json:"i,omitempty"`
 	LinkFrom string `json:"f,omitempty"`
 	Return   string `json:"r,omitempty"`
-}
-
-func signState(secret []byte) string {
-	return signStateP(secret, stateIntent{})
 }
 
 func signStateP(secret []byte, p stateIntent) string {

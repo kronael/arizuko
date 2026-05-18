@@ -327,7 +327,7 @@ func TestStateIntentRoundTrip(t *testing.T) {
 // State token without payload still verifies (back-compat: 3 parts).
 func TestStateIntentEmpty(t *testing.T) {
 	secret := testSecret
-	state := signState(secret)
+	state := signStateP(secret, stateIntent{})
 	r := httptest.NewRequest("GET", "/cb?state="+url.QueryEscape(state), nil)
 	r.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
 	got, ok := verifyState(secret, r)

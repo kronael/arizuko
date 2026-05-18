@@ -499,7 +499,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	db.Exec(`INSERT OR IGNORE INTO groups (folder, added_at, slink_token, product) VALUES (?, ?, ?, ?)`,
 		folder, now, slinkToken, core.DefaultProduct)
 	db.QueryRow(`SELECT slink_token FROM groups WHERE folder = ?`, folder).Scan(&slinkToken)
-	_ = username // captured into auth_users above; group identity is the folder path
 
 	// Grant admin on the new world folder (post-0053 schema).
 	db.Exec(`INSERT OR IGNORE INTO acl

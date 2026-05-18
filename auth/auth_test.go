@@ -367,7 +367,7 @@ func TestVerifyArgon2(t *testing.T) {
 }
 
 func TestOAuthStateCookie(t *testing.T) {
-	state := signState(testSecret)
+	state := signStateP(testSecret, stateIntent{})
 	if !strings.Contains(state, ".") {
 		t.Fatal("state should contain timestamp.signature")
 	}
