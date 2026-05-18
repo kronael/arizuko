@@ -105,7 +105,7 @@ func AuthorizeWith(
 	if opts.Folder == "" || opts.WorldFolder == "" {
 		return false
 	}
-	if !matchPattern(opts.Folder, scope) && opts.Folder != scope {
+	if !matchPattern(opts.Folder, scope) {
 		// Tier defaults apply only at the agent's own folder.
 		return false
 	}
