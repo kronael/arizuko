@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"regexp"
@@ -45,11 +44,10 @@ const (
 const DefaultProduct = "assistant"
 
 type Group struct {
-	Folder     string
-	AddedAt    time.Time
-	Config     GroupConfig
-	SlinkToken string
-	Product    string
+	Folder  string
+	AddedAt time.Time
+	Config  GroupConfig
+	Product string
 }
 
 type GroupConfig struct {
@@ -227,9 +225,6 @@ func randBytes() []byte {
 	}
 	return b
 }
-
-// GenSlinkToken returns a 256-bit base64url-encoded random token.
-func GenSlinkToken() string { return base64.RawURLEncoding.EncodeToString(randBytes()) }
 
 // GenHexToken returns a 256-bit hex-encoded random token.
 func GenHexToken() string { return hex.EncodeToString(randBytes()) }

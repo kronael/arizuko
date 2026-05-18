@@ -19,9 +19,6 @@ func (s *Store) CountErroredChats() int {
 }
 
 func (s *Store) PutGroup(g core.Group) error {
-	if g.SlinkToken == "" {
-		g.SlinkToken = core.GenSlinkToken()
-	}
 	cfgJSON, _ := json.Marshal(g.Config)
 	product := g.Product
 	if product == "" {
@@ -29,16 +26,15 @@ func (s *Store) PutGroup(g core.Group) error {
 	}
 	_, err := s.db.Exec(
 		`INSERT INTO groups
-		 (folder, added_at, container_config, slink_token, product, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		 (folder, added_at, container_config, product, updated_at)
+		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(folder) DO UPDATE SET
 		   container_config=excluded.container_config,
-		   slink_token=excluded.slink_token,
 		   product=excluded.product,
 		   updated_at=excluded.updated_at`,
 		g.Folder,
 		g.AddedAt.Format(time.RFC3339),
-		string(cfgJSON), g.SlinkToken,
+		string(cfgJSON),
 		product,
 		time.Now().Format(time.RFC3339),
 	)
@@ -50,7 +46,7 @@ func (s *Store) DeleteGroup(folder string) error {
 	return err
 }
 
-const groupCols = `folder, added_at, container_config, slink_token, product`
+const groupCols = `folder, added_at, container_config, product`
 
 func (s *Store) AllGroups() map[string]core.Group {
 	rows, err := s.db.Query(`SELECT ` + groupCols + ` FROM groups`)
@@ -174,25 +170,17 @@ func (s *Store) DefaultFolderForJID(jid string) string {
 func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string
-	var cfgJSON, slinkToken *string
+	var cfgJSON *string
 
-	if err := r.Scan(&g.Folder, &addedAt, &cfgJSON, &slinkToken, &g.Product); err != nil {
+	if err := r.Scan(&g.Folder, &addedAt, &cfgJSON, &g.Product); err != nil {
 		return g, false
 	}
 
 	g.AddedAt, _ = time.Parse(time.RFC3339, addedAt)
-	if slinkToken != nil {
-		g.SlinkToken = *slinkToken
-	}
 	if cfgJSON != nil {
 		json.Unmarshal([]byte(*cfgJSON), &g.Config)
 	}
 	return g, true
-}
-
-func (s *Store) GroupBySlinkToken(token string) (core.Group, bool) {
-	row := s.db.QueryRow(`SELECT `+groupCols+` FROM groups WHERE slink_token = ? LIMIT 1`, token)
-	return scanGroupFull(row)
 }
 
 func (s *Store) GroupByFolder(folder string) (core.Group, bool) {

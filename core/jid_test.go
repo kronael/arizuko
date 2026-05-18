@@ -17,8 +17,9 @@ func TestParseJID_Happy(t *testing.T) {
 		"reddit:comment/abc",
 		"reddit:submission/xyz",
 		"reddit:user/alice",
-		"web:slink/tok-abc",
-		"web:user/sub-1",
+		"web:acme",
+		"web:acme/eng",
+		"hook:acme/eng/github",
 		"email:address/foo@bar.com",
 		"bluesky:user/did%3Aplc%3A123", // percent-encoded colon in DID
 	}
@@ -90,8 +91,9 @@ func TestMatchJID(t *testing.T) {
 		{"mastodon:mastodon.social/*", "mastodon:mastodon.social/account42", true},
 		{"mastodon:mastodon.social/*", "mastodon:mastodon.social/status/abc", false}, // * doesn't cross /
 		{"reddit:user/*", "reddit:user/alice", true},
-		{"web:slink/*", "web:slink/tok", true},
-		{"web:slink/*", "web:user/sub", false},
+		{"web:*", "web:acme", true},
+		{"web:*", "hook:acme", false},
+		{"hook:acme/*", "hook:acme/github", true},
 	}
 	for _, tc := range cases {
 		got := MatchJID(tc.pattern, tc.value)
