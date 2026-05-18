@@ -4,6 +4,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"net/http/httptest"
 	"strconv"
 	"testing"
 	"time"
@@ -106,6 +108,106 @@ func TestVerifySignature_BadTS(t *testing.T) {
 	if err := verifySignature("shh", "v0=x", "not-a-number", []byte(`{}`), time.Now()); err == nil {
 		t.Error("non-numeric ts must error")
 	}
+}
+
+// Signing window: a request exactly at the 300s boundary is accepted;
+// one second past is rejected.
+func TestVerifySignature_WindowBoundary(t *testing.T) {
+	secret := "shh"
+	body := []byte(`{}`)
+	ts := int64(1_700_000_000)
+	tsHdr := strconv.FormatInt(ts, 10)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte("v0:" + tsHdr + ":" + string(body)))
+	sig := "v0=" + hex.EncodeToString(mac.Sum(nil))
+
+	// exactly 300s skew → accept.
+	if err := verifySignature(secret, sig, tsHdr, body, time.Unix(ts+300, 0)); err != nil {
+		t.Errorf("300s boundary should be accepted, got %v", err)
+	}
+	// 301s skew → reject.
+	if err := verifySignature(secret, sig, tsHdr, body, time.Unix(ts+301, 0)); err == nil {
+		t.Error("301s past boundary must be rejected")
+	}
+}
+
+// thread_broadcast is a display copy of a thread reply Slack also surfaces
+// in the parent channel — the original reply already arrived as a regular
+// message, so the broadcast must be dropped to avoid double delivery.
+func TestDispatch_ThreadBroadcastDropped(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, rm := setupBot(t, mock)
+
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "message",
+	    "subtype": "thread_broadcast",
+	    "channel_type": "channel",
+	    "channel": "C0HJK",
+	    "user": "U99",
+	    "text": "broadcast",
+	    "ts": "1700000999.000100",
+	    "thread_ts": "1700000222.000100"
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+
+	if got := rm.snapshot(); len(got) != 0 {
+		t.Errorf("thread_broadcast must be dropped, got %d msgs: %+v", len(got), got)
+	}
+}
+
+// DM messages are direct — there's no need for an @mention to address the
+// bot, so Verb must stay empty even when the text contains <@BOTID>.
+func TestInbound_DMNeverMentionVerb(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, rm := setupBot(t, mock)
+
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "message",
+	    "channel_type": "im",
+	    "channel": "D0XY",
+	    "user": "U99",
+	    "text": "hey <@Ubot> in dm",
+	    "ts": "1700001111.000100"
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+
+	msgs := rm.snapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("got %d msgs", len(msgs))
+	}
+	if msgs[0].Verb == "mention" {
+		t.Errorf("DM must not carry verb=mention even with <@BOTID> in text")
+	}
+}
+
+// handleAssistantThreadStarted must not panic when b.store is nil — pane
+// persistence + context propagation just no-op in that mode.
+func TestAssistantThreadStarted_NilStoreNoPanic(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+	b.store = nil
+
+	raw, _ := json.Marshal(map[string]any{
+		"assistant_thread": map[string]any{
+			"user_id":    "U99",
+			"channel_id": "D0XY",
+			"thread_ts":  "1700001234.000100",
+			"context":    map[string]any{"channel_id": "C42", "team_id": "T012"},
+		},
+	})
+	// Must return cleanly. If it panics, the test fails with a stack.
+	b.handleAssistantThreadStarted("T012", raw)
 }
 
 func TestTTLCache(t *testing.T) {
