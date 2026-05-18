@@ -81,7 +81,7 @@ Key points to convey:
 - The schema is the contract. Services share a SQLite DB with WAL mode.
   If a service can query the table it owns, it works.
 - Groups are directories. The agent's $HOME is the group folder.
-  Memory, diary, facts, CLAUDE.md, SOUL.md — all plain files on disk.
+  Memory, diary, facts, CLAUDE.md, PERSONA.md — all plain files on disk.
 - Agents are Claude Code CLI in Docker containers. Full tool use,
   subagents, MCP hooks. The container runs once per message, exits,
   and the state persists on the mounted volume.
@@ -447,7 +447,7 @@ Content:
   pointing to "onbod" service), tier-0 enforcement
 - What /approve creates: group dir, prototype copy, DB row, default routes,
   welcome system message (XML format)
-- Prototype copy: CLAUDE.md and SOUL.md only, session/memory excluded
+- Prototype copy: CLAUDE.md and PERSONA.md only, session/memory excluded
 - Outbound: onbod POSTs to channel adapter /send endpoint via chanlib
 
 ### /docs/dashboard

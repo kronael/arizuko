@@ -35,7 +35,7 @@ No special prototype flag or DB column. Any group with a
 
 ## What gets copied
 
-- `CLAUDE.md`, `SOUL.md` — full copy (not symlink). Spawns are
+- `CLAUDE.md`, `PERSONA.md` — full copy (not symlink). Spawns are
   independent once created.
 - Session, memory, workdir — NOT copied (fresh start)
 - DB state — new row, empty session
@@ -68,14 +68,14 @@ groups/
   root/
     prototype/          what new worlds look like
       CLAUDE.md
-      SOUL.md
+      PERSONA.md
     support/            parent group (has prototype/)
       prototype/
         CLAUDE.md
-        SOUL.md
+        PERSONA.md
       tg_123/           spawn (child)
         CLAUDE.md       copied from support/prototype/
-        SOUL.md         copied from support/prototype/
+        PERSONA.md         copied from support/prototype/
 ```
 
 `template/` at repo root seeds `groups/root/prototype/` on
@@ -105,7 +105,7 @@ session and data isolation — routing is fixed by the parent's config.
 ## Acceptance criteria
 
 1. `spawnFromPrototype` copies parent's `prototype/` to child folder
-2. `CLAUDE.md`, `SOUL.md` copied; `skills/` bind-mounted read-only
+2. `CLAUDE.md`, `PERSONA.md` copied; `skills/` bind-mounted read-only
 3. `max_children` enforced; fallback to next route when exceeded
 4. Folder names derived from JID (`spawnFolderName(jid string) string`)
 5. Spawns persist in DB; manual removal only

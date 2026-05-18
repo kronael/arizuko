@@ -22,13 +22,13 @@ PRODUCT.md     TOML manifest: name, brand, tagline, skills list, env hints
 Optional files (copied verbatim into the group's data dir):
 
 ```
-SOUL.md        Agent persona — name, description, voice, scope, do/don't list
+PERSONA.md        Agent persona — name, description, voice, scope, do/don't list
 CLAUDE.md      Operator runbook — memory conventions, escalation rules, KB structure
 facts/         Seed fact files (style guides, reference data, KB stubs)
 tasks.toml     Seed scheduled tasks
 ```
 
-`SOUL.md` is the agent's identity. `CLAUDE.md` is the per-group runbook that
+`PERSONA.md` is the agent's identity. `CLAUDE.md` is the per-group runbook that
 the agent reads every session. Both are optional but most products ship both.
 
 Skills are not stored in the product folder. `skills` in `PRODUCT.md` is a
@@ -50,7 +50,7 @@ arizuko create mybot --product support
 4. Calls `container.SetupGroup(cfg, "main", productDir)` which:
    - Creates `groups/main/` and `groups/main/logs/`
    - Copies all files from `ant/examples/<name>/` into the group dir
-     (SOUL.md, CLAUDE.md, facts/, tasks.toml — whatever is present)
+     (PERSONA.md, CLAUDE.md, facts/, tasks.toml — whatever is present)
    - Seeds `.claude/skills/` from `ant/skills/` (all skills from the image)
    - Seeds `.claude/CLAUDE.md` from `ant/CLAUDE.md` (the global ant runbook)
    - Chowns the group dir to UID 1000 so the container can write to it
@@ -112,7 +112,7 @@ Public pages at `/pub/products/<name>/` when the web layer is running.
 1. Create `ant/examples/<name>/`:
    - Write `PRODUCT.md` with `name`, `brand`, `tagline`, `skills`, and any
      `[[env]]` blocks the operator needs to fill in.
-   - Write `SOUL.md` with frontmatter (`name`, `description`) and persona
+   - Write `PERSONA.md` with frontmatter (`name`, `description`) and persona
      sections (voice, what it does, what it never does).
    - Write `CLAUDE.md` with the per-group runbook (KB lookup order, memory
      conventions, escalation rules, response style, scope).

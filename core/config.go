@@ -72,7 +72,7 @@ type Config struct {
 	// TTS pipeline. TTSURL is the OpenAI-compatible /v1/audio/speech base
 	// URL (point at bundled ttsd or any external server). TTSVoice is the
 	// instance default; agents can override per-call via send_voice args
-	// or per-group via SOUL.md `voice:` frontmatter.
+	// or per-group via PERSONA.md `voice:` frontmatter.
 	TTSEnabled bool
 	TTSURL     string
 	TTSVoice   string

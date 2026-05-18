@@ -47,7 +47,7 @@ detailed picture once researched.
 
 ```
 ant/examples/personal/
-  SOUL.md     — warm, direct, memory-first; notices patterns;
+  PERSONA.md     — warm, direct, memory-first; notices patterns;
                 never performatively helpful; asks when unsure
   CLAUDE.md   — check diary + facts before every response;
                 update facts/ after any preference or decision;
@@ -62,7 +62,7 @@ slink for web access.
 
 ## Branding note
 
-Deployed as **Fiu** on the krons instance. SOUL.md and onbod
+Deployed as **Fiu** on the krons instance. PERSONA.md and onbod
 branding (BRAND_NAME=Fiu) configured at deploy time; the product
 template is persona-neutral so any operator can rename.
 

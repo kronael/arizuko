@@ -29,7 +29,7 @@ operator review. Delegates the eventual 3-way reconciliation to
 1. **Harvest** — for each live group running `<product>`: skills with
    `managed: local` or local edits (diff vs `ant/skills/`), CLAUDE.md
    sections in group not in template, `facts/CLAUDE.md` topic index
-   (filenames + headers, not bodies), `SOUL.md` diff, `sources.md`
+   (filenames + headers, not bodies), `PERSONA.md` diff, `sources.md`
    schema. Excluded: `users/` (per-sender memory reconstructs the
    person even after strip); diary bodies (keep date layout + frontmatter,
    prose → `<entry>`).

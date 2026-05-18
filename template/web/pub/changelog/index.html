@@ -25,7 +25,7 @@
     <h2>arizuko v0.33.0 <span class="date">&mdash; 2 May 2026</span></h2>
     <p>Voice replies close the loop on the audio channel that Whisper opened months ago, and the router stops guessing JID kinds from sign bits &mdash; every adapter now emits typed addresses (<code>telegram:group/&hellip;</code>, <code>discord:&lt;guild&gt;/&lt;channel&gt;</code>) so routes, grants, and onboarding speak one language.</p>
     <ul>
-      <li><strong>Voice replies</strong> (<code>send_voice</code>) &mdash; agent-controlled TTS via a bundled <code>ttsd</code> proxying Kokoro-FastAPI; Telegram/WhatsApp render as push-to-talk, Discord as inline audio. Per-agent voice via <code>SOUL.md</code> frontmatter. Cached by hash.</li>
+      <li><strong>Voice replies</strong> (<code>send_voice</code>) &mdash; agent-controlled TTS via a bundled <code>ttsd</code> proxying Kokoro-FastAPI; Telegram/WhatsApp render as push-to-talk, Discord as inline audio. Per-agent voice via <code>PERSONA.md</code> frontmatter. Cached by hash.</li>
       <li><strong>Thread-scoped history</strong> (<code>get_thread</code> MCP) &mdash; pull just one topic out of a chat&rsquo;s history; tier-gated like <code>inspect_messages</code>.</li>
       <li><strong>External agents over slink</strong> (<code>POST /slink/&lt;token&gt;/mcp</code>) &mdash; register a token-bound URL as a remote MCP server in Claude Code or any MCP client; three group-scoped tools (<code>send_message</code>, <code>steer</code>, <code>get_round</code>). Token is the auth.</li>
       <li><strong>OAuth account linking</strong> (<code>/dash/profile</code>) &mdash; one canonical sub across providers, with a collision-resolution UX when a new OAuth identity doesn&rsquo;t fit silently.</li>

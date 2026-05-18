@@ -226,7 +226,7 @@ exactly the "ant becomes an agent loop" tar pit we ruled out.
 
 ## Folder shape compatibility
 
-The ant-folder (SOUL.md, CLAUDE.md, skills/, MCP.json, secrets/,
+The ant-folder (PERSONA.md, CLAUDE.md, skills/, MCP.json, secrets/,
 workspace/) is claude-shaped today: skills are markdown with
 frontmatter and `claude` auto-loads them from `.claude/skills/`.
 

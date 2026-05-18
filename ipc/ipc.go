@@ -946,11 +946,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	registerRaw("send_voice", "Deliver `text` as a synthesized voice message on the platform — push-to-talk on Telegram/WhatsApp, audio attachment on Discord. Use when the user sent voice and expects voice back, or when the persona is voice-first. Not for music/file delivery (use `send_file`). `voice` defaults to the persona's voice from SOUL.md frontmatter or the instance default; pass an explicit voice name to override.",
+	registerRaw("send_voice", "Deliver `text` as a synthesized voice message on the platform — push-to-talk on Telegram/WhatsApp, audio attachment on Discord. Use when the user sent voice and expects voice back, or when the persona is voice-first. Not for music/file delivery (use `send_file`). `voice` defaults to the persona's voice from PERSONA.md frontmatter or the instance default; pass an explicit voice name to override.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
-			mcp.WithString("voice", mcp.Description("Optional voice name (backend-specific, e.g. 'af_bella' for Kokoro). Omit to use SOUL.md frontmatter or instance default.")),
+			mcp.WithString("voice", mcp.Description("Optional voice name (backend-specific, e.g. 'af_bella' for Kokoro). Omit to use PERSONA.md frontmatter or instance default.")),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")

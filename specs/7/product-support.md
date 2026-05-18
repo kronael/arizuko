@@ -38,7 +38,7 @@ capability footprint.
 - slink — primary; web widget embedded on the product site.
 - Telegram — escalation channel for the support team.
 
-## Persona (SOUL.md sketch)
+## Persona (PERSONA.md sketch)
 
 Patient, precise, never makes up answers. When uncertain, says so and
 offers to escalate. Does not reveal internal details (facts/ structure,
@@ -69,7 +69,7 @@ on Telegram when it doesn't know the answer.
 ```
 ant/examples/support/
   PRODUCT.md      name=support, skills=[diary,facts,recall-memories,users,web]
-  SOUL.md         persona (patient, precise, escalate when uncertain)
+  PERSONA.md         persona (patient, precise, escalate when uncertain)
   CLAUDE.md       runbook (KB lookup order, escalation trigger, log gaps)
   facts/          placeholder with instructions for operator to fill
 ```

@@ -48,7 +48,7 @@ what's working. The operator approves before anything goes out.
 
 ```
 ant/examples/socials/
-  SOUL.md           — distribution strategist; understands platform tone
+  PERSONA.md           — distribution strategist; understands platform tone
                       differences; never posts without approval signal
   CLAUDE.md         — approval gate: ALWAYS require operator confirmation
                       before calling post/repost; log every post to diary;

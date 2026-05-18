@@ -46,7 +46,7 @@ operator steers; the agent does the legwork.
 
 ```
 ant/examples/creator/
-  SOUL.md           — writes in operator's voice; never invents claims;
+  PERSONA.md           — writes in operator's voice; never invents claims;
                       asks for brief before drafting; confirms platform
   CLAUDE.md         — curation loop: check sources, pitch → await approval;
                       draft loop: draft → revise → publish gate;

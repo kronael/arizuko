@@ -71,7 +71,7 @@ OBSERVE_WINDOW_CHARS=8000</code></pre>
       <h2>3. lay down the reality group from the template</h2>
       <p>
         The shipped template at <code>ant/examples/reality/</code>
-        carries the persona (<code>SOUL.md</code>), the skill set
+        carries the persona (<code>PERSONA.md</code>), the skill set
         declared in <code>PRODUCT.md</code> (<code>diary</code>,
         <code>facts</code>, <code>recall-memories</code>,
         <code>compact-memories</code>, <code>users</code>, optional
@@ -83,7 +83,7 @@ OBSERVE_WINDOW_CHARS=8000</code></pre>
         available) or copy the template into the seeded group:
       </p>
       <pre><code>cp -r ant/examples/reality/* /srv/data/arizuko_nemo/groups/rhias/
-# adjust SOUL.md / PERSONA.md to taste before first run</code></pre>
+# adjust PERSONA.md / PERSONA.md to taste before first run</code></pre>
 
       <h2>4. seed facts/threads</h2>
       <p>
@@ -157,14 +157,14 @@ facts/threads/relationship-alice.md</code></pre>
       <h2>8. verify</h2>
       <ul>
         <li><code>docker compose ps</code> shows all services healthy.</li>
-        <li>Send the bot a DM on Telegram &mdash; the agent replies in the persona declared in <code>SOUL.md</code>.</li>
+        <li>Send the bot a DM on Telegram &mdash; the agent replies in the persona declared in <code>PERSONA.md</code>.</li>
         <li>Ask <em>"what threads do I have?"</em> &mdash; the agent enumerates from <code>facts/threads/</code>.</li>
         <li>Visit <code>https://&lt;WEB_HOST&gt;/dash/</code> &mdash; the <code>rhias</code> group, route, and any scheduled tasks are visible.</li>
       </ul>
 
       <h2>9. tune the persona</h2>
       <p>
-        The shipped <code>SOUL.md</code> is the baseline voice.
+        The shipped <code>PERSONA.md</code> is the baseline voice.
         Override or extend it via <code>PERSONA.md</code> (with a
         <code>summary:</code> frontmatter field) and <code>CLAUDE.md</code>
         in the group folder &mdash; both edit-via-WebDAV at

@@ -50,7 +50,7 @@ does not execute code or touch infra.
 
 ```
 ant/examples/pm/
-  SOUL.md       — precise, concise; keeps humans accountable without
+  PERSONA.md       — precise, concise; keeps humans accountable without
                   being annoying; asks clarifying questions before
                   creating tasks; never invents scope
   CLAUDE.md     — task format: [status] owner: description (due: date);
@@ -78,7 +78,7 @@ ant/examples/pm/
 
 ## Branding note
 
-Deployed as a PM agent on the sloth instance. SOUL.md and branding
+Deployed as a PM agent on the sloth instance. PERSONA.md and branding
 are instance-configured. Template is domain-neutral: the team context
 and project domain come entirely from the operator-seeded facts/.
 

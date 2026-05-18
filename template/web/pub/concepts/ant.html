@@ -24,7 +24,7 @@
     <h2>the folder is the agent</h2>
     <p>Every group lives at <code>/srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/</code> on the host. When a message arrives, <code>gated</code> spawns a container and mounts that folder at <code>/home/node/</code> inside. Whatever&rsquo;s in the folder is what the agent sees:</p>
     <pre><code>groups/solo/inbox/
-  SOUL.md          persona &mdash; name, tone, voice
+  PERSONA.md          persona &mdash; name, tone, voice
   CLAUDE.md        runbook the agent reads each turn
   skills/          SKILL.md files the agent can call
   diary/           append-only log, survives restarts
@@ -50,7 +50,7 @@
       <li><strong>Stays</strong> &mdash; everything under <code>groups/&lt;folder&gt;/</code>: diary, facts, skills, the JSONL session transcripts in <code>.claude/</code>.</li>
       <li><strong>Goes</strong> &mdash; the container itself, anything written to <code>/tmp</code> inside, any process state held in RAM.</li>
     </ul>
-    <p>This is why &ldquo;just edit the folder&rdquo; works. Change <code>SOUL.md</code> on the host (or via <a href="/pub/concepts/webdav.html">WebDAV</a>) and the next spawn picks up the new persona &mdash; no restart, no reload.</p>
+    <p>This is why &ldquo;just edit the folder&rdquo; works. Change <code>PERSONA.md</code> on the host (or via <a href="/pub/concepts/webdav.html">WebDAV</a>) and the next spawn picks up the new persona &mdash; no restart, no reload.</p>
 
     <h2>arizuko vs standalone ant</h2>
     <p><strong>Today:</strong> every arizuko group is an ant folder. <code>arizuko chat &lt;instance&gt; [group]</code> drops you into one for interactive use. <code>gated</code> spawns containers from the same folders for inbound chat messages.</p>

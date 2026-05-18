@@ -51,7 +51,7 @@ user stay coherent across the messy, non-linear shape of real life.
 
 ```
 ant/examples/rhias/
-  SOUL.md         — curious, non-judgmental; holds context without
+  PERSONA.md         — curious, non-judgmental; holds context without
                     being asked; asks clarifying questions before
                     filing anything; never gives advice unprompted;
                     references prior threads naturally

@@ -16,7 +16,7 @@ user-invocable: true
 ## Voice resolution (highest precedence first)
 
 1. Explicit `voice:` arg passed to `send_voice`
-2. `voice:` field in the group's `~/SOUL.md` YAML frontmatter
+2. `voice:` field in the group's `~/PERSONA.md` YAML frontmatter
 3. Instance default `TTS_VOICE` env (typically `af_bella` for Kokoro)
 
 Empty at every step → tool errors with "no voice configured".

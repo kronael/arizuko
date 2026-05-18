@@ -50,7 +50,7 @@ func LoadFolder(path string) (*Folder, error) {
 	}
 	return &Folder{
 		Root:      abs,
-		Soul:      filepath.Join(abs, "SOUL.md"),
+		Soul:      filepath.Join(abs, "PERSONA.md"),
 		ClaudeMD:  filepath.Join(abs, "CLAUDE.md"),
 		Skills:    filepath.Join(abs, "skills"),
 		Diary:     filepath.Join(abs, "diary"),

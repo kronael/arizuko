@@ -26,7 +26,7 @@
     <p>davd itself has no notion of identity. Authentication and per-group scoping happen one hop earlier in <a href="/pub/components/proxyd.html">proxyd</a>.</p>
 
     <h2>Why it exists</h2>
-    <p>The folder davd serves is the folder the agent reads each turn &mdash; <code>PERSONA.md</code>, <code>SOUL.md</code>, <code>facts/</code>, custom skills, diary entries. Operators need a way to edit those files from a real editor (Finder, vim, VS Code, rclone) without shelling into the host.</p>
+    <p>The folder davd serves is the folder the agent reads each turn &mdash; <code>PERSONA.md</code>, <code>PERSONA.md</code>, <code>facts/</code>, custom skills, diary entries. Operators need a way to edit those files from a real editor (Finder, vim, VS Code, rclone) without shelling into the host.</p>
 
     <p>WebDAV gives that for free: standard verbs (<code>PROPFIND</code>, <code>PUT</code>, <code>DELETE</code>, <code>MKCOL</code>) every OS already speaks. Without davd, the only way to edit a group&rsquo;s files is direct filesystem access on the server, or a custom REST surface that re-invents what WebDAV already standardises.</p>
 

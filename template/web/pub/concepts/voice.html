@@ -33,7 +33,7 @@
     <h2>voice out &mdash; synthesis</h2>
     <p>The agent decides to reply with voice by calling the <code>send_voice</code> MCP tool with the chat&rsquo;s JID, the text, and an optional voice name. <code>gated</code> handles the rest:</p>
     <ol>
-      <li>Pick the voice. Explicit argument wins; otherwise <code>voice:</code> from the persona&rsquo;s <code>SOUL.md</code> frontmatter; otherwise <code>TTS_VOICE</code> env.</li>
+      <li>Pick the voice. Explicit argument wins; otherwise <code>voice:</code> from the persona&rsquo;s <code>PERSONA.md</code> frontmatter; otherwise <code>TTS_VOICE</code> env.</li>
       <li>Hash <code>sha256(text + voice + model)</code>. If <code>&lt;data_dir&gt;/tts/&lt;hash&gt;.ogg</code> already exists, reuse it &mdash; no re-synth.</li>
       <li>On miss, POST to <code>TTS_BASE_URL</code> at the OpenAI-shaped path <code>/v1/audio/speech</code>. The bundled <code>ttsd</code> daemon forwards to a Kokoro-FastAPI container running locally.</li>
       <li>Hand the ogg file to the channel adapter; it sends it using the platform&rsquo;s native voice primitive.</li>
@@ -56,7 +56,7 @@
     <p>If <code>ttsd</code> is down, its <code>/health</code> returns 503 and <code>gated</code> flips <code>TTS_ENABLED=false</code> for that turn. <code>send_voice</code> returns <code>chanlib.ErrUnsupported</code>; the agent&rsquo;s wrapper sees that and falls back to a plain text <code>send</code>. The user gets a text reply instead of silence.</p>
 
     <h2>go deeper</h2>
-    <p>Canonical spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/T-voice-synthesis.md">specs/5/T-voice-synthesis.md</a>. The <code>voice:</code> frontmatter that pins a per-agent voice lives in <code>SOUL.md</code> &mdash; see <a href="/pub/concepts/ant.html">ant</a> for the folder layout. For how the JIDs in <code>send_voice(chatJid, &hellip;)</code> are shaped, see <a href="/pub/concepts/jid.html">jid</a>.</p>
+    <p>Canonical spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/T-voice-synthesis.md">specs/5/T-voice-synthesis.md</a>. The <code>voice:</code> frontmatter that pins a per-agent voice lives in <code>PERSONA.md</code> &mdash; see <a href="/pub/concepts/ant.html">ant</a> for the folder layout. For how the JIDs in <code>send_voice(chatJid, &hellip;)</code> are shaped, see <a href="/pub/concepts/jid.html">jid</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="/pub/assets/hub.js"></script>

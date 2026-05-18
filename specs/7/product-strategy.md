@@ -45,7 +45,7 @@ fresh intelligence, not stale intuition.
 
 ```
 ant/examples/strategy/
-  SOUL.md           — rigorous analyst; separates facts from inference;
+  PERSONA.md           — rigorous analyst; separates facts from inference;
                       always cites sources; marks confidence level;
                       proposes three implications per finding
   CLAUDE.md         — weekly report format: executive summary / key

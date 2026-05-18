@@ -120,14 +120,14 @@
     <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>.</p>
 
     <h3 id="send_voice"><code>send_voice</code></h3>
-    <p>Deliver <code>text</code> as a synthesized voice message on the platform &mdash; push-to-talk on Telegram/WhatsApp, audio attachment on Discord. <code>voice</code> defaults to <code>SOUL.md</code> frontmatter or the instance default; pass an explicit name to override.</p>
+    <p>Deliver <code>text</code> as a synthesized voice message on the platform &mdash; push-to-talk on Telegram/WhatsApp, audio attachment on Discord. <code>voice</code> defaults to <code>PERSONA.md</code> frontmatter or the instance default; pass an explicit name to override.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L724"><code>ipc/ipc.go:724</code></a> &middot; Grant action: <code>send_voice(jid=...)</code> &middot; Max 5000 chars; requires <code>TTS_BASE_URL</code> (otherwise <code>UnsupportedError</code> propagates).</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
         <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>Target chat JID.</td></tr>
         <tr><td class="name">text</td><td class="type">string</td><td class="req req-y">yes</td><td>Text to synthesize; non-empty, &le; 5000 chars.</td></tr>
-        <tr><td class="name">voice</td><td class="type">string</td><td class="req req-n">no</td><td>Voice name (e.g. <code>af_bella</code> for Kokoro). Omit to use SOUL.md or instance default.</td></tr>
+        <tr><td class="name">voice</td><td class="type">string</td><td class="req req-n">no</td><td>Voice name (e.g. <code>af_bella</code> for Kokoro). Omit to use PERSONA.md or instance default.</td></tr>
       </tbody>
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; on adapter unsupported, error text with platform hint.</p>
@@ -444,7 +444,29 @@
     </table>
     <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>.</p>
 
-    <!-- engage/disengage removed: never registered in ipc/ipc.go; spec 6/G unimplemented as of v0.40.x -->
+    <h3 id="engage"><code>engage</code></h3>
+    <p>Mark <code>(jid, topic)</code> engaged for the <code>ENGAGEMENT_TTL</code> window so subsequent inbounds fire even when the route table wouldn't route them here. Use before a scheduled or autonomous turn, or to recover after a failed reply. Caller folder must already own the conversation (last reply here, or default route here). Spec: 5/G.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1291"><code>ipc/ipc.go:1291</code></a> &middot; Grant action: <code>engage</code>.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">jid</td><td class="type">string</td><td class="req req-y">yes</td><td>Chat JID to engage.</td></tr>
+        <tr><td class="name">topic</td><td class="type">string</td><td class="req req-n">no</td><td>Topic to engage. Defaults to main topic when omitted.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true}</code>.</p>
+
+    <h3 id="disengage"><code>disengage</code></h3>
+    <p>Clear engagement for <code>(jid, topic)</code>. Subsequent inbounds need a fresh mention to re-fire. Use when the bot is done helping or when a corrective fork is closing. Caller folder must own the conversation. Spec: 5/G.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1318"><code>ipc/ipc.go:1318</code></a> &middot; Grant action: <code>disengage</code>.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">jid</td><td class="type">string</td><td class="req req-y">yes</td><td>Chat JID to disengage.</td></tr>
+        <tr><td class="name">topic</td><td class="type">string</td><td class="req req-n">no</td><td>Topic to disengage. Defaults to main topic when omitted.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true}</code>.</p>
 
     <h3 id="reset_session"><code>reset_session</code></h3>
     <p>Drop the Claude session for a group so the next message starts fresh context. Use when the user asks for <code>/new</code>, when context is confused/polluted, or before a topic switch. Not for injecting content (<code>inject_message</code>).</p>

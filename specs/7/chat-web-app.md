@@ -209,7 +209,7 @@ Each group row:
 ```
 ┌───────────────────────────┐
 │  atlas              ⚙     │
-│  Personal assistant       │  ← group description from SOUL.md
+│  Personal assistant       │  ← group description from PERSONA.md
 ├───────────────────────────┤
 │  THREADS                  │
 │                           │
@@ -235,7 +235,7 @@ Each group row:
 Thread naming: first 40 chars of first user message in the thread, stored
 as `topic_label` on creation. Falls back to `t<unix_ms>` if no label yet.
 
-`⚙` → group settings modal (name, SOUL.md preview, platform links).
+`⚙` → group settings modal (name, PERSONA.md preview, platform links).
 
 ---
 
@@ -402,7 +402,7 @@ Accessible via `⚙` in the thread list header:
 │  Channels active                                 │
 │    ● web  ● telegram  ○ discord                  │
 │                                                  │
-│  SOUL.md preview                                 │
+│  PERSONA.md preview                                 │
 │  ┌──────────────────────────────────────────┐   │
 │  │ You are Atlas, a personal productivity   │   │
 │  │ assistant…  (truncated, read-only)       │   │

@@ -27,7 +27,7 @@ the agent can fall back from to plain `send`.
 
 Config: `TTS_ENABLED`, `TTS_BASE_URL`, `TTS_VOICE`, `TTS_MODEL`,
 `TTS_TIMEOUT`. Voice resolution: explicit arg > `voice:` frontmatter
-in `~/SOUL.md` > `TTS_VOICE` env. Text capped at 5000 chars.
+in `~/PERSONA.md` > `TTS_VOICE` env. Text capped at 5000 chars.
 
 Rationale: users who send voice expect voice replies. Whisper handles
 input already (`VOICE_TRANSCRIPTION_ENABLED`); this is symmetric.

@@ -127,7 +127,7 @@ best channel, 2-line description. Links to `products/<name>/`.
 - Exact commands (`arizuko create`, env vars to set)
 - Knowledge base / facts/ population (if relevant)
 - Verification (how to know it's working)
-- Tuning (SOUL.md customisation, skill enable/disable)
+- Tuning (PERSONA.md customisation, skill enable/disable)
 
 One product = two pages. The intro sells it to the end user; setup
 is for the operator. Keep them separate — operators share setup.html

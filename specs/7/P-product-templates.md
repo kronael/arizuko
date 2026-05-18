@@ -18,7 +18,7 @@ is wiring that to a named path in `ant/examples/`.
 ```
 ant/examples/<name>/
   PRODUCT.md        — manifest (see below)
-  SOUL.md           — persona
+  PERSONA.md           — persona
   CLAUDE.md         — runbook (behavior, memory layout, formats)
   facts/            — seed files (knowledge base, preferences, task board)
   tasks.toml        — scheduled tasks (optional)

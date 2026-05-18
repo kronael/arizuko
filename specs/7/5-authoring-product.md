@@ -8,7 +8,7 @@ A product (per [R-products](R-products.md)) for content authoring: the
 agent drafts posts and the operator approves before publishing. Ships at
 `ant/examples/author/`.
 
-Composition: persona (`SOUL.md` = author voice) + skills (`draft/`,
+Composition: persona (`PERSONA.md` = author voice) + skills (`draft/`,
 `publish/`, `content-audit/`) plus reused `research/`, `web/`.
 
 ## Publishing safety

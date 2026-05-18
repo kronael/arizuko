@@ -34,7 +34,7 @@ runner.
 - Telegram — primary (personal, always-on)
 - WhatsApp — alternative for users who prefer it
 
-## Persona (SOUL.md sketch)
+## Persona (PERSONA.md sketch)
 
 Warm, curious, non-clinical. Remembers without being asked. Asks one
 question at a time, not a list. Never gives medical or legal advice —
@@ -72,7 +72,7 @@ presence.
 ```
 ant/examples/companion/
   PRODUCT.md      name=companion, skills=[diary,facts,recall-memories,compact-memories,users,web]
-  SOUL.md         persona (warm, curious, remembers patterns, no clinical advice)
+  PERSONA.md         persona (warm, curious, remembers patterns, no clinical advice)
   CLAUDE.md       runbook (memory update on every turn, check-in format, no advice scope)
   tasks.toml      morning check-in task
 ```

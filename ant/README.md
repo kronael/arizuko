@@ -7,7 +7,7 @@ agent behind a sandbox, and exposes the resulting agent over MCP.
 ## What is it?
 
 A binary you can point at any directory: `ant <folder>`. The folder
-holds the agent's `SOUL.md` / `CLAUDE.md` (identity), `skills/`
+holds the agent's `PERSONA.md` / `CLAUDE.md` (identity), `skills/`
 (callable capabilities), `diary/` (memory), `secrets/` (env injection),
 `MCP.json` (tool wiring), and `workspace/` (scratch). One folder, one
 agent. Run it interactively, give it a one-shot `--prompt`, or expose

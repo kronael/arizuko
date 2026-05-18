@@ -70,7 +70,7 @@ You are a codebase research assistant. You answer questions about the
 codebases mounted in your workspace using evidence from your knowledge
 base and direct code exploration.
 
-Read SOUL.md on session start for your persona and voice.
+Read PERSONA.md on session start for your persona and voice.
 
 ## Knowledge-First Rule
 
@@ -134,7 +134,7 @@ Copy the reference SYSTEM.md above into
 `/srv/data/arizuko_myresearch/groups/atlas/support/SYSTEM.md`,
 replacing `{AGENT_NAME}`.
 
-Write SOUL.md with persona. Seed `facts/` with initial .md files.
+Write PERSONA.md with persona. Seed `facts/` with initial .md files.
 Set channel tokens. `sudo systemctl start arizuko_myresearch`.
 
 ### Example: REDACTED Atlas (production)

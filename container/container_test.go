@@ -757,7 +757,7 @@ func TestReadOptional(t *testing.T) {
 	})
 
 	t.Run("existing file returns trimmed content", func(t *testing.T) {
-		p := filepath.Join(d, "SOUL.md")
+		p := filepath.Join(d, "PERSONA.md")
 		os.WriteFile(p, []byte("  be kind\n"), 0o644)
 		got := readOptional(p)
 		if got != "be kind" {
@@ -797,10 +797,10 @@ func TestInputJSONNewFields(t *testing.T) {
 
 func TestSoulAndSystemMdLoading(t *testing.T) {
 	d := t.TempDir()
-	os.WriteFile(filepath.Join(d, "SOUL.md"), []byte("warm and friendly"), 0o644)
+	os.WriteFile(filepath.Join(d, "PERSONA.md"), []byte("warm and friendly"), 0o644)
 	os.WriteFile(filepath.Join(d, "SYSTEM.md"), []byte("custom system prompt"), 0o644)
 
-	soul := readOptional(filepath.Join(d, "SOUL.md"))
+	soul := readOptional(filepath.Join(d, "PERSONA.md"))
 	if soul != "warm and friendly" {
 		t.Errorf("soul = %q", soul)
 	}
@@ -858,7 +858,7 @@ func TestPrepareInputNoWorkMd(t *testing.T) {
 func TestSoulAndSystemMdMissing(t *testing.T) {
 	d := t.TempDir()
 
-	soul := readOptional(filepath.Join(d, "SOUL.md"))
+	soul := readOptional(filepath.Join(d, "PERSONA.md"))
 	if soul != "" {
 		t.Errorf("expected empty soul, got %q", soul)
 	}

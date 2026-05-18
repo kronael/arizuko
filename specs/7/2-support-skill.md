@@ -47,7 +47,7 @@ left to freehand. `/support` fills the gap.
    For range queries ("last N", "all X"), enumerate the full range —
    never sample.
 3. **Reply** — front-load the answer (one short sentence), then the
-   cite (path + field). Render through `~/SOUL.md` Voice section
+   cite (path + field). Render through `~/PERSONA.md` Voice section
    before sending. Never "likely / probably / should be" — either
    you read the field or you didn't.
 4. **Persist** — new canonical source → `~/facts/sources.md`; user
@@ -82,7 +82,7 @@ pointed at a new one explicitly.
 
 ## Voice
 
-The skill ends by re-reading `~/SOUL.md` Voice section and
+The skill ends by re-reading `~/PERSONA.md` Voice section and
 rewriting the reply in that register. SOUL beats the default
 markdown-tutorial register that the model defaults to.
 

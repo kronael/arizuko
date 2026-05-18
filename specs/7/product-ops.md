@@ -36,7 +36,7 @@ or document the manual confirmation step in CLAUDE.md.
 - Telegram — oncall phone (primary; alerts go here)
 - Discord — ops team channel (shared incident thread)
 
-## Persona (SOUL.md sketch)
+## Persona (PERSONA.md sketch)
 
 Calm under pressure. Checks runbook before suggesting action. States
 what it will run before running it. Never guesses at infrastructure state
@@ -71,7 +71,7 @@ and get a daily digest of service health every morning.
 ```
 ant/examples/ops/
   PRODUCT.md      name=ops, skills=[diary,facts,recall-memories,bash,oracle,web,commit]
-  SOUL.md         persona (calm, cite runbook, confirm before action)
+  PERSONA.md         persona (calm, cite runbook, confirm before action)
   CLAUDE.md       runbook (bash scope, confirmation gate, digest format)
   tasks.toml      daily-digest task
   facts/          operator seeds: service map, alert definitions, runbooks

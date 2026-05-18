@@ -21,7 +21,7 @@ func TestLoadFolder_OK(t *testing.T) {
 		}
 	}
 	checks := map[string]string{
-		"Soul":      filepath.Join(f.Root, "SOUL.md"),
+		"Soul":      filepath.Join(f.Root, "PERSONA.md"),
 		"ClaudeMD":  filepath.Join(f.Root, "CLAUDE.md"),
 		"Skills":    filepath.Join(f.Root, "skills"),
 		"Diary":     filepath.Join(f.Root, "diary"),

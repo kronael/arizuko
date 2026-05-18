@@ -43,7 +43,7 @@ agent recalls them on future trips.
 
 ```
 ant/examples/trip/
-  SOUL.md           — methodical travel researcher; asks clarifying
+  PERSONA.md           — methodical travel researcher; asks clarifying
                       questions before researching; cites sources
   CLAUDE.md         — produce itineraries in a fixed markdown schema;
                       store every trip in facts/trips/YYYY-<dest>.md;

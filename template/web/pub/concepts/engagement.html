@@ -30,7 +30,7 @@
       <li><strong>Engaged &rarr; idle</strong>: the TTL expires, or the agent calls <code>disengage()</code> when it&rsquo;s done helping.</li>
       <li><strong>Idle stays idle</strong>: after disengage, the next inbound needs a fresh mention.</li>
     </ul>
-    <p>The TTL is sliding from any activity (user or bot) in the engaged pair. So a long back-and-forth never times out mid-conversation; a quiet 10 minutes does.</p>
+    <p>The TTL is sliding — reset by any outbound reply from the bot while engaged. So a long back-and-forth never times out mid-conversation; a quiet 10 minutes does. The window is configured via <code>ENGAGEMENT_TTL</code> (default: <code>10m</code>).</p>
 
     <h2>thread by default on Slack channels</h2>
     <p>The bot&rsquo;s reply to a channel mention opens a Slack thread off the user&rsquo;s message. The engagement window then attaches to that thread. Subsequent thread replies engage automatically and live in-thread, so the main channel stays uncluttered.</p>

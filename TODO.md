@@ -24,7 +24,7 @@ Current template/skill system is flat file layering — no first-class
 "product" or "mixin" abstraction. Issues:
 
 - **No product concept**: Can't define "a finance bot" as a bundle of
-  SOUL.md + skills + output-style + CLAUDE.md sections. Template overlays
+  PERSONA.md + skills + output-style + CLAUDE.md sections. Template overlays
   exist (`/migrate` + TEMPLATES file) but are manual, root-only, and
   undocumented.
 - **CLAUDE.md is one-shot**: Seeded once from `ant/CLAUDE.md`, then
@@ -32,7 +32,7 @@ Current template/skill system is flat file layering — no first-class
 - **Skill re-seeding is all-or-nothing**: `seedSkills()` copies the full
   `ant/skills/` tree every spawn. No per-group skill selection — groups
   get all 38 skills even if they only need 5.
-- **No mixin composition**: Template overlays overwrite SOUL.md, additive-
+- **No mixin composition**: Template overlays overwrite PERSONA.md, additive-
   merge CLAUDE.md sections. No conflict resolution, no ordering, no
   dependency between mixins.
 - **No product registry**: Operators can't browse/select products. Must

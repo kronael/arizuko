@@ -13,7 +13,7 @@ built on top of ant.
 
 ```
 my-agent/
-  SOUL.md          — persona, voice, identity
+  PERSONA.md          — persona, voice, identity
   CLAUDE.md        — operator runbook the agent reads on each turn
   skills/          — SKILL.md files (custom + curated)
   diary/           — running log, persistent across runs
@@ -119,7 +119,7 @@ ant/
    in env or the folder's `secrets/`. Add `--prompt="..."` for
    one-shot, `--mcp` to expose as a server.
 3. **Why a folder?** Agents are forkable, version-controllable,
-   shareable. Copy the folder, tweak SOUL.md, ship a new agent.
+   shareable. Copy the folder, tweak PERSONA.md, ship a new agent.
 
 No marketing. No feature matrix. Three questions.
 

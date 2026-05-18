@@ -95,7 +95,7 @@ You  [voice: can you summarise the last three tickets?]
 
 Ask for a voice reply when the last inbound message was voice, or when the persona is voice-first ("speak the digest aloud"). The agent calls `send_voice` directly — text is synthesised server-side and delivered as a native push-to-talk message on Telegram and WhatsApp, an audio attachment on Discord. Adapters without a voice primitive return Unsupported; the agent falls back to `send` with the same text.
 
-Voice resolution is a three-step lookup: explicit argument first, then `voice:` in `~/SOUL.md` frontmatter, then the `TTS_VOICE` env var. Override per call by saying "use voice X". Captions are not attached to voice — the message stands alone, so put context in a follow-up text message if needed.
+Voice resolution is a three-step lookup: explicit argument first, then `voice:` in `~/PERSONA.md` frontmatter, then the `TTS_VOICE` env var. Override per call by saying "use voice X". Captions are not attached to voice — the message stands alone, so put context in a follow-up text message if needed.
 
 ```
 you    summarise yesterday's incidents and read it back as voice

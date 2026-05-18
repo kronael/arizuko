@@ -228,7 +228,7 @@ permission_mode?, mcp_config?, session_id?, resume?}`. Default cwd
 When ant runs `<folder> --mcp`, the folder's contents shape every
 session created on the socket:
 
-- `SOUL.md` + `CLAUDE.md` are injected as the system prompt
+- `PERSONA.md` + `CLAUDE.md` are injected as the system prompt
 - `skills/` is mounted at `<cwd>/.claude/skills/`
 - `diary/` is mounted at `<cwd>/.claude/diary/`
 - `secrets/` is read at startup; entries become env vars on the

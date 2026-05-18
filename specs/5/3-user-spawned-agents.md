@@ -76,7 +76,7 @@ agent resource lives on `gated`. Seven endpoints:
 }
 ```
 
-Shape mirrors `PRODUCT.md` + `SOUL.md` + `tasks.toml` so
+Shape mirrors `PRODUCT.md` + `PERSONA.md` + `tasks.toml` so
 `container.SetupGroup` accepts either source. Channel `chat_id` must
 reference a platform adapter the operator already runs.
 

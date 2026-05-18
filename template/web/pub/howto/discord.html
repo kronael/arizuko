@@ -173,6 +173,7 @@ target: main   &lt;-- catch-all for other channels</code></pre>
 10   platform=discord room=guild/* verb=mention  main
 20   platform=discord room=guild/*               main#observe</code></pre>
     <p>Row 10 fires the agent on mentions and bot replies. Row 20 stores every other guild message under <code>main</code> so the agent has full thread context the next time it runs, but no turn is invoked. DMs are unaffected — add a separate route for them.</p>
+    <p>One thing to expect: after the agent replies in a channel thread, that <code>(channel, thread)</code> is <a href="/pub/concepts/engagement.html">engaged</a> for 10 minutes. Subsequent messages in the same thread fire turns even without another @mention, even though row 20 says <code>#observe</code>. This is intentional — silencing a mid-conversation thread would be worse than the noise-reduction intent of the route. The window expires after 10 minutes of quiet.</p>
     <p>See <a href="/pub/concepts/routing.html#modes">routing modes</a> for the full fragment vocabulary.</p>
 
     <h2>threads</h2>

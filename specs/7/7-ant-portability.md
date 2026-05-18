@@ -67,8 +67,8 @@ lockfile itself, separate from per-layer schema versions).
   "base_template": {
     "source":   "git+https://github.com/arizuko/templates@v1.2#customer-support",
     "version":  "1.2.0",
-    "owns":     ["SOUL.md", "CLAUDE.md", "MCP.json"],
-    "hashes":   {"SOUL.md": "sha256:…", "CLAUDE.md": "sha256:…", "MCP.json": "sha256:…"},
+    "owns":     ["PERSONA.md", "CLAUDE.md", "MCP.json"],
+    "hashes":   {"PERSONA.md": "sha256:…", "CLAUDE.md": "sha256:…", "MCP.json": "sha256:…"},
     "applied_migrations": ["V1.0.0__V1.1.0", "V1.1.0__V1.2.0"]
   },
 
@@ -223,7 +223,7 @@ agent-name.arzpack/
 │                            # absolute paths in workspace/ and
 │                            # MCP.json (rewritten relative or marked
 │                            # templated)
-│   ├── SOUL.md
+│   ├── PERSONA.md
 │   ├── CLAUDE.md
 │   ├── MCP.json            # ${VAR} placeholders preserved
 │   ├── skills/

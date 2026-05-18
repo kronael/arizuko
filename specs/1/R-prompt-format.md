@@ -24,7 +24,7 @@ Stdin/stdout contract between `gated` and the in-container agent
 | `messageId`     | string?  | Triggering message ID                 |
 | `grants`        | string[] | Authorization rules                   |
 | `sender`        | string?  | Message sender                        |
-| `soul`          | string?  | SOUL.md content for persona           |
+| `soul`          | string?  | PERSONA.md content for persona        |
 | `systemMd`      | string?  | SYSTEM.md full system prompt override |
 
 ## Prompt assembly order
@@ -67,9 +67,9 @@ Per-turn results return over the gated MCP unix socket via the
 One `submit_turn` per turn. `<internal>` tags in `result` stripped
 before sending.
 
-## SOUL.md and SYSTEM.md Injection
+## PERSONA.md and SYSTEM.md Injection
 
-If `SOUL.md` exists in the group folder, its content is passed as the
+If `PERSONA.md` exists in the group folder, its content is passed as the
 `soul` field. Agents should read and embody this persona.
 
 If `SYSTEM.md` exists in the group folder, its content replaces the

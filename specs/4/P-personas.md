@@ -41,7 +41,7 @@ steps inside the migration `.md`.
 
 - `ant/CLAUDE.md` seeded to `~/.claude/CLAUDE.md`
 - `ant/skills/` seeded to `~/.claude/skills/`
-- Group folder: `SOUL.md`, `CLAUDE.md`, `facts/`
+- Group folder: `PERSONA.md`, `CLAUDE.md`, `facts/`
 - Tier 2/3: ro mounts over inherited files
 
 Products (`R-products.md`) deliver curated persona + skill bundles

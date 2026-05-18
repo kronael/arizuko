@@ -51,7 +51,7 @@ bot    ...
 ```
 
 If `~/BRANDING.md` is absent: fall back to the generic template. Read
-`~/SOUL.md` if present for a tagline + persona snippet (legacy path),
+`~/PERSONA.md` if present for a tagline + persona snippet (legacy path),
 otherwise render the template as-is. Do not invoke `/soul`.
 
 ## 2 — Read the content + style specs
