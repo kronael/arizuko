@@ -273,6 +273,13 @@ and `routed_to` capture audit metadata. Spec: `specs/3/c-audit-log.md`.
 
 ## Container Lifecycle
 
+One container per group, long-lived across turns. The group folder
+mounts at `/home/node/` so conversation state, diary, skills, and the
+Claude Code session jsonl persist between invocations. Sibling groups
+get their own containers on their own networks with their own DB
+views — the cross-tenant boundary is the container, not the turn.
+Threat model + isolated axes in `SECURITY.md` § Model.
+
 1. `container.EnsureRunning()` — verify docker
 2. `container.CleanupOrphans()` — stop stale `arizuko-*`
 3. `container.Run()`:

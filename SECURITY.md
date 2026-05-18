@@ -16,6 +16,49 @@ Three isolation axes:
 3. **Daemon isolation** — adapters reach gated only over the internal
    docker network with a shared `CHANNEL_SECRET` bearer token.
 
+### The group is the tenant boundary
+
+The isolation unit in arizuko is the **group**, not the turn. Each
+group runs in its own Docker container with its own filesystem, its
+own network namespace, its own DB view, and its own egress allowlist.
+`solo/inbox` and `corp/eng` cannot see each other's files, sockets,
+network state, or messages — and this is structural, enforced by
+docker + bind mounts + MCP folder scoping, not by policy inside the
+agent.
+
+What's isolated per group:
+
+- **Filesystem** — only `groups/<folder>/` mounts at `/home/node/`;
+  `groupfolder.Resolver` rejects `..` and reserved paths
+  (`groupfolder/folder.go`, `container/runner.go` `buildMounts`).
+- **Network namespace** — agent container attaches to a Docker
+  `internal: true` network with no default route; egress passes
+  through `crackbox` against the per-folder allowlist
+  (`container/egress.go`, `crackbox/`).
+- **DB view** — the MCP socket at `ipc/<folder>/gated.sock` carries
+  the group's identity (`SO_PEERCRED` + socket-path tier); every
+  tool call resolves through `auth.Authorize` against that folder,
+  not the caller's claim (`ipc/ipc.go`, `auth/middleware.go`).
+- **Secrets** — only folder-scoped secrets reach the container env;
+  per-user tokens stay on the host and resolve at tool-call time
+  through the broker (`container/runner.go` `resolveSpawnEnv`,
+  spec 9/11).
+
+The threat the model defends against is a malicious agent in group A
+trying to reach group B's data, files, or network. Separate containers
+on separate networks with separate DB views close that path
+structurally. The agent runs with `bypassPermissions` inside its own
+container by design — the boundary is the mount set and the network
+namespace, not what the agent decides to do with its shell.
+
+Per-turn (or per-spawn) container freshness solves a different
+problem: a compromised turn affecting the next turn in the **same**
+group. arizuko's group containers are long-lived precisely because
+the conversation state, diary, skills, and session jsonl live in
+`/home/node/` and need to persist across turns. Per-turn isolation
+would destroy that context; per-group isolation is what makes the
+cross-tenant threat go away.
+
 ## Boundaries
 
 | Boundary             | Mechanism                                                                                                                        | Location                                                                                          |
