@@ -105,9 +105,8 @@ func (g *Gateway) logCost(folder, userSub, model string, u ipc.ModelUsage) error
 }
 
 // recordTurnCost writes one cost_log row per model when usage was reported.
-// Empty Models is a no-op (ant versions before the cost-caps cutover).
-// Costs are SDK-provided; we treat them as authoritative for v1 and
-// re-aggregate at read time.
+// Empty Models is a no-op. Costs are SDK-provided; we treat them as
+// authoritative for v1 and re-aggregate at read time.
 func (g *Gateway) recordTurnCost(folder, callerSub string, models map[string]ipc.ModelUsage) {
 	for model, u := range models {
 		if err := g.logCost(folder, callerSub, model, u); err != nil {
