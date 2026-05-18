@@ -1,5 +1,5 @@
 ---
-status: spec
+status: shipped
 depends: [B-route-mode-ingestion, F-topic-lineage, L-reply-to-bot-verb]
 relates-to: [3/Y-thread-routing, 5/Y-output-styles-per-surface]
 ---
