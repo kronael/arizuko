@@ -245,17 +245,17 @@ grep GITHUB_TOKEN` is empty.
 
 ## Implementation plan
 
-| M   | Work                                                                             | LOC  |
-| --- | -------------------------------------------------------------------------------- | ---- |
-| M0  | `ipc.registerWithSecrets`; `MCPTool.RequiresSecrets []string`                    | ~30  |
-| M1  | `gateway/secrets_broker.go`: `user`∥`folder` resolve, pass `map[string]string`   | ~80  |
-| M2  | `store/audit.go`: `LogSecretUse` + `0048-secret-use-log.sql`                     | ~40  |
-| M3  | `dashd/me_secrets.go`: GET/POST/PATCH/DELETE + CSRF                              | ~150 |
-| M4  | `cmd/arizuko/secret.go` + `user_secret.go`: operator CLI                         | ~100 |
-| M5  | Drop user-overlay from `container/runner.go`; remove `WireEntry.Secrets`         | ~50  |
-| M6  | Connector path: `mcp_connector` TOML, per-call subprocess spawner, env injection | ~200 |
-| M7  | First connector lands: github-mcp-server. PAT-only; user pastes at M3 surface    | ~30  |
-| M8  | Release: CHANGELOG, migration, version bump                                      | —    |
+| M   | Work                                                                                          | LOC  |
+| --- | --------------------------------------------------------------------------------------------- | ---- |
+| M0  | `ipc.registerWithSecrets`; `MCPTool.RequiresSecrets []string`                                 | ~30  |
+| M1  | `gateway/secrets_broker.go`: `user`∥`folder` resolve, pass `map[string]string`                | ~80  |
+| M2  | `store/audit.go`: `LogSecretUse` + `0048-secret-use-log.sql`                                  | ~40  |
+| M3  | `dashd/me_secrets.go`: GET/POST/PATCH/DELETE + CSRF                                           | ~150 |
+| M4  | `cmd/arizuko/secret.go` + `user_secret.go`: operator CLI                                      | ~100 |
+| M5✓ | Drop folder/user secret merge from `container/runner.go`; broker is the sole runtime resolver | ~50  |
+| M6  | Connector path: `mcp_connector` TOML, per-call subprocess spawner, env injection              | ~200 |
+| M7  | First connector lands: github-mcp-server. PAT-only; user pastes at M3 surface                 | ~30  |
+| M8  | Release: CHANGELOG, migration, version bump                                                   | —    |
 
 No proxy changes. No CA. No TLS termination. No
 `crackbox/pkg/proxy/mitm.go`. `WireEntry.Secrets` in
