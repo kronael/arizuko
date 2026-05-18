@@ -561,3 +561,58 @@ func TestSlinkPost_BadToken(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 }
+
+// POST with empty content → 400 "content required".
+func TestSlinkPost_EmptyContent(t *testing.T) {
+	s, _, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	req := httptest.NewRequest("POST", "/slink/"+g.SlinkToken,
+		strings.NewReader("content=   &topic=t-empty"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("token", g.SlinkToken)
+	w := httptest.NewRecorder()
+	s.handleSlinkPost(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "content required") {
+		t.Errorf("body = %q, want 'content required'", w.Body.String())
+	}
+}
+
+// POST with topic too long → 400 "topic too long".
+func TestSlinkPost_TopicTooLong(t *testing.T) {
+	s, _, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	longTopic := strings.Repeat("x", maxTopicLen+1)
+	body := "content=hello&topic=" + longTopic
+	req := httptest.NewRequest("POST", "/slink/"+g.SlinkToken, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("token", g.SlinkToken)
+	w := httptest.NewRecorder()
+	s.handleSlinkPost(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "topic too long") {
+		t.Errorf("body = %q, want 'topic too long'", w.Body.String())
+	}
+}
+
+// POST with Content-Type: application/json and malformed JSON → 400.
+func TestSlinkPost_MalformedJSON(t *testing.T) {
+	s, _, st := newTestServer(t)
+	g := seedGroup(t, st, "main", "Main")
+
+	req := httptest.NewRequest("POST", "/slink/"+g.SlinkToken,
+		strings.NewReader(`{not valid json`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("token", g.SlinkToken)
+	w := httptest.NewRecorder()
+	s.handleSlinkPost(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
