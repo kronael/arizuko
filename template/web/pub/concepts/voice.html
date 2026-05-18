@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>voice</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -19,7 +19,7 @@
 <body>
   <div class="hub-container prose">
     <h1>voice</h1>
-    <p class="dim back">concepts / voice &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">concepts / voice &middot; <a href="../concepts/">&larr; concepts</a></p>
 
     <p class="lede">Voice in: a user sends an audio note, Whisper turns it into text before the agent reads anything. Voice out: the agent calls <code>send_voice</code>, the TTS daemon turns text into an ogg file, and the chat platform delivers it as a real voice note.</p>
 
@@ -56,9 +56,9 @@
     <p>If <code>ttsd</code> is down, its <code>/health</code> returns 503 and <code>gated</code> flips <code>TTS_ENABLED=false</code> for that turn. <code>send_voice</code> returns <code>chanlib.ErrUnsupported</code>; the agent&rsquo;s wrapper sees that and falls back to a plain text <code>send</code>. The user gets a text reply instead of silence.</p>
 
     <h2>go deeper</h2>
-    <p>Canonical spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/T-voice-synthesis.md">specs/5/T-voice-synthesis.md</a>. The <code>voice:</code> frontmatter that pins a per-agent voice lives in <code>PERSONA.md</code> &mdash; see <a href="/pub/concepts/ant.html">ant</a> for the folder layout. For how the JIDs in <code>send_voice(chatJid, &hellip;)</code> are shaped, see <a href="/pub/concepts/jid.html">jid</a>.</p>
+    <p>Canonical spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/T-voice-synthesis.md">specs/5/T-voice-synthesis.md</a>. The <code>voice:</code> frontmatter that pins a per-agent voice lives in <code>PERSONA.md</code> &mdash; see <a href="../concepts/ant.html">ant</a> for the folder layout. For how the JIDs in <code>send_voice(chatJid, &hellip;)</code> are shaped, see <a href="../concepts/jid.html">jid</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

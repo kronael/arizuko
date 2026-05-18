@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko &middot; reference &middot; CLI commands</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -30,7 +30,7 @@
 <body>
   <div class="hub-container prose">
     <h1>CLI commands</h1>
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; CLI commands</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../reference/">reference</a> &rsaquo; CLI commands</p>
 
     <p class="lede">Every subcommand of the <code>arizuko</code> binary, grouped by concern. Each entry shows the exact signature, the flags <code>flag.NewFlagSet</code> registers, what state changes where, and a source link pointing at the dispatch site. Ground truth is <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a>; the dispatch map sits at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L54"><code>main.go:54</code></a>.</p>
 
@@ -140,7 +140,7 @@ arizuko group krons add "discord:guild/123/456" eng --product developer</code></
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L313"><code>cmd/arizuko/main.go:313</code></a></p>
 
     <h3 id="group-grant"><span class="sig">arizuko group &lt;instance&gt; grant &lt;sub&gt; &lt;pattern&gt;</span></h3>
-    <p>Authorize <code>sub</code> on a scope. The literal pattern <code>**</code> writes <code>acl_membership(sub, role:operator)</code> (the operator role's permissions live on the role, not duplicated per user); any other pattern writes an <code>acl(principal=sub, action=admin, scope=pattern, effect=allow)</code> row. Idempotent. See <a href="/pub/reference/grants.html">grants reference</a> for syntax.</p>
+    <p>Authorize <code>sub</code> on a scope. The literal pattern <code>**</code> writes <code>acl_membership(sub, role:operator)</code> (the operator role's permissions live on the role, not duplicated per user); any other pattern writes an <code>acl(principal=sub, action=admin, scope=pattern, effect=allow)</code> row. Idempotent. See <a href="../reference/grants.html">grants reference</a> for syntax.</p>
     <p><strong>State touched:</strong> <code>acl_membership</code> (for <code>**</code>) or <code>acl</code> table.</p>
     <pre><code>arizuko group krons grant google:alice@example.com 'solo/**'
 arizuko group krons grant telegram:42 'corp/eng/sre'
@@ -356,14 +356,14 @@ arizuko secret krons set main OPENAI_API_KEY --value sk-xxxxxxxx</code></pre>
 
     <h2 class="group-h2">See also</h2>
     <ul>
-      <li><a href="/pub/reference/">reference index</a></li>
-      <li><a href="/pub/reference/env.html">env vars</a> &mdash; what the daemons themselves read</li>
-      <li><a href="/pub/reference/mcp.html">MCP tools</a> &mdash; the in-container surface the agent calls (often pairs with these CLI verbs)</li>
-      <li><a href="/pub/reference/grants.html">grants syntax</a> &mdash; pattern language used by <code>group grant</code> and <code>invite create</code></li>
+      <li><a href="../reference/">reference index</a></li>
+      <li><a href="../reference/env.html">env vars</a> &mdash; what the daemons themselves read</li>
+      <li><a href="../reference/mcp.html">MCP tools</a> &mdash; the in-container surface the agent calls (often pairs with these CLI verbs)</li>
+      <li><a href="../reference/grants.html">grants syntax</a> &mdash; pattern language used by <code>group grant</code> and <code>invite create</code></li>
       <li><a href="https://github.com/kronael/arizuko/tree/main/cmd/arizuko"><code>cmd/arizuko/</code></a> &mdash; source of truth</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

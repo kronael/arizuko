@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko &middot; jid</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -22,7 +22,7 @@
 <body>
   <div class="hub-container prose">
     <h1>jid</h1>
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; jid</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../reference/">reference</a> &rsaquo; jid</p>
 
     <p class="lede">Every chat and every sender is a JID: a typed URI of the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. The first segment of <code>&lt;rest&gt;</code> is a kind discriminator. Built on <code>net/url</code> for free RFC&nbsp;3986 compliance + percent-encoding; matched with <code>path.Match</code> glob semantics across all routing keys.</p>
 
@@ -88,7 +88,7 @@ type UserJID struct{ JID }       // a user identity resource</code></pre>
     </table>
 
     <p class="meta"><strong>Discord placeholder.</strong> Legacy rows with no stored guild_id migrated to <code>discord:_/&lt;channel&gt;</code> (placeholder kind). New inbound from <code>discd</code> carries the real guild ID. See <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0042-typed-jids.sql#L107"><code>0042-typed-jids.sql:107</code></a>.</p>
-    <p class="meta"><strong>Web is folder-keyed.</strong> The chat JID is the folder (with optional <code>/&lt;suffix&gt;</code>); the URL token is a separate row in <code>route_tokens</code> that maps to this JID. See <a href="/pub/concepts/tokens.html">route tokens</a> and <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md">spec 5/W</a>.</p>
+    <p class="meta"><strong>Web is folder-keyed.</strong> The chat JID is the folder (with optional <code>/&lt;suffix&gt;</code>); the URL token is a separate row in <code>route_tokens</code> that maps to this JID. See <a href="../concepts/tokens.html">route tokens</a> and <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md">spec 5/W</a>.</p>
 
     <h2>4. Routing &amp; glob matching</h2>
 
@@ -153,7 +153,7 @@ match='verb=' is the negation: only verb-less (default 'message') rows</code></p
 
     <h2>6. Globs in grant rules</h2>
 
-    <p>The same <code>jid=&lt;glob&gt;</code> syntax appears in grant rules (<a href="/pub/reference/grants.html">grants reference</a>). The matcher there is <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L73"><code>grants.matchGlob</code></a> with <code>isValueDelim</code> stopping <code>*</code> at <code>,</code> or <code>)</code> &mdash; not at <code>/</code>. That's a deliberate difference: grant param globs span the whole JID, route globs are segment-aware.</p>
+    <p>The same <code>jid=&lt;glob&gt;</code> syntax appears in grant rules (<a href="../reference/grants.html">grants reference</a>). The matcher there is <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L73"><code>grants.matchGlob</code></a> with <code>isValueDelim</code> stopping <code>*</code> at <code>,</code> or <code>)</code> &mdash; not at <code>/</code>. That's a deliberate difference: grant param globs span the whole JID, route globs are segment-aware.</p>
 
     <pre><code>send(jid=telegram:group/*)     # rule: only telegram groups (grants matcher: * spans /)
 match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * doesn't cross /)</code></pre>
@@ -206,11 +206,11 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
       <li><a href="https://github.com/kronael/arizuko/blob/main/core/jid_test.go"><code>core/jid_test.go</code></a> &mdash; full happy-path and rejection test cases</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/router/router.go"><code>router/router.go</code></a> &mdash; <code>RouteMatches</code>, <code>msgField</code>, <code>ResolveRoute</code></li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md"><code>specs/5/S-jid-format.md</code></a> &mdash; full spec, per-platform schemas, design discipline</li>
-      <li><a href="/pub/reference/grants.html">grants reference</a> &mdash; how <code>jid=&hellip;</code> appears in grant rule params</li>
-      <li><a href="/pub/reference/schema.html">schema reference</a> &mdash; every column that stores a JID</li>
+      <li><a href="../reference/grants.html">grants reference</a> &mdash; how <code>jid=&hellip;</code> appears in grant rule params</li>
+      <li><a href="../reference/schema.html">schema reference</a> &mdash; every column that stores a JID</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

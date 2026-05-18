@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>crackbox</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 <body>
   <div class="hub-container prose">
     <h1>crackbox</h1>
-    <p class="dim back">a sandbox proxy for untrusted code &middot; <a href="/pub/">&larr; hub</a></p>
+    <p class="dim back">a sandbox proxy for untrusted code &middot; <a href="../">&larr; hub</a></p>
 
     <p class="lede">Run an AI agent, a CI script, or any other untrusted command with a tight allowlist of hosts it can reach. Everything else is silently blocked.</p>
 
@@ -49,9 +49,9 @@ crackbox run --image python:3 --allow pypi.org,files.pythonhosted.org -- pip ins
 
     <h2>where do I start</h2>
     <p>For one-off runs, <code>crackbox run --allow X -- &lt;cmd&gt;</code> is the whole interface. It spins up a private Docker network, runs the proxy on it, runs your workload, tears everything down on exit.</p>
-    <p>For service deployments where short-lived workloads come and go, run the proxy as a long-lived daemon and register each workload with it as it starts. The <a href="/pub/crackbox/reference/">reference</a> covers the daemon, admin API, config file, env vars, and threat model.</p>
+    <p>For service deployments where short-lived workloads come and go, run the proxy as a long-lived daemon and register each workload with it as it starts. The <a href="../crackbox/reference/">reference</a> covers the daemon, admin API, config file, env vars, and threat model.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

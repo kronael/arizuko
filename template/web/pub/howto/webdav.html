@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>mount the workspace over WebDAV &mdash; arizuko</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p  { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -33,7 +33,7 @@
 <body>
   <div class="hub-container prose">
     <h1>mount the workspace over WebDAV</h1>
-    <p class="dim back"><a href="/pub/">&larr; arizuko</a> &middot; <a href="/pub/howto/">&larr; how-to</a> &middot; webdav</p>
+    <p class="dim back"><a href="../">&larr; arizuko</a> &middot; <a href="../howto/">&larr; how-to</a> &middot; webdav</p>
 
     <p class="lede">Every arizuko group folder is exposed as WebDAV at <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>. Any WebDAV client (Finder, Windows Explorer, rclone, davfs2, curl) sees the same files the agent reads and writes.</p>
 
@@ -90,7 +90,7 @@ curl -s -o /dev/null -w '%{http_code}\n' \
     <div class="warn"><strong>Bearer tokens are passwords.</strong> Treat them as such. Anyone who holds your token can read every group you have a grant on. Revoke at <code>/dash/profile</code> if you suspect a leak.</div>
 
     <h2>per-group access</h2>
-    <p>Authentication tells <code>proxyd</code> who you are; <a href="/pub/concepts/grants.html">grants</a> tell it which group folders you may touch. Grants are stored as <code>acl</code> rows (with <code>role:operator</code> membership in <code>acl_membership</code> for the operator) and resolved at request time:</p>
+    <p>Authentication tells <code>proxyd</code> who you are; <a href="../concepts/grants.html">grants</a> tell it which group folders you may touch. Grants are stored as <code>acl</code> rows (with <code>role:operator</code> membership in <code>acl_membership</code> for the operator) and resolved at request time:</p>
     <ul>
       <li><strong>Operator</strong> &mdash; any user in <code>acl_membership(sub, role:operator)</code> sees <em>every</em> group on the instance. <code>/dav/</code> redirects them to the first non-operator group in sorted order (deterministic across requests); they can reach any other group by typing its path directly.</li>
       <li><strong>Regular user</strong> &mdash; sees only the groups for which a matching <code>acl</code> row authorizes access. Requesting a group you have no grant on returns <code>403 Forbidden</code> (and proxyd logs <code>dav forbidden</code> with your sub and the path).</li>
@@ -219,12 +219,12 @@ curl -X PUT --data-binary @./notes.md \
     <ul>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/M-webdav.md">specs/5/M-webdav.md</a> &mdash; routing, auth, write-block rules, config flags.</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/davd/README.md">davd/README.md</a> &mdash; the daemon (a thin wrap of <code>sigoden/dufs</code>).</li>
-      <li><a href="/pub/concepts/webdav.html">concepts / webdav</a> &mdash; one-page overview of the same surface.</li>
-      <li><a href="/pub/concepts/auth.html">concepts / auth</a> &mdash; where the Bearer token comes from.</li>
-      <li><a href="/pub/concepts/grants.html">concepts / grants</a> &mdash; per-group scoping.</li>
+      <li><a href="../concepts/webdav.html">concepts / webdav</a> &mdash; one-page overview of the same surface.</li>
+      <li><a href="../concepts/auth.html">concepts / auth</a> &mdash; where the Bearer token comes from.</li>
+      <li><a href="../concepts/grants.html">concepts / grants</a> &mdash; per-group scoping.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

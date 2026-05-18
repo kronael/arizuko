@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko &middot; security</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -19,7 +19,7 @@
 <body>
   <div class="hub-container prose">
     <h1>security</h1>
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; security</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; security</p>
 
     <p class="lede">arizuko treats every agent run as untrusted code. Four enforcement layers stand between the model and the network: per-group egress allowlist at an HTTP/HTTPS proxy, a tool-level broker so per-user secrets never enter the container, a DNS resolver that returns NXDOMAIN for anything off the allowlist, and OAuth-gated identity headers at the edge.</p>
 
@@ -32,7 +32,7 @@
     <p>Every agent container attaches to a per-group Docker network created with <code>internal: true</code> &mdash; no default route to the internet. The only path out is the <code>crackbox</code> forward proxy, set as <code>HTTPS_PROXY</code> in the container's environment at spawn. Non-cooperating clients fail closed: a process that ignores <code>HTTPS_PROXY</code> finds the network unrouted.</p>
     <p>Connections to non-allowlisted hosts are denied silently at the proxy. Connections to allowlisted hosts are CONNECT-tunneled (HTTPS) or forwarded (HTTP). The default seed is <code>anthropic.com</code> and <code>api.anthropic.com</code> (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0037-network-rules.sql"><code>store/migrations/0037-network-rules.sql</code></a>). Operators extend per folder:</p>
     <pre><code>arizuko network &lt;instance&gt; allow &lt;folder&gt; api.github.com</code></pre>
-    <p>Allowlist resolution walks the folder ancestry and dedupes (<a href="https://github.com/kronael/arizuko/blob/main/store/network.go"><code>store/network.go</code> <code>ResolveAllowlist</code></a>). The proxy itself, packaging, and CLI live in the <a href="/pub/crackbox/">crackbox component page</a>; the same daemon ships standalone for non-arizuko uses (CI scripts, vendor binaries).</p>
+    <p>Allowlist resolution walks the folder ancestry and dedupes (<a href="https://github.com/kronael/arizuko/blob/main/store/network.go"><code>store/network.go</code> <code>ResolveAllowlist</code></a>). The proxy itself, packaging, and CLI live in the <a href="../crackbox/">crackbox component page</a>; the same daemon ships standalone for non-arizuko uses (CI scripts, vendor binaries).</p>
 
     <h2>3. Secrets never enter the container</h2>
     <p>The destination model: per-user API tokens (GitHub, Jira, OpenAI&hellip;) reach external APIs only via MCP tool handlers running on the host. The agent invokes a tool by name; the broker resolves the keys the tool declares it needs, passes them as Go args into the handler, and the handler makes the outbound HTTP. The container sees only the handler's response (<a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md"><code>specs/9/11-crackbox-secrets.md</code></a>).</p>
@@ -82,7 +82,7 @@ X-User-Sig:    &lt;HMAC over the above + timestamp&gt;</code></pre>
 
     <h2>8. Dig deeper</h2>
     <ul>
-      <li><a href="/pub/crackbox/">crackbox</a> &mdash; sandbox internals, standalone usage, threat model for the proxy itself</li>
+      <li><a href="../crackbox/">crackbox</a> &mdash; sandbox internals, standalone usage, threat model for the proxy itself</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md"><code>SECURITY.md</code></a> &mdash; full trust model, boundary table, identity-header signing, trust-zone diagram, incident log</li>
       <li><a href="https://github.com/kronael/arizuko/tree/main/specs/9"><code>specs/9/</code></a> &mdash; security spec bucket: standalone crackbox (9), arizuko integration (10), tool-level secret broker (11), sandboxing options (12), DNS filter (15)</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/2-proxyd-standalone.md"><code>specs/6/2-proxyd-standalone.md</code></a> &mdash; per-route auth modes, federated platform API</li>
@@ -91,6 +91,6 @@ X-User-Sig:    &lt;HMAC over the above + timestamp&gt;</code></pre>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

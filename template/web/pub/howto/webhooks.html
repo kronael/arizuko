@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>wire webhooks into arizuko — arizuko</title>
-    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <link rel="stylesheet" href="../assets/hub.css" />
     <style>
       .prose p { margin: 0.6em 0; }
       .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -28,14 +28,14 @@
   <body>
     <div class="hub-container prose">
       <p class="dim back">
-        <a href="/pub/">arizuko</a> &rsaquo;
-        <a href="/pub/howto/">how-to</a> &rsaquo; webhooks
+        <a href="../">arizuko</a> &rsaquo;
+        <a href="../howto/">how-to</a> &rsaquo; webhooks
       </p>
       <h1>wire webhooks into arizuko</h1><p>
         Every SaaS with a &ldquo;POST when X happens&rdquo; knob can hand
         events to an agent. Mint a hook token, paste the URL into the
         source, the agent sees inbound messages at a <code>hook:</code>
-        JID. The primitive is <a href="/pub/concepts/tokens.html">route
+        JID. The primitive is <a href="../concepts/tokens.html">route
         tokens</a>; this page covers the operational details for the
         three sources you are most likely to wire up.
       </p>
@@ -163,7 +163,7 @@ issue_webhook("linear", jid_suffix="issues")
         Route rules can fire only on one (<code>jid=hook:acme/eng/linear/comments</code>)
         and ignore the other, or observe everything from
         <code>hook:acme/eng/linear/*</code> without firing a turn
-        (see <a href="/pub/concepts/routing.html#modes"><code>#observe</code></a>).
+        (see <a href="../concepts/routing.html#modes"><code>#observe</code></a>).
       </p>
 
       <h2>revocation</h2>
@@ -230,13 +230,13 @@ arizuko token revoke hook:acme/eng/github</code></pre>
 
       <h2>go deeper</h2>
       <ul>
-        <li><a href="/pub/concepts/tokens.html">concepts/route tokens</a> &mdash; the primitive both this page and <a href="/pub/howto/chat-link.html">chat link</a> use.</li>
-        <li><a href="/pub/howto/chat-link.html">how-to: chat link</a> &mdash; the <code>web:</code>-prefix sibling, for browser chat URLs.</li>
-        <li><a href="/pub/reference/tokens.html">reference/tokens</a> &mdash; payload shapes, env vars, full MCP and REST surface.</li>
-        <li><a href="/pub/concepts/routing.html">routing</a> &mdash; how a <code>hook:</code> JID reaches an agent and how <code>#observe</code> works.</li>
+        <li><a href="../concepts/tokens.html">concepts/route tokens</a> &mdash; the primitive both this page and <a href="../howto/chat-link.html">chat link</a> use.</li>
+        <li><a href="../howto/chat-link.html">how-to: chat link</a> &mdash; the <code>web:</code>-prefix sibling, for browser chat URLs.</li>
+        <li><a href="../reference/tokens.html">reference/tokens</a> &mdash; payload shapes, env vars, full MCP and REST surface.</li>
+        <li><a href="../concepts/routing.html">routing</a> &mdash; how a <code>hook:</code> JID reaches an agent and how <code>#observe</code> works.</li>
       </ul>
     </div>
     <button class="theme-toggle">&#127769;</button>
-    <script src="/pub/assets/hub.js"></script>
+    <script src="../assets/hub.js"></script>
   </body>
 </html>

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>concepts</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -15,34 +15,34 @@
 <body>
   <div class="hub-container prose">
     <h1>concepts</h1>
-    <p class="dim back"><a href="/pub/">&larr; arizuko</a> &middot; <a href="/pub/howto/">getting started</a></p>
+    <p class="dim back"><a href="../">&larr; arizuko</a> &middot; <a href="../howto/">getting started</a></p>
 
-    <p>One page per primitive. Each page answers three questions: what it is, why it exists, and what you need to know to use it. No setup instructions &mdash; those live in <a href="/pub/howto/">howto</a>. No exhaustive option tables &mdash; those live in <a href="/pub/reference/">reference</a>. Each concept page sends you to the matching component and reference page when you want more detail.</p>
+    <p>One page per primitive. Each page answers three questions: what it is, why it exists, and what you need to know to use it. No setup instructions &mdash; those live in <a href="../howto/">howto</a>. No exhaustive option tables &mdash; those live in <a href="../reference/">reference</a>. Each concept page sends you to the matching component and reference page when you want more detail.</p>
 
     <h2>entries</h2>
     <ul>
-      <li><a href="/pub/concepts/ant.html">ant</a> &mdash; an agent defined by a folder: persona, skills, memory, and secrets in one place.</li>
-      <li><a href="/pub/concepts/tokens.html">route tokens</a> &mdash; one table, two URL prefixes: <code>/chat/&lt;token&gt;/</code> for visitor chat, <code>/hook/&lt;token&gt;</code> for webhook ingest.</li>
-      <li><a href="/pub/concepts/jid.html">jid</a> &mdash; one typed address shape for every chat and sender across every adapter.</li>
-      <li><a href="/pub/concepts/routing.html">routing</a> &mdash; one table that maps inbound JIDs to ant folders; supports globs, reply chains, sticky topics.</li>
-      <li><a href="/pub/concepts/grants.html">grants</a> &mdash; what an agent is allowed to do, composed at spawn from tier defaults plus folder rules plus user ACL.</li>
-      <li><a href="/pub/concepts/auth.html">auth</a> &mdash; OAuth, local login, account linking; collision UX and the single canonical sub.</li>
-      <li><a href="/pub/concepts/webdav.html">webdav</a> &mdash; the per-group file workspace over WebDAV; mount it from Finder, <code>rclone</code>, or curl.</li>
-      <li><a href="/pub/concepts/voice.html">voice</a> &mdash; Whisper in, Kokoro out; the agent decides when to speak, the platform delivers a voice note.</li>
-      <li><a href="/pub/concepts/topics.html">topics</a> &mdash; threads inside one folder; fork mechanics and per-topic observed cursor.</li>
-      <li><a href="/pub/concepts/scopes.html">scopes</a> &mdash; folder hierarchy; same-level siblings observe, children stay isolated.</li>
-      <li><a href="/pub/concepts/engagement.html">engagement</a> &mdash; stay in conversation after one mention; thread-by-default on Slack.</li>
-      <li><a href="/pub/concepts/slack-pane.html">slack pane</a> &mdash; the Agents &amp; AI Apps sidebar; title, suggested prompts, pane context.</li>
-      <li><a href="/pub/concepts/tasks.html">tasks</a> &mdash; scheduled or recurring agent runs; cron, interval, or one-shot triggers.</li>
-      <li><a href="/pub/concepts/onboarding.html">onboarding</a> &mdash; how new users get in: invite tokens, admission queue, SetupGroup.</li>
-      <li><a href="/pub/concepts/skills.html">skills</a> &mdash; markdown instruction sets the agent loads on demand; built-in vs user, dispatch, migration.</li>
-      <li><a href="/pub/concepts/secrets.html">secrets</a> &mdash; folder secrets injected into the container; user secrets resolved by a host-side broker at tool-call time.</li>
-      <li><a href="/pub/concepts/personas.html">personas</a> &mdash; per-folder <code>PERSONA.md</code> with frontmatter <code>name</code>, <code>summary</code>, <code>voice</code>; strict-or-empty re-anchor.</li>
+      <li><a href="../concepts/ant.html">ant</a> &mdash; an agent defined by a folder: persona, skills, memory, and secrets in one place.</li>
+      <li><a href="../concepts/tokens.html">route tokens</a> &mdash; one table, two URL prefixes: <code>/chat/&lt;token&gt;/</code> for visitor chat, <code>/hook/&lt;token&gt;</code> for webhook ingest.</li>
+      <li><a href="../concepts/jid.html">jid</a> &mdash; one typed address shape for every chat and sender across every adapter.</li>
+      <li><a href="../concepts/routing.html">routing</a> &mdash; one table that maps inbound JIDs to ant folders; supports globs, reply chains, sticky topics.</li>
+      <li><a href="../concepts/grants.html">grants</a> &mdash; what an agent is allowed to do, composed at spawn from tier defaults plus folder rules plus user ACL.</li>
+      <li><a href="../concepts/auth.html">auth</a> &mdash; OAuth, local login, account linking; collision UX and the single canonical sub.</li>
+      <li><a href="../concepts/webdav.html">webdav</a> &mdash; the per-group file workspace over WebDAV; mount it from Finder, <code>rclone</code>, or curl.</li>
+      <li><a href="../concepts/voice.html">voice</a> &mdash; Whisper in, Kokoro out; the agent decides when to speak, the platform delivers a voice note.</li>
+      <li><a href="../concepts/topics.html">topics</a> &mdash; threads inside one folder; fork mechanics and per-topic observed cursor.</li>
+      <li><a href="../concepts/scopes.html">scopes</a> &mdash; folder hierarchy; same-level siblings observe, children stay isolated.</li>
+      <li><a href="../concepts/engagement.html">engagement</a> &mdash; stay in conversation after one mention; thread-by-default on Slack.</li>
+      <li><a href="../concepts/slack-pane.html">slack pane</a> &mdash; the Agents &amp; AI Apps sidebar; title, suggested prompts, pane context.</li>
+      <li><a href="../concepts/tasks.html">tasks</a> &mdash; scheduled or recurring agent runs; cron, interval, or one-shot triggers.</li>
+      <li><a href="../concepts/onboarding.html">onboarding</a> &mdash; how new users get in: invite tokens, admission queue, SetupGroup.</li>
+      <li><a href="../concepts/skills.html">skills</a> &mdash; markdown instruction sets the agent loads on demand; built-in vs user, dispatch, migration.</li>
+      <li><a href="../concepts/secrets.html">secrets</a> &mdash; folder secrets injected into the container; user secrets resolved by a host-side broker at tool-call time.</li>
+      <li><a href="../concepts/personas.html">personas</a> &mdash; per-folder <code>PERSONA.md</code> with frontmatter <code>name</code>, <code>summary</code>, <code>voice</code>; strict-or-empty re-anchor.</li>
     </ul>
 
     <p class="dim">more concepts as they&rsquo;re written.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

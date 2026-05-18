@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>timed &middot; component</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 </head>
 <body>
   <div class="hub-container prose">
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; timed</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; timed</p>
     <h1>timed</h1>
 
     <h2>What it is</h2>
@@ -59,7 +59,7 @@
 
     <p>Hard deps: read/write access to the same <code>messages.db</code> gated uses. No HTTP API today beyond <code>/health</code>; the <code>/v1/tasks</code> surface is planned (see <code>timed/README.md</code>).</p>
 
-    <p>Concepts: <a href="/pub/concepts/tasks.html">concepts/tasks</a> covers the row anatomy, context modes, and the five MCP tools agents use to manage tasks.</p>
+    <p>Concepts: <a href="../concepts/tasks.html">concepts/tasks</a> covers the row anatomy, context modes, and the five MCP tools agents use to manage tasks.</p>
 
     <h2>Standalone usage</h2>
     <p>Yes. timed is a plain Go binary that needs an SQLite file with the <code>scheduled_tasks</code> and <code>task_run_logs</code> tables already migrated &mdash; gated owns the schema, so spin up gated first (or copy its DB).</p>
@@ -82,17 +82,17 @@ DATABASE=/path/to/messages.db ./timed</code></pre>
       <li><code>TZ</code> &mdash; timezone used to evaluate cron expressions (default <code>UTC</code>).</li>
     </ul>
 
-    <p>Full list and defaults in <a href="/pub/reference/env.html">reference/env</a>.</p>
+    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
 
     <h2>Go deeper</h2>
     <ul>
-      <li><a href="/pub/concepts/tasks.html">concepts/tasks</a> &mdash; row anatomy, triggers, MCP tools, failure model.</li>
+      <li><a href="../concepts/tasks.html">concepts/tasks</a> &mdash; row anatomy, triggers, MCP tools, failure model.</li>
       <li><code>timed/README.md</code> &mdash; tables owned, planned <code>/v1/tasks</code> surface, token contract.</li>
       <li><code>specs/4/8-scheduler-service.md</code> &mdash; original design.</li>
-      <li><a href="/pub/components/gated.html">components/gated</a> &mdash; the router that picks up every synthetic message.</li>
+      <li><a href="../components/gated.html">components/gated</a> &mdash; the router that picks up every synthetic message.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

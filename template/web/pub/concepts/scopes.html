@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>scopes</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 <body>
   <div class="hub-container prose">
     <h1>scopes</h1>
-    <p class="dim back">folders, siblings, ambient context &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">folders, siblings, ambient context &middot; <a href="../concepts/">&larr; concepts</a></p>
 
     <p class="lede">A folder is a scope. Messages inside the folder are the folder&rsquo;s own conversation. Messages stored in a sibling folder leak in as ambient context &mdash; the agent can read them without being asked. Messages deeper in a child folder stay isolated.</p>
 
@@ -26,7 +26,7 @@
 
     <h2>same-level siblings observe each other</h2>
     <p>Two folders under the same parent see each other&rsquo;s messages as ambient <code>&lt;observed&gt;</code> context on every turn. The default sibling list is &ldquo;all folders sharing my immediate parent.&rdquo; So <code>corp/eng/sre</code> and <code>corp/eng/oncall</code> both observe traffic in the other &mdash; useful when an incident in one is relevant to the other team.</p>
-    <p>The window is bounded: see <a href="/pub/reference/env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a> and <a href="/pub/reference/env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a> for the instance default; <code>routes.observe_window_messages</code> and <code>routes.observe_window_chars</code> override per route.</p>
+    <p>The window is bounded: see <a href="../reference/env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a> and <a href="../reference/env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a> for the instance default; <code>routes.observe_window_messages</code> and <code>routes.observe_window_chars</code> override per route.</p>
     <p>Each topic in a folder tracks its own <code>sessions.observed_cursor</code>, so one topic consuming an observed message does not hide it from another topic in the same folder (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/F-topic-lineage.md">5/F</a>).</p>
 
     <h2>children are isolated</h2>
@@ -42,12 +42,12 @@
     <p>An SRE asking a question in <code>corp/eng/sre</code> sees recent oncall chatter as ambient. An incident commander running <code>corp/eng/oncall/incident-42</code> is talking only to the incident folder&rsquo;s agent &mdash; the broader oncall channel is quiet, the incident folder stays focused.</p>
 
     <h2>per-topic observed cursor</h2>
-    <p>Inside one folder, every <a href="/pub/concepts/topics.html">topic</a> tracks its own watermark over observed messages. So <code>#triage</code> and <code>#deploy</code> in the same folder both see the same ambient sidechannel; one consuming it doesn&rsquo;t hide it from the other. The cursor is per <code>(folder, topic)</code> in <code>sessions.observed_cursor</code>.</p>
+    <p>Inside one folder, every <a href="../concepts/topics.html">topic</a> tracks its own watermark over observed messages. So <code>#triage</code> and <code>#deploy</code> in the same folder both see the same ambient sidechannel; one consuming it doesn&rsquo;t hide it from the other. The cursor is per <code>(folder, topic)</code> in <code>sessions.observed_cursor</code>.</p>
 
     <h2>go deeper</h2>
-    <p>Folder hierarchy spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/F-topic-lineage.md">specs/5/F</a>. Topic lineage and the per-topic observed cursor: <a href="/pub/concepts/topics.html">topics</a>. How a message lands in a folder in the first place: <a href="/pub/concepts/routing.html">routing</a>.</p>
+    <p>Folder hierarchy spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/F-topic-lineage.md">specs/5/F</a>. Topic lineage and the per-topic observed cursor: <a href="../concepts/topics.html">topics</a>. How a message lands in a folder in the first place: <a href="../concepts/routing.html">routing</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

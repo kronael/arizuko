@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ant</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 <body>
   <div class="hub-container prose">
     <h1>ant</h1>
-    <p class="dim back">concepts / ant &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">concepts / ant &middot; <a href="../concepts/">&larr; concepts</a></p>
 
     <p class="lede">An ant is one Claude Code process running inside a Docker container. There is one ant per group, and the group&rsquo;s folder on disk IS the ant. Its memory, its skills, its persona &mdash; all files in that folder.</p>
 
@@ -50,7 +50,7 @@
       <li><strong>Stays</strong> &mdash; everything under <code>groups/&lt;folder&gt;/</code>: diary, facts, skills, the JSONL session transcripts in <code>.claude/</code>.</li>
       <li><strong>Goes</strong> &mdash; the container itself, anything written to <code>/tmp</code> inside, any process state held in RAM.</li>
     </ul>
-    <p>This is why &ldquo;just edit the folder&rdquo; works. Change <code>PERSONA.md</code> on the host (or via <a href="/pub/concepts/webdav.html">WebDAV</a>) and the next spawn picks up the new persona &mdash; no restart, no reload.</p>
+    <p>This is why &ldquo;just edit the folder&rdquo; works. Change <code>PERSONA.md</code> on the host (or via <a href="../concepts/webdav.html">WebDAV</a>) and the next spawn picks up the new persona &mdash; no restart, no reload.</p>
 
     <h2>arizuko vs standalone ant</h2>
     <p><strong>Today:</strong> every arizuko group is an ant folder. <code>arizuko chat &lt;instance&gt; [group]</code> drops you into one for interactive use. <code>gated</code> spawns containers from the same folders for inbound chat messages.</p>
@@ -59,12 +59,12 @@
     <h2>go deeper</h2>
     <ul>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/b-ant-standalone.md">specs/5/b-ant-standalone.md</a> &mdash; standalone CLI, container runtime, skill curation.</li>
-      <li><a href="/pub/concepts/tokens.html">route tokens</a> &mdash; how to reach an ant from a browser or webhook.</li>
-      <li><a href="/pub/concepts/grants.html">grants</a> &mdash; how tier turns into per-tool permissions.</li>
-      <li><a href="/pub/concepts/jid.html">jid</a> &mdash; the addresses the agent uses to send messages back out.</li>
+      <li><a href="../concepts/tokens.html">route tokens</a> &mdash; how to reach an ant from a browser or webhook.</li>
+      <li><a href="../concepts/grants.html">grants</a> &mdash; how tier turns into per-tool permissions.</li>
+      <li><a href="../concepts/jid.html">jid</a> &mdash; the addresses the agent uses to send messages back out.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

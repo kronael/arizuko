@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>webd &middot; component</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,11 +17,11 @@
 </head>
 <body>
   <div class="hub-container prose">
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; webd</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; webd</p>
     <h1>webd</h1>
 
     <h2>What it is</h2>
-    <p>webd is the web channel adapter. It registers with gated as channel <code>web</code> (JID prefix <code>web:</code>), serves the public chat widget at <code>/chat/&lt;token&gt;/</code> + the fire-and-forget webhook ingest at <code>/hook/&lt;token&gt;</code> plus the authed operator panel at <code>/panel/&lt;folder&gt;</code>, and pushes per-turn agent output to browsers over Server-Sent Events. Tokens come from the <a href="/pub/components/tokens.html">route_tokens</a> table; legacy <code>/slink/*</code> URLs 301-redirect to <code>/chat/*</code>.</p>
+    <p>webd is the web channel adapter. It registers with gated as channel <code>web</code> (JID prefix <code>web:</code>), serves the public chat widget at <code>/chat/&lt;token&gt;/</code> + the fire-and-forget webhook ingest at <code>/hook/&lt;token&gt;</code> plus the authed operator panel at <code>/panel/&lt;folder&gt;</code>, and pushes per-turn agent output to browsers over Server-Sent Events. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; legacy <code>/slink/*</code> URLs 301-redirect to <code>/chat/*</code>.</p>
 
     <p>From gated&rsquo;s point of view it is a normal channel adapter, same protocol as <code>teled</code> or <code>slakd</code>. From a browser&rsquo;s point of view it is an HTTP server with one open SSE stream per active chat.</p>
 
@@ -76,17 +76,17 @@ WEB_HOST=localhost:9001 \
       <li><code>WEB_HOST</code>, <code>ASSISTANT_NAME</code> &mdash; rendered into the chat widget and issued URLs.</li>
     </ul>
 
-    <p>Full list and defaults in <a href="/pub/reference/env.html">reference/env</a>.</p>
+    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
 
     <h2>Go deeper</h2>
     <ul>
       <li><code>webd/README.md</code> &mdash; full HTTP surface, token contract, planned <code>/v1/*</code> routes.</li>
-      <li><a href="/pub/components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook URLs webd hosts.</li>
-      <li><a href="/pub/components/gated.html">components/gated</a> &mdash; the backend webd talks to.</li>
+      <li><a href="../components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook URLs webd hosts.</li>
+      <li><a href="../components/gated.html">components/gated</a> &mdash; the backend webd talks to.</li>
       <li><code>specs/5/J-sse.md</code> &mdash; SSE streams and the chat-MCP transport.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

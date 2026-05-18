@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>autoviv</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -23,7 +23,7 @@
 <body>
   <div class="hub-container prose">
     <h1>autoviv</h1>
-    <p class="dim back">new chats get their own folder, without operator intervention &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">new chats get their own folder, without operator intervention &middot; <a href="../concepts/">&larr; concepts</a></p>
 
     <p class="lede">Autoviv is the pattern by which a tier-1 agent registers a child folder the first time a new chat (a Slack channel, a Discord guild, a Telegram group) talks to it. No daemon, no env var, no magic &mdash; just a catch-all route and one MCP tool call.</p>
 
@@ -50,7 +50,7 @@
     </ul>
 
     <h2>why no special env var or daemon</h2>
-    <p>Autoviv is not a feature; it is the absence of a feature. The pieces already exist: <a href="/pub/concepts/routing.html">glob route matching</a>, the <code>register_group</code> MCP tool, group seeding via <code>SetupGroup</code>, the <a href="/pub/reference/grants.html">operator grant</a>. An operator who wants per-channel folders writes a catch-all route and a paragraph in the tier-1 agent&rsquo;s CLAUDE.md. An operator who prefers to register each channel by hand omits both. Same code path either way.</p>
+    <p>Autoviv is not a feature; it is the absence of a feature. The pieces already exist: <a href="../concepts/routing.html">glob route matching</a>, the <code>register_group</code> MCP tool, group seeding via <code>SetupGroup</code>, the <a href="../reference/grants.html">operator grant</a>. An operator who wants per-channel folders writes a catch-all route and a paragraph in the tier-1 agent&rsquo;s CLAUDE.md. An operator who prefers to register each channel by hand omits both. Same code path either way.</p>
 
     <h2>what your tier-1 agent needs to know</h2>
     <p>Paste a paragraph like this into the tier-1 agent&rsquo;s <code>CLAUDE.md</code> or PERSONA.md:</p>
@@ -75,9 +75,9 @@ senders &mdash; ask the operator instead.</code></pre>
     </ul>
 
     <h2>go deeper</h2>
-    <p>Route tables, glob matching, and <code>#observe</code> mode: <a href="/pub/concepts/routing.html">routing</a>. Operator grant and tier rules: <a href="/pub/reference/grants.html">grants reference</a>. Full <code>register_group</code> signature and other MCP tools: <a href="/pub/reference/mcp.html#register_group">mcp reference</a>.</p>
+    <p>Route tables, glob matching, and <code>#observe</code> mode: <a href="../concepts/routing.html">routing</a>. Operator grant and tier rules: <a href="../reference/grants.html">grants reference</a>. Full <code>register_group</code> signature and other MCP tools: <a href="../reference/mcp.html#register_group">mcp reference</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

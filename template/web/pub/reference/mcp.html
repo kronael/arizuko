@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko &middot; MCP tools reference</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -38,7 +38,7 @@
 <body>
   <div class="hub-container prose">
     <h1>MCP tools reference</h1>
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; MCP tools</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../reference/">reference</a> &rsaquo; MCP tools</p>
 
     <p class="lede">Every Model Context Protocol tool the arizuko platform registers on a per-group unix socket. Generated from <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go"><code>ipc/ipc.go</code></a> and <a href="https://github.com/kronael/arizuko/blob/main/ipc/inspect.go"><code>ipc/inspect.go</code></a>. The tool set a given session sees is filtered by <code>grants.MatchingRules</code> against the group's rule list &mdash; tools whose name doesn't match any rule are not registered. A handful of tools also gate registration on tier (e.g. <code>list_acl</code> is tier 0&ndash;1; <code>set_web_host</code> is tier 0 only).</p>
 
@@ -364,7 +364,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"registered": true, "folder": "&lt;f&gt;", "jid": "&lt;jid&gt;"}</code>; <code>SetupGroup</code> seeds skills/settings/tasks.</p>
 
     <h3 id="set_group_open"><code>set_group_open</code> <span class="tier">tier 0&ndash;1</span></h3>
-    <p>Toggle this group's visibility to sibling folders. When <code>open=true</code>, sibling folders' ambient messages surface in this group's <code>&lt;observed&gt;</code> block (and this group's messages surface to open siblings). Default: open. Use to seal off a sensitive folder from cross-folder ambient context. Spec: 6/F. Concept: <a href="/pub/concepts/scopes.html">scopes</a>.</p>
+    <p>Toggle this group's visibility to sibling folders. When <code>open=true</code>, sibling folders' ambient messages surface in this group's <code>&lt;observed&gt;</code> block (and this group's messages surface to open siblings). Default: open. Use to seal off a sensitive folder from cross-folder ambient context. Spec: 6/F. Concept: <a href="../concepts/scopes.html">scopes</a>.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1252"><code>ipc/ipc.go:1252</code></a> &middot; Grant action: <code>set_group_open</code> &middot; <code>auth.AuthorizeStructural</code> on the calling folder.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -421,7 +421,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"folder", "parent_topic", "child_topic"}</code>. Error <code>"topic_exists"</code> when child exists and <code>force=false</code>.</p>
 
     <h3 id="pane_set_prompts"><code>pane_set_prompts</code></h3>
-    <p>Slack only &mdash; stage suggested-prompt buttons shown at the bottom of the assistant pane after your next reply lands. Fire-and-forget; the buttons appear once and persist until your next call. Use after a reply when you can anticipate the user&rsquo;s likely follow-ups (e.g. &ldquo;dig deeper&rdquo;, &ldquo;summarise&rdquo;, &ldquo;export&rdquo;). 3-4 prompts is the visible cap. Adapters without pane semantics return <code>chanlib.ErrUnsupported</code>. Spec: 6/D. Concept: <a href="/pub/concepts/slack-pane.html">slack pane</a>.</p>
+    <p>Slack only &mdash; stage suggested-prompt buttons shown at the bottom of the assistant pane after your next reply lands. Fire-and-forget; the buttons appear once and persist until your next call. Use after a reply when you can anticipate the user&rsquo;s likely follow-ups (e.g. &ldquo;dig deeper&rdquo;, &ldquo;summarise&rdquo;, &ldquo;export&rdquo;). 3-4 prompts is the visible cap. Adapters without pane semantics return <code>chanlib.ErrUnsupported</code>. Spec: 6/D. Concept: <a href="../concepts/slack-pane.html">slack pane</a>.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1092"><code>ipc/ipc.go:1092</code></a> &middot; Grant action: <code>pane_set_prompts</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -725,6 +725,6 @@
 
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

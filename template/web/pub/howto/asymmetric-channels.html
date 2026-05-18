@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>asymmetric channels — arizuko</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p  { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -26,7 +26,7 @@
 <body>
   <div class="hub-container prose">
     <h1>asymmetric channels</h1>
-    <p class="dim back"><a href="/pub/">&larr; arizuko</a> &middot; <a href="/pub/howto/">&larr; how-to</a></p>
+    <p class="dim back"><a href="../">&larr; arizuko</a> &middot; <a href="../howto/">&larr; how-to</a></p>
 
     <p>Ingest signal from one or more channels into a folder's memory <em>without</em> the agent replying there. The agent reads everything that lands; it speaks only on the channel you nominated. Useful when one source is high-volume context (a busy WhatsApp group, an RSS firehose, a mirrored mailing list) and another is the actual conversation surface.</p>
 
@@ -62,7 +62,7 @@
 20   platform=whatsapp room=420735544891@…       rhias/nemo#observe</code></pre>
     <p>The team converses on Telegram. WhatsApp messages from the named group land in the <code>rhias/nemo</code> folder as <code>&lt;observed&gt;</code> entries; the agent never replies on WhatsApp. When something from WhatsApp matters, the agent posts to Telegram with a one-line attribution.</p>
 
-    <p>This was first deployed as &ldquo;Nemo&rdquo; under the <a href="/pub/products/reality/">reality product</a> &mdash; the agent holds context across both channels without forking the conversation. The reality page treats it as a case study; this page is the generic recipe.</p>
+    <p>This was first deployed as &ldquo;Nemo&rdquo; under the <a href="../products/reality/">reality product</a> &mdash; the agent holds context across both channels without forking the conversation. The reality page treats it as a case study; this page is the generic recipe.</p>
 
     <h2>defence in depth (optional)</h2>
     <p>The route mode is the platform-level enforcement: the gateway will not schedule a turn for an observed message, full stop. If you want a second layer the agent itself acknowledges, drop a soft rule into the folder&rsquo;s <code>CLAUDE.md</code>:</p>
@@ -84,13 +84,13 @@ context; the response goes on Telegram.</code></pre>
 
     <h2>go deeper</h2>
     <ul>
-      <li><a href="/pub/concepts/routing.html#modes">routing &mdash; modes</a> &mdash; full target-fragment vocabulary</li>
-      <li><a href="/pub/reference/schema.html">schema reference</a> &mdash; <code>routes</code> table columns including <code>observe_window_*</code> per-route overrides</li>
-      <li><a href="/pub/reference/env.html#OBSERVE_WINDOW_MESSAGES">OBSERVE_WINDOW_MESSAGES</a> / <a href="/pub/reference/env.html#OBSERVE_WINDOW_CHARS">OBSERVE_WINDOW_CHARS</a> &mdash; instance-wide defaults</li>
-      <li><a href="/pub/products/reality/">Reality product</a> &mdash; the Nemo deployment that motivated the design</li>
+      <li><a href="../concepts/routing.html#modes">routing &mdash; modes</a> &mdash; full target-fragment vocabulary</li>
+      <li><a href="../reference/schema.html">schema reference</a> &mdash; <code>routes</code> table columns including <code>observe_window_*</code> per-route overrides</li>
+      <li><a href="../reference/env.html#OBSERVE_WINDOW_MESSAGES">OBSERVE_WINDOW_MESSAGES</a> / <a href="../reference/env.html#OBSERVE_WINDOW_CHARS">OBSERVE_WINDOW_CHARS</a> &mdash; instance-wide defaults</li>
+      <li><a href="../products/reality/">Reality product</a> &mdash; the Nemo deployment that motivated the design</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

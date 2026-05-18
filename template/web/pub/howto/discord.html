@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>deploy on Discord — arizuko</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p  { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -31,14 +31,14 @@
 <body>
   <div class="hub-container prose">
     <h1>deploy on Discord</h1>
-    <p class="dim back"><a href="/pub/">&larr; arizuko</a> &middot; <a href="/pub/howto/">&larr; how-to</a></p>
+    <p class="dim back"><a href="../">&larr; arizuko</a> &middot; <a href="../howto/">&larr; how-to</a></p>
 
     <p>arizuko&rsquo;s Discord adapter (<code>discd</code>) connects one bot account to your Discord server and routes messages to per-group Claude agents. Each server channel gets its own agent, or you share one across the whole server &mdash; your routing table decides.</p>
 
     <h2>how it works</h2>
     <p>Discord messages travel through the stack in five steps:</p>
     <ol>
-      <li><strong>discd</strong> receives the message via Discord&rsquo;s Gateway WebSocket and converts it to an internal <code>InboundMsg</code> with a typed <a href="/pub/concepts/jid.html">JID</a>.</li>
+      <li><strong>discd</strong> receives the message via Discord&rsquo;s Gateway WebSocket and converts it to an internal <code>InboundMsg</code> with a typed <a href="../concepts/jid.html">JID</a>.</li>
       <li><strong>gated</strong> stores the message and looks it up in the <strong>routing table</strong>. The first matching route determines which group folder receives it.</li>
       <li><strong>gated</strong> spawns a Docker container with the agent for that group and delivers the message.</li>
       <li>The agent runs, calls MCP tools, and eventually calls <code>reply</code> or <code>send</code>.</li>
@@ -173,8 +173,8 @@ target: main   &lt;-- catch-all for other channels</code></pre>
 10   platform=discord room=guild/* verb=mention  main
 20   platform=discord room=guild/*               main#observe</code></pre>
     <p>Row 10 fires the agent on mentions and bot replies. Row 20 stores every other guild message under <code>main</code> so the agent has full thread context the next time it runs, but no turn is invoked. DMs are unaffected — add a separate route for them.</p>
-    <p>One thing to expect: after the agent replies in a channel thread, that <code>(channel, thread)</code> is <a href="/pub/concepts/engagement.html">engaged</a> for 10 minutes. Subsequent messages in the same thread fire turns even without another @mention, even though row 20 says <code>#observe</code>. This is intentional — silencing a mid-conversation thread would be worse than the noise-reduction intent of the route. The window expires after 10 minutes of quiet.</p>
-    <p>See <a href="/pub/concepts/routing.html#modes">routing modes</a> for the full fragment vocabulary.</p>
+    <p>One thing to expect: after the agent replies in a channel thread, that <code>(channel, thread)</code> is <a href="../concepts/engagement.html">engaged</a> for 10 minutes. Subsequent messages in the same thread fire turns even without another @mention, even though row 20 says <code>#observe</code>. This is intentional — silencing a mid-conversation thread would be worse than the noise-reduction intent of the route. The window expires after 10 minutes of quiet.</p>
+    <p>See <a href="../concepts/routing.html#modes">routing modes</a> for the full fragment vocabulary.</p>
 
     <h2>threads</h2>
     <p>Discord threads are treated as separate conversations. When a message arrives inside a thread, arizuko sets the <code>topic</code> field to the thread&rsquo;s channel ID. The agent sees threads as distinct conversation threads — replies to a thread stay in that thread&rsquo;s context.</p>
@@ -244,6 +244,6 @@ send_file chatJid:="discord:123456789/987654321" \
     </table>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

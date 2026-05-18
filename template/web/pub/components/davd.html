@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>davd &middot; component</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,13 +17,13 @@
 </head>
 <body>
   <div class="hub-container prose">
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; davd</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; davd</p>
     <h1>davd</h1>
 
     <h2>What it is</h2>
     <p>davd is a WebDAV server over each instance&rsquo;s <code>groups/</code> directory. The whole daemon is the <code>sigoden/dufs</code> Rust binary wrapped in an alpine image (for the standard <code>wget</code> healthcheck), launched with <code>--port 8080 /data</code>. The mount point <code>/data</code> is bind-mounted from <code>&lt;data-dir&gt;/groups/</code>.</p>
 
-    <p>davd itself has no notion of identity. Authentication and per-group scoping happen one hop earlier in <a href="/pub/components/proxyd.html">proxyd</a>.</p>
+    <p>davd itself has no notion of identity. Authentication and per-group scoping happen one hop earlier in <a href="../components/proxyd.html">proxyd</a>.</p>
 
     <h2>Why it exists</h2>
     <p>The folder davd serves is the folder the agent reads each turn &mdash; <code>PERSONA.md</code>, <code>PERSONA.md</code>, <code>facts/</code>, custom skills, diary entries. Operators need a way to edit those files from a real editor (Finder, vim, VS Code, rclone) without shelling into the host.</p>
@@ -50,7 +50,7 @@
 
     <p>Hard deps: a bind-mount of the data dir at <code>/data</code>, and proxyd in front for any non-local exposure. Direct access to davd is the same as root access to every group folder.</p>
 
-    <p>Concepts: <a href="/pub/concepts/webdav.html">concepts/webdav</a> covers the proxyd write-block guard, the per-group path check, and end-to-end client examples.</p>
+    <p>Concepts: <a href="../concepts/webdav.html">concepts/webdav</a> covers the proxyd write-block guard, the per-group path check, and end-to-end client examples.</p>
 
     <h2>Standalone usage</h2>
     <p>Yes, but with a warning: davd has no auth. Never bind it to a public interface without proxyd (or another auth layer) in front.</p>
@@ -75,17 +75,17 @@ rclone mount :webdav,url=http://localhost:8080: ~/mnt/groups \
       <li>The toggles that matter live on the compose generator: <code>WEBDAV_ENABLED</code> turns the daemon on, <code>DAV_ADDR</code> picks the host port. Write-block rules and the <code>/dav/&lt;group&gt;/</code> path check live in proxyd.</li>
     </ul>
 
-    <p>Full list and defaults in <a href="/pub/reference/env.html">reference/env</a>.</p>
+    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
 
     <h2>Go deeper</h2>
     <ul>
-      <li><a href="/pub/concepts/webdav.html">concepts/webdav</a> &mdash; auth flow, write-block guard, client recipes.</li>
+      <li><a href="../concepts/webdav.html">concepts/webdav</a> &mdash; auth flow, write-block guard, client recipes.</li>
       <li><code>davd/README.md</code> &mdash; the wrapper image and dufs invocation.</li>
       <li><code>specs/5/M-webdav.md</code> &mdash; routing, auth model, write-block rules.</li>
-      <li><a href="/pub/components/proxyd.html">components/proxyd</a> &mdash; the layer that gates every <code>/dav/</code> request.</li>
+      <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; the layer that gates every <code>/dav/</code> request.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko &middot; reference &middot; route tokens</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -23,7 +23,7 @@
 <body>
   <div class="hub-container prose">
     <h1>route tokens</h1>
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; tokens</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../reference/">reference</a> &rsaquo; tokens</p>
 
     <p class="lede">Developer reference for the <code>route_tokens</code> primitive: schema, mint surface (MCP + REST), URL handlers at <code>/chat/&lt;token&gt;/</code> (for <code>web:</code> JIDs) and <code>/hook/&lt;token&gt;</code> (for <code>hook:</code> JIDs) &mdash; each URL bound to its JID prefix kind, mechanics shared. SSE events, rate limits. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a>.</p>
 
@@ -104,7 +104,7 @@ POST /v1/route_tokens/hook
       <tr><td>GET</td><td><code>/hook/{token}/{turn_id}/sse</code></td><td><code>hook:</code></td><td>Live SSE for the round.</td></tr>
     </table>
 
-    <p>The token row's JID prefix drives sender attribution and default output style. Body shape, snapshot/status URLs, SSE events, and reconnect via <code>Last-Event-Id</code> are the same round-handle protocol used by every web reply &mdash; see <a href="/pub/components/webd.html">components/webd</a>.</p>
+    <p>The token row's JID prefix drives sender attribution and default output style. Body shape, snapshot/status URLs, SSE events, and reconnect via <code>Last-Event-Id</code> are the same round-handle protocol used by every web reply &mdash; see <a href="../components/webd.html">components/webd</a>.</p>
 
     <p>POST body:</p>
     <pre><code>{"content": "...", "topic": "..."}    # JSON
@@ -153,15 +153,15 @@ arizuko token revoke &lt;jid&gt;</code></pre>
     <h2 id="related">Related</h2>
 
     <ul>
-      <li><a href="/pub/concepts/tokens.html">concepts/route tokens</a> &mdash; primitive + bearer model.</li>
-      <li><a href="/pub/components/tokens.html">components/route tokens</a> &mdash; how it fits in the daemon graph.</li>
-      <li><a href="/pub/howto/chat-link.html">how-to: chat link</a>, <a href="/pub/howto/webhooks.html">how-to: webhooks</a>.</li>
-      <li><a href="/pub/reference/jid.html">reference/jid</a> &mdash; <code>web:</code> and <code>hook:</code> JID shapes.</li>
-      <li><a href="/pub/reference/env.html#webd">reference/env &sect; webd</a> &mdash; rate-limit and body-cap env vars.</li>
+      <li><a href="../concepts/tokens.html">concepts/route tokens</a> &mdash; primitive + bearer model.</li>
+      <li><a href="../components/tokens.html">components/route tokens</a> &mdash; how it fits in the daemon graph.</li>
+      <li><a href="../howto/chat-link.html">how-to: chat link</a>, <a href="../howto/webhooks.html">how-to: webhooks</a>.</li>
+      <li><a href="../reference/jid.html">reference/jid</a> &mdash; <code>web:</code> and <code>hook:</code> JID shapes.</li>
+      <li><a href="../reference/env.html#webd">reference/env &sect; webd</a> &mdash; rate-limit and body-cap env vars.</li>
       <li>Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a>.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

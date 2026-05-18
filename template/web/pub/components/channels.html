@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>channel adapters &middot; component</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -21,7 +21,7 @@
 </head>
 <body>
   <div class="hub-container prose">
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; channel adapters</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; channel adapters</p>
     <h1>channel adapters</h1>
 
     <h2>What they are</h2>
@@ -66,7 +66,7 @@
       platform</code></pre>
     </div>
 
-    <p>The trust contract is symmetric: <code>gated</code> verifies inbound HMACs, the adapter verifies outbound HMACs. Neither trusts a request without a valid <code>CHANNEL_SECRET</code> signature. See <a href="/pub/concepts/auth.html">auth</a>.</p>
+    <p>The trust contract is symmetric: <code>gated</code> verifies inbound HMACs, the adapter verifies outbound HMACs. Neither trusts a request without a valid <code>CHANNEL_SECRET</code> signature. See <a href="../concepts/auth.html">auth</a>.</p>
 
     <h2>The adapters</h2>
     <table>
@@ -74,16 +74,16 @@
         <tr><th>name</th><th>platform</th><th>language</th><th>notes</th></tr>
       </thead>
       <tbody>
-        <tr><td class="name"><a href="/pub/components/slakd.html">slakd</a></td><td>Slack</td><td>Go</td><td>Assistant pane &mdash; suggested prompts and conversation title; reactions map to likes.</td></tr>
-        <tr><td class="name"><a href="/pub/components/teled.html">teled</a></td><td>Telegram</td><td>Go</td><td>Long-poll bot API, file uploads, native voice messages.</td></tr>
-        <tr><td class="name"><a href="/pub/components/discd.html">discd</a></td><td>Discord</td><td>Go</td><td>Gateway over websocket, ActionRow buttons, channel threads.</td></tr>
-        <tr><td class="name"><a href="/pub/components/mastd.html">mastd</a></td><td>Mastodon</td><td>Go</td><td>ActivityPub via API token, replies and boosts.</td></tr>
-        <tr><td class="name"><a href="/pub/components/bskyd.html">bskyd</a></td><td>Bluesky</td><td>Go</td><td>AT Protocol, post threading.</td></tr>
-        <tr><td class="name"><a href="/pub/components/reditd.html">reditd</a></td><td>Reddit</td><td>Go</td><td>Comments, posts, crossposts; native dislike via downvote.</td></tr>
-        <tr><td class="name"><a href="/pub/components/emaid.html">emaid</a></td><td>email</td><td>Go</td><td>IMAP receive, SMTP send, threading by Message-ID.</td></tr>
-        <tr><td class="name"><a href="/pub/components/linkd.html">linkd</a></td><td>LinkedIn</td><td>Go</td><td>Messaging API, connection-scoped DMs.</td></tr>
-        <tr><td class="name"><a href="/pub/components/whapd.html">whapd</a></td><td>WhatsApp</td><td>TypeScript</td><td>Baileys client, QR pairing, voice notes.</td></tr>
-        <tr><td class="name"><a href="/pub/components/twitd.html">twitd</a></td><td>X / Twitter</td><td>TypeScript</td><td>Mentions and DMs.</td></tr>
+        <tr><td class="name"><a href="../components/slakd.html">slakd</a></td><td>Slack</td><td>Go</td><td>Assistant pane &mdash; suggested prompts and conversation title; reactions map to likes.</td></tr>
+        <tr><td class="name"><a href="../components/teled.html">teled</a></td><td>Telegram</td><td>Go</td><td>Long-poll bot API, file uploads, native voice messages.</td></tr>
+        <tr><td class="name"><a href="../components/discd.html">discd</a></td><td>Discord</td><td>Go</td><td>Gateway over websocket, ActionRow buttons, channel threads.</td></tr>
+        <tr><td class="name"><a href="../components/mastd.html">mastd</a></td><td>Mastodon</td><td>Go</td><td>ActivityPub via API token, replies and boosts.</td></tr>
+        <tr><td class="name"><a href="../components/bskyd.html">bskyd</a></td><td>Bluesky</td><td>Go</td><td>AT Protocol, post threading.</td></tr>
+        <tr><td class="name"><a href="../components/reditd.html">reditd</a></td><td>Reddit</td><td>Go</td><td>Comments, posts, crossposts; native dislike via downvote.</td></tr>
+        <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>email</td><td>Go</td><td>IMAP receive, SMTP send, threading by Message-ID.</td></tr>
+        <tr><td class="name"><a href="../components/linkd.html">linkd</a></td><td>LinkedIn</td><td>Go</td><td>Messaging API, connection-scoped DMs.</td></tr>
+        <tr><td class="name"><a href="../components/whapd.html">whapd</a></td><td>WhatsApp</td><td>TypeScript</td><td>Baileys client, QR pairing, voice notes.</td></tr>
+        <tr><td class="name"><a href="../components/twitd.html">twitd</a></td><td>X / Twitter</td><td>TypeScript</td><td>Mentions and DMs.</td></tr>
       </tbody>
     </table>
 
@@ -106,17 +106,17 @@
     <p>Spec: <code>specs/5/35-proxyd-standalone.md</code>. Extension points: <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">EXTENDING.md</a>.</p>
 
     <h2>Asymmetric channels</h2>
-    <p>An inbound channel and an outbound channel do not have to be the same daemon. A message can arrive on email and the reply can go out on Slack &mdash; the route table decides. See <a href="/pub/howto/asymmetric-channels.html">howto/asymmetric-channels</a>.</p>
+    <p>An inbound channel and an outbound channel do not have to be the same daemon. A message can arrive on email and the reply can go out on Slack &mdash; the route table decides. See <a href="../howto/asymmetric-channels.html">howto/asymmetric-channels</a>.</p>
 
     <h2>Go deeper</h2>
     <ul>
       <li><code>core/types.go</code> &mdash; <code>Channel</code>, <code>Socializer</code>, <code>Suggester</code>, <code>Namer</code>, <code>HistoryFetcher</code> interfaces.</li>
       <li><code>chanlib/</code> and <code>chanreg/</code> &mdash; shared HTTP plumbing every adapter mounts.</li>
-      <li><a href="/pub/components/gated.html">components/gated</a> &mdash; the other end of every adapter&rsquo;s HTTP calls.</li>
-      <li><a href="/pub/concepts/routing.html">concepts/routing</a> &mdash; how an inbound message picks its group and reply channel.</li>
+      <li><a href="../components/gated.html">components/gated</a> &mdash; the other end of every adapter&rsquo;s HTTP calls.</li>
+      <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how an inbound message picks its group and reply channel.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

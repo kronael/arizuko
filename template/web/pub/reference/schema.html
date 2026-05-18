@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko &middot; schema</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -26,7 +26,7 @@
 <body>
   <div class="hub-container prose">
     <h1>schema</h1>
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; schema</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../reference/">reference</a> &rsaquo; schema</p>
 
     <p class="lede">Every SQLite table in arizuko's shared <code>messages.db</code>. Schema lives in <a href="https://github.com/kronael/arizuko/tree/main/store/migrations"><code>store/migrations/</code></a> (embedded via <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a>); <code>gated</code> applies them at boot, every other daemon connects read/write but never migrates. State described here is the cumulative result of migrations 0001 through 0057 &mdash; the 0049&ndash;0057 run added cost-log, proxyd-routes, unified ACL, topic lineage, pane sessions, and group visibility.</p>
 
@@ -248,7 +248,7 @@
 
     <div class="tablecard">
       <h3><code>pane_sessions</code></h3>
-      <p>Slack assistant-pane state per <code>(team, user, thread_ts)</code>. Persists across slakd restarts; the in-memory map is a read-through cache. See <a href="/pub/concepts/slack-pane.html">slack pane</a> for the concept.</p>
+      <p>Slack assistant-pane state per <code>(team, user, thread_ts)</code>. Persists across slakd restarts; the in-memory map is a read-through cache. See <a href="../concepts/slack-pane.html">slack pane</a> for the concept.</p>
       <table>
         <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
         <tr><td><code>team_id</code></td><td>TEXT</td><td>NOT NULL</td><td>Slack workspace ID</td></tr>
@@ -307,7 +307,7 @@
 
     <div class="tablecard">
       <h3><code>routes</code></h3>
-      <p>Inbound match-target table. <code>match</code> is space-separated <code>key=glob</code> pairs evaluated by <a href="https://github.com/kronael/arizuko/blob/main/router/router.go#L300"><code>router.RouteMatches</code></a>; <code>target</code> is the destination folder with an optional <code>#fragment</code>. <code>#observe</code> is the only reserved mode (store without firing a turn); any other fragment (<code>folder#deploy</code>, <code>folder#triage</code>) pins the routed message to that <a href="/pub/concepts/topics.html">topic</a>. Routes evaluate in <code>(seq, id)</code> order; first match wins.</p>
+      <p>Inbound match-target table. <code>match</code> is space-separated <code>key=glob</code> pairs evaluated by <a href="https://github.com/kronael/arizuko/blob/main/router/router.go#L300"><code>router.RouteMatches</code></a>; <code>target</code> is the destination folder with an optional <code>#fragment</code>. <code>#observe</code> is the only reserved mode (store without firing a turn); any other fragment (<code>folder#deploy</code>, <code>folder#triage</code>) pins the routed message to that <a href="../concepts/topics.html">topic</a>. Routes evaluate in <code>(seq, id)</code> order; first match wins.</p>
       <table>
         <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
         <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td>NOT NULL</td><td></td><td></td></tr>
@@ -567,6 +567,6 @@
     <p>Schema owner: <code>gated</code> (the <code>//go:embed migrations/*.sql</code> in <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a> runs at boot). Every other daemon opens the same DB read/write but never applies migrations. Per-table writer mapping above lists the canonical INSERT/UPDATE/DELETE call sites; multiple readers per table is the norm and noted as "many" where widespread.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

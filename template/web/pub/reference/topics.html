@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko &middot; topics</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -25,9 +25,9 @@
 <body>
   <div class="hub-container prose">
     <h1>topics</h1>
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/reference/">reference</a> &rsaquo; topics</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../reference/">reference</a> &rsaquo; topics</p>
 
-    <p class="lede">Schema, creation paths, MCP tools, and resolution order for arizuko topics &mdash; the transient work-units overlaid on a group. Narrative introduction lives at <a href="/pub/concepts/topics.html">concepts/topics</a>.</p>
+    <p class="lede">Schema, creation paths, MCP tools, and resolution order for arizuko topics &mdash; the transient work-units overlaid on a group. Narrative introduction lives at <a href="../concepts/topics.html">concepts/topics</a>.</p>
 
     <h2>1. Schema</h2>
 
@@ -42,7 +42,7 @@
         <tr><td><code>chat_reply_state.(jid, topic)</code></td><td>TEXT, TEXT</td><td><code>''</code></td><td>last bot reply ID per <code>(chat_jid, topic)</code> &mdash; threads outbound on platforms with thread/reply pointers (migration 0014)</td></tr>
       </table>
       <p class="meta">Empty-string topic is the default-topic sentinel; <code>NULL</code> in <code>chats.sticky_topic</code> means "no sticky pin set" and is treated as empty when resolving. The store-side normalisation lives at <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L237"><code>store/groups.go:237</code></a> (uses <code>nilIfEmpty</code> on write).</p>
-      <p class="meta">Full table-by-table schema reference: <a href="/pub/reference/schema.html">schema</a>.</p>
+      <p class="meta">Full table-by-table schema reference: <a href="../reference/schema.html">schema</a>.</p>
     </div>
 
     <h2>2. Creation paths</h2>
@@ -153,9 +153,9 @@ LIMIT 100</code></pre>
       <li><strong>Operator dashboard.</strong> The dashd group view shows recent <code>session_log</code> rows and chat-level state including <code>sticky_topic</code>. No CLI subcommand on <code>arizuko</code> sets or inspects topics directly today &mdash; sticky changes go through chat, session inspection goes through MCP.</li>
     </ul>
 
-    <p>See also: <a href="/pub/concepts/topics.html">concepts/topics</a> (narrative), <a href="/pub/concepts/routing.html">concepts/routing</a> (how a chat reaches a folder before topics enter the picture), <a href="/pub/reference/mcp.html">reference/mcp</a> (every MCP tool).</p>
+    <p>See also: <a href="../concepts/topics.html">concepts/topics</a> (narrative), <a href="../concepts/routing.html">concepts/routing</a> (how a chat reaches a folder before topics enter the picture), <a href="../reference/mcp.html">reference/mcp</a> (every MCP tool).</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

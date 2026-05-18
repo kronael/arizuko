@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>route tokens &middot; component</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 </head>
 <body>
   <div class="hub-container prose">
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; route tokens</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; route tokens</p>
     <h1>route tokens</h1>
 
     <h2>What it is</h2>
@@ -51,7 +51,7 @@ POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no repl
     <p>Issuance is handled in gated &mdash; both the MCP tools (<code>issue_chat_link</code>, <code>issue_webhook</code>) and the REST endpoints (<code>POST /v1/route_tokens/chat</code>, <code>POST /v1/route_tokens/hook</code>) call one internal <code>insertRouteToken</code> writer. webd never writes the table; gated never reads the <code>/chat/</code> or <code>/hook/</code> URLs.</p>
 
     <h2>Mint authorization</h2>
-    <p>The <a href="/pub/concepts/grants.html">grants</a> tier of the caller bounds which folders they can mint for. Tier 0 mints for any folder; tier 1 mints for self and descendants; tier 2 mints for self only; tier 3+ cannot mint. The row's <code>owner_folder</code> records the issuer's folder, not the JID target &mdash; revocation requires admin on <code>owner_folder</code>.</p>
+    <p>The <a href="../concepts/grants.html">grants</a> tier of the caller bounds which folders they can mint for. Tier 0 mints for any folder; tier 1 mints for self and descendants; tier 2 mints for self only; tier 3+ cannot mint. The row's <code>owner_folder</code> records the issuer's folder, not the JID target &mdash; revocation requires admin on <code>owner_folder</code>.</p>
 
     <h2>Rate limits</h2>
     <p>Per-token in-memory bucket in webd. The bucket ceiling is chosen by JID prefix: <code>web:</code> uses a smaller bucket sized for human typing; <code>hook:</code> uses a larger bucket sized for machine bursts. Body cap is 1 MiB. Excess returns 429.</p>
@@ -62,19 +62,19 @@ POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no repl
     <p>No automatic reissue on schedule. No back-channel reply on <code>/hook/</code> &mdash; agents that want to acknowledge a webhook reply on a different channel (Slack, email).</p>
 
     <h2>Standalone usage</h2>
-    <p>The table and writer live in gated; the URL handlers live in webd. Neither runs standalone &mdash; both need the shared SQLite file and the gated <code>/v1/messages</code> endpoint to deliver inbounds. The unit of standalone use is webd itself; see <a href="/pub/components/webd.html">components/webd</a>.</p>
+    <p>The table and writer live in gated; the URL handlers live in webd. Neither runs standalone &mdash; both need the shared SQLite file and the gated <code>/v1/messages</code> endpoint to deliver inbounds. The unit of standalone use is webd itself; see <a href="../components/webd.html">components/webd</a>.</p>
 
     <h2>Go deeper</h2>
     <ul>
-      <li><a href="/pub/concepts/tokens.html">concepts/route tokens</a> &mdash; the primitive, the JID prefixes, the bearer model.</li>
-      <li><a href="/pub/reference/tokens.html">reference/tokens</a> &mdash; full endpoint table, payload shapes, SSE events, MCP tools.</li>
-      <li><a href="/pub/howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site.</li>
-      <li><a href="/pub/howto/webhooks.html">how-to: webhooks</a> &mdash; wire GitHub, Linear, custom alerts.</li>
-      <li><a href="/pub/components/webd.html">components/webd</a> &mdash; the daemon that hosts <code>/chat/*</code> and <code>/hook/*</code>.</li>
+      <li><a href="../concepts/tokens.html">concepts/route tokens</a> &mdash; the primitive, the JID prefixes, the bearer model.</li>
+      <li><a href="../reference/tokens.html">reference/tokens</a> &mdash; full endpoint table, payload shapes, SSE events, MCP tools.</li>
+      <li><a href="../howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site.</li>
+      <li><a href="../howto/webhooks.html">how-to: webhooks</a> &mdash; wire GitHub, Linear, custom alerts.</li>
+      <li><a href="../components/webd.html">components/webd</a> &mdash; the daemon that hosts <code>/chat/*</code> and <code>/hook/*</code>.</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a> &mdash; the route_tokens spec.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

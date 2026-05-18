@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>talking to agents — arizuko</title>
-    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <link rel="stylesheet" href="../assets/hub.css" />
     <style>
       .prose p { margin: 0.6em 0; }
       .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -28,8 +28,8 @@
   <body>
     <div class="hub-container prose">
       <p class="dim back">
-        <a href="/pub/">arizuko</a> &rsaquo;
-        <a href="/pub/howto/">how-to</a> &rsaquo; talking to agents
+        <a href="../">arizuko</a> &rsaquo;
+        <a href="../howto/">how-to</a> &rsaquo; talking to agents
       </p>
       <h1>talking to agents</h1>
 
@@ -45,7 +45,7 @@
         Whether a message fires the agent at all depends on the
         route. The default shape for a public channel is
         "respond on mention, observe everything else"
-        (see <a href="/pub/howto/asymmetric-channels.html#mention-only">asymmetric channels</a>).
+        (see <a href="../howto/asymmetric-channels.html#mention-only">asymmetric channels</a>).
         A mention means different things per platform:
       </p>
       <table>
@@ -125,7 +125,7 @@
         themselves. Two ways to invoke them: ask the agent in
         chat ("delegate this to <code>research</code>") or call
         the tool directly from the chat MCP socket. Tool
-        reference: <a href="/pub/reference/mcp.html">MCP reference</a>.
+        reference: <a href="../reference/mcp.html">MCP reference</a>.
       </p>
       <table>
         <thead>
@@ -145,7 +145,7 @@
           <tr>
             <td><code>register_group</code></td>
             <td>parent creates child</td>
-            <td>Create a new sub-folder on the fly. Common in autoviv setups (<a href="/pub/concepts/autoviv.html">autoviv</a>) &mdash; tier-1 agent calls this on first message from a new channel.</td>
+            <td>Create a new sub-folder on the fly. Common in autoviv setups (<a href="../concepts/autoviv.html">autoviv</a>) &mdash; tier-1 agent calls this on first message from a new channel.</td>
           </tr>
           <tr>
             <td><code>inject_message</code></td>
@@ -165,14 +165,14 @@
         <code>escalate_group</code> follow the folder hierarchy
         rules (parent can delegate to known children; child can
         escalate to its parent). See
-        <a href="/pub/concepts/grants.html">grants</a> for the
+        <a href="../concepts/grants.html">grants</a> for the
         permission model.
       </p>
 
       <h2>JID quick reference</h2>
       <p>
         A <code>chat_jid</code> is <code>&lt;platform&gt;:&lt;rest&gt;</code>.
-        Full table at <a href="/pub/concepts/jid.html">JID format</a>.
+        Full table at <a href="../concepts/jid.html">JID format</a>.
         For writing route rules, you almost always want
         <code>/chatid</code> in the target chat and to paste the
         result.
@@ -197,7 +197,7 @@ hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder (via /hook/&lt
           <tr><td>Hand this one task to <code>research</code></td><td><code>@research &lt;task&gt;</code> as one message, or ask the agent to <code>delegate_group</code></td></tr>
           <tr><td>Open a new sub-folder</td><td>Ask the agent to call <code>register_group</code></td></tr>
           <tr><td>Push a system note into another folder</td><td>Ask the agent to call <code>inject_message</code></td></tr>
-          <tr><td>Bring in events from GitHub or Stripe</td><td>Wire a webhook &rarr; <a href="/pub/howto/webhooks.html">webhooks</a></td></tr>
+          <tr><td>Bring in events from GitHub or Stripe</td><td>Wire a webhook &rarr; <a href="../howto/webhooks.html">webhooks</a></td></tr>
           <tr><td>Make the agent forget and start over</td><td><code>/stop</code> (kills container), then <code>/new</code></td></tr>
         </tbody>
       </table>
@@ -207,7 +207,7 @@ hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder (via /hook/&lt
         <li><strong>Slack</strong> &mdash; don't subscribe to
           <code>app_mention</code>; slakd derives mention from the
           regular <code>message.*</code> event. Subscribing both
-          double-fires (see <a href="/pub/howto/slack.html">Slack adapter</a>, step 3).</li>
+          double-fires (see <a href="../howto/slack.html">Slack adapter</a>, step 3).</li>
         <li><strong>Telegram</strong> &mdash; slash commands keep
           the <code>@botname</code> suffix (<code>/new@mybot</code>);
           the gateway strips it before matching.</li>
@@ -223,15 +223,15 @@ hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder (via /hook/&lt
 
       <h2>go deeper</h2>
       <ul>
-        <li><a href="/pub/concepts/routing.html">routing</a> &mdash; how chats become folders.</li>
-        <li><a href="/pub/concepts/grants.html">grants</a> &mdash; who can run which command.</li>
-        <li><a href="/pub/concepts/autoviv.html">autoviv</a> &mdash; auto-create folders on first message.</li>
-        <li><a href="/pub/reference/mcp.html">MCP reference</a> &mdash; every tool, every param.</li>
-        <li><a href="/pub/reference/cli.html">CLI reference</a> &mdash; the operator's command line.</li>
-        <li><a href="/pub/howto/webhooks.html">webhooks</a> &mdash; external sources into arizuko.</li>
+        <li><a href="../concepts/routing.html">routing</a> &mdash; how chats become folders.</li>
+        <li><a href="../concepts/grants.html">grants</a> &mdash; who can run which command.</li>
+        <li><a href="../concepts/autoviv.html">autoviv</a> &mdash; auto-create folders on first message.</li>
+        <li><a href="../reference/mcp.html">MCP reference</a> &mdash; every tool, every param.</li>
+        <li><a href="../reference/cli.html">CLI reference</a> &mdash; the operator's command line.</li>
+        <li><a href="../howto/webhooks.html">webhooks</a> &mdash; external sources into arizuko.</li>
       </ul>
     </div>
     <button class="theme-toggle">&#127769;</button>
-    <script src="/pub/assets/hub.js"></script>
+    <script src="../assets/hub.js"></script>
   </body>
 </html>

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>route tokens &middot; concept</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -18,7 +18,7 @@
 </head>
 <body>
   <div class="hub-container prose">
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/concepts/">concepts</a> &rsaquo; route tokens</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../concepts/">concepts</a> &rsaquo; route tokens</p>
     <h1>route tokens</h1>
 
     <p>A route token is a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix encodes routing intent at the data layer &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anywhere else that knows how to POST JSON.</p>
@@ -68,7 +68,7 @@ created_at    when it was minted</code></pre>
 
     <h2>Who can mint for which folder</h2>
 
-    <p>Resolved by the unified <a href="/pub/concepts/grants.html">grants</a> tier. Lower tier = broader mint reach.</p>
+    <p>Resolved by the unified <a href="../concepts/grants.html">grants</a> tier. Lower tier = broader mint reach.</p>
 
     <table>
       <tr><th>Tier</th><th>Can mint for</th></tr>
@@ -97,15 +97,15 @@ created_at    when it was minted</code></pre>
     <h2>Go deeper</h2>
 
     <ul>
-      <li><a href="/pub/howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site, what the visitor sees.</li>
-      <li><a href="/pub/howto/webhooks.html">how-to: webhooks</a> &mdash; wire GitHub, Linear, custom alerts.</li>
-      <li><a href="/pub/reference/tokens.html">reference: tokens</a> &mdash; full HTTP surface, payload shapes, SSE events, MCP tools.</li>
-      <li><a href="/pub/concepts/routing.html">routing</a> &mdash; how <code>web:&lt;folder&gt;</code> and <code>hook:&lt;folder&gt;/&lt;source&gt;</code> reach an agent.</li>
-      <li><a href="/pub/concepts/jid.html">jid</a> &mdash; address shape across every platform.</li>
+      <li><a href="../howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site, what the visitor sees.</li>
+      <li><a href="../howto/webhooks.html">how-to: webhooks</a> &mdash; wire GitHub, Linear, custom alerts.</li>
+      <li><a href="../reference/tokens.html">reference: tokens</a> &mdash; full HTTP surface, payload shapes, SSE events, MCP tools.</li>
+      <li><a href="../concepts/routing.html">routing</a> &mdash; how <code>web:&lt;folder&gt;</code> and <code>hook:&lt;folder&gt;/&lt;source&gt;</code> reach an agent.</li>
+      <li><a href="../concepts/jid.html">jid</a> &mdash; address shape across every platform.</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a> &mdash; the route_tokens spec.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

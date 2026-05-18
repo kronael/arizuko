@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>jid</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 <body>
   <div class="hub-container prose">
     <h1>jid</h1>
-    <p class="dim back">addresses for chats and senders &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">addresses for chats and senders &middot; <a href="../concepts/">&larr; concepts</a></p>
 
     <p class="lede">Every chat and every sender has an address that looks the same across every platform: <code>&lt;platform&gt;:&lt;rest&gt;</code>. A routing rule like <code>chat_jid=telegram:group/*</code> matches every Telegram group, and nothing else.</p>
 
@@ -51,9 +51,9 @@ match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
     <p>The address is built on <code>net/url</code>, so an ID with reserved characters &mdash; a Bluesky DID contains a colon, for example &mdash; encodes safely without breaking the platform/rest split.</p>
 
     <h2>go deeper</h2>
-    <p>Per-platform schemas, code types, migration history, and design rules: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md">specs/5/S-jid-format.md</a>. For how these addresses get matched into folders, see <a href="/pub/concepts/routing.html">routing</a>.</p>
+    <p>Per-platform schemas, code types, migration history, and design rules: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md">specs/5/S-jid-format.md</a>. For how these addresses get matched into folders, see <a href="../concepts/routing.html">routing</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

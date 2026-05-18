@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>engagement</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -18,7 +18,7 @@
 <body>
   <div class="hub-container prose">
     <h1>engagement</h1>
-    <p class="dim back">stay-in-conversation after mention &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">stay-in-conversation after mention &middot; <a href="../concepts/">&larr; concepts</a></p>
 
     <p class="lede">Mentioning the bot for every single message kills conversation flow. Engagement fixes that. Once the bot has replied in a <code>(chat, topic)</code>, that pair is &ldquo;engaged&rdquo; for a window of time. Subsequent inbounds in the same pair fire the agent without needing another mention.</p>
 
@@ -37,7 +37,7 @@
     <p>Broadcasts (scheduled tasks, migrate announcements, system events) bypass the rule &mdash; they have no parent message to thread under, so they land top-level.</p>
 
     <h2>corrective side-fork</h2>
-    <p>When the user is correcting the bot&rsquo;s last reply (&ldquo;no, that&rsquo;s wrong&rdquo;, &ldquo;rephrase&rdquo;) rather than continuing the conversation, the agent can <a href="/pub/concepts/topics.html">fork</a> the topic to <code>&lt;current&gt;#fix</code> and run the correction loop there. The main thread stays clean; the fix loop happens in a child thread off the bot&rsquo;s incorrect reply. Convergence reached, the agent posts one corrected answer to the parent and calls <code>disengage()</code> on the fix topic.</p>
+    <p>When the user is correcting the bot&rsquo;s last reply (&ldquo;no, that&rsquo;s wrong&rdquo;, &ldquo;rephrase&rdquo;) rather than continuing the conversation, the agent can <a href="../concepts/topics.html">fork</a> the topic to <code>&lt;current&gt;#fix</code> and run the correction loop there. The main thread stays clean; the fix loop happens in a child thread off the bot&rsquo;s incorrect reply. Convergence reached, the agent posts one corrected answer to the parent and calls <code>disengage()</code> on the fix topic.</p>
     <p>This is a convention &mdash; the agent decides when to fork. The gateway doesn&rsquo;t enforce it.</p>
 
     <h2>length per surface</h2>
@@ -60,9 +60,9 @@
     <div class="note"><strong>Note:</strong> engagement overrides the entire route table. When a <code>(chat, topic)</code> is engaged, the gateway delivers to the engaged folder and fires a turn regardless of what the route table says &mdash; including <code>#observe</code> targets, trigger routes pointing elsewhere, or no matching route at all. The bot is mid-conversation; the route table is irrelevant until the TTL expires or <code>disengage()</code> is called.</div>
 
     <h2>go deeper</h2>
-    <p>The mention check, observe-wins ordering, and TTL math live in <a href="https://github.com/kronael/arizuko/blob/main/specs/5/G-engagement.md">specs/5/G</a>. The fork primitive used by the corrective pattern: <a href="/pub/concepts/topics.html">topics</a>. Routing modes that interact with engagement: <a href="/pub/concepts/routing.html#modes">routing modes</a>.</p>
+    <p>The mention check, observe-wins ordering, and TTL math live in <a href="https://github.com/kronael/arizuko/blob/main/specs/5/G-engagement.md">specs/5/G</a>. The fork primitive used by the corrective pattern: <a href="../concepts/topics.html">topics</a>. Routing modes that interact with engagement: <a href="../concepts/routing.html#modes">routing modes</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

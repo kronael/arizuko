@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ttsd &middot; component</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 </head>
 <body>
   <div class="hub-container prose">
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; ttsd</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; ttsd</p>
     <h1>ttsd</h1>
 
     <h2>What it is</h2>
@@ -61,7 +61,7 @@
 
     <p>Inputs: HTTP from gated (or any other OpenAI-shaped TTS caller). Outputs: audio bytes from the upstream backend. Hard deps: a reachable backend at <code>TTS_BACKEND_URL</code>.</p>
 
-    <p>Concepts: <a href="/pub/concepts/voice.html">concepts/voice</a> covers the full voice-in / voice-out flow including transcription, voice selection, caching, and per-platform delivery.</p>
+    <p>Concepts: <a href="../concepts/voice.html">concepts/voice</a> covers the full voice-in / voice-out flow including transcription, voice selection, caching, and per-platform delivery.</p>
 
     <h2>Standalone usage</h2>
     <p>Yes. ttsd has no DB, no auth, no admin UI &mdash; just an env-configured reverse proxy. Front it with proxyd or any other auth layer when exposing it.</p>
@@ -87,17 +87,17 @@ curl -s -X POST localhost:8880/v1/audio/speech \
       <li><code>LOG_LEVEL</code> &mdash; <code>debug</code> / <code>info</code> / <code>warn</code> / <code>error</code>.</li>
     </ul>
 
-    <p>Full list and defaults in <a href="/pub/reference/env.html">reference/env</a>.</p>
+    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
 
     <h2>Go deeper</h2>
     <ul>
-      <li><a href="/pub/concepts/voice.html">concepts/voice</a> &mdash; transcription, voice selection, caching, platform delivery.</li>
+      <li><a href="../concepts/voice.html">concepts/voice</a> &mdash; transcription, voice selection, caching, platform delivery.</li>
       <li><code>ttsd/README.md</code> &mdash; endpoint contract and backend options.</li>
       <li><code>specs/5/T-voice-synthesis.md</code> &mdash; canonical voice spec.</li>
-      <li><a href="/pub/components/gated.html">components/gated</a> &mdash; the caller that hashes, caches, and dispatches the audio.</li>
+      <li><a href="../components/gated.html">components/gated</a> &mdash; the caller that hashes, caches, and dispatches the audio.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>dashd &middot; component</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 </head>
 <body>
   <div class="hub-container prose">
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; dashd</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; dashd</p>
     <h1>dashd</h1>
 
     <h2>What it is</h2>
@@ -46,7 +46,7 @@
       filesystem: &lt;groups&gt;/&lt;folder&gt;/MEMORY.md, diary/*.md, ...</code></pre>
     </div>
 
-    <p>dashd reads identity from signed headers set by <a href="/pub/components/proxyd.html">proxyd</a>&rsquo;s <code>requireAuth</code>. Write verbs go further: every TIER 1 mutation runs <code>requireAdmin</code>, which calls <code>auth.Authorize</code> with action <code>admin</code> against the caller&rsquo;s groups, plus a same-origin CSRF guard. Read views still depend on proxyd alone for the front gate.</p>
+    <p>dashd reads identity from signed headers set by <a href="../components/proxyd.html">proxyd</a>&rsquo;s <code>requireAuth</code>. Write verbs go further: every TIER 1 mutation runs <code>requireAdmin</code>, which calls <code>auth.Authorize</code> with action <code>admin</code> against the caller&rsquo;s groups, plus a same-origin CSRF guard. Read views still depend on proxyd alone for the front gate.</p>
 
     <p>Two write surfaces today. <strong>Memory editor</strong> accepts <code>MEMORY.md</code>, <code>.claude/CLAUDE.md</code>, and flat <code>*.md</code> under <code>diary/</code>, <code>facts/</code>, <code>users/</code>, <code>episodes/</code>; reads capped at 1&nbsp;MiB; path joiner blocks symlink escape. <strong>TIER 1 admin</strong> — routes editor, groups CRUD, per-user secrets — gated by the admin check above.</p>
 
@@ -100,17 +100,17 @@ export INSTANCE_NAME=demo
     <p>After the migration dashd holds an operator session token (issued by proxyd at OAuth login), forwards it as <code>Authorization: Bearer ...</code> on every <code>/v1/*</code> call, and stops touching <code>messages.db</code> at all.</p>
 
     <h2>What dashd does not do</h2>
-    <p>dashd does not send messages, schedule tasks, mint tokens, or admit users &mdash; those belong to gated, timed, proxyd, and <a href="/pub/components/onbod.html">onbod</a>. Writes are scoped to the surfaces listed above: memory editor and TIER 1 admin. Everything else is a view.</p>
+    <p>dashd does not send messages, schedule tasks, mint tokens, or admit users &mdash; those belong to gated, timed, proxyd, and <a href="../components/onbod.html">onbod</a>. Writes are scoped to the surfaces listed above: memory editor and TIER 1 admin. Everything else is a view.</p>
 
     <h2>Go deeper</h2>
     <ul>
-      <li><a href="/pub/reference/env.html#dashd">reference/env &mdash; dashd</a> &mdash; full env var table.</li>
-      <li><a href="/pub/components/proxyd.html">components/proxyd</a> &mdash; the auth gate that sits in front.</li>
+      <li><a href="../reference/env.html#dashd">reference/env &mdash; dashd</a> &mdash; full env var table.</li>
+      <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; the auth gate that sits in front.</li>
       <li><code>specs/5/V-platform-api.md</code> &mdash; the <code>/v1/*</code> migration plan.</li>
       <li><code>specs/4/Q-dash-memory.md</code> &mdash; memory view and edit surface.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

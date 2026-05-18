@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>proxyd &middot; component</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 </head>
 <body>
   <div class="hub-container prose">
-    <p class="dim back"><a href="/pub/">arizuko</a> &rsaquo; <a href="/pub/components/">components</a> &rsaquo; proxyd</p>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; proxyd</p>
     <h1>proxyd</h1>
 
     <h2>What it is</h2>
@@ -26,7 +26,7 @@
     <p>Routes are matched by longest path prefix from a table loaded out of <code>PROXYD_ROUTES_JSON</code> on first boot and persisted into the <code>proxyd_routes</code> SQLite table. After the first boot the table is authoritative; operators can mutate it at runtime via <code>/v1/routes</code>.</p>
 
     <h2>Why it exists</h2>
-    <p>Backends like <a href="/pub/components/dashd.html">dashd</a>, <a href="/pub/components/webd.html">webd</a>, and <a href="/pub/components/onbod.html">onbod</a> listen on <code>:8080</code> inside their containers and trust whatever they get over the wire. Without proxyd there is no place to check a JWT, no shared HMAC to prove who the caller is, and no rate shield in front of <a href="/pub/components/tokens.html">route-token</a> POSTs.</p>
+    <p>Backends like <a href="../components/dashd.html">dashd</a>, <a href="../components/webd.html">webd</a>, and <a href="../components/onbod.html">onbod</a> listen on <code>:8080</code> inside their containers and trust whatever they get over the wire. Without proxyd there is no place to check a JWT, no shared HMAC to prove who the caller is, and no rate shield in front of <a href="../components/tokens.html">route-token</a> POSTs.</p>
 
     <p>proxyd is the single trust boundary. It strips every <code>X-User-*</code> header on entry, runs the auth check, then re-stamps <code>X-User-Sub</code>, <code>X-User-Name</code>, <code>X-User-Groups</code>, and an HMAC signature over those fields. Backends verify the signature via <code>auth.RequireSigned</code> (redirect to login on failure) or <code>auth.StripUnsigned</code> (drop the header and continue anonymous). Both helpers live in <code>auth/middleware.go</code>.</p>
 
@@ -88,15 +88,15 @@ export PROXYD_ROUTES_JSON='[{"path":"/api/","backend":"http://api:8080","auth":"
 
     <h2>Go deeper</h2>
     <ul>
-      <li><a href="/pub/reference/env.html#proxyd">reference/env &mdash; proxyd</a> &mdash; full env var table.</li>
-      <li><a href="/pub/components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook surfaces gated by proxyd.</li>
-      <li><a href="/pub/components/dashd.html">components/dashd</a> &mdash; an auth-required backend behind proxyd.</li>
+      <li><a href="../reference/env.html#proxyd">reference/env &mdash; proxyd</a> &mdash; full env var table.</li>
+      <li><a href="../components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook surfaces gated by proxyd.</li>
+      <li><a href="../components/dashd.html">components/dashd</a> &mdash; an auth-required backend behind proxyd.</li>
       <li><code>SECURITY.md</code> &mdash; trust model, signed headers, secret rotation.</li>
       <li><code>specs/5/35-proxyd-standalone.md</code> &mdash; TOML route field semantics.</li>
       <li><code>specs/5/5-uniform-mcp-rest.md</code> &mdash; the <code>/v1/routes</code> runtime mutation surface.</li>
     </ul>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

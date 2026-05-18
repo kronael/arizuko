@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>routing</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 <body>
   <div class="hub-container prose">
     <h1>routing</h1>
-    <p class="dim back">how a message lands in a folder &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">how a message lands in a folder &middot; <a href="../concepts/">&larr; concepts</a></p>
 
     <p class="lede">When a message arrives, the gateway walks a small table of rules. Each rule says &ldquo;if this message looks like X, run it in folder Y.&rdquo; First match wins.</p>
 
@@ -49,7 +49,7 @@
     <h2>sticky and prefix overrides</h2>
     <p>A user can pin a chat to a folder by sending <code>@atlas/social</code> as the entire message &mdash; the gateway stores it on the <code>chats</code> row and every later message in that chat goes to <code>atlas/social</code> until someone sends bare <code>@</code> to clear it. <code>#support</code> does the same for the topic; bare <code>#</code> clears.</p>
     <p>If the folder after <code>@</code> doesn&rsquo;t exist, the gateway leaves the message alone and hands it to the agent unchanged &mdash; no confirmation, no error. Messages starting with <code>@</code> have too many other uses (a mention like <code>@everyone</code>, a cross-instance pointer like <code>@sloth</code>, a sentence in a language where <code>@</code> is just a word) for the gateway to swallow them on a miss. The agent decides whether it&rsquo;s a typo for a child folder (and calls <code>delegate_group</code>), a real mention, or plain text.</p>
-    <p>Inline at the start of a message, <code>@name something</code> delegates that one message to the child folder <code>&lt;current&gt;/name</code>, and <code>#topic something</code> runs it under that <a href="/pub/concepts/topics.html">topic</a> &mdash; for one message only, sticky state untouched.</p>
+    <p>Inline at the start of a message, <code>@name something</code> delegates that one message to the child folder <code>&lt;current&gt;/name</code>, and <code>#topic something</code> runs it under that <a href="../concepts/topics.html">topic</a> &mdash; for one message only, sticky state untouched.</p>
 
     <h2>resolution order</h2>
     <p>Put together, every inbound message goes through these layers in order:</p>
@@ -65,12 +65,12 @@
     <p>The agent edits the table through the MCP tools <code>add_route</code>, <code>delete_route</code>, <code>get_routes</code>, <code>set_routes</code>. The operator dashboard (<code>dashd</code>) shows the same table in a browser. Changes take effect on the next inbound message &mdash; no restart.</p>
 
     <h2 id="modes">modes and topic pinning</h2>
-    <p>The <code>target</code> column carries an optional <code>#</code> fragment that decides what the gateway does <em>after</em> the message lands in the folder. <code>#observe</code> is the only reserved fragment &mdash; it sets a mode. Every other fragment is a <a href="/pub/concepts/topics.html">topic name</a> pinned for the routed message.</p>
+    <p>The <code>target</code> column carries an optional <code>#</code> fragment that decides what the gateway does <em>after</em> the message lands in the folder. <code>#observe</code> is the only reserved fragment &mdash; it sets a mode. Every other fragment is a <a href="../concepts/topics.html">topic name</a> pinned for the routed message.</p>
     <table>
       <thead><tr><th>target</th><th>effect</th></tr></thead>
       <tbody>
         <tr><td><code>folder</code></td><td>store under <code>folder</code> and fire a turn on main (default)</td></tr>
-        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL. Exception: engagement overrides all route targets — if the <code>(chat, topic)</code> is engaged, the gateway ignores this mode and fires a turn anyway. See <a href="/pub/concepts/engagement.html">engagement</a>.</td></tr>
+        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL. Exception: engagement overrides all route targets — if the <code>(chat, topic)</code> is engaged, the gateway ignores this mode and fires a turn anyway. See <a href="../concepts/engagement.html">engagement</a>.</td></tr>
         <tr><td><code>folder#deploy</code></td><td>store under <code>folder</code> with topic <code>#deploy</code> and fire a turn there. Useful for piping a webhook source into a dedicated topic without operator @-prefixes.</td></tr>
       </tbody>
     </table>
@@ -83,9 +83,9 @@
     <p>Future modes (<code>#drop</code>, <code>#digest</code>, &hellip;) extend the fragment vocabulary without schema changes.</p>
 
     <h2>go deeper</h2>
-    <p>Full rules &mdash; reply-chain mechanics, cross-folder authorization, worked end-to-end traces &mdash; live in <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>. For what the address strings on the left side actually look like, see <a href="/pub/concepts/jid.html">jid</a>. For how <code>#topic</code> isolates a thread inside one folder, see <a href="/pub/concepts/topics.html">topics</a>.</p>
+    <p>Full rules &mdash; reply-chain mechanics, cross-folder authorization, worked end-to-end traces &mdash; live in <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>. For what the address strings on the left side actually look like, see <a href="../concepts/jid.html">jid</a>. For how <code>#topic</code> isolates a thread inside one folder, see <a href="../concepts/topics.html">topics</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

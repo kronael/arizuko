@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Slack team agent — arizuko</title>
-    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <link rel="stylesheet" href="../../assets/hub.css" />
     <style>
       .prose p {
         margin: 0.6em 0;
@@ -37,7 +37,7 @@
   <body>
     <div class="hub-container prose">
       <p class="dim back">
-        <a href="/pub/">arizuko</a> &rsaquo; products &rsaquo; Slack team agent
+        <a href="../../">arizuko</a> &rsaquo; products &rsaquo; Slack team agent
       </p>
       <h1>Slack team agent</h1>
 
@@ -80,7 +80,7 @@
         </li>
         <li>
           <strong>Private web workspace.</strong> The same channel exposes a
-          token-bound <a href="/pub/concepts/tokens.html">chat URL</a>
+          token-bound <a href="../../concepts/tokens.html">chat URL</a>
           (<code>/chat/&lt;token&gt;/</code>) &mdash; a browser chat against the
           same agent. Take the conversation off Slack onto a phone or laptop
           without losing context.
@@ -127,7 +127,7 @@
           to open a private pane against the channel agent &mdash;
           suggested-prompt buttons, a per-pane title, and full channel
           context. Details:
-          <a href="/pub/concepts/slack-pane.html">slack pane</a>.
+          <a href="../../concepts/slack-pane.html">slack pane</a>.
         </li>
         <li>
           <strong>In a channel.</strong> The bot stays quiet by default.
@@ -168,7 +168,7 @@
         <li>
           <strong>Default outbound paths.</strong> Slack for bot traffic;
           Anthropic for model calls. Any extra agent egress goes through
-          <a href="/pub/crackbox/">crackbox</a> and only reaches hosts you
+          <a href="../../crackbox/">crackbox</a> and only reaches hosts you
           allowlist per channel.
         </li>
         <li>
@@ -204,7 +204,7 @@
         </li>
         <li>
           <strong>Per-user secrets.</strong> Spec
-          <a href="/pub/concepts/secrets.html">9/11</a> &mdash; the
+          <a href="../../concepts/secrets.html">9/11</a> &mdash; the
           <code>arizuko user-secret</code> CLI exists today, but the
           full broker model (per-tool, audit-logged) is not yet shipped.
           For now, secrets are folder-scoped.
@@ -257,8 +257,8 @@ arizuko run acme
 #   linked identities resolve to the same user record; per-user state goes live</code></pre>
       <p>
         Full step-by-step is in the
-        <a href="/pub/products/slack-team/setup.html">operator setup guide</a>;
-        the <a href="/pub/howto/slack.html">Slack adapter how-to</a> covers
+        <a href="../../products/slack-team/setup.html">operator setup guide</a>;
+        the <a href="../../howto/slack.html">Slack adapter how-to</a> covers
         Slack-specific quirks. Per-channel <code>CLAUDE.md</code> override
         lives in the channel folder; edit via WebDAV or directly on the
         server.
@@ -267,44 +267,44 @@ arizuko run acme
       <h2>go deeper</h2>
       <ul>
         <li>
-          <a href="/pub/">arizuko platform overview</a> &mdash; the primitives
+          <a href="../../">arizuko platform overview</a> &mdash; the primitives
           this product is built on
         </li>
         <li>
-          <a href="/pub/concepts/grants.html">grants</a> &mdash; per-user and
+          <a href="../../concepts/grants.html">grants</a> &mdash; per-user and
           per-group action scoping
         </li>
         <li>
-          <a href="/pub/concepts/slack-pane.html">slack pane</a> &mdash;
+          <a href="../../concepts/slack-pane.html">slack pane</a> &mdash;
           the AI sidebar surface, pane-open events, suggested prompts
         </li>
         <li>
-          <a href="/pub/concepts/personas.html">personas</a> &mdash;
+          <a href="../../concepts/personas.html">personas</a> &mdash;
           how voice + skills + frontmatter shape one channel&rsquo;s agent
         </li>
         <li>
-          <a href="/pub/howto/slack.html">Slack adapter how-to</a> &mdash;
+          <a href="../../howto/slack.html">Slack adapter how-to</a> &mdash;
           Slack-specific quirks and verification steps
         </li>
         <li>
-          <a href="/pub/concepts/auth.html">auth</a> &mdash; OAuth providers,
+          <a href="../../concepts/auth.html">auth</a> &mdash; OAuth providers,
           account linking, identity resolution
         </li>
         <li>
-          <a href="/pub/concepts/webdav.html">webdav</a> &mdash; mounting the
+          <a href="../../concepts/webdav.html">webdav</a> &mdash; mounting the
           channel workspace
         </li>
         <li>
-          <a href="/pub/crackbox/">crackbox</a> &mdash; per-channel egress
+          <a href="../../crackbox/">crackbox</a> &mdash; per-channel egress
           isolation
         </li>
         <li>
-          <a href="/pub/howto/">deployment guide</a> &mdash; first instance,
+          <a href="../../howto/">deployment guide</a> &mdash; first instance,
           first channel, first invite
         </li>
       </ul>
     </div>
     <button class="theme-toggle">&#127769;</button>
-    <script src="/pub/assets/hub.js"></script>
+    <script src="../../assets/hub.js"></script>
   </body>
 </html>

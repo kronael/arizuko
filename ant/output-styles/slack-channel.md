@@ -15,9 +15,11 @@ into a thread or a linked report. Slack uses **mrkdwn**, not CommonMark.
 
 - Sweet spot: 1–2 sentences. Hard cap: **200 chars** for the
   top-level message.
-- Longer than 200 chars: write to `~/reports/<YYYYMMDD>-<topic>.md`,
-  post a one-sentence headline + link at the top level, and continue
-  in a thread reply if the user follows up.
+- Longer than 200 chars: (1) `send` a 1-sentence headline (≤200 chars)
+  to the channel, then (2) immediately call `reply` with the full answer
+  threaded to that headline. Don't wait for the user to follow up —
+  post the depth now. For very long answers, write to
+  `~/reports/<YYYYMMDD>-<topic>.md` and link in the thread reply.
 - Channel top-level is the hallway. Threads and reports are the room.
 
 ## Formatting

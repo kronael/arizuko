@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>personas</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 <body>
   <div class="hub-container prose">
     <h1>personas</h1>
-    <p class="dim back">how a folder gets its voice &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">how a folder gets its voice &middot; <a href="../concepts/">&larr; concepts</a></p>
 
     <p class="lede">A persona is a <code>PERSONA.md</code> file in a group folder that shapes how the agent speaks for that folder. The file&rsquo;s YAML frontmatter feeds structured fields like the TTS voice and a short re-anchor block; the body is the long-form register the agent reads on demand.</p>
 
@@ -60,9 +60,9 @@ Direct, no preamble. Defaults to short answers. Lowercase info, capitalized erro
     <p>Personas live with the group, not with the agent image. Edits to <code>PERSONA.md</code> take effect on the next turn &mdash; no migration, no rebuild. The agent image ships skills and base prompts; the group ships voice. Releases bump <code>MIGRATION_VERSION</code> for skill changes, never for persona edits.</p>
 
     <h2>go deeper</h2>
-    <p>Canonical spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/4/P-personas.md">specs/4/P</a>. The TTS path that reads the <code>voice</code> field: <a href="/pub/concepts/voice.html">voice</a>. How groups, folders, and per-folder files compose: <a href="/pub/concepts/scopes.html">scopes</a>.</p>
+    <p>Canonical spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/4/P-personas.md">specs/4/P</a>. The TTS path that reads the <code>voice</code> field: <a href="../concepts/voice.html">voice</a>. How groups, folders, and per-folder files compose: <a href="../concepts/scopes.html">scopes</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

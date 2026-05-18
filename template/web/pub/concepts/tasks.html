@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tasks</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 <body>
   <div class="hub-container prose">
     <h1>tasks</h1>
-    <p class="dim back">scheduled agent runs &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">scheduled agent runs &middot; <a href="../concepts/">&larr; concepts</a></p>
 
     <p class="lede">A task is a saved prompt with a schedule. When the schedule says it&rsquo;s time, the prompt lands in a folder as if a user had just typed it, and the agent answers like any other turn.</p>
 
@@ -69,9 +69,9 @@
     <p>The status field never auto-flips to <code>paused</code> based on failures. A failing recurring task keeps firing until somebody pauses it or fixes the underlying problem.</p>
 
     <h2>go deeper</h2>
-    <p>Daemon internals and the planned <code>/v1/tasks</code> HTTP surface: <a href="https://github.com/kronael/arizuko/blob/main/timed/README.md">timed/README.md</a>. Full scheduler design: <a href="https://github.com/kronael/arizuko/blob/main/specs/4/8-scheduler-service.md">specs/4/8</a>. How the routed JID becomes a folder: <a href="/pub/concepts/routing.html">routing</a>.</p>
+    <p>Daemon internals and the planned <code>/v1/tasks</code> HTTP surface: <a href="https://github.com/kronael/arizuko/blob/main/timed/README.md">timed/README.md</a>. Full scheduler design: <a href="https://github.com/kronael/arizuko/blob/main/specs/4/8-scheduler-service.md">specs/4/8</a>. How the routed JID becomes a folder: <a href="../concepts/routing.html">routing</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

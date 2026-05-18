@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>put a chat link on your site — arizuko</title>
-    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <link rel="stylesheet" href="../assets/hub.css" />
     <style>
       .prose p { margin: 0.6em 0; }
       .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -24,8 +24,8 @@
   <body>
     <div class="hub-container prose">
       <p class="dim back">
-        <a href="/pub/">arizuko</a> &rsaquo;
-        <a href="/pub/howto/">how-to</a> &rsaquo; chat link
+        <a href="../">arizuko</a> &rsaquo;
+        <a href="../howto/">how-to</a> &rsaquo; chat link
       </p>
       <h1>put a chat link on your site</h1><p>
         A chat link is a URL like <code>https://&lt;host&gt;/chat/&lt;token&gt;/</code>.
@@ -35,7 +35,7 @@
 
       <p>
         The primitive is the same one webhooks use &mdash; see
-        <a href="/pub/concepts/tokens.html">route tokens</a> for the
+        <a href="../concepts/tokens.html">route tokens</a> for the
         full story. This page covers the operator-side recipe for
         getting one URL onto one website.
       </p>
@@ -114,7 +114,7 @@ arizuko token issue acme chat --suffix sales
       <p>
         Both URLs reach the same <code>acme</code> agent, but the
         JID prefix lets route rules behave differently &mdash; e.g.
-        a different persona, a different <a href="/pub/concepts/topics.html">topic</a>,
+        a different persona, a different <a href="../concepts/topics.html">topic</a>,
         or a different scheduled escalation. Suffixes are folder
         segments, not query params; pick names that read well in
         the route table.
@@ -126,7 +126,7 @@ arizuko token issue acme chat --suffix sales
         <code>/chat/&lt;token&gt;/</code> is the anonymous bearer URL.
         Signed-in chat (a teammate's private pane against their own
         folder, OAuth-gated through proxyd) is a separate surface
-        served by <a href="/pub/components/webd.html">webd</a> and not
+        served by <a href="../components/webd.html">webd</a> and not
         covered here.
       </div>
 
@@ -143,13 +143,13 @@ arizuko token issue acme chat --suffix sales
 
       <h2>go deeper</h2>
       <ul>
-        <li><a href="/pub/concepts/tokens.html">concepts/route tokens</a> &mdash; the bearer model and JID encoding.</li>
-        <li><a href="/pub/howto/webhooks.html">how-to: webhooks</a> &mdash; the <code>/hook/</code> sibling for machine ingest.</li>
-        <li><a href="/pub/reference/tokens.html">reference/tokens</a> &mdash; full HTTP surface, POST and SSE shapes, env vars.</li>
-        <li><a href="/pub/components/webd.html">components/webd</a> &mdash; the daemon that hosts <code>/chat/*</code>.</li>
+        <li><a href="../concepts/tokens.html">concepts/route tokens</a> &mdash; the bearer model and JID encoding.</li>
+        <li><a href="../howto/webhooks.html">how-to: webhooks</a> &mdash; the <code>/hook/</code> sibling for machine ingest.</li>
+        <li><a href="../reference/tokens.html">reference/tokens</a> &mdash; full HTTP surface, POST and SSE shapes, env vars.</li>
+        <li><a href="../components/webd.html">components/webd</a> &mdash; the daemon that hosts <code>/chat/*</code>.</li>
       </ul>
     </div>
     <button class="theme-toggle">&#127769;</button>
-    <script src="/pub/assets/hub.js"></script>
+    <script src="../assets/hub.js"></script>
   </body>
 </html>

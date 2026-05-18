@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>slack pane</title>
-  <link rel="stylesheet" href="/pub/assets/hub.css">
+  <link rel="stylesheet" href="../assets/hub.css">
   <style>
     .prose p { margin: 0.6em 0; }
     .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -17,7 +17,7 @@
 <body>
   <div class="hub-container prose">
     <h1>slack pane</h1>
-    <p class="dim back">the Agents &amp; AI Apps sidebar &middot; <a href="/pub/concepts/">&larr; concepts</a></p>
+    <p class="dim back">the Agents &amp; AI Apps sidebar &middot; <a href="../concepts/">&larr; concepts</a></p>
 
     <p class="lede">Slack ships a dedicated sidebar UI for installed agent apps &mdash; the user clicks the AI icon and gets a split pane with the bot. It&rsquo;s a richer surface than a DM: the bot can set a title, suggest follow-up prompts, show a typing indicator, and know which channel the user is currently viewing.</p>
 
@@ -38,7 +38,7 @@
     <ol>
       <li>Upserts the <code>pane_sessions</code> row.</li>
       <li>Sets the pane title from <code>ARIZUKO_ASSISTANT_NAME</code> (falls back to the instance name) via <code>bot.paneTitle()</code> at <a href="https://github.com/kronael/arizuko/blob/main/slakd/bot.go#L413"><code>slakd/bot.go:413</code></a>.</li>
-      <li>Stages default suggested prompts from the bot&rsquo;s compiled starter list; the agent overrides them per pane with <a href="/pub/reference/mcp.html#pane_set_prompts"><code>pane_set_prompts</code></a> MCP calls.</li>
+      <li>Stages default suggested prompts from the bot&rsquo;s compiled starter list; the agent overrides them per pane with <a href="../reference/mcp.html#pane_set_prompts"><code>pane_set_prompts</code></a> MCP calls.</li>
       <li>Synthesises an inbound with <code>verb="pane_open"</code> so the route table can match on it.</li>
     </ol>
     <p>On every agent reply in a pane, slakd posts via <code>chat.postMessage</code> with <code>thread_ts</code> set to the pane&rsquo;s thread, then optionally calls <code>setSuggestedPrompts</code> with whatever the agent staged via <code>pane_set_prompts</code>.</p>
@@ -57,12 +57,12 @@
       <li><strong>OAuth scopes</strong> &mdash; add <code>assistant:write</code> (keep <code>chat:write</code>).</li>
       <li><strong>Event Subscriptions</strong> &mdash; subscribe to <code>assistant_thread_started</code> and <code>assistant_thread_context_changed</code>. Keep <code>message.im</code> for inbound pane messages.</li>
     </ol>
-    <p>Full walkthrough in <a href="/pub/howto/slack.html">deploy on Slack</a>.</p>
+    <p>Full walkthrough in <a href="../howto/slack.html">deploy on Slack</a>.</p>
 
     <h2>go deeper</h2>
-    <p>Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/6/D-slack-agent-pane.md">specs/6/D</a>. The <code>pane_sessions</code> schema: <a href="/pub/reference/schema.html"><code>pane_sessions</code></a>. The MCP tool reference: <a href="/pub/reference/mcp.html#pane_set_prompts"><code>pane_set_prompts</code></a>, <a href="/pub/reference/mcp.html#pane_set_title"><code>pane_set_title</code></a>.</p>
+    <p>Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/6/D-slack-agent-pane.md">specs/6/D</a>. The <code>pane_sessions</code> schema: <a href="../reference/schema.html"><code>pane_sessions</code></a>. The MCP tool reference: <a href="../reference/mcp.html#pane_set_prompts"><code>pane_set_prompts</code></a>, <a href="../reference/mcp.html#pane_set_title"><code>pane_set_title</code></a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
-  <script src="/pub/assets/hub.js"></script>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Slack team agent setup — arizuko</title>
-    <link rel="stylesheet" href="/pub/assets/hub.css" />
+    <link rel="stylesheet" href="../../assets/hub.css" />
     <style>
       .prose p { margin: 0.6em 0; }
       .prose ul { margin: 0.4em 0 0.8em 1.2em; }
@@ -23,8 +23,8 @@
   <body>
     <div class="hub-container prose">
       <p class="dim back">
-        <a href="/pub/">arizuko</a> &rsaquo;
-        <a href="/pub/products/slack-team/">Slack team agent</a> &rsaquo; setup
+        <a href="../../">arizuko</a> &rsaquo;
+        <a href="../../products/slack-team/">Slack team agent</a> &rsaquo; setup
       </p>
       <h1>Slack team agent — setup</h1>
 
@@ -78,7 +78,7 @@ DISCORD_CLIENT_ID=…
 DISCORD_CLIENT_SECRET=…</code></pre>
       <p>
         Generate the two secrets with <code>openssl rand -hex 32</code>.
-        See <a href="/pub/reference/env.html">reference / env</a> for the
+        See <a href="../../reference/env.html">reference / env</a> for the
         complete list and the daemons that read each one.
       </p>
 
@@ -104,7 +104,7 @@ DISCORD_CLIENT_SECRET=…</code></pre>
         scope (already in the list above). In the Slack App &rarr;
         <em>Agents &amp; AI Apps</em>, toggle &ldquo;Agent or
         Assistant&rdquo; on. Step-by-step with screenshots:
-        <a href="/pub/howto/slack.html#step-8">Slack adapter how-to,
+        <a href="../../howto/slack.html#step-8">Slack adapter how-to,
         step 8</a>. Verify by clicking the AI icon next to the bot in
         Slack &mdash; a pane should open.
       </p>
@@ -124,7 +124,7 @@ DISCORD_CLIENT_SECRET=…</code></pre>
         This generates a Docker Compose file in
         <code>/srv/data/arizuko_acme/compose.yml</code> and runs it.
         For long-running production, install a systemd unit; see
-        <a href="/pub/howto/">getting started</a> for the template.
+        <a href="../../howto/">getting started</a> for the template.
       </p>
 
       <h2>5. invite teammates</h2>
@@ -135,7 +135,7 @@ DISCORD_CLIENT_SECRET=…</code></pre>
         bot, and per-channel grants gate what the agent will do.
         OAuth login is only needed for surfaces that key off a
         cross-platform user identity &mdash; the private web chat,
-        per-user secrets (<a href="/pub/concepts/secrets.html">spec 9/11</a>),
+        per-user secrets (<a href="../../concepts/secrets.html">spec 9/11</a>),
         and merging memory across Slack + GitHub + Discord. To opt
         in, a teammate signs in at
         <code>https://&lt;WEB_HOST&gt;/auth/login</code>; subsequent
@@ -181,7 +181,7 @@ arizuko invite acme list</code></pre>
         <code>#observe</code> so the agent has context on the next
         mention, but no turn fires until someone calls on it. Full
         recipe and Discord variant:
-        <a href="/pub/howto/asymmetric-channels.html#mention-only">asymmetric channels</a>.
+        <a href="../../howto/asymmetric-channels.html#mention-only">asymmetric channels</a>.
       </p>
 
       <h2>8. tune per channel</h2>
@@ -234,8 +234,8 @@ arizuko invite acme list</code></pre>
         (<code>interact</code>, <code>mcp:&lt;tool&gt;</code>, deny
         effects) are managed from <code>/dash/</code> &rarr; Grants
         today. Full rule shape:
-        <a href="/pub/concepts/grants.html">grants</a>.
-        CLI reference: <a href="/pub/reference/cli.html">cli</a>.
+        <a href="../../concepts/grants.html">grants</a>.
+        CLI reference: <a href="../../reference/cli.html">cli</a>.
       </p>
 
       <h3>autoviv (optional)</h3>
@@ -248,7 +248,7 @@ arizuko invite acme list</code></pre>
         message; the agent calls <code>register_group</code> itself
         and the next message in that channel routes to its own
         folder. Recipe and limits:
-        <a href="/pub/concepts/autoviv.html">autoviv</a>.
+        <a href="../../concepts/autoviv.html">autoviv</a>.
       </p>
 
       <h2>10. multi-workspace</h2>
@@ -333,11 +333,11 @@ preserve_headers = ["X-Slack-Signature", "X-Slack-Request-Timestamp"]</code></pr
       <p>
         Bring external events &mdash; GitHub PRs, Linear issues,
         Sentry alerts &mdash; into a Slack-team agent by minting a
-        <a href="/pub/concepts/tokens.html">hook token</a> for the
+        <a href="../../concepts/tokens.html">hook token</a> for the
         folder. Events arrive as messages at
         <code>hook:&lt;folder&gt;/&lt;source&gt;</code>; the body is
         delivered verbatim. Full recipe:
-        <a href="/pub/howto/webhooks.html">webhooks</a>.
+        <a href="../../howto/webhooks.html">webhooks</a>.
       </p>
       <p>
         Quick GitHub example. Mint a hook token for the engineering
@@ -359,7 +359,7 @@ arizuko token issue atlas/eng hook github
         <code>escalate_group</code> to its parent when something
         needs human attention. Cross-channel and cross-platform
         moves use the same MCP tools the agents already share
-        (<a href="/pub/howto/talking-to-agents.html#crossing-agents">talking to agents</a>).
+        (<a href="../../howto/talking-to-agents.html#crossing-agents">talking to agents</a>).
       </p>
       <p>
         webd delivers GitHub's JSON verbatim with the
@@ -368,7 +368,7 @@ arizuko token issue atlas/eng hook github
         verification are skill concerns on the agent side &mdash;
         the platform is intentionally hands-off. The URL token is
         the bearer credential; rotate by reissue. See the
-        <a href="/pub/howto/webhooks.html#security-model">webhooks security model</a>.
+        <a href="../../howto/webhooks.html#security-model">webhooks security model</a>.
       </p>
 
       <h3>email ingest</h3>
@@ -377,7 +377,7 @@ arizuko token issue atlas/eng hook github
         digests), use the <code>emaid</code> adapter instead of a
         hook token &mdash; it owns IMAP receive, SMTP send, and
         threading by Message-ID. See
-        <a href="/pub/components/emaid.html">emaid</a> for the
+        <a href="../../components/emaid.html">emaid</a> for the
         connection setup. Auth-related env vars (spec 8/17) gate
         whether inbound is treated as trusted:
       </p>
@@ -401,7 +401,7 @@ EMAIL_STRICT_AUTH=false                       # true = drop unauthenticated outr
         questions, summarizes threads, files issues. For a more
         focused experience in one particular channel (say
         <code>#eng-support</code>), compose the
-        <a href="/pub/products/">support</a> product as a child group
+        <a href="../../products/">support</a> product as a child group
         under the slack-team root. The result: most channels keep the
         slack-team persona; <code>#eng-support</code> gets the
         support persona &mdash; KB-first, cite-or-say-I-don't-know,
@@ -548,17 +548,17 @@ mcpc @s tools-call add_route \
 
       <h2>go deeper</h2>
       <ul>
-        <li><a href="/pub/products/slack-team/">Slack team agent &mdash; intro</a> &mdash; what teammates see</li>
-        <li><a href="/pub/howto/slack.html">Slack adapter how-to</a> &mdash; deeper notes on Slack-specific quirks</li>
-        <li><a href="/pub/concepts/grants.html">grants</a> &mdash; per-user and per-folder action scoping</li>
-        <li><a href="/pub/concepts/auth.html">auth</a> &mdash; OAuth providers, account linking</li>
-        <li><a href="/pub/concepts/slack-pane.html">slack pane</a> &mdash; AI sidebar surface, pane events, suggested prompts</li>
-        <li><a href="/pub/concepts/personas.html">personas</a> &mdash; how voice + skills + frontmatter shape a channel agent</li>
-        <li><a href="/pub/components/channels.html">channels (slakd)</a> &mdash; the Slack adapter daemon</li>
-        <li><a href="/pub/reference/cli.html">CLI reference</a> &mdash; full command list</li>
+        <li><a href="../../products/slack-team/">Slack team agent &mdash; intro</a> &mdash; what teammates see</li>
+        <li><a href="../../howto/slack.html">Slack adapter how-to</a> &mdash; deeper notes on Slack-specific quirks</li>
+        <li><a href="../../concepts/grants.html">grants</a> &mdash; per-user and per-folder action scoping</li>
+        <li><a href="../../concepts/auth.html">auth</a> &mdash; OAuth providers, account linking</li>
+        <li><a href="../../concepts/slack-pane.html">slack pane</a> &mdash; AI sidebar surface, pane events, suggested prompts</li>
+        <li><a href="../../concepts/personas.html">personas</a> &mdash; how voice + skills + frontmatter shape a channel agent</li>
+        <li><a href="../../components/channels.html">channels (slakd)</a> &mdash; the Slack adapter daemon</li>
+        <li><a href="../../reference/cli.html">CLI reference</a> &mdash; full command list</li>
       </ul>
     </div>
     <button class="theme-toggle">&#127769;</button>
-    <script src="/pub/assets/hub.js"></script>
+    <script src="../../assets/hub.js"></script>
   </body>
 </html>
