@@ -7,16 +7,16 @@ status: active
 Making each arizuko daemon and capability presentable and usable
 standalone, reusable across other agent workloads beyond arizuko.
 
-| Spec                                                     | Status    | Hook                                                            |
-| -------------------------------------------------------- | --------- | --------------------------------------------------------------- |
-| [b-ant-standalone.md](b-ant-standalone.md)               | deferred  | ant as standalone Claude Code distribution; `ant <folder>` CLI  |
-| [c-ant-mcp-runtime.md](c-ant-mcp-runtime.md)             | unshipped | Go runtime: MCP front (stream-progress), claude NDJSON driver   |
-| [d-ant-image-cutover.md](d-ant-image-cutover.md)         | unshipped | `ant:latest` ENTRYPOINT swap to Go binary; soak protocol        |
-| [6-workflows.md](6-workflows.md)                         | deferred  | workflowd — TOML flow engine over shared SQLite; agent-agnostic |
-| [8-self-eval-skill.md](8-self-eval-skill.md)             | deferred  | Self-eval sub-query at container exit; portable skill           |
-| [1-multi-agent-commits.md](1-multi-agent-commits.md)     | deferred  | Committer script for multi-agent git safety (openclaw pattern)  |
-| [2-printing-press.md](2-printing-press.md)               | spec      | Integrate printingpress.dev — agent-native CLI generator + MCP. |
-| [3-template-distillation.md](3-template-distillation.md) | planned   | Harvest live-group wisdom back into `ant/examples/<product>/`.  |
+| Spec                                                     | Status | Hook                                                            |
+| -------------------------------------------------------- | ------ | --------------------------------------------------------------- |
+| [b-ant-standalone.md](b-ant-standalone.md)               | draft  | ant as standalone Claude Code distribution; `ant <folder>` CLI  |
+| [c-ant-mcp-runtime.md](c-ant-mcp-runtime.md)             | draft  | Go runtime: MCP front (stream-progress), claude NDJSON driver   |
+| [d-ant-image-cutover.md](d-ant-image-cutover.md)         | draft  | `ant:latest` ENTRYPOINT swap to Go binary; soak protocol        |
+| [6-workflows.md](6-workflows.md)                         | draft  | workflowd — TOML flow engine over shared SQLite; agent-agnostic |
+| [8-self-eval-skill.md](8-self-eval-skill.md)             | draft  | Self-eval sub-query at container exit; portable skill           |
+| [1-multi-agent-commits.md](1-multi-agent-commits.md)     | draft  | Committer script for multi-agent git safety (openclaw pattern)  |
+| [2-printing-press.md](2-printing-press.md)               | draft  | Integrate printingpress.dev — agent-native CLI generator + MCP. |
+| [3-template-distillation.md](3-template-distillation.md) | draft  | Harvest live-group wisdom back into `ant/examples/<product>/`.  |
 
 ---
 
