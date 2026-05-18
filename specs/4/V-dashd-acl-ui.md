@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 depends: [5/9-acl-unified.md, 4/Q-dash-memory.md]
 ---
 

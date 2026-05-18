@@ -1,5 +1,5 @@
 ---
-status: planned
+status: draft
 brand: fiu
 deployment: krons
 ---

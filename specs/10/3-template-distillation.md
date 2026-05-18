@@ -1,5 +1,5 @@
 ---
-status: planned
+status: draft
 ---
 
 # Template distillation — harvest live wisdom back to `ant/examples/`

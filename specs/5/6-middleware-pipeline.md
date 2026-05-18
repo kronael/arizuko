@@ -2,7 +2,7 @@
 status: draft
 ---
 
-# specs/6/6 — middleware chains for inbound messages, HTTP, and MCP
+# specs/5/6 — middleware chains for inbound messages, HTTP, and MCP
 
 Three separate request pipelines in `gated`-adjacent code hand-wire the
 same cross-cutting concerns inline. Mention-gating, persona injection,

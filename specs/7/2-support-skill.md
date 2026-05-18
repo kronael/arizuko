@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 ---
 
 # /support skill — verified-answer orchestrator

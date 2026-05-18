@@ -1,5 +1,5 @@
 ---
-status: unshipped
+status: draft
 ---
 
 # Ant image cutover — replace TS with Go binary

@@ -1,5 +1,5 @@
 ---
-status: plan
+status: draft
 depends: []
 ---
 

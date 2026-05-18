@@ -1,5 +1,5 @@
 ---
-status: docs
+status: draft
 ---
 
 # Operator — design note

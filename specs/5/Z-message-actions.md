@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 depends: [C-message-mcp, G-engagement, T-voice-synthesis]
 relates-to: [5/5-uniform-mcp-rest]
 ---

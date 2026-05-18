@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 depends: [V-platform-api, 1-auth-standalone, 35-proxyd-standalone]
 ---
 

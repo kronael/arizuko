@@ -1,15 +1,14 @@
 ---
-status: discussion
+status: draft
 relates-to: [F-topic-lineage, D-slack-agent-pane, G-engagement]
 ---
 
-# specs/6/I — per-turn modality envelope (discussion)
+# specs/5/X — per-turn modality envelope
 
-## What this is
+## What this solves
 
-A discussion-status spec to nail down ONE thing: how the agent
-learns, on every turn, what channel/modality/meta context it's
-operating in.
+Nail down ONE thing: how the agent learns, on every turn, what
+channel/modality/meta context it's operating in.
 
 Today this is scattered:
 

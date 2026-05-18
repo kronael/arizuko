@@ -1,5 +1,5 @@
 ---
-status: deferred
+status: draft
 ---
 
 # Multi-agent commit coordination

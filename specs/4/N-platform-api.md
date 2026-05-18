@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 depends:
   [
     ../1/W-slink.md,

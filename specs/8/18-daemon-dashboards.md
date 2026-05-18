@@ -1,5 +1,5 @@
 ---
-status: discussion
+status: draft
 depends: [5/5-uniform-mcp-rest, 5/35-proxyd-standalone]
 ---
 

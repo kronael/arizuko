@@ -1,5 +1,5 @@
 ---
-status: planned
+status: draft
 ---
 
 # Plugin layer for MCP-tool capabilities

@@ -1,13 +1,13 @@
 ---
-status: brainstorm
+status: draft
 depends: [9-acl-unified]
 relates-to:
   [1-auth-standalone, E-rest-mcp-bridge, A-mcp-everywhere, 5-uniform-mcp-rest]
 ---
 
-# specs/6/H — third-party OAuth services as agent capabilities (brainstorm)
+# specs/5/N — third-party OAuth services as agent capabilities
 
-## Why this is a brainstorm
+## Problem space
 
 Operators are starting to ask for Gmail, GCal, Drive, Notion, Linear,
 GitHub, Microsoft 365, Asana, Jira access from agents. The cheap

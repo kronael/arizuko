@@ -1,5 +1,5 @@
 ---
-status: deferred
+status: draft
 source: hermes-agent peel (2026-04-11)
 ---
 

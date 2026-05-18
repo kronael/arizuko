@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 sources:
   - hermes-agent peel (2026-04-11)
   - hermes-agent deep read (tmp/hermes-deep.md, 2026-05-13)

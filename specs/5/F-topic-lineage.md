@@ -6,7 +6,7 @@ relates-to:
 revision: 6
 ---
 
-# specs/6/F — topic lineage: forks + per-topic observed cursor
+# specs/5/F — topic lineage: forks + per-topic observed cursor
 
 ## What this is
 

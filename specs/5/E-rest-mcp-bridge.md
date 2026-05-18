@@ -1,12 +1,12 @@
 ---
-status: brainstorm
+status: draft
 depends: [9-acl-unified]
 relates-to: [6-middleware-pipeline, D-slack-agent-pane]
 ---
 
-# specs/6/E — REST ↔ MCP bridge (brainstorm)
+# specs/5/E — REST ↔ MCP bridge
 
-## Why this is a brainstorm
+## Open framings
 
 Three competing framings sit on the table; none are crisp yet:
 

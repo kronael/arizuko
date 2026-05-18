@@ -1,5 +1,5 @@
 ---
-status: deferred
+status: draft
 ---
 
 # sandd — sandbox lifecycle daemon

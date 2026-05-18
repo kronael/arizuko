@@ -1,5 +1,5 @@
 ---
-status: deferred
+status: draft
 ---
 
 # HITL firewall — human-in-the-loop tool gate

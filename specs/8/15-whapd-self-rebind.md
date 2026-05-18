@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 ---
 
 # Self-service WhatsApp re-pair (operator-only)

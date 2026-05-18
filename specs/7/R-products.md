@@ -1,5 +1,5 @@
 ---
-status: active
+status: draft
 ---
 
 # Products — curated agent templates

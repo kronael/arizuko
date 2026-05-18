@@ -1,5 +1,5 @@
 ---
-status: unshipped
+status: draft
 ---
 
 # Ant portability — lockfile, arzpack, fleet skill ops

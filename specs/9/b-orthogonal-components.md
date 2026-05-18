@@ -1,5 +1,5 @@
 ---
-status: planned
+status: draft
 ---
 
 # Orthogonal shippable components

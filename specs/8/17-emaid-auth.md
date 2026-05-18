@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 ---
 
 # emaid sender authentication + quarantine

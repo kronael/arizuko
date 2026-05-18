@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 ---
 
 # Agent-controlled web routing

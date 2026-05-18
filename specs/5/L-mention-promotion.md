@@ -1,5 +1,6 @@
 ---
-status: spec
+status: shipped
+shipped: 2026-05-18
 ---
 
 # Gateway-side reply-to-bot → verb=mention promotion

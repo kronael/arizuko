@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 supersedes: [5/28-mass-onboarding.md, 5/29-acl.md]
 ---
 

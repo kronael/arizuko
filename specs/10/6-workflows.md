@@ -1,5 +1,5 @@
 ---
-status: deferred
+status: draft
 ---
 
 # workflowd — declarative workflows

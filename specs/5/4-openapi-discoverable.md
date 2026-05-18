@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 ---
 
 # Discoverable OpenAPI for every daemon

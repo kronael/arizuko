@@ -1,5 +1,5 @@
 ---
-status: discussion
+status: draft
 ---
 
 # whapd auth-dir auto-rotate on 401 storms

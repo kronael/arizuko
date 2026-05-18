@@ -1,5 +1,5 @@
 ---
-status: planned
+status: draft
 ---
 
 # Product templates

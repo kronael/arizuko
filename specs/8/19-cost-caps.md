@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 ---
 
 # Cost caps + ephemeral budget nudges

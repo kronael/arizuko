@@ -1,5 +1,5 @@
 ---
-status: unshipped
+status: draft
 ---
 
 # Ant runtime — MCP front, NDJSON claude driver

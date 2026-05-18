@@ -1,5 +1,5 @@
 ---
-status: rejected
+status: dropped
 ---
 
 # Agent Teams — disabled

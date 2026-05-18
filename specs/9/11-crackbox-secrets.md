@@ -1,5 +1,5 @@
 ---
-status: spec
+status: draft
 depends: [9-crackbox-standalone, 10-crackbox-arizuko, 5/5-uniform-mcp-rest]
 ---
 
