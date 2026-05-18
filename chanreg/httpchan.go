@@ -298,15 +298,18 @@ func (h *HTTPChannel) Post(ctx context.Context, jid, content string, mediaPaths 
 	return h.postVerb(ctx, "post", "/post", b)
 }
 
+func makeBody(fields map[string]string) []byte {
+	b, _ := json.Marshal(fields)
+	return b
+}
+
 func (h *HTTPChannel) Like(ctx context.Context, jid, targetID, reaction string) error {
-	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "target_id": targetID, "reaction": reaction})
-	_, err := h.postVerb(ctx, "like", "/like", b)
+	_, err := h.postVerb(ctx, "like", "/like", makeBody(map[string]string{"chat_jid": jid, "target_id": targetID, "reaction": reaction}))
 	return err
 }
 
 func (h *HTTPChannel) Delete(ctx context.Context, jid, targetID string) error {
-	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "target_id": targetID})
-	_, err := h.postVerb(ctx, "delete", "/delete", b)
+	_, err := h.postVerb(ctx, "delete", "/delete", makeBody(map[string]string{"chat_jid": jid, "target_id": targetID}))
 	return err
 }
 
@@ -318,32 +321,28 @@ func (h *HTTPChannel) Forward(ctx context.Context, sourceMsgID, targetJID, comme
 	if comment != "" {
 		body["comment"] = comment
 	}
-	b, _ := json.Marshal(body)
-	return h.postVerb(ctx, "forward", "/forward", b)
+	return h.postVerb(ctx, "forward", "/forward", makeBody(body))
 }
 
 func (h *HTTPChannel) Quote(ctx context.Context, jid, sourceMsgID, comment string) (string, error) {
 	if !h.entry.HasCap("quote") {
 		return "", chanlib.Unsupported("quote", h.entry.Name, "adapter does not advertise capability")
 	}
-	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "source_msg_id": sourceMsgID, "comment": comment})
-	return h.postVerb(ctx, "quote", "/quote", b)
+	return h.postVerb(ctx, "quote", "/quote", makeBody(map[string]string{"chat_jid": jid, "source_msg_id": sourceMsgID, "comment": comment}))
 }
 
 func (h *HTTPChannel) Repost(ctx context.Context, jid, sourceMsgID string) (string, error) {
 	if !h.entry.HasCap("repost") {
 		return "", chanlib.Unsupported("repost", h.entry.Name, "adapter does not advertise capability")
 	}
-	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "source_msg_id": sourceMsgID})
-	return h.postVerb(ctx, "repost", "/repost", b)
+	return h.postVerb(ctx, "repost", "/repost", makeBody(map[string]string{"chat_jid": jid, "source_msg_id": sourceMsgID}))
 }
 
 func (h *HTTPChannel) Dislike(ctx context.Context, jid, targetID string) error {
 	if !h.entry.HasCap("dislike") {
 		return chanlib.Unsupported("dislike", h.entry.Name, "adapter does not advertise capability")
 	}
-	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "target_id": targetID})
-	_, err := h.postVerb(ctx, "dislike", "/dislike", b)
+	_, err := h.postVerb(ctx, "dislike", "/dislike", makeBody(map[string]string{"chat_jid": jid, "target_id": targetID}))
 	return err
 }
 
@@ -351,8 +350,7 @@ func (h *HTTPChannel) Edit(ctx context.Context, jid, targetID, content string) e
 	if !h.entry.HasCap("edit") {
 		return chanlib.Unsupported("edit", h.entry.Name, "adapter does not advertise capability")
 	}
-	b, _ := json.Marshal(map[string]string{"chat_jid": jid, "target_id": targetID, "content": content})
-	_, err := h.postVerb(ctx, "edit", "/edit", b)
+	_, err := h.postVerb(ctx, "edit", "/edit", makeBody(map[string]string{"chat_jid": jid, "target_id": targetID, "content": content}))
 	return err
 }
 

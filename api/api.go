@@ -259,7 +259,9 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		// engagement-fallback in the gateway will fall through to onboarding
 		// when EngagedFolder returns "".
 		folder := s.store.DefaultFolderForJID(req.ChatJID)
-		_ = s.store.SetEngagement(req.ChatJID, req.Topic, folder, time.Now().Add(s.engagementTTL))
+		if err := s.store.SetEngagement(req.ChatJID, req.Topic, folder, time.Now().Add(s.engagementTTL)); err != nil {
+			slog.Warn("set engagement failed", "jid", req.ChatJID, "err", err)
+		}
 	}
 	msg := core.Message{
 		ID:            req.ID,
