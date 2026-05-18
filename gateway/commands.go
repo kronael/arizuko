@@ -70,6 +70,10 @@ var gatewayCommands = []gatewayCommand{
 
 func lookupCommand(raw string) (*gatewayCommand, string) {
 	t := cmdText(raw)
+	// Accept \ as alternative to / — Slack intercepts /commands before the bot sees them.
+	if strings.HasPrefix(t, "\\") {
+		t = "/" + t[1:]
+	}
 	if !strings.HasPrefix(t, "/") {
 		return nil, ""
 	}
