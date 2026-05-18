@@ -62,6 +62,7 @@ var daemonKeys = map[string][]string{
 		"CRACKBOX_CONTAINER", "CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL",
 		"CRACKBOX_ADMIN_SECRET",
 		"HOST_CODEX_DIR",
+		"PROXYD_HMAC_SECRET",
 	},
 	"timed": {"CHANNEL_SECRET"},
 	"onbod": {

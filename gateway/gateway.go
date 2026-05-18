@@ -105,6 +105,10 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 
 func (g *Gateway) SetRunner(r container.Runner) { g.runner = r }
 
+// GatedFns exposes the wired-up GatedFns for callers (api.Server) that
+// need to invoke the same handlers the MCP face calls.
+func (g *Gateway) GatedFns() ipc.GatedFns { return g.gatedFns }
+
 // resolveOrEngaged is the single renderer for "find the group that owns
 // this chat", shared by pollOnce and processGroupMessages. When the
 // route table misses, it falls back to spec 5/G engagement: an engaged

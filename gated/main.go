@@ -63,6 +63,7 @@ func main() {
 	reg := chanreg.New(cfg.ChannelSecret)
 	apiSrv := api.New(reg, s)
 	apiSrv.SetEngagementTTL(cfg.EngagementTTL)
+	apiSrv.SetRouteTokenFns(gw.GatedFns(), os.Getenv("PROXYD_HMAC_SECRET"))
 	apiSrv.OnRegister(func(name string, ch *chanreg.HTTPChannel) {
 		gw.RemoveChannel(name)
 		gw.AddChannel(ch)

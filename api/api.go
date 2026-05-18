@@ -12,6 +12,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -34,6 +35,12 @@ type Server struct {
 	// inbound writes engaged_until. Zero disables the bump (used by
 	// the api integration tests that don't construct a full Config).
 	engagementTTL time.Duration
+
+	// Route tokens (spec 5/W). Wired by SetRouteTokenFns.
+	issueRouteToken  func(kind, ownerFolder, targetFolder, sourceLabel, jidSuffix string) (ipc.RouteTokenInfo, error)
+	listRouteTokens  func(ownerFolder string) []ipc.RouteTokenInfo
+	revokeRouteToken func(jid, ownerFolder string) (bool, error)
+	routeTokenHMAC   string
 }
 
 func New(reg *chanreg.Registry, s *store.Store) *Server {
@@ -61,6 +68,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/outbound", auth(capBody(maxBodyDefault, s.handleOutbound)))
 	mux.HandleFunc("POST /v1/messages", capBody(maxBodyMessages, s.handleMessage))
 	mux.HandleFunc("GET /v1/channels", auth(s.handleListChannels))
+	// Route tokens (spec 5/W). Operator-only via proxyd-signed identity.
+	mux.HandleFunc("POST /v1/route_tokens", capBody(maxBodyDefault, s.handleCreateRouteToken))
+	mux.HandleFunc("GET /v1/route_tokens", s.handleListRouteTokens)
+	mux.HandleFunc("DELETE /v1/route_tokens/{jid}", s.handleDeleteRouteToken)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /ready", s.handleHealth)
 	return mux
