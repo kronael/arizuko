@@ -527,6 +527,44 @@ func TestPollOnce_EngagementFallback_IdleDrops(t *testing.T) {
 	}
 }
 
+// Spec 5/G: when the matching route is observe-mode but the (chat, topic) is
+// engaged, the agent fires instead of observing. Observed slack channels with
+// an active thread reply (topic=thread_ts) should fire the engaged folder.
+func TestPollOnce_Observe_EngagementOverride(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.EngagementTTL = 10 * time.Minute
+
+	jid := "slack:TEAM/channel/CHAN"
+	threadTopic := "1700000100.000001"
+	if err := s.PutGroup(core.Group{Folder: "grp"}); err != nil {
+		t.Fatal(err)
+	}
+	// Route: channel messages → grp#observe.
+	if _, err := s.AddRoute(core.Route{Seq: 0, Match: "chat_jid=slack:*/channel/*", Target: "grp#observe"}); err != nil {
+		t.Fatal(err)
+	}
+	// Engagement active for the thread topic (set when the bot replied).
+	if err := s.BumpEngagement(jid, threadTopic, "grp", time.Now().Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: jid, Sender: "slack:user/U1",
+		Content: "reply in thread", Topic: threadTopic,
+		Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.pollOnce()
+
+	// Cursor must NOT have advanced past m1 — the engagement override
+	// fires the agent instead of consuming the message as observed.
+	if got := s.GetAgentCursor(jid); !got.IsZero() {
+		t.Errorf("observe+engaged: cursor advanced (message dropped) want zero, got %v", got)
+	}
+}
+
 // Regression: pollOnce records steered timestamps so advanceAgentCursor
 // can include them when the container completes. The cursor is NOT
 // advanced during steer — only on container completion.
@@ -1312,13 +1350,12 @@ func TestCheckMigrationVersion(t *testing.T) {
 	os.MkdirAll(groupSkillDir, 0o755)
 	os.WriteFile(filepath.Join(groupSkillDir, "MIGRATION_VERSION"), []byte("54\n"), 0o644)
 
-	// Create child group: backstop direct notification must reach it
-	// in case the root /migrate skill partially fails.
+	// Child group: skills seeded at container start; no separate backstop.
 	s.PutGroup(core.Group{Folder: "myworld/child"})
 
 	gw.checkMigrationVersion()
 
-	// Should have injected a /migrate trigger into myworld
+	// Should have injected a /migrate trigger into myworld.
 	msgs, _ := s.MessagesSince("myworld", time.Time{}, "nobot")
 	found := false
 	for _, m := range msgs {
@@ -1330,17 +1367,13 @@ func TestCheckMigrationVersion(t *testing.T) {
 		t.Error("expected auto-migration message in myworld")
 	}
 
-	// Child group MUST receive a direct backstop notification; the
-	// /migrate skill also fans out (two messages is acceptable).
+	// Child group must NOT receive a backstop — it caused agents with
+	// strong personas to self-introduce in response to the noise.
 	childMsgs, _ := s.MessagesSince("myworld/child", time.Time{}, "nobot")
-	childNotified := false
 	for _, m := range childMsgs {
-		if strings.Contains(m.Content, "System update") && m.Sender == "system" {
-			childNotified = true
+		if m.Sender == "system" {
+			t.Errorf("child group received unexpected system message: %q", m.Content)
 		}
-	}
-	if !childNotified {
-		t.Error("expected child group to receive auto-migration backstop notification")
 	}
 }
 

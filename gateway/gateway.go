@@ -487,26 +487,10 @@ func (g *Gateway) checkMigrationVersion() {
 		})
 		g.queue.EnqueueMessageCheck(gr.Folder)
 
-		// Backstop: notify each child group directly so they hear about
-		// the upgrade even if the root's /migrate skill partially fails.
-		// The skill's announce step (step e) also fans out — two
-		// messages is acceptable; silent regression isn't.
-		note := fmt.Sprintf("System update: skills v%d → v%d applied. "+
-			"New capabilities may be available — check /self for details.", agent, latest)
-		for _, child := range groups {
-			if groupfolder.ParentOf(child.Folder) != gr.Folder {
-				continue
-			}
-			g.store.PutMessage(core.Message{
-				ID:        core.MsgID("auto-migrate-notify-" + child.Folder),
-				ChatJID:   child.Folder,
-				Sender:    "system",
-				Content:   note,
-				Timestamp: time.Now(),
-			})
-			slog.Info("auto-migrate: notified child group",
-				"child", child.Folder, "parent", gr.Folder)
-		}
+		// Child groups get skills seeded at container start (seedSkills).
+		// The root's /migrate skill announces and fans out. No separate
+		// backstop — it caused child agents with strong personas to
+		// self-introduce in response to the informational message.
 	}
 }
 
@@ -633,15 +617,28 @@ func (g *Gateway) pollOnce() {
 
 		rt := router.ResolveRouteTarget(last, routes)
 		if rt.Mode == "observe" {
-			ids := make([]string, len(chatMsgs))
-			for i, m := range chatMsgs {
-				ids[i] = m.ID
+			// Spec 5/G: engagement overrides observe. When the agent has
+			// replied in this (chat, topic) its engagement window is active —
+			// fire instead of observing so the conversation continues.
+			effTopic := g.effectiveTopic(chatJid, last.Topic)
+			engaged := g.cfg.EngagementTTL > 0 && g.store.IsEngaged(chatJid, effTopic, time.Now())
+			if !engaged {
+				ids := make([]string, len(chatMsgs))
+				for i, m := range chatMsgs {
+					ids[i] = m.ID
+				}
+				if err := g.store.MarkMessagesObserved(rt.Folder, ids); err != nil {
+					slog.Warn("poll: mark observed", "jid", chatJid, "err", err)
+				}
+				g.advanceAgentCursor(chatJid, chatMsgs)
+				continue
 			}
-			if err := g.store.MarkMessagesObserved(rt.Folder, ids); err != nil {
-				slog.Warn("poll: mark observed", "jid", chatJid, "err", err)
+			// Engaged — use the engaged folder so the right agent fires.
+			if folder := g.store.EngagedFolder(chatJid, effTopic); folder != "" {
+				if gr, ok2 := g.store.GroupByFolder(folder); ok2 {
+					group = gr
+				}
 			}
-			g.advanceAgentCursor(chatJid, chatMsgs)
-			continue
 		}
 		// Route-pinned topic (spec 6/F + topic-suffix routing): when
 		// the matched route declares target=folder#<topic>, override
