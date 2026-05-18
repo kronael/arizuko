@@ -14,6 +14,49 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+> arizuko — chat links and webhooks share one primitive
+>
+> Mint a public chat URL or a webhook URL with one MCP call; both flow into the same agent through the same store.
+>
+> • `issue_chat_link` / `issue_webhook` MCP tools — agents mint URL-bound credentials on demand.
+> • New `/chat/<token>/` and `/hook/<token>` surfaces; legacy `/slink/*` 301s to the new paths.
+> • `arizuko token issue|list|revoke` CLI plus REST `/v1/route_tokens` for operators and dashd.
+> • `route_tokens` table replaces the single-column `groups.slink_token`; no backfill — reissue by hand.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- Route tokens primitive (`route_tokens` table) + four MCP tools
+  (`issue_chat_link`, `issue_webhook`, `list_tokens`, `revoke_token`)
+  - REST surface at `/v1/route_tokens`. Spec: `specs/5/W-webhook-routes.md`.
+- webd `/chat/<token>/` (widget + SSE) and `/hook/<token>` (fire-and-forget)
+  share one handler set; both accept any valid token regardless of JID kind
+  (kind is metadata for the agent, not a URL gate).
+- `arizuko token` CLI subcommand (issue / list / revoke), local-only.
+- dashd operator UI for `route_tokens` (issue + revoke per folder).
+- Migration `0059-route-tokens.sql`: create table + drop
+  `groups.slink_token` column.
+
+### Changed
+
+- `/chat/<folder>` operator chat panel moved to `/panel/<folder>` so the
+  `/chat/` prefix is unambiguously public.
+- proxyd rate limiter renamed `slinkAnonDOS` → `chatAnonDOS`
+  (env `SLINK_ANON_DOS_RPM` → `CHAT_ANON_DOS_RPM`); signed headers
+  renamed `X-Slink-*` → `X-Chat-*`; helper
+  `auth.VerifySlinkSig` → `auth.VerifyChatSig`.
+- onbod stops auto-seeding chat tokens at folder creation —
+  operator/agent mints on demand.
+
+### Removed
+
+- `core.Group.SlinkToken` + `core.GenSlinkToken`.
+- `store.GroupBySlinkToken` (replaced by `LookupRouteToken`).
+- `webd/slink.go` + `webd/slink_test.go` + `webd/slink_e2e_test.go`
+  (replaced by `webd/route_token.go`).
+- `container.Input.SlinkToken` / `SLINK_TOKEN` container env var.
+
 ## [v0.40.9] — 2026-05-18
 
 > arizuko v0.40.9 — stay in the conversation

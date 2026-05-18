@@ -423,13 +423,13 @@ applies a default auth-gate.
 
 ### Fixed prefixes (evaluated first, in order)
 
-| Path prefix                                            | Behaviour                                 |
-| ------------------------------------------------------ | ----------------------------------------- |
-| `/slink/`                                              | public slink widget — no auth required    |
-| `/invite/`                                             | onboarding invite flow — no auth required |
-| `/p/`                                                  | persona pages — no auth required          |
-| `/pub/`                                                | Vite public assets — no auth required     |
-| `/chat/`, `/api/`, `/x/`, `/static/`, `/auth/`, `/mcp` | auth-gated, forwarded upstream            |
+| Path prefix                                             | Behaviour                                 |
+| ------------------------------------------------------- | ----------------------------------------- |
+| `/chat/`, `/hook/`                                      | route-token surfaces — no auth required   |
+| `/invite/`                                              | onboarding invite flow — no auth required |
+| `/p/`                                                   | persona pages — no auth required          |
+| `/pub/`                                                 | Vite public assets — no auth required     |
+| `/panel/`, `/api/`, `/x/`, `/static/`, `/auth/`, `/mcp` | auth-gated, forwarded upstream            |
 
 For `/api/` and `/x/` paths (and any request with `Accept: application/json`),
 `requireAuth` returns `{"error":"unauthorized"}` with HTTP 401 instead of

@@ -3,7 +3,7 @@ name: self
 description: >
   Deep introspection of this agent — identity (who/where/tier),
   workspace layout, MCP tool catalog, skill seeding, migration version,
-  ant chat URL (slink). Directory of focused per-topic files; this
+  chat links and webhooks. Directory of focused per-topic files; this
   SKILL.md is the index. USE for "who are you", "what version", "what's
   my chat URL", "what can I do here", blocked-and-unsure. NOT for
   quick status check (use info).
@@ -40,12 +40,11 @@ directly) — don't load the whole `self/` directory into context. The
 | `<system>` messages, origins, events        | `messages.md`       |
 | Topics: active, drift, observed, reset      | `topics.md`         |
 | Migration version, skill seeding, `/migrate`| `migration.md`      |
-| Web URL structure, slink, dashboard         | `web-routing.md`    |
+| Web URL structure, route tokens, dashboard  | `web-routing.md`    |
+| Chat links + webhooks (issue/use/revoke)    | `chat-link.md`      |
 | Gateway-intercepted `/new`, `/stop`, ...    | `commands.md`       |
 | `uv`, `bun`, `go`, `cargo` rules            | `runtimes.md`       |
 | Adding skills, MCP servers, settings        | `extension.md`      |
-| Public chat URL (inbound)                   | `slink-inbound.md`  |
-| Talking to another ant (outbound)           | `slink-outbound.md` |
 
 All paths under `/workspace/self/ant/skills/self/` (read-only canonical)
 or `~/.claude/skills/self/` (your local copy).

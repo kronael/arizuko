@@ -69,7 +69,7 @@ operator runbook + the philosophy.
 make build             # go build → ./arizuko + all daemon binaries
 make lint              # go vet ./...
 make test              # go test ./... -count=1 -short (fast, skips long tests)
-make test-e2e          # end-to-end tests via webd slink surface (≤5 min); run before tagging
+make test-e2e          # end-to-end tests via webd route-token surface (≤5 min); run before tagging
 make smoke             # post-deploy health check on krons (default SMOKE_INSTANCE=krons)
 make smoke SMOKE_INSTANCE=foo  # target a different instance
 make images            # all docker images (router + adapters + agent)
@@ -120,9 +120,8 @@ model outgrows a row in the root table.
 - **README.md** — daemon map, public pitch, build/test entry.
 - **ARCHITECTURE.md** — package graph, message flow, SQLite schema.
 - **SECURITY.md** — threat model + egress + secrets boundaries.
-- **ROUTING.md** — route table, topic/sticky/reply rules. `/slink/*`
-  surface is being replaced by `route_tokens` per
-  `specs/5/W-webhook-routes.md` (spec only; impl lands later).
+- **ROUTING.md** — route table, topic/sticky/reply rules. `/chat/<token>/`
+  and `/hook/<token>` surfaces; spec `specs/5/W-webhook-routes.md`.
 - **EXTENDING.md** — channels, actions, routing, mounts, skills,
   tasks, diary, autocall extension points.
 - **GRANTS.md** — pointer to `specs/6/9-acl-unified.md` (canonical) + the operator concepts page.

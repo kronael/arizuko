@@ -244,9 +244,7 @@
       <p class="meta"><strong>PK:</strong> <code>(jid, topic)</code>.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/messages.go#L401"><code>store/messages.go:401</code></a>.</p>
       <p class="meta"><strong>Readers:</strong> gateway/adapter outbound layer.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0014-reply-state.sql">0014</a>; 0043 rewrote rows to typed JID.</p>
-      <p class="meta"><strong>Spec (not yet shipped):</strong> <a href="https://github.com/kronael/arizuko/blob/main/specs/6/G-engagement.md">6/G</a> adds <code>last_reply_at</code> (RFC3339Nano UTC) for the engagement TTL.</p>
-    </div>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0014-reply-state.sql">0014</a>; 0043 rewrote rows to typed JID.</p></div>
 
     <div class="tablecard">
       <h3><code>pane_sessions</code></h3>
@@ -326,9 +324,7 @@
     </div>
 
     <div class="tablecard">
-      <h3><code>route_tokens</code></h3>
-      <p class="meta"><strong>Spec (not yet shipped):</strong> implementation lands in a follow-up release. See <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md">spec 5/W</a>.</p>
-      <p>URL-bound credentials. One row per issued URL; the JID prefix drives sender attribution and default output style. Each URL is bound to its JID prefix kind: <code>/chat/&lt;token&gt;/</code> accepts only <code>web:</code> tokens, <code>/hook/&lt;token&gt;</code> only <code>hook:</code> tokens. Mechanics shared at the handler; binding enforced at token lookup.</p>
+      <h3><code>route_tokens</code></h3><p>URL-bound credentials. One row per issued URL; the JID prefix drives sender attribution and default output style. Each URL is bound to its JID prefix kind: <code>/chat/&lt;token&gt;/</code> accepts only <code>web:</code> tokens, <code>/hook/&lt;token&gt;</code> only <code>hook:</code> tokens. Mechanics shared at the handler; binding enforced at token lookup.</p>
       <table>
         <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
         <tr><td><code>token_hash</code></td><td>BLOB PK</td><td>NOT NULL</td><td>sha256 of the raw token; raw token returned once at issuance</td></tr>

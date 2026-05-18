@@ -327,16 +327,17 @@ when the container exits. NEVER store run outputs in `/tmp/`.
 
 Proxyd routes all web traffic. URL structure:
 
-| Path       | Auth     | Backend | Purpose                           |
-| ---------- | -------- | ------- | --------------------------------- |
-| `/pub/*`   | none     | vite    | Public static files               |
-| `/slink/*` | token    | webd    | Anonymous web chat (rate-limited) |
-| `/dash/*`  | JWT      | dashd   | Operator dashboard                |
-| `/chat/*`  | JWT      | webd    | Authenticated web chat            |
-| `/api/*`   | JWT      | webd    | API endpoints                     |
-| `/auth/*`  | none     | proxyd  | OAuth login/callback/logout       |
-| `/x/*`     | JWT      | webd    | Extensions (served by webd, not static files) |
-| other      | JWT      | vite    | Auth-gated; rewrites to `/pub/<path>` transparently |
+| Path        | Auth     | Backend | Purpose                                  |
+| ----------- | -------- | ------- | ---------------------------------------- |
+| `/pub/*`    | none     | vite    | Public static files                      |
+| `/chat/*`   | token    | webd    | Route-token chat widget (public)         |
+| `/hook/*`   | token    | webd    | Route-token webhook ingest (public)      |
+| `/panel/*`  | JWT      | webd    | Authenticated operator chat panel        |
+| `/dash/*`   | JWT      | dashd   | Operator dashboard                       |
+| `/api/*`    | JWT      | webd    | API endpoints                            |
+| `/auth/*`   | none     | proxyd  | OAuth login/callback/logout              |
+| `/x/*`      | JWT      | webd    | Extensions (served by webd, not static)  |
+| other       | JWT      | vite    | Auth-gated; rewrites to `/pub/<path>`    |
 
 Default is auth-gated. `/pub/*` is explicitly public. Everything else
 requires a valid JWT and is served from the vite root via transparent

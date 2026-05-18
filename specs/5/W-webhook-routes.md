@@ -1,5 +1,6 @@
 ---
-status: spec
+status: shipped
+shipped: 2026-05-18
 depends: [Q-unified-routing, S-jid-format, 5-uniform-mcp-rest, 9-acl-unified]
 supersedes: [specs/1/W-slink.md]
 ---
@@ -100,27 +101,31 @@ token returned exactly once at issue time.
 
 ## URL routing
 
-| Path                | Token JID | Methods   | Behavior                                                          |
+| Path                | Accepts   | Methods   | Behavior                                                          |
 | ------------------- | --------- | --------- | ----------------------------------------------------------------- |
-| `/chat/<token>/`    | `web:`    | GET, POST | GET → widget; POST → message + SSE reply                          |
-| `/chat/<token>/mcp` | `web:`    | GET, POST | Per-token MCP surface (send_message, get_round, get_round_status) |
-| `/hook/<token>`     | `hook:`   | POST      | POST → append body as inbound; 204; GET → 405                     |
-| `/chat/`            | (JWT)     | GET, POST | Authenticated chat (no token segment)                             |
+| `/chat/<token>/`    | any token | GET, POST | GET → widget; POST → message + SSE reply                          |
+| `/chat/<token>/mcp` | any token | GET, POST | Per-token MCP surface (send_message, get_round, get_round_status) |
+| `/hook/<token>`     | any token | POST      | POST → append body as inbound; 204                                |
+| `/panel/<folder>`   | (JWT)     | GET, POST | Authenticated operator chat panel (no token segment)              |
 
-Each URL prefix is bound to its JID prefix kind and to its own
-surface contract:
+Shipped contract: both URL prefixes accept **any valid route_token**
+regardless of its JID kind (`web:` or `hook:`). The token kind is
+metadata for the agent — surfaces don't gate on it. Operators can
+paste the same token at either prefix and get the corresponding
+behavior of that surface:
 
-- **`/chat/<token>/`** is the human surface. Accepts only `web:`
-  tokens. GET serves the chat widget; POST appends a message and the
-  browser streams the agent reply over SSE.
-- **`/hook/<token>`** is the machine surface. Accepts only `hook:`
-  tokens. POST-only — append body as one inbound, return 204, no
-  response channel. GET returns 405; no widget. Webhook callers
-  fire-and-forget; the agent acts asynchronously.
-- Cross-prefix request → 404 (token row absent at the wrong surface).
-- The issuance verb picks the URL: `issue_chat_link` returns
-  `/chat/<token>/`, `issue_webhook` returns `/hook/<token>`.
-- `/chat/` without a token segment routes to the authenticated handler.
+- **`/chat/<token>/`** is the human surface. GET serves the chat
+  widget; POST appends a message and streams the agent reply over
+  SSE. Inbound jid is the token's `web:` or `hook:` jid as stored.
+- **`/hook/<token>`** is the machine surface. POST-only — append body
+  as one inbound, return 204, no response channel. Fire-and-forget.
+- Token not found → 404 at either surface.
+- The issuance verb picks the canonical URL (printed to the operator):
+  `issue_chat_link` → `/chat/<token>/`, `issue_webhook` →
+  `/hook/<token>`. Operator can still re-paste the same token at the
+  other prefix if they want the other surface contract.
+- The authenticated operator chat (no token) lives at `/panel/`
+  rather than `/chat/` to keep the public prefix unambiguous.
 
 ## JID shape (consistent with S-jid-format)
 

@@ -88,7 +88,7 @@ type UserJID struct{ JID }       // a user identity resource</code></pre>
     </table>
 
     <p class="meta"><strong>Discord placeholder.</strong> Legacy rows with no stored guild_id migrated to <code>discord:_/&lt;channel&gt;</code> (placeholder kind). New inbound from <code>discd</code> carries the real guild ID. See <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0042-typed-jids.sql#L107"><code>0042-typed-jids.sql:107</code></a>.</p>
-    <p class="meta"><strong>Web is folder-keyed (spec'd, not yet shipped).</strong> The chat JID is the folder (with optional <code>/&lt;suffix&gt;</code>); the URL token is a separate row in <code>route_tokens</code> that maps to this JID. Implementation lands in a follow-up release. See <a href="/pub/concepts/tokens.html">route tokens</a> and <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md">spec 5/W</a>.</p>
+    <p class="meta"><strong>Web is folder-keyed.</strong> The chat JID is the folder (with optional <code>/&lt;suffix&gt;</code>); the URL token is a separate row in <code>route_tokens</code> that maps to this JID. See <a href="/pub/concepts/tokens.html">route tokens</a> and <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md">spec 5/W</a>.</p>
 
     <h2>4. Routing &amp; glob matching</h2>
 

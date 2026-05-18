@@ -1,8 +1,9 @@
 ---
-status: shipped
+status: superseded
+superseded_by: specs/5/W-webhook-routes.md
 ---
 
-# Slink
+# Slink (superseded)
 
 Web channel for a group. Public token = POST endpoint. Token lives in
 `groups.slink_token`; proxyd resolves it on `/slink/*` requests.
