@@ -14,6 +14,48 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.40.9] — 2026-05-18
+
+> arizuko v0.40.9 — stay in the conversation
+>
+> Once the bot replies in a thread, it keeps listening — no @mention needed for follow-ups until the 10-minute window closes.
+>
+> • Engagement: bot auto-routes inbounds for 10 min after a reply; no re-mention needed.
+> • `engage` / `disengage` MCP tools — agents claim or release a conversation programmatically.
+> • Per-surface output styles: Slack dm/channel/thread/pane each use their own style file.
+> • ~300 lines of dead code removed; slakd JID parser unified in chanlib.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- Engagement primitive (`chat_reply_state.engaged_until + engaged_folder`) — `(jid, topic)` pair
+  stays engaged for `ENGAGEMENT_TTL` (default 10m) after each bot reply or `verb=mention`.
+  `resolveOrEngaged` fallback in gateway delivers inbounds to the last engaged folder when
+  the route table would otherwise drop them. Spec: `specs/5/G-engagement.md`.
+- `engage(jid, topic)` / `disengage(jid, topic)` MCP tools (`ipc/ipc.go`) with three-arm
+  authz: owned engagement, default route, or fresh chat.
+- Per-surface output styles: runner derives `<platform>-<surface>` from JID shape + topic + pane;
+  ships `slack-{dm,channel,thread,pane}`, `telegram-{dm,group}`, `discord-{dm,channel}`, `web.md`.
+  Spec: `specs/5/Y-output-styles-per-surface.md`.
+- Migration `0058-engagement-column.sql` — two `ALTER TABLE` on `chat_reply_state`.
+
+### Changed
+
+- `SetLastReply` + `BumpEngagement` replace single-site outbound write; timed-sender outbounds
+  skip `BumpEngagement` so scheduled turns don't hold the engagement window open.
+- slakd JID parser moved to `chanlib.ParseSlackJID`; slakd and container/runner use the shared impl.
+
+### Fixed / Refined
+
+- discd: dropped dead `botMsgs`/`sentIDs` reply-tracking (−163 lines); reply-to-bot promotion
+  already moved to gateway in spec 6/J.
+- emaid: unified email content renderer (was copy-pasted in two handlers).
+- webd: extracted `sseHeaders` helper (was copy-pasted in two SSE handlers).
+- dashd: removed dead `pageTop`/`dashNav`; portal nav consistent with all other pages.
+- auth: dropped unused `signState` wrapper and vestigial `bool` param on `renderCollision`.
+- Various smaller dead-code removals: `stderrTail`, `cpDir`, `jidParts`, inline `btoi`, `proxydRouteFields` DRY.
+
 ## [v0.40.8] — 2026-05-17
 
 > arizuko v0.40.8 — route tokens spec
