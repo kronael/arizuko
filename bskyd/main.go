@@ -54,7 +54,7 @@ func loadConfig() config {
 		Password:      chanlib.MustEnv("BLUESKY_PASSWORD"),
 		Service:       chanlib.EnvOr("BLUESKY_SERVICE", "https://bsky.social"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
+		ChannelSecret: chanlib.EnvOr("BSKYD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9005"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://bluesky:9005"),
 		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/bskyd"),

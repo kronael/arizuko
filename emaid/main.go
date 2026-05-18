@@ -69,7 +69,7 @@ func loadConfig() config {
 		IMAPPort:      chanlib.EnvOr("EMAIL_IMAP_PORT", "993"),
 		SMTPPort:      chanlib.EnvOr("EMAIL_SMTP_PORT", "587"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
+		ChannelSecret: chanlib.EnvOr("EMAID_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9003"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://email:9003"),
 		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/emaid"),

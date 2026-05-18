@@ -39,7 +39,8 @@ const cfg: TwitterConfig = {
 };
 
 const routerURL = env('ROUTER_URL');
-const channelSecret = env('CHANNEL_SECRET', '');
+const channelSecret =
+  process.env['TWITD_CHANNEL_SECRET'] ?? env('CHANNEL_SECRET', '');
 const listenAddr = env('LISTEN_ADDR', ':8080');
 const listenURL = env('LISTEN_URL', 'http://twitd:8080');
 const pollIntervalSec = parseInterval(envOpt('TWITTER_POLL_INTERVAL') ?? '90');

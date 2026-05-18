@@ -62,7 +62,7 @@ func loadConfig() config {
 		AccessToken:   chanlib.EnvOr("LINKEDIN_ACCESS_TOKEN", ""),
 		RefreshToken:  chanlib.EnvOr("LINKEDIN_REFRESH_TOKEN", ""),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
+		ChannelSecret: chanlib.EnvOr("LINKD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9010"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://linkd:9010"),
 		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/app/home"),

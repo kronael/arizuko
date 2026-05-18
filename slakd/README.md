@@ -116,8 +116,9 @@ MEDIA_MAX_FILE_BYTES=20971520 file-proxy cap
 CHANNEL_NAME=slack            registration name
 ```
 
-`SLAKD_CHANNEL_SECRET` takes precedence over `CHANNEL_SECRET` so the
-operator can scope the chanlib.Auth bearer per adapter.
+`SLAKD_CHANNEL_SECRET` takes precedence over `CHANNEL_SECRET` on the
+adapter side. Must equal `CHANNEL_SECRET` until gated gains per-adapter
+registration auth (not yet implemented; a different value will cause 401).
 
 ## Operator runbook (per-workspace install)
 

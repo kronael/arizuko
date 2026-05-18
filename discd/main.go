@@ -64,7 +64,7 @@ func loadConfig() config {
 		Name:          chanlib.EnvOr("CHANNEL_NAME", "discord"),
 		DiscordToken:  token,
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
+		ChannelSecret: chanlib.EnvOr("DISCD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9002"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://discord:9002"),
 		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),

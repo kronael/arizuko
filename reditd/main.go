@@ -69,7 +69,7 @@ func loadConfig() config {
 		Subreddits:    subreddits,
 		UserAgent:     chanlib.EnvOr("REDDIT_USER_AGENT", "arizuko/1.0"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
+		ChannelSecret: chanlib.EnvOr("REDITD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9006"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://reditd:9006"),
 		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/reditd"),

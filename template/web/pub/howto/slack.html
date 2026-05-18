@@ -364,9 +364,10 @@ target: engineering</code></pre>
             <td>no</td>
             <td>inherits <code>CHANNEL_SECRET</code></td>
             <td>
-              chanlib HMAC secret slakd uses to sign requests to gated;
-              per-adapter override when you want each adapter to hold its
-              own secret instead of sharing the instance-wide one
+              adapter-side override: slakd sends this value instead of
+              <code>CHANNEL_SECRET</code> when registering with gated.
+              Must equal <code>CHANNEL_SECRET</code> until gated gains
+              per-adapter registration auth (not yet implemented)
             </td>
           </tr>
           <tr>

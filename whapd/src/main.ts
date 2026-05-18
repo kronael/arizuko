@@ -198,7 +198,8 @@ const pairSocketBuilder: SocketBuilder = async (phone) => {
 const bot = new WhapdBot(pairSocketBuilder, () => authDirHasCreds(authDir));
 
 const routerURL = env('ROUTER_URL');
-const channelSecret = env('CHANNEL_SECRET', '');
+const channelSecret =
+  process.env['WHAPD_CHANNEL_SECRET'] ?? env('CHANNEL_SECRET', '');
 const listenAddr = env('LISTEN_ADDR', ':9002');
 const listenURL = env('LISTEN_URL', 'http://whapd:9002');
 const rc = new RouterClient(routerURL, channelSecret);

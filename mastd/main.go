@@ -52,7 +52,7 @@ func loadConfig() config {
 		InstanceURL:   chanlib.MustEnv("MASTODON_INSTANCE_URL"),
 		AccessToken:   chanlib.MustEnv("MASTODON_ACCESS_TOKEN"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
+		ChannelSecret: chanlib.EnvOr("MASTD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9004"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://mastd:9004"),
 		MaxFileBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
