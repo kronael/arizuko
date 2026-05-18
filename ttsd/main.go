@@ -25,12 +25,14 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/kronael/arizuko/chanlib"
 )
 
 func main() {
-	addr := envOr("TTSD_ADDR", ":8880")
-	backend := envOr("TTS_BACKEND_URL", "http://kokoro:8880")
-	logLevel := envOr("LOG_LEVEL", "info")
+	addr := chanlib.EnvOr("TTSD_ADDR", ":8880")
+	backend := chanlib.EnvOr("TTS_BACKEND_URL", "http://kokoro:8880")
+	logLevel := chanlib.EnvOr("LOG_LEVEL", "info")
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: parseLevel(logLevel),
@@ -115,13 +117,6 @@ func backendUp(client *http.Client, backend string) bool {
 	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	return resp.StatusCode < 500
-}
-
-func envOr(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
 }
 
 func parseLevel(s string) slog.Level {

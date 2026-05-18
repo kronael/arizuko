@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/kronael/arizuko/chanlib"
 )
@@ -57,15 +56,6 @@ func loadConfig() config {
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9004"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://mastd:9004"),
 		MaxFileBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
-		FileCacheSize: envCacheSize(),
+		FileCacheSize: chanlib.EnvInt("MASTODON_FILE_CACHE_SIZE", 1000),
 	}
-}
-
-func envCacheSize() int {
-	if v := chanlib.EnvOr("MASTODON_FILE_CACHE_SIZE", ""); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
-	}
-	return 1000
 }

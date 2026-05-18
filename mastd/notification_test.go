@@ -402,21 +402,21 @@ func TestExtractAttachments_NoListenURL(t *testing.T) {
 
 func TestEnvCacheSize_Default(t *testing.T) {
 	t.Setenv("MASTODON_FILE_CACHE_SIZE", "")
-	if n := envCacheSize(); n != 1000 {
+	if n := chanlib.EnvInt("MASTODON_FILE_CACHE_SIZE", 1000); n != 1000 {
 		t.Errorf("default = %d", n)
 	}
 }
 
 func TestEnvCacheSize_Custom(t *testing.T) {
 	t.Setenv("MASTODON_FILE_CACHE_SIZE", "42")
-	if n := envCacheSize(); n != 42 {
+	if n := chanlib.EnvInt("MASTODON_FILE_CACHE_SIZE", 1000); n != 42 {
 		t.Errorf("custom = %d", n)
 	}
 }
 
 func TestEnvCacheSize_InvalidFallsBack(t *testing.T) {
 	t.Setenv("MASTODON_FILE_CACHE_SIZE", "notanumber")
-	if n := envCacheSize(); n != 1000 {
+	if n := chanlib.EnvInt("MASTODON_FILE_CACHE_SIZE", 1000); n != 1000 {
 		t.Errorf("invalid should fall back, got %d", n)
 	}
 }
