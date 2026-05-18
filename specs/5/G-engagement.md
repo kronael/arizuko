@@ -1,7 +1,7 @@
 ---
 status: spec
 depends: [B-route-mode-ingestion, F-topic-lineage, L-reply-to-bot-verb]
-relates-to: [3/Y-thread-routing, 5/O-output-styles-per-surface]
+relates-to: [3/Y-thread-routing, 5/Y-output-styles-per-surface]
 ---
 
 # specs/5/G — engagement: stay-in-conversation after mention; thread by default
@@ -216,7 +216,7 @@ Agent prompt rule added to `ant/CLAUDE.md`.
 
 ## Length policy per surface
 
-Per-surface output rules live in `specs/5/O-output-styles-per-surface.md`.
+Per-surface output rules live in `specs/5/Y-output-styles-per-surface.md`.
 
 ## MCP tools
 
