@@ -94,8 +94,7 @@ type Input struct {
 	GatedFns    ipc.GatedFns     `json:"-"`
 	StoreFns    ipc.StoreFns     `json:"-"`
 
-	SecretsResolver SecretsResolver `json:"-"`
-	Egress          EgressConfig    `json:"-"`
+	Egress EgressConfig `json:"-"`
 
 	// PaneLookup returns true when the given platform channel ID
 	// corresponds to an open Slack assistant pane. Used by
@@ -103,13 +102,6 @@ type Input struct {
 	// Other platforms always pass nil or a func returning false.
 	// Spec 5/O.
 	PaneLookup func(channelID string) bool `json:"-"`
-}
-
-// SecretsResolver is the store.Store subset for resolving secrets at spawn.
-// Only folder-scoped secrets reach the container; per-user tokens are
-// resolved at tool-call time by the broker (spec 9/11).
-type SecretsResolver interface {
-	FolderSecretsResolved(folder string) (map[string]string, error)
 }
 
 type Output struct {
@@ -227,7 +219,11 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		return Output{Error: "start: " + err.Error()}
 	}
 
-	in.Secrets = resolveSpawnEnv(in.SecretsResolver, readSecrets(), in.Folder)
+	// Container env carries operator anchors only (ANTHROPIC_API_KEY /
+	// CLAUDE_CODE_OAUTH_TOKEN — required for the Claude Code SDK to call
+	// the LLM). Folder- and user-scoped secrets are broker-resolved at
+	// tool-call time inside ipc.injectSecretsAdapter; spec 9/11.
+	in.Secrets = readSecrets()
 	in.AsstName = cfg.Name
 	payload, _ := json.Marshal(in)
 	in.Secrets = nil
@@ -619,34 +615,6 @@ func readSecrets() map[string]string {
 		}
 	}
 	return s
-}
-
-func mergeSecrets(a, b map[string]string) map[string]string {
-	out := make(map[string]string, len(a)+len(b))
-	for k, v := range a {
-		out[k] = v
-	}
-	for k, v := range b {
-		out[k] = v
-	}
-	return out
-}
-
-// resolveSpawnEnv composes base ∪ folder secrets. Per-user secrets do
-// not enter the container — the broker resolves them at tool-call time
-// (spec 9/11). Returns base unchanged when resolver is nil or errors.
-func resolveSpawnEnv(
-	resolver SecretsResolver, base map[string]string, folder string,
-) map[string]string {
-	if resolver == nil {
-		return base
-	}
-	folderSecrets, err := resolver.FolderSecretsResolved(folder)
-	if err != nil {
-		slog.Debug("folder secrets resolve skipped", "folder", folder, "err", err)
-		return base
-	}
-	return mergeSecrets(base, folderSecrets)
 }
 
 func seedSettings(

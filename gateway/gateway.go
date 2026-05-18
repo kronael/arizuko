@@ -1214,9 +1214,8 @@ func (g *Gateway) runAgentWithOpts(
 		MessageID:       msgID,
 		Sender:          sender,
 		Grants:          rules,
-		GatedFns:        g.gatedFns,
-		StoreFns:        g.storeFns,
-		SecretsResolver: g.store,
+		GatedFns: g.gatedFns,
+		StoreFns: g.storeFns,
 		PaneLookup: func(channelID string) bool {
 			if g.store == nil {
 				return false

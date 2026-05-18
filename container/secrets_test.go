@@ -1,60 +1,39 @@
 package container
 
 import (
+	"os"
 	"testing"
 )
 
-// fakeResolver is a SecretsResolver test double.
-type fakeResolver struct {
-	folderRet map[string]string
-	folderErr error
-	folderArg string
-}
+// readSecrets is the only env-injection path post 9/11 M5: it picks
+// operator anchors (ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN) off
+// the gated host env so the in-container Claude Code SDK can reach
+// the LLM. Folder- and user-scoped secrets never travel via env;
+// they flow through the broker at tool-call time.
+func TestReadSecrets_PicksOperatorAnchors(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "anth-xxx")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-yyy")
 
-func (f *fakeResolver) FolderSecretsResolved(folder string) (map[string]string, error) {
-	f.folderArg = folder
-	return f.folderRet, f.folderErr
-}
+	got := readSecrets()
 
-func TestResolveSpawnEnv_InjectsFolderSecrets(t *testing.T) {
-	r := &fakeResolver{
-		folderRet: map[string]string{"KEY": "v1"},
+	if got["ANTHROPIC_API_KEY"] != "anth-xxx" {
+		t.Errorf("ANTHROPIC_API_KEY = %q, want anth-xxx", got["ANTHROPIC_API_KEY"])
 	}
-	base := map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok"}
-
-	got := resolveSpawnEnv(r, base, "atlas")
-
-	if got["KEY"] != "v1" {
-		t.Errorf("KEY = %q, want v1", got["KEY"])
+	if got["CLAUDE_CODE_OAUTH_TOKEN"] != "oauth-yyy" {
+		t.Errorf("CLAUDE_CODE_OAUTH_TOKEN = %q, want oauth-yyy", got["CLAUDE_CODE_OAUTH_TOKEN"])
 	}
-	if got["CLAUDE_CODE_OAUTH_TOKEN"] != "tok" {
-		t.Errorf("base token missing: %q", got["CLAUDE_CODE_OAUTH_TOKEN"])
-	}
-	if r.folderArg != "atlas" {
-		t.Errorf("FolderSecretsResolved called with %q, want atlas", r.folderArg)
+	if len(got) != 2 {
+		t.Errorf("unexpected extra keys: %v", got)
 	}
 }
 
-func TestResolveSpawnEnv_NilResolverReturnsBase(t *testing.T) {
-	base := map[string]string{"X": "y"}
-	got := resolveSpawnEnv(nil, base, "atlas")
-	if got["X"] != "y" || len(got) != 1 {
-		t.Errorf("nil resolver must pass base unchanged, got %v", got)
+func TestReadSecrets_OmitsUnsetVars(t *testing.T) {
+	os.Unsetenv("ANTHROPIC_API_KEY")
+	os.Unsetenv("CLAUDE_CODE_OAUTH_TOKEN")
+
+	got := readSecrets()
+
+	if got != nil {
+		t.Errorf("expected nil when no anchors set, got %v", got)
 	}
 }
-
-func TestResolveSpawnEnv_FolderErrFallsBackToBase(t *testing.T) {
-	r := &fakeResolver{folderErr: errFolderTest}
-	base := map[string]string{"X": "y"}
-	got := resolveSpawnEnv(r, base, "atlas")
-	if got["X"] != "y" || len(got) != 1 {
-		t.Errorf("folder err must fall back to base, got %v", got)
-	}
-}
-
-// errFolderTest is a sentinel for fall-back tests.
-var errFolderTest = &testErr{"boom"}
-
-type testErr struct{ s string }
-
-func (e *testErr) Error() string { return e.s }
