@@ -290,8 +290,9 @@ type slackReaction struct {
 	User     string `json:"user"`
 	Reaction string `json:"reaction"`
 	Item     struct {
-		Channel string `json:"channel"`
-		TS      string `json:"ts"`
+		Channel  string `json:"channel"`
+		TS       string `json:"ts"`
+		ThreadTS string `json:"thread_ts"`
 	} `json:"item"`
 }
 
@@ -318,6 +319,7 @@ func (b *bot) handleReaction(teamID string, raw json.RawMessage) {
 		Timestamp:  time.Now().Unix(),
 		Verb:       chanlib.ClassifyEmoji(r.Reaction),
 		ReplyTo:    r.Item.TS,
+		Topic:      r.Item.ThreadTS,
 		Reaction:   r.Reaction,
 		IsGroup:    !conv.IsIM,
 		ChatName:   chatNameFrom(conv),

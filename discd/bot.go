@@ -254,6 +254,9 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 	if m.Member != nil && m.Member.User != nil {
 		senderName = m.Member.User.Username
 	}
+	// Discord's MessageReaction event carries no thread/parent ID — the ChannelID
+	// is already the thread channel when the message lives in a thread, so Topic
+	// cannot be derived here. api.go Fix 1 (MessageByID lookup) handles inheritance.
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:         m.MessageID + ":r:" + emoji,
 		ChatJID:    jid,

@@ -616,29 +616,26 @@ func (g *Gateway) pollOnce() {
 		}
 
 		rt := router.ResolveRouteTarget(last, routes)
-		if rt.Mode == "observe" {
-			// Spec 5/G: engagement overrides observe. When the agent has
-			// replied in this (chat, topic) its engagement window is active —
-			// fire instead of observing so the conversation continues.
-			effTopic := g.effectiveTopic(chatJid, last.Topic)
-			engaged := g.cfg.EngagementTTL > 0 && g.store.IsEngaged(chatJid, effTopic, time.Now())
-			if !engaged {
-				ids := make([]string, len(chatMsgs))
-				for i, m := range chatMsgs {
-					ids[i] = m.ID
-				}
-				if err := g.store.MarkMessagesObserved(rt.Folder, ids); err != nil {
-					slog.Warn("poll: mark observed", "jid", chatJid, "err", err)
-				}
-				g.advanceAgentCursor(chatJid, chatMsgs)
-				continue
-			}
-			// Engaged — use the engaged folder so the right agent fires.
+		effTopic := g.effectiveTopic(chatJid, last.Topic)
+		if g.cfg.EngagementTTL > 0 && g.store.IsEngaged(chatJid, effTopic, time.Now()) {
+			// Spec 5/G: engagement overrides the route table entirely. Once the
+			// agent has replied in (chat, topic), subsequent messages deliver to
+			// the engaged folder regardless of what the route table says.
 			if folder := g.store.EngagedFolder(chatJid, effTopic); folder != "" {
 				if gr, ok2 := g.store.GroupByFolder(folder); ok2 {
 					group = gr
 				}
 			}
+		} else if rt.Mode == "observe" {
+			ids := make([]string, len(chatMsgs))
+			for i, m := range chatMsgs {
+				ids[i] = m.ID
+			}
+			if err := g.store.MarkMessagesObserved(rt.Folder, ids); err != nil {
+				slog.Warn("poll: mark observed", "jid", chatJid, "err", err)
+			}
+			g.advanceAgentCursor(chatJid, chatMsgs)
+			continue
 		}
 		// Route-pinned topic (spec 6/F + topic-suffix routing): when
 		// the matched route declares target=folder#<topic>, override

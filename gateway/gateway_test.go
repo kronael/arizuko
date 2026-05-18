@@ -565,6 +565,45 @@ func TestPollOnce_Observe_EngagementOverride(t *testing.T) {
 	}
 }
 
+// Spec 5/G: engagement overrides the route table entirely, not just observe
+// routes. A non-observe route (e.g. sender-based) must not suppress engagement.
+func TestPollOnce_NonObserve_EngagementOverride(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.EngagementTTL = 10 * time.Minute
+
+	jid := "slack:TEAM/channel/CHAN"
+	threadTopic := "1700000200.000001"
+	if err := s.PutGroup(core.Group{Folder: "grp"}); err != nil {
+		t.Fatal(err)
+	}
+	// Route: direct (non-observe) route to a different folder.
+	if err := s.PutGroup(core.Group{Folder: "other"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddRoute(core.Route{Seq: 0, Match: "chat_jid=slack:*/channel/*", Target: "other"}); err != nil {
+		t.Fatal(err)
+	}
+	// Engagement active for the thread topic in "grp".
+	if err := s.BumpEngagement(jid, threadTopic, "grp", time.Now().Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: jid, Sender: "slack:user/U1",
+		Content: "reply in thread", Topic: threadTopic,
+		Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.pollOnce()
+
+	// Cursor must NOT have advanced — engagement fires the agent instead.
+	if got := s.GetAgentCursor(jid); !got.IsZero() {
+		t.Errorf("non-observe+engaged: cursor advanced (message dropped), want zero, got %v", got)
+	}
+}
+
 // Regression: pollOnce records steered timestamps so advanceAgentCursor
 // can include them when the container completes. The cursor is NOT
 // advanced during steer — only on container completion.

@@ -248,6 +248,15 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	if verb == "" {
 		verb = "message"
 	}
+	// spec 5/G — inherit Topic from parent message when reaction carries no topic.
+	// Reactions reference the reacted-to message via ReplyTo; if that message is
+	// in a thread its Topic carries the thread anchor (thread_ts on Slack, etc.).
+	topic := req.Topic
+	if topic == "" && req.ReplyTo != "" {
+		if parent, ok := s.store.MessageByID(req.ReplyTo); ok && parent.Topic != "" {
+			topic = parent.Topic
+		}
+	}
 	// spec 6/J — promote any inbound whose ReplyTo points at one of the
 	// bot's own messages to verb=mention. Keeps adapters dumb (they ship
 	// the raw like/dislike/message); routing layer sees a uniform signal
@@ -270,7 +279,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		// engagement-fallback in the gateway will fall through to onboarding
 		// when EngagedFolder returns "".
 		folder := s.store.DefaultFolderForJID(req.ChatJID)
-		if err := s.store.SetEngagement(req.ChatJID, req.Topic, folder, time.Now().Add(s.engagementTTL)); err != nil {
+		if err := s.store.SetEngagement(req.ChatJID, topic, folder, time.Now().Add(s.engagementTTL)); err != nil {
 			slog.Warn("set engagement failed", "jid", req.ChatJID, "err", err)
 		}
 	}
@@ -284,7 +293,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		ReplyToID:     req.ReplyTo,
 		ReplyToText:   req.ReplyToText,
 		ReplyToSender: req.ReplyToSender,
-		Topic:         req.Topic,
+		Topic:         topic,
 		Verb:          verb,
 		Attachments:   attsJSON,
 		Source:        entry.Name,

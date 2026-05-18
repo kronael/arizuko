@@ -613,6 +613,47 @@ func TestOutboundBadAuth(t *testing.T) {
 	}
 }
 
+// TestDeliverReaction_InheritsTopicFromParent covers spec 5/G: a reaction with
+// no Topic but a ReplyTo that points at a threaded parent inherits the parent's Topic.
+func TestDeliverReaction_InheritsTopicFromParent(t *testing.T) {
+	srv, reg, s := setup(t)
+	h := srv.Handler()
+
+	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+
+	// Store a parent message that belongs to a thread (has a Topic).
+	if err := s.PutMessage(core.Message{
+		ID:      "parent1",
+		ChatJID: "tg:chat1",
+		Sender:  "tg:alice",
+		Content: "thread root",
+		Topic:   "thread-ts-abc",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reaction with no Topic but ReplyTo pointing at the parent.
+	w := postJSON(h, "/v1/messages", messageReq{
+		ID:      "reaction1",
+		ChatJID: "tg:chat1",
+		Sender:  "tg:bob",
+		Content: "👍",
+		Verb:    "like",
+		ReplyTo: "parent1",
+	}, token)
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	got, ok := s.MessageByID("reaction1")
+	if !ok {
+		t.Fatal("message not stored")
+	}
+	if got.Topic != "thread-ts-abc" {
+		t.Errorf("Topic = %q, want %q", got.Topic, "thread-ts-abc")
+	}
+}
+
 func TestNoSecretAllowsAll(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := store.Open(filepath.Join(dir, "store"))

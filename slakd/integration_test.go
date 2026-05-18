@@ -444,6 +444,32 @@ func TestInbound_ReactionDislike(t *testing.T) {
 	}
 }
 
+// Reaction on a threaded message carries thread_ts as Topic (belt-and-suspenders
+// alongside the api.go MessageByID fallback).
+func TestInbound_ReactionThreadTopic(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, rm := setupBot(t, mock)
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "reaction_added",
+	    "user": "U99",
+	    "reaction": "thumbsup",
+	    "item": {"type": "message", "channel": "C0HJK", "ts": "1700000333.000200", "thread_ts": "1700000100.000000"}
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+	msgs := rm.snapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("got %d", len(msgs))
+	}
+	if msgs[0].Topic != "1700000100.000000" {
+		t.Errorf("Topic = %q, want thread_ts", msgs[0].Topic)
+	}
+}
+
 // Reaction by the bot itself is skipped.
 func TestInbound_ReactionBotSelfSkipped(t *testing.T) {
 	mock := newSlackMock()
