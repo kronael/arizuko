@@ -52,7 +52,7 @@ alternatives.
 - `LINKEDIN_API_BASE` (default `https://api.linkedin.com`)
 - `LINKEDIN_OAUTH_BASE` (default `https://www.linkedin.com`)
 - `LINKEDIN_POLL_INTERVAL`, `LINKEDIN_AUTO_PUBLISH`
-- `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR`, `LISTEN_URL`, `DATA_DIR`
+- `ROUTER_URL`, `CHANNEL_SECRET` (or `LINKD_CHANNEL_SECRET` override), `LISTEN_ADDR`, `LISTEN_URL`, `DATA_DIR`
 
 OAuth scopes required: `r_liteprofile`, `w_member_social`. Reshares
 require the same `w_member_social` scope as posts. Company-page

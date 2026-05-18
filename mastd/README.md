@@ -28,7 +28,7 @@ posts inbound to the router. Outbound uses the Mastodon REST API.
 ## Configuration
 
 - `MASTODON_INSTANCE_URL`, `MASTODON_ACCESS_TOKEN`
-- `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR`, `LISTEN_URL`
+- `ROUTER_URL`, `CHANNEL_SECRET` (or `MASTD_CHANNEL_SECRET` override), `LISTEN_ADDR`, `LISTEN_URL`
 - `MEDIA_MAX_FILE_BYTES`, `MASTODON_FILE_CACHE_SIZE` (default 1000)
 
 ## Verb support

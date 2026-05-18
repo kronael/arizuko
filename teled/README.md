@@ -70,7 +70,7 @@ no per-chat history surface; the gateway falls back to its local cache.
 
 ## Configuration
 
-- `TELEGRAM_BOT_TOKEN`, `ROUTER_URL`, `CHANNEL_SECRET`
+- `TELEGRAM_BOT_TOKEN`, `ROUTER_URL`, `CHANNEL_SECRET` (or `TELED_CHANNEL_SECRET` override)
 - `LISTEN_ADDR`, `LISTEN_URL`, `CHANNEL_NAME`
 - `DATA_DIR`, `MEDIA_MAX_FILE_BYTES`, `ASSISTANT_NAME`
 

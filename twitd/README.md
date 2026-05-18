@@ -57,6 +57,7 @@ Cookies are atomically rotated to `cookies.json.bak` on every save.
 | `TWITTER_POLL_INTERVAL` | inbound polling cadence in seconds (default 90)                |
 | `ROUTER_URL`            | gated router URL                                               |
 | `CHANNEL_SECRET`        | shared HMAC secret                                             |
+| `TWITD_CHANNEL_SECRET`  | optional per-adapter override of `CHANNEL_SECRET`              |
 | `LISTEN_ADDR`           | HTTP listen, default `:8080`                                   |
 | `LISTEN_URL`            | URL the router uses to call back (default `http://twitd:8080`) |
 

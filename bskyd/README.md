@@ -30,7 +30,7 @@ router. Outbound writes use `app.bsky.feed.*` records on the user's PDS.
 ## Configuration
 
 - `BLUESKY_IDENTIFIER`, `BLUESKY_PASSWORD`, `BLUESKY_SERVICE` (default `https://bsky.social`)
-- `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR`, `LISTEN_URL`
+- `ROUTER_URL`, `CHANNEL_SECRET` (or `BSKYD_CHANNEL_SECRET` override), `LISTEN_ADDR`, `LISTEN_URL`
 - `DATA_DIR`, `MEDIA_MAX_FILE_BYTES`
 
 ## Verb support

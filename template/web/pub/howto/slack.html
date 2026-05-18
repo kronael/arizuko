@@ -364,10 +364,10 @@ target: engineering</code></pre>
             <td>no</td>
             <td>inherits <code>CHANNEL_SECRET</code></td>
             <td>
-              adapter-side override: slakd sends this value instead of
-              <code>CHANNEL_SECRET</code> when registering with gated.
-              Must equal <code>CHANNEL_SECRET</code> until gated gains
-              per-adapter registration auth (not yet implemented)
+              optional per-adapter override of
+              <code>CHANNEL_SECRET</code>. slakd presents this bearer to
+              gated; registration binds it to the slack channel record so
+              a leaked Slack manifest does not compromise other adapters
             </td>
           </tr>
           <tr>

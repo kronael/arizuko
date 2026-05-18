@@ -48,7 +48,7 @@ preserve the conversation JID.
 - `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT` (default `587`)
 - `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`
 - `EMAIL_STRICT_AUTH` (`true` rejects unsigned senders)
-- `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR`, `LISTEN_URL`, `DATA_DIR`, `MEDIA_MAX_FILE_BYTES`
+- `ROUTER_URL`, `CHANNEL_SECRET` (or `EMAID_CHANNEL_SECRET` override), `LISTEN_ADDR`, `LISTEN_URL`, `DATA_DIR`, `MEDIA_MAX_FILE_BYTES`
 
 ## Health signal
 

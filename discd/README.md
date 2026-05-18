@@ -53,7 +53,7 @@ attachments (cached via `chanlib.URLCache`).
 
 ## Configuration
 
-- `DISCORD_BOT_TOKEN` or `DISCORD_USER_TOKEN` (one required), `ROUTER_URL`, `CHANNEL_SECRET`
+- `DISCORD_BOT_TOKEN` or `DISCORD_USER_TOKEN` (one required), `ROUTER_URL`, `CHANNEL_SECRET` (or `DISCD_CHANNEL_SECRET` override)
 - `LISTEN_ADDR`, `LISTEN_URL`, `CHANNEL_NAME`
 - `MEDIA_MAX_FILE_BYTES`, `ASSISTANT_NAME`
 
