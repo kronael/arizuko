@@ -244,6 +244,10 @@ func (g *Gateway) Run(ctx context.Context) error {
 		},
 		SubmitTurn:    g.handleSubmitTurn,
 		AcceptURLBase: g.cfg.AuthBaseURL,
+		WebBaseURL:    g.cfg.AuthBaseURL,
+		IssueRouteToken:  g.issueRouteToken,
+		ListRouteTokens:  g.listRouteTokens,
+		RevokeRouteToken: g.store.RevokeRouteToken,
 		PaneSetPrompts: g.paneSetPrompts,
 		PaneSetTitle:   g.paneSetTitle,
 		SetGroupOpen:           g.store.SetGroupOpen,
@@ -1216,7 +1220,6 @@ func (g *Gateway) runAgentWithOpts(
 		GroupPath:       groupPath,
 		Name:            cname,
 		Config:          group.Config,
-		SlinkToken:      group.SlinkToken,
 		Channel:         chanName,
 		MessageID:       msgID,
 		Sender:          sender,
@@ -2312,4 +2315,61 @@ func onboardingAllowed(jid string, platforms []string) bool {
 		}
 	}
 	return false
+}
+
+// issueRouteToken creates a route_tokens row. kind ∈ {chat, hook}.
+// For hook tokens, sourceLabel becomes part of the JID. jidSuffix is
+// optional. Returns the raw token (only at issue time) + URL.
+// Spec 5/W.
+func (g *Gateway) issueRouteToken(kind, ownerFolder, targetFolder, sourceLabel, jidSuffix string) (ipc.RouteTokenInfo, error) {
+	if targetFolder == "" {
+		return ipc.RouteTokenInfo{}, fmt.Errorf("target_folder required")
+	}
+	if ownerFolder == "" {
+		ownerFolder = targetFolder
+	}
+	var jid, urlPrefix string
+	switch kind {
+	case "chat":
+		jid = "web:" + targetFolder
+		urlPrefix = "/chat/"
+	case "hook":
+		if sourceLabel == "" {
+			return ipc.RouteTokenInfo{}, fmt.Errorf("source_label required for webhook")
+		}
+		jid = "hook:" + targetFolder + "/" + sourceLabel
+		urlPrefix = "/hook/"
+	default:
+		return ipc.RouteTokenInfo{}, fmt.Errorf("kind must be chat|hook")
+	}
+	if jidSuffix != "" {
+		jid += "/" + jidSuffix
+	}
+
+	raw := store.GenRouteToken()
+	row := store.RouteToken{JID: jid, OwnerFolder: ownerFolder, CreatedAt: time.Now()}
+	if err := g.store.InsertRouteToken(raw, row); err != nil {
+		return ipc.RouteTokenInfo{}, err
+	}
+	info := ipc.RouteTokenInfo{
+		RawToken: raw, JID: jid, OwnerFolder: ownerFolder, CreatedAt: row.CreatedAt,
+	}
+	if base := strings.TrimRight(g.cfg.AuthBaseURL, "/"); base != "" {
+		info.URL = base + urlPrefix + raw
+		if kind == "chat" {
+			info.URL += "/"
+		}
+	}
+	return info, nil
+}
+
+func (g *Gateway) listRouteTokens(ownerFolder string) []ipc.RouteTokenInfo {
+	rows := g.store.ListRouteTokens(ownerFolder)
+	out := make([]ipc.RouteTokenInfo, len(rows))
+	for i, r := range rows {
+		out[i] = ipc.RouteTokenInfo{
+			JID: r.JID, OwnerFolder: r.OwnerFolder, CreatedAt: r.CreatedAt,
+		}
+	}
+	return out
 }

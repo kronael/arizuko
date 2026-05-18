@@ -71,6 +71,26 @@ type GatedFns struct {
 	// EngagementTTL is the window applied at write-time when a bot
 	// outbound bumps engaged_until. Spec 5/G. Zero disables the bump.
 	EngagementTTL time.Duration
+
+	// Route tokens (spec 5/W). Shared writer for chat-link / webhook
+	// issuance from both MCP and REST surfaces. IssueRouteToken returns
+	// the raw token exactly once.
+	IssueRouteToken    func(kind, ownerFolder, targetFolder, sourceLabel, jidSuffix string) (RouteTokenInfo, error)
+	ListRouteTokens    func(ownerFolder string) []RouteTokenInfo
+	RevokeRouteToken   func(jid, ownerFolder string) (bool, error)
+	// WebBaseURL is the externally-reachable base for built route URLs
+	// (https://krons.fiu.wtf). Empty when unset — callers omit `url`.
+	WebBaseURL string
+}
+
+// RouteTokenInfo mirrors store.RouteToken plus the raw token (returned
+// only at issue time; List/Revoke return RawToken="").
+type RouteTokenInfo struct {
+	RawToken    string    `json:"token,omitempty"`
+	JID         string    `json:"jid"`
+	OwnerFolder string    `json:"owner_folder"`
+	URL         string    `json:"url,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // TurnResult is the agent-submitted turn payload. The MCP `submit_turn`
