@@ -563,7 +563,7 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 		w.Header().Set("X-Upstream-Host", r.Host)
 		w.Header().Set("X-User-Sub", r.Header.Get("X-User-Sub"))
 		w.Header().Set("X-Folder", r.Header.Get("X-Folder"))
-		w.Header().Set("X-Slink-Token", r.Header.Get("X-Slink-Token"))
+		w.Header().Set("X-Chat-Token", r.Header.Get("X-Chat-Token"))
 		w.WriteHeader(200)
 		w.Write([]byte("ok:" + r.URL.Path))
 	}))
@@ -758,7 +758,7 @@ func TestProxydSlinkRateLimiterBoundary(t *testing.T) {
 	s.chatAnonDOS = newRateLimiter(3, time.Minute)
 
 	for i := 0; i < 3; i++ {
-		req := httptest.NewRequest("GET", "/slink/tok/path", nil)
+		req := httptest.NewRequest("GET", "/chat/tok/path", nil)
 		req.RemoteAddr = "7.7.7.7:4242"
 		w := httptest.NewRecorder()
 		s.route(w, req)
@@ -766,7 +766,7 @@ func TestProxydSlinkRateLimiterBoundary(t *testing.T) {
 			t.Fatalf("request %d: status = %d, want 200", i, w.Code)
 		}
 	}
-	req := httptest.NewRequest("GET", "/slink/tok/path", nil)
+	req := httptest.NewRequest("GET", "/chat/tok/path", nil)
 	req.RemoteAddr = "7.7.7.7:4242"
 	w := httptest.NewRecorder()
 	s.route(w, req)
@@ -783,7 +783,7 @@ func TestProxydSlinkRateLimiterPerIP(t *testing.T) {
 	s.chatAnonDOS = newRateLimiter(1, time.Minute)
 
 	// IP A exhausts its slot.
-	req := httptest.NewRequest("GET", "/slink/tok", nil)
+	req := httptest.NewRequest("GET", "/chat/tok", nil)
 	req.RemoteAddr = "1.1.1.1:1000"
 	w := httptest.NewRecorder()
 	s.route(w, req)
@@ -792,7 +792,7 @@ func TestProxydSlinkRateLimiterPerIP(t *testing.T) {
 	}
 
 	// IP A second attempt → denied.
-	req = httptest.NewRequest("GET", "/slink/tok", nil)
+	req = httptest.NewRequest("GET", "/chat/tok", nil)
 	req.RemoteAddr = "1.1.1.1:1000"
 	w = httptest.NewRecorder()
 	s.route(w, req)
@@ -801,7 +801,7 @@ func TestProxydSlinkRateLimiterPerIP(t *testing.T) {
 	}
 
 	// IP B gets its own slot.
-	req = httptest.NewRequest("GET", "/slink/tok", nil)
+	req = httptest.NewRequest("GET", "/chat/tok", nil)
 	req.RemoteAddr = "2.2.2.2:2000"
 	w = httptest.NewRecorder()
 	s.route(w, req)
