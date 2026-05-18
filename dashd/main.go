@@ -161,6 +161,11 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/groups/{folder}/settings", d.handleGroupSettingsSave)
 	mux.HandleFunc("DELETE /dash/groups/{folder}", d.handleGroupDelete)
 	mux.HandleFunc("POST /dash/groups/{folder}/delete", d.handleGroupDelete)
+
+	// Route tokens — issue/revoke per folder.
+	mux.HandleFunc("GET /dash/tokens/{folder}/", d.handleTokensFolder)
+	mux.HandleFunc("POST /dash/tokens/{folder}/", d.handleTokensFolder)
+	mux.HandleFunc("POST /dash/tokens/{folder}/{jid}/revoke", d.handleTokensRevoke)
 }
 
 func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {

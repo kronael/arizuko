@@ -36,7 +36,7 @@ type productManifest struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|gate|invite|identity|chat|status|pair|generate> ...")
+		fmt.Println("usage: arizuko <run|create|group|gate|invite|identity|chat|status|pair|generate|token> ...")
 		fmt.Println("  group    <instance> list | add | rm | grant | ungrant | grants")
 		fmt.Println("  gate     <instance> list | add | rm | enable | disable")
 		fmt.Println("  invite   <instance> create <target_glob> [--max-uses N] [--expires DURATION]")
@@ -44,8 +44,12 @@ func main() {
 		fmt.Println("  invite   <instance> revoke <token>")
 		fmt.Println("  identity <instance> list | link <sub> [--name NAME] [--id ID] | unlink <sub>")
 		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
+		fmt.Println("  token    <instance> issue chat <folder> [<suffix>]")
+		fmt.Println("  token    <instance> issue webhook <folder> <label> [<suffix>]")
+		fmt.Println("  token    <instance> list <folder>")
+		fmt.Println("  token    <instance> revoke <jid>")
 		fmt.Println("  chat     <instance>  — interactive Claude Code session bound to root MCP socket")
-		fmt.Println("  send     <instance> <folder> \"<msg>\" [--wait | --stream] [--topic <t>]")
+		fmt.Println("  send     <instance> <folder> \"<msg>\" [--wait | --stream] [--token <raw>] [--topic <t>]")
 		fmt.Println("  secret   <instance> set <folder> KEY --value V | list <folder> | delete <folder> KEY")
 		fmt.Println("  user-secret <instance> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY")
 		fmt.Println("  budget   <instance> set <folder|user> <name|sub> --daily N | show <folder|user> <name|sub>")
@@ -68,6 +72,7 @@ func main() {
 		"secret":      cmdSecret,
 		"user-secret": cmdUserSecret,
 		"budget":      cmdBudget,
+		"token":       cmdToken,
 	}
 	fn, ok := cmds[os.Args[1]]
 	if !ok {

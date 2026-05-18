@@ -35,23 +35,24 @@ func newIntegProxy(t *testing.T, secret string) (*server, *httptest.Server, *tes
 		t.Fatal(err)
 	}
 
-	chatRoute := Route{Path: "/chat/", Backend: up.URL, Auth: "user"}
+	panelRoute := Route{Path: "/panel/", Backend: up.URL, Auth: "user"}
 	s := &server{
-		cfg:       config{authSecret: secret, hmacSecret: "test-hmac"},
-		st:        st,
-		vh:        &vhosts{entries: map[string]string{}},
-		viteProxy: httputil.NewSingleHostReverseProxy(u),
-		chatAnonDOS:   newRateLimiter(100, 0),
-		rr:        newRoutesResource(nil, []Route{chatRoute}),
+		cfg:         config{authSecret: secret, hmacSecret: "test-hmac"},
+		st:          st,
+		vh:          &vhosts{entries: map[string]string{}},
+		viteProxy:   httputil.NewSingleHostReverseProxy(u),
+		chatAnonDOS: newRateLimiter(100, 0),
+		rr:          newRoutesResource(nil, []Route{panelRoute}),
 	}
 	return s, up, inst
 }
 
-// TestAuthGate_Unauthorized: GET /chat/* without a JWT bounces to /auth/login.
+// TestAuthGate_Unauthorized: GET /panel/* without a JWT bounces to /auth/login.
+// (/chat/ is public per spec 5/W; /panel/ is the new user-authed surface.)
 func TestAuthGate_Unauthorized(t *testing.T) {
 	s, _, _ := newIntegProxy(t, "integsecret")
 
-	req := httptest.NewRequest("GET", "/chat/atlas", nil)
+	req := httptest.NewRequest("GET", "/panel/atlas", nil)
 	w := httptest.NewRecorder()
 	s.route(w, req)
 
@@ -95,7 +96,7 @@ func TestReverseProxy(t *testing.T) {
 	s, _, _ := newIntegProxy(t, secret)
 
 	tok := testMintJWT([]byte(secret), "integ-user")
-	req := httptest.NewRequest("GET", "/chat/atlas", nil)
+	req := httptest.NewRequest("GET", "/panel/atlas", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	s.route(w, req)
@@ -111,7 +112,7 @@ func TestReverseProxy(t *testing.T) {
 	}
 	// Body came back from upstream.
 	body, _ := io.ReadAll(w.Body)
-	if string(body) != "upstream:/chat/atlas" {
+	if string(body) != "upstream:/panel/atlas" {
 		t.Errorf("body = %q", body)
 	}
 }
