@@ -60,7 +60,7 @@ func (s *Store) ResolveAllowlist(folder string) ([]string, error) {
 	folders := folderAncestry(folder)
 	placeholders := strings.Repeat("?,", len(folders))
 	placeholders = placeholders[:len(placeholders)-1]
-	args := make([]interface{}, len(folders))
+	args := make([]any, len(folders))
 	for i, f := range folders {
 		args[i] = f
 	}

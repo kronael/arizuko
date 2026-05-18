@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"errors"
 	"time"
 )
 
@@ -48,9 +47,6 @@ func (s *Store) GetPaneByChannel(channelID string) (PaneSession, bool) {
 		channelID,
 	).Scan(&p.TeamID, &p.UserID, &p.ThreadTS, &p.ChannelID, &ctx, &p.OpenedAt, &last)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return PaneSession{}, false
-		}
 		return PaneSession{}, false
 	}
 	p.ContextJID = ctx.String

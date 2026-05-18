@@ -391,7 +391,7 @@ func TestCpDir(t *testing.T) {
 		filepath.Join(src, "sub", "b.txt"), []byte("world"), 0o644)
 
 	dst := filepath.Join(t.TempDir(), "out")
-	cpDir(src, dst)
+	cpDirOverwrite(src, dst)
 
 	got, err := os.ReadFile(filepath.Join(dst, "a.txt"))
 	if err != nil || string(got) != "hello" {

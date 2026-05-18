@@ -55,7 +55,6 @@ func (s *Store) EnsureTopicLineage(folder, topic, parentTopic, newSessionID stri
 	return n > 0, nil
 }
 
-
 func (s *Store) DeleteSession(folder, topic string) error {
 	_, err := s.db.Exec(
 		`DELETE FROM sessions WHERE group_folder = ? AND topic = ?`,

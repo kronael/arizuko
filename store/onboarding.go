@@ -54,12 +54,8 @@ func (s *Store) DeleteGate(gate string) error {
 }
 
 func (s *Store) EnableGate(gate string, enabled bool) error {
-	en := 0
-	if enabled {
-		en = 1
-	}
 	_, err := s.db.Exec(
 		`UPDATE onboarding_gates SET enabled = ? WHERE gate = ?`,
-		en, gate)
+		btoi(enabled), gate)
 	return err
 }
