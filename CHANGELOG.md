@@ -12,6 +12,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- Engagement overrides `#observe` route mode: a `(jid, topic)` with an active
+  engagement window fires a turn even when the route table targets an
+  `#observe`-mode folder. `resolveOrEngaged` now checks engagement before
+  applying the observe store-only path. Spec: `specs/5/G-engagement.md`.
+
+---
+
 ## [v0.41.0] — 2026-05-18
 
 > arizuko — chat links and webhooks share one primitive

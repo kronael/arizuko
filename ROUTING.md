@@ -115,6 +115,11 @@ mode that fires a turn.
 | _(none)_   | trigger: store under `target` and fire a turn                                   |
 | `#observe` | store under `target`, no turn; agent sees it via `<observed>` block and history |
 
+**Engagement overrides `#observe`**: if the agent has an active engagement window on
+`(jid, topic)` (via a prior reply or `engage` MCP call), inbounds that would
+hit an `#observe`-mode target are instead routed to the engaged folder and fire
+a turn. The route-table mode is bypassed for the duration of the engagement TTL.
+
 Observed messages are visible to the agent in two ways: prepended to
 the next trigger turn's prompt as an `<observed>` block, and via the
 `inspect_messages` / `get_history` MCP tools. Access is governed by
@@ -199,6 +204,9 @@ through several layers. The full resolution in `resolveTarget`:
 2. Sticky group — chat has sticky_group set → route there
 3. Route table  — router.ResolveRoute(msg, routes) → first matching
                   rule wins (catchall = empty match expression)
+4. Engagement   — on route miss (or #observe hit), resolveOrEngaged
+                  checks chat_reply_state.engaged_until; if active,
+                  routes to engaged_folder and fires a turn
 ```
 
 The inline `@name` / `#topic` prefix layer is handled separately in

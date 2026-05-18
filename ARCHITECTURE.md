@@ -95,6 +95,7 @@ Channel adapter → POST /v1/messages (api) → store.PutMessage
   → resolveGroup (route table lookup)
   → handleCommand (prefix dispatch)
   → route lookup: trigger fires a turn; #observe stores only
+  → resolveOrEngaged: on route miss or #observe, fires turn if chat_reply_state.engaged_until active
   → queue.SendMessages (steer into running container) OR
   → queue.EnqueueMessageCheck → processGroupMessages
     → enrichAttachments: download media → Whisper for voice
@@ -249,7 +250,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `auth_sessions`    | token_hash (PK), user_sub, expires_at                                                                                       |
 | `acl`              | principal + action + scope + params + predicate + effect (PK), granted_by, granted_at                                       |
 | `acl_membership`   | child + parent (PK), added_by, added_at — role memberships + JID→sub claims                                                 |
-| `chat_reply_state` | jid + topic (PK), last_reply_id                                                                                             |
+| `chat_reply_state` | jid + topic (PK), last_reply_id, engaged_until, engaged_folder                                                              |
 | `email_threads`    | thread_id (PK), chat_jid, subject                                                                                           |
 | `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at                                              |
 | `onboarding_gates` | gate (PK), limit_per_day, enabled                                                                                           |
