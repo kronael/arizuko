@@ -349,8 +349,45 @@ target: engineering</code></pre>
               cache TTL
             </td>
           </tr>
+          <tr>
+            <td><code>ASSISTANT_NAME</code></td>
+            <td>no</td>
+            <td>&mdash;</td>
+            <td>
+              shown in the pane title (<code>&lt;name&gt; &mdash; chat</code>)
+              and typing indicator; unset means the pane title is just
+              &ldquo;chat&rdquo; with no hint of who&rsquo;s talking
+            </td>
+          </tr>
+          <tr>
+            <td><code>SLAKD_CHANNEL_SECRET</code></td>
+            <td>no</td>
+            <td>inherits <code>CHANNEL_SECRET</code></td>
+            <td>
+              chanlib HMAC secret slakd uses to sign requests to gated;
+              per-adapter override when you want each adapter to hold its
+              own secret instead of sharing the instance-wide one
+            </td>
+          </tr>
+          <tr>
+            <td><code>MEDIA_MAX_FILE_BYTES</code></td>
+            <td>no</td>
+            <td><code>26214400</code> (25 MiB)</td>
+            <td>
+              upper bound on inbound file size; larger uploads are skipped
+              with a log line and not stored as attachments
+            </td>
+          </tr>
         </tbody>
       </table>
+
+      <div class="note">
+        <strong>Slash commands:</strong> Slack intercepts
+        <code>/commands</code> before the bot ever sees them. To send a
+        command to the agent, prefix with backslash instead:
+        <code>\new</code>, <code>\ping</code>, <code>\help</code>. slakd
+        accepts <code>\</code> as the command prefix on Slack.
+      </div>
 
       <p>
         Out of scope in v1: OAuth install (manual install only), Socket Mode
