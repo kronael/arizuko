@@ -604,6 +604,31 @@ func TestPollOnce_NonObserve_EngagementOverride(t *testing.T) {
 	}
 }
 
+// Spec 5/G — after steering an inbound message into an active container,
+// BumpEngagement must fire so IsEngaged returns true for that (jid, topic).
+func TestPollOnce_BumpEngagementOnSend(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.MaxContainers = 2
+	gw.cfg.EngagementTTL = 10 * time.Minute
+
+	jid := "telegram:42"
+	setGroup(gw, jid, core.Group{Folder: "grp"})
+	gw.queue.SetActiveForTest(jid, "fake-container-name", "grp")
+
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: jid, Sender: "user", Name: "User",
+		Content: "hello", Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.pollOnce()
+
+	if !s.IsEngaged(jid, "", time.Now()) {
+		t.Error("IsEngaged = false after steer; BumpEngagement not called")
+	}
+}
+
 // Regression: pollOnce records steered timestamps so advanceAgentCursor
 // can include them when the container completes. The cursor is NOT
 // advanced during steer — only on container completion.
