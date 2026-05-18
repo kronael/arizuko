@@ -278,11 +278,7 @@ func fetchMsgToInbound(
 	if len(env.To) > 0 {
 		toAddr = env.To[0].Addr()
 	}
-	content := fmt.Sprintf("From: %s <%s>\nSubject: %s\nDate: %s\nTo: %s\n\n%s",
-		fromName, fromAddr, env.Subject, env.Date.Format(time.RFC1123Z), toAddr, body)
-	for _, a := range atts {
-		content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
-	}
+	content := renderEmailContent(fromName, fromAddr, env.Subject, env.Date.Format(time.RFC1123Z), toAddr, body, atts)
 	return chanlib.InboundMsg{
 		ID:          msgID,
 		ChatJID:     "email:thread/" + threadID,

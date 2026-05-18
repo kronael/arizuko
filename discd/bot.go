@@ -25,7 +25,6 @@ type bot struct {
 	typing        *chanlib.TypingRefresher
 	files         *chanlib.URLCache
 	lastInboundAt atomic.Int64
-	botMsgs       *sentIDs
 }
 
 func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
@@ -62,7 +61,7 @@ func newBot(cfg config) (*bot, error) {
 			discordgo.IntentsGuildMessageReactions |
 			discordgo.IntentsDirectMessageReactions
 	}
-	b := &bot{session: s, cfg: cfg, botMsgs: newSentIDs(256)}
+	b := &bot{session: s, cfg: cfg}
 	b.lastInboundAt.Store(time.Now().Unix())
 	b.typing = chanlib.NewTypingRefresher(4*time.Second, chanlib.DefaultTypingMaxTTL, b.sendTyping, nil)
 	return b, nil
@@ -327,7 +326,6 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 			if firstID == "" {
 				firstID = msg.ID
 			}
-			b.botMsgs.add(msg.ID)
 		}
 	}
 	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", firstID, "source", "discord")
@@ -355,7 +353,6 @@ func (b *bot) SendVoice(jid, audioPath, caption string) (string, error) {
 		return "", fmt.Errorf("discord sendvoice: %w", err)
 	}
 	if msg != nil {
-		b.botMsgs.add(msg.ID)
 		return msg.ID, nil
 	}
 	return "", nil
@@ -375,7 +372,7 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	// ContentType. Setting it explicitly here so the rich-media bubble
 	// fires even when the upstream filename has an ambiguous/missing
 	// extension (.bin, no ext, etc).
-	msg, err := b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
+	_, err = b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
 		Content: caption,
 		Files: []*discordgo.File{{
 			Name:        name,
@@ -385,9 +382,6 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("discord sendfile: %w", err)
-	}
-	if msg != nil {
-		b.botMsgs.add(msg.ID)
 	}
 	return nil
 }
@@ -468,7 +462,6 @@ func (b *bot) Quote(req chanlib.QuoteRequest) (string, error) {
 	if msg == nil {
 		return "", nil
 	}
-	b.botMsgs.add(msg.ID)
 	return msg.ID, nil
 }
 

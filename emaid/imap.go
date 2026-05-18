@@ -353,12 +353,7 @@ func (p *poller) handleMsg(
 		toAddr = env.To[0].Addr()
 	}
 	ts := env.Date.Unix()
-	content := fmt.Sprintf("From: %s <%s>\nSubject: %s\nDate: %s\nTo: %s\n\n%s",
-		fromName, fromAddr, subject, env.Date.Format(time.RFC1123Z), toAddr, body)
-
-	for _, a := range atts {
-		content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
-	}
+	content := renderEmailContent(fromName, fromAddr, subject, env.Date.Format(time.RFC1123Z), toAddr, body, atts)
 
 	jid := "email:thread/" + threadID
 	verb := VerbForState(auth.State)
@@ -395,6 +390,16 @@ func (p *poller) handleMsg(
 	}
 
 	return nil
+}
+
+// renderEmailContent builds the agent-visible text for one email message.
+func renderEmailContent(fromName, fromAddr, subject, date, toAddr, body string, atts []chanlib.InboundAttachment) string {
+	s := fmt.Sprintf("From: %s <%s>\nSubject: %s\nDate: %s\nTo: %s\n\n%s",
+		fromName, fromAddr, subject, date, toAddr, body)
+	for _, a := range atts {
+		s += fmt.Sprintf(" [Attachment: %s]", a.Filename)
+	}
+	return s
 }
 
 // classifyRaw extracts Authentication-Results + From headers from the

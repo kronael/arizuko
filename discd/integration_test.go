@@ -744,3 +744,37 @@ func os_WriteFile(t *testing.T, path string, data []byte) {
 		t.Fatal(err)
 	}
 }
+
+func TestIsMentioned(t *testing.T) {
+	const botID = "bot-1"
+	b := &bot{
+		session: &discordgo.Session{
+			State: &discordgo.State{Ready: discordgo.Ready{User: &discordgo.User{ID: botID}}},
+		},
+	}
+
+	t.Run("explicit @mention", func(t *testing.T) {
+		m := &discordgo.MessageCreate{Message: &discordgo.Message{
+			Mentions: []*discordgo.User{{ID: botID}},
+		}}
+		if !b.isMentioned(m) {
+			t.Fatal("explicit @mention should be detected")
+		}
+	})
+
+	t.Run("reply via ReferencedMessage no longer counts (gateway handles)", func(t *testing.T) {
+		m := &discordgo.MessageCreate{Message: &discordgo.Message{
+			ReferencedMessage: &discordgo.Message{Author: &discordgo.User{ID: botID}},
+		}}
+		if b.isMentioned(m) {
+			t.Fatal("reply-to-bot promotion lives in gateway now; isMentioned must NOT classify it")
+		}
+	})
+
+	t.Run("non-reply, no mention", func(t *testing.T) {
+		m := &discordgo.MessageCreate{Message: &discordgo.Message{Content: "hi"}}
+		if b.isMentioned(m) {
+			t.Fatal("plain message should not count as mention")
+		}
+	})
+}
