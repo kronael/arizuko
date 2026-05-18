@@ -21,14 +21,14 @@
     <h1>webd</h1>
 
     <h2>What it is</h2>
-    <p>webd is the web channel adapter. It registers with gated as channel <code>web</code> (JID prefix <code>web:</code>), serves the <a href="/pub/components/tokens.html">route-token</a> chat pages and webhook ingest plus the authed user MCP bridge, and pushes per-turn agent output to browsers over Server-Sent Events.</p>
+    <p>webd is the web channel adapter. It registers with gated as channel <code>web</code> (JID prefix <code>web:</code>), serves the slink chat widget at <code>/slink/*</code> plus the authed user MCP bridge, and pushes per-turn agent output to browsers over Server-Sent Events. The <a href="/pub/components/tokens.html">route-token</a> surface (<code>/chat/&lt;token&gt;/</code>, <code>/hook/&lt;token&gt;</code>) is spec'd but not yet shipped.</p>
 
     <p>From gated&rsquo;s point of view it is a normal channel adapter, same protocol as <code>teled</code> or <code>slakd</code>. From a browser&rsquo;s point of view it is an HTTP server with one open SSE stream per active chat.</p>
 
     <h2>Why it exists</h2>
     <p>Telegram and Discord come with their own clients. The web does not. To talk to an arizuko group from a browser, something has to host HTML, accept a POST, fan agent frames out to the page, and look like one more channel to gated. Splitting that out into a dedicated adapter keeps gated free of HTML and keeps every chat surface (built-in widget, JS SDK, third-party MCP client) on one code path.</p>
 
-    <p>Without webd there is no browser chat, no <code>/chat/</code> URL, no <code>/hook/</code> ingest, no operator MCP-over-HTTP. The dashboard would still work because dashd is a separate daemon, but end users could only reach the agent through a platform adapter.</p>
+    <p>Without webd there is no browser chat, no slink widget, no operator MCP-over-HTTP. The dashboard would still work because dashd is a separate daemon, but end users could only reach the agent through a platform adapter.</p>
 
     <h2>The transport</h2>
     <p>Web chat runs over plain HTTP, no WebSockets. The browser POSTs a message and gets back a <code>turn_id</code>. It then opens an SSE stream at the round&rsquo;s URL and reads <code>event: message</code> frames as the agent produces them; the stream closes on <code>event: round_done</code>. Dropped connections reconnect with <code>Last-Event-Id</code> and replay missed frames.</p>
@@ -38,7 +38,7 @@
       <pre><code>browser / curl / MCP client
         |  HTTP + SSE
         v
-      proxyd          (auth for /api/*, /mcp ; strips identity on /chat/* and /hook/*)
+      proxyd          (auth for /api/*, /mcp ; strips identity on /slink/*)
         |
         v
       webd  --POST /v1/messages--&gt;  gated     (CHANNEL_SECRET signed)
