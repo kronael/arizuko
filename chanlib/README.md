@@ -43,8 +43,8 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 - `Auth(secret, next)` — bearer-token middleware
 - `WriteJSON`, `WriteErr`, `Chunk`, `ProxyFile`, `LogMiddleware`
 - `ShortHash(s)` — short deterministic hash (also used by onbod/webd)
-- `CopyDirNoSymlinks`, `CopyFile` — fs utilities (replace dup'd copies in container/gateway)
-- `EnvOr`, `EnvInt`, `EnvDur`, `EnvBytes`, `EnvBool`, `MustEnv` — env helpers
+- `CopyDirNoSymlinks` — fs utility (replaces dup'd copies in container/gateway)
+- `EnvOr`, `EnvInt`, `EnvDur`, `EnvBytes`, `MustEnv` — env helpers
 - `InboundMsg`, `InboundAttachment`, `SendRequest`, `PostRequest`, etc.
 
 ## Health: `disconnected` > `stale` > `ok`
@@ -70,7 +70,7 @@ per-adapter staleness threshold (`5m` realtime, `10m` for emaid),
 - `typing.go` — `TypingRefresher`
 - `urlcache.go` — `URLCache`
 - `emoji.go` — `ClassifyEmoji`
-- `fsutil.go` — `CopyDirNoSymlinks`, `CopyFile`
+- `fsutil.go` — `CopyDirNoSymlinks`
 - `httplog.go` — `LogMiddleware`
 
 ## Related docs
