@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/chanlib"
 )
 
 func TestParseJID(t *testing.T) {
@@ -40,7 +42,7 @@ func TestParseJID(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected err: %v", err)
 			}
-			if got.workspace != c.workspace || got.kind != c.kind || got.id != c.id {
+			if got.Workspace != c.workspace || got.Kind != c.kind || got.ID != c.id {
 				t.Errorf("got %+v", got)
 			}
 		})
@@ -48,7 +50,7 @@ func TestParseJID(t *testing.T) {
 }
 
 func TestFormatJID(t *testing.T) {
-	got := formatJID("T012", "channel", "C0HJK")
+	got := chanlib.FormatSlackJID("T012", "channel", "C0HJK")
 	if got != "slack:T012/channel/C0HJK" {
 		t.Errorf("got %q", got)
 	}

@@ -240,7 +240,7 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 	}
 
 	conv := b.convInfoFor(m.Channel, m.ChannelType)
-	jid := formatJID(cmp.Or(teamID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), m.Channel)
+	jid := chanlib.FormatSlackJID(cmp.Or(teamID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), m.Channel)
 
 	if m.AssistantThread != nil && m.AssistantThread.ActionToken != "" {
 		root := cmp.Or(m.ThreadTS, m.TS)
@@ -308,7 +308,7 @@ func (b *bot) handleReaction(teamID string, raw json.RawMessage) {
 		return
 	}
 	conv := b.convInfoFor(r.Item.Channel, "")
-	jid := formatJID(cmp.Or(teamID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), r.Item.Channel)
+	jid := chanlib.FormatSlackJID(cmp.Or(teamID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), r.Item.Channel)
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:         r.Item.TS + ":r:" + r.Reaction,
 		ChatJID:    jid,
@@ -343,7 +343,7 @@ func (b *bot) handleJoin(teamID string, raw json.RawMessage) {
 		return
 	}
 	conv := b.convInfoFor(j.Channel, "")
-	jid := formatJID(cmp.Or(teamID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), j.Channel)
+	jid := chanlib.FormatSlackJID(cmp.Or(teamID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), j.Channel)
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:         "join:" + j.User + ":" + j.EventTS,
 		ChatJID:    jid,
@@ -406,7 +406,7 @@ func (b *bot) handleAssistantThreadStarted(teamID string, raw json.RawMessage) {
 	b.recordPane(team, at.UserID, at.ThreadTS, at.ChannelID)
 	if ctx := at.Context.ChannelID; ctx != "" && b.store != nil {
 		ctxTeam := cmp.Or(at.Context.TeamID, team)
-		ctxJID := formatJID(ctxTeam, "channel", ctx)
+		ctxJID := chanlib.FormatSlackJID(ctxTeam, "channel", ctx)
 		_ = b.store.SetPaneContext(team, at.UserID, at.ThreadTS, ctxJID)
 	}
 
@@ -417,7 +417,7 @@ func (b *bot) handleAssistantThreadStarted(teamID string, raw json.RawMessage) {
 	// Content empty, sender = user_id; no Slack TS for the open event,
 	// so synthesize an ID from thread_ts to keep uniqueness.
 	conv := b.convInfoFor(at.ChannelID, "im")
-	jid := formatJID(team, chanKind(conv.IsIM, conv.IsMpim), at.ChannelID)
+	jid := chanlib.FormatSlackJID(team, chanKind(conv.IsIM, conv.IsMpim), at.ChannelID)
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:         "pane_open:" + at.ThreadTS,
 		ChatJID:    jid,
@@ -448,7 +448,7 @@ func (b *bot) handleAssistantThreadContextChanged(teamID string, raw json.RawMes
 	team := cmp.Or(teamID, b.TeamID())
 	ctxJID := ""
 	if ctx := at.Context.ChannelID; ctx != "" {
-		ctxJID = formatJID(cmp.Or(at.Context.TeamID, team), "channel", ctx)
+		ctxJID = chanlib.FormatSlackJID(cmp.Or(at.Context.TeamID, team), "channel", ctx)
 	}
 	if err := b.store.SetPaneContext(team, at.UserID, at.ThreadTS, ctxJID); err != nil {
 		slog.Warn("slack: pane context update failed", "err", err)
@@ -580,7 +580,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		return "", err
 	}
 	body := url.Values{}
-	body.Set("channel", parts.id)
+	body.Set("channel", parts.ID)
 	body.Set("text", req.Content)
 	if threadTS := cmp.Or(req.ThreadID, req.ReplyTo); threadTS != "" {
 		body.Set("thread_ts", threadTS)
@@ -597,7 +597,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		return "", fmt.Errorf("slack send: %s", resp.Error)
 	}
 	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", resp.TS, "source", "slack")
-	b.applyPanePending(parts.id)
+	b.applyPanePending(parts.ID)
 	return resp.TS, nil
 }
 
@@ -668,7 +668,7 @@ func (b *bot) paneByJID(jid string) (store.PaneSession, bool, error) {
 	if err != nil {
 		return store.PaneSession{}, false, err
 	}
-	p, ok := b.store.GetPaneByChannel(parts.id)
+	p, ok := b.store.GetPaneByChannel(parts.ID)
 	return p, ok, nil
 }
 
@@ -737,7 +737,7 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	files, _ := json.Marshal([]map[string]string{{"id": get.FileID, "title": name}})
 	complete := url.Values{}
 	complete.Set("files", string(files))
-	complete.Set("channel_id", parts.id)
+	complete.Set("channel_id", parts.ID)
 	if caption != "" {
 		complete.Set("initial_comment", caption)
 	}
@@ -779,7 +779,7 @@ func (b *bot) Typing(jid string, on bool) {
 	}
 	go func() {
 		form := url.Values{}
-		form.Set("channel_id", parts.id)
+		form.Set("channel_id", parts.ID)
 		form.Set("thread_ts", pane.ThreadTS)
 		form.Set("status", status)
 		var resp struct {
@@ -824,7 +824,7 @@ func (b *bot) lookupPane(jid string) (store.PaneSession, bool) {
 	if err != nil {
 		return store.PaneSession{}, false
 	}
-	return b.store.GetPaneByChannel(parts.id)
+	return b.store.GetPaneByChannel(parts.ID)
 }
 
 func (b *bot) Post(req chanlib.PostRequest) (string, error) {
@@ -841,7 +841,7 @@ func (b *bot) Like(req chanlib.LikeRequest) error {
 		emoji = "thumbsup"
 	}
 	form := url.Values{}
-	form.Set("channel", parts.id)
+	form.Set("channel", parts.ID)
 	form.Set("name", emoji)
 	form.Set("timestamp", req.TargetID)
 	var resp struct {
@@ -867,7 +867,7 @@ func (b *bot) Delete(req chanlib.DeleteRequest) error {
 		return err
 	}
 	form := url.Values{}
-	form.Set("channel", parts.id)
+	form.Set("channel", parts.ID)
 	form.Set("ts", req.TargetID)
 	var resp struct {
 		OK    bool   `json:"ok"`
@@ -888,7 +888,7 @@ func (b *bot) Edit(req chanlib.EditRequest) error {
 		return err
 	}
 	form := url.Values{}
-	form.Set("channel", parts.id)
+	form.Set("channel", parts.ID)
 	form.Set("ts", req.TargetID)
 	form.Set("text", req.Content)
 	var resp struct {
