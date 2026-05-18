@@ -50,7 +50,6 @@ type GatedFns struct {
 	GetGroups           func() map[string]core.Group
 	EnqueueMessageCheck func(jid string)
 	SpawnGroup          func(parentFolder, childJID string) (core.Group, error)
-	UpdateGroupConfig   func(folder string, cfg core.GroupConfig) error
 	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
 	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
 	SubmitTurn           func(folder string, t TurnResult) error

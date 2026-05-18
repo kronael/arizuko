@@ -216,14 +216,6 @@ func (g *Gateway) Run(ctx context.Context) error {
 		},
 		GetGroups:           g.store.AllGroups,
 		EnqueueMessageCheck: g.queue.EnqueueMessageCheck,
-		UpdateGroupConfig: func(folder string, cfg core.GroupConfig) error {
-			gr, ok := g.store.GroupByFolder(folder)
-			if !ok {
-				return fmt.Errorf("group not found: %s", folder)
-			}
-			gr.Config = cfg
-			return g.store.PutGroup(gr)
-		},
 		FetchPlatformHistory: g.fetchPlatformHistory,
 		SpawnGroup: func(parentFolder, childJID string) (core.Group, error) {
 			if _, ok := g.store.GroupByFolder(parentFolder); !ok {
