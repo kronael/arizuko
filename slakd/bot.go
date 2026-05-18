@@ -187,7 +187,14 @@ func (b *bot) dispatch(teamID string, raw json.RawMessage) {
 	}
 	switch head.Type {
 	case "message":
-		if head.Subtype != "" && head.Subtype != "thread_broadcast" {
+		// thread_broadcast is a display copy of a thread reply that's
+		// also surfaced in the parent channel — the original reply
+		// already arrived as a regular message event, so dropping the
+		// broadcast prevents duplicate inbound delivery.
+		if head.Subtype == "thread_broadcast" {
+			return
+		}
+		if head.Subtype != "" {
 			return
 		}
 		b.handleMessage(teamID, raw)
