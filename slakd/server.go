@@ -5,15 +5,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
 )
 
 const maxEventBody = 1 << 20
-
-var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type server struct {
 	cfg           config
@@ -39,7 +36,13 @@ func (s *server) handler() http.Handler {
 	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"slack:"}, s.bot, s.isConnected, s.lastInboundAt)
 	// Events webhook is signature-verified, not chanlib.Auth-gated; file proxy adds Bearer xoxb upstream.
 	mux.HandleFunc("POST /slack/events", s.handleEvents)
-	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))
+	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, chanlib.FileProxyHandler(chanlib.FileProxyOpts{
+		Resolve: s.files.Get,
+		Decorate: func(req *http.Request) {
+			req.Header.Set("Authorization", "Bearer "+s.cfg.BotToken)
+		},
+		MaxBytes: s.cfg.MediaMaxBytes,
+	})))
 	mux.HandleFunc("POST /v1/pane/prompts", chanlib.Auth(s.cfg.ChannelSecret, s.handlePanePrompts))
 	mux.HandleFunc("POST /v1/pane/title", chanlib.Auth(s.cfg.ChannelSecret, s.handlePaneTitle))
 	return mux
@@ -106,31 +109,4 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.bot.handleEvent(body, w)
-}
-
-func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/files/")
-	if id == "" {
-		chanlib.WriteErr(w, 400, "file id required")
-		return
-	}
-	cdnURL, ok := s.files.Get(id)
-	if !ok {
-		chanlib.WriteErr(w, 404, "not found")
-		return
-	}
-	req, err := http.NewRequestWithContext(r.Context(), "GET", cdnURL, nil)
-	if err != nil {
-		chanlib.WriteErr(w, 502, "cdn fetch failed")
-		return
-	}
-	req.Header.Set("User-Agent", chanlib.UserAgent)
-	req.Header.Set("Authorization", "Bearer "+s.cfg.BotToken)
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		chanlib.WriteErr(w, 502, "cdn fetch failed")
-		return
-	}
-	defer resp.Body.Close()
-	chanlib.ProxyFile(w, resp, s.cfg.MediaMaxBytes)
 }

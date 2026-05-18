@@ -411,3 +411,72 @@ type mockBotPost struct {
 func (m *mockBotPost) Send(SendRequest) (string, error)    { return "", nil }
 func (m *mockBotPost) Typing(string, bool)                 {}
 func (m *mockBotPost) Post(PostRequest) (string, error)    { return "", m.err }
+
+func TestFileProxyHandler(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("User-Agent") != UserAgent {
+			t.Errorf("missing UA: %q", r.Header.Get("User-Agent"))
+		}
+		if r.Header.Get("X-Decorated") != "yes" {
+			t.Errorf("decorator not run: %q", r.Header.Get("X-Decorated"))
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Write([]byte("\x89PNG\r\n"))
+	}))
+	defer upstream.Close()
+
+	resolve := func(id string) (string, bool) {
+		if id == "abc" {
+			return upstream.URL, true
+		}
+		return "", false
+	}
+	h := FileProxyHandler(FileProxyOpts{
+		Resolve: resolve,
+		Decorate: func(req *http.Request) {
+			req.Header.Set("X-Decorated", "yes")
+		},
+	})
+
+	cases := []struct {
+		name   string
+		path   string
+		code   int
+		body   string
+		header string
+	}{
+		{"ok", "/files/abc", 200, "\x89PNG\r\n", "image/png"},
+		{"empty id", "/files/", 400, "", ""},
+		{"miss", "/files/zzz", 404, "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			h(rr, httptest.NewRequest("GET", c.path, nil))
+			if rr.Code != c.code {
+				t.Errorf("code = %d, want %d", rr.Code, c.code)
+			}
+			if c.body != "" && rr.Body.String() != c.body {
+				t.Errorf("body = %q, want %q", rr.Body.String(), c.body)
+			}
+			if c.header != "" && rr.Header().Get("Content-Type") != c.header {
+				t.Errorf("content-type = %q, want %q", rr.Header().Get("Content-Type"), c.header)
+			}
+		})
+	}
+}
+
+func TestFileProxyHandler_UpstreamErr(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer upstream.Close()
+	h := FileProxyHandler(FileProxyOpts{
+		Resolve: func(string) (string, bool) { return upstream.URL, true },
+	})
+	rr := httptest.NewRecorder()
+	h(rr, httptest.NewRequest("GET", "/files/x", nil))
+	if rr.Code != 502 {
+		t.Errorf("code = %d, want 502", rr.Code)
+	}
+}

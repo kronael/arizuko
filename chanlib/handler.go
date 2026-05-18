@@ -471,6 +471,61 @@ func handleEdit(bot BotHandler) http.HandlerFunc {
 	}
 }
 
+// FileProxyOpts wires a /files/<id> handler that resolves an opaque id to a
+// CDN URL and streams the upstream response back through ProxyFile. Used by
+// slakd, discd, and mastd adapters where Resolve = URLCache.Get; slakd
+// passes Decorate to add the `Authorization: Bearer xoxb` header required
+// by the Slack file CDN.
+type FileProxyOpts struct {
+	Resolve  func(id string) (string, bool)
+	Decorate func(*http.Request) // optional: tweak the upstream request
+	Client   *http.Client        // optional; defaults to a 30s-timeout client
+	MaxBytes int64               // proxy cap; 0 ⇒ 20 MiB default in ProxyFile
+}
+
+var defaultProxyClient = &http.Client{Timeout: 30 * time.Second}
+
+// FileProxyHandler returns a handler that strips /files/ from the URL path,
+// resolves the id, fetches the upstream URL, and streams it back. 400 on
+// empty id, 404 when Resolve misses, 502 on upstream failure.
+func FileProxyHandler(opts FileProxyOpts) http.HandlerFunc {
+	if opts.Resolve == nil {
+		panic("chanlib.FileProxyHandler: Resolve must not be nil")
+	}
+	client := opts.Client
+	if client == nil {
+		client = defaultProxyClient
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/files/")
+		if id == "" {
+			WriteErr(w, 400, "file id required")
+			return
+		}
+		cdnURL, ok := opts.Resolve(id)
+		if !ok {
+			WriteErr(w, 404, "not found")
+			return
+		}
+		req, err := http.NewRequestWithContext(r.Context(), "GET", cdnURL, nil)
+		if err != nil {
+			WriteErr(w, 502, "cdn fetch failed")
+			return
+		}
+		req.Header.Set("User-Agent", UserAgent)
+		if opts.Decorate != nil {
+			opts.Decorate(req)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			WriteErr(w, 502, "cdn fetch failed")
+			return
+		}
+		defer resp.Body.Close()
+		ProxyFile(w, resp, opts.MaxBytes)
+	}
+}
+
 // staleThresholds: /health flips to stale when lastInboundAt is older than this.
 // email: IDLE+poll-fallback is lumpier. reddit: sparse subreddits can be quiet for hours.
 var staleThresholds = map[string]time.Duration{
