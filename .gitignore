@@ -49,3 +49,4 @@ slakd/slakd
 crackbox/crackbox
 ttsd/ttsd
 *.py
+specs/res/mox/
