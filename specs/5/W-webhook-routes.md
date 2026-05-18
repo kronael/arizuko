@@ -10,10 +10,11 @@ supersedes: [specs/1/W-slink.md]
 
 The legacy anonymous-token path coupled "token → drop a message into a
 group" to one client shape (browser widget) and one URL prefix.
-Webhook ingest wants the same primitive. One token table, one handler,
-two friendly URL aliases (`/chat/<token>/` and `/hook/<token>`). JID
-prefix encodes routing intent at the data layer; the URL prefix is a
-label for human readers.
+Webhook ingest wants the same primitive at a different surface. One
+token table, one handler, two URL prefixes (`/chat/<token>/` for
+`web:` tokens, `/hook/<token>` for `hook:` tokens). Each URL is
+bound to its JID prefix kind — single-purpose surfaces, shared
+mechanics.
 
 ## Usecase
 
@@ -99,26 +100,36 @@ token returned exactly once at issue time.
 
 ## URL routing
 
-| Path                | Token JID         | Methods   | Behavior                                                          |
-| ------------------- | ----------------- | --------- | ----------------------------------------------------------------- |
-| `/chat/<token>/`    | `web:` or `hook:` | GET, POST | GET → widget; POST → message + SSE reply                          |
-| `/chat/<token>/mcp` | `web:` or `hook:` | GET, POST | Per-token MCP surface (send_message, get_round, get_round_status) |
-| `/hook/<token>`     | `web:` or `hook:` | GET, POST | Alias of `/chat/<token>/` — same handler                          |
-| `/chat/`            | (JWT)             | GET, POST | Authenticated chat (no token segment)                             |
+| Path                | Token JID | Methods   | Behavior                                                          |
+| ------------------- | --------- | --------- | ----------------------------------------------------------------- |
+| `/chat/<token>/`    | `web:`    | GET, POST | GET → widget; POST → message + SSE reply                          |
+| `/chat/<token>/mcp` | `web:`    | GET, POST | Per-token MCP surface (send_message, get_round, get_round_status) |
+| `/hook/<token>`     | `hook:`   | POST      | POST → append body as inbound; 204; GET → 405                     |
+| `/chat/`            | (JWT)     | GET, POST | Authenticated chat (no token segment)                             |
 
-Both token URLs route to the same handler. JID prefix determines
-sender attribution and default output style, not URL access. Pick
-the URL prefix that reads right — `/hook/` for webhook providers,
-`/chat/` for browser users. `/chat/` without a token segment routes
-to the authenticated handler.
+Each URL prefix is bound to its JID prefix kind and to its own
+surface contract:
+
+- **`/chat/<token>/`** is the human surface. Accepts only `web:`
+  tokens. GET serves the chat widget; POST appends a message and the
+  browser streams the agent reply over SSE.
+- **`/hook/<token>`** is the machine surface. Accepts only `hook:`
+  tokens. POST-only — append body as one inbound, return 204, no
+  response channel. GET returns 405; no widget. Webhook callers
+  fire-and-forget; the agent acts asynchronously.
+- Cross-prefix request → 404 (token row absent at the wrong surface).
+- The issuance verb picks the URL: `issue_chat_link` returns
+  `/chat/<token>/`, `issue_webhook` returns `/hook/<token>`.
+- `/chat/` without a token segment routes to the authenticated handler.
 
 ## JID shape (consistent with S-jid-format)
 
 - `web:<folder>[/<suffix>]` — anonymous web chat at folder
 - `hook:<folder>/<source>[/<suffix>]` — labeled webhook ingest at folder
 
-The `web:` and `hook:` prefixes are data-layer markers — they drive
-sender attribution and default rendering, not URL access.
+The `web:` and `hook:` prefixes drive both URL surface (`/chat/` vs
+`/hook/`) and downstream sender attribution / default rendering.
+One JID prefix, one URL prefix, one issuance verb.
 
 `<folder>` is the destination folder path (e.g. `acme/eng`).
 `<source>` derives from the `source_label` argument at issuance and
@@ -149,11 +160,16 @@ context, never a parameter. Token returned once.
 `9-acl-unified`, gated applies the ACL gate at issue, list, and
 revoke.
 
-`webd` reads `route_tokens` at the URL boundary. One handler is
-mounted at both `/chat/<token>/` and `/hook/<token>`: GET serves the
-widget, POST appends a message (SSE stream for browsers, plain
-response otherwise). No ACL gate — the bearer token IS the auth.
-webd enforces the per-token rate limit.
+`webd` reads `route_tokens` at the URL boundary:
+
+- `/chat/<token>/` — looks up the row by hash + filters to `web:`
+  JIDs. GET serves the chat widget; POST appends a message and
+  streams the agent reply over SSE.
+- `/hook/<token>` — looks up the row by hash + filters to `hook:`
+  JIDs. POST appends one inbound and returns 204. GET → 405.
+
+No ACL gate at either surface — the bearer token IS the auth. webd
+enforces the per-token rate limit (in-memory bucket).
 
 Inbound dispatch flows through normal routing per `Q-unified-routing`
 — the ACL is re-applied on the JID at message-handling time, same as
@@ -185,9 +201,9 @@ reach):
 
 Revocation requires `Authorize(principal, admin, owner_folder)` —
 agent in folder A cannot revoke a token whose `owner_folder = B`.
-Tokens themselves are public bearer credentials — no ACL at the
-`/chat/<token>/` or `/hook/<token>` aliases beyond row existence +
-rate limit.
+Tokens themselves are public bearer credentials — no ACL at
+`/chat/<token>/` or `/hook/<token>` beyond row existence + rate
+limit.
 
 ## Rate limits, body limits
 
@@ -211,8 +227,8 @@ No backfill. Only live token (Atlas on marinade) gets reissued by hand.
 
 - `issue_webhook('github')` from `acme/eng` → POST `/hook/<token>`
   appends at `hook:acme/eng/github`.
-- Chat token at `/hook/<token>` succeeds (alias); hook token at
-  `/chat/<token>/` succeeds (alias).
+- Chat token (web:) at `/hook/<token>` → 404; hook token at
+  `/chat/<token>/` → 404 (each URL bound to its JID prefix kind).
 - Revoke → next request 401, no grace.
 - Agent in folder A cannot revoke folder B's token (ACL scope).
 - Tier 1 at `acme` can mint for `acme/eng`; tier 2 at `acme` cannot.
