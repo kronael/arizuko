@@ -80,9 +80,6 @@ on exit. Audit invariant: every `BumpEngagement` callsite must be
 guarded by the same `!strings.HasPrefix(triggerSender, "timed-")`.
 
 Why not `MarkMessageDelivered`: its signature is `(id, platformID)`,
-no jid/topic in scope.
-
-Why not `MarkMessageDelivered`: its signature is `(id, platformID)`,
 no jid/topic in scope. Bumping there would require a JOIN-back to
 `messages` for jid/topic, and the empty-text early-exit at
 `gateway.go:981` calls it unconditionally (no actual send) — that

@@ -20,7 +20,7 @@ Two orthogonal features on the topic primitive:
 
 No inserted history blocks. No special prompt injection at every
 turn. The agent learns what scope it's in from the per-turn
-`<topic>` envelope (spec 6/G's `<surface>` family).
+`<topic>` envelope (spec 5/X's `<surface>` family).
 
 ## Fork — plain cp, nothing else
 
@@ -51,7 +51,7 @@ the child's history.
 ## How the agent knows what scope it's in
 
 Per-turn `<topic name="…" />` envelope, emitted by `buildAgentPrompt`
-on every prompt (spec 6/G's `<surface>` hint family). The agent
+on every prompt (spec 5/X's `<surface>` hint family). The agent
 sees on each turn:
 
 ```xml
@@ -163,8 +163,8 @@ Comprehensive — operator explicitly called out new-session-in-thread
 - Verify: `sessions` row for new thread topic created with
   parent_topic = main's topic (because reply was to a main-topic message).
 - Verify: session file forked from main's session.
-- Verify: thread reply triggers because `chats_reply_state.last_reply_at`
-  is recent (engagement, spec 6/G).
+- Verify: thread reply triggers because `chat_reply_state.engaged_until`
+  is active (engagement, spec 5/G).
 - Verify: prompt carries `<topic name="<thread_ts>" />` +
   `<surface>slack-channel-thread</surface>`.
 

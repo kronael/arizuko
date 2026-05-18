@@ -16,7 +16,7 @@ Today this is scattered:
 - `<topic name="X" />` — emitted always (spec 6/F). Shipped.
 - `<pane-context jid="…" />` — emitted when Slack pane is active
   (spec 6/D). Shipped.
-- `<surface>` hint — referenced by 6/D + 6/G, never actually
+- `<surface>` hint — referenced by 6/D + 5/G, never actually
   emitted in the prompt. Not shipped.
 - `<rule>` lines — emitted around observed messages. Shipped.
 - `<inherited>` — was emitted; replaced by plain-cp fork in 6/F
@@ -78,11 +78,11 @@ Catalog from existing specs + plausible future needs:
 | ---------------------------------------------------------------- | ----------- | ------------- | ------------------------------------- |
 | `topic`                                                          | 6/F         | ✓             | scope replies; don't conflate threads |
 | `parent_topic` / lineage                                         | 6/F         | metadata only | mostly invisible to agent             |
-| `surface` (slack-pane / slack-channel-thread / discord-dm / etc) | 6/G + 6/D   | no            | length cap, tone, available actions   |
+| `surface` (slack-pane / slack-channel-thread / discord-dm / etc) | 5/G + 6/D   | no            | length cap, tone, available actions   |
 | `pane-context` (workspace channel user is viewing)               | 6/D         | ✓             | fetch related history before replying |
-| `engagement` (ttl / state)                                       | 6/G         | no            | knows when re-mention is needed       |
-| `reply-mode` (thread / top-level / new-thread)                   | 6/G         | no            | guide outbound `thread_ts` decision   |
-| `surface-cap` (chars + lines)                                    | 6/G         | no            | per-platform length budget            |
+| `engagement` (ttl / state)                                       | 5/G         | no            | knows when re-mention is needed       |
+| `reply-mode` (thread / top-level / new-thread)                   | 5/G         | no            | guide outbound `thread_ts` decision   |
+| `surface-cap` (chars + lines)                                    | 5/Y         | no            | per-platform length budget            |
 | `recent-activity` (last_inbound_at, conversation-rate)           | future      | no            | pacing decisions                      |
 
 Open question: is this catalog exhaustive? What other meta will
@@ -90,13 +90,11 @@ the agent reasonably want over the next year?
 
 ## Why "remove for now"
 
-Spec 6/G defined `ENGAGEMENT_TTL` and `SLACK_CHANNEL_HARD_CAP_CHARS`
-env vars before any of this design was firm. Docs at
-`reference/env.html` listed them as if tunable. Both have been
-stripped now. The spec itself stays for the engagement-state TTL
-idea (which is a separate primitive — engagement state on
-`chat_reply_state`), but the per-platform length/surface piece
-moves here for redesign.
+Spec 5/G defined `ENGAGEMENT_TTL` before this design was firm. The
+engagement-state primitive shipped (columns on `chat_reply_state`,
+`BumpEngagement`, `resolveOrEngaged`). The per-turn `<engagement>`
+envelope hint and the per-platform length/surface piece move here
+for redesign.
 
 ## Decision criteria
 
@@ -121,9 +119,9 @@ the hint count explodes; then A or C earn the cost.
 - NOT a commitment to ship `<surface>` or `<engagement>` or
   per-platform length caps. Those wait for this discussion to
   settle.
-- NOT a replacement for spec 6/G — engagement-state TTL is still
-  a real primitive that may ship. This spec just owns the
-  envelope question; 6/G owns the engagement-state question.
+- NOT a replacement for spec 5/G — engagement-state is shipped.
+  This spec owns the envelope question (how the agent learns it
+  per-turn); 5/G owns the engagement-state question.
 
 ## Open questions
 

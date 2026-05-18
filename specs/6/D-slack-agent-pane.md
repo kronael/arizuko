@@ -114,7 +114,7 @@ turn (see below).
 
 ## Surface hint and context
 
-The `<surface>` hint from spec 6/G gains pane-aware values:
+The `<surface>` hint from spec 5/X gains pane-aware values:
 
 ```
 <surface>slack-pane</surface>
@@ -237,7 +237,7 @@ Each phase ships and is verified on atlas (marinade) before next.
   Slack creates a new `thread_ts` when user "starts new chat" in
   the pane; old pane stays in history with its row.
 - **NOT cross-platform** — Discord and others get nothing from
-  this spec. Spec 6/G's `<surface>` hint already covers their
+  this spec. Spec 5/X's `<surface>` hint already covers their
   scope.
 - **NOT mandatory rich suggestions** — `setSuggestedPrompts` is
   best-effort. Agent that doesn't call `pane_set_prompts` just
@@ -253,7 +253,7 @@ Each phase ships and is verified on atlas (marinade) before next.
 - **Scope migration**: Slack will eventually move `assistant.threads.*`
   to require `chat:write` only (today: `assistant:write`). Keep
   both scopes in the manifest for now.
-- **TTL collision with engagement (spec 6/G)**: pane sessions don't
+- **TTL collision with engagement (spec 5/G)**: pane sessions don't
   TTL out the way engagements do; the pane is "open until closed"
   from Slack's perspective. Keep them independent — pane lives in
   `pane_sessions`, engagement in `chat_reply_state`.
