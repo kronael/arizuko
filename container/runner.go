@@ -673,7 +673,8 @@ func seedSettings(
 	// DATA_DIR/web/<world>/ → reachable only via the vhost subdomain
 	// <world>.$WEB_HOST. Tier 2+ has no web mount: leave WEB_PREFIX empty so
 	// the agent can detect "no publishing surface" and ask its parent world.
-	switch tier := tierOf(in.Folder, root); {
+	tier := tierOf(in.Folder, root)
+	switch {
 	case root:
 		env["ARIZUKO_IS_ROOT"] = "1"
 		env["WEB_PREFIX"] = "pub"
@@ -687,7 +688,7 @@ func seedSettings(
 	env["ARIZUKO_GROUP_NAME"] = groupfolder.NameOf(in.Folder)
 	env["ARIZUKO_GROUP_PARENT"] = groupfolder.ParentOf(in.Folder)
 	env["ARIZUKO_WORLD"] = worldOf(in.Folder, root)
-	env["ARIZUKO_TIER"] = strconv.Itoa(tierOf(in.Folder, root))
+	env["ARIZUKO_TIER"] = strconv.Itoa(tier)
 	if in.Channel != "" {
 		settings["outputStyle"] = in.Channel
 	}
@@ -891,12 +892,6 @@ func CopySession(groupDir, srcUUID, dstUUID string) error {
 	return nil
 }
 
-// cpDir copies src→dst, always overwriting. Kept as the default for
-// merge-base seeding (caller pre-removes dst for a true mirror).
-func cpDir(src, dst string) { cpDirImpl(src, dst, false) }
-
-// cpDirOverwrite is an explicit alias; same semantics as cpDir but the
-// name documents intent at the call site.
 func cpDirOverwrite(src, dst string) { cpDirImpl(src, dst, false) }
 
 // cpDirFresh copies src→dst, skipping files that already exist in dst.

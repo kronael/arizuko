@@ -80,7 +80,7 @@ func DiscoverConnectorTools(ctx context.Context, spec *ConnectorSpec) ([]Connect
 	}
 	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
 	cmd.Env = []string{} // empty env at discovery; no host env leaks in
-	stdin, stdout, stderr, err := startStdio(cmd, spec.Name)
+	stdin, stdout, _, err := startStdio(cmd, spec.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -88,12 +88,10 @@ func DiscoverConnectorTools(ctx context.Context, spec *ConnectorSpec) ([]Connect
 
 	rdr := bufio.NewReader(stdout)
 	if err := initialize(stdin, rdr); err != nil {
-		stderrTail(stderr)
 		return nil, fmt.Errorf("connector %q initialize: %w", spec.Name, err)
 	}
 	resp, err := callRPC(stdin, rdr, "tools/list", map[string]any{})
 	if err != nil {
-		stderrTail(stderr)
 		return nil, fmt.Errorf("connector %q tools/list: %w", spec.Name, err)
 	}
 	var list struct {
@@ -136,14 +134,13 @@ func CallConnectorTool(
 	env := renderEnv(spec.EnvTemplate, secrets)
 	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
 	cmd.Env = env
-	stdin, stdout, stderr, err := startStdio(cmd, spec.Name)
+	stdin, stdout, _, err := startStdio(cmd, spec.Name)
 	if err != nil {
 		return nil, err
 	}
 	defer killProc(cmd, spec.Name)
 	rdr := bufio.NewReader(stdout)
 	if err := initialize(stdin, rdr); err != nil {
-		stderrTail(stderr)
 		return nil, fmt.Errorf("connector %q initialize: %w", spec.Name, err)
 	}
 	resp, err := callRPC(stdin, rdr, "tools/call", map[string]any{
@@ -151,7 +148,6 @@ func CallConnectorTool(
 		"arguments": args,
 	})
 	if err != nil {
-		stderrTail(stderr)
 		return nil, fmt.Errorf("connector %q tools/call: %w", spec.Name, err)
 	}
 	result := scrubResult(resp, secrets)
@@ -232,10 +228,6 @@ func drainStderr(r io.Reader, name string) {
 		slog.Debug("connector stderr", "connector", name, "line", sc.Text())
 	}
 }
-
-// stderrTail is a best-effort post-mortem when initialize/call fails;
-// stderr may already be drained by drainStderr above.
-func stderrTail(_ io.Reader) {}
 
 func killProc(cmd *exec.Cmd, name string) {
 	if cmd.Process != nil {
