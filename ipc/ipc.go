@@ -855,7 +855,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			})
 	}
 
-	registerRaw("send", "Deliver a new top-level message to a chat. Use for the normal reply to the user's last message or for a proactive notification. Not for threaded replies to a specific earlier message (`reply`) or file delivery (`send_file` — its caption replaces this call).",
+	registerRaw("send", "Deliver a new top-level message to a chat. Use for the normal reply to the user's last message or for a proactive notification. Not for threaded replies to a specific earlier message (`reply`) or file delivery (`send_file` — its caption replaces this call). For Slack channels: use for 1-sentence headlines only (≤200 chars), then call `reply` immediately with full detail.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -880,7 +880,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolOK()
 		})
 
-	registerRaw("reply", "Deliver a message threaded to a specific earlier message (quote/reply UI on the platform). Use when disambiguating which message you're answering in an active chat, or when replyToId is known. Defaults to the last outbound reply id if omitted. Not for fresh top-level messages (`send`).",
+	registerRaw("reply", "Deliver a message threaded to a specific earlier message (quote/reply UI on the platform). Use when disambiguating which message you're answering in an active chat, or when replyToId is known. Defaults to the last outbound reply id if omitted. Not for fresh top-level messages (`send`). On Slack: use immediately after `send` to post the full-length answer in a thread — don't wait for the user to follow up.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
