@@ -45,7 +45,7 @@ func hashRouteToken(raw string) []byte {
 	return sum[:]
 }
 
-// JIDKind returns "chat" for web: jids, "hook" for hook: jids, "" otherwise.
+// RouteTokenKind returns "chat" for web: jids, "hook" for hook: jids, "" otherwise.
 func RouteTokenKind(jid string) string {
 	switch {
 	case strings.HasPrefix(jid, "web:"):

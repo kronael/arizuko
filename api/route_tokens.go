@@ -59,12 +59,6 @@ func (s *Server) handleCreateRouteToken(w http.ResponseWriter, r *http.Request) 
 	if owner == "" {
 		owner = req.TargetFolder
 	}
-	if err := auth.AuthorizeStructural(auth.Resolve(owner), "register_group",
-		auth.AuthzTarget{TargetFolder: req.TargetFolder}); err != nil {
-		// Allow self / descendant mint per the tier model. Re-use register_group's
-		// shape only as a tier gate; final approval is by the operator session.
-		_ = err // operator check above already grants admin authority
-	}
 	if s.issueRouteToken == nil {
 		chanlib.WriteErr(w, http.StatusServiceUnavailable, "issue not configured")
 		return
