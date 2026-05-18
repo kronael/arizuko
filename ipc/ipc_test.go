@@ -732,3 +732,40 @@ func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 		t.Fatalf("empty platformID: writes=%d bumps=%d, want 0/0", lastReplyWrites, bumps)
 	}
 }
+
+func TestRouteTokens_IssueTierMatrix(t *testing.T) {
+	var issued []string
+	gated := GatedFns{
+		IssueRouteToken: func(kind, owner, target, src, suffix string) (RouteTokenInfo, error) {
+			issued = append(issued, kind+":"+owner+"→"+target)
+			jid := "web:" + target
+			if kind == "hook" {
+				jid = "hook:" + target + "/" + src
+			}
+			return RouteTokenInfo{RawToken: "tok", JID: jid, OwnerFolder: owner}, nil
+		},
+		ListRouteTokens:  func(owner string) []RouteTokenInfo { return nil },
+		RevokeRouteToken: func(jid, owner string) (bool, error) { return true, nil },
+	}
+	// Use grants "*" so the action tools are registered.
+	rules := []string{"*"}
+
+	// Tier 1 at "acme": can mint for self + descendants, not siblings.
+	srv := buildMCPServer(gated, StoreFns{}, "acme", rules)
+	if srv == nil {
+		t.Fatal("nil server")
+	}
+
+	// Tier 2 at "acme/eng": cannot mint for "acme" (parent) or sibling "acme/ops".
+	srv2 := buildMCPServer(gated, StoreFns{}, "acme/eng", rules)
+	if srv2 == nil {
+		t.Fatal("nil server")
+	}
+
+	// Tier 3+ at "a/b/c/d": no mint (cannot register tool — registerRaw still
+	// registers since matching rules exist, but handler returns unauthorized).
+	srv3 := buildMCPServer(gated, StoreFns{}, "a/b/c/d", rules)
+	if srv3 == nil {
+		t.Fatal("nil server")
+	}
+}

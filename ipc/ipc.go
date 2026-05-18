@@ -1921,6 +1921,131 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(out)
 		})
 
+	// Route-token issuance. Spec 5/W. Two distinct intents (chat link
+	// vs webhook) → two distinct tools per `mcp_tool_naming`. Both
+	// funnel through gated.IssueRouteToken — one writer, MCP/REST
+	// produce identical rows. Owner_folder is bound from the agent's
+	// session folder (mint-on-behalf-of bookkeeping); tier table:
+	//   tier 0 → any folder, tier 1 → self+descendants, tier 2 → self,
+	//   tier 3+ → no mint. Same authority shape as register_group.
+	authorizeMint := func(targetFolder string) error {
+		t := targetFolder
+		if t == "" {
+			t = folder
+		}
+		if id.Tier >= 3 {
+			return fmt.Errorf("unauthorized: tier %d cannot issue route tokens", id.Tier)
+		}
+		if id.Tier == 2 && t != folder {
+			return fmt.Errorf("unauthorized: tier 2 can only mint for own folder")
+		}
+		if id.Tier == 1 && t != folder && !strings.HasPrefix(t, folder+"/") {
+			return fmt.Errorf("unauthorized: tier 1 can only mint for self+descendants")
+		}
+		return nil
+	}
+
+	if gated.IssueRouteToken != nil {
+		registerRaw("issue_chat_link",
+			"Mint a route token that serves the anonymous web chat widget at "+
+				"/chat/<token>/. Returns {token, url, jid}; the token is shown "+
+				"once. Inbound messages append at jid=web:<target_folder>[/<jid_suffix>]. "+
+				"Use when you want a public, password-less chat surface for the "+
+				"folder — paste the URL into a website, share with a visitor. "+
+				"target_folder defaults to your own folder. Spec 5/W.",
+			[]mcp.ToolOption{
+				mcp.WithString("target_folder",
+					mcp.Description("Folder the token routes to. Defaults to your own folder. Tier 0 = any; tier 1 = self+descendants; tier 2 = self only.")),
+				mcp.WithString("jid_suffix",
+					mcp.Description("Optional path appended to the JID (web:<folder>/<suffix>) — useful to partition multiple chat surfaces under one folder.")),
+			},
+			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				target := strings.TrimSpace(req.GetString("target_folder", folder))
+				if err := authorizeMint(target); err != nil {
+					return toolErr(err.Error())
+				}
+				suffix := strings.TrimSpace(req.GetString("jid_suffix", ""))
+				info, err := gated.IssueRouteToken("chat", folder, target, "", suffix)
+				if err != nil {
+					return toolErr(err.Error())
+				}
+				slog.Info("issue_chat_link", "folder", folder, "target", target, "jid", info.JID)
+				return toolJSON(map[string]any{
+					"token": info.RawToken, "jid": info.JID, "url": info.URL,
+				})
+			})
+
+		registerRaw("issue_webhook",
+			"Mint a route token for an inbound webhook surface at /hook/<token>. "+
+				"POSTs append a message at jid=hook:<target_folder>/<source_label>[/<jid_suffix>], "+
+				"sender=<source_label>; the agent sees it like any other inbound. "+
+				"Returns {token, url, jid} once. Use to register an external "+
+				"system (GitHub, Linear, Stripe, …) as a fire-and-forget event "+
+				"source for the folder. Spec 5/W.",
+			[]mcp.ToolOption{
+				mcp.WithString("source_label", mcp.Required(),
+					mcp.Description("Short identifier of the upstream system (e.g. github, linear, stripe). Becomes the JID's source segment and the inbound sender field.")),
+				mcp.WithString("target_folder",
+					mcp.Description("Folder the token routes to. Defaults to your own folder. Tier rules match issue_chat_link.")),
+				mcp.WithString("jid_suffix",
+					mcp.Description("Optional path appended to the JID — partition multiple webhooks under one source_label.")),
+			},
+			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				src := strings.TrimSpace(req.GetString("source_label", ""))
+				if src == "" {
+					return toolErr("source_label required")
+				}
+				target := strings.TrimSpace(req.GetString("target_folder", folder))
+				if err := authorizeMint(target); err != nil {
+					return toolErr(err.Error())
+				}
+				suffix := strings.TrimSpace(req.GetString("jid_suffix", ""))
+				info, err := gated.IssueRouteToken("hook", folder, target, src, suffix)
+				if err != nil {
+					return toolErr(err.Error())
+				}
+				slog.Info("issue_webhook", "folder", folder, "target", target, "source", src, "jid", info.JID)
+				return toolJSON(map[string]any{
+					"token": info.RawToken, "jid": info.JID, "url": info.URL,
+				})
+			})
+	}
+
+	if gated.ListRouteTokens != nil {
+		registerRaw("list_tokens",
+			"List route tokens (chat links + webhooks) owned by your folder. "+
+				"Returns rows with {jid, owner_folder, created_at}. Raw tokens "+
+				"are NOT returned — they're shown once at issue time. Spec 5/W.",
+			nil,
+			func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				rows := gated.ListRouteTokens(folder)
+				return toolJSON(map[string]any{"tokens": rows})
+			})
+	}
+
+	if gated.RevokeRouteToken != nil {
+		registerRaw("revoke_token",
+			"Revoke a route token by JID. Caller must own the token "+
+				"(owner_folder = your folder). After revocation the URL "+
+				"returns 404 immediately — no grace period. Spec 5/W.",
+			[]mcp.ToolOption{
+				mcp.WithString("jid", mcp.Required(),
+					mcp.Description("JID of the token to revoke (e.g. web:acme or hook:acme/github).")),
+			},
+			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				jid := strings.TrimSpace(req.GetString("jid", ""))
+				if jid == "" {
+					return toolErr("jid required")
+				}
+				deleted, err := gated.RevokeRouteToken(jid, folder)
+				if err != nil {
+					return toolErr(err.Error())
+				}
+				slog.Info("revoke_token", "folder", folder, "jid", jid, "deleted", deleted)
+				return toolJSON(map[string]any{"deleted": deleted})
+			})
+	}
+
 	if db.MessagesBefore != nil {
 		inspectMessages := func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chat_jid", "")
