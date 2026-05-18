@@ -13,22 +13,18 @@ import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { WhapdBot, authDirHasCreds, type SocketBuilder } from './bot.js';
 import { RouterClient } from './client.js';
+import {
+  buildMessagePayload,
+  buildReactionPayload,
+  extractContent as extractContentPure,
+  isOwnEcho,
+} from './inbound.js';
 import { log } from './log.js';
 import { flushQueue } from './queue.js';
-import { extractReplyMeta } from './reply.js';
 import { startServer } from './server.js';
 import { TypingRefresher } from './typing.js';
 
 const logger = pino({ level: 'warn' });
-
-// Mirror chanlib.ClassifyEmoji: only negatives are listed; everything
-// else (including unknown emoji) defaults to "like" — adapter signals
-// "someone reacted, here's what they used"; the agent gets the actual
-// emoji as InboundMsg.reaction.
-const NEGATIVE_EMOJI = new Set(['👎', '💩', '😡', '🤬', '💔', '🤮', '😢']);
-function classifyEmoji(emoji: string): 'like' | 'dislike' {
-  return NEGATIVE_EMOJI.has(emoji) ? 'dislike' : 'like';
-}
 
 function env(k: string, def?: string): string {
   const v = process.env[k] || def;
@@ -239,58 +235,35 @@ async function flushOutboundQueue(): Promise<void> {
   }
 }
 
-async function extractContent(msg: WAMessage): Promise<{
-  content: string;
-  mediaBuffer?: Buffer;
-  mediaMime?: string;
-  mediaFilename?: string;
+// Wraps the pure extractContent + Baileys media download, since downloads
+// need a live socket. Pure logic lives in inbound.ts; this function is
+// the only place the socket leaks in.
+async function extractWithMedia(msg: WAMessage): Promise<{
+  extracted: ReturnType<typeof extractContentPure>;
+  mediaBuffer: Buffer | null;
 }> {
+  const extracted = extractContentPure(msg);
   const m = msg.message;
-  if (!m) return { content: '' };
-
-  const text = m.conversation || m.extendedTextMessage?.text;
-  if (text) return { content: text };
-
-  const img = m.imageMessage;
-  const vid = m.videoMessage;
-  const aud = m.audioMessage;
-  const doc = m.documentMessage;
-  const sticker = m.stickerMessage;
-  if (!img && !vid && !aud && !doc && !sticker) return { content: '' };
-
-  const caption = img?.caption || vid?.caption || doc?.caption || '';
-  let description = '';
-  if (img) description = '[Image]';
-  else if (vid) description = '[Video]';
-  else if (aud) description = aud.ptt ? '[Voice Note]' : '[Audio]';
-  else if (doc)
-    description = doc.fileName ? `[File: ${doc.fileName}]` : '[File]';
-  else if (sticker) description = '[Sticker]';
-
-  const content = caption || description;
-
-  let mediaBuffer: Buffer | undefined;
-  let mediaMime: string | undefined;
-  let mediaFilename: string | undefined;
+  const hasMedia = !!(
+    m?.imageMessage ||
+    m?.videoMessage ||
+    m?.audioMessage ||
+    m?.documentMessage ||
+    m?.stickerMessage
+  );
+  if (!hasMedia) return { extracted, mediaBuffer: null };
   try {
-    mediaBuffer = (await downloadMediaMessage(
+    const buf = (await downloadMediaMessage(
       msg,
       'buffer',
       {},
       { reuploadRequest: sock!.updateMediaMessage, logger },
     )) as Buffer;
-    mediaMime =
-      img?.mimetype ||
-      vid?.mimetype ||
-      aud?.mimetype ||
-      doc?.mimetype ||
-      undefined;
-    mediaFilename = doc?.fileName || undefined;
+    return { extracted, mediaBuffer: buf };
   } catch (e) {
     log('error', 'media download failed', { err: String(e) });
+    return { extracted, mediaBuffer: null };
   }
-
-  return { content, mediaBuffer, mediaMime, mediaFilename };
 }
 
 async function connect(): Promise<void> {
@@ -365,36 +338,16 @@ async function connect(): Promise<void> {
   // (text falsey) is dropped — we only signal additions.
   sock.ev.on('messages.reaction', async (events) => {
     for (const ev of events) {
-      const text = ev.reaction?.text;
-      if (!text) continue;
-      const jid = ev.key.remoteJid;
-      if (!jid || jid === 'status@broadcast') continue;
-      const targetId = ev.key.id || '';
-      const senderJid =
-        (ev.reaction.key as any)?.participant ||
-        (ev.key as any).participant ||
-        jid;
-      const verb = classifyEmoji(text);
+      const payload = buildReactionPayload(ev as any, () =>
+        Math.floor(Date.now() / 1000),
+      );
+      if (!payload) continue;
       try {
-        await rc.sendMessage({
-          id: `${targetId}:r:${text}`,
-          chat_jid: `whatsapp:${jid}`,
-          sender: `whatsapp:${senderJid}`,
-          sender_name: senderJid.split('@')[0],
-          content: text,
-          timestamp:
-            Number(ev.reaction.senderTimestampMs) > 0
-              ? Math.floor(Number(ev.reaction.senderTimestampMs) / 1000)
-              : Math.floor(Date.now() / 1000),
-          verb,
-          reaction: text,
-          reply_to: targetId,
-          is_group: jid.endsWith('@g.us'),
-        });
+        await rc.sendMessage(payload);
         lastInboundAt = Math.floor(Date.now() / 1000);
       } catch (e) {
         log('error', 'deliver reaction failed', {
-          jid: `whatsapp:${jid}`,
+          jid: payload.chat_jid,
           err: String(e),
         });
       }
@@ -407,55 +360,25 @@ async function connect(): Promise<void> {
       const jid = msg.key.remoteJid;
       if (!jid || jid === 'status@broadcast') continue;
       if (msg.key.fromMe) continue;
-
-      const chatJid = `whatsapp:${jid}`;
-      const rawSender = msg.key.participant || jid;
-      const senderName = msg.pushName || rawSender.split('@')[0];
-
       // Loop guard: skip our own echoes in group chats (matched by push name).
-      if (assistantName && (msg.pushName || '').toLowerCase() === assistantName)
-        continue;
+      if (isOwnEcho(msg, assistantName)) continue;
 
-      const { content, mediaBuffer, mediaMime, mediaFilename } =
-        await extractContent(msg);
-      if (!content && !mediaBuffer) continue;
-
-      const replyMeta = extractReplyMeta(msg);
+      const { extracted, mediaBuffer } = await extractWithMedia(msg);
+      const payload = buildMessagePayload(msg, extracted, mediaBuffer, () =>
+        Math.floor(Date.now() / 1000),
+      );
+      if (!payload) continue;
 
       sock!.readMessages([msg.key]).catch(() => {});
 
       try {
-        await rc.sendMessage({
-          id: msg.key.id || '',
-          chat_jid: chatJid,
-          sender: `whatsapp:${rawSender}`,
-          sender_name: senderName,
-          content,
-          timestamp:
-            Number(msg.messageTimestamp) || Math.floor(Date.now() / 1000),
-          // jid suffix `@g.us` = WhatsApp group; everything else (`@s.whatsapp.net`,
-          // broadcast lists) is treated as 1:1 here. Group DMs use `@g.us` too.
-          is_group: jid.endsWith('@g.us'),
-          ...(mediaBuffer
-            ? {
-                attachment: mediaBuffer.toString('base64'),
-                attachment_mime: mediaMime,
-                attachment_name: mediaFilename,
-              }
-            : {}),
-          ...(replyMeta
-            ? {
-                reply_to: replyMeta.replyTo,
-                reply_to_text: replyMeta.replyToText,
-                ...(replyMeta.replyToSender
-                  ? { reply_to_sender: replyMeta.replyToSender }
-                  : {}),
-              }
-            : {}),
-        });
+        await rc.sendMessage(payload);
         lastInboundAt = Math.floor(Date.now() / 1000);
       } catch (e) {
-        log('error', 'deliver failed', { jid: chatJid, err: String(e) });
+        log('error', 'deliver failed', {
+          jid: payload.chat_jid,
+          err: String(e),
+        });
       }
     }
   });
