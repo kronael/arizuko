@@ -59,35 +59,29 @@ func (s *Store) GetProxydRoute(path string) (ProxydRoute, bool) {
 	return r, true
 }
 
-func (s *Store) InsertProxydRoute(r ProxydRoute) error {
-	headers, _ := json.Marshal(r.PreserveHeaders)
+func proxydRouteFields(r ProxydRoute) (headers string, strip int) {
+	b, _ := json.Marshal(r.PreserveHeaders)
 	if r.PreserveHeaders == nil {
-		headers = []byte("[]")
+		b = []byte("[]")
 	}
-	strip := 0
-	if r.StripPrefix {
-		strip = 1
-	}
+	return string(b), btoi(r.StripPrefix)
+}
+
+func (s *Store) InsertProxydRoute(r ProxydRoute) error {
+	headers, strip := proxydRouteFields(r)
 	_, err := s.db.Exec(`INSERT INTO proxyd_routes
 	                     (path, backend, auth, gated_by, preserve_headers, strip_prefix)
 	                     VALUES (?, ?, ?, ?, ?, ?)`,
-		r.Path, r.Backend, r.Auth, r.GatedBy, string(headers), strip)
+		r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip)
 	return err
 }
 
 func (s *Store) UpdateProxydRoute(r ProxydRoute) error {
-	headers, _ := json.Marshal(r.PreserveHeaders)
-	if r.PreserveHeaders == nil {
-		headers = []byte("[]")
-	}
-	strip := 0
-	if r.StripPrefix {
-		strip = 1
-	}
+	headers, strip := proxydRouteFields(r)
 	res, err := s.db.Exec(`UPDATE proxyd_routes
 	                       SET backend=?, auth=?, gated_by=?, preserve_headers=?, strip_prefix=?
 	                       WHERE path=?`,
-		r.Backend, r.Auth, r.GatedBy, string(headers), strip, r.Path)
+		r.Backend, r.Auth, r.GatedBy, headers, strip, r.Path)
 	if err != nil {
 		return err
 	}
