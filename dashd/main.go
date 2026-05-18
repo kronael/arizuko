@@ -205,10 +205,6 @@ func dashNavFor(urlPath string) string {
 	return b.String()
 }
 
-// dashNav: legacy unscoped nav (no active state). Kept for templates
-// that don't have request context. Prefer dashNavFor(r.URL.Path).
-const dashNav = `<nav><a href="/dash/">arizuko</a><a href="/dash/status/">status</a><a href="/dash/tasks/">tasks</a><a href="/dash/activity/">activity</a><a href="/dash/groups/">groups</a><a href="/dash/routes/">routes</a><a href="/dash/memory/">memory</a><a href="/dash/profile/">profile</a></nav><button class="theme-toggle"></button>`
-
 func dashHead(title string) string {
 	return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
 		`<title>` + title + ` — arizuko</title>` +
@@ -217,7 +213,7 @@ func dashHead(title string) string {
 }
 
 var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><html>{{.Head}}<body>
-<div class="page-wide">` + dashNav + `
+<div class="page-wide">{{.Nav}}
 <h1>arizuko</h1>
 <p class="dim">Operator dashboard</p>
 {{if .Err}}<div class="banner-err">portal: {{.Err}}</div>{{end}}
@@ -272,20 +268,16 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := portalTmpl.Execute(w, struct {
 		Head      template.HTML
+		Nav       template.HTML
 		StatusDot string
 		TasksDot  string
 		Err       string
-	}{template.HTML(dashHead("arizuko")), statusDot, tasksDot, errMsg}); err != nil {
+	}{template.HTML(dashHead("arizuko")), template.HTML(dashNavFor(r.URL.Path)), statusDot, tasksDot, errMsg}); err != nil {
 		slog.Warn("portal: template execute", "err", err)
 	}
 }
 
-func pageTop(w http.ResponseWriter, title string) {
-	fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s<h1>%s</h1>`,
-		dashHead(title), dashNav, esc(title))
-}
-
-// pageTopFor renders the same shell as pageTop but with a path-aware
+// pageTopFor renders the page shell with a path-aware
 // nav (active-link aria-current). Pass r.URL.Path. Optional crumbs
 // render as a breadcrumb line above the h1.
 func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...struct{ Href, Label string }) {

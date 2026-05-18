@@ -72,11 +72,15 @@ func (h *hub) publish(folder, topic, event, data string) {
 	}
 }
 
-func serveSSE(w http.ResponseWriter, r *http.Request, ch <-chan string) {
+func sseHeaders(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+}
+
+func serveSSE(w http.ResponseWriter, r *http.Request, ch <-chan string) {
+	sseHeaders(w)
 	flusher, _ := w.(http.Flusher)
 	rc := http.NewResponseController(w)
 

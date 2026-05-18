@@ -91,17 +91,15 @@ func validateRoute(r Route, existing []Route, isUpdate bool) error {
 	return nil
 }
 
-// argRoute pulls a Route out of resreg.Args. Body is decoded as raw
-// JSON via map[string]any; we re-marshal then unmarshal into Route so
-// JSON tag handling stays in one place.
+// argRoute pulls a Route out of resreg.Args. Re-marshal/unmarshal keeps
+// JSON tag handling in one place.
 func argRoute(args resreg.Args) (Route, error) {
 	b, err := json.Marshal(args)
 	if err != nil {
 		return Route{}, resreg.Errorf(http.StatusBadRequest, "encode args: %v", err)
 	}
 	var r Route
-	dec := json.NewDecoder(strings.NewReader(string(b)))
-	if err := dec.Decode(&r); err != nil {
+	if err := json.Unmarshal(b, &r); err != nil {
 		return Route{}, resreg.Errorf(http.StatusBadRequest, "decode route: %v", err)
 	}
 	return r, nil
