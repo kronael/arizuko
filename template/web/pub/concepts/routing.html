@@ -54,6 +54,7 @@
     <h2>resolution order</h2>
     <p>Put together, every inbound message goes through these layers in order:</p>
     <ol>
+      <li>Engagement &mdash; if the <code>(chat, topic)</code> is engaged, route to the engaged folder and fire a turn. All layers below are skipped.</li>
       <li>Reply chain &mdash; if the message replies to a bot message, follow <code>routed_to</code>.</li>
       <li>Sticky group &mdash; if the chat has one set, use it.</li>
       <li>Route table &mdash; first matching row wins; the empty catchall rule is last.</li>
@@ -69,7 +70,7 @@
       <thead><tr><th>target</th><th>effect</th></tr></thead>
       <tbody>
         <tr><td><code>folder</code></td><td>store under <code>folder</code> and fire a turn on main (default)</td></tr>
-        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL. Exception: if the bot has already replied in that <code>(chat, topic)</code> within the engagement window, the turn fires anyway — see <a href="/pub/concepts/engagement.html">engagement</a>.</td></tr>
+        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL. Exception: engagement overrides all route targets — if the <code>(chat, topic)</code> is engaged, the gateway ignores this mode and fires a turn anyway. See <a href="/pub/concepts/engagement.html">engagement</a>.</td></tr>
         <tr><td><code>folder#deploy</code></td><td>store under <code>folder</code> with topic <code>#deploy</code> and fire a turn there. Useful for piping a webhook source into a dedicated topic without operator @-prefixes.</td></tr>
       </tbody>
     </table>

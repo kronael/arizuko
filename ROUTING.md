@@ -115,10 +115,11 @@ mode that fires a turn.
 | _(none)_   | trigger: store under `target` and fire a turn                                   |
 | `#observe` | store under `target`, no turn; agent sees it via `<observed>` block and history |
 
-**Engagement overrides `#observe`**: if the agent has an active engagement window on
-`(jid, topic)` (via a prior reply or `engage` MCP call), inbounds that would
-hit an `#observe`-mode target are instead routed to the engaged folder and fire
-a turn. The route-table mode is bypassed for the duration of the engagement TTL.
+**Engagement overrides all routes**: if the agent has an active engagement window on
+`(jid, topic)` (via a prior reply or `engage` MCP call), inbounds are routed to
+the engaged folder and fire a turn regardless of what the route table resolves —
+including `#observe` targets, trigger routes pointing to a different folder, or
+a route miss. The route table is bypassed for the duration of the engagement TTL.
 
 Observed messages are visible to the agent in two ways: prepended to
 the next trigger turn's prompt as an `<observed>` block, and via the
@@ -199,14 +200,14 @@ When a message arrives, the gateway resolves which group handles it
 through several layers. The full resolution in `resolveTarget`:
 
 ```
-1. Reply chain  — msg.ReplyToID set → look up routed_to on the
+1. Engagement   — resolveOrEngaged checks chat_reply_state.engaged_until;
+                  if active, routes to engaged_folder and fires a turn,
+                  bypassing all layers below
+2. Reply chain  — msg.ReplyToID set → look up routed_to on the
                   original message → route to that group
-2. Sticky group — chat has sticky_group set → route there
-3. Route table  — router.ResolveRoute(msg, routes) → first matching
+3. Sticky group — chat has sticky_group set → route there
+4. Route table  — router.ResolveRoute(msg, routes) → first matching
                   rule wins (catchall = empty match expression)
-4. Engagement   — on route miss (or #observe hit), resolveOrEngaged
-                  checks chat_reply_state.engaged_until; if active,
-                  routes to engaged_folder and fires a turn
 ```
 
 The inline `@name` / `#topic` prefix layer is handled separately in

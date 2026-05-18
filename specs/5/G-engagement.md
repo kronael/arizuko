@@ -85,6 +85,18 @@ no jid/topic in scope. Bumping there would require a JOIN-back to
 `gateway.go:981` calls it unconditionally (no actual send) — that
 would falsely engage a never-delivered row.
 
+**Reaction topic inheritance.** Reactions (`verb=like`, `verb=dislike`,
+emoji reactions) arrive with an empty `Topic` and a `ReplyTo` pointing
+at the reacted-to message. Before `PutMessage`, `api.go` looks up the
+parent via `store.MessageByID(req.ReplyTo)` and sets `req.Topic =
+parent.Topic` when `req.Topic == "" && req.ReplyTo != ""`. This ensures
+reactions to threaded messages carry the thread's topic, so they
+participate correctly in engagement and observe-override. Slack
+reactions also capture `thread_ts` from the event when present
+(`slakd/bot.go`), feeding the same inheritance path. Adapters that
+don't surface a thread ID produce an empty `ReplyTo`; topic remains
+empty and the reaction lands in the default (main) engagement scope.
+
 **Inbound mention write site.** Spec 5/L already collapses
 reply-to-bot to `verb=mention` BEFORE `PutMessage` at
 `api/api.go:237-240`. There is one verb to watch. The write fires
@@ -134,12 +146,11 @@ mention gate**. Routing is route-table-driven via
 `resolveGroup` returns `!ok` at `:535` and the loop drops with
 `"poll: no route for message"` (`:543`), advancing the cursor.
 
-Engagement is the **implicit-route fallback**. After the existing
-observe short-circuit (`:564`) and BEFORE the
-`router.ResolveRouteTarget` fallthrough that delivers to the
-resolved folder, the loop checks: was the prior bot reply in this
-`(jid, topic)` still inside its engagement window? If yes, deliver
-to that folder even if the route table wouldn't have.
+Engagement is the **full route override**. When `(jid, topic)` is
+engaged, the gateway delivers to the engaged folder and fires a turn
+regardless of what the route table resolves — including `#observe`
+targets and plain trigger routes pointing to a different folder. The
+`#observe` branch (`:564`) runs only when engagement is NOT active.
 
 Concretely, one helper used by both `pollOnce` and
 `processGroupMessages`:
@@ -148,18 +159,17 @@ Concretely, one helper used by both `pollOnce` and
 func (g *Gateway) resolveOrEngaged(chatJid string, last core.Message) (core.Group, bool)
 ```
 
-Falls through to engagement on `resolveGroup` miss: reads
-`IsEngaged + EngagedFolder` and returns the engaged group if any.
-Both poll sites (`pollOnce` and `processGroupMessages`) call this
-helper instead of `resolveGroup`. Without the shared helper,
-rescued-by-engagement inbounds drop on the worker path whenever the
-container isn't already running.
+Checks engagement FIRST: reads `IsEngaged + EngagedFolder` and returns
+the engaged group if active, bypassing the route table entirely. Falls
+through to normal route resolution only when idle. Both poll sites
+(`pollOnce` and `processGroupMessages`) call this helper. Without the
+shared helper, rescued-by-engagement inbounds drop on the worker path
+whenever the container isn't already running.
 
-Observe short-circuit is overridden by engagement. When a `(jid, topic)`
-pair is engaged, the gateway fires a turn even if the matched route has
-`target=#observe`. Rationale: once the bot has replied in a thread, the
-user expects a live conversation; silencing it mid-thread is worse than
-the operator's original intent to reduce noise on cold messages.
+Rationale: once the bot has replied in a thread, the user expects a
+live conversation. Silencing it mid-thread — whether via `#observe`,
+a route pointing elsewhere, or a route miss — is worse than the
+operator's original intent to reduce noise on cold messages.
 
 Mention and reply-to-bot already route via the existing path
 (route table + spec 5/L verb promotion). Engagement adds **no new
