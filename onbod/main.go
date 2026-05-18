@@ -754,7 +754,6 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 
 	// Spec 5/W: no slink redirect — the operator (or agent) issues a
 	// chat link on demand. Land on /onboard after invite redemption.
-	_ = target
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
@@ -933,43 +932,6 @@ func userFolders(db *sql.DB, sub string) []string {
 		}
 	}
 	return folders
-}
-
-type dashRoute struct {
-	ID     int64
-	Seq    int
-	Match  string
-	Target string
-}
-
-func userRoutes(db *sql.DB, folders []string) []dashRoute {
-	var rows *sql.Rows
-	var err error
-	if folders == nil {
-		rows, err = db.Query(
-			`SELECT id, seq, match, target FROM routes ORDER BY seq, id`)
-	} else {
-		args := make([]any, len(folders))
-		for i, f := range folders {
-			args[i] = f
-		}
-		ph := strings.Repeat("?,", len(folders))
-		rows, err = db.Query(
-			`SELECT id, seq, match, target FROM routes
-			 WHERE target IN (`+ph[:len(ph)-1]+`)
-			 ORDER BY seq, id`, args...)
-	}
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []dashRoute
-	for rows.Next() {
-		var r dashRoute
-		rows.Scan(&r.ID, &r.Seq, &r.Match, &r.Target)
-		out = append(out, r)
-	}
-	return out
 }
 
 func isOperator(folders []string) bool {

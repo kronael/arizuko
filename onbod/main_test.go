@@ -1229,31 +1229,6 @@ func TestAddRouteWrongTarget(t *testing.T) {
 
 // --- Expanded coverage: schema, permissions, XSS, operator, flow ---
 
-// userRoutes returns routes filtered by user's folders (or all if nil=operator bypass).
-func TestUserRoutesFilter(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'alice')`)
-	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=2', 'bob')`)
-	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=3', 'alice')`)
-
-	// Alice gets only her routes.
-	routes := userRoutes(db, []string{"alice"})
-	if len(routes) != 2 {
-		t.Errorf("want 2 routes for alice, got %d", len(routes))
-	}
-	for _, r := range routes {
-		if r.Target != "alice" {
-			t.Errorf("expected target=alice, got %q", r.Target)
-		}
-	}
-
-	// nil = bypass, returns all.
-	all := userRoutes(db, nil)
-	if len(all) != 3 {
-		t.Errorf("want 3 routes (all), got %d", len(all))
-	}
-}
-
 // renderDashboard must HTML-escape attacker-controlled username, sub, and jid.
 func TestDashboardXSSEscape(t *testing.T) {
 	db := testDB(t)
