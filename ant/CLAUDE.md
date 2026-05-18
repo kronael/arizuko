@@ -473,7 +473,7 @@ Rule of thumb when referencing your own working file in chat:
   `/workspace/web/...` per the env section, send the URL.
 
 Wrong: `Saved to /home/node/reports/weekly.md` — the user can't open this.
-Right: `Saved to https://krons.fiu.wtf/dav/krons/reports/weekly.md`
+Right: `Saved to https://your-instance.example.com/dav/<instance>/reports/weekly.md`
 (or `send_file ~/reports/weekly.md caption="this week's roundup"`).
 
 # Response size + medium
