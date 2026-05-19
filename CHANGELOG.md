@@ -14,73 +14,75 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-### Changed
-
-- Engagement overrides `#observe` route mode: a `(jid, topic)` with an active
-  engagement window fires a turn even when the route table targets an
-  `#observe`-mode folder. `resolveOrEngaged` now checks engagement before
-  applying the observe store-only path. Spec: `specs/5/G-engagement.md`.
-
 ---
 
 ## [v0.42.0] — 2026-05-19
 
 > arizuko v0.42.0 — dashboard overhaul + security hardening
 >
-> Five new dashd pages, three security fixes, and secrets now encrypted at rest. The operator dashboard is usable for day-to-day ops without touching .env or the DB.
+> Five new dashd pages, secrets encrypted at rest, and local chat sessions now go through the same grants checks as remote callers.
 >
 > • Invites page — issue/revoke onboarding links from /dash/invites/.
 > • Per-group model selector — pick Opus 4.7, Sonnet 4.6, or Haiku 4.5 per group.
 > • Skill enable/disable — toggle agent skills per group without editing files.
 > • Grants viewer — add/revoke ACL rows per group from /dash/groups/{folder}/grants.
-> • Workspace links — settings page links to /dav/{folder}/ for file editing (CLAUDE.md, PERSONA.md, MEMORY.md).
-> • Secrets encrypted AES-256-GCM; SECRETS_KEY separate from AUTH_SECRET. Plaintext rows rejected on startup.
+> • Workspace links — settings page links to /dav/{folder}/ for CLAUDE.md, PERSONA.md, MEMORY.md editing.
+> • Secrets encrypted AES-256-GCM; SECRETS_KEY separate from AUTH_SECRET.
+> • ARIZUKO_LOCAL_SUB — set a sub on local MCP sessions to enforce ACL rows.
+> • Slack typing indicators on regular channels and DMs via conversations.typing.
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ### Added
 
-- dashd invite management: `GET/POST /dash/invites/` + revoke. Lists pending
-  invites, creates new ones (admin-gated), revokes by token.
-- dashd per-group model selector: dropdown in settings writes `groups.model`;
-  container runner passes `ARIZUKO_MODEL` env var; ant reads it for `query()`.
-  Migration `0060-group-model.sql`.
-- dashd skill enable/disable: checkbox list in settings creates/removes
-  `.disabled` marker at `<group>/.claude/skills/<name>/.disabled`.
-- dashd grants viewer: `GET/POST /dash/groups/{folder}/grants` shows ACL rows
-  for the folder, add form (dropdown of all 27 actions), per-row revoke.
+- dashd invite management: `GET/POST /dash/invites/` + revoke.
+- dashd per-group model selector: dropdown writes `groups.model`; container
+  passes `ARIZUKO_MODEL` to ant. Migration `0060-group-model.sql`.
+- dashd skill enable/disable: checkbox creates/removes `.disabled` marker.
+- dashd grants viewer: `GET/POST /dash/groups/{folder}/grants`, add/revoke.
   `store.ListACLByScope` added.
-- dashd usage: groups list shows 7-day token cost and message count per group.
-- dashd workspace links: settings page "Agent files" section links to
-  `/dav/{folder}/CLAUDE.md`, `PERSONA.md`, `MEMORY.md`, and `workspace/`.
-  Memory page gets matching edit-in-workspace links.
-- `compose`: dufs starts with `--allow-edit` so the browser text editor is
-  active for all group files.
+- dashd usage: groups list shows 7-day token cost and message count.
+- dashd workspace links: settings + memory pages link to `/dav/{folder}/`.
+- `compose`: davd starts with `--allow-all` (dufs flag enabling upload,
+  delete, search, archive).
+- `ARIZUKO_LOCAL_SUB`: when set, local MCP sessions call `db.Authorize` for
+  every tool invocation. Empty = full operator access (unchanged).
+  `StoreFns.Authorize` wired in `gateway.go`. `container/runner.go` reads env.
+- `cli_audit` table (migration `0061-cli-audit.sql`): logs mutating CLI
+  commands (`group add/rm/grant`, `invite`, `secret`, `network`, `token`,
+  `identity`) with OS user and redacted args.
+- Slack `conversations.typing` for regular channels/DMs via `TypingRefresher`
+  (3s refresh). Requires `im:write` + `channels:write` bot scopes.
+- Tools browser: `ipc.ListTools` + `GET /v1/tools` + dashd
+  `/dash/groups/{folder}/tools` collapsible detail view.
+- `max_children` field in dashd group settings page.
 
 ### Fixed
 
-- `list_acl` MCP tool always returned "unknown tool" error — `policy.go` had
-  no `case "list_acl"`. Added: tier > 2 → unauthorized; tier 2 → own
-  subtree only.
-- `inject_message` tier gate was dead — `granted()` wrapper skipped
-  `AuthorizeStructural`. Fixed: structural check now runs before the grants
-  check.
-- `escalate_group` tier gate was dead — same pattern. Fixed.
-- Tier-2 web mount was the full world dir read-write; a tier-2 agent could
-  overwrite any sibling group's web content. Mount is now scoped to the
-  group's own subfolder.
-- Egress wildcard appended `"*"` for tier ≤ 2; tier-2 agents bypassed
-  crackbox allowlists. Guard now fires only for tier ≤ 1.
-- Purge failure on startup was logged and swallowed; instance continued with
-  retained plaintext secrets. Now `os.Exit(1)`.
+- `list_acl` MCP tool always returned "unknown tool" — added `case "list_acl"`
+  in `policy.go`.
+- `inject_message` and `escalate_group` tier gates were dead — structural
+  check now runs before the grants check.
+- Tier-2 web mount scoped to group's own subfolder (was full world dir).
+- Egress wildcard `"*"` now only for tier ≤ 1 (was ≤ 2).
+- Purge failure on startup now `os.Exit(1)` (was swallowed).
+- `FileProxyHandler` accidentally deleted in `05c84aa`; restored to
+  `chanlib/handler.go` (broke `slakd` and `discd` builds).
+- `list_routes` grant name mismatch fixed (was `get_routes`).
+- `set_observe_window` added to `policy.go` (was hitting default "unknown tool").
+- `HOST_APP_DIR` made mandatory — removed `execDir()` fallback that caused
+  recursive skill nesting when binary wasn't in app root.
 
 ### Changed
 
-- Secrets encryption: `SECRETS_KEY` env var is now the AES-256-GCM key
-  (independent of `AUTH_SECRET`). Falls back to `AUTH_SECRET` when
-  `SECRETS_KEY` is unset (existing deployments unaffected).
-- `set_group_open` tier gate: tier > 1 (was > 2) — tier-2 agents can no
-  longer mark sibling groups open.
+- Secrets encryption: `SECRETS_KEY` independent of `AUTH_SECRET`; falls back
+  when unset.
+- `set_group_open` tier gate: tier > 1 (was > 2).
+- Tier 2 now equals tier 1 scoped to own subtree (egress wildcard + web mount).
+- Engagement overrides `#observe` mode: active `(jid, topic)` engagement fires
+  a turn even when the route targets an `#observe` folder.
+- `ipc.ListTools` gains a `callerSub` parameter; `ListTools()` (tool browser)
+  passes empty string for zero-auth display.
 
 ---
 
