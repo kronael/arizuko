@@ -17,6 +17,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/theme"
 	_ "modernc.org/sqlite"
 )
@@ -510,23 +511,57 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var n int
+	var folders []string
 	for rows.Next() {
 		var folder string
 		if err := rows.Scan(&folder); err != nil {
 			slog.Warn("groups: scan row", "err", err)
-			fmt.Fprintf(w, `<div class="banner-err">scan error: %s</div>`,
-				esc(err.Error()))
 			continue
 		}
+		folders = append(folders, folder)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("groups: rows", "err", err)
+		fmt.Fprintf(w, `<div class="banner-err">rows error: %s</div>`, esc(err.Error()))
+		fmt.Fprint(w, pageBot)
+		return
+	}
+
+	// Bulk-fetch usage in one pass; fall through with empty map on error.
+	type usageKey struct{ tokens7d, cents7d, msgCount int; lastActive string }
+	usageMap := map[string]usageKey{}
+	if len(folders) > 0 {
+		s := store.New(d.db)
+		if summaries, err := s.GroupUsageBulk(folders); err != nil {
+			slog.Warn("groups: usage query", "err", err)
+		} else {
+			for _, u := range summaries {
+				usageMap[u.Folder] = usageKey{u.Tokens7d, u.Cents7d, u.MsgCount, u.LastActive}
+			}
+		}
+	}
+
+	for _, folder := range folders {
 		parent := groupfolder.ParentOf(folder)
 		label := ""
 		if parent == "" {
 			label = ` <span class="dim">(root)</span>`
 		}
-		fmt.Fprintf(w, `<details><summary><code>%s</code>%s</summary><div class="group-detail">`,
-			esc(folder),
-			label,
+		u := usageMap[folder]
+		usageParts := fmt.Sprintf(`%d msgs`, u.msgCount)
+		if u.tokens7d > 0 {
+			usageParts += fmt.Sprintf(` &middot; %dk tok / 7d`, u.tokens7d/1000)
+		}
+		if u.cents7d > 0 {
+			usageParts += fmt.Sprintf(` &middot; $%.2f / 7d`, float64(u.cents7d)/100)
+		}
+		if u.lastActive != "" {
+			usageParts += ` &middot; last ` + esc(u.lastActive[:10])
+		}
+		fmt.Fprintf(w,
+			`<details><summary><code>%s</code>%s <span class="dim">(%s)</span></summary>`+
+				`<div class="group-detail">`,
+			esc(folder), label, usageParts,
 		)
 		parentDisp := parent
 		if parentDisp == "" {
@@ -538,13 +573,8 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		)
 		d.writeGroupRoutes(w, folder)
 		fmt.Fprint(w, `</div></details>`)
-		n++
 	}
-	if err := rows.Err(); err != nil {
-		slog.Warn("groups: rows", "err", err)
-		fmt.Fprintf(w, `<div class="banner-err">rows error: %s</div>`,
-			esc(err.Error()))
-	} else if n == 0 {
+	if len(folders) == 0 {
 		fmt.Fprint(w, `<p class="empty">No groups configured. `+
 			`Run <code>arizuko invite</code> to onboard a user.</p>`)
 	}
