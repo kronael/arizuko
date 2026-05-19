@@ -88,7 +88,7 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 			return fmt.Errorf("unauthorized: target outside own subtree")
 		}
 		return nil
-	case "get_grants", "set_grants":
+	case "get_grants", "set_grants", "list_acl":
 		if id.Tier > 1 {
 			return fmt.Errorf("unauthorized: tier %d cannot manage grants", id.Tier)
 		}

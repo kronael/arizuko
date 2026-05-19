@@ -351,7 +351,7 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("group settings saved", "folder", folder)
-	http.Redirect(w, r, "/dash/groups/"+folder+"/settings", http.StatusSeeOther)
+	http.Redirect(w, r, "/dash/groups/"+folderPath(folder)+"/settings", http.StatusSeeOther)
 }
 
 // DELETE /dash/groups/{folder} (or POST .../delete from the form).

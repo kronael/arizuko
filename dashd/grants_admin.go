@@ -31,7 +31,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
 	}
-	if _, ok := requireUser(w, r); !ok {
+	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -140,6 +140,12 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 	if scope == "" {
 		scope = folder
 	}
+	// Prevent scope widening: the submitted scope must be the folder itself
+	// or a descendant. Without this, an admin on "alice" could insert a "**" row.
+	if scope != folder && !strings.HasPrefix(scope, folder+"/") {
+		http.Error(w, "scope must be within folder", http.StatusBadRequest)
+		return
+	}
 	s := store.New(d.dbRW)
 	row := core.ACLRow{
 		Principal: principal,
@@ -155,7 +161,7 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("grant added", "folder", folder, "principal", principal, "action", action, "sub", sub)
-	http.Redirect(w, r, "/dash/groups/"+folder+"/grants", http.StatusSeeOther)
+	http.Redirect(w, r, "/dash/groups/"+folderPath(folder)+"/grants", http.StatusSeeOther)
 }
 
 // POST /dash/groups/{folder}/grants/revoke — delete one ACL row.
@@ -200,5 +206,5 @@ func (d *dash) handleGroupGrantRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("grant revoked", "folder", folder, "principal", principal, "action", action, "sub", sub)
-	http.Redirect(w, r, "/dash/groups/"+folder+"/grants", http.StatusSeeOther)
+	http.Redirect(w, r, "/dash/groups/"+folderPath(folder)+"/grants", http.StatusSeeOther)
 }
