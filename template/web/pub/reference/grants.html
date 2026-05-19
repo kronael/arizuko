@@ -128,14 +128,14 @@ list_tasks, pause_task, resume_task, cancel_task</code></pre>
       <tr><td><code>list_tasks</code></td><td>any</td><td>none</td></tr>
       <tr><td><code>send, send_file, reply, post, like, dislike, delete, edit, forward, quote, repost</code></td><td>any</td><td>target JID's owning folder must equal <code>id.Folder</code> or be a descendant</td></tr>
       <tr><td><code>reset_session</code></td><td>any</td><td>target folder must equal own or descendant</td></tr>
-      <tr><td><code>inject_message</code></td><td>tier &le; 2</td><td>tier 2 &rArr; target must be own folder or descendant</td></tr>
-      <tr><td><code>register_group</code></td><td>tier &le; 2</td><td>tier 0 &rArr; target must contain "/" (worlds are CLI-only); tier 1 &rArr; child must be direct child of own folder; tier 2 &rArr; direct child only</td></tr>
+      <tr><td><code>inject_message</code></td><td>tier &le; 1</td><td>&mdash;</td></tr>
+      <tr><td><code>register_group</code></td><td>tier &lt; 2</td><td>tier 0 &rArr; target must contain "/" (worlds are CLI-only); tier 1 &rArr; child must be direct child of own folder</td></tr>
       <tr><td><code>escalate_group</code></td><td>tier &ge; 2</td><td>&mdash;</td></tr>
       <tr><td><code>delegate_group</code></td><td>tier &ne; 3</td><td>target must be strictly inside <code>id.Folder</code></td></tr>
-      <tr><td><code>get_routes, set_routes, add_route, delete_route</code></td><td>tier &le; 2</td><td>tier 1 &rArr; route target inside own folder; tier 2 &rArr; subtree restriction</td></tr>
+      <tr><td><code>get_routes, set_routes, add_route, delete_route</code></td><td>tier &lt; 2</td><td>tier 1 &rArr; route target inside own folder</td></tr>
       <tr><td><code>schedule_task, pause_task, resume_task, cancel_task</code></td><td>tier &ne; 3</td><td>tier 2 &rArr; task owner == own folder; tier 1 &rArr; task owner in same world</td></tr>
-      <tr><td><code>list_acl</code></td><td>tier &le; 2</td><td>tier 1 &rArr; target in same world; tier 2 &rArr; own subtree only</td></tr>
-      <tr><td><code>invite_create</code></td><td>tier &le; 2</td><td>tier 1 &rArr; target in same world; tier 2 &rArr; own subtree only</td></tr>
+      <tr><td><code>list_acl</code></td><td>tier &le; 2</td><td>tier 2 &rArr; own subtree only; tier &gt; 2 &rArr; unauthorized</td></tr>
+      <tr><td><code>invite_create</code></td><td>tier &lt; 2</td><td>tier 1 &rArr; target in same world</td></tr>
     </table>
 
     <h2>7. The operator role</h2>
@@ -161,9 +161,8 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
 2. Rules     = grants.DeriveRules(store, F, id.Tier, id.World)
                &rarr; tier-default list including routed-platform rules
 
-3. Env       = host ANTHROPIC_API_KEY + CLAUDE_CODE_OAUTH_TOKEN (current behavior)
-               &rarr; planned (spec 6/Y): base &cup; FolderSecretsResolved(F)
-                  &cup; UserSecrets(UserSubByJID(J))   (single-user chats only)</code></pre>
+3. Env       = base &cup; FolderSecrets(F)      (deepest-wins hierarchy)
+                    &cup; UserSecrets(UserSubByJID(J))   (single-user chats only)</code></pre>
 
     <p>Per-folder MCP overrides live in <code>acl</code> as <code>(principal=folder:&lt;F&gt;, action=mcp:&lt;tool&gt;, scope=&lt;F&gt;, params, effect)</code> rows. The in-container MCP server consults them at registration (<code>grants.MatchingRules</code> &mdash; tools with no match are dropped from <code>tools/list</code>) and at invocation (<code>grants.CheckAction</code> &mdash; synthesized calls still get refused).</p>
 
@@ -174,7 +173,7 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
       <li><strong>Deny wins.</strong> Any matching <code>effect='deny'</code> row rejects, even if matching <code>allow</code> rows exist. Prefer deleting allow rows or membership edges over inserting denies; denies are for true exceptions (banning one user from an otherwise-open channel).</li>
       <li><strong>No silent inheritance of routes.</strong> Each folder derives its own rules. Tier-1 worlds see all platforms routed anywhere under themselves; tier-2+ groups see only platforms routed at their own subtree.</li>
       <li><strong>Outbound subtree containment is independent of acl.</strong> Even a tier-0 root cannot direct-send cross-world via outbound verbs; cross-world traffic goes through <code>escalate_group</code> / <code>delegate_group</code>, each gated by <code>AuthorizeStructural</code>.</li>
-      <li><strong>Secrets ride the same hierarchy but resolve independently.</strong> Folder ancestors walk root&rarr;F deepest-wins; user overlay applies only when <code>chats.is_group=0</code>. v1: prefix = AES-256-GCM encrypted value (key = SHA-256 of <code>AUTH_SECRET</code>).</li>
+      <li><strong>Secrets ride the same hierarchy but resolve independently.</strong> Folder ancestors walk root&rarr;F deepest-wins; user overlay applies only when <code>chats.is_group=0</code>. Values are AES-256-GCM encrypted at rest.</li>
     </ul>
 
     <h2>10. Go deeper</h2>
