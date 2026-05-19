@@ -272,6 +272,23 @@ func (s *Store) SetGroupModel(folder, model string) error {
 	return err
 }
 
+// SetGroupMaxChildren updates only MaxChildren inside container_config JSON.
+// -1 = unlimited, 0 = disabled, N = cap.
+func (s *Store) SetGroupMaxChildren(folder string, maxChildren int) error {
+	var raw sql.NullString
+	if err := s.db.QueryRow(`SELECT container_config FROM groups WHERE folder = ?`, folder).Scan(&raw); err != nil {
+		return err
+	}
+	var cfg core.GroupConfig
+	if raw.Valid && raw.String != "" {
+		json.Unmarshal([]byte(raw.String), &cfg)
+	}
+	cfg.MaxChildren = maxChildren
+	b, _ := json.Marshal(cfg)
+	_, err := s.db.Exec(`UPDATE groups SET container_config = ? WHERE folder = ?`, string(b), folder)
+	return err
+}
+
 // SetGroupObserveWindow writes per-group caps; pass -1 to clear (the
 // gateway then falls back to the env default for that field).
 func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {

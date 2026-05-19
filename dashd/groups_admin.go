@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -205,11 +206,16 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var product, groupModel string
-	err := d.dbRW.QueryRow(`SELECT product, COALESCE(model,'') FROM groups WHERE folder = ?`, folder).Scan(&product, &groupModel)
+	var cfgJSON *string
+	err := d.dbRW.QueryRow(`SELECT product, COALESCE(model,''), container_config FROM groups WHERE folder = ?`, folder).Scan(&product, &groupModel, &cfgJSON)
 	if err != nil {
 		fmt.Fprintf(w, `<div class="banner-err">group not found: %s</div>`, esc(err.Error()))
 		fmt.Fprint(w, pageBot)
 		return
+	}
+	var groupCfg core.GroupConfig
+	if cfgJSON != nil {
+		_ = json.Unmarshal([]byte(*cfgJSON), &groupCfg)
 	}
 
 	s := store.New(d.dbRW)
@@ -250,7 +256,8 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 <p><label><input type="checkbox" name="open" value="1"%s> open (allow cross-folder ambient observation)</label></p>
 <p><label>observe_window_messages <input type="number" name="observe_window_messages" value="%d" min="0"></label></p>
 <p><label>observe_window_chars <input type="number" name="observe_window_chars" value="%d" min="0"></label></p>
-`, openChecked, owMsgs, owChars)
+<p><label>max_children <input type="number" name="max_children" value="%d" min="-1"> <span class="dim">0 = disabled, -1 = unlimited</span></label></p>
+`, openChecked, owMsgs, owChars, groupCfg.MaxChildren)
 
 	fmt.Fprintf(w, `<h2>Agent files</h2>`+
 		`<p class="dim">Edit in the workspace browser — dufs opens text files in its built-in editor.</p>`+
@@ -302,6 +309,7 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	open := r.FormValue("open") == "1"
 	owMsgs, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("observe_window_messages")))
 	owChars, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("observe_window_chars")))
+	maxChildren, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("max_children")))
 	model := r.FormValue("model")
 	s := store.New(d.dbRW)
 	if err := s.SetGroupOpen(folder, open); err != nil {
@@ -318,6 +326,13 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("group settings save: model", "folder", folder, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
+	}
+	if r.Form.Has("max_children") {
+		if err := s.SetGroupMaxChildren(folder, maxChildren); err != nil {
+			slog.Warn("group settings save: max_children", "folder", folder, "err", err)
+			http.Error(w, "write failed", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Skills: checked values are enabled; unchecked skills (all stock minus checked) get .disabled.
