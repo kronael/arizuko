@@ -19,6 +19,7 @@ import (
 
 func TestMain(m *testing.M) {
 	os.Setenv("ARIZUKO_DEV", "true")
+	os.Setenv("HOST_APP_DIR", "/tmp/test-app")
 	os.Exit(m.Run())
 }
 
