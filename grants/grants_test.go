@@ -378,7 +378,7 @@ func TestDeriveRules_Tier1(t *testing.T) {
 		if r == "schedule_task" {
 			hasMgmt = true
 		}
-		if r == "get_routes" {
+		if r == "list_routes" {
 			hasGetRoutes = true
 		}
 		if r == "list_tasks" {

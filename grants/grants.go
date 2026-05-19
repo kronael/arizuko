@@ -153,8 +153,11 @@ var platformActions = []string{
 
 var tier1FixedActions = []string{
 	"schedule_task", "register_group", "escalate_group", "delegate_group",
-	"get_routes", "set_routes", "add_route", "delete_route",
+	"list_routes", "set_routes", "add_route", "delete_route",
 	"list_tasks", "pause_task", "resume_task", "cancel_task",
+	"set_group_open", "set_observe_window",
+	"reset_session", "fork_topic",
+	"inject_message", "invite_create",
 }
 
 func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []string {

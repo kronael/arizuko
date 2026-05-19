@@ -25,21 +25,16 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 	case "reset_session", "fork_topic":
 		if target.TargetFolder != id.Folder &&
 			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
-			return fmt.Errorf("unauthorized: can only act on own or descendant folders")
+			return fmt.Errorf("unauthorized: can only %s own or descendant folders", "act on")
 		}
 		return nil
 	case "inject_message":
-		if id.Tier > 2 {
+		if id.Tier > 1 {
 			return fmt.Errorf("unauthorized: tier %d cannot inject messages", id.Tier)
-		}
-		if id.Tier == 2 &&
-			target.TargetFolder != id.Folder &&
-			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
-			return fmt.Errorf("unauthorized: tier 2 can only inject into own subtree")
 		}
 		return nil
 	case "register_group":
-		if id.Tier >= 3 {
+		if id.Tier >= 2 {
 			return fmt.Errorf("unauthorized: tier %d cannot register groups", id.Tier)
 		}
 		if id.Tier == 0 && !strings.Contains(target.TargetFolder, "/") {
@@ -48,9 +43,6 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 		if id.Tier == 1 && !IsDirectChild(id.Folder, target.TargetFolder) {
 			return fmt.Errorf("unauthorized: can only create children in own world")
 		}
-		if id.Tier == 2 && !IsDirectChild(id.Folder, target.TargetFolder) {
-			return fmt.Errorf("unauthorized: can only create direct children of own folder")
-		}
 		return nil
 	case "escalate_group":
 		if id.Tier < 2 {
@@ -58,8 +50,8 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 		}
 		return nil
 	case "delegate_group":
-		if id.Tier >= 3 {
-			return fmt.Errorf("unauthorized: tier %d cannot delegate", id.Tier)
+		if id.Tier == 3 {
+			return fmt.Errorf("unauthorized: tier 3 cannot delegate")
 		}
 		if !strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
 			return fmt.Errorf("unauthorized: %s cannot delegate to %s",
@@ -67,13 +59,8 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 		}
 		return nil
 	case "get_routes", "set_routes", "add_route", "delete_route":
-		if id.Tier >= 3 {
+		if id.Tier >= 2 {
 			return fmt.Errorf("unauthorized: tier %d cannot manage routes", id.Tier)
-		}
-		if id.Tier == 2 && target.RouteTarget != "" &&
-			target.RouteTarget != id.Folder &&
-			!strings.HasPrefix(target.RouteTarget, id.Folder+"/") {
-			return fmt.Errorf("unauthorized")
 		}
 		if id.Tier == 1 && target.RouteTarget != "" &&
 			!strings.HasPrefix(target.RouteTarget, id.Folder+"/") {
@@ -91,7 +78,7 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 			return fmt.Errorf("unauthorized")
 		}
 		return nil
-	case "set_group_open":
+	case "set_group_open", "set_observe_window":
 		if id.Tier > 1 {
 			return fmt.Errorf("unauthorized: tier %d cannot edit group config", id.Tier)
 		}
@@ -101,37 +88,17 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 			return fmt.Errorf("unauthorized: target outside own subtree")
 		}
 		return nil
-	case "list_acl":
-		if id.Tier > 2 {
-			return fmt.Errorf("unauthorized: tier %d cannot list acl", id.Tier)
-		}
-		if id.Tier == 2 &&
-			target.TargetFolder != id.Folder &&
-			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
-			return fmt.Errorf("unauthorized: can only list acl in own subtree")
-		}
-		return nil
 	case "get_grants", "set_grants":
-		if id.Tier > 2 {
+		if id.Tier > 1 {
 			return fmt.Errorf("unauthorized: tier %d cannot manage grants", id.Tier)
-		}
-		if id.Tier == 2 &&
-			target.TargetFolder != id.Folder &&
-			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
-			return fmt.Errorf("unauthorized: can only manage grants in own subtree")
 		}
 		if id.Tier == 1 && !isInWorld(id.Folder, target.TargetFolder) {
 			return fmt.Errorf("unauthorized: can only manage grants in own world")
 		}
 		return nil
 	case "invite_create":
-		if id.Tier >= 3 {
+		if id.Tier >= 2 {
 			return fmt.Errorf("unauthorized: tier %d cannot issue invites", id.Tier)
-		}
-		if id.Tier == 2 &&
-			target.TargetFolder != id.Folder &&
-			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
-			return fmt.Errorf("unauthorized: target outside own subtree")
 		}
 		if id.Tier == 1 && !isInWorld(id.Folder, target.TargetFolder) {
 			return fmt.Errorf("unauthorized: target outside own world")
