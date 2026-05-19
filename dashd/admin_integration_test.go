@@ -113,52 +113,6 @@ func TestDash_RouteCreate_DenyNonAdmin(t *testing.T) {
 	}
 }
 
-// TestDash_GroupSettingsInstructions: POST saves instructions to CLAUDE.md.
-func TestDash_GroupSettingsInstructions(t *testing.T) {
-	srv, inst, groupsDir := newRWDashServer(t)
-	s := inst.Store
-	if err := s.AddACLRow(core.ACLRow{
-		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	folder := "instgrp"
-	if err := s.PutGroup(core.Group{Folder: folder, AddedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	groupDir := filepath.Join(groupsDir, folder)
-	if err := os.MkdirAll(groupDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	want := "# System prompt\n\nThis agent handles support tickets."
-	form := url.Values{
-		"open":                    {"0"},
-		"observe_window_messages": {"0"},
-		"observe_window_chars":    {"0"},
-		"instructions":            {want},
-	}
-	req, _ := http.NewRequest("POST", srv.URL+"/dash/groups/"+folder+"/settings",
-		strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("X-User-Sub", "alice@x")
-	resp, err := noFollow().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("POST status = %d", resp.StatusCode)
-	}
-
-	got, err := os.ReadFile(filepath.Join(groupDir, "CLAUDE.md"))
-	if err != nil {
-		t.Fatalf("CLAUDE.md not written: %v", err)
-	}
-	if string(got) != want {
-		t.Errorf("CLAUDE.md = %q, want %q", string(got), want)
-	}
-}
 
 // TestDash_GroupDelete: admin deletes a group via POST-alias.
 func TestDash_GroupDelete(t *testing.T) {

@@ -833,6 +833,13 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 		return
 	}
 
+	fmt.Fprintf(w, `<p class="dim">Edit in workspace: `+
+		`<a href="/dav/%s/MEMORY.md" target="_blank">MEMORY.md</a> &middot; `+
+		`<a href="/dav/%s/PERSONA.md" target="_blank">PERSONA.md</a> &middot; `+
+		`<a href="/dav/%s/CLAUDE.md" target="_blank">CLAUDE.md</a> &middot; `+
+		`<a href="/dav/%s/" target="_blank">workspace/</a></p>`,
+		esc(folder), esc(folder), esc(folder), esc(folder))
+
 	fmt.Fprint(w, `<h2>MEMORY.md</h2>`)
 	renderCappedFile(w, groupDir, "MEMORY.md", true)
 

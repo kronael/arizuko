@@ -252,18 +252,14 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 <p><label>observe_window_chars <input type="number" name="observe_window_chars" value="%d" min="0"></label></p>
 `, openChecked, owMsgs, owChars)
 
-	// Instructions (CLAUDE.md at group root)
-	claudePath := filepath.Join(d.groupsDir, filepath.Clean(folder), "CLAUDE.md")
-	claudeContent := ""
-	if data, _, err := readCapped(claudePath); err == nil {
-		claudeContent = string(data)
-	}
-	const maxInstructions = 32 * 1024
-	fmt.Fprintf(w, `<h2>Instructions</h2>`+
-		`<p class="dim">This is the agent's CLAUDE.md — its operating instructions. `+
-		`Edit carefully; the agent reads this at the start of every container.</p>`+
-		`<textarea name="instructions" rows="12" style="width:100%%;max-width:720px;font-family:monospace" maxlength="%d">%s</textarea>`,
-		maxInstructions, esc(claudeContent))
+	fmt.Fprintf(w, `<h2>Agent files</h2>`+
+		`<p class="dim">Edit in the workspace browser — dufs opens text files in its built-in editor.</p>`+
+		`<ul>`+
+		`<li><a href="/dav/%s/CLAUDE.md" target="_blank">CLAUDE.md</a> — instructions the agent reads on every container start</li>`+
+		`<li><a href="/dav/%s/PERSONA.md" target="_blank">PERSONA.md</a> — name, tone, role</li>`+
+		`<li><a href="/dav/%s/MEMORY.md" target="_blank">MEMORY.md</a> — persistent cross-session notes</li>`+
+		`<li><a href="/dav/%s/" target="_blank">workspace/</a> — browse all group files</li>`+
+		`</ul>`, esc(folder), esc(folder), esc(folder), esc(folder))
 
 	if len(skills) > 0 {
 		fmt.Fprint(w, `<h2>Skills</h2><p class="dim">Unchecked skills are disabled on next agent run.</p><ul style="list-style:none;padding:0">`)
@@ -336,29 +332,6 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		if err := d.setSkillDisabled(folder, name, disable); err != nil {
 			slog.Warn("group settings save: skill", "folder", folder, "skill", name, "err", err)
 		}
-	}
-
-	// Instructions (CLAUDE.md): write only when the field is present in the form.
-	if r.Form.Has("instructions") {
-		body := []byte(r.FormValue("instructions"))
-		if len(body) > 32*1024 {
-			http.Error(w, "instructions too large (max 32KB)", http.StatusRequestEntityTooLarge)
-			return
-		}
-		claudePath := filepath.Join(d.groupsDir, filepath.Clean(folder), "CLAUDE.md")
-		tmp := claudePath + ".tmp"
-		if err := os.WriteFile(tmp, body, 0o644); err != nil {
-			slog.Warn("group settings save: instructions tmp", "folder", folder, "err", err)
-			http.Error(w, "write failed", http.StatusInternalServerError)
-			return
-		}
-		if err := os.Rename(tmp, claudePath); err != nil {
-			os.Remove(tmp)
-			slog.Warn("group settings save: instructions rename", "folder", folder, "err", err)
-			http.Error(w, "write failed", http.StatusInternalServerError)
-			return
-		}
-		slog.Info("group instructions saved", "folder", folder, "bytes", len(body))
 	}
 
 	slog.Info("group settings saved", "folder", folder)
