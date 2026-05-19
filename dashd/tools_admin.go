@@ -54,5 +54,5 @@ func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 			esc(t.Name), esc(desc), esc(string(schemaJSON)))
 	}
 
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }

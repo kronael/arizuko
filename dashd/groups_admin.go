@@ -41,7 +41,7 @@ func (d *dash) handleGroupNewForm(w http.ResponseWriter, r *http.Request) {
 <p><button type="submit">create</button></p>
 </form>
 <p class="dim">The folder skeleton (skills, settings, default tasks) is seeded via <code>container.SetupGroup</code>; admin is granted to the creator.</p>`)
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 // POST /dash/groups/new — actually create.
@@ -202,7 +202,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 
 	if d.dbRW == nil {
 		fmt.Fprint(w, `<div class="banner-err">store unavailable</div>`)
-		fmt.Fprint(w, pageBot)
+		pageClose(w, r)
 		return
 	}
 	var product, groupModel string
@@ -210,7 +210,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	err := d.dbRW.QueryRow(`SELECT product, COALESCE(model,''), container_config FROM groups WHERE folder = ?`, folder).Scan(&product, &groupModel, &cfgJSON)
 	if err != nil {
 		fmt.Fprintf(w, `<div class="banner-err">group not found: %s</div>`, esc(err.Error()))
-		fmt.Fprint(w, pageBot)
+		pageClose(w, r)
 		return
 	}
 	var groupCfg core.GroupConfig
@@ -291,7 +291,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 <button type="submit" style="color:#b00">delete group</button>
 </form>`, folderPath(folder), esc(folder))
 
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {

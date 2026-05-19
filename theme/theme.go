@@ -306,6 +306,16 @@ nav a:hover { color: var(--accent); }
   .page-wide { padding: 1rem .8rem; }
   .card { padding: 1rem; }
 }
+
+/* --- htmx indicators --- */
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator { display: inline; }
+#global-spinner.htmx-indicator { display: none; }
+.htmx-request#global-spinner { display: block; }
+
+/* --- Form rows --- */
+.form-row { margin: 0.5em 0; }
+.form-row label { display: flex; align-items: baseline; gap: 0.5em; }
 `
 
 // ThemeScript initializes the theme from localStorage or system preference.

@@ -33,7 +33,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 
 	if d.dbRW == nil {
 		fmt.Fprint(w, `<div class="banner-err">routes store unavailable</div>`)
-		fmt.Fprint(w, pageBot)
+		pageClose(w, r)
 		return
 	}
 
@@ -45,7 +45,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("routes: query", "err", err)
 		fmt.Fprintf(w, `<div class="banner-err">routes query error: %s</div>`, esc(err.Error()))
-		fmt.Fprint(w, pageBot)
+		pageClose(w, r)
 		return
 	}
 	defer rows.Close()
@@ -89,7 +89,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 <p class="dim">Match syntax: <code>room=&lt;jid-room&gt;</code> exact, or <code>verb=mention</code> filter. Target <code>folder</code> trigger, <code>folder#observe</code> silent ingest, <code>folder#&lt;topic&gt;</code> topic pin.</p>`)
 
 	// Delete uses POST /dash/routes/{id}/delete — register the alias here.
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 // routeFromForm parses seq/match/target from form-encoded body. JSON body

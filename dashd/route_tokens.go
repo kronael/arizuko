@@ -32,7 +32,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		if d.dbRW == nil {
 			fmt.Fprint(w, `<div class="banner-err">read-only mode</div>`)
-			fmt.Fprint(w, pageBot)
+			pageClose(w, r)
 			return
 		}
 		if _, ok := d.requireAdmin(w, r, folder); !ok {
@@ -97,7 +97,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
   <button type="submit" class="btn btn-primary">Issue</button>
 </form>`, esc(folder))
 
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {

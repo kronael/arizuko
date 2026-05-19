@@ -43,7 +43,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 
 	if d.dbRW == nil {
 		fmt.Fprint(w, `<div class="banner-err">store unavailable</div>`)
-		fmt.Fprint(w, pageBot)
+		pageClose(w, r)
 		return
 	}
 
@@ -107,7 +107,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 <p><button type="submit">add grant</button></p>
 </form>`, esc(folder))
 
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 // POST /dash/groups/{folder}/grants — insert one ACL row.

@@ -225,7 +225,7 @@ var navLinks = []struct{ Href, Label string }{
 // home link only.
 func dashNavFor(urlPath string) string {
 	var b strings.Builder
-	b.WriteString(`<nav>`)
+	b.WriteString(`<nav hx-boost="true" hx-target="#content" hx-swap="innerHTML" hx-indicator="#global-spinner">`)
 	for _, l := range navLinks {
 		active := false
 		if l.Href == "/dash/" {
@@ -240,6 +240,7 @@ func dashNavFor(urlPath string) string {
 		}
 	}
 	b.WriteString(`</nav><button class="theme-toggle"></button>`)
+	b.WriteString(`<div id="global-spinner" class="htmx-indicator dim" style="position:fixed;top:8px;right:12px;font-size:0.85em">loading…</div>`)
 	return b.String()
 }
 
@@ -315,12 +316,16 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// pageTopFor renders the page shell with a path-aware
-// nav (active-link aria-current). Pass r.URL.Path. Optional crumbs
-// render as a breadcrumb line above the h1.
+// pageTopFor renders the page shell (or htmx partial) with path-aware nav.
+// Full load: DOCTYPE→nav→spinner→<div id="content">→crumbs→h1
+// htmx swap: <div id="content">→crumbs→h1
 func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...struct{ Href, Label string }) {
-	fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s`,
-		dashHead(title), dashNavFor(r.URL.Path))
+	if isHtmx(r) {
+		fmt.Fprint(w, `<div id="content">`)
+	} else {
+		fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s<div id="content">`,
+			dashHead(title), dashNavFor(r.URL.Path))
+	}
 	if len(crumbs) > 0 {
 		var b strings.Builder
 		b.WriteString(`<p class="crumbs">`)
@@ -340,7 +345,14 @@ func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...
 	fmt.Fprintf(w, `<h1>%s</h1>`, esc(title))
 }
 
-const pageBot = `</div></body></html>`
+// pageClose closes the #content div (htmx) or the full shell (full load).
+func pageClose(w http.ResponseWriter, r *http.Request) {
+	if isHtmx(r) {
+		fmt.Fprint(w, `</div>`)
+	} else {
+		fmt.Fprint(w, `</div></div></body></html>`)
+	}
+}
 
 func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -404,7 +416,7 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 			esc(err.Error()))
 	}
 
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
@@ -416,7 +428,7 @@ func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
 <tbody>`)
 	d.writeTaskRows(w)
 	fmt.Fprint(w, `</tbody></table>`)
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
@@ -480,7 +492,7 @@ func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 <tbody>`)
 	d.writeActivityRows(w)
 	fmt.Fprint(w, `</tbody></table>`)
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
@@ -539,7 +551,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("groups: query", "err", err)
 		fmt.Fprintf(w, `<div class="banner-err">error: %s</div>`, esc(err.Error()))
-		fmt.Fprint(w, pageBot)
+		pageClose(w, r)
 		return
 	}
 	defer rows.Close()
@@ -556,7 +568,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	if err := rows.Err(); err != nil {
 		slog.Warn("groups: rows", "err", err)
 		fmt.Fprintf(w, `<div class="banner-err">rows error: %s</div>`, esc(err.Error()))
-		fmt.Fprint(w, pageBot)
+		pageClose(w, r)
 		return
 	}
 
@@ -615,7 +627,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<p class="empty">No groups configured. `+
 			`Run <code>arizuko invite</code> to onboard a user.</p>`)
 	}
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
@@ -836,7 +848,7 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<p class="empty">Select a group above to view its memory.</p>`)
 	}
 
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {

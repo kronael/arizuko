@@ -25,7 +25,7 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "Profile")
 	if sub == "" {
 		fmt.Fprint(w, `<div class="banner-err">no identity — sign in via proxyd to view your profile</div>`)
-		fmt.Fprint(w, pageBot)
+		pageClose(w, r)
 		return
 	}
 
@@ -70,7 +70,7 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<p class="empty">All known providers already linked.</p>`)
 	}
 
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 func (d *dash) linkedSubs(canonical string) ([]string, error) {

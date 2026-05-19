@@ -25,7 +25,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 
 	if d.dbRW == nil {
 		fmt.Fprint(w, `<div class="banner-err">invites store unavailable</div>`)
-		fmt.Fprint(w, pageBot)
+		pageClose(w, r)
 		return
 	}
 
@@ -34,7 +34,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("invites: list", "err", err)
 		fmt.Fprintf(w, `<div class="banner-err">invites query error: %s</div>`, esc(err.Error()))
-		fmt.Fprint(w, pageBot)
+		pageClose(w, r)
 		return
 	}
 
@@ -82,7 +82,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 </form>
 <p class="dim">Target <code>folder</code> grants direct access; <code>folder/</code> lets the user pick a username under that folder.</p>`)
 
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 func (d *dash) handleInviteCreate(w http.ResponseWriter, r *http.Request) {

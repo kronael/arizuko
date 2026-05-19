@@ -85,7 +85,7 @@ func (d *dash) handleWhatsappPair(w http.ResponseWriter, r *http.Request) {
   setInterval(refresh, 2000);
 })();
 </script>`, esc(phone))
-	fmt.Fprint(w, pageBot)
+	pageClose(w, r)
 }
 
 // GET /dash/channels/whatsapp/pair/status — JSON pass-through.
