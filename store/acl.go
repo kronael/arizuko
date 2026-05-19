@@ -150,6 +150,25 @@ func (s *Store) ListACL(principal string) []core.ACLRow {
 	return out
 }
 
+// ListACLByScope returns rows whose scope exactly matches the given folder,
+// ordered by principal then action. Used by dashd grants viewer.
+func (s *Store) ListACLByScope(scope string) []core.ACLRow {
+	rows, err := s.db.Query(
+		`SELECT `+aclCols+` FROM acl WHERE scope = ? ORDER BY principal, action`, scope)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []core.ACLRow
+	for rows.Next() {
+		r, err := scanACLRow(rows)
+		if err == nil {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // ACLWildcardRows returns rows whose stored principal contains a glob
 // segment (`*`). Evaluated by Authorize as a second pass against the
 // expanded principal set.

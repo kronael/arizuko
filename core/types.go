@@ -48,6 +48,7 @@ type Group struct {
 	AddedAt time.Time
 	Config  GroupConfig
 	Product string
+	Model   string // override model ID; empty = instance default
 }
 
 type GroupConfig struct {

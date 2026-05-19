@@ -90,6 +90,7 @@ type Input struct {
 	GroupPath   string           `json:"-"`
 	Name        string           `json:"-"`
 	Config      core.GroupConfig `json:"-"`
+	Model       string           `json:"-"` // per-group model override; empty = instance default
 	Annotations []string         `json:"-"`
 	GatedFns    ipc.GatedFns     `json:"-"`
 	StoreFns    ipc.StoreFns     `json:"-"`
@@ -672,6 +673,11 @@ func seedSettings(
 	env["ARIZUKO_GROUP_PARENT"] = groupfolder.ParentOf(in.Folder)
 	env["ARIZUKO_WORLD"] = worldOf(in.Folder, root)
 	env["ARIZUKO_TIER"] = strconv.Itoa(tier)
+	if in.Model != "" {
+		env["ARIZUKO_MODEL"] = in.Model
+	} else {
+		delete(env, "ARIZUKO_MODEL")
+	}
 	if in.Channel != "" {
 		if name := pickOutputStyle(in.Channel, in.ChatJID, in.Topic, in.PaneLookup); name != "" {
 			settings["outputStyle"] = name

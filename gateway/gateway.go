@@ -1200,6 +1200,7 @@ func (g *Gateway) runAgentWithOpts(
 		GroupPath:       groupPath,
 		Name:            cname,
 		Config:          group.Config,
+		Model:           group.Model,
 		Channel:         chanName,
 		MessageID:       msgID,
 		Sender:          sender,

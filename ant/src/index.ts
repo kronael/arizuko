@@ -468,6 +468,7 @@ async function runQuery(
   }, QUERY_TIMEOUT_MS);
 
   try {
+    const groupModel = sdkEnv['ARIZUKO_MODEL'] || undefined;
     for await (const message of query({
       prompt: stream,
       options: {
@@ -477,6 +478,7 @@ async function runQuery(
         resume: sessionId,
         resumeSessionAt: resumeAt,
         systemPrompt: buildSystemPrompt(containerInput),
+        model: groupModel,
         allowedTools: [
           'Bash',
           'Read', 'Write', 'Edit', 'Glob', 'Grep',

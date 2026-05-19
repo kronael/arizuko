@@ -165,6 +165,9 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/groups/{folder}/settings", d.handleGroupSettingsSave)
 	mux.HandleFunc("DELETE /dash/groups/{folder}", d.handleGroupDelete)
 	mux.HandleFunc("POST /dash/groups/{folder}/delete", d.handleGroupDelete)
+	mux.HandleFunc("GET /dash/groups/{folder}/grants", d.handleGroupGrants)
+	mux.HandleFunc("POST /dash/groups/{folder}/grants", d.handleGroupGrantAdd)
+	mux.HandleFunc("POST /dash/groups/{folder}/grants/revoke", d.handleGroupGrantRevoke)
 
 	// Route tokens — issue/revoke per folder.
 	mux.HandleFunc("GET /dash/tokens/{folder}/", d.handleTokensFolder)

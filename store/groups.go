@@ -26,16 +26,18 @@ func (s *Store) PutGroup(g core.Group) error {
 	}
 	_, err := s.db.Exec(
 		`INSERT INTO groups
-		 (folder, added_at, container_config, product, updated_at)
-		 VALUES (?, ?, ?, ?, ?)
+		 (folder, added_at, container_config, product, model, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(folder) DO UPDATE SET
 		   container_config=excluded.container_config,
 		   product=excluded.product,
+		   model=excluded.model,
 		   updated_at=excluded.updated_at`,
 		g.Folder,
 		g.AddedAt.Format(time.RFC3339),
 		string(cfgJSON),
 		product,
+		nilIfEmpty(g.Model),
 		time.Now().Format(time.RFC3339),
 	)
 	return err
@@ -46,7 +48,7 @@ func (s *Store) DeleteGroup(folder string) error {
 	return err
 }
 
-const groupCols = `folder, added_at, container_config, product`
+const groupCols = `folder, added_at, container_config, product, model`
 
 func (s *Store) AllGroups() map[string]core.Group {
 	rows, err := s.db.Query(`SELECT ` + groupCols + ` FROM groups`)
@@ -171,8 +173,9 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string
 	var cfgJSON *string
+	var model sql.NullString
 
-	if err := r.Scan(&g.Folder, &addedAt, &cfgJSON, &g.Product); err != nil {
+	if err := r.Scan(&g.Folder, &addedAt, &cfgJSON, &g.Product, &model); err != nil {
 		return g, false
 	}
 
@@ -180,6 +183,7 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	if cfgJSON != nil {
 		json.Unmarshal([]byte(*cfgJSON), &g.Config)
 	}
+	g.Model = model.String
 	return g, true
 }
 
@@ -259,6 +263,13 @@ func (s *Store) GroupObserveWindow(folder string) (msgs, chars int) {
 		chars = int(c.Int64)
 	}
 	return
+}
+
+// SetGroupModel persists the per-group model override. Empty string clears it.
+func (s *Store) SetGroupModel(folder, model string) error {
+	_, err := s.db.Exec(`UPDATE groups SET model = ? WHERE folder = ?`,
+		nilIfEmpty(model), folder)
+	return err
 }
 
 // SetGroupObserveWindow writes per-group caps; pass -1 to clear (the
